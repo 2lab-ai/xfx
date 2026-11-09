@@ -527,10 +527,17 @@ pub(crate) struct FilePicker {
     /// [`Self::distrust`]. While it is false the arrows are spent and
     /// nothing is chosen (`:218-228`, `:239-240`).
     trusted: bool,
-    /// Whether the listing this list waited for was dropped while the list
-    /// was not eligible, so its folder is looked up again once it is
-    /// (`lookup_dirty`, `directory_completion_job.zig:147-150@481104fd`).
+    /// Whether this list is to be looked up again once it is eligible: the
+    /// listing it waited for was dropped while it was not
+    /// (`lookup_dirty`, `directory_completion_job.zig:147-150@481104fd`), or
+    /// a lookup was owed meanwhile and not run (`prepareFilePicker`,
+    /// `input_completion_runtime.zig:848-853`).
     lookup_dirty: bool,
+    /// Whether the episode this list opened is still to be begun: it opened,
+    /// or was carried, while the list was not eligible, and fx takes an
+    /// episode's `refresh_requested` only once it is
+    /// (`prepareFilePicker`, `input_completion_runtime.zig:848-856@481104fd`).
+    episode_owed: bool,
 }
 
 impl FilePicker {
@@ -550,10 +557,28 @@ impl FilePicker {
             window_start: 0,
             trusted: false,
             lookup_dirty: false,
+            episode_owed: false,
         }
     }
 
-    /// The listing this list waited for was dropped ([`Self::lookup_dirty`]).
+    /// The episode this list opened waits for the list to be eligible
+    /// ([`Self::episode_owed`]).
+    pub(crate) fn owe_episode(&mut self) {
+        self.episode_owed = true;
+    }
+
+    /// Whether this list's episode is still to be begun.
+    pub(crate) fn episode_owed(&self) -> bool {
+        self.episode_owed
+    }
+
+    /// Whether this list's episode is to be begun now, taken.
+    pub(crate) fn take_episode_owed(&mut self) -> bool {
+        std::mem::take(&mut self.episode_owed)
+    }
+
+    /// This list is to be looked up again once it is eligible
+    /// ([`Self::lookup_dirty`]).
     pub(crate) fn mark_lookup_dirty(&mut self) {
         self.lookup_dirty = true;
     }

@@ -438,16 +438,36 @@ fn has_git_metadata(root: &Path) -> bool {
         .any(|directory| std::fs::symlink_metadata(directory.join(".git")).is_ok())
 }
 
-/// The entries of the directory a browsed path names, as `(name, kind)`.
+/// The entries of the directory a browsed path names, as `(name, kind)`, or
+/// nothing once `stop` is set.
 ///
 /// Every entry whose name can be painted: hidden ones included, nothing
 /// ignored -- the user typed the path (`completeCancellable`,
 /// `path_completion.zig:44-120`). A symlink is what it points at, and one that
 /// points nowhere is left out.
-fn list_directory(directory: &Path, _stop: &AtomicBool) -> Result<Vec<(String, Kind)>, ()> {
+fn list_directory(directory: &Path, stop: &AtomicBool) -> Result<Vec<(String, Kind)>, ()> {
+    list_directory_until(directory, || stop.load(Atomic::Relaxed))
+}
+
+/// [`list_directory`], asking `stopped` before the folder is opened and
+/// before each entry, as fx's listing checks its cancel flag between steps
+/// (`checkCancellation`, `path_completion.zig:43-146@481104fd`). Cooperative,
+/// as fx's is: a filesystem call already in flight -- the `read_dir`, an
+/// entry's `metadata` -- runs to its end, and the listing stops at the next
+/// question.
+fn list_directory_until(
+    directory: &Path,
+    mut stopped: impl FnMut() -> bool,
+) -> Result<Vec<(String, Kind)>, ()> {
+    if stopped() {
+        return Err(());
+    }
     let entries = std::fs::read_dir(directory).map_err(|_| ())?;
     let mut out = Vec::new();
     for entry in entries.flatten() {
+        if stopped() {
+            return Err(());
+        }
         let Ok(name) = entry.file_name().into_string() else {
             continue;
         };
@@ -1161,11 +1181,13 @@ impl Files {
         Lookup::Loading
     }
 
-    /// Stops the directory listing in flight and forgets it, so a late answer
-    /// to it is never taken, and says whether there was one: the list it was
-    /// for is not eligible any more (`reconcile` with `eligible` false,
-    /// `directory_completion_job.zig:140-151@481104fd`: the task stopped, the
-    /// request dropped). The next lookup of that folder lists it again.
+    /// Tells the directory listing in flight to stop -- its thread asks
+    /// between entries ([`list_directory_until`]) -- and forgets it, so a
+    /// late answer to it is never taken, and says whether there was one: the
+    /// list it was for is not eligible any more (`reconcile` with `eligible`
+    /// false, `directory_completion_job.zig:140-151@481104fd`: the task
+    /// stopped, the request dropped; `Task.stop`, `:68-78`). The next lookup
+    /// of that folder lists it again.
     pub(crate) fn abandon_listing(&mut self) -> bool {
         let Some(listing) = self.listing.take() else {
             return false;
@@ -1189,7 +1211,8 @@ impl Files {
 impl Drop for Files {
     fn drop(&mut self) {
         // A walk of a large tree outliving the session that asked for it is
-        // CPU spent on nobody; the thread checks this between entries.
+        // CPU spent on nobody; the walk's and the listing's threads check
+        // this between entries.
         if let Some(walk) = &self.walk {
             walk.stop.store(true, Atomic::Relaxed);
         }
@@ -1717,8 +1740,10 @@ pub(crate) mod tests {
     fn a_listing_stops_between_entries_once_told_to() {
         // fx's listing checks its cancel flag between entries
         // (`completeCancellable`, `checkCancellation`, `path_completion.zig:
-        // 44-147@481104fd`): cooperative, so a stopped listing of a large
-        // folder ends early rather than reading every entry.
+        // 43-146@481104fd`): cooperative, so a listing of a large folder told
+        // to stop part of the way through ends there rather than reading
+        // every entry. Told after the folder is open and 100 entries in, it
+        // asks once more and stops.
         let dir = tempfile::tempdir().expect("a folder");
         for n in 0..2000 {
             std::fs::write(dir.path().join(format!("f-{n:04}")), "").expect("a file");
@@ -1734,6 +1759,13 @@ pub(crate) mod tests {
             Err(()),
             "a stopped listing read the folder"
         );
+        let mut asked = 0;
+        let listed = list_directory_until(dir.path(), || {
+            asked += 1;
+            asked > 101
+        });
+        assert_eq!(listed.map(|entries| entries.len()), Err(()));
+        assert_eq!(asked, 102, "the listing did not ask between entries");
     }
 
     #[test]

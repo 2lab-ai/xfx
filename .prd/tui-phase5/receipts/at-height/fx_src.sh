@@ -92,3 +92,11 @@ show $P src/core/app/input_completion_runtime.zig 811 815 "AT-FOLDERS r3: collec
 show $P src/core/workspace/directory_completion_job.zig 191 217 "AT-FOLDERS r3: harvest drops an abandoned or superseded task's output"
 show $P src/builtins/hooks/notifications.zig 185 203 "AT-FOLDERS r3: the provider's flush delivers the ready notifications to the player"
 show $P src/builtins/hooks/notifications.zig 283 286 "AT-FOLDERS r3: the player's emit is the bell: writeNotificationBell's one caller"
+# --- added by AT-FOLDERS round 4 (2026-11-09): one eligibility predicate at
+# every acquisition site, and the listing's cooperative cancel.
+show $P src/core/app/input_completion_runtime.zig 754 786 "AT-FOLDERS r4: catalogMenuOwnsSurface and filePickerEligible, the predicate's terms"
+show $P src/core/app/input_completion_runtime.zig 846 866 "AT-FOLDERS r4: prepareFilePicker, the sole acquisition boundary, returns while not eligible; the episode's refresh after that"
+show $P src/core/app/input_completion_runtime.zig 946 958 "AT-FOLDERS r4: Tab returns before its retry while not eligible"
+show $P src/core/app/input_completion_runtime.zig 1034 1056 "AT-FOLDERS r4: Enter on the list and the list owning the surface, both behind filePickerEligible"
+show $P src/core/workspace/directory_completion_job.zig 63 111 "AT-FOLDERS r4: Task.stop sets the cancel flag; run and lookup check it"
+show $P src/core/workspace/path_completion.zig 43 147 "AT-FOLDERS r4: completeCancellable checks the cancel flag between steps; cooperative, cannot interrupt a filesystem call in flight"

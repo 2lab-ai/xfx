@@ -1727,3 +1727,259 @@
   284              const app: *App = @ptrCast(@alignCast(raw));
   285              app.shell.writeNotificationBell(&app.metrics);
   286          }
+
+== src/core/app/input_completion_runtime.zig:754-786@481104fd -- AT-FOLDERS r4: catalogMenuOwnsSurface and filePickerEligible, the predicate's terms
+  754          fn catalogMenuOwnsSurface(app: *App) bool {
+  755              if (app.input_runtime.help_menu.active or app.input_runtime.settings_menu.active) return true;
+  756              if (comptime @hasField(App, "skills")) {
+  757                  if (comptime @hasField(@TypeOf(app.skills), "menu")) {
+  758                      if (app.skills.menuVisible()) return true;
+  759                  }
+  760              }
+  761              if (comptime @hasField(App, "model_cache")) {
+  762                  if (app.model_cache.menu.active) return true;
+  763              }
+  764              if (comptime @hasField(App, "session_persistence")) {
+  765                  if (app.session_persistence.session_picker.active) return true;
+  766              }
+  767              return false;
+  768          }
+  769  
+  770          fn fileScopeEpoch(app: *const App) u64 {
+  771              if (comptime @hasDecl(App, "fileCompletionScopeEpoch")) return app.fileCompletionScopeEpoch();
+  772              return 0;
+  773          }
+  774  
+  775          fn filePickerEligible(app: *App) bool {
+  776              if (comptime !runtime_profile.allows(App, .file_index)) return false;
+  777              if (comptime @hasField(App, "question_prompt")) if (app.question_prompt.isActive()) return false;
+  778              if (comptime @hasField(App, "approval_prompt")) if (app.approval_prompt.isActive()) return false;
+  779              if (comptime @hasField(App, "auth")) {
+  780                  if (comptime @hasDecl(@TypeOf(app.auth), "pickerView")) if (app.auth.pickerView().active) return false;
+  781              }
+  782              if (comptime @hasField(App, "shell")) {
+  783                  if (comptime @hasDecl(@TypeOf(app.shell), "fullTranscriptActive")) if (app.shell.fullTranscriptActive()) return false;
+  784              }
+  785              return !catalogMenuOwnsSurface(app);
+  786          }
+
+== src/core/app/input_completion_runtime.zig:846-866@481104fd -- AT-FOLDERS r4: prepareFilePicker, the sole acquisition boundary, returns while not eligible; the episode's refresh after that
+  846          /// The sole acquisition boundary. Called after input batching, never by
+  847          /// painters, navigation or acceptance. Directory work is scheduled, not run.
+  848          pub fn prepareFilePicker(app: *App) void {
+  849              if (comptime !runtime_profile.allows(App, .file_index)) return;
+  850              reconcileFilePicker(app);
+  851              const picker = &app.input_runtime.picker;
+  852              const state = &picker.file_completion;
+  853              if (!state.active or !filePickerEligible(app)) return;
+  854              if (state.refresh_requested) {
+  855                  state.refresh_requested = false;
+  856                  if (state.indexed) {
+  857                      var refresh = true;
+  858                      if (!picker.file_picker_episode_seen) {
+  859                          picker.file_picker_episode_seen = true;
+  860                          if (comptime @hasDecl(App, "isFileIndexLoading")) refresh = !app.isFileIndexLoading();
+  861                      }
+  862                      if (refresh) {
+  863                          if (comptime @hasDecl(App, "refreshFileIndex")) app.refreshFileIndex();
+  864                      }
+  865                  }
+  866              }
+
+== src/core/app/input_completion_runtime.zig:946-958@481104fd -- AT-FOLDERS r4: Tab returns before its retry while not eligible
+  946          pub fn autocompleteFilePickerSelection(app: *App, max_input_len: usize) !edit_contract.InsertResult {
+  947              if (comptime !runtime_profile.allows(App, .file_index)) return .inactive;
+  948              reconcileFilePicker(app);
+  949              if (!filePickerEligible(app)) return .inactive;
+  950              const selection = resolveFilePickerSelection(app) orelse {
+  951                  const picker = &app.input_runtime.picker;
+  952                  const status = filePickerView(app).status;
+  953                  if (status != .loading and (status == .unavailable or status == .stale or picker.file_completion.selection_missing)) picker.file_completion.retry();
+  954                  app.shell.render_requests.request(.footer);
+  955                  return .inactive;
+  956              };
+  957              return applyFilePickerSelection(app, selection, max_input_len, .open);
+  958          }
+
+== src/core/app/input_completion_runtime.zig:1034-1056@481104fd -- AT-FOLDERS r4: Enter on the list and the list owning the surface, both behind filePickerEligible
+ 1034          pub fn submitFilePickerOnEnter(app: *App, max_input_len: usize) !?edit_contract.InsertResult {
+ 1035              if (comptime !runtime_profile.allows(App, .file_index)) return null;
+ 1036              reconcileFilePicker(app);
+ 1037              if (!filePickerOwnsSurface(app)) return null;
+ 1038              const selection = resolveFilePickerSelection(app) orelse {
+ 1039                  if (app.input_runtime.picker.file_completion.acceptedEmpty()) return null;
+ 1040                  return .inactive;
+ 1041              };
+ 1042              const result = try applyFilePickerSelection(app, selection, max_input_len, .select);
+ 1043              debug_trace.logf(
+ 1044                  "input",
+ 1045                  "file picker Enter consumed selected={s} limit_exceeded={s}",
+ 1046                  .{
+ 1047                      if (result == .inserted) "true" else "false",
+ 1048                      if (result == .limit_exceeded) "true" else "false",
+ 1049                  },
+ 1050              );
+ 1051              return result;
+ 1052          }
+ 1053  
+ 1054          pub fn filePickerOwnsSurface(app: *App) bool {
+ 1055              return filePickerEligible(app) and hasFileQuery(app);
+ 1056          }
+
+== src/core/workspace/directory_completion_job.zig:63-111@481104fd -- AT-FOLDERS r4: Task.stop sets the cancel flag; run and lookup check it
+   63  const Task = struct {
+   64      alloc: std.mem.Allocator,
+   65      request: Request,
+   66      thread: ?std.Thread = null,
+   67      done: std.atomic.Value(bool) = .init(false),
+   68      cancel: std.atomic.Value(bool) = .init(false),
+   69      // Main-only. Worker output is read only after acquire-observing done.
+   70      abandoned: bool = false,
+   71      rows: ?completion.Rows = null,
+   72      failure: ?(path_completion.Error || error{ Cancelled, OutOfMemory }) = null,
+   73  
+   74      fn stop(self: *Task) void {
+   75          if (!self.abandoned) {
+   76              self.abandoned = true;
+   77              self.cancel.store(true, .release);
+   78              debug_trace.logf("input", "directory completion cancelled request={d}", .{self.request.id});
+   79          }
+   80      }
+   81  
+   82      fn deinit(self: *Task) void {
+   83          if (self.thread) |thread| thread.join();
+   84          if (self.rows) |*rows| rows.deinit(self.alloc);
+   85          self.request.deinit(self.alloc);
+   86          self.alloc.destroy(self);
+   87      }
+   88  
+   89      fn run(self: *Task) void {
+   90          // All operation scratch and directory handles are gone before publication.
+   91          defer self.done.store(true, .release);
+   92          self.rows = self.lookup() catch |err| {
+   93              self.failure = err;
+   94              return;
+   95          };
+   96          if (self.cancel.load(.acquire)) {
+   97              self.rows.?.deinit(self.alloc);
+   98              self.rows = null;
+   99              self.failure = error.Cancelled;
+  100          }
+  101      }
+  102  
+  103      fn lookup(self: *Task) !completion.Rows {
+  104          var results: [completion.capacity]file_index.SearchResult = undefined;
+  105          var spans: [completion.capacity * file_index.max_path_len]file_index.MatchSpan = undefined;
+  106          var paths: [completion.capacity * file_index.max_path_len]u8 = undefined;
+  107          const count = try path_completion.completeCancellable(self.request.root, self.request.home, self.request.query, &self.cancel, &results, &spans, &paths);
+  108          if (self.cancel.load(.acquire)) return error.Cancelled;
+  109          return completion.Rows.copy(self.alloc, results[0..count]);
+  110      }
+  111  };
+
+== src/core/workspace/path_completion.zig:43-147@481104fd -- AT-FOLDERS r4: completeCancellable checks the cancel flag between steps; cooperative, cannot interrupt a filesystem call in flight
+   43  /// cancellation is cooperative and cannot interrupt an in-flight filesystem call.
+   44  pub fn completeCancellable(
+   45      workspace_root: []const u8,
+   46      home_dir: ?[]const u8,
+   47      query: []const u8,
+   48      cancel: ?*const std.atomic.Value(bool),
+   49      out: []file_index.SearchResult,
+   50      match_spans: []file_index.MatchSpan,
+   51      path_storage: []u8,
+   52  ) (Error || error{Cancelled})!usize {
+   53      try checkCancellation(cancel);
+   54      if (out.len == 0) return 0;
+   55      const parsed = parseExplicitQuery(query) orelse return 0;
+   56      const matcher = file_index.NameQuery.init(parsed.basename_query) orelse return 0;
+   57      var scores: [file_index.max_search_results]file_index.NameQuery.Score = undefined;
+   58      const slot_len: usize = file_index.max_path_len;
+   59      if (out.len > scores.len or out.len > path_storage.len / slot_len) return error.NoSpaceLeft;
+   60  
+   61      var resolve_storage: [file_index.max_path_len * 4]u8 = undefined;
+   62      var resolve_fba = std.heap.FixedBufferAllocator.init(&resolve_storage);
+   63      try checkCancellation(cancel);
+   64      const resolved = pathing.resolve_workspace_or_external_literal_path_with_home(
+   65          resolve_fba.allocator(),
+   66          workspace_root,
+   67          parsed.parent,
+   68          home_dir,
+   69      ) catch |err| switch (err) {
+   70          error.OutOfMemory => return error.NoSpaceLeft,
+   71          else => return error.PathUnavailable,
+   72      };
+   73  
+   74      const io = io_mod.getIo();
+   75      try checkCancellation(cancel);
+   76      var dir = std.Io.Dir.openDirAbsolute(io, resolved, .{ .iterate = true }) catch return error.PathUnavailable;
+   77      defer dir.close(io);
+   78  
+   79      // Listing a folder's contents: the folder itself is the first row, so it
+   80      // can be selected and not only opened.
+   81      const folder = listedFolder(parsed);
+   82      const reserved: usize = @intFromBool(folder != null);
+   83      const entries = out[reserved..];
+   84      const entry_storage = path_storage[reserved * slot_len ..];
+   85  
+   86      var count: usize = 0;
+   87      var iterator = dir.iterate();
+   88      while (true) {
+   89          try checkCancellation(cancel);
+   90          const entry = (iterator.next(io) catch return error.PathUnavailable) orelse break;
+   91          try checkCancellation(cancel);
+   92          if (!text_utils.isTerminalSafe(entry.name)) continue;
+   93          const score = matcher.score(entry.name) orelse continue;
+   94          // candidateKind may stat symlinks or unknown kinds.
+   95          try checkCancellation(cancel);
+   96          const kind = candidateKind(&dir, entry.name, entry.kind) orelse continue;
+   97  
+   98          var candidate_storage: [file_index.max_path_len]u8 = undefined;
+   99          const candidate_len = parsed.display_prefix.len + entry.name.len;
+  100          if (candidate_len > candidate_storage.len) continue;
+  101          @memcpy(candidate_storage[0..parsed.display_prefix.len], parsed.display_prefix);
+  102          @memcpy(candidate_storage[parsed.display_prefix.len..candidate_len], entry.name);
+  103          const candidate = candidate_storage[0..candidate_len];
+  104          if (!text_utils.isTerminalSafe(candidate)) continue;
+  105          if (!file_picker_path.isRepresentable(candidate)) continue;
+  106          count = insertCandidate(entries, entry_storage, &scores, &matcher, count, candidate, kind, score);
+  107      }
+  108  
+  109      var spans_used: usize = 0;
+  110      for (entries[0..count]) |*result| {
+  111          try checkCancellation(cancel);
+  112          const span_count = matcher.match_spans(result.path[parsed.display_prefix.len..], match_spans[spans_used..]) catch |err| switch (err) {
+  113              error.NoSpaceLeft => return error.NoSpaceLeft,
+  114              error.InvalidIndexData => return error.PathUnavailable,
+  115          };
+  116          const spans = match_spans[spans_used..][0..span_count];
+  117          for (spans) |*span| {
+  118              span.byte_start += @intCast(parsed.display_prefix.len);
+  119              span.byte_end += @intCast(parsed.display_prefix.len);
+  120          }
+  121          result.matched_spans = spans;
+  122          spans_used += span_count;
+  123      }
+  124      if (folder) |path| {
+  125          const slot = pathSlot(path_storage, 0);
+  126          @memcpy(slot[0..path.len], path);
+  127          out[0] = .{ .path = slot[0..path.len], .kind = .directory, .matched_spans = &.{} };
+  128      }
+  129      try checkCancellation(cancel);
+  130      return reserved + count;
+  131  }
+  132  
+  133  /// The folder whose contents a query lists (`src/` lists `src`, `~` lists
+  134  /// `~`), or null when the query names a partial entry or the root.
+  135  fn listedFolder(parsed: ParsedQuery) ?[]const u8 {
+  136      if (parsed.basename_query.len != 0) return null;
+  137      const prefix = parsed.display_prefix;
+  138      if (prefix.len < 2 or !std.Io.Dir.path.isSep(prefix[prefix.len - 1])) return null;
+  139      const folder = prefix[0 .. prefix.len - 1];
+  140      if (std.Io.Dir.path.isSep(folder[folder.len - 1])) return null;
+  141      if (!text_utils.isTerminalSafe(folder) or !file_picker_path.isRepresentable(folder)) return null;
+  142      return folder;
+  143  }
+  144  
+  145  fn checkCancellation(cancel: ?*const std.atomic.Value(bool)) error{Cancelled}!void {
+  146      if (cancel) |flag| if (flag.load(.acquire)) return error.Cancelled;
+  147  }

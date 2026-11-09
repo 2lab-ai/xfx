@@ -84,12 +84,14 @@ them.
   `event_loop::a_held_tick_that_owes_a_title_writes_the_title_then_the_report`.
   The launch's title is owed, and a typed-ahead `@tree/` holds the first
   frame. The held tick publishes exactly `title …`, then `idle`.
-  - Its last assertion found a round-2 defect: the band's first frame wrote
-    the title again, because a band that has never painted invalidates
-    itself, and that forgot the title it had told on its own.
-  - `Band::build_frame` now keeps a told title across that invalidate, only
-    while the band has never painted. On every other path the band's
-    `shown_title` is unchanged.
+  - **Corrected in round 4: no round-2 defect was shown.** The case's band
+    was `Band::new()`, unsized, and only an unsized band met the
+    invalidate in `Band::build_frame` that forgot the title; a session
+    sizes its band before its first tick (`mod.rs:479`). Round 4 sizes the
+    case's band as a session does, and the case passes without the
+    `build_frame` change (`../round4/title-revert.txt`), so the change is
+    reverted and its mutant (`first-frame-retells-title` in `mutants.py`)
+    is dropped (`../round4/README.md`).
 
 ## 4. RED → GREEN (`red-unit.txt`)
 

@@ -6137,6 +6137,35 @@ impl Shell {
     /// Offers one keystroke to the `@` file picker, and says whether it was
     /// taken.
     ///
+    /// Whether the `@` list may start directory work, hold a frame for it,
+    /// and own the composer's surface: fx's `filePickerEligible`
+    /// (`input_completion_runtime.zig:775-786@481104fd`), term for term where
+    /// xfx has the surface -- no question ([`Self::ask`]), no approval on
+    /// either plane ([`Self::asking`]), not the full transcript, and no
+    /// catalog menu owning the surface (`catalogMenuOwnsSurface`, `:754-768`:
+    /// the catalog, the settings menu, the skills menu while it is shown,
+    /// `/model`'s menu, the session picker). fx's other two terms have nothing
+    /// here: its runtime profile always allows the file index in xfx, and xfx
+    /// has no auth picker (`/login` is deferred, `docs/parity.md`).
+    ///
+    /// Asked wherever xfx starts directory work for the list --
+    /// [`Self::refresh_file_picker`], which the index's and the listing's
+    /// results reach through [`Self::settle_files`]; Tab's retry; the list
+    /// opening in [`Self::reconcile_picker`] -- and by the frame hold
+    /// ([`Self::hold_frame_for_file_listing`]), as fx's one acquisition
+    /// boundary returns at once while it is false (`prepareFilePicker`,
+    /// `:848-853`) and its harvest is told it (`:814`, `:821`).
+    fn file_picker_eligible(&self) -> bool {
+        self.ask.is_none()
+            && !self.asking()
+            && !self.full.is_open()
+            && self.help_menu.is_none()
+            && self.settings_menu.is_none()
+            && !self.skills_menu.as_ref().is_some_and(SkillsMenu::visible)
+            && self.model_menu.is_none()
+            && self.sessions.is_none()
+    }
+
     /// The keys upstream binds while the picker owns the composer's surface
     /// (`app_input_runtime.zig:1497-1501`, `:1582-1589`, `:1220-1235`;
     /// `input_completion_runtime.zig:209-262`): the arrows, `C-j`/`C-k` and the
@@ -6149,15 +6178,17 @@ impl Shell {
         let Input::Action(action) = event else {
             return false;
         };
+        let eligible = self.file_picker_eligible();
         let Some(files) = self.file_picker.as_mut() else {
             return false;
         };
         // From the screen's signal to the frame at its new size, the rows on
         // it are not the ones the keys would act on (`resizeLifecyclePending`,
-        // `input_completion_runtime.zig:803@481104fd`); and while the full
-        // transcript is up the list is not on the screen at all -- the keys
-        // it leaves unbound reach here, and fx's list takes none of them
-        // (`filePickerEligible`, `:775-786`, `:798-799`).
+        // `input_completion_runtime.zig:803@481104fd`); and while the list is
+        // not eligible -- under the full transcript it is not on the screen at
+        // all, and the keys the transcript leaves unbound reach here -- fx's
+        // list takes none of them and is distrusted (`filePickerEligible`,
+        // `:775-786`; `reconcileFilePicker`, `:798-799`).
         //
         // And a frame is asked for whatever the key turns out to be: fx's
         // resize signal asks for one of its own (`observeResizeSignal`,
@@ -6167,7 +6198,7 @@ impl Shell {
         // Redo with nothing to redo -- on a resize that comes back the same
         // size would leave it distrusted with no frame coming, and spend the
         // next arrow.
-        if self.render.resize_pending() || self.full.is_open() {
+        if self.render.resize_pending() || !eligible {
             files.distrust();
             self.render.request(Reason::Modal);
         }
@@ -6182,8 +6213,10 @@ impl Shell {
                     Some(found) => self.complete_file(&found, file_picker::FolderAction::Open),
                     // Nothing to choose: a picker that could not read is
                     // asked to read again (`autocompleteFilePickerSelection`,
-                    // `input_completion_runtime.zig:877-889`).
-                    None if files.shown() == file_picker::Shown::Unavailable => {
+                    // `input_completion_runtime.zig:946-955@481104fd`) --
+                    // only while it is eligible: fx's Tab returns before the
+                    // retry otherwise (`:949`).
+                    None if eligible && files.shown() == file_picker::Shown::Unavailable => {
                         self.files.retry();
                         self.refresh_file_picker();
                     }
@@ -6195,11 +6228,12 @@ impl Shell {
                 self.render.request(Reason::Modal);
                 return true;
             }
-            // Under the full transcript the list does not own the surface:
-            // its Enter answers nothing, and Enter goes on to send the line
-            // (`submitFilePickerOnEnter`, `input_completion_runtime.zig:
-            // 1034-1037`; `filePickerOwnsSurface`, `:1054-1056`).
-            Action::Submit if self.full.is_open() => return false,
+            // While the list is not eligible -- under the full transcript --
+            // it does not own the surface: its Enter answers nothing, and
+            // Enter goes on to send the line (`submitFilePickerOnEnter`,
+            // `input_completion_runtime.zig:1034-1037`; `filePickerOwnsSurface`,
+            // `:1054-1056`).
+            Action::Submit if !eligible => return false,
             Action::Submit => {
                 return match files.enter() {
                     file_picker::Enter::Accept(found) => {
@@ -6836,11 +6870,19 @@ impl Shell {
     }
 
     /// Asks the source again for the open picker's rows, and owes a frame if
-    /// they changed.
+    /// they changed -- or, while the list is not eligible, asks nothing and
+    /// marks it to be asked once it is: fx's one acquisition boundary returns
+    /// before any lookup then (`prepareFilePicker`,
+    /// `input_completion_runtime.zig:848-853@481104fd`).
     fn refresh_file_picker(&mut self) {
+        let eligible = self.file_picker_eligible();
         let Some(files) = self.file_picker.as_mut() else {
             return;
         };
+        if !eligible {
+            files.mark_lookup_dirty();
+            return;
+        }
         let Some(lookup) = files.lookup().map(str::to_string) else {
             return;
         };
@@ -8589,24 +8631,30 @@ impl Shell {
     fn settle_files(&mut self) {
         // fx's harvest is told whether the list is eligible
         // (`harvestDirectoryCompletion(filePickerEligible(app))`,
-        // `input_completion_runtime.zig:814`, `:821@481104fd`). Not eligible --
-        // the full transcript up (`:783`) -- a listing in flight is stopped and
-        // its request dropped, and the lookup is marked to run again
-        // (`directory_completion_job.zig:140-151`); eligible again, it runs:
-        // the folder is listed fresh, and a late answer to the dropped
-        // listing is never taken.
-        if self.full.is_open() {
+        // `input_completion_runtime.zig:814`, `:821@481104fd`). Not eligible
+        // ([`Self::file_picker_eligible`]), a listing in flight is told to
+        // stop and its request dropped, and the lookup is marked to run again
+        // (`directory_completion_job.zig:140-151`); eligible again, the
+        // episode a list opened meanwhile is begun and the lookup runs, once
+        // (`prepareFilePicker`, `input_completion_runtime.zig:853-866`): the
+        // folder is listed fresh, and a late answer to the dropped listing is
+        // never taken. An index or a listing landing while it is not eligible
+        // looks nothing up ([`Self::refresh_file_picker`]).
+        if !self.file_picker_eligible() {
             if self.files.abandon_listing() {
                 if let Some(files) = self.file_picker.as_mut() {
                     files.mark_lookup_dirty();
                 }
             }
-        } else if self
-            .file_picker
-            .as_mut()
-            .is_some_and(FilePicker::take_lookup_dirty)
-        {
-            self.refresh_file_picker();
+        } else if let Some(files) = self.file_picker.as_mut() {
+            let episode = files.take_episode_owed();
+            let dirty = files.take_lookup_dirty();
+            if episode {
+                self.files.begin_episode();
+            }
+            if episode || dirty {
+                self.refresh_file_picker();
+            }
         }
         if self.files.poll() {
             self.refresh_file_picker();
@@ -8628,14 +8676,14 @@ impl Shell {
             self.listing_wait = file_picker::ListingWait::default();
             return false;
         };
-        // Not while the full transcript is up: fx's harvest is told the list
-        // is not eligible then (`filePickerEligible`, `:783`, `:821`), and
-        // an ineligible harvest drops the directory request
+        // Not while the list is not eligible -- the full transcript up, say:
+        // fx's harvest is told so (`filePickerEligible`, `:775-786`, `:821`),
+        // and an ineligible harvest drops the directory request
         // (`directory_completion_job.zig:140-151@481104fd`), so nothing is in
         // flight for its frames to wait on.
         let in_flight = !files.indexed()
             && files.shown() == file_picker::Shown::Loading
-            && !self.full.is_open();
+            && self.file_picker_eligible();
         self.listing_wait.hold(in_flight, now)
     }
 
@@ -9066,13 +9114,30 @@ impl Shell {
                 return;
             }
             // A picker opening is an episode, and an episode reads the
-            // workspace again (`prepareFilePicker`'s `refresh_requested`).
-            if self.file_picker.is_none() {
-                self.files.begin_episode();
-            }
+            // workspace again (`prepareFilePicker`'s `refresh_requested`) --
+            // an episode a list opened while it was not eligible included.
+            let episode = self
+                .file_picker
+                .as_ref()
+                .is_none_or(FilePicker::episode_owed);
             let mut files = FilePicker::open(query);
-            if let Some(lookup) = files.lookup().map(str::to_string) {
-                files.settle(self.files.lookup(&lookup));
+            if self.file_picker_eligible() {
+                if episode {
+                    self.files.begin_episode();
+                }
+                if let Some(lookup) = files.lookup().map(str::to_string) {
+                    files.settle(self.files.lookup(&lookup));
+                }
+            } else {
+                // fx's list takes the new query but prepares nothing while it
+                // is not eligible -- neither the episode's refresh nor the
+                // lookup (`prepareFilePicker`, `input_completion_runtime.zig:
+                // 848-856@481104fd`); [`Self::settle_files`] runs both once it
+                // is.
+                if episode {
+                    files.owe_episode();
+                }
+                files.mark_lookup_dirty();
             }
             self.file_picker = Some(files);
             return;
@@ -34839,7 +34904,7 @@ mod tests {
     fn no_listing_starts_while_the_list_is_not_eligible() {
         // Round 4 (opus r3 MUST): fx's one acquisition boundary,
         // `prepareFilePicker`, returns at once while the list is not eligible
-        // (`input_completion_runtime.zig:846-853@481104fd`; `filePickerEligible`,
+        // (`input_completion_runtime.zig:848-853@481104fd`; `filePickerEligible`,
         // `:775-786`). So the index's walk publishing while the full
         // transcript is up starts no listing of `@src/`'s folder -- the
         // lookup waits -- and closing the transcript starts exactly one.
@@ -34980,6 +35045,11 @@ mod tests {
         shell.route_bytes(&[0x0f]);
         assert!(!shell.full.is_open());
         shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().started_for_test(),
+            base,
+            "the Tab under the transcript read the folder once it closed"
+        );
         listed(&mut shell);
         shell.route_bytes(b"\t");
         assert_eq!(
@@ -44443,7 +44513,7 @@ mod tests {
         );
         // Escape closes the menu; the list is the composer's again, and its
         // episode and its folder are read once.
-        shell.route_bytes(b"\x1b");
+        escape(&mut shell);
         shell.settle_band(Instant::now());
         assert!(shell.skills_menu.is_none());
         assert!(shell.file_picker.is_some(), "Escape closed the list too");

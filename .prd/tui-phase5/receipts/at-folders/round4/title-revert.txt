@@ -1,0 +1,4 @@
+# round 4, opus r3 SHOULD 1: the two event-loop cases with their bands sized as a session's is (mod.rs:479), run on 15ada93f's src with round 3's Band::build_frame hunk taken out (frame.rs as at af2b6137 but for title_landed): cargo test --locked --lib -- --exact <the 2 cases>, TMPDIR=<scratch>. Both pass, so the hunk has no RED and is reverted.
+test tui::event_loop::tests::a_held_tick_that_owes_a_title_writes_the_title_then_the_report ... ok
+test tui::event_loop::tests::a_frame_held_for_a_folder_holds_its_bell_but_no_report_or_title ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4583 filtered out; finished in 0.03s
