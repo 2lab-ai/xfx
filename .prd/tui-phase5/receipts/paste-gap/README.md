@@ -15,7 +15,8 @@ Branch `fix/p5-paste-gap`. fx read only at the pin `481104fd`
 |---|---|
 | `0b65e602` | RED, tests only: four cases on the base source (`red-unit.txt`) |
 | `ea2b8a60` | GREEN: the quarantine, the review leftovers, parity.md, the pty harness pause. **The binary every head measurement, the head sweep and the mutants used** (banner `v0.1.0-ea2b8a6`, checked in the binary) |
-| the last commit | this receipt, nothing else |
+| `1fe2496a` | this receipt, but for the gate |
+| the last commit | the gate's log (`gates.txt`) and this README's §9; receipt files only |
 
 ## 1. Measured
 
@@ -146,9 +147,9 @@ a person's later than 50 ms. `tests/support/pty.rs` (`PASTE_PAUSE`, :49;
 `type_bytes`, :339) and `scripts/smoke-tui.sh` (`PASTE_PAUSE`, :2576; `send`,
 :3033) wait 250 ms before the write that follows one carrying `ESC[201~`. It is
 taken whole at that write, after whatever the test waited to see: counted from
-the paste's own write, six pty tests failed on a loaded machine, because a debug
-build can take most of 250 ms to read and settle a paste of a few kilobytes
-(`harness-pause.txt`).
+the paste's own write, six pty tests failed on a loaded machine
+(`harness-pause.txt`) -- likely because a debug build there takes most of
+250 ms to read and settle a paste of a few kilobytes, which was not measured.
 What one write carries behind an end marker is still written with it, so the
 same-delivery pty tests are unchanged. No fxcap scenario types straight after a
 paste (a `wait` comes between), so none needed anything.
@@ -202,7 +203,7 @@ the sweep. Under the suite lock, one after the other.
 
 ## 9. Gate (`gates.txt`)
 
-GATE-PLACEHOLDER
+Pending: filled from `gates.txt` in the last commit.
 
 ## parity.md
 
