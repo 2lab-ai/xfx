@@ -1,4 +1,4 @@
-[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-582ccb5 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-09f94a3 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
 
 [38;5;255m┃[39m [1medit the files[0m
 
@@ -20,7 +20,7 @@
     [38;5;245m2[39m  Apply + allow future writes to this file for this session
     [38;5;245m3[39m  Don't apply
   [38;5;245m2 = allow every future write_file to `c.txt` for the rest of this session, whatever its contents, and in every later[39m
-  [38;5;245m`xfx ask --resume-id 1794252529828-038d189a9ced6eea` of this saved session[39m
+  [38;5;245m`xfx ask --resume-id 1794253819992-6bacd9db42456add` of this saved session[39m
 
 [38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [39m  [38;5;245m1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel[39m

@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-582ccb5 [debug] · Run /help for commands
+x𝒇x v0.1.0-09f94a3 [debug] · Run /help for commands
 
 ┃ edit the files
 
@@ -19,7 +19,7 @@ x𝒇x v0.1.0-582ccb5 [debug] · Run /help for commands
     2  Apply + allow future edits to this file for this session
   ❯ 3  Don't apply
   2 = allow every future edit_file to `a.txt` for the rest of this session, whatever its contents, and in every later
-  `xfx ask --resume-id 1794252625478-357cc83a8b9dd0fb` of this saved session
+  `xfx ask --resume-id 1794253843641-aba67ddbdcf2d180` of this saved session
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel

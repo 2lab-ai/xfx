@@ -1,4 +1,5 @@
-# probe/: p5-approval-other-keys, the marked choice after each key, fx v0.0.16 / the base (red/, v0.1.0-f686b73) / the head (xfx/, v0.1.0-582ccb5)
+# probe/: p5-approval-other-keys, the marked choice after each key, fx v0.0.16 / the base (red/, v0.1.0-f686b73) / the head (xfx/, v0.1.0-09f94a3)
+# From choice 1, in this order; each xfx key moves the choice one step (wrapping), each fx key leaves it on 1.
 ask           fx: ❯ 1   base: ❯ 1   head: ❯ 1   
 shift-down    fx: ❯ 1   base: ❯ 2   head: ❯ 2   
 ctrl-down     fx: ❯ 1   base: ❯ 3   head: ❯ 3   
@@ -7,4 +8,4 @@ ctrl-n        fx: ❯ 1   base: ❯ 2   head: ❯ 2
 shift-up      fx: ❯ 1   base: ❯ 1   head: ❯ 1   
 ctrl-up       fx: ❯ 1   base: ❯ 3   head: ❯ 3   
 ctrl-p        fx: ❯ 1   base: ❯ 2   head: ❯ 2   
-esc-esc-left  fx: ❯ 1   base: none  head: none  ▪ Cancelled
+esc-esc-left  fx: ❯ 1   base: none  head: none  ▪ Cancelled file 

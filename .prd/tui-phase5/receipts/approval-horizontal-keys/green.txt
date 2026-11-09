@@ -1,6 +1,6 @@
-# GREEN at the code head 582ccb50
+# GREEN at the code head 09f94a35
 
-## The pair, the grant scope's rows set aside: fx v0.0.16 (fx/) against the head binary (xfx/, row 1 x𝒇x v0.1.0-582ccb5 [debug], sha256 cc4f62e74a33bacb...), python3 -I scope.py xfx
+## The pair, the grant scope's rows set aside: fx v0.0.16 (fx/) against the head binary (xfx/, row 1 x𝒇x v0.1.0-09f94a3 [debug], sha256 5e69835e4d8daefa...), python3 -I scope.py xfx
 SAME  alt-b         (22 rows compared)
 SAME  alt-f         (22 rows compared)
 SAME  alt-left      (22 rows compared)
@@ -123,19 +123,20 @@ floor  unpainted     rows: 19 21 22 23 24 25
 floor (ask's rows): 19 21 22 23 24 25 
 28 of 29 pairs differ in no row but the floor's
 
-## The tests at the head: cargo test --locked --lib -- <the names below>
+## The tests at the head: cargo test --locked --lib -- <the names below> approval (15 of the 166 result lines shown)
 test tui::approval::tests::moving_the_choice_leaves_editing_and_keeps_both_drafts ... ok
-test tui::input::tests::alt_b_is_its_own_action_and_the_modified_left_arrows_are_word_left ... ok
-test tui::input::tests::alt_f_and_the_composer_spellings_of_the_arrows_are_their_own_actions ... ok
-test tui::input::tests::every_control_byte_and_del_decodes_to_its_exact_row ... ok
-test tui::input::tests::every_key_the_herdr_receipt_captured_decodes_to_its_binding ... ok
 test tui::input::tests::the_emacs_control_table_is_ported_verbatim ... ok
+test tui::input::tests::every_control_byte_and_del_decodes_to_its_exact_row ... ok
+test tui::input::tests::alt_b_is_its_own_action_and_the_modified_left_arrows_are_word_left ... ok
 test tui::input::tests::the_forward_word_delete_and_the_page_keys_decode_in_every_spelling ... ok
+test tui::input::tests::alt_f_and_the_composer_spellings_of_the_arrows_are_their_own_actions ... ok
+test tui::input::tests::every_key_the_herdr_receipt_captured_decodes_to_its_binding ... ok
 test tui::shell::tests::alt_b_in_an_approval_amendment_is_the_word_move ... ok
-test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
 test tui::shell::tests::a_draft_left_behind_is_not_painted_and_still_travels_with_its_choice ... ok
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+test tui::shell::tests::the_full_transcript_holds_the_composer_spellings_of_the_arrows_as_it_holds_the_arrows ... ok
 test tui::shell::tests::the_arrows_leave_a_draft_on_the_review_plane_even_though_c_p_scrolls_it ... ok
 test tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not ... ok
 test tui::shell::tests::the_horizontal_keys_at_an_approval_choice_are_fxs ... ok
 test tui::shell::tests::up_and_down_move_the_choice_whether_or_not_a_draft_is_open ... ok
-test result: ok. 165 passed; 0 failed; 0 ignored; 0 measured; 4467 filtered out; finished in 0.39s
+test result: ok. 166 passed; 0 failed; 0 ignored; 0 measured; 4467 filtered out; finished in 0.33s
