@@ -37,7 +37,7 @@ first `@` that refreshes in xfx (3 walks) where fx, still loading, skips (2):
 
 Both ended with AT-SCOPE-INTERIM, which lets the walk run on, as fx's does (`../../at-scope-interim/README.md`).
 
-Where it is now said:
+Where round 11 said it (each gone with AT-SCOPE-INTERIM):
 - `file_index.rs`:
   - the `ever_whole` doc: set by a walk's `Ready`, or by the end of a walk
     that a change of roots stopped;

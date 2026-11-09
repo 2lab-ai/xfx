@@ -55,7 +55,7 @@ condition.)
   no count differs between the two places.
   `a_first_at_before_the_poll_that_ends_a_stopped_walk_coalesces` pins that
   case at 2 walks.
-- **Two residuals, named in the code comments, the parity row and here**
+- **Two residuals, named in round 11's code comments, parity row and here**
   (round 11; round 10 named only the second). Both come from xfx stopping
   the walk. Each is a session's first `@` that refreshes in xfx (3 walks)
   where fx, still loading, skips (2):

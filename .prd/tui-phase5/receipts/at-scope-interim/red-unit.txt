@@ -1,5 +1,5 @@
 # RED at 74960592 (b4cc300f + the seven cases), TMPDIR=<tmp> (a short scratch dir).
-# cargo test --locked --lib -- <the seven cases>, run alone under bounded.py (900 s, own process group).
+# cargo test --locked --lib -- <the seven cases>, run alone under bounded.py (600 s, own process group).
 
 running 7 tests
 test tui::shell::tests::a_change_that_moves_no_root_says_files_unavailable_until_its_walk_is_whole ... FAILED
