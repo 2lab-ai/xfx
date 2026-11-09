@@ -16781,7 +16781,26 @@ mod tests {
         // a success, and after a failure past its hold -- it reads nothing.
         for fails in [false, true] {
             let machine = crate::provider::catalog_clock::FakeMachine::new();
-            let (_home, _workspace, mut state) = recording();
+            // The environment named, never the process's: the switch reloads
+            // the profile through it (`select_provider`), and this one's home
+            // is the test's own. Its profile is on llmux with no daemon named,
+            // so that side has no catalog and opens no socket; the switch is
+            // to the Gateway, whose setup opens none either.
+            let home = tempfile::tempdir().expect("a home");
+            let workspace = tempfile::tempdir().expect("a workspace");
+            crate::provider::profile::write_preference(
+                &home.path().join(".xfx").join("settings.json"),
+                &[crate::config::PROVIDER_KEY],
+                serde_json::json!("llmux"),
+            )
+            .expect("seed");
+            let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+            let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+            assert_eq!(config.provider, ProviderId::Llmux, "the seed");
+            assert_eq!(config.llmux_url, None, "a daemon named");
+            let store = open_store(&config).expect("a store");
+            let mut state =
+                Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
             state.selector.set_clock_for_test(machine.clock());
             let asked = Arc::new(AtomicUsize::new(0));
             let answers = if fails {
@@ -16820,6 +16839,12 @@ mod tests {
                 )
                 .await;
                 assert_eq!(ended, Ended::Turn);
+                assert_eq!(state.config.provider, ProviderId::Gateway, "no switch");
+                assert_eq!(
+                    state.config.user_settings_path.as_deref(),
+                    Some(home.path().join(".xfx").join("settings.json").as_path()),
+                    "the switch reloaded another profile"
+                );
                 assert_eq!(asked.load(Ordering::SeqCst), 0, "read during the switch");
                 let ended =
                     apply_deferred(&mut state, ended, &events, &cancel, &control, &mut queue).await;
