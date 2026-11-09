@@ -100,7 +100,8 @@ after an index has been whole once and a change of roots has dropped it,
 during a walk. It now queues a refresh behind that walk. (Round 10 adds a
 second count: the first `@` after the poll that ends a walk a change of
 roots stopped. fx refreshes there only if that walk has ended whole by then;
-`../round10/README.md` names the two residuals.) The rows come from
+`../round10/README.md` names the two residuals; both ended when
+AT-SCOPE-INTERIM lets the walk run on, as fx's does: both are gone (`../../at-scope-interim/README.md`).) The rows come from
 the walk either way, and no scenario installs twice before its first `@`.
 So round 7's `workspace-index` pairs and round 1's pairs and sweep stand.
 

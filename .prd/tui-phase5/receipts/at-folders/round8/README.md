@@ -69,7 +69,8 @@ meet a loading index. xfx queued one more walk there, where fx skips.
   only then. Round 8 never counted it whole, so the first `@` skipped even
   then. Round 10 counts it whole at that poll, which leaves two residuals
   the other way: before fx's walk would have ended, and after one that
-  would have failed; `../round10/README.md`.)
+  would have failed; `../round10/README.md`. Both ended when
+  AT-SCOPE-INTERIM lets the walk run on, as fx's does: both are gone (`../../at-scope-interim/README.md`).)
 
 **RED:** `the_first_indexed_episode_skips_its_refresh_while_the_index_loads`.
 - An access change before any `@`, with the install's walk held in flight,
@@ -120,6 +121,7 @@ when they did not (`set_extra_roots` returns early).
 - `a_workspace_change_that_keeps_the_rows_still_resets_the_bar_and_the_trust`
   now says in a comment that fx shows the interim text there, and that its
   first precondition (the rows kept) flips when AT-SCOPE-INTERIM lands.
+  (It did: `../../at-scope-interim/README.md`.)
 
 ## 4. An equal access does nothing (opus r7 note)
 

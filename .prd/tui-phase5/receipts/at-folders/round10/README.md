@@ -65,7 +65,7 @@ condition.)
     leaves fx loading (`:432-438`, `fx-src.txt:2309-2315`). xfx, having
     stopped it, cannot know, and counts it whole.
 
-  Both end when AT-SCOPE-INTERIM lets the walk run on, as fx's does.
+  Both ended when AT-SCOPE-INTERIM lets the walk run on, as fx's does: both are gone (`../../at-scope-interim/README.md`).
 
 **RED** (opus's recipe):
 `a_walk_a_change_of_roots_stopped_counts_as_whole_once_it_is_over`. adopt(A)

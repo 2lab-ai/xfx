@@ -172,6 +172,10 @@ that moves no root (`set_extra_roots` returns early) keeps xfx's index, walk
 and rows, while fx still says `Files unavailable`, because any access change
 moves its epoch. AT-SCOPE-INTERIM covers both cases.
 
+**Built by AT-SCOPE-INTERIM** (`../../at-scope-interim/README.md`): the
+old index is kept with its epoch, the walk runs on, and the list says
+`Files unavailable` in both cases until a walk of the new scope is whole.
+
 ## 4. A changed scope behind the transcript (gpt6 r6 SHOULD = opus r6 SHOULD 3)
 
 `a_workspace_change_behind_the_transcript_looks_nothing_up_until_it_closes`

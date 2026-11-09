@@ -35,7 +35,7 @@ first `@` that refreshes in xfx (3 walks) where fx, still loading, skips (2):
   failed leaves fx loading (`joinThreadIfDone`, `:432-438`). Round 10 named
   this one.
 
-Both end when AT-SCOPE-INTERIM lets the walk run on, as fx's does.
+Both ended when AT-SCOPE-INTERIM lets the walk run on, as fx's does: both are gone (`../../at-scope-interim/README.md`).
 
 Where it is now said:
 - `file_index.rs`:
