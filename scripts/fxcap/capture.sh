@@ -744,10 +744,15 @@ main() {
     if [[ $line == dir\ * ]]; then
       local name from
       read -r name from <<< "${line#dir }"
-      # Not the binaries' own TMPDIR names, nor one that extends them: a
-      # sibling of `$run/fxtmp` the ledger's capture-tmpdir would be asked to
-      # tell from it.
-      case $name in ''|.|..|*/*|fxtmp*|xfxtmp*) echo "dir takes a plain name, not $name" >&2; exit 2 ;; esac
+      # Not the binaries' own TMPDIR names, nor one that extends them, in any
+      # case: a sibling of `$run/fxtmp` the ledger's capture-tmpdir would be
+      # asked to tell from it, or, on a case-insensitive volume (macOS's
+      # default), `$run/fxtmp` itself. Bracket classes, not `nocasematch`:
+      # bash 3.2 and later read them alike.
+      case $name in
+        ''|.|..|*/*|[fF][xX][tT][mM][pP]*|[xX][fF][xX][tT][mM][pP]*)
+          echo "dir takes a plain name, not $name" >&2; exit 2 ;;
+      esac
       mkdir -p "$run/$name"
       [[ -n $from ]] && { cp -R "$scenarios/$from/." "$run/$name/"; copied+=("$run/$name"); }
     fi

@@ -216,12 +216,17 @@ class Refusals(unittest.TestCase):
     def test_a_dir_never_takes_a_binarys_tmpdir_name(self):
         # `dir` makes $run/<name>, beside the binaries' own TMPDIRs: a name
         # that is one or extends one would be a sibling the ledger's
-        # capture-tmpdir could be asked to read.
-        for name in ("fxtmp", "xfxtmp", "fxtmp-old", "xfxtmp.bak", "fxtmp:x", "fxtmp,x"):
+        # capture-tmpdir could be asked to read. In any case: on a
+        # case-insensitive volume (macOS's APFS, the default) `FXTMP` is
+        # fx's own TMPDIR, and `dir`'s copy would land inside it.
+        for name in ("fxtmp", "xfxtmp", "fxtmp-old", "xfxtmp.bak", "fxtmp:x", "fxtmp,x",
+                     "FXTMP", "FxTmp", "XFXTMP", "Fxtmp-old", "xFxTmP.bak"):
             with self.subTest(name=name):
                 self.refused("dir %s\nsnap a\n" % name, "dir takes a plain name")
-        r = capture("dir side\nwait 1\nsnap a\n")
-        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        for name in ("side", "Notes", "tmp", "xfx"):
+            with self.subTest(name=name):
+                r = capture("dir %s\nwait 1\nsnap a\n" % name)
+                self.assertEqual(r.code, 0, r.stdout + r.stderr)
 
     def test_a_scenario_directory_no_placeholder_can_name(self):
         # A path with a space breaks a shell word, a `&` sed's replacement, a
