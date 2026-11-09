@@ -3,8 +3,10 @@
 # (`gateway_json_fetch_timeout_ms`, src/gateway/client.zig:486-509), and
 # reaching it is a failure it says it retries (`catalogRequestFailure`,
 # src/builtins/gateway.zig:2510-2518), so `/model`, opened on the launch's
-# first load, says so once 30 s are past -- inside the 5 s backoff after
-# the failure, before anything could ask again.
+# first load, says so once 30 s are past. The snap waits for `Loading
+# models…` to go, so a binary slow to launch is not caught still loading,
+# and is taken at once: inside the 5 s backoff after the failure, before
+# anything could ask again. A binary that never gives up fails the run.
 fx: env FX_AUTO_UPGRADE=0
 models p5-input-models.json
 modelsstall 45000
@@ -13,6 +15,7 @@ type /model
 key Enter
 wait 2
 snap loading
-wait 26
+wait 20
+until gone Loading models…
 snap timed-out
 gwlog
