@@ -34882,10 +34882,19 @@ mod tests {
         shell.route_bytes(&[0x0f]);
         let _next =
             super::super::file_index::tests::driven_listing(shell.files_for_test(), "src/deep");
+        let driven = shell
+            .files_for_test()
+            .listing_stop_for_test()
+            .expect("the driven listing");
         shell.route_bytes(b"\x1b[200~deep/\x1b[201~");
         assert_eq!(shell.editor.text(), "@src/deep/");
+        // The driven listing itself is the one in flight -- the same job,
+        // known by its stop flag -- and it has not answered.
         assert!(
-            shell.files_for_test().listing_in_flight_for_test(),
+            shell
+                .files_for_test()
+                .listing_stop_for_test()
+                .is_some_and(|stop| std::sync::Arc::ptr_eq(&stop, &driven)),
             "the driven listing was replaced"
         );
         assert!(shell.hold_frame_for_file_listing(now + Duration::from_millis(30)));
@@ -35606,6 +35615,37 @@ mod tests {
             shell.files_for_test().walks_for_test(),
             walks + 3,
             "a later episode skipped its refresh"
+        );
+    }
+
+    #[test]
+    fn the_first_episode_after_a_whole_index_refreshes_even_where_the_roots_dropped_it() {
+        // Round 9 (gpt6 r8 MUST, opus r8 MUST): fx's skip asks whether its
+        // index is loading -- `currentState() == .loading` (`main.zig:
+        // 2125-2127@481104fd`), which is `.ready` once any generation has been
+        // adopted (`file_index.zig:333-341`), and an adopted generation is
+        // kept across a change of scope (set at `:425`, `:677`; cleared only
+        // at shutdown, `:325`). So after one install's walk lands, another
+        // install of other roots, and then the session's first `@` during
+        // that walk: the index is not loading, and the `@` asks for its
+        // refresh, queued behind the walk -- three walks in all.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_a, _path, first) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, first);
+        walks_done(&mut shell);
+        let (_b, _path, other) = extra_with_plan(&shell);
+        adopt(&mut shell, other);
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 2);
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.route_bytes(b"@plan");
+        walk.send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 3,
+            "the first episode skipped its refresh after an index had been whole"
         );
     }
 
