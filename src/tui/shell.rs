@@ -8633,6 +8633,12 @@ impl Shell {
         &mut self.files
     }
 
+    /// `/sound` on or off for a case, with no settings file behind it.
+    #[cfg(test)]
+    pub(crate) fn sound_for_test(&mut self, on: bool) {
+        self.sound = Sound::new(crate::config::Notifications::both(on), None);
+    }
+
     /// Offers one keystroke to the completion menu, and says whether it was
     /// taken.
     ///
@@ -34735,6 +34741,63 @@ mod tests {
             super::super::file_index::tests::driven_listing(shell.files_for_test(), "src/deep");
         shell.route_bytes(b"deep/");
         assert!(shell.hold_frame_for_file_listing(now + Duration::from_millis(30)));
+    }
+
+    #[test]
+    fn a_listing_out_when_ctrl_o_opens_is_dropped_and_the_folder_listed_again() {
+        // Round 3 (gpt6 r2 MUST): fx's harvest with the list ineligible stops
+        // the listing, clears the request and marks the lookup dirty
+        // (`directory_completion_job.zig:140-151@481104fd`), and the lookup
+        // runs again once the list is eligible. So with Ctrl-O opened over
+        // `@src/`'s listing and closed with the query as it was, only a fresh
+        // listing's rows are taken: a late answer to the first is not.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let first = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"@src/");
+        let now = Instant::now();
+        shell.settle_band(now);
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Loading)
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
+        shell.settle_band(now);
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        assert_eq!(shell.editor.text(), "@src/", "the query was edited");
+        shell.settle_band(now);
+        // The first listing answers late, with a row the folder never held.
+        let _ = first.send(Ok(vec![(
+            "late.txt".to_string(),
+            super::super::file_index::Kind::File,
+        )]));
+        let deadline = Instant::now() + START_PATIENCE;
+        while shell
+            .file_picker
+            .as_ref()
+            .is_some_and(|files| files.shown() == file_picker::Shown::Loading)
+        {
+            assert!(
+                Instant::now() < deadline,
+                "the folder was never listed again"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+            shell.settle_band(Instant::now());
+        }
+        let rows: Vec<String> = shell
+            .file_picker
+            .as_ref()
+            .expect("the list")
+            .rows_for_test()
+            .iter()
+            .map(|found| found.path.clone())
+            .collect();
+        assert_eq!(
+            rows,
+            ["src", "src/deep", "src/lib.rs", "src/main.rs"],
+            "the superseded listing's answer was taken"
+        );
     }
 
     #[test]

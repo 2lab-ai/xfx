@@ -16396,12 +16396,15 @@ mod tests {
         out
     }
 
-    /// A turn from its prompt to its end, with a bell, while `@tree/`'s
+    /// A turn from its prompt to its end, with `/sound` on, while `@tree/`'s
     /// listing is out: through the loop's hold when `held`, and through the
     /// commit no listing holds otherwise. What the window's ticks published,
-    /// and then what the tick after the rows land does.
+    /// and then what the tick after the rows land does. The turn's bell is
+    /// owed where a session owes it, when the pacer has presented everything
+    /// (`Shell::settle_band`; this turn left it nothing to pace).
     fn a_turn_inside_a_listing(held: bool) -> (Vec<String>, Vec<String>) {
         let mut fixture = shell_of(40, 120);
+        fixture.shell.sound_for_test(true);
         let mut band = Band::new();
         let mut out = StatusScreen::default();
         let mut failures = FrameFailures::default();
@@ -16416,7 +16419,8 @@ mod tests {
         let before = out.vectors.len();
         let mut tick = |shell: &mut Shell, out: &mut StatusScreen, ms: u64| {
             let now = t0 + Duration::from_millis(ms);
-            // What the loop does before it commits: the workers' results in.
+            // What the loop does before it commits: the workers' results in,
+            // and the pacer's drain, which owes the turn's bell.
             shell.settle_band(now);
             if held {
                 commit_or_hold(shell, &mut band, out, &mut failures, now, Reconciled)
@@ -16429,7 +16433,6 @@ mod tests {
         fixture.shell.start_turn();
         tick(&mut fixture.shell, &mut out, 2);
         fixture.shell.apply(UiEvent::TurnEnded { failure: None });
-        fixture.shell.restore_bells(1);
         tick(&mut fixture.shell, &mut out, 4);
         listing
             .send(Ok(vec![(
@@ -16446,41 +16449,96 @@ mod tests {
     }
 
     #[test]
-    fn a_frame_held_for_a_folder_holds_no_report_title_or_bell() {
-        // Round 2 (gpt6 r1 MUST, opus's trace): fx holds `flushRequestedFrame`
-        // only (`main.zig:3007@481104fd`). Its status reports, its title and
-        // its bell are written where they happen, outside any frame
-        // (`writeProgramStatus`, `writeNotificationBell`,
-        // `transcript/runtime.zig:10402-10430`; `syncTerminalTitleWith`,
-        // `app_session_runtime.zig:2965-2987`). So a turn that starts and
-        // ends inside a held window reports `working` and then `done`, and
-        // its title and its bell go out, in the order an unheld run writes
-        // them; only the frames wait.
+    fn a_frame_held_for_a_folder_holds_its_bell_but_no_report_or_title() {
+        // fx holds `flushRequestedFrame` only (`main.zig:3007@481104fd`). Its
+        // status reports are written while the worker's facts are collected
+        // (`reportProgramStatus` from `WorkerAppRuntime.tick`,
+        // `app_worker_runtime.zig:762-791`, `:809-815`; `main.zig:2983`) and
+        // its title when it changes (`syncTerminalTitleWith`,
+        // `app_session_runtime.zig:2965-2987`) -- outside the frame. Its bell
+        // is not: `flushNotifications` runs inside `flushRequestedFrame`,
+        // after the frame is committed (`app_render_runtime.zig:1059-1063`).
+        // So a turn that starts and ends inside a held window reports
+        // `working` and then `done`, and its title goes out, in the order an
+        // unheld run writes them; the frames and the bell wait, and the bell
+        // follows the frame that releases them -- the answer's rows first.
         let (unheld, unheld_after) = a_turn_inside_a_listing(false);
         let (held, held_after) = a_turn_inside_a_listing(true);
-        let without_frames = |run: &[String]| -> Vec<String> {
-            run.iter().filter(|e| *e != "frame").cloned().collect()
+        let neither = |run: &[String]| -> Vec<String> {
+            run.iter()
+                .filter(|e| *e != "frame" && !e.starts_with("bell"))
+                .cloned()
+                .collect()
         };
         assert!(
             unheld.iter().any(|e| e.contains("state=working"))
                 && unheld.iter().any(|e| e.contains("state=done"))
                 && unheld.iter().any(|e| e.starts_with("title "))
-                && unheld.iter().any(|e| e.starts_with("bell")),
+                && unheld.iter().any(|e| e == "bell x1"),
             "the unheld run publishes too little to prove anything: {unheld:?}"
         );
         assert_eq!(
-            without_frames(&held),
-            without_frames(&unheld),
+            neither(&held),
+            neither(&unheld),
             "held {held:?}\nunheld {unheld:?}"
         );
         assert!(
-            !held.iter().any(|e| e == "frame"),
-            "a frame went out inside the hold: {held:?}"
+            !held.iter().any(|e| e == "frame" || e.starts_with("bell")),
+            "a frame or a bell went out inside the hold: {held:?}"
         );
-        // The rows land and the owed frame goes, its title already told: a
-        // title written on its own is the band's, as one a frame led with is.
-        assert_eq!(held_after, ["frame"], "the frame after the hold");
+        // The rows land: the owed frame goes, its title already told, and the
+        // bell after it.
+        assert_eq!(held_after, ["frame", "bell x1"], "the tick after the hold");
         assert_eq!(unheld_after, ["frame"]);
+    }
+
+    #[test]
+    fn a_held_tick_that_owes_a_title_writes_the_title_then_the_report() {
+        // opus r2 SHOULD 2: the launch's title owed when the tick begins, and
+        // a typed-ahead `@tree/` whose listing holds the first frame. An
+        // unheld tick leads its update with the title and then the report
+        // (`the_launchs_report_follows_the_title_it_starts_with_…`); a held
+        // one writes the same two on their own, in that order, and the frame
+        // after the rows land does not lead with the title again.
+        let mut fixture = shell_of(40, 120);
+        let listing =
+            super::super::file_index::tests::driven_listing(fixture.shell.files_for_test(), "tree");
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        let mut failures = FrameFailures::default();
+        launch_title(&mut fixture.shell, &mut band);
+        fixture.shell.route_bytes(b"@tree/");
+        let t0 = Instant::now();
+        commit_or_hold(
+            &mut fixture.shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            t0,
+            Reconciled,
+        )
+        .expect("a tick");
+        let held = published(&out.vectors);
+        assert_eq!(held.len(), 2, "{held:?}");
+        assert!(held[0].starts_with("title xfx v"), "{held:?}");
+        assert_eq!(held[1], IDLE, "{held:?}");
+        listing
+            .send(Ok(vec![(
+                "leaf.txt".to_string(),
+                super::super::file_index::Kind::File,
+            )]))
+            .expect("the listing");
+        let before = out.vectors.len();
+        commit_or_hold(
+            &mut fixture.shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            t0 + Duration::from_millis(2),
+            Reconciled,
+        )
+        .expect("a tick");
+        assert_eq!(published(&out.vectors[before..]), ["frame"]);
     }
 
     #[test]
