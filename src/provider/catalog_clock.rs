@@ -5,8 +5,10 @@
 //! `src/core/gateway/model_catalog.zig:72-79@481104fd`), which "keeps counting
 //! while the machine sleeps, so a catalog goes stale overnight, and ignores
 //! wall-clock changes". Zig's std names what `boot` reads: `CLOCK_MONOTONIC_RAW`
-//! on Apple, `CLOCK_BOOTTIME` on Linux, `CLOCK_MONOTONIC` on other POSIX
-//! systems (`clockToPosix`, `lib/std/Io/Threaded.zig:14094-14105`, zig 0.16.0).
+//! on Apple, `CLOCK_BOOTTIME` on Linux, `CLOCK_MONOTONIC_FAST` on FreeBSD and
+//! DragonFly, `CLOCK_MONOTONIC` on other POSIX systems (`clockToPosix`,
+//! `lib/std/Io/Threaded.zig:14094-14105`, zig 0.16.0; fx pins 0.17.0). xfx,
+//! which ships for Apple and Linux only, reads `CLOCK_MONOTONIC` on the rest.
 //! Rust's `Instant` reads `CLOCK_UPTIME_RAW` on Apple and `CLOCK_MONOTONIC`
 //! elsewhere (`library/std/src/sys/time/unix.rs:67-70`, rust 1.99.1), which
 //! stop while the machine is asleep -- Darwin's `clock_gettime(3)`:
@@ -101,13 +103,20 @@ impl CatalogClock {
         Self(Source::System)
     }
 
-    /// A reading now.
+    /// A reading now. **A reading that failed is the origin**, as fx's is:
+    /// Zig's `nowPosix` returns `.zero` when `clock_gettime` fails
+    /// (`lib/std/Io/Threaded.zig:11428-11435`, zig 0.16.0), and fx's callers
+    /// treat a reading earlier than a stored one as due (`clockMs`,
+    /// `model_catalog.zig:72-75@481104fd`) -- so one failed reading costs at
+    /// most one read more than a good one would have, and only when something
+    /// asks.
     pub(crate) fn now(&self) -> CatalogTime {
-        CatalogTime(match &self.0 {
+        let reading = match &self.0 {
             Source::System => system::boot(),
             #[cfg(test)]
             Source::Fake(machine) => machine.boot(),
-        })
+        };
+        CatalogTime(reading.unwrap_or(Duration::ZERO))
     }
 }
 
@@ -123,12 +132,20 @@ impl std::fmt::Debug for CatalogClock {
 
 /// A machine a test runs and puts to sleep: its awake clock counts only the
 /// time it ran, its boot clock that and the time it slept -- what
-/// `CLOCK_UPTIME_RAW` and `CLOCK_MONOTONIC_RAW` count on a Mac.
+/// `CLOCK_UPTIME_RAW` and `CLOCK_MONOTONIC_RAW` count on a Mac -- and whose
+/// boot clock a test can make fail. One lock over all of it.
 #[cfg(test)]
 #[derive(Debug)]
-pub(crate) struct FakeMachine {
-    awake: std::sync::Mutex<Duration>,
-    slept: std::sync::Mutex<Duration>,
+pub(crate) struct FakeMachine(std::sync::Mutex<Machine>);
+
+#[cfg(test)]
+#[derive(Debug)]
+struct Machine {
+    awake: Duration,
+    slept: Duration,
+    /// The fates of the next boot-clock readings, in turn: `true` fails.
+    /// Past them, every reading succeeds.
+    fates: std::collections::VecDeque<bool>,
 }
 
 #[cfg(test)]
@@ -136,10 +153,17 @@ impl FakeMachine {
     /// A machine up for an hour, none of it asleep: far enough from the
     /// origin that a test can read earlier than now.
     pub(crate) fn new() -> std::sync::Arc<Self> {
-        std::sync::Arc::new(Self {
-            awake: std::sync::Mutex::new(Duration::from_secs(3_600)),
-            slept: std::sync::Mutex::new(Duration::ZERO),
-        })
+        std::sync::Arc::new(Self(std::sync::Mutex::new(Machine {
+            awake: Duration::from_secs(3_600),
+            slept: Duration::ZERO,
+            fates: std::collections::VecDeque::new(),
+        })))
+    }
+
+    fn machine(&self) -> std::sync::MutexGuard<'_, Machine> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// The catalog clock this machine's readings come from.
@@ -149,39 +173,43 @@ impl FakeMachine {
 
     /// Runs for `by`: both clocks move.
     pub(crate) fn run(&self, by: Duration) {
-        *lock(&self.awake) += by;
+        self.machine().awake += by;
     }
 
     /// Sleeps for `by`: only the clock that counts sleep moves.
     pub(crate) fn sleep(&self, by: Duration) {
-        *lock(&self.slept) += by;
+        self.machine().slept += by;
     }
 
     /// The boot clock set back `by`, as a host that backs it with wall time
     /// can (`model_catalog.zig:73-75@481104fd`).
     pub(crate) fn set_back(&self, by: Duration) {
-        let mut slept = lock(&self.slept);
-        let mut awake = lock(&self.awake);
-        let from_slept = by.min(*slept);
-        *slept -= from_slept;
-        *awake = awake.saturating_sub(by - from_slept);
+        let mut machine = self.machine();
+        let from_slept = by.min(machine.slept);
+        machine.slept -= from_slept;
+        machine.awake = machine.awake.saturating_sub(by - from_slept);
+    }
+
+    /// The next readings of the boot clock, in turn, after any already
+    /// scripted: `true` fails, as a `clock_gettime` that returns an error
+    /// does; `false` succeeds.
+    pub(crate) fn script(&self, fates: &[bool]) {
+        self.machine().fates.extend(fates.iter().copied());
     }
 
     /// What its awake clock reads: what `Instant` counts.
     pub(crate) fn awake(&self) -> Duration {
-        *lock(&self.awake)
+        self.machine().awake
     }
 
-    /// What its boot clock reads.
-    fn boot(&self) -> Duration {
-        *lock(&self.awake) + *lock(&self.slept)
+    /// What its boot clock reads; `None` for a reading that failed.
+    fn boot(&self) -> Option<Duration> {
+        let mut machine = self.machine();
+        if machine.fates.pop_front() == Some(true) {
+            return None;
+        }
+        Some(machine.awake + machine.slept)
     }
-}
-
-#[cfg(test)]
-fn lock(time: &std::sync::Mutex<Duration>) -> std::sync::MutexGuard<'_, Duration> {
-    time.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// The machine's clocks.
@@ -206,28 +234,30 @@ mod system {
     #[cfg(all(test, unix, not(target_vendor = "apple")))]
     pub(super) const AWAKE: libc::clockid_t = libc::CLOCK_MONOTONIC;
 
-    /// A reading of the clock that counts sleep.
+    /// A reading of the clock that counts sleep; `None` if it failed.
     #[cfg(unix)]
-    pub(super) fn boot() -> Duration {
+    pub(super) fn boot() -> Option<Duration> {
         read(BOOT)
     }
 
     /// No POSIX clock to read: the time since the first reading, on the clock
-    /// `Instant` has.
+    /// `Instant` has, which does not count sleep (no target xfx ships).
     #[cfg(not(unix))]
-    pub(super) fn boot() -> Duration {
+    pub(super) fn boot() -> Option<Duration> {
         static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-        ORIGIN.get_or_init(std::time::Instant::now).elapsed()
+        Some(ORIGIN.get_or_init(std::time::Instant::now).elapsed())
     }
 
     /// A reading of the clock `Instant` reads.
     #[cfg(all(test, unix))]
-    pub(super) fn awake() -> Duration {
+    pub(super) fn awake() -> Option<Duration> {
         read(AWAKE)
     }
 
+    /// One `clock_gettime` of `clock`; `None` when the call fails, which an id
+    /// above, each one this platform defines, is not expected to.
     #[cfg(unix)]
-    pub(super) fn read(clock: libc::clockid_t) -> Duration {
+    pub(super) fn read(clock: libc::clockid_t) -> Option<Duration> {
         let mut now = libc::timespec {
             tv_sec: 0,
             tv_nsec: 0,
@@ -235,16 +265,12 @@ mod system {
         // SAFETY: `now` is a local that outlives the call, and `clock` is one
         // of the ids above, each of which this platform's C library defines.
         let read = unsafe { libc::clock_gettime(clock, &mut now) };
-        // Every id above is one the platform has, so the call does not fail.
-        // Were one call to fail among good ones, its reading is the origin's,
-        // earlier than the last read's start, which is due (`CatalogDue`);
-        // were every call to fail, only the first load would come due.
         if read != 0 {
-            return Duration::ZERO;
+            return None;
         }
         let seconds = u64::try_from(now.tv_sec).unwrap_or(0);
         let nanos = u32::try_from(now.tv_nsec).unwrap_or(0);
-        Duration::new(seconds, nanos)
+        Some(Duration::new(seconds, nanos))
     }
 }
 
@@ -294,6 +320,26 @@ mod tests {
         assert_eq!(machine.awake(), Duration::from_secs(3_600 + 60));
     }
 
+    #[test]
+    fn a_reading_that_failed_is_the_origin_as_fxs_is() {
+        // Zig 0.16's `nowPosix` returns `.zero` on a failed `clock_gettime`
+        // (`lib/std/Io/Threaded.zig:11428-11435`): the reading is the clock's
+        // origin, earlier than any stored one. The next reading is itself.
+        let machine = FakeMachine::new();
+        let clock = machine.clock();
+        let before = clock.now();
+        machine.script(&[true, false]);
+        assert_eq!(clock.now(), CatalogTime(Duration::ZERO));
+        assert_eq!(clock.now(), before);
+        let due = CatalogDue {
+            since: Some(before),
+            at: before + Duration::from_secs(300),
+        };
+        machine.script(&[true]);
+        assert!(due.is_due(clock.now()), "a failed reading was not due");
+        assert!(!due.is_due(clock.now()));
+    }
+
     /// The machine's own clocks, on a platform that has the two Zig and Rust
     /// name: the catalog reads the one Zig's `boot` reads, not the one
     /// `Instant` reads -- they are equal only on a machine that has not slept
@@ -305,9 +351,9 @@ mod tests {
         assert_eq!(system::BOOT, libc::CLOCK_MONOTONIC_RAW);
         #[cfg(any(target_os = "linux", target_os = "android"))]
         assert_eq!(system::BOOT, libc::CLOCK_BOOTTIME);
-        let awake = system::awake();
+        let awake = system::awake().expect("the awake clock");
         let catalog = CatalogClock::system().now();
-        let boot = system::read(system::BOOT);
+        let boot = system::read(system::BOOT).expect("the boot clock");
         assert!(catalog.0 <= boot, "{catalog:?} after {boot:?}");
         assert!(
             catalog.0 + Duration::from_millis(1) >= awake,

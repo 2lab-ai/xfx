@@ -4191,6 +4191,109 @@ mod tests {
         assert_eq!(reads(&asked), 1);
     }
 
+    /// One activity ask, as the band's: a reading of the selector's clock, a
+    /// read if one is due by it, and that read waited out -- so its start's
+    /// and its answer's readings are taken, in that order, before the next
+    /// ask's. Whether a read started.
+    fn activity_at_a_reading(selector: &mut ModelSelector) -> bool {
+        let now = selector.now();
+        let started = selector.begin_load_on(LoadTrigger::Activity, now, |_, _, _, _| async {});
+        if started {
+            settle(selector);
+        }
+        started
+    }
+
+    #[test]
+    fn a_failed_clock_reading_costs_at_most_one_read_and_none_without_an_ask() {
+        // A reading that failed is the clock's origin, as fx's is (Zig 0.16's
+        // `nowPosix` returns `.zero`, `lib/std/Io/Threaded.zig:11428-11435`),
+        // and a reading earlier than the last read's start is due
+        // (`beginLoad`, `model_cache_runtime.zig:611-617@481104fd`). Each
+        // read takes three readings here: the ask's, the read's start, its
+        // answer. A failed one costs at most one read a good one would not
+        // have started, and only an ask starts one.
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let mut answers: Vec<Scripted> = (0..4).map(|_| rows(&["a/one"])).collect();
+        answers.push((None, Err(())));
+        answers.extend((0..3).map(|_| rows(&["a/one"])));
+        let (mut selector, asked) = scripted(answers);
+        selector.set_clock_for_test(machine.clock());
+        assert!(activity_at_a_reading(&mut selector), "no first load");
+        machine.run(Duration::from_secs(60));
+        assert!(!activity_at_a_reading(&mut selector));
+        assert_eq!(reads(&asked), 1);
+
+        // The ask's own reading fails: due -- earlier than the rows' read --
+        // so it reads. One more; the read's start is a good reading, so the
+        // next ask is decided as before. (fx stamps the read's start with the
+        // ask's reading, `last_attempt_ms = now`, `:636`, so its next ask
+        // reads too: two more there.)
+        machine.script(&[true]);
+        assert!(
+            activity_at_a_reading(&mut selector),
+            "a failed ask's reading was not due"
+        );
+        machine.run(Duration::from_secs(60));
+        assert!(!activity_at_a_reading(&mut selector));
+        assert_eq!(reads(&asked), 2);
+
+        // A due read whose start's reading fails: the read is stamped at the
+        // origin, so the next ask reads again. One more.
+        machine.run(REFRESH_INTERVAL);
+        machine.script(&[false, true]);
+        assert!(
+            activity_at_a_reading(&mut selector),
+            "rows five minutes old were not read"
+        );
+        machine.run(Duration::from_secs(60));
+        assert!(
+            activity_at_a_reading(&mut selector),
+            "a read stamped at the origin was not due"
+        );
+        machine.run(Duration::from_secs(60));
+        assert!(!activity_at_a_reading(&mut selector));
+        assert_eq!(reads(&asked), 4);
+
+        // A refresh that fails, its answer's reading failing: the hold is
+        // counted from the origin, so it is over at once and the next ask
+        // retries -- as fx's `retry_not_before_ms = clockMs() + delay_ms`
+        // (`:951`) does. One more.
+        machine.run(REFRESH_INTERVAL);
+        machine.script(&[false, false, true]);
+        assert!(activity_at_a_reading(&mut selector));
+        assert_eq!(
+            refresh_sentence(&selector),
+            Some(CatalogRetry::Unreachable.text())
+        );
+        assert!(
+            activity_at_a_reading(&mut selector),
+            "the hold counted from the origin held"
+        );
+        assert_eq!(reads(&asked), 6);
+
+        // A read that succeeds, its answer's reading failing: a success holds
+        // nothing back, so it costs nothing.
+        machine.run(REFRESH_INTERVAL);
+        machine.script(&[false, false, true]);
+        assert!(activity_at_a_reading(&mut selector));
+        machine.run(Duration::from_secs(60));
+        assert!(!activity_at_a_reading(&mut selector));
+        assert_eq!(reads(&asked), 7);
+
+        // Four failed readings, three reads more -- and with no ask, however
+        // the clock fails, sleeps or is set back, none.
+        machine.script(&[true; 8]);
+        for _ in 0..4 {
+            let _ = selector.now();
+            machine.sleep(Duration::from_secs(3_600));
+            machine.set_back(Duration::from_secs(30));
+            selector.take_answered();
+            assert!(!selector.is_loading(), "a read started with no ask");
+        }
+        assert_eq!(reads(&asked), 7);
+    }
+
     #[test]
     fn a_failure_holds_every_read_off_for_upstreams_backoff_which_doubles_to_five_minutes() {
         // `failureBackoffMs` (`model_cache_runtime.zig:40-54@481104fd`): after
