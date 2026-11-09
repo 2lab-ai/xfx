@@ -18,6 +18,9 @@ Every claim below cites a file in this folder. Line numbers are at the base
 - **Round 2** (`945fc373` RED, `b61cc541` fix): the reviews' eight items.
   Its own receipt is [`round2/README.md`](round2/README.md); where it
   changes a claim below, the claim says so.
+- **Round 3** (`b039c001`): integration cases in a clean copy, and a binding
+  check that fails closed. Its receipt is
+  [`round3/README.md`](round3/README.md).
 
 **Why:** a CATALOG-REFRESH case built its runtime with `Runtime::new`, whose
 environment is `Environment::from_process()`; a reload then read the real
@@ -181,13 +184,18 @@ Children that do not start xfx, each safe as it stands
   `interactive.rs` and `tui.rs`: a non-interactive `sh -c` reads no startup
   file; `cp`, `ps`, `kill`, `mkfifo`; the fake `osascript` in
   `fake_clipboard.rs`, a script in a temp directory.
-- No integration test calls a reader in its own process. The `std::env`
+- **Corrected in round 3.** Rounds 1 and 2 said no integration test reads
+  the environment in its own process. That was false: an integration test
+  links the library as a build does, where `process_env!` is `std::env`
+  itself, so 54 cases -- 50 in `permissions.rs`, 3 in `tool_loop.rs`, 1 in
+  `llmux.rs` -- read the developer's `HOME` through a command plan (and ran
+  git under it), or `XFX_GATEWAY_URL` through a provider
+  (`round3/integration-reads-base.txt`). Round 3 reruns each in a clean
+  copy of its test binary (round3/README.md, MUST 1). The direct `std::env`
   reads in `tests/` are `PATH` and `TMPDIR` -- in `support/sandbox.rs`'s
-  `clear_env` (round 1's helper) and in `cli.rs`, which does not include
-  `support` -- and cargo's `CARGO_PKG_NAME` in `permissions.rs`. Round 2
-  routes every other `PATH` read there (`fake_clipboard.rs`, `tool_loop.rs`,
-  `permissions.rs`) through `support::sandbox::path()`, and holds each read
-  to its variables (round2/README.md, item 1).
+  `clear_env` and in `cli.rs` -- cargo's `CARGO_PKG_NAME` in
+  `permissions.rs`, and the clean copy's own role in `support/isolated.rs`,
+  each bound to its variables (round2/README.md, item 1).
 
 ## 4. RED, then GREEN
 

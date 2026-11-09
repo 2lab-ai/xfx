@@ -1,0 +1,83 @@
+# Which integration-test cases read the process environment in their own process at a74073dd, by integration-reads.py on the throwaway clone (build arms recording binary, thread, reader and variable -- never a value), under sentinel-run.sh:
+# log lines 14372, well-formed 14372 (one write per record)
+# at a74073dd; every integration suite under sentinel-run.sh, build arms recording
+suite cli: test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.39s
+suite gateway: test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.55s
+suite interactive: test result: FAILED. 78 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.39s
+suite ledger_compat: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.71s
+suite llmux: test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.70s
+suite mcp: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.03s
+suite parity: test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+suite permissions: test result: FAILED. 156 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.68s
+suite session_compat: test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+suite sessions: test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.04s
+suite tool_loop: test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.35s
+suite tui: test result: FAILED. 178 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 62.19s
+
+# reads recorded: 14372 (14280 by the xfx binary the suites start, 92 in a test's own process)
+
+# in a test's own process, by suite, reader and variable: reads
+llmux	gateway::Endpoint::from_process	XFX_GATEWAY_URL	1
+permissions	permission::authority::minimal_environment	HOME	87
+tool_loop	permission::authority::minimal_environment	HOME	4
+
+# in a test's own process, the cases (threads) that read, by suite
+## llmux: 1
+  bundle_select_with_gateway_credential_yields_gateway_bundle
+## permissions: 49
+  a_broken_approval_channel_denies_rather_than_defaulting_to_yes
+  a_cancellation_kills_the_whole_process_group_and_not_only_the_child
+  a_command_allow_with_a_wildcard_admits_only_plain_words
+  a_command_fingerprint_covers_the_command_the_cwd_and_the_environment
+  a_command_past_its_deadline_is_killed_at_once_and_the_screen_says_it_timed_out
+  a_command_prompt_names_the_directory_the_command_would_run_in
+  a_command_that_leaves_a_process_holding_the_pipe_still_returns
+  a_config_alias_cannot_redirect_the_admitted_cargo_builtins
+  a_config_alias_cannot_turn_an_admitted_cargo_command_into_a_build
+  a_configured_allow_rule_admits_without_an_approval
+  a_configured_deny_rule_outranks_the_mode_that_would_have_allowed_it
+  a_dash_prefixed_operand_inside_the_workspace_still_works
+  a_dash_prefixed_operand_is_resolved_like_any_other
+  a_denied_approval_refuses_and_records_nothing
+  a_denied_command_does_not_run_and_still_carries_the_sentence
+  a_direct_operand_that_is_a_symlink_inside_the_workspace_is_allowed
+  a_direct_operand_that_resolves_outside_the_workspace_is_refused
+  a_failed_approval_channel_carries_no_sentence
+  a_grant_for_a_command_does_not_follow_it_into_another_directory
+  a_pre_existing_hostile_git_config_does_not_execute_on_the_automatic_route
+  a_remembered_deny_beats_auto_mode_and_a_configured_allow_but_not_a_configured_deny_order
+  a_rule_keyed_by_the_terminal_tool_name_does_not_allow_a_command
+  a_session_grant_is_exact_and_does_not_spread_to_a_neighbour
+  a_stopped_command_is_asked_to_stop_and_the_screen_is_shown_how_it_ended
+  a_terminal_hidden_by_a_shell_deny_and_called_anyway_is_judged_as_a_command_and_never_runs_unasked
+  a_timeout_kills_the_whole_process_group_and_not_only_the_child
+  an_admitted_command_names_its_route_and_a_reviewed_one_names_the_shell
+  an_always_answer_grants_exactly_the_tool_and_target_it_did_before
+  an_approval_answered_always_records_one_exact_session_grant
+  an_approval_answered_once_covers_this_call_and_not_the_next
+  an_approved_command_runs_what_was_asked_and_carries_the_sentence
+  an_authority_executes_once_and_a_replay_is_refused
+  an_authority_minted_by_one_session_is_unknown_to_another
+  an_operand_that_names_nothing_is_not_treated_as_an_escape
+  ask_mode_without_an_approval_channel_fails_closed
+  auto_can_write_a_build_script_but_cannot_make_cargo_run_it
+  auto_does_not_run_git_in_a_directory_whose_configuration_defines_a_hook
+  auto_mode_admits_the_direct_grammar_and_denies_everything_else
+  auto_mode_reviews_an_unknown_command_instead_of_assuming_it_is_safe
+  output_that_closes_xfxs_own_tags_produces_one_real_frame_and_forges_none
+  terminal_bounds_the_output_it_returns_and_says_that_it_did
+  terminal_denies_a_destructive_command_in_auto_mode_and_runs_nothing
+  terminal_kills_a_command_that_outruns_its_timeout
+  terminal_reports_a_nonzero_exit_status_as_a_fact_rather_than_a_failure
+  terminal_runs_an_admitted_command_and_reports_its_exit_status
+  terminal_stops_when_the_turn_is_cancelled
+  the_command_xfx_echoes_back_cannot_close_the_tag_it_is_quoted_in
+  two_authorities_never_share_a_nonce
+  yolo_mode_admits_what_every_other_mode_refuses_and_says_which_source_did_it
+## tool_loop: 3
+  ?
+  a_command_the_person_stopped_leaves_the_request_that_asked_for_it_counted
+  an_output_limit_does_not_clip_a_sentence_into_the_result
+
+# One case is not in this list and was found by hand:
+# an_approved_command_runs_through_the_platform_shell_with_a_clean_environment (tests/permissions.rs) failed its own CARGO_PKG_NAME precondition under env -i before it planned a command; sentinel-run.sh now sets CARGO_PKG_NAME as cargo does, and the case is wrapped too (54 in all).

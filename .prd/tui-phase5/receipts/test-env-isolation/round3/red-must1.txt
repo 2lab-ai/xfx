@@ -1,0 +1,18 @@
+# RED, round 3, MUST 1: every integration suite at a74073dd (round 2's head), unpatched, on the throwaway clone, under sentinel-run.sh (whose HOME's .gitconfig and XDG git config define a hook), under the suite lock:
+#   TMPDIR=<short> suite-lock.sh python3 integration-run.py <clone> a74073dd
+# Two cases change outcome with the process's HOME: their own process planned git under it.
+# at a74073dd: every integration suite under sentinel-run.sh
+suite cli: test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.14s
+suite gateway: test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.54s
+suite interactive: test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.54s
+suite ledger_compat: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.73s
+suite llmux: test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.64s
+suite mcp: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.01s
+suite parity: test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+suite permissions: test result: FAILED. 157 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s
+  FAILED a_pre_existing_hostile_git_config_does_not_execute_on_the_automatic_route :: `git diff` should still run: ToolResult { ok: false, output: "terminal was not permitted: `git diff` is not admitted in auto mode because the git configuration it would read defines a hook (hook.<name
+  FAILED auto_does_not_run_git_in_a_directory_whose_configuration_defines_a_hook :: Denied(ConfiguredHooks)
+suite session_compat: test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.99s
+suite sessions: test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.38s
+suite tool_loop: test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.33s
+suite tui: test result: ok. 186 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.59s

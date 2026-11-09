@@ -7,7 +7,8 @@
 #   TMPDIR=<short> sentinel-run.sh <test binary> [libtest args...]
 #
 # The sentinel home holds a `.gitconfig` that configures a hook, and the
-# variables are xfx's own with sentinel values. A case that reads the process
+# variables are xfx's own with sentinel values, beside `CARGO_PKG_NAME`, which
+# cargo sets in every test process it runs. A case that reads the process
 # (on the base) sees these; a case under the guard (the head) is refused, or
 # hands a child nothing of them. Bounded: the binary is killed after
 # SENTINEL_SECONDS (default 600); macOS refuses `ulimit -v`, and no case here
@@ -35,6 +36,7 @@ main() {
     XFX_MODEL=xfx-sentinel-model \
     XFX_GATEWAY_URL=https://sentinel.invalid/v1 \
     XFX_TUI=0 \
+    CARGO_PKG_NAME=xfx \
     XFX_E2E_USAGE_CLOCK_FILE="$root/clock" \
     AI_GATEWAY_API_KEY=xfx-sentinel-gateway-key \
     VERCEL_OIDC_TOKEN=xfx-sentinel-oidc-token \

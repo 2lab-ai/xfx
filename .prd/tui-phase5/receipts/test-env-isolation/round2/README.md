@@ -71,10 +71,11 @@ rule's form, checked on the resolved call. Each read that stays outside
 integration tests through `support::sandbox::path()`. Each of those is one
 bound exception. The negative fixtures are in `mutants.txt`.
 
-**A build's code.** `release-compare-r2.txt` shows that a release build
-here is not reproducible across hours: the base built at 22:24 and rebuilt
-later differ by 6,470,042 bytes. Builds made back to back are
-reproducible, so only back-to-back pairs count:
+**A build's code.** `release-compare-r2.txt`: the same base source, built
+at 22:24 and again hours later with the same toolchain
+(`../round3/toolchain.txt`), differed by 6,470,042 bytes, for a cause this
+receipt does not identify -- unexplained. Builds made back to back
+reproduce, so only back-to-back pairs count:
 
 - with the allows moved into new `let` statements (`b61cc541`, then
   `{ let value = std::env::var(..); value }` in `process_env!` at
@@ -93,8 +94,10 @@ called from `permission::authority` under `cfg(test)`). A case that gives a
 home on purpose keeps it, and `GitFixture` now plans under its own home, so
 its proofs still read the fixture's global configuration. System
 configuration stays as a build reads it, because it is the machine's, not
-the person's. The empty-`HOME` assertion is replaced by
-`a_git_planned_with_no_home_reads_no_global_configuration_wherever_home_is`:
+the person's. The new case for it is
+`a_git_planned_with_no_home_reads_no_global_configuration_wherever_home_is`
+(round 2 left round 1's empty-`HOME` assertion beside it; round 3 replaced
+that assertion with one on `GIT_CONFIG_GLOBAL`):
 a sentinel hook in both global files under a home the case writes is not
 read. Its control shows the sentinel is what git reads when nothing
 excludes it.
