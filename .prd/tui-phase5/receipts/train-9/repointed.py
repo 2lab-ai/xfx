@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Train 9's `path:line` numbers, each checked against its code: those the
-re-point commit moved (merge 3, PASTE-AFTER-END, moved the code under them;
-repoint.py). Each row: the code the reference was written about, in the
+re-point commits moved (merge 3, PASTE-AFTER-END, moved the code under them,
+and merge 4 one of them again; repoint.py). Each row: the code the reference was written about, in the
 frame of the side whose text cites it (main ccced1f5: every unit left these
 references as main has them), against the code at the number the head
 holds. Train 8's repointed.py with this train's rows.
@@ -23,6 +23,7 @@ ROWS = [
     ("ledger (shell.rs: `resize`)", "src/tui/shell.rs", 16321, "ccced1f5", 16303, 1, 2, None),
     ("ledger, six entries (shell.rs: `tools: {} advertised`; re-pointed again for merge 4)", "src/tui/shell.rs", 38615, "ccced1f5", 38716, 1, 2, None),
     ("capfile.py comment (shell.rs: `warning_shown`)", "src/tui/shell.rs", 14603, "ccced1f5", 14585, 26, 2, None),
+    ("capfile.py comment, its bare continuation (shell.rs: `warning_shown`'s owner check; opus, review of a1a85ed6)", "src/tui/shell.rs", 14621, "ccced1f5", 14603, 3, 2, None),
     ("smoke-tui.sh comment (input.rs; names other code on main already, stale.txt)", "src/tui/input.rs", 702, "ccced1f5", 708, 1, 2, None),
     ("event_loop.rs comment (event_loop.rs; train 8's stale.txt)", "src/tui/event_loop.rs", 972, "ccced1f5", 1000, 4, 2, None),
 ]

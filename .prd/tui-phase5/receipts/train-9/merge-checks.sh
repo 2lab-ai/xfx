@@ -30,6 +30,7 @@ python3 -I -B "$here/refs_all.py" "$repo" $JOINS "${SIDES[@]}" | rd "$here/refs-
 python3 -I -B "$here/refs_short.py" "$repo" $JOINS "${SIDES[@]}" | rd "$here/refs-short-merges.txt"
 python3 -I -B "$here/refs.py" "$repo" "$head" "${SIDES[@]}" | rd "$here/refs-head.txt"
 { python3 -I -B "$here/refs_all.py" "$repo" "$head" "${SIDES[@]}"; echo; python3 -I -B "$here/refs_short.py" "$repo" "$head" "${SIDES[@]}"; } | rd "$here/refs-all.txt"
+python3 -I -B "$here/refs_bare.py" "$repo" "$head" "${SIDES[@]}" | rd "$here/refs-bare.txt"
 python3 -I -B "$here/repointed.py" "$repo" "$head" | rd "$here/repointed.txt"
 python3 -I -B "$here/stale.py" "$repo" "$head" | rd "$here/stale.txt"
 python3 -I -B "$here/invariant.py" "$repo" a832f4d7 "$head" | rd "$here/invariant.txt"

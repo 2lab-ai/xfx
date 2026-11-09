@@ -13,7 +13,7 @@ HISTORY-NOTICE-STOP's 80 lines of tests in `shell.rs` moved the code under
 the one of merge 3's re-points below them again); refuses a reference it
 cannot find exactly as many times as the list says.
 
-    python3 -I -B repoint.py <checkout> [--merge-4]
+    python3 -I -B repoint.py <checkout> [--merge-4 | --bare]
 """
 
 import pathlib
@@ -33,6 +33,13 @@ REPOINTS = [
 REPOINTS_4 = [
     ("scripts/fxcap/parity-ledger.toml", "src/tui/shell.rs:38636", "src/tui/shell.rs:38716", 6),
 ]
+# The bare continuation of merge 3's `capfile.py` re-point, which no scanner
+# read (opus, review of a1a85ed6; refs_bare.py reads the form now): main's
+# `:14621-14623`, the owner check in `warning_shown`, is `:14603-14605` at
+# the head. Its own commit (`--bare`).
+REPOINTS_BARE = [
+    ("scripts/fxcap/capfile.py", "transcript at :14621-14623;", "transcript at :14603-14605;", 1),
+]
 
 
 def pattern(ref):
@@ -42,7 +49,8 @@ def pattern(ref):
 
 def main():
     checkout = pathlib.Path(sys.argv[1])
-    for citing, old, new, count in (REPOINTS_4 if sys.argv[2:] == ["--merge-4"] else REPOINTS):
+    rows = {("--merge-4",): REPOINTS_4, ("--bare",): REPOINTS_BARE}.get(tuple(sys.argv[2:]), REPOINTS)
+    for citing, old, new, count in rows:
         path = checkout / citing
         text = path.read_text()
         found = len(pattern(old).findall(text))
