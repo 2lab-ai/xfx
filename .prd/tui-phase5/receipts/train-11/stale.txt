@@ -28,3 +28,38 @@ src/tui/event_loop.rs cites frame.rs:1615-1628 for the escape `place()` writes o
   main src/tui/frame.rs:1628: // `target` -- only when every fact this frame carries about the
 4 references, each naming other code on main, or rewritten under before this train
 # fn queue_card: main shell.rs:[1840], head shell.rs:[1929]
+
+# Round 2: the re-pointed references whose text on main already named other code
+tests/tui.rs:9331 cites src/tui/shell.rs for `Shell::blind`
+  main src/tui/shell.rs:2713: // kept for the case to answer ([`super::credits_ask::Asks::by_hand`]).
+  head src/tui/shell.rs:2814: // kept for the case to answer ([`super::credits_ask::Asks::by_hand`]).
+  `pub(crate) fn blind(`: main src/tui/shell.rs:[16377], head src/tui/shell.rs:[16804]
+tests/tui.rs:9371 cites src/tui/shell.rs for where `Reason::ExternalDamage` is raised
+  main src/tui/shell.rs:2024: .collect()
+  head src/tui/shell.rs:2113: .collect()
+  `self.render.request(Reason::ExternalDamage)`: main src/tui/shell.rs:[11818], head src/tui/shell.rs:[12089]
+scripts/smoke-tui.sh:11212 cites src/tui/shell.rs for the paste's `editor.insert()` call
+  main src/tui/shell.rs:2607: pending_cut: None,
+  head src/tui/shell.rs:2705: pending_cut: None,
+  `self.editor.insert(`: main src/tui/shell.rs:[5739, 7415, 8669, 8796, 11150, 12190], head src/tui/shell.rs:[5939, 7615, 8869, 8996, 11421, 12461]
+scripts/smoke-tui.sh:11213 cites src/tui/input.rs for `C-_` decoded as `Action::Undo`
+  main src/tui/input.rs:708: /// that were read. **Nothing of the body is ever emitted**, which is the
+  head src/tui/input.rs:1063: /// that were read. **Nothing of the body is ever emitted**, which is the
+  `0x1f => Action::Undo`: main src/tui/input.rs:[901], head src/tui/input.rs:[1256]
+src/tui/event_loop.rs:14833 cites src/tui/shell.rs for the `InsertNewline` arm
+  main src/tui/shell.rs:2716: #[cfg(test)]
+  head src/tui/shell.rs:2817: #[cfg(test)]
+  `Action::InsertNewline | Action::ControlJ =>`: main src/tui/shell.rs:[12447], head src/tui/shell.rs:[12727]
+src/tui/shell.rs:10805 cites src/tui/worker.rs for `turn_loop`'s `fetch_sub` (after `worker.rs:3922`)
+  main src/tui/worker.rs:3530: };
+  head src/tui/worker.rs:3535: };
+  `queue.outstanding.fetch_sub(`: main src/tui/worker.rs:[3556], head src/tui/worker.rs:[3561]
+src/tui/shell.rs:23737 cites src/tui/shell.rs for the existing too-small assertions
+  main src/tui/shell.rs:5870: true
+  head src/tui/shell.rs:6070: true
+  (names test assertions; not located here)
+src/tui/shell.rs:23738 cites src/tui/shell.rs for the existing too-small assertions
+  main src/tui/shell.rs:6058: let mut repaint = false;
+  head src/tui/shell.rs:6258: let mut repaint = false;
+  (names test assertions; not located here)
+8 re-pointed references, each naming other code on main and at the head

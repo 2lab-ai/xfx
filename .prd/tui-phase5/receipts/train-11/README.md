@@ -58,17 +58,18 @@ theirs -> merged exactly ours'.
   fault injection **5681** (each +105 on train 10's: the units' 103 and the
   two join tests); smoke-tui 1167 checks, `test-capture` 79 OK.
 - **Network: no CONNECT to the Gateway** (2, both the MCP probe); two lib
-  tests failed on their timing window in that run and pass 6 of 6 alone
-  under the same proxy (`net-rerun.txt`).
+  tests failed one case's time window in that run, with no connection logged
+  during them; 6 of 6 pass alone under the same proxy (`net-rerun.txt`), and
+  both pass in the gate's two suites.
 - **Sweep** at `820a8f15`: 101 scenarios, **399 of 559 pass, 0 failed, 0
   timed out**. Against `main`'s sweep of the same selection: **379 -> 377 over
   537 shared pairs, 1 up, 3 down**: the three `model-column-idle` pairs down
-  and `model-parked` `menu-loading` up, both a catalog outage counted in
-  wall-clock seconds from the fake Gateway's start; each binary's asks
-  (`asks.txt`) put every run's verdict on which side of the window they fell;
-  reruns: `model-column-idle` head 2 of 3, `main` 3 of 3, the head's failing one
-  failing the other way (fx loaded, xfx did not). Against each unit's own
-  sweep: **0 down** but those same three on CATALOG-REFRESH's (0, 8 and 10 up).
+  (the ledger's registered nondeterminism `catalog-window`, owner
+  FLAKE-MODELSDOWN #19) and `model-parked` `menu-loading` up. Every one of the
+  8 `model-column-idle` runs' verdicts follows from when each binary first
+  asked the catalog (`first-asks.txt`, 8 of 8); reruns: head 2 of 3, `main` 3
+  of 3. Not settled until the cause's own fix. Against each unit's own sweep:
+  **0 down** but those same three on CATALOG-REFRESH's (0, 8 and 10 up).
 
 After the merges, in order:
 
@@ -189,9 +190,11 @@ Train 7's `token_check.py`, byte for byte (`cmp` against `../train-7/`),
 over the three merges. **Result: all three OK** [measured]:
 - **Merge 1**: the full-screen TUI row is changed by both sides; 833 tokens
   added, 54 deleted, all as expected, 32 clauses whole, contiguous and in
-  their side's order; every other row one side's; 12 ledger entries "both
-  sides changed its path:line numbers alone", the cause the unit added and
-  the one it deleted as written.
+  their side's order; every other row one side's; 11 ledger entries "both
+  sides changed its path:line numbers alone" (`grep -c 'numbers alone'
+  token-check.txt`: 11; 12 is the count of numbers-only diff3 blocks, since
+  `amendment-card-after-stop` held two), the cause the unit added and the one
+  it deleted as written.
 - **Merge 2**: the `/model` row both sides', 801 added, 47 deleted, 21
   clauses whole; the rest one side's.
 - **Merge 3**: the full-screen TUI row both sides', 2204 added, 31 deleted,
@@ -246,7 +249,10 @@ plans (trains 8 to 10 left them for REF-LINT); the ledger's bare `:1658`, now
 `:1747`, for `queue_card`, which is at main's 1840 and the head's 1929 -- stale
 since train 7's `c468f5e1` (train 10's `stale.txt`); `event_loop.rs`'s
 `event_loop.rs:1005-1008`, now `:1046-1049`, and `frame.rs:1615-1628` (train
-8's).
+8's). Round 2 adds eight more the re-point moved by line though their text
+named other code on main already (`stale.txt`'s second list). `repointed.py`'s
+31 of 31 checks that each number names the same lines as main's did, not that
+main's were right.
 
 ## Join checks
 
@@ -420,18 +426,23 @@ clone at `820a8f15`, one hold of the lock:
 | `cargo test --locked --test tui --no-fail-fast` | 188 passed, 0 failed | **0** |
 
 **No CONNECT to the Gateway host** [measured]; the two `w.example` lines are
-the known MCP probe (trains 6 to 10). **The two lib failures are timing, not
-the network**: both are STOP-IN-CATALOG-WAIT's tests (train 7's joins), each
-failing one case's window -- a stopped turn's end due 300 ms to 1 s after a
-stop 300 ms into the wait, and come late (`alone-failures.txt`). Run alone
-three times each, under the same logger and proxy variables, in the same
-clone, under the lock (`net_rerun.py`, `net-rerun.txt`): **6 of 6 pass, 0
-connections logged**; both pass in the gate's two suites too. CATALOG-REFRESH
-does touch that path (the selector's catalog clock, `renew`, `now()` in
-`worker.rs` and `provider/model.rs`), so this is a reading, not a proof: the
-late end came only in the whole lib suite's run (load 14.1 at its start),
-never alone or in the gate; a timing failure under that load, as the common
-brief's rule reads it, not counted.
+the known MCP probe (trains 6 to 10). **The two lib failures, what was
+measured**: both are STOP-IN-CATALOG-WAIT's tests (train 7's joins); each
+failed one case's window -- a stopped turn's end due at or past 300 ms and
+before 1 s, a stop being sent 300 ms into the wait -- its `assert_eq` holding
+`false` where `true` was due (`alone-failures.txt`, the left and right lines).
+The log holds the window's verdict, not the end's time, so whether the end
+came late or early is *(not measured here)*. No connection was logged during
+the run but the two MCP probes. Run alone three times each, under the same
+logger and proxy variables, in the same clone, under the lock
+(`net_rerun.py`, `net-rerun.txt`): **6 of 6 pass, 0 connections logged**; both
+pass in the gate's two suites too. The failures came only in the whole lib
+suite's run (load 14.1 at its start), and are not counted here, as the
+common brief's rule for a timing failure under load reads it. On the path
+[read from the code, opus's reading checked]: the tests' window is wall
+clock, and the 2 s wait is `tokio::time::timeout(FAILED_CATALOG_RETRY_WAIT,
+..)` (`worker.rs:4555`), a line CATALOG-REFRESH did not change; what it waits
+on, the selector's `settle_load`, is CATALOG-REFRESH's.
 
 **CATALOG-REFRESH's tests and the environment** [read from the code]: its
 tests read a scripted in-process catalog (`Turns`, a `ModelCatalog` whose
@@ -497,13 +508,24 @@ test_` 176 (no unit added one).
 - **The catalog join test passes on merge 1**, without CATALOG-REFRESH: it
   pins the meeting under main's ask rule; CATALOG-REFRESH's own rule (the
   sleep-counting clock, an earlier reading due at once) is its own tests'.
-- **Two STOP-IN-CATALOG-WAIT tests missed their 1 s window once** in the
-  network run's whole lib suite (load 14.1 at its start), on a path
-  CATALOG-REFRESH's clock touches; 6 of 6 alone and green in both gate
-  suites. Named here for the security review rather than counted.
-- **The ledger's bare `:1747` (was `:1658`) for `queue_card`**, and
-  `event_loop.rs:1046-1049`: stale before this train, re-pointed by line
-  (`stale.txt`); left for REF-LINT, with the historical plans.
+- **Two STOP-IN-CATALOG-WAIT tests missed one case's window once** in the
+  network run's whole lib suite (load 14.1 at its start); 6 of 6 alone and
+  green in both gate suites. Their 2 s wait is tokio's timer, unchanged by
+  CATALOG-REFRESH (`worker.rs:4555`). Named here for the security review
+  rather than counted.
+- **The sweep's one drop is a registered nondeterminism** (`catalog-window`);
+  its 8 verdicts follow from the first asks' times (`first-asks.txt`). This
+  receipt's first wording ("a wall clock, not the code", "the head's xfx ...
+  starting late") said more than the files show and was wrong on the second
+  count (the head's xfx's median first ask is earlier); rewritten in round 2.
+- **Re-pointed by line though stale on main already** (`stale.txt`, each
+  shown against main and the head with where the named code is): the
+  ledger's bare `:1747` (was `:1658`) for `queue_card`;
+  `event_loop.rs:1046-1049`; and, round 2, eight more -- `tests/tui.rs:9331`
+  (`Shell::blind` cited at `shell.rs:2814`, `fn blind` at 16804) and `:9371`,
+  `smoke-tui.sh:11212` and `:11213`, `event_loop.rs:14833`, `shell.rs:10805`
+  (bare `:3535`), `shell.rs:23737` and `:23738`. Left for REF-LINT, with the
+  historical plans.
 - **The units' own sweeps predate their last rounds**: SUBMIT-CARD-PREVIEW's
   ran at `b0c8d70e` (round 3), CATALOG-REFRESH's at `3d96f590` (round 2),
   PASTE-GAP's at `ea2b8a60` (round 1, before rounds 2 to 8). The compares
@@ -559,26 +581,42 @@ The head: 101 scenarios, **0 failed, 0 timed out**, 559 pairs, **399 pass**
 
 **537 shared pairs: 379 -> 377; 1 up, 3 down** [measured]:
 - **down: `model-column-idle` `col-down`, `col-idle`, `col-typed`.** The
-  scenario's catalog is down for the first 9 s of the fake Gateway's life
-  (`modelsdown 9000`, wall clock); fx says `unable to load models` and xfx at
-  the head lists the rows. From each run's gateway log (`asks.py`, `asks.txt`):
-  the head's xfx asked at 4027 ms (503) and again at 10129 ms (200, past the
-  outage); `main`'s at 908 and 7045 ms, both inside; fx at 2119 and 8254 ms
-  (head run) and 1244 and 7348 ms (`main`'s), all inside. The retry follows
-  the first ask by the same 6.1 s on every binary; what moved is when the
-  head's xfx first asked, 4 s into the run, under the sweep's load. Swept three
-  times more on each binary (`reruns.sh`, `reruns.txt`; each run's asks in
-  `asks.txt`): **the head 2 of 3 pass, `main` 3 of 3**. The head's failing
-  rerun fails the other way: fx's retry landed past the outage and xfx's two
-  asks inside it, so fx lists the rows and xfx says `unable to load models`. In
-  all eight runs the verdict is whether the two binaries' asks before the snap
-  fall on the same side of the 9 s window; the interval between an xfx's two
-  asks is 6.1 s on `main` and at the head alike. A wall clock, not the code.
-- **up: `model-parked` `menu-loading`**: the same class, the other way
-  (`modelsdown 6000`; train 10's FLAKE-MODELSDOWN reading). Swept three times
-  more on each: **the head 0 of 3, `main` 1 of 3** -- it passed only where both
-  binaries asked first past the 6 s window (the head's sweep, `main`'s second
-  rerun). So the head's up is its run's timing, as `main`'s down is.
+  ledger registers this as nondeterminism: the cause `catalog-window`
+  (`scripts/fxcap/parity-ledger.toml:1059-1066`; owner FLAKE-MODELSDOWN,
+  registry #19; scenarios `model-column-idle` among them, snaps `col-*`,
+  `whole_snap`). The scenario's catalog is down for the first 9000 ms of the
+  fake Gateway's life (`modelsdown 9000`, wall clock); at the head's snap fx
+  says `unable to load models` and xfx lists the rows. **What the files
+  show** (`asks.py` -> `asks.txt`, every run's asks from its gateway log;
+  `first_asks.py` -> `first-asks.txt`):
+  - A binary asks twice: at launch, and 6078-6137 ms later (11 gaps, median
+    6102 ms). That gap is the scenario's `wait 6` before it types `/model `:
+    the second ask is the column's, not a timer's retry (opus's reading).
+  - So a binary lists the rows when its first ask is at or past
+    9000 - 6102 = 2898 ms, and a pair passes when both binaries' first asks
+    fall on the same side of ~2.9 s. That rule gives **all 8 runs' verdicts**
+    (the two sweeps and three reruns of each) **and all 16 binaries' rows**.
+  - The head's sweep: xfx first asked at 4027 ms (past), fx at 2119 ms
+    (before); `main`'s: xfx 908 ms, fx 1244 ms (both before). The reruns
+    (`reruns.sh`, `reruns.txt`): **the head 2 of 3 pass, `main` 3 of 3**; the
+    head's failing rerun is xfx 1106 ms (before) against fx 5744 ms (past),
+    the other way round.
+  - First asks, medians (`first-asks.txt`): over both wall-clock scenarios
+    (8 runs a binary, as opus counted them), xfx 6.01 s in the `main` runs and
+    5.47 s in the head's, fx 4.74 s and 4.83 s; over `model-column-idle` alone
+    (4 runs), xfx 8.34 s and 4.57 s, fx 5.90 s and 4.83 s. The head's xfx does
+    not start later than `main`'s.
+  
+  The files show where each run's first asks fell, not why they fell there;
+  they do not rule the code out. What settles it is the cause's own fix: an
+  outage counted in catalog requests rather than milliseconds since the
+  gateway started (`catalog-window`'s `fix`).
+- **up: `model-parked` `menu-loading`**: its catalog is down for the first
+  6000 ms (`modelsdown 6000`), and the pair is in the ledger under
+  `activity-tokens-before-request`. Swept three times more on each: **the head
+  0 of 3, `main` 1 of 3**; it passed only where both binaries first asked past
+  6 s (the head's sweep, `main`'s second rerun; `asks.txt`). So the head's up
+  is not a change it can be credited with.
 
 The screens that moved beyond clock-like or run-local text
 (`screen-classes.txt`): 45 lines a saved session's id, 4 the `/status` Build
@@ -598,11 +636,11 @@ the same rows). Rows gained on pairs unresolved on both (`compare-main.txt`):
 | PASTE-GAP (`ea2b8a60`, round 1; its 41) | 253 | 200 -> 210 | **10 up, 0 down**: AT-HEIGHT's `p5-input-at-dir` `dir-query`, MODEL-FUZZY's six `p5-input-model`, QUESTIONS-20's three `p5-input-question` `q6` (all on main, not on the unit's base `a832f4d7`). Rows gained: AT-HEIGHT's taller `@` list (`p5-input-at` x5), and the run-local `/status` rows |
 
 **So no pair that passes on `main`'s sweep or on any unit's own fails on the
-train's, but the three `model-column-idle` pairs**, which fail on a
-wall-clock catalog outage the head's xfx outlived by starting late
-(reruns: the head 2 of 3, `main` 3 of 3; the head's failing
-rerun fails the other way); every other move is a unit's change, a capture's run-local
-text, or the same outage the other way.
+train's, but the three `model-column-idle` pairs**: the registered
+`catalog-window` nondeterminism, whose 8 verdicts the first asks' times give
+(reruns: the head 2 of 3, `main` 3 of 3); not settled until that cause's
+fix. Every other move is a unit's change, a capture's run-local text, or the
+`model-parked` window the other way.
 
 ## Redaction
 
@@ -640,7 +678,7 @@ final form (`gates-files.txt`).
   9's); `refs-pre.txt`, `refs-*-pre.txt` (at `d2ed0274`), `refs-head.txt`,
   `refs-*-head.txt` (at `820a8f15`);
   `repoint.py`, `repoint-plan.txt`, `repointed.py`, `repointed.txt`;
-  `stale.py`, `stale.txt`.
+  `stale.py`, `stale.txt` (round 2: the re-pointed stale references).
 - Join checks: `join_test_paste.rs`, `join_test_catalog.rs`, `apply_join.py`;
   `join_helpers_catalog.rs`; `helpers.py` / `helpers.txt`; `shared.py` /
   `shared.txt`; `loop_order.py` / `loop-order.txt`; `join_bytes.sh` /
@@ -652,7 +690,8 @@ final form (`gates-files.txt`).
   `test_counts.sh`, `test-counts.txt`; `gates-files.sh`, `gates-files.txt`;
   `redaction_grep.sh`, `redaction-grep.txt`; `redacted.py`.
 - `selection.py`, `selection.txt`; `sweep.sh`, `sweep-rerun.sh`, `reruns.sh`,
-  `reruns.txt`, `asks.py`, `asks.txt`; `sweep-runs.sh`, `sweep-runs.txt`;
+  `reruns.txt`, `asks.py`, `asks.txt`, `first_asks.py`, `first-asks.txt`;
+  `sweep-runs.sh`, `sweep-runs.txt`;
   `sweep-*.md`; `sweep-compare.sh` / `sweep-compare.txt` (compare.py's exits), `compare.py`, `screen_moves.py`,
   `screen_classes.py`, `families.py`, `banners.py`; `compare-*.txt`,
   `screen-moves-*.txt`, `screen-classes.txt`, `families.txt`.
