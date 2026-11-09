@@ -15,23 +15,30 @@ rests on a file in this directory. Every `file:line` is at the code head.
 | commit | what |
 |---|---|
 | `4ebd9004` | RED, tests only, on `a49039f7`'s source (`red.txt`) |
-| `2b2f2bac` | GREEN. **The code head**: the oracle check, the mutants and the gate ran here |
-| the commits after | this receipt; receipt files only |
+| `2b2f2bac` | GREEN. The oracle check and the mutants ran here |
+| `ae695f40` | the receipt, first written |
+| `a4990f13` | **The code head**: the whole-or-absent test also runs at 30 columns, and `STATUS_ROWS` names the width cuts (a test and a doc comment). The gate ran here |
+| the commit after | this receipt, brought to `a4990f13`; receipt files only |
 
-**Size.** Round 7 adds 86 non-test source lines, 54 of them comments and
-32 code (`../round6/nontest.py a49039f7 2b2f2bac`). The unit's total is
-**637**, past the brief's ~600. The dispatcher decided not to split for
+The oracle and the mutants were not rerun at `a4990f13`. Its only changes
+are one test's width loop and one doc comment. The oracle is a different
+test. That test was already mutant 2's killer at 20 columns, and it still
+checks those 20-column cases.
+
+**Size.** Round 7 adds 87 non-test source lines, 55 of them comments and
+32 code (`../round6/nontest.py a49039f7 a4990f13`). The unit's total is
+**638**, past the brief's ~600. The dispatcher decided not to split for
 this round.
 
 ## 1. Only the paste sentences are given up whole (gpt6 MUST)
 
 How a short screen gives up a status is now the caller's to say:
-- `ApprovalScreen::set_status` (`src/tui/approval_screen.rs:234`) gives it
+- `ApprovalScreen::set_status` (`src/tui/approval_screen.rs:235`) gives it
   up from its last row, as round 5 did;
-- `set_whole_status` (`:245`) gives it up whole or not at all.
+- `set_whole_status` (`:246`) gives it up whole or not at all.
 
-The `Status` struct (`:70`) carries `whole`. The drop loop takes the block
-in one step only for a whole status (`:426`, `:431`).
+The `Status` struct (`:71`) carries `whole`. The drop loop takes the block
+in one step only for a whole status (`:427`, `:432`).
 
 `Shell::said_after_paste` (`src/tui/shell.rs:12278`, `:12280`) is the one
 caller of `set_whole_status`. It says fx's `PASTE_SUFFIX` and the three
@@ -73,22 +80,22 @@ its "rows round 5 showed" is round 5's behaviour, not a formula of mine.
 
 **The other half**: `fx_s_warning_and_the_quarantine_s_sentences_are_whole_or_absent_on_a_short_plane`
 (`shell.rs:39133`). It puts each of the four sentences on the plane through
-its real path, at 20 columns from B to B+4. Each is whole or absent, and
+its real path, at 20 and 30 columns from B to B+4. Each is whole or absent, and
 each is on the plane at some height. It is green on `a49039f7` too (round 6
 gave everything up whole); mutant 2 is its kill. The screen-level tests
 split the same way:
 - `a_status_given_up_whole_is_on_the_screen_whole_or_not_at_all_at_every_height`
-  (`approval_screen.rs:1041`);
+  (`approval_screen.rs:1042`);
 - `any_other_status_is_given_up_from_its_last_row_so_its_first_clause_stays`
-  (`:1070`): every answer is on the screen at heights 7 to 40, and the
+  (`:1071`): every answer is on the screen at heights 7 to 40, and the
   refusal is cut at some height.
 
 ## 2. The third row's cuts (opus SHOULD 1)
 
 `no_cut_of_xfx_s_refusals_shows_an_instruction_without_its_condition`
-(`approval_screen.rs:1115`) runs every width from 20 to 80. At each it
+(`approval_screen.rs:1116`) runs every width from 20 to 80. At each it
 takes every row count the screen can give the status, which is every prefix
-of `status_rows`: one wrap shared with compose (`:84`). The parts that must
+of `status_rows`: one wrap shared with compose (`:85`). The parts that must
 never show alone are named in the test:
 - "press it" without "once you can read it";
 - "press 3" and "ctrl+c" without "to refuse".
@@ -117,7 +124,7 @@ show the whole request":
 limit and was not applied." is fx's (`input_limit_feedback.zig:40
 @481104fd`). Its cuts that end on "was not" are pinned **exactly**:
 `fx_s_amendment_limit_is_cut_only_where_parity_names_it` and
-`FX_LIMIT_CUTS` (`approval_screen.rs:1146`, `:1163`). There are 14:
+`FX_LIMIT_CUTS` (`approval_screen.rs:1147`, `:1164`). There are 14:
 - one row, on a short screen, at 47 to 55 columns;
 - two rows at 25 to 28 columns;
 - three rows at 20 columns, where it is wider than its three.
@@ -128,7 +135,7 @@ unchanged.
 ## 3. The interrupted-burst leg (opus SHOULD 2)
 
 `the_plane_s_sentence_goes_in_a_turn_whose_burst_ended_with_neither_check`
-(`shell.rs:39187`) does the following:
+(`shell.rs:39191`) does the following:
 - puts "Key sequence open" on the plane;
 - `route_read(b"x")` breaks the held marker;
 - the turn ends with `settle_input` alone, neither `end_delivery_at` nor
@@ -141,14 +148,16 @@ not in `settle_input`; this test is its only killer.
 
 ## 4. Docs (opus SHOULD 3)
 
-- `STATUS_ROWS` (`approval_screen.rs:66`) names who takes the third row:
+- `STATUS_ROWS` (`approval_screen.rs:67`) names who takes the third row:
   - fx's paste warning at 20-29 columns;
   - fx's amendment limit at 20-28;
   - APPROVAL_NOT_READY at 20-39;
   - APPROVAL_NOT_DISCLOSED at 20-68.
 
-  The quarantine sentences never take it. The widths were measured by a
-  probe over `safe_rows`, then removed. The doc also says the third row
+  The quarantine sentences never take it. Wider than three rows, and so
+  cut to them: the limit at 20, NOT_READY at 20-27, NOT_DISCLOSED at
+  20-46. The widths were measured by a probe over `safe_rows`, then
+  removed. The doc also says the third row
   costs no answer, but the review's viewport is one row shorter while such
   a status fits.
 - The removal loop's comment: refusals are given up from their last row,
@@ -207,13 +216,13 @@ the indent, 1 of 1 in the document. The scenario files are unchanged since
 
 ## 7. Gate (`gates.txt`)
 
-Every CI step of `ci.yml` ran in order at **`2b2f2bac`**, under the suite
+Every CI step of `ci.yml` ran in order at **`a4990f13`**, under the suite
 lock (one slot for the run). **All 17 exit 0** (`gates.txt`).
 
 | step | result |
 |---|---|
 | fmt, clippy, fault-injection clippy | exit 0 |
-| `cargo test --locked --all-targets` | 14 binaries, **5504 passed**, 0 failed (round 6's own gate had 5498; this round adds 6 tests) |
+| `cargo test --locked --all-targets` | 14 binaries, **5504 passed**, 0 failed (round 6's own gate had 5498; this round adds 6 tests). The first run, at `2b2f2bac`, gave the same counts with all 17 exit 0 (`gates-2b2f2bac.txt`) |
 | with the fault injector | 15 binaries, **5542 passed**, 0 failed (+6) |
 | no-stubs, no-secrets, gate-env (62 of 62), identity, preview contract and its mutants, preflight cost, usage clock | exit 0 |
 | release and faulty builds, `smoke.sh` | exit 0 |

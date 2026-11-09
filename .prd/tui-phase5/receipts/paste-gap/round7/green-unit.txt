@@ -1,5 +1,5 @@
 # Round 7's tests, round 6's plane tests, the plane's status tests and the readiness refusal tests,
-# from the gate's 'test' log at 2b2f2bac:
+# from the gate's 'test' log at a4990f13:
 #   grep -E '^test tui::(shell|approval_screen)::tests::(a_refused_grant|fx_s_warning|the_plane_s_sentence_goes|no_cut_of|fx_s_amendment|a_status_given_up|any_other_status|a_status_line|a_flapping_hold|a_hold_that_flaps|the_quarantine_s_sentence|every_quarantine_sentence|the_quarantine_sentences_render|an_affirmative|a_screen_that_cannot_disclose|refusing_is_always)' test.log | sort
 test tui::approval_screen::tests::a_status_given_up_whole_is_on_the_screen_whole_or_not_at_all_at_every_height ... ok
 test tui::approval_screen::tests::a_status_line_is_painted_on_this_plane_because_the_document_is_behind_it ... ok
