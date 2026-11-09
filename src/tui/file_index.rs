@@ -994,6 +994,11 @@ pub(crate) struct Files {
     /// starts. Any walk that starts takes it: it reads the current roots,
     /// which is all a request asks for.
     pending_refresh: bool,
+    /// Whether the session's first indexed episode has asked for the
+    /// index's refresh (fx's `file_picker_episode_seen`, `picker_state.zig:
+    /// 171@481104fd`: set once, never reset). That first request is skipped
+    /// while the index is loading ([`Self::refresh_index_for_list`]).
+    episode_seen: bool,
     /// Whether a walk was stopped by a change of roots since the last
     /// [`Self::poll`]. Until then a refresh is queued as if that walk still
     /// ran, as fx's is behind a walk it does not stop (`requestStop` stops
@@ -1030,6 +1035,7 @@ impl Files {
             failed: false,
             walk: None,
             pending_refresh: false,
+            episode_seen: false,
             superseded: false,
             listed: None,
             listing: None,
@@ -1049,16 +1055,37 @@ impl Files {
         self.listed = None;
     }
 
+    /// The refresh an indexed list asks for (`prepareFilePicker`,
+    /// `input_completion_runtime.zig:854-866@481104fd`): the session's first
+    /// one is skipped while the index is loading -- the walk that loads it
+    /// is the refresh it would have asked for (`file_picker_episode_seen`,
+    /// `isFileIndexLoading`, `:857-861`) -- and every later one is
+    /// [`Self::refresh_index`]. xfx starts no index at launch, but a
+    /// `/workspace` change before any `@` does ([`super::shell`]'s
+    /// `adopt_workspace`).
+    pub(crate) fn refresh_index_for_list(&mut self) {
+        if !self.episode_seen {
+            self.episode_seen = true;
+            if self.loading() {
+                return;
+            }
+        }
+        self.refresh_index();
+    }
+
+    /// Whether the first index is still being built: none whole yet, and a
+    /// walk running (fx's `currentState() == .loading`, `file_index.zig:
+    /// 333-341@481104fd`, `main.zig:2125-2127`). A walk a change of roots
+    /// just stopped needs no term here: a refresh then is queued anyway, and
+    /// coalesces with the change's own ([`Self::superseded`]).
+    fn loading(&self) -> bool {
+        self.index.is_none() && self.walk.is_some()
+    }
+
     /// Walks the index again (`refreshFileIndex`, `app_workspace_runtime.zig:
     /// 150-152@481104fd`), or -- a walk already running -- once that walk
     /// ends ([`Self::pending_refresh`]; `refreshOwnedRoots`,
-    /// `file_index.zig:488-509`). Asked only for a list whose query the index
-    /// answers (`prepareFilePicker`, `input_completion_runtime.zig:854-866`).
-    ///
-    /// fx also skips the app's first episode's refresh while its startup
-    /// index loads (`file_picker_episode_seen`, `:857-861`, set once for the
-    /// session); xfx starts no index at launch, so its first episode always
-    /// starts the first walk.
+    /// `file_index.zig:488-509`).
     pub(crate) fn refresh_index(&mut self) {
         if self.walk.is_some() || self.superseded {
             self.pending_refresh = true;

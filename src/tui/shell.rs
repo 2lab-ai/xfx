@@ -8436,10 +8436,17 @@ impl Shell {
     /// the index's own refresh, a list open or not and eligible or not; the
     /// list's refresh and lookup then wait, as everywhere, for it to be
     /// eligible ([`Self::refresh_file_picker`]).
+    ///
+    /// An equal access changes nothing, as fx's does: its roots are not even
+    /// read again, since `index_roots` reads the filesystem and could find
+    /// them otherwise -- a directory gone since -- and drop the index with no
+    /// walk asked for.
     fn adopt_workspace(&mut self, access: WorkspaceAccess) {
         let changed = self.workspace_access != access;
-        self.files
-            .set_extra_roots(index_roots(&self.workspace, &access));
+        if changed {
+            self.files
+                .set_extra_roots(index_roots(&self.workspace, &access));
+        }
         self.workspace_access = access;
         if changed {
             self.files.abandon_listing();
@@ -16700,11 +16707,12 @@ fn allowlist_notice(
 /// fx's `prepareFilePicker` taking the list's refresh request
 /// (`input_completion_runtime.zig:854-866@481104fd`): taken whatever the
 /// query, and the workspace walked again only for a query the index answers
-/// (`if (state.indexed)`). Called only while the list is eligible -- fx
-/// returns before it otherwise (`:853`).
+/// (`if (state.indexed)`), the session's first such request skipped while
+/// the index loads ([`Files::refresh_index_for_list`]). Called only while the
+/// list is eligible -- fx returns before it otherwise (`:853`).
 fn prepare_index(source: &mut Files, list: &mut FilePicker) {
     if list.take_refresh_requested() && list.indexed() {
-        source.refresh_index();
+        source.refresh_index_for_list();
     }
 }
 
@@ -34953,9 +34961,11 @@ mod tests {
         // `:775-786`). So the index's walk publishing while the full
         // transcript is up starts no listing of `@src/`'s folder -- the
         // lookup waits -- and closing the transcript starts exactly one.
-        // Listings are what is counted: the walk the bare `@` asked for while
-        // this one ran is queued, and starts when it ends, whatever the list
-        // is under (`joinThreadIfDone`, `file_index.zig:443-451`).
+        // Listings are what is counted: walks are the index's own business
+        // and go on whatever the list is under (`joinThreadIfDone`,
+        // `file_index.zig:443-451`). Here the bare `@` is the session's first
+        // indexed episode and meets a loading index, so it asks for none
+        // (`input_completion_runtime.zig:857-861`).
         let (_workspace, mut shell) = in_ws2(40, 120);
         let walk = super::super::file_index::tests::driven(shell.files_for_test());
         let _first = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
@@ -35091,9 +35101,11 @@ mod tests {
     #[test]
     fn an_indexed_query_opens_with_one_walk_or_none_while_one_runs() {
         // An indexed query's episode walks the workspace once
-        // (`refreshFileIndex`); while a walk runs, none is started beside it
-        // -- a refresh asked for then waits for it (`refreshOwnedRoots`,
-        // `file_index.zig:488-509@481104fd`; `Files::refresh_index`).
+        // (`refreshFileIndex`); while a walk runs, none is started beside it.
+        // Here the episode is the session's first and the index is loading,
+        // so its refresh is skipped (`file_picker_episode_seen`,
+        // `input_completion_runtime.zig:857-861@481104fd`); a later one is
+        // queued behind the walk (`refreshOwnedRoots`, `file_index.zig:488-509`).
         let (_workspace, mut shell) = in_ws2(40, 120);
         let walks = shell.files_for_test().walks_for_test();
         shell.route_bytes(b"@sch");
@@ -35489,6 +35501,15 @@ mod tests {
         // shows it, its bar and window on row 0 (`invalidate`,
         // `file_completion_state.zig:130-139@481104fd`; `resetFilePickerIndex`,
         // `input_completion_runtime.zig:797`).
+        //
+        // Where xfx keeps the rows, fx shows `Files unavailable. tab to retry;
+        // esc to dismiss.` until a walk of the new scope is adopted: any access
+        // change moves its scope's epoch (`invalidateScope`,
+        // `app_workspace_runtime.zig:98-104`), and an indexed list whose index
+        // is of another epoch is staged unavailable
+        // (`input_completion_runtime.zig:868-890`). That is the gap
+        // AT-SCOPE-INTERIM (`docs/parity.md`); when it lands, this case's
+        // first precondition -- the rows kept -- flips.
         let (_workspace, mut shell) = in_ws2(40, 120);
         shell.route_bytes(b"@");
         walked(&mut shell);

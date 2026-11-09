@@ -138,3 +138,8 @@ show $P src/core/workspace/file_index.zig 103 108 "AT-FOLDERS r7: ReadableRevisi
 show $P src/core/workspace/file_index.zig 572 583 "AT-FOLDERS r7: readableRevision: the searchable generation's scope epoch"
 show $P src/core/workspace/file_index.zig 647 654 "AT-FOLDERS r7: searchableGeneration: the active generation first, the old scope's included"
 show $P src/core/app/input_completion_runtime.zig 884 890 "AT-FOLDERS r7: prepareFilePicker stages unavailable when the readable scope is not the workspace's"
+# --- added by AT-FOLDERS round 8 (2026-11-09): the first-episode skip whole,
+# and the epoch check's whole branch.
+show $P src/core/app/input_completion_runtime.zig 853 866 "AT-FOLDERS r8: the refresh request taken: indexed only, and the session's first skipped while the index is loading"
+show $P src/core/app/input_completion_runtime.zig 867 890 "AT-FOLDERS r8: the indexed source is fileCompletionRevision; a source of another scope epoch is staged unavailable"
+show $P src/core/app/app_workspace_runtime.zig 74 80 "AT-FOLDERS r8: fileCompletionRevision is the index's readableRevision; the scope epoch is the workspace's"

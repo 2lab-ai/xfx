@@ -2459,3 +2459,54 @@
   888                  state.stage(app.alloc, source, .unavailable, null);
   889                  return;
   890              }
+
+== src/core/app/input_completion_runtime.zig:853-866@481104fd -- AT-FOLDERS r8: the refresh request taken: indexed only, and the session's first skipped while the index is loading
+  853              if (!state.active or !filePickerEligible(app)) return;
+  854              if (state.refresh_requested) {
+  855                  state.refresh_requested = false;
+  856                  if (state.indexed) {
+  857                      var refresh = true;
+  858                      if (!picker.file_picker_episode_seen) {
+  859                          picker.file_picker_episode_seen = true;
+  860                          if (comptime @hasDecl(App, "isFileIndexLoading")) refresh = !app.isFileIndexLoading();
+  861                      }
+  862                      if (refresh) {
+  863                          if (comptime @hasDecl(App, "refreshFileIndex")) app.refreshFileIndex();
+  864                      }
+  865                  }
+  866              }
+
+== src/core/app/input_completion_runtime.zig:867-890@481104fd -- AT-FOLDERS r8: the indexed source is fileCompletionRevision; a source of another scope epoch is staged unavailable
+  867              var source: file_index.ReadableRevision = .{ .scope_epoch = fileScopeEpoch(app), .state = .ready };
+  868              if (state.indexed) {
+  869                  if (comptime @hasDecl(App, "fileCompletionRevision")) {
+  870                      source = app.fileCompletionRevision();
+  871                  } else {
+  872                      if (comptime @hasDecl(App, "isFileIndexLoading")) {
+  873                          if (app.isFileIndexLoading()) source.state = .loading;
+  874                      }
+  875                      if (comptime @hasDecl(App, "isFileIndexFailed")) {
+  876                          if (app.isFileIndexFailed()) source.state = .failed;
+  877                      }
+  878                  }
+  879              }
+  880              if (!state.needsLookup(source)) return;
+  881              const query = picker.activeFilePickerQuery(&app.input_runtime.edit_state) orelse return;
+  882              var decoded_storage: [file_index.max_path_len]u8 = undefined;
+  883              const decoded = query.decoded_query(&decoded_storage) catch {
+  884                  state.stage(app.alloc, source, .unavailable, null);
+  885                  return;
+  886              };
+  887              if (decoded.len > file_index.max_path_len or source.scope_epoch != fileScopeEpoch(app)) {
+  888                  state.stage(app.alloc, source, .unavailable, null);
+  889                  return;
+  890              }
+
+== src/core/app/app_workspace_runtime.zig:74-80@481104fd -- AT-FOLDERS r8: fileCompletionRevision is the index's readableRevision; the scope epoch is the workspace's
+   74          pub fn fileCompletionRevision(app: *const App) file_index.ReadableRevision {
+   75              return app.file_index.readableRevision();
+   76          }
+   77  
+   78          pub fn fileCompletionScopeEpoch(app: *const App) u64 {
+   79              return app.workspace.scope_epoch;
+   80          }

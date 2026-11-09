@@ -102,6 +102,12 @@ refresh starts at once.
 | (b) a walk running, a refresh queued | 1 (§1) |
 | (c) no list open | 1 |
 
+**Corrected in round 8:** each count holds under its condition. (a) needs
+the list to be open, eligible and indexed. A path list (`@src/`) costs 1. An
+ineligible indexed list costs 1, then 1 more once it is eligible. And the
+session's first indexed episode skips its refresh while the index loads,
+which round 7 did not copy (`../round8/README.md` §1).
+
 Round 6's open-list case now asserts (a)'s 2. Its comment that equated
 "same roots" with `runtime_changed` now reads "same access". Round 6's
 receipt (§2, "One walk follows") is corrected in place.
@@ -160,6 +166,12 @@ and stops its walk, so its list says `indexing files...` and fills in as
 the new walk publishes. **The pin confirms the gap.** It is named in
 `docs/parity.md` as unit AT-SCOPE-INTERIM and is not built here.
 
+**Corrected in round 8** (`../round8/README.md` §3): "xfx drops the old
+index and stops its walk" holds only where the roots move. An access change
+that moves no root (`set_extra_roots` returns early) keeps xfx's index, walk
+and rows, while fx still says `Files unavailable`, because any access change
+moves its epoch. AT-SCOPE-INTERIM covers both cases.
+
 ## 4. A changed scope behind the transcript (gpt6 r6 SHOULD = opus r6 SHOULD 3)
 
 `a_workspace_change_behind_the_transcript_looks_nothing_up_until_it_closes`
@@ -172,7 +184,8 @@ counts the install's walk apart from the list's work:
   the list's refresh walks (walks + 2).
 
 Mutant `prepare-index-from-adopt` takes the list's request in
-`adopt_workspace` directly. It survived on round 6's code; this case kills
+`adopt_workspace` directly. It survived on round 6's code (run in round 8:
+`../round8/r6-check.txt`); this case kills
 it (§6).
 
 ## 5. parity.md:239 (opus r6 SHOULD 2)
