@@ -14,17 +14,19 @@ decides when xfx sends background catalog requests. Base `e705a5dc`
 | `fccaf848` | the runtime-level count test settles each read before counting (a mutant survived the first version, `mutants-r1.txt`) |
 | `6ab25d2a` | fix: an ask with no trigger over nothing read still starts the first load (found writing this receipt; RED in `red-first-load.txt`) -- **the code head and the swept binary** (`sweep-head.md`, banner `v0.1.0-6ab25d2`) |
 | `a1c36a6e` | `docs/parity.md`: that first load, in the `/model` row |
-| (this one) | this receipt |
+| `b57fa272` | this receipt -- **the gate's head** (`gate.txt`) |
+| (the next two) | a comment in `system::read`; the receipt's gate and mutants |
 
-After `6ab25d2a` nothing under `src/` changes (`git diff 6ab25d2a HEAD -- src` is empty), so the swept
-binary's behaviour is the head's.
+After `6ab25d2a` nothing under `src/` changes but one comment, after the gate
+(below), so the swept binary's behaviour is the head's.
 
 Source outside tests, base to head: every line +439 -125, code alone (no
 blank or `//` line) +266 -95 (`size.txt`, `size.py`) -- past the brief's
-~400-line mark with its doc comments, under it without. The natural split, if
-wanted, is the triggers (`9ffb6310`, `04a1ed4e`, `6ab25d2a`) and the clock
-(`2810f53c`), each with its own RED; `7fa5d9c2`'s parity sentence covers
-both.
+~400-line mark with its doc comments, under it without. A split, if wanted,
+is the triggers (`9ffb6310`, `04a1ed4e`, `6ab25d2a`) and the clock
+(`2810f53c`), each with its own RED -- but not free: `6ab25d2a` edits
+`ask_catalog` after `2810f53c` typed its `now` as `CatalogTime`, so it needs
+rebasing onto `04a1ed4e`; `7fa5d9c2`'s parity sentence covers both.
 
 ## What fx v0.0.16 does (`fx-cites.txt`, `fx-commits.txt`)
 
@@ -73,7 +75,7 @@ there. "ask" is the band's control message (`CatalogAsk`,
 | provider switch: new selector, read by the same first load (mid-work: `CatalogAsks::AfterWork`) | credential/provider change -> reset + warmup (`app_auth_runtime.zig:2015-2024`) | first load | same (xfx has no sign-in or token refresh) |
 | submitted prompt or steer: `note_catalog_activity` -> ACTIVITY | `noteModelCatalogActivity` (`main.zig:1193-1201`, `:1225-1232`, `:1248-1256`) | stale/failed | same |
 | inline column frame: `settle_column` -> ACTIVITY; an edit with no answer yet: `want_catalog(AWAITED)` | `modelCompletions` -> `ensureModelCache` every frame (`main.zig:2167-2175`) | stale/failed | same -- **not** a divergence (above) |
-| `/model` menu, settings Model row: MENU / REVALIDATE | `openModelMenu` -> `revalidateModelCache` (`app_input_runtime.zig:1897-1908`) | picker | same |
+| `/model` menu, the settings Model row, C-p: all through `open_models_with` (`read-sites.txt`), MENU / REVALIDATE | `openModelMenu` -> `revalidateModelCache` (`app_input_runtime.zig:1897-1908`, `:2062-2066`, `:2104-2107`) | picker | same |
 | `/settings` | `settingsCatalogSnapshot` (no load) | **none** but a first load nothing has made | was AWAITED (activity) with no answer yet; now TOLD |
 | `/fast`, `/ultrafast on` | `resolveForApp` (no load) | **none** | the same, fixed |
 | resume from the picker, `/fork` | `startResumedSessionWarmup` | stale/failed | **xfx asked nothing; now ACTIVITY** |
@@ -159,7 +161,18 @@ rests on the tests and the table.
 ## Mutants (`mutants.py`, `mutants.txt`)
 
 On a `git clone --no-local` of the branch in the scratch directory, each under
-`bounded.py` (300 s, 3 GiB), the edit undone after. MUTANTS_SUMMARY
+`bounded.py` (300 s, 3 GiB), the edit undone after. At `6ab25d2a`, **16 of 16
+killed** (`mutants.txt`): the awake clock restored (`Instant`'s), Apple's id
+set to `CLOCK_UPTIME_RAW`, the earlier-reading rule removed, the last read's
+start not told, the selector's and the band's reads timed on the system clock
+instead of the injected one, a resume or fork asking nothing, `/settings` or
+the speed commands asking with activity's trigger (twice, and through
+`TOLD`), an ask with no trigger reading as activity or starting no first load
+(between work and mid-work, five), and the column's frame asking nothing --
+fx's `modelCompletions` does, so that one pins the parity. The first run, at
+`7fa5d9c2`, left one alive -- "the runtime reads for an ask with no trigger"
+(`mutants-r1.txt`): the count test read the fetch counter before the read's
+thread had reached it; `fccaf848` settles each ask first.
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
 
@@ -181,7 +194,15 @@ check that nothing moved.
 
 ## Gate (`gates.sh`, `gate.txt`)
 
-GATE_SUMMARY
+At `b57fa272`, under the suite lock: **20 steps, 0 failed** -- fmt, both
+clippys, `cargo test` (15 binaries, 5482 passed, 0 failed, 7 ignored) and
+`--features fault-injection` (5519 passed, 0 failed, 7 ignored), six
+`check-*` scripts and three `test-*` ones, both fxcap self-tests, both release
+builds, smoke and smoke-tui. "tree clean: no" is this README, edited in the
+working tree while the gate waited for and held its slot (the mutants'
+summary); nothing under `src/` was. After the gate, one commit changes a
+comment in `src/provider/catalog_clock.rs` (`system::read`) and no code;
+`git diff 6ab25d2a HEAD -- src` is that comment alone.
 
 ## Security
 
@@ -193,7 +214,11 @@ GATE_SUMMARY
   the first ask reads
   a catalog the sleep aged, at most once per ask and never inside a failure's
   backoff; no read without an ask.
-- `clock_gettime` is called with a constant id into a local `timespec`; a
-  failed call reads as the clock's origin, which is due -- never a catalog
-  held fresh (`catalog_clock.rs`, `system::read`).
+- `clock_gettime` is called with a constant id into a local `timespec`, an id
+  each of these platforms has (`clock-sources.txt`, libc's constants), so it
+  does not fail there. Were every call to fail, every reading would be the
+  origin: the first load would still happen, but no refresh would come due,
+  for activity or the menu, and a failure's hold would never end; one failed
+  call among good ones reads as earlier than the last read's start, which is
+  due (`catalog_clock.rs`, `system::read`).
 - Nothing model- or file-controlled reaches the screen in this unit.

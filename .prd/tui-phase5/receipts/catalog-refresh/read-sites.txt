@@ -35,3 +35,8 @@ src/tui/shell.rs:14928  [fn want_catalog]  self.work.control(TurnControl::Catalo
 src/tui/shell.rs:14978  [pub(crate) fn settle_column]  let _ = self.note_catalog_activity(now);
 src/tui/shell.rs:15094  [fn speed_command]  self.want_catalog(CatalogAsk::TOLD);
 src/tui/event_loop.rs: 1092:    shell.settle_column(catalog_now);
+
+# the menu's openers (each reaches open_models_with, whose asks are MENU / REVALIDATE above)
+src/tui/shell.rs:6178  [fn open_settings_models]  self.open_models_with("");   -- the settings Model row
+src/tui/shell.rs:7522  [fn model_catalog_shortcut]  self.open_models();   -- C-p
+src/tui/shell.rs:14688  [fn use_model]  self.open_models();   -- a bare /model

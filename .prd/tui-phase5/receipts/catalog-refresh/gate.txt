@@ -1,0 +1,59 @@
+# suite-lock.sh gates.sh <work> <logs> <smoke>, at b57fa272; one line per step
+# head b57fa272; tree clean: no
+01 fmt                                exit 0     2s  load 16.53
+02 clippy                             exit 0    14s  load 16.53
+03 clippy-fault                       exit 0    14s  load 15.57
+04 test                               exit 0   176s  load 19.88
+05 test-fault                         exit 0   211s  load 41.32
+06 check-xfx-identity                 exit 0     2s  load 19.45
+07 check-no-stubs                     exit 0    15s  load 19.45
+08 check-no-secrets                   exit 0    62s  load 17.82
+09 check-preview-contract             exit 0    18s  load 22.55
+10 check-tui-preflight-cost           exit 0   170s  load 20.91
+11 check-usage-clock                  exit 0     2s  load 32.05
+12 test-check-no-secrets              exit 0    94s  load 30.21
+13 test-gate-env                      exit 0   264s  load 21.65
+14 test-preview-contract              exit 0   140s  load 24.31
+15 fxcap-test-sweep                   exit 0    21s  load 12.75
+16 fxcap-test-capture                 exit 0   444s  load 14.88
+17 build-release                      exit 0    24s  load 10.77
+18 build-faulty                       exit 0    33s  load 13.98
+19 smoke                              exit 0     2s  load 23.46
+20 smoke-tui                          exit 0    64s  load 23.75
+# 20 steps, 0 failed; tree clean after: no
+
+# the two cargo test steps' result lines, from their step logs
+## 04-test
+test result: ok. 4565 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 72.22s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.11s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.40s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.79s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.22s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.81s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.79s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.45s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.43s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+test result: ok. 181 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 24.99s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+sum: 15 binaries, passed 5482, failed 0, ignored 7
+## 05-test-fault
+test result: ok. 4588 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 64.24s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.15s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.87s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.75s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.21s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.06s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.08s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.81s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.52s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.37s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+sum: 15 binaries, passed 5519, failed 0, ignored 7
