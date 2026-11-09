@@ -1,0 +1,25 @@
+test-preview-contract: caught paths-dropped                the push trigger's paths are nil
+test-preview-contract: caught paths-everything             the push trigger's paths are ["**"]
+test-preview-contract: caught paths-renamed                the push trigger's paths are [".github/epoch"]
+test-preview-contract: caught tags-added                   the push trigger filters on ["branches", "paths", "tags"]
+test-preview-contract: caught dispatch-added               the workflow triggers on ["push", "workflow_dispatch"]
+test-preview-contract: caught gate-removed                 preflight has no epoch gate
+test-preview-contract: caught gate-always-publishes        expected skip
+test-preview-contract: caught build-unconditional          build runs on nil
+test-preview-contract: caught publish-unconditional        publish runs on nil
+test-preview-contract: caught environment-dropped          publish reads TAP_PUSH_KEY under environment nil
+test-preview-contract: caught environment-renamed          publish reads TAP_PUSH_KEY under environment "production"
+test-preview-contract: caught environment-on-preflight     preflight names environment "preview" but reads no secret
+test-preview-contract: caught key-without-environment      build reads TAP_PUSH_KEY under environment nil
+test-preview-contract: caught build-whole-context          the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught build-bracket-key            the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught build-brace-literal          the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught publish-action-whole-context hands a secret to the action actions/github-script@v7
+test-preview-contract: caught second-workflow              tap.yml mentions TAP_PUSH_KEY
+test-preview-contract: caught other-workflow-environment   dispatch.yml: job leak names environment "preview"
+test-preview-contract: caught other-workflow-whole-context report.yml: job report reads a secret
+test-preview-contract: caught secrets-inherit              call.yml: job call passes secrets
+test-preview-contract: caught epoch-absent                 there is no .github/preview-epoch
+test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
+test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)

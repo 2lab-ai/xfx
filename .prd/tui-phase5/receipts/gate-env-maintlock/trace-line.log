@@ -1,0 +1,8 @@
+# git 2.56.0
+git.c:506               trace: built-in: git init -q
+git.c:506               trace: built-in: git config maintenance.auto true
+git.c:506               trace: built-in: git config maintenance.strategy gc
+git.c:506               trace: built-in: git config gc.auto 1
+git.c:506               trace: built-in: git config core.hooksPath <root>/maint-hooks
+git.c:506               trace: built-in: git add -- d.txt
+git.c:506               trace: built-in: git commit -q -m decoy

@@ -1,0 +1,13 @@
+diff --git a/scripts/test-gate-env.sh b/scripts/test-gate-env.sh
+index c7a8de54..ba25a0d3 100755
+--- a/scripts/test-gate-env.sh
++++ b/scripts/test-gate-env.sh
+@@ -327,7 +327,7 @@ new_decoy() {
+ 		sg -C "$decoy" config maintenance.strategy gc
+ 		sg -C "$decoy" config gc.auto 1
+ 		sg -C "$decoy" config core.hooksPath "$work/maint-hooks"
+-		mkdir -p "$decoy/.git/objects/17"
++		mkdir -p "$decoy/.git/objects/17"; : >"$decoy/.git/objects/maintenance.lock"
+ 		: >"$decoy/.git/objects/17/$(printf '%038d' 1)"
+ 		: >"$decoy/.git/objects/17/$(printf '%038d' 2)"
+ 	fi

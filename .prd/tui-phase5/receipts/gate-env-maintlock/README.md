@@ -12,11 +12,12 @@ with its source.
 
 - **Base:** origin/main `32afd307`. Branch `fix/p5-gate-env-maintlock`:
   the hold case at `4cac717d`, the fix at `d98ada7e`, the trace check at
-  `2bc8fa55`, this receipt on top. Base line numbers (`:N` base) are at
-  `32afd307`; head line numbers (`:N` head) are at `2bc8fa55`.
+  `2bc8fa55`, the round 1 receipt at `389e9c9b` and `1990a4d7`, the review
+  fixes at `2a9b1c22`, this receipt on top. Base line numbers (`:N` base)
+  are at `32afd307`; head line numbers (`:N` head) are at `2a9b1c22`.
 - **Machine:** macOS, git 2.56.0 (Homebrew), GNU `timeout`. `ulimit -v` and
   `-d` are refused by macOS, so every run is bounded by `timeout -k 10 900`
-  and by the cases' own 10 s waits (`batch.sh`).
+  and by the cases' own 10 s waits (`batch.sh`, `batch2.sh`, `batch3.sh`).
 - **Scope:** `scripts/test-gate-env.sh` only. `check-xfx-identity.sh` and
   every other gate are unchanged.
 
@@ -57,8 +58,8 @@ on the same head passed 62 of 62. Source: this unit's brief.
    with concurrent background maintenance jobs" (`RelNotes/2.56.0.adoc:810-814`).
 5. **Why it is rare.** The window is under 9 ms here. 300 plain decoys,
    with sums 0.2 s apart, showed no difference (`natural-probe-base.log`).
-   The sums land inside the window only on a loaded machine, like the
-   dispatcher's gate with other suites beside it.
+   Load may affect how often the sums overlap the window; the dispatcher's
+   gate ran with other suites beside it *(not measured here)*.
 
 **Which git calls can start it.** `calls-probe.log` runs every subcommand
 the decoy cases use once, under `GIT_TRACE`, in a repository whose own config
@@ -88,9 +89,14 @@ says, and it covers `new_decoy`'s commit and the four other commits above.
 - **`maintenance.auto=false` is the flag that holds** (`git-docs.txt`:
   git-config `maintenance.auto`). When the repository's own config sets
   `maintenance.auto=true`, `-c gc.auto=0` alone still lets the commit start
-  maintenance (`flag-probe.log`: `gc-hook gc.auto=0 starts=1`). That run then
-  does its foreground work: 2 s waiting on a held ref lock
+  maintenance (`flag-probe.log:5`: `gc-hook gc.auto=0 starts=1`). That run
+  then does its foreground work: 2 s waiting on a held ref lock
   (`reflog-probe.log`: `gc.auto=0`).
+- **On a decoy whose config does not set `maintenance.auto`**, `-c gc.auto=0`
+  alone also stops the start: `lock-probe.log:5` (`mode=gc-only`,
+  `lock-seen=0` in 50) and `flag-probe.log:9` (`graph gc.auto=0 starts=0`,
+  by trace). So mutant 2 below is red only because the cases force
+  `maintenance.auto=true` in the decoy's own config.
 - **`gc.auto=0` is kept because the brief prescribes it.** It also stops a
   `gc --auto` (`git-docs.txt`: git-config `gc.auto`), which is what a commit
   ran on a git from before `git maintenance` (2.29,
@@ -99,7 +105,7 @@ says, and it covers `new_decoy`'s commit and the four other commits above.
 
 ## The cases
 
-Both live in the section "the decoy's own setup" (`:419-482` head). Both
+Both live in the section "the decoy's own setup" (`:419-522` head). Both
 build the decoy with `decoy_forced=1`, which makes `new_decoy`
 (`:324-333` head) give the decoy's own config:
 - `maintenance.auto=true`;
@@ -109,29 +115,41 @@ build the decoy with `decoy_forced=1`, which makes `new_decoy`
   estimate of the loose objects reads;
 - `core.hooksPath` naming a `pre-auto-gc` hook outside the decoy.
 
-**`decoy-setup-maintenance`** (`:463` head) reproduces the reported failure
+**`decoy-setup-maintenance`** (`:468` head) reproduces the reported failure
 without a race. The hook's first call is made before the run detaches, and
 lets gc go on. Its second call, from the background `git gc --auto`, waits
 for the case's go and then exits 1, so gc stops before it reads the names as
 objects (`git-docs.txt`: githooks `pre-auto-gc`). The sums before are taken
-while that call waits. `after_maintenance` (`:453-461` head) then gives the
+while that call waits. `after_maintenance` (`:454-466` head) then gives the
 go, waits for the lock to go, and runs the gate (`check-xfx-identity.sh` on
-`ilock`). Both waits stop at 10 s. `hook-probe2.log` shows the mechanism
+`ilock`). Both waits stop at 10 s. Since `2a9b1c22`, a lock still there
+after 10 s fails the case (exit 3, the gate not run): with the lock in both
+sums, the case would have passed. `hook-probe2.log` shows the mechanism
 alone: two hook calls, the second under `git gc --auto` after the commit
 returned, and the lock held until the go.
 
-**`decoy-setup-starts-nothing`** (`:464-481` head) is added because the
+**`decoy-setup-starts-nothing`** (`:469-521` head) is added because the
 first case holds a run only through gc, and `-c gc.auto=0` alone turns gc
 off. It runs the same forced `new_decoy` under `GIT_TRACE` and requires that
 the trace names no `git maintenance run` and no `git gc --auto`. Timing does
-not enter into it.
+not enter into it. Since `2a9b1c22` it fails closed:
+- the trace must exist, be non-empty and hold the commit's own line,
+  `trace: built-in: git commit -q -m decoy`, as git 2.56 writes it
+  (`trace-line.log`);
+- only grep's status 1 over it is a pass;
+- `nothing_ran` must find no `pre-auto-gc` marker, a second signal that
+  does not depend on the trace's format;
+- `new_decoy` failing under the trace prints its output, then the test
+  exits.
 
 ## RED, GREEN and mutants
 
-All runs are the whole `scripts/test-gate-env.sh`, one at a time, inside one
-machine-wide suite-lock slot per batch (`batch.sh`, `batch2.sh`; as run,
-except that `TMPDIR` was exported there and is taken from the caller here).
-RED and the mutants ran in a `git clone --no-local` throwaway, never in the
+All runs are the whole `scripts/test-gate-env.sh`, one at a time
+(`batch.sh`, `batch2.sh`; as run, except that `TMPDIR` was exported there
+and is taken from the caller here). Each batch was started through the
+machine's `suite-lock.sh` *(not measured here: rounds 1 and 2 recorded no
+slot; `runs-r3/summary.txt`'s first line records `batch3.sh`'s)*. RED and
+the mutants ran in a `git clone --no-local` throwaway, never in the
 worktree. Each line below is copied from `runs-r1/summary.txt` or
 `runs-r2/summary.txt`, and each result from that run's log.
 
@@ -146,12 +164,14 @@ test-gate-env: decoy-setup-maintenance: the gate wrote into the decoy repository
 
 That is the dispatcher's failure line, against a gate that was never given
 the decoy. The trace check came after the fix. Its RED is mutants 1 and 2
-below, which are the head with the fix taken out, and `trunc-runs.txt`:
+below, which are the head with the fix taken out, and `trunc-runs.txt`
+(a by-hand run in the clone; its commands are not in this folder, *(not
+measured here)*):
 the head's test cut after the trace check (`:482` head), with `sg` as at
 `base`, which shows both cases failing, and as in mutant 2, which shows
 `decoy-setup-starts-nothing` failing alone.
 
-**GREEN** (`runs-r2/green-{1,2,3}.log`), the worktree at `2bc8fa55`: three
+**GREEN, round 2** (`runs-r2/green-{1,2,3}.log`), the worktree at `2bc8fa55`: three
 runs, each exit 0 and `test-gate-env: ok (64 cases)`, the base's 62 cases
 and the two new ones. No line but `ok`, `skip` and the grep banner, in any
 of them.
@@ -182,12 +202,71 @@ of them.
   added `decoy-setup-starts-nothing`. Round 1 was stopped during mutant 3,
   so it has no mutant 3 result.
 
-## Gates on the head
+## Round 1 quick gates
 
-`gates.txt`: `check-xfx-identity.sh`, `check-no-secrets.sh`, `bash -n` under
+`gates.txt` was taken at `389e9c9b`, the round 1 receipt, not at a later
+head: `check-xfx-identity.sh`, `check-no-secrets.sh`, `bash -n` under
 `/bin/bash` 3.2 and under the PATH's bash, `shellcheck -S warning`, and the
 local-path grep over `git diff 32afd307..HEAD`. The tree has no
 `check-no-local-paths.sh` at this base.
+
+## Round 2: the review of `1990a4d7` (fixes at `2a9b1c22`)
+
+Both review engines found the same MUST: `decoy-setup-starts-nothing` failed
+open, because `grep ... || true` hid grep's status 2. The fixes are listed
+under "The cases" above. `runs-r3/` holds `batch3.sh`'s runs. Its first line
+records the suite-lock slot it held (`slot-2`, from 16:56:43Z). Each mutant
+ran in a `git clone --no-local` throwaway, and the clone was left clean
+(`runs-r3/summary.txt`).
+
+**The two new mutants, before and after the fixes** (`runs-r3/*.diff`, `.log`):
+
+| mutant | at `1990a4d7` (round 1 code) | at `2a9b1c22` |
+|---|---|---|
+| m4: `unset GIT_TRACE` in the trace subshell | exit 0, `ok (64 cases)`: **failed open** | exit 1: `git's trace recorded nothing (no trace file, or an empty one)` |
+| m5: a stale `objects/maintenance.lock` that never goes | exit 0, `ok (64 cases)`: **failed open** | exit 1, both cases: `the decoy's objects/maintenance.lock was still there after 10 s; the gate was not run` (`decoy-setup-maintenance` as "the gate exited 3") |
+
+**The round 1 mutants again, at `2a9b1c22`:**
+
+| mutant | exit | result |
+|---|---|---|
+| m1: no guard | 1 | red, 3 problems: the decoy write, the trace's two starts, and `a program from config ran: pre-auto-gc` (the new marker check) |
+| m2: no `maintenance.auto=false` | 1 | red: `new_decoy's commit started git's maintenance: run_command: git maintenance run --auto --quiet --detach` |
+| m3: no `gc.auto=0` | 0 | survives, `ok (64 cases)`, as in round 1 |
+
+**`setup-fails`** (`runs-r3/setup-fails.*`): the head, with `new_decoy` made
+to fail inside the trace subshell, and the test cut right after that
+section. Exit 1, and the output is printed before the exit:
+`new_decoy exited 1 under GIT_TRACE; its output:` and then the failing
+line.
+
+**GREEN** (`runs-r3/green-{1,2,3}.log`), the worktree at `2a9b1c22`:
+
+| run | exit | seconds | load (1 min) | result |
+|---|---|---|---|---|
+| green-1 | 0 | 572 | 44.65 | `ok (64 cases)` |
+| green-2 | 0 | 303 | 52.32 | `ok (64 cases)` |
+| green-3 | 0 | 367 | 36.70 | `ok (64 cases)` |
+
+None of the three printed a line other than `ok`, `skip` and the grep
+banner.
+
+**The full gate** (`gates.sh`, `gate-r3/`), at `2a9b1c22`, inside one hold of
+the suite lock: 20 steps, 0 failed (`gate-r3/summary.txt`).
+- `cargo test`: 5539 passed, 0 failed (`gate-r3/04-test.log`, the result
+  lines only).
+- With fault injection: 5576 passed, 0 failed (`05-test-fault.log`).
+- `test-gate-env`: `ok (64 cases)` in 343 s (`13-test-gate-env.log`).
+- `check-xfx-identity` and `check-no-secrets`: ok, 17192 tracked files.
+
+Its "tree clean: no" is this round's receipt files, uncommitted under this
+folder while the gate ran: no file outside `.prd/` differed from
+`2a9b1c22`. `gates-r3-quick.txt` reruns the quick gates on the head that
+holds this receipt.
+
+`trace-line.log` (`trace-line.sh`) shows the commit line the case requires,
+`trace: built-in: git commit -q -m decoy`, as git 2.56.0 writes it for
+`new_decoy`'s calls, with no maintenance start in the trace.
 
 ## Limits
 
