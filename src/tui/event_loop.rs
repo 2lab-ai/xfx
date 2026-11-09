@@ -632,6 +632,18 @@ fn read_burst(
 /// ([`super::input::Decoder::PASTE_QUIET`], `docs/parity.md`'s `full-screen
 /// TUI` row).
 ///
+/// **What keeps it from holding the input forever.** Only input itself: every
+/// byte dropped starts the quiet again, so the quarantine ends about
+/// `PASTE_QUIET` plus a turn after the input stops, and a stream that never
+/// stops is said once a second while it lasts (`PASTE_REPEAT`), never decoded
+/// on a timer. Two things the decoder waits on besides: a start marker half
+/// read, which the next byte completes or breaks; and a paste begun inside the
+/// quarantine, which ends at its own end marker -- one a terminal writes after
+/// every paste, and the one that closes whatever a clipboard opened. Without
+/// it the stream is malformed and the input stays a paste's content, as an
+/// unterminated paste's does in fx (`paste_framing.zig:502-511@481104fd`) and
+/// at the base. An outside signal ends the session either way.
+///
 /// `ready` and `read` are the terminal's ([`read_burst`]); a case passes its
 /// own, so where a delivery ends is tested without a terminal's timing.
 fn burst(

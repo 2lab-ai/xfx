@@ -36,16 +36,19 @@ pub const IDLE_POLL: Duration = Duration::from_millis(2);
 /// How long [`Session::type_bytes`] lets the terminal stay quiet after a write
 /// that ended a bracketed paste, before it types anything more.
 ///
-/// The TUI takes input that follows a paste for the clipboard's until the
-/// input has been quiet for 50 ms (`PASTE_QUIET` in `src/tui/input.rs`, not
-/// visible from here, so spelled out): a person's next key comes later than
-/// that, after they have seen the paste land, and a test's would not, since a
-/// needle on the screen can be found a millisecond after the paste settled. So
-/// the whole pause is taken at the next write -- which comes after whatever the
-/// test waited to see -- rather than counted from the paste's own write: a
-/// debug build on a loaded machine can take most of a pause that long to read
-/// and settle a paste of a few kilobytes. Five times the bound, so a loop slow
-/// to look twice has looked by then.
+/// The TUI drops input that follows a paste, whoever typed it, until the input
+/// has been quiet for about 50 ms plus a turn of its loop (8 ms) plus that
+/// turn's work, counted from when it reads the paste's last byte and started
+/// again by every byte it drops (`PASTE_QUIET` and `TICK` in `src/tui/`, not
+/// visible from here, so spelled out). Fast input there is lost by design, and
+/// said. **These harnesses model paced input**: a test's next key comes after
+/// this pause, as a person's does once they have seen the paste land. The
+/// whole pause is taken at the next write -- after whatever the test waited to
+/// see -- rather than counted from the paste's own write, which a debug build
+/// on a loaded machine can spend most of reading and settling the paste. About
+/// four times the window; `paste_quiet_stays_within_what_was_measured` in
+/// `src/tui/input.rs` keeps it so. A test about input *inside* the window uses
+/// [`Session::write_raw`], which takes no pause.
 pub const PASTE_PAUSE: Duration = Duration::from_millis(250);
 
 /// How many times a pty allocation is attempted before the harness gives up.
@@ -340,13 +343,19 @@ impl Session {
         if self.pasted.swap(false, Ordering::SeqCst) {
             thread::sleep(PASTE_PAUSE);
         }
-        self.write_all(bytes);
+        self.write_raw(bytes);
         if bytes.windows(6).any(|window| window == b"\x1b[201~") {
             self.pasted.store(true, Ordering::SeqCst);
         }
     }
 
-    fn write_all(&self, bytes: &[u8]) {
+    /// Writes `bytes` on the terminal **unpaced**: no [`PASTE_PAUSE`] before
+    /// it, whatever was written last, and none armed after it, whatever it
+    /// carries -- a terminal writing a paste as fast as the reader takes it,
+    /// for a test about what the TUI does with input inside a paste's
+    /// quarantine. Bounded as `type_bytes` is: [`WAIT`] for the terminal to
+    /// take each part of it.
+    pub fn write_raw(&self, bytes: &[u8]) {
         let deadline = Instant::now() + WAIT;
         let mut rest = bytes;
         while !rest.is_empty() {

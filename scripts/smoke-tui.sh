@@ -2566,13 +2566,14 @@ WAIT = 20.0
 # How long a poll sleeps when the master has nothing yet.
 IDLE_POLL = 0.002
 # How long `send` lets the terminal stay quiet, before the write that follows
-# one that ended a bracketed paste: xfx takes input that follows a paste for
-# the clipboard's until the input has been quiet for 50 ms
-# (`Decoder::PASTE_QUIET`, src/tui/input.rs), and a person's next key comes
-# later than that, after they have seen the paste land -- so the whole pause
-# is taken at the next write, after whatever the trial waited to see. Five
-# times the bound, for a loop slow to look twice under load.
-# tests/support/pty.rs' `PASTE_PAUSE` is the same rule.
+# one that ended a bracketed paste. xfx drops input that follows a paste,
+# whoever typed it, until the input has been quiet for about 50 ms plus a turn
+# of its loop plus that turn's work, counted from when it reads the paste's
+# last byte and started again by every byte it drops (`Decoder::PASTE_QUIET`,
+# src/tui/input.rs). Fast input there is lost by design, and said. These
+# trials model paced input: the next key comes after this pause, taken whole
+# at the next write, after whatever the trial waited to see. About four times
+# the window; tests/support/pty.rs' `PASTE_PAUSE` is the same rule.
 PASTE_PAUSE = 0.25
 
 # The bytes that mean the TUI has taken the terminal (`?2004h`, the last of the

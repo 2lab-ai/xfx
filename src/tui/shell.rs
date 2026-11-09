@@ -546,6 +546,12 @@ const INPUT_LIMIT: &str = "That edit exceeds the local prompt safety limit and w
 /// taking no text at all ([`Shell::ignored_behind_paste`]).
 const PASTE_SUFFIX: &str = "Input that arrived right after the paste was ignored.";
 
+/// What input that keeps arriving inside a paste's quarantine says, once a
+/// second while it lasts ([`super::input::Decoder::PASTE_REPEAT`]), the same
+/// way and on the same plane as [`PASTE_SUFFIX`]. xfx's own words, and how to
+/// get out: fx has no quarantine, so it has nothing to say here.
+const PASTE_STILL: &str = "Input is still being ignored until it stops for a moment.";
+
 /// The hint row's refusal for a paste this session has no number left for.
 ///
 /// Its own sentence rather than [`INPUT_LIMIT`]'s, because the two are
@@ -10381,15 +10387,17 @@ impl Shell {
                     self.ignored_behind_paste();
                 }
             }
-            Delivery::Ignored { .. } => self.ignored_behind_paste(),
+            Delivery::Ignored { again: false, .. } => self.ignored_behind_paste(),
+            Delivery::Ignored { again: true, .. } => self.said_after_paste(PASTE_STILL),
         }
     }
 
     /// `bytes` as one whole delivery: [`Self::route_read`], then
     /// [`Self::end_delivery`], and then quiet for as long as a paste's
-    /// quarantine lasts -- the shape every keystroke a test types has, since a
-    /// person's next key comes later than that, and the shape the loop gives
-    /// one write that fits in one read. A case about a delivery made of several
+    /// quarantine lasts -- the shape every keystroke a test types has, because
+    /// these cases model paced input (fast input after a paste is dropped by
+    /// design, and its own cases say so), and the shape the loop gives one
+    /// write that fits in one read. A case about a delivery made of several
     /// reads, or about input soon after a paste, calls them itself.
     #[cfg(test)]
     pub(crate) fn route_bytes(&mut self, bytes: &[u8]) {
@@ -12153,9 +12161,14 @@ impl Shell {
     /// ([`Self::notice_at_the_question`]), and there it is the last word when
     /// the paste's own refusal was said first, the order fx writes them in.
     fn ignored_behind_paste(&mut self) {
+        self.said_after_paste(PASTE_SUFFIX);
+    }
+
+    /// `text` under `input`, as [`Self::ignored_behind_paste`] says its own.
+    fn said_after_paste(&mut self, text: &'static str) {
         match self.alternate.as_mut() {
-            Some(screen) => screen.set_status(PASTE_SUFFIX.to_string()),
-            None => self.announce(notice::Notice::warning("input", PASTE_SUFFIX)),
+            Some(screen) => screen.set_status(text.to_string()),
+            None => self.announce(notice::Notice::warning("input", text)),
         }
         // The surface the paste was for is the one to repaint
         // (`input_paste_runtime.zig:254-257`, `:282`, `:306`, `:330`).
@@ -18893,7 +18906,7 @@ mod tests {
     fn still_ignored_after_the_paste() -> notice::Notice {
         notice::Notice::warning(
             "input",
-            "Input after the paste is still being ignored until it stops for a moment.",
+            "Input is still being ignored until it stops for a moment.",
         )
     }
 
