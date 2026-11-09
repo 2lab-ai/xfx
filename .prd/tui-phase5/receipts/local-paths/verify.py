@@ -80,7 +80,7 @@ def pairs_of(rel):
 
 def columns(row):
     """A row's visible width, control sequences set aside, as cells.py counts."""
-    text = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\\\)|\x1b[\x20-\x2f]*[\x30-\x7e]", b"", row)
+    text = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[\x20-\x2f]*[\x30-\x7e]", b"", row)
     return sum(cells.width(ch) for ch in text.decode("utf-8", "replace"))
 
 

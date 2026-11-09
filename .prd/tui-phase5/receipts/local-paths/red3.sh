@@ -61,4 +61,11 @@ status=0
 env -u TMUX -u TMUX_PANE FXCAP_SCENARIOS="$d/scen" TMPDIR="$d/l/" FX_BIN="$d/bin/it" \
 	bash "$fx/capture.sh" fx t 30x200 "$d/out" >"$work/cap.log" 2>&1 </dev/null || status=$?
 for sock in "$d"/l/fxcap.*/s "$d"/l//fxcap.*/s; do [ -S "$sock" ] && tmux -f /dev/null -S "$sock" kill-server 2>/dev/null; done
-if [ "$status" -eq 3 ]; then say "5 trailing-slash TMPDIR:" "refused, exit 3 (RED)"; else say "5 trailing-slash TMPDIR:" "exit $status"; fi
+# The exit status and the guard's own line, both: a run that exits 3 for
+# another reason, or one that says LOCAL-PATH GUARD and exits 0, is neither.
+guard=$(grep -c 'LOCAL-PATH GUARD' "$work/cap.log" || true)
+if [ "$status" -eq 3 ] && [ "$guard" -gt 0 ]; then
+	say "5 trailing-slash TMPDIR:" "refused, exit 3, $guard LOCAL-PATH GUARD line(s) (RED)"
+else
+	say "5 trailing-slash TMPDIR:" "exit $status, $guard LOCAL-PATH GUARD line(s)"
+fi

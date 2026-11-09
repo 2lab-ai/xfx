@@ -1,8 +1,8 @@
-# red3.sh on the round-3 tree (the code of 4fc0a538 and 70b3b43e)
+# red3.sh on a clone at 21bb78b2 (round 3)
 1 wrap at 9 vs 12:                 differ
 NTH literal in JSON:               valid
 3 a sibling of HOME:               left
 NIT nF escape after a root:        rewritten whole
 2 a mark in a report capture:      refused
 4 a home cut at its first match:   refused
-5 trailing-slash TMPDIR:           exit 0
+5 trailing-slash TMPDIR:           exit 0, 0 LOCAL-PATH GUARD line(s)

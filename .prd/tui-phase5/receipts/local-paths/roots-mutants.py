@@ -1,53 +1,88 @@
-"""LOCAL-PATHS round 3: each mutant of scripts/fxcap/roots.py or capture.sh,
-applied to a throwaway clone's copy (never a checkout anyone works in), must
-be failed by the harness tests that pin it.
+"""LOCAL-PATHS round 4: each mutant of scripts/fxcap/roots.py, capture.sh or
+parity-ledger.toml, applied to a throwaway clone's copy (never a checkout
+anyone works in), must be failed by the tests that pin it. Each line names
+the tests that failed and the test file's line of the first failed
+assertion -- which assertion killed it -- never a path.
 
 usage: python3 -I roots-mutants.py <clone>     (run it under the suite lock)
 """
 import os
+import re
 import subprocess
 import sys
 
 clone = sys.argv[1]
 FX = os.path.join(clone, "scripts", "fxcap")
-TESTS = ["RootsRewrite", "RunRoots.test_a_tmpdir_with_a_trailing_slash",
-         "RunRoots.test_a_root_each_side_broke_at_another_column_reads_different",
-         "RunRoots.test_a_sibling_of_the_harness_tmpdir_is_left_and_refuses_nothing"]
+CAPTURE = ["test_capture.py", "RootsRewrite", "RunRoots.test_a_tmpdir_with_a_trailing_slash",
+           "RunRoots.test_a_root_each_side_broke_at_another_column_reads_different",
+           "RunRoots.test_a_sibling_of_the_harness_tmpdir_is_left_and_refuses_nothing"]
+SWEEP = ["test_sweep.py", "Normalize"]
+SURVIVORS = '''        in_control = any(
+            any(m.start() < end and start < m.end() for start, end in view.controls)
+            for m in re.finditer(re.escape(needle) + rb"(?![" + EDGE + rb"])", data)
+        )
+'''
+TMPDIR_RULE = "fx = '(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/)fxtmp\\b'"
 M = [
-    # item 1: the placeholder over the root's own columns
-    ("roots.py", "placeholder on the first span only", "        edits.append((s, e, ph[at : at + w]))", "        edits.append((s, e, ph if at == 0 else b\"\"))"),
-    ("roots.py", "placeholder not as wide as its root", "    if width >= len(full):\n        return full[:-1] + FILL * (width - len(full)) + \">\"", "    if True:\n        return full"),
-    ("roots.py", "no short form", "    if width >= 4:\n", "    if False:\n"),
-    # item 3: survivors by the rewrite's rule
-    ("roots.py", "survivors by substring", "        whole_bytes = re.search(re.escape(needle) + rb\"(?![\" + EDGE + rb\"])\", data)\n        if whole_bytes or _find(view, needle, []):", "        if needle in data or needle in view.text:"),
-    # item 5: a trailing-slash TMPDIR
-    ("capture.sh", "no trailing-slash strip", "  while [[ $tmpdir == */ && $tmpdir != / ]]; do tmpdir=${tmpdir%/}; done", "  :"),
-    ("roots.py", "no normpath spelling", "        forms = [(given, False), (os.path.normpath(given), False)]", "        forms = [(given, False)]"),
-    # NITs and NTHs
-    ("roots.py", "no nF escape", "|\\x1b[\\x20-\\x2f]*[\\x30-\\x7e]\")", "|\\x1b[\\x20-\\x7e]\")"),
-    ("roots.py", "a backslash escape", "        edits.append((end, end, b\"!\"))", "        edits.append((end, end, b\"\\\\\"))"),
+    # round 3, item 1: the placeholder over the root's own columns
+    ("roots.py", CAPTURE, "placeholder on the first span only", "        edits.append((s, e, ph[at : at + w]))", "        edits.append((s, e, ph if at == 0 else b\"\"))"),
+    ("roots.py", CAPTURE, "placeholder not as wide as its root", "    if width >= len(full):\n        return full[:-1] + FILL * (width - len(full)) + \">\"", "    if True:\n        return full"),
+    ("roots.py", CAPTURE, "no short form", "    if width >= 4:\n", "    if False:\n"),
+    # round 3, item 3 (retargeted at round 4's code): survivors by substring
+    ("roots.py", CAPTURE, "survivors by substring", SURVIVORS + "        if in_control or _find(view, needle, []):", "        if needle in data or needle in view.text:"),
+    # round 4, item 1: the bytes only where they touch a control sequence
+    ("roots.py", CAPTURE, "bytes read everywhere (round 3)", SURVIVORS, "        in_control = re.search(re.escape(needle) + rb\"(?![\" + EDGE + rb\"])\", data)\n"),
+    ("roots.py", CAPTURE, "no byte reading at all", SURVIVORS, "        in_control = False\n"),
+    ("roots.py", CAPTURE, "bytes in an OSC only", "            any(m.start() < end and start < m.end() for start, end in view.controls)",
+     "            any(m.start() < end and start < m.end() for start, end in view.controls if data.startswith(b\"\\x1b]\", start))"),
+    # round 3, item 5: a trailing-slash TMPDIR (round 4: killed by the HOME as given)
+    ("capture.sh", CAPTURE, "no trailing-slash strip", "  while [[ $tmpdir == */ && $tmpdir != / ]]; do tmpdir=${tmpdir%/}; done", "  :"),
+    ("roots.py", CAPTURE, "no normpath spelling", "        forms = [(given, False), (os.path.normpath(given), False)]", "        forms = [(given, False)]"),
+    # round 3, NITs and NTHs
+    ("roots.py", CAPTURE, "no nF escape", "|\\x1b[\\x20-\\x2f]*[\\x30-\\x7e]\")", "|\\x1b[\\x20-\\x7e]\")"),
+    ("roots.py", CAPTURE, "a backslash escape", "        edits.append((end, end, b\"!\"))", "        edits.append((end, end, b\"\\\\\"))"),
+    # round 4, item 2: capture-tmpdir right after the run directory only
+    ("parity-ledger.toml", SWEEP, "any `_>/` before fxtmp (round 3)", TMPDIR_RULE, "fx = '(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/|(?<=_>/))fxtmp\\b'"),
+    ("parity-ledger.toml", SWEEP, "any placeholder before fxtmp", TMPDIR_RULE, "fx = '(<!*[a-z:]+_*>/|fxcap\\.XXXXXX/)fxtmp\\b'"),
+    ("parity-ledger.toml", SWEEP, "the short form read too", TMPDIR_RULE, "fx = '(<(?:scratch(?::real)?_*|[sS]_+)>/|fxcap\\.XXXXXX/)fxtmp\\b'"),
+    ("parity-ledger.toml", SWEEP, "no zero-fill <scratch>", TMPDIR_RULE, "fx = '(<scratch(?::real)?_+>/|fxcap\\.XXXXXX/)fxtmp\\b'"),
 ]
 env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-for name in ("roots.py", "capture.sh"):
+env["PYTHONDONTWRITEBYTECODE"] = "1"
+orig = {}
+for name in ("roots.py", "capture.sh", "parity-ledger.toml"):
     with open(os.path.join(FX, name)) as f:
-        globals()["orig_" + name.replace(".", "_")] = f.read()
+        orig[name] = f.read()
 
 
-def run():
-    return subprocess.run(["python3", "-I", os.path.join(FX, "test_capture.py")] + TESTS, capture_output=True, text=True,
+def run(tests):
+    return subprocess.run(["python3", "-I", os.path.join(FX, tests[0])] + tests[1:], capture_output=True, text=True,
                           env=env, cwd=clone, stdin=subprocess.DEVNULL, timeout=900)
 
 
-for target, label, old, new in M:
+def first_assertion(stderr, test_file):
+    """The test file's line of the first failed assertion: the last frame in
+    that file before the first `AssertionError` or other error line."""
+    line = None
+    for row in stderr.splitlines():
+        m = re.search(r'File ".*/%s", line (\d+)' % re.escape(test_file), row)
+        if m:
+            line = m.group(1)
+        elif re.match(r"\w*(Error|Exception)\b", row) and line:
+            return "%s:%s" % (test_file, line)
+    return "?"
+
+
+for target, tests, label, old, new in M:
     path = os.path.join(FX, target)
-    orig = globals()["orig_" + target.replace(".", "_")]
-    assert orig.count(old) == 1, (label, orig.count(old))
+    assert orig[target].count(old) == 1, (label, orig[target].count(old))
     with open(path, "w") as f:
-        f.write(orig.replace(old, new))
-    r = run()
+        f.write(orig[target].replace(old, new))
+    r = run(tests)
     failed = sorted({line.split("(")[0].split(" ", 1)[1].strip() for line in r.stderr.splitlines() if line.startswith(("FAIL:", "ERROR:"))})
-    print("%-36s exit %d  failed: %s" % (label, r.returncode, ", ".join(failed) or "none"))
+    print("%-36s exit %d  first at %s  failed: %s" % (label, r.returncode, first_assertion(r.stderr, tests[0]), ", ".join(failed) or "none"))
     with open(path, "w") as f:
-        f.write(orig)
-r = run()
-print("%-36s exit %d  %s" % ("unmutated", r.returncode, (r.stderr.strip().splitlines() or ["?"])[-1]))
+        f.write(orig[target])
+for tests in (CAPTURE, SWEEP):
+    r = run(tests)
+    print("%-36s exit %d  %s: %s" % ("unmutated", r.returncode, tests[0], (r.stderr.strip().splitlines() or ["?"])[-1]))

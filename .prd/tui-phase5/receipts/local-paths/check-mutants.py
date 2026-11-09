@@ -2,6 +2,12 @@
 throwaway clone's copy of it (never a checkout anyone works in), must be
 failed by scripts/test-check-no-local-paths.sh.
 
+Round 4: each mutant runs twice. As it is, the check's own positive control
+(its planted tree) refuses most of them before the scan runs, and every case
+of the test fails alike. Then with that control's verdict taken out as well,
+so the line says which of the test's own cases and plants fail it without
+the control's help.
+
 usage: python3 -I check-mutants.py <clone>
 """
 import os
@@ -30,6 +36,11 @@ M = [
     ("no root shape", '\t"a harness scratch root:/tmp/claud[e]-[0-9]+"\n', ""),
     ("no broken-root shape", '\t"a harness scratch root, broken after its tmp/:(^|[[:space:]]|${control})claud[e]-[0-9]+/"\n', ""),
 ]
+# The positive control's two verdicts, made to pass whatever it found.
+NO_CONTROL = [
+    ('elif [ "$(sort "$work/got")" != "$(printf \'%s\\n\' "$want" | sort)" ]; then', "elif false; then"),
+    ('elif [ "$marked" -ne 1 ] || [ "$placeheld" -ne 2 ]; then', "elif false; then"),
+]
 env = dict(os.environ)
 for k in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"):
     env.pop(k, None)
@@ -40,12 +51,26 @@ def run():
                           text=True, env=env, cwd=clone, stdin=subprocess.DEVNULL, timeout=300)
 
 
+def failed(r):
+    return [line.split("FAIL ", 1)[1].split(":")[0] for line in r.stderr.splitlines() if "FAIL " in line]
+
+
+uncontrolled = orig
+for old, new in NO_CONTROL:
+    assert uncontrolled.count(old) == 1, old
+    uncontrolled = uncontrolled.replace(old, new)
 for name, old, new in M:
     assert orig.count(old) == 1, (name, orig.count(old))
     open(p, "w").write(orig.replace(old, new))
     r = run()
-    fails = [line.split("FAIL ", 1)[1].split(":")[0] for line in r.stderr.splitlines() if "FAIL " in line]
-    print("%-28s exit %d  failed: %s" % (name, r.returncode, ", ".join(fails) or "none"))
+    print("%-28s exit %d  failed: %s" % (name, r.returncode, ", ".join(failed(r)) or "none"))
+    open(p, "w").write(uncontrolled.replace(old, new))
+    r = run()
+    print("%-28s exit %d  failed: %s" % ("  without the control", r.returncode, ", ".join(failed(r)) or "none"))
 open(p, "w").write(orig)
 r = run()
 print("%-28s exit %d  %s" % ("unmutated", r.returncode, r.stdout.strip().splitlines()[-1]))
+open(p, "w").write(uncontrolled)
+r = run()
+print("%-28s exit %d  %s" % ("unmutated, no control", r.returncode, r.stdout.strip().splitlines()[-1]))
+open(p, "w").write(orig)
