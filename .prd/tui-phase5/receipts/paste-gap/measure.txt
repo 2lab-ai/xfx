@@ -1,0 +1,82 @@
+# paste_xfx.py against a real xfx: one paste `ESC[200~ early-paste-text ESC[201~ <body> CR ESC[201~`,
+# its body a `K<7 digits>` token every max(32, size/256) bytes and 0xff between (dropped by the
+# decoder with no event). Sizes include the outer markers. Fields:
+#   paste_submitted      the paste's own CR was read as a key and submitted a prompt by itself
+#   typed_bytes          what the submitted prompt held after `early-paste-text`: bytes that reached
+#                        the decoder as typed keys (pty, outer), or the paste's own text (tmux, below)
+#   first_key_token      the first token read as a key -- where the delivery that carried the
+#                        embedded marker ended; null = nothing after the marker reached the keys
+#   dropped_before_keys  body bytes before that token, dropped as input behind the paste
+#   warning              `! input: Input that arrived right after the paste was ignored.` on screen
+# Modes: pty   = xfx on a raw pty, the paste one blocking write to the master;
+#        tmux  = a private tmux server (-L paste-gap-<pid>, -f /dev/null), `load-buffer` +
+#                `paste-buffer -p -r` of the text between the outer markers;
+#        outer = the same pane, attached by a tmux client on a pty this script writes the whole
+#                paste to: a terminal that does not strip the marker, in front of tmux.
+# Binaries: base = a832f4d7's debug build (banner v0.1.0-a832f4d), head = ea2b8a60's (v0.1.0-ea2b8a6),
+# each checked by the revision embedded in it. tmux 3.7b, Darwin 25.6.0.
+
+## base, run 0 -- an earlier dense payload (`K%07d ` tokens throughout, no CR); the 64 KiB
+## line that reached the keys typed 47 099 bytes into the composer one by one (433 s)
+{"mode": "pty", "size": 1024, "head": true, "typed_bytes": 0, "dropped_before_keys": 990, "first_key_token": null, "warning": true, "submits_before_enter": 0, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 1024, "head": true, "typed_bytes": 0, "dropped_before_keys": 990, "first_key_token": null, "warning": true, "submits_before_enter": 0, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 4096, "head": true, "typed_bytes": 0, "dropped_before_keys": 4062, "first_key_token": null, "warning": true, "submits_before_enter": 0, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 4096, "head": true, "typed_bytes": 3068, "dropped_before_keys": 999, "first_key_token": "K0000111", "warning": true, "submits_before_enter": 0, "other": "0110 K00", "seconds": 4.4}
+{"mode": "pty", "size": 65536, "head": true, "typed_bytes": 47099, "dropped_before_keys": 18405, "first_key_token": "K0002045", "warning": true, "submits_before_enter": 0, "other": "44 ", "seconds": 433.0}
+{"mode": "pty", "size": 65536, "head": true, "typed_bytes": 0, "dropped_before_keys": 65502, "first_key_token": null, "warning": true, "submits_before_enter": 0, "other": "", "seconds": 2.4}
+{"mode": "pty", "size": 65536, "head": true, "typed_bytes": 0, "dropped_before_keys": 65502, "first_key_token": null, "warning": true, "submits_before_enter": 0, "other": "", "seconds": 2.5}
+
+## base, pty (load average 7.7 at the start)
+{"mode": "pty", "size": 1024, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 989, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 1024, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 989, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 1024, "paste_submitted": false, "head": true, "typed_bytes": 2, "dropped_before_keys": 989, "first_key_token": null, "warning": true, "other": "1~", "seconds": 2.6}
+{"mode": "pty", "size": 4096, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 4061, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 4096, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 4061, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 4096, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 4061, "first_key_token": null, "warning": true, "other": "", "seconds": 2.9}
+{"mode": "pty", "size": 65536, "paste_submitted": true, "head": true, "typed_bytes": 1584, "dropped_before_keys": 14848, "first_key_token": "K0000058", "warning": true, "other": "", "seconds": 4.0}
+{"mode": "pty", "size": 65536, "paste_submitted": true, "head": true, "typed_bytes": 1064, "dropped_before_keys": 31488, "first_key_token": "K0000123", "warning": true, "other": "", "seconds": 4.0}
+{"mode": "pty", "size": 65536, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 65501, "first_key_token": null, "warning": true, "other": "", "seconds": 2.7}
+{"mode": "pty", "size": 1048576, "paste_submitted": true, "head": true, "typed_bytes": 1752, "dropped_before_keys": 151552, "first_key_token": "K0000037", "warning": true, "other": "", "seconds": 4.3}
+
+## base, tmux (paste-buffer) -- the marker arrives as the text ^[[201~ inside one paste
+{"mode": "tmux", "size": 4096, "paste_submitted": false, "head": true, "typed_bytes": 4069, "dropped_before_keys": 0, "first_key_token": "K0000000", "warning": false, "other": "^[[201~\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\uff
+{"mode": "tmux", "size": 65536, "paste_submitted": false, "head": true, "typed_bytes": 65509, "dropped_before_keys": 0, "first_key_token": "K0000000", "warning": false, "other": "^[[201~\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\u
+
+## base, outer (load average 10.2 at the start)
+{"mode": "outer", "size": 1024, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 989, "first_key_token": null, "warning": true, "other": "", "seconds": 4.1}
+{"mode": "outer", "size": 4096, "paste_submitted": true, "head": true, "typed_bytes": 766, "dropped_before_keys": 1024, "first_key_token": "K0000032", "warning": true, "other": "000031", "seconds": 4.9}
+{"mode": "outer", "size": 4096, "paste_submitted": true, "head": true, "typed_bytes": 766, "dropped_before_keys": 1024, "first_key_token": "K0000032", "warning": true, "other": "000031", "seconds": 5.0}
+{"mode": "outer", "size": 4096, "paste_submitted": true, "head": true, "typed_bytes": 766, "dropped_before_keys": 1024, "first_key_token": "K0000032", "warning": true, "other": "000031", "seconds": 4.9}
+{"mode": "outer", "size": 65536, "paste_submitted": true, "head": true, "typed_bytes": 2016, "dropped_before_keys": 1024, "first_key_token": "K0000004", "warning": true, "other": "", "seconds": 5.4}
+{"mode": "outer", "size": 65536, "paste_submitted": true, "head": true, "typed_bytes": 2016, "dropped_before_keys": 1024, "first_key_token": "K0000004", "warning": true, "other": "", "seconds": 5.5}
+{"mode": "outer", "size": 65536, "paste_submitted": true, "head": true, "typed_bytes": 2016, "dropped_before_keys": 1024, "first_key_token": "K0000004", "warning": true, "other": "", "seconds": 5.3}
+{"mode": "outer", "size": 1048576, "paste_submitted": true, "head": true, "typed_bytes": 2040, "dropped_before_keys": 4096, "first_key_token": "K0000001", "warning": true, "other": "", "seconds": 5.5}
+{"mode": "outer", "size": 1048576, "paste_submitted": true, "head": true, "typed_bytes": 2040, "dropped_before_keys": 4096, "first_key_token": "K0000001", "warning": true, "other": "", "seconds": 6.1}
+
+## head, pty (load average 7.9 at the start)
+{"mode": "pty", "size": 1024, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 989, "first_key_token": null, "warning": true, "other": "", "seconds": 3.0}
+{"mode": "pty", "size": 1024, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 989, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 1024, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 989, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 4096, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 4061, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 4096, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 4061, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 4096, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 4061, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 65536, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 65501, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 65536, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 65501, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 65536, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 65501, "first_key_token": null, "warning": true, "other": "", "seconds": 2.5}
+{"mode": "pty", "size": 1048576, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 1048541, "first_key_token": null, "warning": true, "other": "", "seconds": 2.6}
+
+## head, tmux (paste-buffer)
+{"mode": "tmux", "size": 1024, "paste_submitted": false, "head": true, "typed_bytes": 997, "dropped_before_keys": 0, "first_key_token": "K0000000", "warning": false, "other": "^[[201~\ufffd\ufffd\ufff
+{"mode": "tmux", "size": 4096, "paste_submitted": false, "head": true, "typed_bytes": 4069, "dropped_before_keys": 0, "first_key_token": "K0000000", "warning": false, "other": "^[[201~\ufffd\ufffd\uff
+{"mode": "tmux", "size": 65536, "paste_submitted": false, "head": true, "typed_bytes": 65509, "dropped_before_keys": 0, "first_key_token": "K0000000", "warning": false, "other": "^[[201~\ufffd\ufffd\u
+
+## head, outer (load average 6.0 at the start)
+{"mode": "outer", "size": 1024, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 989, "first_key_token": null, "warning": true, "other": "", "seconds": 4.1}
+{"mode": "outer", "size": 4096, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 4061, "first_key_token": null, "warning": true, "other": "", "seconds": 4.1}
+{"mode": "outer", "size": 4096, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 4061, "first_key_token": null, "warning": true, "other": "", "seconds": 4.1}
+{"mode": "outer", "size": 4096, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 4061, "first_key_token": null, "warning": true, "other": "", "seconds": 4.1}
+{"mode": "outer", "size": 65536, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 65501, "first_key_token": null, "warning": true, "other": "", "seconds": 4.1}
+{"mode": "outer", "size": 65536, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 65501, "first_key_token": null, "warning": true, "other": "", "seconds": 4.2}
+{"mode": "outer", "size": 65536, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 65501, "first_key_token": null, "warning": true, "other": "", "seconds": 4.1}
+{"mode": "outer", "size": 1048576, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 1048541, "first_key_token": null, "warning": true, "other": "", "seconds": 4.6}
+{"mode": "outer", "size": 1048576, "paste_submitted": false, "head": true, "typed_bytes": 0, "dropped_before_keys": 1048541, "first_key_token": null, "warning": true, "other": "", "seconds": 4.6}

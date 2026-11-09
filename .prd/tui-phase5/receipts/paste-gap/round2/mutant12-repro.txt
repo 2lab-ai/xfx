@@ -1,0 +1,20 @@
+# Mutant 12 (fx's boundary: no quarantine after a paste), applied by hand to the throwaway clone at
+# 45dffff4 and undone after (`git status --porcelain` empty), the four pty paste tests run alone,
+# load average 47.9 at the start:
+#   cargo test --locked --test tui -- a_mebibyte a_paste_whose_end_marker_shares_a_read_with_enter an_enter_one_read_behind
+test an_enter_one_read_behind_a_paste_s_end_marker_is_behind_it_too ... ok
+test a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing ... ok
+test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... FAILED
+test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... FAILED
+thread 'a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval' panicked at tests/tui.rs:3507:5:
+assertion `left == right` failed: the clipboard behind the end marker approved the edit
+thread 'a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing' panicked at tests/support/pty.rs:407:13:
+timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it
+  (the screen: `✗ system: the Gateway returned HTTP 500: fake server: unscripted request` -- the body's
+   newlines had sent prompts the one-reply fake gateway was not scripted for)
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 180 filtered out; finished in 81.67s
+
+# So under fx's boundary the two unpaced mebibyte cases fail on their own assertions, and the two
+# same-delivery cases pass, as they should: they hold within one delivery. In mutants.txt the two
+# same-delivery cases are also listed among mutant 12's killers; that run was at load average ~45 on a
+# shared machine, and here, alone, they pass -- so those two entries are load, not detection.

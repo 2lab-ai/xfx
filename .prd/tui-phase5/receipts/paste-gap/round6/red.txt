@@ -1,0 +1,34 @@
+# cargo test --locked --lib -- the_plane_s_sentence_goes fx_s_warning a_flapping_hold a_hold_that_flaps a_status_is_on_the_screen_whole the_quarantine_s_sentence_leaves
+# on 3c0c5fa9's tree: the RED tests on f9328d4e's source (no source line changed). Exit 101.
+# Each panic message is cut after its first 160 characters; the painted screen it quotes is long.
+test tui::shell::tests::a_hold_that_flaps_is_said_at_most_once_a_second_and_its_last_state_is_said ... ok
+test tui::shell::tests::fx_s_warning_is_whole_on_the_review_plane_at_every_width_down_to_the_narrowest ... FAILED
+test tui::shell::tests::the_plane_s_sentence_goes_when_the_dropped_paste_s_end_marker_arrives ... FAILED
+test tui::shell::tests::the_plane_s_sentence_goes_when_a_whole_paste_replaces_the_quarantine ... FAILED
+test tui::shell::tests::the_plane_s_sentence_goes_when_a_breaking_byte_ends_the_open_sequence ... FAILED
+test tui::shell::tests::the_plane_s_sentence_goes_when_a_paste_begins_in_a_turn_that_ends_at_the_read_cap ... FAILED
+test tui::shell::tests::the_plane_s_sentence_goes_when_the_quiet_ends_the_quarantine ... ok
+test tui::approval_screen::tests::a_status_is_on_the_screen_whole_or_not_at_all_at_every_height ... FAILED
+test tui::shell::tests::fx_s_warning_on_the_plane_outlives_every_change_of_hold_and_the_quarantine ... ok
+test tui::shell::tests::the_quarantine_s_sentence_leaves_the_review_plane_when_the_quarantine_ends ... ok
+test tui::shell::tests::a_flapping_hold_never_leaves_the_plane_naming_the_other_one ... FAILED
+test result: FAILED. 4 passed; 7 failed; 0 ignored; 0 measured; 4575 filtered out; finished in 0.06s
+
+thread 'tui::shell::tests::fx_s_warning_is_whole_on_the_review_plane_at_every_width_down_to_the_narrowest' (402105419) panicked at src/tui/shell.rs:38949:13:
+20 columns: "\u{1b}[38;5;245m21\u{1b}[0m \u{1b}[38;5;252m+\u{1b}[0m \u{1b}[38;5;252mbeta\u{1b}[0m \u{1b}[38;5;245m22\u{1b}[0m \u{1b}[38;5;252m+\u{1b}[0m \u{1b}[
+thread 'tui::shell::tests::the_plane_s_sentence_goes_when_the_dropped_paste_s_end_marker_arrives' (402105424) panicked at src/tui/shell.rs:38767:13:
+Paste -> Quiet: "Paste still open; keys are ignored." is still on the plane: "\u{1b}[38;5;245m15\u{1b}[0m \u{1b}[38;5;252m+\u{1b}[0m \u{1b}[38;5;252mbeta\u{1b}[
+thread 'tui::shell::tests::the_plane_s_sentence_goes_when_a_whole_paste_replaces_the_quarantine' (402105423) panicked at src/tui/shell.rs:38767:13:
+a whole paste: "Keys ignored until input stops." is still on the plane: "\u{1b}[38;5;245m15\u{1b}[0m \u{1b}[38;5;252m+\u{1b}[0m \u{1b}[38;5;252mbeta\u{1b}[0m \u
+thread 'tui::shell::tests::the_plane_s_sentence_goes_when_a_breaking_byte_ends_the_open_sequence' (402105421) panicked at src/tui/shell.rs:38767:13:
+Marker -> Quiet: "Key sequence open; keys are ignored." is still on the plane: "\u{1b}[38;5;245m15\u{1b}[0m \u{1b}[38;5;252m+\u{1b}[0m \u{1b}[38;5;252mbeta\u{1b
+thread 'tui::shell::tests::the_plane_s_sentence_goes_when_a_paste_begins_in_a_turn_that_ends_at_the_read_cap' (402105422) panicked at src/tui/shell.rs:38767:13:
+the read cap: "Keys ignored until input stops." is still on the plane: "\u{1b}[38;5;245m15\u{1b}[0m \u{1b}[38;5;252m+\u{1b}[0m \u{1b}[38;5;252mbeta\u{1b}[0m \u{
+thread 'tui::approval_screen::tests::a_status_is_on_the_screen_whole_or_not_at_all_at_every_height' (402105416) panicked at src/tui/approval_screen.rs:989:17:
+16 rows show 1 of "Keys ignored until input stops."'s 2: ["┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄", "  Permission needed ", "  notes.txt", "  Apply this change?", "  ❯ 1  Apply o
+thread 'tui::shell::tests::a_flapping_hold_never_leaves_the_plane_naming_the_other_one' (402105417) panicked at src/tui/shell.rs:38929:13:
+step 127: held by "Keys ignored until input stops.", the plane says "\u{1b}[38;5;245m15\u{1b}[0m \u{1b}[38;5;252m+\u{1b}[0m \u{1b}[38;5;252mbeta\u{1b}[0m \u{1b}
+
+# The 20-column failure: the plane's status rows, unwrapped, held this of fx's warning:
+'Input that arrived right after the'
+# The flapping failure at step 127 (held by the quiet): the plane still said 'Key sequence open; keys are ignored.'

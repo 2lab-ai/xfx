@@ -1,0 +1,19 @@
+# cargo test --locked --lib -- dropped_paste_is_open marker_is_half_read continues_a_held_marker changed_by_held_bytes
+# on 1842e308's source with round 4's tests (the RED commit's tree)
+test tui::shell::tests::the_repeat_while_a_dropped_paste_is_open_says_it_waits_for_the_paste_s_end ... FAILED
+test tui::shell::tests::a_hold_changed_by_held_bytes_alone_is_said_once_in_its_own_words ... FAILED
+test tui::shell::tests::a_key_that_continues_a_held_marker_keeps_the_marker_sentence_true ... FAILED
+test tui::shell::tests::the_repeat_while_a_marker_is_half_read_says_it_waits_for_one_more_key ... FAILED
+thread 'tui::shell::tests::the_repeat_while_a_dropped_paste_is_open_says_it_waits_for_the_paste_s_end' (391549867) panicked at src/tui/shell.rs:19109:9:
+  left: ["! input: Input that arrived right after the paste was ignored.", "", "! input: Input is still being ignored until the paste's end arrives.", "", "! input: Input is still being ignored until the paste's end arrives.", "", "! input: Input is still being ignored until the paste's end arrives.", ""]
+ right: ["! input: Input that arrived right after the paste was ignored.", "", "! input: Input is still being ignored; a pause won't end it until the paste's end arrives.", "", "! input: Input is still being ignored; a pause won't end it until the paste's end arrives.", "", "! input: Input is still being ignored; a pause won't end it until the paste's end arrives.", ""]
+thread 'tui::shell::tests::a_hold_changed_by_held_bytes_alone_is_said_once_in_its_own_words' (391549865) panicked at src/tui/shell.rs:19259:9:
+  left: ["! input: Input that arrived right after the paste was ignored.", "", "! input: Input is still being ignored until it stops for a moment.", ""]
+ right: ["! input: Input that arrived right after the paste was ignored.", "", "! input: Input is still being ignored until it stops for a moment.", "", "! input: Input is still being ignored; a pause won't end it until the escape sequence it began is finished or broken.", ""]
+thread 'tui::shell::tests::a_key_that_continues_a_held_marker_keeps_the_marker_sentence_true' (391549866) panicked at src/tui/shell.rs:19200:9:
+  left: ["! input: Input that arrived right after the paste was ignored.", "", "! input: Input is still being ignored until one more key and a moment's pause.", ""]
+ right: ["! input: Input that arrived right after the paste was ignored.", "", "! input: Input is still being ignored; a pause won't end it until the escape sequence it began is finished or broken.", ""]
+thread 'tui::shell::tests::the_repeat_while_a_marker_is_half_read_says_it_waits_for_one_more_key' (391549868) panicked at src/tui/shell.rs:19155:9:
+  left: ["! input: Input that arrived right after the paste was ignored.", "", "! input: Input is still being ignored until one more key and a moment's pause.", "", "! input: Input is still being ignored until it stops for a moment.", ""]
+ right: ["! input: Input that arrived right after the paste was ignored.", "", "! input: Input is still being ignored; a pause won't end it until the escape sequence it began is finished or broken.", "", "! input: Input is still being ignored until it stops for a moment.", ""]
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 4567 filtered out; finished in 0.06s

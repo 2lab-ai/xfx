@@ -1,0 +1,38 @@
+fx v0.0.16's lines this unit rests on, read at the pin by this worker
+(`git -C fx-upstream show 481104fd:<path>`). PASTE-AFTER-END's `fx-src.txt`
+(`../paste-after-end/fx-src.txt`) holds the rule itself; this adds what the
+divergence and the review leftovers cite.
+
+1. Where fx settles a paste: at the first empty readiness check
+   - src/ui/event_loop.zig:92-107     pollInput(timeout), then up to 32 reads of 128 bytes while
+                                      pollInput(0) is readable
+   - src/ui/event_loop.zig:109-112    still readable after 32 reads: commit a frame, `continue`,
+                                      unsettled
+   - src/ui/event_loop.zig:113-116    closed: the session ends
+   - src/ui/event_loop.zig:118        otherwise settle_delivery_epoch -- the next poll that finds
+                                      nothing, however soon the terminal writes again
+   - src/ui/event_loop.zig:95-99      read_len == 0: `.input_closed`, no settle
+   => fx has no notion of quiet: the first empty poll after the marker settles, and the
+      bytes after it are decoded as keys. That is the boundary PASTE-GAP moves.
+
+2. The settle callback (the citation at xfx shell.rs `end_delivery`)
+   - src/core/app/app_render_runtime.zig:2061       `.settle_delivery_epoch = App.loopSettleInputDeliveryEpoch`
+   - src/main.zig:3150-3158                          loopSettleInputDeliveryEpoch -> settleTerminalPasteDeliveryEpochWithLimits
+   - src/core/app/app_input_runtime.zig:790-813      settleTerminalPasteDeliveryEpochWithLimits: returns
+                                                     at once when no paste is active (:794-795), else
+                                                     paste_rt.settlePasteDeliveryEpoch for the paste's
+                                                     owner (:803-807)
+   (shell.rs named it `settleTerminalPasteDeliveryEpoch`; the name at the pin has
+    `WithLimits`, corrected.)
+
+3. The owner is fixed when a paste begins (the parity note on a question opening mid-delivery)
+   - src/core/app/input_paste_runtime.zig:105-115   beginPaste: question freeform, else question
+                                                    (decision_prompt), else approval amendment,
+                                                    else approval (decision_prompt), else auth code,
+                                                    else composer -- chosen at the start marker
+   - src/core/app/input_paste_runtime.zig:209,268-270  finishPaste switches on `paste.owner`, the
+                                                    owner recorded at begin, not on what has the
+                                                    focus at the settle (:268; `.decision_prompt`
+                                                    drops the text, :270)
+   => in fx a paste the composer began is applied to the composer even if a question opened
+      before the settle; in xfx the `PasteEnd` reaches whatever has the focus then.

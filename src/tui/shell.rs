@@ -491,8 +491,18 @@ const PANEL_TOO_SMALL: &str =
 /// up, so the alternative to a sentence is a key that appears to do nothing --
 /// and a user whose `1` does nothing presses it again, harder, which is the one
 /// input pattern this gate must not train.
+///
+/// **Condition first.** On the review plane this is the status line, which a
+/// narrow screen cuts to its rows and a short one gives up from its last row
+/// (`super::approval_screen::ApprovalScreen::set_status`), so any first rows of
+/// it may be all that shows. The condition comes before the key, so no cut
+/// says "press it" without "once you can read it"
+/// (`no_cut_of_xfx_s_refusals_shows_an_instruction_without_its_condition`).
+/// Where the plane has no row for it at all -- a screen with less than two
+/// rows above the plane's chrome -- the key does nothing visible: the room is
+/// the question's first.
 pub(crate) const APPROVAL_NOT_READY: &str =
-    "the question is not on the screen yet - press it again once you can read it";
+    "the question is not on the screen yet; once you can read it, press it again";
 
 /// What they are told when this screen can never show the whole request, so no
 /// frame on it will ever grant.
@@ -500,10 +510,12 @@ pub(crate) const APPROVAL_NOT_READY: &str =
 /// A different sentence from [`APPROVAL_NOT_READY`] because it asks for a
 /// different action: waiting fixes the first and only a bigger window fixes the
 /// second. It names the two keys that still work, because a question that cannot
-/// be granted must still be refusable.
+/// be granted must still be refusable -- and what they do before them, as
+/// [`APPROVAL_NOT_READY`] puts its condition first, so a cut of it never shows
+/// "press 3" without "to refuse it".
 pub(crate) const APPROVAL_NOT_DISCLOSED: &str =
     "this screen cannot show the whole request, so it cannot be approved here; \
-     make the window larger, or press 3 or ctrl+c to refuse";
+     make the window larger, or, to refuse it, press 3 or ctrl+c";
 
 /// What the user is told when the screen cannot hold a question the **model**
 /// asked ([`super::question`]).
@@ -547,6 +559,53 @@ const INPUT_LIMIT: &str = "That edit exceeds the local prompt safety limit and w
 /// the composer, an amendment, a question's answer, or a question that was
 /// taking no text at all ([`Shell::ignored_behind_paste`]).
 const PASTE_SUFFIX: &str = "Input that arrived right after the paste was ignored.";
+
+/// What input that keeps arriving inside a paste's quarantine says, once a
+/// second while it lasts ([`super::input::Decoder::PASTE_REPEAT`]), the same
+/// way and on the same plane as [`PASTE_SUFFIX`]. xfx's own words, and how to
+/// get out: fx has no quarantine, so it has nothing to say here.
+///
+/// **Two rows of the narrowest screen, whole.** A session exists down to
+/// `super::layout::MIN_COLS` = 20 columns, two of them the review plane's
+/// indent: each of the three sentences wraps into two rows of at most 18
+/// columns there, inside the plane's status rows (`super::approval_screen`'s
+/// `STATUS_ROWS`, three, which [`PASTE_SUFFIX`] needs from 29 columns down),
+/// and each of them and [`PASTE_SUFFIX`] is given up whole by a screen too
+/// short for all of its rows ([`Shell::said_after_paste`]) -- so a cut
+/// sentence, which says something else, appears at no width and no height
+/// (`every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen`,
+/// `fx_s_warning_and_the_quarantine_s_sentences_are_whole_or_absent_on_a_short_plane`).
+/// They are short for that, and each is true in every state that says it.
+const PASTE_STILL: &str = "Keys ignored until input stops.";
+
+/// [`PASTE_STILL`] while a paste begun behind the first one's end marker is
+/// being dropped ([`super::input::Hold::Paste`]). It names the cause -- that
+/// paste is still open -- and no release point: its end marker alone ends
+/// nothing (the quiet holds the quarantine next, and [`PASTE_STILL`] is said
+/// then), so "until the paste ends" would be false.
+const PASTE_UNTIL_END: &str = "Paste still open; keys are ignored.";
+
+/// And while a marker is read past its first byte
+/// ([`super::input::Hold::Marker`]): the cause again -- an escape sequence is
+/// still open, however many keys continue it -- and no release point.
+const PASTE_UNTIL_KEY: &str = "Key sequence open; keys are ignored.";
+
+/// The three sentences about a quarantine that is still on: taken down from
+/// the review plane once the one shown no longer names what holds it
+/// ([`Shell::plane_names_the_hold`]).
+const QUARANTINE_SENTENCES: [&str; 3] = [PASTE_STILL, PASTE_UNTIL_END, PASTE_UNTIL_KEY];
+
+/// The sentence for what holds a quarantine on: one fact, for what is said
+/// ([`Shell::said_ignored`]) and for what the plane may go on showing
+/// ([`Shell::plane_names_the_hold`]).
+fn quarantine_sentence(hold: super::input::Hold) -> &'static str {
+    use super::input::Hold;
+    match hold {
+        Hold::Quiet => PASTE_STILL,
+        Hold::Paste => PASTE_UNTIL_END,
+        Hold::Marker => PASTE_UNTIL_KEY,
+    }
+}
 
 /// The hint row's refusal for a paste this session has no number left for.
 ///
@@ -10581,7 +10640,7 @@ impl Shell {
     }
 
     /// The terminal has nothing more to read: the delivery the reads since the
-    /// last one were part of is over (`settleTerminalPasteDeliveryEpoch`,
+    /// last one were part of is over (`settleTerminalPasteDeliveryEpochWithLimits`,
     /// `app_input_runtime.zig:790-813@481104fd`).
     ///
     /// Said by the loop's readiness check and nowhere else
@@ -10590,9 +10649,17 @@ impl Shell {
     /// [`Action::PasteEnd`], whatever followed its marker; if something did,
     /// that is said after the paste is settled ([`Self::ignored_behind_paste`]),
     /// as fx finishes the paste first and warns second
-    /// (`input_paste_runtime.zig:189-196@481104fd`).
+    /// (`input_paste_runtime.zig:189-196@481104fd`). What arrives after that,
+    /// before the input has gone quiet, is the paste's too
+    /// ([`super::input::Decoder::PASTE_QUIET`]), and said the same way if the
+    /// paste's delivery said nothing.
     pub(crate) fn end_delivery(&mut self) {
-        match self.decoder.end_delivery() {
+        self.end_delivery_at(Instant::now());
+    }
+
+    /// [`Self::end_delivery`], for a check that found nothing at `now`.
+    pub(crate) fn end_delivery_at(&mut self, now: Instant) {
+        match self.decoder.end_delivery(now) {
             Delivery::Quiet => {}
             Delivery::Pasted { dropped } => {
                 self.consume(vec![Input::Action(Action::PasteEnd)], Instant::now());
@@ -10600,17 +10667,66 @@ impl Shell {
                     self.ignored_behind_paste();
                 }
             }
+            Delivery::Ignored { again, .. } => self.said_ignored(again),
+        }
+    }
+
+    /// The turn reached its read cap with input still waiting: what a
+    /// quarantine owes the user is said, and nothing is settled or ended
+    /// ([`super::input::Decoder::still`]).
+    pub(crate) fn still_at(&mut self, now: Instant) {
+        if let Delivery::Ignored { again, .. } = self.decoder.still(now) {
+            self.said_ignored(again);
+        }
+    }
+
+    /// Input a quarantine dropped: fx's warning the first time, and after
+    /// that the sentence for what is holding the quarantine on.
+    fn said_ignored(&mut self, again: Option<super::input::Hold>) {
+        match again {
+            None => self.ignored_behind_paste(),
+            Some(hold) => self.said_after_paste(quarantine_sentence(hold)),
+        }
+    }
+
+    /// The review plane's sentence about the quarantine, kept a view of now:
+    /// taken down once it no longer names what holds the quarantine -- the
+    /// hold has changed, the quarantine has ended, or a new one has begun
+    /// with nothing said in it ([`super::input::Decoder::named_hold`]).
+    ///
+    /// Nothing new is said in its place. The notices are rate-limited
+    /// ([`super::input::Decoder::PASTE_REPEAT`]) and the next one due names
+    /// the hold of its own moment; the plane's line is not a notice, so it does
+    /// not wait for one. fx's own warning, and any other status, are about
+    /// what happened and stay; so do the document's rows, a record of what was
+    /// said when.
+    fn plane_names_the_hold(&mut self) {
+        let named = self.decoder.named_hold().map(quarantine_sentence);
+        let Some(screen) = self.alternate.as_mut() else {
+            return;
+        };
+        let stale: Vec<&str> = QUARANTINE_SENTENCES
+            .into_iter()
+            .filter(|sentence| Some(*sentence) != named)
+            .collect();
+        if screen.clear_status_if(&stale) {
+            self.render.request(Reason::Modal);
         }
     }
 
     /// `bytes` as one whole delivery: [`Self::route_read`], then
-    /// [`Self::end_delivery`] -- the shape every keystroke a test types has,
-    /// and the shape the loop gives one write that fits in one read. A case
-    /// about a delivery made of several reads calls the two itself.
+    /// [`Self::end_delivery`], and then quiet for as long as a paste's
+    /// quarantine lasts -- the shape every keystroke a test types has, because
+    /// these cases model paced input (fast input after a paste is dropped by
+    /// design, and its own cases say so), and the shape the loop gives one
+    /// write that fits in one read. A case about a delivery made of several
+    /// reads, or about input soon after a paste, calls them itself.
     #[cfg(test)]
     pub(crate) fn route_bytes(&mut self, bytes: &[u8]) {
         self.route_read(bytes);
-        self.end_delivery();
+        let now = Instant::now();
+        self.end_delivery_at(now);
+        self.end_delivery_at(now + super::input::Decoder::PASTE_QUIET);
     }
 
     /// Resolves what only the passage of time resolves: a bare `ESC` that has
@@ -10618,10 +10734,21 @@ impl Shell {
     ///
     /// Called once a turn, which is what makes [`super::input::Decoder`]'s
     /// timeout mean 50 ms rather than "until the next keystroke".
+    ///
+    /// **And the end of every turn's input**, so the one point at which the
+    /// review plane's sentence about a paste's quarantine is made true again
+    /// ([`Self::plane_names_the_hold`]). The loop calls this after the burst
+    /// whichever way the burst ended -- a check that found nothing, the read
+    /// cap, an interrupted wait or read -- and before the turn's frame
+    /// (`super::event_loop`'s turn), and every call this shell makes to the
+    /// decoder is in [`Self::route_read`], [`Self::end_delivery_at`],
+    /// [`Self::still_at`] or here: so no frame is built from a plane whose
+    /// line names a hold that has gone.
     pub(crate) fn settle_input(&mut self, now: Instant) {
         let mut events = Vec::new();
         self.decoder.flush(now, &mut events);
         self.consume(events, now);
+        self.plane_names_the_hold();
     }
 
     /// Resolves what the band says about state nothing typed here changed: the
@@ -12372,9 +12499,18 @@ impl Shell {
     /// ([`Self::notice_at_the_question`]), and there it is the last word when
     /// the paste's own refusal was said first, the order fx writes them in.
     fn ignored_behind_paste(&mut self) {
+        self.said_after_paste(PASTE_SUFFIX);
+    }
+
+    /// `text` under `input`, as [`Self::ignored_behind_paste`] says its own.
+    ///
+    /// On the review plane it is given up whole when the screen is too short
+    /// for all of it ([`super::approval_screen::ApprovalScreen::set_whole_status`]):
+    /// each of these, cut, says something else.
+    fn said_after_paste(&mut self, text: &'static str) {
         match self.alternate.as_mut() {
-            Some(screen) => screen.set_status(PASTE_SUFFIX.to_string()),
-            None => self.announce(notice::Notice::warning("input", PASTE_SUFFIX)),
+            Some(screen) => screen.set_whole_status(text.to_string()),
+            None => self.announce(notice::Notice::warning("input", text)),
         }
         // The surface the paste was for is the one to repaint
         // (`input_paste_runtime.zig:254-257`, `:282`, `:306`, `:330`).
@@ -19492,12 +19628,14 @@ mod tests {
             "the second read's Enter sent"
         );
         assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+        shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);
 
-        // The same bytes in two deliveries are a paste and then a key, and
-        // nothing is said about them.
+        // The same bytes in two deliveries with the input quiet between them
+        // are a paste and then a key, and nothing is said about them.
         shell.route_read(b"\x1b[200~new\x1b[201~");
         shell.end_delivery();
         assert_eq!(shell.editor.text(), "priornewnew", "a paste that stands");
+        shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);
         shell.route_read(b"\r");
         shell.end_delivery();
         assert!(
@@ -19508,6 +19646,352 @@ mod tests {
             .document()
             .iter()
             .all(|row| !row.contains("right after the paste")));
+    }
+
+    #[test]
+    fn a_readiness_gap_behind_a_paste_s_end_marker_does_not_make_the_rest_a_prompt() {
+        // The PASTE-GAP receipt's threat: a clipboard holding `ESC[201~`, a
+        // slash command and a newline, on a terminal that does not strip the
+        // marker, written in two goes with a check that found nothing between
+        // them -- an ordinary refill of a pty's 1 022-byte queue. fx settles
+        // the paste at the gap (`event_loop.zig:94-119@481104fd`) and reads
+        // the rest as keys, so the newline submits. Here the rest is the
+        // clipboard's: counted, never typed, and said.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery();
+        assert_eq!(shell.editor.text(), "priornew", "fx's settle point moved");
+        shell.route_read(b"/version\r");
+        shell.end_delivery();
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the newline after the gap sent a prompt"
+        );
+        assert_eq!(
+            shell.editor.text(),
+            "priornew",
+            "the bytes after the gap were typed"
+        );
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+    }
+
+    /// xfx's own sentence for input that keeps arriving inside a paste's
+    /// quarantine after the warning has been said, spelled out here rather
+    /// than read from the code under test. fx has none: it has no quarantine.
+    fn still_ignored_after_the_paste() -> notice::Notice {
+        notice::Notice::warning("input", "Keys ignored until input stops.")
+    }
+
+    #[test]
+    fn a_second_paste_inside_the_quarantine_with_a_gap_in_its_middle_is_kept_and_sends_nothing() {
+        // opus on PASTE-GAP round 1: a second paste whose start marker lands
+        // within `PASTE_QUIET` of the first paste had the marker dropped, so a
+        // gap of that much inside the second paste ended the quarantine and
+        // the rest of the paste was read as keys: its newline sent the
+        // composer, and `/version` with it. The second paste is a paste.
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let ms = Duration::from_millis(1);
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        shell.route_read(b"\x1b[200~two ");
+        for at in [t0 + ms, t0 + ms + quiet, t0 + ms + quiet * 2] {
+            shell.end_delivery_at(at);
+        }
+        shell.route_read(b"lines\r/version\r\x1b[201~");
+        shell.end_delivery_at(t0 + quiet * 3);
+        shell.end_delivery_at(t0 + quiet * 4);
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the rest of the second paste sent a prompt"
+        );
+        assert_eq!(
+            shell.editor.text(),
+            "priornewtwo lines\n/version\n",
+            "the second paste was not kept as a paste"
+        );
+        assert_eq!(shell.document(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_second_paste_begun_behind_the_first_s_end_marker_sends_nothing_across_a_gap() {
+        // Its start marker in the delivery that ended the first paste, where
+        // fx counts it (`paste_framing.zig:102-107@481104fd`): the second
+        // paste is dropped to its own end marker, a gap in its middle
+        // included, and nothing of it is typed or sent.
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~\x1b[200~two ");
+        for at in [t0, t0 + quiet, t0 + quiet * 2] {
+            shell.end_delivery_at(at);
+        }
+        shell.route_read(b"lines\r/version\r\x1b[201~");
+        shell.end_delivery_at(t0 + quiet * 3);
+        shell.end_delivery_at(t0 + quiet * 4);
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the rest of the second paste sent a prompt"
+        );
+        assert_eq!(
+            shell.editor.text(),
+            "priornew",
+            "the second paste was typed"
+        );
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+    }
+
+    #[test]
+    fn input_that_keeps_arriving_inside_the_quarantine_is_said_again_once_a_second() {
+        // gpt6 on PASTE-GAP round 1: the warning was said once, so a stream
+        // that kept the quarantine on went on being dropped with nothing on
+        // the screen to say so. Each second that more of it arrives, xfx says
+        // it again, and how to get out of it: stop the input. Nothing is
+        // decoded on a timer -- the quarantine ends only when the input stops.
+        let tick = super::super::event_loop::TICK;
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        // A byte a turn for 1.2 s: the first warning at the first turn, the
+        // second sentence a second after it, and no third.
+        let mut at = t0;
+        for _ in 0..150 {
+            at += tick;
+            shell.route_read(b"y");
+            shell.end_delivery_at(at);
+        }
+        // Then the input stops: no more is said, and a key is a key again.
+        shell.end_delivery_at(at + tick);
+        shell.end_delivery_at(at + tick + super::super::input::Decoder::PASTE_QUIET);
+        let mut both = said(ignored_behind_the_paste());
+        both.extend(said(still_ignored_after_the_paste()));
+        assert_eq!(shell.document(), both);
+        assert_eq!(shell.editor.text(), "priornew", "a dropped byte was typed");
+        shell.route_bytes(b"z");
+        assert_eq!(
+            shell.editor.text(),
+            "priornewz",
+            "the quarantine did not end"
+        );
+    }
+
+    /// xfx's sentence for input still being dropped while a paste begun behind
+    /// the first one's end marker is open: its cause, and no release point.
+    /// Spelled out, as [`still_ignored_after_the_paste`] is.
+    fn still_ignored_while_a_paste_is_open() -> notice::Notice {
+        notice::Notice::warning("input", "Paste still open; keys are ignored.")
+    }
+
+    /// And while a marker is read past its first byte: the open sequence, true
+    /// however many keys continue it.
+    fn still_ignored_while_a_sequence_is_open() -> notice::Notice {
+        notice::Notice::warning("input", "Key sequence open; keys are ignored.")
+    }
+
+    #[test]
+    fn the_repeat_while_a_dropped_paste_is_open_says_the_paste_is_open() {
+        // Both engines on PASTE-GAP round 2: with a paste begun behind the
+        // first one's end marker still open, stopping the input releases
+        // nothing -- the paste's own end marker does -- so "until it stops for
+        // a moment" would be false. The repeat says what does end it, and
+        // stopping changes nothing.
+        let tick = super::super::event_loop::TICK;
+        let mut shell = shell(24, 160);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~\x1b[200~two ");
+        shell.end_delivery_at(t0);
+        let mut at = t0;
+        for _ in 0..150 {
+            at += tick;
+            shell.route_read(b"y");
+            shell.end_delivery_at(at);
+        }
+        for later in [1, 5, 10] {
+            shell.end_delivery_at(at + Duration::from_secs(later));
+        }
+        assert!(
+            shell.decoder.quarantined(),
+            "stopping released the open paste"
+        );
+        shell.route_read(b"z\r");
+        shell.end_delivery_at(at + Duration::from_secs(11));
+        assert_eq!(
+            shell.editor.text(),
+            "priornew",
+            "a byte inside it was typed"
+        );
+        assert!(shell.sent.try_recv().is_err(), "a byte inside it was sent");
+        // The warning at the settle; the repeat a second into the stream; the
+        // stream's last fifth of a second, said at the first check a second
+        // after that, once it had stopped; and the key typed after the pause,
+        // which was dropped too. Every one in the words of the open paste.
+        let mut said_so = said(ignored_behind_the_paste());
+        for _ in 0..3 {
+            said_so.extend(said(still_ignored_while_a_paste_is_open()));
+        }
+        assert_eq!(shell.document(), said_so);
+    }
+
+    #[test]
+    fn the_repeat_while_a_marker_is_half_read_says_the_sequence_is_open() {
+        // A marker half read holds the quarantine through any pause (`ESC [`
+        // is how a paste's start begins), so the repeat said in that state
+        // says what must come first: the sequence finished or broken. Once a
+        // byte has broken it, the next repeat is the pause's sentence again.
+        let tick = super::super::event_loop::TICK;
+        let mut shell = shell(24, 160);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        let first = t0 + tick;
+        let mut at = t0;
+        loop {
+            at += tick;
+            let repeat_due =
+                at.saturating_duration_since(first) >= super::super::input::Decoder::PASTE_REPEAT;
+            shell.route_read(if repeat_due { b"\x1b[" } else { b"y" });
+            shell.end_delivery_at(at);
+            if repeat_due {
+                break;
+            }
+        }
+        for later in [1, 5] {
+            shell.end_delivery_at(at + Duration::from_secs(later));
+        }
+        assert!(
+            shell.decoder.quarantined(),
+            "a pause released a half-read marker"
+        );
+        shell.route_read(b"x");
+        let broke = at + Duration::from_secs(6);
+        shell.end_delivery_at(broke);
+        shell.end_delivery_at(broke + super::super::input::Decoder::PASTE_QUIET);
+        assert!(
+            !shell.decoder.quarantined(),
+            "the pause after the broken marker"
+        );
+        let mut said_so = said(ignored_behind_the_paste());
+        said_so.extend(said(still_ignored_while_a_sequence_is_open()));
+        said_so.extend(said(still_ignored_after_the_paste()));
+        assert_eq!(shell.document(), said_so);
+        assert_eq!(shell.editor.text(), "priornew");
+    }
+
+    #[test]
+    fn a_key_that_continues_a_held_marker_keeps_the_marker_sentence_true() {
+        // gpt6 on PASTE-GAP round 3: from a held `ESC [`, a `2` is another
+        // prefix of a start marker, so the pause still releases nothing -- a
+        // sentence promising that one more key would do was false. The repeat
+        // said while `ESC [` is held stays true when `2` and `0` follow and
+        // the input stops: nothing is released, nothing more is said, and the
+        // key that breaks the sequence and a pause end it.
+        let tick = super::super::event_loop::TICK;
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let mut shell = shell(24, 160);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        let first = t0 + tick;
+        let mut at = t0;
+        loop {
+            at += tick;
+            let repeat_due =
+                at.saturating_duration_since(first) >= super::super::input::Decoder::PASTE_REPEAT;
+            shell.route_read(if repeat_due { b"\x1b[" } else { b"y" });
+            shell.end_delivery_at(at);
+            if repeat_due {
+                break;
+            }
+        }
+        shell.route_read(b"2");
+        shell.end_delivery_at(at + tick);
+        shell.route_read(b"0");
+        shell.end_delivery_at(at + tick * 2);
+        for later in [1, 5, 10] {
+            shell.end_delivery_at(at + Duration::from_secs(later));
+        }
+        assert!(
+            shell.decoder.quarantined(),
+            "a pause released a continued marker"
+        );
+        let mut said_so = said(ignored_behind_the_paste());
+        said_so.extend(said(still_ignored_while_a_sequence_is_open()));
+        assert_eq!(
+            shell.document(),
+            said_so,
+            "the sentence changed or repeated"
+        );
+        shell.route_read(b"x");
+        let broke = at + Duration::from_secs(11);
+        shell.end_delivery_at(broke);
+        shell.end_delivery_at(broke + quiet);
+        assert!(
+            !shell.decoder.quarantined(),
+            "breaking it and a pause did not end it"
+        );
+        assert_eq!(shell.editor.text(), "priornew");
+    }
+
+    #[test]
+    fn a_hold_changed_by_held_bytes_alone_is_said_once_in_its_own_words() {
+        // opus on PASTE-GAP round 3: after a repeat saying "until it stops
+        // for a moment", an `ESC [` alone and then nothing holds the
+        // quarantine through any pause -- and its two bytes are held, not
+        // counted, so nothing more was said and the sentence on the screen
+        // was false. The new hold is said `PASTE_REPEAT` after the last
+        // sentence, once, however long the input then stays still.
+        let tick = super::super::event_loop::TICK;
+        let repeat = super::super::input::Decoder::PASTE_REPEAT;
+        let mut shell = shell(24, 160);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        let t0 = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        // A stream until the quiet's repeat has been said.
+        let first = t0 + tick;
+        let mut at = t0;
+        loop {
+            at += tick;
+            shell.route_read(b"y");
+            shell.end_delivery_at(at);
+            if at.saturating_duration_since(first) >= repeat {
+                break;
+            }
+        }
+        let repeated = at;
+        // Then `ESC [`, and nothing after it.
+        shell.route_read(b"\x1b[");
+        shell.end_delivery_at(repeated + tick);
+        let mut check = repeated + tick;
+        while check < repeated + Duration::from_secs(10) {
+            check += tick * 25;
+            shell.end_delivery_at(check);
+        }
+        assert!(
+            shell.decoder.quarantined(),
+            "a pause released a held marker"
+        );
+        let mut said_so = said(ignored_behind_the_paste());
+        said_so.extend(said(still_ignored_after_the_paste()));
+        said_so.extend(said(still_ignored_while_a_sequence_is_open()));
+        assert_eq!(shell.document(), said_so);
     }
 
     #[test]
@@ -21761,7 +22245,7 @@ mod tests {
         let notice = unwrapped(&uncoloured_rows(&shell.screen_rows()));
         // The **leading clause**, not the whole sentence: the status line is
         // bounded to `STATUS_ROWS` on purpose, and thirty cells is narrow
-        // enough that two rows do not hold all of it. A notice allowed to grow
+        // enough that three rows do not hold all of it. A notice allowed to grow
         // to fit would be a notice pushing an answer off the screen to explain
         // why the answer could not be taken. What has to reach the user is
         // which of the two refusals this is, and that is its first clause.
@@ -38888,6 +39372,94 @@ mod tests {
     }
 
     #[test]
+    fn a_choice_after_a_readiness_gap_behind_a_paste_answers_nothing() {
+        // The keys that act with no Enter are the reason the gap is closed for
+        // every key rather than for the newline alone: at an approval a `1`
+        // marks a choice. After a check that found nothing between the end
+        // marker and the rest of the clipboard, fx reads the `1` and the Enter
+        // as keys (`event_loop.zig:94-119@481104fd`) and the question is
+        // answered.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_read(b"\x1b[200~\x1b[201~");
+        shell.end_delivery();
+        shell.route_read(b"1\r");
+        shell.end_delivery();
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the keys after the gap answered the question"
+        );
+        assert!(shell.panel.is_some(), "the question went away");
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+    }
+
+    #[test]
+    fn a_question_that_opens_between_a_paste_s_bytes_and_its_end_answers_nothing() {
+        // opus r1 on PASTE-AFTER-END: a delivery can span two turns of the
+        // loop (the 32-read cap, a signal), and the runtime's events are taken
+        // between turns, so a question can open after the composer took a
+        // paste's bytes and before the delivery that carried its end marker is
+        // over. The `PasteEnd` then reaches the question, which takes no text
+        // with no draft open: the Enter behind the marker answers nothing, the
+        // panel stays, and the warning is said.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.route_read(b"\x1b[200~new\x1b[201~\r");
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        delivered(&mut shell);
+        shell.end_delivery();
+        assert_eq!(shell.controlled(), None, "the paste answered the question");
+        assert!(shell.panel.is_some(), "the question went away");
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+        assert_eq!(
+            shell.editor.text(),
+            "",
+            "the paste landed in the composer behind the panel"
+        );
+        // And the question still takes its own keys once the input is quiet.
+        shell.end_delivery_at(Instant::now() + super::super::input::Decoder::PASTE_QUIET);
+        shell.route_bytes(b"1");
+        assert!(
+            matches!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    answer: ApprovalAnswer::Once,
+                    ..
+                })
+            ),
+            "the question did not take a key of its own"
+        );
+    }
+
+    #[test]
+    fn a_question_cannot_close_between_a_paste_s_bytes_and_its_end() {
+        // The other way round has no path: a question closes only on its own
+        // keys ([`Shell::decide`]'s answer, [`Shell::answer`]'s), and nothing
+        // between a paste's start and the end of the delivery that ends it is a
+        // key. Not even the turn's end, taken between two turns of the loop,
+        // takes it down -- so the draft that took the paste's start is the one
+        // its `PasteEnd` reaches.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tkeep");
+        shell.route_read(b"\x1b[200~new\x1b[201~\r");
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.settle_band(Instant::now());
+        shell.end_delivery();
+        assert!(shell.panel.is_some(), "the question closed mid-delivery");
+        assert!(
+            band(&shell).contains("keepnew"),
+            "the paste did not reach the draft that took its start: {:?}",
+            band(&shell)
+        );
+        assert_eq!(shell.controlled(), None, "the Enter behind it answered");
+        assert_eq!(shell.editor.text(), "", "the paste reached the composer");
+    }
+
+    #[test]
     fn an_oversized_paste_at_a_draft_with_input_behind_it_says_the_limit_then_the_ignored_input() {
         // fx v0.0.16 finishes the paste before it warns
         // (`input_paste_runtime.zig:189-196@481104fd`), and an overflowed
@@ -38949,6 +39521,682 @@ mod tests {
             "the Enter behind the marker answered"
         );
         assert!(shell.document().is_empty(), "said behind the plane");
+    }
+
+    /// A question on the review plane, at `cols`, with a turn running: the
+    /// surface every quarantine sentence below is said on.
+    fn on_the_plane(cols: u16) -> Fixture {
+        let mut shell = shell(40, cols);
+        let started = turn_running(&mut shell, b"rewrite the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Alternate,
+            "{cols} columns"
+        );
+        // Painted, so a key may answer it.
+        delivered(&mut shell);
+        shell
+    }
+
+    /// From `t0`: `opening` read and settled, then a byte a turn until the
+    /// repeat is due, and `last` in the turn it falls due in. Returns that
+    /// turn's time.
+    fn streamed_to_the_repeat(
+        shell: &mut Fixture,
+        t0: Instant,
+        opening: &[u8],
+        last: &[u8],
+    ) -> Instant {
+        let tick = super::super::event_loop::TICK;
+        shell.route_read(opening);
+        shell.end_delivery_at(t0);
+        let first = t0 + tick;
+        let mut at = t0;
+        loop {
+            at += tick;
+            let due =
+                at.saturating_duration_since(first) >= super::super::input::Decoder::PASTE_REPEAT;
+            shell.route_read(if due { last } else { b"y" });
+            shell.end_delivery_at(at);
+            if due {
+                return at;
+            }
+        }
+    }
+
+    #[test]
+    fn every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen() {
+        // opus on PASTE-GAP round 4: the plane gave its status two rows
+        // (`super::approval_screen`'s `STATUS_ROWS`), so a sentence wider than
+        // two rows of the narrowest screen a session has (`MIN_COLS`) was cut
+        // -- and a cut sentence says something else. Each of the three, said
+        // in its own state, is whole there.
+        let cols = super::super::layout::MIN_COLS;
+        for (opening, last, sentence) in [
+            (&b"\x1b[200~new\x1b[201~"[..], &b"y"[..], PASTE_STILL),
+            (b"\x1b[200~new\x1b[201~\x1b[200~two ", b"y", PASTE_UNTIL_END),
+            (b"\x1b[200~new\x1b[201~", b"\x1b[", PASTE_UNTIL_KEY),
+        ] {
+            let mut shell = on_the_plane(cols);
+            streamed_to_the_repeat(&mut shell, Instant::now(), opening, last);
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(
+                painted.contains(sentence),
+                "{sentence:?} is not whole at {cols} columns: {painted:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_quarantine_s_sentence_leaves_the_review_plane_when_the_quarantine_ends() {
+        // opus on PASTE-GAP round 4: the plane's status row is set and never
+        // taken down, so once the quarantine ended "keys ignored" stayed up for
+        // the rest of the question while keys worked again. Each of the three
+        // sentences is on the plane while its quarantine holds, and gone once
+        // it ends: by the quiet, and -- for the open paste and the open
+        // sequence -- by the byte that closes or breaks it and then the quiet.
+        let tick = super::super::event_loop::TICK;
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        for (opening, last, closing, sentence) in [
+            (
+                &b"\x1b[200~new\x1b[201~"[..],
+                &b"y"[..],
+                &b""[..],
+                PASTE_STILL,
+            ),
+            (
+                b"\x1b[200~new\x1b[201~\x1b[200~two ",
+                b"y",
+                b"\x1b[201~",
+                PASTE_UNTIL_END,
+            ),
+            (b"\x1b[200~new\x1b[201~", b"\x1b[", b"x", PASTE_UNTIL_KEY),
+        ] {
+            let mut shell = on_the_plane(100);
+            let at = streamed_to_the_repeat(&mut shell, Instant::now(), opening, last);
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(painted.contains(sentence), "not said: {painted:?}");
+            let mut at = at + tick;
+            if !closing.is_empty() {
+                shell.route_read(closing);
+                shell.end_delivery_at(at);
+                at += tick;
+            }
+            shell.end_delivery_at(at);
+            shell.end_delivery_at(at + quiet);
+            // And the turn ends as the loop ends one: the plane is painted
+            // after `settle_input` (`super::super::event_loop`'s turn).
+            shell.settle_input(at + quiet);
+            assert!(
+                !shell.decoder.quarantined(),
+                "{sentence:?}: still quarantined"
+            );
+            let painted = unwrapped(&shell.screen_rows());
+            for gone in [PASTE_STILL, PASTE_UNTIL_END, PASTE_UNTIL_KEY] {
+                assert!(
+                    !painted.contains(gone),
+                    "{gone:?} outlived the quarantine: {painted:?}"
+                );
+            }
+            // And a key is a key again: the question answers it.
+            shell.route_bytes(b"1");
+            assert!(
+                shell.controlled().is_some(),
+                "{sentence:?}: the key did nothing"
+            );
+        }
+    }
+
+    /// The three states, each with the sentence it says: what is read first,
+    /// and the byte read in the turn the repeat falls due in.
+    fn the_three_holds() -> [(&'static [u8], &'static [u8], &'static str); 3] {
+        [
+            (b"\x1b[200~new\x1b[201~", b"y", PASTE_STILL),
+            (b"\x1b[200~new\x1b[201~\x1b[200~two ", b"y", PASTE_UNTIL_END),
+            (b"\x1b[200~new\x1b[201~", b"\x1b[", PASTE_UNTIL_KEY),
+        ]
+    }
+
+    #[test]
+    fn the_quarantine_sentences_render_whole_at_120_80_and_20_columns() {
+        // gpt6 and opus on PASTE-GAP round 4: the sentence tests had moved to
+        // a 160-column screen, so nothing pinned how they render at ordinary
+        // widths. In the document: one row at 120 and at 80 -- the topic and
+        // the sentence -- and at 20 a row per piece, the first carrying the
+        // topic, the rest under a hanging indent, none wider than the screen,
+        // and every word there in order. On the review plane: the sentence
+        // whole on its status rows at all three.
+        for cols in [120u16, 80, 20] {
+            for (opening, last, sentence) in the_three_holds() {
+                let mut shell = shell(40, cols);
+                let _ = shell.document();
+                streamed_to_the_repeat(&mut shell, Instant::now(), opening, last);
+                let rows = shell.document();
+                let notice = format!("! input: {sentence}");
+                let at = rows
+                    .iter()
+                    .position(|row| {
+                        row.starts_with("! input: ") && notice.starts_with(row.as_str())
+                    })
+                    .unwrap_or_else(|| panic!("{cols}: {sentence:?} not in {rows:?}"));
+                let mut taken = vec![rows[at].clone()];
+                taken.extend(
+                    rows[at + 1..]
+                        .iter()
+                        .take_while(|row| row.starts_with("  "))
+                        .cloned(),
+                );
+                if cols >= 80 {
+                    assert_eq!(taken, std::slice::from_ref(&notice), "{cols} columns");
+                } else {
+                    assert!(taken.len() > 1, "{cols}: {taken:?}");
+                }
+                assert!(
+                    taken
+                        .iter()
+                        .all(|row| row.chars().count() <= usize::from(cols)),
+                    "{cols}: a row wider than the screen: {taken:?}"
+                );
+                assert_eq!(unwrapped(&taken), notice, "{cols} columns");
+
+                let mut plane = on_the_plane(cols);
+                streamed_to_the_repeat(&mut plane, Instant::now(), opening, last);
+                let painted = unwrapped(&plane.screen_rows());
+                assert!(painted.contains(sentence), "{cols}: {painted:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_hold_that_flaps_is_said_at_most_once_a_second_and_its_last_state_is_said() {
+        // gpt6 on PASTE-GAP round 4: `ESC [`, a byte that breaks it, `ESC [`,
+        // ... -- the hold alternating every turn between the open sequence
+        // and the quiet -- for several `PASTE_REPEAT`s. A sentence is said at
+        // most once a `PASTE_REPEAT`, however the hold flaps; and when it stops
+        // on `ESC [` with nothing after it, what holds it then is the last
+        // thing said.
+        //
+        // gpt6 on round 5: every notice of every turn is counted -- not the
+        // first one a turn's rows hold -- fx's first warning is told apart
+        // from xfx's repeats, and every interval is checked, the one from
+        // fx's warning to the first repeat included.
+        let tick = super::super::event_loop::TICK;
+        let repeat = super::super::input::Decoder::PASTE_REPEAT;
+        let mut shell = shell(24, 160);
+        let _ = shell.document();
+        let t0 = Instant::now();
+        let mut notices: Vec<(Instant, String)> = Vec::new();
+        let mut take = |shell: &mut Fixture, at: Instant| {
+            let said: Vec<String> = shell
+                .document()
+                .into_iter()
+                .filter(|row| row.starts_with("! input: "))
+                .collect();
+            assert!(said.len() <= 1, "one turn said {said:?}");
+            notices.extend(said.into_iter().map(|row| (at, row)));
+        };
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        take(&mut shell, t0);
+        let mut at = t0;
+        for step in 0..450 {
+            at += tick;
+            shell.route_read(if step % 2 == 0 { b"\x1b[" } else { b"x" });
+            shell.end_delivery_at(at);
+            take(&mut shell, at);
+        }
+        // It stops on an open sequence.
+        at += tick;
+        shell.route_read(b"\x1b[");
+        shell.end_delivery_at(at);
+        take(&mut shell, at);
+        let mut check = at;
+        while check < at + Duration::from_secs(3) {
+            check += tick * 25;
+            shell.end_delivery_at(check);
+            take(&mut shell, check);
+        }
+        assert!(
+            notices.len() >= 4,
+            "too few said to mean anything: {notices:?}"
+        );
+        let warning = format!("! input: {PASTE_SUFFIX}");
+        assert_eq!(notices[0].1, warning, "fx's warning is said first");
+        for (_, row) in &notices[1..] {
+            assert!(
+                QUARANTINE_SENTENCES
+                    .iter()
+                    .any(|sentence| *row == format!("! input: {sentence}")),
+                "a repeat that is not one of xfx's sentences: {row:?}"
+            );
+        }
+        for pair in notices.windows(2) {
+            assert!(
+                pair[1].0.saturating_duration_since(pair[0].0) >= repeat,
+                "{:?} then {:?}, {:?} apart",
+                pair[0].1,
+                pair[1].1,
+                pair[1].0.saturating_duration_since(pair[0].0)
+            );
+        }
+        assert!(shell.decoder.quarantined(), "an open sequence was released");
+        assert_eq!(
+            notices.last().map(|(_, row)| row.as_str()),
+            Some(format!("! input: {PASTE_UNTIL_KEY}").as_str())
+        );
+    }
+
+    /// The review plane with `sentence` on it: `opening` read, then a byte a
+    /// turn until the repeat is due and `last` in that turn
+    /// ([`streamed_to_the_repeat`]), and the turn ended as the loop ends one
+    /// (`super::super::event_loop`'s turn: the burst, then
+    /// [`Shell::settle_input`], then the frame). What that turn owed is
+    /// taken -- its document rows and its frame -- and its time returned.
+    fn said_on_the_plane(opening: &[u8], last: &[u8], sentence: &str) -> (Fixture, Instant) {
+        let mut shell = on_the_plane(100);
+        let at = streamed_to_the_repeat(&mut shell, Instant::now(), opening, last);
+        shell.settle_input(at);
+        let painted = unwrapped(&shell.screen_rows());
+        assert!(painted.contains(sentence), "not said: {painted:?}");
+        let _ = shell.document();
+        let _ = shell.render.begin();
+        (shell, at)
+    }
+
+    /// After `transition`'s turn: the plane was repainted, and it says no
+    /// sentence about the quarantine any more -- and nothing new either,
+    /// there or in the document.
+    fn says_no_hold_after(shell: &mut Fixture, transition: &str) {
+        let repainted = shell.render.begin().is_some();
+        let painted = unwrapped(&shell.screen_rows());
+        for stale in QUARANTINE_SENTENCES {
+            assert!(
+                !painted.contains(stale),
+                "{transition}: {stale:?} is still on the plane: {painted:?}"
+            );
+        }
+        assert!(
+            !painted.contains(PASTE_SUFFIX),
+            "{transition}: a new notice: {painted:?}"
+        );
+        assert!(
+            shell.document().is_empty(),
+            "{transition}: said in the document"
+        );
+        assert!(repainted, "{transition}: the plane was not repainted");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_a_breaking_byte_ends_the_open_sequence() {
+        // gpt6 on PASTE-GAP round 5: "Key sequence open" said, then `x`
+        // breaks the sequence inside `PASTE_REPEAT`. The quarantine goes on,
+        // held by the quiet now, and the notice is not due -- but the plane's
+        // line is a view of now, not a notice, so it does not wait for one.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) =
+            said_on_the_plane(b"\x1b[200~new\x1b[201~", b"\x1b[", PASTE_UNTIL_KEY);
+        let at = at + tick;
+        shell.route_read(b"x");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        assert!(shell.decoder.quarantined(), "the quarantine ended");
+        says_no_hold_after(&mut shell, "Marker -> Quiet");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_the_dropped_paste_s_end_marker_arrives() {
+        // gpt6 on PASTE-GAP round 5: "Paste still open" said, then that
+        // paste's end marker inside `PASTE_REPEAT`. The quiet holds the
+        // quarantine now, and the paste is not open.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) =
+            said_on_the_plane(b"\x1b[200~new\x1b[201~\x1b[200~two ", b"y", PASTE_UNTIL_END);
+        let at = at + tick;
+        shell.route_read(b"\x1b[201~");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        assert!(shell.decoder.quarantined(), "the quarantine ended");
+        says_no_hold_after(&mut shell, "Paste -> Quiet");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_a_whole_paste_replaces_the_quarantine() {
+        // opus on PASTE-GAP round 5 (SHOULD 1), and gpt6's MUST 2: a paste
+        // begun inside the quarantine ends it, and when that paste settles in
+        // the same delivery with nothing behind it, the quarantine after it
+        // is a new one -- held by the quiet, as the old one was, and with
+        // nothing said in it. "Keys ignored until input stops." was said in
+        // the old one, about input the user's paste is not.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) = said_on_the_plane(b"\x1b[200~new\x1b[201~", b"y", PASTE_STILL);
+        let at = at + tick;
+        shell.route_read(b"\x1b[200~x\x1b[201~");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        assert!(
+            shell.decoder.quarantined(),
+            "the paste settled with no quarantine after it"
+        );
+        says_no_hold_after(&mut shell, "a whole paste");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_a_paste_begins_in_a_turn_that_ends_at_the_read_cap() {
+        // gpt6 on PASTE-GAP round 5 (MUST 2): a paste begun inside the
+        // quarantine and longer than a turn's reads. The turn ends at its
+        // read cap (`super::super::event_loop`'s `burst`, `still_at`), with no
+        // check that finds nothing -- and the quarantine is over.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) = said_on_the_plane(b"\x1b[200~new\x1b[201~", b"y", PASTE_STILL);
+        let at = at + tick;
+        shell.route_read(b"\x1b[200~a paste longer than the turn's reads");
+        shell.still_at(at);
+        shell.settle_input(at);
+        assert!(
+            shell.decoder.pasting() && !shell.decoder.quarantined(),
+            "not a paste begun"
+        );
+        says_no_hold_after(&mut shell, "the read cap");
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_when_the_quiet_ends_the_quarantine() {
+        // Round 5's case, through the turn's end.
+        let tick = super::super::event_loop::TICK;
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let (mut shell, at) = said_on_the_plane(b"\x1b[200~new\x1b[201~", b"y", PASTE_STILL);
+        let at = at + tick;
+        shell.end_delivery_at(at);
+        shell.end_delivery_at(at + quiet);
+        shell.settle_input(at + quiet);
+        assert!(!shell.decoder.quarantined(), "still quarantined");
+        says_no_hold_after(&mut shell, "the quiet");
+    }
+
+    #[test]
+    fn fx_s_warning_on_the_plane_outlives_every_change_of_hold_and_the_quarantine() {
+        // fx's own warning is about what happened, so it is as true after the
+        // quarantine as during it: through an open sequence, the byte that
+        // breaks it, and the quiet, it stays.
+        let tick = super::super::event_loop::TICK;
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        let mut shell = on_the_plane(100);
+        let mut at = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~y");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        for (bytes, state) in [
+            (&b"\x1b["[..], "an open sequence"),
+            (b"x", "the byte that breaks it"),
+            (b"", "the quiet"),
+        ] {
+            at += tick;
+            shell.route_read(bytes);
+            shell.end_delivery_at(at);
+            if bytes.is_empty() {
+                shell.end_delivery_at(at + quiet);
+            }
+            shell.settle_input(at);
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(
+                painted.contains(PASTE_SUFFIX),
+                "{state}: fx's warning was taken down: {painted:?}"
+            );
+        }
+        assert!(!shell.decoder.quarantined(), "still quarantined");
+    }
+
+    #[test]
+    fn a_flapping_hold_never_leaves_the_plane_naming_the_other_one() {
+        // gpt6 on PASTE-GAP round 5: `ESC [`, `x`, `ESC [`, ... -- the hold
+        // flipping every turn for several `PASTE_REPEAT`s, on the plane. At
+        // the end of every turn the plane names what holds the quarantine
+        // then, or nothing; and it does name each, so this is not a plane
+        // that says nothing at all.
+        let tick = super::super::event_loop::TICK;
+        let mut shell = on_the_plane(100);
+        let mut at = Instant::now();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(at);
+        shell.settle_input(at);
+        let mut named = [false; 2];
+        for step in 0..450 {
+            at += tick;
+            let open = step % 2 == 0;
+            shell.route_read(if open { b"\x1b[" } else { b"x" });
+            shell.end_delivery_at(at);
+            shell.settle_input(at);
+            let (now, other) = if open {
+                (PASTE_UNTIL_KEY, PASTE_STILL)
+            } else {
+                (PASTE_STILL, PASTE_UNTIL_KEY)
+            };
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(
+                !painted.contains(other) && !painted.contains(PASTE_UNTIL_END),
+                "step {step}: held by {now:?}, the plane says {painted:?}"
+            );
+            named[usize::from(open)] |= painted.contains(now);
+        }
+        assert_eq!(named, [true, true], "a sentence was never said");
+    }
+
+    #[test]
+    fn fx_s_warning_is_whole_on_the_review_plane_at_every_width_down_to_the_narrowest() {
+        // opus on PASTE-GAP round 5 (SHOULD 4): fx's own sentence takes three
+        // rows of the plane's status from 29 columns down to `MIN_COLS`, and
+        // the plane gave its status two, so the user read "Input that arrived
+        // right after the" -- which does not say the input was ignored. fx's
+        // words are not changed; the plane's status has the room for them.
+        for cols in super::super::layout::MIN_COLS..=40 {
+            let mut shell = on_the_plane(cols);
+            shell.route_bytes(b"\x1b[200~new\x1b[201~\r");
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(
+                painted.contains(PASTE_SUFFIX),
+                "{cols} columns: {painted:?}"
+            );
+        }
+    }
+
+    /// The fewest rows the review plane needs for `request` at `cols` with no
+    /// status: its chrome, every row but the review's and the blanks. A
+    /// screen shorter than that gives up the hint row first, so it is the
+    /// least height at which the hint is on the plane -- read by the words
+    /// every tier of it keeps (`super::super::approval_view`'s hints).
+    fn plane_chrome_rows(request: ApprovalRequest, cols: u16) -> u16 {
+        let screen = super::super::approval_screen::ApprovalScreen::new(request);
+        (super::super::layout::MIN_ROWS..200)
+            .find(|&rows| {
+                screen
+                    .composition(cols, rows)
+                    .rows
+                    .iter()
+                    .any(|row| row.contains("enter confirm"))
+            })
+            .expect("a height with the whole chrome")
+    }
+
+    /// The plane's status rows for `text` at `cols`, before a short screen
+    /// gives any up (`super::super::approval_screen::status_rows`).
+    fn plane_status_rows(text: &str, cols: u16) -> Vec<String> {
+        super::super::approval_screen::status_rows(text, cols)
+    }
+
+    /// How many of `rows`, from the first, are on `painted` at the plane's
+    /// indent -- and that none after them is.
+    fn status_rows_shown(rows: &[String], painted: &[String], at: &str) -> usize {
+        let on = |row: &String| {
+            painted
+                .iter()
+                .any(|line| line.trim_end() == format!("  {row}").trim_end())
+        };
+        let shown = rows.iter().take_while(|row| on(row)).count();
+        assert!(
+            !rows[shown..].iter().any(on),
+            "{at}: a status row after one given up is on the plane: {painted:?}"
+        );
+        shown
+    }
+
+    /// The narrowest screen the review plane can grant `request` on: the
+    /// least width at which its choices, scope and subject are whole.
+    fn plane_grants_from(request: ApprovalRequest) -> u16 {
+        let screen = super::super::approval_screen::ApprovalScreen::new(request);
+        (super::super::layout::MIN_COLS..=200)
+            .find(|&cols| {
+                let disclosure = screen.composition(cols, 200).disclosure;
+                disclosure.controls_whole && disclosure.scope_whole && disclosure.subject_whole
+            })
+            .expect("a width the plane can grant at")
+    }
+
+    #[test]
+    fn a_refused_grant_on_a_short_review_plane_still_says_why_where_round_5_did() {
+        // gpt6 on PASTE-GAP round 6 (MUST): round 6 gave every status up whole
+        // when the screen was too short for all of its rows, so from one row
+        // above the plane's chrome to three, a `1` the gate refused did
+        // nothing anyone could see -- where round 5 showed the refusal's first
+        // rows. A refusal is cut from its last row, as round 5 cut it: at
+        // every height from the chrome (B) to four rows above it, nothing is
+        // granted, every choice is on the plane, and at least the rows round
+        // 5 showed are -- its status had two, given up from the last after
+        // the blank above them.
+        //
+        // At 20 and 30 columns the plane can grant no review (its choices are
+        // whole from `plane_grants_from` on, 63 columns today), so a `1` there
+        // is refused as a question this screen can never show whole, before
+        // its frame and after it. A question the screen cannot grant *yet* is
+        // refused from that width on, so it is pressed there and at 80.
+        let request = asked_about_a_large_change();
+        let grants = plane_grants_from(request.clone());
+        assert!(grants > 30, "the plane grants at {grants} columns");
+        let mut cases = Vec::new();
+        for cols in [super::super::layout::MIN_COLS, 30] {
+            cases.push(("before its frame", cols, false, APPROVAL_NOT_DISCLOSED));
+            cases.push(("after its frame", cols, true, APPROVAL_NOT_DISCLOSED));
+        }
+        for cols in [grants, 80] {
+            cases.push(("before its frame", cols, false, APPROVAL_NOT_READY));
+        }
+        let mut short = Vec::new();
+        for (case, cols, painted, notice) in cases {
+            let chrome = plane_chrome_rows(request.clone(), cols);
+            let rows = plane_status_rows(notice, cols);
+            for height in chrome..=chrome + 4 {
+                let at = format!("{case}, {cols}x{height} (B = {chrome})");
+                let mut shell = shell(height, cols);
+                shell.apply(UiEvent::Approval(question(request.clone())));
+                assert_eq!(shell.screen_owner(), ScreenOwner::Alternate, "{at}");
+                if painted {
+                    delivered(&mut shell);
+                }
+                let _ = shell.document();
+                shell.decide(Input::Text('1'), Instant::now());
+                assert_eq!(shell.controlled(), None, "{at}: granted");
+                let painted = uncoloured_rows(&shell.screen_rows());
+                for choice in ["1  Apply", "2  Apply", "3  Don't"] {
+                    assert!(
+                        painted.iter().any(|row| row.contains(choice)),
+                        "{at}: {choice:?} is off the plane: {painted:?}"
+                    );
+                }
+                let round_5 = usize::from(height - chrome)
+                    .saturating_sub(1)
+                    .min(2)
+                    .min(rows.len());
+                let shown = status_rows_shown(&rows, &painted, &at);
+                if shown < round_5 {
+                    short.push(format!(
+                        "{at}: {shown} of the refusal's rows, round 5 showed {round_5}"
+                    ));
+                }
+                assert!(shell.document().is_empty(), "{at}: said behind the plane");
+            }
+        }
+        assert_eq!(
+            short,
+            Vec::<String>::new(),
+            "a refusal said less than round 5 said"
+        );
+    }
+
+    #[test]
+    fn fx_s_warning_and_the_quarantine_s_sentences_are_whole_or_absent_on_a_short_plane() {
+        // The other half of the same rule: a cut of these says something else
+        // -- "Input that arrived right after the", "Keys ignored until" -- so
+        // at every height from the chrome to four rows above it, at 20 and 30
+        // columns, each is on the plane whole or not at all.
+        for cols in [super::super::layout::MIN_COLS, 30] {
+            let chrome = plane_chrome_rows(asked_about_a_large_change(), cols);
+            for (opening, last, sentence) in [
+                (&b"\x1b[200~new\x1b[201~y"[..], None, PASTE_SUFFIX),
+                (b"\x1b[200~new\x1b[201~", Some(&b"y"[..]), PASTE_STILL),
+                (
+                    b"\x1b[200~new\x1b[201~\x1b[200~two ",
+                    Some(b"y"),
+                    PASTE_UNTIL_END,
+                ),
+                (b"\x1b[200~new\x1b[201~", Some(b"\x1b["), PASTE_UNTIL_KEY),
+            ] {
+                let rows = plane_status_rows(sentence, cols);
+                let mut seen = false;
+                for height in chrome..=chrome + 4 {
+                    let at = format!("{sentence:?}, {cols}x{height} (B = {chrome})");
+                    let mut shell = shell(height, cols);
+                    let started = turn_running(&mut shell, b"rewrite the notes\r");
+                    shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+                    shell.settle_band(started);
+                    let _ = shell.document();
+                    assert_eq!(shell.screen_owner(), ScreenOwner::Alternate, "{at}");
+                    delivered(&mut shell);
+                    let now = Instant::now();
+                    match last {
+                        None => {
+                            shell.route_read(opening);
+                            shell.end_delivery_at(now);
+                            shell.settle_input(now);
+                        }
+                        Some(last) => {
+                            let due = streamed_to_the_repeat(&mut shell, now, opening, last);
+                            shell.settle_input(due);
+                        }
+                    }
+                    let painted = uncoloured_rows(&shell.screen_rows());
+                    let shown = status_rows_shown(&rows, &painted, &at);
+                    assert!(
+                        shown == 0 || shown == rows.len(),
+                        "{at}: {shown} of {} rows: {painted:?}",
+                        rows.len()
+                    );
+                    seen |= shown > 0;
+                }
+                assert!(
+                    seen,
+                    "{sentence:?} was never on the plane at {cols} columns"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_plane_s_sentence_goes_in_a_turn_whose_burst_ended_with_neither_check() {
+        // opus on PASTE-GAP round 6 (SHOULD 2): a burst can end with neither
+        // a check that found nothing nor the read cap -- an interrupted wait,
+        // or a read that would block (`super::super::event_loop`'s `burst`)
+        // -- and the turn goes on to `settle_input` and its frame. A byte that
+        // breaks the open sequence is read in such a burst.
+        let tick = super::super::event_loop::TICK;
+        let (mut shell, at) =
+            said_on_the_plane(b"\x1b[200~new\x1b[201~", b"\x1b[", PASTE_UNTIL_KEY);
+        let at = at + tick;
+        shell.route_read(b"x");
+        shell.settle_input(at);
+        assert!(shell.decoder.quarantined(), "the quarantine ended");
+        says_no_hold_after(&mut shell, "an interrupted burst");
     }
 
     #[test]

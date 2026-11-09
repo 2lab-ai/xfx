@@ -1,0 +1,21 @@
+# The pty paste tests, `cargo test --locked --test tui -- paste a_bare_model_on_the_gateway_lists_its_catalog
+#   a_denied_call_made_again_in_a_fork a_prompt_still_too_large_after_a_compaction
+#   a_rule_remembered_before_the_first_prompt an_image_path_pasted_or_typed confirm_rule_change
+#   the_effort_column_sends_its_level a_badge_numbered_like_words`, on the GREEN source before its commit.
+# Transcribed from the worker's runs (test names and result lines as printed).
+
+## 1. PASTE_PAUSE counted from the paste's own write (load average not recorded; 20.6 at 09:35, 9.75 at 09:43)
+test a_rule_remembered_before_the_first_prompt_decides_that_prompts_call_without_a_question ... FAILED
+test a_very_large_paste_collapses_on_screen_and_expands_on_submit ... FAILED
+test a_pasted_block_with_newlines_a_cancel_byte_and_an_escape_is_exactly_one_prompt ... FAILED
+test an_image_path_pasted_or_typed_into_a_prompt_is_attached_where_it_stood ... FAILED
+test a_badge_numbered_like_words_in_its_prompt_is_sent_and_logged_under_a_fresh_number ... FAILED
+test a_collapsed_paste_is_one_unit_to_the_keys_and_comes_back_renumbered ... FAILED
+(each: panicked at tests/support/pty.rs, timed out waiting for the marker the Enter after the paste
+ should have produced: the Enter landed inside the quarantine)
+test result: FAILED. 6 passed; 6 failed; 0 ignored; 0 measured; 170 filtered out; finished in 22.13s
+
+## 2. PASTE_PAUSE taken whole at the write after the paste (load average 9.75), three runs
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 170 filtered out; finished in 2.51s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 170 filtered out; finished in 2.75s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 170 filtered out; finished in 2.46s

@@ -3364,9 +3364,10 @@ fn a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing
     // `input_paste_runtime.zig:168-198@481104fd`): input that arrives behind a
     // paste's end marker in the same delivery is taken for the clipboard's,
     // not the user's -- a copied `ESC[201~` followed by a newline in one
-    // delivery would otherwise be a prompt nobody typed. The paste is kept, the bytes behind the marker are
-    // dropped without being read as keys, and fx warns under `input`
-    // (`fx-p5-input-paste-40x120-paste-enter`). One write, so one read.
+    // delivery would otherwise be a prompt nobody typed. The paste is kept,
+    // the bytes behind the marker are dropped without being read as keys, and
+    // fx warns under `input` (`fx-p5-input-paste-40x120-paste-enter`). One
+    // write, so one read.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
         support::fake_gateway::content_only(&["MARKER-PRIOR"]),
     )]);
@@ -3401,6 +3402,131 @@ fn a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing
     session.wait_for("MARKER-PRIOR");
     assert_eq!(user_messages(&gateway.only_request().json()), ["priornew"]);
 
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+/// About a mebibyte of clipboard on a terminal that does not strip an end
+/// marker: `x`, the embedded `ESC[201~`, then a body that is keys to any
+/// decoder that reads it -- a token, a `1` (an approval's first choice) and a
+/// newline every 512 bytes, `0xff` between them (a byte no scalar starts with,
+/// so a decoder that did read the body would not paint a mebibyte) -- and the
+/// terminal's own end marker. With `start_inside`, an `ESC[200~` three
+/// quarters of the way through. Where it lands depends on where the
+/// deliveries happen to end -- behind the first end marker, if no check has
+/// found the queue empty by then, or inside the quarantine -- and an unpaced
+/// write forces neither; each of those branches is pinned by its own unit
+/// case in `src/tui/input.rs`.
+fn hostile_paste(start_inside: bool) -> Vec<u8> {
+    const SIZE: usize = 1 << 20;
+    let mut bytes = b"\x1b[200~x\x1b[201~".to_vec();
+    let mut token = 0;
+    while bytes.len() + 512 < SIZE {
+        let line = format!("K{token:07}1\r");
+        bytes.extend(line.as_bytes());
+        bytes.extend(std::iter::repeat_n(0xff, 512 - line.len()));
+        if start_inside && token == (SIZE / 512) * 3 / 4 {
+            bytes.extend(b"\x1b[200~");
+        }
+        token += 1;
+    }
+    bytes.extend(b"\x1b[201~");
+    bytes
+}
+
+/// Writes `bytes` as a terminal writes a paste, as fast as it is taken, in
+/// parts of 4 KiB ([`Session::write_raw`]: no pause before or after), and
+/// then leaves the terminal quiet for a second -- far past the paste's
+/// quarantine -- so that what follows is a key of the test's own.
+fn paste_unpaced(session: &Session, bytes: &[u8]) {
+    for part in bytes.chunks(4096) {
+        session.write_raw(part);
+    }
+    std::thread::sleep(std::time::Duration::from_secs(1));
+}
+
+#[test]
+fn a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing() {
+    // PASTE-GAP: a paste that long reaches the TUI in many deliveries, and fx
+    // reads everything after the first readiness gap as keys
+    // (`event_loop.zig:94-119@481104fd`) -- the receipt's `measure.txt` has
+    // the base submitting it. Here the paste's first part is kept and nothing
+    // after its embedded end marker is a key, however the deliveries fall.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-UNPACED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    paste_unpaced(&session, &hostile_paste(false));
+    // A key of the test's own, once the input has been quiet: the composer
+    // holds the paste and that key, and nothing of the body. It is written
+    // after the whole paste, so once it is on the screen the paste has all
+    // been read -- the barrier the request count below is read behind.
+    session.type_bytes(b"z");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "\u{2503} xz",
+            "! input: Input that arrived right after the paste was ignored.",
+        ],
+        &["K0000"],
+    );
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "the clipboard behind the end marker submitted the composer"
+    );
+    session.type_bytes(b"\r");
+    session.wait_for("MARKER-UNPACED");
+    assert_eq!(user_messages(&gateway.only_request().json()), ["xz"]);
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval() {
+    // The same paste at a question: a `1` in its body is the first choice, and
+    // its newline the Enter on it. Nothing after the embedded end marker is a
+    // key -- a second paste's start marker in it included -- so the question
+    // is still waiting when the test answers it itself.
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(PERMISSION_TITLE);
+
+    paste_unpaced(&session, &hostile_paste(true));
+    // A barrier in the input's own order: Down, written after the whole
+    // paste, moves the question's marker to its second choice. Once that is
+    // on the screen every byte of the paste has been read, so a paste that
+    // had answered would have taken the question down before it.
+    session.type_bytes(b"\x1b[B");
+    on_screen(&session, (24, 80), &["\u{276f} 2  "], &[]);
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "alpha\n",
+        "the clipboard behind the end marker approved the edit"
+    );
+    // Still asking: the test's own `1` is the answer, and the edit runs.
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "beta\n"
+    );
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 }

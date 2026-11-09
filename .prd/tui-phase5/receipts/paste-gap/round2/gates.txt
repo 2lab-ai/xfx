@@ -1,0 +1,92 @@
+# Every CI step of .github/workflows/ci.yml, in its order, in the worktree, under the machine's suite
+# lock (one slot for the whole run), TMPDIR=<scratch>/paste-gap/gate-tmp. 'test' is
+# 'cargo test --locked --all-targets --no-fail-fast'; 'fi-test-all' is
+# 'cargo test --locked --features fault-injection --no-fail-fast'. Load average 39-48 during the run.
+head 45dffff4
+fmt exit=0 2s
+clippy exit=0 10s
+test exit=0 137s
+fi-clippy exit=0 17s
+fi-test-all exit=101 337s
+no-stubs exit=0 10s
+no-secrets exit=0 64s
+gate-env exit=0 598s
+identity exit=0 2s
+preview-contract exit=0 6s
+preview-mutants exit=0 102s
+preflight-cost exit=0 113s
+usage-clock exit=0 1s
+release-build exit=0 21s
+smoke exit=0 1s
+faulty-build exit=0 27s
+smoke-tui exit=0 74s
+-- test
+  binaries: 14, passed 5475, failed 0, ignored 7
+-- fi-test-all
+  binaries: 15, passed 5512, failed 1, ignored 7
+test a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says ... FAILED
+  smoke-tui: 
+  smoke-tui: smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures
+  smoke-tui: evidence: <scratch>/paste-gap/gate-tmp/xfx-smoke-tui
+
+## fi-test-all's one failure: a pty test that reads the clipboard image through a subprocess
+## (typed '/paste', no bracketed paste), timed out waiting for its badge:
+thread 'a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says' (381598125) panicked at tests/support/pty.rs:407:13:
+timed out waiting for ["┃ [Image 1]"] on the screen, [] off it; terminal so far:
+## alone, three times, with the fault injector (load average 41.9):
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 197 filtered out; finished in 6.08s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 197 filtered out; finished in 6.06s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 197 filtered out; finished in 6.14s
+
+## the unit's tests in the 'test' log
+  test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... ok
+  test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... ok
+  test a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing ... ok
+  test a_stream_split_across_chunks_decodes_the_same ... ok
+  test an_enter_one_read_behind_a_paste_s_end_marker_is_behind_it_too ... ok
+  test an_sse_event_split_across_transport_writes_still_decodes ... ok
+  test session::prompt_history::tests::an_append_past_a_mebibyte_compacts_the_file ... ok
+  test tui::event_loop::tests::a_delivery_past_the_32nd_read_goes_on_into_the_next_turn_unsettled ... ok
+  test tui::event_loop::tests::a_read_of_nothing_leaves_the_session_and_settles_nothing ... ok
+  test tui::event_loop::tests::a_readiness_gap_inside_one_paste_does_not_turn_the_rest_of_it_into_keys ... ok
+  test tui::event_loop::tests::a_turn_cut_short_by_a_signal_or_a_read_that_would_wait_settles_nothing ... ok
+  test tui::frame::tests::a_link_is_never_split_across_two_rows_at_any_width ... ok
+  test tui::frame::tests::a_sequence_a_row_may_not_keep_is_never_split_across_two_rows ... ok
+  test tui::freeform::tests::a_wide_grapheme_is_never_split_across_rows ... ok
+  test tui::input::tests::a_captured_ctrl_letter_split_across_reads_decodes_once ... ok
+  test tui::input::tests::a_notification_split_across_two_reads_is_still_one_report ... ok
+  test tui::input::tests::a_quarantine_ends_at_the_first_empty_check_at_or_past_the_quiet ... ok
+  test tui::input::tests::a_quarantine_ends_only_after_two_empty_checks_a_quiet_period_apart ... ok
+  test tui::input::tests::a_readiness_gap_behind_an_end_marker_does_not_make_what_follows_keys ... ok
+  test tui::input::tests::a_redo_sequence_split_across_reads_decodes_once ... ok
+  test tui::input::tests::a_second_paste_begun_behind_the_first_s_end_marker_stays_dropped_across_a_gap ... ok
+  test tui::input::tests::a_second_paste_inside_the_quarantine_is_a_paste_across_a_gap_in_its_middle ... ok
+  test tui::input::tests::a_start_marker_inside_a_paste_begun_in_the_quarantine_is_its_content ... ok
+  test tui::input::tests::a_start_marker_inside_a_paste_being_dropped_is_its_content_and_one_end_closes_it ... ok
+  test tui::input::tests::a_start_marker_split_across_the_quiet_holds_the_quarantine ... ok
+  test tui::input::tests::a_start_marker_split_across_the_settle_is_followed_into_the_quarantine ... ok
+  test tui::input::tests::a_u_form_key_split_across_reads_decodes_once ... ok
+  test tui::input::tests::an_end_marker_split_across_two_deliveries_is_the_marker_and_the_next_key_a_key ... ok
+  test tui::input::tests::an_unterminated_paste_begun_behind_the_first_s_end_marker_never_becomes_keys ... ok
+  test tui::input::tests::an_unterminated_paste_begun_inside_the_quarantine_never_becomes_keys ... ok
+  test tui::input::tests::input_dropped_before_a_paste_begun_in_the_quarantine_is_still_said ... ok
+  test tui::input::tests::paste_quiet_stays_within_what_was_measured ... ok
+  test tui::input::tests::the_cumulative_bound_holds_at_every_prefix_of_deterministic_noise ... ok
+  test tui::probe::tests::a_second_escape_starts_the_next_candidate_rather_than_being_dropped ... ok
+  test tui::shell::tests::a_choice_after_a_readiness_gap_behind_a_paste_answers_nothing ... ok
+  test tui::shell::tests::a_readiness_gap_behind_a_paste_s_end_marker_does_not_make_the_rest_a_prompt ... ok
+  test tui::shell::tests::a_second_paste_begun_behind_the_first_s_end_marker_sends_nothing_across_a_gap ... ok
+  test tui::shell::tests::a_second_paste_inside_the_quarantine_with_a_gap_in_its_middle_is_kept_and_sends_nothing ... ok
+  test tui::shell::tests::a_sequence_split_across_two_reads_is_still_one_keystroke ... ok
+  test tui::shell::tests::an_undo_the_runtime_did_past_a_reset_is_still_said ... ok
+  test tui::shell::tests::input_that_keeps_arriving_inside_the_quarantine_is_said_again_once_a_second ... ok
+  test tui::transcript::tests::a_crlf_split_across_two_pushes_is_one_line_break ... ok
+
+## smoke-tui's paste scenarios
+    7-multiline-and-paste-framing         ok
+    21-paste-entities                     ok
+
+## fi-test-all re-run alone under the suite lock (load average 19-30), on the tree at a1bc7c87:
+## a receipt-only commit; every file the binary is built from is as at 45dffff4
+  binaries: 15, passed 5513, failed 0
+  test a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says ... ok

@@ -1,0 +1,7 @@
+# cargo test --locked --lib -- leaves_the_review_plane_when_the_quarantine_ends
+# on e05f62f8's source with the RED test (the commit's tree): the sentence was asserted on the plane
+# and the quarantine asserted ended before this failure
+test tui::shell::tests::the_quarantine_s_sentence_leaves_the_review_plane_when_the_quarantine_ends ... FAILED
+thread 'tui::shell::tests::the_quarantine_s_sentence_leaves_the_review_plane_when_the_quarantine_ends' (396534869) panicked at src/tui/shell.rs:38569:17:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4574 filtered out; finished in 0.00s
+"Keys ignored until input stops." outlived the quarantine

@@ -1,0 +1,6 @@
+clone at 2b2f2bac; per test run timeout 900 s
+ 1. killed by 2: tui::approval_screen::tests::any_other_status_is_given_up_from_its_last_row_so_its_first_clause_stays, tui::shell::tests::a_refused_grant_on_a_short_review_plane_still_says_why_where_round_5_did -- item 1: every status given up whole (round 6's rule)
+ 2. killed by 1: tui::shell::tests::fx_s_warning_and_the_quarantine_s_sentences_are_whole_or_absent_on_a_short_plane -- item 1: the paste sentences cut from their last row
+ 3. killed by 1: tui::shell::tests::the_plane_s_sentence_goes_in_a_turn_whose_burst_ended_with_neither_check -- item 3: reconciled at the end of the two checks, not at the turn's end
+ 4. killed by 1: tui::approval_screen::tests::no_cut_of_xfx_s_refusals_shows_an_instruction_without_its_condition -- item 2: the not-yet refusal's round 6 words (the key before its condition)
+ 5. killed by 1: tui::approval_screen::tests::no_cut_of_xfx_s_refusals_shows_an_instruction_without_its_condition -- item 2: the never-whole refusal's round 6 words (the keys before what they do)

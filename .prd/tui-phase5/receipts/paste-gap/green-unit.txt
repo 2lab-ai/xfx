@@ -1,0 +1,15 @@
+# cargo test --locked --lib -- readiness_gap a_choice_after_a_readiness_gap quarantine warning_is_owed_once between_a_paste_s_bytes cut_short a_read_of_nothing cumulative_bound
+# at ea2b8a60 (GREEN)
+test tui::input::tests::a_readiness_gap_behind_an_end_marker_does_not_make_what_follows_keys ... ok
+test tui::input::tests::a_quarantine_ends_only_after_two_empty_checks_a_quiet_period_apart ... ok
+test tui::input::tests::a_paste_s_warning_is_owed_once_whether_its_input_came_before_the_gap_or_after ... ok
+test tui::input::tests::the_cumulative_bound_holds_at_every_prefix_of_deterministic_noise ... ok
+test tui::shell::tests::a_readiness_gap_behind_a_paste_s_end_marker_does_not_make_the_rest_a_prompt ... ok
+test tui::shell::tests::a_refusal_that_is_cut_short_does_not_paint_the_warning_beside_it ... ok
+test tui::event_loop::tests::a_read_of_nothing_leaves_the_session_and_settles_nothing ... ok
+test tui::event_loop::tests::a_readiness_gap_inside_one_paste_does_not_turn_the_rest_of_it_into_keys ... ok
+test tui::shell::tests::a_question_that_opens_between_a_paste_s_bytes_and_its_end_answers_nothing ... ok
+test tui::shell::tests::a_choice_after_a_readiness_gap_behind_a_paste_answers_nothing ... ok
+test tui::shell::tests::a_question_cannot_close_between_a_paste_s_bytes_and_its_end ... ok
+test tui::event_loop::tests::a_turn_cut_short_by_a_signal_or_a_read_that_would_wait_settles_nothing ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 4537 filtered out; finished in 0.01s

@@ -1,0 +1,7 @@
+# cargo test --locked --lib -- every_quarantine_sentence_is_whole
+# on 4bc343b4's source with round 5's first RED test (the commit's tree)
+test tui::shell::tests::every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen ... FAILED
+thread 'tui::shell::tests::every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen' (395936060) panicked at src/tui/shell.rs:38527:13:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4573 filtered out; finished in 0.06s
+# the plane at 20 columns painted, of the sentence (two status rows of 18 columns, then its rule):
+'Input is still being ignored \\u{1b}[38;5;240m───────────────'

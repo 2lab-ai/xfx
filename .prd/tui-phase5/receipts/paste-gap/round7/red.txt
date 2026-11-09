@@ -1,0 +1,100 @@
+# cargo test --locked --lib -- a_refused_grant_on_a_short_review_plane fx_s_warning_and_the_quarantine_s_sentences_are_whole_or_absent the_plane_s_sentence_goes_in_a_turn_whose_burst no_cut_of_xfx_s_refusals fx_s_amendment_limit_is_cut
+# on 4ebd9004's tree: round 7's tests on a49039f7's source (no source line changed). Exit 101.
+
+test tui::approval_screen::tests::fx_s_amendment_limit_is_cut_only_where_parity_names_it ... ok
+test tui::approval_screen::tests::no_cut_of_xfx_s_refusals_shows_an_instruction_without_its_condition ... FAILED
+test tui::shell::tests::the_plane_s_sentence_goes_in_a_turn_whose_burst_ended_with_neither_check ... ok
+test tui::shell::tests::fx_s_warning_and_the_quarantine_s_sentences_are_whole_or_absent_on_a_short_plane ... ok
+test tui::shell::tests::a_refused_grant_on_a_short_review_plane_still_says_why_where_round_5_did ... FAILED
+test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 4586 filtered out; finished in 0.08s
+
+# a_refused_grant_on_a_short_review_plane_still_says_why_where_round_5_did: every height where round 6 showed fewer refusal rows than round 5's cut (9)
+  before its frame, 20x16 (B = 14): 0 of the refusal's rows, round 5 showed 1
+  before its frame, 20x17 (B = 14): 0 of the refusal's rows, round 5 showed 2
+  after its frame, 20x16 (B = 14): 0 of the refusal's rows, round 5 showed 1
+  after its frame, 20x17 (B = 14): 0 of the refusal's rows, round 5 showed 2
+  before its frame, 30x14 (B = 12): 0 of the refusal's rows, round 5 showed 1
+  before its frame, 30x15 (B = 12): 0 of the refusal's rows, round 5 showed 2
+  after its frame, 30x14 (B = 12): 0 of the refusal's rows, round 5 showed 1
+  after its frame, 30x15 (B = 12): 0 of the refusal's rows, round 5 showed 2
+  before its frame, 63x12 (B = 10): 0 of the refusal's rows, round 5 showed 1
+
+# no_cut_of_xfx_s_refusals_shows_an_instruction_without_its_condition, APPROVAL_NOT_READY ("press it" without "once you can read it"): 47 cuts, 8 of them at three rows
+  20 columns, 3 rows: "the question is not on the screen yet - press it"
+  21 columns, 3 rows: "the question is not on the screen yet - press it again once"
+  22 columns, 3 rows: "the question is not on the screen yet - press it again once"
+  23 columns, 3 rows: "the question is not on the screen yet - press it again once"
+  24 columns, 3 rows: "the question is not on the screen yet - press it again once you can"
+  25 columns, 3 rows: "the question is not on the screen yet - press it again once you can"
+  26 columns, 3 rows: "the question is not on the screen yet - press it again once you can"
+  27 columns, 2 rows: "the question is not on the screen yet - press it"
+  27 columns, 3 rows: "the question is not on the screen yet - press it again once you can read"
+  28 columns, 2 rows: "the question is not on the screen yet - press it"
+  29 columns, 2 rows: "the question is not on the screen yet - press it again"
+  30 columns, 2 rows: "the question is not on the screen yet - press it again"
+  31 columns, 2 rows: "the question is not on the screen yet - press it again"
+  32 columns, 2 rows: "the question is not on the screen yet - press it again"
+  33 columns, 2 rows: "the question is not on the screen yet - press it again"
+  34 columns, 2 rows: "the question is not on the screen yet - press it again once"
+  35 columns, 2 rows: "the question is not on the screen yet - press it again once you can"
+  36 columns, 2 rows: "the question is not on the screen yet - press it again once you can"
+  37 columns, 2 rows: "the question is not on the screen yet - press it again once you can"
+  38 columns, 2 rows: "the question is not on the screen yet - press it again once you can"
+  50 columns, 1 rows: "the question is not on the screen yet - press it"
+  51 columns, 1 rows: "the question is not on the screen yet - press it"
+  52 columns, 1 rows: "the question is not on the screen yet - press it"
+  53 columns, 1 rows: "the question is not on the screen yet - press it"
+  54 columns, 1 rows: "the question is not on the screen yet - press it"
+  55 columns, 1 rows: "the question is not on the screen yet - press it"
+  56 columns, 1 rows: "the question is not on the screen yet - press it again"
+  57 columns, 1 rows: "the question is not on the screen yet - press it again"
+  58 columns, 1 rows: "the question is not on the screen yet - press it again"
+  59 columns, 1 rows: "the question is not on the screen yet - press it again"
+  60 columns, 1 rows: "the question is not on the screen yet - press it again"
+  61 columns, 1 rows: "the question is not on the screen yet - press it again once"
+  62 columns, 1 rows: "the question is not on the screen yet - press it again once"
+  63 columns, 1 rows: "the question is not on the screen yet - press it again once"
+  64 columns, 1 rows: "the question is not on the screen yet - press it again once"
+  65 columns, 1 rows: "the question is not on the screen yet - press it again once you"
+  66 columns, 1 rows: "the question is not on the screen yet - press it again once you"
+  67 columns, 1 rows: "the question is not on the screen yet - press it again once you"
+  68 columns, 1 rows: "the question is not on the screen yet - press it again once you"
+  69 columns, 1 rows: "the question is not on the screen yet - press it again once you can"
+  70 columns, 1 rows: "the question is not on the screen yet - press it again once you can"
+  71 columns, 1 rows: "the question is not on the screen yet - press it again once you can"
+  72 columns, 1 rows: "the question is not on the screen yet - press it again once you can"
+  73 columns, 1 rows: "the question is not on the screen yet - press it again once you can"
+  74 columns, 1 rows: "the question is not on the screen yet - press it again once you can read"
+  75 columns, 1 rows: "the question is not on the screen yet - press it again once you can read"
+  76 columns, 1 rows: "the question is not on the screen yet - press it again once you can read"
+
+# no_cut_of_xfx_s_refusals_shows_an_instruction_without_its_condition, APPROVAL_NOT_DISCLOSED ("press 3" or "ctrl+c" without "to refuse"): 29 cuts, 9 of them at three rows
+  41 columns, 3 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or"
+  42 columns, 3 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or"
+  43 columns, 3 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or"
+  44 columns, 3 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  44 columns, 3 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  45 columns, 3 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  45 columns, 3 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  46 columns, 3 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  46 columns, 3 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  57 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or"
+  58 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or"
+  59 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or"
+  60 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or"
+  61 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c"
+  61 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c"
+  62 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c"
+  62 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c"
+  63 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c"
+  63 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c"
+  64 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  64 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  65 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  65 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  66 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  66 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  67 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  67 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  68 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"
+  68 columns, 2 rows: "this screen cannot show the whole request, so it cannot be approved here; make the window larger, or press 3 or ctrl+c to"

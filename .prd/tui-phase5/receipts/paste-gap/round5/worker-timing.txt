@@ -1,0 +1,8 @@
+# mutant 1's second killer, run alone three times at 6cb46583 (unmutated): it shares no code
+# with the plane's status (src/tui/worker.rs, a catalog wait's timing)
+## run 1, load averages: { 43.55 49.13 57.08 }
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4576 filtered out; finished in 13.39s
+## run 2, load averages: { 39.84 48.04 56.55 }
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4576 filtered out; finished in 16.08s
+## run 3, load averages: { 34.41 46.45 55.84 }
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4576 filtered out; finished in 14.53s

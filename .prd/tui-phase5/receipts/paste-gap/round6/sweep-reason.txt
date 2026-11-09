@@ -1,0 +1,19 @@
+# Why no sweep in round 6: no capture of the 41 input scenarios has a status on the review plane.
+# Over PASTE-GAP round 1's head sweep (ea2b8a60, ../sweep-head.md), in <scratch>/sweep-head/runs:
+#   ls */xfx/*.txt | wc -l
+xfx captures: 254 of 41 scenarios
+#   grep -l 'Permission needed' */xfx/*.txt | wc -l   (a question on the band's panel or the plane)
+captures with a question: 20
+#   grep -h -E '^  (Input that arrived|That edit exceeds|this screen cannot show|the question is not on the screen|Keys ignored|Paste still open|Key sequence open)' */xfx/*.txt | wc -l
+#   (every sentence the plane's status can hold, at the plane's two-column indent:
+#    the amendment's limit, the two readiness refusals, fx's warning, the three sentences)
+plane status rows: 0
+# The scenario files since a832f4d7:
+#   git diff a832f4d7..d0789285 -- scripts/fxcap/ | wc -l
+diff lines: 0
+# The pattern can match: captures keep the two-column indent --
+#   grep -h '^  Permission needed' */xfx/*.txt | wc -l
+indented rows: 20
+# -- and a real status row of the plane, as composed (red.txt, the height test's panic), matches it:
+#   printf '%s\n' '  Keys ignored until' | grep -c -E '<the pattern above>'
+sample matches: 1

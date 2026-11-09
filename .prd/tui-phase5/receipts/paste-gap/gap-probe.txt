@@ -1,0 +1,20 @@
+# gap_probe.py: a reader shaped like xfx's turn on a raw pty, a writer process writing one paste
+# run 1 (09:0x, load average not recorded; 7.7 at 09:16), 20 repeats:
+# python3 -I -B gap_probe.py 20; Darwin 25.6.0
+# size | runs | deliveries min/med/max | runs whose first delivery ended inside the paste | bytes after the first delivery (min/med/max) | gap ms med/p95/max
+    1024 | 20 | 1/1/2 | 1/20 | 0/0/2 | 0.009/0.009/0.009
+    4096 | 20 | 1/1/5 | 5/20 | 0/0/3074 | 0.004/0.042/0.042
+   65536 | 20 | 1/2.5/54 | 14/20 | 0/36106/64514 | 0.007/0.096/1.413
+ 1048576 |  5 | 33/324/403 | 5/5 | 890776/1.01801e+06/1047554 | 0.003/0.127/3.716
+
+# run 2 (09:35, the machine running every suite-lock slot), 20 repeats:
+# python3 -I -B gap_probe.py 20; Darwin 25.6.0; 0 spinners; load avg 20.6
+# size | runs | deliveries min/med/max | runs whose first delivery ended inside the paste | bytes after the first delivery (min/med/max) | gap ms med/p95/max
+    1024 | 20 | 1/1/1 | 0/20 | 0/0/0 | 0.000/0.000/0.000
+    4096 | 20 | 1/1/1 | 0/20 | 0/0/0 | 0.000/0.000/0.000
+   65536 | 20 | 1/1/2 | 1/20 | 0/0/36870 | 0.004/0.004/0.004
+ 1048576 |  5 | 2/3/5 | 5/5 | 569214/914602/1009424 | 0.001/0.007/0.007
+
+# An exclusive-lock run with one 'yes' per core (gap_probe.py 20 --load) waited 15 minutes
+# for the lock, every slot held by other suites, and was stopped by its own timeout
+# before it ran; it measured nothing.
