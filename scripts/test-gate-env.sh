@@ -821,13 +821,13 @@ ruby -ryaml -e '
 	reached = Hash.new { |h, k| h[k] = [] }
 	job["steps"].each do |step|
 		run = step["run"].to_s
-		%w[test-gate-env test-preview-contract test-check-no-secrets].each do |script|
+		%w[test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths].each do |script|
 			next unless run.include?("./scripts/#{script}.sh")
 			reached[script] |= runs_on.(step).map { |row| row["runner"] }
 			reached["test-check-no-secrets"] |= runs_on.(step).map { |row| row["runner"] } if script == "test-gate-env"
 		end
 	end
-	%w[test-gate-env test-preview-contract test-check-no-secrets].each do |script|
+	%w[test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths].each do |script|
 		runners = reached[script]
 		state = runners.any? { |r| r.start_with?("macos") } && runners.any? { |r| r.start_with?("ubuntu") } ? "covers" : "MISSING"
 		puts "#{state}\t#{script}: #{runners.sort.join(", ")}"

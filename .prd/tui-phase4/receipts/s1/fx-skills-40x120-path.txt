@@ -3,7 +3,7 @@
 * skills: Skill 'nope' not found.
 
 * skills: fx workspace roots are auto-discovered from .fx/skills and skills/.
-  fx managed install root: /private/tmp/claude-501/fxcap.XXXXXX/home/.fx/skills
+  fx managed install root: <scratch___________________________>/home/.fx/skills
   compatibility roots are auto-discovered from workspace and home (.opencode/.codex/.claude/.agents/.claw).
 
 ┃

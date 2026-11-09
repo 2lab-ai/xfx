@@ -12,7 +12,7 @@ FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> 40x120
                                   scripts/fxcap/capture.sh xfx <scenario> 40x120 <dir>
 ```
 
-with `TMPDIR=/private/tmp/claude-501`, for `image`, `image-unknown`,
+with `TMPDIR=<tmp>`, for `image`, `image-unknown`,
 `image-nonnative` and `image-paste` (`scripts/fxcap/scenarios/`). The workspace
 is `scenarios/image-ws/`: fx's capture fixture `shot.png` (a 4x4 red PNG, 73
 bytes, sha256 `3fd6e6be528c…`), `notes.txt` (text) and a directory `pics/`.
@@ -69,10 +69,10 @@ changed to fx's `↑12`.
 The other shims (`open`, `pbcopy`, `pbpaste`, `afplay`), `FX_NO_OPEN_BROWSER=1`
 and the fx sound guard are unchanged; every fx run ended with all seven chime
 names still directories (exit 0). `ls /private/tmp | grep fx-image-snapshots`
-and `ls /private/tmp/claude-501 | grep xfx-clipboard` were 0 before and after
+and `ls <tmp> | grep xfx-clipboard` were 0 before and after
 the capture runs: neither binary left its clipboard directory behind.
 
-**Sanitized**: the run directory (`/private/tmp/claude-501/fxcap.XXXXXX`) is
+**Sanitized**: the run directory (`/private/tmp/claude-<uid>/fxcap.XXXXXX`) is
 written as `<scratch>`. It appears in fx's `.ansi` files (the badge's OSC 8
 link, `file://<scratch>/work/shot.png`) and in both `.files` dumps. Every file
 was then scanned for `fxcap.`, `/private/`, `/var/folders`, `claude-501`,
@@ -288,7 +288,7 @@ Compared row by row with the run directory written `<scratch>` on both and fx's
 |---|---|---|
 | `image-inline` (5 snaps) | identical | **identical, links included**: `\e]8;;file://<scratch>/work/shot.png\e\[Image 1]\e]8;;\e\` on the composer and on each card |
 | `image-composer` (8 snaps) | identical | identical in 6. In `yanked` and `recalled` the links go to the same file on every cell but one: fx leaves the space inside the first yanked or recalled badge (`[Image 4]`, `[Image 6]`) unlinked, and the runs are split differently. Each binary's frame diff rewrote different cells over the composer's previous contents, and tmux keeps a link per OSC 8 written; fx's unlinked space is a cell its writer did not rewrite. Cards and `*-sent` rows are identical. |
-| `image-paste` (6 snaps) | identical | identical but **the target** of the clipboard badges' links: fx links `<scratch>/home/.fx/sessions/<id>/images/image-N-3fd6e6be528c182d.bin`, xfx `<scratch>/xfxtmp/xfx-image-snapshots-<random>/image-N-3fd6e6be528c182d.bin`. Both write the copy at the paste and link it (`image_commands.zig:138-147`); fx's session exists from launch, so its copy goes into the session, while xfx's session opens with the first prompt, so its paste copy goes where fx puts one with no session -- a private temporary directory, removed when the process ends (`session_store.zig:102-118`, `image_attachments.zig:240-262`). The session keeps its own copy once the prompt is recorded, and a resumed card links that. `ls /private/tmp/claude-501 \| grep xfx-image-snapshots` was 0 after the runs. |
+| `image-paste` (6 snaps) | identical | identical but **the target** of the clipboard badges' links: fx links `<scratch>/home/.fx/sessions/<id>/images/image-N-3fd6e6be528c182d.bin`, xfx `<scratch>/xfxtmp/xfx-image-snapshots-<random>/image-N-3fd6e6be528c182d.bin`. Both write the copy at the paste and link it (`image_commands.zig:138-147`); fx's session exists from launch, so its copy goes into the session, while xfx's session opens with the first prompt, so its paste copy goes where fx puts one with no session -- a private temporary directory, removed when the process ends (`session_store.zig:102-118`, `image_attachments.zig:240-262`). The session keeps its own copy once the prompt is recorded, and a resumed card links that. `ls <tmp> \| grep xfx-image-snapshots` was 0 after the runs. |
 | `approvals-amend-limit` (5 snaps) | the `✗ input:` rows identical: one after the first paste, two after the second, three after the third | the `✗ input:` rows identical: `\e[38;5;252m✗ input:\e[38;5;250m That edit exceeds the input limit and was not applied.\e[39m`. Every other difference is not this unit's: the second choice's wording and its explanation row (xfx's permission panel), `What can xfx do differently?` (the product's name). |
 
 Wire: `image-inline` and `image-paste` send the same user messages and file

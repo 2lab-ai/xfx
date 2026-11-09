@@ -1,0 +1,82 @@
+# Files holding each shape, raw (before any exception), by git grep at each revision,
+# with the shapes scripts/check-no-local-paths.sh matches (counts.sh).
+== ccced1f5
+macOS home	6
+Linux home	5
+harness scratch root	156
+broken after tmp/	29
+macOS temporary root	4
+any shape	167
+the user name	0
+the home path	0
+== 7f2298f7
+macOS home	8
+Linux home	10
+harness scratch root	3
+broken after tmp/	0
+macOS temporary root	2
+any shape	16
+the user name	0
+the home path	0
+
+# scripts/check-no-local-paths.sh (round 2's, at 7d855291) run on a clone at ccced1f5:
+159 files refused
+  279 a harness scratch root (lines)
+  56 a harness scratch root, broken after its tmp/ (lines)
+  4 a macOS per-user temporary root (lines)
+# and at 7f2298f7:
+check-no-local-paths: ok (15569 tracked file(s) scanned; 8 marked fixture line(s), 77 placeholder line(s))
+
+# What the exceptions excuse at 7f2298f7: the lines that end in a local-path-ok comment,
+# then the files whose home directories are all placeholders (lines per file).
+  marked: scripts/check-no-local-paths.sh:25
+  marked: scripts/check-no-local-paths.sh:26
+  marked: scripts/fxcap/test_capture.py:330
+  marked: scripts/fxcap/test_sweep.py:469
+  marked: scripts/fxcap/test_sweep.py:473
+  marked: scripts/fxcap/test_sweep.py:474
+  marked: scripts/fxcap/test_sweep.py:475
+  marked: src/skills/catalog.rs:558
+  placeholder homes: .prd/tui-phase4/loop.md:1
+  placeholder homes: .prd/tui-phase5/receipts/local-paths/README.md:3
+  placeholder homes: .prd/tui-phase5/receipts/local-paths/harness.txt:1
+  placeholder homes: .prd/tui-phase5/receipts/train-6/linux.sh:2
+  placeholder homes: CONTRIBUTING.md:1
+  placeholder homes: README.md:1
+  placeholder homes: scripts/check-no-local-paths.sh:11
+  placeholder homes: scripts/fxcap/test_sweep.py:6
+  placeholder homes: src/config.rs:1
+  placeholder homes: src/llmux/setup.rs:2
+  placeholder homes: src/mcp/transport.rs:2
+  placeholder homes: src/permission/policy.rs:44
+  placeholder homes: src/tui/hyperlink.rs:3
+  placeholder homes: src/tui/image_paths.rs:2
+
+# Round 7 (counts.sh with the broken-root shape after any non-name character but /), at the base, round 6's head and round 7's:
+== ccced1f5
+macOS home	6
+Linux home	5
+harness scratch root	156
+broken after tmp/	31
+macOS temporary root	4
+any shape	169
+the user name	0
+the home path	0
+== 15e37f4a
+macOS home	8
+Linux home	10
+harness scratch root	3
+broken after tmp/	2
+macOS temporary root	2
+any shape	18
+the user name	0
+the home path	0
+== 797ebfa0
+macOS home	10
+Linux home	10
+harness scratch root	3
+broken after tmp/	0
+macOS temporary root	2
+any shape	17
+the user name	0
+the home path	0

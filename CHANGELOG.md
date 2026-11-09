@@ -18,6 +18,13 @@ upstream `fx`.** What is and is not implemented lives in
   written alongside them and kept in sync, so an older binary reading the same
   profile still resolves the endpoint the operator chose. `setup gateway` is a
   selection, not credential onboarding: it reads no key and writes none.
+- **`scripts/check-no-local-paths.sh`**, a gate over the files a push publishes:
+  it refuses a path that belongs to one machine -- a home directory, a
+  harness's scratch root, macOS's per-user temporary folder -- by its shape,
+  with a short list of documented placeholders and a per-line mark for a
+  fixture that needs one. `scripts/fxcap/capture.sh` now writes a run's own
+  roots into every file it captures as placeholders (`<work>`, `<scratch>`,
+  `<tmp>`, `<home>`), the same way for fx and xfx.
 
 ### Changed
 

@@ -267,7 +267,7 @@ US-U3b:
 
 **US-U3d**, run once, green, on `dc982508` (the code; only this receipt
 changed after it), rustc 1.99.1 on macOS (aarch64), with `TMPDIR` a short
-directory in the harness temp folder (`claude-501/p5ud`):
+directory in the harness temp folder (`claude-<uid>/p5ud`):
 
 | Gate | Result |
 |---|---|

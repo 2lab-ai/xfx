@@ -1,0 +1,28 @@
+# red4.sh on a clone at 21bb78b2 (round 3)
+1 home sibling, SGR mid-name:                refused (RED)
+1 home sibling, 256-colour SGR mid-name:     refused (RED)
+1 home sibling, nF mid-name:                 refused (RED)
+1 tmp sibling, SGR mid-name:                 refused (RED)
+1 tmp sibling, 256-colour SGR mid-name:      refused (RED)
+1 tmp sibling, nF mid-name:                  refused (RED)
+1 scenarios sibling, SGR mid-name:           refused (RED)
+1 scenarios sibling, 256-colour SGR mid-name: refused (RED)
+1 scenarios sibling, nF mid-name:            refused (RED)
+1 HOME in an OSC 8 target:                   refused
+1 HOME's sibling in an OSC 8 target:         left
+1 HOME whose head an nF escape took:         refused
+2 <scratch______________>/fxtmp:             normalized
+2 <scratch:real_________>/fxtmp:             normalized
+2 <scratch>/fxtmp:                           normalized
+2 /t/fxcap.Lq26sv/fxtmp:                     normalized
+2 <work___>/fxtmp:                           normalized (RED)
+2 <work:real__>/fxtmp:                       normalized (RED)
+2 <tmp______>/fxtmp:                         normalized (RED)
+2 <!scratch__>/fxtmp:                        normalized (RED)
+2 a_>/fxtmp:                                 normalized (RED)
+2 <s__>/fxtmp:                               normalized (RED)
+2 <S__>/fxtmp:                               normalized (RED)
+3 w3/trace-report.md:                        refused
+3 w3/trace-report-marked.md:                 passes
+3 docs/fx-guide-40x120-notes.md:             refused
+NIT verify.py, an OSC 8 link's width:        32 (RED)

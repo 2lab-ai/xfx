@@ -5,7 +5,7 @@ socket, empty `HOME`, fake key, loopback fake gateway, the desktop shims and fx'
 with one turns file each that both products read (`read_file` takes `{"path"}` on both):
 
 ```
-export TMPDIR=/private/tmp/claude-501
+export TMPDIR=<tmp>
 FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  compact        40x120 <out>
 scripts/fxcap/capture.sh                            xfx compact        40x120 <out>
 FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  compact-cancel 40x120 <out>

@@ -1,0 +1,55 @@
+# scripts/fxcap/test_capture.py at 7abc5139 (RunRoots and the placeholder test), run
+# against an older capture.sh from a throwaway clone; failure lines only, the
+# machine's roots written <tmp> and <home> here.
+
+== against ccced1f5's capture.sh (the base): RED
+FAIL: test_both_sides_are_written_alike_and_keep_their_widths (__main__.RunRoots.test_both_sides_are_written_alike_and_keep_their_widths)
+AssertionError: b'<tmp>/lp/fxcapt.tugco0nb/scenarios' unexpectedly found in b'cwd=<tmp>/lp/fxcapt.tugco0nb/fxcap.p
+FAIL: test_every_file_a_run_writes_names_its_roots_by_placeholder (__main__.RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder)
+AssertionError: b'<home>' unexpectedly found in b'\r\nThe default interactive shell is now zsh.\r\nTo update your account to use zsh, please
+FAIL: test_every_place_a_placeholder_is_written (__main__.Placeholders.test_every_place_a_placeholder_is_written)
+AssertionError: 'env:<scenarios>/x:<bun>' not found in 'The default interactive shell is now zsh.To update your account to use zsh, please run `chsh -
+Ran 3 tests in 19.411s
+FAILED (failures=3)
+
+== against afbb866d's capture.sh (a root after an SGR sequence's m not found): RED
+FAIL: test_every_file_a_run_writes_names_its_roots_by_placeholder (__main__.RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder)
+AssertionError: b'<tmp>/lp/fxcapt.m9wg0p_q/fxcap.RdVsiF' unexpectedly found in b'\r\nThe default interactive shell is now zsh.\r\nTo
+Ran 1 test in 2.712s
+FAILED (failures=1)
+
+== at c4925698 and after: RunRoots + Placeholders, three runs in a row
+run 1: Ran 4 tests in 15.719s OK 
+run 2: Ran 4 tests in 15.908s OK 
+run 3: Ran 4 tests in 18.283s OK 
+
+== the redactor's new test against the committed (old) redact.py: RED
+FAIL: test_a_path_under_a_capture_placeholder_is_left_and_a_redirect_is_not (__main__.Redaction...)
+AssertionError: 'mcp <scratch><local-path>; ws <work><local-path>; log ><local-path>' != 'mcp <scratch>/home/.fx/mcp.json; ws <work>/home/a; log ><local-path>'
+FAILED (failures=1)
+
+== at 26d6c639 (the .ansi link assertion guarded): RunRoots + Placeholders, three runs
+run 1: Ran 4 tests in 17.550s OK
+run 2: Ran 4 tests in 15.929s OK
+run 3: Ran 4 tests in 17.768s OK
+
+== round 2: test_capture.py at 6cb5c4e7, RunRoots, against 1fe6ea37's capture.sh, TMPDIR the dispatcher's
+== (23 bytes): RED -- a split root leaves the run's name, a literal <work> reads as a root, no :real
+FAIL: test_a_real_root_and_a_literal_placeholder_never_read_the_same (__main__.RunRoots.test_a_real_root_and_a_literal_placeholder_never_read_the_same)
+AssertionError: 'x=<\\work>' not found in ['x=<work>', 'DONE', 'it-3.2$', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 
+FAIL: test_a_resolved_root_reads_as_its_own_placeholder (__main__.RunRoots.test_a_resolved_root_reads_as_its_own_placeholder)
+AssertionError: 'cwd=<work>' != 'cwd=<work:real>'
+FAIL: test_both_sides_are_written_alike_and_keep_their_widths (__main__.RunRoots.test_both_sides_are_written_alike_and_keep_their_widths)
+AssertionError: b'fxcap.cTPiOb' unexpectedly found in b'cwd=<work>\nreal=<work>\nhome=<scratch>/home\ntmp=<scratch>/xfxtmp\nup=<tmp>\nuser=<home>\nscen=<scenarios>\nedge=
+FAIL: test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir (__main__.RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpd
+AssertionError: b'fxcap.3FRv8M' unexpectedly found in b'\r\nThe default interactive shell is now zsh.\r\nTo update your account to use zsh, please run `chsh -s /bin/zsh`.
+FAIL: test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir (__main__.RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpd
+AssertionError: b'fxcap.U0poNE' unexpectedly found in b'\r\nThe default interactive shell is now zsh.\r\nTo update your account to use zsh, please run `chsh -s /bin/zsh`.
+FAIL: test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir (__main__.RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpd
+AssertionError: b'fxcap.CUAEXV' unexpectedly found in b'\r\nThe default interactive shell is now zsh.\r\nTo update your account to use zsh, please run `chsh -s /bin/zsh`.
+Ran 4 tests in 23.511s
+FAILED (failures=6)
+
+== round 2 at 6cb5c4e7: RootsRewrite, RunRoots and Placeholders at three TMPDIR lengths
+TMPDIR 23 bytes: Ran 15 tests OK; 26 bytes: Ran 15 tests OK; 52 bytes (on /tmp, a link): Ran 15 tests OK
+the whole suite at each length: test-capture.txt

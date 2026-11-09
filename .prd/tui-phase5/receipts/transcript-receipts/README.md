@@ -370,18 +370,18 @@ Commands, from the worktree (`R=.prd/tui-phase5/receipts/transcript-receipts`):
 
 ```
 python3 -I -B $R/publish.py . <scratch> $R f84734d 039fb5c 4aca257 20046d6
-python3 -I -B $R/frames.py $R /private/tmp/claude-501/tr/fr
+python3 -I -B $R/frames.py $R <tmp>/tr/fr
 python3 -I -B $R/check.py . $R xfx       # green.txt
 python3 -I -B $R/check.py . $R red-u6b   # red-u6b.txt
 python3 -I -B $R/check.py . $R red       # red.txt
-python3 -I -B $R/mutants.py . $R /private/tmp/claude-501/tr/mu
+python3 -I -B $R/mutants.py . $R <tmp>/tr/mu
 ```
 
 ## Gates
 
 These ran on `20046d63`: T-U6c's tests on `f84734dc`'s product code. This
 receipt's commit adds the receipt and the ledger only. `TMPDIR` was
-`/private/tmp/claude-501/tr`, and each suite ran alone, after the idle wait.
+`<tmp>/tr`, and each suite ran alone, after the idle wait.
 
 | gate | result |
 |---|---|

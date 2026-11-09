@@ -158,10 +158,8 @@
 #   home <label>           every file under the run's HOME, as it stands now,
 #                          to <bin>-<scenario>-<size>-<label>.files: the path
 #                          relative to HOME, its size, and its bytes (locks
-#                          and logs by size only), the run's own directory
-#                          written as <scratch>, and the paths `@SCENARIOS@`
-#                          and `@BUN@` stand for as <scenarios> and <bun> --
-#                          what a settings write left
+#                          and logs by size only) -- what a settings write
+#                          left
 #   clip <label>           moves the bytes the fake pbcopy was last fed to
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
@@ -169,13 +167,12 @@
 #                          and the fake osascript exit 1
 #   clipfile <label>       moves the paths the fake osascript was handed as its
 #                          last argument -- a file copy, `/trace`'s -- to
-#                          <bin>-<scenario>-<size>-<label>.clipfile, the run's
-#                          directory written as <scratch>, or says none was
+#                          <bin>-<scenario>-<size>-<label>.clipfile, or says
+#                          none was
 #   reports <label>        copies every `/trace` report the binary wrote into
 #                          its own TMPDIR to
 #                          <bin>-<scenario>-<size>-<label>-<n>.md, oldest
-#                          first, the run's directory written as <scratch>,
-#                          and prints the mode each was written with
+#                          first, and prints the mode each was written with
 #   clipimage <file>|off   makes the fake osascript answer a clipboard-image
 #                          read (`-e` with `POSIX file "<path>"` and
 #                          `class PNGf`) by copying <file> (under scenarios/)
@@ -330,6 +327,72 @@
 # `$run/xfxtmp`), so what either writes there -- `/trace`'s report -- stays in
 # the run and is read out with `reports`.
 #
+# Every file a run writes for the out directory -- a snap's .txt and .ansi, the
+# gateway log and every request body, mcphttp's log and port, a wire log, a
+# title, a cursor, a clipboard copy, a copied file's path, a report, the bells,
+# the sockets, the workspace and HOME dumps -- is written first to the run's
+# own stage, rewritten there by roots.py, and only then renamed into the out
+# directory (`publish`). So nothing reads it before (`expect`, the sweep's
+# comparison), a run killed halfway leaves no unrewritten file there, and a
+# file roots.py refuses never reaches it: the run fails (exit 3). At the
+# run's end everything it left there is read once more (`--check`).
+#
+# Every such file is named `<bin>-<scenario>-<rows>x<cols>-...` (a `/trace`
+# report's copy `...-<label>-<n>.md`, a request body under `...-bodies/`).
+# That name is reserved for captures: scripts/check-no-local-paths.sh reads
+# any tracked file so named, or under a directory so named, as a binary's
+# text, which no `local-path-ok` mark excuses. A capture renamed out of it is
+# read by its kind alone (a report renamed to another `.md` is authored
+# text, whose marks excuse their lines), and an authored file named into it
+# is read as a capture.
+#
+#   work         $run/work, the binary's working directory
+#   scratch      $run, the rest of the run: its HOME is <scratch___>/home,
+#                its TMPDIR <scratch___>/fxtmp or <scratch___>/xfxtmp
+#   scenarios    the scenario directory, resolved (what `@SCENARIOS@` is)
+#   bun          the `bun` that runs fakegw.ts (what `@BUN@` is)
+#   tmp          this script's own TMPDIR without its trailing slashes,
+#                unless that is /tmp, /private/tmp or /var/tmp, which name
+#                no one
+#   home         this script's own HOME (the user's: no binary is given it)
+#
+# A root is written as a placeholder exactly as wide as it: its name between
+# `<` and `>`, filled with `_` to the root's width (`<work_______>`), or, for
+# a root narrower than its name, the name's letter (`/root` is `<h__>`); a
+# root narrower than four columns refuses the file. The placeholder is written
+# over the root's own characters, column for column, so a wrap or a colour
+# change inside a root stays where it was and every column after it keeps its
+# column. A root as given is `<name...>`; resolved, when that differs (macOS's
+# /tmp and /var are links), `<name:real...>`, as wide as the resolved path: a
+# binary that prints `$PWD` and its pair that prints `getcwd()` differ in the
+# capture as they did on the screen. Its JSON-escaped, percent-encoded and
+# `//`-collapsed spellings are the same root. roots.py finds a root in the
+# text a reader sees: across a colour change (a picker bolds the letters a
+# query matched, inside a path), across a row's end (a terminal's wrap at its
+# margin, or a binary's own break behind a gutter), and inside an OSC 8
+# link's target; it ends where no path-name character follows it in its row.
+# Text that already reads like a placeholder gains a `!` first (`<work>` ->
+# `<!work>`), so a placeholder is a root and nothing else. A root that
+# survives -- in any spelling, where it ends whole, or the run directory's own
+# name anywhere -- refuses the file. roots.py's docstring is the whole rule.
+#
+# fx's side and xfx's are rewritten by the same rule, so a pair compares as it
+# did: the two runs of a sweep unit share one TMPDIR, so each root is as long
+# on both sides. The two binaries' own TMPDIRs are no roots of their own:
+# each is written as the run directory's placeholder and its own name,
+# `<scratch___>/fxtmp` and `<scratch___>/xfxtmp`, so a row that names one is
+# a column wider on xfx's side, as it was on the screen, and the ledger's
+# `capture-tmpdir` reads fx's name as xfx's right after that placeholder.
+#
+# The rewrite comes after the binary laid out its frame, and keeps it: a path
+# it wrapped or padded to its real width keeps that layout, column for column.
+# The `roots:` line each run prints first gives each root's length on that
+# run in bytes (`:real` too, where the resolved path is another). A
+# placeholder is as wide as its root in columns (roots.py counts them as
+# cells.py does): the same number for a root of ASCII characters, every root
+# on the CI runners and on this machine; a root with a character past ASCII
+# is wider in bytes than in columns.
+#
 # A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
 # products name their tools and settings differently (fx's `shell` with
 # `request.action: run` is xfx's `terminal` with `action: exec`,
@@ -360,6 +423,50 @@ path_scenarios='' path_bun='' fill_scenarios='' fill_bun='' filled=''
 # A path a placeholder can be written as: absolute, and every character one
 # that sed, JSON, a shell word and a typed line all carry as itself.
 writable='^/[A-Za-z0-9._/+-]+$'
+# The run's roots as roots.py takes them, the stage every file of the run's
+# is written to before the out directory sees it, roots.py itself, and what
+# the exit's check reads (main sets them once the run directory exists).
+root_args=() stage='' roots_py='' net_out='' net_prefix='' net_since=''
+
+# Each root's length on this run, in bytes (the C locale's `${#}`), for a
+# claim about a path's width: its placeholder is that many columns wide for
+# an ASCII root, and no row moves where it stands.
+roots_line() {
+  local LC_ALL=C line='roots:' i root real
+  for (( i = 0; i < ${#root_args[@]}; i++ )); do
+    [[ ${root_args[i]} == --root ]] || continue
+    root=${root_args[i + 1]%/}
+    line+=" <${root_args[i + 2]}>=${#root}"
+    # The resolved form, when it is another path: its own placeholder, its
+    # own length (roots.py `rules_for`).
+    real=$(realpath "$root" 2>/dev/null || true)
+    [[ -z $real || $real == "$root" ]] || line+=" <${root_args[i + 2]}:real>=${#real}"
+  done
+  echo "$line bytes"
+}
+
+# Puts each staged file or directory, $stage/<name>, in the out directory as
+# <dest> (its name the same): roots.py writes its roots as placeholders, and
+# only then is it renamed into place. A file roots.py refuses -- a root that
+# survived its rewrite, or one it cannot write (broken beside a space, or
+# with too many runs of them) -- never reaches the out directory, and the run
+# fails (exit 3). A directory already at <dest> (an earlier `gwlog`'s bodies) is
+# moved aside into the stage first.
+publish() {
+  local dest staged
+  for dest in "$@"; do
+    staged=$stage/${dest##*/}
+    python3 -I "$roots_py" "${root_args[@]}" -- "$staged" ||
+      { echo "LOCAL-PATH GUARD: refusing to write ${dest##*/}: roots.py refused it (its line above says why: a path of this run that survived the rewrite, or a root it cannot write)" >&2; exit 3; }
+  done
+  for dest in "$@"; do
+    staged=$stage/${dest##*/}
+    if [[ -d $dest && ! -L $dest ]]; then
+      mv "$dest" "$(mktemp -d "$stage/replaced.XXXXXX")/"
+    fi
+    mv -f "$staged" "$dest"
+  done
+}
 
 # fx's sound and upgrade guards (above), every one checked and every breach
 # named; the one line that says they held.
@@ -383,6 +490,16 @@ cleanup() {
   [[ -z $gateway ]] || kill "$gateway" 2>/dev/null || true
   [[ -z $mcphttp ]] || kill "$mcphttp" 2>/dev/null || true
   if [[ -n $guard_run ]]; then guards || code=3; fi
+  # Every file this run left in the out directory, read once more: one a
+  # verb wrote past `publish` would hold the run's paths, and fails the run.
+  if [[ -n $net_since ]]; then
+    local left=()
+    while IFS= read -r -d '' f; do left+=("$f"); done < <(find "$net_out" -type f -newer "$net_since" \( -name "$net_prefix*" -o -path "*/$net_prefix*-bodies/*" \) -print0 2>/dev/null)
+    if (( ${#left[@]} )) && ! python3 -I "$roots_py" "${root_args[@]}" --check -- "${left[@]}"; then
+      echo "LOCAL-PATH GUARD: a file this run left in the out directory holds one of its paths" >&2
+      code=3
+    fi
+  fi
   exit "$code"
 }
 
@@ -546,9 +663,29 @@ main() {
   if [[ $path_scenarios =~ $writable ]]; then fill_scenarios=$path_scenarios; fi
   if [[ $path_bun =~ $writable ]]; then fill_bun=$path_bun; fi
 
-  local run port='' bin
-  run=$(mktemp -d "${TMPDIR:-/tmp}/fxcap.XXXXXX")
+  local run port='' bin tmpdir=${TMPDIR:-/tmp}
+  # Without its trailing slashes (macOS's own TMPDIR ends in one): mktemp
+  # would name `<TMPDIR>//fxcap.XXXXXX`, a path a binary that normalizes it
+  # prints otherwise.
+  while [[ $tmpdir == */ && $tmpdir != / ]]; do tmpdir=${tmpdir%/}; done
+  run=$(mktemp -d "$tmpdir/fxcap.XXXXXX")
   mkdir -p "$run/home" "$run/work"
+  # What roots.py writes each of this run's roots as (the list at the top),
+  # and the run directory's own name, which no file may keep. A shared system
+  # TMPDIR names no one and is left as it is: fx's help text says /tmp, and
+  # keeps saying it.
+  stage=$run/stage roots_py=$here/roots.py
+  mkdir -p "$stage"
+  : > "$run/started"
+  net_out=$out net_prefix=$which-$scenario-$size- net_since=$run/started
+  root_args=(--suffix "${run##*/}" --root "$run/work" work --root "$run" scratch --root "$path_scenarios" scenarios)
+  [[ -z $path_bun ]] || root_args+=(--root "$path_bun" bun)
+  case $tmpdir in
+    /|/tmp|/private/tmp|/var/tmp) ;;
+    *) root_args+=(--root "$tmpdir" tmp) ;;
+  esac
+  [[ -z ${HOME:-} || $HOME == / ]] || root_args+=(--root "$HOME" home)
+  roots_line
   case $which in
     fx) bin=${FX_BIN:?set FX_BIN to the reference fx binary} ;;
     xfx) bin=${XFX_BIN:-$root/target/debug/xfx} ;;
@@ -623,7 +760,15 @@ main() {
     if [[ $line == dir\ * ]]; then
       local name from
       read -r name from <<< "${line#dir }"
-      case $name in ''|.|..|*/*) echo "dir takes a plain name, not $name" >&2; exit 2 ;; esac
+      # Not the binaries' own TMPDIR names, nor one that extends them, in any
+      # case: a sibling of `$run/fxtmp` the ledger's capture-tmpdir would be
+      # asked to tell from it, or, on a case-insensitive volume (macOS's
+      # default), `$run/fxtmp` itself. Bracket classes, not `nocasematch`:
+      # bash 3.2 and later read them alike.
+      case $name in
+        ''|.|..|*/*|[fF][xX][tT][mM][pP]*|[xX][fF][xX][tT][mM][pP]*)
+          echo "dir takes a plain name, not $name" >&2; exit 2 ;;
+      esac
       mkdir -p "$run/$name"
       [[ -n $from ]] && { cp -R "$scenarios/$from/." "$run/$name/"; copied+=("$run/$name"); }
     fi
@@ -715,7 +860,8 @@ main() {
     mcpport=$(sed -n 's/.*listening \([0-9]*\).*/\1/p' "$run/mcphttp.log" | head -1)
     # The port, for the sweep: this run's, and only it, is the same as the
     # other side's (sweep.py `run_rules`).
-    printf '%s\n' "$mcpport" > "$out/$which-$scenario-$size-mcphttp.port"
+    printf '%s\n' "$mcpport" > "$stage/$which-$scenario-$size-mcphttp.port"
+    publish "$out/$which-$scenario-$size-mcphttp.port"
   fi
   # The placeholders, into every seeded file under HOME that names one and
   # every `env` value; and into every text file (`-I`: one with a NUL, a sparse
@@ -937,35 +1083,36 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         tmux -f /dev/null -S "$sock" send-keys -t cap $rest ;;
       snap)
         local name=$out/$which-$scenario-$size-$rest
-        tmux -f /dev/null -S "$sock" capture-pane -p -t cap > "$name.txt"
-        tmux -f /dev/null -S "$sock" capture-pane -e -p -t cap > "$name.ansi"
+        tmux -f /dev/null -S "$sock" capture-pane -p -t cap > "$stage/${name##*/}.txt"
+        tmux -f /dev/null -S "$sock" capture-pane -e -p -t cap > "$stage/${name##*/}.ansi"
+        publish "$name.txt" "$name.ansi"
         printf '%s\n' "$rest" >> "$run/snapped"
         echo "$name.txt"
         ;;
       snapfull)
         local name=$out/$which-$scenario-$size-$rest.full
-        tmux -f /dev/null -S "$sock" capture-pane -p -S - -t cap > "$name.txt"
-        tmux -f /dev/null -S "$sock" capture-pane -e -p -S - -t cap > "$name.ansi"
+        tmux -f /dev/null -S "$sock" capture-pane -p -S - -t cap > "$stage/${name##*/}.txt"
+        tmux -f /dev/null -S "$sock" capture-pane -e -p -S - -t cap > "$stage/${name##*/}.ansi"
+        publish "$name.txt" "$name.ansi"
         printf '%s\n' "$rest.full" >> "$run/snapped"
         echo "$name.txt"
         ;;
       gwlog)
-        cp "$run/gateway.log" "$out/$which-$scenario-$size-gateway.log"; rm -rf "$out/$which-$scenario-$size-bodies"; cp -R "$run/bodies" "$out/$which-$scenario-$size-bodies"
-        [[ ! -f $run/mcphttp.log ]] || cp "$run/mcphttp.log" "$out/$which-$scenario-$size-mcphttp.log" ;;
+        local logged=("$out/$which-$scenario-$size-gateway.log" "$out/$which-$scenario-$size-bodies")
+        cp "$run/gateway.log" "$stage/$which-$scenario-$size-gateway.log"
+        cp -R "$run/bodies" "$stage/$which-$scenario-$size-bodies"
+        [[ ! -f $run/mcphttp.log ]] || { cp "$run/mcphttp.log" "$stage/$which-$scenario-$size-mcphttp.log"; logged+=("$out/$which-$scenario-$size-mcphttp.log"); }
+        publish "${logged[@]}" ;;
       # One name per line rather than a word-split `$(find)`, so a file
       # with a space in its name is listed whole.
       workls)
         (cd "$run/work" && find . -type f | sort | while IFS= read -r f; do
           echo "== $f"; head -c 2000 "$f"; echo
-        done) > "$out/$which-$scenario-$size-work-$rest.txt"
+        done) > "$stage/$which-$scenario-$size-work-$rest.txt"
+        publish "$out/$which-$scenario-$size-work-$rest.txt"
         ;;
       home)
         local name=$out/$which-$scenario-$size-$rest.files
-        # The run's own directory, and the paths `@SCENARIOS@` and `@BUN@`
-        # wrote, by those names rather than as this machine's paths.
-        local redact=(-e "s#$run#<scratch>#g")
-        [[ $fill_scenarios == @SCENARIOS@ ]] || redact+=(-e "s#${fill_scenarios//./\\.}#<scenarios>#g")
-        [[ $fill_bun == @BUN@ ]] || redact+=(-e "s#${fill_bun//./\\.}#<bun>#g")
         (
           cd "$run/home"
           find . -type f ! -path '*/file-index/*' | LC_ALL=C sort | while IFS= read -r f; do
@@ -975,30 +1122,34 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
               # A binary file (an image fx copied) is named, not printed:
               # sed under a UTF-8 locale stops on it, and so did the run.
               *) if LC_ALL=C grep -Iq . "$f" 2>/dev/null || [[ ! -s $f ]]; then
-                   head -c 4000 "$f" | LC_ALL=C sed "${redact[@]}"; echo
+                   head -c 4000 "$f"; echo
                  else
                    echo "(binary)"
                  fi ;;
             esac
           done
-        ) > "$name"
+        ) > "$stage/${name##*/}"
+        publish "$name"
         echo "$name"
         ;;
       title)
         local name=$out/$which-$scenario-$size-$rest
-        tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_title}' > "$name.title"
+        tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_title}' > "$stage/${name##*/}.title"
+        publish "$name.title"
         echo "$name.title"
         ;;
       cursor)
         local name=$out/$which-$scenario-$size-$rest
-        tmux -f /dev/null -S "$sock" display-message -p -t cap '#{cursor_x},#{cursor_y}' > "$name.cursor"
+        tmux -f /dev/null -S "$sock" display-message -p -t cap '#{cursor_x},#{cursor_y}' > "$stage/${name##*/}.cursor"
+        publish "$name.cursor"
         echo "$name.cursor"
         ;;
       keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;
       clip)
         local name=$out/$which-$scenario-$size-$rest
         if [[ -f $run/clipboard ]]; then
-          mv "$run/clipboard" "$name.clip"
+          mv "$run/clipboard" "$stage/${name##*/}.clip"
+          publish "$name.clip"
           echo "$name.clip"
         else
           echo "clip $rest: nothing was copied"
@@ -1011,7 +1162,8 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         {
           echo "bells=$( [[ -f $run/bells ]] && wc -l < "$run/bells" | tr -d ' ' || echo 0)"
           echo "clients=$(tmux -f /dev/null -S "$sock" list-clients | wc -l | tr -d ' ')"
-        } > "$name"
+        } > "$stage/${name##*/}"
+        publish "$name"
         echo "$name: $(tr '\n' ' ' < "$name")"
         ;;
       wire)
@@ -1019,7 +1171,8 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         # The pipe is a `cat` of the server's own; give it a moment to write
         # what the server has already handed it.
         sleep 0.3
-        cp "$run/wire" "$name"
+        cp "$run/wire" "$stage/${name##*/}"
+        publish "$name"
         echo "$name ($(wc -c < "$name" | tr -d ' ') bytes)"
         ;;
       relaunch)
@@ -1094,7 +1247,8 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         [[ -x $lsof ]] || lsof=lsof
         pid=$(binary_pid "$sock" "$run" "$jobctl" "$bin_real") || exit 1
         # lsof exits 1 when the pid has no internet socket at all.
-        { echo "pid $pid"; "$lsof" -nP -a -p "$pid" -i 2>/dev/null | awk 'NR > 1 { print $5, $8, $9, $10 }' || true; } > "$name"
+        { echo "pid $pid"; "$lsof" -nP -a -p "$pid" -i 2>/dev/null | awk 'NR > 1 { print $5, $8, $9, $10 }' || true; } > "$stage/${name##*/}"
+        publish "$name"
         echo "$name: $(( $(wc -l < "$name") - 1 )) socket(s)"
         # Every address on every line, the local and the remote: 127.0.0.1,
         # [::1], or `*` (a port listening on nothing yet).
@@ -1117,7 +1271,8 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
       clipfile)
         local name=$out/$which-$scenario-$size-$rest
         if [[ -f $run/clipboard-file ]]; then
-          LC_ALL=C sed "s#$run#<scratch>#g" "$run/clipboard-file" > "$name.clipfile"
+          cat "$run/clipboard-file" > "$stage/${name##*/}.clipfile"
+          publish "$name.clipfile"
           rm -f "$run/clipboard-file"
           echo "$name.clipfile"
         else
@@ -1130,7 +1285,8 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         # two in one second are told apart by their order on disk.
         while IFS= read -r report; do
           n=$((n + 1))
-          LC_ALL=C sed "s#$run#<scratch>#g" "$report" > "$out/$which-$scenario-$size-$rest-$n.md"
+          cat "$report" > "$stage/$which-$scenario-$size-$rest-$n.md"
+          publish "$out/$which-$scenario-$size-$rest-$n.md"
           # The copy is the receipt's; the mode is the report's own.
           echo "$out/$which-$scenario-$size-$rest-$n.md (written mode $(stat -f %Lp "$report" 2>/dev/null || stat -c %a "$report"))"
         done < <(ls -tr "$tmp"/*-trace-*.md 2>/dev/null)

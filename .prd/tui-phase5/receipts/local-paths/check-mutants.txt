@@ -1,0 +1,41 @@
+# check-no-local-paths.sh mutants at 797ebfa0, each run as it is and again with the check's own positive control taken out
+no placeholder list          exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+no placeholder-prefix strip  exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: passes
+no sentinel                  exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: shapes
+a report is no capture       exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: shapes
+no mark                      exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+a mark anywhere              exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: shapes
+a mark in a capture          exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: shapes
+no start anchor              exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+no SGR start                 exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: shapes
+a > starts no path           exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: shapes
+a home needs its slash       exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME, skip-worktree, deleted
+  without the control        exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME, skip-worktree, deleted
+no GIT_* drop                exit 1  failed: env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+no binary probe              exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: shapes
+no index-bit refusal         exit 1  failed: skip-worktree
+  without the control        exit 1  failed: skip-worktree
+no missing-file refusal      exit 1  failed: deleted
+  without the control        exit 1  failed: deleted
+no root shape                exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: shapes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+no broken-root shape         exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: shapes
+broken root after a space only (round 6) exit 1  failed: shapes
+  without the control        exit 1  failed: shapes
+broken root after a slash too exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+  without the control        exit 1  failed: shapes, self, passes, env GIT_DIR, env GIT_INDEX_FILE, env GIT_WORK_TREE, env GREP_OPTIONS, env HOME
+unmutated                    exit 0  test-check-no-local-paths: ok (10 cases)
+unmutated, no control        exit 0  test-check-no-local-paths: ok (10 cases)

@@ -124,7 +124,7 @@ def run(cmd, cwd, env=None):
 
 
 def code(clone, out):
-    env = dict(os.environ, TMPDIR="/private/tmp/claude-501/evsa-m")
+    env = dict(os.environ, TMPDIR=os.path.join(os.environ.get("TMPDIR") or "/tmp", "evsa-m"))
     os.makedirs(env["TMPDIR"], exist_ok=True)
     for name, path, old, _ in CODE:
         count = open(os.path.join(clone, path), encoding="utf-8").read().count(old)

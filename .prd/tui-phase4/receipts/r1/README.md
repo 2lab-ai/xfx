@@ -3,8 +3,8 @@
 Four scenarios, each run at 40x120 on both binaries with the repo's own driver:
 
 ```
-TMPDIR=/private/tmp/claude-501 FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> 40x120 <dir>
-TMPDIR=/private/tmp/claude-501                                    scripts/fxcap/capture.sh xfx <scenario> 40x120 <dir>
+TMPDIR=<tmp> FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> 40x120 <dir>
+TMPDIR=<tmp>                                    scripts/fxcap/capture.sh xfx <scenario> 40x120 <dir>
 ```
 
 for `rules-read`, `rules-read-auto`, `rules-hidden` and `rules-hidden-all`
@@ -37,7 +37,7 @@ away.)
 `before/` holds the same `rules-read` snaps from `target/debug/xfx` at
 `0a1bb45` (`plan/tui-phase4` when this unit started), the state W8 left.
 
-Sanitized: every run directory (`/private/tmp/claude-501/fxcap.XXXXXX`) is
+Sanitized: every run directory (`/private/tmp/claude-<uid>/fxcap.XXXXXX`) is
 written `<scratch>`, in the screens and in the request bodies. No file names a
 key, a home or a user. Request bodies are kept for what the receipt is about
 and nothing else: every completion of the two hidden-tool scenarios, and the

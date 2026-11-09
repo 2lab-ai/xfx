@@ -1,0 +1,12 @@
+# red8.sh on the worktree (round 8: the capture.sh of 3e51e899), under /bin/bash
+the volume:                        case-insensitive (FXTMP is fxtmp)
+the bash:                          3.2.57(1)-release
+dir FXTMP:                         refused, exit 2
+dir FxTmp:                         refused, exit 2
+dir XFXTMP:                        refused, exit 2
+dir Fxtmp-old:                     refused, exit 2
+dir xFxTmP.bak:                    refused, exit 2
+dir fxtmp:                         refused, exit 2
+dir Notes:                         run, exit 0
+dir tmp:                           run, exit 0
+dir xfx:                           run, exit 0

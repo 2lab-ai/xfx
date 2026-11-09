@@ -22,13 +22,13 @@ and then asked that `s1` not appear in the JSON. The JSON was equal to the
 snapshot without a session, so the `s1` came from another field.
 
 `StatusSnapshot`'s JSON at `88c7a5be`, printed by a scratch test on a
-throwaway clone with `TMPDIR=/private/tmp/claude-501/fs1`:
+throwaway clone with `TMPDIR=<tmp>/fs1`:
 
 ```
 {"kind":"status","model":"zai/glm-5.2","provider":"gateway","build_channel":"debug",
  "build_revision":"<12 hex>","auth":"AI_GATEWAY_API_KEY","auth_refreshable":false,
  "permission_mode":"auto","sandbox":"none",
- "workspace":"/private/tmp/claude-501/fs1/.tmpLWAWbk",
+ "workspace":"<tmp>/fs1/.tmpLWAWbk",
  "history_turns":0,"session_permission_grants":0,"agent_step_limit":25}
 ```
 
@@ -43,11 +43,11 @@ throwaway clone with `TMPDIR=/private/tmp/claude-501/fs1`:
   about once in 770.
 
 **Reproduced.** On the throwaway clone at `88c7a5be`, with
-`TMPDIR=/private/tmp/claude-501/fs1`:
+`TMPDIR=<tmp>/fs1`:
 `panicked at src/output.rs:2056:9: assertion failed: !shown.render_json().contains("s1")`.
-With `TMPDIR=/private/tmp/claude-501/fx0` the same test passes. The gate
+With `TMPDIR=<tmp>/fx0` the same test passes. The gate
 `TMPDIR` the common brief names for this unit,
-`/private/tmp/claude-501/flake-status-s1`, also holds `s1`: at `88c7a5be`
+`<tmp>/flake-status-s1`, also holds `s1`: at `88c7a5be`
 this test fails under it on every run (table below).
 
 ## The fix
@@ -68,17 +68,19 @@ session and Ultrafast change nothing the `status` command prints.
 ## RED and GREEN (throwaway clone)
 
 All on a `git clone --no-local` of the worktree in the scratchpad. Nothing
-ran against the worktree but the gates.
+ran against the worktree but the gates. `<tmp>` is the harness root those runs
+had (`/private/tmp/claude-<uid>`, LOCAL-PATHS); it holds no `s1`, so what a
+row's directory holds is its last component's.
 
 | code | TMPDIR | result |
 |---|---|---|
-| `88c7a5be` | `/private/tmp/claude-501/fs1` | FAILED at `src/output.rs:2056` |
-| `88c7a5be` | `/private/tmp/claude-501/flake-status-s1` | FAILED at `src/output.rs:2056` |
-| `88c7a5be` | `/private/tmp/claude-501/fx0` | ok |
-| fixed | `/private/tmp/claude-501/sw-s1` | ok |
-| fixed | `/private/tmp/claude-501/flake-status-s1` | ok |
-| fixed | `/private/tmp/claude-501/fx0` | ok |
-| fixed + leak mutant | `/private/tmp/claude-501/fx0` | FAILED at the `render_json` equality |
+| `88c7a5be` | `<tmp>/fs1` | FAILED at `src/output.rs:2056` |
+| `88c7a5be` | `<tmp>/flake-status-s1` | FAILED at `src/output.rs:2056` |
+| `88c7a5be` | `<tmp>/fx0` | ok |
+| fixed | `<tmp>/sw-s1` | ok |
+| fixed | `<tmp>/flake-status-s1` | ok |
+| fixed | `<tmp>/fx0` | ok |
+| fixed + leak mutant | `<tmp>/fx0` | FAILED at the `render_json` equality |
 
 The leak mutant made `StatusSnapshot::render_json` put
 `"session":"<id>"` first in the document when the session is open (it
@@ -144,7 +146,7 @@ sw-997             ok. 1 passed a_palette_the_user_named_is_not_overruled_by_the
 - **Output holds a path, literal not reachable from random data: two, left.**
   - `src/trace.rs:2863`, `!report.contains("pw@")`. The report has a
     `workspace: <tempdir>` line; under `sw-pw@` it read
-    `workspace: /private/tmp/claude-501/sw-pw@/.tmp…`.
+    `workspace: <tmp>/sw-pw@/.tmp…`.
   - `tests/interactive.rs:243`, `!text.contains("xfx:")`. The shell prints
     `[shell] workspace=<tempdir>/workspace`.
 
@@ -167,7 +169,7 @@ sw-997             ok. 1 passed a_palette_the_user_named_is_not_overruled_by_the
 
 Run in the worktree once, one at a time, each after
 `until ! pgrep -x cargo >/dev/null && ! pgrep -x 'xfx-[0-9a-f]+' >/dev/null; do sleep 30; done`,
-with `TMPDIR=/private/tmp/claude-501/flake-status-s1`. That directory holds
+with `TMPDIR=<tmp>/flake-status-s1`. That directory holds
 `s1`, so both test runs are also a run of the fixed test under the
 collision (`the_panels_session_and_ultrafast_change_nothing_the_status_command_prints ... ok`
 in both).

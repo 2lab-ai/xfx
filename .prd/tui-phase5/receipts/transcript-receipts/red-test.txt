@@ -1,4 +1,4 @@
-# TMPDIR=/private/tmp/claude-501/tr cargo test --locked --lib a_changes_rows_name_what_would_reorder
+# TMPDIR=<tmp__________________>/tr cargo test --locked --lib a_changes_rows_name_what_would_reorder
 # on 039fb5c8's code with only the new test added (before the fix in diff_rows); the last line is git rev-parse HEAD then
 
 running 1 test

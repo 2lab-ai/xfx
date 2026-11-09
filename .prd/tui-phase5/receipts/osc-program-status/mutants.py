@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 clone, target, out = sys.argv[1:4]
-env = dict(os.environ, CARGO_TARGET_DIR=target, TMPDIR="/private/tmp/claude-501/osc")
+env = dict(os.environ, CARGO_TARGET_DIR=target, TMPDIR=os.path.join(os.environ.get("TMPDIR") or "/tmp", "osc"))
 for name in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"):
     env.pop(name, None)
 

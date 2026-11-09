@@ -725,7 +725,8 @@ mod tests {
     }
 
     /// Forty columns, broken after column 24 at 50 columns -- the shape of the
-    /// capture's `/private/tmp/claude-501/fxcap.A18AGX/work`.
+    /// capture's `<tmp>/fxcap.A18AGX/work`, its 23-byte scratch root written
+    /// here as a stand-in of the same length.
     const WORKSPACE: &str = "/scratch/workdir/claude/fxcap.A18AGX/work";
 
     fn brk(text: &str, width: usize) -> (&str, &str) {
@@ -759,8 +760,8 @@ mod tests {
         // `cap/panels/new/fx-p5-panels-status-short-24x50-open`, rows 10-11:
         // the `/` stays at the end of the first line.
         assert_eq!(
-            brk("/private/tmp/claude-501/fxcap.A18AGX/work", 30),
-            ("/private/tmp/claude-501/", "fxcap.A18AGX/work")
+            brk("/scratch/workdir/claude/fxcap.A18AGX/work", 30),
+            ("/scratch/workdir/claude/", "fxcap.A18AGX/work")
         );
         // A space that fits wins over a slash that fits.
         assert_eq!(brk("a/b c/def", 7), ("a/b", "c/def"));

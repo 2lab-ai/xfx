@@ -1,0 +1,113 @@
+# The `afterN:` lines below each table are runs-tail.sh's (its last line from round 7 on).
+# Capture files under each sweep's runs/ holding any part of a run's paths (runs_scan.py:
+# a whole root, a shape, or a fragment a broken root leaves), the sweep's own capture.log
+# and status.json left out. SCAN_TMP is the TMPDIR every sweep ran under.
+== before (ccced1f5's harness)
+kind     files  root shape fragment   any
+ansi       290   152   152      152   152
+body        53    21    21       21    21
+clipfile     4     0     0        0     0
+files       12     0     0        0     0
+log         20     0     0        0     0
+md           6     0     0        0     0
+txt        292    78    78       78    78
+all        677   251   251      251   251
+== after (round 1, 43024057's)
+kind     files  root shape fragment   any
+ansi       290     0     0       15    15
+body        53     0     0        0     0
+clipfile     4     0     0        0     0
+files       12     0     0        0     0
+log         20     0     0        0     0
+md           6     0     0        0     0
+txt        292     0     0       14    14
+all        677     0     0       29    29
+== after2 (round 2, 6cb5c4e7's)
+kind     files  root shape fragment   any
+ansi       290     0     0        0     0
+body        53     0     0        0     0
+clipfile     4     0     0        0     0
+files       12     0     0        0     0
+log         20     0     0        0     0
+md           6     0     0        0     0
+txt        292     0     0        0     0
+all        677     0     0        0     0
+== after3 (round 3, f05f3bd7's)
+kind     files  root shape fragment   any
+ansi       290     0     0        0     0
+body        53     0     0        0     0
+clipfile     4     0     0        0     0
+files       12     0     0        0     0
+log         20     0     0        0     0
+md           6     0     0        0     0
+txt        292     0     0        0     0
+all        677     0     0        0     0
+after3: capture files holding a placeholder: 273
+after3: each run's roots line (widths masked here): roots: <work>=N <scratch>=N <scenarios>=N <bun>=N <bun:real>=N <tmp>=N <home>=N bytes
+after3: runs refused by roots.py (LOCAL-PATH GUARD in any file of runs/): 0
+== after4 (round 4, d3804683's)
+kind     files  root shape fragment   any
+ansi       290     0     0        0     0
+body        53     0     0        0     0
+clipfile     4     0     0        0     0
+files       12     0     0        0     0
+log         20     0     0        0     0
+md           6     0     0        0     0
+txt        292     0     0        0     0
+all        677     0     0        0     0
+after4: capture files holding a placeholder: 273
+after4: each run's roots line (widths masked here): roots: <work>=N <scratch>=N <scenarios>=N <bun>=N <bun:real>=N <tmp>=N <home>=N bytes
+after4: runs refused by roots.py (LOCAL-PATH GUARD in any file of runs/): 0
+== after5 (round 5's first fix, bb5f53ed's)
+kind     files  root shape fragment   any
+ansi       290     0     0        0     0
+body        53     0     0        0     0
+clipfile     4     0     0        0     0
+files       12     0     0        0     0
+log         20     0     0        0     0
+md           6     0     0        0     0
+txt        292     0     0        0     0
+all        677     0     0        0     0
+after5: capture files holding a placeholder: 273
+after5: each run's roots line (widths masked here): roots: <work>=N <scratch>=N <scenarios>=N <bun>=N <bun:real>=N <tmp>=N <home>=N bytes
+after5: runs refused by roots.py (LOCAL-PATH GUARD in any file of runs/): 0
+== after5b (round 5, 4abe4feb's)
+kind     files  root shape fragment   any
+ansi       290     0     0        0     0
+body        53     0     0        0     0
+clipfile     4     0     0        0     0
+files       12     0     0        0     0
+log         20     0     0        0     0
+md           6     0     0        0     0
+txt        292     0     0        0     0
+all        677     0     0        0     0
+after5b: capture files holding a placeholder: 273
+after5b: each run's roots line (widths masked here): roots: <work>=N <scratch>=N <scenarios>=N <bun>=N <bun:real>=N <tmp>=N <home>=N bytes
+after5b: runs refused by roots.py (LOCAL-PATH GUARD in any file of runs/): 0
+== after6 (round 6, 89a3fef1's)
+kind     files  root shape fragment   any
+ansi       290     0     0        0     0
+body        53     0     0        0     0
+clipfile     4     0     0        0     0
+files       12     0     0        0     0
+log         20     0     0        0     0
+md           6     0     0        0     0
+txt        292     0     0        0     0
+all        677     0     0        0     0
+after6: capture files holding a placeholder: 273
+after6: each run's roots line (widths masked here): roots: <work>=N <scratch>=N <scenarios>=N <bun>=N <bun:real>=N <tmp>=N <home>=N bytes
+after6: runs refused by roots.py (LOCAL-PATH GUARD in any file of runs/): 0
+== after7 (round 7, 797ebfa0's)
+kind     files  root shape fragment   any
+ansi       290     0     0        0     0
+body        53     0     0        0     0
+clipfile     4     0     0        0     0
+files       12     0     0        0     0
+log         20     0     0        0     0
+md           6     0     0        0     0
+txt        292     0     0        0     0
+all        677     0     0        0     0
+after7: capture files holding a placeholder: 273
+after7: each run's roots line (widths masked here): roots: <work>=N <scratch>=N <scenarios>=N <bun>=N <bun:real>=N <tmp>=N <home>=N bytes
+after7: runs refused by roots.py (LOCAL-PATH GUARD in any file of runs/): 0
+after7: what follows fxtmp or xfxtmp in its captures: 8 `/`

@@ -205,7 +205,7 @@ Two readings the table needed:
   the sweep's own temporary directory (`…/fxsw.<id>/001/fxcap.<id>/work`) is
   two levels deeper than `capture.sh`'s, so the panel's Workspace row wraps
   onto a third row on both sides and pushes the rest. Through `capture.sh`
-  with `TMPDIR=/private/tmp/claude-501`, as P-status took it, it is 1 / 5 /
+  with `TMPDIR=<tmp>`, as P-status took it, it is 1 / 5 /
   6.
 
 ### Sweep
@@ -233,7 +233,7 @@ was retried (a `nondeterminism` cause) and is approved at both.
 ### Gates
 
 On `8bf55a72`'s code (the commits after it change the ledger's citations
-and this directory only), `TMPDIR=/private/tmp/claude-501/ep2`:
+and this directory only), `TMPDIR=<tmp>/ep2`:
 
 | gate | result |
 |---|---|
@@ -332,7 +332,7 @@ come nearest, every pair at the count above -- `p5-effort-fork-fork` 15 / 1
 column line or forks under a search, so no pair moves.
 
 **Gates** on `0802caaa`'s code (the receipt commit after it changes this
-directory only), `TMPDIR=/private/tmp/claude-501/ep2`, each full suite
+directory only), `TMPDIR=<tmp>/ep2`, each full suite
 started only when no `cargo test` or xfx test binary was running (by name,
 anchored):
 
@@ -459,7 +459,7 @@ either snap (its `d-key` snap is `┃ xd` on both sides). Taken again three
 times on the same build: 10 / 0 / 16 each, both pairs normalized-identical.
 
 **Gates** on `652e9c0a`'s code (the receipt commit after it changes this
-directory only), `TMPDIR=/private/tmp/claude-501/ep2`. Each full suite
+directory only), `TMPDIR=<tmp>/ep2`. Each full suite
 started after `pgrep -x cargo` and `pgrep -x 'xfx-[0-9a-f]+'` had both come
 back empty twice, 45 s apart:
 
@@ -647,7 +647,7 @@ pair not passing at the head does not pass at the base either.
 
 ### Gates
 
-On `52fdf178`, `TMPDIR=/private/tmp/claude-501/ep2`, each full suite started
+On `52fdf178`, `TMPDIR=<tmp>/ep2`, each full suite started
 after `pgrep -x cargo` and `pgrep -x 'xfx-[0-9a-f]+'` both came back empty
 twice, 45 s apart:
 

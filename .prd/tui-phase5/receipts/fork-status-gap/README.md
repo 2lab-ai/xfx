@@ -158,7 +158,7 @@ here are; `status-empty` is the one pair whose verdict changed against the
 base (base `unresolved-defect`, head `approved-divergence-cascade`).
 
 Every file here went through `scripts/fxcap/redact.py`:
-`/private/tmp/claude-501` is `<tmp>`. `.ansi` files are tmux's
+`/private/tmp/claude-<uid>` is `<tmp>`. `.ansi` files are tmux's
 re-serialization (`capture-pane -e`), not the programs' wire bytes.
 
 The 32 scenarios this receipt names for the sweep, so the PR's own
@@ -181,7 +181,7 @@ The 32 scenarios this receipt names for the sweep, so the PR's own
 
 ## Gates
 
-Run on this commit's tree before this Gates section was appended (the code is `1bde6c14`'s), with `TMPDIR=/private/tmp/claude-501/fsg`.
+Run on this commit's tree before this Gates section was appended (the code is `1bde6c14`'s), with `TMPDIR=<tmp>/fsg`.
 
 | gate | result |
 |---|---|

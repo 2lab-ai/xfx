@@ -1,0 +1,24 @@
+# red5.sh on a clone at 4c3f2e50 (round 4)
+1 a <scratch>/fxtmp/b.md:                          normalized
+1 TMPDIR=<scratch>/fxtmp:                          normalized
+1 "<scratch>/fxtmp" x:                             normalized
+1 <scratch>/fxtmp-old/a:                           normalized (RED)
+1 <scratch>/fxtmp.bak:                             normalized (RED)
+1 <scratch>/fxtmp_x:                               compared
+1 <scratch>/fxtmpx:                                compared
+1 <scratch>/fxtmp~:                                normalized (RED)
+1 <scratch>/fxtmp+1:                               normalized (RED)
+2 a root ending in a space, at a row's end:        passes (RED)
+2 a root ending in a space, at the text's end:     passes (RED)
+2 a root ending in a tab, at a row's end:          passes (RED)
+2 a root ending in a tab, at the text's end:       passes (RED)
+2 a root ending in U+2502, at a row's end:         passes (RED)
+2 a root ending in U+2502, at the text's end:      passes (RED)
+2 /tmp/a b, broken where its space ends a row:     passes (RED)
+2 /tmp/a b, broken where its space opens a row:    passes (RED)
+2 /tmp/a b, broken behind a box-drawing gutter:    passes (RED)
+2 /tmp/a b inside a row:                           written, nothing survives
+2 /tmp/a b c, broken at its first space:           passes (RED)
+2 /tmp/a b c, broken at its second space:          passes (RED)
+2 /tmp/a b c, broken at both:                      passes (RED)
+3 ESC <HOME> ESC[1m 2/notes:                       refused (conservative)

@@ -6,17 +6,33 @@ CI log may be public).
 (`<out>`, `<repo>`, `<fx-bin>`, `<xfx-bin>`, `<tmp>`), then any absolute
 path left under a local root (`/Users`, `/private`, `/var`, `/tmp`,
 `/Volumes`, `/home`, ...) -- the home directory and a capture's scratch HOME
-among them -- to `<local-path>`. `check` refuses a text in which a local root, the home
+among them -- to `<local-path>`, except one that continues a placeholder
+capture.sh writes (`<scratch>/home/.fx`, a run's HOME). `check` refuses a text in which a local root, the home
 directory or the checkout's retired product name still appears anywhere, so
 a path the rewrite missed stops the write instead of reaching the file.
 """
 
 import os
 import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import roots  # noqa: E402
 
 LOCAL_ROOTS = ("Users", "private", "var", "tmp", "Volumes", "home", "opt", "nix", "mnt", "root", "run", "srv")
+# A path that continues one of capture.sh's placeholders -- `<scratch___>/home/`
+# is a run's HOME, `<work___>/home/` a directory in its workspace, whatever
+# each placeholder's width (roots.PLACEHOLDER) -- names this machine nowhere,
+# and is left as it is. Only those placeholders: a bare `>` (a redirect,
+# `>/Users/...`) is no placeholder.
 GENERIC = re.compile(r"/(?:%s)/[^\s'\"`)\]>|,;]*" % "|".join(LOCAL_ROOTS))
 LEFTOVER = re.compile(r"/(?:Users|private|var/folders|tmp|Volumes|home)/")
+_PLACEHOLDER_END = re.compile("(?:%s)\\Z" % roots.PLACEHOLDER.pattern)
+
+
+def _after_placeholder(text, at):
+    """Whether the path at `at` continues a placeholder capture.sh wrote."""
+    return _PLACEHOLDER_END.search(text, 0, at) is not None
 
 
 def _retired():
@@ -46,11 +62,11 @@ class Redactor:
     def __call__(self, text):
         for path, name in self.pairs:
             text = text.replace(path, name)
-        return GENERIC.sub("<local-path>", text)
+        return GENERIC.sub(lambda m: m.group() if _after_placeholder(text, m.start()) else "<local-path>", text)
 
     def check(self, text):
         problems = []
-        m = LEFTOVER.search(text)
+        m = next((m for m in LEFTOVER.finditer(text) if not _after_placeholder(text, m.start())), None)
         if m:
             problems.append("a local path (%r)" % text[max(0, m.start() - 20) : m.end() + 20])
         if self.home and self.home not in ("~", "/") and self.home in text:
