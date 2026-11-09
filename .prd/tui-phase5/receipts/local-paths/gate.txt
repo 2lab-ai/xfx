@@ -1,31 +1,31 @@
-# Round 3's gate: every step of CI's gate job and the sweep workflow's test-sweep.sh, one at
-# a time under the suite lock (gate.sh), in the worktree at its commit.
-head 00b8ed9e0507c27b98753488965843246b3cf7c5
-0        1s  fmt
-0        6s  clippy
-0        5s  clippy-fi
-0      102s  test
-0      108s  test-fi
-0        8s  check-no-stubs
-0       38s  check-no-secrets
-0        3s  check-no-local-paths
-0        4s  test-check-no-local-paths
-0      181s  test-gate-env
-0        1s  check-xfx-identity
-0        3s  check-preview-contract
-0       55s  test-preview-contract
-0       82s  check-tui-preflight-cost
-0        1s  check-usage-clock
-0       24s  build-release
+# Round 4's gate: every step of CI's gate job and the sweep workflow's test-sweep.sh, one at
+# a time under the suite lock (gate.sh), in the worktree at its commit (the code of cd9e446d).
+head 730692c89e2e7739ab133431d3b424832d9285da
+0        3s  fmt
+0       18s  clippy
+0        8s  clippy-fi
+0      145s  test
+0      143s  test-fi
+0       15s  check-no-stubs
+0       87s  check-no-secrets
+0        4s  check-no-local-paths
+0        9s  test-check-no-local-paths
+0      405s  test-gate-env
+0        3s  check-xfx-identity
+0       16s  check-preview-contract
+0      107s  test-preview-contract
+0      120s  check-tui-preflight-cost
+0       12s  check-usage-clock
+0       22s  build-release
 0        2s  smoke
-0       32s  build-faulty
-0       89s  smoke-tui
-0       50s  test-sweep
+0       31s  build-faulty
+0       74s  smoke-tui
+0       38s  test-sweep
 steps 20, failed 0; tree clean
 
 # test totals: test 5459 passed, 0 failed; test-fi 5497 passed, 0 failed
-# check-no-local-paths: ok (15569 tracked file(s) scanned; 8 marked fixture line(s), 77 placeholder line(s))
+# check-no-local-paths: ok (15573 tracked file(s) scanned; 8 marked fixture line(s), 77 placeholder line(s))
 # test-check-no-local-paths: ok (10 cases)
 # test-gate-env: ok ci-script-tests-per-os test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths on macOS and Linux rows
 
-# Round 1's gate, at 6b507197, and round 2's, at 7d855291: 20 steps, 0 failed, the tree clean, each.
+# Round 1's gate, at 6b507197, round 2's, at 7d855291, and round 3's, at 00b8ed9e: 20 steps, 0 failed, the tree clean, each.

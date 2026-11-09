@@ -311,12 +311,24 @@ those files were staged, and reads only tracked files: it now runs after
 Every step of CI's gate job, and the sweep workflow's `test-sweep.sh`, one at
 a time under the suite lock, at the receipt's commit (`gate.txt`: the commit,
 exit status, seconds and step of each; `gate.sh` is the script). Round 1's
-gate was at `6b507197`, round 2's at `7d855291`, round 3's at `00b8ed9e`: 20
-steps, 0 failed, each.
+gate was at `6b507197`, round 2's at `7d855291`, round 3's at `00b8ed9e`,
+round 4's at `730692c8` (the code of `cd9e446d`): 20 steps, 0 failed, the tree
+clean, each.
 
 **Every commit, scanned** (`commits.sh`, `commits.txt`): each commit of the
 branch checked out in a throwaway clone and scanned by its own check and by
-the head's, as a push publishes it. The
+the head's, as a push publishes it, with the lines the head's check names
+beyond what the base held (by file and shape). From `6cb5c4e7` on, every
+commit passes both, but for the four section 4 names (`6b4f72fd`, `f05f3bd7`,
+`4a74f098`, `c6e12e82`: one line each, added and removed in round 3). Before
+it, rounds 1 and 2 had not yet scrubbed all of the base's own paths: 339 to
+56 lines named, every one the base's, except one line in `26d6c639` to
+`56e51cb0` -- a test comment in `scripts/fxcap/test_sweep.py` naming a
+fixture's redirect into `bob`'s home, which round 1's check, with no `>` as a
+path's start, passed; `506febef` (round 2's MUST 3) refuses it, and the
+comment was reworded there. No revision from the base to `730692c8` holds
+the user's name or home path (36 revisions, by `git grep`, the end of
+`commits.txt`). The
 capture harness's suite is the sweep workflow's, not the gate job's:
 `test-capture.txt`.
 
