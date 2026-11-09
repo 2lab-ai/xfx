@@ -1,5 +1,5 @@
 # Files holding each shape, raw (before any exception), by git grep at each revision,
-# with the shapes scripts/check-no-local-paths.sh matches in round 2 (counts.sh).
+# with the shapes scripts/check-no-local-paths.sh matches (counts.sh).
 == ccced1f5
 macOS home	6
 Linux home	5
@@ -9,7 +9,7 @@ macOS temporary root	4
 any shape	167
 the user name	0
 the home path	0
-== 7ff36c75
+== 7f2298f7
 macOS home	8
 Linux home	10
 harness scratch root	3
@@ -19,20 +19,19 @@ any shape	16
 the user name	0
 the home path	0
 
-# scripts/check-no-local-paths.sh (at 7ff36c75) run on a clone at ccced1f5:
+# scripts/check-no-local-paths.sh (round 2's, at 7d855291) run on a clone at ccced1f5:
 159 files refused
   279 a harness scratch root (lines)
   56 a harness scratch root, broken after its tmp/ (lines)
   4 a macOS per-user temporary root (lines)
-check-no-local-paths: 1 problem(s) found
-# and at 7ff36c75:
-check-no-local-paths: ok (15563 tracked file(s) scanned; 8 marked fixture line(s), 77 placeholder line(s))
+# and at 7f2298f7:
+check-no-local-paths: ok (15569 tracked file(s) scanned; 8 marked fixture line(s), 77 placeholder line(s))
 
-# What the exceptions excuse at 7ff36c75: the lines that end in a local-path-ok comment,
+# What the exceptions excuse at 7f2298f7: the lines that end in a local-path-ok comment,
 # then the files whose home directories are all placeholders (lines per file).
-  marked: scripts/check-no-local-paths.sh:24
   marked: scripts/check-no-local-paths.sh:25
-  marked: scripts/fxcap/test_capture.py:315
+  marked: scripts/check-no-local-paths.sh:26
+  marked: scripts/fxcap/test_capture.py:330
   marked: scripts/fxcap/test_sweep.py:469
   marked: scripts/fxcap/test_sweep.py:473
   marked: scripts/fxcap/test_sweep.py:474
