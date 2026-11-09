@@ -1,35 +1,32 @@
-head 6b507197f3193f78e4d18f986dbf47f1edaddc1a
+# Round 2's gate, every step of CI's gate job and the sweep workflow's test-sweep.sh, one at
+# a time under the suite lock (gate.sh). Its scratch TMPDIR still held round 1's read-only
+# test directory, which rm could not remove; every step ran in it.
+head 7d8552919a1e0ceb3407baa71624d0b912a74313
 0        1s  fmt
-0       18s  clippy
-0       16s  clippy-fi
-0      121s  test
-0      140s  test-fi
+0        6s  clippy
+0        5s  clippy-fi
+0      105s  test
+0      118s  test-fi
 0        9s  check-no-stubs
-0       37s  check-no-secrets
+0       36s  check-no-secrets
 0        2s  check-no-local-paths
-0        3s  test-check-no-local-paths
-0      194s  test-gate-env
-0        1s  check-xfx-identity
-0        3s  check-preview-contract
-0      114s  test-preview-contract
-0      129s  check-tui-preflight-cost
-0        2s  check-usage-clock
-0       18s  build-release
-0        3s  smoke
-0       39s  build-faulty
-0       72s  smoke-tui
-0       30s  test-sweep
+0        5s  test-check-no-local-paths
+0      298s  test-gate-env
+0        2s  check-xfx-identity
+0        4s  check-preview-contract
+0       97s  test-preview-contract
+0      108s  check-tui-preflight-cost
+0        1s  check-usage-clock
+0       21s  build-release
+0        2s  smoke
+0       23s  build-faulty
+0       63s  smoke-tui
+0       15s  test-sweep
 steps 20, failed 0; tree clean
 
 # test totals: test 5459 passed, 0 failed; test-fi 5497 passed, 0 failed
-# check-no-local-paths: ok (15559 tracked file(s) scanned; 7 marked fixture line(s), 66 placeholder line(s))
+# check-no-local-paths: ok (15563 tracked file(s) scanned; 8 marked fixture line(s), 77 placeholder line(s))
 # test-check-no-local-paths: ok (10 cases)
 # test-gate-env: ok ci-script-tests-per-os test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths on macOS and Linux rows
 
-# after 26d6c639 (redact.py, two tests, CHANGELOG.md): at 8b92c861, one at a time
-0        2s  check-no-local-paths
-0       49s  check-no-secrets
-0        2s  check-xfx-identity
-0       12s  check-no-stubs
-0       15s  fxcap/test-sweep
-# RunRoots + Placeholders at 26d6c639, three runs: harness.txt
+# Round 1's gate, at 6b507197: 20 steps, 0 failed, the tree clean; test 5459 passed, test-fi 5497.
