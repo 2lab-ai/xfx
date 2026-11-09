@@ -352,16 +352,33 @@ fn solve_padded(
     })
 }
 
-/// The tallest composer a screen of `rows` will grow one to.
+/// The rows fx reserves under the document for its footer, whatever the band
+/// holds: `footer_rows` (`main.zig:173@481104fd`), which `layoutFromSize`
+/// subtracts from the screen for `content_bottom`
+/// (`terminal.zig:47-59@481104fd`).
+const FX_FOOTER_ROWS: u16 = 4;
+
+/// The tallest composer a screen of `rows` will grow one to, and the rows a
+/// page key moves -- the caret, and the mark of whichever menu or picker has
+/// the keys.
 ///
-/// Half the content area plus a row (`input_presentation.zig:201-205`), and the
-/// content area is the one a **one-row** composer leaves -- so the cap is a
-/// property of the screen rather than of the composer's current height, and
-/// growing the composer cannot move its own ceiling.
-#[allow(dead_code)]
+/// fx's `inputRowLimit(content_bottom)`: `content_bottom / 2` extra rows while
+/// `content_bottom` is more than 4 and none at 4 or less, plus one
+/// (`input_presentation.zig:252-255@481104fd`; `cappedInputRows`, `:257-267`,
+/// for the cap; `routeComposerVertical`, `input_completion_runtime.zig:222-226
+/// @481104fd`, for a page). Its `content_bottom` is the screen less
+/// [`FX_FOOTER_ROWS`] -- `app.shell.layout.content_bottom`, which only a
+/// terminal size sets -- not the band's [`Geometry::content_bottom`], so the
+/// limit is a property of the screen rather than of the composer's current
+/// height, and growing the composer cannot move its own ceiling.
 pub(crate) fn input_row_limit(rows: u16) -> u16 {
-    let content_bottom = rows.saturating_sub(3);
-    content_bottom / 2 + 1
+    let content_bottom = rows.saturating_sub(FX_FOOTER_ROWS);
+    let extra = if content_bottom > 4 {
+        content_bottom / 2
+    } else {
+        0
+    };
+    extra + 1
 }
 
 #[cfg(test)]
@@ -428,10 +445,30 @@ mod tests {
     }
 
     #[test]
-    fn the_composer_may_take_half_the_content_area_plus_one_row() {
-        assert_eq!(input_row_limit(24), 11);
-        assert_eq!(input_row_limit(10), 4);
-        assert_eq!(input_row_limit(6), 2);
+    fn the_composer_may_take_half_of_fxs_content_area_plus_one_row() {
+        // `inputRowLimit(content_bottom)` (`input_presentation.zig:252-255
+        // @481104fd`), its `content_bottom` the screen less fx's four footer
+        // rows (`main.zig:173@481104fd`, `terminal.zig:47-59@481104fd`).
+        for (rows, limit) in [
+            // `content_bottom` crosses 4: no extra rows at 4 or less, then
+            // half of 5.
+            (0, 1),
+            (4, 1),
+            (MIN_ROWS, 1),
+            (8, 1),
+            (9, 3),
+            (10, 4),
+            // Each parity of `content_bottom`: an odd one rounds down, so a
+            // screen one row taller than an even one has the same limit.
+            (24, 11),
+            (25, 11),
+            (40, 19),
+            (41, 19),
+            (42, 20),
+            (u16::MAX, 32_766),
+        ] {
+            assert_eq!(input_row_limit(rows), limit, "a {rows}-row screen");
+        }
     }
 
     #[test]

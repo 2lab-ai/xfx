@@ -1,0 +1,16 @@
+# python3 -I compare.py <base>/pairs.json <head>/pairs.json, the two sweeps at 41x120
+pairs: base 120, head 120
+base: pass 61/120  approved-divergence 6, approved-divergence-cascade 7, normalized-identical 61, unresolved-defect 46
+head: pass 67/120  approved-divergence 6, approved-divergence-cascade 7, normalized-identical 67, unresolved-defect 40
+
+moved to passing: 6
+  p5-input-row-limit at-pgdn: unresolved-defect -> normalized-identical
+  p5-input-row-limit grown: unresolved-defect -> normalized-identical
+  p5-input-row-limit grown-pgup: unresolved-defect -> normalized-identical
+  p5-input-row-limit grown-pgup2: unresolved-defect -> normalized-identical
+  p5-input-row-limit-menus effort-pgdn: unresolved-defect -> normalized-identical
+  p5-input-row-limit-menus model-pgdn: unresolved-defect -> normalized-identical
+
+dropped from passing: 0
+
+other verdict changes: 0

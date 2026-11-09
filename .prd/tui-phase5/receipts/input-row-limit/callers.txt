@@ -1,0 +1,53 @@
+# xfx's callers at the base 32afd307: git grep -n input_row_limit 32afd307 -- src
+src/tui/editor.rs:64://! [`super::layout::input_row_limit`] -- so a composer taller than that scrolls
+src/tui/layout.rs:334:pub(crate) fn input_row_limit(rows: u16) -> u16 {
+src/tui/layout.rs:389:        assert_eq!(input_row_limit(24), 11);
+src/tui/layout.rs:390:        assert_eq!(input_row_limit(10), 4);
+src/tui/layout.rs:391:        assert_eq!(input_row_limit(6), 2);
+src/tui/shell.rs:34://!   [`super::layout::input_row_limit`] it stops growing and scrolls inside the
+src/tui/shell.rs:5518:                let page = i64::from(layout::input_row_limit(self.geometry.rows));
+src/tui/shell.rs:5810:        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+src/tui/shell.rs:6158:        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+src/tui/shell.rs:6652:                let page = i64::from(layout::input_row_limit(self.geometry.rows));
+src/tui/shell.rs:6699:                let page = i64::from(layout::input_row_limit(self.geometry.rows));
+src/tui/shell.rs:6747:        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+src/tui/shell.rs:6872:        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+src/tui/shell.rs:8595:                layout::input_row_limit(self.geometry.rows),
+src/tui/shell.rs:9167:        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+src/tui/shell.rs:12376:                let page = usize::from(layout::input_row_limit(self.geometry.rows));
+src/tui/shell.rs:16101:    /// ([`layout::input_row_limit`]). A screen that holds a band holds a capped
+src/tui/shell.rs:16131:        let limit = layout::input_row_limit(rows);
+src/tui/shell.rs:20318:        assert_eq!(crate::tui::layout::input_row_limit(12), 5);
+src/tui/shell.rs:20395:            let limit = crate::tui::layout::input_row_limit(rows);
+src/tui/shell.rs:22146:        let limit = crate::tui::layout::input_row_limit(14);
+src/tui/shell.rs:34676:        let page = usize::from(layout::input_row_limit(24));
+src/tui/shell.rs:42319:        let page = usize::from(layout::input_row_limit(shell.geometry.rows));
+
+# fx's at the pin: git grep -n 'inputRowLimit\|cappedInputRows' 481104fd -- src
+src/core/app/input_completion_runtime.zig:223:                input_presentation.inputRowLimit(app.shell.layout.content_bottom)
+src/core/app/input_completion_runtime.zig:250:            const capped = input_presentation.cappedInputRows(
+src/core/app/input_completion_runtime.zig:571:            const capped = input_presentation.cappedInputRows(
+src/ui/footer/input_presentation.zig:252:pub fn inputRowLimit(content_bottom: u16) usize {
+src/ui/footer/input_presentation.zig:257:pub fn cappedInputRows(total_rows: usize, content_bottom: u16, input_visible: bool) CappedInputRows {
+src/ui/footer/input_presentation.zig:258:    const row_limit = inputRowLimit(content_bottom);
+src/ui/footer/input_presentation.zig:374:    const capped = cappedInputRows(summary.total_rows, content_bottom, input_visible);
+src/ui/footer/input_presentation.zig:1491:    const capped = cappedInputRows(3, 4, true);
+src/ui/footer/runtime.zig:32:pub const cappedInputRows = input_presentation.cappedInputRows;
+
+# where each xfx caller sits (fn, at the base)
+5518: offer_to_catalog
+5810: offer_to_skills
+6158: offer_to_files
+6652: offer_to_sessions
+6699: offer_to_models
+6747: offer_to_effort
+6872: offer_to_fork
+8595: offer_to_picker
+9167: offer_to_provider_picker
+12376: act
+16131: fit
+20318: the_composer_stops_growing_at_half_the_content_area_and_scrolls_instead
+20395: the_smallest_band_still_grows_by_the_rule_rather_than_by_luck
+22146: a_draft_at_its_cap_gives_rows_back_to_the_question_rather_than_hiding_it
+34676: a_page_key_moves_the_list_a_page_and_wraps_past_its_end
+42319: page_keys_move_the_effort_menu_by_the_composers_row_cap_and_wrap

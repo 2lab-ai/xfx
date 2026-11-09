@@ -1,0 +1,29 @@
+# INPUT-ROW-LIMIT at 8 rows: content_bottom is 8 - 4 = 4, and inputRowLimit
+# gives no extra rows until it is more than 4 (input_presentation.zig:253
+# @481104fd), so the composer stays one row and a page is one row: PgDn in
+# the slash menu, then a four-line draft and PgUp in it, with the caret.
+fx: env FX_AUTO_UPGRADE=0
+wait 4
+xfx: wait 3
+type /
+wait 1
+snap slash
+key NPage
+wait 0.6
+snap slash-pgdn
+key C-u
+wait 0.5
+type one
+key C-j
+type two
+key C-j
+type three
+key C-j
+type four
+wait 1
+snap grown
+cursor grown
+key PPage
+wait 0.6
+snap grown-pgup
+cursor grown-pgup

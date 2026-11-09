@@ -1,0 +1,41 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ /
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 38 · type to filter                                                                                      15–20
+
+  /images        manage pending image attachments                                                              Media
+  /model         choose what model and reasoning effort to use                                                 Model
+  /effort        choose the reasoning effort for the current model                                             Model
+  /permissions   choose what fx is allowed to do                                                               Security
+  /allowlist     manage trusted commands, tools, and URLs                                                      Security
+  /undo          undo the latest tracked file operation                                                        Session
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,41 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-32afd30 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m /
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245mCommands 34 · type to filter                                                                                      16–21[39m
+
+[38;5;245m  /permissions   choose what xfx is allowed to do                                                            Security[39m
+[38;5;245m  /allowlist     manage trusted commands, tools, and URLs                                                    Security[39m
+[38;5;245m  /undo          undo the latest tracked file operation                                                      Session[39m
+[38;5;245m  /mcp           manage MCP servers and their logins                                                         Extensions[39m
+[38;5;245m  /skills        browse and manage skills                                                                    Extensions[39m
+[1m[38;5;255m  /copy          [38;5;245mcopy the last assistant response                                                            Session[0m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ navigate     enter use     esc close[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

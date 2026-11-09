@@ -1,0 +1,28 @@
+# INPUT-ROW-LIMIT: PgDn at 41 rows in two menus whose rows fx and xfx list
+# alike: /model over thirty language models (a page is 19 of them), and
+# /effort's five levels, which a page wraps by `@mod`
+# (effort_menu.zig:53-57@481104fd): 19 is four on, 20 would be where it
+# began. The page is inputRowLimit(content_bottom)
+# (input_completion_runtime.zig:222-233@481104fd).
+fx: env FX_AUTO_UPGRADE=0
+models p5-input-row-limit-models.json
+seed p5-effort-fork-seed-astra.json
+nomodel
+wait 3
+xfx: wait 3
+type /model
+key Enter
+wait 1.5
+snap model
+key NPage
+wait 0.6
+snap model-pgdn
+key Escape
+wait 0.7
+type /effort
+key Enter
+wait 1
+snap effort
+key NPage
+wait 0.6
+snap effort-pgdn

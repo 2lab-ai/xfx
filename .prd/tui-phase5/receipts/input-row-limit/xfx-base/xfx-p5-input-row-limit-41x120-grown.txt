@@ -1,0 +1,41 @@
+x𝒇x v0.1.0-32afd30 [debug] · Run /help for commands
+
+┃↑line-06
+┃ line-07
+┃ line-08
+┃ line-09
+┃ line-10
+┃ line-11
+┃ line-12
+┃ line-13
+┃ line-14
+┃ line-15
+┃ line-16
+┃ line-17
+┃ line-18
+┃ line-19
+┃ line-20
+┃ line-21
+┃ line-22
+┃ line-23
+┃ line-24
+┃ line-25
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

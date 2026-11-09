@@ -1,0 +1,8 @@
+x𝒇x v0.1.0-32afd30 [debug] · Run /help for commands
+
+┃ one
+┃ two
+┃ three
+
+auto · model-a
+
