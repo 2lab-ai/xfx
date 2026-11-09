@@ -660,6 +660,12 @@ mod tests {
                 "asked",
             ),
             (true, r#"[{"question":"Q"}]"#, "asked"),
+            (true, r#"[["Q 1?","A 1"]]"#, "asked"),
+            (
+                true,
+                r#"[{"question":"Q 1?","answer":"A 1"},["Q 2?","B"]]"#,
+                "asked",
+            ),
         ] {
             let turn = concluded(
                 "q",
@@ -739,6 +745,59 @@ mod tests {
                 "result r2",
                 "Done."
             ]
+        );
+        // The ask last: both reads start and settle before it, so they are
+        // one group of two and the ask's row follows it.
+        let turn = concluded(
+            "q",
+            vec![
+                asked(
+                    "",
+                    vec![
+                        call("r1", "read_file", json!({ "path": "a.txt" })),
+                        call("r2", "read_file", json!({ "path": "b.txt" })),
+                        call("q", "ask_user_question", json!({})),
+                    ],
+                ),
+                came_back("r1", false, None, None),
+                came_back("r2", false, None, None),
+                answered_with(
+                    "q",
+                    false,
+                    "(ask_user_question: provide 1 to 20 questions)",
+                    None,
+                ),
+            ],
+            TurnTiming::default(),
+        );
+        assert_eq!(
+            named(&super::turn(&turn)),
+            ["start r1", "result r1", "start r2", "result r2", "asked"]
+        );
+        // The ask first: its row, then the read's start and its result.
+        let turn = concluded(
+            "q",
+            vec![
+                asked(
+                    "",
+                    vec![
+                        call("q", "ask_user_question", json!({})),
+                        call("r1", "read_file", json!({ "path": "a.txt" })),
+                    ],
+                ),
+                answered_with(
+                    "q",
+                    false,
+                    "(ask_user_question: provide 1 to 20 questions)",
+                    None,
+                ),
+                came_back("r1", false, None, None),
+            ],
+            TurnTiming::default(),
+        );
+        assert_eq!(
+            named(&super::turn(&turn)),
+            ["asked", "start r1", "result r1"]
         );
         // A step that asked nothing starts its calls together, as before.
         let turn = concluded(

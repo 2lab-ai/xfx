@@ -848,6 +848,14 @@ mod tests {
             r#"[{"question":"Q","answer":"A","answer":"B"}]"#,
             r#"[{"question":"Q","answer":"A"}"#,
             r#"[{"question":"\ud800","answer":"A"}]"#,
+            // An element that is a JSON array, not an object, is refused
+            // whatever it holds (`if (item != .object) return null`,
+            // `question_answer.zig:63@481104fd`): a struct's positional form
+            // is not a saved answer.
+            r#"[["Q","A"]]"#,
+            r#"[["Q","A","x"]]"#,
+            r#"[{"question":"Q","answer":"A"},["Q","A"]]"#,
+            r#"[["Q","A"],{"question":"Q","answer":"A"}]"#,
         ] {
             assert_eq!(decode_answers(output), None, "{output}");
         }

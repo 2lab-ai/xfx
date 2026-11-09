@@ -29063,6 +29063,9 @@ mod tests {
             (true, "[]"),
             (true, past.as_str()),
             (false, valid.as_str()),
+            // An array where an object should be (`question_answer.zig:63`).
+            (true, r#"[["Q","A"]]"#),
+            (true, r#"[{"question":"Q","answer":"A"},["Q","A"]]"#),
         ] {
             let (resumed, rows) = resumed_rows(vec![asked_turn("ask", ok, output, None)]);
             let card = rows
@@ -29201,6 +29204,113 @@ mod tests {
             ],
             "{rows:#?}"
         );
+    }
+
+    /// One step that called `calls` in that order -- `r…` a read of a missing
+    /// file, `q` an empty batch -- each result saved in call order, as xfx
+    /// runs a step's calls one at a time and records each result as it
+    /// comes back (`agent::machine`'s `execute_tool_calls`, the call loop
+    /// and its `SessionEvent::ToolResult`).
+    fn a_step_of(calls: &[&str]) -> crate::session::HistoryTurn {
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let recorded = calls
+            .iter()
+            .map(|id| RecordedToolCall {
+                id: id.to_string(),
+                name: if *id == "q" {
+                    "ask_user_question"
+                } else {
+                    "read_file"
+                }
+                .to_string(),
+                input: if *id == "q" {
+                    serde_json::json!({"questions": []})
+                } else {
+                    serde_json::json!({"path": format!("{id}.txt")})
+                },
+            })
+            .collect();
+        let mut steps = vec![TurnStep::Assistant {
+            text: String::new(),
+            tool_calls: recorded,
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        }];
+        steps.extend(calls.iter().map(|id| {
+            TurnStep::ToolResult {
+                images: Vec::new(),
+                call_id: id.to_string(),
+                tool: if *id == "q" {
+                    "ask_user_question"
+                } else {
+                    "read_file"
+                }
+                .to_string(),
+                ok: false,
+                output: if *id == "q" {
+                    "(ask_user_question: provide 1 to 20 questions)".to_string()
+                } else {
+                    format!("Path not found: {id}.txt")
+                },
+                ending: None,
+                lines: None,
+                change: None,
+            }
+        }));
+        logged_turn(
+            "ask",
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            },
+        )
+    }
+
+    #[test]
+    fn a_resumed_step_with_its_ask_last_or_first_keeps_the_reads_beside_it_in_one_group() {
+        // fx v0.0.16 writes call then result, call by call
+        // (`writeExecutionHistoryToSink`, `app_session_runtime.zig:
+        // 4120-4127@481104fd`), groups consecutive call rows, and ends a group
+        // at an ask's row (`tool_group_projection.zig:1355-1377`): two reads
+        // before the ask are one group of two, then `● Asked`; an ask before a
+        // read is `● Asked`, then a group of one.
+        for (calls, want) in [
+            (
+                &["r1", "r2", "q"][..],
+                &[
+                    "",
+                    "● 2 tool calls · 2 read · 2 failed",
+                    "├ Failed r1.txt",
+                    "└ Failed r2.txt",
+                    "",
+                    "● Asked",
+                ][..],
+            ),
+            (
+                &["q", "r1"][..],
+                &[
+                    "",
+                    "● Asked",
+                    "",
+                    "● 1 tool call · 1 read · 1 failed",
+                    "└ Failed r1.txt",
+                ][..],
+            ),
+        ] {
+            let (_, rows) = resumed_rows(vec![a_step_of(calls)]);
+            let card = rows
+                .iter()
+                .position(|row| row == "┃ ask")
+                .expect("the card");
+            assert_eq!(
+                rows[card + 1..].iter().take(want.len()).collect::<Vec<_>>(),
+                want,
+                "{calls:?}: {rows:#?}"
+            );
+        }
     }
 
     #[test]
