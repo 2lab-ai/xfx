@@ -551,13 +551,16 @@ const PASTE_SUFFIX: &str = "Input that arrived right after the paste was ignored
 /// way and on the same plane as [`PASTE_SUFFIX`]. xfx's own words, and how to
 /// get out: fx has no quarantine, so it has nothing to say here.
 ///
-/// **Two rows of the narrowest screen, whole.** The review plane gives a
-/// status two rows (`super::approval_screen`'s `STATUS_ROWS`), and a session
-/// exists down to `super::layout::MIN_COLS` = 20 columns, two of them its
-/// indent: so each of the three sentences wraps into two rows of at most 18
-/// columns, and a cut sentence -- which says something else -- never appears
-/// (`every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen`).
-/// They are short for that, and each is true in every state that says it.
+/// **Two rows of the narrowest screen, whole.** A session exists down to
+/// `super::layout::MIN_COLS` = 20 columns, two of them the review plane's
+/// indent: each of the three sentences wraps into two rows of at most 18
+/// columns there, inside the plane's status rows (`super::approval_screen`'s
+/// `STATUS_ROWS`, three, which [`PASTE_SUFFIX`] needs from 29 columns down),
+/// and a status too tall for the screen is given up whole -- so a cut
+/// sentence, which says something else, appears at no width and no height
+/// (`every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen`,
+/// `a_status_is_on_the_screen_whole_or_not_at_all_at_every_height`). They are
+/// short for that, and each is true in every state that says it.
 const PASTE_STILL: &str = "Keys ignored until input stops.";
 
 /// [`PASTE_STILL`] while a paste begun behind the first one's end marker is
@@ -573,8 +576,21 @@ const PASTE_UNTIL_END: &str = "Paste still open; keys are ignored.";
 const PASTE_UNTIL_KEY: &str = "Key sequence open; keys are ignored.";
 
 /// The three sentences about a quarantine that is still on: taken down from
-/// the review plane when it ends ([`Shell::end_delivery_at`]).
+/// the review plane once the one shown no longer names what holds it
+/// ([`Shell::plane_names_the_hold`]).
 const QUARANTINE_SENTENCES: [&str; 3] = [PASTE_STILL, PASTE_UNTIL_END, PASTE_UNTIL_KEY];
+
+/// The sentence for what holds a quarantine on: one fact, for what is said
+/// ([`Shell::said_ignored`]) and for what the plane may go on showing
+/// ([`Shell::plane_names_the_hold`]).
+fn quarantine_sentence(hold: super::input::Hold) -> &'static str {
+    use super::input::Hold;
+    match hold {
+        Hold::Quiet => PASTE_STILL,
+        Hold::Paste => PASTE_UNTIL_END,
+        Hold::Marker => PASTE_UNTIL_KEY,
+    }
+}
 
 /// The hint row's refusal for a paste this session has no number left for.
 ///
@@ -10413,18 +10429,6 @@ impl Shell {
             }
             Delivery::Ignored { again, .. } => self.said_ignored(again),
         }
-        // A sentence about the quarantine is about now, so once it has ended --
-        // by the quiet, or by a paste begun inside it -- the review plane's
-        // status row stops saying it. The document's rows are a record of
-        // what was said when, and stay; so does fx's own warning on the plane,
-        // which is about what happened.
-        if !self.decoder.quarantined() {
-            if let Some(screen) = self.alternate.as_mut() {
-                if screen.clear_status_if(&QUARANTINE_SENTENCES) {
-                    self.render.request(Reason::Modal);
-                }
-            }
-        }
     }
 
     /// The turn reached its read cap with input still waiting: what a
@@ -10439,12 +10443,34 @@ impl Shell {
     /// Input a quarantine dropped: fx's warning the first time, and after
     /// that the sentence for what is holding the quarantine on.
     fn said_ignored(&mut self, again: Option<super::input::Hold>) {
-        use super::input::Hold;
         match again {
             None => self.ignored_behind_paste(),
-            Some(Hold::Quiet) => self.said_after_paste(PASTE_STILL),
-            Some(Hold::Paste) => self.said_after_paste(PASTE_UNTIL_END),
-            Some(Hold::Marker) => self.said_after_paste(PASTE_UNTIL_KEY),
+            Some(hold) => self.said_after_paste(quarantine_sentence(hold)),
+        }
+    }
+
+    /// The review plane's sentence about the quarantine, kept a view of now:
+    /// taken down once it no longer names what holds the quarantine -- the
+    /// hold has changed, the quarantine has ended, or a new one has begun
+    /// with nothing said in it ([`super::input::Decoder::named_hold`]).
+    ///
+    /// Nothing new is said in its place. The notices are rate-limited
+    /// ([`super::input::Decoder::PASTE_REPEAT`]) and the next one due names
+    /// the hold of its own moment; the plane's line is not a notice, so it does
+    /// not wait for one. fx's own warning, and any other status, are about
+    /// what happened and stay; so do the document's rows, a record of what was
+    /// said when.
+    fn plane_names_the_hold(&mut self) {
+        let named = self.decoder.named_hold().map(quarantine_sentence);
+        let Some(screen) = self.alternate.as_mut() else {
+            return;
+        };
+        let stale: Vec<&str> = QUARANTINE_SENTENCES
+            .into_iter()
+            .filter(|sentence| Some(*sentence) != named)
+            .collect();
+        if screen.clear_status_if(&stale) {
+            self.render.request(Reason::Modal);
         }
     }
 
@@ -10468,10 +10494,21 @@ impl Shell {
     ///
     /// Called once a turn, which is what makes [`super::input::Decoder`]'s
     /// timeout mean 50 ms rather than "until the next keystroke".
+    ///
+    /// **And the end of every turn's input**, so the one point at which the
+    /// review plane's sentence about a paste's quarantine is made true again
+    /// ([`Self::plane_names_the_hold`]). The loop calls this after the burst
+    /// whichever way the burst ended -- a check that found nothing, the read
+    /// cap, an interrupted wait or read -- and before the turn's frame
+    /// (`super::event_loop`'s turn), and every call this shell makes to the
+    /// decoder is in [`Self::route_read`], [`Self::end_delivery_at`],
+    /// [`Self::still_at`] or here: so no frame is built from a plane whose
+    /// line names a hold that has gone.
     pub(crate) fn settle_input(&mut self, now: Instant) {
         let mut events = Vec::new();
         self.decoder.flush(now, &mut events);
         self.consume(events, now);
+        self.plane_names_the_hold();
     }
 
     /// Resolves what the band says about state nothing typed here changed: the
@@ -21495,7 +21532,7 @@ mod tests {
         let notice = unwrapped(&uncoloured_rows(&shell.screen_rows()));
         // The **leading clause**, not the whole sentence: the status line is
         // bounded to `STATUS_ROWS` on purpose, and thirty cells is narrow
-        // enough that two rows do not hold all of it. A notice allowed to grow
+        // enough that three rows do not hold all of it. A notice allowed to grow
         // to fit would be a notice pushing an answer off the screen to explain
         // why the answer could not be taken. What has to reach the user is
         // which of the two refusals this is, and that is its first clause.
@@ -38520,7 +38557,7 @@ mod tests {
 
     #[test]
     fn every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen() {
-        // opus on PASTE-GAP round 4: the plane gives its status two rows
+        // opus on PASTE-GAP round 4: the plane gave its status two rows
         // (`super::approval_screen`'s `STATUS_ROWS`), so a sentence wider than
         // two rows of the narrowest screen a session has (`MIN_COLS`) was cut
         // -- and a cut sentence says something else. Each of the three, said

@@ -46,7 +46,14 @@ use super::theme::Palette;
 /// Bounded, because it is the one block on this screen that is **not** the
 /// question: a notice allowed to grow would push the change out of the viewport
 /// in order to explain why the change could not be approved.
-const STATUS_ROWS: usize = 2;
+///
+/// Three, because fx's own warning about input after a paste
+/// (`super::shell`'s `PASTE_SUFFIX`, whose words are fx's) takes three rows
+/// from 29 columns down to the narrowest screen a session has, and two cut it
+/// to "Input that arrived right after the" -- which does not say the input was
+/// ignored. A status is the first thing given up when the screen is short
+/// (`Part`), and given up whole, so the room costs the question nothing.
+const STATUS_ROWS: usize = 3;
 
 /// The screen height at which the chrome spends its blank rows
 /// (`approval_screen.zig:25`, `file_screen_spaced_controls_min_rows`).
@@ -365,11 +372,17 @@ impl ApprovalScreen {
 
         // Too tall: give rows up, the least needed first and the last of each
         // kind first -- a draft's last row before its first, the third choice
-        // before the first.
+        // before the first. Except the status, which is given up whole: its
+        // first row alone would be a cut sentence, and a cut sentence says
+        // something else.
         while parts.len() > height {
             let Some(lowest) = parts.iter().map(|(part, _)| *part).min() else {
                 break;
             };
+            if lowest == Part::Status {
+                parts.retain(|(part, _)| *part != Part::Status);
+                continue;
+            }
             let Some(at) = parts.iter().rposition(|(part, _)| *part == lowest) else {
                 break;
             };

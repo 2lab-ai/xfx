@@ -486,7 +486,9 @@ pub(crate) enum Delivery {
 }
 
 /// What is keeping a paste's quarantine on, when its warning is said again:
-/// what it waits for, and so what the user is told will end it.
+/// what it waits for. The sentence said for it names that, and only the
+/// quiet's says what will end it -- the other two name what is still open and
+/// no release point (`super::shell`'s `PASTE_UNTIL_END`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Hold {
     /// The quiet: it ends once the input has stopped for
@@ -626,6 +628,17 @@ impl Decoder {
         } else {
             Hold::Quiet
         }
+    }
+
+    /// What the last repeat in this quarantine said holds it, while that is
+    /// still what holds it: the one sentence about the quarantine that is true
+    /// now (`super::shell::Shell::settle_input`). `None` with no quarantine,
+    /// before a repeat has been said in this one -- a new quarantine starts
+    /// with nothing said, whatever was said in the one before it -- and once
+    /// what holds it has changed since.
+    pub(crate) fn named_hold(&self) -> Option<Hold> {
+        let said = self.quarantine.as_ref()?.said_hold?;
+        (said == self.hold()).then_some(said)
     }
 
     /// What the quarantine owes the user at `now`, without settling, ending or
