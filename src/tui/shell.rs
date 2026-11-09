@@ -9448,10 +9448,14 @@ impl Shell {
             // `input_approval_runtime.zig:90-110@481104fd`): `move_choice`, the
             // move Up and Down make, wrapping at both ends (`moveChoice`,
             // `approval_decision.zig:214-225`). In a draft they are its caret's
-            // (below). Every other spelling of the four -- Ctrl-, Alt-, Shift-
-            // and Super-Left and -Right, Ctrl-B and Ctrl-F, Shift-Alt-b and -f
-            // -- is a composer move or a raw byte to fx, which its choice
-            // leaves alone (`:128`); the decoder keeps them apart
+            // (below). Every other spelling of the four leaves the choice where
+            // it is: Ctrl-, Alt-, Shift- and Super-Left and -Right and
+            // Shift-Alt-b and -f are a composer move, which reaches fx's
+            // `else => {}` (`:128`); Ctrl-B and Ctrl-F never reach it -- they
+            // take fx's raw-byte route as `.edit_draft`, which `apply` answers
+            // with `.none` while no amendment is open
+            // (`src/ui/input/runtime.zig:103-108`,
+            // `approval_decision.zig:170-174`). The decoder keeps them apart
             // ([`Action::ComposerLeft`], [`Action::WordLeft`]), and they reach
             // the swallow.
             Input::Action(Action::Left | Action::AltB) if !drafting => approval::Action::Up,
@@ -9459,9 +9463,13 @@ impl Shell {
             // **`C-p` and `C-n` are the arrows here**, collapsed at the
             // translation rather than given to the panel as two more keys
             // (`input_approval_runtime.zig:127-141` maps `cursor_up` and
-            // `history_up` to one action, at `c1db919`; fx v0.0.16's question
-            // moves on neither, as it moves on no Shift-Up: `docs/parity.md`'s
-            // full-screen TUI row, APPROVAL-VERTICAL-SPELLINGS).
+            // `history_up` to one action, at `c1db919`). At `481104fd` those two
+            // still move the choice (`:111-126`), but `C-p` and `C-n` reach fx's
+            // question as raw bytes it does not read
+            // (`approvalActionFromRawByte`, `src/ui/input/runtime.zig:61-73`,
+            // `:103-108`), so fx v0.0.16 moves on neither `C-p` nor `C-n`, as it
+            // moves on no Shift-Up: `docs/parity.md`'s full-screen TUI row,
+            // APPROVAL-VERTICAL-SPELLINGS.
             //
             // **A documented difference from that pin, on one surface.**
             // Reached only with no review plane up: on the plane these two

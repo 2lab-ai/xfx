@@ -61,8 +61,9 @@ pub(crate) const MAX_FEEDBACK_BYTES: usize = 4096;
 /// The draft is a **viewport** onto its own text, windowed on the caret
 /// ([`super::editor::window`]), so a long amendment scrolls inside its own rows
 /// rather than growing the panel until the question is off the screen. Three,
-/// which is enough to read a sentence back and small enough that both drafts
-/// together cannot outweigh the disclosure they sit under.
+/// which is enough to read a sentence back and small enough that the draft --
+/// only the one being typed is painted ([`Drafts::blocks`]) -- cannot outweigh
+/// the disclosure it sits under.
 pub(crate) const MAX_DRAFT_ROWS: usize = 3;
 
 /// What an edit the draft's budget refuses says: upstream's sentence for an
