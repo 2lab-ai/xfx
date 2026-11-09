@@ -1,8 +1,8 @@
 # fx parity sweep
 
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
-- xfx: `x𝒇x v0.1.0-8cb952a [debug] · Run /help for commands`, sha256 `ade20524aa2bc904ceafe93fee7b2f0badee1bb8d24ca41c9b264e2c7093c326`
-- size 40x120, `--jobs 8`, 15 scenarios -- **PARTIAL**: `--only *question* *approval* filepicker-keys`, wall 2m13s, load 12.8 at the start and 20.0 at the peak (1-minute average, sampled every 5 s)
+- xfx: `x𝒇x v0.1.0-fc32b83 [debug] · Run /help for commands`, sha256 `13374687a3834aac379a88be54c695464d5c35a0f708e3adb1446b5c5fa4915e`
+- size 40x120, `--jobs 8`, 15 scenarios -- **PARTIAL**: `--only *question* *approval* filepicker-keys`, wall 1m45s, load 39.0 at the start and 54.2 at the peak (1-minute average, sampled every 5 s)
 - ledger sha256 `923cb2dc69057675e98920b87859782d52ed6f927a14ced4dde254e62b1c8ce1`: 14 normalizations; 19 divergences approved for this pin
 
 ## Coverage
@@ -14,11 +14,11 @@ Tokens typed as commands that are no command of this inventory (aliases, partial
 
 Scenarios: 15 -- ran 15, failed 0, timeout 0.
 
-**pass = 70 / 95 = 73.7%**
+**pass = 74 / 99 = 74.7%**
 
 | total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout |
 |---|---|---|---|---|---|---|---|---|---|
-| 95 | 95 | 1 | 69 | 0 | 0 | 0 | 25 | 0 | 0 |
+| 99 | 99 | 0 | 74 | 0 | 0 | 0 | 25 | 0 | 0 |
 
 The unit is the snap pair: one `snap` or `snapfull` label of a scenario, read from its .cap file, so a scenario that failed or timed out counts every snap it would have taken. pass = (identical + normalized-identical) / total. approved-divergence-cascade is a pair that differs by position beyond its approved rows (a row they pushed down) and whose every row left without a match, the two sides aligned as sequences, is approved; the positional diff stays in the raw output.
 
@@ -31,7 +31,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | approvals | 3 | 18 | 18 | 0 | 2 | 0 | 0 | 0 | 16 | 0 | 0 | 11.1% |
 | filepicker | 1 | 7 | 7 | 0 | 7 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |
 | interrupt | 2 | 4 | 4 | 0 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |
-| p | 6 | 40 | 40 | 1 | 30 | 0 | 0 | 0 | 9 | 0 | 0 | 77.5% |
+| p | 6 | 44 | 44 | 0 | 35 | 0 | 0 | 0 | 9 | 0 | 0 | 79.5% |
 | question | 3 | 26 | 26 | 0 | 26 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |
 
 ## By surface
@@ -42,7 +42,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | `/clear` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `/status` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `/version` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
-| `/quit` | 1 | 11 | 11 | 1 | 8 | 0 | 0 | 0 | 2 | 0 | 0 | 81.8% |
+| `/quit` | 1 | 11 | 11 | 0 | 9 | 0 | 0 | 0 | 2 | 0 | 0 | 81.8% |
 | `/new` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `/reset` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `/resume` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
@@ -81,7 +81,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | `help: enter open` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `help: esc close` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `slash: ↑↓ navigate` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
-| `slash: enter use` | 1 | 11 | 11 | 1 | 8 | 0 | 0 | 0 | 2 | 0 | 0 | 81.8% |
+| `slash: enter use` | 1 | 11 | 11 | 0 | 9 | 0 | 0 | 0 | 2 | 0 | 0 | 81.8% |
 | `slash: esc close` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 
 ## By scenario
@@ -96,9 +96,9 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | interrupt-question | ran | 3 | 3 | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
 | p5-input-approval | ran | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 3 | 0 | 0 | 0.0% | cmd-ask row 5: `● 1 tool call · 1 command` / `✗ system: the model asked to run the 'shell' tool…` (aligned: 15/15 rows unmatched) |
 | p5-input-question | ran | 6 | 6 | 0 | 6 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
-| p5-input-question20 | ran | 11 | 11 | 1 | 8 | 0 | 0 | 0 | 2 | 0 | 0 | 81.8% | resumed row 1: `  5) Pick 5?` / `* session resumed: ask twenty` (aligned: 32/32 rows unmatched) |
+| p5-input-question20 | ran | 11 | 11 | 0 | 9 | 0 | 0 | 0 | 2 | 0 | 0 | 81.8% | resumed row 1: `  5) Pick 5?` / `* session resumed: ask twenty` (aligned: 32/32 rows unmatched) |
 | p5-input-question21 | ran | 3 | 3 | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
-| p5-question-word-left | ran | 12 | 12 | 0 | 12 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
+| p5-question-word-left | ran | 16 | 16 | 0 | 16 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
 | p5-transcript-question | ran | 5 | 5 | 0 | 1 | 0 | 0 | 0 | 4 | 0 | 0 | 20.0% | asked row 9: `    1) Postgres with the             Relational, …` / `    1) Postgres with the write-ahead Relational, …` (aligned: 3/3 rows unmatched) |
 | question | ran | 9 | 9 | 0 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
 | question-field | ran | 10 | 10 | 0 | 10 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |

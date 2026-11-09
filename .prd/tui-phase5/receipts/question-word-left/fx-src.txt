@@ -92,6 +92,30 @@
   989      defer prompt.deinit(std.testing.allocator);
   990  
 
+## src/ui/input/runtime.zig:75-96@481104fd
+   75  fn approvalDraftActionFromShortcut(
+   76      action: input_action.ShortcutAction,
+   77  ) ?approval_decision.DraftAction {
+   78      return switch (action) {
+   79          .move => |intent| switch (intent.kind) {
+   80              .character_left => .cursor_left,
+   81              .character_right => .cursor_right,
+   82              .line_start, .draft_start => .cursor_home,
+   83              .line_end, .draft_end => .cursor_end,
+   84              .word_left => .cursor_word_left,
+   85              .word_right => .cursor_word_right,
+   86              else => null,
+   87          },
+   88          .delete_forward => .delete_next,
+   89          .delete_word_left => .delete_word_left,
+   90          .delete_whitespace_word_left => .delete_whitespace_word_left,
+   91          .delete_word_right => .delete_word_right,
+   92          .delete_to_line_start => .delete_to_line_start,
+   93          .delete_to_line_end => .delete_to_line_end,
+   94          else => null,
+   95      };
+   96  }
+
 ## src/ui/input/runtime.zig:135-259@481104fd
   135  fn questionActionFromByte(
   136      byte: u8,
@@ -346,7 +370,7 @@
   101      ignore,
   102  };
 
-## src/core/app/app_input_runtime.zig:955-962@481104fd
+## src/core/app/app_input_runtime.zig:955-971@481104fd
   955              if (app.question_prompt.isActive()) {
   956                  try question_rt.routeQuestionEscapeAction(
   957                      app,
@@ -355,6 +379,15 @@
   960                  );
   961                  return .done;
   962              }
+  963  
+  964              if (app.approval_prompt.isActive()) {
+  965                  try approval_rt.routeApprovalEscapeAction(
+  966                      app,
+  967                      resolved,
+  968                      approval_focused_edit,
+  969                  );
+  970                  return .done;
+  971              }
 
 ## src/core/app/app_input_runtime.zig:1136-1160@481104fd
  1136              if (app.question_prompt.isActive()) {
@@ -411,7 +444,26 @@
 ## src/ui/input/runtime.zig:2201-2201@481104fd
  2201      try expectEscapeAction("[57417;5u", moveEscape(.word_left, false));
 
-## src/core/app/input_approval_runtime.zig:90-110@481104fd
+## src/core/app/input_approval_runtime.zig:71-130@481104fd
+   71          pub fn routeApprovalEscapeAction(
+   72              app: *App,
+   73              action: input_action.Action,
+   74              focused_edit: ?approval_decision.DraftAction,
+   75          ) !void {
+   76              app.input_runtime.vertical_navigation.reset();
+   77              app.input_runtime.input_limit_rejection = input_limit_rejection.clear();
+   78              const amending = app.approval_prompt.isAmending();
+   79              if (amending) {
+   80                  if (focused_edit) |edit| {
+   81                      _ = try applyDecisionAction(
+   82                          app,
+   83                          .{ .edit_draft = edit },
+   84                          null,
+   85                      );
+   86                      requestActiveSurfaceFrame(app);
+   87                      return;
+   88                  }
+   89              }
    90              switch (action) {
    91                  .cursor_left, .word_left => {
    92                      if (!amending) {
@@ -433,3 +485,23 @@
   108                          requestActiveSurfaceFrame(app);
   109                      }
   110                  },
+  111                  .history_up, .cursor_up => {
+  112                      _ = try applyDecisionAction(
+  113                          app,
+  114                          .{ .move_choice = .previous },
+  115                          null,
+  116                      );
+  117                      requestActiveSurfaceFrame(app);
+  118                  },
+  119                  .history_down, .cursor_down => {
+  120                      _ = try applyDecisionAction(
+  121                          app,
+  122                          .{ .move_choice = .next },
+  123                          null,
+  124                      );
+  125                      requestActiveSurfaceFrame(app);
+  126                  },
+  127                  .mouse_wheel => |direction| try handleApprovalWheel(app, direction),
+  128                  else => {},
+  129              }
+  130          }

@@ -2,7 +2,7 @@
 
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
 - xfx: `x𝒇x v0.1.0-32afd30 [debug] · Run /help for commands`, sha256 `8ca6891a3650bd77e4a2d27566c17347a2ce532fe13ee4d3d992355fc0f7e650`
-- size 40x120, `--jobs 8`, 15 scenarios -- **PARTIAL**: `--only *question* *approval* filepicker-keys`, wall 1m36s, load 26.9 at the start and 26.9 at the peak (1-minute average, sampled every 5 s)
+- size 40x120, `--jobs 8`, 15 scenarios -- **PARTIAL**: `--only *question* *approval* filepicker-keys`, wall 1m42s, load 43.4 at the start and 45.8 at the peak (1-minute average, sampled every 5 s)
 - ledger sha256 `923cb2dc69057675e98920b87859782d52ed6f927a14ced4dde254e62b1c8ce1`: 14 normalizations; 19 divergences approved for this pin
 
 ## Coverage
@@ -14,11 +14,11 @@ Tokens typed as commands that are no command of this inventory (aliases, partial
 
 Scenarios: 15 -- ran 15, failed 0, timeout 0.
 
-**pass = 67 / 95 = 70.5%**
+**pass = 69 / 99 = 69.7%**
 
 | total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout |
 |---|---|---|---|---|---|---|---|---|---|
-| 95 | 95 | 1 | 66 | 0 | 0 | 0 | 28 | 0 | 0 |
+| 99 | 99 | 1 | 68 | 0 | 0 | 0 | 30 | 0 | 0 |
 
 The unit is the snap pair: one `snap` or `snapfull` label of a scenario, read from its .cap file, so a scenario that failed or timed out counts every snap it would have taken. pass = (identical + normalized-identical) / total. approved-divergence-cascade is a pair that differs by position beyond its approved rows (a row they pushed down) and whose every row left without a match, the two sides aligned as sequences, is approved; the positional diff stays in the raw output.
 
@@ -31,7 +31,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | approvals | 3 | 18 | 18 | 0 | 2 | 0 | 0 | 0 | 16 | 0 | 0 | 11.1% |
 | filepicker | 1 | 7 | 7 | 0 | 7 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |
 | interrupt | 2 | 4 | 4 | 0 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |
-| p | 6 | 40 | 40 | 1 | 27 | 0 | 0 | 0 | 12 | 0 | 0 | 70.0% |
+| p | 6 | 44 | 44 | 1 | 29 | 0 | 0 | 0 | 14 | 0 | 0 | 68.2% |
 | question | 3 | 26 | 26 | 0 | 26 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |
 
 ## By surface
@@ -98,7 +98,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | p5-input-question | ran | 6 | 6 | 0 | 6 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
 | p5-input-question20 | ran | 11 | 11 | 1 | 8 | 0 | 0 | 0 | 2 | 0 | 0 | 81.8% | resumed row 1: `  5) Pick 5?` / `* session resumed: ask twenty` (aligned: 32/32 rows unmatched) |
 | p5-input-question21 | ran | 3 | 3 | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
-| p5-question-word-left | ran | 12 | 12 | 0 | 9 | 0 | 0 | 0 | 3 | 0 | 0 | 75.0% | alt-b row 6: `  Pick 3?` / `  Pick 4?` (aligned: 4/4 rows unmatched) |
+| p5-question-word-left | ran | 16 | 16 | 0 | 11 | 0 | 0 | 0 | 5 | 0 | 0 | 68.8% | alt-b row 6: `  Pick 3?` / `  Pick 4?` (aligned: 4/4 rows unmatched) |
 | p5-transcript-question | ran | 5 | 5 | 0 | 1 | 0 | 0 | 0 | 4 | 0 | 0 | 20.0% | asked row 9: `    1) Postgres with the             Relational, …` / `    1) Postgres with the write-ahead Relational, …` (aligned: 3/3 rows unmatched) |
 | question | ran | 9 | 9 | 0 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
 | question-field | ran | 10 | 10 | 0 | 10 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
@@ -106,7 +106,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 
 ## Causes of the unresolved snaps
 
-28 unresolved snaps; a snap counts under every cause of one of its rows (`only`: that cause alone).
+30 unresolved snaps; a snap counts under every cause of one of its rows (`only`: that cause alone).
 Kinds: a = awaiting a user decision, b = a unit in flight, c = the capture (nondeterminism, or the scenario script), d = a defect.
 
 | cause | kind | snaps | only | what | owner |
@@ -119,13 +119,15 @@ Kinds: a = awaiting a user decision, b = a unit in flight, c = the capture (nond
 | amendment-card-after-stop | b+d | 2 | 2 | `A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes…` | `AMEND-CARD-ROW the blank row xfx keeps under an approval's amendment card that ends the document -- xfx src/tui/shell.rs:10277 / fx src/cor…` |
 | approval-scroll | d | 2 | 0 | `A long review scrolls with the mouse wheel in fx and Ctrl-P/Ctrl-N in xfx, which asks for…` | `unowned -- xfx src/tui/approval_view.rs:106 / fx src/ui/approval_screen.zig:564@c1db9191` |
 
-Rows no cause covers (8 snaps):
+Rows no cause covers (10 snaps):
 - `p5-input-approval/cmd-ask` fx row 5: `● 1 tool call · 1 command`
 - `p5-input-approval/edit-ask` fx row 5: `● 1 tool call · 1 command`
 - `p5-input-approval/after` fx row 5: `● 2 tool calls · 1 edit · 1 command`
 - `p5-question-word-left/alt-b` fx row 6: `  Pick 3?`
 - `p5-question-word-left/kitty-alt-b` fx row 6: `  Pick 3?`
 - `p5-question-word-left/mok-alt-b` fx row 6: `  Pick 3?`
+- `p5-question-word-left/draft-shift-alt-b` fx row 10: `    3) ab yzcd`
+- `p5-question-word-left/draft-shift-alt-f` fx row 10: `    3) ab yzcdx `
 - `p5-transcript-question/asked` fx row 9: `    1) Postgres with the             Relational, strong consistency`
 - `p5-transcript-question/narrow` fx row 1: `<banner>`
 

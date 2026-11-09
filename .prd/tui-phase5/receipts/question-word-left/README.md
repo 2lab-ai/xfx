@@ -197,7 +197,8 @@ restored after each, under the suite lock; per mutant `cargo test --locked
 --lib -- alt_b the_fold question:: input::tests` with a 900 s timeout. M2 reads
 the brief's "a retreat by one instead of a page" as fx's page is one question:
 Alt-b moving the marked choice up one instead of the question back.
-`mutants.txt` has the round-2 run (the table below is filled from it):
+**9 of 9 killed** (`mutants.txt`, round 2), the clone's tree clean after the
+run:
 
 | mutant | killed by |
 |---|---|
@@ -207,7 +208,12 @@ Alt-b moving the marked choice up one instead of the question back.
 | M4 Alt-b in a draft is not the word move | the panel test, the shell test |
 | M5 the decoder reads `ESC b` as `WordLeft` again | the decoder test, the ESC-spelling table, the shell test |
 | M6 the decoder reads kitty/xterm Alt-b as `WordLeft` again | the decoder test, the herdr table, the shell test |
-| M7 the fold lets `AltB` through to the other surfaces | the fold test |
+| M7 the fold lets `AltB` through to the other surfaces | the fold test, **and the approval amendment test** (round 2: by behaviour) |
+| M8 Shift-Alt-b and Shift-Alt-f back to `Ignore` (round 2) | the decoder test, the shell test |
+| M9 Shift-Alt-b decodes as Alt-b, going back a question at a choice (round 2) | the decoder test, the shell test |
+
+Round 1's run at `8cb952a2` killed M1-M7 the same way, except that M7 was
+caught by the fold test alone.
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-diff.txt`)
 
@@ -219,30 +225,46 @@ over the file picker). `sweep-base.md` and `sweep-head.md` are the scoreboards
 (redacted by the sweep); `sweep-diff.txt` is every pair's verdict at both,
 compared:
 
-- **base 67 / 95, head 70 / 95.** The three that moved are this unit's targets,
-  `p5-question-word-left`'s `alt-b`, `kitty-alt-b` and `mok-alt-b`, from
-  unresolved to normalized-identical.
+Round 2's run, against the round-2 head `fc32b83a` (the scenario now has 16
+snaps):
+
+- **base 69 / 99, head 74 / 99.** Five of the six that moved are this unit's
+  targets, `p5-question-word-left`'s `alt-b`, `kitty-alt-b`, `mok-alt-b`,
+  `draft-shift-alt-b` and `draft-shift-alt-f`, from unresolved to
+  normalized-identical. The sixth, `p5-input-question20`'s `q20-answered`,
+  passes at both, identical at the base and normalized-identical at the head:
+  in the head run fx's elapsed-time row read `6s (↑3 ↓80)` against xfx's `5s`
+  (fx's own clock, a row the ledger normalizes; the base run's fx read `5s`).
 - **None dropped.** `filepicker-keys`' seven pairs, Alt-b in the composer
-  among them, are normalized-identical at both.
+  among them, pass at both.
 - The 25 unresolved at the head are the same 25 as at the base: the approval
   scenarios' rows, `p5-input-question20`'s `resumed` and `resumed.full`
   (`question-resume-replay`) and `p5-transcript-question`'s four; this unit
   touches none of those scenarios.
 
+Round 1's run (67 / 95 → 70 / 95, the three Alt-b pairs, none dropped) is
+superseded by this one.
+
 ## Gate (`gate.txt`)
 
-The brief's gate, run once at `b3a23c52` (`src/` and `tests/` identical to the
-code head `8cb952a2`), under the suite lock, with a short `TMPDIR`. Every step
-exits 0:
+The brief's gate, run once per round under the suite lock with a short
+`TMPDIR`. Round 2's ran at `6dbdf72f`, whose `src/`, `tests/`, `Cargo.toml` and
+`Cargo.lock` are the code head `fc32b83a`'s (`gate.txt` has the `git diff
+--stat` that shows it; only `docs/parity.md` differs). Every step exits 0:
 
-| step | result |
+| step | result (round 2) |
 |---|---|
 | `cargo fmt --check` | clean |
 | `cargo clippy --locked --all-targets -- -D warnings` | clean |
 | `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | clean |
-| `cargo test --locked --no-fail-fast` | 5543 passed, 0 failed, 7 ignored (15 result lines) |
-| `cargo test --locked --features fault-injection --no-fail-fast` | 5580 passed, 0 failed, 7 ignored (15 result lines) |
+| `cargo test --locked --no-fail-fast` | 5544 passed, 0 failed, 7 ignored (15 result lines) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 5581 passed, 0 failed, 7 ignored (15 result lines) |
 | `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | exit 0 each |
+
+Round 1's gate (at `b3a23c52`, `src/` and `tests/` identical to `8cb952a2`;
+5543 and 5580 passed) is kept below it in `gate.txt`, with the `git diff
+--stat b3a23c52 cedcd9da -- src tests docs scripts Cargo.toml Cargo.lock` that
+shows the commit after it changed none of those.
 
 No test in this unit builds a `Runtime`: the shell tests use the shell fixture
 (`shell(rows, cols)`), the others the panel, the decoder and the fold alone.

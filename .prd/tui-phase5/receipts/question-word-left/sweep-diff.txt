@@ -1,7 +1,10 @@
-# sweep-diff: every pair's verdict at the base (32afd307) and the head (8cb952a2), 40x120, --only '*question*' '*approval*' 'filepicker-keys'
-# pairs: base 95, head 95; passing: base 67, head 70
-# moved: 3; dropped (pass at base, not at head): 0
+# sweep-diff: every pair's verdict at the base (32afd307) and the round-2 code head (fc32b83a), 40x120, --only '*question*' '*approval*' 'filepicker-keys'
+# pairs: base 99, head 99; passing: base 69, head 74
+# moved: 6; dropped (pass at base, not at head): 0
+MOVED p5-input-question20 q20-answered: identical -> normalized-identical
 MOVED p5-question-word-left alt-b: unresolved-defect -> normalized-identical
+MOVED p5-question-word-left draft-shift-alt-b: unresolved-defect -> normalized-identical
+MOVED p5-question-word-left draft-shift-alt-f: unresolved-defect -> normalized-identical
 MOVED p5-question-word-left kitty-alt-b: unresolved-defect -> normalized-identical
 MOVED p5-question-word-left mok-alt-b: unresolved-defect -> normalized-identical
 # unresolved at the head:
