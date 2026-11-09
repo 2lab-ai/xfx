@@ -15,7 +15,7 @@ decides when xfx sends background catalog requests. Base `e705a5dc`
 | `6ab25d2a` | fix: an ask with no trigger over nothing read still starts the first load (found writing this receipt; RED in `red-first-load.txt`) -- **the code head and the swept binary** (`sweep-head.md`, banner `v0.1.0-6ab25d2`) |
 | `a1c36a6e` | `docs/parity.md`: that first load, in the `/model` row |
 | `b57fa272` | this receipt -- **the gate's head** (`gate.txt`) |
-| (the next two) | a comment in `system::read`; the receipt's gate and mutants |
+| `1703a4a4`, `425e7c52`, `9b93b619`, this one | a comment in `system::read`; the receipt's gate and mutants; its size line; this table |
 
 After `6ab25d2a` nothing under `src/` changes but one comment, after the gate
 (below), so the swept binary's behaviour is the head's.
