@@ -1,4 +1,4 @@
-# head 3d83254e; sides: main ccced1f5, stop-in-catalog-wait 05a0a857, questions-20 3824f6ba, paste-after-end a832f4d7, history-notice-stop 62d96c98
+# head 9aa61e28; sides: main ccced1f5, stop-in-catalog-wait 05a0a857, questions-20 3824f6ba, paste-after-end a832f4d7, history-notice-stop 62d96c98
 docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:888]
     main* = row | stop-in-catalog-wait* = row | questions-20* = row | paste-after-end* = row | history-notice-stop* = row
 docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
@@ -143,8 +143,8 @@ src/tui/shell.rs:13405	[scripts/fxcap/parity-ledger.toml:505]
     main -> 13387 | stop-in-catalog-wait -> 13387 | questions-20 -> 13387 | paste-after-end = | history-notice-stop -> 13387
 src/tui/shell.rs:16303	[scripts/fxcap/parity-ledger.toml:969]
     main -> 16285 | stop-in-catalog-wait -> 16285 | questions-20 -> 16285 | paste-after-end = | history-notice-stop -> 16285
-src/tui/shell.rs:38636	[scripts/fxcap/parity-ledger.toml:786, scripts/fxcap/parity-ledger.toml:797, scripts/fxcap/parity-ledger.toml:809, scripts/fxcap/parity-ledger.toml:820, scripts/fxcap/parity-ledger.toml:831, scripts/fxcap/parity-ledger.toml:899]
-    main -> 38737 | stop-in-catalog-wait -> 38737 | questions-20 -> 38737 | paste-after-end -> 38716 | history-notice-stop -> 38657
+src/tui/shell.rs:38716	[scripts/fxcap/parity-ledger.toml:786, scripts/fxcap/parity-ledger.toml:797, scripts/fxcap/parity-ledger.toml:809, scripts/fxcap/parity-ledger.toml:820, scripts/fxcap/parity-ledger.toml:831, scripts/fxcap/parity-ledger.toml:899]
+    main -> 38817 | stop-in-catalog-wait -> 38817 | questions-20 -> 38817 | paste-after-end -> 38796 | history-notice-stop -> 38737
 src/tui/toolgroup.rs:511-513	[scripts/fxcap/parity-ledger.toml:661]
     main = | stop-in-catalog-wait = | questions-20* = | paste-after-end = | history-notice-stop =
 src/tui/toolgroup.rs:940	[scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:854]

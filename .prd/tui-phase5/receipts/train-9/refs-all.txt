@@ -1,4 +1,4 @@
-# head 3d83254e; sides: main ccced1f5, stop-in-catalog-wait 05a0a857, questions-20 3824f6ba, paste-after-end a832f4d7, history-notice-stop 62d96c98
+# head 9aa61e28; sides: main ccced1f5, stop-in-catalog-wait 05a0a857, questions-20 3824f6ba, paste-after-end a832f4d7, history-notice-stop 62d96c98
 docs/superpowers/plans/2026-08-24-provider-frame.md: tests/tool_loop.rs:1266
     main MOVED -> 1274 | stop-in-catalog-wait MOVED -> 1274 | paste-after-end MOVED -> 1274 | history-notice-stop MOVED -> 1274
 docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
@@ -11,7 +11,7 @@ docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.
     main MOVED -> 917-951 | stop-in-catalog-wait MOVED -> 917-951 | questions-20 MOVED -> 917-951 | history-notice-stop MOVED -> 917-951
 # 192 references in 593 files; 5 moved or changed on some side that cites them
 
-# head 3d83254e; sides: main ccced1f5, stop-in-catalog-wait 05a0a857, questions-20 3824f6ba, paste-after-end a832f4d7, history-notice-stop 62d96c98
+# head 9aa61e28; sides: main ccced1f5, stop-in-catalog-wait 05a0a857, questions-20 3824f6ba, paste-after-end a832f4d7, history-notice-stop 62d96c98
 docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: input.rs:180 (src/tui/input.rs)
     main MOVED -> 188 | stop-in-catalog-wait MOVED -> 188 | questions-20 MOVED -> 188 | history-notice-stop MOVED -> 188
 docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: input.rs:289 (src/tui/input.rs)
