@@ -34,27 +34,38 @@ fx's lines are quoted in `../../at-height/fx-src.txt`, extended from line
   coalesces the pending scope (`replacePendingRoots`, `:511-523`,
   `fx-src.txt:2106-2118`).
 - The running walk goes on and is adopted when whole (`joinThreadIfDone`,
-  `:425`). From then on fx's index is `.ready`.
+  `:425`). Until then fx's index is `.loading` (`currentState`, `:333-341`,
+  `fx-src.txt:2072-2080`); from then on it is `.ready`.
 
 **Before:** xfx's `set_extra_roots` stops the walk, so its `Ready` was never
 taken in and `ever_whole` stayed false. So: A's walk stopped by B's install,
 then the poll ran, with B's walk running, then the session's first `@`. xfx
-skipped the refresh (2 walks in all), where fx asks for it (3).
+skipped the refresh (2 walks in all), where fx asks for it (3) if A's walk
+has ended whole by then. (Round 11: this said fx asks for it, with no
+condition.)
 
 **Now:**
 - `poll` sets `ever_whole` where it ends a walk that a change of roots
   stopped (file_index.rs:1222-1223, just before `superseded` is cleared).
 - **Why there, not in `set_extra_roots`:** that poll is where xfx's model
-  ends the stopped walk, and so where fx's would be adopted. A first `@`
-  before it meets a refresh that is queued anyway, beside the change's own,
-  so no count differs between the two places.
+  ends the stopped walk. It is not where fx adopts: fx's walk ends in its
+  own time, which xfx, having stopped it, cannot know. (Round 11: this said
+  the poll was where fx's walk would be adopted.) A first `@` before the
+  poll meets a refresh that is queued anyway, beside the change's own, so
+  no count differs between the two places.
   `a_first_at_before_the_poll_that_ends_a_stopped_walk_coalesces` pins that
   case at 2 walks.
-- **The residual, named in the code comment, the parity row and here:** a
-  stopped first walk that would have failed leaves fx loading (`:432-438`,
-  `fx-src.txt:2309-2315`). xfx, having stopped it, cannot know, and counts
-  it whole. This ends when AT-SCOPE-INTERIM lets the walk run on, as fx's
-  does.
+- **Two residuals, named in the code comments, the parity row and here**
+  (round 11; round 10 named only the second). Both come from xfx stopping
+  the walk. Each is a session's first `@` that refreshes in xfx (3 walks)
+  where fx, still loading, skips (2):
+  - the still-running walk: after xfx's poll, but before fx's walk would
+    have ended (`fx-src.txt:2072-2080`, `:2089-2092`);
+  - the would-have-failed walk: a stopped first walk that would have failed
+    leaves fx loading (`:432-438`, `fx-src.txt:2309-2315`). xfx, having
+    stopped it, cannot know, and counts it whole.
+
+  Both end when AT-SCOPE-INTERIM lets the walk run on, as fx's does.
 
 **RED** (opus's recipe):
 `a_walk_a_change_of_roots_stopped_counts_as_whole_once_it_is_over`. adopt(A)
@@ -68,7 +79,8 @@ with A's walk held; adopt(B); `settle_band`; B's walk held; `@plan`; B's
   six hunks, each that one change. Corrected in place.
 - Round 9 §4 ("changes one count only") and round 8 §1 ("could change no
   count") now name the second count: the first `@` after the poll that ends
-  a stopped walk.
+  a stopped walk. Round 11 made both conditional on fx's walk having ended
+  whole.
 
 ## 3. Mutants (`mutants.txt`)
 

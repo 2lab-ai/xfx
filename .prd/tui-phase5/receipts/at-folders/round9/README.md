@@ -20,7 +20,7 @@ fx's lines are quoted in `../../at-height/fx-src.txt`, extended from line
 |---|---|
 | `8e59306d` | RED (`red-unit.txt`): 1 case fails on round 8's code; the Ctrl-O case's sharper assertion |
 | `2c6960b3` | the fix, the quotes, `docs/parity.md`, round 8's receipt corrected -- **the code head** |
-| `c98aefd4` | the ledger's 6 `shell.rs` refs re-pointed, each `src/tui/shell.rs:40363` to `:40403` (`refs.txt`: 16 checked, 0 wrong; corrected in round 10, which said `file_index.rs`) |
+| `c98aefd4` | the ledger's 6 `shell.rs` refs re-pointed, each `src/tui/shell.rs:40363` to `:40403` (`refs.txt`: 16 checked, 0 wrong). This line said `file_index.rs` until round 10 corrected it |
 | `e7b81325` | `mutants.py` -- **the gate's commit** |
 | (receipt commit) | this folder |
 
@@ -99,7 +99,8 @@ The predicate changes one count only: the session's first indexed episode,
 after an index has been whole once and a change of roots has dropped it,
 during a walk. It now queues a refresh behind that walk. (Round 10 adds a
 second count: the first `@` after the poll that ends a walk a change of
-roots stopped; `../round10/README.md`.) The rows come from
+roots stopped. fx refreshes there only if that walk has ended whole by then;
+`../round10/README.md` names the two residuals.) The rows come from
 the walk either way, and no scenario installs twice before its first `@`.
 So round 7's `workspace-index` pairs and round 1's pairs and sweep stand.
 

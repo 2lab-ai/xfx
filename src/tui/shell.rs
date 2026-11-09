@@ -35653,12 +35653,15 @@ mod tests {
     fn a_walk_a_change_of_roots_stopped_counts_as_whole_once_it_is_over() {
         // Round 10 (opus r9 MUST): fx does not stop a running walk on a change
         // of scope -- `refreshOwnedRoots` only queues the new roots behind it
-        // (`file_index.zig:488-497`, `:511-524@481104fd`) -- so that walk runs
+        // (`file_index.zig:488-497`, `:511-523@481104fd`) -- so that walk runs
         // on and is adopted when whole (`joinThreadIfDone`, `:425`), and the
         // index is `.ready` from then on. xfx stops it, and in xfx's model the
-        // stopped walk is over at the next poll: from then on it counts as
+        // stopped walk is over at the next poll: from then on xfx counts it as
         // whole. So: A's walk held, B installed, a poll (B's walk running),
-        // then the session's first `@`: it refreshes, queued behind B's walk.
+        // then the session's first `@`: it refreshes, queued behind B's walk,
+        // as fx's does once A's walk has ended whole. Before that, or after
+        // one that would have failed, fx skips: the residuals `Files::poll`
+        // names.
         let (_workspace, mut shell) = in_ws2(40, 120);
         let (_a, _path, first) = extra_with_plan(&shell);
         let (_b, _path, other) = extra_with_plan(&shell);

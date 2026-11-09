@@ -999,12 +999,14 @@ pub(crate) struct Files {
     /// 171@481104fd`: set once, never reset). That first request is skipped
     /// while no index has been whole yet ([`Self::refresh_index_for_list`]).
     episode_seen: bool,
-    /// Whether an index has been whole once this session -- a walk's
-    /// `Ready` taken in -- whatever was dropped since. fx's adopted
-    /// generation is kept until shutdown, a change of scope included (set at
-    /// `file_index.zig:425`, `:677@481104fd`; cleared only at `:325`), so
-    /// once one is, its index is never `.loading` again (`currentState`,
-    /// `:333-341`). Set in [`Self::poll`], never reset.
+    /// Whether an index has been whole once this session, whatever was
+    /// dropped since: a walk's `Ready` taken in, or the end of a walk a
+    /// change of roots stopped, which xfx counts as whole (its two residuals
+    /// are named in [`Self::poll`]). fx's adopted generation is kept until
+    /// shutdown, a change of scope included (set at `file_index.zig:425`,
+    /// `:677@481104fd`; cleared only at `:325`), so once one is, its index is
+    /// never `.loading` again (`currentState`, `:333-341`). Set in
+    /// [`Self::poll`], never reset.
     ever_whole: bool,
     /// Whether a walk was stopped by a change of roots since the last
     /// [`Self::poll`]. Until then a refresh is queued as if that walk still
@@ -1091,10 +1093,12 @@ impl Files {
     /// of the one loading: a failed first index with nothing walking is
     /// `.failed`, not loading, and a walk started after it is loading again
     /// (`startLoad` clears the failure, `:389`). A walk a change of roots
-    /// stopped counts as whole once [`Self::poll`] has ended it, as fx would
-    /// have adopted it (one that would have failed is the residual named
-    /// there); before that poll a refresh is queued anyway, and coalesces
-    /// with the change's own ([`Self::superseded`]).
+    /// stopped counts as whole once [`Self::poll`] has ended it; before that
+    /// poll a refresh is queued anyway, and coalesces with the change's own
+    /// ([`Self::superseded`]). fx stops no such walk and is loading until a
+    /// walk is adopted, so this differs twice, both named in
+    /// [`Self::poll`]: before fx's walk would have ended, and after one that
+    /// would have failed.
     fn loading(&self) -> bool {
         !self.ever_whole && self.walk.is_some()
     }
@@ -1209,16 +1213,21 @@ impl Files {
         // it is indexing, as fx's does once `startLoad` clears the failure
         // (`:389`): a lookup reads the walk in flight before the failure.
         if self.walk.is_none() {
-            // A walk a change of roots stopped is over by now -- and counts
-            // as whole: fx stops no walk on a change of scope, so its walk
-            // runs on and is adopted when whole (`refreshOwnedRoots`,
-            // `file_index.zig:488-497@481104fd`; `joinThreadIfDone`, `:425`).
-            // Here rather than where the walk is stopped, because this is
-            // where xfx's model ends that walk; a first `@` before it meets
-            // a refresh queued anyway (`refresh_index`). What xfx cannot copy:
-            // a stopped first walk that would have failed leaves fx loading
-            // (`:432-438`); xfx, having stopped it, counts it whole. That ends
-            // when AT-SCOPE-INTERIM lets the walk run on, as fx's does.
+            // A walk a change of roots stopped is over by now, and from here
+            // xfx counts it as whole. fx stops no walk on a change of scope:
+            // its walk runs to its own end and is adopted if whole, and fx is
+            // `.loading` until a walk is (`refreshOwnedRoots`,
+            // `file_index.zig:488-497@481104fd`; `joinThreadIfDone`, `:425`;
+            // `currentState`, `:333-341`). This poll is not where fx adopts;
+            // xfx, having stopped the walk, cannot know when or how it would
+            // have ended. Counting it here rather than where it is stopped
+            // changes no count: a first `@` before this poll meets a refresh
+            // queued anyway (`refresh_index`). The stop leaves two
+            // residuals, each a first `@` that refreshes here where fx, still
+            // loading, skips (3 walks against 2): after this poll but before
+            // fx's walk would have ended; and after a walk that would have
+            // failed, which leaves fx loading (`:432-438`). Both end when
+            // AT-SCOPE-INTERIM lets the walk run on, as fx's does.
             if self.superseded {
                 self.ever_whole = true;
             }
