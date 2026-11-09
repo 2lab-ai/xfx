@@ -235,9 +235,10 @@ mod system {
         // SAFETY: `now` is a local that outlives the call, and `clock` is one
         // of the ids above, each of which this platform's C library defines.
         let read = unsafe { libc::clock_gettime(clock, &mut now) };
-        // Every id above is one the platform has, so the call does not fail;
-        // were it to, the reading is the origin's, a reading earlier than any
-        // stored one, which is due (`CatalogDue`): never a catalog held fresh.
+        // Every id above is one the platform has, so the call does not fail.
+        // Were one call to fail among good ones, its reading is the origin's,
+        // earlier than the last read's start, which is due (`CatalogDue`);
+        // were every call to fail, only the first load would come due.
         if read != 0 {
             return Duration::ZERO;
         }
