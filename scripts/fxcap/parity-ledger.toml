@@ -82,7 +82,7 @@ id = "capture-tmpdir"
 fx = '(<scratch(?::real)?_*>/|fxcap\.XXXXXX/)fxtmp(?=/)'
 replace = '\1xfxtmp'
 why = "capture.sh gives each binary a TMPDIR inside its run named for the binary, fx `$run/fxtmp`, xfx `$run/xfxtmp`, so where `/trace` says it wrote names the driver's directory, not the product's. On fx's side, after run-directory, and only right after the run directory: as capture.sh writes it now, `<scratch___>` filled to its width (`<scratch:real___>` resolved), as units wrote it by hand before LOCAL-PATHS, `<scratch>`, or as a capture from before LOCAL-PATHS holds it, masked to `fxcap.XXXXXX`. The run directory, `$TMPDIR/fxcap.XXXXXX`, is 13 columns or more, never narrower than `<scratch>`, so its short form `<s__>` is not read (resolved, it is narrower than `<scratch:real>` only where the TMPDIR resolves to `/`, and `<S__>` is not read either); nor is an `fxtmp` under another placeholder (`<work___>/fxtmp` is a name in the workspace), an escaped literal (`<!scratch__>`) or other text. And only the name itself with a directory under it, `fxtmp/`: `/` is the one follower the tracked captures hold (w2's and w3's `/trace` reports and pasted images), and any other character can be part of a name, so `fxtmp-old`, `fxtmp,backup`, `fxtmp backup`, `fxtmp\u00e9` or the bare `fxtmp` before a quote is compared: the rule fails toward comparing. capture.sh's `dir` refuses a name that is or extends a binary's TMPDIR, so no scenario makes such a sibling beside them. This is not roots.py's EDGE: an over-wide rewrite there fails toward privacy (a sibling written as a placeholder), an over-wide normalization here toward false parity (a sibling read as the TMPDIR), so the ledger reads only the demonstrated form."
-source = ["scripts/fxcap/capture.sh:314-316", "scripts/fxcap/capture.sh:368-373", "scripts/fxcap/capture.sh:939", "scripts/fxcap/capture.sh:946"]
+source = ["scripts/fxcap/capture.sh:314-316", "scripts/fxcap/capture.sh:367-373", "scripts/fxcap/capture.sh:947", "scripts/fxcap/capture.sh:954"]
 
 # Each run's own clock and its own ids. The two binaries run one after the
 # other, so what a clock or a random id reads is the run's, not the product's;
@@ -144,7 +144,7 @@ fx = '^(Pane is dead \(status \d+, ).*(\))$'
 xfx = '^(Pane is dead \(status \d+, ).*(\))$'
 replace = '\1<tmux clock>\2'
 why = "tmux's own line under a pane whose program has exited (capture.sh `keep`) ends with tmux's clock; the exit status before it is compared."
-source = [".prd/tui-phase4/receipts/d1/README.md:151", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:1115"]
+source = [".prd/tui-phase4/receipts/d1/README.md:151", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:1123"]
 
 [[normalization]]
 id = "session-id"
