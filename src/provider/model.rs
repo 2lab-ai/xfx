@@ -1313,9 +1313,12 @@ pub enum LoadTrigger {
     /// A submitted prompt (`noteModelCatalogActivity`, `src/main.zig:
     /// 1225-1232`), a frame that draws `/model`'s inline column
     /// (`modelCompletions` -> `ensureModelCache`, `:2043-2045`, `:2167-2169`),
-    /// the launch and a provider switch (`startModelCacheWarmup`): a catalog
-    /// in hand is read again only once it is [`REFRESH_INTERVAL`] old, or
-    /// once a refresh of it failed in a way asking again could change.
+    /// a resume or a fork (`startResumedSessionWarmup`,
+    /// `app_session_runtime.zig:2048-2050`), the launch and a provider switch
+    /// (`startModelCacheWarmup`): a catalog in hand is read again only once
+    /// it is [`REFRESH_INTERVAL`] old, or once a refresh of it failed in a
+    /// way asking again could change. `/settings` and the speed commands are
+    /// none of these: they read what is held and start nothing.
     Activity,
     /// `/model`'s menu opening (`revalidateModelCache`, `src/main.zig:
     /// 2011-2015`, from `openModelMenu`, `app_input_runtime.zig:1897-1902`):

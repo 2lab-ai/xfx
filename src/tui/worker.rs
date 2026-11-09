@@ -4230,14 +4230,17 @@ async fn ask_catalog(state: &mut Runtime, events: &Sender<UiEvent>, ask: bridge:
     // decided against its answer rather than waited out behind it.
     state.selector.take_answered();
     let now = Instant::now();
-    if state.selector.would_load(ask.trigger, now) {
+    if let Some(trigger) = ask
+        .trigger
+        .filter(|trigger| state.selector.would_load(*trigger, now))
+    {
         let told = telling(
             state.config.provider,
             events.clone(),
             state.selector.catalog().clone(),
             state.selector.clock(),
         );
-        state.selector.begin_load_on(ask.trigger, now, told);
+        state.selector.begin_load_on(trigger, now, told);
     }
     if state.selector.is_loading() || !ask.awaited {
         return;
@@ -4387,8 +4390,10 @@ impl CatalogAsks {
         if seen.on_its_way() {
             return None;
         }
-        let due = Held::of(&seen.catalog, seen.refresh_retry)
-            .is_some_and(|held| seen.clock.due(held, ask.trigger, now));
+        let due = ask.trigger.is_some_and(|trigger| {
+            Held::of(&seen.catalog, seen.refresh_retry)
+                .is_some_and(|held| seen.clock.due(held, trigger, now))
+        });
         if due {
             let told = telling(*provider, events.clone(), seen.catalog.clone(), seen.clock);
             if let Some(mut load) = reader.begin(told) {
@@ -16546,6 +16551,95 @@ mod tests {
                 None => Unreachable.fetch().await,
             }
         }
+    }
+
+    #[test]
+    fn the_catalog_is_read_by_a_first_load_the_menu_and_activity_only_and_never_while_idle() {
+        // Every ask the band sends, counted against what upstream's model
+        // cache starts for it (`LoadTrigger`, `beginLoad`,
+        // `model_cache_runtime.zig:27-35`, `:570-648@481104fd`): the launch's
+        // read (`startModelCacheWarmup`, `app_entry_runtime.zig:340`), which
+        // `/settings` and the speed commands wait on and add nothing to
+        // (`CatalogAsk::TOLD`); activity -- a prompt, a column frame
+        // (`modelCompletions` -> `ensureModelCache`, `src/main.zig:
+        // 2167-2169`), a resume -- over rows five minutes old; the menu over
+        // rows five seconds old. "Every trigger is user activity, so an idle
+        // session never polls" (`:27-28`): the loop going round with nothing
+        // asked reads nothing, however old the rows grow.
+        let (_home, _workspace, mut state) = recording();
+        let asked = Arc::new(AtomicUsize::new(0));
+        state.selector.set_fetcher_for_test(Box::new(InTurn {
+            answers: Mutex::new(vec![vec![published("anthropic/claude-opus-5")]; 3].into()),
+            asked: Arc::clone(&asked),
+        }));
+        let reads = || asked.load(Ordering::SeqCst);
+        let (events, _received) = mpsc::channel(bridge::UI_EVENTS);
+        begin_catalog_read(&mut state, &events);
+        on_a_runtime(ask_catalog(&mut state, &events, bridge::CatalogAsk::TOLD));
+        on_a_runtime(ask_catalog(
+            &mut state,
+            &events,
+            bridge::CatalogAsk::AWAITED,
+        ));
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(reads(), 1, "the launch's read was not the only one");
+        for _ in 0..3 {
+            backdate_catalog(&mut state, Duration::from_secs(3_600));
+            begin_catalog_read(&mut state, &events);
+            assert!(!state.selector.is_loading(), "an idle runtime read");
+        }
+        on_a_runtime(ask_catalog(&mut state, &events, bridge::CatalogAsk::TOLD));
+        assert_eq!(reads(), 1, "/settings or a speed command read stale rows");
+        on_a_runtime(ask_catalog(
+            &mut state,
+            &events,
+            bridge::CatalogAsk::ACTIVITY,
+        ));
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(reads(), 2, "activity did not read rows an hour old");
+        on_a_runtime(ask_catalog(
+            &mut state,
+            &events,
+            bridge::CatalogAsk::ACTIVITY,
+        ));
+        on_a_runtime(ask_catalog(
+            &mut state,
+            &events,
+            bridge::CatalogAsk::REVALIDATE,
+        ));
+        assert_eq!(reads(), 2, "fresh rows were read");
+        backdate_catalog(&mut state, Duration::from_secs(6));
+        on_a_runtime(ask_catalog(
+            &mut state,
+            &events,
+            bridge::CatalogAsk::REVALIDATE,
+        ));
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(reads(), 3, "the menu did not read rows six seconds old");
+        // A failure past its hold: activity reads it again, as upstream's
+        // `.failed` is read by any trigger past its backoff (`:621-622`);
+        // `/settings` and the speed commands still read nothing.
+        let (_home, _workspace, mut state) = recording();
+        let asked = Arc::new(AtomicUsize::new(0));
+        state.selector.set_fetcher_for_test(Box::new(InTurn {
+            answers: Mutex::new(std::collections::VecDeque::new()),
+            asked: Arc::clone(&asked),
+        }));
+        let reads = || asked.load(Ordering::SeqCst);
+        begin_catalog_read(&mut state, &events);
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(reads(), 1);
+        backdate_catalog(&mut state, Duration::from_secs(3_600));
+        begin_catalog_read(&mut state, &events);
+        on_a_runtime(ask_catalog(&mut state, &events, bridge::CatalogAsk::TOLD));
+        assert_eq!(reads(), 1, "a failure was read with no trigger");
+        on_a_runtime(ask_catalog(
+            &mut state,
+            &events,
+            bridge::CatalogAsk::ACTIVITY,
+        ));
+        on_a_runtime(state.selector.settle_load());
+        assert_eq!(reads(), 2, "activity did not read a failure past its hold");
     }
 
     /// A catalog whose first read fails at once and whose second answers

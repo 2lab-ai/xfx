@@ -1021,12 +1021,13 @@ fn spelled_shown(shown: Shown) -> Shown {
 }
 
 /// What asked the runtime for the catalog ([`TurnControl::Catalog`]): which
-/// of upstream's triggers, and whether the band waits on the answer -- it says
-/// `Loading models…` or `loading models...` until one comes -- or lists what
-/// it holds meanwhile.
+/// of upstream's triggers, if any, and whether the band waits on the answer --
+/// it says `Loading models…` or `loading models...` until one comes -- or lists
+/// what it holds meanwhile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CatalogAsk {
-    pub(crate) trigger: crate::provider::model::LoadTrigger,
+    /// `None`: no trigger, so no read starts for it ([`Self::TOLD`]).
+    pub(crate) trigger: Option<crate::provider::model::LoadTrigger>,
     /// The band waits on an answer: one is told even when no read starts.
     pub(crate) awaited: bool,
 }
@@ -1035,24 +1036,40 @@ impl CatalogAsk {
     /// `/model`'s menu opening over nothing it can list, waiting on the
     /// answer.
     pub(crate) const MENU: Self = Self {
-        trigger: crate::provider::model::LoadTrigger::PickerOpen,
+        trigger: Some(crate::provider::model::LoadTrigger::PickerOpen),
         awaited: true,
     };
     /// `/model`'s menu opening over the rows it lists meanwhile.
     pub(crate) const REVALIDATE: Self = Self {
-        trigger: crate::provider::model::LoadTrigger::PickerOpen,
+        trigger: Some(crate::provider::model::LoadTrigger::PickerOpen),
         awaited: false,
     };
-    /// A submitted prompt, or a frame of the column over rows it lists.
+    /// A submitted prompt or steer, a frame of the column over rows it
+    /// lists, a resume or a fork: upstream's activity
+    /// (`noteModelCatalogActivity`, `src/main.zig:1201`, `:1255`;
+    /// `modelCompletions` -> `ensureModelCache`, `:2167-2169`;
+    /// `startResumedSessionWarmup`, `app_session_runtime.zig:2065`, `:2123
+    /// @481104fd`).
     pub(crate) const ACTIVITY: Self = Self {
-        trigger: crate::provider::model::LoadTrigger::Activity,
+        trigger: Some(crate::provider::model::LoadTrigger::Activity),
         awaited: false,
     };
-    /// A frame of the inline column -- or `/settings`' rows, or `/fast`,
-    /// which read the rows too -- over nothing it can list, waiting on the
+    /// A frame of the inline column over nothing it can list, waiting on the
     /// answer.
     pub(crate) const AWAITED: Self = Self {
-        trigger: crate::provider::model::LoadTrigger::Activity,
+        trigger: Some(crate::provider::model::LoadTrigger::Activity),
+        awaited: true,
+    };
+    /// `/settings`' rows, `/fast` or `/ultrafast` over nothing they can
+    /// decide by, waiting on the answer and **starting no read**: upstream's
+    /// read the capabilities its cache holds and load nothing
+    /// (`settingsCatalogSnapshot` -> `resolvedModelCapabilities`,
+    /// `app_commands.zig:3230-3246`, `src/main.zig:2060-2066@481104fd`;
+    /// `handleFast`'s `resolveForApp`, `session_commands.zig:827`). The
+    /// answer they wait for is the read the runtime starts itself, at launch
+    /// and on a provider switch, as upstream's warmup is.
+    pub(crate) const TOLD: Self = Self {
+        trigger: None,
         awaited: true,
     };
 }

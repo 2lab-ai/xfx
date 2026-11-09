@@ -3961,6 +3961,14 @@ impl Shell {
         if replay.model_replaced {
             self.announce(notice::Notice::warning("model", MODEL_NOT_RESTORED));
         }
+        // **A resume or a fork is activity**, as upstream's is
+        // (`startResumedSessionWarmup` -> `startModelCacheWarmup`,
+        // `app_session_runtime.zig:2048-2050`, from `:2065` and `:2123
+        // @481104fd`): rows the refresh interval old, or a failure past its
+        // hold, are read again. Nothing at launch, nor onto another provider:
+        // the band holds no answer then, and the runtime's own read is on its
+        // way ([`Self::note_catalog_activity`]).
+        let _ = self.note_catalog_activity(Instant::now());
         self.render.request(Reason::Footer);
     }
 
@@ -7384,7 +7392,7 @@ impl Shell {
                 .active(self.editor.text(), &self.model)
                 .is_some_and(|query| !query.effort_command())
         {
-            self.want_catalog();
+            self.want_catalog(CatalogAsk::AWAITED);
         }
     }
 
@@ -14307,9 +14315,11 @@ impl CommandHandlers for Shell {
         // force, which upstream's menu reads from a cache filled at launch
         // (`settingsCatalogSnapshot`'s `resolvedModelCapabilities`,
         // `app_commands.zig:4031-4047`). This side reads the catalog when it
-        // is wanted, so the menu wants it: the rows show their choices once it
-        // lands ([`UiEvent::CatalogLoaded`] re-solves the band).
-        self.want_catalog();
+        // is wanted, so the menu waits for it -- asking for no read of its
+        // own, as upstream's starts none ([`CatalogAsk::TOLD`]): the rows show
+        // their choices once it lands ([`UiEvent::CatalogLoaded`] re-solves
+        // the band).
+        self.want_catalog(CatalogAsk::TOLD);
         // [`Self::run_command`] re-solved the band before routing here, for a
         // band with no menu in it.
         self.refit();
@@ -14889,18 +14899,20 @@ impl Shell {
         true
     }
 
-    /// Asks the runtime for the catalog on the inline column's behalf, when
-    /// nothing has yet: a control message, as [`Self::open_models`]'s is, so
-    /// the column says `loading models...` only until the read lands, a turn
-    /// running or not. A catalog that could not be read is not asked again
-    /// from an edit: the column says `unable to load models`, and the frame
-    /// that paints it asks again once the failure's hold has ended
-    /// ([`Self::settle_column`]).
-    fn want_catalog(&mut self) {
+    /// Asks the runtime for the catalog with `ask` when nothing has yet: on
+    /// the inline column's behalf ([`CatalogAsk::AWAITED`]), or for
+    /// `/settings` and the speed commands, which wait for the answer without
+    /// starting a read ([`CatalogAsk::TOLD`]). A control message, as
+    /// [`Self::open_models`]'s is, so the column says `loading models...`
+    /// only until the read lands, a turn running or not. A catalog that could
+    /// not be read is not asked again from an edit: the column says `unable
+    /// to load models`, and the frame that paints it asks again once the
+    /// failure's hold has ended ([`Self::settle_column`]).
+    fn want_catalog(&mut self, ask: CatalogAsk) {
         if self.catalog_known != CatalogKnown::Unasked {
             return;
         }
-        self.work.control(TurnControl::Catalog(CatalogAsk::AWAITED));
+        self.work.control(TurnControl::Catalog(ask));
         self.catalog_known = CatalogKnown::Asked;
     }
 
@@ -15066,7 +15078,7 @@ impl Shell {
         );
         if !self.held_speed.is_empty() || (needs_row && unknown) {
             self.held_speed.push(command);
-            self.want_catalog();
+            self.want_catalog(CatalogAsk::TOLD);
             return;
         }
         self.decide_speed(command);
@@ -24413,14 +24425,15 @@ mod tests {
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/fast" {
                 // Decided against the model's catalog row, which this fixture
-                // has not read: asked for, and answered when it arrives.
+                // has not read: waited for -- no read asked -- and answered
+                // when it arrives.
                 assert!(
                     document.is_empty(),
                     "/fast answered before its row: {document:?}"
                 );
                 assert_eq!(
                     shell.controlled(),
-                    Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+                    Some(TurnControl::Catalog(CatalogAsk::TOLD))
                 );
                 shell.apply(UiEvent::CatalogLoaded {
                     due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
@@ -31515,7 +31528,7 @@ mod tests {
         assert!(shell.document().is_empty(), "said before the row was read");
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+            Some(TurnControl::Catalog(CatalogAsk::TOLD))
         );
         let mut row = harness_rows().remove(3);
         row.id = model;
@@ -31549,7 +31562,7 @@ mod tests {
         // speed change.
         assert_eq!(
             other.controlled(),
-            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+            Some(TurnControl::Catalog(CatalogAsk::TOLD))
         );
         assert!(other.controlled().is_none());
     }
@@ -41296,7 +41309,7 @@ mod tests {
         // speed rows read.
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+            Some(TurnControl::Catalog(CatalogAsk::TOLD))
         );
         assert!(
             shell.sent.try_recv().is_err(),
@@ -41351,7 +41364,7 @@ mod tests {
         // into the search asks for another.
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+            Some(TurnControl::Catalog(CatalogAsk::TOLD))
         );
         shell.route_bytes(b"@src");
         assert!(
@@ -42517,7 +42530,7 @@ mod tests {
         assert_eq!(shell.editor.text(), "model used", "the search was taken");
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Catalog(CatalogAsk::AWAITED))
+            Some(TurnControl::Catalog(CatalogAsk::TOLD))
         );
         assert!(shell.document().is_empty());
         // Waiting for the catalog: one dim line, four columns in.
@@ -48275,15 +48288,17 @@ mod tests {
         }
     }
 
-    /// Every catalog ask the shell has sent so far, as what asked -- `menu`
-    /// or `activity` -- and whether the band waits on its answer.
+    /// Every catalog ask the shell has sent so far, as what asked -- `menu`,
+    /// `activity`, or `told` for none -- and whether the band waits on its
+    /// answer.
     fn catalog_asks(shell: &mut Fixture) -> Vec<(&'static str, bool)> {
         let mut asks = Vec::new();
         while let Some(message) = shell.controlled() {
             if let TurnControl::Catalog(ask) = message {
                 let trigger = match ask.trigger {
-                    crate::provider::model::LoadTrigger::PickerOpen => "menu",
-                    crate::provider::model::LoadTrigger::Activity => "activity",
+                    Some(crate::provider::model::LoadTrigger::PickerOpen) => "menu",
+                    Some(crate::provider::model::LoadTrigger::Activity) => "activity",
+                    None => "told",
                 };
                 asks.push((trigger, ask.awaited));
             }
