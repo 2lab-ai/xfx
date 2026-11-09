@@ -552,6 +552,16 @@ const PASTE_SUFFIX: &str = "Input that arrived right after the paste was ignored
 /// get out: fx has no quarantine, so it has nothing to say here.
 const PASTE_STILL: &str = "Input is still being ignored until it stops for a moment.";
 
+/// [`PASTE_STILL`] while a paste begun behind the first one's end marker is
+/// being dropped: what ends it is that paste's end, and a pause does nothing
+/// until then ([`super::input::Hold::Paste`]).
+const PASTE_UNTIL_END: &str = "Input is still being ignored until the paste's end arrives.";
+
+/// And while a marker is read past its first byte: one more byte, then a
+/// pause ([`super::input::Hold::Marker`]).
+const PASTE_UNTIL_KEY: &str =
+    "Input is still being ignored until one more key and a moment's pause.";
+
 /// The hint row's refusal for a paste this session has no number left for.
 ///
 /// Its own sentence rather than [`INPUT_LIMIT`]'s, because the two are
@@ -10387,8 +10397,28 @@ impl Shell {
                     self.ignored_behind_paste();
                 }
             }
-            Delivery::Ignored { again: false, .. } => self.ignored_behind_paste(),
-            Delivery::Ignored { again: true, .. } => self.said_after_paste(PASTE_STILL),
+            Delivery::Ignored { again, .. } => self.said_ignored(again),
+        }
+    }
+
+    /// The turn reached its read cap with input still waiting: what a
+    /// quarantine owes the user is said, and nothing is settled or ended
+    /// ([`super::input::Decoder::still`]).
+    pub(crate) fn still_at(&mut self, now: Instant) {
+        if let Delivery::Ignored { again, .. } = self.decoder.still(now) {
+            self.said_ignored(again);
+        }
+    }
+
+    /// Input a quarantine dropped: fx's warning the first time, and after
+    /// that the sentence for what is holding the quarantine on.
+    fn said_ignored(&mut self, again: Option<super::input::Hold>) {
+        use super::input::Hold;
+        match again {
+            None => self.ignored_behind_paste(),
+            Some(Hold::Quiet) => self.said_after_paste(PASTE_STILL),
+            Some(Hold::Paste) => self.said_after_paste(PASTE_UNTIL_END),
+            Some(Hold::Marker) => self.said_after_paste(PASTE_UNTIL_KEY),
         }
     }
 
@@ -19065,11 +19095,14 @@ mod tests {
             "a byte inside it was typed"
         );
         assert!(shell.sent.try_recv().is_err(), "a byte inside it was sent");
-        // The warning at the settle; the repeat a second into the stream; and
-        // once more for the key typed after the pause, which it also dropped.
+        // The warning at the settle; the repeat a second into the stream; the
+        // stream's last fifth of a second, said at the first check a second
+        // after that, once it had stopped; and the key typed after the pause,
+        // which was dropped too. Every one in the words of the open paste.
         let mut said_so = said(ignored_behind_the_paste());
-        said_so.extend(said(still_ignored_until_the_paste_ends()));
-        said_so.extend(said(still_ignored_until_the_paste_ends()));
+        for _ in 0..3 {
+            said_so.extend(said(still_ignored_until_the_paste_ends()));
+        }
         assert_eq!(shell.document(), said_so);
     }
 

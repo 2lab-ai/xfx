@@ -139,10 +139,12 @@
 //! xfx reads the paste's last byte, and **every byte dropped in it starts it
 //! again**. Input inside it is dropped whoever typed it, fast legitimate input
 //! included, and the paste's warning says so; input that keeps arriving is
-//! said again once a second ([`Decoder::PASTE_REPEAT`], xfx's own sentence,
-//! which says how to get out: stop the input). Nothing is ever decoded on a
-//! timer -- the quarantine ends only when the input stops (`docs/parity.md`,
-//! the `full-screen TUI` row).
+//! said again once a second ([`Decoder::PASTE_REPEAT`]) in xfx's own words,
+//! which say what will end it -- the input stopping for a moment, or, while a
+//! paste behind the end marker is open or a marker half read, that paste's
+//! end or one more key ([`Hold`]) -- at a check that finds nothing and at a
+//! turn's read cap alike ([`Decoder::still`]). Nothing is ever decoded on a
+//! timer (`docs/parity.md`, the `full-screen TUI` row).
 //!
 //! **A paste is still a paste.** The one sequence the quarantine reads is a
 //! paste's start marker, matched exactly (`ESC [ 200 ~`): it begins a paste
@@ -162,10 +164,14 @@
 //! settle and through the quarantine, and no quiet ends the quarantine while
 //! it is open, so a gap inside the second paste does not make its rest keys
 //! (fx reads that rest as keys). Nor does any quiet end it while a marker is
-//! half read, or the rest of the marker would be typed and the paste after it
-//! read as keys: a byte that may begin one -- an Escape pressed in the window,
-//! say -- holds it until the next byte, which completes the marker or breaks
-//! it and is then dropped with it.
+//! read past its first byte, or the rest of the marker would be typed and the
+//! paste after it read as keys: `ESC [` and the bytes after it hold it until
+//! the next byte, which completes the marker or breaks it and is then dropped
+//! with it. A lone ESC is not held so: once the input has been quiet it was
+//! the Escape key, as the stage machine resolves one after
+//! [`Decoder::ESC_TIMEOUT`], and it is dropped and the quiet ends the
+//! quarantine -- so pressing Escape, and only Escape, in the window does not
+//! keep the input held.
 //!
 //! So the marker does not end the paste by itself. Once it has matched, every
 //! further byte is counted and **nothing else is done with it** -- not decoded,
@@ -455,11 +461,27 @@ pub(crate) enum Delivery {
     /// paste's quarantine ([`Decoder::PASTE_QUIET`]) since it last said so,
     /// and none of them was read as anything.
     ///
-    /// `again` is false the first time, which is the paste's own warning,
-    /// owed once and only if [`Delivery::Pasted`] said nothing; it is true when
-    /// input has kept arriving for [`Decoder::PASTE_REPEAT`] since the last
-    /// time it was said, which xfx says in its own words.
-    Ignored { dropped: usize, again: bool },
+    /// `again` is `None` the first time, which is the paste's own warning,
+    /// owed once and only if [`Delivery::Pasted`] said nothing. It is the
+    /// [`Hold`] when input has kept arriving for [`Decoder::PASTE_REPEAT`]
+    /// since the last time it was said, which xfx says in its own words --
+    /// words that say what will end it, which is the hold's.
+    Ignored { dropped: usize, again: Option<Hold> },
+}
+
+/// What is keeping a paste's quarantine on, when its warning is said again:
+/// what it waits for, and so what the user is told will end it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Hold {
+    /// The quiet: it ends once the input has stopped for
+    /// [`Decoder::PASTE_QUIET`].
+    Quiet,
+    /// A paste begun behind the end marker is being dropped: it ends with that
+    /// paste's own end marker, and a pause does nothing until then.
+    Paste,
+    /// A marker is read past its first byte: one more byte completes it or
+    /// breaks it, and only then can a pause end anything.
+    Marker,
 }
 
 /// The input after a settled paste, until it has gone quiet
@@ -498,9 +520,10 @@ pub(crate) struct Decoder {
     /// for [`Self::PASTE_QUIET`]: a byte is counted here and nothing else is
     /// done with it, as behind the marker.
     quarantine: Option<Quarantine>,
-    /// Bytes a quarantine dropped and had not said yet when a paste's start
-    /// marker ended it: owed at the next check ([`Self::end_delivery`]), so
-    /// input that was dropped is always said.
+    /// Bytes a quarantine dropped and had not said yet when it ended -- a
+    /// paste's start marker ended it, or the quiet did with a lone Escape held
+    /// -- said at the next check ([`Self::end_delivery`], [`Self::still`]), so
+    /// the end of a quarantine does not take its first warning with it.
     owed: usize,
     /// Behind an end marker and in the quarantine after it, where every byte
     /// is dropped, the paste markers are still followed ([`Self::follow`]):
@@ -569,6 +592,58 @@ impl Decoder {
         self.quarantine.is_some()
     }
 
+    /// What holds the quarantine on now ([`Hold`]). A lone ESC held as a
+    /// marker's first byte is not a hold of its own: the quiet drops it
+    /// ([`Self::end_delivery`]).
+    fn hold(&self) -> Hold {
+        if self.dropping_paste {
+            Hold::Paste
+        } else if self.following > 1 {
+            Hold::Marker
+        } else {
+            Hold::Quiet
+        }
+    }
+
+    /// What the quarantine owes the user at `now`, without settling, ending or
+    /// starting anything: for a turn that stops at its read cap with input
+    /// still waiting (`super::event_loop`'s `burst`), which makes no check that
+    /// finds nothing -- so a stream that never pauses is still said. The
+    /// quiet is not touched: input is arriving.
+    pub(crate) fn still(&mut self, now: Instant) -> Delivery {
+        let owed = std::mem::take(&mut self.owed);
+        if owed > 0 {
+            return Delivery::Ignored {
+                dropped: owed,
+                again: None,
+            };
+        }
+        self.owed_warning(now)
+    }
+
+    /// The warning the quarantine owes at `now`, if any: the first, or a
+    /// repeat [`Self::PASTE_REPEAT`] after the last, in the words of what
+    /// holds it then.
+    fn owed_warning(&mut self, now: Instant) -> Delivery {
+        let hold = self.hold();
+        let Some(quarantine) = self.quarantine.as_mut() else {
+            return Delivery::Quiet;
+        };
+        if quarantine.unsaid == 0 {
+            return Delivery::Quiet;
+        }
+        let again = match quarantine.said_at {
+            None => None,
+            Some(at) if now.saturating_duration_since(at) >= Self::PASTE_REPEAT => Some(hold),
+            Some(_) => return Delivery::Quiet,
+        };
+        quarantine.said_at = Some(now);
+        Delivery::Ignored {
+            dropped: std::mem::take(&mut quarantine.unsaid),
+            again,
+        }
+    }
+
     /// The delivery the bytes fed so far arrived in is over: a readiness
     /// check, at `now`, found nothing more to read. Settles a paste whose end
     /// marker arrived in it (`settleDeliveryEpoch`,
@@ -599,16 +674,28 @@ impl Decoder {
         if owed > 0 {
             return Delivery::Ignored {
                 dropped: owed,
-                again: false,
+                again: None,
             };
         }
-        // Nothing half read: no paste being dropped, no marker part-matched.
-        let whole = !self.dropping_paste && self.following == 0;
+        // Nothing half read: no paste being dropped, and no marker read past
+        // its first byte. A lone ESC held as one is the Escape key once the
+        // input has been quiet, as the stage machine resolves a lone ESC after
+        // `ESC_TIMEOUT`: dropped, so the quiet can end the quarantine.
+        let whole = !self.dropping_paste && self.following <= 1;
         let Some(quarantine) = self.quarantine.as_mut() else {
             return Delivery::Quiet;
         };
         match quarantine.quiet_since {
             Some(since) if whole && now.saturating_duration_since(since) >= Self::PASTE_QUIET => {
+                if self.following == 1 {
+                    self.following = 0;
+                    // The Escape is dropped input. If nothing has been said
+                    // in this quarantine, it is owed at the next check, as the
+                    // first warning is: the quarantine it was in is over.
+                    if quarantine.said_at.is_none() {
+                        self.owed = quarantine.unsaid.saturating_add(1);
+                    }
+                }
                 self.quarantine = None;
                 return Delivery::Quiet;
             }
@@ -617,19 +704,7 @@ impl Decoder {
             // this one is where the quiet begins.
             None => quarantine.quiet_since = Some(now),
         }
-        if quarantine.unsaid == 0 {
-            return Delivery::Quiet;
-        }
-        let again = match quarantine.said_at {
-            None => false,
-            Some(at) if now.saturating_duration_since(at) >= Self::PASTE_REPEAT => true,
-            Some(_) => return Delivery::Quiet,
-        };
-        quarantine.said_at = Some(now);
-        Delivery::Ignored {
-            dropped: std::mem::take(&mut quarantine.unsaid),
-            again,
-        }
+        self.owed_warning(now)
     }
 
     /// Feeds one byte, in arrival order, appending whatever it completed.
@@ -3177,7 +3252,7 @@ mod tests {
             deliver_at(&mut decoder, &mut out, t0 + quiet + ms),
             Delivery::Ignored {
                 dropped: 1,
-                again: false
+                again: None
             }
         );
         // That check is where the quiet begins again, so one at the old
@@ -3196,7 +3271,7 @@ mod tests {
             deliver_at(&mut decoder, &mut out, stalled),
             Delivery::Ignored {
                 dropped: 1,
-                again: true
+                again: Some(Hold::Quiet)
             }
         );
         assert!(
@@ -3257,7 +3332,7 @@ mod tests {
             deliver_at(&mut decoder, &mut out, t0 + ms * 2),
             Delivery::Ignored {
                 dropped: 2,
-                again: false
+                again: None
             }
         );
         decoder.feed(b'c', t0 + ms * 2, &mut out);
@@ -3542,7 +3617,7 @@ mod tests {
             deliver_at(&mut decoder, &mut out, t0 + ms * 2),
             Delivery::Ignored {
                 dropped: 1,
-                again: false
+                again: None
             }
         );
         fed(&mut decoder, b"\x1b[201~", t0 + ms * 3, &mut out);
@@ -3575,6 +3650,15 @@ mod tests {
         deliver_at(&mut decoder, &mut out, t0 + ms * 2);
         deliver_at(&mut decoder, &mut out, t0 + ms * 2 + Decoder::PASTE_QUIET);
         assert!(!decoder.quarantined(), "a held Escape outlasted the quiet");
+        // The Escape was dropped input, and this quarantine had said nothing:
+        // it is said at the next check.
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0 + ms * 3 + Decoder::PASTE_QUIET),
+            Delivery::Ignored {
+                dropped: 1,
+                again: None
+            }
+        );
         fed(
             &mut decoder,
             b"\r",
@@ -3582,6 +3666,52 @@ mod tests {
             &mut out,
         );
         assert_eq!(out, kept_new_then(&[Input::Action(Action::Submit)]));
+    }
+
+    #[test]
+    fn still_says_what_the_quarantine_owes_and_settles_and_ends_nothing() {
+        // The read cap's call (`super::super::event_loop`'s `burst`): the first
+        // warning, then a repeat `PASTE_REPEAT` after it in the words of the
+        // hold, and nothing ended however long it has been -- input is
+        // arriving. Before a paste has settled there is nothing to say: the
+        // paste and its warning land together at the check that settles it.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis(1);
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        fed(&mut decoder, b"\x1b[200~new\x1b[201~y", t0, &mut out);
+        assert_eq!(decoder.still(t0 + ms), Delivery::Quiet);
+        assert_eq!(
+            deliver_at(&mut decoder, &mut out, t0 + ms),
+            Delivery::Pasted { dropped: 1 }
+        );
+
+        let (mut decoder, mut out) = settled_new(t0);
+        fed(&mut decoder, b"y", t0 + ms, &mut out);
+        assert_eq!(
+            decoder.still(t0 + ms * 2),
+            Delivery::Ignored {
+                dropped: 1,
+                again: None
+            }
+        );
+        fed(&mut decoder, b"y", t0 + ms * 3, &mut out);
+        assert_eq!(decoder.still(t0 + ms * 3), Delivery::Quiet);
+        let later = t0 + ms * 2 + Decoder::PASTE_REPEAT;
+        fed(&mut decoder, b"\x1b[", later, &mut out);
+        assert_eq!(
+            decoder.still(later),
+            Delivery::Ignored {
+                dropped: 1,
+                again: Some(Hold::Marker)
+            }
+        );
+        assert_eq!(
+            decoder.still(later + Duration::from_secs(10)),
+            Delivery::Quiet
+        );
+        assert!(decoder.quarantined(), "the read cap ended the quarantine");
+        assert_eq!(out, kept_new());
     }
 
     #[test]
@@ -3648,9 +3778,11 @@ mod tests {
         assert!(Decoder::PASTE_QUIET >= Duration::from_micros(3716) * 4);
         // Above: the window -- the quiet and a turn of the loop -- four times
         // over inside the 250 ms the test harnesses wait after a paste before
-        // they type again (`PASTE_PAUSE` in `tests/support/pty.rs` and in
-        // `scripts/smoke-tui.sh`, spelled out: neither is visible here), so
-        // paced input in a test is never dropped on a loaded machine.
+        // they type again, so paced input in a test is never dropped on a
+        // loaded machine. **This 250 is not tied to theirs**: `PASTE_PAUSE` in
+        // `tests/support/pty.rs` and in `scripts/smoke-tui.sh` are spelled out
+        // separately, neither is visible here, and nothing checks that the
+        // three agree -- a change to one is a change to all three by hand.
         let window = Decoder::PASTE_QUIET + super::super::event_loop::TICK;
         assert!(window * 4 <= Duration::from_millis(250));
         // And a repeat of the warning is rarer than a quarantine.

@@ -3412,8 +3412,11 @@ fn a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing
 /// newline every 512 bytes, `0xff` between them (a byte no scalar starts with,
 /// so a decoder that did read the body would not paint a mebibyte) -- and the
 /// terminal's own end marker. With `start_inside`, an `ESC[200~` three
-/// quarters of the way through: wherever the deliveries happen to end, a
-/// second paste's start marker inside the quarantine.
+/// quarters of the way through. Where it lands depends on where the
+/// deliveries happen to end -- behind the first end marker, if no check has
+/// found the queue empty by then, or inside the quarantine -- and an unpaced
+/// write forces neither; each of those branches is pinned by its own unit
+/// case in `src/tui/input.rs`.
 fn hostile_paste(start_inside: bool) -> Vec<u8> {
     const SIZE: usize = 1 << 20;
     let mut bytes = b"\x1b[200~x\x1b[201~".to_vec();
@@ -3460,13 +3463,10 @@ fn a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothi
     session.wait_for(READY);
 
     paste_unpaced(&session, &hostile_paste(false));
-    assert_eq!(
-        gateway.request_count(),
-        0,
-        "the clipboard behind the end marker submitted the composer"
-    );
     // A key of the test's own, once the input has been quiet: the composer
-    // holds the paste and that key, and nothing of the body.
+    // holds the paste and that key, and nothing of the body. It is written
+    // after the whole paste, so once it is on the screen the paste has all
+    // been read -- the barrier the request count below is read behind.
     session.type_bytes(b"z");
     on_screen(
         &session,
@@ -3476,6 +3476,11 @@ fn a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothi
             "! input: Input that arrived right after the paste was ignored.",
         ],
         &["K0000"],
+    );
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "the clipboard behind the end marker submitted the composer"
     );
     session.type_bytes(b"\r");
     session.wait_for("MARKER-UNPACED");
@@ -3504,6 +3509,12 @@ fn a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval() {
     session.wait_for(PERMISSION_TITLE);
 
     paste_unpaced(&session, &hostile_paste(true));
+    // A barrier in the input's own order: Down, written after the whole
+    // paste, moves the question's marker to its second choice. Once that is
+    // on the screen every byte of the paste has been read, so a paste that
+    // had answered would have taken the question down before it.
+    session.type_bytes(b"\x1b[B");
+    on_screen(&session, (24, 80), &["\u{276f} 2  "], &[]);
     assert_eq!(
         std::fs::read_to_string(&notes).expect("read back"),
         "alpha\n",

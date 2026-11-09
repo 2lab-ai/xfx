@@ -636,8 +636,11 @@ fn read_burst(
 /// byte dropped starts the quiet again, so the quarantine ends about
 /// `PASTE_QUIET` plus a turn after the input stops, and a stream that never
 /// stops is said once a second while it lasts (`PASTE_REPEAT`), never decoded
-/// on a timer. Two things the decoder waits on besides: a marker half read,
-/// which the next byte completes or breaks; and a second paste -- begun inside
+/// on a timer -- at a check that finds nothing and at the read cap alike
+/// ([`Shell::still_at`]), so a stream that never pauses is said too. Two things
+/// the decoder waits on besides: a marker read past its first byte, which the
+/// next byte completes or breaks (a lone ESC is dropped by the quiet, as the
+/// Escape key it was); and a second paste -- begun inside
 /// the quarantine, where it is a paste, or behind the first one's end marker,
 /// where it is dropped -- which ends at its own end marker: one a terminal
 /// writes after every paste, and the one that closes whatever a clipboard
@@ -666,8 +669,11 @@ fn burst(
             Err(err) => return Err(err),
         }
         // Still readable after the last read this turn may take: the paint is
-        // owed, and the delivery goes on into the next turn.
+        // owed, and the delivery goes on into the next turn. What a paste's
+        // quarantine owes is said here too, since no check of this turn has
+        // found nothing -- said, and nothing settled or ended.
         if reads == READ_BURSTS {
+            shell.still_at(Instant::now());
             return Ok(());
         }
         match read(&mut *buffer) {

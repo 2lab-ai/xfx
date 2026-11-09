@@ -2573,7 +2573,9 @@ IDLE_POLL = 0.002
 # src/tui/input.rs). Fast input there is lost by design, and said. These
 # trials model paced input: the next key comes after this pause, taken whole
 # at the next write, after whatever the trial waited to see. About four times
-# the window; tests/support/pty.rs' `PASTE_PAUSE` is the same rule.
+# the window; tests/support/pty.rs' `PASTE_PAUSE` is the same rule, and
+# `paste_quiet_stays_within_what_was_measured` assumes the same 250 ms --
+# nothing checks that the three agree.
 PASTE_PAUSE = 0.25
 
 # The bytes that mean the TUI has taken the terminal (`?2004h`, the last of the

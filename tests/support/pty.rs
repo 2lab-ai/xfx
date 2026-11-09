@@ -46,8 +46,10 @@ pub const IDLE_POLL: Duration = Duration::from_millis(2);
 /// whole pause is taken at the next write -- after whatever the test waited to
 /// see -- rather than counted from the paste's own write, which a debug build
 /// on a loaded machine can spend most of reading and settling the paste. About
-/// four times the window; `paste_quiet_stays_within_what_was_measured` in
-/// `src/tui/input.rs` keeps it so. A test about input *inside* the window uses
+/// four times the window. `paste_quiet_stays_within_what_was_measured` in
+/// `src/tui/input.rs` assumes this 250 ms, spelled out there, and nothing
+/// checks that the two (and `scripts/smoke-tui.sh`'s) agree: change all three
+/// together. A test about input *inside* the window uses
 /// [`Session::write_raw`], which takes no pause.
 pub const PASTE_PAUSE: Duration = Duration::from_millis(250);
 
