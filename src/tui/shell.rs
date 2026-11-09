@@ -22442,6 +22442,126 @@ mod tests {
     }
 
     #[test]
+    fn the_horizontal_keys_at_an_approval_choice_are_fxs() {
+        // fx v0.0.16 at a choice with no amendment open: `.cursor_left` and
+        // `.word_left` mark the previous choice and `.cursor_right` and
+        // `.word_right` the next (`routeApprovalEscapeAction`,
+        // `input_approval_runtime.zig:90-110@481104fd`), wrapping at both ends
+        // (`moveChoice`, `approval_decision.zig:214-225`); every other key is
+        // `else => {}` (`:128`). The two words are Alt-b and Alt-f in each
+        // spelling (`escape_parser.zig:243-250`, `:528-539`). The modified
+        // arrows are composer moves (`modifiedArrowAction`, `:73-108`), and so
+        // are Shift-Alt-b and Shift-Alt-f (`:244`, `:248`); Ctrl-B and Ctrl-F
+        // are raw bytes only an amendment reads (`approvalActionFromRawByte`,
+        // `src/ui/input/runtime.zig:103-108`). `fx-p5-approval-horizontal-keys-40x120-*`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        let on = |shell: &Fixture, choice: &str| shell.marked().contains(&format!("❯ {choice}  "));
+        shell.route_bytes(b"\x1b[B");
+        assert!(on(&shell, "2"), "{:?}", shell.marked());
+        for (key, lands) in [
+            (&b"\x1b[D"[..], "1"),
+            (b"\x1b[D", "3"),
+            (b"\x1b[C", "1"),
+            (b"\x1b[C", "2"),
+            (b"\x1bf", "3"),
+            (b"\x1bb", "2"),
+            (b"\x1b[102;3u", "3"),
+            (b"\x1b[27;3;102~", "1"),
+            (b"\x1b[98;3u", "3"),
+            (b"\x1b[27;3;98~", "2"),
+            (b"\x1bOD", "1"),
+            (b"\x1b[57418u", "2"),
+        ] {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, lands),
+                "{key:?} did not mark choice {lands}: {:?}",
+                shell.marked()
+            );
+        }
+        for key in [
+            &b"\x1b[1;5C"[..],
+            b"\x1b[1;5D",
+            b"\x1b[1;3C",
+            b"\x1b[1;3D",
+            b"\x1b[1;2C",
+            b"\x1b[1;2D",
+            b"\x1b[1;9C",
+            b"\x1b[1;9D",
+            b"\x1b[1;10D",
+            b"\x1b[57417;2u",
+            b"\x1b[57418;9u",
+            &[0x06],
+            &[0x02],
+            b"\x1b[98;5u",
+            b"\x1b[102;5u",
+            b"\x1b[102;4u",
+            b"\x1b[98;4u",
+        ] {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, "2"),
+                "{key:?} moved the choice: {:?}",
+                shell.marked()
+            );
+        }
+    }
+
+    #[test]
+    fn a_draft_left_behind_is_not_painted_and_still_travels_with_its_choice() {
+        // fx paints a draft only on the choice whose amendment is open
+        // (`appendFileApprovalChoiceLabel`, `approval_ui.zig:1181-1193@481104fd`;
+        // `:1413-1418`, `:1688-1694`). Moving the choice ends the amendment and
+        // keeps its text (`moveChoice`'s `clearActive`, `approval_decision.zig:224`;
+        // `approval_amendment.zig:170-172`), Tab on that choice opens it again
+        // with the text in it (`:142-151`), and Enter sends the marked choice's
+        // draft, painted or not (`materializeResponse`, `:112-127`).
+        // `fx-p5-approval-horizontal-keys-40x120-{down,back,tab-back,unpainted,answered}`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        assert!(
+            band(&shell).contains("Apply once, ab cd"),
+            "{}",
+            band(&shell)
+        );
+        shell.route_bytes(b"\x1b[B");
+        let first = |shell: &Fixture| {
+            uncoloured_rows(&shell.shell.band_rows())
+                .into_iter()
+                .find(|row| row.contains("1  Apply once"))
+                .map(|row| row.trim_end().to_string())
+        };
+        assert_eq!(
+            first(&shell).as_deref(),
+            Some("    1  Apply once"),
+            "a draft that has not the keys is painted"
+        );
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(first(&shell).as_deref(), Some("  ❯ 1  Apply once"));
+        shell.route_bytes(b"\t");
+        assert!(
+            band(&shell).contains("Apply once, ab cd"),
+            "Tab did not open the draft again with its text: {}",
+            band(&shell)
+        );
+        shell.route_bytes(b"\x1b[B\x1b[A");
+        assert_eq!(first(&shell).as_deref(), Some("  ❯ 1  Apply once"));
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("ab cd".to_string()),
+            }),
+            "the draft did not travel with its choice"
+        );
+    }
+
+    #[test]
     fn the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest() {
         // `folded`'s own contract: `AltB` to `WordLeft`, Shift taken off Up
         // and Down, and every other key as it came.

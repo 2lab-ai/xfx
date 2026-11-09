@@ -1,0 +1,122 @@
+# The horizontal keys at a permission question (APPROVAL-HORIZONTAL-KEYS).
+# fx v0.0.16 moves the choice on Left and Alt-b (previous) and Right and
+# Alt-f (next) while no amendment is open, wrapping at both ends, and leaves
+# it on every other spelling of the four: Ctrl- and Alt-Left and -Right,
+# Shift-Left and -Right, Super-Left and -Right, Ctrl-B and Ctrl-F, Shift-Alt-f
+# (input_approval_runtime.zig:90-128, approval_decision.zig:214-225@481104fd).
+# In an amendment they are the draft's caret moves. A draft is painted only
+# while it has the keys (approval_ui.zig:1181-1193): after Down the first
+# choice reads `Apply once`, Tab shows its draft again, and Enter on the
+# first choice sends it, shown or not (approval_decision.zig:112-127).
+# The turns, the workspace and the settings are approvals.cap's.
+fx: gateway approvals-fx.json
+xfx: gateway approvals-xfx.json
+work approvals-ws
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type edit the files
+key Enter
+wait 3
+snap ask
+# The amendment: Alt-b, Shift-Left and Ctrl-B move its caret.
+key Tab
+wait 0.4
+type ab cd
+wait 0.4
+key M-b
+wait 0.4
+type z
+wait 0.4
+snap amend-alt-b
+key S-Left
+key -H 02
+wait 0.4
+type y
+wait 0.4
+snap amend-keys
+# Down ends the amendment and marks choice 2.
+key Down
+wait 0.4
+snap down
+key Left
+wait 0.4
+snap left
+key Left
+wait 0.4
+snap left-wrap
+key Right
+wait 0.4
+snap right-wrap
+key Right
+wait 0.4
+snap right
+key M-f
+wait 0.4
+snap alt-f
+key M-b
+wait 0.4
+snap alt-b
+# Alt-f in kitty's and xterm's spellings, Alt-b in both: 2 -> 3 -> 1 -> 3 -> 2.
+key -H 1b 5b 31 30 32 3b 33 75
+wait 0.4
+snap kitty-alt-f
+key -H 1b 5b 32 37 3b 33 3b 31 30 32 7e
+wait 0.4
+snap mok-alt-f
+key -H 1b 5b 39 38 3b 33 75
+wait 0.4
+snap kitty-alt-b
+key -H 1b 5b 32 37 3b 33 3b 39 38 7e
+wait 0.4
+snap mok-alt-b
+# From choice 2, keys that leave it there.
+key C-Right
+wait 0.4
+snap ctrl-right
+key C-Left
+wait 0.4
+snap ctrl-left
+key M-Right
+wait 0.4
+snap alt-right
+key M-Left
+wait 0.4
+snap alt-left
+key S-Right
+wait 0.4
+snap shift-right
+key S-Left
+wait 0.4
+snap shift-left
+key -H 06
+wait 0.4
+snap ctrl-f
+key -H 02
+wait 0.4
+snap ctrl-b
+key -H 1b 5b 31 3b 39 43
+wait 0.4
+snap super-right
+key -H 1b 5b 31 3b 39 44
+wait 0.4
+snap super-left
+key -H 1b 5b 31 30 32 3b 34 75
+wait 0.4
+snap shift-alt-f
+# Back on choice 1 its draft is not painted; Tab paints it again.
+key Left
+wait 0.4
+snap back
+key Tab
+wait 0.4
+snap tab-back
+# Leave it unpainted again, and Enter on choice 1 sends it.
+key Down
+key Up
+wait 0.4
+snap unpainted
+key Enter
+wait 2.5
+snap answered
