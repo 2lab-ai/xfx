@@ -1,0 +1,17 @@
+# prd_refs.sh at 03fb5436
+    docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:545: .prd/tui-phase3/loop.md:43-50
+    docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:11: .prd/tui-phase3/loop.md:68
+    docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:101: .prd/tui-phase3/loop.md:68
+    src/tui/event_loop.rs:13972: .prd/tui-phase2/loop.md:127
+    src/tui/event_loop.rs:14615: .prd/tui-phase2/loop.md:127
+    src/tui/event_loop.rs:14655: .prd/tui-phase2/loop.md:127
+    src/tui/input.rs:1910: .prd/tui-phase3/loop.md:416
+    src/tui/probe.rs:519: .prd/03-tui-port.md:43-44
+    src/tui/probe.rs:520: .prd/research/tui-core.md:30
+    src/tui/program_status.rs:16: .prd/01-spec.md:56
+    tests/tui.rs:2404: .prd/tui-phase3/ssot.md:43
+    tests/tui.rs:2407: .prd/research/tui-core.md:47
+    tests/tui.rs:3129: .prd/tui-phase3/loop.md:416
+# 13 references; 10 outside the historical plans
+# the files they name: .prd/01-spec.md .prd/03-tui-port.md .prd/research/tui-core.md .prd/tui-phase2/loop.md .prd/tui-phase3/loop.md .prd/tui-phase3/ssot.md 
+# git diff --stat df46777e 03fb5436 over them: no change

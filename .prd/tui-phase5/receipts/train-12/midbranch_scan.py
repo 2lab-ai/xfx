@@ -17,6 +17,8 @@ Kinds:
                per-user temp root, or `claude-<uid>/` standing as a root's
                broken tail
   NAME         the account's name, or its home: stops the train
+  CREDENTIAL   a credential's shape (a GitHub, OpenAI-style, AWS, Slack or
+               Vercel token, a private key's armour): stops the train
 A line that ends in the local-path check's `local-path-ok` mark says so.
 
 Then the same over the range, `git diff <base>..<head>`'s added lines: what
@@ -31,6 +33,8 @@ import subprocess
 import sys
 
 P = re.compile(r"/User[s]/([^/<]+)/|/privat[e]/tm[p]/claude-([0-9]+)|/tm[p]/claude-([0-9]+)|/var/folder[s]/|claud[e]-([0-9]+)/")
+CRED = re.compile(r"g[h][pousr]_[A-Za-z0-9]{30,}|githu[b]_pat_[A-Za-z0-9_]{40,}|s[k]-[A-Za-z0-9_-]{30,}|AKI[A][0-9A-Z]{16}"
+                  r"|-----BEGI[N] [A-Z ]*PRIVATE KEY|xo[x][baprs]-[A-Za-z0-9-]{10,}|vc[k]_[A-Za-z0-9]{20,}")
 ME = pwd.getpwuid(os.getuid()).pw_name
 UID = str(os.getuid())
 
@@ -55,7 +59,7 @@ def kind(line, m):
 
 
 repo, base, head = sys.argv[1:4]
-totals = {"placeholder": 0, "SCRATCH": 0, "NAME": 0}
+totals = {"placeholder": 0, "SCRATCH": 0, "NAME": 0, "CREDENTIAL": 0}
 total_lines = 0
 
 
@@ -74,6 +78,8 @@ def scan(text):
             hits.append((path, k, what + mark))
         if ME in line:
             hits.append((path, "NAME", "the account's name"))
+        if CRED.search(line):
+            hits.append((path, "CREDENTIAL", "a credential's shape"))
     return hits, lines
 
 
@@ -97,8 +103,8 @@ print(f"# {len(commits)} commits scanned; {total_lines} lines hit (the brief's c
       + f"; commit messages holding the account's name: {names}")
 print()
 print(f"## the range, git diff {base}..{head}")
-rt = {"placeholder": 0, "SCRATCH": 0, "NAME": 0}
+rt = {"placeholder": 0, "SCRATCH": 0, "NAME": 0, "CREDENTIAL": 0}
 hits, lines = scan(git(repo, "diff", f"{base}..{head}"))
 show(hits, rt)
 print(f"# the range: {lines} lines hit (the brief's count); matches: " + ", ".join(f"{k} {v}" for k, v in rt.items()))
-sys.exit(1 if totals["NAME"] or names or rt["NAME"] else 0)
+sys.exit(1 if totals["NAME"] or totals["CREDENTIAL"] or names or rt["NAME"] or rt["CREDENTIAL"] else 0)

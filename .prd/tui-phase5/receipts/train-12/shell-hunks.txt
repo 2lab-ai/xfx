@@ -1,0 +1,22 @@
+# shell_hunks.sh
+## LOCAL-PATHS (ccced1f5..5609108f): its base's tests module starts at line 16411
+    @@ -20978 +20978 @@ mod tests {
+    @@ -20980 +20980 @@ mod tests {
+    @@ -24910,2 +24910,3 @@ mod tests {
+    @@ -24918 +24919 @@ mod tests {
+    @@ -24927 +24928 @@ mod tests {
+## LOCAL-PATHS: the files it changed under src/
+     src/skills/catalog.rs     | 19 +++++++++++++------
+     src/tui/approval.rs       |  4 ++--
+     src/tui/info_panel.rs     |  7 ++++---
+     src/tui/shell.rs          | 13 +++++++------
+     src/tui/workspace_menu.rs | 12 ++++++------
+     src/tui/wrap.rs           |  4 ++--
+     6 files changed, 34 insertions(+), 25 deletions(-)
+## INPUT-ROW-LIMIT (32afd307..3d3d56c8): its base's tests module starts at line 16507
+    @@ -35053,0 +35054,233 @@ mod tests {
+    @@ -41997 +42230,6 @@ mod tests {
+## INPUT-ROW-LIMIT: the files it changed under src/
+     src/tui/layout.rs |  61 +++++++++++---
+     src/tui/shell.rs  | 240 +++++++++++++++++++++++++++++++++++++++++++++++++++++-
+     2 files changed, 288 insertions(+), 13 deletions(-)
