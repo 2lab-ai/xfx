@@ -13,7 +13,9 @@ p = os.path.join(clone, "scripts", "check-no-local-paths.sh")
 orig = open(p).read()
 M = [
     ("no placeholder list", "\t\t\twhile [[ $bare =~ $allowed_re ]]; do", "\t\t\twhile false; do"),
-    ("no placeholder-prefix strip", '\t\t\tfor entry in "${placeholders[@]}"; do', "\t\t\tfor entry in; do"),
+    ("no placeholder-prefix strip", "\t\t\twhile [[ $bare =~ $placeholder_home_re ]]; do", "\t\t\twhile false; do"),
+    ("no sentinel", '\t\t\tbare="$text "', '\t\t\tbare="$text"'),
+    ("a report is no capture", "\tif [[ $1 =~ $capture_name_re ]]; then", "\tif false; then"),
     ("no mark", "\t\t\t\tmarked=$((marked + 1))\n\t\t\t\tcontinue", "\t\t\t\t:"),
     ("a mark anywhere", '\t\t\tif [ "$markable" = yes ] && [[ $text =~ $marked_re ]]; then', '\t\t\tif [[ $text == *"$marker"* ]]; then'),
     ("a mark in a capture", "is_capture() {\n", "is_capture() {\n\treturn 1\n"),
