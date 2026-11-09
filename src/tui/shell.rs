@@ -28875,6 +28875,327 @@ mod tests {
         );
     }
 
+    /// One `ask_user_question` call and what came back for it, as the log
+    /// keeps them, then the step that answered: QUESTION-RESUME's fixtures.
+    fn asked_turn(
+        user: &str,
+        ok: bool,
+        output: &str,
+        ending: Option<crate::session::ToolEnding>,
+    ) -> crate::session::HistoryTurn {
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "q".to_string(),
+                    name: "ask_user_question".to_string(),
+                    input: serde_json::json!({"questions": []}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            TurnStep::ToolResult {
+                images: Vec::new(),
+                call_id: "q".to_string(),
+                tool: "ask_user_question".to_string(),
+                ok,
+                output: output.to_string(),
+                ending,
+                lines: None,
+                change: None,
+            },
+            TurnStep::Assistant {
+                text: "Done.".to_string(),
+                tool_calls: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+        ];
+        logged_turn(
+            user,
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            },
+        )
+    }
+
+    /// The answer document the tool writes for `count` questions, `Q n?`
+    /// answered `A n`.
+    fn answer_document(count: usize) -> String {
+        let pairs: Vec<serde_json::Value> = (1..=count)
+            .map(|n| serde_json::json!({"question": format!("Q {n}?"), "answer": format!("A {n}")}))
+            .collect();
+        serde_json::to_string(&pairs).unwrap()
+    }
+
+    /// A resumed session's document, every SGR the palette wrote taken off.
+    fn resumed_rows(turns: Vec<crate::session::HistoryTurn>) -> (Fixture, Vec<String>) {
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(bridge::inert_hydration(logged(turns)), false);
+        let rows = resumed
+            .painted_document()
+            .iter()
+            .map(|row| without_sgr(row))
+            .collect();
+        (resumed, rows)
+    }
+
+    fn without_sgr(row: &str) -> String {
+        let mut out = String::new();
+        let mut rest = row;
+        while let Some(at) = rest.find("\u{1b}[") {
+            out.push_str(&rest[..at]);
+            let after = &rest[at + 2..];
+            match after.find('m') {
+                Some(end)
+                    if after[..end]
+                        .chars()
+                        .all(|c| c.is_ascii_digit() || c == ';') =>
+                {
+                    rest = &after[end + 1..];
+                }
+                _ => {
+                    out.push_str("\u{1b}[");
+                    rest = after;
+                }
+            }
+        }
+        out.push_str(rest);
+        out
+    }
+
+    #[test]
+    fn a_resumed_answered_batch_of_one_four_or_twenty_replays_its_resolutions() {
+        // QUESTION-RESUME, `fx-p5-question-resume-40x120-resumed` and
+        // `fx-p5-input-question20-40x120-resumed`: fx v0.0.16 decodes the
+        // saved document of a successful call (`writeAnsweredQuestionResult`,
+        // `app_session_runtime.zig:4589-4607@481104fd`) and writes the rows
+        // the panel left (`composeResolvedQuestionAnswers`, `main.zig:
+        // 2335-2346`): each question under its ordinal, the answer hung under
+        // it in the answer grey.
+        for count in [1, 4, 20] {
+            let (resumed, rows) =
+                resumed_rows(vec![asked_turn("ask", true, &answer_document(count), None)]);
+            for n in 1..=count {
+                let prefix = format!("  {n}) ");
+                let indent = " ".repeat(prefix.len());
+                let at = rows
+                    .iter()
+                    .position(|row| *row == format!("{prefix}Q {n}?"))
+                    .unwrap_or_else(|| panic!("{count}: no question {n} in {rows:#?}"));
+                assert_eq!(rows[at + 1], format!("{indent}A {n}"), "{count}: {rows:#?}");
+            }
+            assert!(!rows.iter().any(|row| row.contains("Asked")), "{rows:#?}");
+            let card = rows.iter().position(|row| row == "┃ ask").expect("the card");
+            let done = rows.iter().position(|row| row == "  Done.").expect("the answer");
+            let first = rows.iter().position(|row| row == "  1) Q 1?").unwrap();
+            assert!(card < first && first < done, "{rows:#?}");
+            // The answer's grey, as the live record paints it.
+            let mut painted = shell(40, 120);
+            painted.hydrate(
+                bridge::inert_hydration(logged(vec![asked_turn(
+                    "ask",
+                    true,
+                    &answer_document(count),
+                    None,
+                )])),
+                false,
+            );
+            let answer = format!("{}     A 1{}", resumed.shell.palette.answer(), PALETTE.reset());
+            assert!(
+                painted.painted_document().iter().any(|row| *row == answer),
+                "{count}: no {answer:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_resumed_batch_that_left_no_answered_document_is_one_asked_row() {
+        // `fx-p5-question-resume-40x120-resumed`: a refused batch (fx's
+        // refusal is a successful call's text, xfx's a failed call's,
+        // `docs/parity.md`'s adaptation (7)) replays as the generic completed
+        // row `● Asked`, the marker in the system notice grey
+        // (`lifecycleTerminalLine`, `transcript/runtime.zig:613-671@481104fd`).
+        // So does every other result that is not an answered batch -- the
+        // generic path upstream's own test pins (`execution replay keeps
+        // invalid question results on the generic path`,
+        // `app_session_runtime.zig:7991-8035`): a declined batch's sentinel,
+        // a malformed document, a document past twenty, a failed call whose
+        // output is a valid document.
+        let refused = "(ask_user_question: provide 1 to 20 questions)";
+        let past = answer_document(21);
+        let valid = answer_document(1);
+        for (ok, output) in [
+            (false, refused),
+            (true, refused),
+            (true, crate::tools::question::CANCEL_SENTINEL),
+            (true, r#"[{"question":"Q"}]"#),
+            (true, r#"[{"question":"Q","answer":1}]"#),
+            (true, "[]"),
+            (true, past.as_str()),
+            (false, valid.as_str()),
+        ] {
+            let (resumed, rows) = resumed_rows(vec![asked_turn("ask", ok, output, None)]);
+            let card = rows.iter().position(|row| row == "┃ ask").expect("the card");
+            assert_eq!(
+                rows[card + 1..].iter().take(4).collect::<Vec<_>>(),
+                ["", "● Asked", "", "  Done."],
+                "{ok} {output}: {rows:#?}"
+            );
+            assert!(
+                !rows.iter().any(|row| row.starts_with("  1) ")),
+                "{ok} {output}: {rows:#?}"
+            );
+            let marker = format!(
+                "{}\u{25cf}{} Asked",
+                resumed.shell.palette.notice(),
+                PALETTE.reset()
+            );
+            let mut painted = shell(40, 120);
+            painted.hydrate(
+                bridge::inert_hydration(logged(vec![asked_turn("ask", ok, output, None)])),
+                false,
+            );
+            assert!(
+                painted.painted_document().iter().any(|row| *row == marker),
+                "{ok} {output}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_resumed_batch_the_stop_cut_off_is_the_turns_cancellation_line_alone() {
+        // `fx-p5-question-resume-40x120-resumed`: Escape at the panel stops the
+        // turn, the call has no result to replay, and the turn's own line is
+        // all there is -- no `● Asked`, no `▪ Cancelled` of the question's.
+        use crate::session::{TerminalReason, TurnConclusion};
+        let mut turn = asked_turn(
+            "ask stop",
+            false,
+            crate::tools::question::ABORTED_OUTPUT,
+            Some(crate::session::ToolEnding::Cancelled),
+        );
+        turn.steps.truncate(2);
+        turn.outcome = Some(TurnConclusion::Interrupted {
+            reason: crate::agent::TurnError::Cancelled.to_string(),
+            terminal_reason: Some(TerminalReason::Cancelled),
+            cancellation_origin: Default::default(),
+        });
+        let (_, rows) = resumed_rows(vec![turn]);
+        let card = rows.iter().position(|row| row == "┃ ask stop").expect("the card");
+        assert_eq!(
+            rows[card + 1..].iter().take(2).collect::<Vec<_>>(),
+            ["", "▪ Cancelled · What can xfx do differently?"],
+            "{rows:#?}"
+        );
+        assert!(!rows.iter().any(|row| row.contains("Asked")), "{rows:#?}");
+    }
+
+    #[test]
+    fn a_resumed_step_that_asked_between_two_calls_settles_each_in_a_group_of_its_own() {
+        // `fx-p5-question-resume-40x120-resumed`'s `ask mixed`: fx v0.0.16
+        // writes each call of a step and then its result
+        // (`writeExecutionHistoryToSink`, `app_session_runtime.zig:
+        // 4120-4127@481104fd`) and its projection ends a run of calls at an
+        // ask's row (`tool_group_projection.zig:1356-1359`, `:1372`): two
+        // groups of one, each read settled, the ask's row between them.
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let call = |id: &str, name: &str, input: serde_json::Value| RecordedToolCall {
+            id: id.to_string(),
+            name: name.to_string(),
+            input,
+        };
+        let result = |id: &str, tool: &str, output: &str| TurnStep::ToolResult {
+            images: Vec::new(),
+            call_id: id.to_string(),
+            tool: tool.to_string(),
+            ok: false,
+            output: output.to_string(),
+            ending: None,
+            lines: None,
+            change: None,
+        };
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![
+                    call("r1", "read_file", serde_json::json!({"path": "gone.txt"})),
+                    call("q", "ask_user_question", serde_json::json!({"questions": []})),
+                    call("r2", "read_file", serde_json::json!({"path": "lost.txt"})),
+                ],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            result("r1", "read_file", "Path not found: gone.txt"),
+            result(
+                "q",
+                "ask_user_question",
+                "(ask_user_question: provide 1 to 20 questions)",
+            ),
+            result("r2", "read_file", "Path not found: lost.txt"),
+        ];
+        let (_, rows) = resumed_rows(vec![logged_turn(
+            "ask mixed",
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            },
+        )]);
+        let card = rows.iter().position(|row| row == "┃ ask mixed").expect("the card");
+        assert_eq!(
+            rows[card + 1..].iter().take(8).collect::<Vec<_>>(),
+            [
+                "",
+                "● 1 tool call · 1 read · 1 failed",
+                "└ Failed gone.txt",
+                "",
+                "● Asked",
+                "",
+                "● 1 tool call · 1 read · 1 failed",
+                "└ Failed lost.txt",
+            ],
+            "{rows:#?}"
+        );
+    }
+
+    #[test]
+    fn a_hostile_answer_document_paints_no_sequence_of_its_own() {
+        // A saved document is file input: its question and its answer reach
+        // the screen through the inert step and the rows' own taming, as the
+        // panel's entries do (`bridge::inert_hydration`, `safe_rows`,
+        // `answer_safe`).
+        let hostile = "x\u{1b}]0;pwned\u{7}y\u{1b}[2Jz\u{9b}31m";
+        let document = serde_json::to_string(&serde_json::json!([
+            {"question": format!("Q {hostile}"), "answer": format!("A {hostile}\nnext")}
+        ]))
+        .unwrap();
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(
+            bridge::inert_hydration(logged(vec![asked_turn("ask", true, &document, None)])),
+            false,
+        );
+        let painted = resumed.painted_document();
+        let rows: Vec<String> = painted.iter().map(|row| without_sgr(row)).collect();
+        assert!(rows.iter().any(|row| row.starts_with("  1) Q x")), "{rows:#?}");
+        assert!(rows.iter().any(|row| row == "     next"), "{rows:#?}");
+        for row in &rows {
+            assert!(
+                !row.contains('\u{1b}') && !row.contains('\u{9b}') && !row.contains('\u{7}'),
+                "{row:?}"
+            );
+        }
+    }
+
     /// Upstream's stopped turn after a resume is its card and its
     /// cancellation line -- the call the stop cut off is not replayed -- and
     /// a failed one is `✗ system: failed` (`app_session_runtime.zig:4796-4803`;
