@@ -45,18 +45,19 @@ no unit can resolve. So this receipt measures two ways:
   to its words, so its marker and indent still count). It also leaves out
   row 1, the banner (`scope.py:39`), and the blank rows at the bottom
   (`:48-49`), which `cells.py` compares as rows; nothing else is set aside, and
-  `pairs.sh` below shows the rows that differ with nothing set aside are only
-  19 and 21-25 (`answered`: 20 and 22-26). **29 of 29 at the head**
+  `pairs.sh` below shows the rows that differ with nothing set aside but row 1
+  are only 19 and 21-25 (`answered`: 20 and 22-26). **29 of 29 at the head**
   (`green.txt`), 3 of 29 at the base (`red.txt`: `ask`, `amend-alt-b`,
   `amend-keys`).
-- `pairs.sh`: nothing set aside, `cells.py` as the dispatcher re-runs it. At
+- `pairs.sh`: nothing set aside but row 1, the banner, which `cells.py` never
+  compares (`scripts/fxcap/cells.py:242`), as the dispatcher re-runs it. At
   the head 28 of 29 pairs differ in exactly `ask`'s six rows and `answered` in
   the next question's six (rows 20, 22-26: the write's grant scope, one row
   lower under the `┃ aby zcd` card); at the base 26 of 29 differ beyond them.
 - The sweep (below) puts every pair of the scenario under
   `approval-grant-scope` alone with no uncaused row at the head.
 
-## What fx v0.0.16 does (`fx-src.txt`, every line read with `git show 481104fd:<path>`)
+## What fx v0.0.16 does (`fx-src.txt`, written by `fx_src.sh`: every line read with `git show 481104fd:<path>`)
 
 - **Which actions move the choice.** `routeApprovalEscapeAction`
   (`input_approval_runtime.zig:71-130`): with no amendment open,
@@ -207,17 +208,20 @@ is captured on fx, the base and the head (`probe/fx`, `probe/red`,
   file`) and leave the choice on fx: xfx's decoder has no meta prefix and
   reads Escape, then the arrow (`kitty_key`'s doc). Owner
   QUESTION-LEFT-SPELLINGS (proposed), with the question's.
-- **The vertical spellings: eight keys at a choice, and the amendment side.**
-  From choice 1 with no amendment open, Shift-, Ctrl-, Super- and Alt-Down,
-  kitty's Alt-Down (`CSI 57353;3u`) and `C-n`, then the same six Up spellings
-  (kitty's `CSI 57352;3u`) and `C-p`, each move xfx's choice one step
-  (wrapping); fx v0.0.16 leaves it on 1 for every one of the twelve
+- **The vertical spellings: ten keys (twelve spellings) at a choice, and the
+  amendment side.** From choice 1 with no amendment open: Shift-, Ctrl-,
+  Super- and Alt-Down (Alt both as `CSI 1;3B` and as kitty's `CSI 57353;3u`)
+  and `C-n`; then Shift-, Ctrl-, Super- and Alt-Up (`CSI 1;3A`, kitty's
+  `CSI 57352;3u`) and `C-p`. Each moves xfx's choice one step (wrapping);
+  fx v0.0.16 leaves it on 1 for all twelve
   (`vertical.txt`; round 1's `probe.txt` has seven of them, Super-Up and the
   Alt spellings added in round 2). The modified arrows are `composerMove`
-  (`escape_parser.zig:73-108`, `:208-217` for kitty's), which reaches the
+  (`escape_parser.zig:73-108`, `:208-217` for kitty's, whose codes are
+  `:38-39`), which reaches the
   switch's `else` (`input_approval_runtime.zig:128`); the raw route at a
   question reads no `C-p`/`C-n` (`src/ui/input/runtime.zig:61-73`,
-  `:103-108`), while `.cursor_up`/`.history_up` still move (`:111-126`).
+  `:103-108`), while `.cursor_up`/`.history_up` still move
+  (`input_approval_runtime.zig:111-126`).
   **In an amendment** fx keeps it open: Shift-Up and `C-p` do nothing and
   Super-Up moves the caret to the start (`approvalDraftActionFromShortcut`,
   `src/ui/input/runtime.zig:79-87`, which maps `draft_start` and no
@@ -225,8 +229,9 @@ is captured on fx, the base and the head (`probe/fx`, `probe/red`,
   `ywab cdx` on fx, while xfx's end the amendment and move the choice
   (`amend-*`). xfx's `decide` names this (`C-p` and `C-n`). Owner unit:
   **APPROVAL-VERTICAL-SPELLINGS** (queued); this unit changes none of them:
-  the marker lands where the base's does after every key, and only row 1
-  differs, the base painting the draft left behind (this unit's row 1).
+  the marker lands where the base's does after every key, and only choice 1's
+  row differs, the base painting the draft left behind (this unit's row-1
+  rule).
 - **Super-Left and -Right** jump to the line's edge in fx's amendment
   (`src/ui/input/runtime.zig:82-83`) and composer (`escape_parser.zig:74-82`),
   and to the draft's start and end for Super-Up and -Down; xfx's draft and
@@ -350,6 +355,18 @@ comments and docs, so the scenario's binary is the same code.
   the new test, with `opening_a_draft_revokes_a_committed_readiness_receipt`);
   `cargo test --locked --test parity` 26 passed; `cargo fmt --check` and both
   clippy runs clean. The full gate is the dispatcher's.
+
+## Round 3: the reviews of `b698a80b` (words only)
+
+Both engines approve with fixes and confirm round 2 closes gpt6's MUST. The
+fixes, all in this file, `docs/parity.md` and `fx-src.txt`: the vertical item
+counts ten keys in twelve spellings; `pairs.sh` sets aside row 1 (`cells.py`
+never compares it); the `.cursor_up`/`.history_up` citation names
+`input_approval_runtime.zig`; `fx_src.sh` writes `fx-src.txt`, now with the
+kitty arrow codes (`escape_parser.zig:38-39`); and parity.md's amendment
+sentence says outright that a choice can carry a draft no frame shows, which
+Enter or that choice's digit sends. No `src/` or `tests/` change;
+`cargo test --locked --test parity` passes (26).
 
 ## Decisions (each reversible)
 

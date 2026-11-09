@@ -159,6 +159,31 @@
   228          return if (self.confirmation_only) 2 else option_count;
   229      }
 
+## src/core/permissions/approval_decision.zig:249-271
+  249  test "approval decision maps selection and submission actions" {
+  250      const alloc = std.testing.allocator;
+  251      var state = State{};
+  252      defer state.deinit(alloc);
+  253  
+  254      try std.testing.expectEqual(
+  255          ToolPermissionDecision.once,
+  256          state.selectedDecision(),
+  257      );
+  258      try std.testing.expectEqual(
+  259          Event.redraw,
+  260          try state.apply(alloc, .{ .move_choice = .previous }, true, null),
+  261      );
+  262      try std.testing.expectEqual(@as(u8, 2), state.choice_index);
+  263      try std.testing.expectEqual(
+  264          ToolPermissionDecision.deny,
+  265          (try state.apply(alloc, .submit, true, null)).decision,
+  266      );
+  267      try std.testing.expectEqual(
+  268          ToolPermissionDecision.always,
+  269          (try state.apply(alloc, .{ .number = 1 }, true, null)).decision,
+  270      );
+  271  }
+
 ## src/core/permissions/approval_decision.zig:285-303
   285  test "approval decision preserves independent drafts while choices move" {
   286      const alloc = std.testing.allocator;
@@ -393,6 +418,10 @@
    63          else => null,
    64      };
    65  }
+
+## src/ui/input/escape_parser.zig:38-39
+   38  const kitty_up_key: u16 = 57352;
+   39  const kitty_down_key: u16 = 57353;
 
 ## src/ui/input/escape_parser.zig:66-109
    66  fn composerMove(kind: input_action.MoveKind, modifiers: u16) InputEscapeAction {
@@ -694,28 +723,3 @@
  5979      try std.testing.expect(app.approval_prompt.isAmending());
  5980      try std.testing.expectEqual(@as(usize, 2), app.approval_prompt.draftCursorForChoice(0));
  5981  }
-
-## src/core/permissions/approval_decision.zig:249-271
-  249  test "approval decision maps selection and submission actions" {
-  250      const alloc = std.testing.allocator;
-  251      var state = State{};
-  252      defer state.deinit(alloc);
-  253  
-  254      try std.testing.expectEqual(
-  255          ToolPermissionDecision.once,
-  256          state.selectedDecision(),
-  257      );
-  258      try std.testing.expectEqual(
-  259          Event.redraw,
-  260          try state.apply(alloc, .{ .move_choice = .previous }, true, null),
-  261      );
-  262      try std.testing.expectEqual(@as(u8, 2), state.choice_index);
-  263      try std.testing.expectEqual(
-  264          ToolPermissionDecision.deny,
-  265          (try state.apply(alloc, .submit, true, null)).decision,
-  266      );
-  267      try std.testing.expectEqual(
-  268          ToolPermissionDecision.always,
-  269          (try state.apply(alloc, .{ .number = 1 }, true, null)).decision,
-  270      );
-  271  }
