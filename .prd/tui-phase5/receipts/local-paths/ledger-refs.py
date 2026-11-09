@@ -22,4 +22,5 @@ for line in toml.split("\n"):
         a = int(ref[0])
         b = int(ref[1] or ref[0])
         for n in (a, b) if b != a else (a,):
-            print("%-16s capture.sh:%-5d %s" % (rule, n, cap[n - 1].strip()[:70]))
+            # The whole line: a launch line's TMPDIR= token is past column 70.
+            print("%-16s capture.sh:%-5d %s" % (rule, n, cap[n - 1].strip()))

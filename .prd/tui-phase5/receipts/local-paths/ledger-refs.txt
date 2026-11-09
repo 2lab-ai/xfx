@@ -1,8 +1,8 @@
 run-directory    capture.sh:659   run=$(mktemp -d "$tmpdir/fxcap.XXXXXX")
 capture-tmpdir   capture.sh:314   # Each binary gets a TMPDIR inside the run (fx `$run/fxtmp`, xfx
 capture-tmpdir   capture.sh:316   # the run and is read out with `reports`.
-capture-tmpdir   capture.sh:367   # fx's side and xfx's are rewritten by the same rule, so a pair compar
-capture-tmpdir   capture.sh:373   # `capture-tmpdir` reads fx's name as xfx's right after that placehold
-capture-tmpdir   capture.sh:947   launch="env -i $base FX_DISABLE_KEYCHAIN=1 FX_SKIP_ONBOARDING=1 FX_SOU
-capture-tmpdir   capture.sh:954   launch="env -i $base TMPDIR=$run/xfxtmp XFX_GATEWAY_URL=http://127.0.0
-tmux-dead-pane   capture.sh:1123  keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit
+capture-tmpdir   capture.sh:367   # fx's side and xfx's are rewritten by the same rule, so a pair compares as it
+capture-tmpdir   capture.sh:373   # `capture-tmpdir` reads fx's name as xfx's right after that placeholder.
+capture-tmpdir   capture.sh:947   launch="env -i $base FX_DISABLE_KEYCHAIN=1 FX_SKIP_ONBOARDING=1 FX_SOUND=0 TMPDIR=$run/fxtmp \
+capture-tmpdir   capture.sh:954   launch="env -i $base TMPDIR=$run/xfxtmp XFX_GATEWAY_URL=http://127.0.0.1:$port/v4/ai/language-model \
+tmux-dead-pane   capture.sh:1123  keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;

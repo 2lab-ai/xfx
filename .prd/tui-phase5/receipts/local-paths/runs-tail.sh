@@ -10,7 +10,9 @@ cd "$runs" || exit 2
 ph=$(grep -rlE '<((work|scratch|scenarios|bun|tmp|home)(:real)?_*|[wscbthWSCBTH]_+)>' . | grep -v -E '/(capture\.log|status\.json)$' | wc -l | tr -d ' ')
 rl=$(grep -rh '^roots:' . | sed -E 's/=[0-9]+/=N/g' | sort -u)
 gd=$(grep -rl 'LOCAL-PATH GUARD' . | wc -l | tr -d ' ')
-fol=$(grep -r -h -o -a -E 'x?fxtmp(.|$)' . | sed -E 's/^x?fxtmp//' | LC_ALL=C sort | uniq -c | sed -E 's/^ *([0-9]+) (.*)$/\1 `\2`/; s/^ *([0-9]+) *$/\1 (the line'"'"'s end)/' | paste -sd ',' - | sed 's/,/, /g')
+# One line per follower: `uniq -c` prints `N <char>`, and `N ` for a name at
+# the line's end (an empty follower), read before the general case.
+fol=$(grep -r -h -o -a -E 'x?fxtmp(.|$)' . | sed -E 's/^x?fxtmp//' | LC_ALL=C sort | uniq -c | sed -E -e 's/^ *([0-9]+) $/\1 (the line'"'"'s end)/' -e t -e 's/^ *([0-9]+) (.*)$/\1 `\2`/' | paste -sd ',' - | sed 's/,/, /g')
 printf '%s: capture files holding a placeholder: %s\n' "$label" "$ph"
 printf "%s: each run's roots line (widths masked here): %s\n" "$label" "$rl"
 printf '%s: runs refused by roots.py (LOCAL-PATH GUARD in any file of runs/): %s\n' "$label" "$gd"

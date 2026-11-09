@@ -269,14 +269,18 @@ same commit); `scripts/test-check-no-local-paths.sh` runs once per OS
 and a Linux row.
 
 - Shapes, never a name: a home directory, `/Users/<name>` or `/home/<name>`,
-  where an absolute path starts (a line start, a character no path name holds
-  -- `>` among them -- or the end of a terminal control sequence) and ends with
-  its name (before a `/`, any other non-name character, or the line's end);
-  `/tmp/claude-<digits>` with or without `/private`, and a `claude-<digits>/`
-  at a row's start, after a control sequence or after any character no path
-  name holds (such a root broken after its `tmp/`, a README's backtick-quoted
-  one among them), not after a name character or `/` (`models/claude-3/`);
-  macOS's per-user temporary root.
+  where an absolute path starts (a line start, a character outside
+  `A-Za-z0-9._~+-` -- `>` among them -- or the end of a terminal control
+  sequence) and ends with its name (before a `/`, a character outside
+  `A-Za-z0-9._-`, or the line's end); `/tmp/claude-<digits>` with or without
+  `/private`, and a `claude-<digits>/` at a row's start, after a control
+  sequence or after a character outside `A-Za-z0-9._~+-` and `/` (such a root
+  broken after its `tmp/`, a README's backtick-quoted one among them), not
+  after an ASCII name character or `/` (`models/claude-3/`); macOS's per-user
+  temporary root. Those sets are a heuristic, as the check's header says, and
+  it fails toward refusal: `@`, `=` and a letter past ASCII are legal in a
+  name, so `cache@claude-<n>/x` and an accented letter before `claude-<n>/`
+  match, and the test pins both.
 - Not every path of a machine: a Windows path, `~user`, a percent-encoded
   path, a home directory broken across two rows and a scratch root broken
   anywhere but after its `tmp/` are not found by shape (capture.sh's rewrite
@@ -300,10 +304,11 @@ and a Linux row.
   `--work-tree=.`, the root's own `.git`, index bits and missing files
   refused), a positive control runs first, and a hit prints the file, the line
   and the shape, never the text.
-- Its test: 10 cases, 26 plants -- every shape in every kind of file (a name
+- Its test: 10 cases, 28 plants -- every shape in every kind of file (a name
   git quotes, a file named `-`, a binary, a coloured path, an OSC 8 link, a
   redirect, an HTML tag, a bare home, a broken root at a row's start and
-  after a backtick, a mark in a request body,
+  after a backtick, the two conservative matches (`cache@claude-<n>/x`, an
+  accented letter before `claude-<n>/`), a mark in a request body,
   a `.txt`, a report capture and mid-line, a home cut by its first match, a
   report renamed out of capture.sh's names with its line unmarked, an
   authored file named into them with its line marked) and every form that
