@@ -1,0 +1,19 @@
+# cargo test --locked --lib -- every_quarantine_sentence_is_whole leaves_the_review_plane_when_the_quarantine_ends render_whole_at_120_80_and_20 flaps_is_said_at_most dropped_paste_is_open marker_is_half_read continues_a_held_marker changed_by_held_bytes said_again_once_a_second on_the_review_plane
+# at 6cb46583 (round 5's code head)
+test tui::input::tests::a_byte_that_continues_a_held_marker_keeps_it_held_through_a_pause ... ok
+test tui::shell::tests::the_repeat_while_a_marker_is_half_read_says_the_sequence_is_open ... ok
+test tui::shell::tests::a_key_that_continues_a_held_marker_keeps_the_marker_sentence_true ... ok
+test tui::shell::tests::a_hold_that_flaps_is_said_at_most_once_a_second_and_its_last_state_is_said ... ok
+test tui::shell::tests::a_hold_changed_by_held_bytes_alone_is_said_once_in_its_own_words ... ok
+test tui::shell::tests::a_paste_with_input_behind_it_on_the_review_plane_is_kept_and_said_on_the_plane ... ok
+test tui::shell::tests::an_oversized_paste_with_input_behind_it_on_the_review_plane_ends_on_the_warning ... ok
+test tui::shell::tests::an_approval_on_the_review_plane_takes_the_keys_and_the_band_keeps_the_panel_for_its_return ... ok
+test tui::shell::tests::input_that_keeps_arriving_inside_the_quarantine_is_said_again_once_a_second ... ok
+test tui::shell::tests::an_affirmative_on_the_review_plane_waits_for_that_planes_own_frame ... ok
+test tui::shell::tests::a_draft_on_the_review_plane_says_its_refusal_on_the_plane_the_user_can_see ... ok
+test tui::shell::tests::the_repeat_while_a_dropped_paste_is_open_says_the_paste_is_open ... ok
+test tui::shell::tests::the_arrows_leave_a_draft_on_the_review_plane_even_though_c_p_scrolls_it ... ok
+test tui::shell::tests::the_quarantine_s_sentence_leaves_the_review_plane_when_the_quarantine_ends ... ok
+test tui::shell::tests::every_quarantine_sentence_is_whole_on_the_review_plane_at_the_narrowest_screen ... ok
+test tui::shell::tests::the_quarantine_sentences_render_whole_at_120_80_and_20_columns ... ok
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 4561 filtered out; finished in 1.94s
