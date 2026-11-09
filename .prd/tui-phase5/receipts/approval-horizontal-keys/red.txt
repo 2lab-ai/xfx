@@ -104,3 +104,127 @@ thread 'tui::shell::tests::a_draft_left_behind_is_not_painted_and_still_travels_
 thread 'tui::shell::tests::the_horizontal_keys_at_an_approval_choice_are_fxs' panicked at src/tui/shell.rs:22477:13:
 [27, 91, 68] did not mark choice 1: "  ❯ 2  Apply + allow future edits to this file for this session"
 test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 4628 filtered out; finished in 0.00s
+
+## The same pair with the grant scope's rows set aside: python3 -I scope.py red
+DIFF  alt-b         1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  alt-f         4 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  "  ❯ 3  Don't apply"
+      xfx: "    3  Don't apply"
+DIFF  alt-left      1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  alt-right     1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+SAME  amend-alt-b   (22 rows compared)
+SAME  amend-keys    (22 rows compared)
+DIFF  answered      17 rows differ
+      fx:  '● 2 tool calls · 1 read · 1 edit'
+      xfx: '● 2 tool calls · 1 read · 1 edit · 1 denied'
+      fx:  '└ Edited a.txt +1 / -1'
+      xfx: '└ Denied file'
+      fx:  '┃ aby zcd'
+      xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+SAME  ask           (22 rows compared)
+DIFF  back          3 rows differ
+      fx:  '  ❯ 1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  '  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel'
+      xfx: '  1–3 choose now    ↑↓ or tab options    enter confirm    esc cancel'
+DIFF  ctrl-b        1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  ctrl-f        1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  ctrl-left     1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  ctrl-right    1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  down          1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  kitty-alt-b   4 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  "  ❯ 3  Don't apply"
+      xfx: "    3  Don't apply"
+DIFF  kitty-alt-f   4 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  "  ❯ 3  Don't apply"
+      xfx: "    3  Don't apply"
+DIFF  left-wrap     4 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  "  ❯ 3  Don't apply"
+      xfx: "    3  Don't apply"
+DIFF  left          3 rows differ
+      fx:  '  ❯ 1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  '  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel'
+      xfx: '  1–3 choose now    ↑↓ or tab options    enter confirm    esc cancel'
+DIFF  mok-alt-b     1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  mok-alt-f     3 rows differ
+      fx:  '  ❯ 1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  '  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel'
+      xfx: '  1–3 choose now    ↑↓ or tab options    enter confirm    esc cancel'
+DIFF  right-wrap    3 rows differ
+      fx:  '  ❯ 1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  '  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel'
+      xfx: '  1–3 choose now    ↑↓ or tab options    enter confirm    esc cancel'
+DIFF  right         1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  shift-alt-f   1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  shift-left    1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  shift-right   1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  super-left    1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  super-right   1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  tab-back      2 rows differ
+      fx:  '  ❯ 1  Apply once, aby zcd'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  "    3  Don't apply"
+      xfx: "  ❯ 3  Don't apply"
+DIFF  unpainted     2 rows differ
+      fx:  '  ❯ 1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  "    3  Don't apply"
+      xfx: "  ❯ 3  Don't apply"
+3 of 29 pairs identical once the grant scope's rows are set aside

@@ -1,0 +1,41 @@
+# Not a parity scenario: spellings at a permission question this unit does
+# not change, for the units that own them. From choice 1: Shift-Down,
+# Ctrl-Down, Super-Down, Ctrl-N, then Shift-Up, Ctrl-Up, Ctrl-P, each with a
+# snap; `ESC ESC [ D` last, because xfx reads it as Escape and Left, and the
+# Escape cancels the turn. The turns, the workspace and the settings are
+# approvals.cap's.
+fx: gateway approvals-fx.json
+xfx: gateway approvals-xfx.json
+work approvals-ws
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type edit the files
+key Enter
+wait 3
+snap ask
+key S-Down
+wait 0.4
+snap shift-down
+key C-Down
+wait 0.4
+snap ctrl-down
+key -H 1b 5b 31 3b 39 42
+wait 0.4
+snap super-down
+key -H 0e
+wait 0.4
+snap ctrl-n
+key S-Up
+wait 0.4
+snap shift-up
+key C-Up
+wait 0.4
+snap ctrl-up
+key -H 10
+wait 0.4
+snap ctrl-p
+key -H 1b 1b 5b 44
+wait 0.6
+snap esc-esc-left
