@@ -3488,8 +3488,10 @@ impl Shell {
     }
 
     /// The cell the `/provider` column is anchored at: under the first byte of
-    /// its argument, on the composer row that byte is on
-    /// (`projectedAnchorColumn`, `input_presentation.zig:368-370`).
+    /// its argument while the caret is on that byte's row, and at the start of
+    /// the caret's row otherwise ([`Self::anchor_at`]; fx's
+    /// `provider_picker_completion_anchor` under `projectedAnchorColumn`,
+    /// `input_presentation.zig:356-363`, `:383-386@481104fd`).
     ///
     /// Measured by the composer's own wrap, so an argument that a wrapped
     /// draft put at the start of its second row anchors at that row's start
@@ -3611,7 +3613,7 @@ impl Shell {
 
     /// The one-based column the file picker's rows start in: the `@`'s, when
     /// it is on the caret's row, and the composer's left edge otherwise
-    /// (`projectedAnchorColumn`, `visual_layout.zig:704-712`).
+    /// (`projectedAnchorColumn`, `visual_layout.zig:705-713@481104fd`).
     fn file_picker_column(&self, files: &FilePicker) -> u16 {
         let cols = self.text_cols();
         let (at_row, at_column) = self.editor.point_of(files.query().at, cols);
@@ -7136,7 +7138,7 @@ impl Shell {
     /// the cells to its left on the composer row it is on -- **when that is the
     /// caret's row**, and the start of the caret's row otherwise, so a column
     /// over a composer the caret has left the argument's row of hangs under the
-    /// row the eye is on (`projectedAnchorColumn`, `visual_layout.zig:704-712`;
+    /// row the eye is on (`projectedAnchorColumn`, `visual_layout.zig:705-713@481104fd`;
     /// `fx-fast-astra-40x120-model-change-clears`, a `/model` line with a line
     /// break after it).
     fn column_anchor(&self, offset: usize) -> u16 {
@@ -35733,15 +35735,18 @@ mod tests {
             usize::from(rows),
             "the caret is not on the last row"
         );
-        shell.route_bytes(b"\x1b[A");
-        assert_eq!(caret_at(shell).0, row - 1, "Up did not move the caret");
-        assert_eq!(marked(shell), mark, "Up walked the list");
-        for (key, name) in [
-            (&b"\x1b[5~"[..], "PgUp"),
-            (b"\x1b[6~", "PgDn"),
-            (b"\x1b[B", "Down"),
+        // In an order where each key moves the caret to another row, so a key
+        // the list swallowed leaves the caret where it was: a page is the
+        // composer's row cap, past either edge (`scanInputCursorRows`,
+        // `input_completion_runtime.zig:235-243@481104fd`).
+        for (key, name, to) in [
+            (&b"\x1b[A"[..], "Up", row - 1),
+            (b"\x1b[B", "Down", row),
+            (b"\x1b[5~", "PgUp", 0),
+            (b"\x1b[6~", "PgDn", row),
         ] {
             shell.route_bytes(key);
+            assert_eq!(caret_at(shell).0, to, "{name} did not move the caret");
             assert_eq!(marked(shell), mark, "{name} walked the list");
         }
         shell.route_bytes(&[0x0a]);
@@ -35924,9 +35929,10 @@ mod tests {
     fn under_the_full_transcript_no_other_list_takes_a_row_key() {
         // The same refusal for the other lists that walk on `C-j`/`C-k`
         // (`routeVisiblePickerMove`, `input_completion_runtime.zig:390-422`),
-        // by the same one check: here the slash menu, `/help`'s catalog,
-        // `/provider`'s column, `/effort`'s menu and `/fork`'s menu. The `@`
-        // list's keys are unit CTRLO-AT-KEYS's.
+        // by the same one check: here `/mcp`'s menu, the slash menu, `/help`'s
+        // catalog, `/provider`'s column, `/effort`'s menu and `/fork`'s menu.
+        // The `@` list's keys there -- these two, Tab and Enter -- are unit
+        // CTRLO-AT-KEYS's.
         let mut slash = shell(24, 120);
         slash.route_bytes(b"/");
         row_keys_reach_the_composer_under_the_full_transcript(
@@ -35971,6 +35977,22 @@ mod tests {
             },
             true,
         );
+        // `/mcp`'s menu, the first list the check must come before: its own
+        // handler takes every key while the full transcript covers it
+        // (`offer_to_mcp`), so a check below it would leave `C-j` there and
+        // the draft -- the menu's filter -- without its newline.
+        let (mut mcp, runtime, _home) = mcp_args_shell_over(
+            r#"{"mcpServers":{"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","enabled":false}}}"#,
+            24,
+        );
+        mcp.route_bytes(b"/mcp\r");
+        assert!(mcp.mcp_menu.is_some(), "/mcp opened no menu");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut mcp,
+            &|shell: &Fixture| shell.mcp_menu.as_ref().map(|menu| menu.screen()),
+            false,
+        );
+        runtime.shutdown();
         let mut fork = shell(24, 120);
         forked_menu(
             &mut fork,
