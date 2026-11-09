@@ -6022,7 +6022,8 @@ impl Shell {
     /// PgUp move a page -- the composer's row cap -- and from past either end
     /// land on the other (`routeSettingsMenuMove`,
     /// `input_completion_runtime.zig:431-463@481104fd`, and `Menu.move`,
-    /// `settings_catalog.zig:225-241`); Tab and Shift-Tab change the tab,
+    /// `settings_catalog.zig:225-241`); over an empty list none of them is
+    /// taken (`Menu.move` answers `false`, `:227`); Tab and Shift-Tab change the tab,
     /// and with it the menu's height, so the band is re-solved; Left and Right
     /// change the marked setting at once (`changeSettingsMenuSelection`,
     /// `app_input_runtime.zig:2489-2514`) -- on `Model`, Right opens the list
@@ -6120,10 +6121,10 @@ impl Shell {
             }
             return true;
         }
-        // Over an empty list `C-j`, `C-k` and a page go on to the composer, as
-        // upstream's do when `Menu.move` answers `false`
-        // (`settings_catalog.zig:227`); the arrows stay spent.
-        if matches!(request, SettingsAction::Row(_) | SettingsAction::Page(_)) && !repaint {
+        // Over an empty list a move goes on -- the arrows and a page to the
+        // caret, `C-j` and `C-k` to the composer -- as upstream's do when
+        // `Menu.move` answers `false` (`settings_catalog.zig:227`).
+        if delta.is_some() && !repaint {
             return false;
         }
         if matches!(
@@ -8636,6 +8637,18 @@ impl Shell {
         let Input::Action(action) = event else {
             return false;
         };
+        // The arrows and a page are a slash list's only while the composer is
+        // one row; on a taller one they are the caret's
+        // (`routeComposerVertical`, `input_completion_runtime.zig:255-260
+        // @481104fd`). `C-j` and `C-k` walk it at any height
+        // (`routeSlashCompletionMove`, `:175-180`).
+        if matches!(
+            action,
+            Action::Up | Action::Down | Action::PageUp | Action::PageDown
+        ) && self.composer_grown()
+        {
+            return false;
+        }
         // A page of the menu at a time (`routeComposerVertical` with `page`,
         // `input_completion_runtime.zig:209-262`): a page is the composer's
         // row cap, as it is for the caret.
@@ -9108,7 +9121,8 @@ impl Shell {
     /// Offers one keystroke to `/mcp `'s argument completions, and says
     /// whether it was taken: Up, Down, `C-k` and `C-j` move the mark and wrap;
     /// PgUp and PgDn move it a page -- the composer's row cap -- and from past
-    /// either end land on the other;
+    /// either end land on the other; on a composer taller than one row the
+    /// arrows and the pages are the caret's;
     /// Tab writes the marked line; Escape closes them until the draft stops
     /// being a `/mcp ` line. Enter writes the marked line and is **not**
     /// taken, so the composer submits it in place of what was typed
@@ -9119,6 +9133,15 @@ impl Shell {
             return false;
         };
         if !matches!(self.slot(), Some(Slot::McpArgs(_))) {
+            return false;
+        }
+        // A slash list in fx: the arrows and a page only while the composer
+        // is one row, `C-j`/`C-k` at any height ([`Self::offer_to_picker`]).
+        if matches!(
+            action,
+            Action::Up | Action::Down | Action::PageUp | Action::PageDown
+        ) && self.composer_grown()
+        {
             return false;
         }
         let Some(args) = self.mcp_args.as_mut() else {
@@ -12123,6 +12146,23 @@ impl Shell {
             // The `/workspace` picker the same way.
             if self.workspace_menu.is_some() {
                 self.offer_to_workspace(event);
+                continue;
+            }
+            // `C-j` and `C-k` while the full transcript covers the composer:
+            // fx's `routePickerControlByte` refuses them
+            // (`composerPickerSurfaceVisible`, `app_input_runtime.zig:1094`,
+            // `:1110-1116@481104fd`), so no list behind the screen moves and
+            // they go on to the composer, a newline and a kill to the end. The
+            // `@` list still sees them: its keys there are unit
+            // CTRLO-AT-KEYS's (`docs/parity.md`).
+            if self.full.is_open()
+                && matches!(event, Input::Action(Action::ControlJ | Action::ControlK))
+            {
+                if !self.offer_to_files(&event) {
+                    if let Input::Action(action) = event {
+                        self.act(action, now);
+                    }
+                }
                 continue;
             }
             // `/mcp`'s menu takes the keys it binds; the rest go to the
@@ -16187,6 +16227,26 @@ impl Shell {
         self.render.request(Reason::Resize);
     }
 
+    /// The composer's rows on a screen of `rows` x `cols`: the draft's wrapped
+    /// rows, at least one and at most the cap (`cappedInputRows`,
+    /// `input_presentation.zig:257-267@481104fd`).
+    fn composer_rows(&self, rows: u16, cols: u16) -> u16 {
+        let limit = layout::input_row_limit(rows);
+        let wrapped = self
+            .editor
+            .rows(cols.saturating_sub(PROMPT_CELLS).max(1))
+            .len();
+        u16::try_from(wrapped.clamp(1, usize::from(limit))).unwrap_or(limit)
+    }
+
+    /// Whether the composer is taller than one row on this screen -- fx's
+    /// `capped.input_extra != 0`, under which the arrows and a page are the
+    /// caret's and no slash list's (`routeComposerVertical`,
+    /// `input_completion_runtime.zig:250-260@481104fd`).
+    fn composer_grown(&self) -> bool {
+        self.composer_rows(self.geometry.rows, self.geometry.cols) > 1
+    }
+
     /// The band this shell wants on a screen of `rows` x `cols`, or `None` when
     /// no band fits on one.
     ///
@@ -16197,12 +16257,7 @@ impl Shell {
     /// so a re-solve that measured the draft against the old one would put the
     /// divider where the old wrap said it went.
     fn fit(&self, rows: u16, cols: u16) -> Option<Geometry> {
-        let limit = layout::input_row_limit(rows);
-        let wrapped = self
-            .editor
-            .rows(cols.saturating_sub(PROMPT_CELLS).max(1))
-            .len();
-        let wanted = u16::try_from(wrapped.clamp(1, usize::from(limit))).unwrap_or(limit);
+        let wanted = self.composer_rows(rows, cols);
         // The band's other height: whether the turn's row is above the divider.
         // Carried through every re-solve rather than defaulted, or a keystroke
         // typed while a turn ran would take that row away and the frame after
