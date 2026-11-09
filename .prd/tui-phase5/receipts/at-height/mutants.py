@@ -23,8 +23,12 @@ TESTS = [
     "tui::event_loop::tests::a_refused_frame_leaves_the_at",
     "tui::event_loop::tests::a_resize_spends_the_at",
     "tui::event_loop::tests::under_the_full_transcript",
+    "tui::event_loop::tests::a_key_spent_mid_resize",
+    "tui::event_loop::tests::a_resume_spends",
     "tui::shell::tests::a_waiting_prompts_rows_come_out",
     "tui::shell::tests::a_frame_that_gave_the_list_no_rows",
+    "tui::shell::tests::a_frame_that_shows_another_surface",
+    "tui::shell::tests::enter_under_the_full_transcript",
     "tui::shell::tests::only_a_frame_that_landed",
     "tui::shell::tests::tab_and_enter_before",
     "tui::shell::tests::an_at_opens_the_file_list",
@@ -76,8 +80,15 @@ MUTANTS = [
     ("pending-resize-keeps-trust", SH, "if self.render.resize_pending() || self.full.is_open() {", "if self.full.is_open() {"),
     ("transcript-keeps-trust", SH, "if self.render.resize_pending() || self.full.is_open() {", "if self.render.resize_pending() {"),
     # round 2: the window on a refresh
-    ("refresh-resets-at-row-0", FP, "        if kept.is_none() {\n            self.window_start = 0;\n        }\n", "        if self.selected == 0 {\n            self.window_start = 0;\n        }\n"),
-    ("refresh-never-resets", FP, "        if kept.is_none() {\n            self.window_start = 0;\n        }\n", ""),
+    ("refresh-resets-at-row-0", FP, "        if had_mark && kept.is_none() && !rows.is_empty() {\n            self.window_start = 0;\n        }\n", "        if self.selected == 0 {\n            self.window_start = 0;\n        }\n"),
+    ("refresh-never-resets", FP, "        if had_mark && kept.is_none() && !rows.is_empty() {\n            self.window_start = 0;\n        }\n", ""),
+    # round 3
+    ("empty-refresh-resets", FP, "if had_mark && kept.is_none() && !rows.is_empty() {", "if had_mark && kept.is_none() {"),
+    ("spent-arrow-asks-nothing", SH, "        files.step(delta, self.file_rows_painted);\n        self.render.request(Reason::Modal);\n        true\n", "        if files.step(delta, self.file_rows_painted) {\n            self.render.request(Reason::Modal);\n        }\n        true\n"),
+    ("spent-tab-asks-nothing", SH, "                // for one is what brings the frame it waits for\n                // (`app_input_runtime.zig:1317-1321@481104fd`).\n                self.render.request(Reason::Modal);\n", "                // for one is what brings the frame it waits for\n                // (`app_input_runtime.zig:1317-1321@481104fd`).\n"),
+    ("spent-enter-asks-nothing", SH, "                    file_picker::Enter::Wait => {\n                        self.render.request(Reason::Modal);\n                        true\n                    }", "                    file_picker::Enter::Wait => true"),
+    ("transcript-enter-taken", SH, "            Action::Submit if self.full.is_open() => return false,\n", ""),
+    ("resume-keeps-trust", EL, "    // `input_completion_runtime.zig:805-806`).\n    shell.file_picker_unseen();\n", "    // `input_completion_runtime.zig:805-806`).\n"),
 ]
 
 

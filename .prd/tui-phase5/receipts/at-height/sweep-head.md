@@ -1,9 +1,9 @@
 ## Scoreboard (v0.0.16)
 
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
-- xfx: `x𝒇x v0.1.0-79b8196 [debug] · Run /help for commands`, sha256 `da4f6eaea92c9afbea0c85d7ec26be96fb63ad1eae693eaaf4c1f577a4364f27`
-- size 40x120, `--jobs 2`, 25 scenarios -- **PARTIAL**: `--only p5-input-* filepicker* composer* workspace-index startup h1-resize model-column settings-scrollback p5-mcp-config p5-mcp-verbs`, wall 6m47s, load 6.9 at the start and 12.2 at the peak (1-minute average, sampled every 5 s)
-- ledger sha256 `a5ce29fab8961aa07cc2bfa1d054599c94401cdde6f530a0b464257eae96340e`: 14 normalizations; 19 divergences approved for this pin
+- xfx: `x𝒇x v0.1.0-3a76208 [debug] · Run /help for commands`, sha256 `2e9a810645aca6307bb475e63b62b191790afbbe48d1c59093a50811b0f28e04`
+- size 40x120, `--jobs 2`, 25 scenarios -- **PARTIAL**: `--only p5-input-* filepicker* composer* workspace-index startup h1-resize model-column settings-scrollback p5-mcp-config p5-mcp-verbs`, wall 7m04s, load 6.2 at the start and 14.8 at the peak (1-minute average, sampled every 5 s)
+- ledger sha256 `7586508c867121de1164e1ec07371b6d105aae66db733d0edadc83b6db703034`: 14 normalizations; 19 divergences approved for this pin
 
 fx's inventory (v0.0.16): 45 surfaces -- 38 commands, 7 key hints. Covered by a scenario: 45. **Uncovered: 0**.
 Tokens typed as commands that are no command of this inventory (aliases, partial names, refusals): `/al`, `/balance`, `/co`, `/cost`, `/de`, `/e`, `/ef`, `/eff`, `/et`, `/ex`, `/exit`, `/f`, `/fo`, `/img`, `/mo`, `/nosuch`, `/notacommand`, `/q`, `/re`, `/se`, `/setup`, `/st`, `/vers`.
@@ -36,12 +36,12 @@ Kinds: a = awaiting a user decision, b = a unit in flight, c = the capture (nond
 |---|---|---|---|---|---|
 | at-folder-row | b | 8 | 8 | `fx v0.0.16 lists a folder query's folder as its first row and Enter on a folder row menti…` | `I-U3 @ folders: Enter selects a folder, a listed folder is row 1 (input cluster I4), not yet a branch` |
 | at-ranking | b | 5 | 5 | `fx v0.0.16 ranks '@st' and '@stat' with its placement score (55e13fad; 'scoreBetter', 'fi…` | `I-U2 @ fzf-style ranking (input cluster I3), not yet a branch` |
-| at-resize-band-at-the-bottom | d | 5 | 5 | `The resize answer 'resize-document-repaint' names: fx clears the screen and writes the do…` | `RESIZE-REPAINT -- xfx src/tui/shell.rs:16391 / fx src/ui/resize_runtime.zig:766-767@c1db9191` |
+| at-resize-band-at-the-bottom | d | 5 | 5 | `The resize answer 'resize-document-repaint' names: fx clears the screen and writes the do…` | `RESIZE-REPAINT -- xfx src/tui/shell.rs:16412 / fx src/ui/resize_runtime.zig:766-767@c1db9191` |
 | C7-help-entries | b | 3 | 0 | `xfx's /model summary is the line shell's; C7 r2 gives every registry row fx's help entry.` | `C7 r2 feat/tui-phase4-alias 8d83f961` |
 | question-cap-four | b | 3 | 3 | `fx v0.0.16 asks up to 20 questions in a batch ('max_questions = 20', 'question_answer.zig…` | `I-U6 ask_user_question to 20 (input cluster I11), not yet a branch` |
 | menu-count | a+b | 3 | 0 | `The menus' count: fx 36, xfx 32 -- /login, /logout, /feedback awaiting decisions, /shell …` | `user decision Codex/Grok sign-in (#88) for /login and /logout; user decision /feedback destination; C8 feat/tui-phase4-shell-reload 76ede61…` |
 | menu-shift | a+b | 3 | 0 | `Command rows that only moved: a window without the four absent rows shows two others, and…` | `user decision Codex/Grok sign-in (#88); user decision /feedback destination; C8 feat/tui-phase4-shell-reload 76ede613` |
-| resize-document-repaint | d | 2 | 2 | `fx v0.0.16 answers a resize that changes the screen's size by clearing the screen and its…` | `RESIZE-REPAINT -- xfx src/tui/shell.rs:16391 / fx src/ui/resize_runtime.zig:766-767@c1db9191` |
+| resize-document-repaint | d | 2 | 2 | `fx v0.0.16 answers a resize that changes the screen's size by clearing the screen and its…` | `RESIZE-REPAINT -- xfx src/tui/shell.rs:16412 / fx src/ui/resize_runtime.zig:766-767@c1db9191` |
 | approval-grant-scope | a | 1 | 0 | `What an 'always' answer grants is a security choice: fx grants workspace file access for …` | `user decision approval grant scope (not yet on the program's decision list)` |
 | tool-schema | d | 1 | 0 | `fx's command tool is 'shell' ('action: run', per-call 'timeout_ms', run in the user's she…` | `unowned (decision needed? C8 runs commands in the login shell but keeps the header) -- xfx src/tui/approval_view.rs:685; src/permission/sla…` |
 

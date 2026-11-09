@@ -29,19 +29,24 @@ backs it.
 | `efb3ee94` | test only: a changed letter of the word; a refused write keeps the count; the grid test renamed; the property test; the Up x9 comment (MUST 2) |
 | `a0f1ce6d` | docs: `docs/parity.md`'s row, `file_rows_painted`'s doc, `fit`'s banner comment, the module doc |
 | `6b8fdbf9` | ledger: the refs re-pointed and checked by text (MUST 1, `refs.py`) |
-| `0fdeae02` | the list takes no key under the full transcript; one distrust per way off the screen -- **the code head** |
-| `79b81967` | ledger refs at `0fdeae02`; scenario `p5-input-at-gate` -- **the head's build** |
+| `0fdeae02` | the list takes no key under the full transcript; one distrust per way off the screen |
+| `79b81967` | ledger refs at `0fdeae02`; scenario `p5-input-at-gate` (round 2's head build) |
 | `e49db9cd` | test only: a resize spends the keys until its frame; a frame without the list |
-| `a4914d8e` | ledger: the refs at the final code and tests (`refs.txt`: 16 checked, 0 wrong) |
+| `a4914d8e` | ledger: the refs at round 2's code and tests |
+| `a9d94065`, `d16814fb` | round 2's receipt; the Ctrl-O probe |
+| **round 3** | |
+| `722dcb23` | RED: a key spent mid-resize, Enter under Ctrl-O, resume, a list a refresh empties |
+| `819e6319` | the fixes and their docs, and the info-panel test (opus MUST 2) -- **the code head** |
+| `3a76208f` | ledger refs at the code head (`refs.txt`: 16 checked, 0 wrong) -- **the head's build**, and the gate's commit |
 | (receipt commit) | this folder |
 
 **Builds.** The base's debug build (`v0.1.0-712dd8d`, sha256 `fd09f29c…`,
 built in a `--no-local` clone at `712dd8d1`) and the head's, built after the
-commit `79b81967` (`v0.1.0-79b8196`, sha256 `da4f6eae…`). Row 1 of every
+commit `3a76208f` (`v0.1.0-3a76208`, sha256 `2e9a8106…`). Row 1 of every
 capture in `xfx-base/` and `xfx/` names its build (`pairs.txt`, first line).
-Round 1's head build was `v0.1.0-9d1e116`; every `xfx/` capture here is round
-2's. The commits after `79b81967` change tests, the ledger and this folder,
-never the binary's code.
+Rounds 1 and 2 built `v0.1.0-9d1e116` and `v0.1.0-79b8196`; every `xfx/`
+capture here is round 3's. The commit after `3a76208f` adds only this
+folder.
 
 ## What fx v0.0.16 does (every line quoted in `fx-src.txt`, made by `fx_src.sh`)
 
@@ -100,7 +105,7 @@ never the binary's code.
    also the composer's cap and every menu's page, so it is fixed there for
    all of them. Every `pgup` pair here wraps to the end on any page over 3
    rows, so none of them measures the page.
-6. **The keys act only on rows a frame showed** (round 2; `trusted`,
+6. **A query-and-visibility gate on the keys** (round 2; `trusted`,
    `file_completion_state.zig:104`, all quoted in `fx-src.txt`):
    - **read by** `navigate` (`:239-240`: the arrows and page keys are spent),
      `selected` (`:218-223`: Tab and Enter choose nothing;
@@ -122,6 +127,18 @@ never the binary's code.
    - `stage` (new rows for the same query) leaves it, and the keys then act
      on the rows the last frame presented, not the new ones (`current`,
      `:212-216`, `:241`).
+   - **Every key the list takes asks for a frame, spent or not** (round 3):
+     the arrows and page keys (`app_input_runtime.zig:310-330`,
+     `:1013-1020`), Tab on a file query (`:1317-1321`), and Enter whenever
+     the list answers it (`:1405-1410`). That frame is what restores trust
+     after a spent key.
+   - **A job-control resume** resets the terminal (`requestTerminalReset`,
+     `app_lifecycle.zig:1200-1211`), which sets `terminal_reset_pending`
+     (`transcript/runtime.zig:7167`), which distrusts (`:805-806`).
+   - **Under the full transcript** the list does not own the surface, so
+     Enter returns nothing and goes on to send the line
+     (`submitFilePickerOnEnter`, `input_completion_runtime.zig:1034-1037`;
+     fx's `ctrlo-probe/` captures).
    - fx's own capture shows it: `fx/fx-p5-input-at-gate-40x120-*`. Three
      Downs and a Down-Tab written with a new word leave the bar on f-01 and
      choose nothing.
@@ -130,7 +147,7 @@ never the binary's code.
    and `acknowledge` writes back the same (`:258-275`, `:292-293`). After a
    lost mark the next move restarts it at 0 (`:244-246`).
 
-## What xfx does now (code head `0fdeae02`)
+## What xfx does now (code head `819e6319`)
 
 - `FilePicker::height(rows, input_extra, banner_rows)` is fx's formula
   (`src/tui/file_picker.rs`, `height`). The band asks it with the try's
@@ -156,11 +173,18 @@ never the binary's code.
   - While it is false, `step` returns at once, `chosen()` (Tab and Enter's
     row) is `None`, and `enter()` is `Wait`, also for a query nothing
     matched. Tab on an unreadable list still asks again, as fx's does.
+  - Round 3:
+    - every key `offer_to_files` takes asks for a frame (`Reason::Modal`),
+      whether it moved anything or not;
+    - under the full transcript Enter returns `false`, so the composer
+      sends the line;
+    - `adopt_resume` distrusts the list.
 - `FilePicker::rows` still re-fits the painted window from the stored start
   without writing it back. `settle` does not write back a re-fitted start
   either (at the base it re-fitted to six rows). It keeps the stored start
   when the marked path is found, on row 0 too (round 2; the base put it back
-  to 0 there), and restarts it only when the path is gone.
+  to 0 there), and restarts it only when the path is gone from rows that
+  are there. A refresh that empties the list keeps the start (round 3).
 - No status row over rows: xfx has no `Selection unavailable` state. A refresh
   that loses the marked path puts the bar back on the first row. So the
   list's band rows are its file rows, and `docs/parity.md`'s `@` row records
@@ -254,25 +278,92 @@ a 900 s limit (`mutants.py`, `TESTS`, `LIMIT_S`), under the suite lock.
     pending resize or the full transcript keeping trust;
   - the window rule (2): the reset at row 0 put back, the reset for a lost
     mark deleted.
-- **The two that survive are equivalent** (`equivalent-mutants.txt`):
-  - `reset-per-word`: the count is unobservable across words, because a new
-    word's keys wait for its first frame, which sets it. This is opus's
-    SHOULD 1 point, and it holds in fx too.
-  - `landed-any-slot`: no surface outranks a live `@` list. A question
-    dismisses it, and a throwaway probe of Ctrl-P, `/provider @s` and
-    `/mcp show @s` found no list under any of them.
+- Of round 2's two survivors (`equivalent-mutants.txt`):
+  - `reset-per-word` is equivalent. The count is unobservable across words,
+    because a new word's keys wait for its first frame, which sets it. This
+    is opus's point, and it holds in fx too.
+  - `landed-any-slot` is **not**. Round 2 called it equivalent, which was
+    wrong (opus round 2, MUST 2): the read-only panel outranks a list a
+    paste opens under it. Round 3 adds the test that kills it.
+- **Round 3**: see the round-3 section.
+
+## Round 3: the two reviews' fixes (RED `722dcb23`, `red-unit-r3.txt`)
+
+**RED.** The four RED tests, run at `722dcb23` on round 2's code: 4 failed,
+by assertion.
+
+- **MUST 1 (both reviews): the gate could strand the list's keys.** The
+  sequence:
+  1. A Down, Tab or Enter arrives while a resize is pending, and is spent.
+  2. It asked for no frame.
+  3. The resize comes back the same size (`Shell::resize` returns
+     `Unchanged`, which asks for no frame of its own).
+  4. So no frame trusted the list again, and the next Down was spent too
+     (`a_key_spent_mid_resize_asks_for_the_frame_that_shows_the_list_again`).
+
+  fx asks for a frame after every key its list takes, spent or not
+  (`app_input_runtime.zig:310-330`, `:1013-1020`, `:1317-1321`,
+  `:1405-1410`). `offer_to_files` now does the same. **GREEN**: the test
+  passes for all three keys, and the three mutants that drop one key's
+  request are killed (`mutants-run4.txt`).
+- **MUST 2 (opus): `landed-any-slot` was not equivalent.** The read-only
+  panel outranks a list a paste opens under it. The new test
+  `a_frame_that_shows_another_surface_over_the_list_neither_trusts_it_nor_sets_its_rows`
+  kills the mutant (`mutants-run4.txt`). The false claim is gone from
+  `equivalent-mutants.txt` and from this README.
+- **Enter under Ctrl-O (opus SHOULD 1), a regression from the base.** Round
+  2 swallowed it; the base, for a query nothing matched, sent the line.
+  Now Enter goes on to the composer, whether a row is marked or not, as fx
+  does (`submitFilePickerOnEnter`, `:1034-1037`).
+  - fx's own captures send `@zzzz-none` and `@f-`, and so does the head's.
+    The base sent the first and completed the second
+    (`ctrlo-probe/enter-*`).
+  - Tab, C-j and C-k there are CTRLO-AT-KEYS's, as `docs/parity.md` now
+    says.
+- **Resume (opus SHOULD 2).** The mapping holds at the pin:
+  - a resume runs `requestTerminalReset` (`app_lifecycle.zig:1200-1211`),
+    which sets `terminal_reset_pending` (`transcript/runtime.zig:7167`),
+    which distrusts the list (`:805-806`);
+  - `adopt_resume` now distrusts it
+    (`a_resume_spends_the_at_lists_keys_until_its_frame_lands`).
+- **A refresh that empties the list (opus SHOULD 3).** The window is now
+  kept, since fx records no lost selection over an empty list (`:258-260`,
+  `:291`). It restarts only when the path is gone from rows that are there
+  (`a_refresh_that_empties_the_list_keeps_the_window`).
+- **gpt6's wording.** The module doc and the parity row now describe a
+  query-and-visibility gate and spell out the refresh exception. They no
+  longer say "every key acts only on rows a frame showed".
+
+**Captures** at the round-3 build (`v0.1.0-3a76208`): all 50 pairs again.
+24 are identical on the head (`pairs.txt`), as in round 2, the three
+`p5-input-at-gate` pairs included, and `band.txt` is 77 of 77 on the head
+and 15 failures on the base.
+
+**Mutants** (`mutants-run4.txt`, at `3a76208f`): **36 run, 35 killed.**
+These are rounds 1 and 2's 30 at the round-3 code, plus 6 new:
+- the three per-key frame requests;
+- Enter taken under the full transcript;
+- resume keeping trust;
+- the empty-list reset.
+
+`landed-any-slot` is killed. The one survivor, `reset-per-word`, is
+equivalent (`equivalent-mutants.txt`).
 
 ## The sweep (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
 
-Round 2's run: `sweep.sh` against fx v0.0.16 at 40x120, `--jobs 2`, under
-the suite lock, over 25 picker and band scenarios. These are `p5-input-*`
+Round 3's run: the head's build (`v0.1.0-3a76208`) against round 2's run of
+the base, which is the same binary (sha256 `fd09f29c…`) and the same
+scenarios (none changed after `79b81967`). Both are rescored with the ledger
+at `3a76208f`. The result is the same as round 2's: **64 → 83 of 149, 19
+moved to passing, none dropped, no uncaused picker or composer pair on the
+head.** The run itself: `sweep.sh` against fx v0.0.16 at 40x120, `--jobs 2`,
+under the suite lock, over 25 picker and band scenarios. These are `p5-input-*`
 (every input-cluster scenario, with this unit's three), `filepicker*`,
 `composer*`, `workspace-index`, `startup`, `h1-resize`, `model-column`,
 `settings-scrollback`, `p5-mcp-config` and `p5-mcp-verbs`: every scenario
 whose `.cap` types an `@`, plus the core set's band and menu scenarios and
 the composer's. It ran on the base's build, then the head's
-(`v0.1.0-79b8196`). Both are rescored with the ledger at `a4914d8e`, so they
-read the same causes.
+(round 2's head was `v0.1.0-79b8196`, round 3's `v0.1.0-3a76208`).
 
 - **pass 64/149 → 83/149.** 19 pairs move to normalized-identical, and
   **none drops**:
@@ -323,17 +414,22 @@ read the same causes.
 | `shell::tab_and_enter_before_a_new_words_first_frame_choose_nothing_and_send_nothing` | round 2 RED: Tab, and Enter on no match |
 | `shell::only_a_frame_that_landed_showing_the_list_changes_the_rows_its_arrows_scroll` | round 2: a refused write on a shorter screen keeps the count and spends the key (gpt6) |
 | `shell::a_frame_that_gave_the_list_no_rows_leaves_the_rows_its_arrows_scroll` | fx's `picker_rows > 0`; round 2: and the key after it is spent |
+| `event_loop::a_key_spent_mid_resize_asks_for_the_frame_that_shows_the_list_again` | round 3 RED (MUST 1): a Down, a Tab and an Enter spent mid-resize, on a resize back to the same size |
+| `event_loop::a_resume_spends_the_at_lists_keys_until_its_frame_lands` | round 3 RED |
+| `shell::enter_under_the_full_transcript_goes_on_to_the_composer` | round 3 RED: no match, and a marked row |
+| `file_picker::a_refresh_that_empties_the_list_keeps_the_window` | round 3 RED |
+| `shell::a_frame_that_shows_another_surface_over_the_list_neither_trusts_it_nor_sets_its_rows` | round 3 (opus MUST 2): a list opened by a paste under the read-only panel |
 | `shell::a_waiting_prompts_rows_come_out_of_the_at_lists_growth` | the banner term: 10 rows alone, 8 past a one-row prompt at 20 rows |
 | `shell::an_at_opens_…`, `shell::a_query_narrows_…` | updated: ten rows (`filepicker`'s `at`, `at-sch` at 40x120 on fx) |
 
 ## The gate (`gate.txt`, `gates.sh`)
 
-Round 2's gate covers every CI step. It ran in a `--no-local` clone at
-`a4914d8e`, the last commit before this folder's, in one hold of the suite
+Round 3's gate covers every CI step. It ran in a `--no-local` clone at
+`3a76208f`, the last commit before this folder's, in one hold of the suite
 lock, with `TMPDIR=<scratch>/at-height`. **20 steps, 0 failed**, and the
 tree was clean before and after:
 - fmt, clippy, and clippy with fault injection;
-- `cargo test`: 5465 passed, 0 failed. With fault injection: 5502 passed, 0
+- `cargo test`: 5470 passed, 0 failed. With fault injection: 5507 passed, 0
   failed;
 - the identity, stubs, secrets, preview-contract, preflight-cost and
   usage-clock checks, and their self-tests;
@@ -342,8 +438,14 @@ tree was clean before and after:
 - smoke, and smoke-tui: 37 scenarios and the oracle, 1168 checks, 0
   failures.
 
-Round 1's gate was at `ee0959a7`, 20 of 20 (5457 and 5494 tests). The
-receipt commit after `a4914d8e` adds only this folder.
+The earlier gates, each 20 of 20:
+
+| round | commit | cargo test | with fault injection |
+|---|---|---|---|
+| 1 | `ee0959a7` | 5457 | 5494 |
+| 2 | `a4914d8e` | 5465 | 5502 |
+
+The receipt commit after `3a76208f` adds only this folder.
 
 ## docs/parity.md
 
@@ -351,8 +453,11 @@ The `@` file picker row:
 - the height (rule, table, the turn's-row clamp);
 - the scroll (the painted rows, the resize re-fit, the refresh that keeps the
   window);
-- round 2: **every key acts only on rows a frame that landed has shown**, and
-  when that is cleared. Round 1's "kept from one `@` word to the next" is
+- round 2: the keys' gate, and when it is cleared; round 3: it is called a
+  query-and-visibility gate, with the refresh exception spelled out (gpt6),
+  every key the list takes asks for a frame, a resume clears it, Enter
+  under Ctrl-O sends the line, and Tab, C-j and C-k there are named
+  CTRLO-AT-KEYS's. Round 1's "kept from one `@` word to the next" is
   gone: no key reads the count across words;
 - two narrower points, with owners:
   - no `Selection unavailable` row (AT-STALE-SELECTION);
@@ -389,9 +494,13 @@ The receipt pointer names this folder.
 - **A waiting prompt's rows in the other list pickers'** heights:
   **MENU-BANNER-ROWS** (`surface_frame.zig:538-542@481104fd`; xfx's
   `Slot::Menu` does not count them). `fit`'s comment now says so.
-- **Where the keys go under Ctrl-O** (found in round 2, owner none yet).
-  fx's list takes no key while the full transcript is up, and neither does
-  xfx's now; the base's took them.
+- **Where the keys go under Ctrl-O** (found in round 2; owner
+  **CTRLO-AT-KEYS** for Tab, C-j and C-k). fx's list takes no key while the
+  full transcript is up, and neither does xfx's now; the base's took them.
+  - **Enter is fixed here** (round 3): it goes on to send the line, as fx's
+    does (`ctrlo-probe/`, `enter-nomatch` and `enter-rows`). Round 2 had
+    swallowed it, a regression from the base for a query nothing matched
+    (opus round 2, SHOULD 1).
   - The keys the transcript leaves unbound go somewhere else in fx. Its C-j
     under Ctrl-O lands in the composer as a new line, which closes the list
     (`ctrlo-probe/`: fx, base and head `cj-back` captures, and the

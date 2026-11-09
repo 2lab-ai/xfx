@@ -1,0 +1,48 @@
+# round 3 RED: commit 722dcb23 (the tests alone, on round 2's code)
+# cargo test --locked --lib -- tui::event_loop::tests::a_key_spent_mid_resize tui::event_loop::tests::a_resume_spends tui::shell::tests::enter_under_the_full tui::file_picker::tests::a_refresh_that_empties
+running 4 tests
+test tui::file_picker::tests::a_refresh_that_empties_the_list_keeps_the_window ... FAILED
+test tui::shell::tests::enter_under_the_full_transcript_goes_on_to_the_composer ... FAILED
+test tui::event_loop::tests::a_key_spent_mid_resize_asks_for_the_frame_that_shows_the_list_again ... FAILED
+test tui::event_loop::tests::a_resume_spends_the_at_lists_keys_until_its_frame_lands ... FAILED
+
+failures:
+
+---- tui::file_picker::tests::a_refresh_that_empties_the_list_keeps_the_window stdout ----
+
+thread 'tui::file_picker::tests::a_refresh_that_empties_the_list_keeps_the_window' panicked at src/tui/file_picker.rs:1518:9:
+assertion `left == right` failed
+  left: 0
+ right: 3
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::shell::tests::enter_under_the_full_transcript_goes_on_to_the_composer stdout ----
+
+thread 'tui::shell::tests::enter_under_the_full_transcript_goes_on_to_the_composer' panicked at src/tui/shell.rs:34727:26:
+review @definitely-not-present: Enter under Ctrl-O sent Err(Empty)
+
+---- tui::event_loop::tests::a_key_spent_mid_resize_asks_for_the_frame_that_shows_the_list_again stdout ----
+
+thread 'tui::event_loop::tests::a_key_spent_mid_resize_asks_for_the_frame_that_shows_the_list_again' panicked at src/tui/event_loop.rs:16110:13:
+assertion `left == right` failed: after [27, 91, 66] spent mid-resize, the Down was spent too
+  left: [("items/f-01.txt", true), ("items/f-02.txt", false), ("items/f-03.txt", false), ("items/f-04.txt", false), ("items/f-05.txt", false), ("items/f-06.txt", false), ("items/f-07.txt", false), ("items/f-08.txt", false), ("items/f-09.txt", false), ("items/f-10.txt", false)]
+ right: [("items/f-01.txt", false), ("items/f-02.txt", true), ("items/f-03.txt", false), ("items/f-04.txt", false), ("items/f-05.txt", false), ("items/f-06.txt", false), ("items/f-07.txt", false), ("items/f-08.txt", false), ("items/f-09.txt", false), ("items/f-10.txt", false)]
+
+---- tui::event_loop::tests::a_resume_spends_the_at_lists_keys_until_its_frame_lands stdout ----
+
+thread 'tui::event_loop::tests::a_resume_spends_the_at_lists_keys_until_its_frame_lands' panicked at src/tui/event_loop.rs:16129:9:
+assertion `left == right` failed: a Down moved the bar after a resume
+  left: [("items/f-01.txt", false), ("items/f-02.txt", true), ("items/f-03.txt", false), ("items/f-04.txt", false), ("items/f-05.txt", false), ("items/f-06.txt", false), ("items/f-07.txt", false), ("items/f-08.txt", false), ("items/f-09.txt", false), ("items/f-10.txt", false)]
+ right: [("items/f-01.txt", true), ("items/f-02.txt", false), ("items/f-03.txt", false), ("items/f-04.txt", false), ("items/f-05.txt", false), ("items/f-06.txt", false), ("items/f-07.txt", false), ("items/f-08.txt", false), ("items/f-09.txt", false), ("items/f-10.txt", false)]
+
+
+failures:
+    tui::event_loop::tests::a_key_spent_mid_resize_asks_for_the_frame_that_shows_the_list_again
+    tui::event_loop::tests::a_resume_spends_the_at_lists_keys_until_its_frame_lands
+    tui::file_picker::tests::a_refresh_that_empties_the_list_keeps_the_window
+    tui::shell::tests::enter_under_the_full_transcript_goes_on_to_the_composer
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 4555 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `--lib`
+# cargo test: exit 101

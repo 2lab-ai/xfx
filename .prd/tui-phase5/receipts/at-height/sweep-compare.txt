@@ -1,4 +1,4 @@
-# round 2: python3 -I compare.py <base sweep>/pairs.json <head sweep>/pairs.json (base v0.1.0-712dd8d, head v0.1.0-79b8196; both rescored with the ledger at a4914d8e)
+# round 3: python3 -I compare.py <base sweep>/pairs.json <head sweep>/pairs.json (base v0.1.0-712dd8d from round 2's run, same binary and scenarios; head v0.1.0-3a76208; both rescored with the ledger at 3a76208f)
 pairs: base 149, head 149
 base: pass 64/149  normalized-identical 64, unresolved-defect 85
 head: pass 83/149  normalized-identical 83, unresolved-defect 66
