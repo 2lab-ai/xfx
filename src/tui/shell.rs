@@ -34875,10 +34875,19 @@ mod tests {
         );
         assert!(!shell.file_listing_hold_pending(now + Duration::from_millis(1)));
         // And back on the composer's plane, the next folder holds again.
+        // Pasted, so `src/deep/` is the one lookup: typed, `d`, `e`, `e`, `p`
+        // each look `src/` up again, which replaces the driven listing with
+        // a real one -- and that one, landing before the hold is asked on a
+        // busy machine, made this case fail (round 8: two mutant runs).
         shell.route_bytes(&[0x0f]);
         let _next =
             super::super::file_index::tests::driven_listing(shell.files_for_test(), "src/deep");
-        shell.route_bytes(b"deep/");
+        shell.route_bytes(b"\x1b[200~deep/\x1b[201~");
+        assert_eq!(shell.editor.text(), "@src/deep/");
+        assert!(
+            shell.files_for_test().listing_in_flight_for_test(),
+            "the driven listing was replaced"
+        );
         assert!(shell.hold_frame_for_file_listing(now + Duration::from_millis(30)));
     }
 
