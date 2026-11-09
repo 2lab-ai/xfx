@@ -48,7 +48,7 @@ MUTANTS = [
     ("M13 the early count stop removed: any count past twenty decodes",
      [(Q, "if answers.len() == MAX_QUESTIONS {", "if false && answers.len() == MAX_QUESTIONS {")]),
     ("M16 `IgnoredAny` put back for the twenty-first: its value is scanned before the count's refusal",
-     [(Q, "return match seq.next_element_seed(TwentyFirst)? {\n                    Some(()) =>", "return match seq.next_element::<serde::de::IgnoredAny>()? {\n                    Some(_) =>")]),
+     [(Q, "return match seq.next_element_seed(TwentyFirst)? {\n                    Some(never) => match never {},", "return match seq.next_element::<serde::de::IgnoredAny>()? {\n                    Some(_) => Err(serde::de::Error::invalid_length(MAX_QUESTIONS + 1, &self)),")]),
     ("M14 `question` or `answer` given twice accepted (the last one kept)",
      [(Q, "if slot.is_some() {", "if false && slot.is_some() {")]),
     ("M15 a key nobody reads given twice accepted",

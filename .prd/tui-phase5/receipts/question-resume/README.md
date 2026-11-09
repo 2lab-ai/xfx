@@ -23,9 +23,10 @@ snaps. The base is `origin/main` at `32afd307`.
 | `63e8bbeb` | round 2's fix: `decode_answers` read by hand (objects only; a twenty-first refused after `IgnoredAny` scanned it, which round 3 fixed; a key given twice in an answer's own object refused, not inside a skipped value); the parity row's Escape, sentinel and questioner sentences; the failed-call mapping said in the row and the hydration. The captures and the sweep are this commit's |
 | `56994078` | round 2's receipt |
 | `37cdd637` | round 3 RED: a twenty-first element must be refused unread (fails: `Eof` where `Data` is wanted); the two looser documents pinned (pass); `red-tests-r3.txt` |
-| `9a2921ce` | round 3's fix, **the code head**: the rejecting seed; the looseness said in `decode_answers`'s doc, the parity row and here; `docs/parity.md`'s full-screen TUI row's Escape sentence; the row's sentinel paths and `:15601-15605`; `input_question_runtime.zig:59-81` in `fx-src.txt` |
+| `9a2921ce` | round 3's fix: the rejecting seed; the looseness said in `decode_answers`'s doc, the parity row and here; `docs/parity.md`'s full-screen TUI row's Escape sentence; the row's sentinel paths and `:15601-15605`; `input_question_runtime.zig:59-81` in `fx-src.txt` |
 | `678a9552` | round 3's receipt: `mutants.*` (16 of 16 at `9a2921ce`) |
-| round 4 | words and one test: the 8 MiB tail unclosed, so every tail of `the_twenty_first_element_is_refused_at_its_first_byte_unread` fails with round 2's scan (`red-tests-r4.txt`); the seed's value type uninhabited; Zig 0.17 marked inferred; the Escape-at-draft qualification; this file's false lines; `mutants.*` rerun |
+| `c9931eec` | round 4, **the code head**: the 8 MiB tail unclosed, so every tail of `the_twenty_first_element_is_refused_at_its_first_byte_unread` fails with round 2's scan (`red-tests-r4.txt`); the seed's value type uninhabited (the only code change); Zig 0.17 marked inferred; the Escape-at-draft qualification; this file's false lines |
+| the commit after it | `mutants.*` rerun at `c9931eec`: 16 of 16 |
 
 `git diff 63e8bbeb HEAD -- src` is `src/tools/question.rs` alone: the
 decode of a document past twenty elements, comments and tests. No capture
@@ -277,9 +278,9 @@ either side.
 ## Mutants (`mutants.py`, `mutants.txt`)
 
 `mutants.py` ran on a throwaway `git clone --no-local` of the repository at
-`9a2921ce` (round 3), never on the worktree, under one suite-lock slot. Each mutant is
+`c9931eec` (round 4), never on the worktree, under one suite-lock slot. Each mutant is
 one or two exact substitutions (each asserted to match once), then the
-unit's tests, then `git checkout -- .`. **16 of 16 killed** (round 2: 15 of 15 at `63e8bbeb`; round 1: 11 of 11 at `a623824c`); the clone was clean after the run.
+unit's tests, then `git checkout -- .`. **16 of 16 killed** (round 3: 16 of 16 at `9a2921ce`; round 2: 15 of 15 at `63e8bbeb`; round 1: 11 of 11 at `a623824c`); the clone was clean after the run.
 
 | mutant | what it puts back or breaks |
 |---|---|
@@ -296,7 +297,7 @@ unit's tests, then `git checkout -- .`. **16 of 16 killed** (round 2: 15 of 15 a
 | M13 | the early count stop removed: any count past twenty decodes |
 | M14 | `question` or `answer` given twice accepted |
 | M15 | an unread key given twice accepted |
-| M16 | `IgnoredAny` put back for the twenty-first (round 2's code): its value is scanned before the count's refusal; killed by `the_twenty_first_element_is_refused_at_its_first_byte_unread` |
+| M16 | `IgnoredAny` put back for the twenty-first (round 2's code): its value is scanned before the count's refusal; killed by `the_twenty_first_element_is_refused_at_its_first_byte_unread`, on each of its four tails (`red-tests-r4.txt`) |
 
 `mutants.txt` names the tests each one failed.
 
