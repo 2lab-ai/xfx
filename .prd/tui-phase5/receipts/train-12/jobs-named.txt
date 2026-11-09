@@ -1,0 +1,54 @@
+# jobs.sh named at 2026-11-09T21:55:42Z, load 19.15
+# named-clone at 03fb5436
+lib: exit 0
+    test tui::layout::tests::the_composer_may_take_half_of_fxs_content_area_plus_one_row ... ok
+    test tui::shell::tests::at_41_rows_a_page_of_the_slash_menu_is_19_commands ... ok
+    test tui::shell::tests::on_an_eight_row_screen_a_page_and_the_composers_cap_are_one_row ... ok
+    test tui::shell::tests::at_41_rows_a_page_of_the_fork_menu_is_19_prompts ... ok
+    test tui::shell::tests::at_41_rows_a_page_of_the_resume_picker_is_19_sessions ... ok
+    test tui::shell::tests::at_41_rows_a_page_of_the_model_menu_is_19_models ... ok
+    test tui::shell::tests::at_41_rows_a_page_of_the_effort_menu_is_19_levels_round_its_five ... ok
+    test tui::shell::tests::at_41_rows_a_page_of_the_help_catalog_is_19_commands ... ok
+    test tui::shell::tests::at_41_rows_a_page_of_the_skills_menu_is_19_skills ... ok
+    test tui::shell::tests::at_41_rows_the_composer_is_capped_at_19_rows_and_a_page_is_19_of_them ... ok
+    test tui::shell::tests::at_41_rows_a_page_of_the_at_list_is_19_paths ... ok
+    test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 4726 filtered out; finished in 0.03s
+test-capture.sh -v: exit 0; Ran 107 tests in 482.974s OK 
+# the clone clean after: yes
+# jobs.sh named done at 2026-11-09T22:05:00Z
+# exit 0
+
+## harness_names.sh: each unit's test_capture.py cases in the run above, by name
+## SWEEP-WALLCLOCK-F (3be49c15..4bc9ab13)
+    test_modelsdown_until_modelsup (__main__.Verbs.test_modelsdown_until_modelsup) ... ok
+    test_modelsdown_answers_503_until_its_file_is_in_place (__main__.FakeGateway.test_modelsdown_answers_503_until_its_file_is_in_place) ... ok
+    test_each_verbs_arguments (__main__.Refusals.test_each_verbs_arguments) ... ok
+# SWEEP-WALLCLOCK-F: 3 of 3 ok
+## LOCAL-PATHS (ccced1f5..5609108f)
+    test_a_dir_never_takes_a_binarys_tmpdir_name (__main__.Refusals.test_a_dir_never_takes_a_binarys_tmpdir_name) ... ok
+    test_a_root_wrapped_at_the_margin_wraps_its_placeholder_at_every_byte (__main__.RootsRewrite.test_a_root_wrapped_at_the_margin_wraps_its_placeholder_at_every_byte) ... ok
+    test_a_root_wrapped_at_two_offsets_reads_different_on_each_side (__main__.RootsRewrite.test_a_root_wrapped_at_two_offsets_reads_different_on_each_side) ... ok
+    test_a_root_a_binary_broke_behind_a_gutter_keeps_the_gutter_and_the_colours (__main__.RootsRewrite.test_a_root_a_binary_broke_behind_a_gutter_keeps_the_gutter_and_the_colours) ... ok
+    test_a_colour_change_inside_a_root_stays_where_it_was (__main__.RootsRewrite.test_a_colour_change_inside_a_root_stays_where_it_was) ... ok
+    test_every_spelling_and_an_osc_8_target (__main__.RootsRewrite.test_every_spelling_and_an_osc_8_target) ... ok
+    test_an_nf_escape_beside_a_root_is_a_control_sequence (__main__.RootsRewrite.test_an_nf_escape_beside_a_root_is_a_control_sequence) ... ok
+    test_a_root_ends_whole_within_its_row (__main__.RootsRewrite.test_a_root_ends_whole_within_its_row) ... ok
+    test_a_literal_placeholder_is_never_a_root (__main__.RootsRewrite.test_a_literal_placeholder_is_never_a_root) ... ok
+    test_a_resolved_root_is_its_own_placeholder (__main__.RootsRewrite.test_a_resolved_root_is_its_own_placeholder) ... ok
+    test_a_root_narrower_than_its_name_and_one_too_narrow (__main__.RootsRewrite.test_a_root_narrower_than_its_name_and_one_too_narrow) ... ok
+    test_a_root_of_other_characters_keeps_its_columns (__main__.RootsRewrite.test_a_root_of_other_characters_keeps_its_columns) ... ok
+    test_a_sibling_of_an_outer_root_is_neither_rewritten_nor_refused (__main__.RootsRewrite.test_a_sibling_of_an_outer_root_is_neither_rewritten_nor_refused) ... ok
+    test_a_styled_sibling_of_an_outer_root_is_neither_rewritten_nor_refused (__main__.RootsRewrite.test_a_styled_sibling_of_an_outer_root_is_neither_rewritten_nor_refused) ... ok
+    test_a_root_with_a_gutter_character_the_view_drops_still_refuses (__main__.RootsRewrite.test_a_root_with_a_gutter_character_the_view_drops_still_refuses) ... ok
+    test_a_root_whose_head_an_escape_took_is_refused_beside_a_styled_sibling (__main__.RootsRewrite.test_a_root_whose_head_an_escape_took_is_refused_beside_a_styled_sibling) ... ok
+    test_a_root_in_a_control_sequences_bytes_still_refuses (__main__.RootsRewrite.test_a_root_in_a_control_sequences_bytes_still_refuses) ... ok
+    test_what_survives_refuses_the_file (__main__.RootsRewrite.test_what_survives_refuses_the_file) ... ok
+    test_a_file_without_a_root_is_left_byte_for_byte (__main__.RootsRewrite.test_a_file_without_a_root_is_left_byte_for_byte) ... ok
+    test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir (__main__.RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir) ... ok
+    test_a_tmpdir_with_a_trailing_slash (__main__.RunRoots.test_a_tmpdir_with_a_trailing_slash) ... ok
+    test_a_sibling_of_the_harness_tmpdir_is_left_and_refuses_nothing (__main__.RunRoots.test_a_sibling_of_the_harness_tmpdir_is_left_and_refuses_nothing) ... ok
+    test_a_resolved_root_reads_as_its_own_placeholder (__main__.RunRoots.test_a_resolved_root_reads_as_its_own_placeholder) ... ok
+    test_both_sides_are_written_alike_and_keep_their_widths (__main__.RunRoots.test_both_sides_are_written_alike_and_keep_their_widths) ... ok
+    test_a_root_each_side_broke_at_another_column_reads_different (__main__.RunRoots.test_a_root_each_side_broke_at_another_column_reads_different) ... ok
+    test_a_real_root_and_a_literal_placeholder_never_read_the_same (__main__.RunRoots.test_a_real_root_and_a_literal_placeholder_never_read_the_same) ... ok
+# LOCAL-PATHS: 26 of 26 ok
