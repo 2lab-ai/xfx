@@ -56,8 +56,9 @@ use super::theme::Palette;
 /// **Who uses the third row:** that warning from 20 to 29 columns, fx's
 /// amendment limit from 20 to 28, and the readiness refusals --
 /// `APPROVAL_NOT_READY` from 20 to 39 and `APPROVAL_NOT_DISCLOSED` from 20 to
-/// 68 (a status wider than three rows is cut to them there). The quarantine's
-/// three sentences never do.
+/// 68. Wider than three rows, and so cut to them: the limit at 20,
+/// `APPROVAL_NOT_READY` at 20 to 27, `APPROVAL_NOT_DISCLOSED` at 20 to 46.
+/// The quarantine's three sentences never use the third row.
 ///
 /// **What it costs:** no answer, ever. A status is the first thing given up on
 /// a short screen, after the blanks (`Part`). It does cost the review: on a

@@ -39133,53 +39133,57 @@ mod tests {
     fn fx_s_warning_and_the_quarantine_s_sentences_are_whole_or_absent_on_a_short_plane() {
         // The other half of the same rule: a cut of these says something else
         // -- "Input that arrived right after the", "Keys ignored until" -- so
-        // at every height from the chrome to four rows above it, at 20
+        // at every height from the chrome to four rows above it, at 20 and 30
         // columns, each is on the plane whole or not at all.
-        let cols = super::super::layout::MIN_COLS;
-        let chrome = plane_chrome_rows(asked_about_a_large_change(), cols);
-        for (opening, last, sentence) in [
-            (&b"\x1b[200~new\x1b[201~y"[..], None, PASTE_SUFFIX),
-            (b"\x1b[200~new\x1b[201~", Some(&b"y"[..]), PASTE_STILL),
-            (
-                b"\x1b[200~new\x1b[201~\x1b[200~two ",
-                Some(b"y"),
-                PASTE_UNTIL_END,
-            ),
-            (b"\x1b[200~new\x1b[201~", Some(b"\x1b["), PASTE_UNTIL_KEY),
-        ] {
-            let rows = plane_status_rows(sentence, cols);
-            let mut seen = false;
-            for height in chrome..=chrome + 4 {
-                let at = format!("{sentence:?}, {cols}x{height} (B = {chrome})");
-                let mut shell = shell(height, cols);
-                let started = turn_running(&mut shell, b"rewrite the notes\r");
-                shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
-                shell.settle_band(started);
-                let _ = shell.document();
-                assert_eq!(shell.screen_owner(), ScreenOwner::Alternate, "{at}");
-                delivered(&mut shell);
-                let now = Instant::now();
-                match last {
-                    None => {
-                        shell.route_read(opening);
-                        shell.end_delivery_at(now);
-                        shell.settle_input(now);
+        for cols in [super::super::layout::MIN_COLS, 30] {
+            let chrome = plane_chrome_rows(asked_about_a_large_change(), cols);
+            for (opening, last, sentence) in [
+                (&b"\x1b[200~new\x1b[201~y"[..], None, PASTE_SUFFIX),
+                (b"\x1b[200~new\x1b[201~", Some(&b"y"[..]), PASTE_STILL),
+                (
+                    b"\x1b[200~new\x1b[201~\x1b[200~two ",
+                    Some(b"y"),
+                    PASTE_UNTIL_END,
+                ),
+                (b"\x1b[200~new\x1b[201~", Some(b"\x1b["), PASTE_UNTIL_KEY),
+            ] {
+                let rows = plane_status_rows(sentence, cols);
+                let mut seen = false;
+                for height in chrome..=chrome + 4 {
+                    let at = format!("{sentence:?}, {cols}x{height} (B = {chrome})");
+                    let mut shell = shell(height, cols);
+                    let started = turn_running(&mut shell, b"rewrite the notes\r");
+                    shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+                    shell.settle_band(started);
+                    let _ = shell.document();
+                    assert_eq!(shell.screen_owner(), ScreenOwner::Alternate, "{at}");
+                    delivered(&mut shell);
+                    let now = Instant::now();
+                    match last {
+                        None => {
+                            shell.route_read(opening);
+                            shell.end_delivery_at(now);
+                            shell.settle_input(now);
+                        }
+                        Some(last) => {
+                            let due = streamed_to_the_repeat(&mut shell, now, opening, last);
+                            shell.settle_input(due);
+                        }
                     }
-                    Some(last) => {
-                        let due = streamed_to_the_repeat(&mut shell, now, opening, last);
-                        shell.settle_input(due);
-                    }
+                    let painted = uncoloured_rows(&shell.screen_rows());
+                    let shown = status_rows_shown(&rows, &painted, &at);
+                    assert!(
+                        shown == 0 || shown == rows.len(),
+                        "{at}: {shown} of {} rows: {painted:?}",
+                        rows.len()
+                    );
+                    seen |= shown > 0;
                 }
-                let painted = uncoloured_rows(&shell.screen_rows());
-                let shown = status_rows_shown(&rows, &painted, &at);
                 assert!(
-                    shown == 0 || shown == rows.len(),
-                    "{at}: {shown} of {} rows: {painted:?}",
-                    rows.len()
+                    seen,
+                    "{sentence:?} was never on the plane at {cols} columns"
                 );
-                seen |= shown > 0;
             }
-            assert!(seen, "{sentence:?} was never on the plane");
         }
     }
 
