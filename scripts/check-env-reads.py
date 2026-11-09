@@ -139,10 +139,11 @@ PLAIN = [
     # The build script: a process cargo runs before the crate exists, never a
     # test and never the product. It reads what cargo and a publishing
     # workflow set (XFX_BUILD_REVISION, XFX_BUILD_CHANNEL, PROFILE), drops
-    # every GIT_* name from the git it starts, and starts that git.
+    # every GIT_* name from the git it starts, and starts that git (two
+    # calls: `git_path` and `git_revision`).
     ("build.rs", "std::env::var", 3),
     ("build.rs", "std::env::vars_os", 1),
-    ("build.rs", "std::process::Command::output", 1),
+    ("build.rs", "std::process::Command::output", 2),
 ]
 
 ENV_EXCEPTION_FILE = "src/env_exception.rs"
