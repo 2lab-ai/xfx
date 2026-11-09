@@ -1,0 +1,58 @@
+# cells.py (.prd/tui-phase4/receipts/m1/cells.py), fx v0.0.16 against xfx ea2b8a60 (banner v0.1.0-ea2b8a6),
+# the head sweep's own captures, 40x120. The pairs' sweep verdicts (base and head) follow.
+p5-input-paste/paste-enter: 0 rows differ in their cells (row 1 not compared)
+p5-input-paste/paste-enter.full: 0 rows differ in their cells (row 1 not compared)
+p5-input-paste-behind/paste-behind: 0 rows differ in their cells (row 1 not compared)
+p5-input-paste-behind/paste-behind.full: 0 rows differ in their cells (row 1 not compared)
+p5-input-paste-behind/version-behind: 0 rows differ in their cells (row 1 not compared)
+p5-input-paste-field/answered: 0 rows differ in their cells (row 1 not compared)
+p5-input-paste-field/choice-paste-enter: 0 rows differ in their cells (row 1 not compared)
+p5-input-paste-field/field-keep: 0 rows differ in their cells (row 1 not compared)
+p5-input-paste-field/field-paste-enter: 0 rows differ in their cells (row 1 not compared)
+p5-input-paste-field/q: 0 rows differ in their cells (row 1 not compared)
+paste-suffix/paste-enter: 0 rows differ in their cells (row 1 not compared)
+paste-suffix/paste-enter.full: 0 rows differ in their cells (row 1 not compared)
+p5-input-paste-amend/amend-keep: 6 rows differ in their cells (row 1 not compared)
+p5-input-paste-amend/amend-paste-enter: 6 rows differ in their cells (row 1 not compared)
+p5-input-paste-amend/answered: 6 rows differ in their cells (row 1 not compared)
+p5-input-paste-amend/asked: 6 rows differ in their cells (row 1 not compared)
+p5-input-paste-amend/choice-paste-enter: 6 rows differ in their cells (row 1 not compared)
+p5-input-paste-amend/end: 5 rows differ in their cells (row 1 not compared)
+
+# pairs.json verdicts: side scenario/label verdict causes uncaused-rows
+base p5-input-paste/paste-enter normalized-identical [] 0
+base p5-input-paste/paste-enter.full normalized-identical [] 0
+base p5-input-paste-amend/asked unresolved-defect ['approval-grant-scope'] 0
+base p5-input-paste-amend/choice-paste-enter unresolved-defect ['approval-grant-scope'] 0
+base p5-input-paste-amend/amend-keep unresolved-defect ['approval-grant-scope'] 0
+base p5-input-paste-amend/amend-paste-enter unresolved-defect ['approval-grant-scope'] 0
+base p5-input-paste-amend/answered unresolved-defect ['approval-grant-scope'] 0
+base p5-input-paste-amend/end unresolved-defect [] 1
+base p5-input-paste-behind/version-behind normalized-identical [] 0
+base p5-input-paste-behind/paste-behind normalized-identical [] 0
+base p5-input-paste-behind/paste-behind.full normalized-identical [] 0
+base p5-input-paste-field/q normalized-identical [] 0
+base p5-input-paste-field/choice-paste-enter normalized-identical [] 0
+base p5-input-paste-field/field-keep normalized-identical [] 0
+base p5-input-paste-field/field-paste-enter normalized-identical [] 0
+base p5-input-paste-field/answered normalized-identical [] 0
+base paste-suffix/paste-enter normalized-identical [] 0
+base paste-suffix/paste-enter.full normalized-identical [] 0
+head p5-input-paste/paste-enter normalized-identical [] 0
+head p5-input-paste/paste-enter.full normalized-identical [] 0
+head p5-input-paste-amend/asked unresolved-defect ['approval-grant-scope'] 0
+head p5-input-paste-amend/choice-paste-enter unresolved-defect ['approval-grant-scope'] 0
+head p5-input-paste-amend/amend-keep unresolved-defect ['approval-grant-scope'] 0
+head p5-input-paste-amend/amend-paste-enter unresolved-defect ['approval-grant-scope'] 0
+head p5-input-paste-amend/answered unresolved-defect ['approval-grant-scope'] 0
+head p5-input-paste-amend/end unresolved-defect [] 1
+head p5-input-paste-behind/version-behind normalized-identical [] 0
+head p5-input-paste-behind/paste-behind normalized-identical [] 0
+head p5-input-paste-behind/paste-behind.full normalized-identical [] 0
+head p5-input-paste-field/q normalized-identical [] 0
+head p5-input-paste-field/choice-paste-enter normalized-identical [] 0
+head p5-input-paste-field/field-keep normalized-identical [] 0
+head p5-input-paste-field/field-paste-enter normalized-identical [] 0
+head p5-input-paste-field/answered normalized-identical [] 0
+head paste-suffix/paste-enter normalized-identical [] 0
+head paste-suffix/paste-enter.full normalized-identical [] 0
