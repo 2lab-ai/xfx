@@ -23,7 +23,9 @@
 #     by an unmarked one: an exception covers its own text, not its neighbour;
 #   - a redirect into a home (`>` is no placeholder), a home with no slash
 #     after it, a harness root broken after its `tmp/` (at a row's start
-#     and after a backtick, as a README quotes it), a mark in a request
+#     and after a backtick, as a README quotes it; and two known
+#     conservative matches, after `@` and after a letter past ASCII), a mark
+#     in a request
 #     body, in a `.txt` and in a `/trace` report's `.md` (a capture by its
 #     name), a mark that does not end its line, and a home whose name starts
 #     with a documented placeholder's on a line that ends in that placeholder;
@@ -138,6 +140,12 @@ printf '<code>%sx</code>\n' "$mac" >"$t/tag.html"
 printf 'cd %s\n(%s)\n' "${s}Users${s}alice" "${s}home${s}bob" >"$t/bare.md"
 printf '  \033[38;5;250mclaude-501%sfxcap.Ab12Cd%swork\n' "$s" "$s" >"$t/wrapped.ansi"
 printf 'a short directory in the harness temp folder (`claude-%s%sp5uc`)\n' 501 "$s" >"$t/ticked.md"
+# Known conservative matches, refused on purpose: `@` and a letter past ASCII
+# can be part of a name, but the shape's left context is a heuristic (a
+# character no ASCII path name of these repositories holds), so these fail
+# toward refusal.
+printf 'cache@claude-3%sx\n' "$s" >"$t/at-sign.md"
+printf '\303\251claude-3%sx\n' "$s" >"$t/accented.md"
 mkdir -p "$t/fx-x-40x120-bodies"
 printf '{"cwd":"%sx"} // local-path-ok\n' "$linux" >"$t/fx-x-40x120-bodies/001-completion.json"
 printf '%sx # local-path-ok\n' "$mac" >"$t/notes.txt"
@@ -170,6 +178,8 @@ want=(
 	"bare.md:2: $linux_shape"
 	"wrapped.ansi:1: a harness scratch root, broken after its tmp/"
 	"ticked.md:1: a harness scratch root, broken after its tmp/"
+	"at-sign.md:1: a harness scratch root, broken after its tmp/"
+	"accented.md:1: a harness scratch root, broken after its tmp/"
 	"fx-x-40x120-bodies/001-completion.json:1: $linux_shape"
 	"notes.txt:1: $home_shape"
 	"midline.md:1: $home_shape"

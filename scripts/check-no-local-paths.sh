@@ -20,21 +20,28 @@
 #   /tmp/claude-<digits>   a harness's per-user scratch root, also as
 #                          /private/tmp/claude-<digits> on macOS, and a
 #                          `claude-<digits>/` at a row's start, after a
-#                          control sequence or after any character no path
-#                          name holds (a space, a backtick, a paren), where a
-#                          binary or a README broke such a root after its
-#                          `tmp/` -- not inside a name or after a `/`
-#                          (`models/claude-3/`)
+#                          control sequence or after a character outside
+#                          `A-Za-z0-9._~+-` and `/` (a space, a backtick, a
+#                          paren), where a binary or a README broke such a
+#                          root after its `tmp/` -- not inside an ASCII name
+#                          or after a `/` (`models/claude-3/`)
 #   /var/folders/          macOS's per-user temporary root, also as  # local-path-ok
 #                          /private/var/folders/                      # local-path-ok
 #
 # A home directory counts where an absolute path starts -- at the start of a
-# line, after a character no path name holds, or after a terminal control
-# sequence (a capture's .ansi colours a path with an SGR sequence, which ends
-# in `m`) -- and ends with its name: before a `/`, any other character no name
-# holds, or the end of the line. So `a/home/b/` (a relative path) is not one,
-# a user name starts with a letter, a digit or `_` (`/home/.fx/` is not one),
-# and a redirect into a home directory, or a bare `cd` into one, is one.
+# line, after a character outside `A-Za-z0-9._~+-`, or after a terminal
+# control sequence (a capture's .ansi colours a path with an SGR sequence,
+# which ends in `m`) -- and ends with its name: before a `/`, any character
+# outside `A-Za-z0-9._-`, or the end of the line. So `a/home/b/` (a relative
+# path) is not one, a user name starts with a letter, a digit or `_`
+# (`/home/.fx/` is not one), and a redirect into a home directory, or a bare
+# `cd` into one, is one.
+#
+# Those sets are a heuristic, not what a path name may hold: `@`, `=` and a
+# letter past ASCII are legal in a name, so `cache@claude-<n>/x` and an
+# accented letter before `claude-<n>/` match the broken-root shape though they
+# are relative names. The check fails toward refusal there, on purpose, and
+# its test pins both.
 #
 # It is not every path of a machine. A Windows path, `~user`, a path a URL
 # percent-encodes, a home directory broken across two rows and a scratch root
