@@ -17,6 +17,7 @@ import subprocess
 import sys
 
 STORE = "src/session/store.rs"
+APP = "src/app.rs"
 W = "src/tui/worker.rs"
 I = "src/interactive.rs"
 S = "src/tui/shell.rs"
@@ -62,6 +63,9 @@ SILENT = {
         "after_a_model_change_on_llmux_no_block",
     ],
 }
+# Round 2: `xfx ask --resume`'s notice output, re-based on N5 with a hostile tool name.
+ASK = {"sessions": ["ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one"]}
+ASK_LINE = "            crate::output::safe_one_line(notice, MAX_NOTICE_BYTES)\n"
 # The once-per-conversation tests, re-based on an image notice.
 ONCE = {
     "lib": [
@@ -114,6 +118,13 @@ MUTANTS = {
             "                    }\n"
         ),
         SILENT,
+    ),
+    # Round 2 (opus MUST 2): `ask` prints the log's words as they are.
+    "ask-notice-not-made-safe": ([(APP, ASK_LINE, "            notice\n")], ASK),
+    # Round 2: `ask` prints no history notice at all.
+    "ask-notice-not-printed": (
+        [(APP, "    for notice in &opened.notices {\n", "    for notice in opened.notices.iter().take(0) {\n")],
+        ASK,
     ),
     # HISTORY-NOTICE-STOP's optional NTH (opus r2): the line shell marks only after every line
     # is written, so a write that fails after the first line leaves the first unsaid too.
@@ -263,13 +274,22 @@ def main():
             for target, tests in targets.items():
                 verdict, out = run(clone, target, tests)
                 print(f"{label} {name} [{target}]: {verdict}")
-                tail = [
-                    line
-                    for line in out.splitlines()
-                    if line.startswith(("test result", "thread ", "error"))
-                    or (line.startswith("test ") and line.endswith("FAILED"))
-                ]
-                for line in tail[-10:]:
+                lines = out.splitlines()
+                tail = []
+                for at, line in enumerate(lines):
+                    if line.startswith(("test result", "error")) or (
+                        line.startswith("test ") and line.endswith("FAILED")
+                    ):
+                        tail.append(line)
+                    elif line.startswith("thread ") and "panicked at" in line:
+                        # The panic and its message: an assert_eq!'s left and right, or
+                        # an assert!'s own message (round 2, opus SHOULD 3).
+                        tail.append(line)
+                        for follow in lines[at + 1 : at + 6]:
+                            if not follow.strip() or follow.startswith(("note:", "thread ", "test ", "----")):
+                                break
+                            tail.append("  " + follow[:400])
+                for line in tail[-24:]:
                     print(f"    {line}")
                 sys.stdout.flush()
         finally:
