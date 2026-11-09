@@ -1142,6 +1142,21 @@ type ThreadMask = (std::thread::ThreadId, Vec<(libc::c_int, bool)>);
 #[cfg(test)]
 static RUNTIME_MASKS: Mutex<Vec<ThreadMask>> = Mutex::new(Vec::new());
 
+/// What a runtime thread read of the process once its runtime was built --
+/// the Gateway's address, git's selectors, the link bases -- by the thread's
+/// id: what a case compares (never prints) against the fake process it
+/// launched in (`crate::test_env`).
+#[cfg(test)]
+type LaunchReads = (
+    std::thread::ThreadId,
+    Option<String>,
+    crate::permission::GitEnvironment,
+    Vec<crate::permission::LinkBase>,
+);
+
+#[cfg(test)]
+static RUNTIME_READS: Mutex<Vec<LaunchReads>> = Mutex::new(Vec::new());
+
 /// Starts the runtime thread, and hands back the channel the UI reads.
 ///
 /// **Started with every owned signal blocked** ([`super::signals::spawn_unsignalled`]),
@@ -1288,6 +1303,18 @@ pub(crate) fn spawn(
             return None;
         };
         let mut state = Runtime::new(config, store, prompter, questioner);
+        #[cfg(test)]
+        RUNTIME_READS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((
+                std::thread::current().id(),
+                crate::gateway::Endpoint::from_process()
+                    .ok()
+                    .map(|endpoint| endpoint.url().to_string()),
+                crate::permission::GitEnvironment::from_process(),
+                crate::permission::LinkBase::from_environment(),
+            ));
         state.next_session = next_session;
         state.reply = loops_reply;
         state.grants = publishes_grants;
@@ -8525,6 +8552,69 @@ mod tests {
                 "signal {signal} is deliverable on the runtime thread"
             );
         }
+    }
+
+    /// A worker launched in a fake process reads, on its runtime thread, what
+    /// the case gave it -- the Gateway's address, git's selectors, `ZDOTDIR`
+    /// -- and not only the part of it an [`Environment`] holds. Compared, never
+    /// printed.
+    #[test]
+    fn a_launched_worker_reads_the_whole_fake_process_it_was_launched_in() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let zdotdir = tempfile::tempdir().expect("a ZDOTDIR");
+        let (mut worker, mut events) = crate::test_env::FakeProcess::new()
+            .home(home.path())
+            .var("XFX_GATEWAY_URL", "https://fake-gateway.invalid/v1")
+            .var("GIT_CONFIG_GLOBAL", "/dev/null")
+            .var("GIT_CONFIG_NOSYSTEM", "1")
+            .var("ZDOTDIR", zdotdir.path())
+            .run(|| {
+                spawn(
+                    config(home.path(), workspace.path()),
+                    Cancellation::new(CancelToken::new()),
+                    None,
+                )
+            })
+            .expect("a runtime");
+        let id = worker
+            .thread
+            .as_ref()
+            .expect("the thread is held")
+            .thread()
+            .id();
+        let deadline = Instant::now() + TEST_DRAIN;
+        let (endpoint, git, links) = loop {
+            let found = RUNTIME_READS
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .find(|(thread, ..)| *thread == id)
+                .map(|(_, endpoint, git, links)| (endpoint.clone(), git.clone(), links.clone()));
+            if let Some(found) = found {
+                break found;
+            }
+            assert!(Instant::now() < deadline, "the runtime never started");
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        worker.shutdown(&mut events, Instant::now() + TEST_DRAIN, |_| {});
+        assert!(
+            endpoint.as_deref() == Some("https://fake-gateway.invalid/v1"),
+            "the worker's XFX_GATEWAY_URL is not the case's"
+        );
+        assert!(
+            git == crate::permission::GitEnvironment::default()
+                .with("GIT_CONFIG_GLOBAL", "/dev/null")
+                .with("GIT_CONFIG_NOSYSTEM", "1"),
+            "the worker's GIT_CONFIG_* are not the case's"
+        );
+        assert!(
+            links
+                == [crate::permission::LinkBase::Root(
+                    zdotdir.path().to_path_buf()
+                )],
+            "the worker's ZDOTDIR is not the case's"
+        );
     }
 
     #[test]

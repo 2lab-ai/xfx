@@ -157,6 +157,133 @@ fn a_git_plan_reads_no_git_configuration_under_the_process_home() {
     );
 }
 
+/// Whether `git config` finds a hook from a configuration file other than
+/// the repository's own, run in `repo` with exactly `environment`.
+fn a_hook_is_configured(repo: &Path, environment: &[(String, String)]) -> bool {
+    let mut command = crate::process::command(git());
+    command
+        .args([
+            "config",
+            "--includes",
+            "--get-regexp",
+            r"^hook\..*\.command$",
+        ])
+        .current_dir(repo)
+        .env_clear()
+        .envs(environment.iter().map(|(name, value)| (name, value)))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    crate::process::status(&mut command)
+        .expect("git runs")
+        .success()
+}
+
+/// A git a unit test plans with no home of its own excludes the global
+/// configuration, rather than counting on there being none where its empty
+/// `HOME` points: whatever `HOME` git ends up with, a hook a global file
+/// there sets -- a sentinel this case writes, in `~/.gitconfig` and in
+/// `~/.config/git/config` -- is not read. Asked of git itself, under the
+/// plan's environment with only `HOME` changed.
+#[test]
+fn a_git_planned_with_no_home_reads_no_global_configuration_wherever_home_is() {
+    let root = tempfile::tempdir().expect("a workspace");
+    a_repository(root.path());
+    let sentinel = tempfile::tempdir().expect("a sentinel home");
+    std::fs::create_dir_all(sentinel.path().join(".config/git")).expect("an XDG git dir");
+    for file in [".gitconfig", ".config/git/config"] {
+        std::fs::write(
+            sentinel.path().join(file),
+            "[hook \"sentinel\"]\n\tcommand = true\n\tevent = pre-commit\n",
+        )
+        .expect("a sentinel global configuration");
+    }
+    let scope = AccessScope::primary_only(root.path()).expect("a scope");
+    let plan =
+        CommandPlan::prepare("git status", &scope, None, &ToolLimits::default()).expect("a plan");
+    let home = sentinel.path().display().to_string();
+    let environment: Vec<(String, String)> = plan
+        .environment()
+        .iter()
+        .map(|(name, value)| match name.as_str() {
+            "HOME" => (name.clone(), home.clone()),
+            _ => (name.clone(), value.clone()),
+        })
+        .collect();
+    // The control: the sentinel is what git reads under that home when
+    // nothing excludes it.
+    let control = vec![
+        ("HOME".to_string(), home.clone()),
+        (
+            "PATH".to_string(),
+            std::env::var("PATH").unwrap_or_default(),
+        ),
+    ];
+    assert!(
+        a_hook_is_configured(root.path(), &control),
+        "the control did not read the sentinel global configuration"
+    );
+    assert!(
+        !a_hook_is_configured(root.path(), &environment),
+        "a git planned with no home read a global configuration file"
+    );
+}
+
+/// A child a unit test starts that builds a client for an https endpoint
+/// takes no proxy from the process it runs in: the copy below is started
+/// with `HTTPS_PROXY` and `ALL_PROXY` naming a loopback proxy and no fake
+/// process, as a developer's shell may name one, and the proxy must receive
+/// nothing. (The copy's own environment is one this case built, never the
+/// developer's.)
+#[test]
+fn an_https_client_takes_no_proxy_from_the_process() {
+    const COPY: &str = "XFX_TEST_ENV_PROXY_COPY";
+    if let Some(target) = std::env::var_os(COPY) {
+        let target = target.to_string_lossy().into_owned();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime");
+        runtime.block_on(async {
+            let client = crate::gateway::bearer_rules(reqwest::Client::builder(), &target)
+                .timeout(std::time::Duration::from_secs(5))
+                .build()
+                .expect("a client");
+            // Failed, as it must be: the target speaks no TLS. What matters
+            // is where it was sent.
+            let _ = client.get(&target).send().await;
+        });
+        return;
+    }
+    let proxy = crate::test_net::Listener::answering(
+        "HTTP/1.1 502 Bad Gateway\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_string(),
+    );
+    let target = crate::test_net::Listener::answering(String::new());
+    let https = target.origin().replacen("http://", "https://", 1);
+    let mut copy = crate::process::command(std::env::current_exe().expect("this test binary"));
+    for variable in ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"] {
+        copy.env(variable, proxy.origin());
+    }
+    copy.env(COPY, format!("{https}/v1/models"));
+    copy.args([
+        "--exact",
+        "--test-threads=1",
+        "test_env::tests::an_https_client_takes_no_proxy_from_the_process",
+    ]);
+    let output = crate::process::output(&mut copy).expect("a copy of this test binary");
+    let reached = proxy.finish();
+    drop(target.finish());
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("test result: ok. 1 passed"),
+        "the copy did not run the case"
+    );
+    assert!(
+        reached.is_empty(),
+        "an https client a unit test built sent {} request(s) to the process's proxy",
+        reached.len()
+    );
+}
+
 /// The names of the variables a child of `crate::process::command` starts
 /// with: `env` itself, no shell, so they are exactly what it was given. Each
 /// value is dropped as it is read and none is printed.
