@@ -1,0 +1,22 @@
+# head 4b586b42; tree clean: no
+01 fmt                                exit 0     2s  load 3.71
+02 clippy                             exit 0    23s  load 3.65
+03 clippy-fault                       exit 0    16s  load 4.72
+04 test                               exit 0   134s  load 5.24
+05 test-fault                         exit 0   146s  load 9.03
+06 check-xfx-identity                 exit 0     1s  load 6.92
+07 check-no-stubs                     exit 0     8s  load 6.92
+08 check-no-secrets                   exit 0    47s  load 6.63
+09 check-preview-contract             exit 0     8s  load 6.86
+10 check-tui-preflight-cost           exit 0   106s  load 7.05
+11 check-usage-clock                  exit 0     2s  load 16.22
+12 test-check-no-secrets              exit 0    81s  load 15.56
+13 test-gate-env                      exit 0   206s  load 8.83
+14 test-preview-contract              exit 0    65s  load 10.46
+15 fxcap-test-sweep                   exit 0    16s  load 8.42
+16 fxcap-test-capture                 exit 0   288s  load 7.91
+17 build-release                      exit 0    15s  load 3.85
+18 build-faulty                       exit 0    24s  load 4.26
+19 smoke                              exit 0     2s  load 5.64
+20 smoke-tui                          exit 0    64s  load 5.64
+# 20 steps, 0 failed; tree clean after: no

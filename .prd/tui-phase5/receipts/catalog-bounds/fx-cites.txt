@@ -1,0 +1,289 @@
+# fx v0.0.16 (481104fd) lines this receipt cites, as git show prints them
+
+== src/gateway/client.zig:19-23@481104fd
+   19  pub fn isRetryableGatewayError(err: anyerror) bool {
+   20      return err == error.HttpConnectionClosing or
+   21          err == error.ConnectionResetByPeer or
+   22          err == error.ConnectionTimedOut;
+   23  }
+
+== src/gateway/client.zig:473-509@481104fd
+  473  pub fn fetchGatewayJsonCancellable(
+  474      alloc: std.mem.Allocator,
+  475      api_key: ?[]const u8,
+  476      gateway_team: ?[]const u8,
+  477      url: []const u8,
+  478      cancel_flag: *std.atomic.Value(bool),
+  479  ) !GatewayJsonResult {
+  480      if (cancel_flag.load(.seq_cst)) return error.Cancelled;
+  481  
+  482      const request_url = try resolveE2eGatewayUrl(e2e_gateway_models_url_env, url);
+  483      return fetchGatewayJsonAtUrlCancellable(alloc, api_key, gateway_team, request_url, cancel_flag, gateway_json_fetch_timeout_ms);
+  484  }
+  485  
+  486  /// A stalled catalog request fails with `error.Timeout` after this long, so a
+  487  /// hung endpoint cannot hold a background refresh or an ACP options request.
+  488  const gateway_json_fetch_timeout_ms: i64 = 30_000;
+  489  
+  490  fn fetchGatewayJsonAtUrlCancellable(
+  491      alloc: std.mem.Allocator,
+  492      api_key: ?[]const u8,
+  493      gateway_team: ?[]const u8,
+  494      url: []const u8,
+  495      cancel_flag: *std.atomic.Value(bool),
+  496      timeout_ms: i64,
+  497  ) !GatewayJsonResult {
+  498      var operation = GatewayJsonFetchOperation{
+  499          .alloc = alloc,
+  500          .api_key = api_key,
+  501          .gateway_team = gateway_team,
+  502          .url = url,
+  503          .cancel_flag = cancel_flag,
+  504      };
+  505      const deadline = std.Io.Clock.Timestamp.fromNow(io_mod.getIo(), .{
+  506          .clock = .awake,
+  507          .raw = .fromMilliseconds(timeout_ms),
+  508      });
+  509      return runBoundedHttpOperation(GatewayJsonResult, alloc, cancel_flag, deadline, &operation);
+
+== src/gateway/client.zig:594-635@481104fd
+  594          return err;
+  595      };
+  596      if (cancel_flag.load(.seq_cst)) return error.Cancelled;
+  597      if (failedGatewayJsonStatus(response.head.status)) |status| return .{ .http_status = status };
+  598  
+  599      var transfer_buffer: [64 * 1024]u8 = undefined;
+  600      const body = readGatewayJsonBody(alloc, response.reader(&transfer_buffer), max_gateway_json_bytes) catch |err| {
+  601          if (cancel_flag.load(.seq_cst)) return error.Cancelled;
+  602          return err;
+  603      };
+  604      if (cancel_flag.load(.seq_cst)) {
+  605          alloc.free(body);
+  606          return error.Cancelled;
+  607      }
+  608      return .{ .success = body };
+  609  }
+  610  
+  611  /// About fifty times today's model catalog. A larger response fails rather
+  612  /// than growing memory without bound.
+  613  const max_gateway_json_bytes: usize = 16 * 1024 * 1024;
+  614  
+  615  /// Returns the caller-owned body, or `error.GatewayJsonResponseTooLarge` when
+  616  /// it exceeds `max_bytes`.
+  617  fn readGatewayJsonBody(alloc: std.mem.Allocator, reader: *std.Io.Reader, max_bytes: usize) ![]u8 {
+  618      return reader.allocRemaining(alloc, .limited(max_bytes)) catch |err| switch (err) {
+  619          error.StreamTooLong => error.GatewayJsonResponseTooLarge,
+  620          else => |e| e,
+  621      };
+  622  }
+  623  
+  624  test "gateway JSON bodies past the size cap fail instead of growing" {
+  625      var at_cap = std.Io.Reader.fixed("12345678");
+  626      const body = try readGatewayJsonBody(std.testing.allocator, &at_cap, 8);
+  627      defer std.testing.allocator.free(body);
+  628      try std.testing.expectEqualStrings("12345678", body);
+  629  
+  630      var over_cap = std.Io.Reader.fixed("123456789");
+  631      try std.testing.expectError(
+  632          error.GatewayJsonResponseTooLarge,
+  633          readGatewayJsonBody(std.testing.allocator, &over_cap, 8),
+  634      );
+  635  }
+
+== src/gateway/client.zig:438-471@481104fd
+  438  pub fn fetchGatewayGetResult(alloc: std.mem.Allocator, api_key: ?[]const u8, path: []const u8) !GetResult {
+  439      const default_url = try alloc.print("{s}{s}", .{ gatewayBaseUrl(), path });
+  440      defer alloc.free(default_url);
+  441      const url = try resolveE2eGatewayUrl(e2e_gateway_credits_url_env, default_url);
+  442  
+  443      var client: std.http.Client = .{ .allocator = alloc, .io = io_mod.getIo() };
+  444      defer client.deinit();
+  445  
+  446      var auth_header: ?[]u8 = null;
+  447      defer if (auth_header) |value| secret.zeroAndFree(alloc, value);
+  448  
+  449      var headers: std.http.Client.Request.Headers = .{};
+  450      headers.user_agent = .{ .override = user_agent };
+  451      if (api_key) |key| {
+  452          auth_header = try alloc.print("Bearer {s}", .{key});
+  453          headers.authorization = .{ .override = auth_header.? };
+  454      }
+  455  
+  456      var out: std.Io.Writer.Allocating = .init(alloc);
+  457      defer out.deinit();
+  458  
+  459      const result = try client.fetch(.{
+  460          .location = .{ .url = url },
+  461          .method = .GET,
+  462          .headers = headers,
+  463          .response_writer = &out.writer,
+  464          .redirect_behavior = .unhandled,
+  465      });
+  466  
+  467      return .{
+  468          .status = result.status,
+  469          .body = try out.toOwnedSlice(),
+  470      };
+  471  }
+
+== src/builtins/gateway.zig:2419-2451@481104fd
+ 2419  fn fetchModelCatalogResponse(
+ 2420      alloc: std.mem.Allocator,
+ 2421      access: credentials.CatalogAccess,
+ 2422      path: []const u8,
+ 2423      cancel_flag: ?*std.atomic.Value(bool),
+ 2424  ) !gateway_client.GatewayJsonResult {
+ 2425      if (cancel_flag) |flag| {
+ 2426          if (flag.load(.seq_cst)) return error.Cancelled;
+ 2427      }
+ 2428      if (access == .authenticated and
+ 2429          !model_provider.authorizesCredential(.gateway, access.credentialSource()))
+ 2430      {
+ 2431          return .{ .http_status = .unauthorized };
+ 2432      }
+ 2433  
+ 2434      const team_path = try modelCatalogTeamPath(alloc, path, access);
+ 2435      defer if (team_path) |owned| alloc.free(owned);
+ 2436  
+ 2437      const model_catalog_url = try modelCatalogUrl(
+ 2438          alloc,
+ 2439          team_path orelse path,
+ 2440          io_mod.getenv(base_url_env),
+ 2441      );
+ 2442      defer alloc.free(model_catalog_url);
+ 2443  
+ 2444      const api_key = access.authorizationCredential();
+ 2445      const gateway_team = modelCatalogHeaderTeam(access);
+ 2446      // One-shot fetches pass no flag but still get the size cap and deadline.
+ 2447      var never_cancelled = std.atomic.Value(bool).init(false);
+ 2448      return gateway_client.fetchGatewayJsonCancellable(
+ 2449          alloc,
+ 2450          api_key,
+ 2451          gateway_team,
+
+== src/builtins/gateway.zig:2510-2557@481104fd
+ 2510  fn catalogRequestFailure(err: anyerror) model_catalog.Failure {
+ 2511      if (err == error.OutOfMemory) return .{ .category = .resource_exhausted };
+ 2512      if (err == error.Cancelled) return .{ .category = .cancellation };
+ 2513      if (isInvalidGatewayResponse(err)) return .{ .category = .malformed_response };
+ 2514      return .{
+ 2515          .category = .transport,
+ 2516          // A request that hit the fetch deadline is worth retrying.
+ 2517          .retryable = err == error.Timeout or gateway_client.isRetryableGatewayError(err),
+ 2518      };
+ 2519  }
+ 2520  
+ 2521  fn isInvalidGatewayResponse(err: anyerror) bool {
+ 2522      return switch (err) {
+ 2523          error.HttpConnectionHeaderUnsupported,
+ 2524          error.HttpContentEncodingUnsupported,
+ 2525          error.HttpHeaderContinuationsUnsupported,
+ 2526          error.HttpHeadersInvalid,
+ 2527          error.HttpTransferEncodingUnsupported,
+ 2528          error.InvalidContentLength,
+ 2529          error.HttpChunkInvalid,
+ 2530          error.HttpChunkTruncated,
+ 2531          error.HttpHeadersOversize,
+ 2532          error.UnsupportedCompressionMethod,
+ 2533          error.GatewayJsonResponseTooLarge,
+ 2534          => true,
+ 2535          else => false,
+ 2536      };
+ 2537  }
+ 2538  
+ 2539  test "catalog request failures preserve transport and cancellation facts" {
+ 2540      const network = catalogRequestFailure(error.ConnectionResetByPeer);
+ 2541      try std.testing.expectEqual(model_catalog.FailureCategory.transport, network.category);
+ 2542      try std.testing.expect(network.http_status == null);
+ 2543      try std.testing.expect(network.retryable);
+ 2544  
+ 2545      const timed_out = catalogRequestFailure(error.Timeout);
+ 2546      try std.testing.expectEqual(model_catalog.FailureCategory.transport, timed_out.category);
+ 2547      try std.testing.expect(timed_out.retryable);
+ 2548  
+ 2549      const cancelled = catalogRequestFailure(error.Cancelled);
+ 2550      try std.testing.expectEqual(model_catalog.FailureCategory.cancellation, cancelled.category);
+ 2551      try std.testing.expect(!cancelled.retryable);
+ 2552  
+ 2553      const malformed = catalogRequestFailure(error.HttpHeadersInvalid);
+ 2554      try std.testing.expectEqual(model_catalog.FailureCategory.malformed_response, malformed.category);
+ 2555  
+ 2556      const oversized = catalogRequestFailure(error.GatewayJsonResponseTooLarge);
+ 2557      try std.testing.expectEqual(model_catalog.FailureCategory.malformed_response, oversized.category);
+
+== src/builtins/gateway.zig:813-827@481104fd
+  813      var result = fetch_fn(alloc, api_key, team_path orelse credits_path) catch {
+  814          return creditsErrorSnapshot(alloc, "failed to fetch credits from gateway");
+  815      };
+  816      defer result.deinit(alloc);
+  817  
+  818      if (result.status != .ok) {
+  819          const message = gateway_error_format.formatHttpErrorMessage(alloc, result.status, result.body) catch {
+  820              return creditsErrorSnapshot(alloc, "failed to fetch credits from gateway");
+  821          };
+  822          return .{ .err_message = message };
+  823      }
+  824  
+  825      var parsed = std.json.parseFromSlice(std.json.Value, alloc, result.body, .{}) catch {
+  826          return creditsErrorSnapshot(alloc, "invalid JSON response from gateway");
+  827      };
+
+== src/core/gateway/model_catalog.zig:38-42@481104fd
+   38  pub const Failure = struct {
+   39      category: FailureCategory,
+   40      http_status: ?std.http.Status = null,
+   41      retryable: bool = false,
+   42  
+
+== src/core/gateway/model_catalog.zig:72-79@481104fd
+   72  /// Milliseconds on the clock that times catalog refreshes. Natively it keeps
+   73  /// counting while the machine sleeps, so a catalog goes stale overnight, and
+   74  /// ignores wall-clock changes. The libfx wasm host backs it with wall time, so
+   75  /// callers treat a reading earlier than a stored one as due.
+   76  pub fn clockMs() i64 {
+   77      const timestamp = std.Io.Clock.boot.now(io_mod.getIo());
+   78      return @intCast(@divFloor(timestamp.nanoseconds, std.time.ns_per_ms));
+   79  }
+
+== src/core/app/model_cache_runtime.zig:40-54@481104fd
+   40  /// After consecutive failures no trigger fetches again for 5 s, then 10 s,
+   41  /// 20 s, and so on, up to five minutes, so an outage is never hammered.
+   42  const failure_backoff_base_ms: i64 = 5_000;
+   43  const failure_backoff_cap_ms: i64 = 5 * std.time.ms_per_min;
+   44  
+   45  /// How long a request waits for a failed catalog's retry before it goes out
+   46  /// without the catalog's limits.
+   47  const failed_catalog_retry_wait_ms: i64 = 2_000;
+   48  
+   49  fn failureBackoffMs(failure_streak: u32) i64 {
+   50      var delay = failure_backoff_base_ms;
+   51      var step: u32 = 1;
+   52      while (step < failure_streak and delay < failure_backoff_cap_ms) : (step += 1) delay *= 2;
+   53      return @min(delay, failure_backoff_cap_ms);
+   54  }
+
+== src/ui/footer/model_menu_presentation.zig:394-400@481104fd
+  394  fn composeStateRow(alloc: Allocator, projection: ModelMenuProjection, width: u16) !std.ArrayList(u8) {
+  395      const text = switch (projection.load_state) {
+  396          .loading => "Loading models…",
+  397          .failed => retryableFailureText(projection.catalog_state.failure) orelse "Unable to load models.",
+  398          .ready => if (projection.items.len == 0) "No models available." else "No models found.",
+  399      };
+  400      return composeDimmedRow(alloc, text, width);
+
+== src/ui/footer/model_menu_presentation.zig:435-443@481104fd
+  435  fn retryableFailureText(failure: ?model_cache_runtime.ModelMenuCatalogState.Failure) ?[]const u8 {
+  436      const value = failure orelse return null;
+  437      if (!value.retryable) return null;
+  438      return switch (value.category) {
+  439          .rate_limited => "AI Gateway rate limited model discovery; fx retries automatically.",
+  440          .transport, .gateway_unavailable => "Could not reach AI Gateway; fx retries automatically.",
+  441          else => "Could not refresh model catalog; fx retries automatically.",
+  442      };
+  443  }
+
+== commits I17 names
+14a12fea 2026-10-18 Bound catalog requests and tighten refresh state
+47e23ddb 2026-10-19 Cap catalog responses and time refreshes on a monotonic clock
+fae2cfbe 2026-10-19 Bound one-shot catalog fetches and keep the backwards-clock guard
+3e986572 2026-10-18 Run catalog requests through the shared bounded runner

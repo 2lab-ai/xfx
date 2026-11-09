@@ -998,7 +998,10 @@ pub(crate) fn is_retryable_status(status: u16) -> bool {
 /// Reads at most `limit` bytes of a failed response body.
 ///
 /// A failing endpoint is exactly the one whose body length cannot be trusted,
-/// so the quote shown to the user is bounded.
+/// so the quote shown to the user is bounded. **Only for that quote**: it
+/// keeps what came before the cap or a failed read, and spells bytes that are
+/// not UTF-8 as U+FFFD -- an answer read that way could be cut to fit, or be
+/// the start of one; [`read_capped`] reads answers.
 pub(crate) async fn read_bounded(response: reqwest::Response, limit: usize) -> String {
     let mut collected: Vec<u8> = Vec::new();
     let mut stream = response.bytes_stream();
@@ -1011,6 +1014,55 @@ pub(crate) async fn read_bounded(response: reqwest::Response, limit: usize) -> S
         collected.extend_from_slice(&chunk[..take]);
     }
     String::from_utf8_lossy(&collected).trim().to_string()
+}
+
+/// Why [`read_capped`] has no body to give.
+#[derive(Debug)]
+pub(crate) enum CappedRead {
+    /// The answer is longer than the cap: declared so, or grown past it.
+    TooLarge,
+    /// The body stopped before its end -- a deadline reached mid-body among
+    /// the reasons ([`reqwest::Error::is_timeout`]).
+    Read(reqwest::Error),
+}
+
+/// A successful response's whole body, or why there is none.
+///
+/// A declared length past `limit` is refused before a byte is read, and a
+/// body that grows past it is dropped at the chunk that crosses; one of
+/// exactly `limit` bytes is read, as fx reads one
+/// (`allocRemaining(alloc, .limited(max_bytes))`, `src/gateway/client.zig:
+/// 615-635@481104fd`). A read that fails partway is that failure, never the
+/// bytes before it.
+pub(crate) async fn read_capped(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<Vec<u8>, CappedRead> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > limit as u64)
+    {
+        return Err(CappedRead::TooLarge);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(CappedRead::Read)? {
+        if chunk.len() > limit - body.len() {
+            return Err(CappedRead::TooLarge);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+/// What a failure says about an answer past `limit` bytes: in MiB where it
+/// is a whole number of them.
+pub(crate) fn larger_than(limit: usize) -> String {
+    const MIB: usize = 1024 * 1024;
+    if limit.is_multiple_of(MIB) {
+        format!("the answer is larger than {} MiB", limit / MIB)
+    } else {
+        format!("the answer is larger than {limit} bytes")
+    }
 }
 
 #[cfg(test)]

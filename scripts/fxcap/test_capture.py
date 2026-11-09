@@ -170,6 +170,11 @@ class Refusals(unittest.TestCase):
             # The old form, a moment on the gateway's clock: refused, not read as a file name.
             ("models2 c.json 5000\nsnap a\n", "models2 takes <catalog.json>, served from its line on, not c.json 5000"),
             ("modelsdelay soon\nsnap a\n", "modelsdelay takes milliseconds, not soon"),
+            ("modelspad 2000\nsnap a\n", "modelspad takes <bytes> (64 MiB at most) and head or tail, not 2000"),
+            ("modelspad 67108865 tail\nsnap a\n", "modelspad takes <bytes> (64 MiB at most) and head or tail, not 67108865 tail"),
+            ("modelspad\nsnap a\n", "modelspad takes an argument"),
+            ("modelsstall 120001\nsnap a\n", "modelsstall takes milliseconds (120000 at most), not 120001"),
+            ("modelsstall\nsnap a\n", "modelsstall takes an argument"),
             ("clock yesterday\nsnap a\n", "clock takes milliseconds since the epoch, not yesterday"),
             ("usage missing.json\nsnap a\n", "usage takes a file in"),
             ("mcphttp sometimes\nsnap a\n", "mcphttp takes ready, methodnotfound, hang, fail, rpcerror, modern, notimpl, old2024, malformed, hostile, ssehold, sseidless, ssestrid or ssefail, not sometimes"),
@@ -519,6 +524,32 @@ class Verbs(unittest.TestCase):
         self.assertEqual(len(asked), 2, log)
         self.assertTrue(all(b - a >= 200 for a, b in zip(asked, answered)), log)
 
+    def test_modelspad_and_modelsstall(self):
+        # The catalog padded to exactly its size, before it or after it, and
+        # half of it sent at once with the rest held back: a client with a
+        # deadline gets the first half and gives up, one without waits it out.
+        # Each marker is split by quotes as typed, so only the output shows it.
+        one = '{"data":[{"id":"fake/one"}]}'
+        size = ("type n=$(curl -s \"$FX_E2E_GATEWAY_MODELS_URL\" | wc -c | tr -d ' '); "
+                "f=$(curl -s \"$FX_E2E_GATEWAY_MODELS_URL\" | head -c 1); echo \"si\"\"ze:$n first:[$f]\"\n"
+                "key Enter\nuntil shown size:\n")
+        r = capture("models one.json\nmodelspad 2000 tail\n" + size + "snap a\ngwlog\n", {"one.json": one})
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("size:2000 first:[{]", r.screen("a"))
+        self.assertIn("-> padded to 2000 bytes, tail", r.file("gateway", ".log"))
+
+        stalled = ("type curl -s -m 0.5 \"$FX_E2E_GATEWAY_MODELS_URL\" | wc -c | tr -d ' '; "
+                   "curl -s \"$FX_E2E_GATEWAY_MODELS_URL\" | wc -c | tr -d ' '; echo do\"\"ne\n"
+                   "key Enter\nuntil shown done\n")
+        r = capture("models one.json\nmodelspad 2000 head\nmodelsstall 1500\n" + stalled + "snap a\ngwlog\n", {"one.json": one})
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        # The rows as the screen joins them: the first half, then the whole.
+        self.assertRegex(r.screen("a"), r'ne\s*1000\s*2000\s*done')
+        log = r.file("gateway", ".log")
+        self.assertEqual(log.count("-> padded to 2000 bytes, head"), 2, log)
+        self.assertEqual(log.count("-> stalled after 1000 of 2000 bytes for 1500ms"), 2, log)
+        self.assertIn("stalled read: the client went", log)
+
     def test_mcphttp_on_cue(self):
         rpc = ("type curl -s -m 1 -w ' status:%%{http_code}\\n' -H 'content-type: application/json' "
                "-d '{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"%s\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}' \"$U\"; echo ' rc:'$?\n"
@@ -862,11 +893,71 @@ class FakeGateway(unittest.TestCase):
         d = scratch()
         write(os.path.join(d, "turns.json"), json.dumps(list(turns)))
         os.makedirs(os.path.join(d, "bodies"))
-        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_DOWN_MS", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS2", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
+        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_DOWN_MS", "FAKEGW_MODELS_DELAY_MS", "FAKEGW_MODELS_PAD", "FAKEGW_MODELS_STALL_MS", "FAKEGW_MODELS2", "FAKEGW_CREDITS", "FAKEGW_TITLE", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
         clean.update(env)
         s = Server(self, FAKEGW, os.path.join(d, "turns.json"), os.path.join(d, "bodies"), env=clean)
         s.bodies = os.path.join(d, "bodies")
         return s
+
+    def started_alone(self, **env):
+        """fakegw run directly with `env`, no capture.sh in front: its exit
+        and output, or None for an exit when it is still up after 10 s."""
+        d = scratch()
+        write(os.path.join(d, "turns.json"), "[]")
+        os.makedirs(os.path.join(d, "bodies"))
+        clean = {k: "" for k in ("FAKEGW_MODELS", "FAKEGW_MODELS_PAD", "FAKEGW_MODELS_STALL_MS", "FAKEGW_MODELS2", "FAKEGW_USAGE", "FAKEGW_RELEASE")}
+        clean.update(env)
+        p = subprocess.Popen([BUN, FAKEGW, "0", os.path.join(d, "turns.json"), os.path.join(d, "bodies")],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=dict(os.environ, **clean))
+        try:
+            out, _ = p.communicate(timeout=10)
+            return p.returncode, out
+        except subprocess.TimeoutExpired:
+            p.kill()
+            out, _ = p.communicate()
+            return None, out
+
+    def test_modelspad_and_modelsstall_out_of_their_bounds_stop_it_before_it_listens(self):
+        # The fake's own check, as capture.sh's: run on its own it cannot be
+        # told to allocate past 64 MiB or hold a body past 120 s.
+        for env, why in [
+            ({"FAKEGW_MODELS_PAD": "2000"}, "FAKEGW_MODELS_PAD takes <bytes> (67108864 at most) and head or tail, not \"2000\""),
+            ({"FAKEGW_MODELS_PAD": "67108865 tail"}, "not \"67108865 tail\""),
+            ({"FAKEGW_MODELS_PAD": "1e3 head"}, "not \"1e3 head\""),
+            ({"FAKEGW_MODELS_PAD": "-5 head"}, "not \"-5 head\""),
+            ({"FAKEGW_MODELS_STALL_MS": "120001"}, "FAKEGW_MODELS_STALL_MS takes milliseconds (120000 at most), not \"120001\""),
+            ({"FAKEGW_MODELS_STALL_MS": "1.5"}, "not \"1.5\""),
+            ({"FAKEGW_MODELS_STALL_MS": "Infinity"}, "not \"Infinity\""),
+        ]:
+            code, out = self.started_alone(**env)
+            self.assertEqual(code, 2, (env, out))
+            self.assertIn("[fakegw] refused: ", out, env)
+            self.assertIn(why, out, env)
+            self.assertNotIn("listening", out, env)
+        # At the bounds it starts.
+        g = self.gw(FAKEGW_MODELS_PAD="67108864 tail", FAKEGW_MODELS_STALL_MS="120000")
+        self.assertIn("listening", g.lines())
+
+    def test_a_catalog_longer_than_its_padding_is_refused_never_served_longer(self):
+        d = scratch()
+        catalog = os.path.join(d, "models.json")
+        write(catalog, json.dumps({"data": [{"id": "fake/a", "type": "language"}]}))
+        size = os.path.getsize(catalog)
+        # A FAKEGW_MODELS file already past the padding: refused at the start.
+        code, out = self.started_alone(FAKEGW_MODELS=catalog, FAKEGW_MODELS_PAD="%d tail" % (size - 1))
+        self.assertEqual(code, 2, out)
+        self.assertIn("refused: FAKEGW_MODELS is %d bytes, past FAKEGW_MODELS_PAD's %d" % (size, size - 1), out)
+        self.assertNotIn("listening", out)
+        # Exactly its size: served as it is.
+        g = self.gw(FAKEGW_MODELS=catalog, FAKEGW_MODELS_PAD="%d head" % size)
+        status, _, body = g.ask("GET", "/coding-agent/v1/models")
+        self.assertEqual((status, len(body)), (200, size))
+        # The built-in catalog, longer than the padding asked: a 500, logged.
+        g = self.gw(FAKEGW_MODELS_PAD="10 tail")
+        status, _, body = g.ask("GET", "/coding-agent/v1/models")
+        self.assertEqual(status, 500, body)
+        g.wait_for("-> refused: the catalog is ")
+        self.assertRegex(g.lines(), r"GET /coding-agent/v1/models -> refused: the catalog is \d+ bytes, past the padding's 10 at=\d+ms")
 
     def test_every_request_is_a_line_unknown_gets_too_and_never_a_header_value(self):
         g = self.gw()

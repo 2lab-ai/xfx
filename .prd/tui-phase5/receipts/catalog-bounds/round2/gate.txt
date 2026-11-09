@@ -1,0 +1,22 @@
+# head fc0cb949; tree clean: yes
+01 fmt                                exit 0     1s  load 5.97
+02 clippy                             exit 0     5s  load 5.97
+03 clippy-fault                       exit 0    12s  load 5.89
+04 test                               exit 0   107s  load 5.81
+05 test-fault                         exit 0   173s  load 9.61
+06 check-xfx-identity                 exit 0     5s  load 27.74
+07 check-no-stubs                     exit 0    12s  load 27.74
+08 check-no-secrets                   exit 0    36s  load 26.84
+09 check-preview-contract             exit 0     4s  load 26.44
+10 check-tui-preflight-cost           exit 0   121s  load 28.00
+11 check-usage-clock                  exit 0     1s  load 26.30
+12 test-check-no-secrets              exit 0   113s  load 26.30
+13 test-gate-env                      exit 0   325s  load 21.24
+14 test-preview-contract              exit 0   113s  load 37.03
+15 fxcap-test-sweep                   exit 0    27s  load 33.07
+16 fxcap-test-capture                 exit 0   325s  load 33.16
+17 build-release                      exit 0    16s  load 25.17
+18 build-faulty                       exit 0    26s  load 23.31
+19 smoke                              exit 0     2s  load 27.81
+20 smoke-tui                          exit 0    66s  load 26.07
+# 20 steps, 0 failed; tree clean after: no

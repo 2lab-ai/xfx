@@ -1,0 +1,4 @@
+[fakegw] listening 54554
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] GET /coding-agent/v1/models -> padded to 2097152 bytes, head at=814ms
+[fakegw] request GET /coding-agent/v1/models at=812ms -> 200 at=814ms headers=authorization

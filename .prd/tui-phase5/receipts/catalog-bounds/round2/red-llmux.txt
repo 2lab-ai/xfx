@@ -1,0 +1,10 @@
+test provider::model::tests::a_llmux_catalog_of_1_mib_is_read_and_one_cut_short_is_no_answer ... ok
+test provider::model::tests::a_llmux_catalog_past_1_mib_is_malformed_not_cut_to_fit ... FAILED
+test provider::model::tests::a_llmux_catalog_that_is_not_utf8_is_malformed ... FAILED
+test provider::model::tests::a_llmux_catalog_without_vendors_is_listed_by_name ... ok
+thread 'provider::model::tests::a_llmux_catalog_past_1_mib_is_malformed_not_cut_to_fit' (376894911) panicked at src/provider/model.rs:3829:22:
+expected a malformed catalog (the answer is larger than 1 MiB), got Err(Unavailable { detail: "the answer is larger than 1 MiB" })
+thread 'provider::model::tests::a_llmux_catalog_that_is_not_utf8_is_malformed' (376894920) panicked at src/provider/model.rs:3829:22:
+expected a malformed catalog (the answer is not UTF-8 text), got Err(Unavailable { detail: "the answer is not UTF-8 text" })
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 4554 filtered out; finished in 0.06s
+bounded: exit 101 after 2.8s, peak rss 0 MiB

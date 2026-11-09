@@ -1,0 +1,12 @@
+# CATALOG-BOUNDS: the Gateway catalog answers 2097152 bytes, past xfx's old
+# 1 MiB cap and under fx's 16 MiB, padded before the catalog, so a read cut
+# short of it is no catalog: fx reads it whole, and `/model` lists its rows.
+fx: env FX_AUTO_UPGRADE=0
+models p5-input-models.json
+modelspad 2097152 head
+wait 4
+type /model
+key Enter
+wait 3
+snap menu
+gwlog
