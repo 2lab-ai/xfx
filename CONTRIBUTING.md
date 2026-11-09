@@ -51,9 +51,10 @@ file. A test fixture that must hold such a path ends that line with a
 `local-path-ok` comment (`# local-path-ok: why`), and only that line is
 excused; in a capture (`.txt`, `.ansi`, `.json`, a request body, ..., or any
 file named as capture.sh names its files, `<bin>-<scenario>-<rows>x<cols>-...`,
-a name reserved for captures) no mark counts. A home that is nobody's, a test's `/home/u`, is on the check's own
-list of placeholders. The check finds paths by their shape and is not every
-path of a machine: a Windows path, `~user` or a percent-encoded one passes it.
+a name reserved for captures) no mark counts. A home that is nobody's, a
+test's `/home/u`, is on the check's own list of placeholders. The check finds
+paths by their shape and is not every path of a machine: a Windows path,
+`~user` or a percent-encoded one passes it.
 
 ## The gate
 
