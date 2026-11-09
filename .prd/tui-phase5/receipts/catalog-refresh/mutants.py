@@ -4,11 +4,13 @@ throwaway `git clone --no-local` of the branch (never the worktree), the
 unit's tests run under bounded.py (300 s, 3 GiB), then the edit undone with
 `git checkout -- src`.
 
-Each mutant gets one of four verdicts, counted apart:
+Each mutant gets one of five verdicts, counted apart:
 - killed: it builds, and a test fails at an assertion -- each failing test
   named, with its panic's place and first message line;
 - does not build: the edit does not compile (no test ran);
 - timed out: bounded.py stopped the run (time or memory);
+- failed without a panic: the run ended nonzero and no test's panic was
+  found in its output (a crash, a harness failure);
 - SURVIVED: it builds, and every test passes.
 
 usage: python3 -I mutants.py <clone> <cargo target dir>
@@ -33,6 +35,8 @@ TESTS = [
     "tui::worker::tests::an_ask_with_no_trigger_over_nothing_read",
     "tui::worker::tests::the_selector_a_provider_switch_builds_keeps",
     "tui::worker::tests::a_told_ask_put_aside_behind_a_switch",
+    "tui::worker::tests::a_switch_drops_the_old_providers",
+    "tui::worker::tests::the_shared_fixtures_runtime_reads_only_its_own_home",
     "tui::worker::tests::a_prompt_",
 ]
 CLOCK, MODEL = "src/provider/catalog_clock.rs", "src/provider/model.rs"
@@ -60,6 +64,15 @@ MUTANTS = [
     ("a switch's selector reads the system clock", MODEL,
      "        *self = Self::new(config);\n        self.time = time;",
      "        *self = Self::new(config);\n        let _ = time;", 1),
+    ("a switch keeps the old provider's catalog state and read", MODEL,
+     "        *self = Self::new(config);\n        self.time = time;",
+     "        let fresh = Self::new(config);\n        self.provider = fresh.provider;\n        self.model = fresh.model;\n        self.source = fresh.source;\n        self.catalog_fetcher = fresh.catalog_fetcher;\n        self.time = time;", 1),
+    ("a switch lets the old provider's read run on", MODEL,
+     "        *self = Self::new(config);\n        self.time = time;",
+     "        let mut old = std::mem::replace(self, Self::new(config));\n        std::mem::forget(old.pending.take());\n        self.time = time;", 1),
+    ("the shared fixture's runtime reads the process's environment", WORKER,
+     "        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());\n        state.conversation = Some(conversation);\n        (home, workspace, state)",
+     "        let _ = env;\n        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());\n        state.conversation = Some(conversation);\n        (home, workspace, state)", 1),
     ("a prompt reads the system clock, not the band's", SHELL,
      "        // `super::worker`'s `await_failed_catalog_retry`).\n        let _ = self.note_catalog_activity(self.catalog_clock.now());",
      "        // `super::worker`'s `await_failed_catalog_retry`).\n        let _ = self.note_catalog_activity(CatalogClock::system().now());", 1),
@@ -126,7 +139,7 @@ def main():
     clone, target = sys.argv[1], sys.argv[2]
     head = run(clone, target, ["git", "rev-parse", "--short", "HEAD"]).stdout.strip()
     print(f"# clone at {head}", flush=True)
-    counts = {"killed": 0, "does not build": 0, "timed out": 0, "SURVIVED": 0}
+    counts = {"killed": 0, "does not build": 0, "timed out": 0, "failed without a panic": 0, "SURVIVED": 0}
     for name, path, old, new, times in MUTANTS:
         file = os.path.join(clone, path)
         text = open(file).read()
@@ -146,7 +159,8 @@ def main():
                 elif test.returncode != 0 and failed:
                     verdict, detail = "killed", "; ".join(failed)
                 elif test.returncode != 0:
-                    verdict, detail = "does not build", test.stderr.strip().splitlines()[-1]
+                    tail = (test.stderr.strip().splitlines() or [""])[-1]
+                    verdict, detail = "failed without a panic", tail
                 else:
                     verdict, detail = "SURVIVED", ""
         finally:
