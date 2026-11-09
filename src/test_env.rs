@@ -21,6 +21,11 @@
 //!   values. The case for `from_process` itself is the one that needs this;
 //!   a case that drives the TUI's worker, whose launch reads the process as a
 //!   real launch does, is the other.
+//! - A runtime a case builds with `Runtime::with_environment` makes its
+//!   environment the fake process of its thread ([`FakeProcess::for_this_thread`]):
+//!   the Gateway's address, git's selectors and the link bases it reads in a
+//!   turn are then that environment's, and one with no home and no variable
+//!   is the empty process.
 //!
 //! A panic and not a quietly empty environment: an empty one makes a case
 //! that reached the process pass green, and that is the class of bug this
