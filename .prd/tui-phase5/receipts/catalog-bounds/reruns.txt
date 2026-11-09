@@ -1,5 +1,5 @@
 # model-column-reask on the head binary (c9ebc953), alone, three times under the lock, after its two pairs
-# went down in sweep-head.md: fx asked its first catalog at 5737 ms there (base sweep: 781 ms).
+# went down in sweep-head.md (the fx gateway log of that sweep run was machine-only and not kept).
 run 1: pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
 run 2: pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
 run 3: pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0

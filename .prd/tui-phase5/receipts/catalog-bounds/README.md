@@ -70,7 +70,7 @@ mcp and llmux-turn readers are streams and error quotes, not JSON answers).
 | xfx | fx counterpart @481104fd | bounds before -> after | what each failure says |
 |---|---|---|---|
 | **Gateway catalog**, `GatewayCatalog::fetch` (`src/provider/model.rs`); the only Gateway catalog GET -- `catalog_for` -> the model selector, so the launch's load, `/model`, its inline column and `/model <q>` lookups all ask through it | `fetchModelCatalogResponse` -> `fetchGatewayJsonCancellable`, behind the refresh (`model_catalog_provider`, `gateway.zig:2344`), `fx models` (`fetchCliModelCatalog`, `:1035`) and the one-shots (`fetchModelIds[Cancellable]`, `session_commands.zig:1287`, `main.zig:1997`) -- **same constants** | 30 s total, 10 s connect, **1 MiB cut to fit** -> 30 s total, 10 s connect, **16 MiB refused past it** | timeout (connect, head, mid-body) -> `Could not reach AI Gateway; xfx retries automatically.`; past 16 MiB -> `Unable to load models.`; a read that stops partway, or bytes not UTF-8 -> `Unable to load models.`; no answer at all -> the retry sentence (MODELS-REASK's, wider than fx's three, `docs/parity.md` `/model`) |
-| **llmux catalog**, `fetch_catalog` / `fetch_loopback_bounded`, and `xfx setup llmux`'s two probes | none: fx has no llmux | 3 s connect, 5 s total, **1 MiB cut to fit** -> the same numbers, **refused past them** | `catalog is unavailable: the answer is larger than 1 MiB` / the read's error; the menu `Unable to load models.` as before |
+| **llmux catalog**, `fetch_catalog` / `fetch_loopback_bounded`, and `xfx setup llmux`'s two probes | none: fx has no llmux | 3 s connect, 5 s total, **1 MiB cut to fit** -> the same numbers, **refused past them** | round 1: every failure `catalog is unavailable: ...; check the daemon is running`; from round 2, past 1 MiB or not UTF-8 `catalog is malformed: ...; check the daemon is an llmux version ...`, and only no whole answer unavailable; the menu `Unable to load models.` as before |
 | **`/credits`**, `credits::ask_at` | `fetchGatewayGetResult` (`client.zig:438-471`): no deadline, no cap -- **not the same constants** | 64 KiB cut to fit -> 64 KiB refused past it (a refusal's body still only quoted) | past it `invalid JSON response from gateway`; cut short `failed to fetch credits from gateway` (fx's, `gateway.zig:813-815`) |
 | **usage report**, `usage::report::get` | `fetchUsageGet` (`client.zig:284-309`): `usage_request_timeout_ms`, `usage_response_max_bytes` -- its own constants | unchanged (it already refused past its cap); its private reader is now the shared `read_capped` | unchanged: `TOO_LARGE`, `CUT_SHORT` |
 
@@ -95,9 +95,11 @@ and 3 GiB, because Darwin does not enforce `ulimit -v`; peak 97 MiB):
 ## The oracle: four scenarios, fx against xfx (`captures/`, `cells.txt`)
 
 fakegw gained two catalog modes, and capture.sh two verbs: `modelspad <bytes>
-<head|tail>` (the catalog padded with spaces to exactly <bytes>, in memory,
-64 MiB at most) and `modelsstall <ms>` (head and half the body, the rest <ms>
-later, 120 s at most); `test_capture.py` `test_modelspad_and_modelsstall` and
+<head|tail>` (the catalog padded with spaces to exactly <bytes>, in memory) and
+`modelsstall <ms>` (head and half the body, the rest <ms> later). In round 1
+capture.sh alone held them to 64 MiB and 120 s (`scripts/fxcap/capture.sh:633-636`);
+round 2 has fakegw hold them too, and refuse a catalog longer than its padding
+(`round2/README.md`). `test_capture.py` `test_modelspad_and_modelsstall` and
 the refusal rows test them (gate step 16). The 30 s stall is practical: the
 scenario is about 35 s a binary.
 
@@ -110,9 +112,10 @@ scenario is about 35 s a binary.
 | `p5-catalog-bounds-stall` timed-out | `Could not reach AI Gateway; fx retries automatically.` | `Unable to load models.` | normalized-identical (fx's name, ledger rule `product-name`) |
 
 Each binary gave up the stalled read 30.0 s after it began, the base too
-(`captures/*-stall-gateway.log`, ms since the gateway started: fx 791 ->
-30794, head 818 -> 30820, base 819 -> 30817): the base had fx's deadline, and read what
-it cut off as no catalog. The stall pair is from its own sweep after
+(`captures/{fx,head,base}-stall-gateway.log`, the `stalled after` and `the
+client went` lines, ms since each gateway started: fx 791 -> 30794, head
+1409 -> 31401, base 819 -> 30817): the base had fx's deadline, and read what it
+cut off as no catalog. The stall pair is from its own sweep after
 `6dda7f8a` (`sweep-stall-head.md`, `sweep-stall-base.md`); the other three
 from the model sweeps.
 
@@ -123,10 +126,12 @@ from the model sweeps.
 base 78 / 97, head 80 / 97. Up 4: the four catalog-bounds pairs above. Down
 2: `model-column-reask` `col-down` and `col-back` -- the ledger's
 `catalog-window` cause (FLAKE-MODELSDOWN: `modelsdown` counts from the
-gateway's start, and fx asked its first catalog at 5737 ms in that run, 781
-ms in the base's, so its retry fell after the outage). Alone on the head
-binary three times under the lock, 3 / 3 each time, fx asking at 762-952 ms
-(`reruns.txt`). The 15 that fail both are the same rows in both, outside this
+gateway's start, so a binary that asks late has its retry fall after the
+outage; `sweep-compare.txt` shows fx with the rows where the base run had fx
+fail too). The fx gateway log that showed the late ask was in the sweep's raw
+`runs/`, which is machine-only and was not kept, so its time is not carried
+here. Alone on the head binary three times under the lock, 3 / 3 each time,
+fx asking at 762-952 ms (`reruns.txt`). The 15 that fail both are the same rows in both, outside this
 unit (`/model`'s help line, fuzzy search, settings' sound level).
 
 ## Mutants (`mutants.py`, `mutants.txt`)
@@ -143,7 +148,8 @@ retried, lossy UTF-8, the test deadline ignored, and both `/credits` arms.
 ## Gate (`gates.sh`, `gate.txt`)
 
 At `4b586b42`, under the suite lock: 20 steps, 0 failed -- fmt, both clippys,
-`cargo test` (5466 passed, 0 failed) and `--features fault-injection`, six
+`cargo test` and `--features fault-injection` (their pass counts were in the
+step logs, not kept; round 2's gate carries its own, `round2/gate-tests.txt`), six
 `check-*` scripts and three `test-*` ones, both fxcap self-tests, both release
 builds, smoke and smoke-tui. "tree clean: no" is this folder's drafts,
 untracked then. After it, `6dda7f8a` changed the stall scenario and
@@ -157,12 +163,18 @@ receipt's head (27 tests, `test-sweep.txt`).
   `/credits` already held, still `set_sensitive(true)`; nothing new is printed
   from a body (an error is a fixed sentence, a size, or reqwest's own error,
   which never carries the header).
-- The memory bound is now a refusal, not a cut: a declared length past the
-  cap is refused before a byte is read, a body grown past it at the chunk
-  that crosses -- at most the cap plus one chunk held.
+- The bound is on bytes read off the wire, now a refusal, not a cut: a
+  declared length past the cap is refused before a byte is read, and the
+  body's accumulated length never passes the cap while it is read (the
+  chunk that would cross it is dropped). It is not a ceiling on memory: the
+  buffer can grow to just under twice the cap (`Vec` doubling), and the
+  parsed document (`serde_json::Value`, `src/provider/model.rs`
+  `parse_gateway_catalog`) is a multiple of the body, as in fx, which also
+  parses the whole answer.
 - Every fake is loopback and finite: the test servers end by themselves
-  within 10 s, fakegw's padding is at most 64 MiB in memory and its stall at
-  most 120 s.
+  within 10 s; fakegw's padding (64 MiB) and stall (120 s) were bounded by
+  capture.sh in round 1 (`capture.sh:633-636`) and by fakegw itself from
+  round 2.
 
 ## Divergences, named in `docs/parity.md`
 
