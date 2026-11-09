@@ -928,6 +928,59 @@ mod tests {
     }
 
     #[test]
+    fn the_twenty_first_element_is_refused_at_its_first_byte_unread() {
+        // The array's visitor asks only whether a twenty-first element is
+        // there and refuses it with the count, before its value is read:
+        // one that is malformed, unclosed or enormous gives the count's error,
+        // never the parse error reading it would give.
+        let twenty = document(MAX_QUESTIONS);
+        let open = &twenty[..twenty.len() - 1];
+        let huge = format!("\"{}\"", "x".repeat(8 << 20));
+        for tail in [
+            r#"{"question":"#.to_string(),
+            "[".repeat(100_000),
+            huge,
+            "\u{1}not json".to_string(),
+        ] {
+            let source = format!("{open},{tail}");
+            let refused = serde_json::from_str::<Batch>(&source)
+                .err()
+                .expect("twenty-one is refused");
+            assert_eq!(
+                refused.classify(),
+                serde_json::error::Category::Data,
+                "{refused}"
+            );
+            assert!(
+                refused.to_string().starts_with("invalid length 21"),
+                "{refused}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_skipped_value_is_not_checked_as_upstreams_parse_checks_it() {
+        // Looser than upstream, and only here: upstream's `std.json` refuses
+        // a key given twice in **any** object and an unpaired surrogate in
+        // **any** string (`duplicate_field_behavior = .@"error"`,
+        // `std/json/static.zig:20-26`, applied in `dynamic.zig:149-156`;
+        // `Scanner.zig:25-32`, Zig 0.16.0), so both of these are null there.
+        // A key nobody reads is skipped here without either check
+        // (`IgnoredAny`), so both decode. Only a hand-forged log holds them,
+        // and the rows that show them are inert (`docs/parity.md`).
+        for output in [
+            r#"[{"question":"Q","answer":"A","x":{"k":1,"k":2}}]"#,
+            r#"[{"question":"Q","answer":"A","x":"\ud800"}]"#,
+        ] {
+            assert_eq!(
+                decode_answers(output),
+                Some(vec![saved("Q", "A")]),
+                "{output}"
+            );
+        }
+    }
+
+    #[test]
     fn anything_but_an_answer_document_is_none_and_never_a_panic() {
         // Upstream's rejects (`question_answer.zig:101-111@481104fd`) first,
         // then the rest of what a session file could hold instead.
