@@ -1,4 +1,4 @@
-# roots.py and capture.sh mutants at f05f3bd7, TMPDIR /private/tmp/claude-501
+# roots.py and capture.sh mutants at f05f3bd7, TMPDIR <tmp>
 placeholder on the first span only   exit 1  failed: test_a_colour_change_inside_a_root_stays_where_it_was, test_a_root_a_binary_broke_behind_a_gutter_keeps_the_gutter_and_the_colours, test_a_root_each_side_broke_at_another_column_reads_different, test_a_root_wrapped_at_the_margin_wraps_its_placeholder_at_every_byte, test_a_root_wrapped_at_two_offsets_reads_different_on_each_side, test_a_tmpdir_with_a_trailing_slash
 placeholder not as wide as its root  exit 1  failed: test_a_colour_change_inside_a_root_stays_where_it_was, test_a_root_each_side_broke_at_another_column_reads_different, test_a_root_narrower_than_its_name_and_one_too_narrow, test_a_root_of_other_characters_keeps_its_columns, test_a_root_wrapped_at_the_margin_wraps_its_placeholder_at_every_byte, test_a_root_wrapped_at_two_offsets_reads_different_on_each_side, test_a_tmpdir_with_a_trailing_slash
 no short form                        exit 1  failed: test_a_root_narrower_than_its_name_and_one_too_narrow

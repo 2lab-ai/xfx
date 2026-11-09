@@ -265,8 +265,11 @@ commit, `counts.txt` gives the files still holding a shape and what excuses
 each line, and the check refuses 0.
 
 Commits `6b4f72fd`, `f05f3bd7` and `4a74f098` held one harness-shaped fixture
-root in `red3.sh`, which the check refuses there; the commit after them
-assembles it at run time.
+root in `red3.sh`, and `c6e12e82` the TMPDIR a mutant run's header named in
+`roots-mutants.txt`; the check refuses each of them there, and the commits
+after them assemble the one and write the other `<tmp>`. The check ran before
+those files were staged, and reads only tracked files: it now runs after
+`git add`.
 
 ## 5. Gate
 
