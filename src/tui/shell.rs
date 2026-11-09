@@ -35482,6 +35482,60 @@ mod tests {
     }
 
     #[test]
+    fn a_workspace_change_that_keeps_the_rows_still_resets_the_bar_and_the_trust() {
+        // The reset is the list's, whether its rows change or not: an access
+        // change that moves no root keeps the index and the rows, and fx's
+        // invalidated list is still a new episode -- untrusted until a frame
+        // shows it, its bar and window on row 0 (`invalidate`,
+        // `file_completion_state.zig:130-139@481104fd`; `resetFilePickerIndex`,
+        // `input_completion_runtime.zig:797`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@");
+        walked(&mut shell);
+        shell.route_bytes(b"\x1b[B");
+        let second = listed_paths(&shell)[1].clone();
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(FilePicker::chosen)
+                .map(|found| found.path.clone()),
+            Some(second),
+            "Down did not move the bar, so this proves nothing"
+        );
+        let rows = listed_paths(&shell);
+        let gone = tempfile::tempdir().expect("a parent");
+        let missing = gone
+            .path()
+            .canonicalize()
+            .expect("canonical")
+            .join("missing");
+        let access =
+            WorkspaceAccess::load(&shell.workspace.clone(), &[missing.display().to_string()]);
+        adopt(&mut shell, access);
+        assert_eq!(
+            listed_paths(&shell),
+            rows,
+            "the rows changed, so this proves less"
+        );
+        assert_eq!(
+            shell.file_picker.as_ref().and_then(FilePicker::chosen),
+            None,
+            "the list kept its trust across the change of scope"
+        );
+        shell.file_picker_landed();
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(FilePicker::chosen)
+                .map(|found| found.path.clone()),
+            Some(rows[0].clone()),
+            "the bar did not go back to row 0"
+        );
+    }
+
+    #[test]
     fn a_workspace_change_drops_a_listing_in_flight() {
         // fx's `invalidateScope` stops the folder listing in flight
         // (`requestStop`, `app_workspace_runtime.zig:70-72@481104fd`), so its

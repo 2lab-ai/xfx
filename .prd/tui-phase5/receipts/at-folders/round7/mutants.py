@@ -87,6 +87,7 @@ MUTANTS = [
     ("listing-not-stopped", SH, "            self.files.abandon_listing();\n            self.files.begin_episode();\n", "            self.files.begin_episode();\n"),
     ("folder-not-read-again", SH, "            self.files.abandon_listing();\n            self.files.begin_episode();\n", "            self.files.abandon_listing();\n"),
     ("invalidate-keeps-the-bar", FP, "    pub(crate) fn invalidate(&mut self) {\n        self.selected = 0;\n", "    pub(crate) fn invalidate(&mut self) {\n"),
+    ("invalidate-keeps-the-window", FP, "        self.selected = 0;\n        self.window_start = 0;\n        self.trusted = false;", "        self.selected = 0;\n        self.trusted = false;"),
     ("invalidate-keeps-trust", FP, "        self.window_start = 0;\n        self.trusted = false;\n        self.refresh_requested = true;\n", "        self.window_start = 0;\n        self.refresh_requested = true;\n"),
     # round 6's six whose text round 7 rewrote, re-texted
     ("drop-the-pending-refresh", FI, "        if self.walk.is_some() || self.superseded {\n            self.pending_refresh = true;\n        } else {", "        if self.walk.is_some() || self.superseded {\n        } else {"),

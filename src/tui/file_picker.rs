@@ -1581,6 +1581,25 @@ mod tests {
     }
 
     #[test]
+    fn a_list_invalidated_by_a_change_of_scope_starts_over() {
+        // Round 7: fx's `invalidate` and the reconcile after it
+        // (`file_completion_state.zig:130-139`, `:164@481104fd`;
+        // `resetFilePickerIndex`, `picker_state.zig:249-252`): the bar and the
+        // window on row 0, the rows untrusted, the index's refresh asked for.
+        let mut list = thirty();
+        list.trust();
+        for _ in 0..7 {
+            list.step(1, 6);
+        }
+        assert_eq!(mark_and_window(&list), (7, 2));
+        assert!(list.chosen().is_some());
+        list.invalidate();
+        assert_eq!(mark_and_window(&list), (0, 0));
+        assert_eq!(list.chosen(), None, "the rows stayed trusted");
+        assert!(list.take_refresh_requested(), "no refresh was asked for");
+    }
+
+    #[test]
     fn the_arrows_scroll_within_the_rows_the_last_frame_painted() {
         // fx's `file picker navigation scrolls within the rows the last frame
         // painted` (`file_completion_state.zig:319-350@481104fd`).
