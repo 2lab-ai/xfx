@@ -3,7 +3,7 @@
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
 - xfx: `x𝒇x v0.1.0-ccced1f [debug] · Run /help for commands`, sha256 `05d1464444d9f559c61806926535137152c4b58163e05ae9fcb2478308c4e9ca`
 - size 40x120, `--jobs 2`, 77 scenarios -- **PARTIAL**: `--only p5-lifecycle-* h1-models* model* p5-input-model* settings-model* interrupt* compact-cancel p5-transcript-cancel *stop* p5-input-question* *question* *approval* p5-stop-in-catalog-wait`, wall 20m43s, load 8.4 at the start and 9.2 at the peak (1-minute average, sampled every 5 s)
-- ledger sha256 `5a190712b78328b071acaf7158642739f7d15e48d3daa1829c071212574c3d01`: 14 normalizations; 19 divergences approved for this pin
+- ledger sha256 `09d2657eaf92f3fdaf2c692d8541137e3ea535ac67d90ecab8c6298321ebe345`: 14 normalizations; 19 divergences approved for this pin
 
 ## Coverage
 
@@ -185,8 +185,8 @@ Kinds: a = awaiting a user decision, b = a unit in flight, c = the capture (nond
 | provider-label | d | 4 | 0 | `The picker names the Gateway 'gateway'; fx's row is 'vercel'.` | `unowned (P1's picker) -- xfx src/provider/mod.rs:116 / fx src/core/auth/provider_catalog.zig:19@c1db9191` |
 | menu-count | a+b | 3 | 0 | `The menus' count: fx 36, xfx 32 -- /login, /logout, /feedback awaiting decisions, /shell …` | `user decision Codex/Grok sign-in (#88) for /login and /logout; user decision /feedback destination; C8 feat/tui-phase4-shell-reload 76ede61…` |
 | menu-shift | a+b | 3 | 0 | `Command rows that only moved: a window without the four absent rows shows two others, and…` | `user decision Codex/Grok sign-in (#88); user decision /feedback destination; C8 feat/tui-phase4-shell-reload 76ede613` |
-| session-record | d | 3 | 0 | `Ctrl-O's '* session:' record: fx's has 'system prompt: ready · N bytes', 'skills: loading…` | `unowned (S1 item 2 owns the skill notices, not this record) -- xfx src/tui/shell.rs:38615 / fx src/core/app/app_bootstrap_runtime.zig:71@c1…` |
-| transcript-page-offset | d | 2 | 0 | `Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command …` | `unowned (follows tool-schema and session-record) -- xfx src/tui/approval_view.rs:685; src/tui/shell.rs:38615 / fx src/core/execution/comman…` |
+| session-record | d | 3 | 0 | `Ctrl-O's '* session:' record: fx's has 'system prompt: ready · N bytes', 'skills: loading…` | `unowned (S1 item 2 owns the skill notices, not this record) -- xfx src/tui/shell.rs:38716 / fx src/core/app/app_bootstrap_runtime.zig:71@c1…` |
+| transcript-page-offset | d | 2 | 0 | `Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command …` | `unowned (follows tool-schema and session-record) -- xfx src/tui/approval_view.rs:685; src/tui/shell.rs:38716 / fx src/core/execution/comman…` |
 | amendment-card-after-stop | b+d | 2 | 2 | `A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes…` | `AMEND-CARD-ROW the blank row xfx keeps under an approval's amendment card that ends the document -- xfx src/tui/shell.rs:10194 / fx src/cor…` |
 | approval-scroll | d | 2 | 0 | `A long review scrolls with the mouse wheel in fx and Ctrl-P/Ctrl-N in xfx, which asks for…` | `unowned -- xfx src/tui/approval_view.rs:106 / fx src/ui/approval_screen.zig:564@c1db9191` |
 | activity-row-gap | d | 2 | 2 | `With the whole answer delivered and the turn held open, fx leaves a blank row between the…` | `unowned (not traced past the band's top) -- xfx src/tui/layout.rs:91 / fx src/ui/render_engine/footer_layout.zig:50@c1db9191` |

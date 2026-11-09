@@ -1,0 +1,38 @@
+# jobs-d at 2026-11-09T02:12:40Z, load 5.04
+## join check 7 and the others' named tests at ac0279c8
+# named-clone at ac0279c8
+lib: exit 0
+    test agent::machine::tests::a_turn_stopped_before_it_began_is_asked_and_stopped_and_measures_nothing ... ok
+    test tui::event_loop::tests::a_delivery_past_the_32nd_read_goes_on_into_the_next_turn_unsettled ... ok
+    test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... ok
+    test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... ok
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... ok
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... ok
+    test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+    test tui::event_loop::tests::a_groups_long_rows_stay_what_their_text_lays_through_scrolls_themes_and_a_resize ... ok
+    test tui::event_loop::tests::a_stops_held_rows_over_a_groups_long_rows_are_written_as_their_text_lays ... ok
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+    test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 4554 filtered out; finished in 25.93s
+tui: exit 0
+    test a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing ... ok
+    test an_enter_one_read_behind_a_paste_s_end_marker_is_behind_it_too ... ok
+    test a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answers_nothing ... ok
+    test twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_order ... ok
+    test a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind ... ok
+    test a_stop_at_a_twenty_question_panel_is_one_cancelled_row_and_the_next_turn_carries_its_prompt ... ok
+    test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out; finished in 2.40s
+## join check 4: the network
+# net-clone at ac0279c8
+# logger pid 60596, 127.0.0.1:<ephemeral>; HTTPS_PROXY, https_proxy, HTTP_PROXY, http_proxy at it; NO_PROXY, no_proxy, ALL_PROXY, all_proxy unset
+## lib: `cargo test --locked --lib --no-fail-fast` exit 0, 85 s
+   test result: ok. 4559 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 50.56s
+   connections logged during it: 2
+     2 x CONNECT w.example:443 HTTP/1.1
+## tui: `cargo test --locked --test tui --no-fail-fast` exit 0, 29 s
+   test result: ok. 186 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.07s
+   connections logged during it: 0
+# logger 60596 ended (-15)
+# jobs-d done at 2026-11-09T02:15:59Z
+jobs-d exit 0

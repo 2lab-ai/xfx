@@ -3,7 +3,7 @@
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
 - xfx: `x𝒇x v0.1.0-889dcfa [debug] · Run /help for commands`, sha256 `fb85e01384d631d44dfbb978df0e1640b6c5dec685847abfeb23389d757d6ed4`
 - size 40x120, `--jobs 4`, 18 scenarios -- **PARTIAL**: `--only model-* p5-lifecycle-osc-stopnext p5-input-model* p5-stop-in-catalog-wait`, wall 2m44s, load 2.8 at the start and 4.1 at the peak (1-minute average, sampled every 5 s)
-- ledger sha256 `5a190712b78328b071acaf7158642739f7d15e48d3daa1829c071212574c3d01`: 14 normalizations; 19 divergences approved for this pin
+- ledger sha256 `09d2657eaf92f3fdaf2c692d8541137e3ea535ac67d90ecab8c6298321ebe345`: 14 normalizations; 19 divergences approved for this pin
 
 ## Coverage
 

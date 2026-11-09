@@ -1,0 +1,8 @@
+# p5-lifecycle-retryok, swept three times more at the final head ac0279c8 (sweep-rerun.sh, one hold of the suite lock, --jobs 1), after the final sweep's two k00/k01 pairs moved on fx's side alone
+# retryok rerun 1 of p5-lifecycle-retryok at ac0279c8; xfx sha256 f8ee3a538ebe4aa4e1fdfaa96cdc9e5a755b068bee8e5719d5bdad8dbca07847; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 28.51
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+# retryok rerun 2 of p5-lifecycle-retryok at ac0279c8; xfx sha256 f8ee3a538ebe4aa4e1fdfaa96cdc9e5a755b068bee8e5719d5bdad8dbca07847; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 28.58
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+# retryok rerun 3 of p5-lifecycle-retryok at ac0279c8; xfx sha256 f8ee3a538ebe4aa4e1fdfaa96cdc9e5a755b068bee8e5719d5bdad8dbca07847; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 32.80
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+rerun exit 0

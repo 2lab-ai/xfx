@@ -1,0 +1,132 @@
+pairs: reference 305, train 590, shared 305; only the reference: 0
+reference: 305 pairs, pass 212; approved-divergence-cascade 1, normalized-identical 212, unresolved-defect 92
+train: 305 pairs, pass 214; approved-divergence-cascade 1, normalized-identical 214, unresolved-defect 90
+interrupt-recovery full: 1 differing rows left, 1 new
+    left: fx '' / xfx '! network: provider: gateway · model: fake/model-a · 50ms'
+    NEW:  fx '' / xfx '! network: provider: gateway · model: fake/model-a · 30ms'
+interrupt-retry f0.15: 1 differing rows left, 0 new
+    left: fx 'er unavailable · HTTP 500: unexpected request · retrying request in 1s' / xfx '~ Thinking (<s>) (↑3 ↓0)'
+p5-input-question q6: 9 differing rows left, 0 new
+    left: fx '' / xfx '  <wall> (↑2 ↓80)'
+    left: fx '' / xfx 'auto · model-a'
+    left: fx '    1) Red' / xfx ''
+    left: fx '    2) Blue' / xfx '┃'
+    left: fx '    3) Other' / xfx ''
+    left: fx '  Q1 colour?' / xfx ''
+    left: fx 'nter answer    esc cancel                              Question 1 of 6' / xfx ''
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx ''
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx '  Six done.'
+p5-input-question q6-after: 4 differing rows left, 0 new
+    left: fx '' / xfx 'auto · model-a'
+    left: fx 'auto · model-a' / xfx '┃'
+    left: fx '┃' / xfx '  <wall> (↑2 ↓80)'
+    left: fx '▪ Cancelled' / xfx '  Six done.'
+p5-input-question q6-after.full: 4 differing rows left, 0 new
+    left: fx '' / xfx 'auto · model-a'
+    left: fx 'auto · model-a' / xfx '┃'
+    left: fx '┃' / xfx '  <wall> (↑2 ↓80)'
+    left: fx '▪ Cancelled' / xfx '  Six done.'
+p5-lifecycle-relhome-unsaved u02-status: 2 differing rows left, 2 new
+    left: fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    NEW:  fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+p5-lifecycle-retry r04a-esc-armed: 1 differing rows left, 1 new
+    left: fx 'navailable · HTTP 502 · Synthetic bad gateway · retrying request in 6s' / xfx 'teway returned HTTP 502: {"error":{"message":"Synthetic bad gateway"}}'
+    NEW:  fx 'navailable · HTTP 502 · Synthetic bad gateway · retrying request in 7s' / xfx 'teway returned HTTP 502: {"error":{"message":"Synthetic bad gateway"}}'
+p5-lifecycle-retryok k00-0.5s: 0 differing rows left, 1 new
+    NEW:  fx 'ider unavailable · HTTP 503 · Synthetic unavailable · retrying request' / xfx 'navailable · HTTP 503 · Synthetic unavailable · retrying request in 1s'
+p5-lifecycle-retryok k01-1.5s: 0 differing rows left, 4 new
+    NEW:  fx '' / xfx 'auto · model-a'
+    NEW:  fx 'auto · model-a' / xfx '┃'
+    NEW:  fx '┃' / xfx '  <wall> (↑4 ↓40)'
+    NEW:  fx 'navailable · HTTP 503 · Synthetic unavailable · retrying request in 1s' / xfx '  RECOVERED-ANSWER.'
+verdicts moved: 6
+    interrupt-retry f0.15: unresolved-defect -> normalized-identical
+    p5-input-question q6: unresolved-defect -> normalized-identical
+    p5-input-question q6-after: unresolved-defect -> normalized-identical
+    p5-input-question q6-after.full: unresolved-defect -> normalized-identical
+    p5-lifecycle-retryok k00-0.5s: normalized-identical -> unresolved-defect
+    p5-lifecycle-retryok k01-1.5s: normalized-identical -> unresolved-defect
+fx screens not the same in the two sweeps: 34
+    approvals-big end
+    interrupt mid
+    interrupt mid2
+    interrupt-recovery full
+    interrupt-steer end.full
+    interrupt-steer steer-done
+    interrupt-steer steer-stream
+    interrupt-steer steer-stream-done
+    interrupt-steer steer-tool
+    model-reask turn-running
+    p5-lifecycle-login2 m04-codex-methods
+    p5-lifecycle-login2 m05-codex-signin
+    p5-lifecycle-login2 m06-grok-methods
+    p5-lifecycle-login2 m07-grok-signin
+    p5-lifecycle-osc s01-working
+    p5-lifecycle-osc s09-exit
+    p5-lifecycle-relhome h01-sessions.full
+    p5-lifecycle-relhome-image again
+    p5-lifecycle-relhome-image sent
+    p5-lifecycle-relhome-made h02-sessions.full
+    p5-lifecycle-relhome-resume r00-resume.full
+    p5-lifecycle-relhome-unsaved u02-status
+    p5-lifecycle-relhome-unsaved u08-quit.full
+    p5-lifecycle-retry r04a-esc-armed
+    p5-lifecycle-retryok k00-0.5s
+    p5-lifecycle-retryok k01-1.5s
+    p5-lifecycle-update u00-update
+    p5-lifecycle-update u01-update-dev
+    p5-lifecycle-update u02-upgrade-json
+    p5-lifecycle-update u03-help.full
+    p5-lifecycle-v1bad b02-launch-refused.full
+    p5-transcript-cancel full
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+xfx screens not the same in the two sweeps: 42
+    approvals after-cc-cmd-ask
+    approvals cmd2-ask
+    approvals edit-amend-typed
+    approvals edit-ask
+    approvals edit-down1
+    approvals edit-down3-wrap
+    approvals edit-tab-amend
+    approvals write-ask
+    approvals-amend-limit asked
+    approvals-amend-limit refused
+    approvals-amend-limit refused-after-edit
+    approvals-amend-limit refused-again
+    approvals-big write-big
+    approvals-big write-big-walked
+    interrupt-recovery full
+    interrupt-retry f0.15
+    interrupt-steer-retract steer-again
+    interrupt-steer-retract steer-up
+    interrupt2 draft
+    interrupt2 draft-cc
+    model-busy-known during
+    p5-input-question q6
+    p5-input-question q6-after
+    p5-input-question q6-after.full
+    p5-lifecycle-relhome h01-sessions.full
+    p5-lifecycle-relhome-image again
+    p5-lifecycle-relhome-image sent
+    p5-lifecycle-relhome-made h02-sessions.full
+    p5-lifecycle-relhome-resume r00-resume.full
+    p5-lifecycle-relhome-unsaved u02-status
+    p5-lifecycle-relhome-unsaved u08-quit.full
+    p5-lifecycle-update u00-update
+    p5-lifecycle-update u01-update-dev
+    p5-lifecycle-update u02-upgrade-json
+    p5-lifecycle-update u03-help.full
+    p5-lifecycle-v1bad b02-launch-refused.full
+    p5-lifecycle-v1resume v01-resumed
+    p5-lifecycle-v1resume v01-resumed.full
+    p5-lifecycle-v1resume v02-continued
+    p5-transcript-cancel full
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+passed on the reference, not on the train: 2
+    p5-lifecycle-retryok k00-0.5s
+    p5-lifecycle-retryok k01-1.5s; of them fx's screen moved and xfx's did not: 2
+pairs that gained a differing row: 5

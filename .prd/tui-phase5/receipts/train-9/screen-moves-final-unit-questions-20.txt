@@ -1,0 +1,17 @@
+snaps whose screen differs only in clock-like or run-local text: 5; otherwise: 14
+  of them, snaps where fx's screen moved at the same rows as xfx's: 0 snaps
+  snaps where xfx's screen moved alone or at other rows than fx's: 14
+    xfx approvals after-cc-cmd-ask rows [25]: [('ume-id 1794170539576-be7fa5b1741a8a60` of this saved session', 'ume-id 1794190237616-e8d5801d01bbd6a6` of this saved session')]
+    xfx approvals cmd2-ask rows [26]: [('ume-id 1794170539576-be7fa5b1741a8a60` of this saved session', 'ume-id 1794190237616-e8d5801d01bbd6a6` of this saved session')]
+    xfx approvals edit-amend-typed rows [22]: [('ume-id 1794170539576-be7fa5b1741a8a60` of this saved session', 'ume-id 1794190237616-e8d5801d01bbd6a6` of this saved session')]
+    xfx approvals edit-ask rows [22]: [('ume-id 1794170539576-be7fa5b1741a8a60` of this saved session', 'ume-id 1794190237616-e8d5801d01bbd6a6` of this saved session')]
+    xfx approvals edit-down1 rows [22]: [('ume-id 1794170539576-be7fa5b1741a8a60` of this saved session', 'ume-id 1794190237616-e8d5801d01bbd6a6` of this saved session')]
+    xfx approvals edit-down3-wrap rows [22]: [('ume-id 1794170539576-be7fa5b1741a8a60` of this saved session', 'ume-id 1794190237616-e8d5801d01bbd6a6` of this saved session')]
+    xfx approvals edit-tab-amend rows [22]: [('ume-id 1794170539576-be7fa5b1741a8a60` of this saved session', 'ume-id 1794190237616-e8d5801d01bbd6a6` of this saved session')]
+    xfx approvals write-ask rows [23]: [('ume-id 1794170539576-be7fa5b1741a8a60` of this saved session', 'ume-id 1794190237616-e8d5801d01bbd6a6` of this saved session')]
+    xfx approvals-amend-limit asked rows [22]: [('ume-id 1794170546688-81e572cb8f41fcb7` of this saved session', 'ume-id 1794189805575-90919160f7dfd71f` of this saved session')]
+    xfx approvals-amend-limit refused rows [24]: [('ume-id 1794170546688-81e572cb8f41fcb7` of this saved session', 'ume-id 1794189805575-90919160f7dfd71f` of this saved session')]
+    xfx approvals-amend-limit refused-after-edit rows [28]: [('ume-id 1794170546688-81e572cb8f41fcb7` of this saved session', 'ume-id 1794189805575-90919160f7dfd71f` of this saved session')]
+    xfx approvals-amend-limit refused-again rows [26]: [('ume-id 1794170546688-81e572cb8f41fcb7` of this saved session', 'ume-id 1794189805575-90919160f7dfd71f` of this saved session')]
+    xfx approvals-big write-big rows [37]: [('ume-id 1794170644496-59f0edb9f8c5433b` of this saved session', 'ume-id 1794191193373-91146e27bc62835f` of this saved session')]
+    xfx approvals-big write-big-walked rows [37]: [('ume-id 1794170644496-59f0edb9f8c5433b` of this saved session', 'ume-id 1794191193373-91146e27bc62835f` of this saved session')]

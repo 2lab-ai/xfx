@@ -1,0 +1,12 @@
+| family | final | main | main-paste | main-history | stop-in-catalog-wait | questions-20 | paste-after-end | history-notice-stop |
+|---|---|---|---|---|---|---|---|---|
+| the stop scenarios (*stop*, interrupt*, compact-cancel, p5-transcript-cancel) | 79 / 92 | 75 / 86 | - | 64 / 73 | 3 / 3 | 4 / 4 | - | 67 / 79 |
+| model and catalog (model*, h1-models*, p5-input-model*, settings-model*) | 77 / 92 | 77 / 92 | 26 / 32 | - | 59 / 70 | - | 26 / 32 | - |
+| p5-lifecycle-* | 26 / 69 | 28 / 69 | - | 1 / 6 | - | - | - | 1 / 6 |
+| p5-stop-in-catalog-wait | 3 / 3 | - | - | - | 3 / 3 | - | - | 3 / 3 |
+| the question scenarios (p5-input-question*, question*) | 44 / 46 | 29 / 32 | 29 / 32 | - | - | 44 / 46 | 29 / 32 | - |
+| the paste scenarios (p5-input-paste*, paste-*, *-paste) | 29 / 36 | - | 17 / 22 | - | - | - | 29 / 36 | - |
+| provider* and resume* (HISTORY-NOTICE-STOP's) | 42 / 94 | - | - | 42 / 91 | - | - | - | 42 / 94 |
+| provider-carry-back-stop | 0 / 3 | - | - | - | - | - | - | 0 / 3 |
+| the approvals (approvals*, p5-input-approval) | 2 / 21 | 2 / 21 | 2 / 21 | - | - | 2 / 21 | 2 / 21 | - |
+| every scenario swept | 419 / 590 | 212 / 305 | 188 / 239 | 112 / 176 | 62 / 73 | 51 / 76 | 200 / 253 | 115 / 182 |
