@@ -204,6 +204,16 @@ impl MarkdownProcessor {
         }
     }
 
+    /// Whether the line this presenter holds, the one it has not seen the
+    /// end of, carries `text`.
+    #[cfg(test)]
+    pub(crate) fn holds(&self, text: &str) -> bool {
+        let text = text.as_bytes();
+        [&self.line_buf, &self.pending_top_level_line]
+            .iter()
+            .any(|held| held.windows(text.len()).any(|window| window == text))
+    }
+
     pub fn styles(&self) -> &Styles {
         &self.styles
     }

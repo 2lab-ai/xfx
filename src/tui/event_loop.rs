@@ -10658,10 +10658,12 @@ mod tests {
     #[test]
     fn an_exit_writes_nothing_a_stop_or_a_reset_threw_away() {
         // What the exit writes is what the document owes, and nothing a stop
-        // or a reset threw away is in it: the pacer's text and the line the
-        // presenter held (`abandon_answer`, `reset_session`), and text that
-        // arrives after a stop, which waits in `late` and is not the
-        // document's.
+        // or a reset threw away is in it. Three sentinels, each where the
+        // stop finds it: the line the presenter holds unfinished, the text
+        // the pacer has not released (`abandon_answer`: `markdown.reset`,
+        // `pacer.forget`), and text that arrives after the stop, which waits
+        // in `late` and is not the document's. Then the pacer's text at a
+        // reset (`reset_session`).
         let mut shell = shell_of(40, 120);
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
@@ -10693,14 +10695,40 @@ mod tests {
             &mut out,
             &mut terminal,
         );
-        shell.apply(UiEvent::Delta(
-            "PACED-THROWN-AWAY\nUNFINISHED-THROWN".to_string(),
-        ));
+        // The presenter's sentinel: an unfinished line, released by the
+        // pacer's clock (`Shell::pace`), which the presenter holds until it
+        // sees the line's end -- written by the exit's `close_answer`, were
+        // the stop not to throw it away.
+        shell.apply(UiEvent::Delta("PRESENTER-HELD".to_string()));
+        // The pacer's first tick reads the clock; the second spends it.
+        let now = Instant::now();
+        shell.settle_band(now);
+        shell.settle_band(now + Duration::from_secs(10));
+        loop_tick(
+            &mut shell,
+            &mut band,
+            &mut failures,
+            &mut out,
+            &mut terminal,
+        );
         assert!(
-            shell.paced_backlog() > 0,
-            "nothing paced, so this case proves nothing"
+            shell.paced_backlog() == 0
+                && shell.presenter_holds("PRESENTER-HELD")
+                && !terminal
+                    .everything()
+                    .iter()
+                    .any(|row| row.contains("PRESENTER-HELD")),
+            "the unfinished line is not the presenter's, held and unwritten, so this case \
+             proves nothing"
+        );
+        // The pacer's sentinel: text the clock has not released.
+        shell.apply(UiEvent::Delta("PACER-THROWN\n".to_string()));
+        assert!(
+            shell.paced_backlog() > 0 && !shell.presenter_holds("PACER-THROWN"),
+            "the pacer's text is not still paced, so this case proves nothing"
         );
         shell.route_bytes(b"\x03");
+        // The late sentinel: text that arrives after the stop.
         shell.apply(UiEvent::Delta("LATE-THROWN".to_string()));
         exit_nothing_drained(&mut shell, &mut band, &mut failures, &mut out, (40, 120));
         terminal.catch_up(&out.written);
@@ -10710,7 +10738,7 @@ mod tests {
             "an exit after a stop",
         );
         let rows = terminal.everything();
-        for thrown in ["PACED-THROWN-AWAY", "UNFINISHED-THROWN", "LATE-THROWN"] {
+        for thrown in ["PRESENTER-HELD", "PACER-THROWN", "LATE-THROWN"] {
             assert!(
                 !rows.iter().any(|row| row.contains(thrown)),
                 "an exit after a stop wrote {thrown}: {rows:#?}"
