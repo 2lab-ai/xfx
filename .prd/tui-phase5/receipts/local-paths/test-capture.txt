@@ -34,3 +34,18 @@ TMPDIR 23 bytes: exit 0, 342s, Ran 101 tests in 341.440s OK
 TMPDIR 26 bytes: exit 0, 340s, Ran 101 tests in 339.269s OK 
 TMPDIR 52 bytes: exit 0, 359s, Ran 101 tests in 358.682s OK 
 TMPDIR 27 bytes, trailing slash: exit 0, 416s, Ran 101 tests in 415.462s OK 
+== 797ebfa0 (round 7), once per TMPDIR (52 bytes is past test_capture.py's 50, so on /tmp, a link)
+TMPDIR 23 bytes: exit 0, 659s, Ran 102 tests in 657.740s OK 
+TMPDIR 26 bytes: exit 1, 684s, Ran 102 tests in 683.558s FAILED (failures=1) 
+TMPDIR 52 bytes: exit 0, 448s, Ran 102 tests in 447.450s OK 
+TMPDIR 27 bytes, trailing slash: exit 0, 544s, Ran 102 tests in 543.481s OK 
+   at 26 bytes, the one failure: RunRoots.test_both_sides_are_written_alike_and_keep_their_widths, where fx's
+   row read "it: child setpgid (<pid> to <pid>): Operation not permitted" (the stub bash's own job-control
+   error in its pane) for DONE; no harness log of rounds 1-6 holds the message. That test alone, five times:
+   run 1: exit 0, OK; setpgid lines 0
+   run 2: exit 0, OK; setpgid lines 0
+   run 3: exit 0, OK; setpgid lines 0
+   run 4: exit 0, OK; setpgid lines 0
+   run 5: exit 0, OK; setpgid lines 0
+   and the whole suite once more:
+   TMPDIR 26 bytes, again: exit 0, 374s, Ran 102 tests in 374.109s OK ; setpgid lines 0

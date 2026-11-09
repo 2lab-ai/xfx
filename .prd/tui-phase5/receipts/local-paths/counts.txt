@@ -51,3 +51,32 @@ check-no-local-paths: ok (15569 tracked file(s) scanned; 8 marked fixture line(s
   placeholder homes: src/permission/policy.rs:44
   placeholder homes: src/tui/hyperlink.rs:3
   placeholder homes: src/tui/image_paths.rs:2
+
+# Round 7 (counts.sh with the broken-root shape after any non-name character but /), at the base, round 6's head and round 7's:
+== ccced1f5
+macOS home	6
+Linux home	5
+harness scratch root	156
+broken after tmp/	31
+macOS temporary root	4
+any shape	169
+the user name	0
+the home path	0
+== 15e37f4a
+macOS home	8
+Linux home	10
+harness scratch root	3
+broken after tmp/	2
+macOS temporary root	2
+any shape	18
+the user name	0
+the home path	0
+== 797ebfa0
+macOS home	10
+Linux home	10
+harness scratch root	3
+broken after tmp/	0
+macOS temporary root	2
+any shape	17
+the user name	0
+the home path	0

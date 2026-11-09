@@ -95,10 +95,11 @@ directory's placeholder and the binary's name, `<scratch___>/fxtmp`. The
 ledger's `capture-tmpdir` reads fx's name as xfx's right after the run
 directory only -- `<scratch___>/`, `<scratch:real___>/`, a zero-filled
 `<scratch>/`, or the old `fxcap.XXXXXX/` -- and nowhere else, and only the
-name itself, followed by a delimiter from a list (`/`, white space, a quote,
-`)`, `]`, `}`, `>`, `,`, `:`, `;`, `|`, or the row's end): not `fxtmp-old`,
-`fxtmp.bak`, `fxtmpé` or `fxtmp%C3%A9`; `run-directory` stays for captures
-taken before.
+name with a directory under it, `fxtmp/`, the one form the tracked captures
+hold: before anything else (`fxtmp-old`, `fxtmp,backup`, `fxtmp backup`,
+`fxtmpé`, the bare name before a quote) it is compared. capture.sh's `dir`
+refuses a name that is or extends a binary's TMPDIR; `run-directory` stays
+for captures taken before.
 
 **Widths.** The rewrite comes after the binary laid out its frame and keeps
 it, column for column. The `roots:` line each run prints first gives each
@@ -148,15 +149,17 @@ that is no placeholder.
   column; a real root against a literal `<work>`.
 - The harness suite at four TMPDIRs: 23 bytes (the dispatcher's), 26, 52 (past
   test_capture.py's 50-byte limit, so on `/tmp`, a link) and 27 with a trailing
-  slash (`test-capture.txt`): 101 tests OK at each in round 6 (at
-  `89a3fef1`) and in round 5 (at `4abe4feb`, and at its first fix
-  `bb5f53ed`), 99 in round 4, 97 in round 3. Round 2's 89 and round 1's 78 are in the same file.
+  slash (`test-capture.txt`): 102 tests at each in round 7 (at `797ebfa0`),
+  OK at 23, 52 and 27; at 26 one test failed once on the stub bash's own
+  `setpgid` error in its pane (a message no earlier round's log holds), then
+  passed five times alone and the whole suite passed once more there. 101 OK
+  at each in rounds 5 and 6, 99 in round 4, 97 in round 3. Round 2's 89 and round 1's 78 are in the same file.
 
 **In real captures** (`runs-scan.txt`, `runs_scan.py`: a whole root, the
 shapes, and what a broken root leaves -- `claude-<digits>`, a sweep job's
 `fxsw.` name, a run's `fxcap.` name). Of the baseline sweep's 677 capture
 files, 251 held some part of a run's paths; after round 1, 29 (round 1's own
-count saw only whole roots); after rounds 2 to 6, 0. Rounds 3 to 6: 273
+count saw only whole roots); after rounds 2 to 7, 0. Rounds 3 to 7: 273
 hold a placeholder where a path stood (an image badge's link reads
 `file://<work___>/...`), no run was refused, and each run's `roots:` line
 named `<bun:real>` too: Homebrew's `bun` is a link.
@@ -178,14 +181,17 @@ Before: `ccced1f5`'s harness from a clone, xfx built at `ccced1f5`. Round 1:
 `d3804683`'s (its ledger's narrower `capture-tmpdir`); round 5: `4abe4feb`'s
 (that rule ended where a path name ends, and the survivor rule's gutter
 readings), and its first fix `bb5f53ed`'s; round 6: `89a3fef1`'s (that rule
-followed by a delimiter from a list, the rewrite's refusal), each from a
-clone, xfx built there.
+followed by a delimiter from a list, the rewrite's refusal); round 7:
+`797ebfa0`'s (that rule `fxtmp(?=/)` only), each from a clone, xfx built
+there.
 
-**145 pairs before, 145 after round 6, 145 with the same verdict, 0
-changed**, and the same against rounds 1 to 5 and round 5's first fix
+**145 pairs before, 145 after round 7, 145 with the same verdict, 0
+changed**, and the same against rounds 1 to 6 and round 5's first fix
 (`compare_verdicts.py`): normalized-identical 102, identical 4,
-approved-divergence-cascade 12, unresolved-defect 27 in all eight, pass 106 /
-145 in all eight.
+approved-divergence-cascade 12, unresolved-defect 27 in all nine, pass 106 /
+145 in all nine. No pair moved under `fxtmp(?=/)`: in round 7's sweep
+captures, `/` is the only character after `fxtmp` or `xfxtmp` (8 times,
+`runs-scan.txt`).
 
 ## 3. What was there: scrubbed, and read again
 
@@ -264,8 +270,10 @@ and a Linux row.
   -- `>` among them -- or the end of a terminal control sequence) and ends with
   its name (before a `/`, any other non-name character, or the line's end);
   `/tmp/claude-<digits>` with or without `/private`, and a `claude-<digits>/`
-  at a row's start or after a space or a control sequence (such a root broken
-  after its `tmp/`); macOS's per-user temporary root.
+  at a row's start, after a control sequence or after any character no path
+  name holds (such a root broken after its `tmp/`, a README's backtick-quoted
+  one among them), not after a name character or `/` (`models/claude-3/`);
+  macOS's per-user temporary root.
 - Not every path of a machine: a Windows path, `~user`, a percent-encoded
   path, a home directory broken across two rows and a scratch root broken
   anywhere but after its `tmp/` are not found by shape (capture.sh's rewrite
@@ -288,19 +296,23 @@ and a Linux row.
   `--work-tree=.`, the root's own `.git`, index bits and missing files
   refused), a positive control runs first, and a hit prints the file, the line
   and the shape, never the text.
-- Its test: 10 cases, 25 plants -- every shape in every kind of file (a name
+- Its test: 10 cases, 26 plants -- every shape in every kind of file (a name
   git quotes, a file named `-`, a binary, a coloured path, an OSC 8 link, a
-  redirect, an HTML tag, a bare home, a broken root, a mark in a request body,
+  redirect, an HTML tag, a bare home, a broken root at a row's start and
+  after a backtick, a mark in a request body,
   a `.txt`, a report capture and mid-line, a home cut by its first match, a
   report renamed out of capture.sh's names with its line unmarked, an
   authored file named into them with its line marked) and every form that
-  must pass (padded and short placeholder homes among them, and the renamed
-  report with its line marked, counted as marked),
+  must pass (padded and short placeholder homes among them, model paths with
+  `claude-<digits>/` inside a name or after a `/`, and the renamed report
+  with its line marked, counted as marked),
   under `GIT_DIR`, `GIT_INDEX_FILE`, `GIT_WORK_TREE`, `GREP_OPTIONS` and a
-  HOME whose config runs a program. Seventeen mutants of the check, each on a
+  HOME whose config runs a program. Nineteen mutants of the check, each on a
   throwaway clone, each failed by it (`check-mutants.py`,
   `check-mutants.txt`): round 3 added two (no sentinel, a report is no
-  capture) and retargeted one (the placeholder-home strip, now at any width).
+  capture) and retargeted one (the placeholder-home strip, now at any width);
+  round 7 two (round 6's broken-root left context, and one that lets `/`
+  lead it).
   Round 4 runs each once more with the check's own positive control taken
   out, so its line names the test's own cases and plants that fail it: all
   17 still fail, most by `shapes` (the plants) or `passes` alone, and the
@@ -316,10 +328,11 @@ and a Linux row.
   reading at the gutters (round 4's), every gutter out at once (its first
   fix), one run out at a time only, or no bound on the runs, and the ledger
   with a word boundary again (round 4's) or no end at all; round 6's rewrite
-  without its refusal, and the ledger with round 5's negative class, with
-  each of its twelve delimiters missing in turn, or with no row's end --
-  thirty-six, each failed by RootsRewrite, RunRoots or test_sweep.py's
-  Normalize. Round
+  without its refusal; round 7's ledger with round 5's negative class,
+  round 6's delimiter list, `/` or the row's end, or `/` or white space, and
+  capture.sh's `dir` without its refusal of the TMPDIR names -- 27 at round
+  7 (`roots-mutants.txt`), each failed by RootsRewrite, RunRoots, Refusals
+  or test_sweep.py's Normalize. Round
   5's first fix widened the byte rule to the view's trimmed gutters; that
   mutant, run against the readings, survived over the tested cases (section
   9 says why it adds nothing), and the code is round 4's overlap again.
@@ -530,7 +543,8 @@ clone at `e1d34372`) and the same on round 6's (`red6-r6.txt`, the code of
 | opus SHOULD 2: a scenario directory under HOME, broken at its space | published as `<home__>/My Docs/...` | refused, exit 3, the file untouched |
 | the same, a root on its own: `/tmp/a b` broken at its space | rewritten, then refused by the survivor reading | refused before any edit |
 
-- **MUST**: `fxtmp(?=[/\s"'\]}),:;|>]|$)`, the list the coordinator gave.
+- **MUST** (replaced in round 7, section 11): `fxtmp(?=[/\s"'\]}),:;|>]|$)`,
+  the list the coordinator gave.
   What really follows the binaries' TMPDIR in the tracked captures is `/`
   alone (w2's and w3's, `fx-trace-...` and `xfx-image-...` under it); the
   rest are the delimiters a binary's text puts after a directory's name.
@@ -559,6 +573,54 @@ clone at `e1d34372`) and the same on round 6's (`red6-r6.txt`, the code of
   home literally in roots.py's new docstring (the check ran after `git add`
   and refused; a `| tail -1` hid its exit status). `89a3fef1` writes it
   `<HOME>`; the branch is not rewritten.
+
+## 11. Round 7: the review of `15e37f4a`
+
+`red7.sh` shows each finding on round 6's own code (`red7-r6.txt`, from a
+clone at `15e37f4a`) and the same on round 7's (`red7-r7.txt`, the code of
+`1d707ba4`):
+
+| finding | round 6 | round 7 |
+|---|---|---|
+| gpt6 MUST: `<scratch>/fxtmp` then `,backup/a`, ` backup/a`, `:x`, `)`, the bare name, `"`, `\|` (7) | normalized, all 7 | compared, all 7 |
+| the same: `-old/a`, `é/a` | compared | compared |
+| the same: `<scratch>/fxtmp/b.md` | normalized | normalized |
+| gpt6 SHOULD: `/tmp/fxt ` whole inside a row (2) | refused | refused, now pinned and documented |
+| opus SHOULD 1: `dir fxtmp-old` | made beside the TMPDIRs, exit 0 | refused, exit 2 |
+| opus SHOULD 2: `` (`claude-<digits>/p5uc`) `` | passes | refused |
+| the same: `models/claude-3/x`, `anthropic.claude-3/x` | passes | passes |
+
+- **MUST**: the ledger reads only `fxtmp(?=/)`. Round 6's list (the
+  coordinator's own, the coordinator says) let a sibling whose name starts
+  with a listed character through, and every one of them is legal in a
+  name; `/` is the one follower the tracked captures hold (w2's and w3's
+  reports and images). Every other follower is compared: the rule fails
+  toward comparing. test_sweep.py's fourteen delimiter positives are now
+  negatives, beside every round 5 and 6 sibling and `fxtmp,backup/a`,
+  `fxtmp backup/a`, `fxtmp:x`, `fxtmp)`; the one positive is `fxtmp/`.
+  Why the ledger is not roots.py's EDGE: an over-wide rewrite in roots.py
+  fails toward privacy (a sibling written as a placeholder), an over-wide
+  normalization in the ledger toward false parity (a sibling read as the
+  TMPDIR); so roots.py reads any non-name character as a root's end, and the
+  ledger reads only the demonstrated form.
+- **SHOULD (gpt6)**: a root ending in a gutter run, whole inside a row, is
+  refused (its reading without the run ends whole there too). Conservative,
+  kept, as the coordinator decided: pinned by a test that expects the
+  refusal (mid-row and before `/notes`), in roots.py's docstring and here.
+- **SHOULD 1 (opus)**: capture.sh's `dir` refuses `fxtmp*` and `xfxtmp*`
+  (six names tested, and a plain `dir` still runs).
+- **SHOULD 2 (opus)**: the two receipts write `claude-<uid>`. The check's
+  broken-root shape is found after a row's start, a control sequence, or any
+  character no path name holds; not after a name character or `/`, so a
+  model path (`models/claude-3/`, `anthropic.claude-3/`, `my-claude-2/`)
+  passes. Over the tree, before the two receipts were rewritten, it hit
+  their two lines and nothing else (`counts.txt`: the shape in 2 files at
+  `15e37f4a`, 0 at `797ebfa0`); at the head the check is ok (`gate.txt`).
+  The check's test plants `` (`claude-501/p5uc`) `` and passes the model
+  paths; counts.sh counts the same shape (`counts.txt`).
+- **NITs**: the nested-root test and red6.sh use `/Users/someone`, the
+  check's own placeholder home, not an assembled one; roots-mutants.py
+  prints the first failing subTest.
 
 ## Left as it is
 

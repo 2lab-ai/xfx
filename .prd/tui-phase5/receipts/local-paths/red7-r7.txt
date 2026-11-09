@@ -1,0 +1,16 @@
+# red7.sh on the worktree (round 7: the code of 1d707ba4)
+1 <scratch>/fxtmp,backup/a:                      compared
+1 <scratch>/fxtmp backup/a:                      compared
+1 <scratch>/fxtmp:x:                             compared
+1 <scratch>/fxtmp):                              compared
+1 <scratch>/fxtmp:                               compared
+1 <scratch>/fxtmp":                              compared
+1 <scratch>/fxtmp|:                              compared
+1 <scratch>/fxtmp-old/a:                         compared
+1 <scratch>/fxtmpé/a:                            compared
+1 <scratch>/fxtmp/b.md:                          normalized
+2 `/tmp/fxt ` whole in 'x /tmp/fxt /notes':      refused (conservative)
+2 `/tmp/fxt ` whole in 'x /tmp/fxt y':           refused (conservative)
+3 dir fxtmp-old:                                 refused, exit 2
+4 (`claude-<digits>/p5uc`):                      refused
+4 models/claude-3/x:                             passes

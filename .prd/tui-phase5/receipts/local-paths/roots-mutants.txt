@@ -1,39 +1,30 @@
-# roots.py, capture.sh and parity-ledger.toml mutants at 89a3fef1, TMPDIR <tmp> ("first at": the test file's line of the first failed assertion; "?" where the test died of an error, not an assertion -- "no short form" raises roots.Refused)
-placeholder on the first span only   exit 1  first at test_capture.py:375  failed: test_a_colour_change_inside_a_root_stays_where_it_was, test_a_root_a_binary_broke_behind_a_gutter_keeps_the_gutter_and_the_colours, test_a_root_each_side_broke_at_another_column_reads_different, test_a_root_wrapped_at_the_margin_wraps_its_placeholder_at_every_byte, test_a_root_wrapped_at_two_offsets_reads_different_on_each_side, test_a_tmpdir_with_a_trailing_slash
-placeholder not as wide as its root  exit 1  first at test_capture.py:380  failed: test_a_colour_change_inside_a_root_stays_where_it_was, test_a_root_each_side_broke_at_another_column_reads_different, test_a_root_narrower_than_its_name_and_one_too_narrow, test_a_root_of_other_characters_keeps_its_columns, test_a_root_wrapped_at_the_margin_wraps_its_placeholder_at_every_byte, test_a_root_wrapped_at_two_offsets_reads_different_on_each_side, test_a_tmpdir_with_a_trailing_slash
+# roots.py, capture.sh and parity-ledger.toml mutants at 797ebfa0, TMPDIR <tmp> ("first at": the test file's line of the first failed assertion, and in [ ] its first failing subTest; "?" where the test died of an error, not an assertion -- "no short form" raises roots.Refused)
+placeholder on the first span only   exit 1  first at test_capture.py:385 [k=1]  failed: test_a_colour_change_inside_a_root_stays_where_it_was, test_a_root_a_binary_broke_behind_a_gutter_keeps_the_gutter_and_the_colours, test_a_root_each_side_broke_at_another_column_reads_different, test_a_root_wrapped_at_the_margin_wraps_its_placeholder_at_every_byte, test_a_root_wrapped_at_two_offsets_reads_different_on_each_side, test_a_tmpdir_with_a_trailing_slash
+placeholder not as wide as its root  exit 1  first at test_capture.py:390 [k=1]  failed: test_a_colour_change_inside_a_root_stays_where_it_was, test_a_root_each_side_broke_at_another_column_reads_different, test_a_root_narrower_than_its_name_and_one_too_narrow, test_a_root_of_other_characters_keeps_its_columns, test_a_root_wrapped_at_the_margin_wraps_its_placeholder_at_every_byte, test_a_root_wrapped_at_two_offsets_reads_different_on_each_side, test_a_tmpdir_with_a_trailing_slash
 no short form                        exit 1  first at ?  failed: test_a_root_narrower_than_its_name_and_one_too_narrow
-survivors by substring               exit 1  first at test_capture.py:583  failed: test_a_root_in_a_control_sequences_bytes_still_refuses, test_a_root_with_a_gutter_character_the_view_drops_still_refuses, test_a_sibling_of_an_outer_root_is_neither_rewritten_nor_refused, test_a_sibling_of_the_harness_tmpdir_is_left_and_refuses_nothing, test_a_styled_sibling_of_an_outer_root_is_neither_rewritten_nor_refused
-bytes read everywhere (round 3)      exit 1  first at test_capture.py:485  failed: test_a_styled_sibling_of_an_outer_root_is_neither_rewritten_nor_refused
-no byte reading at all               exit 1  first at test_capture.py:582  failed: test_a_root_in_a_control_sequences_bytes_still_refuses, test_a_root_whose_head_an_escape_took_is_refused_beside_a_styled_sibling
-bytes in an OSC only                 exit 1  first at test_capture.py:587  failed: test_a_root_in_a_control_sequences_bytes_still_refuses, test_a_root_whose_head_an_escape_took_is_refused_beside_a_styled_sibling
-no reading at its gutters (round 4)  exit 1  first at test_capture.py:509  failed: test_a_root_with_a_gutter_character_the_view_drops_still_refuses
-every gutter out at once (bb5f53ed)  exit 1  first at test_capture.py:509  failed: test_a_root_with_a_gutter_character_the_view_drops_still_refuses
-one run out at a time only           exit 1  first at test_capture.py:507  failed: test_a_root_with_a_gutter_character_the_view_drops_still_refuses
-no refusal in the rewrite (round 5)  exit 1  first at test_capture.py:507  failed: test_a_root_with_a_gutter_character_the_view_drops_still_refuses
-no bound on the runs                 exit 1  first at test_capture.py:557  failed: test_a_root_with_a_gutter_character_the_view_drops_still_refuses
-no trailing-slash strip              exit 1  first at test_capture.py:833  failed: test_a_tmpdir_with_a_trailing_slash
-no normpath spelling                 exit 1  first at test_capture.py:399  failed: test_every_spelling_and_an_osc_8_target
-no nF escape                         exit 1  first at test_capture.py:405  failed: test_an_nf_escape_beside_a_root_is_a_control_sequence
-a backslash escape                   exit 1  first at test_capture.py:419  failed: test_a_literal_placeholder_is_never_a_root
+survivors by substring               exit 1  first at test_capture.py:602 [data=b'x /tmp/a \nb/notes\n']  failed: test_a_root_in_a_control_sequences_bytes_still_refuses, test_a_root_with_a_gutter_character_the_view_drops_still_refuses, test_a_sibling_of_an_outer_root_is_neither_rewritten_nor_refused, test_a_sibling_of_the_harness_tmpdir_is_left_and_refuses_nothing, test_a_styled_sibling_of_an_outer_root_is_neither_rewritten_nor_refused
+bytes read everywhere (round 3)      exit 1  first at test_capture.py:495 [root='home', style=b'\x1b[1m']  failed: test_a_styled_sibling_of_an_outer_root_is_neither_rewritten_nor_refused
+no byte reading at all               exit 1  first at test_capture.py:601  failed: test_a_root_in_a_control_sequences_bytes_still_refuses, test_a_root_whose_head_an_escape_took_is_refused_beside_a_styled_sibling
+bytes in an OSC only                 exit 1  first at test_capture.py:606  failed: test_a_root_in_a_control_sequences_bytes_still_refuses, test_a_root_whose_head_an_escape_took_is_refused_beside_a_styled_sibling
+no reading at its gutters (round 4)  exit 1  first at test_capture.py:519 [root='/tmp/fxt ', data=b'x /tmp/fxt \nnext\n']  failed: test_a_root_with_a_gutter_character_the_view_drops_still_refuses
+every gutter out at once (bb5f53ed)  exit 1  first at test_capture.py:519 [data=b'x /tmp/a \nb c/notes\n']  failed: test_a_root_with_a_gutter_character_the_view_drops_still_refuses
+one run out at a time only           exit 1  first at test_capture.py:517 [data=b'x /tmp/a \nb \nc/notes\n']  failed: test_a_root_with_a_gutter_character_the_view_drops_still_refuses
+no refusal in the rewrite (round 5)  exit 1  first at test_capture.py:517 [root='/tmp/fxt ', data=b'x /tmp/fxt \nnext\n']  failed: test_a_root_with_a_gutter_character_the_view_drops_still_refuses
+no bound on the runs                 exit 1  first at test_capture.py:576  failed: test_a_root_with_a_gutter_character_the_view_drops_still_refuses
+no trailing-slash strip              exit 1  first at test_capture.py:852  failed: test_a_tmpdir_with_a_trailing_slash
+no normpath spelling                 exit 1  first at test_capture.py:409  failed: test_every_spelling_and_an_osc_8_target
+no nF escape                         exit 1  first at test_capture.py:415  failed: test_an_nf_escape_beside_a_root_is_a_control_sequence
+a backslash escape                   exit 1  first at test_capture.py:429  failed: test_a_literal_placeholder_is_never_a_root
 any `_>/` before fxtmp (round 3)     exit 1  first at test_sweep.py:215  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
 any placeholder before fxtmp         exit 1  first at test_sweep.py:215  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
 the short form read too              exit 1  first at test_sweep.py:215  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
 no zero-fill <scratch>               exit 1  first at test_sweep.py:209  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-a word boundary again (round 4)      exit 1  first at test_sweep.py:229  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-no end at all                        exit 1  first at test_sweep.py:229  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-EDGE's complement again (round 5)    exit 1  first at test_sweep.py:229  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-no / after fxtmp                     exit 1  first at test_sweep.py:209  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only, test_each_runs_own_clock_and_ids
-no white space after fxtmp           exit 1  first at test_sweep.py:225  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-no " after fxtmp                     exit 1  first at test_sweep.py:225  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-no ' after fxtmp                     exit 1  first at test_sweep.py:225  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-no ] after fxtmp                     exit 1  first at test_sweep.py:225  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-no } after fxtmp                     exit 1  first at test_sweep.py:225  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-no ) after fxtmp                     exit 1  first at test_sweep.py:225  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-no , after fxtmp                     exit 1  first at test_sweep.py:225  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-no : after fxtmp                     exit 1  first at test_sweep.py:225  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-no ; after fxtmp                     exit 1  first at test_sweep.py:225  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-no | after fxtmp                     exit 1  first at test_sweep.py:225  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-no > after fxtmp                     exit 1  first at test_sweep.py:225  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
-no row's end after fxtmp             exit 1  first at test_sweep.py:225  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
+a word boundary again (round 4)      exit 1  first at test_sweep.py:228 [name='fxtmp-old/a']  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
+no end at all                        exit 1  first at test_sweep.py:228 [name='fxtmp-old/a']  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
+EDGE's complement again (round 5)    exit 1  first at test_sweep.py:228 [name='fxtmpé/a']  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
+a delimiter list again (round 6)     exit 1  first at test_sweep.py:228 [name='fxtmp,backup/a']  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
+`/` or the row's end                 exit 1  first at test_sweep.py:228 [name='fxtmp']  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
+`/` or white space                   exit 1  first at test_sweep.py:228 [name='fxtmp backup/a']  failed: test_a_binarys_tmpdir_is_read_after_the_run_directory_only
+dir takes fxtmp names (round 6)      exit 1  first at test_capture.py:167 [name='fxtmp']  failed: test_a_dir_never_takes_a_binarys_tmpdir_name
 unmutated                            exit 0  test_capture.py: OK
 unmutated                            exit 0  test_sweep.py: OK
