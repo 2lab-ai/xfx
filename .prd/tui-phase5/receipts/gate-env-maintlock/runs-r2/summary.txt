@@ -1,0 +1,8 @@
+# batch.sh started 2026-11-09T15:24:46Z, git 2.56.0, bash 3.2.57(1)-release
+mutant-1-no-guard head=2bc8fa55 exit=1 seconds=173 load={ 11.33 20.27 22.43 }
+mutant-2-no-maintenance-auto head=2bc8fa55 exit=1 seconds=244 load={ 6.43 12.80 18.58 }
+mutant-3-no-gc-auto head=2bc8fa55 exit=0 seconds=292 load={ 9.31 9.79 15.38 }
+green-1 head=2bc8fa55 exit=0 seconds=384 load={ 6.10 7.10 12.01 }
+green-2 head=2bc8fa55 exit=0 seconds=370 load={ 6.64 8.33 11.16 }
+green-3 head=2bc8fa55 exit=0 seconds=384 load={ 14.09 12.92 12.56 }
+# batch.sh done 2026-11-09T15:55:34Z

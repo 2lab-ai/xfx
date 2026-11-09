@@ -1,0 +1,19 @@
+== fixed
+test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
+test-gate-env(trunc): 0 problem(s), 7 case(s) passed
+== m2
+test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
+test-gate-env: decoy-setup-starts-nothing: new_decoy's commit started git's maintenance:
+run_command: git maintenance run --auto --quiet --detach
+test-gate-env(trunc): 1 problem(s), 6 case(s) passed
+== base
+test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
+test-gate-env: decoy-setup-maintenance: the gate wrote into the decoy repository:
+20d19
+< 4294967295 0 ./objects/maintenance.lock
+test-gate-env: decoy-setup-starts-nothing: new_decoy's commit started git's maintenance:
+run_command: git maintenance run --auto --quiet --detach
+run_command: git gc --auto --quiet --no-detach --skip-foreground-tasks
+test-gate-env(trunc): 2 problem(s), 5 case(s) passed
+
+[exited with code 0]

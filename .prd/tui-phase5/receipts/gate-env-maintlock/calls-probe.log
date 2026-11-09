@@ -1,0 +1,23 @@
+# calls-probe.sh, git 2.56.0, 2026-11-09T14:45:51Z; columns: the call, then the number of 'git maintenance run' / 'git gc --auto' starts in its GIT_TRACE (a nested start counts too), each listed under it
+init -q <dir>                                  0
+config <key> <value>                           0
+add -- d.txt                                   0
+add -A -f                                      0
+GIT_INDEX_FILE=<f> git add <path>              0
+hash-object -w --stdin                         0
+mktree                                         0
+update-index --skip-worktree                   0
+update-index --no-skip-worktree                0
+grep -a --no-color -l -z -i -e <name> --       0
+grep -a --no-color -n -i -e <name> -- <path>   0
+ls-files                                       0
+ls-files -v -z                                 0
+rev-parse --absolute-git-dir                   0
+--git-dir=<.git> rev-parse --absolute-git-dir  0
+diff-files --name-only -z --diff-filter=DT     0
+commit -q -m <msg>                             2
+    run_command: git maintenance run --auto --quiet --detach
+    run_command: git gc --auto --quiet --
+rev-parse HEAD                                 0
+worktree add -q <dir> -b <branch>              0
+submodule --quiet add <repo> sub               0
