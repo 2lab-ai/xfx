@@ -16685,6 +16685,41 @@ mod tests {
     }
 
     #[test]
+    fn the_selector_a_provider_switch_builds_keeps_the_catalogs_clock() {
+        // A switch builds the next provider's selector anew ([`Runtime::adopt`])
+        // -- with the clock the old one's reads were timed on, as
+        // `ModelSelector::follow_model` keeps it, so the catalog's age goes on
+        // being counted on the clock that counts sleep, and an injected one
+        // survives the switch.
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let (_home, _workspace, mut state) = recording();
+        state.selector.set_clock_for_test(machine.clock());
+        let reloaded = state.config.clone();
+        let _ = state.adopt(reloaded);
+        assert_eq!(
+            state.selector.now(),
+            machine.clock().now(),
+            "the switch's selector reads another clock"
+        );
+        // And by it: rows read before a sleep are read again after it.
+        let asked = Arc::new(AtomicUsize::new(0));
+        state.selector.set_fetcher_for_test(Box::new(InTurn {
+            answers: Mutex::new(vec![vec![published("anthropic/claude-opus-5")]; 2].into()),
+            asked: Arc::clone(&asked),
+        }));
+        let (events, _received) = mpsc::channel(bridge::UI_EVENTS);
+        begin_catalog_read(&mut state, &events);
+        on_a_runtime(state.selector.settle_load());
+        machine.sleep(Duration::from_secs(6 * 60));
+        ask_and_settle(&mut state, &events, bridge::CatalogAsk::ACTIVITY);
+        assert_eq!(
+            asked.load(Ordering::SeqCst),
+            2,
+            "rows six minutes old by the catalog's clock were not read again"
+        );
+    }
+
+    #[test]
     fn an_ask_with_no_trigger_over_nothing_read_waits_for_the_first_load_not_for_no_rows() {
         // `/settings` or a speed command put aside behind a provider switch is
         // answered once the switch is over, before the loop starts the new
