@@ -318,16 +318,30 @@ fn session(
     }
 }
 
-/// How long a turn's wait may last: the [`TICK`], or one millisecond while a
+/// How often the loop checks back while a folder listing is in its first
+/// tick (`focused_ui_worker_poll_timeout_ms`, `main.zig:175@481104fd`).
+const LISTING_POLL: Duration = Duration::from_millis(1);
+
+/// How long a turn's wait may last: the [`TICK`], or [`LISTING_POLL`] while a
 /// folder listing is in its first tick (`nativeLoopPollTimeoutMs`,
-/// `main.zig:191-207`, `:1140@481104fd`).
-fn wait_timeout(_shell: &Shell, _now: Instant) -> Duration {
-    TICK
+/// `main.zig:191-207`, `:1140@481104fd`), so rows that land a millisecond
+/// after the keystroke are painted then, not a tick later. The listing's
+/// worker wakes nothing; this is what hears it.
+fn wait_timeout(shell: &Shell, now: Instant) -> Duration {
+    if shell.file_listing_hold_pending(now) {
+        LISTING_POLL.min(TICK)
+    } else {
+        TICK
+    }
 }
 
 /// The turn's writes ([`commit_counted`]), unless its frame waits for the
-/// rows of a folder listing a keystroke started (`loopCommitFrame`,
-/// `main.zig:3007@481104fd`).
+/// rows of a folder listing a keystroke started: fx's loop skips
+/// `flushRequestedFrame` while `holdFrameForFileListing` says so
+/// (`loopCommitFrame`, `main.zig:3007@481104fd`), at most 8 ms
+/// ([`super::file_picker::ListingWait`]). Held, the whole tick's writes wait
+/// -- the report and the title ride the frame here -- and the frame stays
+/// owed, so the next turn that is not held commits it.
 fn commit_or_hold(
     shell: &mut Shell,
     band: &mut Band,
@@ -336,6 +350,9 @@ fn commit_or_hold(
     now: Instant,
     reconciled: Reconciled,
 ) -> io::Result<()> {
+    if shell.hold_frame_for_file_listing(now) {
+        return Ok(());
+    }
     commit_counted(shell, band, out, failures, now, reconciled)
 }
 

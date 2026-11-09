@@ -1241,6 +1241,11 @@ pub(crate) struct Shell {
     /// no key reads it across words: a new word's keys wait for its first
     /// frame, which sets it ([`FilePicker::trust`]).
     file_rows_painted: u16,
+    /// The wait the frame of a keystroke that started a folder listing
+    /// makes for its rows ([`Self::hold_frame_for_file_listing`]), kept for
+    /// the list's life as fx keeps it in the picker's state
+    /// (`file_listing_wait`, `picker_state.zig:172@481104fd`).
+    listing_wait: file_picker::ListingWait,
     /// Where the picker's rows come from: the workspace index and the last
     /// directory browsed, each read on a worker thread
     /// ([`super::file_index::Files`]). Nothing is read until a picker opens.
@@ -2586,6 +2591,7 @@ impl Shell {
             dismissed: Dismissed::default(),
             file_picker: None,
             file_rows_painted: file_picker::MOST_ROWS,
+            listing_wait: file_picker::ListingWait::default(),
             files: {
                 // `~` is the profile's home, held to `HOME`'s one rule
                 // ([`crate::config::home_dir`]): an empty or relative
@@ -6152,8 +6158,18 @@ impl Shell {
         // transcript is up the list is not on the screen at all -- the keys
         // it leaves unbound reach here, and fx's list takes none of them
         // (`filePickerEligible`, `:775-786`, `:798-799`).
+        //
+        // And a frame is asked for whatever the key turns out to be: fx's
+        // resize signal asks for one of its own (`observeResizeSignal`,
+        // `render_request.zig:196-200@481104fd`), whose commit trusts the
+        // list again (`app_render_runtime.zig:1022-1023`). xfx's signal asks
+        // for none, so a key the list hands on below -- an unbound one, a
+        // Redo with nothing to redo -- on a resize that comes back the same
+        // size would leave it distrusted with no frame coming, and spend the
+        // next arrow.
         if self.render.resize_pending() || self.full.is_open() {
             files.distrust();
+            self.render.request(Reason::Modal);
         }
         let page = i64::from(layout::input_row_limit(self.geometry.rows));
         let delta = match action {
@@ -6773,7 +6789,9 @@ impl Shell {
     }
 
     /// Puts a chosen path in the draft in place of the `@` word
-    /// ([`super::file_picker::completion`]).
+    /// ([`super::file_picker::completion`]): Tab passes
+    /// [`file_picker::FolderAction::Open`], Enter
+    /// [`file_picker::FolderAction::Select`].
     ///
     /// One edit, so one undo takes it back. Refused whole -- by the prompt's
     /// budget or because the word runs into a pasted block -- it changes
@@ -6809,9 +6827,10 @@ impl Shell {
         ) else {
             return;
         };
-        // A file's completion leaves the caret past its separator, so the
-        // picker closes on the way through; a directory's leaves it at the
-        // end of the path, so the picker goes on, listing that directory.
+        // A file's completion, and a folder's Enter mentions, leave the caret
+        // past its separator, so the picker closes on the way through; a
+        // folder Tab opens leaves it at the end of the path, so the picker
+        // goes on, listing that folder.
         self.amended(Some(delta));
         self.separator = chosen.separator;
     }
@@ -8575,16 +8594,30 @@ impl Shell {
 
     /// Whether this turn's frame waits for the rows of a folder listing a
     /// keystroke started (`holdFrameForFileListing`,
-    /// `input_completion_runtime.zig:817-835@481104fd`).
-    pub(crate) fn hold_frame_for_file_listing(&mut self, _now: Instant) -> bool {
-        false
+    /// `input_completion_runtime.zig:817-835@481104fd`): what the listing
+    /// worker has finished is taken first, so rows that landed since
+    /// [`Self::settle_band`] end the wait; a list that is not up forgets the
+    /// wait, slow folder and all; and a list browsing a path whose directory
+    /// is still being read is a listing in flight (`!state.indexed and
+    /// state.directory_request != null`, `:828`) -- the frame then waits, at
+    /// most [`file_picker::LISTING_HOLD`] ([`file_picker::ListingWait`]).
+    pub(crate) fn hold_frame_for_file_listing(&mut self, now: Instant) -> bool {
+        self.settle_files();
+        let Some(files) = self.file_picker.as_ref() else {
+            self.listing_wait = file_picker::ListingWait::default();
+            return false;
+        };
+        let in_flight = !files.indexed() && files.shown() == file_picker::Shown::Loading;
+        self.listing_wait.hold(in_flight, now)
     }
 
-    /// Whether the loop checks back every millisecond rather than every tick
-    /// (`fileListingHoldPending`, `input_completion_runtime.zig:837-844
-    /// @481104fd`).
-    pub(crate) fn file_listing_hold_pending(&self, _now: Instant) -> bool {
-        false
+    /// Whether the loop checks back every millisecond rather than every tick:
+    /// for the first tick of every folder listing, waited for or not, so one
+    /// that lands in time is seen at once and turns the wait back on after a
+    /// slow folder (`fileListingHoldPending`, `input_completion_runtime.zig:
+    /// 837-844@481104fd`; 6aa678d9).
+    pub(crate) fn file_listing_hold_pending(&self, now: Instant) -> bool {
+        self.listing_wait.measuring(now)
     }
 
     /// The `@` list's source, for a case to drive a listing by hand.

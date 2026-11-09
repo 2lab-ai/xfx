@@ -732,10 +732,29 @@ pub(crate) fn search(entries: &[Candidate], query: &str) -> Vec<Found> {
         .collect()
 }
 
+/// The folder a browsed path lists the contents of (`listedFolder`,
+/// `path_completion.zig:133-143@481104fd`): `src/` lists `src` and `~` lists
+/// `~`, and none for a partial name, the root or a doubled `/`. One that
+/// cannot be painted as it stands, or written as an `@` word, has no row.
+fn listed_folder<'a>(explicit: &'a Explicit<'_>) -> Option<&'a str> {
+    if !explicit.name.is_empty() || explicit.prefix.len() < 2 {
+        return None;
+    }
+    let folder = explicit.prefix.strip_suffix('/')?;
+    if folder.ends_with('/') || !is_terminal_safe(folder) {
+        return None;
+    }
+    Some(folder)
+}
+
 /// The rows a browsed path makes of its directory's `entries`
-/// (`completeCancellable`, `path_completion.zig:44-120`): each entry's name
-/// ranked against what was typed after the last `/`, shown behind the prefix
-/// the user typed, with the matched letters bold.
+/// (`completeCancellable`, `path_completion.zig:44-131@481104fd`): each
+/// entry's name ranked against what was typed after the last `/`, shown
+/// behind the prefix the user typed, with the matched letters bold -- and,
+/// when the path names a folder whose contents it lists, that folder first,
+/// so it can be chosen and not only opened (7c8ef4a3; `:79-84`, `:124-128`).
+/// The folder's row takes one of the list's [`MOST_RESULTS`], as fx's takes
+/// the first slot of its `capacity` (`file_completion_state.zig:7`).
 fn rank_listing(entries: &[(String, Kind)], explicit: &Explicit<'_>) -> Vec<Found> {
     let folded = Folded::new(explicit.name);
     let empty = folded.0.is_empty();
@@ -753,17 +772,22 @@ fn rank_listing(entries: &[(String, Kind)], explicit: &Explicit<'_>) -> Vec<Foun
         })
         .collect();
     ranked.sort_by(|left, right| better((&left.0, &left.1), (&right.0, &right.1), empty));
-    ranked.truncate(MOST_RESULTS);
-    ranked
+    let folder = listed_folder(explicit).map(|folder| Found {
+        path: folder.to_string(),
+        kind: Kind::Directory,
+        spans: Vec::new(),
+    });
+    ranked.truncate(MOST_RESULTS - usize::from(folder.is_some()));
+    folder
         .into_iter()
-        .map(|(_, path, kind)| {
+        .chain(ranked.into_iter().map(|(_, path, kind)| {
             let name = &path[explicit.prefix.len()..];
             let spans = spans(name, &folded)
                 .into_iter()
                 .map(|span| span.start + explicit.prefix.len()..span.end + explicit.prefix.len())
                 .collect();
             Found { path, kind, spans }
-        })
+        }))
         .collect()
 }
 

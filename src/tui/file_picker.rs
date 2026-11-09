@@ -48,17 +48,29 @@
 //!
 //! # What choosing does
 //!
-//! Tab and Enter both put the marked path, once a frame has shown it, in place
-//! of what was typed after the `@` (`applyFilePickerSelection`,
-//! `input_completion_runtime.zig:898-953`):
-//! `@path` and a space for a file, so the next word can be typed and the picker
-//! closes; `@dir/` and no space for a directory, so the picker goes on, listing
-//! it. Enter does **not** submit -- a second Enter does
-//! (`fx-composer-40x120-at-enter.txt`). With a query that matched nothing,
-//! once a frame has said so, Enter submits the line as typed
-//! (`tests/e2e/tui-file-picker.test.ts:1142`); while there is nothing to
-//! choose yet, it does nothing. The mention stays
-//! text: what is sent is the line the user sees.
+//! Tab and Enter put the marked path, once a frame has shown it, in place of
+//! what was typed after the `@` (`applyFilePickerSelection`,
+//! `input_completion_runtime.zig:967-1032@481104fd`), and differ on a folder
+//! (7c8ef4a3; [`FolderAction`]):
+//! `@path` and a space for a file, either key, so the next word can be typed
+//! and the picker closes; for a folder, Enter mentions it -- `@dir/`, any
+//! quote closed, and a space, so the picker closes too (`.select`, `:1042`,
+//! `:995-1007`) -- and Tab opens it -- `@dir/`, no space and the quote left
+//! open, so the picker goes on, listing it (`.open`, `:957`). A listed folder
+//! (`@src/`) is its own first row, so it can be chosen from inside
+//! (`listedFolder`, `path_completion.zig:133-143`). Enter does **not**
+//! submit -- a second Enter does (`fx-composer-40x120-at-enter.txt`). With a
+//! query that matched nothing, once a frame has said so, Enter submits the
+//! line as typed (`tests/e2e/tui-file-picker.test.ts:1142`); while there is
+//! nothing to choose yet, it does nothing. The mention stays text: what is
+//! sent is the line the user sees.
+//!
+//! # A folder's rows
+//!
+//! The keystroke that starts a folder listing holds its frame, up to
+//! [`LISTING_HOLD`], for the listing's rows, so they paint with it rather
+//! than after an `indexing files...` frame (09d2e934, 6aa678d9;
+//! [`ListingWait`], `super::shell::Shell::hold_frame_for_file_listing`).
 
 use std::ops::Range;
 
@@ -423,30 +435,39 @@ pub(crate) enum FolderAction {
 }
 
 /// What choosing `found` for `query` does to `draft`
-/// (`applyFilePickerSelection`, `input_completion_runtime.zig:898-953`).
+/// (`applyFilePickerSelection`, `input_completion_runtime.zig:967-1032
+/// @481104fd`).
 ///
-/// A file gets a space after it unless the draft already has a separator
-/// there, in which case the caret steps over that one; a directory gets
-/// neither, so the next keystroke goes on with the path.
+/// A file, and a folder Enter selects, get a space after them unless the
+/// draft already has a separator there, in which case the caret steps over
+/// that one -- the folder as its path and a `/`, any quote closed
+/// (`:995-1007`), so the caret leaves the word and the picker closes. A
+/// folder Tab opens gets neither: its `/` and its quote left open, so the
+/// next keystroke goes on with the path and the picker lists it.
 pub(crate) fn completion(
     draft: &str,
     query: &Query,
     found: &Found,
     indexed: bool,
-    _action: FolderAction,
+    action: FolderAction,
 ) -> Completion {
     let directory = found.kind == Kind::Directory;
+    let opens = directory && action == FolderAction::Open;
     let reuses = draft
         .as_bytes()
         .get(query.replace_end)
         .is_some_and(|byte| is_separator(*byte));
-    let adds = !directory && !reuses;
-    let mut text = encode(&found.path, query.quoted, directory, indexed);
+    let adds = !opens && !reuses;
+    let mut text = if directory && !opens {
+        encode(&format!("{}/", found.path), query.quoted, false, indexed)
+    } else {
+        encode(&found.path, query.quoted, opens, indexed)
+    };
     let separator = adds.then(|| query.at + text.len());
     if adds {
         text.push(' ');
     }
-    let caret = query.at + text.len() + usize::from(!directory && reuses);
+    let caret = query.at + text.len() + usize::from(!opens && reuses);
     Completion {
         range: query.at..query.replace_end,
         text,
@@ -922,28 +943,59 @@ fn styled(row: &mut String, found: &Found, range: Range<usize>, base: &str) {
 pub(crate) const LISTING_HOLD: std::time::Duration = std::time::Duration::from_millis(8);
 
 /// Paces the frame of a keystroke that started a folder listing
-/// (`FileListingWait`, `picker_state.zig:99-139@481104fd`).
+/// (`FileListingWait`, `picker_state.zig:99-139@481104fd`; 09d2e934,
+/// 6aa678d9).
+///
+/// A folder usually lists well inside one tick of the loop, so the frame of
+/// the keystroke that asked for it waits for the rows, and the keystroke
+/// paints with them rather than over an `indexing files...` list first. A
+/// listing that outlasts the wait lets that frame go, and the next listing's
+/// frame goes at once rather than paying the wait again on a slow folder --
+/// but every listing is still watched for its first tick, so one that lands
+/// inside it turns the wait back on.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct ListingWait {
+    /// When the listing in flight was first seen.
     started: Option<std::time::Instant>,
+    /// The previous listing outlasted the wait.
     last_outlasted_hold: bool,
 }
 
 impl ListingWait {
-    /// Whether the next frame waits for a listing in flight.
-    pub(crate) fn hold(&mut self, _in_flight: bool, _now: std::time::Instant) -> bool {
-        false
+    /// Whether the next frame waits for a listing in flight: keystrokes
+    /// during one listing share its wait (`hold`, `:112-122`).
+    pub(crate) fn hold(&mut self, in_flight: bool, now: std::time::Instant) -> bool {
+        if !in_flight {
+            if let Some(started) = self.started {
+                self.last_outlasted_hold = !within_hold(started, now);
+            }
+            self.started = None;
+            return false;
+        }
+        if self.started.is_none() {
+            self.started = Some(now);
+        }
+        self.active(now)
     }
 
-    /// Whether a frame is being held now.
-    pub(crate) fn active(&self, _now: std::time::Instant) -> bool {
-        false
+    /// Whether a frame is being held now (`active`, `:124-126`).
+    pub(crate) fn active(&self, now: std::time::Instant) -> bool {
+        !self.last_outlasted_hold && self.measuring(now)
     }
 
-    /// Whether a listing is in its first [`LISTING_HOLD`].
-    pub(crate) fn measuring(&self, _now: std::time::Instant) -> bool {
-        false
+    /// Whether the listing in flight is in its first [`LISTING_HOLD`], waited
+    /// for or not (`measuring`, `:128-133`).
+    pub(crate) fn measuring(&self, now: std::time::Instant) -> bool {
+        self.started
+            .is_some_and(|started| within_hold(started, now))
     }
+}
+
+/// Whether `now` is inside the wait that began at `started` -- a clock that
+/// steps backwards ends it rather than extending it (`withinHold`, `:135-138`).
+fn within_hold(started: std::time::Instant, now: std::time::Instant) -> bool {
+    now.checked_duration_since(started)
+        .is_some_and(|waited| waited < LISTING_HOLD)
 }
 
 #[cfg(test)]
