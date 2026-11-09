@@ -9479,20 +9479,32 @@ mod tests {
         }
     }
 
-    #[test]
-    fn only_collect_facts_makes_a_reconciled() {
-        // The token's promise ([`Reconciled`]) holds only while nothing but
-        // `collect_facts` makes one, and inside this module the compiler
-        // cannot say so: a unit struct is a value anywhere it is in scope.
-        // So this test does. Every `Reconciled` in the code ahead of these
-        // tests is a type -- a parameter's, a return's, a borrow's, the
-        // struct's own -- except `collect_facts`' one `Ok(Reconciled)`.
-        let source = include_str!("event_loop.rs");
-        let code = &source[..source.find("\nmod tests {").expect("the tests module")];
+    /// Every `Reconciled` in `code` that is a value rather than a type, with
+    /// its line ([`only_collect_facts_makes_a_reconciled`]). A type is behind
+    /// a `<`, an `->`, a `&` that is itself a type's, or a `:` -- the last
+    /// only in a fn's signature, a struct's definition, a `let` or a
+    /// closure's parameters: anywhere else `name: Reconciled` is a struct
+    /// literal's field, a value.
+    fn reconciled_made(code: &str) -> Vec<(usize, String)> {
         let word = |c: char| c.is_alphanumeric() || c == '_';
         let mut made = Vec::new();
+        let (mut signature, mut definition) = (false, None::<usize>);
         for (n, line) in code.lines().enumerate() {
             let line = line.split("//").next().unwrap_or("");
+            let indent = line.len() - line.trim_start().len();
+            let trimmed = line.trim();
+            if trimmed.contains("fn ") {
+                signature = true;
+            }
+            if definition.is_none()
+                && trimmed.ends_with('{')
+                && trimmed
+                    .split_whitespace()
+                    .take_while(|token| *token != "{")
+                    .any(|token| token == "struct")
+            {
+                definition = Some(indent);
+            }
             let mut from = 0;
             while let Some(at) = line[from..].find("Reconciled").map(|at| at + from) {
                 from = at + "Reconciled".len();
@@ -9505,17 +9517,59 @@ mod tests {
                 // A borrow is a type behind a `:`, a `<` or an `->`, and a
                 // value anywhere else (`f(&Reconciled)`).
                 let behind = before.strip_suffix('&').map_or(before, str::trim_end);
-                let typed = behind.ends_with([':', '<'])
+                let declared = signature
+                    || definition.is_some()
+                    || trimmed.starts_with("let ")
+                    || behind.contains('|');
+                let typed = (behind.ends_with(':') && declared)
+                    || behind.ends_with('<')
                     || behind.ends_with("->")
                     || (before == behind && before.ends_with("struct"));
                 if !typed {
-                    made.push((n + 1, line.trim().to_string()));
+                    made.push((n + 1, trimmed.to_string()));
                 }
             }
+            if signature && (trimmed.contains('{') || trimmed.ends_with(';')) {
+                signature = false;
+            }
+            if definition.is_some_and(|at| at == indent && trimmed == "}") {
+                definition = None;
+            }
         }
+        made
+    }
+
+    #[test]
+    fn only_collect_facts_makes_a_reconciled() {
+        // The token's promise ([`Reconciled`]) holds only while nothing but
+        // `collect_facts` makes one, and inside this module the compiler
+        // cannot say so: a unit struct is a value anywhere it is in scope.
+        // So this test does. Every `Reconciled` in the code ahead of these
+        // tests is a type -- a parameter's, a return's, a borrow's, the
+        // struct's own -- except `collect_facts`' one `Ok(Reconciled)`.
+        let source = include_str!("event_loop.rs");
+        let code = &source[..source.find("\nmod tests {").expect("the tests module")];
+        let made = reconciled_made(code);
         assert!(
             made.len() == 1 && made[0].1 == "Ok(Reconciled)",
             "a Reconciled made outside collect_facts: {made:#?}"
+        );
+        // And the scan itself, on each shape: the types are not counted, and
+        // every value is, a struct literal's field and a borrow among them.
+        let shapes = "fn f(\n    token: Reconciled,\n    other: &Reconciled,\n) -> io::Result<Reconciled> {\n\
+                      struct Holder {\n    token: Reconciled,\n}\n\
+                      let kept: Reconciled = make();\n\
+                      let each = |token: Reconciled| token;\n\
+                      Holder {\n    token: Reconciled,\n};\n\
+                      commit(&Reconciled);\n\
+                      Ok(Reconciled)\n";
+        let lines: Vec<usize> = reconciled_made(shapes).iter().map(|(n, _)| *n).collect();
+        // Lines 11 (the literal's field), 13 (the borrow) and 14 (`Ok`).
+        assert_eq!(
+            lines,
+            [11, 13, 14],
+            "the scan's shapes: {:#?}",
+            reconciled_made(shapes)
         );
     }
 
