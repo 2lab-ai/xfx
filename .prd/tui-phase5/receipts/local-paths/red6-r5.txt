@@ -1,0 +1,30 @@
+# red6.sh on a clone at e1d34372 (round 5)
+1 <scratch>/fxtmpé/a:                            normalized (RED)
+1 <scratch>/fxtmp%C3%A9/a:                       normalized (RED)
+1 <scratch>/fxtmp中/a:                            normalized (RED)
+1 <scratch>/fxtmp@x:                             normalized (RED)
+1 <scratch>/fxtmp=x:                             normalized (RED)
+1 <scratch>/fxtmp#1:                             normalized (RED)
+1 <scratch>/fxtmp(1):                            normalized (RED)
+1 <scratch>/fxtmp!:                              normalized (RED)
+1 <scratch>/fxtmp<x:                             normalized (RED)
+1 <scratch>/fxtmp-old/a:                         compared
+1 <scratch>/fxtmp.bak:                           compared
+1 <scratch>/fxtmp~:                              compared
+1 <scratch>/fxtmp+1:                             compared
+1 <scratch>/fxtmp, then /:                       normalized
+1 <scratch>/fxtmp, then a space:                 normalized
+1 <scratch>/fxtmp, then a tab:                   normalized
+1 <scratch>/fxtmp, then ":                       normalized
+1 <scratch>/fxtmp, then ':                       normalized
+1 <scratch>/fxtmp, then ):                       normalized
+1 <scratch>/fxtmp, then ]:                       normalized
+1 <scratch>/fxtmp, then }:                       normalized
+1 <scratch>/fxtmp, then >:                       normalized
+1 <scratch>/fxtmp, then ,:                       normalized
+1 <scratch>/fxtmp, then ::                       normalized
+1 <scratch>/fxtmp, then ;:                       normalized
+1 <scratch>/fxtmp, then |:                       normalized
+1 <scratch>/fxtmp, then the row's end:           normalized
+2 <home>/My Docs/... broken at its space:        published as <home__>/My Docs/... (RED)
+2 /tmp/a b broken at its space:                  rewritten, then refused by the survivor reading

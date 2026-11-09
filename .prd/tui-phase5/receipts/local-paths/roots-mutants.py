@@ -1,4 +1,4 @@
-"""LOCAL-PATHS round 5: each mutant of scripts/fxcap/roots.py, capture.sh or
+"""LOCAL-PATHS round 6: each mutant of scripts/fxcap/roots.py, capture.sh or
 parity-ledger.toml, applied to a throwaway clone's copy (never a checkout
 anyone works in), must be failed by the tests that pin it. Each line names
 the tests that failed and the test file's line of the first failed
@@ -24,7 +24,19 @@ IN_CONTROL = """        in_control = any(
 """
 BROKEN = "        broken = any(_find(view, v, []) for v in _broken_at_gutters(needle))\n"
 JUDGE = "        if in_control or broken or _find(view, needle, []):"
-TMPDIR_RULE = "fx = '(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/)fxtmp(?![A-Za-z0-9._~+-])'"
+# capture-tmpdir as round 6 writes it: the run directory's placeholder, then
+# `fxtmp`, then one of the delimiters that end a directory's name in text.
+PREFIX = "(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/)"
+DELIMS = ["/", "\\s", '"', "'", "\\]", "}", ")", ",", ":", ";", "|", ">"]
+END = "(?=[" + "".join(DELIMS) + "]|$)"
+TRIPLE = "'" * 3
+
+
+def rule(prefix=PREFIX, end=END):
+    return "fx = " + TRIPLE + prefix + "fxtmp" + end + TRIPLE
+
+
+TMPDIR_RULE = rule()
 M = [
     # round 3, item 1: the placeholder over the root's own columns
     ("roots.py", CAPTURE, "placeholder on the first span only", "        edits.append((s, e, ph[at : at + w]))", "        edits.append((s, e, ph if at == 0 else b\"\"))"),
@@ -39,9 +51,13 @@ M = [
      "            any(m.start() < end and start < m.end() for start, end in view.controls if data.startswith(b\"\\x1b]\", start))"),
     # round 5, item 2: a root read with any of its gutter runs taken out
     ("roots.py", CAPTURE, "no reading at its gutters (round 4)", BROKEN, "        broken = False\n"),
-    ("roots.py", CAPTURE, "every gutter out at once (cfd582a7)", BROKEN,
+    ("roots.py", CAPTURE, "every gutter out at once (bb5f53ed)", BROKEN,
      "        broken = _find(view, GUTTER_RUN.sub(b\"\", needle), []) if GUTTER_RUN.search(needle) else False\n"),
     ("roots.py", CAPTURE, "one run out at a time only", "        if all(keep):\n", "        if all(keep) or list(keep).count(False) != 1:\n"),
+    # round 6, item 2: the rewrite refuses a broken root before any edit
+    ("roots.py", CAPTURE, "no refusal in the rewrite (round 5)",
+     "        if any(_find(view, v, []) for v in _broken_at_gutters(needle)):\n            raise Refused(",
+     "        if False:\n            raise Refused("),
     ("roots.py", CAPTURE, "no bound on the runs", "            if len(GUTTER_RUN.findall(os.fsencode(form))) > MAX_GUTTER_RUNS:\n", "            if False:\n"),
     # round 3, item 5: a trailing-slash TMPDIR (round 4: killed by the HOME as given)
     ("capture.sh", CAPTURE, "no trailing-slash strip", "  while [[ $tmpdir == */ && $tmpdir != / ]]; do tmpdir=${tmpdir%/}; done", "  :"),
@@ -50,13 +66,19 @@ M = [
     ("roots.py", CAPTURE, "no nF escape", "|\\x1b[\\x20-\\x2f]*[\\x30-\\x7e]\")", "|\\x1b[\\x20-\\x7e]\")"),
     ("roots.py", CAPTURE, "a backslash escape", "        edits.append((end, end, b\"!\"))", "        edits.append((end, end, b\"\\\\\"))"),
     # round 4, item 2: capture-tmpdir right after the run directory only
-    ("parity-ledger.toml", SWEEP, "any `_>/` before fxtmp (round 3)", TMPDIR_RULE, "fx = '(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/|(?<=_>/))fxtmp(?![A-Za-z0-9._~+-])'"),
-    ("parity-ledger.toml", SWEEP, "any placeholder before fxtmp", TMPDIR_RULE, "fx = '(<!*[a-z:]+_*>/|fxcap\\.XXXXXX/)fxtmp(?![A-Za-z0-9._~+-])'"),
-    ("parity-ledger.toml", SWEEP, "the short form read too", TMPDIR_RULE, "fx = '(<(?:scratch(?::real)?_*|[sS]_+)>/|fxcap\\.XXXXXX/)fxtmp(?![A-Za-z0-9._~+-])'"),
-    ("parity-ledger.toml", SWEEP, "no zero-fill <scratch>", TMPDIR_RULE, "fx = '(<scratch(?::real)?_+>/|fxcap\\.XXXXXX/)fxtmp(?![A-Za-z0-9._~+-])'"),
-    # round 5, item 1: the name itself, not a sibling's
-    ("parity-ledger.toml", SWEEP, "a word boundary again (round 4)", TMPDIR_RULE, "fx = '(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/)fxtmp\\b'"),
-    ("parity-ledger.toml", SWEEP, "no end at all", TMPDIR_RULE, "fx = '(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/)fxtmp'"),
+    ("parity-ledger.toml", SWEEP, "any `_>/` before fxtmp (round 3)", TMPDIR_RULE, rule(prefix="(<scratch(?::real)?_*>/|fxcap\\.XXXXXX/|(?<=_>/))")),
+    ("parity-ledger.toml", SWEEP, "any placeholder before fxtmp", TMPDIR_RULE, rule(prefix="(<!*[a-z:]+_*>/|fxcap\\.XXXXXX/)")),
+    ("parity-ledger.toml", SWEEP, "the short form read too", TMPDIR_RULE, rule(prefix="(<(?:scratch(?::real)?_*|[sS]_+)>/|fxcap\\.XXXXXX/)")),
+    ("parity-ledger.toml", SWEEP, "no zero-fill <scratch>", TMPDIR_RULE, rule(prefix="(<scratch(?::real)?_+>/|fxcap\\.XXXXXX/)")),
+    # rounds 5 and 6, item 1: the name itself, ended by a delimiter
+    ("parity-ledger.toml", SWEEP, "a word boundary again (round 4)", TMPDIR_RULE, rule(end="\\b")),
+    ("parity-ledger.toml", SWEEP, "no end at all", TMPDIR_RULE, rule(end="")),
+    ("parity-ledger.toml", SWEEP, "EDGE's complement again (round 5)", TMPDIR_RULE, rule(end="(?![A-Za-z0-9._~+-])")),
+] + [
+    ("parity-ledger.toml", SWEEP, "no %s after fxtmp" % d.replace("\\s", "white space").replace("\\", ""), TMPDIR_RULE,
+     rule(end="(?=[" + "".join(x for x in DELIMS if x != d) + "]|$)")) for d in DELIMS
+] + [
+    ("parity-ledger.toml", SWEEP, "no row's end after fxtmp", TMPDIR_RULE, rule(end="(?=[" + "".join(DELIMS) + "])")),
 ]
 env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 env["PYTHONDONTWRITEBYTECODE"] = "1"
