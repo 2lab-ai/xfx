@@ -1542,3 +1542,188 @@
   149              state.lookup_dirty = true;
   150          }
   151      }
+
+== src/core/app/app_render_runtime.zig:1040-1065@481104fd -- AT-FOLDERS r3: after the frame commits, flushRequestedFrame flushes the notifications (the bell) under .notification
+ 1040                  if (snapshot.reasons.contains(.first_frame)) App.startMcpHostServers(app);
+ 1041              }
+ 1042              if (comptime @hasDecl(App, "notePendingFrameCommitted")) {
+ 1043                  if (result.pending_prompt_presented) {
+ 1044                      App.notePendingFrameCommitted(app);
+ 1045                  }
+ 1046              }
+ 1047              if (comptime @hasField(App, "permission_state") and
+ 1048                  @hasField(App, "permission_engine"))
+ 1049              {
+ 1050                  app_permission_runtime.Runtime(App).noteFrameCommitted(
+ 1051                      app,
+ 1052                      app_permission_runtime.monotonicMillis(),
+ 1053                      result.yolo_warning_visible,
+ 1054                  );
+ 1055              }
+ 1056              if (comptime has_resize_lifecycle) {
+ 1057                  shell_runtime.acknowledgeResizeFrameCommit(&app.shell, resize_commit);
+ 1058              }
+ 1059              if (comptime @hasDecl(App, "flushNotifications")) {
+ 1060                  if (snapshot.reasons.contains(.notification)) {
+ 1061                      app.flushNotifications();
+ 1062                  }
+ 1063              }
+ 1064              if (comptime @hasField(@TypeOf(app.shell), "resize_history_row_delta")) {
+ 1065                  if (snapshot.reasons.contains(.resize) and
+
+== src/main.zig:785-790@481104fd -- AT-FOLDERS r3: flushNotifications, whose only caller in src is flushRequestedFrame
+  785          NotificationAppRuntime.presentationFinished(self);
+  786      }
+  787  
+  788      pub fn flushNotifications(self: *App) void {
+  789          NotificationAppRuntime.flush(self);
+  790      }
+
+== src/main.zig:2975-2990@481104fd -- AT-FOLDERS r3: loopCollectFacts runs the worker tick
+ 2975          const input_now_ms = io_mod.milliTimestamp();
+ 2976          InputAppRuntime.expireTerminalInputGestures(self, input_now_ms);
+ 2977          const terminal_input = self.terminal_input_runtime.flushTerminalAction(
+ 2978              input_now_ms,
+ 2979              input_escape_timeout_ms,
+ 2980              InputAppRuntime.terminalPasteActive(self),
+ 2981          );
+ 2982          try self.routeTerminalInputIngress(terminal_input);
+ 2983          try WorkerAppRuntime.tick(self, app_callbacks.Bindings(App).workerEventHandlers(self));
+ 2984          const now_ns = io_mod.nanoTimestamp();
+ 2985          if (!self.approval_prompt.isActive() and !self.question_prompt.isActive() and !self.auth.apiKeyEntryActive()) {
+ 2986              try self.pacer.tick(self.alloc, now_ns, self.pacerCallbacks());
+ 2987          } else {
+ 2988              self.pacer.pause(now_ns);
+ 2989          }
+ 2990      }
+
+== src/core/app/app_worker_runtime.zig:809-827@481104fd -- AT-FOLDERS r3: the worker tick drains the events and syncs the state
+  809          pub fn tick(
+  810              app: *App,
+  811              event_handlers: WorkerEventHandlers,
+  812          ) !void {
+  813              if (!try authorizeInteractiveAdmission(app)) return;
+  814              try drainEvents(app, event_handlers);
+  815              syncState(app, event_handlers.tool_lifecycle);
+  816  
+  817              const now_ms = io_mod.milliTimestamp();
+  818              if (app.shell.worker_status_state().expire_transient(now_ms)) {
+  819                  app.shell.render_requests.request(.footer);
+  820              }
+  821              _ = advanceVisibleAnimation(
+  822                  app,
+  823                  event_handlers.tool_lifecycle,
+  824                  now_ms,
+  825                  std.Io.Clock.Timestamp.now(io_mod.getIo(), .awake),
+  826              );
+  827          }
+
+== src/core/app/app_worker_runtime.zig:657-665@481104fd -- AT-FOLDERS r3: syncState
+  657          pub fn syncState(
+  658              app: *App,
+  659              presenter: activity_runtime.LifecyclePresenter,
+  660          ) void {
+  661              const snapshot = app.worker.snapshotState(app.alloc) catch return;
+  662              defer snapshot.deinit(app.alloc);
+  663  
+  664              const was_approval_active = app.approval_prompt.isActive();
+  665              const worker_pending_request = if (snapshot.pending_permission_request) |*request|
+
+== src/core/app/app_worker_runtime.zig:758-791@481104fd -- AT-FOLDERS r3: syncState reports the program status; reportProgramStatus writes it
+  758              // Waiting on an approval or question is not thinking: freeze the
+  759              // elapsed clock for the duration of the wait.
+  760              activity_status.syncWaitingClock(&app.stream, modal_active, io_mod.milliTimestamp());
+  761  
+  762              if (comptime @hasField(App, "program_status")) {
+  763                  reportProgramStatus(app, !cancellation_stops_turn and
+  764                      (app.stream.active or snapshot.processing or snapshot.queued_count > 0));
+  765              }
+  766          }
+  767  
+  768          /// Tells the terminal what the user would see: a decision prompt,
+  769          /// running work, or the result of the last turn.
+  770          fn reportProgramStatus(app: *App, busy: bool) void {
+  771              if (comptime @hasDecl(@TypeOf(app.worker), "compactionActivitySnapshot")) {
+  772                  app.program_status.noteCompaction(app.worker.compactionActivitySnapshot());
+  773              }
+  774              const activity: program_status.Activity = if (app.approval_prompt.isActive())
+  775                  .{ .blocked = .{
+  776                      .kind = .permission,
+  777                      .message = if (app.approval_prompt.request) |*request| request.view().label else "",
+  778                  } }
+  779              else if (app.question_prompt.isActive())
+  780                  .{ .blocked = .{ .kind = .question, .message = activeQuestionText(app) } }
+  781              else if (busy)
+  782                  .working
+  783              else
+  784                  .settled;
+  785              const report = app.program_status.update(activity) orelse return;
+  786              debug_trace.logf("program_status", "report activity={s} settled={s}", .{
+  787                  @tagName(activity),
+  788                  @tagName(app.program_status.settled),
+  789              });
+  790              app.writeProgramStatus(report);
+  791          }
+
+== src/core/app/input_completion_runtime.zig:811-815@481104fd -- AT-FOLDERS r3: collectFilePickerFacts harvests with filePickerEligible
+  811          pub fn collectFilePickerFacts(app: *App) void {
+  812              if (comptime !runtime_profile.allows(App, .file_index)) return;
+  813              reconcileFilePicker(app);
+  814              app.harvestDirectoryCompletion(filePickerEligible(app));
+  815          }
+
+== src/core/workspace/directory_completion_job.zig:191-217@481104fd -- AT-FOLDERS r3: harvest drops an abandoned or superseded task's output
+  191      pub fn harvest(self: *Job, alloc: std.mem.Allocator, state_alloc: std.mem.Allocator, state: *completion.State, eligible: bool) bool {
+  192          self.reconcile(alloc, state, eligible);
+  193          const task = self.task orelse return false;
+  194          if (!task.done.load(.acquire)) return false;
+  195          if (!task.abandoned and task.request.matches(state)) {
+  196              if (task.failure) |err| {
+  197                  fail(state_alloc, state, task.request.id, err);
+  198              } else {
+  199                  const rows = completion.Rows.copy(state_alloc, task.rows.?.results) catch |err| blk: {
+  200                      fail(state_alloc, state, task.request.id, err);
+  201                      break :blk null;
+  202                  };
+  203                  if (rows) |owned| {
+  204                      state.directory_request = null;
+  205                      state.stage(state_alloc, .{ .scope_epoch = state.scope_epoch, .state = .ready }, if (owned.results.len == 0) .empty else .ready, owned);
+  206                      debug_trace.logf("input", "file picker prepared revision={d} count={d} indexed=false request={d}", .{ state.next_revision -% 1, owned.results.len, task.request.id });
+  207                  }
+  208              }
+  209          } else debug_trace.logf("input", "directory completion stale output dropped request={d} failed={}", .{ task.request.id, task.failure != null });
+  210          task.deinit();
+  211          self.task = null;
+  212          if (self.pending) |request| {
+  213              self.pending = null;
+  214              self.start(alloc, request) catch |err| fail(state_alloc, state, request.id, err);
+  215          }
+  216          return true;
+  217      }
+
+== src/builtins/hooks/notifications.zig:185-203@481104fd -- AT-FOLDERS r3: the provider's flush delivers the ready notifications to the player
+  185          pub fn flush(app: *App) void {
+  186              const ready = app.notifications.takeReady(app.pacer.hasPending());
+  187              const count = ready.attention_required +| ready.turn_end_success +| ready.turn_end_error;
+  188              if (count == 0) return;
+  189  
+  190              const player = if (app.notifications.player) |*configured|
+  191                  configured
+  192              else {
+  193                  debug_trace.logf(
+  194                      "notifications",
+  195                      "notification delivery dropped count={d} reason=player_not_configured",
+  196                      .{count},
+  197                  );
+  198                  return;
+  199              };
+  200              deliver(player, .attention_required, .success, ready.attention_required);
+  201              deliver(player, .turn_end, .success, ready.turn_end_success);
+  202              deliver(player, .turn_end, .@"error", ready.turn_end_error);
+  203          }
+
+== src/builtins/hooks/notifications.zig:283-286@481104fd -- AT-FOLDERS r3: the player's emit is the bell: writeNotificationBell's one caller
+  283          fn emitInteractiveBell(raw: *anyopaque) void {
+  284              const app: *App = @ptrCast(@alignCast(raw));
+  285              app.shell.writeNotificationBell(&app.metrics);
+  286          }

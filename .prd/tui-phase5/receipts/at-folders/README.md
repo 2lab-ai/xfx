@@ -129,6 +129,10 @@ is empty: after the head's build only this folder changes.
 - **Round 2 (`round2/README.md`)**: only the frame is held, as only fx's
   `flushRequestedFrame` is. The status report, the title (on its own) and
   the bells go out on their tick. Round 1 held the whole tick; that is gone.
+  **Round 3 (`round3/README.md`)**: the bells are fx's frame's after all --
+  they wait with it and ring after the frame that releases the hold; and
+  under the full transcript a listing in flight is dropped and the folder
+  listed again, as fx does.
 
 ## 4. RED (`7ef30e66`, `red-unit.txt`)
 

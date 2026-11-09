@@ -1126,6 +1126,19 @@ impl Files {
         Lookup::Loading
     }
 
+    /// Stops the directory listing in flight and forgets it, so a late answer
+    /// to it is never taken, and says whether there was one: the list it was
+    /// for is not eligible any more (`reconcile` with `eligible` false,
+    /// `directory_completion_job.zig:140-151@481104fd`: the task stopped, the
+    /// request dropped). The next lookup of that folder lists it again.
+    pub(crate) fn abandon_listing(&mut self) -> bool {
+        let Some(listing) = self.listing.take() else {
+            return false;
+        };
+        listing.stop.store(true, Atomic::Relaxed);
+        true
+    }
+
     /// Forgets a failure, so the next lookup tries again: Tab on a picker that
     /// says it could not read (`retry`, `file_completion_state.zig:205-208`).
     pub(crate) fn retry(&mut self) {

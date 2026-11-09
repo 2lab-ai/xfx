@@ -341,12 +341,14 @@ fn wait_timeout(shell: &Shell, now: Instant) -> Duration {
 /// (`loopCommitFrame`, `main.zig:3007@481104fd`), at most 8 ms
 /// ([`super::file_picker::ListingWait`]).
 ///
-/// Held is the frame and nothing else, as fx's is ([`commit_frame_led`]
-/// says what that is): the band's or the plane's update, the document rows
-/// it carries, and the `/model` column's ask that comes with it. The status
-/// report, the window title -- written on its own then -- and the bells go
-/// out on their tick, in their order, as fx writes them outside its frame.
-/// The frame stays owed, so the next turn that is not held commits it.
+/// Held is what fx's `flushRequestedFrame` holds ([`commit_frame_led`] says
+/// what that is): the band's or the plane's update, the document rows it
+/// carries, the `/model` column's ask that comes with it, and the bells,
+/// which fx flushes inside that function after the frame
+/// (`app_render_runtime.zig:1059-1063`). The status report and the window
+/// title -- written on its own then -- go out on their tick, in their order,
+/// as fx writes them outside its frame. The frame and the bells stay owed, so
+/// the next turn that is not held commits the frame and then rings them.
 fn commit_or_hold(
     shell: &mut Shell,
     band: &mut Band,
@@ -1030,6 +1032,8 @@ fn commit_frame_led(
     // same `flushRequestedFrame` on the full transcript's requests (`:934`).
     // The title a primary frame would lead with goes out on its own, as fx's
     // title is (`syncTerminalTitleWith`, `app_session_runtime.zig:2965-2987`).
+    // The bells are fx's frame's too (`flushNotifications` after the commit,
+    // `app_render_runtime.zig:1059-1063`): [`commit_tick`] leaves them owed.
     if held {
         let primary = !band.on_alternate()
             && shell.screen_owner() == super::shell::ScreenOwner::Primary
@@ -1293,6 +1297,13 @@ fn commit_tick(
     }
     // A title held past this frame is the next tick's ([`Shell::tick_committed`]).
     shell.tick_committed();
+    // The bells wait with a held frame and ring after the one that releases
+    // it: fx flushes its notifications inside `flushRequestedFrame`, after
+    // the frame is committed (`flushNotifications`,
+    // `app_render_runtime.zig:1059-1063@481104fd`), so its hold holds them.
+    if frame_held {
+        return Ok(());
+    }
     commit_bells(shell, out, failures, now)
 }
 
@@ -1410,7 +1421,9 @@ fn check_program_status(report: &super::program_status::Report) -> io::Result<()
 /// because a bell carries no coordinates: it means the same on the borrowed
 /// plane, on a screen no band fits on, and after a frame the terminal refused
 /// -- the three states a session can wait in while it waits on the user, which
-/// is when a question's bell is for.
+/// is when a question's bell is for. Except a frame held for a folder
+/// listing's rows: the bells wait for the frame that releases it
+/// ([`commit_tick`]), as fx's wait inside its held `flushRequestedFrame`.
 ///
 /// Through the output check like every other vector ([`check_bells`]), and
 /// disposed of as the theme query is: refused without a byte taken, the bells

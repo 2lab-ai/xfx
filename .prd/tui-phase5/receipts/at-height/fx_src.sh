@@ -80,3 +80,15 @@ show $P src/main.zig 2804 2844 "AT-FOLDERS r2: the theme query is written while 
 show $P src/ui/transcript/runtime.zig 10402 10430 "AT-FOLDERS r2: the bell and the program status report, each a write of its own between frames"
 show $P src/core/app/app_session_runtime.zig 2958 2987 "AT-FOLDERS r2: the title is set by the provider when it changes, outside any frame"
 show $P src/core/workspace/directory_completion_job.zig 140 151 "AT-FOLDERS r2: an ineligible harvest stops the listing and drops the directory request"
+# --- added by AT-FOLDERS round 3 (2026-11-09): the bell inside the frame,
+# the report's caller, and the eligible harvest.
+show $P src/core/app/app_render_runtime.zig 1040 1065 "AT-FOLDERS r3: after the frame commits, flushRequestedFrame flushes the notifications (the bell) under .notification"
+show $P src/main.zig 785 790 "AT-FOLDERS r3: flushNotifications, whose only caller in src is flushRequestedFrame"
+show $P src/main.zig 2975 2990 "AT-FOLDERS r3: loopCollectFacts runs the worker tick"
+show $P src/core/app/app_worker_runtime.zig 809 827 "AT-FOLDERS r3: the worker tick drains the events and syncs the state"
+show $P src/core/app/app_worker_runtime.zig 657 665 "AT-FOLDERS r3: syncState"
+show $P src/core/app/app_worker_runtime.zig 758 791 "AT-FOLDERS r3: syncState reports the program status; reportProgramStatus writes it"
+show $P src/core/app/input_completion_runtime.zig 811 815 "AT-FOLDERS r3: collectFilePickerFacts harvests with filePickerEligible"
+show $P src/core/workspace/directory_completion_job.zig 191 217 "AT-FOLDERS r3: harvest drops an abandoned or superseded task's output"
+show $P src/builtins/hooks/notifications.zig 185 203 "AT-FOLDERS r3: the provider's flush delivers the ready notifications to the player"
+show $P src/builtins/hooks/notifications.zig 283 286 "AT-FOLDERS r3: the player's emit is the bell: writeNotificationBell's one caller"

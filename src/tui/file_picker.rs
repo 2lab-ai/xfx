@@ -527,6 +527,10 @@ pub(crate) struct FilePicker {
     /// [`Self::distrust`]. While it is false the arrows are spent and
     /// nothing is chosen (`:218-228`, `:239-240`).
     trusted: bool,
+    /// Whether the listing this list waited for was dropped while the list
+    /// was not eligible, so its folder is looked up again once it is
+    /// (`lookup_dirty`, `directory_completion_job.zig:147-150@481104fd`).
+    lookup_dirty: bool,
 }
 
 impl FilePicker {
@@ -545,7 +549,18 @@ impl FilePicker {
             selected: 0,
             window_start: 0,
             trusted: false,
+            lookup_dirty: false,
         }
+    }
+
+    /// The listing this list waited for was dropped ([`Self::lookup_dirty`]).
+    pub(crate) fn mark_lookup_dirty(&mut self) {
+        self.lookup_dirty = true;
+    }
+
+    /// Whether the list is to be looked up again, taken.
+    pub(crate) fn take_lookup_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.lookup_dirty)
     }
 
     /// A frame that showed this list landed (`acknowledge`,

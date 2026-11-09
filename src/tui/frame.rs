@@ -1134,9 +1134,21 @@ impl Band {
         opened: bool,
     ) -> Result<Built, Emit> {
         // A band that has never painted, or one whose screen has changed size,
-        // knows nothing about what is on those rows.
+        // knows nothing about what is on those rows. A band that has never
+        // painted has still told the title it wrote on its own, ahead of its
+        // first frame -- a launch whose first frame waited for a folder
+        // listing's rows (`super::event_loop`'s `write_title_alone`): its
+        // first frame does not tell it again.
         if self.shadow.rows() != geometry.rows || self.shadow.cols() != geometry.cols {
+            let told = self
+                .painted
+                .is_none()
+                .then(|| self.shown_title.clone())
+                .flatten();
             self.invalidate(geometry.rows, geometry.cols);
+            if told.is_some() {
+                self.shown_title = told;
+            }
         }
 
         // **Before `plan`, and before the `painted` below moves.** Both are

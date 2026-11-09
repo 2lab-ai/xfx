@@ -36,8 +36,15 @@ transcript's included (`app_render_runtime.zig:924-936`,
 `fx-src.txt:1363-1377`). Its wire frame carries the document movement bytes
 inside the update (`terminal_diff.zig:601-646`, `fx-src.txt:1378-1425`).
 Outside it:
-- the program status report and the bell are writes of their own between
-  frames (`transcript/runtime.zig:10402-10430`, `fx-src.txt:1469-1499`);
+- the program status report is a write of its own between frames
+  (`transcript/runtime.zig:10417-10430`, `fx-src.txt:1469-1499`). **Corrected
+  in round 3:** this line said the bell is too. `writeNotificationBell`
+  (`:10402-10414`) is called only by the notification player's emit
+  (`notifications.zig:283-286`), which only the provider's flush drives
+  (`:185-203`), which only `flushNotifications` calls, inside
+  `flushRequestedFrame` after the commit (`app_render_runtime.zig:1059-1063`;
+  `fx-src.txt:1546-1573`, `:1704-1729`). So fx's hold holds the bell
+  (`../round3/`);
 - the title is set by the provider when it changes
   (`app_session_runtime.zig:2958-2987`, `fx-src.txt:1500-1531`);
 - the theme query is written while facts are collected
@@ -54,7 +61,7 @@ Outside it:
 | `/model` column's catalog ask (`settle_column`) | held | the render path's ask, made only for a frame about to be painted; on a held tick the slot is the `@` list's, so it would do nothing anyway |
 | program status report | written, in its order | fx: a write of its own |
 | window title | written **on its own** (`write_title_alone`: the band's own `OSC 2` bytes, checked as a new `Intent::Title`, then `Band::title_landed`), in the order the frame's lead would have had it | fx: the provider's write; xfx's title is otherwise frame metadata |
-| bells | written, last | fx: a write of its own |
+| bells | written, last -- **wrong, corrected in round 3**: held, rung after the releasing frame | fx flushes them inside `flushRequestedFrame` (`../round3/README.md`) |
 | theme query, handoff | written | not fx's frame |
 | `tick_committed` | runs | bookkeeping, not a write |
 
@@ -150,7 +157,7 @@ The `@` file picker row: the round-1 sentence that a held tick holds the
 whole tick's writes is gone. It now says only the frame waits (the band's or
 the full transcript's update and the document rows it carries), and the
 status report, the title (then on its own) and the bells go out on their
-tick. It also says no frame waits while the full transcript is up.
+tick. (Round 3: the bells do not; they wait with the frame, `../round3/`.) It also says no frame waits while the full transcript is up.
 
 ## 8. Ownership
 

@@ -8587,6 +8587,27 @@ impl Shell {
     /// loop: an index or a directory listing arrives on its own thread's
     /// clock, so this is where the picker hears about it.
     fn settle_files(&mut self) {
+        // fx's harvest is told whether the list is eligible
+        // (`harvestDirectoryCompletion(filePickerEligible(app))`,
+        // `input_completion_runtime.zig:814`, `:821@481104fd`). Not eligible --
+        // the full transcript up (`:783`) -- a listing in flight is stopped and
+        // its request dropped, and the lookup is marked to run again
+        // (`directory_completion_job.zig:140-151`); eligible again, it runs:
+        // the folder is listed fresh, and a late answer to the dropped
+        // listing is never taken.
+        if self.full.is_open() {
+            if self.files.abandon_listing() {
+                if let Some(files) = self.file_picker.as_mut() {
+                    files.mark_lookup_dirty();
+                }
+            }
+        } else if self
+            .file_picker
+            .as_mut()
+            .is_some_and(FilePicker::take_lookup_dirty)
+        {
+            self.refresh_file_picker();
+        }
         if self.files.poll() {
             self.refresh_file_picker();
         }
