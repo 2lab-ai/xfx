@@ -3499,18 +3499,16 @@ impl Shell {
     }
 
     /// The cell under byte `start` of the composer, which a column hangs
-    /// under (`projectedAnchorColumn`): on the row that byte is on, past the
-    /// prompt.
+    /// under ([`Self::column_anchor`], fx's `projectedAnchorColumn` for every
+    /// picker it anchors, `input_presentation.zig:383-386@481104fd`).
     fn anchor_at(&self, start: usize) -> u16 {
-        let text = self.editor.text();
         // A column is rebuilt on every edit, so its offset is into this very
         // text and after an ASCII prefix; checked anyway, because
         // `cursor_point` panics on an offset that is not a `char` boundary.
-        if !text.is_char_boundary(start) {
+        if !self.editor.text().is_char_boundary(start) {
             return PROMPT_CELLS;
         }
-        let (_, at) = self.editor.point_of(start, self.text_cols());
-        PROMPT_CELLS.saturating_add(at)
+        self.column_anchor(start)
     }
 
     /// Where the caret goes: the terminal's own row, and the number of cells to
@@ -35774,6 +35772,27 @@ mod tests {
         };
         assert_eq!(marked(&shell).as_deref(), Some("/mcp show s01"));
         assert_eq!(shell.geometry.input_rows(), 3);
+        // The list hangs under the argument while the caret is on its row,
+        // and at the start of the caret's row otherwise (`projectedAnchorColumn`,
+        // `visual_layout.zig:705-713@481104fd`; `-wrapped-up`).
+        let first = |shell: &Fixture| visible_text(&menu(shell)[0]);
+        assert!(
+            first(&shell).starts_with("       show s01"),
+            "{:?}",
+            first(&shell)
+        );
+        shell.route_bytes(b"\x1b[A");
+        assert!(
+            first(&shell).starts_with("  show s01"),
+            "{:?}",
+            first(&shell)
+        );
+        shell.route_bytes(b"\x1b[B");
+        assert!(
+            first(&shell).starts_with("       show s01"),
+            "{:?}",
+            first(&shell)
+        );
         a_slash_list_leaves_a_taller_composer_its_arrows(&mut shell, &marked);
         runtime.shutdown();
     }
