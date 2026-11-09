@@ -372,3 +372,11 @@ in three shipped texts.
   (`src/interactive.rs` +11/-7, `src/tui/worker.rs` +9/-6,
   `git diff -U0 53ada840 dec785aa -- src`). The tests add 52, 80 and 115
   lines.
+- **Gate (`gates-r2.txt`).** `gates.sh` ran at `ba11764f` (round 2's receipt
+  commit, on top of the code head `dec785aa`) in one lock slot, with a
+  clean tree before and after. Step 00 reads `rc=1`; every other step reads
+  `rc=0`:
+  - `cargo test --all-targets`: 5452 passed, 0 failed. With
+    fault-injection: the `tui` test, 195 passed; the lib, 4559 passed;
+  - fxcap test-sweep: 97 tests;
+  - smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures.
