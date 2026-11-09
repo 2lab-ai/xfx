@@ -26,6 +26,7 @@
 
 use crate::agent::TurnError;
 use crate::session::{DurableState, HistoryTurn, LineCounts, TerminalReason, ToolEnding, TurnStep};
+use crate::tools::question::{decode_answers, SavedAnswer, ASK_USER_QUESTION};
 use crate::tools::{LineChanges, Outcome, Registry, Shown};
 
 /// A resumed session, ready to be written.
@@ -127,6 +128,18 @@ pub(crate) enum HydratedStep {
         outcome: Outcome,
         changes: Option<LineChanges>,
     },
+    /// An `ask_user_question` call that came back with an answered batch: its
+    /// saved document decoded ([`crate::tools::question::decode_answers`]),
+    /// in place of its result, whose row a question never has. Upstream's
+    /// replay writes the batch's resolutions from the document
+    /// (`writeAnsweredQuestionResult`, `app_session_runtime.zig:4589-4607@481104fd`),
+    /// the rows the panel left when it was answered.
+    Answered(Vec<SavedAnswer>),
+    /// One that came back with anything else -- a refusal, a declined batch,
+    /// a document that does not decode -- which upstream's replay sends down
+    /// its generic path (`:4210-4335`) to the completed row `● Asked`
+    /// (capture `fx-p5-question-resume-40x120-resumed`).
+    Asked,
     /// What the user said at an approval, as the live amendment row says it.
     Feedback(String),
     /// A prompt the person sent into the turn, as its card was written when
@@ -197,11 +210,24 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
         })
         .collect();
     let mut steps = Vec::new();
+    // The starts of a step that asked a question, each held until its own
+    // result. Upstream's replay writes each call of a step and then its
+    // result, call by call (`writeExecutionHistoryToSink`,
+    // `app_session_runtime.zig:4120-4127@481104fd`), and an ask's row is
+    // never one of a group's: it ends the run of calls before it
+    // (`statusNamesAsk`, `tool_group_projection.zig:1356-1359`, `:1372`).
+    // So `read`, `ask`, `read` replays as a group of one, the ask's row and
+    // another group of one, each read settled in its own; a start written
+    // ahead of the ask would leave its call running in the group the ask
+    // closed. A step with no question writes its starts together, as before:
+    // a group drawn whole is the same group.
+    let mut held: Vec<HydratedStep> = Vec::new();
     for step in &turn.steps {
         match step {
             TurnStep::Assistant {
                 text, tool_calls, ..
             } => {
+                steps.append(&mut held);
                 let came_back: Vec<_> = tool_calls
                     .iter()
                     .filter(|call| answered.contains(&call.id.as_str()))
@@ -212,26 +238,61 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
                 if !text.is_empty() {
                     steps.push(HydratedStep::Text(text.clone()));
                 }
+                let asks = came_back
+                    .iter()
+                    .any(|call| call.name == ASK_USER_QUESTION.name());
                 // A call to a tool this build does not offer never started on
                 // a live screen either: the turn ended on it before any row
-                // (`agent::machine`'s `ToolCallUnsupported`).
-                steps.extend(came_back.into_iter().filter_map(|call| {
+                // (`agent::machine`'s `ToolCallUnsupported`). A question
+                // never starts a row at all (`super::toolgroup`'s `start`).
+                let starts = came_back.into_iter().filter_map(|call| {
                     registry
                         .spec(&call.name)
+                        .filter(|spec| spec.name() != ASK_USER_QUESTION.name())
                         .map(|spec| HydratedStep::ToolStart {
                             id: call.id.clone(),
                             shown: spec.shown(&call.input),
                         })
-                }));
+                });
+                if asks {
+                    held.extend(starts);
+                } else {
+                    steps.extend(starts);
+                }
             }
             TurnStep::ToolResult {
                 call_id,
+                tool,
                 ok,
+                output,
                 ending,
                 lines,
                 ..
             } => {
                 if *ending == Some(ToolEnding::Cancelled) {
+                    continue;
+                }
+                if let Some(at) = held.iter().position(
+                    |start| matches!(start, HydratedStep::ToolStart { id, .. } if id == call_id),
+                ) {
+                    steps.push(held.remove(at));
+                }
+                // Told apart by the result's own tool name, as upstream's
+                // replay tells it (`result.tool_name`, `:4596`). Only a
+                // successful call's document is read: a failed one with a
+                // document in it is not an answered batch (`:4595`; the
+                // `failed` case of upstream's `execution replay keeps
+                // invalid question results on the generic path`,
+                // `:7991-8035`). Every other ending is `● Asked`, xfx's
+                // refusal included: xfx records a refused batch as a failed
+                // call where upstream's is a successful call's text
+                // (`docs/parity.md`'s adaptation (7)), and the screen shows
+                // what upstream's shows for the same refusal.
+                if tool == ASK_USER_QUESTION.name() {
+                    steps.push(match ok.then(|| decode_answers(output)).flatten() {
+                        Some(answers) => HydratedStep::Answered(answers),
+                        None => HydratedStep::Asked,
+                    });
                     continue;
                 }
                 steps.push(HydratedStep::ToolResult {
@@ -247,6 +308,9 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
             TurnStep::Steered { text } => steps.push(HydratedStep::Steer(text.clone())),
         }
     }
+    // A start whose result the log does not hold where it should: written as
+    // a step without a question writes it, rather than dropped.
+    steps.append(&mut held);
     let ending = match &turn.outcome {
         Some(crate::session::TurnConclusion::Final { .. }) => {
             let timing = turn.timing;
@@ -548,6 +612,177 @@ mod tests {
         }
     }
 
+    /// What came back for the `ask_user_question` call `id`.
+    fn answered_with(id: &str, ok: bool, output: &str, ending: Option<ToolEnding>) -> TurnStep {
+        TurnStep::ToolResult {
+            images: Vec::new(),
+            call_id: id.to_string(),
+            tool: "ask_user_question".to_string(),
+            ok,
+            output: output.to_string(),
+            ending,
+            lines: None,
+            change: None,
+        }
+    }
+
+    /// Each step named: `start`/`result` with the call, `answered` with the
+    /// batch's size, `asked`, or the text.
+    fn named(turn: &HydratedTurn) -> Vec<String> {
+        turn.steps
+            .iter()
+            .map(|step| match step {
+                HydratedStep::Text(text) => text.clone(),
+                HydratedStep::ToolStart { id, .. } => format!("start {id}"),
+                HydratedStep::ToolResult { id, .. } => format!("result {id}"),
+                HydratedStep::Answered(answers) => format!("answered {}", answers.len()),
+                HydratedStep::Asked => "asked".to_string(),
+                HydratedStep::Feedback(text) | HydratedStep::Steer(text) => text.clone(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_ask_replays_its_decoded_batch_or_one_asked_row_and_never_a_tool_row() {
+        // `writeAnsweredQuestionResult` (`app_session_runtime.zig:
+        // 4589-4607@481104fd`): a successful call whose document decodes is its
+        // batch; anything else takes the generic path (`:4210-4335`) to
+        // `● Asked`. No start and no result of the tool group's for either: a
+        // question is never one of a group's rows.
+        let document = r#"[{"question":"Q 1?","answer":"A 1"},{"question":"Q 2?","answer":"B"}]"#;
+        for (ok, output, want) in [
+            (true, document, "answered 2"),
+            (false, document, "asked"),
+            (true, "(user cancelled the question)", "asked"),
+            (
+                false,
+                "(ask_user_question: provide 1 to 20 questions)",
+                "asked",
+            ),
+            (true, r#"[{"question":"Q"}]"#, "asked"),
+        ] {
+            let turn = concluded(
+                "q",
+                vec![
+                    asked("", vec![call("q", "ask_user_question", json!({}))]),
+                    answered_with("q", ok, output, None),
+                    asked("Done.", Vec::new()),
+                ],
+                TurnTiming::default(),
+            );
+            assert_eq!(named(&super::turn(&turn)), [want, "Done."], "{ok} {output}");
+        }
+        let turn = concluded(
+            "q",
+            vec![
+                asked("", vec![call("q", "ask_user_question", json!({}))]),
+                answered_with("q", true, document, None),
+            ],
+            TurnTiming::default(),
+        );
+        let HydratedStep::Answered(answers) = &super::turn(&turn).steps[0] else {
+            panic!("not answered");
+        };
+        assert_eq!(answers[1].question, "Q 2?");
+        assert_eq!(answers[1].answer, "B");
+        // A batch the stop cut off has no result to replay, as upstream's
+        // history keeps none (`buildNormalExecutionMemory`), and its step
+        // nothing either.
+        let turn = concluded(
+            "q",
+            vec![
+                asked("", vec![call("q", "ask_user_question", json!({}))]),
+                answered_with("q", false, "aborted by user", Some(ToolEnding::Cancelled)),
+            ],
+            TurnTiming::default(),
+        );
+        assert_eq!(named(&super::turn(&turn)), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_step_that_asked_starts_each_of_its_calls_just_before_its_result() {
+        // `writeExecutionHistoryToSink`, `app_session_runtime.zig:
+        // 4120-4127@481104fd`: call, then its result, call by call -- so the
+        // ask's row ends the group of the read before it, and the read after
+        // it starts a group of its own, settled in it.
+        let turn = concluded(
+            "q",
+            vec![
+                asked(
+                    "Looking.",
+                    vec![
+                        call("r1", "read_file", json!({ "path": "a.txt" })),
+                        call("q", "ask_user_question", json!({})),
+                        call("r2", "read_file", json!({ "path": "b.txt" })),
+                    ],
+                ),
+                came_back("r1", false, None, None),
+                answered_with(
+                    "q",
+                    false,
+                    "(ask_user_question: provide 1 to 20 questions)",
+                    None,
+                ),
+                came_back("r2", false, None, None),
+                asked("Done.", Vec::new()),
+            ],
+            TurnTiming::default(),
+        );
+        assert_eq!(
+            named(&super::turn(&turn)),
+            [
+                "Looking.",
+                "start r1",
+                "result r1",
+                "asked",
+                "start r2",
+                "result r2",
+                "Done."
+            ]
+        );
+        // A step that asked nothing starts its calls together, as before.
+        let turn = concluded(
+            "q",
+            vec![
+                asked(
+                    "",
+                    vec![
+                        call("r1", "read_file", json!({ "path": "a.txt" })),
+                        call("r2", "read_file", json!({ "path": "b.txt" })),
+                    ],
+                ),
+                came_back("r1", true, None, None),
+                came_back("r2", true, None, None),
+            ],
+            TurnTiming::default(),
+        );
+        assert_eq!(
+            named(&super::turn(&turn)),
+            ["start r1", "start r2", "result r1", "result r2"]
+        );
+        // A held start whose result the log holds out of place -- here
+        // before its call -- is still written, at the end, rather than lost.
+        let turn = concluded(
+            "q",
+            vec![
+                came_back("r1", true, None, None),
+                asked(
+                    "",
+                    vec![
+                        call("q", "ask_user_question", json!({})),
+                        call("r1", "read_file", json!({ "path": "a.txt" })),
+                    ],
+                ),
+                answered_with("q", true, "x", None),
+            ],
+            TurnTiming::default(),
+        );
+        assert_eq!(
+            named(&super::turn(&turn)),
+            ["result r1", "asked", "start r1"]
+        );
+    }
+
     #[test]
     fn a_result_replays_with_the_outcome_and_the_lines_its_row_had() {
         let turn = concluded(
@@ -646,6 +881,8 @@ mod tests {
                 HydratedStep::Text(text) => text.clone(),
                 HydratedStep::ToolStart { id, .. } => format!("start {id}"),
                 HydratedStep::ToolResult { id, .. } => format!("result {id}"),
+                HydratedStep::Answered(answers) => format!("answered {}", answers.len()),
+                HydratedStep::Asked => "asked".to_string(),
                 HydratedStep::Feedback(text) | HydratedStep::Steer(text) => text.clone(),
             })
             .collect();

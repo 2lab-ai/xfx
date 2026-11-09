@@ -325,6 +325,39 @@ pub fn encode_answers(entries: &[QuestionEntry], answers: &[String]) -> Result<S
     serde_json::to_string(&document).map_err(|err| bad(&err.to_string()))
 }
 
+/// One question of a saved answer document, as [`decode_answers`] reads it
+/// back: the question as the model was shown it and the answer it was sent.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct SavedAnswer {
+    pub question: String,
+    pub answer: String,
+}
+
+/// A call's answer document read back off a saved session, or `None` for
+/// anything else: upstream's `decodeJson` (`question_answer.zig:43-74@481104fd`),
+/// which a resume runs on a successful `ask_user_question` result before it
+/// draws the batch's resolutions (`writeAnsweredQuestionResult`,
+/// `app_session_runtime.zig:4589-4607`).
+///
+/// The document is file input -- anyone who can write the session log can
+/// change it -- and this is its whole bound, as upstream's is: one JSON array
+/// of [`MIN_QUESTIONS`] to [`MAX_QUESTIONS`] objects, each with a string
+/// `question` and a string `answer`, other keys ignored as `object.get`
+/// ignores them. Anything else is `None`, never a panic: text that is not JSON
+/// (a sentinel, a refusal), JSON with more after it, an array of none or of
+/// more than twenty, an element that is not an object, a field missing or not
+/// a string -- upstream's own rejects (`question_answer.zig:101-111`,
+/// `:113-141`). A key given twice is refused as well, by the derived struct;
+/// upstream's `std.json` default (`duplicate_field_behavior`) is taken to be
+/// the same, unread at the pin. Nothing here is made safe for a terminal: the
+/// rows that show it are (`crate::tui::question`'s `resolution_rows`).
+pub fn decode_answers(output: &str) -> Option<Vec<SavedAnswer>> {
+    let answers: Vec<SavedAnswer> = serde_json::from_str(output).ok()?;
+    (MIN_QUESTIONS..=MAX_QUESTIONS)
+        .contains(&answers.len())
+        .then_some(answers)
+}
+
 // ---------------------------------------------------------------------------
 // the spec
 // ---------------------------------------------------------------------------
@@ -467,6 +500,13 @@ fn execute(input: &ToolInput, context: &ToolContext) -> ToolResult {
     }
 }
 
+/// The call's verbs (`action_label = "Asking"`, `completed_action_label =
+/// "Asked"`, `builtins/tools.zig:615-616@481104fd`). No live row says either:
+/// a question is never part of a tool group. A resume's row for a call that
+/// left no answered batch says the second (`crate::tui::question`'s
+/// `asked_row`).
+pub const PRESENTATION: Presentation = Presentation::new(Activity::Ask, "Asking", "Asked", "");
+
 /// `ask_user_question`. Mints no authority: `PermissionKind::Interaction`
 /// requires none, and the executor above never touches the filesystem or a
 /// process. `permission_request_id` is deliberately not advertised -- that
@@ -475,7 +515,7 @@ pub const ASK_USER_QUESTION: ToolSpec = ToolSpec::new(
     "ask_user_question",
     DESCRIPTION,
     PermissionKind::Interaction,
-    Presentation::new(Activity::Ask, "Asking", "Asked", ""),
+    PRESENTATION,
     INPUT_SCHEMA,
     decode,
     validate,
@@ -730,6 +770,100 @@ mod tests {
             r#"[{"question":"Which depth?","answer":"Thorough"},{"question":"Ship it?","answer":"Yes \"now\""}]"#
         );
         assert!(encode_answers(&entries, &["only one".into()]).is_err());
+    }
+
+    fn saved(question: &str, answer: &str) -> SavedAnswer {
+        SavedAnswer {
+            question: question.into(),
+            answer: answer.into(),
+        }
+    }
+
+    /// The document `encode_answers` writes for `count` questions.
+    fn document(count: usize) -> String {
+        let entries: Vec<QuestionEntry> = (1..=count)
+            .map(|index| entry(&format!("Question {index}?")))
+            .collect();
+        let answers: Vec<String> = (1..=count).map(|index| format!("Answer {index}")).collect();
+        encode_answers(&entries, &answers).unwrap()
+    }
+
+    #[test]
+    fn a_saved_answer_document_reads_back_in_order_with_its_escapes() {
+        // `question_answer.zig:76-99@481104fd`: the encoder's document decodes
+        // to the same pairs, in order, its escapes undone.
+        let entries = vec![entry("Which depth?"), entry("Ship it?")];
+        let written =
+            encode_answers(&entries, &["Thorough".into(), "Yes \"now\"\nlater".into()]).unwrap();
+        assert_eq!(
+            decode_answers(&written),
+            Some(vec![
+                saved("Which depth?", "Thorough"),
+                saved("Ship it?", "Yes \"now\"\nlater")
+            ])
+        );
+        // Whitespace around the document is JSON's, and a key the decoder
+        // does not read is ignored, as `object.get` ignores it.
+        assert_eq!(
+            decode_answers(" [{\"answer\":\"A\",\"question\":\"Q\",\"extra\":[1,{}]}]\n"),
+            Some(vec![saved("Q", "A")])
+        );
+    }
+
+    #[test]
+    fn a_saved_document_of_one_to_twenty_questions_decodes_and_no_other_count_does() {
+        // `question_answer.zig:59` and `:113-141@481104fd`: the bound is the
+        // tool's own, both ends of it.
+        assert_eq!(MIN_QUESTIONS, 1);
+        assert_eq!(decode_answers(&document(1)).map(|got| got.len()), Some(1));
+        assert_eq!(decode_answers(&document(4)).map(|got| got.len()), Some(4));
+        let twenty = decode_answers(&document(MAX_QUESTIONS)).expect("a full batch");
+        assert_eq!(twenty.len(), MAX_QUESTIONS);
+        assert_eq!(twenty[19], saved("Question 20?", "Answer 20"));
+        assert_eq!(decode_answers(&document(MAX_QUESTIONS + 1)), None);
+        assert_eq!(decode_answers("[]"), None);
+    }
+
+    #[test]
+    fn anything_but_an_answer_document_is_none_and_never_a_panic() {
+        // Upstream's rejects (`question_answer.zig:101-111@481104fd`) first,
+        // then the rest of what a session file could hold instead.
+        for output in [
+            CANCEL_SENTINEL,
+            "[]",
+            r#"[{"question":"Q"}]"#,
+            r#"[{"question":"Q","answer":1}]"#,
+            r#"[{"question":"Q","answer":"A"}] trailing"#,
+            ABORTED_OUTPUT,
+            NOT_AVAILABLE_SENTINEL,
+            "(ask_user_question: provide 1 to 20 questions)",
+            "",
+            "null",
+            r#"{"question":"Q","answer":"A"}"#,
+            r#"["Q"]"#,
+            r#"[{"question":"Q","answer":"A"},7]"#,
+            r#"[{"answer":"A"}]"#,
+            r#"[{"question":null,"answer":"A"}]"#,
+            r#"[{"question":"Q","answer":["A"]}]"#,
+            r#"[{"question":"Q","answer":"A","answer":"B"}]"#,
+            r#"[{"question":"Q","answer":"A"}"#,
+            r#"[{"question":"\ud800","answer":"A"}]"#,
+        ] {
+            assert_eq!(decode_answers(output), None, "{output}");
+        }
+        // A key nobody reads is skipped whatever it holds, a hundred
+        // thousand arrays deep included, without a frame per level: no stack
+        // to overflow. Upstream's `std.json` keeps it (its stack grows on the
+        // heap) and `object.get` ignores it, so it decodes there too.
+        let deep = format!(
+            "[{{\"question\":\"Q\",\"answer\":\"A\",\"x\":{}{}}}]",
+            "[".repeat(100_000),
+            "]".repeat(100_000)
+        );
+        assert_eq!(decode_answers(&deep), Some(vec![saved("Q", "A")]));
+        // Deep where an answer is read is not an answer.
+        let nested = format!("{}{}", "[".repeat(100_000), "]".repeat(100_000));
+        assert_eq!(decode_answers(&nested), None);
     }
 
     #[test]

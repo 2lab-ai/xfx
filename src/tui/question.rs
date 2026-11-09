@@ -72,7 +72,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
 use crate::tools::question::{
-    answer_safe, QuestionEntry, QuestionOption, FREEFORM_LABEL, MAX_FREEFORM_ENCODED_BYTES,
+    answer_safe, QuestionEntry, QuestionOption, SavedAnswer, FREEFORM_LABEL,
+    MAX_FREEFORM_ENCODED_BYTES,
 };
 use crate::tools::{QuestionReply, QuestionRequester};
 
@@ -749,27 +750,12 @@ impl QuestionPanel {
         pen: &str,
         reset: &str,
     ) -> Vec<(String, DocumentRow)> {
-        let mut rows = Vec::new();
-        for (index, (entry, answer)) in self.entries.iter().zip(answers).enumerate() {
-            let prefix = format!("  {}) ", index + 1);
-            let indent = " ".repeat(usize::from(width(&prefix)));
-            let budget = cols.saturating_sub(width(&prefix)).max(1);
-            for (row, segment) in safe_rows(&entry.question, budget).into_iter().enumerate() {
-                let lead = if row == 0 { &prefix } else { &indent };
-                rows.push((format!("{lead}{segment}"), DocumentRow::Plain));
-            }
-            for segment in safe_rows(&answer_safe(answer), budget) {
-                rows.push((
-                    if pen.is_empty() {
-                        format!("{indent}{segment}")
-                    } else {
-                        format!("{pen}{indent}{segment}{reset}")
-                    },
-                    DocumentRow::Answer,
-                ));
-            }
-        }
-        rows
+        let pairs = self
+            .entries
+            .iter()
+            .zip(answers)
+            .map(|(entry, answer)| (entry.question.as_str(), answer.as_str()));
+        resolutions(pairs, cols, pen, reset)
     }
 
     /// What one keystroke does.
@@ -1025,6 +1011,82 @@ pub(crate) fn cancelled_row(palette: &Palette) -> String {
         "{}{CANCELLED_MARK}{} {CANCELLED}",
         palette.notice_label(),
         palette.reset()
+    )
+}
+
+/// Each question under its ordinal and its answer hung beneath it
+/// (`writeQuestionAnswerResolution`, `question_ui.zig:461-511@481104fd`): the
+/// rows of an answered batch, for the panel that was answered
+/// ([`QuestionPanel::answered_rows`]) and for a saved one a resume replays
+/// ([`resolution_rows`]) alike -- upstream composes both with
+/// `composeResolvedQuestionAnswers` (`:446-459`), live (`:441`) and replayed
+/// (`main.zig:2335-2346`).
+///
+/// Both texts go through [`safe_rows`], and the answer through
+/// [`answer_safe`] first, so nothing in either reaches the terminal as a
+/// control: a replayed pair is file input.
+fn resolutions<'a>(
+    pairs: impl Iterator<Item = (&'a str, &'a str)>,
+    cols: u16,
+    pen: &str,
+    reset: &str,
+) -> Vec<(String, DocumentRow)> {
+    let mut rows = Vec::new();
+    for (index, (question, answer)) in pairs.enumerate() {
+        let prefix = format!("  {}) ", index + 1);
+        let indent = " ".repeat(usize::from(width(&prefix)));
+        let budget = cols.saturating_sub(width(&prefix)).max(1);
+        for (row, segment) in safe_rows(question, budget).into_iter().enumerate() {
+            let lead = if row == 0 { &prefix } else { &indent };
+            rows.push((format!("{lead}{segment}"), DocumentRow::Plain));
+        }
+        for segment in safe_rows(&answer_safe(answer), budget) {
+            rows.push((
+                if pen.is_empty() {
+                    format!("{indent}{segment}")
+                } else {
+                    format!("{pen}{indent}{segment}{reset}")
+                },
+                DocumentRow::Answer,
+            ));
+        }
+    }
+    rows
+}
+
+/// What a resume writes for a batch whose saved document decoded
+/// ([`crate::tools::question::decode_answers`]): the rows the panel left when
+/// it was answered, composed at the width the replay is written at, as
+/// upstream's are (`writeHistoricalQuestionResolution`, `main.zig:2335-2346`,
+/// at `self.shell.layout.cols`).
+pub(crate) fn resolution_rows(
+    answers: &[SavedAnswer],
+    cols: u16,
+    palette: &Palette,
+) -> Vec<(String, DocumentRow)> {
+    let pairs = answers
+        .iter()
+        .map(|saved| (saved.question.as_str(), saved.answer.as_str()));
+    resolutions(pairs, cols, palette.answer(), palette.reset())
+}
+
+/// What a resume writes for an `ask_user_question` call whose result is not
+/// an answered batch -- a refusal, a declined batch, a document that does not
+/// decode: upstream's generic tool status for a completed call
+/// (`writeCompletedToolResult`, `app_session_runtime.zig:4210-4335@481104fd`),
+/// the tool's completed label (`completed_action_label = "Asked"`,
+/// `builtins/tools.zig:616`) after the completed marker in the system notice
+/// grey, 250 dark and 241 light (`lifecycleMarker`, `transcript/runtime.zig:
+/// 613-616`, `lifecycleTerminalLine` `:661-671`; `theme.zig:85`, `:128`), which
+/// is [`Palette::notice`]. Never one of a group's rows: upstream's projection
+/// steps past an ask's status, which ends the run of calls before it
+/// (`statusNamesAsk`, `tool_group_projection.zig:1356-1359`, `:1372`).
+pub(crate) fn asked_row(palette: &Palette) -> String {
+    format!(
+        "{}\u{25cf}{} {}",
+        palette.notice(),
+        palette.reset(),
+        crate::tools::question::PRESENTATION.done
     )
 }
 

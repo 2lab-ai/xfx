@@ -4057,6 +4057,22 @@ impl Shell {
                     outcome,
                     changes,
                 }),
+                // An answered batch: the record the panel left when it was
+                // answered ([`Self::answer`]), composed at this width, as
+                // upstream's replay composes it (`main.zig:2335-2346`).
+                HydratedStep::Answered(answers) => {
+                    let rows =
+                        question::resolution_rows(&answers, self.geometry.cols, &self.palette);
+                    self.run_mark(Mark::Block(rows, self.palette.mode));
+                }
+                // Any other batch: upstream's completed row for the call, on
+                // its own -- a block, so the group above it closes first, as
+                // upstream's projection ends a run of calls at an ask
+                // (`tool_group_projection.zig:1356-1359`, `:1372`).
+                HydratedStep::Asked => self.run_mark(Mark::Block(
+                    vec![(question::asked_row(&self.palette), DocumentRow::Plain)],
+                    self.palette.mode,
+                )),
                 // The card the live session wrote when it was delivered
                 // (`UiEvent::ToolFeedback` below), in the place the log keeps.
                 HydratedStep::Feedback(text) => self.run_mark(Mark::Amendment(text)),
@@ -28954,11 +28970,7 @@ mod tests {
             out.push_str(&rest[..at]);
             let after = &rest[at + 2..];
             match after.find('m') {
-                Some(end)
-                    if after[..end]
-                        .chars()
-                        .all(|c| c.is_ascii_digit() || c == ';') =>
-                {
+                Some(end) if after[..end].chars().all(|c| c.is_ascii_digit() || c == ';') => {
                     rest = &after[end + 1..];
                 }
                 _ => {
@@ -28993,8 +29005,14 @@ mod tests {
                 assert_eq!(rows[at + 1], format!("{indent}A {n}"), "{count}: {rows:#?}");
             }
             assert!(!rows.iter().any(|row| row.contains("Asked")), "{rows:#?}");
-            let card = rows.iter().position(|row| row == "┃ ask").expect("the card");
-            let done = rows.iter().position(|row| row == "  Done.").expect("the answer");
+            let card = rows
+                .iter()
+                .position(|row| row == "┃ ask")
+                .expect("the card");
+            let done = rows
+                .iter()
+                .position(|row| row == "  Done.")
+                .expect("the answer");
             let first = rows.iter().position(|row| row == "  1) Q 1?").unwrap();
             assert!(card < first && first < done, "{rows:#?}");
             // The answer's grey, as the live record paints it.
@@ -29008,9 +29026,13 @@ mod tests {
                 )])),
                 false,
             );
-            let answer = format!("{}     A 1{}", resumed.shell.palette.answer(), PALETTE.reset());
+            let answer = format!(
+                "{}     A 1{}",
+                resumed.shell.palette.answer(),
+                PALETTE.reset()
+            );
             assert!(
-                painted.painted_document().iter().any(|row| *row == answer),
+                painted.painted_document().contains(&answer),
                 "{count}: no {answer:?}"
             );
         }
@@ -29043,7 +29065,10 @@ mod tests {
             (false, valid.as_str()),
         ] {
             let (resumed, rows) = resumed_rows(vec![asked_turn("ask", ok, output, None)]);
-            let card = rows.iter().position(|row| row == "┃ ask").expect("the card");
+            let card = rows
+                .iter()
+                .position(|row| row == "┃ ask")
+                .expect("the card");
             assert_eq!(
                 rows[card + 1..].iter().take(4).collect::<Vec<_>>(),
                 ["", "● Asked", "", "  Done."],
@@ -29064,7 +29089,7 @@ mod tests {
                 false,
             );
             assert!(
-                painted.painted_document().iter().any(|row| *row == marker),
+                painted.painted_document().contains(&marker),
                 "{ok} {output}"
             );
         }
@@ -29089,7 +29114,10 @@ mod tests {
             cancellation_origin: Default::default(),
         });
         let (_, rows) = resumed_rows(vec![turn]);
-        let card = rows.iter().position(|row| row == "┃ ask stop").expect("the card");
+        let card = rows
+            .iter()
+            .position(|row| row == "┃ ask stop")
+            .expect("the card");
         assert_eq!(
             rows[card + 1..].iter().take(2).collect::<Vec<_>>(),
             ["", "▪ Cancelled · What can xfx do differently?"],
@@ -29127,7 +29155,11 @@ mod tests {
                 text: String::new(),
                 tool_calls: vec![
                     call("r1", "read_file", serde_json::json!({"path": "gone.txt"})),
-                    call("q", "ask_user_question", serde_json::json!({"questions": []})),
+                    call(
+                        "q",
+                        "ask_user_question",
+                        serde_json::json!({"questions": []}),
+                    ),
                     call("r2", "read_file", serde_json::json!({"path": "lost.txt"})),
                 ],
                 raw_content: Vec::new(),
@@ -29151,7 +29183,10 @@ mod tests {
                 steps: 2,
             },
         )]);
-        let card = rows.iter().position(|row| row == "┃ ask mixed").expect("the card");
+        let card = rows
+            .iter()
+            .position(|row| row == "┃ ask mixed")
+            .expect("the card");
         assert_eq!(
             rows[card + 1..].iter().take(8).collect::<Vec<_>>(),
             [
@@ -29186,7 +29221,10 @@ mod tests {
         );
         let painted = resumed.painted_document();
         let rows: Vec<String> = painted.iter().map(|row| without_sgr(row)).collect();
-        assert!(rows.iter().any(|row| row.starts_with("  1) Q x")), "{rows:#?}");
+        assert!(
+            rows.iter().any(|row| row.starts_with("  1) Q x")),
+            "{rows:#?}"
+        );
         assert!(rows.iter().any(|row| row == "     next"), "{rows:#?}");
         for row in &rows {
             assert!(

@@ -1000,6 +1000,19 @@ fn inert_step(step: super::hydration::HydratedStep) -> super::hydration::Hydrate
             outcome,
             changes,
         },
+        // A saved document's questions and answers, as the panel's own
+        // entries would have crossed: the rows that show them tame them again
+        // (`super::question`'s `resolution_rows`).
+        HydratedStep::Answered(answers) => HydratedStep::Answered(
+            answers
+                .into_iter()
+                .map(|saved| crate::tools::question::SavedAnswer {
+                    question: inert_owned(saved.question),
+                    answer: inert_owned(saved.answer),
+                })
+                .collect(),
+        ),
+        HydratedStep::Asked => HydratedStep::Asked,
         HydratedStep::Feedback(text) => HydratedStep::Feedback(inert_owned(text)),
         HydratedStep::Steer(text) => HydratedStep::Steer(inert_owned(text)),
     }
