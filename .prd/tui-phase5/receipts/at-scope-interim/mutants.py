@@ -64,6 +64,9 @@ MUTANTS = [
     ("walk-at-launch", SH, "                    &WorkspaceAccess::load(&config.workspace_root, &config.additional_directories),\n                ));\n                files\n",
      "                    &WorkspaceAccess::load(&config.workspace_root, &config.additional_directories),\n                ));\n                files.refresh_index();\n                files\n"),
     ("never-loading", FI, "        self.index.is_none() && self.walk.is_some()", "        false"),
+    # round 3: the first `@`'s decision reads a finished walk, as fx's currentState does
+    ("decision-before-the-walks-end", FI, "            self.episode_seen = true;\n            self.take_walk();\n",
+     "            self.episode_seen = true;\n"),
     # the shell moves the epoch on every change it sees
     ("no-scope-change-in-adopt", SH, "            self.files\n                .change_scope(index_roots(&self.workspace, &access));",
      "            let _ = index_roots(&self.workspace, &access);"),
