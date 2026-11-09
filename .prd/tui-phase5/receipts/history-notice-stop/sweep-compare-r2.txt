@@ -1,0 +1,26 @@
+# round 2: cmp_sweeps.py sweep-r2-base pairs.json (05a0a857) against sweep-r2-head pairs.json (dec785aa), both in one lock slot back to back, then pair_rows.py on the same two files
+base: 115 / 182 pass; head: 115 / 182 pass; dropped: 0
+exit=0
+provider-carry-back-stop/next: unattributed 8 -> 8, same rows: True; causes [] -> ['P1-carry-notice']
+pairs compared: 182; pairs whose rows or causes moved: 1
+## next: base unresolved-defect -> head unresolved-defect; causes [] -> ['P1-carry-notice']
+    fx: * auth: Switched credential to AI_GATEWAY_API_KEY.
+    xfx: * provider: Preparing Vercel AI Gateway.
+    fx: * provider: Preparing Vercel AI Gateway.
+    xfx: * provider: Switched to Vercel AI Gateway with fake/model-a.
+    fx: * provider: Provider preparation cancelled. The current provider is unchanged.
+    xfx: ▪ Cancelled · What can xfx do differently?
+    fx: auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
+    xfx: auto · model-a · read the notes and tell me what  · 1k
+## stopped: base unresolved-defect -> head unresolved-defect; causes [] -> []
+    fx: * auth: Switched credential to AI_GATEWAY_API_KEY.
+    xfx: * provider: Preparing Vercel AI Gateway.
+    fx: * provider: Preparing Vercel AI Gateway.
+    xfx: * provider: Switched to Vercel AI Gateway with fake/model-a.
+    fx: * provider: Provider preparation cancelled. The current provider is unchanged.
+    xfx: ▪ Cancelled · What can xfx do differently?
+## turn1: base unresolved-defect -> head unresolved-defect; causes [] -> []
+    fx: auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
+    xfx: auto · model-a · read the notes and tell me what  · 1k/200k 0%
+base runs/ next: 0 notice row(s), MARKER-AFTER-STOP 1
+head runs/ next: 1 notice row(s), MARKER-AFTER-STOP 1

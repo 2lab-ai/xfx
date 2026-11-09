@@ -1,0 +1,8 @@
+# GREEN at 16cffa83 (code as b5bf9b8b): cargo test --locked --lib -- <the RED> <the line-shell pin> <STOP-IN-CATALOG-WAIT's two>; then the pty pin tests/tui.rs a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind
+test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 4536 filtered out; finished in 25.83s
+test a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out; finished in 1.54s

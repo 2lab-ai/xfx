@@ -1,0 +1,539 @@
+# fx v0.0.16 (481104fd) text for every fx citation HISTORY-NOTICE-STOP makes. Each block: the command (repo = the fx
+# upstream checkout, read through git show at the pin, never its working tree), then the lines with their numbers.
+
+## H1: fx says nothing about history it cannot carry. A step's sealed replay that does not match the provider and
+## model is dropped from the request (projectProviderReplay), and the encoder logs a debug trace, not a notice.
+
+### git -C fx-upstream show 481104fd:src/core/shared/types.zig | sed -n 1667,1680p
+ 1667  /// Returns a caller-owned shallow projection only when incompatible replay exists.
+ 1668  pub fn projectProviderReplay(
+ 1669      alloc: std.mem.Allocator,
+ 1670      messages: []const ChatMessage,
+ 1671      source: @import("../config/model_provider.zig").ProviderSelection,
+ 1672  ) !?[]ChatMessage {
+ 1673      var projected: ?[]ChatMessage = null;
+ 1674      errdefer if (projected) |owned| alloc.free(owned);
+ 1675      for (messages, 0..) |message, index| {
+ 1676          const replay = message.provider_replay orelse continue;
+ 1677          if (replay.matches(source)) continue;
+ 1678          if (projected == null) projected = try alloc.dupe(ChatMessage, messages);
+ 1679          projected.?[index].provider_replay = null;
+ 1680      }
+
+### git -C fx-upstream show 481104fd:src/builtins/gateway.zig | sed -n 178,180p
+  178      const projected = try shared_types.projectProviderReplay(alloc, request.messages, .{ .provider = .gateway, .model = request.model });
+  179      defer if (projected) |messages| alloc.free(messages);
+  180      if (projected != null) debug_trace.logf("gateway", "provider_replay_omitted provider=gateway reason=source_mismatch", .{});
+
+## H2: an image blob the log names that is gone or damaged makes the session invalid: no notice, no turn.
+
+### git -C fx-upstream show 481104fd:src/core/session/session_adapter.zig | sed -n 2870,2891p
+ 2870      /// (D89). A fork reads the blobs it hard-linked here too.
+ 2871      fn decodeUser(src: Source, pa: Allocator, data: []const u8) !session_event.ConversationUser {
+ 2872          const wire = try std.json.parseFromSliceLeaky(WireUser, pa, data, .{ .allocate = .alloc_if_needed });
+ 2873          const images = try wire.toImages(pa);
+ 2874          for (wire.images, images) |image, *out| {
+ 2875              const hash = image.blob orelse continue;
+ 2876              out.blob_path = src.store.manager.blobPath(pa, src.id, hash) catch |err| return imageBlobFailed(src, image.id, err);
+ 2877          }
+ 2878          return .{ .text = wire.text, .images = images, .work_id = wire.work_id };
+ 2879      }
+ 2880  
+ 2881      /// An image blob the log names that is gone or misnamed damages the
+ 2882      /// session, as a piece's blob does (D39). One whose bytes were damaged is
+ 2883      /// found by `verify`, and by any reader, which checks them against the
+ 2884      /// image's digest (D89).
+ 2885      fn imageBlobFailed(src: Source, image_id: usize, err: sm.BlobError) (sm.BlobError || error{InvalidSessionFormat}) {
+ 2886          return switch (err) {
+ 2887              error.NotFound, error.Corrupt, error.InvalidArgument => {
+ 2888                  debug_trace.logf("session", "event=sessions_v2_prompt_image_unreadable session={s} image={d} err={s}", .{ src.id, image_id, @errorName(err) });
+ 2889                  return error.InvalidSessionFormat;
+ 2890              },
+ 2891              else => |e| e,
+
+## H3: fx's lines said once a session are its [context] notices: the session's ledger, and the agent runtime's
+## push (the TUI's, fx ask's, ACP's), which claims a line and then hands it on -- the TUI's queues it. This is one
+## claimer of several; H8 has every claimContextNotice call at the pin and when each runs.
+
+### git -C fx-upstream show 481104fd:src/core/session/session.zig | sed -n 1551,1561p
+ 1551      /// Returns true once for each distinct source-limit notice in this live
+ 1552      /// session. Size and limit are part of the rendered notice, so either
+ 1553      /// changing makes the updated condition visible again.
+ 1554      pub fn claimContextNotice(self: *SessionRuntime, alloc: Allocator, notice: []const u8) !bool {
+ 1555          self.context_notice_lock.lockUncancelable(io_mod.getIo());
+ 1556          defer self.context_notice_lock.unlock(io_mod.getIo());
+ 1557          const result = try self.context_notice_hashes.getOrPut(
+ 1558              alloc,
+ 1559              std.hash.Wyhash.hash(0, notice),
+ 1560          );
+ 1561          return !result.found_existing;
+
+### git -C fx-upstream show 481104fd:src/core/app/app_callbacks.zig | sed -n 1294,1307p
+ 1294          fn agentPushContextNotice(ctx: *anyopaque, text: []const u8) !void {
+ 1295              const app: *App = @ptrCast(@alignCast(ctx));
+ 1296              if (comptime @hasDecl(@TypeOf(app.session), "claimContextNotice")) {
+ 1297                  if (!try app.session.claimContextNotice(std.heap.c_allocator, text)) return;
+ 1298              }
+ 1299              const body = try types.renderContextNoticeBody(std.heap.c_allocator, text);
+ 1300              defer std.heap.c_allocator.free(body);
+ 1301              try app_worker_runtime.Runtime(App).pushSemanticNotice(app, .{
+ 1302                  .topic = "context",
+ 1303                  .tone = .warning,
+ 1304                  .body = body,
+ 1305                  .visibility = .full_only,
+ 1306              });
+ 1307          }
+
+### git -C fx-upstream show 481104fd:src/core/cli/cli_ask.zig | sed -n 3216,3228p
+ 3216  fn pushContextNotice(raw_ctx: *anyopaque, text: []const u8) !void {
+ 3217      const ctx: *AskContext = @ptrCast(@alignCast(raw_ctx));
+ 3218      if (!try ctx.session.claimContextNotice(ctx.alloc, text)) return;
+ 3219      if (ctx.presenter) |presenter| {
+ 3220          const body = try types.renderContextNoticeBody(ctx.alloc, text);
+ 3221          defer ctx.alloc.free(body);
+ 3222          return presenter.pushNotice(.{
+ 3223              .topic = "context",
+ 3224              .tone = .warning,
+ 3225              .body = body,
+ 3226              .visibility = .full_only,
+ 3227          });
+ 3228      }
+
+### git -C fx-upstream show 481104fd:src/acp/prompt.zig | sed -n 3219,3227p
+ 3219  fn pushContextNotice(raw_ctx: *anyopaque, text: []const u8) !void {
+ 3220      const ctx: *AcpContext = @ptrCast(@alignCast(raw_ctx));
+ 3221      const session = if (ctx.state.active_session) |*active| active else return;
+ 3222      if (!try session.session_rt.claimContextNotice(ctx.alloc, text)) return;
+ 3223      // ACP v1 Session Notices where the client shows them;
+ 3224      // otherwise a message, as ACP allows.
+ 3225      if (ctx.state.client_notices) return ctx.sendNotice(text) catch {};
+ 3226      try pushSystemNotice(raw_ctx, text);
+ 3227  }
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/deps.zig | sed -n 284,286p
+  284      /// Source-limit notices use a session-scoped deduplicating path when the
+  285      /// host provides one; ordinary system notices remain unaffected.
+  286      push_context_notice: ?*const fn (ctx: *anyopaque, text: []const u8) anyerror!void = null,
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/deps.zig | sed -n 315,318p
+  315      pub fn pushContextNotice(self: *const AgentRuntimeDeps, text: []const u8) !void {
+  316          if (self.push_context_notice) |push| return push(self.ctx, text);
+  317          return self.push_system_notice(self.ctx, text);
+  318      }
+
+## H4: the skill catalog's claimer (prepareSkillCatalog; the MCP catalog's is later, H8) runs only past the turn's stop checks: the capability resolve's Cancelled and the
+## cancel flag right after it both persist the turn interrupted and return before prepareSkillCatalog.
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n 5772,5791p
+ 5772  fn prepareSkillCatalog(
+ 5773      alloc: Allocator,
+ 5774      deps: *const AgentRuntimeDeps,
+ 5775      config: Config,
+ 5776      context_window: ?u32,
+ 5777  ) !?skill_runtime.BoundedPromptSection {
+ 5778      if (config.skill_catalog.skills.len == 0 and config.skill_catalog.diagnostics.len == 0) return null;
+ 5779      var section = try skill_runtime.buildSkillPrompt(
+ 5780          alloc,
+ 5781          config.skill_catalog.skills,
+ 5782          config.skill_catalog.diagnostics,
+ 5783          config.context_limits,
+ 5784          context_window,
+ 5785          config.workspace_root,
+ 5786      );
+ 5787      errdefer section.deinit(alloc);
+ 5788      if (section.notice) |notice| try deps.pushContextNotice(notice);
+ 5789      if (section.diagnostic_notice) |notice| try deps.pushContextNotice(notice);
+ 5790      return section;
+ 5791  }
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n 5884,5950p
+ 5884      var request_capabilities = deps.available_model_capabilities(deps.ctx, job.model);
+ 5885      if (config.ultrafast_mode or requiresResolvedRequestCapabilities(
+ 5886          job.images.len > 0 or job.authorized_image_catalog.len > 0,
+ 5887          vision_fallback_available,
+ 5888          config.effort,
+ 5889          config.fast_mode,
+ 5890          request_capabilities,
+ 5891      )) {
+ 5892          resolve_capabilities: while (true) {
+ 5893              request_capabilities = deps.resolve_model_capabilities(deps.ctx, arena, job.model) catch |err| {
+ 5894                  if (err != error.Cancelled) return err;
+ 5895                  if (try append_immediate_steering_after_cancel(
+ 5896                      deps,
+ 5897                      arena,
+ 5898                      &within_turn_suffix,
+ 5899                      turn_id,
+ 5900                      "",
+ 5901                  )) continue :resolve_capabilities;
+ 5902                  runtime_telemetry.traceCancelObserved(finish_trace.ctx, false);
+ 5903                  var terminal_materializing = false;
+ 5904                  try runtime_interruption.persistInterruptedTurnOnce(
+ 5905                      deps,
+ 5906                      finalization,
+ 5907                      job,
+ 5908                      null,
+ 5909                      null,
+ 5910                      completed_tool_names.items,
+ 5911                      &interrupted_persisted,
+ 5912                      finish_trace.ctx,
+ 5913                      within_turn_suffix.items,
+ 5914                      null,
+ 5915                      &terminal_materializing,
+ 5916                  );
+ 5917                  finish_trace.finish("interrupted");
+ 5918                  return;
+ 5919              };
+ 5920              break :resolve_capabilities;
+ 5921          }
+ 5922      }
+ 5923      if (config.cancel_flag.load(.seq_cst)) {
+ 5924          if (!try append_immediate_steering_after_cancel(
+ 5925              deps,
+ 5926              arena,
+ 5927              &within_turn_suffix,
+ 5928              turn_id,
+ 5929              "",
+ 5930          )) {
+ 5931              runtime_telemetry.traceCancelObserved(finish_trace.ctx, false);
+ 5932              var terminal_materializing = false;
+ 5933              try runtime_interruption.persistInterruptedTurnOnce(
+ 5934                  deps,
+ 5935                  finalization,
+ 5936                  job,
+ 5937                  null,
+ 5938                  null,
+ 5939                  completed_tool_names.items,
+ 5940                  &interrupted_persisted,
+ 5941                  finish_trace.ctx,
+ 5942                  within_turn_suffix.items,
+ 5943                  null,
+ 5944                  &terminal_materializing,
+ 5945              );
+ 5946              finish_trace.finish("interrupted");
+ 5947              return;
+ 5948          }
+ 5949      }
+ 5950      var skill_section = try prepareSkillCatalog(arena, deps, config, request_capabilities.context_window);
+
+## H5: a cancelled turn's drain drops a semantic notice, so a [context] line claimed and pushed by a turn that is
+## then stopped is never painted: the TUI's push (H3, app_callbacks.zig:1301) is pushSemanticNotice, which queues a
+## .semantic_notice worker event (:649-651, through pushEvent :533-541); the drain runs every event of an interrupted
+## segment through cancelledEventAdmission (:922-950), whose arm drops .semantic_notice (:344-354). Code-traced; no
+## capture shows it.
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n 339,354p
+  339          fn cancelledEventAdmission(
+  340              presenter: activity_runtime.LifecyclePresenter,
+  341              event: WorkerEvent,
+  342              batch_events: []const WorkerEvent,
+  343          ) CancelledEventAdmission {
+  344              return switch (event) {
+  345                  .assistant_presentation,
+  346                  .open_model_picker,
+  347                  .semantic_notice,
+  348                  .full_detail_record,
+  349                  .command_output,
+  350                  .turn_token_update,
+  351                  .turn_phase_update,
+  352                  .diff_block,
+  353                  .restore_failed_prompt,
+  354                  => .drop,
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n 649,651p
+  649          pub fn pushSemanticNotice(app: *App, notice: types.SemanticNotice) !void {
+  650              try pushEvent(app, .{ .semantic_notice = notice });
+  651          }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n 533,541p
+  533          pub fn pushEvent(app: *App, event: WorkerEvent) !void {
+  534              if (comptime @hasDecl(App, "pushWorkerEvent")) {
+  535                  const owned = try worker_runtime.dupeWorkerEvent(std.heap.c_allocator, event);
+  536                  errdefer worker_runtime.freeWorkerEvent(std.heap.c_allocator, owned);
+  537                  try app.pushWorkerEvent(owned);
+  538                  return;
+  539              }
+  540              try app.worker.pushEvent(std.heap.c_allocator, event);
+  541          }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_worker_runtime.zig | sed -n 922,950p
+  922              var interrupted_segment = batchSegmentIsInterrupted(batch.events.items, taken.cancelled_turn_id);
+  923              var first_event = true;
+  924  
+  925              events: while (batch.claim()) |event| {
+  926                  if (!first_event) switch (event) {
+  927                      .begin_prompt, .begin_prompt_with_skill_bindings, .begin_presented_prompt => {
+  928                          interrupted_segment = batchSegmentIsInterrupted(batch.claimedAndRemaining(), taken.cancelled_turn_id);
+  929                      },
+  930                      else => {},
+  931                  };
+  932                  first_event = false;
+  933                  var drain_owns_current = true;
+  934                  defer if (drain_owns_current) {
+  935                      worker_runtime.freeWorkerEvent(batch.alloc, event);
+  936                  };
+  937                  if (interrupted_segment) {
+  938                      switch (cancelledEventAdmission(
+  939                          handlers.tool_lifecycle,
+  940                          event,
+  941                          batch.claimedAndRemaining(),
+  942                      )) {
+  943                          .admit => {},
+  944                          .drop => {
+  945                              debug_trace.logf(
+  946                                  "worker",
+  947                                  "cancelled worker event dropped kind={s}",
+  948                                  .{@tagName(event)},
+  949                              );
+  950                              continue;
+
+## H6: the turn-start rule asks for a prompt's images whatever the provider (the comment at src/tui/worker.rs).
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n 5658,5670p
+ 5658  fn requiresResolvedRequestCapabilities(
+ 5659      has_images: bool,
+ 5660      vision_policy_needs_capabilities: bool,
+ 5661      effort: types.ReasoningEffort,
+ 5662      fast_mode: bool,
+ 5663      available: model_capabilities.Capabilities,
+ 5664  ) bool {
+ 5665      return has_images or
+ 5666          available.context_window == null or
+ 5667          (vision_policy_needs_capabilities and available.image_input_support == .unknown) or
+ 5668          (!effort.isDefault() and !model_capabilities.reasoningEffortSupported(available, effort)) or
+ 5669          (fast_mode and !available.supports_fast_mode);
+ 5670  }
+
+## H7: fx's provider switch is a preparation that waits; a stop during it cancels the switch (provider-carry-back-stop's
+## fx side; not this unit's, named in the README).
+
+### git -C fx-upstream show 481104fd:src/core/app/app_auth_runtime.zig | sed -n 1225,1257p
+ 1225          fn beginPreparation(app: *App, input: auth_runtime.ProviderPreparationInput) !void {
+ 1226              app.auth.beginProviderPreparation(app.alloc, input) catch |err| {
+ 1227                  debug_trace.logf("provider", "preparation start failed err={s}", .{@errorName(err)});
+ 1228                  try app.writeDomainNotice(.{
+ 1229                      .topic = "provider",
+ 1230                      .tone = .@"error",
+ 1231                      .body = "Could not start provider preparation. The current provider is unchanged.",
+ 1232                  }, true);
+ 1233                  return;
+ 1234              };
+ 1235              const body = try app.alloc.print("Preparing {s}.", .{provider_catalog.label(input.target())});
+ 1236              defer app.alloc.free(body);
+ 1237              try app.writeDomainNotice(.{
+ 1238                  .topic = "provider",
+ 1239                  .tone = .neutral,
+ 1240                  .body = body,
+ 1241              }, true);
+ 1242          }
+ 1243  
+ 1244          pub fn collectProviderPreparationFacts(app: *App) !void {
+ 1245              if (comptime !@hasDecl(@TypeOf(app.auth), "takeProviderPreparation") or host_target.is_wasm) return;
+ 1246              if (pendingPromptNeedsAdoption(app)) return;
+ 1247              const task = app.auth.takeProviderPreparation() orelse return;
+ 1248              defer task.deinit();
+ 1249              if (task.cancel_requested.load(.seq_cst)) {
+ 1250                  holdPromptAfterPreparationFailure(app);
+ 1251                  try app.writeDomainNotice(.{
+ 1252                      .topic = "provider",
+ 1253                      .tone = .neutral,
+ 1254                      .body = "Provider preparation cancelled. The current provider is unchanged.",
+ 1255                  }, true);
+ 1256                  return;
+ 1257              }
+
+## H8: every claimContextNotice call at the pin (git grep -n claimContextNotice 481104fd -- src, tests left out:
+## acp/prompt.zig:3222, app_agent_runtime.zig:857 :923 :1182, app_bootstrap_runtime.zig:300, app_callbacks.zig:1297,
+## app_commands.zig:1092, cli_ask.zig:3218; session.zig:1554 is the ledger), and when each runs relative to a turn's stop.
+## (a) A project file's [context] line: claimed and written at submission, on the UI thread, before the turn exists.
+##     enqueuePromptWithSkillBindings calls refreshProjectContext first; it claims each snapshot notice and writes it
+##     with writeDomainNotice, which is the shell's own write (no worker queue). The job then carries a copy of the same
+##     snapshot, and processQueuedPrompt claims those lines again before the orchestrator: already said, nothing more.
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n 1193,1200p
+ 1193      pub fn enqueuePromptWithSkillBindings(self: *App, prompt: []const u8, skill_tokens: []const registered_entities.SkillTokenSpan) !bool {
+ 1194          const context_targets = if (self.context_enabled)
+ 1195              try context_contract.applicableTargetsForImages(self.alloc, self.pending_images.items)
+ 1196          else
+ 1197              &.{};
+ 1198          defer if (context_targets.len > 0) self.alloc.free(context_targets);
+ 1199  
+ 1200          try AgentAppRuntime.refreshProjectContext(self, context_targets);
+
+### git -C fx-upstream show 481104fd:src/core/app/app_agent_runtime.zig | sed -n 906,938p
+  906          pub fn refreshProjectContext(app: *App, targets: []const context_contract.ApplicableTarget) context_contract.ProviderError!void {
+  907              app.context_snapshot.deinit(app.alloc);
+  908              if (!app.context_enabled) return;
+  909  
+  910              const workspace = turnWorkspace(app);
+  911              app.context_snapshot = app.contextRegistry().gatherDefaultSnapshot(app.alloc, .{
+  912                  .workspace_root = workspace.root,
+  913                  .access_scope = workspace.access_scope,
+  914                  .targets = targets,
+  915                  .context_limits = if (comptime @hasField(App, "context_limits")) app.context_limits else .{},
+  916              }) catch |err| {
+  917                  debug_trace.logf("context", "gather failed err={s}", .{@errorName(err)});
+  918                  return err;
+  919              };
+  920              if (comptime @hasDecl(App, "writeDomainNotice")) {
+  921                  for (app.context_snapshot.notices) |notice| {
+  922                      const should_emit = if (comptime @hasDecl(@TypeOf(app.session), "claimContextNotice"))
+  923                          try app.session.claimContextNotice(app.alloc, notice)
+  924                      else
+  925                          true;
+  926                      if (should_emit) {
+  927                          const body = try types.renderContextNoticeBody(app.alloc, notice);
+  928                          defer app.alloc.free(body);
+  929                          app.writeDomainNotice(.{
+  930                              .topic = "context",
+  931                              .tone = .warning,
+  932                              .body = body,
+  933                              .visibility = .full_only,
+  934                          }, true) catch return error.WriteFailed;
+  935                      }
+  936                  }
+  937              }
+  938          }
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n 2411,2413p
+ 2411      pub fn writeDomainNotice(self: *App, notice: types.SemanticNotice, record: bool) !void {
+ 2412          try self.shell.writeNotice(self.alloc, &self.metrics, notice, record);
+ 2413      }
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n 1544,1548p
+ 1544          var context_snapshot_copy = if (self.context_enabled)
+ 1545              try self.context_snapshot.dupe(std.heap.c_allocator)
+ 1546          else
+ 1547              context_contract.GatheredContextSnapshot{};
+ 1548          errdefer context_snapshot_copy.deinit(std.heap.c_allocator);
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n 1574,1574p
+ 1574              .context_snapshot = context_snapshot_copy,
+
+### git -C fx-upstream show 481104fd:src/core/app/app_agent_runtime.zig | sed -n 976,996p
+  976              var preflight_context_notices: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
+  977              defer preflight_context_notices.deinit();
+  978              for (job.context_snapshot.notices) |notice| {
+  979                  try appendClaimedContextNotice(app, &preflight_context_notices.writer, notice);
+  980              }
+  981  
+  982              var skill_catalog = app.skills.acquireCatalog();
+  983              defer skill_catalog.deinit();
+  984              const explicit_bindings = try std.heap.c_allocator.alloc(skill_invocation.ExplicitBinding, job.skill_bindings.len);
+  985              defer std.heap.c_allocator.free(explicit_bindings);
+  986              for (job.skill_bindings, 0..) |binding, index| {
+  987                  explicit_bindings[index] = .{ .name = binding.name, .path = binding.path };
+  988              }
+  989              if (preflight_context_notices.written().len > 0) {
+  990                  try app_worker_runtime.Runtime(App).pushSemanticNotice(app, .{
+  991                      .topic = "context",
+  992                      .tone = .warning,
+  993                      .body = preflight_context_notices.written(),
+  994                      .visibility = .full_only,
+  995                  });
+  996              }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_agent_runtime.zig | sed -n 1180,1192p
+ 1180          fn appendClaimedContextNotice(app: *App, writer: *std.Io.Writer, notice: []const u8) !void {
+ 1181              const should_emit = if (comptime @hasDecl(@TypeOf(app.session), "claimContextNotice"))
+ 1182                  try app.session.claimContextNotice(std.heap.c_allocator, notice)
+ 1183              else
+ 1184                  true;
+ 1185              if (!should_emit) return;
+ 1186              if (writer.buffered().len > 0 and !std.mem.endsWith(u8, writer.buffered(), "\n")) {
+ 1187                  try writer.writeByte('\n');
+ 1188              }
+ 1189              const body = try types.renderContextNoticeBody(std.heap.c_allocator, notice);
+ 1190              defer std.heap.c_allocator.free(body);
+ 1191              try writer.writeAll(body);
+ 1192          }
+
+## (b) The skill catalog's line: prepareSkillCatalog at orchestrator.zig:5950 (H4), after both stop checks, pushes
+##     through agentPushContextNotice (H3, app_callbacks.zig:1294-1307): claimed, then queued as a semantic notice.
+## (c) The MCP catalog's line: the request's stable prefix is built at :6001, after :5950; its static context is the
+##     app's appendStaticContextMessage, which claims, then queues, in pushMcpModelCatalogNotice.
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n 6001,6001p
+ 6001      try appendStablePromptContext(arena, deps, config, if (skill_section) |section| section.text else null, &stable_prefix);
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n 6444,6446p
+ 6444      // The session-start project rules; rules a tool call reaches later ride
+ 6445      // on its tool result instead (D93).
+ 6446      if (deps.append_static_context) |append| try append(deps.ctx, alloc, messages);
+
+### git -C fx-upstream show 481104fd:src/core/app/app_callbacks.zig | sed -n 310,310p
+  310                  .append_static_context = agentAppendStaticContext,
+
+### git -C fx-upstream show 481104fd:src/core/app/app_callbacks.zig | sed -n 879,884p
+  879          fn agentAppendStaticContext(ctx: *anyopaque, arena: Allocator, messages: *std.ArrayList(ChatMessage)) !void {
+  880              const app: *App = @ptrCast(@alignCast(ctx));
+  881              if (comptime @hasDecl(App, "appendStaticContextMessage")) {
+  882                  try app.appendStaticContextMessage(arena, messages);
+  883              }
+  884          }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_agent_runtime.zig | sed -n 845,867p
+  845              const section = try mcp_model_catalog.render(arena, report.snapshot);
+  846              if (section.text.len > 0) {
+  847                  try messages.append(arena, .{ .role = .system, .content = section.text });
+  848              }
+  849              if (report.change_notice) |notice| {
+  850                  try messages.append(arena, .{ .role = .system, .content = notice });
+  851              }
+  852              if (section.notice) |notice| try pushMcpModelCatalogNotice(app, notice);
+  853          }
+  854  
+  855          fn pushMcpModelCatalogNotice(app: *App, notice: []const u8) !void {
+  856              if (comptime @hasDecl(@TypeOf(app.session), "claimContextNotice")) {
+  857                  if (!try app.session.claimContextNotice(std.heap.c_allocator, notice)) return;
+  858              }
+  859              const body = try types.renderContextNoticeBody(std.heap.c_allocator, notice);
+  860              defer std.heap.c_allocator.free(body);
+  861              try app_worker_runtime.Runtime(App).pushSemanticNotice(app, .{
+  862                  .topic = "context",
+  863                  .tone = .warning,
+  864                  .body = body,
+  865                  .visibility = .full_only,
+  866              });
+  867          }
+
+## (d) Skill diagnostics: claimed at launch and by /skills, each written in the same step (not a turn's).
+
+### git -C fx-upstream show 481104fd:src/core/app/app_bootstrap_runtime.zig | sed -n 292,308p
+  292          pub fn writeSkillDiagnosticsNotice(app: *App) !void {
+  293              if (app.skills.diagnostics.len == 0) return;
+  294              var notice_writer: std.Io.Writer.Allocating = .init(app.alloc);
+  295              defer notice_writer.deinit();
+  296              skill_runtime.writeDiagnosticSummary(app.alloc, &notice_writer.writer, app.skills.diagnostics) catch return error.OutOfMemory;
+  297              const skills_body = notice_writer.toOwnedSlice() catch return error.OutOfMemory;
+  298              defer app.alloc.free(skills_body);
+  299              if (comptime @hasField(App, "session") and @hasDecl(@TypeOf(app.session), "claimContextNotice")) {
+  300                  _ = try app.session.claimContextNotice(app.alloc, skills_body);
+  301              }
+  302  
+  303              const skills_summary = try app.alloc.print("{d} discovery issue{s}; some skills may be missing", .{
+  304                  app.skills.diagnostics.len,
+  305                  if (app.skills.diagnostics.len == 1) "" else "s",
+  306              });
+  307              defer app.alloc.free(skills_summary);
+  308              try writeCollapsedStartupNotice(app, "skills", skills_summary, skills_body);
+
+### git -C fx-upstream show 481104fd:src/core/app/app_commands.zig | sed -n 1083,1098p
+ 1083          fn writeSkillDiagnosticNotice(app: *App) !void {
+ 1084              if (app.skills.diagnostics.len == 0) return;
+ 1085  
+ 1086              var out: std.Io.Writer.Allocating = .init(app.alloc);
+ 1087              defer out.deinit();
+ 1088              try skill_runtime.writeDiagnosticSummary(app.alloc, &out.writer, app.skills.diagnostics);
+ 1089              const body = try out.toOwnedSlice();
+ 1090              defer app.alloc.free(body);
+ 1091              if (comptime @hasField(App, "session") and @hasDecl(@TypeOf(app.session), "claimContextNotice")) {
+ 1092                  _ = try app.session.claimContextNotice(app.alloc, body);
+ 1093              }
+ 1094              try app.writeDomainNotice(.{
+ 1095                  .topic = "skills",
+ 1096                  .tone = .warning,
+ 1097                  .body = body,
+ 1098              }, true);
+
+## (e) Tool executions' context notices are pushed mid-turn, after a request (orchestrator.zig:11345, :12354), and
+##     cli_ask.zig:3218 and acp/prompt.zig:3222 are fx ask's and ACP's own pushes (H3).
