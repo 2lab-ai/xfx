@@ -665,7 +665,7 @@
     80	            app.shell.render_requests.request(.modal);
     81	        }
 
-# Zig 0.16.0's standard library (its release tree, lib/std/json/). The pin requires Zig 0.17.0 (below), whose std was not available here: that it reads these lines the same is inferred, not read:
+# Zig 0.16.0's standard library (its release tree, lib/std/json/). The pin requires Zig 0.17.0 (below); its std and 0.17.1's were read from their tags, and these lines are the same there (zig-017.txt quotes them at 0.17.0):
 
 == build.zig.zon:28@481104fd
     28	    .minimum_zig_version = "0.17.0",

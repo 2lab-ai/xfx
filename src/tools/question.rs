@@ -350,19 +350,21 @@ pub struct SavedAnswer {
 /// `:113-141`). A key given twice in an answer's own object is refused too,
 /// `question`, `answer` or one nobody reads, as upstream's `std.json` refuses
 /// it (`duplicate_field_behavior` defaults to `.@"error"`,
-/// `std/json/static.zig:20-26`, applied in `dynamic.zig:149-156`).
+/// `std/json/static.zig:20-26`, applied in `dynamic.zig:149-156`, in Zig
+/// 0.17.0 and 0.17.1, the releases the pin builds with, `build.zig.zon:28@481104fd`;
+/// the same lines as 0.16.0's).
 ///
 /// **Looser than upstream in one place**: a key nobody reads is skipped
 /// ([`serde::de::IgnoredAny`]) without upstream's two checks inside it.
 /// Upstream's parse refuses a key given twice in *any* object at any depth,
 /// and an unpaired surrogate in *any* string (`Scanner.zig:25-32`), so
 /// `[{"question":"Q","answer":"A","x":{"k":1,"k":2}}]` and the same with
-/// `"x":"\ud800"` are answered batches here and, by those lines, null there.
-/// Those lines are Zig 0.16.0's std; the pin builds with 0.17.0
-/// (`build.zig.zon:28@481104fd`), whose std is inferred, not read, to be the
-/// same -- the release binary was not run on such a session: no fxcap step
-/// rewrites a saved session between a run and its resume, and fx checksums
-/// each log line over the run's own path. Only a hand-forged log holds such a
+/// `"x":"\ud800"` are answered batches here and, by those lines, null there
+/// (read in Zig 0.17.0's and 0.17.1's std, identical to 0.16.0's on these
+/// rules). The release binary was not run on such a session: the fxcap
+/// harness has no step that rewrites a saved session between a run and its
+/// resume (`rehomefile` writes a fixed file), and no forged session was
+/// tried outside it. Only a hand-forged log holds such a
 /// document, and its rows are drawn inert; matching upstream would mean a
 /// skipper of xfx's own.
 ///
@@ -468,8 +470,9 @@ impl<'de> serde::de::Visitor<'de> for ElementVisitor {
     //
     // Any key of this object given twice is refused, the two read and every
     // other alike, as upstream's parse refuses it (`duplicate_field_behavior
-    // = .@"error"`, `std/json/dynamic.zig:149-156`, Zig 0.16.0). A skipped
-    // value's own keys are not checked ([`decode_answers`]).
+    // = .@"error"`, `std/json/dynamic.zig:149-156`, the same in Zig 0.16.0,
+    // 0.17.0 and 0.17.1). A skipped value's own keys are not checked
+    // ([`decode_answers`]).
     fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Element, A::Error> {
         let (mut question, mut answer) = (None, None);
         let mut others = std::collections::HashSet::new();
@@ -1004,8 +1007,8 @@ mod tests {
         // a key given twice in **any** object and an unpaired surrogate in
         // **any** string (`duplicate_field_behavior = .@"error"`,
         // `std/json/static.zig:20-26`, applied in `dynamic.zig:149-156`;
-        // `Scanner.zig:25-32`, Zig 0.16.0's std; the pin's 0.17.0 is inferred,
-        // not read, to be the same), so both of these are null there.
+        // `Scanner.zig:25-32`; the same in Zig 0.16.0, 0.17.0 and 0.17.1),
+        // so both of these are null there.
         // A key nobody reads is skipped here without either check
         // (`IgnoredAny`), so both decode. Only a hand-forged log holds them,
         // and the rows that show them are inert (`docs/parity.md`).

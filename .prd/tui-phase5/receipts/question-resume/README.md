@@ -15,7 +15,7 @@ snaps. The base is `origin/main` at `32afd307`.
 | commit | what |
 |---|---|
 | `3bd76ddb` | RED: the five shell tests (written against the base's API), the new scenario `p5-question-resume`, `fx/`, `red/`, `red.txt`, `red-tests.txt`, `compare.py` |
-| `a623824c` | **the code head**: the decoder, the hydration's two steps, the shell's rows, the inert step, the unit and hydration tests, `docs/parity.md`, the ledger cause retired |
+| `a623824c` | round 1's code head: the decoder, the hydration's two steps, the shell's rows, the inert step, the unit and hydration tests, `docs/parity.md`, the ledger cause retired |
 | `47384d15` | the Ctrl-O gap measured: scenario `p5-question-resume-ctrlo`, ledger cause `question-resume-ctrlo-detail`, the parity row's last sentence. No source change |
 | `a5861b54` | the Ctrl-O cause's `rows = ["1-40"]`, so the sweep attributes the blank rows xfx's shorter screen leaves (`sweep.py` `attribute`) |
 | `1f4b3d03` | round 1's receipt |
@@ -27,6 +27,7 @@ snaps. The base is `origin/main` at `32afd307`.
 | `678a9552` | round 3's receipt: `mutants.*` (16 of 16 at `9a2921ce`) |
 | `c9931eec` | round 4, **the code head**: the 8 MiB tail unclosed, so every tail of `the_twenty_first_element_is_refused_at_its_first_byte_unread` fails with round 2's scan (`red-tests-r4.txt`); the seed's value type uninhabited (the only code change); Zig 0.17 marked inferred; the Escape-at-draft qualification; this file's false lines |
 | the commit after it | `mutants.*` rerun at `c9931eec`: 16 of 16 |
+| round 5 | words and comments only (`src/` comment lines): Zig 0.17.0 and 0.17.1's std read from their tags, so "inferred" is now "read" (`zig-017.txt`); the false reason fx was not run is replaced; `a623824c` no longer called the code head; "Escape stops the turn only at an empty field" |
 
 `git diff 63e8bbeb HEAD -- src` is `src/tools/question.rs` alone: the
 decode of a document past twenty elements, comments and tests. No capture
@@ -122,10 +123,11 @@ XFX_BIN=<xfx>       TMPDIR=<short dir>  scripts/fxcap/capture.sh xfx <scenario> 
   Every snap before a resume matches, `ask mixed`'s live group included.
 - `red-tests.txt` is the five shell tests at `3bd76ddb`, whose `src/` is the
   base's plus the tests. Four fail, each with its left/right; the fifth (a
-  cancelled batch) passes at the base and is kept as a guard. At the code head
-  these tests differ from the RED commit only by clippy's `.contains(&row)` for
-  two `.iter().any(|row| *row == …)` and one rustfmt wrap
-  (`git diff 3bd76ddb a623824c -- src/tui/shell.rs`).
+  cancelled batch) passes at the base and is kept as a guard. At `a623824c`
+  these tests differed from the RED commit only by clippy's `.contains(&row)`
+  for two `.iter().any(|row| *row == …)` and one rustfmt wrap
+  (`git diff 3bd76ddb a623824c -- src/tui/shell.rs`); round 2 added two cases
+  to `a_resumed_batch_that_left_no_answered_document_is_one_asked_row` (`300b98fc`).
 - `red-tests-r2.txt` is round 2's RED at `300b98fc`, whose `src/` is
   `1f4b3d03`'s. Three tests fail on `[["Q","A"]]`: the decoder returns
   `Some([SavedAnswer { question: "Q", answer: "A" }])`, the hydration makes
@@ -133,7 +135,7 @@ XFX_BIN=<xfx>       TMPDIR=<short dir>  scripts/fxcap/capture.sh xfx <scenario> 
   `● Asked`. The two ordering tests pass there; they pin behaviour that was
   already right.
 
-## The change (`a623824c`, then `63e8bbeb` and `9a2921ce`)
+## The change (`a623824c`, then `63e8bbeb`, `9a2921ce` and `c9931eec`)
 
 - `tools::question::decode_answers` is `decodeJson`, read by hand (round 2;
   round 1's derived struct also took serde's positional form, so
@@ -148,15 +150,18 @@ XFX_BIN=<xfx>       TMPDIR=<short dir>  scripts/fxcap/capture.sh xfx <scenario> 
   - `question` and `answer` must be strings; a key given twice in the
     answer's own object is refused, read or not, as fx's `std.json` refuses
     it (`duplicate_field_behavior = .@"error"`, `std/json/static.zig:20-26`,
-    `dynamic.zig:149-156`); other keys are skipped with `IgnoredAny`;
+    `dynamic.zig:149-156`, the same in Zig 0.16.0, 0.17.0 and 0.17.1,
+    `zig-017.txt`); other keys are skipped with `IgnoredAny`;
   - **looser than fx in one place**: a skipped value is not checked, where
     fx's parse refuses a key given twice in any object and an unpaired
-    surrogate in any string (the same lines; `Scanner.zig:25-32`). These are
-    Zig 0.16.0's std lines; the pin builds with 0.17.0
-    (`build.zig.zon:28@481104fd`), whose std is inferred, not read, to be
-    the same: the release binary was not run on such a session, because no
-    fxcap step rewrites a saved session between a run and its resume and fx
-    checksums each line over the run's own path (`log.zig:30-34`). So
+    surrogate in any string (the same lines; `Scanner.zig:25-32`). These
+    rules were read in Zig 0.17.0's and 0.17.1's std, the releases the pin
+    builds with (`build.zig.zon:28@481104fd`), from their source tags:
+    `dynamic.zig` is identical to 0.16.0's, and the other two differ only in
+    syntax updates that touch no cited rule (`zig-017.txt`). The release
+    binary was not run on such a session: the fxcap harness has no step that
+    rewrites a saved session between a run and its resume (`rehomefile`
+    writes a fixed file), and no forged session was tried outside it. So
     `[{"question":"Q","answer":"A","x":{"k":1,"k":2}}]` and the same with
     `"x":"\ud800"` are answered batches here and, by those lines, null in
     fx. Only a
@@ -357,7 +362,8 @@ figures (in `1f4b3d03`).
 | `red.txt`, `green.txt` | `compare.py` over `fx/` against `red/` and against `xfx/` |
 | `red-tests.txt`, `red-tests-r2.txt`, `red-tests-r3.txt`, `red-tests-r4.txt` | the RED tests at `3bd76ddb`, round 2's at `300b98fc`, round 3's at `37cdd637`, round 4's on a clone at `678a9552` with M16 |
 | `fx-src.txt` | every fx line cited, at `481104fd` (and `c1db9191` for the old bound) |
-| `probe/` | live Ctrl-O (`qr-ctrlo.cap`, not a committed scenario): fx and xfx at the code head, `compare.txt` |
+| `probe/` | live Ctrl-O (`qr-ctrlo.cap`, not a committed scenario): fx and xfx at `a623824c`, `compare.txt` |
+| `zig-017.txt` | Zig's std.json at 0.17.0 and 0.17.1 against 0.16.0: which files differ, every difference, and the cited rules quoted at 0.17.0 |
 | `mutants.py`, `mutants.txt` | the mutants and their results |
 | `sweep-base.md`, `sweep-head.md`, `sweep-diff.txt` | the sweeps' scoreboards (rescored with the final ledger) and every pair's verdict at both |
 | `gate.txt`, `gate2.txt` | the gate |
