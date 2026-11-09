@@ -1,8 +1,17 @@
-# the file checks at the receipt's head 3b450460 (TMPDIR=<tmp>), 2026-11-09T17:07:09Z; this file is committed after them
-check-no-secrets: check-no-secrets: ok (17232 tracked file(s) scanned)
-check-xfx-identity: check-xfx-identity: ok (17232 tracked file(s) scanned)
+# the file checks at the receipt's head 2285fc5c (TMPDIR=<tmp>), 2026-11-09T19:34:38Z; this file is committed after them
+check-no-secrets: check-no-secrets: ok (17235 tracked file(s) scanned)
+check-xfx-identity: check-xfx-identity: ok (17235 tracked file(s) scanned)
 check-no-stubs: check-no-stubs: ok
 cargo fmt --check: ok
 redaction: the brief's grep (added lines of git diff 32afd307..HEAD, its four local-path patterns) = 0
-src, tests, build.rs, Cargo.* changed after 81ee1733: 0 diffstat lines
-an earlier run at 3c94797f: check-xfx-identity found the retired name inside a placeholder in binaries.txt; 3b450460 renamed the placeholder
+src, tests, build.rs, Cargo.* changed after 1cb8f920: 0 diffstat lines
+changed after the round-2 gate's 6ef4e6f3: .prd/tui-phase5/receipts/history-notices-copy-fx/README.md .prd/tui-phase5/receipts/history-notices-copy-fx/gates-r2.txt .prd/tui-phase5/receipts/history-notices-copy-fx/mutants-r3.txt docs/parity.md 
+
+# round 1's run, kept:
+  check-no-secrets: check-no-secrets: ok (17232 tracked file(s) scanned)
+  check-xfx-identity: check-xfx-identity: ok (17232 tracked file(s) scanned)
+  check-no-stubs: check-no-stubs: ok
+  cargo fmt --check: ok
+  redaction: the brief's grep (added lines of git diff 32afd307..HEAD, its four local-path patterns) = 0
+  src, tests, build.rs, Cargo.* changed after 81ee1733: 0 diffstat lines
+  an earlier run at 3c94797f: check-xfx-identity found the retired name inside a placeholder in binaries.txt; 3b450460 renamed the placeholder
