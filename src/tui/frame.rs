@@ -1438,6 +1438,14 @@ impl Band {
         buffer.push(0x07);
     }
 
+    /// Records [`Self::title_owed`] as told by a write of its own: the title
+    /// a frame held for a folder listing's rows would have led with
+    /// (`super::event_loop`'s `write_title_alone`). The band is still its
+    /// only author -- the bytes are [`Self::write_title_lead`]'s.
+    pub(crate) fn title_landed(&mut self) {
+        self.shown_title.clone_from(&self.title);
+    }
+
     /// The window title a band frame declares it leaves: the one it writes,
     /// or -- for a frame built `opened`, whose title is the caller's to write
     /// ahead of the update ([`Self::write_title_lead`]) -- the one the

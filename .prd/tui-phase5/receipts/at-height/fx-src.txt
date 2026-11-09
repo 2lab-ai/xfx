@@ -1359,3 +1359,186 @@
  3010              if (try InputAppRuntime.flushDeferredSessionInput(self, input_limits, max_prompt_history)) try self.flushRequestedFrame();
  3011          }
  3012      }
+
+== src/core/app/app_render_runtime.zig:924-936@481104fd -- AT-FOLDERS r2: flushRequestedFrame writes nothing while a handoff is pending; the active surface's requests (the full transcript's too)
+  924          pub fn flushRequestedFrame(app: *App) !void {
+  925              if (comptime @hasDecl(@TypeOf(app.shell), "sessionScrollbackHandoffPending")) {
+  926                  if (app.shell.sessionScrollbackHandoffPending()) return;
+  927              }
+  928              if (app.shell.terminal_dimensions_invalid or app.shell.layout.rows == 0 or app.shell.layout.cols == 0) return;
+  929              const has_resize_lifecycle =
+  930                  @hasField(@TypeOf(app.shell), "pending_resize_observation");
+  931              if (comptime has_resize_lifecycle) {
+  932                  if (shell_runtime.resizeBlocksFrameCommit(&app.shell)) return;
+  933              }
+  934              const render_requests = activeRenderRequests(app);
+  935              var attempt = (try render_requests.beginAttempt()) orelse return;
+  936              const snapshot = attempt.snapshot;
+
+== src/ui/render_engine/terminal_diff.zig:601-646@481104fd -- AT-FOLDERS r2: the wire frame carries the document movement bytes inside its update
+  601  fn composeWireFrame(
+  602      wire_frame: *std.Io.Writer.Allocating,
+  603      input: FrameCommitInput,
+  604      previous_for_diff: *const vt_emulator.Grid,
+  605      target: *const vt_emulator.Grid,
+  606      repaint_window: paint_plan.FrameRepaintWindow,
+  607      full_repaint: bool,
+  608      movement: *const PreparedTerminalMovement,
+  609  ) !usize {
+  610      // RIS and startup modes precede synchronization; document bytes follow it.
+  611      try wire_frame.writer.writeAll(movement.bytes[0..movement.sync_prefix_offset]);
+  612      const prefix_start = wire_frame.written().len;
+  613      if (input.synchronized_update) try wire_frame.writer.writeAll("\x1b[?2026h");
+  614      try wire_frame.writer.writeAll("\x1b[?25l");
+  615      const prefix_len = wire_frame.written().len - prefix_start;
+  616      try wire_frame.writer.writeAll(movement.bytes[movement.sync_prefix_offset..]);
+  617  
+  618      if (!repaint_window.isEmpty()) {
+  619          if (full_repaint) {
+  620              var clear_baseline = try cloneAuthoritativeShadow(
+  621                  input.surface.alloc,
+  622                  previous_for_diff,
+  623                  target.cols,
+  624                  target.rows,
+  625              );
+  626              defer clear_baseline.deinit();
+  627  
+  628              for (repaint_window.ranges()) |range| {
+  629                  const clear_start = wire_frame.written().len;
+  630                  try writeBandClears(&wire_frame.writer, range.top, range.bottom);
+  631                  const clear_bytes = wire_frame.written()[clear_start..];
+  632                  try clear_baseline.feed(clear_bytes);
+  633                  try vt_emulator.Grid.diffBand(clear_baseline, target.*, range.top, range.bottom, &wire_frame.writer);
+  634              }
+  635          } else {
+  636              for (repaint_window.ranges()) |range| {
+  637                  try vt_emulator.Grid.diffBand(previous_for_diff.*, target.*, range.top, range.bottom, &wire_frame.writer);
+  638              }
+  639          }
+  640      }
+  641  
+  642      try writeCursorPosition(&wire_frame.writer, target.*);
+  643      if (input.synchronized_update) try wire_frame.writer.writeAll("\x1b[?2026l");
+  644      if (target.cursor_visible) try wire_frame.writer.writeAll("\x1b[?25h");
+  645      return prefix_len;
+  646  }
+
+== src/main.zig:2804-2844@481104fd -- AT-FOLDERS r2: the theme query is written while facts are collected, not in the frame
+ 2804      fn collectThemeFacts(self: *App) !void {
+ 2805          const now_ms = io_mod.milliTimestamp();
+ 2806          self.terminal_input_runtime.terminal_theme_monitor.poll(now_ms);
+ 2807  
+ 2808          // A configured light|dark pin (FX_THEME or the settings "theme" key)
+ 2809          // locks the variant; keep owning protocol bytes (monitor started) but
+ 2810          // never query or apply live theme updates. Custom theme files stay
+ 2811          // live: updates re-resolve the theme pair.
+ 2812          if (ui_render.themeInputLocked()) {
+ 2813              _ = self.terminal_input_runtime.terminal_theme_monitor.takeSettledUpdate();
+ 2814              return;
+ 2815          }
+ 2816  
+ 2817          if (self.terminal_input_runtime.terminal_theme_monitor.takeSettledUpdate()) |update| {
+ 2818              debug_trace.logf("theme", "theme_update_settled light={s} rgb={s}", .{
+ 2819                  if (update.light) "true" else "false",
+ 2820                  if (update.rgb == null) "fallback" else "terminal",
+ 2821              });
+ 2822              try RenderAppRuntime.applyThemeUpdate(self, update.light, update.rgb);
+ 2823          }
+ 2824          if (InputAppRuntime.terminalPasteActive(self) or
+ 2825              self.terminal_input_runtime.native_clear_probe.active() or
+ 2826              self.terminal_input_runtime.native_clear_probe.awaitingLateResponse())
+ 2827          {
+ 2828              return;
+ 2829          }
+ 2830          if (self.terminal_input_runtime.terminal_theme_monitor.takeQueryRequest(now_ms)) |request| {
+ 2831              debug_trace.logf("theme", "theme_query_requested kind={s}", .{@tagName(request)});
+ 2832              const query_result = switch (request) {
+ 2833                  .response_fence => self.terminal.requestThemeResponseFence(),
+ 2834                  .background => self.terminal.requestThemeBackground(),
+ 2835              };
+ 2836              query_result catch |err| {
+ 2837                  self.terminal_input_runtime.terminal_theme_monitor.failQuery(now_ms);
+ 2838                  debug_trace.logf("theme", "theme_query_failed kind={s} err={s}", .{
+ 2839                      @tagName(request),
+ 2840                      @errorName(err),
+ 2841                  });
+ 2842              };
+ 2843          }
+ 2844      }
+
+== src/ui/transcript/runtime.zig:10402-10430@481104fd -- AT-FOLDERS r2: the bell and the program status report, each a write of its own between frames
+10402      pub fn writeNotificationBell(
+10403          self: *TranscriptRuntime,
+10404          metrics: *Metrics,
+10405      ) void {
+10406          switch (transcript_io.writeFrameBytes(self, metrics, "\x07")) {
+10407              .complete => {},
+10408              .partial => |partial| debug_trace.logf(
+10409                  "notifications",
+10410                  "terminal bell write failed accepted_bytes={d} err={s}",
+10411                  .{ partial.accepted_bytes, @errorName(partial.err) },
+10412              ),
+10413          }
+10414      }
+10415  
+10416      /// Writes an OSC 7501 report between frames, like the notification bell.
+10417      pub fn writeProgramStatus(
+10418          self: *TranscriptRuntime,
+10419          metrics: *Metrics,
+10420          report: []const u8,
+10421      ) void {
+10422          switch (transcript_io.writeFrameBytes(self, metrics, report)) {
+10423              .complete => {},
+10424              .partial => |partial| debug_trace.logf(
+10425                  "program_status",
+10426                  "report write failed accepted_bytes={d} err={s}",
+10427                  .{ partial.accepted_bytes, @errorName(partial.err) },
+10428              ),
+10429          }
+10430      }
+
+== src/core/app/app_session_runtime.zig:2958-2987@481104fd -- AT-FOLDERS r2: the title is set by the provider when it changes, outside any frame
+ 2958          /// Terminal tabs show the session title once one exists; before the
+ 2959          /// first prompt they identify the running build and workspace.
+ 2960          pub fn syncTerminalTitle(app: *App) void {
+ 2961              if (comptime !provider_runtime.supported(App)) return;
+ 2962              syncTerminalTitleWith(app, terminalTitle(app));
+ 2963          }
+ 2964  
+ 2965          pub fn syncTerminalTitleWith(
+ 2966              app: *App,
+ 2967              provider: host_capability.TerminalTitle,
+ 2968          ) void {
+ 2969              if (comptime !provider_runtime.supported(App)) return;
+ 2970              if (cachedSessionTitle(app)) |title| {
+ 2971                  provider.set(title);
+ 2972                  return;
+ 2973              }
+ 2974              const basename = if (comptime @hasField(App, "workspace_root"))
+ 2975                  std.Io.Dir.path.basename(app.workspace_root)
+ 2976              else
+ 2977                  "";
+ 2978              const folder = if (basename.len == 0) "workspace" else basename;
+ 2979              const prefix = "fx v" ++ build_options.app_version ++ " | ";
+ 2980              var label_buffer: [prefix.len + std.Io.Dir.max_path_bytes]u8 = undefined;
+ 2981              const label = std.mem.print(&label_buffer, "{s}{s}", .{ prefix, folder }) catch |err| {
+ 2982                  debug_trace.logf("session", "terminal title workspace omitted err={s}", .{@errorName(err)});
+ 2983                  provider.set("fx v" ++ build_options.app_version);
+ 2984                  return;
+ 2985              };
+ 2986              provider.set(label);
+ 2987          }
+
+== src/core/workspace/directory_completion_job.zig:140-151@481104fd -- AT-FOLDERS r2: an ineligible harvest stops the listing and drops the directory request
+  140      pub fn reconcile(self: *Job, alloc: std.mem.Allocator, state: *completion.State, eligible: bool) void {
+  141          if (self.task) |task| {
+  142              if (!eligible or !task.request.matches(state)) task.stop();
+  143          }
+  144          if (self.pending) |request| {
+  145              if (!eligible or !request.matches(state)) self.dropPending(alloc, if (eligible) "superseded" else "hidden");
+  146          }
+  147          if (!eligible and state.directory_request != null) {
+  148              state.directory_request = null;
+  149              state.lookup_dirty = true;
+  150          }
+  151      }

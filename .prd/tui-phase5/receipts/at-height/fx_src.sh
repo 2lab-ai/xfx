@@ -72,3 +72,11 @@ show $P src/core/app/input_completion_runtime.zig 2237 2282 "AT-FOLDERS: fx's te
 show $P src/main.zig 173 207 "AT-FOLDERS: the loop's poll timeout, 1 ms while a listing is in its first tick"
 show $P src/main.zig 1131 1144 "AT-FOLDERS: the timeout asks fileListingHoldPending"
 show $P src/main.zig 2992 3012 "AT-FOLDERS: loopCommitFrame holds flushRequestedFrame while holdFrameForFileListing"
+# --- added by AT-FOLDERS round 2 (2026-11-09): what fx's held
+# flushRequestedFrame is, and what it writes outside it.
+show $P src/core/app/app_render_runtime.zig 924 936 "AT-FOLDERS r2: flushRequestedFrame writes nothing while a handoff is pending; the active surface's requests (the full transcript's too)"
+show $P src/ui/render_engine/terminal_diff.zig 601 646 "AT-FOLDERS r2: the wire frame carries the document movement bytes inside its update"
+show $P src/main.zig 2804 2844 "AT-FOLDERS r2: the theme query is written while facts are collected, not in the frame"
+show $P src/ui/transcript/runtime.zig 10402 10430 "AT-FOLDERS r2: the bell and the program status report, each a write of its own between frames"
+show $P src/core/app/app_session_runtime.zig 2958 2987 "AT-FOLDERS r2: the title is set by the provider when it changes, outside any frame"
+show $P src/core/workspace/directory_completion_job.zig 140 151 "AT-FOLDERS r2: an ineligible harvest stops the listing and drops the directory request"

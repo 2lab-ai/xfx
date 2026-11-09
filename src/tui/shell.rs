@@ -8607,7 +8607,14 @@ impl Shell {
             self.listing_wait = file_picker::ListingWait::default();
             return false;
         };
-        let in_flight = !files.indexed() && files.shown() == file_picker::Shown::Loading;
+        // Not while the full transcript is up: fx's harvest is told the list
+        // is not eligible then (`filePickerEligible`, `:783`, `:821`), and
+        // an ineligible harvest drops the directory request
+        // (`directory_completion_job.zig:140-151@481104fd`), so nothing is in
+        // flight for its frames to wait on.
+        let in_flight = !files.indexed()
+            && files.shown() == file_picker::Shown::Loading
+            && !self.full.is_open();
         self.listing_wait.hold(in_flight, now)
     }
 
