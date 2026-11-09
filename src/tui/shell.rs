@@ -14874,6 +14874,13 @@ impl Shell {
         self.catalog_clock.now()
     }
 
+    /// Its catalog's times read on `clock` -- a machine a test sleeps --
+    /// from now on.
+    #[cfg(test)]
+    pub(crate) fn set_catalog_clock_for_test(&mut self, clock: CatalogClock) {
+        self.catalog_clock = clock;
+    }
+
     /// What the band knows of when the runtime next reads the catalog, let
     /// go: a new answer, or a provider whose catalog is not this one.
     fn forget_catalog_clock(&mut self) {
@@ -48718,7 +48725,19 @@ mod tests {
                 "{slept:?} asleep: the prompt's asks"
             );
         }
+        // Awake, inside the failure's hold, the menu opens over it and asks
+        // nothing -- by the catalog's clock, not the machine's own
+        // (`open_models_with`).
         let mut shell = shell(40, 120);
+        shell.shell.catalog_clock = clock.clone();
+        shell.apply(unread_at(Some(CatalogRetry::Unreachable), clock.now()));
+        shell.route_bytes(b"/model\r");
+        assert_eq!(
+            catalog_asks(&mut shell),
+            [],
+            "the menu asked inside the failure's hold"
+        );
+        let mut shell = self::shell(40, 120);
         shell.shell.catalog_clock = clock.clone();
         shell.apply(unread_at(Some(CatalogRetry::Unreachable), clock.now()));
         machine.sleep(Duration::from_secs(6));

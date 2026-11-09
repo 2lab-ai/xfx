@@ -7661,6 +7661,46 @@ mod tests {
     }
 
     #[test]
+    fn the_model_columns_frame_reads_the_catalogs_clock() {
+        // The frame's ask is decided on the catalog's clock, the one that
+        // counts sleep (`commit_counted` -> `Shell::settle_column`): a
+        // failure just now holds the next read off for its backoff, and a
+        // sleep past it ends the hold.
+        let machine = crate::provider::catalog_clock::FakeMachine::new();
+        let clock = machine.clock();
+        let mut shell = shell_of(40, 120);
+        shell.set_catalog_clock_for_test(clock.clone());
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let failed = clock.now();
+        shell.apply(UiEvent::CatalogUnread {
+            provider: crate::provider::ProviderId::Gateway,
+            retry: Some(crate::provider::model::CatalogRetry::Unreachable),
+            retry_at: crate::provider::catalog_clock::CatalogDue {
+                since: Some(failed),
+                at: failed + crate::provider::model::failure_backoff(1),
+            },
+        });
+        shell.route_bytes(b"/model ");
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the tick");
+        assert!(
+            shell._control.try_recv().is_err(),
+            "the frame asked inside the failure's hold"
+        );
+        machine.sleep(Duration::from_secs(6));
+        shell.route_bytes(b"a");
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the tick");
+        assert_eq!(
+            shell._control.try_recv().ok(),
+            Some(crate::tui::bridge::TurnControl::Catalog(
+                crate::tui::bridge::CatalogAsk::ACTIVITY
+            )),
+            "the frame did not ask past a hold that ended asleep"
+        );
+    }
+
+    #[test]
     fn owed_bells_go_out_after_the_frame_on_their_own_and_are_counted() {
         // Upstream writes the one byte through its frame sink, counted with
         // every other (`writeNotificationBell`, `runtime.zig:10152-10163`).
