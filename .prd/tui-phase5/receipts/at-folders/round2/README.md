@@ -18,7 +18,8 @@ below means that file.
 | `9a8f69c8` | RED (`red-unit.txt`): the held turn, Ctrl-O, and the expiry case; the round-1 hold case loosened to let the launch's report through |
 | `ce82af2d` | the fix, `docs/parity.md`, fx's quotes -- **the code head** and the gate's commit |
 | `b0c4ebfb` | `mutants.py` |
-| (receipt commit) | this folder; `../README.md` updated (§3, §10, §11) |
+| `6c16cc3c` | this folder; `../README.md` updated (§3, §10, §11) |
+| (ledger commit) | the ledger's 12 `shell.rs` refs round 2 moved, re-pointed by text (`refs.txt`: 16 checked, 0 wrong); `scripts/fxcap/test-sweep.sh` passes after it. Ledger text only: no code changes after `ce82af2d` |
 
 ## 1. What a held tick holds (gpt6 MUST, opus §3)
 
