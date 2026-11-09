@@ -456,6 +456,44 @@ mod tests {
     }
 
     #[test]
+    fn an_answer_past_64_kib_or_cut_short_is_not_read_as_one() {
+        // Read whole or not at all. With the padding after it, the first
+        // 64 KiB of a longer answer is a credits answer, and so is what came
+        // before the end of a body that stops short of its declared length.
+        use crate::test_net::Listener;
+        let answer_of = |sent: String| {
+            let gateway = Listener::answering(sent);
+            let answer = on_a_runtime(ask_at(&format!("{}{CREDITS_PATH}", gateway.origin()), KEY));
+            gateway.finish();
+            answer
+        };
+        let padded = |bytes: usize| format!("{BALANCE}{}", " ".repeat(bytes - BALANCE.len()));
+        let sized = |body: &str| {
+            format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            )
+        };
+        let at_cap = answer_of(sized(&padded(MAX_BODY_BYTES)));
+        let past = answer_of(sized(&padded(MAX_BODY_BYTES + 1)));
+        let cut = sized(&padded(BALANCE.len() + 100));
+        let cut = answer_of(cut[..cut.len() - 100].to_string());
+        assert!(
+            matches!(at_cap, Answer::Credits { .. }),
+            "an answer of exactly the cap is read: {at_cap:?}"
+        );
+        // Past the cap, and cut short: fx's GET fails there, and it says so
+        // (`gateway.zig:812-814@481104fd`).
+        assert_eq!(
+            [past, cut],
+            [
+                Answer::Failed(INVALID_JSON.to_string()),
+                Answer::Failed(FETCH_FAILED.to_string())
+            ]
+        );
+    }
+
+    #[test]
     fn a_redirect_is_an_error_and_never_followed_with_the_key() {
         use crate::test_net::{json_answer, redirect, Listener};
         for status in [307u16, 308] {
