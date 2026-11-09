@@ -4228,8 +4228,9 @@ fn told_event(
 /// `startModelCacheWarmup` start one (`src/main.zig:2007-2041@481104fd`,
 /// `beginLoad`, `model_cache_runtime.zig:570-648`); a read already on its
 /// way is left to tell its own answer; and when the band waits on an answer
-/// and none is due -- a failure inside its backoff, rows read less than five
-/// seconds ago, no catalog at all -- the catalog is told as it is held.
+/// and none is due -- a failure inside its backoff or rows read less than
+/// five seconds ago, by a reading not earlier than the last read's start, or
+/// no catalog at all -- the catalog is told as it is held.
 async fn ask_catalog(state: &mut Runtime, events: &Sender<UiEvent>, ask: bridge::CatalogAsk) {
     // A read that has answered and told is taken first, so the next is
     // decided against its answer rather than waited out behind it.
@@ -11164,8 +11165,9 @@ mod tests {
     fn the_sessions_own_read_failing_mid_work_is_read_again_once_its_backoff_is_up() {
         // The read at launch is still on its way when a turn begins, and fails
         // while the turn runs. Upstream's `/model` then decides by the cache's
-        // state, whoever started the load: inside the failure's backoff the
-        // menu opens over the failure, and after it a load starts again
+        // state, whoever started the load: inside the failure's backoff (by
+        // readings not earlier than its start) the menu opens over
+        // the failure, and after it a load starts again
         // (`beginLoad`, `model_cache_runtime.zig:609-625@481104fd`). Round 4
         // left this ask unanswered -- the work held "a read of its own on the
         // way" -- and the menu said `Loading models…` until the turn was over.
@@ -17135,7 +17137,8 @@ mod tests {
         // `noteModelCatalogActivity` (`src/main.zig:1225-1232@481104fd`, from
         // `enqueuePromptWithSkillBindings`, `:1201`): a submitted prompt asks
         // the model cache, which reads a failed catalog again only once the
-        // failure's backoff is over (`beginLoad`,
+        // failure's backoff is over, for readings not earlier than the failed
+        // read's start (`beginLoad`,
         // `model_cache_runtime.zig:617`, `:621-622`) -- five seconds after
         // the first, where c1db9191 held it one.
         let (_home, _workspace, mut state) = recording();
@@ -17500,7 +17503,8 @@ mod tests {
     #[test]
     fn a_failed_refresh_is_due_again_when_the_runtimes_clock_says() {
         // `beginLoad` over rows whose refresh failed (`model_cache_runtime.zig:
-        // 609-623@481104fd`): never inside the failure's backoff; past it at
+        // 609-623@481104fd`): never inside the failure's backoff, for readings
+        // not earlier than the failed read's start; past it at
         // once when asking again could change the failure (`retry_due`), and
         // otherwise once the rows are the refresh interval old, counted from
         // the failed read's start (`expired`).

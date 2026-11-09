@@ -1468,7 +1468,8 @@ impl LoadClock {
     /// The clock once a read begun at `began` has answered at `answered`
     /// (`completeFetch`, `model_cache_runtime.zig:936-958@481104fd`): a
     /// success clears the streak and the hold; a failure counts one more and
-    /// holds the next read off for its backoff, counted from its arrival.
+    /// holds the next read off for its backoff, counted from its arrival --
+    /// for readings not earlier than this read's start ([`Self::next`]).
     pub(crate) fn after(self, began: CatalogTime, failed: bool, answered: CatalogTime) -> Self {
         if !failed {
             return Self {
@@ -2991,8 +2992,9 @@ mod tests {
     #[tokio::test]
     async fn a_failure_is_asked_again_only_when_model_asks_for_it() {
         // `ensure_catalog` alone never reads a failure again: what reads it
-        // again is the model cache's triggers past the failure's backoff
-        // (`begin_load_on`), and a `/model <query>` the band could not
+        // again is the model cache's triggers once they are due -- past the
+        // failure's backoff, or at a reading earlier than the failed read's
+        // start (`begin_load_on`) -- and a `/model <query>` the band could not
         // resolve, upstream's `fetchModelIds` beside the cache, which this
         // pins (`retry_after_failure`).
         let catalog = CountingCatalog::new(Err(CatalogError::Gateway {
@@ -4331,7 +4333,8 @@ mod tests {
     fn a_failure_holds_every_read_off_for_upstreams_backoff_which_doubles_to_five_minutes() {
         // `failureBackoffMs` (`model_cache_runtime.zig:40-54@481104fd`): after
         // the n-th failure in a row no read starts for 5 s x 2^(n-1), five
-        // minutes at most, whatever asks (`backoff_over`, `:617`, `:621`),
+        // minutes at most, whatever asks, by readings not earlier than the
+        // failed read's start (`backoff_over`, `:617`, `:621`),
         // counted from when the failure arrived (`completeFetch`, `:948-951`).
         // fx's own schedule (`:1531-1535`): 5 s, 10 s, ... 160 s at the sixth,
         // the cap from the seventh on.

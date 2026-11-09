@@ -1200,7 +1200,8 @@ pub(crate) enum TurnControl {
     /// menu opening, a submitted prompt, or a frame of the inline column. The
     /// runtime reads the configured provider's catalog when that trigger is
     /// due -- a first load, a failure past its backoff, rows the menu last
-    /// read five seconds ago or that are five minutes old
+    /// read five seconds ago or that are five minutes old, and any of them at
+    /// a reading earlier than the last read's start
     /// (`crate::provider::model::LoadTrigger`) -- and tells the answer the
     /// moment it arrives ([`UiEvent::CatalogLoaded`],
     /// [`UiEvent::CatalogUnread`], [`UiEvent::CatalogRefreshFailed`]);

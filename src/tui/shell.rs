@@ -857,8 +857,9 @@ pub(crate) struct Shell {
     /// ends -- and, for one asking again could not change, not before the
     /// rows are five minutes old (`beginLoad`'s `expired` and `retry_due`,
     /// `model_cache_runtime.zig:609-623@481104fd`; [`UiEvent::CatalogLoaded`]'s
-    /// and [`UiEvent::CatalogRefreshFailed`]'s `due`). `None` beside any other
-    /// [`CatalogKnown`].
+    /// and [`UiEvent::CatalogRefreshFailed`]'s `due`); at once for a reading
+    /// earlier than the last read's start ([`CatalogDue`]). `None` beside any
+    /// other [`CatalogKnown`].
     catalog_due: Option<CatalogDue>,
     /// What the band reads those times against: the runtime's clock, the
     /// catalog's, which counts sleep ([`CatalogClock`]).
@@ -2385,10 +2386,11 @@ enum CatalogKnown {
     Loaded,
     /// The runtime could not read it, whether asking again could help, and
     /// when the hold the failure put on the next read ends: a `/model` before
-    /// then -- by a reading not earlier than the failed read's start, which
-    /// is due whatever held the read back ([`CatalogDue`]) -- opens the menu
-    /// over the failure and asks nothing, as upstream's model cache starts no
-    /// load inside a failure's backoff (`crate::provider::model::failure_backoff`).
+    /// then opens the menu over the failure and asks nothing, as upstream's
+    /// model cache starts no load inside a failure's backoff
+    /// (`crate::provider::model::failure_backoff`). That holds for readings
+    /// not earlier than the failed read's start; an earlier reading is due at
+    /// once, whatever held the read back ([`CatalogDue`]).
     Unread(Option<CatalogRetry>, CatalogDue),
 }
 
@@ -14816,7 +14818,9 @@ impl Shell {
             // A load is on its way already: the menu waits for it rather than
             // asking twice.
             CatalogKnown::Asked => ModelMenu::loading(query),
-            // Failed, and inside the hold the failure put on the next read:
+            // Failed, and inside the hold the failure put on the next read
+            // (not due by the runtime's rule, so a reading not earlier than
+            // the failed read's start; [`CatalogDue::is_due`]):
             // upstream's cache starts no load then, and the menu opens over
             // the failure it holds -- `Could not reach AI Gateway; xfx retries
             // automatically.` at once, and nothing asked (`beginLoad`,
@@ -14836,7 +14840,8 @@ impl Shell {
                 self.catalog_known = CatalogKnown::Asked;
                 ModelMenu::loading(query)
             }
-            // Failed and past its hold: the cache reads it again behind the
+            // Failed and due again -- past its hold, or at a reading earlier
+            // than the failed read's start: the cache reads it again behind the
             // failure, and the menu says `Loading models…` while it does
             // (`fetch_in_flight`, `:1049`) -- but the catalog is still the
             // failure for every other reader (`:485-486`): the column says
@@ -14895,9 +14900,11 @@ impl Shell {
     /// (`LoadTrigger.activity`, `model_cache_runtime.zig:27-31@481104fd`;
     /// `beginLoad`, `:612-623`): a failure whose hold has ended, rows that
     /// are the refresh interval old, or rows whose refresh failed and whose
-    /// hold has ended. Once per answer: the runtime decides by its own clock,
-    /// and its answer, whatever it is, lets the band ask again. Nothing waits
-    /// on it: the band goes on saying what it says until the answer lands.
+    /// hold has ended -- and any of them at a reading earlier than the last
+    /// read's start ([`CatalogDue`]). Once per answer: the runtime decides by
+    /// its own clock, and its answer, whatever it is, lets the band ask
+    /// again. Nothing waits on it: the band goes on saying what it says until
+    /// the answer lands.
     /// Whether it asked.
     fn note_catalog_activity(&mut self, now: CatalogTime) -> bool {
         if self.catalog_nudged {
@@ -31828,7 +31835,8 @@ mod tests {
     #[test]
     fn a_model_inside_a_failures_hold_opens_over_the_failure_and_asks_nothing() {
         // `fx-model-floor-*`: upstream's cache starts no load inside a
-        // failure's backoff, and `/model` then opens the menu over the
+        // failure's backoff (for a reading not earlier than the failed
+        // read's start), and `/model` then opens the menu over the
         // failure it holds -- the retryable sentence at once, never `Loading
         // models…`, and nothing asked (`beginLoad`,
         // `model_cache_runtime.zig:617`, `:621@481104fd`; `openMenu` ->
@@ -48379,7 +48387,8 @@ mod tests {
     #[test]
     fn a_model_inside_a_failures_backoff_opens_on_the_failure_says_xfx_retries_and_asks_nothing() {
         // `beginLoad` starts no load inside a failure's backoff, five seconds
-        // after the first (`model_cache_runtime.zig:40-54`, `:617`,
+        // after the first, for a reading not earlier than the failed read's
+        // start (`model_cache_runtime.zig:40-54`, `:617`,
         // `:621@481104fd`), and `openMenu` then shows the failure it holds
         // (`refreshMenuLocked`, `:1046-1050`) in `retryableFailureText`'s
         // words (`model_menu_presentation.zig:439-441`): the train-5 receipt's
@@ -48599,7 +48608,8 @@ mod tests {
         // (`app_render_runtime.zig:564@481104fd` -> `modelPickerCompletions`
         // -> `modelCompletions` -> `ensureModelCache`, `src/main.zig:2043-2045`,
         // `:2167-2169`), which reads a failed catalog again only past its
-        // backoff -- not a second after the read that failed began, as
+        // backoff, for readings not earlier than the failed read's start --
+        // not a second after the read that failed began, as
         // c1db9191's did.
         let two_seconds_ago = catalog_now()
             .checked_sub(Duration::from_secs(2))
