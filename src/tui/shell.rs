@@ -35747,6 +35747,265 @@ mod tests {
         assert_eq!(listed_paths(&shell), rows);
     }
 
+    /// A status row of the `@` list, two columns in under an `@` that starts
+    /// the composer, in the dim grey (`app_render_runtime.zig:
+    /// 647-654@481104fd`).
+    fn status_row(text: &str) -> String {
+        format!("  {}{text}{}", PALETTE.dim(), PALETTE.reset())
+    }
+
+    /// fx's interim (`app_render_runtime.zig:649@481104fd`).
+    const FILES_UNAVAILABLE: &str = "Files unavailable. tab to retry; esc to dismiss.";
+
+    #[test]
+    fn a_change_of_roots_under_an_open_indexed_list_says_files_unavailable_until_its_walk_is_whole()
+    {
+        // AT-SCOPE-INTERIM: any change of the access moves fx's scope epoch
+        // (`invalidateScope`, `app_workspace_runtime.zig:98-104@481104fd`),
+        // the index it has stays searchable with the old epoch until a walk
+        // of the new scope is adopted (`readableRevision`,
+        // `file_index.zig:572-583`; adopted only whole, `:425`), and an
+        // indexed list whose source is of another epoch is staged
+        // unavailable (`prepareFilePicker`, `input_completion_runtime.zig:
+        // 868-890`). The new walk's prefix is private meanwhile
+        // (`searchableGeneration`, `file_index.zig:647-654`). When it lands,
+        // the source moves and the list is looked up again: its rows, the bar
+        // on the first (`needsLookup`, `file_completion_state.zig:198-200`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, path, access) = extra_with_plan(&shell);
+        shell.route_bytes(b"@plan");
+        walked(&mut shell);
+        assert!(listed_paths(&shell).is_empty(), "the workspace has a plan");
+        adopt(&mut shell, access);
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.settle_band(Instant::now());
+        let at_once = listed_rows(&shell)[0].clone();
+        let plan = format!("{}/plan.md", path.display());
+        let _ = walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&[&plan]),
+        ));
+        shell.settle_band(Instant::now());
+        let published = listed_rows(&shell)[0].clone();
+        let _ = walk.send(super::super::file_index::Published::Ready);
+        shell.settle_band(Instant::now());
+        shell.file_picker_landed();
+        assert_eq!(
+            (at_once, published, listed_paths(&shell)),
+            (
+                status_row(FILES_UNAVAILABLE),
+                status_row(FILES_UNAVAILABLE),
+                vec![plan.clone()]
+            ),
+            "not fx's interim until the new scope's walk was whole"
+        );
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(FilePicker::chosen)
+                .map(|found| found.path.clone()),
+            Some(plan),
+            "the bar is not on the first row the walk brought"
+        );
+    }
+
+    #[test]
+    fn a_change_that_moves_no_root_says_files_unavailable_until_its_walk_is_whole() {
+        // The same for an access change that moves no root -- a directory
+        // added that is not there: fx's epoch moves all the same (`install`'s
+        // `!access.eql`, `app_workspace_runtime.zig:134-140@481104fd`), so a
+        // list open across the change and one opened before the walk is
+        // whole both say `Files unavailable` (`input_completion_runtime.zig:
+        // 887-888`), where the rows were and will be the same.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@");
+        walked(&mut shell);
+        assert_eq!(listed_paths(&shell)[0], "Cargo.toml");
+        let gone = tempfile::tempdir().expect("a parent");
+        let missing = gone
+            .path()
+            .canonicalize()
+            .expect("canonical")
+            .join("missing");
+        let access =
+            WorkspaceAccess::load(&shell.workspace.clone(), &[missing.display().to_string()]);
+        adopt(&mut shell, access);
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.settle_band(Instant::now());
+        let across = listed_rows(&shell)[0].clone();
+        shell.clear_composer();
+        shell.route_bytes(b"@");
+        shell.settle_band(Instant::now());
+        let opened = listed_rows(&shell)[0].clone();
+        let _ = walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&["Cargo.toml", "README.md"]),
+        ));
+        let _ = walk.send(super::super::file_index::Published::Ready);
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            (across, opened, listed_paths(&shell)),
+            (
+                status_row(FILES_UNAVAILABLE),
+                status_row(FILES_UNAVAILABLE),
+                vec!["Cargo.toml".to_string(), "README.md".to_string()]
+            ),
+            "not fx's interim until the same roots' walk was whole"
+        );
+    }
+
+    /// The trace gpt6 asked of AT-FOLDERS round 10 (r10-gpt6 NTH 1): the
+    /// session's first `@` after two changes of roots, A's walk (the first
+    /// change's) held by the case, and ended with `a_ends` before the `@` --
+    /// or, with `None`, still running at the `@` and ended whole after it.
+    /// The list's first row as the `@` left it, the rows once every walk is
+    /// done, and how many walks it all took.
+    fn first_at_after_two_changes(
+        a_ends: Option<super::super::file_index::Published>,
+    ) -> (String, Vec<String>, usize) {
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_a, _path, first) = extra_with_plan(&shell);
+        let (_b, path, other) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, first);
+        let a_walk = super::super::file_index::tests::driven(shell.files_for_test());
+        adopt(&mut shell, other);
+        let held = match a_ends {
+            Some(end) => {
+                let _ = a_walk.send(end);
+                None
+            }
+            None => Some(a_walk),
+        };
+        shell.settle_band(Instant::now());
+        shell.route_bytes(b"@plan");
+        let row = listed_rows(&shell)[0].clone();
+        if let Some(a_walk) = held {
+            let _ = a_walk.send(super::super::file_index::Published::Ready);
+        }
+        walked(&mut shell);
+        let rows = listed_paths(&shell);
+        assert_eq!(rows, [format!("{}/plan.md", path.display())]);
+        (row, rows, shell.files_for_test().walks_for_test() - walks)
+    }
+
+    #[test]
+    fn the_first_at_while_the_old_roots_walk_runs_skips_its_refresh() {
+        // fx does not stop a walk on a change of scope: `refreshOwnedRoots`
+        // queues the new scope behind it (`file_index.zig:488-497`,
+        // `:511-523@481104fd`), and with no generation adopted yet the index
+        // is `.loading` until it ends (`currentState`, `:333-341`). So the
+        // session's first `@` skips its refresh (`input_completion_runtime.
+        // zig:857-861`), says `Files unavailable` -- A's prefix is of the old
+        // epoch -- and A, then B, are all the walks there are.
+        let (row, _rows, walks) = first_at_after_two_changes(None);
+        assert_eq!((row, walks), (status_row(FILES_UNAVAILABLE), 2));
+    }
+
+    #[test]
+    fn the_first_at_after_the_old_roots_walk_was_adopted_refreshes() {
+        // A whole before the `@` is adopted (`joinThreadIfDone`,
+        // `file_index.zig:425@481104fd`) and B starts behind it; from then
+        // on the index is `.ready`, so the first `@` asks for its refresh,
+        // queued behind B (`replacePendingRoots`, `:511-523`): three walks.
+        // A, adopted, is of the old epoch: `Files unavailable` until B is.
+        let (row, _rows, walks) =
+            first_at_after_two_changes(Some(super::super::file_index::Published::Ready));
+        assert_eq!((row, walks), (status_row(FILES_UNAVAILABLE), 3));
+    }
+
+    #[test]
+    fn the_first_at_after_the_old_roots_walk_failed_skips_its_refresh() {
+        // A failed with nothing adopted: B starts behind it and clears the
+        // failure (`joinThreadIfDone`, `file_index.zig:432-451@481104fd`;
+        // `startLoad`, `:389`), so the index is `.loading` again and the
+        // first `@` skips its refresh; B's prefix is of the new epoch and is
+        // searched as it is published: `indexing files...`, two walks.
+        let (row, _rows, walks) =
+            first_at_after_two_changes(Some(super::super::file_index::Published::Failed));
+        assert_eq!((row, walks), (status_row("indexing files..."), 2));
+    }
+
+    #[test]
+    fn tab_in_the_interim_retries_and_still_says_files_unavailable() {
+        // fx's Tab on `Files unavailable` retries (`autocompleteFilePicker
+        // Selection`, `input_completion_runtime.zig:950-953@481104fd`;
+        // `retry`, `file_completion_state.zig:230-233`): the index's refresh
+        // and a lookup, which finds the old epoch again. The refresh joins
+        // the one scope queued behind the running walk
+        // (`replacePendingRoots`, `file_index.zig:511-523`): with the list's
+        // own refresh already queued there it adds nothing; with nothing
+        // queued -- the first `@` skipped its refresh, and A's adoption
+        // started B with the queue -- it adds a walk after B.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_a, _path, first) = extra_with_plan(&shell);
+        let (_b, path, other) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, first);
+        let a_walk = super::super::file_index::tests::driven(shell.files_for_test());
+        adopt(&mut shell, other);
+        shell.settle_band(Instant::now());
+        shell.route_bytes(b"@plan");
+        let _ = a_walk.send(super::super::file_index::Published::Ready);
+        shell.settle_band(Instant::now());
+        let b_walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.file_picker_landed();
+        shell.route_bytes(b"\t");
+        let after_tab = listed_rows(&shell)[0].clone();
+        assert_eq!(shell.editor.text(), "@plan", "Tab put a path in");
+        let _ = b_walk.send(super::super::file_index::Published::Ready);
+        walked(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            [format!("{}/plan.md", path.display())]
+        );
+        assert_eq!(
+            (after_tab, shell.files_for_test().walks_for_test() - walks),
+            (status_row(FILES_UNAVAILABLE), 3),
+            "Tab in the interim did not queue its refresh behind B"
+        );
+        // A list open across the change: its refresh is queued already, and
+        // Tab adds none.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_c, path, access) = extra_with_plan(&shell);
+        shell.route_bytes(b"@plan");
+        walked(&mut shell);
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, access);
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.file_picker_landed();
+        shell.route_bytes(b"\t");
+        let after_tab = listed_rows(&shell)[0].clone();
+        let _ = walk.send(super::super::file_index::Published::Ready);
+        walked(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            [format!("{}/plan.md", path.display())]
+        );
+        assert_eq!(
+            (after_tab, shell.files_for_test().walks_for_test() - walks),
+            (status_row(FILES_UNAVAILABLE), 2),
+            "Tab added a walk to the one queued"
+        );
+    }
+
+    #[test]
+    fn escape_in_the_interim_closes_the_list_and_keeps_the_word() {
+        // Escape dismisses the file picker whatever its status
+        // (`dismissVisibleInlinePicker`, `app_input_runtime.zig:2724-2729@
+        // 481104fd`), the draft as it was.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, _path, access) = extra_with_plan(&shell);
+        shell.route_bytes(b"@plan");
+        walked(&mut shell);
+        adopt(&mut shell, access);
+        let _walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.settle_band(Instant::now());
+        assert_eq!(listed_rows(&shell)[0], status_row(FILES_UNAVAILABLE));
+        escape(&mut shell);
+        assert!(shell.file_picker.is_none(), "Escape left the list up");
+        assert_eq!(shell.editor.text(), "@plan");
+    }
+
     #[test]
     fn a_workspace_change_drops_a_listing_in_flight() {
         // fx's `invalidateScope` stops the folder listing in flight
