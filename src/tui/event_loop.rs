@@ -14830,7 +14830,7 @@ mod tests {
             "the draft's caret (row {caret_row}) overlaps the document (band starts at row {})",
             rig.geometry.band_top()
         );
-        // Two `\n` (`InsertNewline`, `shell.rs:2716`) over three lines: this
+        // Two `\n` (`InsertNewline`, `shell.rs:2817`) over three lines: this
         // is really a *multirow* draft and not just a wide one-row composer.
         assert_eq!(
             rig.geometry.input_rows(),
@@ -14931,7 +14931,7 @@ mod tests {
     // (`transcript.rs:505-531` adopts only on `Landed::All`). So an append the
     // terminal refused must leave the retained row reading exactly what the
     // last accepted vector put there -- and the frame that would have followed
-    // it must not run at all (`event_loop.rs:1005-1008`). Nothing here caches a
+    // it must not run at all (`event_loop.rs:1046-1049`). Nothing here caches a
     // source anywhere: the freshness is read off the screen the accepted bytes
     // make.
     //
