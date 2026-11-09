@@ -3791,28 +3791,19 @@ mod tests {
         }
     }
 
+    /// A llmux catalog document, the one these cases are asked for.
+    const LLMUX: &str = r#"{"models":[{"id":"fake/model-a","name":"fake/model-a"}]}"#;
+
     #[test]
-    fn a_llmux_catalog_past_1_mib_or_cut_short_is_no_catalog() {
-        // The daemon's own bounds stay (1 MiB, 3 s to connect, 5 s in all);
-        // reaching one is a failure, as it is for the Gateway's, and not the
-        // bytes before it. Padded after, so a reader that cut to fit would
-        // take it.
-        const LLMUX: &str = r#"{"models":[{"id":"fake/model-a","name":"fake/model-a"}]}"#;
+    fn a_llmux_catalog_of_1_mib_is_read_and_one_cut_short_is_no_answer() {
+        // The daemon's own bounds stay (1 MiB, 3 s to connect, 5 s in all).
         let daemon = crate::test_net::Listener::answering(sized(&padded(LLMUX, MIB, false)));
         let at_cap = on_a_runtime_of_its_own(fetch_catalog(&format!("{}/models", daemon.origin())));
         daemon.finish();
         assert_eq!(ids(&at_cap.expect("1 MiB is read")), ["fake/model-a"]);
 
-        let daemon = crate::test_net::Listener::answering(sized(&padded(LLMUX, MIB + 1, false)));
-        let past = on_a_runtime_of_its_own(fetch_catalog(&format!("{}/models", daemon.origin())));
-        daemon.finish();
-        match past {
-            Err(CatalogError::Unavailable { detail }) => {
-                assert_eq!(detail, "the answer is larger than 1 MiB")
-            }
-            other => panic!("expected a refusal, got {other:?}"),
-        }
-
+        // A body that stops partway is no answer, not the bytes before it --
+        // here a whole document: the daemon, or the connection to it, failed.
         let cut = sized(&format!("{LLMUX}{}", " ".repeat(100)));
         let cut = cut.as_bytes()[..cut.len() - 100].to_vec();
         let (origin, server) = slow_exchange(cut, 0, Duration::ZERO);
@@ -3822,6 +3813,46 @@ mod tests {
             matches!(answer, Err(CatalogError::Unavailable { .. })),
             "a body cut short: {answer:?}"
         );
+    }
+
+    /// `err` is a malformed catalog with `detail`, and says the daemon's
+    /// version is what to check -- not `Unavailable`'s "check the daemon is
+    /// running": it answered.
+    fn assert_malformed(answer: Result<Vec<CatalogEntry>, CatalogError>, detail: &str) {
+        match answer {
+            Err(err @ CatalogError::Malformed { .. }) => assert_eq!(
+                err.to_string(),
+                format!(
+                    "catalog is malformed: {detail}; check the daemon is an llmux version compatible with xfx, or rerun `xfx setup llmux`"
+                )
+            ),
+            other => panic!("expected a malformed catalog ({detail}), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_llmux_catalog_past_1_mib_is_malformed_not_cut_to_fit() {
+        // Padded after, so a reader that cut to fit would take it.
+        let daemon = crate::test_net::Listener::answering(sized(&padded(LLMUX, MIB + 1, false)));
+        let past = on_a_runtime_of_its_own(fetch_catalog(&format!("{}/models", daemon.origin())));
+        daemon.finish();
+        assert_malformed(past, "the answer is larger than 1 MiB");
+    }
+
+    #[test]
+    fn a_llmux_catalog_that_is_not_utf8_is_malformed() {
+        let mut body = br#"{"models":[{"id":"fake/model-a","name":""#.to_vec();
+        body.extend_from_slice(b"\xff\"}]}");
+        let mut sent = format!(
+            "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        sent.extend_from_slice(&body);
+        let (origin, server) = slow_exchange(sent, 0, Duration::ZERO);
+        let answer = on_a_runtime_of_its_own(fetch_catalog(&format!("{origin}/models")));
+        server.join().expect("the server");
+        assert_malformed(answer, "the answer is not UTF-8 text");
     }
 
     fn credential_for_test(secret: &str) -> crate::config::Credential {
