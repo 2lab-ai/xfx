@@ -1,4 +1,4 @@
-# GREEN: fx v0.0.16 (fx/) against xfx at the code head a623824c (xfx/), compare.py: raw cells.py, then the ledger's normalizations
+# GREEN: fx v0.0.16 (fx/) against xfx at the round-2 code head 63e8bbeb (xfx/), compare.py: raw cells.py, then the ledger's normalizations
 SAME raw p5-input-question20-14x72-q20-answered.ansi
 SAME raw p5-input-question20-14x72-q20-answered.full.ansi
 SAME raw p5-input-question20-14x72-q20-back9.ansi
@@ -10,8 +10,8 @@ SAME raw p5-input-question20-14x72-q20-tab20.ansi
 SAME raw p5-input-question20-14x72-q20-wrap.ansi
 SAME raw p5-input-question20-14x72-resumed.ansi
 SAME raw p5-input-question20-14x72-resumed.full.ansi
-SAME normalized p5-input-question20-24x80-q20-answered.ansi: 1 raw row(s) differ, equal after turn-wall-time
-SAME normalized p5-input-question20-24x80-q20-answered.full.ansi: 1 raw row(s) differ, equal after turn-wall-time
+SAME raw p5-input-question20-24x80-q20-answered.ansi
+SAME raw p5-input-question20-24x80-q20-answered.full.ansi
 SAME raw p5-input-question20-24x80-q20-back9.ansi
 SAME raw p5-input-question20-24x80-q20-first.ansi
 SAME raw p5-input-question20-24x80-q20-left.ansi
@@ -21,8 +21,8 @@ SAME raw p5-input-question20-24x80-q20-tab20.ansi
 SAME raw p5-input-question20-24x80-q20-wrap.ansi
 SAME raw p5-input-question20-24x80-resumed.ansi
 SAME raw p5-input-question20-24x80-resumed.full.ansi
-SAME raw p5-input-question20-40x120-q20-answered.ansi
-SAME raw p5-input-question20-40x120-q20-answered.full.ansi
+SAME normalized p5-input-question20-40x120-q20-answered.ansi: 1 raw row(s) differ, equal after turn-wall-time
+SAME normalized p5-input-question20-40x120-q20-answered.full.ansi: 1 raw row(s) differ, equal after turn-wall-time
 SAME raw p5-input-question20-40x120-q20-back9.ansi
 SAME raw p5-input-question20-40x120-q20-first.ansi
 SAME raw p5-input-question20-40x120-q20-left.ansi
@@ -30,8 +30,8 @@ SAME raw p5-input-question20-40x120-q20-panel.ansi
 SAME raw p5-input-question20-40x120-q20-tab10.ansi
 SAME raw p5-input-question20-40x120-q20-tab20.ansi
 SAME raw p5-input-question20-40x120-q20-wrap.ansi
-SAME raw p5-input-question20-40x120-resumed.ansi
-SAME raw p5-input-question20-40x120-resumed.full.ansi
+SAME normalized p5-input-question20-40x120-resumed.ansi: 1 raw row(s) differ, equal after turn-wall-time
+SAME normalized p5-input-question20-40x120-resumed.full.ansi: 1 raw row(s) differ, equal after turn-wall-time
 SAME raw p5-question-resume-40x120-live.ansi
 SAME raw p5-question-resume-40x120-live.full.ansi
 SAME normalized p5-question-resume-40x120-resumed.ansi: 1 raw row(s) differ, equal after product-name

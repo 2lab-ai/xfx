@@ -18,10 +18,14 @@ snaps. The base is `origin/main` at `32afd307`.
 | `a623824c` | **the code head**: the decoder, the hydration's two steps, the shell's rows, the inert step, the unit and hydration tests, `docs/parity.md`, the ledger cause retired |
 | `47384d15` | the Ctrl-O gap measured: scenario `p5-question-resume-ctrlo`, ledger cause `question-resume-ctrlo-detail`, the parity row's last sentence. No source change |
 | `a5861b54` | the Ctrl-O cause's `rows = ["1-40"]`, so the sweep attributes the blank rows xfx's shorter screen leaves (`sweep.py` `attribute`) |
-| the commits after it | this file, `xfx/`, `green.txt`, `fx-src.txt`, `mutants.*`, `sweep-*`, `gate*.txt`: receipt files only (`git diff a623824c HEAD -- src tests` is empty) |
+| `1f4b3d03` | round 1's receipt |
+| `300b98fc` | round 2 RED: the object-only rejects (`[["Q","A"]]` and its mixes) at the decoder, the hydration and the shell; the `read, read, ask` and `ask, read` tests; `red-tests-r2.txt` |
+| `63e8bbeb` | **the code head**, round 2: `decode_answers` read by hand (objects only, the twenty-first refused unread, any repeated key refused); the parity row's Escape, sentinel and questioner sentences; the failed-call mapping said in the row and the hydration |
+| the commits after it | this file, `xfx/`, `green.txt`, `mutants.*`, `sweep-*`, `gate*.txt`: receipt files only (`git diff 63e8bbeb HEAD -- src tests` is empty) |
 
-The captures in `xfx/` come from the binary built at `a623824c` (row 1:
-`x𝒇x v0.1.0-a623824 [debug]`, sha256 `0aeba9aac5a8…`). Those in `red/` come
+The captures in `xfx/` come from the binary built at `63e8bbeb` (row 1:
+`x𝒇x v0.1.0-63e8bbe [debug]`, sha256 `8b3ce14f0854…`); round 1's, from
+`a623824c` (`0aeba9aac5a8…`), are in `1f4b3d03`. Those in `red/` come
 from the base, built in a throwaway clone at `32afd307` (`v0.1.0-32afd30`,
 `d105571b9c8c…`). fx is the v0.0.16 release, sha256 `8e6cda2e…`, run with
 `FX_AUTO_UPGRADE=0`; `capture.sh` checked after every run that its bytes had
@@ -112,16 +116,27 @@ XFX_BIN=<xfx>       TMPDIR=<short dir>  scripts/fxcap/capture.sh xfx <scenario> 
   these tests differ from the RED commit only by clippy's `.contains(&row)` for
   two `.iter().any(|row| *row == …)` and one rustfmt wrap
   (`git diff 3bd76ddb a623824c -- src/tui/shell.rs`).
+- `red-tests-r2.txt` is round 2's RED at `300b98fc`, whose `src/` is
+  `1f4b3d03`'s. Three tests fail on `[["Q","A"]]`: the decoder returns
+  `Some([SavedAnswer { question: "Q", answer: "A" }])`, the hydration makes
+  `answered 1`, and the shell draws `  1) Q` / `     A` where fx draws
+  `● Asked`. The two ordering tests pass there; they pin behaviour that was
+  already right.
 
-## The change (`a623824c`)
+## The change (`a623824c`, then `63e8bbeb`)
 
-- `tools::question::decode_answers` is `decodeJson`. It decodes into a derived
-  struct, which:
-  - ignores other keys;
-  - refuses a missing or non-string field, a key given twice, anything after
-    the array, and invalid JSON;
-  - keeps the array if it holds `MIN_QUESTIONS..=MAX_QUESTIONS` (the tool's
-    own constants).
+- `tools::question::decode_answers` is `decodeJson`, read by hand (round 2;
+  round 1's derived struct also took serde's positional form, so
+  `[["Q","A"]]` was an answer):
+  - the array's visitor reads element by element and refuses the
+    twenty-first before reading it into anything, and refuses an empty one
+    (`MIN_QUESTIONS`, `MAX_QUESTIONS`, the tool's own constants);
+  - each element is read as an object only (`deserialize_map`): an array, a
+    string or a number in its place is refused (`question_answer.zig:63`);
+  - `question` and `answer` must be strings; any key given twice is
+    refused, read or not; other keys are skipped with `IgnoredAny`;
+  - anything after the array, and invalid JSON, are refused. Nothing goes
+    through `serde_json::Value`, whose parse stops at a depth of 128.
 - `tui::hydration` takes an `ask_user_question` result by its own tool name,
   as fx does, and makes one of two steps:
   - `Answered(pairs)`: the call succeeded and its document decodes;
@@ -129,7 +144,10 @@ XFX_BIN=<xfx>       TMPDIR=<short dir>  scripts/fxcap/capture.sh xfx <scenario> 
 
   A step that asked a question holds its other calls' starts. Each is
   written just before its own result, so the ask's row ends the group before
-  it. Steps without a question are unchanged.
+  it. Steps without a question are unchanged. Pairing a start with its result
+  by id is call order because xfx runs a step's calls one at a time, in call
+  order, and saves each result as it comes back (`agent/machine.rs:1197`, the
+  loop; `:1257`, `SessionEvent::ToolResult`).
 - `tui::question::resolution_rows` and the live `answered_rows` are one
   function, so a replayed record and a live one are the same rows.
   `asked_row` is `● Asked`: `Palette::notice` (250/241) and the tool's own
@@ -139,19 +157,25 @@ XFX_BIN=<xfx>       TMPDIR=<short dir>  scripts/fxcap/capture.sh xfx <scenario> 
   (adaptation (7), kept), where fx's is a successful call's text. The replay
   shows `● Asked` for it, as fx does for the same refusal, because the rule
   above draws `● Asked` for anything that is not a decoded successful batch.
+  For a failed call that grey row is xfx's own mapping: fx draws a failed
+  call's marker red (`lifecycleMarker`, `transcript/runtime.zig:616`). xfx's
+  failed asks are its refusals, which fx records as successes.
 
 ## Bounds and safety (the tests in `tools/question.rs`, `tui/hydration.rs`, `tui/shell.rs`, `tui/worker.rs`)
 
 A saved session is file input. Each bound fx has is kept, and each has a test:
 
-- **Count 1 to 20.** `a_saved_document_of_one_to_twenty_questions_decodes_and_no_other_count_does`
-  checks 1, 4 and 20 (Some) and 21 and 0 (None). The shell's
+- **Count 1 to 20, refused while parsing.** `a_saved_document_of_one_to_twenty_questions_decodes_and_no_other_count_does`
+  checks 1, 4 and 20 (Some) and 21 and 0 (None); the visitor is the only
+  count check, so mutant M13, which removes its stop, is killed by it. The shell's
   `a_resumed_batch_that_left_no_answered_document_is_one_asked_row` replays a
   21-answer document and `[]` as `● Asked`.
 - **Shape.** `anything_but_an_answer_document_is_none_and_never_a_panic`
-  covers 19 rejects: fx's five, the sentinels, a non-array, a non-object
-  element, a missing, null or non-string field, a duplicate key, a
-  truncated array, and a lone surrogate. It also checks:
+  covers 25 rejects: fx's five, the sentinels, a non-array, a non-object
+  element (a string, a number, `[["Q","A"]]`, `[["Q","A","x"]]`, and an array
+  beside an object either way), a missing, null or non-string field, `question` given
+  twice, an unread key given twice, a truncated array, and a lone surrogate.
+  It also checks:
   - an unread key nested 100 000 deep is skipped without recursion (no
     stack to overflow), and decodes, as fx's `std.json` keeps it on the heap;
   - 100 000 nested arrays where an answer is read are None.
@@ -169,22 +193,25 @@ A saved session is file input. Each bound fx has is kept, and each has a test:
   frame of at most 1 MiB (`MAX_EVENT_FRAME_BYTES`, `session/event.rs:56`,
   checked on encode at `:621`). A longer, hand-written line is read whole by
   the session reader, as any event is. The decode is linear in a text the
-  reader already holds, as fx's is, and it refuses a count past 20 after
-  parsing, as fx's does (`question_answer.zig:47-59`).
+  reader already holds, as fx's is. It refuses a count past 20 at the
+  twenty-first element, before reading it; fx parses the whole array first
+  (`question_answer.zig:47-59`).
 
 ## GREEN (`green.txt`)
 
-`green.txt` is `compare.py` over every pair of `fx/` against `xfx/`. **37 of
-38 are identical**. 32 are identical cell for cell. 5 are identical after the
-ledger's normalizations, which `compare.py` names:
+`green.txt` is `compare.py` over every pair of `fx/` against `xfx/` at
+`63e8bbeb`. **37 of 38 are identical**. 31 are identical cell for cell. 6 are
+identical after the ledger's normalizations, which `compare.py` names:
 
-- `turn-wall-time`: the live `q20-answered` at 24x80 and its `.full`, a
-  turn's seconds;
+- `turn-wall-time`: `p5-input-question20` at 40x120, `q20-answered` and
+  `resumed`, each with its `.full`, a turn's seconds;
 - `product-name`: `p5-question-resume` `resumed` and its `.full`, the turn's
   `What can fx do differently?`.
 
-Every `resumed` pair is identical: `p5-input-question20` at all three sizes
-(raw), and `p5-question-resume` (normalized).
+Every `resumed` pair is identical: `p5-input-question20` at 24x80 and 14x72
+(raw) and 40x120 (normalized), and `p5-question-resume` (normalized). Round
+1's `green.txt` at `a623824c` had the same 37 (32 raw, 5 normalized; which
+rows a second apart is the run's clock).
 
 The one that differs is `p5-question-resume-ctrlo` `resumed-ctrlo`, Ctrl-O
 after a resume. It differs at the base too (`red.txt`). Its rows are covered
@@ -212,39 +239,44 @@ either side.
 ## Mutants (`mutants.py`, `mutants.txt`)
 
 `mutants.py` ran on a throwaway `git clone --no-local` of the repository at
-`a623824c`, never on the worktree, under one suite-lock slot. Each mutant is
-one exact substitution (asserted to match once), then the unit's tests, then
-`git checkout -- .`. **11 of 11 killed**; the clone was clean after the run.
+`63e8bbeb`, never on the worktree, under one suite-lock slot. Each mutant is
+one or two exact substitutions (each asserted to match once), then the
+unit's tests, then `git checkout -- .`. **15 of 15 killed** (round 1: 11 of 11 at `a623824c`); the clone was clean after the run.
 
 | mutant | what it puts back or breaks |
 |---|---|
-| M1 | the early return put back: the replay hands an ask to the group again, whose `start` drops it (the base's path) |
+| M1 | the replay's ask branch removed (`if tool == ASK_USER_QUESTION.name()`): the ask's result goes to the group as a tool result, and its start, still dropped by the filter at `hydration.rs:251`, is not there to settle, so nothing is drawn -- the base's screen |
 | M2 | the group's own early return removed: a live question becomes a group row |
 | M3, M4 | the upper bound one past 20, one short of 20 |
 | M5, M6 | the lower bound one below 1 (an empty batch), one above 1 |
-| M7 | a malformed document drawn as answered: a missing field defaults |
+| M7 | a malformed document drawn as answered: a missing `question` defaults |
 | M8 | a failed call's document drawn as answered: `ok` ignored |
 | M9 | a document that does not decode drawn as an (empty) answered batch |
 | M10 | a step that asked starts its calls together |
 | M11 | the decoded texts not made inert at the bridge |
+| M12 | the derived struct put back (round 1's decode), which also takes the positional form |
+| M13 | the early count stop removed: any count past twenty decodes |
+| M14 | `question` or `answer` given twice accepted |
+| M15 | an unread key given twice accepted |
 
 `mutants.txt` names the tests each one failed.
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-diff.txt`)
 
 `scripts/fxcap/sweep.sh --only '*question*' --only '*resume*' --jobs 4` at
-40x120: 22 scenarios, 125 snap pairs, with this branch's scenarios and
-ledger. It ran once with the base binary and once with the code head's, each
-under the suite lock. Both were then rescored (`--rescore`, no capture) with
-the final ledger, which adds the Ctrl-O cause's `rows` selector. The
+40x120: 22 scenarios, 125 snap pairs, with this branch's scenarios and final
+ledger. It ran once with the base binary (`32afd307`) and once with the
+round-2 code head's (`63e8bbeb`), both in one suite-lock slot. The
 scoreboards are the sweep's own, redacted by it. `sweep-diff.txt` is every
-pair's verdict at both.
+pair's verdict at both. Round 1's, the head at `a623824c`, gave the same
+figures (in `1f4b3d03`).
 
 - **base 87 / 125, head 91 / 125.** Four pairs moved to passing, all
   targets of this unit: `p5-input-question20` `resumed`, `resumed.full`, and
   `p5-question-resume` `resumed`, `resumed.full`.
   - `p5-input-question20` `q20-answered` went from normalized-identical to
-    identical, which is a turn's wall seconds.
+    identical, and `p5-question-resume` `live` the other way: a turn's wall
+    seconds, the run's clock.
 - **None dropped**: no pair that passes at the base fails at the head.
 - At the head, every pair this unit touches either passes or is covered by
   a cause:
@@ -257,20 +289,19 @@ pair's verdict at both.
 
 ## Gate (`gate.txt`, `gate2.txt`)
 
-- `gate.txt` is the brief's gate at `47384d15`, whose `src/` and `tests/` are
-  `a623824c`'s. It ran under one suite-lock slot with a short `TMPDIR`, and
-  every step exited 0:
+- `gate.txt` is the brief's gate at `63e8bbeb`, the round-2 code head. It ran
+  under one suite-lock slot with a short `TMPDIR`, and every step exited 0:
   - `cargo fmt --check`, and `cargo clippy` with and without
     `fault-injection`;
-  - `cargo test --locked --no-fail-fast`: 15 suites, 5549 passed, 0
+  - `cargo test --locked --no-fail-fast`: 15 suites, 5550 passed, 0
     failed, 7 ignored;
-  - the same with `--features fault-injection`: 5586 passed, 0 failed, 7
+  - the same with `--features fault-injection`: 5587 passed, 0 failed, 7
     ignored;
   - `check-xfx-identity`, `check-no-stubs`, `check-no-secrets`.
+
+  Round 1's, at `47384d15`, was 5549 and 5586 (in `1f4b3d03`).
 - `gate2.txt` is CI's remaining quick steps and `sweep.yml`'s two harness
-  tests at the final ledger (`a5861b54`), also under the lock.
-  `check-no-stubs` runs again there, because the ledger changed after the
-  first pass.
+  tests at `63e8bbeb` with the final ledger, also under the lock.
   - all 8 steps exited 0: `check-no-stubs`, `test-gate-env` (62 cases),
     `check-preview-contract`, `test-preview-contract` (24 mutants caught),
     `check-tui-preflight-cost`, `check-usage-clock`, `fxcap/test-sweep.sh`,
@@ -281,10 +312,10 @@ pair's verdict at both.
 
 | file | what |
 |---|---|
-| `fx/`, `red/`, `xfx/` | the captures: fx v0.0.16, xfx at the base, xfx at the code head |
+| `fx/`, `red/`, `xfx/` | the captures: fx v0.0.16, xfx at the base, xfx at the round-2 code head `63e8bbeb` |
 | `compare.py` | the pair comparison: raw `cells.py`, then the ledger's normalizations |
 | `red.txt`, `green.txt` | `compare.py` over `fx/` against `red/` and against `xfx/` |
-| `red-tests.txt` | the RED shell tests at `3bd76ddb` |
+| `red-tests.txt`, `red-tests-r2.txt` | the RED tests at `3bd76ddb` and round 2's at `300b98fc` |
 | `fx-src.txt` | every fx line cited, at `481104fd` (and `c1db9191` for the old bound) |
 | `probe/` | live Ctrl-O (`qr-ctrlo.cap`, not a committed scenario): fx and xfx at the code head, `compare.txt` |
 | `mutants.py`, `mutants.txt` | the mutants and their results |

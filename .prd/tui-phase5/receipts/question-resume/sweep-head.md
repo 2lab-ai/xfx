@@ -1,8 +1,8 @@
 ## Scoreboard (v0.0.16)
 
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
-- xfx: `x𝒇x v0.1.0-a623824 [debug] · Run /help for commands`, sha256 `0aeba9aac5a86976157c4fa8aa4cae3ead4b2c3c1264f6f5c46348129ad4174e`
-- size 40x120, `--jobs 4`, 22 scenarios -- **PARTIAL**: `--only *question* *resume*`, wall 7m33s, load 35.0 at the start and 61.8 at the peak (1-minute average, sampled every 5 s)
+- xfx: `x𝒇x v0.1.0-63e8bbe [debug] · Run /help for commands`, sha256 `8b3ce14f085420576d4865e2b0607756a0e80ae29ec70ceaf4622753514bbd7b`
+- size 40x120, `--jobs 4`, 22 scenarios -- **PARTIAL**: `--only *question* *resume*`, wall 6m45s, load 36.2 at the start and 48.8 at the peak (1-minute average, sampled every 5 s)
 - ledger sha256 `598bf37e52af79abdb375ab0f561f14eb9443ea4972dd1dfc18eddb7179812eb`: 14 normalizations; 19 divergences approved for this pin
 
 fx's inventory (v0.0.16): 45 surfaces -- 38 commands, 7 key hints. Covered by a scenario: 45. **Uncovered: 0**.
@@ -12,14 +12,14 @@ Scenarios: 22 -- ran 22, failed 0, timeout 0. **pass = 91 / 125 = 72.8%**
 
 | total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout |
 |---|---|---|---|---|---|---|---|---|---|
-| 125 | 125 | 12 | 79 | 0 | 0 | 0 | 34 | 0 | 0 |
+| 125 | 125 | 11 | 80 | 0 | 0 | 0 | 34 | 0 | 0 |
 
 The unit is the snap pair: one `snap` or `snapfull` label of a scenario, read from its .cap file, so a scenario that failed or timed out counts every snap it would have taken. pass = (identical + normalized-identical) / total. approved-divergence-cascade is a pair that differs by position beyond its approved rows (a row they pushed down) and whose every row left without a match, the two sides aligned as sequences, is approved; the positional diff stays in the raw output. Groups are the leading letters of a scenario's name (`model-anchor`, `model2` and `model` are `model`). A scenario counts under every surface it exercises, so the surface rows overlap.
 
 | group | scenarios | total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout | pass |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | interrupt | 2 | 4 | 4 | 0 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |
-| p | 8 | 36 | 36 | 3 | 23 | 0 | 0 | 0 | 10 | 0 | 0 | 72.2% |
+| p | 8 | 36 | 36 | 2 | 24 | 0 | 0 | 0 | 10 | 0 | 0 | 72.2% |
 | provider | 2 | 9 | 9 | 0 | 2 | 0 | 0 | 0 | 7 | 0 | 0 | 22.2% |
 | question | 3 | 26 | 26 | 0 | 26 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |
 | resume | 6 | 49 | 49 | 8 | 24 | 0 | 0 | 0 | 17 | 0 | 0 | 65.3% |

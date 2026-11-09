@@ -23,17 +23,16 @@ G = "src/tui/toolgroup.rs"
 B = "src/tui/bridge.rs"
 
 MUTANTS = [
-    ("M1 the early return put back: the replay hands an ask to the group again, whose start drops it",
+    ("M1 the replay's ask branch removed: its result goes to the group as a tool result, and its start, still filtered out (hydration.rs:251), is not there to settle, so nothing is drawn",
      [(H, "if tool == ASK_USER_QUESTION.name() {", "if false && tool == ASK_USER_QUESTION.name() {")]),
     ("M2 the group's own early return removed: a question becomes a group row",
      [(G, "if shown.presentation.activity == Activity::Ask {", "if false && shown.presentation.activity == Activity::Ask {")]),
-    ("M3 the bound one past twenty", [(Q, "(MIN_QUESTIONS..=MAX_QUESTIONS)", "(MIN_QUESTIONS..=MAX_QUESTIONS + 1)")]),
-    ("M4 the bound one short of twenty", [(Q, "(MIN_QUESTIONS..=MAX_QUESTIONS)", "(MIN_QUESTIONS..MAX_QUESTIONS)")]),
-    ("M5 the bound one below one (an empty batch)", [(Q, "(MIN_QUESTIONS..=MAX_QUESTIONS)", "(0..=MAX_QUESTIONS)")]),
-    ("M6 the bound one above one", [(Q, "(MIN_QUESTIONS..=MAX_QUESTIONS)", "(MIN_QUESTIONS + 1..=MAX_QUESTIONS)")]),
+    ("M3 the bound one past twenty", [(Q, "if answers.len() == MAX_QUESTIONS {", "if answers.len() == MAX_QUESTIONS + 1 {")]),
+    ("M4 the bound one short of twenty", [(Q, "if answers.len() == MAX_QUESTIONS {", "if answers.len() == MAX_QUESTIONS - 1 {")]),
+    ("M5 the bound one below one (an empty batch)", [(Q, "None if answers.len() < MIN_QUESTIONS =>", "None if answers.len() < MIN_QUESTIONS - 1 =>")]),
+    ("M6 the bound one above one", [(Q, "None if answers.len() < MIN_QUESTIONS =>", "None if answers.len() < MIN_QUESTIONS + 1 =>")]),
     ("M7 a malformed document drawn as answered: a missing field defaults",
-     [(Q, "#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]\npub struct SavedAnswer",
-       "#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]\n#[serde(default)]\npub struct SavedAnswer")]),
+     [(Q, 'question: question.ok_or_else(|| serde::de::Error::missing_field("question"))?,', "question: question.unwrap_or_default(),")]),
     ("M8 a failed call's document drawn as answered: `ok` ignored",
      [(H, "match ok.then(|| decode_answers(output)).flatten() {", "match decode_answers(output) {")]),
     ("M9 a document that does not decode drawn as an (empty) answered batch",
@@ -43,6 +42,15 @@ MUTANTS = [
     ("M11 the decoded texts not made inert at the bridge",
      [(B, "question: inert_owned(saved.question),", "question: saved.question,"),
       (B, "answer: inert_owned(saved.answer),", "answer: saved.answer,")]),
+    ("M12 the derived struct put back: an element read by serde_derive, which also takes the positional form",
+     [(Q, "#[derive(Debug, Clone, PartialEq, Eq)]\npub struct SavedAnswer", "#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]\npub struct SavedAnswer"),
+      (Q, "match seq.next_element::<Element>()? {\n                Some(Element(answer)) => answers.push(answer),", "match seq.next_element::<SavedAnswer>()? {\n                Some(answer) => answers.push(answer),")]),
+    ("M13 the early count stop removed: any count past twenty decodes",
+     [(Q, "if answers.len() == MAX_QUESTIONS {", "if false && answers.len() == MAX_QUESTIONS {")]),
+    ("M14 `question` or `answer` given twice accepted (the last one kept)",
+     [(Q, "if slot.is_some() {", "if false && slot.is_some() {")]),
+    ("M15 a key nobody reads given twice accepted",
+     [(Q, "if !others.insert(key) {", "if false && !others.insert(key) {")]),
 ]
 
 

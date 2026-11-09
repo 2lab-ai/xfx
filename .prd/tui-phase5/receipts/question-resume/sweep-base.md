@@ -2,7 +2,7 @@
 
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
 - xfx: `x𝒇x v0.1.0-32afd30 [debug] · Run /help for commands`, sha256 `d105571b9c8c33426f10b2423b02b72721f995f378793ef6a6063d15440936b5`
-- size 40x120, `--jobs 4`, 22 scenarios -- **PARTIAL**: `--only *question* *resume*`, wall 6m30s, load 47.7 at the start and 56.0 at the peak (1-minute average, sampled every 5 s)
+- size 40x120, `--jobs 4`, 22 scenarios -- **PARTIAL**: `--only *question* *resume*`, wall 7m39s, load 38.6 at the start and 43.2 at the peak (1-minute average, sampled every 5 s)
 - ledger sha256 `598bf37e52af79abdb375ab0f561f14eb9443ea4972dd1dfc18eddb7179812eb`: 14 normalizations; 19 divergences approved for this pin
 
 fx's inventory (v0.0.16): 45 surfaces -- 38 commands, 7 key hints. Covered by a scenario: 45. **Uncovered: 0**.
@@ -46,9 +46,9 @@ Rows no cause covers (18 snaps):
 - `p5-input-question20/resumed` fx row 1: `  5) Pick 5?`
 - `p5-input-question20/resumed.full` fx row 27: `  1) Pick 1?`
 - `p5-lifecycle-v1resume/v00b-picker-all` fx row 5: `Sessions 1  Current workspace  [All workspaces]`
-- `p5-lifecycle-v1resume/v01-resumed` fx row 1: `i session: Converting this session from the previous session format…`
-- `p5-lifecycle-v1resume/v01-resumed.full` fx row 2: `i session: Converting this session from the previous session format…`
-- `p5-lifecycle-v1resume/v02-continued` fx row 1: `i session: Converting this session from the previous session format…`
+- `p5-lifecycle-v1resume/v01-resumed` fx row 1: `* session resumed: CONV_FIRST 1`
+- `p5-lifecycle-v1resume/v01-resumed.full` fx row 2: `* session resumed: CONV_FIRST 1`
+- `p5-lifecycle-v1resume/v02-continued` fx row 1: `* session resumed: CONV_FIRST 1`
 - `p5-question-resume/resumed` xfx row 2: `  One done.`
 - `p5-question-resume/resumed.full` fx row 30: `  1) Solo 1?`
 - `p5-question-resume-ctrlo/resumed-ctrlo` fx row 7: `  1) Solo 1?`

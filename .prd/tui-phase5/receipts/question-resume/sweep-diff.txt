@@ -1,4 +1,4 @@
-# Every pair's verdict at the base binary (32afd307) and the head binary (a623824c), the sweeps rescored with this branch's final ledger
+# Every pair's verdict at the base binary (32afd307) and the round-2 head binary (63e8bbeb), this branch's scenarios and ledger
 # --only '*question*' --only '*resume*', 40x120, 22 scenarios, 125 pairs
   interrupt-next-question next: base normalized-identical, head normalized-identical
   interrupt-question end.full: base normalized-identical, head normalized-identical
@@ -30,7 +30,7 @@
   p5-lifecycle-v1resume v01-resumed: base unresolved-defect, head unresolved-defect (41 rows no cause names)
   p5-lifecycle-v1resume v01-resumed.full: base unresolved-defect, head unresolved-defect (42 rows no cause names)
   p5-lifecycle-v1resume v02-continued: base unresolved-defect, head unresolved-defect (41 rows no cause names)
-  p5-question-resume live: base identical, head identical
+~ p5-question-resume live: base identical, head normalized-identical
   p5-question-resume live.full: base normalized-identical, head normalized-identical
 + p5-question-resume resumed: base unresolved-defect, head normalized-identical
 + p5-question-resume resumed.full: base unresolved-defect, head normalized-identical
