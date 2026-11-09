@@ -28,6 +28,7 @@
 exit=0
 # 04: 5449 passed, 0 failed over every target; 05: 195 passed; 0; 06: 4556 passed; 0
 # 21: smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+# 16, from its log (added in round 2, opus): test_sweep.py "Ran 70 tests" OK, then test_ci_sweep.py "Ran 27 tests" OK -- 97
 
 # run 1, same commit, TMPDIR=<scratch>/history-notice-stop: step 16 failed on the path length alone
 # (5 of test_sweep.py's 70 tests: 'sweep: --tmp is too long for a tmux socket path under it', sweep.py:159-161); every other step rc=0

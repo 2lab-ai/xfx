@@ -51,8 +51,9 @@
  2890              },
  2891              else => |e| e,
 
-## H3: fx's one notice said once a session, a source limit's [context] line: the session's ledger, and the TUI's and
-## ask's push, which claim it first and then hand it on (claimed at the push, not when it is painted).
+## H3: fx's lines said once a session are its [context] notices: the session's ledger, and the agent runtime's
+## push (the TUI's, fx ask's, ACP's), which claims a line and then hands it on -- the TUI's queues it. This is one
+## claimer of several; H8 has every claimContextNotice call at the pin and when each runs.
 
 ### git -C fx-upstream show 481104fd:src/core/session/session.zig | sed -n 1551,1561p
  1551      /// Returns true once for each distinct source-limit notice in this live
@@ -120,7 +121,7 @@
   317          return self.push_system_notice(self.ctx, text);
   318      }
 
-## H4: the turn-start claimer runs only past the turn's stop checks: the capability resolve's Cancelled and the
+## H4: the skill catalog's claimer (prepareSkillCatalog; the MCP catalog's is later, H8) runs only past the turn's stop checks: the capability resolve's Cancelled and the
 ## cancel flag right after it both persist the turn interrupted and return before prepareSkillCatalog.
 
 ### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n 5772,5791p
@@ -339,3 +340,200 @@
  1255                  }, true);
  1256                  return;
  1257              }
+
+## H8: every claimContextNotice call at the pin (git grep -n claimContextNotice 481104fd -- src, tests left out:
+## acp/prompt.zig:3222, app_agent_runtime.zig:857 :923 :1182, app_bootstrap_runtime.zig:300, app_callbacks.zig:1297,
+## app_commands.zig:1092, cli_ask.zig:3218; session.zig:1554 is the ledger), and when each runs relative to a turn's stop.
+## (a) A project file's [context] line: claimed and written at submission, on the UI thread, before the turn exists.
+##     enqueuePromptWithSkillBindings calls refreshProjectContext first; it claims each snapshot notice and writes it
+##     with writeDomainNotice, which is the shell's own write (no worker queue). The job then carries a copy of the same
+##     snapshot, and processQueuedPrompt claims those lines again before the orchestrator: already said, nothing more.
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n 1193,1200p
+ 1193      pub fn enqueuePromptWithSkillBindings(self: *App, prompt: []const u8, skill_tokens: []const registered_entities.SkillTokenSpan) !bool {
+ 1194          const context_targets = if (self.context_enabled)
+ 1195              try context_contract.applicableTargetsForImages(self.alloc, self.pending_images.items)
+ 1196          else
+ 1197              &.{};
+ 1198          defer if (context_targets.len > 0) self.alloc.free(context_targets);
+ 1199  
+ 1200          try AgentAppRuntime.refreshProjectContext(self, context_targets);
+
+### git -C fx-upstream show 481104fd:src/core/app/app_agent_runtime.zig | sed -n 906,938p
+  906          pub fn refreshProjectContext(app: *App, targets: []const context_contract.ApplicableTarget) context_contract.ProviderError!void {
+  907              app.context_snapshot.deinit(app.alloc);
+  908              if (!app.context_enabled) return;
+  909  
+  910              const workspace = turnWorkspace(app);
+  911              app.context_snapshot = app.contextRegistry().gatherDefaultSnapshot(app.alloc, .{
+  912                  .workspace_root = workspace.root,
+  913                  .access_scope = workspace.access_scope,
+  914                  .targets = targets,
+  915                  .context_limits = if (comptime @hasField(App, "context_limits")) app.context_limits else .{},
+  916              }) catch |err| {
+  917                  debug_trace.logf("context", "gather failed err={s}", .{@errorName(err)});
+  918                  return err;
+  919              };
+  920              if (comptime @hasDecl(App, "writeDomainNotice")) {
+  921                  for (app.context_snapshot.notices) |notice| {
+  922                      const should_emit = if (comptime @hasDecl(@TypeOf(app.session), "claimContextNotice"))
+  923                          try app.session.claimContextNotice(app.alloc, notice)
+  924                      else
+  925                          true;
+  926                      if (should_emit) {
+  927                          const body = try types.renderContextNoticeBody(app.alloc, notice);
+  928                          defer app.alloc.free(body);
+  929                          app.writeDomainNotice(.{
+  930                              .topic = "context",
+  931                              .tone = .warning,
+  932                              .body = body,
+  933                              .visibility = .full_only,
+  934                          }, true) catch return error.WriteFailed;
+  935                      }
+  936                  }
+  937              }
+  938          }
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n 2411,2413p
+ 2411      pub fn writeDomainNotice(self: *App, notice: types.SemanticNotice, record: bool) !void {
+ 2412          try self.shell.writeNotice(self.alloc, &self.metrics, notice, record);
+ 2413      }
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n 1544,1548p
+ 1544          var context_snapshot_copy = if (self.context_enabled)
+ 1545              try self.context_snapshot.dupe(std.heap.c_allocator)
+ 1546          else
+ 1547              context_contract.GatheredContextSnapshot{};
+ 1548          errdefer context_snapshot_copy.deinit(std.heap.c_allocator);
+
+### git -C fx-upstream show 481104fd:src/main.zig | sed -n 1574,1574p
+ 1574              .context_snapshot = context_snapshot_copy,
+
+### git -C fx-upstream show 481104fd:src/core/app/app_agent_runtime.zig | sed -n 976,996p
+  976              var preflight_context_notices: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
+  977              defer preflight_context_notices.deinit();
+  978              for (job.context_snapshot.notices) |notice| {
+  979                  try appendClaimedContextNotice(app, &preflight_context_notices.writer, notice);
+  980              }
+  981  
+  982              var skill_catalog = app.skills.acquireCatalog();
+  983              defer skill_catalog.deinit();
+  984              const explicit_bindings = try std.heap.c_allocator.alloc(skill_invocation.ExplicitBinding, job.skill_bindings.len);
+  985              defer std.heap.c_allocator.free(explicit_bindings);
+  986              for (job.skill_bindings, 0..) |binding, index| {
+  987                  explicit_bindings[index] = .{ .name = binding.name, .path = binding.path };
+  988              }
+  989              if (preflight_context_notices.written().len > 0) {
+  990                  try app_worker_runtime.Runtime(App).pushSemanticNotice(app, .{
+  991                      .topic = "context",
+  992                      .tone = .warning,
+  993                      .body = preflight_context_notices.written(),
+  994                      .visibility = .full_only,
+  995                  });
+  996              }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_agent_runtime.zig | sed -n 1180,1192p
+ 1180          fn appendClaimedContextNotice(app: *App, writer: *std.Io.Writer, notice: []const u8) !void {
+ 1181              const should_emit = if (comptime @hasDecl(@TypeOf(app.session), "claimContextNotice"))
+ 1182                  try app.session.claimContextNotice(std.heap.c_allocator, notice)
+ 1183              else
+ 1184                  true;
+ 1185              if (!should_emit) return;
+ 1186              if (writer.buffered().len > 0 and !std.mem.endsWith(u8, writer.buffered(), "\n")) {
+ 1187                  try writer.writeByte('\n');
+ 1188              }
+ 1189              const body = try types.renderContextNoticeBody(std.heap.c_allocator, notice);
+ 1190              defer std.heap.c_allocator.free(body);
+ 1191              try writer.writeAll(body);
+ 1192          }
+
+## (b) The skill catalog's line: prepareSkillCatalog at orchestrator.zig:5950 (H4), after both stop checks, pushes
+##     through agentPushContextNotice (H3, app_callbacks.zig:1294-1307): claimed, then queued as a semantic notice.
+## (c) The MCP catalog's line: the request's stable prefix is built at :6001, after :5950; its static context is the
+##     app's appendStaticContextMessage, which claims, then queues, in pushMcpModelCatalogNotice.
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n 6001,6001p
+ 6001      try appendStablePromptContext(arena, deps, config, if (skill_section) |section| section.text else null, &stable_prefix);
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n 6444,6446p
+ 6444      // The session-start project rules; rules a tool call reaches later ride
+ 6445      // on its tool result instead (D93).
+ 6446      if (deps.append_static_context) |append| try append(deps.ctx, alloc, messages);
+
+### git -C fx-upstream show 481104fd:src/core/app/app_callbacks.zig | sed -n 310,310p
+  310                  .append_static_context = agentAppendStaticContext,
+
+### git -C fx-upstream show 481104fd:src/core/app/app_callbacks.zig | sed -n 879,884p
+  879          fn agentAppendStaticContext(ctx: *anyopaque, arena: Allocator, messages: *std.ArrayList(ChatMessage)) !void {
+  880              const app: *App = @ptrCast(@alignCast(ctx));
+  881              if (comptime @hasDecl(App, "appendStaticContextMessage")) {
+  882                  try app.appendStaticContextMessage(arena, messages);
+  883              }
+  884          }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_agent_runtime.zig | sed -n 845,867p
+  845              const section = try mcp_model_catalog.render(arena, report.snapshot);
+  846              if (section.text.len > 0) {
+  847                  try messages.append(arena, .{ .role = .system, .content = section.text });
+  848              }
+  849              if (report.change_notice) |notice| {
+  850                  try messages.append(arena, .{ .role = .system, .content = notice });
+  851              }
+  852              if (section.notice) |notice| try pushMcpModelCatalogNotice(app, notice);
+  853          }
+  854  
+  855          fn pushMcpModelCatalogNotice(app: *App, notice: []const u8) !void {
+  856              if (comptime @hasDecl(@TypeOf(app.session), "claimContextNotice")) {
+  857                  if (!try app.session.claimContextNotice(std.heap.c_allocator, notice)) return;
+  858              }
+  859              const body = try types.renderContextNoticeBody(std.heap.c_allocator, notice);
+  860              defer std.heap.c_allocator.free(body);
+  861              try app_worker_runtime.Runtime(App).pushSemanticNotice(app, .{
+  862                  .topic = "context",
+  863                  .tone = .warning,
+  864                  .body = body,
+  865                  .visibility = .full_only,
+  866              });
+  867          }
+
+## (d) Skill diagnostics: claimed at launch and by /skills, each written in the same step (not a turn's).
+
+### git -C fx-upstream show 481104fd:src/core/app/app_bootstrap_runtime.zig | sed -n 292,308p
+  292          pub fn writeSkillDiagnosticsNotice(app: *App) !void {
+  293              if (app.skills.diagnostics.len == 0) return;
+  294              var notice_writer: std.Io.Writer.Allocating = .init(app.alloc);
+  295              defer notice_writer.deinit();
+  296              skill_runtime.writeDiagnosticSummary(app.alloc, &notice_writer.writer, app.skills.diagnostics) catch return error.OutOfMemory;
+  297              const skills_body = notice_writer.toOwnedSlice() catch return error.OutOfMemory;
+  298              defer app.alloc.free(skills_body);
+  299              if (comptime @hasField(App, "session") and @hasDecl(@TypeOf(app.session), "claimContextNotice")) {
+  300                  _ = try app.session.claimContextNotice(app.alloc, skills_body);
+  301              }
+  302  
+  303              const skills_summary = try app.alloc.print("{d} discovery issue{s}; some skills may be missing", .{
+  304                  app.skills.diagnostics.len,
+  305                  if (app.skills.diagnostics.len == 1) "" else "s",
+  306              });
+  307              defer app.alloc.free(skills_summary);
+  308              try writeCollapsedStartupNotice(app, "skills", skills_summary, skills_body);
+
+### git -C fx-upstream show 481104fd:src/core/app/app_commands.zig | sed -n 1083,1098p
+ 1083          fn writeSkillDiagnosticNotice(app: *App) !void {
+ 1084              if (app.skills.diagnostics.len == 0) return;
+ 1085  
+ 1086              var out: std.Io.Writer.Allocating = .init(app.alloc);
+ 1087              defer out.deinit();
+ 1088              try skill_runtime.writeDiagnosticSummary(app.alloc, &out.writer, app.skills.diagnostics);
+ 1089              const body = try out.toOwnedSlice();
+ 1090              defer app.alloc.free(body);
+ 1091              if (comptime @hasField(App, "session") and @hasDecl(@TypeOf(app.session), "claimContextNotice")) {
+ 1092                  _ = try app.session.claimContextNotice(app.alloc, body);
+ 1093              }
+ 1094              try app.writeDomainNotice(.{
+ 1095                  .topic = "skills",
+ 1096                  .tone = .warning,
+ 1097                  .body = body,
+ 1098              }, true);
+
+## (e) Tool executions' context notices are pushed mid-turn, after a request (orchestrator.zig:11345, :12354), and
+##     cli_ask.zig:3218 and acp/prompt.zig:3222 are fx ask's and ACP's own pushes (H3).

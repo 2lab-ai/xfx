@@ -21,7 +21,10 @@ to a file in this folder.
 | `16cffa83` | the scenario's header says what fx does (its steps unchanged); parity cites the drain's whole drop arm |
 | `f3cb88a7` | this folder, but the gate |
 | `f16a62ab` | fx's claim-then-drop race cites the push and the drain (`docs/parity.md`, `fx-src.txt` H5, this README): **the gated commit** |
-| (the next one) | `gates.txt` and the gate section |
+| `ce8dc75c` | `gates.txt` and the gate section (round 1's last) |
+| `53ada840` | the dispatcher's: the scratch root in three receipt lines written as `<scratch>` |
+| `dec785aa` | round 2: the fx claimers named exactly (`docs/parity.md`, `Conversation::unsaid`'s doc, the RED's comment, the mark site's comment) and three tests -- **round 2's code head and its sweep's xfx binary** |
+| (round 2's receipt commits) | this folder: `fx-src.txt` H8, `mutants.py`, the `-r2` files, the round 2 section; then `gates-r2.txt` |
 
 After the code head nothing under `src/`, `build.rs` or `Cargo.*` changes
 (`git diff --stat b5bf9b8b f16a62ab -- src build.rs Cargo.toml Cargo.lock`
@@ -41,34 +44,56 @@ binary built at `3899a8ba` is the code head's code.
    are xfx's own rule (`.prd/04-providers.md` §Provenance: "a drop is never
    silent"), already a documented divergence (`docs/parity.md`, the
    `/provider` row; ledger cause `P1-carry-notice`).
-2. **fx's one notice said once a session is a source limit's `[context]`
-   line.** The session keeps a ledger of the ones said (`claimContextNotice`,
-   `session.zig:1551-1561`). The TUI, `fx ask` and ACP each claim the line
-   first and then hand it on (H3: `app_callbacks.zig:1294-1307`,
-   `cli_ask.zig:3216-3228`, `acp/prompt.zig:3219-3227`). So fx marks it at
-   the push, not when it is painted.
-3. **A turn stopped before its request claims nothing.** The turn-start
-   claimer is `prepareSkillCatalog` (`orchestrator.zig:5772-5791`), called
-   at `:5950`. Both stop checks come before it: the capability resolve's
-   `Cancelled` (`:5893-5919`) and the cancel flag right after it
-   (`:5923-5948`). Each persists the turn interrupted and returns (H4). A
-   turn stopped in its catalog wait therefore leaves the line unclaimed,
-   and the next turn claims and shows it.
-4. **fx can still lose a claimed line, in a race (code-traced, not
-   captured).** The TUI's push queues the line as a `.semantic_notice`
-   worker event (H5: `pushSemanticNotice`, `app_worker_runtime.zig:649-651`).
-   The drain runs every event of an interrupted segment through
+2. **fx's lines said once a session are its `[context]` notices.** The
+   session keeps a ledger of the ones said (`claimContextNotice`,
+   `session.zig:1551-1561`). Round 1 named one claimer and called it the
+   only one; that was wrong (opus, round 1). Every call at the pin, and when
+   each runs (`fx-src.txt` H8, H3, H4):
+   - **A project file's line: at submission, painted in the same step.**
+     `enqueuePromptWithSkillBindings` calls `refreshProjectContext` first
+     (`main.zig:1193-1200`). That claims each snapshot notice and writes it
+     with `writeDomainNotice` (`app_agent_runtime.zig:906-938`), which is the
+     shell's own write, with no worker queue (`main.zig:2411-2413`). The job
+     carries a copy of the same snapshot (`main.zig:1544-1548`, `:1574`).
+     `processQueuedPrompt` claims those lines again before the orchestrator
+     (`app_agent_runtime.zig:976-996`, `:1180-1192`) and finds them said.
+   - **The skill catalog's line: past the turn's stop checks, then queued.**
+     `prepareSkillCatalog` (`orchestrator.zig:5772-5791`) runs at `:5950`,
+     after the capability resolve's `Cancelled` (`:5893-5919`) and the
+     cancel flag (`:5923-5948`), each of which persists the turn interrupted
+     and returns (H4). Its push claims, then queues
+     (`app_callbacks.zig:1294-1307`).
+   - **The MCP catalog's line: later still, then queued.** The request's
+     stable prefix is built at `:6001`. Its static context
+     (`:6444-6446`; `app_callbacks.zig:310`, `:879-884`) claims, then
+     queues, in `pushMcpModelCatalogNotice` (`app_agent_runtime.zig:845-867`).
+   - **Skill diagnostics: at launch and by `/skills`, written in the same
+     step** (`app_bootstrap_runtime.zig:292-308`, `app_commands.zig:1083-1098`).
+     No turn is involved.
+   - Tool executions push theirs mid-turn, after a request
+     (`orchestrator.zig:11345`, `:12354`). `cli_ask.zig:3218` and
+     `acp/prompt.zig:3222` are `fx ask`'s and ACP's own pushes.
+3. **So a turn stopped before its request loses no `[context]` line in fx.**
+   A project file's line was painted at submission, before the turn
+   existed. The two catalogs' lines are not claimed until the turn is past
+   both stop checks, so the next turn claims and shows them.
+4. **fx can still lose a catalog line, in a race (code-traced, not
+   captured).** The push queues the line as a `.semantic_notice` worker
+   event (H5: `pushSemanticNotice`, `app_worker_runtime.zig:649-651`). The
+   drain runs every event of an interrupted segment through
    `cancelledEventAdmission` (`:922-950`), which drops it (`:344-354`). A
-   stop that lands after `:5950`'s claim and before the drain paints the
-   event loses the line for the rest of the session. That is not "a turn
+   stop that lands after a catalog line's claim and before the drain paints
+   it loses the line for the rest of the session. That is not "a turn
    stopped before its request", and xfx does not copy it (below).
 
-**Decision: fix, not keep.** The brief's keep branch is "fx can observably
-lose the notice too". fx has no history notice to lose. Its one
-once-a-session notice is kept by a turn stopped before its request (item 3)
-and lost only by a stop after its claim (item 4), a race. So xfx now says a
-history notice when it is shown, and `docs/parity.md` says so and names
-item 4 as not copied.
+**Decision: fix, not keep (unchanged by round 2).** The brief's keep branch
+is "fx can observably lose the notice too". fx has no history notice to
+lose. Its once-a-session lines are all kept by a turn stopped before its
+request (item 3), because a project file's is painted at submission and the
+catalogs' are claimed later. One is lost only by a stop after its claim
+(item 4), which is a race. So xfx now says a history notice once it is
+handed to the screen, and `docs/parity.md` says so and names item 4 as not
+copied.
 
 ## RED (`red.txt`: `350e88b1`, the base plus the test)
 
@@ -99,14 +124,29 @@ either way.
   unsaid lines, each once and in order: a line the rebuild repeats, one per
   sealed step, is found once, as before. **`Conversation::said`** (`:1200`)
   records a line shown.
-- **The TUI** (`src/tui/worker.rs:6214`) records a line when `send_ui`
-  hands it to the UI. The UI paints every `Notice` it is handed, a stopped
-  turn's too: `cancelling` filters only Delta, Operational, Retrying,
-  Recovered, ToolStart and ToolResult (`src/tui/shell.rs` `apply_event`).
-  A reset's drain does drop it (`drained`), but a reset opens a new
-  conversation, with nothing said. So `Ok` means shown. A refused send (a
-  turn stopped before it began, or a UI that is gone) leaves the line for
-  the next turn.
+- **The TUI** (`src/tui/worker.rs:6214`) records a line once `send_ui`
+  hands it to the UI. That is an enqueue, not a paint acknowledgement
+  (`src/tui/bridge.rs:1498-1509`, round 2, gpt6). What makes it sound is a
+  pair of invariants on the consumer and on the conversation's lifetime:
+  - **The screen paints every `Notice` it takes, a stopped turn's too.**
+    `UiEvent::Notice` goes to `announce`, then `mark`, with no `cancelling`
+    check (`src/tui/shell.rs` `apply_event`). Under `cancelling` only Delta
+    and Operational are held back (kept as late text, or dropped), and
+    Retrying and Recovered set no row. ToolStart and ToolResult are still
+    marked; only their activity row is skipped. A Ctrl-C runs the marks
+    still due (`abandon_answer`).
+  - **The two paths that drop a taken `Notice` drop its conversation too.**
+    A reset drops it: its drain drops one that arrives before the fence
+    (`drained`), and its screen clear drops one still owed
+    (`reset_session`). The runtime drops the conversation
+    (`drop_conversation`). A resume's or a fork's replay clears
+    the marks still owed (`hydrate_as`), after the runtime's `switch_to` has
+    bound another conversation, whose ledger starts empty. So no ledger
+    keeps a line its screen never painted, and a later conversation of the
+    same session says it again.
+  - Pinned by round 2's two lifecycle tests (below). A refused send (a turn
+    stopped before it began, or a UI that is gone) leaves the line for the
+    next turn.
 - **The line shell** (`say_unsaid`, `src/interactive.rs:1833`) records a
   line once its stderr line is written. The bytes it writes are unchanged:
   the same lines, in the same order, once each. Pinned by
@@ -123,8 +163,10 @@ either way.
   without a request (`ModelSelector::ensure_catalog`, `src/provider/model.rs:
   1840-1842`). The comment no longer says image prompts cost no socket.
 - **`docs/parity.md`**, the `/provider` row: the notice is said once it is
-  shown; fx's `[context]` line is kept by a turn stopped before its request
-  (fx item 3); fx's claim-at-push race (fx item 4) is not copied.
+  handed to the screen, which paints every notice it takes except where a
+  reset or a resume drops its conversation too; fx's `[context]` lines are
+  kept by a turn stopped before its request (fx item 3, every claimer named
+  in round 2); fx's claim-then-queue race (fx item 4) is not copied.
 - Source outside tests: 61 lines added and 21 removed (`git diff --numstat
   350e88b1 b5bf9b8b` gives `src/interactive.rs` 88/7 and `src/tui/worker.rs`
   25/14; 52 of interactive.rs's added lines are the line-shell pin), most
@@ -244,4 +286,89 @@ root was longer, and step 16 failed on that alone: five of
 `scripts/fxcap/test_sweep.py`'s tests refused the root as "too long for a tmux socket
 path under it" (`scripts/fxcap/sweep.py:159-161`; 100 bytes with the
 socket's suffix). Every other step read `rc=0`. Under the short root the
-step passes (97 tests), in run 2 and alone.
+step passes, in run 2 and alone: 97 tests, `test_sweep.py`'s 70 and
+`test_ci_sweep.py`'s 27 (the count line under run 2 in `gates.txt`, added
+in round 2).
+
+## Round 2 (opus APPROVE-WITH-FIXES, gpt6 MUST none)
+
+The code was right. One sentence about fx was not, and that sentence was
+in three shipped texts.
+
+- **The MUST (opus): "claimed only by a turn past its stop checks" was
+  false.** At the pin, `claimContextNotice` has six callers in the app and
+  the TUI, not one (`fx-src.txt` H8). fx item 2 above now names each, with
+  where it runs relative to a turn's stop. Rewritten in:
+  - `docs/parity.md`, the `/provider` row;
+  - `Conversation::unsaid`'s doc (`src/interactive.rs:1183-1193` at
+    `dec785aa`);
+  - the RED's comment (`src/tui/worker.rs:18037-18052`), whose "claimed
+    where it is shown" contradicted the row's "claimed when it is pushed";
+  - fx items 2-4 and the decision above.
+  **The decision is unchanged.** fx paints a project file's line at
+  submission and claims the catalogs' lines only past the stop checks, so a
+  turn stopped before its request loses none in fx either (opus's
+  expectation, confirmed at the pin: `main.zig:1193-1200`, `:2411-2413`;
+  `app_agent_runtime.zig:906-938`).
+- **The SHOULDs.**
+  - The "97 tests" now has its count line in `gates.txt` (`test_sweep.py`
+    70, `test_ci_sweep.py` 27, from run 2's step-16 log).
+  - `cancelling`'s list is corrected: ToolStart and ToolResult are still
+    marked; only their activity row is skipped.
+  - The parity row names the screen's drops (a reset, a resume's or a
+    fork's replay).
+  - "Ok means shown" is replaced by the consumer and lifecycle invariants
+    (the fix section). The mark site's comment says `send_ui` queues
+    (`src/tui/worker.rs:6204-6212`).
+- **Three tests (gpt6).** Each pins an invariant the fix relies on that was
+  already true at `b5bf9b8b`; the screen and ledger tests' invariants were
+  true on the base as well. So there is no RED commit for them. Each one
+  fails under the mutant that breaks its invariant (below), and all pass at
+  `dec785aa` (`green-unit-r2.txt`, with the RED, STOP-IN-CATALOG-WAIT's two
+  and the pty pin).
+  - `a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation`
+    (`src/tui/shell.rs:22883`), the consumer. It has three cases:
+    - a notice taken after the Ctrl-C is painted once, under the stop's
+      line;
+    - one owed behind a paced answer is cleared by a resume's replay;
+    - the old conversation's notice is dropped by a reset's drain, and the
+      next conversation's is painted.
+  - `the_history_notice_ledger_goes_with_its_conversation`
+    (`src/tui/worker.rs:18088`), the lifecycle. It runs one, two, a resume
+    away, a resume back, three, a reset, four. Per turn: `[1, 0, 1, 0]`,
+    with 2 `Resumed` and 1 `Fresh`. The resumed conversation of the same
+    session says the notice again; the reset's has nothing to say.
+  - `the_line_shell_leaves_unsaid_only_the_line_it_could_not_write`
+    (`src/interactive.rs:4001`): stderr takes the first notice and refuses
+    the second. Only the second stays unsaid, and the next turn writes it
+    alone.
+  - A test across the channel itself, one shell fed by one worker, would
+    need the shell's and the worker's test fixtures in one module, and they
+    are private to theirs. The pair above meets at the channel: what the
+    worker queues (`UiEvent::Notice`) is what the shell takes.
+- **Mutants (`mutants-r2.txt`):** all 11 killed, none `build-failed`, on a
+  `git clone --no-local` copy of `dec785aa`, 600 s each, under the lock.
+  The runner now reports a mutant that does not compile as `build-failed`,
+  not as a kill.
+
+  | mutant | what it does | killed by |
+  |---|---|---|
+  | round 1's six | as above | as above, again |
+  | `line-shell-said-all-when-found` | the line shell's base rule: every line found is recorded, then written | both line-shell tests (`:3990`, `:4048`) |
+  | `ledger-outlives-its-conversation` | one ledger for the process | the ledger test (`[1, 0, 0, 0]`), and the RED and the per-line test, which share that ledger |
+  | `screen-drops-notice-under-stop` | the screen skips a notice under `cancelling` | the screen test's case 1 (`:22920`, the head's `:22916` plus the mutant's 4 lines) |
+  | `reset-drain-keeps-notice` | a reset's drain paints the old conversation's notice | case 3 (`:22956`) |
+  | `replay-keeps-owed-marks` | a resume's replay keeps the marks it owed | case 2 (`:22944`, the head's `:22945` less 1) |
+- **Sweep (`sweep-r2-base.md`, `sweep-r2-head.md`, `sweep-compare-r2.txt`).**
+  The same 38 scenarios, base (the binary built at `05a0a857`) then head
+  (built at `dec785aa`, row 1 `v0.1.0-dec785a`), back to back in one slot.
+  - Verdicts: 115/182 on both, dropped 0. One pair's rows moved,
+    `provider-carry-back-stop/next`: it gained `P1-carry-notice`, with the
+    same eight unattributed rows, as in round 1.
+  - Each sweep's own `next` capture: the head has the notice, the base has
+    none, and both answer the next prompt.
+  - Load was 16.3 and 22.4 at the peaks.
+- **Size:** outside tests, round 2 changes only comments
+  (`src/interactive.rs` +11/-7, `src/tui/worker.rs` +9/-6,
+  `git diff -U0 53ada840 dec785aa -- src`). The tests add 52, 80 and 115
+  lines.

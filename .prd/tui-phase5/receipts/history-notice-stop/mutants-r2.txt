@@ -1,0 +1,102 @@
+# round 2: mutants.py on a git clone --no-local of dec785aa, under suite-lock.sh (one slot), 600 s per mutant; the clone reset after each
+# (git status empty after the run). A panic line is the head's assert line shifted by the mutant's own line delta above it.
+head tui-said-when-found: killed
+    test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... ok
+    test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... ok
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... ok
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... ok
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (368004402) panicked at src/tui/worker.rs:18077:9:
+    test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 4538 filtered out; finished in 10.09s
+    error: test failed, to rerun pass `--lib`
+head tui-said-even-if-refused: killed
+    test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... ok
+    test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... ok
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... ok
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... ok
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (368011567) panicked at src/tui/worker.rs:18077:9:
+    test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 4538 filtered out; finished in 10.15s
+    error: test failed, to rerun pass `--lib`
+head tui-never-said: killed
+    test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... ok
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... ok
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation' (368017945) panicked at src/tui/worker.rs:18191:9:
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (368017944) panicked at src/tui/worker.rs:18077:9:
+    test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 4538 filtered out; finished in 10.16s
+    error: test failed, to rerun pass `--lib`
+head no-dedup-in-one-rebuild: killed
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... ok
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written' (368024410) panicked at src/interactive.rs:3982:9:
+    thread 'tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation' (368024413) panicked at src/tui/worker.rs:18195:9:
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (368024412) panicked at src/tui/worker.rs:18081:9:
+    test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 4538 filtered out; finished in 10.12s
+    error: test failed, to rerun pass `--lib`
+head line-shell-never-said: killed
+    test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... FAILED
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... ok
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... ok
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+    thread 'interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written' (368043349) panicked at src/interactive.rs:3995:9:
+    thread 'interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write' (368043348) panicked at src/interactive.rs:4044:9:
+    test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 4538 filtered out; finished in 10.08s
+    error: test failed, to rerun pass `--lib`
+head line-shell-said-before-written: killed
+    test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... FAILED
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... ok
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... ok
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+    thread 'interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written' (368068093) panicked at src/interactive.rs:3987:9:
+    thread 'interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write' (368068092) panicked at src/interactive.rs:4045:9:
+    test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 4538 filtered out; finished in 10.10s
+    error: test failed, to rerun pass `--lib`
+head line-shell-said-all-when-found: killed
+    test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... FAILED
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... ok
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... ok
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+    thread 'interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written' (368078413) panicked at src/interactive.rs:3990:9:
+    thread 'interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write' (368078412) panicked at src/interactive.rs:4048:9:
+    test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 4538 filtered out; finished in 10.13s
+    error: test failed, to rerun pass `--lib`
+head ledger-outlives-its-conversation: killed
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... ok
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write' (368098388) panicked at src/interactive.rs:4043:9:
+    thread 'tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation' (368098392) panicked at src/tui/worker.rs:18195:9:
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (368098391) panicked at src/tui/worker.rs:18081:9:
+    test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 4538 filtered out; finished in 10.07s
+    error: test failed, to rerun pass `--lib`
+head screen-drops-notice-under-stop: killed
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... FAILED
+    test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... ok
+    test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... ok
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... ok
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+    thread 'tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation' (368116691) panicked at src/tui/shell.rs:22920:9:
+    test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 4538 filtered out; finished in 10.10s
+    error: test failed, to rerun pass `--lib`
+head reset-drain-keeps-notice: killed
+    test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... ok
+    test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... ok
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... FAILED
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... ok
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+    thread 'tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation' (368124466) panicked at src/tui/shell.rs:22956:9:
+    test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 4538 filtered out; finished in 10.15s
+    error: test failed, to rerun pass `--lib`
+head replay-keeps-owed-marks: killed
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... FAILED
+    test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... ok
+    test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... ok
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... ok
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+    thread 'tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation' (368130272) panicked at src/tui/shell.rs:22944:9:
+    test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 4538 filtered out; finished in 10.08s
+    error: test failed, to rerun pass `--lib`
+exit=0
