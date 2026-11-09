@@ -1,0 +1,106 @@
+# Discovery round 2: the modules discovery hit, after the first conversions (Runtime::new -> a_runtime over the config's home; worker launches, mcp, clock, credits in a fake process), under sentinel-run.sh and the suite lock.
+# Readers the first panic had hidden: a runtime built with with_environment still reached the Gateway endpoint, the link bases and (once) the process in its turn and its launch questions.
+# filter: tui::worker tui::shell tui::event_loop app:: credits:: provider:: mcp:: usage:: tui::usage_menu process:: test_env:: permission::
+test result: FAILED. 1790 passed; 96 failed; 4 ignored; 0 measured; 2751 filtered out; finished in 58.18s
+
+  80 GUARD gateway::Endpoint::from_process
+  15 GUARD permission::LinkBase::from_environment
+   1 GUARD config::Environment::from_process
+
+## by case
+GUARD config::Environment::from_process app::tests::the_shell_is_dispatched_and_refuses_a_test_harness_that_is_not_a_terminal
+GUARD gateway::Endpoint::from_process credits::tests::an_unreadable_provider_asks_nobody_and_says_so_in_the_turns_words
+GUARD gateway::Endpoint::from_process provider::model::tests::an_unreadable_provider_has_no_catalog_to_ask_with_the_key
+GUARD gateway::Endpoint::from_process tui::shell::tests::credits_is_asked_at_once_and_answered_as_upstreams_notice
+GUARD gateway::Endpoint::from_process tui::shell::tests::credits_with_a_turn_running_and_the_queue_full_is_asked_and_survives_a_ctrl_c
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_change_lands_while_the_loop_is_idle_and_one_typed_before_leaving_is_not_lost
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_change_put_aside_is_applied_before_the_next_piece_of_work_and_survives_the_end
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_change_sent_after_work_was_queued_is_applied_before_that_work_starts
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_change_the_band_announced_is_applied_with_its_effort_and_saved_as_one_write
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_choice_made_after_a_resume_is_written_at_once_and_not_over_by_its_first_turn
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_compaction_a_stop_drops_before_it_began_is_told_how_it_ended
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_compaction_dropped_in_a_turns_race_with_no_room_is_told_after_that_turn_and_before_more_work
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_compaction_dropped_with_no_room_for_its_word_is_told_once_before_the_reset_after_it
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_concluded_turn_reaches_the_ui_through_a_channel_that_had_no_room_for_it
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_conversation_kept_across_a_provider_switch_or_rebuilt_after_new_can_still_ask
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_failure_before_the_store_is_asked_keeps_the_id_status_names
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_fork_asked_after_the_log_stopped_taking_events_is_refused
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_fork_before_the_first_prompt_is_listed_at_one_turn_and_named_at_the_exit
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_fork_holds_its_own_grants_and_the_mode_in_force_through_its_next_turn
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_fork_is_offered_before_each_prompt_whose_turn_and_the_one_before_it_ended
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_fork_opens_before_the_source_lets_go_and_replays_only_the_kept_turns
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_fork_that_cannot_be_made_leaves_the_conversation_exactly_as_it_was
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_fork_whose_scope_cannot_be_settled_leaves_the_source_whole
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_grant_a_model_and_a_new_conversation_each_reach_what_status_reads
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_grant_is_published_as_it_is_held_for_the_panel_to_spell
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_log_that_stopped_taking_events_has_no_fork_to_offer
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_mode_a_higher_layer_outranks_is_saved_and_says_so_in_upstreams_words
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_mode_change_moves_the_conversation_the_configuration_the_log_and_the_profile
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_model_is_saved_for_its_provider_and_the_next_launch_reads_it_back
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_new_conversation_after_a_resume_records_the_settings_it_carries
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_new_conversation_after_a_resume_starts_its_own_log_and_leaves_the_resumed_one
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_pick_keeps_the_speed_its_row_offers_and_a_query_turns_both_off
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_picker_resume_and_a_refused_first_turn_write_nothing_and_the_next_turn_writes_the_mode
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_picker_resume_moves_the_runtime_to_the_recorded_provider_and_says_what_it_lacks
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_prompt_held_for_a_switch_asks_of_the_conversation_it_will_run_in
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_provider_switch_drops_the_old_bundle_and_keeps_the_conversation
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_provider_switch_keeps_the_mode_the_person_chose
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_query_with_no_catalog_in_hand_loads_it_retrying_a_failure_and_tells_the_ui
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_question_asked_after_a_new_is_the_next_conversations
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_real_tui_conversation_can_ask_the_user_a_question
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_refused_workspace_change_changes_nothing
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_rename_is_answered_once_by_what_became_of_its_write
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_reset_between_turns_drops_what_waits_and_then_says_the_conversation_is_gone
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_reset_is_ask_and_no_grants_and_says_so_to_the_board
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_reset_is_written_down_so_a_resume_does_not_bring_the_grants_back
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_reset_or_a_resume_leaves_the_changes_before_it_behind
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_reset_that_drops_the_conversation_takes_its_reply_with_it
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_resume_puts_back_the_effort_and_the_speed_the_session_recorded
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_resume_puts_back_the_first_saves_settings_and_nothing_it_does_not_restore
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_save_a_higher_layer_outranks_or_that_fails_says_so_after_the_switch
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_saved_directory_swapped_for_a_link_is_out_of_the_next_turn
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_session_that_has_asked_nothing_has_nothing_to_undo
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_session_with_no_home_runs_unsaved_and_says_so
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_speed_change_is_applied_recorded_and_saved_and_one_overtaken_by_a_switch_is_not
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_speed_change_saves_what_upstream_saves_beside_it_under_a_model_override
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_speed_the_band_saved_before_a_model_change_this_thread_saves_later_is_still_the_files
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_speed_written_again_after_a_model_change_says_nothing_of_a_save_that_landed
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_store_that_refuses_the_session_is_a_shell_that_cannot_save_until_one_opens
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_title_for_a_conversation_let_go_of_names_neither_it_nor_the_next
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_title_runtime_answers_a_forced_catalog_read_from_its_stand_in
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_title_that_comes_after_a_rename_the_turn_put_aside_is_dropped
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_title_that_comes_back_mid_turn_is_shown_then_and_written_when_the_turn_ends
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_turn_is_in_the_published_count_before_the_ui_is_told_it_ended
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_turn_publishes_the_reply_before_its_conclusion_is_sent
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_turns_start_names_its_submission_past_the_work_a_stop_dropped
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_users_title_is_kept_and_only_the_derived_one_is_replaced
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_workspace_change_is_saved_and_in_force_from_the_next_turn
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_write_that_fails_leaves_the_change_applied_and_says_so
+GUARD gateway::Endpoint::from_process tui::worker::tests::an_answer_before_the_conversation_opens_waits_for_it_and_is_shown_at_once
+GUARD gateway::Endpoint::from_process tui::worker::tests::an_effort_alone_moves_the_sessions_effort_and_writes_effort_and_nothing_else
+GUARD gateway::Endpoint::from_process tui::worker::tests::an_effort_given_before_a_held_pick_ends_on_the_picks_level
+GUARD gateway::Endpoint::from_process tui::worker::tests::an_effort_given_while_a_turn_runs_reaches_only_the_next_request
+GUARD gateway::Endpoint::from_process tui::worker::tests::an_effort_the_band_saved_after_a_model_change_held_behind_a_turn_is_still_the_files
+GUARD gateway::Endpoint::from_process tui::worker::tests::between_turns_a_rename_is_written_into_the_session_it_was_typed_in
+GUARD gateway::Endpoint::from_process tui::worker::tests::every_pick_writes_upstreams_fields_and_a_row_with_levels_takes_the_sessions_effort
+GUARD gateway::Endpoint::from_process tui::worker::tests::renames_put_aside_land_on_either_side_of_the_reset_they_were_typed_around
+GUARD gateway::Endpoint::from_process tui::worker::tests::resuming_from_the_picker_swaps_the_conversation_and_refuses_a_held_one_at_once
+GUARD gateway::Endpoint::from_process tui::worker::tests::rules_held_before_the_first_prompt_are_its_sessions_and_decide_its_first_call
+GUARD gateway::Endpoint::from_process tui::worker::tests::rules_held_for_a_session_the_store_refuses_go_with_the_next_one
+GUARD gateway::Endpoint::from_process tui::worker::tests::rules_held_past_what_a_store_may_hold_refuse_the_prompt_run_nothing_and_stay_held
+GUARD gateway::Endpoint::from_process tui::worker::tests::settings_chosen_before_the_first_prompt_are_written_with_its_first_save
+GUARD gateway::Endpoint::from_process tui::worker::tests::status_names_the_session_the_first_prompt_opens_before_the_store_holds_it
+GUARD gateway::Endpoint::from_process tui::worker::tests::the_desk_asks_nothing_when_no_provider_was_validly_chosen
+GUARD gateway::Endpoint::from_process tui::worker::tests::the_desk_asks_only_on_the_gateway_with_a_key
+GUARD permission::LinkBase::from_environment tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation
+GUARD permission::LinkBase::from_environment tui::worker::tests::the_historys_images_wait_at_the_image_route_and_not_at_the_turns_start
+GUARD gateway::Endpoint::from_process tui::worker::tests::the_runtime_publishes_what_it_is_the_moment_it_starts_publishing
+GUARD gateway::Endpoint::from_process tui::worker::tests::trace_names_the_session_a_failed_question_was_about
