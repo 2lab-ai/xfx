@@ -336,6 +336,47 @@
    55          const count: i64 = @intCast(self.option_count);
    56          self.selected = @intCast(@mod(@as(i64, @intCast(self.selected)) + delta, count));
    57      }
+== src/core/slash_commands/command_specs.zig:578-585@481104fd
+  578  pub fn slashCompletionCount(registry: SlashRegistry, prefix: []const u8) usize {
+  579      if (runtimeArgQuery(registry, prefix)) |query| {
+  580          var count: usize = 0;
+  581          for (registry.arguments) |entry| {
+  582              if (runtimeArgMatches(registry, entry.full, query)) count += 1;
+  583          }
+  584          return count;
+  585      }
+== src/core/slash_commands/command_specs.zig:876-889@481104fd
+  876  fn runtimeArgCommand(registry: SlashRegistry) []const u8 {
+  877      const first = registry.arguments[0].full;
+  878      return first[0 .. std.mem.findScalar(u8, first, ' ') orelse first.len];
+  879  }
+  880  
+  881  /// What follows the command the app's completions are for, untrimmed at
+  882  /// the end so a finished word moves on to the next one.
+  883  fn runtimeArgQuery(registry: SlashRegistry, prefix: []const u8) ?[]const u8 {
+  884      if (registry.arguments.len == 0) return null;
+  885      const command = runtimeArgCommand(registry);
+  886      if (!std.mem.startsWith(u8, prefix, command) or prefix.len == command.len) return null;
+  887      if (prefix[command.len] != ' ') return null;
+  888      return std.mem.trimStart(u8, prefix[command.len..], " ");
+  889  }
+== src/main.zig:441-445@481104fd
+  441      pub fn slashRegistry(self: *const Self) command_specs.SlashRegistry {
+  442          var registry = builtin_commands.slash_registry;
+  443          registry.arguments = self.mcp.host_completion;
+  444          return registry;
+  445      }
+== src/core/app/app_mcp_runtime.zig:459-468@481104fd
+  459      const verb_completions = [_]mod_registry.ArgumentCompletion{
+  460          .{ .full = "/mcp list", .description = "configured servers" },
+  461          .{ .full = "/mcp show", .description = "connect to a server and list its tools" },
+  462          .{ .full = "/mcp add", .description = "add a server" },
+  463          .{ .full = "/mcp remove", .description = "remove a server and its login" },
+  464          .{ .full = "/mcp login", .description = "sign in to an HTTP server" },
+  465          .{ .full = "/mcp logout", .description = "sign out of an HTTP server" },
+  466          .{ .full = "/mcp approve", .description = "approve a project server" },
+  467          .{ .full = "/mcp reject", .description = "reject a project server" },
+  468      };
 == callers of inputRowLimit / cappedInputRows at 481104fd
 src/core/app/input_completion_runtime.zig:223:                input_presentation.inputRowLimit(app.shell.layout.content_bottom)
 src/core/app/input_completion_runtime.zig:250:            const capped = input_presentation.cappedInputRows(

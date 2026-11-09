@@ -20,13 +20,15 @@ that backs it.
 | `c4558b2f` | RED: the unit test on the function at its boundary heights, one case per page surface at 41 rows, the provider column and the cap at 8 rows; scenario `p5-input-row-limit` |
 | `053714d6` | the fix (`src/tui/layout.rs`), `docs/parity.md`, the ledger's shifted `shell.rs` refs; scenarios `p5-input-row-limit` (caret lines) and `p5-input-row-limit-short` |
 | `d2e81c93` | scenario `p5-input-row-limit-menus` and its thirty-model catalog -- **the head's build** |
-| (receipt commit) | this folder |
+| `8baf0154`, `fc1d64f4` | this folder: the pairs, carets, marks, mutants, callers and fx's lines; then the gate, the sweeps and the README |
+| (round 2) | this folder (`refs.txt`, `fx-src.txt`, the README) and `docs/parity.md`: the reviews' receipt and docs fixes, no code |
 
 **Builds.** The base's debug build (`v0.1.0-32afd30`, sha256 `1756f4fa…`) and
 the head's, built after the commit `d2e81c93` (`v0.1.0-d2e81c9`, sha256
 `546468cf…`). Row 1 of every capture in `xfx-base/` and `xfx/` names its
-build (`pairs.txt`, first two lines). The commits after `d2e81c93` add only
-this folder.
+build (`pairs.txt`, first two lines). The commits after `d2e81c93` change
+only this folder and, in round 2, `docs/parity.md` -- no code, so the build
+stands for every later commit.
 
 ## What fx v0.0.16 does (every line quoted in `fx-src.txt`, made by `fx_src.sh`)
 
@@ -82,18 +84,30 @@ each xfx call is in.
   sign alone; xfx's `offer_to_mcp` maps PgUp and PgDn to Up and Down), so it
   is not a caller. Ctrl-O's full transcript pages by its own height on both
   sides, so it is not one either.
-- **fx pages two more lists by the limit, which xfx binds no page key on.**
+- **fx pages three more lists by the limit, which xfx binds no page key on.**
   These are `/settings`' menu and its model list (`routeSettingsMenuMove`,
-  :431-463) and the `/model ` column with its effort and speed stages
-  (`navigateModelPicker`, :1072-1096). xfx's `SettingsAction::of` names no
-  page key (`src/tui/settings.rs:539-551`), and neither does
-  `offer_to_column`'s key set. That is a missing binding, not a wrong limit,
+  :431-463); the `/model ` column with its effort and speed stages
+  (`navigateModelPicker`, :1072-1096); and `/mcp `'s argument completions.
+  The last is a slash list in fx: `slashCompletionCount` counts the
+  registry's `arguments` (`command_specs.zig:578-585`, `runtimeArgQuery`
+  `:876-889`), which are `/mcp`'s verbs and servers (`main.zig:441-445`;
+  the first is `/mcp list`, `app_mcp_runtime.zig:459-468`, so
+  `runtimeArgCommand` is `/mcp`), and the slash list pages by `picker_delta`
+  (:255-260). xfx's `SettingsAction::of` names no page key
+  (`src/tui/settings.rs:539-551`), and neither does `offer_to_column`'s key
+  set or `offer_to_mcp_args` (Up, Down, `C-j`/`C-k`, Tab, Enter, Escape only). That is a missing binding, not a wrong limit,
   so it is out of this unit. It is now stated in `docs/parity.md` with an
   owner, PAGE-KEYS-SETTINGS-COLUMN (see Open). fx's auth picker
   (`routeAuthPickerMove`) has no xfx surface.
-- The six test callers at the base (`layout.rs:389-391`, `shell.rs:20318`,
-  `20395`, `22146`, `34676`, `42319`) compute their expectations from the
-  function, and they pass on the head as they are (the gate).
+- The six test callers at the base, and what became of each:
+  - `layout.rs:389-391` asserted the old values as literals (6 rows → 2 among
+    them); they are rewritten as fx's boundary table;
+  - `shell.rs:20318` asserts a literal 5 at 12 rows and `34676` a literal 11
+    at 24, which fx's limit gives too (8 / 2 + 1, 20 / 2 + 1);
+  - `20395`, `22146` and `42319` compute their expectations from the
+    function.
+  
+  All but the first pass on the head unchanged (the gate).
 
 ## The fix
 
@@ -102,7 +116,7 @@ each xfx call is in.
 of them move at once: one function, about twenty lines of source, and no
 caller edited. The old one was `(rows - 3) / 2 + 1`. That is one row more at
 every odd height from 9 up (20 at 41 rows, where fx's is 19), and two more at
-8 rows, where fx's is 1. At even heights from 10 up the two agree, which is
+7 rows (`MIN_ROWS`) and at 8, where fx's is 1. At even heights from 10 up the two agree, which is
 why no 40x120 capture has ever shown it.
 
 ## RED (`red-unit.txt`; pairs: `pairs.txt` column `base`)
@@ -147,8 +161,8 @@ why no 40x120 capture has ever shown it.
     the same 9 rows as `help`. On the base it was 21, because its window
     scrolled one row further.
   - `slash-pgdn`'s counter reads `15–20` on fx and the head (`16–21` on the
-    base), with the mark on row 12. Its 7 rows on the head are the commands
-    that sit 15th to 20th in each list.
+    base), with the mark on row 12. Its 7 rows on the head are the `Commands 38`
+    / `34` header and 6 command rows, the 15th to 20th of each list.
 - **Unit** (`green-unit.txt`): the 11 cases pass on the head.
 
 ## Mutants (`mutants.txt`, made by `mutants.py`)
@@ -210,11 +224,15 @@ and `compare.py`, added after `8baf0154`.
 ## `docs/parity.md` and the ledger
 
 - `full-screen TUI` row: the composer's cap is now stated as fx's
-  `inputRowLimit`, with the numbers at 41 and 8 rows. The page-key sentence
-  now cites `routeComposerVertical`'s `picker_delta` and this receipt's
-  pairs. It names `/settings`' menu and the `/model ` column as fx lists xfx
-  binds no page key on, with an owner, and says `/mcp`'s menu takes a page
-  as one step, as fx's does.
+  `inputRowLimit`, with the numbers at 41 and 8 rows (`-41x120-grown`,
+  `-short-8x120-grown`). The page-key sentence now cites
+  `routeComposerVertical`'s `picker_delta` and this receipt's pairs. It names
+  three fx lists xfx binds no page key on -- `/settings`' menu, the `/model `
+  column and `/mcp `'s argument completions (round 2) -- with an owner, and
+  says `/mcp`'s menu takes a page as one step, as fx's does.
+- `/effort` row (round 2): "upstream's page keys there are uncaptured" is
+  now what `-menus-41x120-effort-pgdn` shows: PgDn from `default` lands on
+  `xhigh`, 19 round five levels.
 - `@` file picker row: "the page itself is unit INPUT-ROW-LIMIT's" is now
   fx's `inputRowLimit`, 19 rows at 41.
 - **The ledger retires no cause.** No `[[cause]]` in
@@ -226,10 +244,11 @@ and `compare.py`, added after `8baf0154`.
 
 ## Open
 
-- **PAGE-KEYS-SETTINGS-COLUMN** (proposed): bind PgUp and PgDn in
-  `/settings`' menu (and its model list) and in the `/model ` column's three
-  stages, by `input_row_limit`, as fx does (`input_completion_runtime.zig:
-  431-463`, `:1072-1096@481104fd`). It is a new binding with its own
-  captures, so it was left out of this unit.
+- **PAGE-KEYS-SETTINGS-COLUMN** (queued by the dispatcher): bind PgUp and
+  PgDn in `/settings`' menu (and its model list), in the `/model ` column's
+  three stages and in `/mcp `'s argument completions, by `input_row_limit`,
+  as fx does (`input_completion_runtime.zig:431-463`, `:1072-1096`,
+  `:255-260@481104fd`). It is a new binding with its own captures, so it was
+  left out of this unit.
 - The `/help` and slash-menu pairs stay apart until the command set matches
   (`marks.txt` shows the page itself agrees).

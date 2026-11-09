@@ -24,5 +24,9 @@ q src/core/app/input_completion_runtime.zig 1072 1096
 q src/ui/footer/surface_frame.zig 437 441
 q src/ui/input/visual_layout.zig 682 688
 q src/core/input/effort_menu.zig 53 57
+q src/core/slash_commands/command_specs.zig 578 585
+q src/core/slash_commands/command_specs.zig 876 889
+q src/main.zig 441 445
+q src/core/app/app_mcp_runtime.zig 459 468
 echo "== callers of inputRowLimit / cappedInputRows at $rev"
 git -C "$fx" grep -n "inputRowLimit\|cappedInputRows" "$rev" -- src | sed "s/^$rev://"
