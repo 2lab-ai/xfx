@@ -1,63 +1,110 @@
-# The look-ahead's superset at c4354ec7 (git archive of the commit): every line under src/ and tests/ matching
-#   \.checked_sub\(|\.saturating_sub\(|\.(checked_)?duration_since\(|\s-\s*(std::time::)?Duration::|-=|backdate_(for_test|catalog)\(|catalog_due_ago\(
-# outside a `//` comment; then those that are not young-scan-c4354ec7.txt's sites and name a time ([Dd]uration|Instant|now|elapsed|deadline|clock|since|time|secs|millis|_at\b|\bat\b|began|due|catalog|ago\b), each with its class, read
-# 502 lines; 40 of them the scan's 40 sites; 462 others, 54 naming a time (below); the 408 naming none taken as integer arithmetic
-## integer arithmetic on rows, columns, bytes, indices or counts (a name such as `at`, `now`, `start`): 27
-    src/usage.rs:57:                at -= 1;
-    src/tui/full_transcript.rs:1991:            rows.copy(start.saturating_sub(at), end - at, &mut out);
-    src/tui/check.rs:2391:            let previous = column.checked_sub(1).and_then(|at| {
-    src/tui/model_menu.rs:374:        self.window_start = (window_start + at).saturating_sub(selected);
-    src/tui/fault.rs:260:    at.max(1).min(len.saturating_sub(1).max(1))
-    src/tui/shell.rs:10133:        let (reopen, mut body) = chunk.split_at(chunk.len().saturating_sub(consumed));
-    src/tui/shell.rs:10158:                .map_or(body.len(), |(at, _)| at.saturating_sub(self.emitted));
-    src/tui/session_picker.rs:431:                now.saturating_sub(1)
-    src/tui/history.rs:180:                let Some(wanted) = at.checked_sub(1) else {
-    src/tui/editor.rs:944:                if at.saturating_sub(span.start) <= span.end.saturating_sub(at) {
-    src/tui/editor.rs:1107:        let at = self.cursor.checked_sub(1)?;
-    src/tui/approval_screen.rs:467:        let mut caret = (marked.map_or(height.saturating_sub(1), |at| top + at), 0u16);
-    src/tui/edit_history.rs:235:                        start: span.start.saturating_sub(delta.at()),
-    src/tui/edit_history.rs:236:                        end: span.end.saturating_sub(delta.at()),
-    src/tui/mcp_menu.rs:815:                    Key::Up => rows[at.saturating_sub(1)].name.clone(),
-    src/mcp/catalog.rs:174:        kept -= 1;
-    src/mcp/catalog.rs:245:        end -= 1;
-    src/mcp/catalog.rs:417:        budget -= size;
-    src/mcp/catalog.rs:792:    let mut keep = max_bytes.saturating_sub(marker.len());
-    src/mcp/catalog.rs:794:        keep -= 1;
-    src/mcp/runtime.rs:102:        let doublings = u32::from(failed.saturating_sub(1).min(5));
-    src/mcp/runtime.rs:649:            self.live().closing -= 1;
-    src/mcp/runtime.rs:2457:    let start = lines.len().saturating_sub(STDERR_TAIL_LINES);
-    src/mcp/runtime.rs:2477:        end -= 1;
-    src/skills/catalog.rs:342:    let mut available = limit.saturating_sub(minimum);
-    src/skills/catalog.rs:357:            available -= spent;
-    src/skills/catalog.rs:446:        cut -= 1;
-## the wall clock (UNIX_EPOCH, *_ms), not boot-relative: 13
-    src/tui/full_transcript.rs:372:        .duration_since(UNIX_EPOCH)
-    src/tui/usage_menu.rs:500:            .map(|at| ago_text(self.snapshot.now_ms.saturating_sub(at)));
-    src/tui/session_picker.rs:957:    let delta = now_ms.saturating_sub(updated_at_ms).max(0);
-    src/usage/clock.rs:121:        ms.saturating_sub(crate::session::event::system_now_ms())
-    src/usage/cache/tests.rs:1390:        .duration_since(std::time::UNIX_EPOCH)
-    src/usage/policy.rs:59:    now_ms < at || now_ms.saturating_sub(at) >= n
-    src/mcp/docker.rs:110:            .duration_since(std::time::UNIX_EPOCH)
-    src/skills/install.rs:363:            .duration_since(std::time::UNIX_EPOCH)
-    src/permission/session_rules.rs:791:            .duration_since(std::time::UNIX_EPOCH)
-    src/session/event.rs:694:        .duration_since(UNIX_EPOCH)
-    src/session/event.rs:716:    match SystemTime::now().duration_since(UNIX_EPOCH) {
-    src/permission/authority.rs:128:                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-    tests/tui.rs:5988:        .duration_since(std::time::UNIX_EPOCH)
+# The look-ahead's superset at c4354ec7 (git archive of the commit; round 4: round 3's pattern plus every binary minus of a name or constant, `.rs` files only): every line under src/ and tests/ matching
+#   \.checked_sub\(|\.saturating_sub\(|\.(checked_)?duration_since\(|\s-\s*(std::time::)?Duration::|-=|backdate_(for_test|catalog)\(|catalog_due_ago\(|\s-\s+[A-Za-z_]
+# outside a `//` comment; then those that are not young-scan-c4354ec7.txt's sites and name a time ([Dd]uration|Instant|now|elapsed|deadline|clock|since|time|secs|millis|_at\b|\bat\b|began|due|catalog|ago\b|until|expires|answered|not_before|quiet|t0) in the path or the line, each with its class, read
+# 989 lines; 42 of them the scan's 42 sites; 947 others, 100 naming a time (below); the 847 naming none taken as integer arithmetic
+## integer arithmetic on rows, columns, bytes, indices or counts (a name such as `at`, `now`, `start`): 68
+    src/usage.rs:57:at -= 1;
+    src/tui/approval_screen.rs:467:let mut caret = (marked.map_or(height.saturating_sub(1), |at| top + at), 0u16);
+    src/tui/approval_view.rs:1650:let at = painted.end - painted.cluster.len();
+    src/tui/check.rs:2391:let previous = column.checked_sub(1).and_then(|at| {
+    src/tui/check.rs:2535:let length = end + 1 - at;
+    src/tui/check.rs:2921:Ok(end + terminator - at)
+    src/tui/edit_history.rs:235:start: span.start.saturating_sub(delta.at()),
+    src/tui/edit_history.rs:236:end: span.end.saturating_sub(delta.at()),
+    src/tui/editor.rs:944:if at.saturating_sub(span.start) <= span.end.saturating_sub(at) {
+    src/tui/editor.rs:1107:let at = self.cursor.checked_sub(1)?;
+    src/tui/editor.rs:1394:.map_or(at, |cluster| at - cluster.len())
+    src/tui/event_loop.rs:4035:rows_end < at && at < len - CLOSES.len(),
+    src/tui/event_loop.rs:15379:&& landed_at < retried.len() - frame.len(),
+    src/tui/event_loop.rs:18227:let taken = buffer.len().min(self.bytes.len() - at);
+    src/tui/fault.rs:260:at.max(1).min(len.saturating_sub(1).max(1))
+    src/tui/full_transcript.rs:1315:out.push(run.row(index - at).into_owned());
+    src/tui/full_transcript.rs:1991:rows.copy(start.saturating_sub(at), end - at, &mut out);
+    src/tui/history.rs:180:let Some(wanted) = at.checked_sub(1) else {
+    src/tui/mcp_menu.rs:450:top = at + 1 - shown;
+    src/tui/mcp_menu.rs:815:Key::Up => rows[at.saturating_sub(1)].name.clone(),
+    src/tui/mcp_menu.rs:1229:let at = line - layout.lead;
+    src/tui/mcp_menu.rs:1278:let after = at - choices.len();
+    src/tui/model_menu.rs:374:self.window_start = (window_start + at).saturating_sub(selected);
+    src/tui/prose.rs:269:let at = painted.end - painted.cluster.len();
+    src/tui/prose.rs:411:let at = end - cluster.len();
+    src/tui/prose.rs:424:self.tabs.push((at, self.col - was));
+    src/tui/prose.rs:461:&& self.fits(self.col - previous.col_end, at)
+    src/tui/prose.rs:529:return Some(end + copies * (end - at));
+    src/tui/prose.rs:695:let at = self.painted.end - cluster.len();
+    src/tui/session_picker.rs:431:now.saturating_sub(1)
+    src/tui/shell.rs:2148:let at = line.len() - rest.len();
+    src/tui/shell.rs:10133:let (reopen, mut body) = chunk.split_at(chunk.len().saturating_sub(consumed));
+    src/tui/shell.rs:10158:.map_or(body.len(), |(at, _)| at.saturating_sub(self.emitted));
+    src/tui/shell.rs:13745:.map(|run| run.start - at..run.end - at)
+    src/tui/shell.rs:13999:- text[at..]
+    src/tui/toolgroup.rs:1055:bytes[..COMMAND_SOURCE_BYTES - at]
+    src/tui/transcript.rs:1780:let (shown, spaces) = shown.split_at(shown.len() - hung);
+    src/tui/transcript.rs:1819:let at = painted.end - painted.cluster.len();
+    src/tui/wrap.rs:414:let at = end - cluster.len();
+    src/tui/wrap.rs:532:let at = painted.end - painted.cluster.len();
+    src/tui/wrap.rs:1022:stop.min(screen) - at
+    src/tui/wrap.rs:2335:assert_eq!(after - start, 1, "{text:?} at {end}: {unit:?}");
+    src/tui/wrap.rs:2339:let at = end - cluster.len();
+    src/mcp/catalog.rs:173:while kept > 0 && !fits(&entries[..kept], &marker(entries.len() - kept)) {
+    src/mcp/catalog.rs:174:kept -= 1;
+    src/mcp/catalog.rs:179:marker(entries.len() - kept)
+    src/mcp/catalog.rs:245:end -= 1;
+    src/mcp/catalog.rs:322:if identity.is_empty() || identity.len() > raw.len() - start {
+    src/mcp/catalog.rs:417:budget -= size;
+    src/mcp/catalog.rs:555:let normalization = 1.0 - B + B * length as f64 / average;
+    src/mcp/catalog.rs:585:let idf = (1.0 + (n as f64 - df as f64 + 0.5) / (df as f64 + 0.5)).ln();
+    src/mcp/catalog.rs:792:let mut keep = max_bytes.saturating_sub(marker.len());
+    src/mcp/catalog.rs:794:keep -= 1;
+    src/mcp/catalog.rs:979:inside += usize::from(!text.is_char_boundary(cap - marker.len()));
+    src/mcp/runtime.rs:102:let doublings = u32::from(failed.saturating_sub(1).min(5));
+    src/mcp/runtime.rs:649:self.live().closing -= 1;
+    src/mcp/runtime.rs:2457:let start = lines.len().saturating_sub(STDERR_TAIL_LINES);
+    src/mcp/runtime.rs:2477:end -= 1;
+    src/mcp/runtime.rs:2487:let mut start = text.len() - max;
+    src/skills/catalog.rs:201:skills.len() - visible.len()
+    src/skills/catalog.rs:210:let roots = diagnostics.len() - candidates;
+    src/skills/catalog.rs:327:let omitted = format!("Omitted skills: {}.\n", entries.len() - index - 1);
+    src/skills/catalog.rs:335:marker = format!("Omitted skills: {}.\n", entries.len() - retained);
+    src/skills/catalog.rs:342:let mut available = limit.saturating_sub(minimum);
+    src/skills/catalog.rs:357:available -= spent;
+    src/skills/catalog.rs:408:format!(", +{} more", omitted.len() - OMITTED_NAMES)
+    src/skills/catalog.rs:446:cut -= 1;
+    src/skills/catalog.rs:695:assert_eq!(marker, format!("Omitted skills: {}.", 200 - listed));
+## the wall clock (UNIX_EPOCH, *_ms, an i64 of ms), not boot-relative: 15
+    src/tui/full_transcript.rs:372:.duration_since(UNIX_EPOCH)
+    src/tui/session_picker.rs:957:let delta = now_ms.saturating_sub(updated_at_ms).max(0);
+    src/tui/usage_menu.rs:500:.map(|at| ago_text(self.snapshot.now_ms.saturating_sub(at)));
+    src/usage/clock.rs:121:ms.saturating_sub(crate::session::event::system_now_ms())
+    src/usage/policy.rs:59:now_ms < at || now_ms.saturating_sub(at) >= n
+    src/usage/policy.rs:207:let back = t0 - HOUR_MS;
+    src/usage/cache/tests.rs:460:finished: finished(day - 1, now - DAY_MS, 1.0, 1.0),
+    src/usage/cache/tests.rs:1390:.duration_since(std::time::UNIX_EPOCH)
+    src/mcp/docker.rs:110:.duration_since(std::time::UNIX_EPOCH)
+    src/skills/install.rs:363:.duration_since(std::time::UNIX_EPOCH)
+    src/permission/authority.rs:128:.and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+    src/permission/session_rules.rs:791:.duration_since(std::time::UNIX_EPOCH)
+    src/session/event.rs:694:.duration_since(UNIX_EPOCH)
+    src/session/event.rs:716:match SystemTime::now().duration_since(UNIX_EPOCH) {
+    tests/tui.rs:5988:.duration_since(std::time::UNIX_EPOCH)
 ## the definitions (the scan lists their callers): 7
-    src/tui/worker.rs:17177:    fn backdate_catalog(state: &mut Runtime, by: Duration) {
-    src/tui/event_loop.rs:2589:    fn catalog_due_ago(ago: Duration) -> crate::provider::catalog_clock::CatalogDue {
-    src/provider/model.rs:2397:    pub(crate) fn backdate_for_test(&mut self, by: Duration) {
-    src/provider/model.rs:2400:                at.checked_sub(by).expect(
-    src/provider/catalog_clock.rs:35:        self.0.checked_sub(earlier.0)
-    src/provider/catalog_clock.rs:41:        self.0.checked_sub(by).map(Self)
-    src/provider/catalog_clock.rs:57:        Self(self.0.saturating_sub(by))
+    src/tui/event_loop.rs:2589:fn catalog_due_ago(ago: Duration) -> crate::provider::catalog_clock::CatalogDue {
+    src/tui/worker.rs:17177:fn backdate_catalog(state: &mut Runtime, by: Duration) {
+    src/provider/catalog_clock.rs:35:self.0.checked_sub(earlier.0)
+    src/provider/catalog_clock.rs:41:self.0.checked_sub(by).map(Self)
+    src/provider/catalog_clock.rs:57:Self(self.0.saturating_sub(by))
+    src/provider/model.rs:2397:pub(crate) fn backdate_for_test(&mut self, by: Duration) {
+    src/provider/model.rs:2400:at.checked_sub(by).expect(
 ## a span left to wait, or Duration constants (no reading goes back): 4
-    src/process.rs:341:        read.recv_timeout(limit.saturating_sub(started.elapsed()))
-    src/tui/gesture.rs:377:                EXIT_WINDOW - Duration::from_millis(1),
-    src/tui/probe.rs:474:        let Some(left) = deadline.checked_duration_since(Instant::now()) else {
-    src/tui/permissions.rs:428:                    .saturating_sub(now.saturating_duration_since(started));
+    src/process.rs:341:read.recv_timeout(limit.saturating_sub(started.elapsed()))
+    src/tui/gesture.rs:377:EXIT_WINDOW - Duration::from_millis(1),
+    src/tui/permissions.rs:428:.saturating_sub(now.saturating_duration_since(started));
+    src/tui/probe.rs:474:let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+## a difference of two readings (it measures; nothing goes back): `at - t0` on Instants, a thread CPU time: 3
+    src/tui/input.rs:3881:assert!(decoder.quarantined(), "ended {:?} in", at - t0);
+    src/tui/input.rs:3886:assert!(at - t0 >= Decoder::PASTE_QUIET);
+    src/markdown/tests/mod.rs:102:let elapsed = thread_cpu_time() - started;
 ## FakeMachine's own bookkeeping, or a forward reading in a test: 3
-    src/provider/catalog_clock.rs:189:        machine.slept -= from_slept;
-    src/provider/catalog_clock.rs:190:        machine.awake = machine.awake.saturating_sub(by - from_slept);
-    src/provider/catalog_clock.rs:315:            clock.now().checked_duration_since(before),
+    src/provider/catalog_clock.rs:189:machine.slept -= from_slept;
+    src/provider/catalog_clock.rs:190:machine.awake = machine.awake.saturating_sub(by - from_slept);
+    src/provider/catalog_clock.rs:315:clock.now().checked_duration_since(before),

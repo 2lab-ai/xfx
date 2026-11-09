@@ -38,5 +38,7 @@ src/tui/shell.rs:50963	tests	minus net forward system catalog	0.001 s	a_refresh_
 src/tui/worker.rs:11798	tests	minus system catalog	0.001 s	the_sessions_own_read_failing_mid_work_is_read_again_once_its_backoff_is_up	let inside = retry_at.at - Duration::from_millis(1);
 src/provider/model.rs:4557	tests	minus system catalog	1e-09 s	activity_is_due_exactly_when_the_clock_says_it_is	!clock.due(held, LoadTrigger::Activity, due - Duration::from_nanos(1)),
 src/tui/event_loop.rs:2593	tests	checked_sub system catalog		catalog_due_ago	.checked_sub(ago)
+src/tui/input.rs:3290	tests	minus net forward system Instant		a_quarantine_ends_only_after_two_empty_checks_a_quiet_period_apart	deliver_at(&mut decoder, &mut out, t0 + quiet - ms),
+src/tui/input.rs:3296	tests	minus net forward system Instant		a_quarantine_ends_only_after_two_empty_checks_a_quiet_period_apart	decoder.feed(b'x', t0 + quiet - ms, &mut out);
 src/tui/worker.rs:17178	tests	backdate system catalog		backdate_catalog	state.selector.backdate_for_test(by);
-# 40 sites; outside tests modules: 0; in tests going back more than 60 s on the system clock: 0; more than 10 s on it: 0
+# 42 sites; outside tests modules: 0; in tests going back more than 60 s on the system clock: 0; more than 10 s on it: 0; minus sites of a length not written as a literal (read each): 2; differences of two readings, not listed: 0

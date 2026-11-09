@@ -15,13 +15,22 @@ less than that long ago has no such reading:
   than a second back (`ci-young-clock.txt`). `net forward`: X adds a span to
   a reading first (`now + WINDOW - D`), or its name was bound to one
   (`Instant::now() + 3600 s`);
+- round 4: `X - C` and `X - name` (C a constant, name a binding), with X a
+  time -- a reading, a name the function binds to one or declares `Instant`
+  / `CatalogTime`, or a field so declared that no file also declares an
+  integer -- and the right operand not one (a difference of two readings
+  measures: counted in the summary, not listed). Its limit: a time held
+  under a name that is neither (a parameter of another type, a tuple's
+  `.0`) is not seen; two direct greps stand beside it
+  (`young-superset-c4354ec7.txt`);
 - `backdate_for_test(D)` / `backdate_catalog(.., D)` (`checked_sub(..)
   .unwrap_or(at)`: past the origin it leaves the time where it was);
 - a call, with a literal duration, of a helper whose own site above takes
   its duration as a parameter (`catalog_due_ago(ago)`, `backdate_catalog(..,
   by)`): kind `via <helper>`.
 
-Each with its file:line, whether it is in a tests module (or `#[cfg(test)]`),
+Each with its file:line, whether it is in a file's `mod tests` (anything
+before it counts as code, a `#[cfg(test)]` fn included),
 the duration as written and in seconds where it is a literal, and the
 enclosing function.
 
@@ -36,6 +45,45 @@ READING = re.compile(r"(Instant::now\(\)|catalog_now\(\)|clock\.now\(\)|\bnow\(\
 DUR = re.compile(r"Duration::from_(secs|millis|micros|nanos)\((\d[\d_]*)(?:\s*\*\s*(\d[\d_]*))?\)|REFRESH_INTERVAL|failure_backoff\(\d+\)")
 UNIT = {"secs": 1, "millis": 1e-3, "micros": 1e-6, "nanos": 1e-9}
 MINUS = re.compile(r"\s-\s*(?:std::time::|crate::provider::model::)?(?:Duration::|REFRESH_INTERVAL)")
+# Round 4: `X - C` and `X - name` too -- any binary minus (spaces both sides,
+# as rustfmt writes it) whose left operand is a time: a reading, a name the
+# function binds to one or declares `Instant` / `CatalogTime`, or a field any
+# file declares so and none declares an integer; one whose right operand is a time as well is a
+# difference of two readings (it measures, it goes back from nothing): counted, not listed.
+TIME_TYPE = r"(?:std::time::)?Instant|(?:crate::provider::catalog_clock::)?CatalogTime"
+WIDE = re.compile(r"(?<![-=<>!+*/&|])\s-\s+((?:[A-Za-z_][A-Za-z_0-9]*::)*[A-Za-z_][A-Za-z_0-9]*(?:\.[a-z_][a-z_0-9]*)*(?:\([^()]*\))?)")
+TYPED = r"\s*:\s*(?:Option<\s*)?(?:&\s*)?(?:" + TIME_TYPE + r")\b"
+TIME_FIELDS, INT_NAMES = set(), set()
+for _base in ("src", "tests"):
+    for _dir, _, _names in os.walk(os.path.join(root, _base)):
+        for _name in _names:
+            if _name.endswith(".rs"):
+                _text = open(os.path.join(_dir, _name), encoding="utf-8").read()
+                for _m in re.finditer(r"\b([a-z_][a-z_0-9]*)" + TYPED, _text):
+                    TIME_FIELDS.add(_m.group(1))
+                for _m in re.finditer(r"\b([a-z_][a-z_0-9]*)\s*:\s*(?:&\s*)?(?:usize|isize|[ui](?:8|16|32|64|128)|f32|f64)\b", _text):
+                    INT_NAMES.add(_m.group(1))
+TIME_FIELDS -= INT_NAMES  # a name some struct or binding also gives an integer (`start`, `last`) says nothing
+
+
+def is_time(expr, lines, fn_at, i):
+    e = expr.strip()
+    if READING.search(e):
+        return True
+    field = re.search(r"\.([a-z_][a-z_0-9]*)\s*$", e)
+    if field and field.group(1) in TIME_FIELDS:
+        return True
+    first = re.match(r"([a-z_][a-z_0-9]*)\b(?!\.)", e)
+    return bool(first and any(
+        re.search(r"let\s+(?:mut\s+)?" + first.group(1) + r"\s*=.*" + READING.pattern, l)
+        or re.search(r"\b" + first.group(1) + TYPED, l) for l in lines[fn_at:i + 1]))
+
+
+def left_of(code, at):
+    return re.split(r"[(,{!]|=\s|\breturn\b", code[:at])[-1]
+
+
+differences = 0
 
 
 def seconds(text):
@@ -91,12 +139,22 @@ for base in ("src", "tests"):
                     if " + " in left or (first and any(
                             re.search(r"let\s+" + first.group(1) + r"\s*=.*\+", l) for l in lines[fn_at:i])):
                         kind = "minus net forward"
+                elif (wide := next((w for w in WIDE.finditer(code) if is_time(left_of(code, w.start()), lines, fn_at, i)), None)):
+                    left = left_of(code, wide.start())
+                    if is_time(wide.group(1), lines, fn_at, i):
+                        differences += 1
+                        continue
+                    kind = "minus"
+                    arg = code[wide.start():]
+                    first = re.match(r"\s*([a-z_][a-z_0-9]*)", left)
+                    if " + " in left or (first and any(
+                            re.search(r"let\s+" + first.group(1) + r"\s*=.*\+", l) for l in lines[fn_at:i])):
+                        kind = "minus net forward"
                 elif re.search(r"backdate_(for_test|catalog)\(", code) and "fn backdate" not in code:
                     kind = "backdate"
                     arg = code
                 if not kind:
                     continue
-                cfg_test = i >= tests_at or any("#[cfg(test)]" in l for l in lines[max(0, i - 40):i] if l.strip().startswith("#[cfg(test)]") and False)
                 in_tests = i >= tests_at
                 s = seconds(arg if kind != "checked_sub" else arg + " " + " ".join(lines[i + 1:i + 2]))
                 # The clock it goes back on: a FakeMachine made earlier in the
@@ -144,4 +202,6 @@ for r in sorted(rows, key=lambda r: (r[3], -(r[5] or 0), r[0], r[1])):
 print(f"# {len(rows)} sites; outside tests modules: {sum(r[3] == 'code' for r in rows)}; "
       f"in tests going back more than 60 s on the system clock: "
       f"{sum(r[3] == 'tests' and (r[5] or 0) > 60 and ' system' in r[2] for r in rows)}; "
-      f"more than 10 s on it: {sum(r[3] == 'tests' and (r[5] or 0) > 10 and ' system' in r[2] for r in rows)}")
+      f"more than 10 s on it: {sum(r[3] == 'tests' and (r[5] or 0) > 10 and ' system' in r[2] for r in rows)}; "
+      f"minus sites of a length not written as a literal (read each): {sum(r[2].startswith('minus') and r[5] is None for r in rows)}; "
+      f"differences of two readings, not listed: {differences}")
