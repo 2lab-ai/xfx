@@ -35536,6 +35536,80 @@ mod tests {
     }
 
     #[test]
+    fn the_first_indexed_episode_skips_its_refresh_while_the_index_loads() {
+        // Round 8 (gpt6 r7 MUST 1): fx's first indexed episode of the
+        // session skips its refresh while the index is loading
+        // (`file_picker_episode_seen`, `prepareFilePicker`,
+        // `input_completion_runtime.zig:854-861@481104fd`; the flag lasts the
+        // session, `picker_state.zig:171`), and every later one refreshes,
+        // loading or not. A `/workspace` change before any `@` starts the
+        // install's walk, so the first `@` can meet a loading index.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, _path, access) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, access);
+        // The install's walk, held by the case.
+        let first = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.route_bytes(b"@plan");
+        first
+            .send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the first episode refreshed behind the loading index"
+        );
+        // A later episode, the index loading again after another change:
+        // it refreshes, behind the walk.
+        shell.clear_composer();
+        let (_other, _path, access) = extra_with_plan(&shell);
+        adopt(&mut shell, access);
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 2);
+        let second = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.route_bytes(b"@plan");
+        second
+            .send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 3,
+            "a later episode skipped its refresh"
+        );
+    }
+
+    #[test]
+    fn an_equal_access_changes_nothing_even_where_its_directory_is_gone() {
+        // Round 8 (opus r7 note): fx does nothing when `eql` holds
+        // (`install`, `app_workspace_runtime.zig:134-141@481104fd`). xfx's
+        // roots are read from the filesystem (`index_roots`), so the same
+        // access again, after its directory went, would read other roots:
+        // they are not read at all then, and the index stays.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (extra, path, access) = extra_with_plan(&shell);
+        adopt(&mut shell, access.clone());
+        walks_done(&mut shell);
+        shell.route_bytes(b"@plan");
+        walked(&mut shell);
+        let rows = [format!("{}/plan.md", path.display())];
+        assert_eq!(listed_paths(&shell), rows);
+        let walks = shell.files_for_test().walks_for_test();
+        drop(extra);
+        adopt(&mut shell, access);
+        assert_eq!(shell.files_for_test().walks_for_test(), walks);
+        // The next lookup answers from the index it had.
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(shell.editor.text(), "@pla");
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Rows),
+            "the index was dropped with no walk asked for"
+        );
+        assert_eq!(listed_paths(&shell), rows);
+    }
+
+    #[test]
     fn a_workspace_change_drops_a_listing_in_flight() {
         // fx's `invalidateScope` stops the folder listing in flight
         // (`requestStop`, `app_workspace_runtime.zig:70-72@481104fd`), so its
