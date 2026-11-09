@@ -188,7 +188,12 @@ Results:
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
-Round 5, at `d3414f05`: 27 of 27 mutants are killed, and the one expected
+Round 6, at `ab4d41b0`: 29 of 29 mutants are killed, and the one expected
+equivalent survives, as it must, against 26 test filters, which run 27
+tests. The new ones are test (d)'s: the stop keeping the presenter's held
+line, and the pace releasing nothing to the presenter.
+
+- Round 5, at `d3414f05`: 27 of 27 mutants are killed, and the one expected
 equivalent survives, as it must. Each ran on a `git clone --no-local`
 throwaway, never on the worktree, with a 600 s limit, against 26 test
 filters (`TESTS` in `mutants.py`), which run 27 tests. The new one is the
@@ -235,14 +240,14 @@ build (`3d09af8f`, sha256 `d2c264db…`). The comparison is
 one at a time, in one suite-lock slot: fmt, both clippy runs, the full
 `cargo test`, both fault-injection runs, every `check-*`/`test-*` script,
 the release build, `smoke.sh`, the faulty build and `smoke-tui.sh`. It ran
-on `0e51395a`, round 4's head before this README's numbers. The commits after it
+on `91a1260d`, round 5's head before this README's numbers. The commits after it
 are docs only: one adds `gates.txt`, `mutants.txt` and these numbers; the
 three tracked-file scanners then ran on it, outside the lock, and the next
 adds their lines to the end of `gates.txt`. Step 00 is `false` and reads
 `rc=1`.
 
 All 21 steps read `rc=0`. Step 04 ran 5472 tests, step 06 ran 4579 and
-step 05 ran 195, with 0 failed in each. Earlier runs: `b0c8d70e` (round 3),
+step 05 ran 195, with 0 failed in each. Earlier runs: `0e51395a` (round 4), `b0c8d70e` (round 3),
 `7e4f6d47` (round 2) and `be6fd7f9` (round 1), all `rc=0`; `93c11c9f` failed
 step 04 with two older shell tests that read the document right after
 Enter, which `4139bd68` fixed.
