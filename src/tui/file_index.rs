@@ -1873,7 +1873,8 @@ pub(crate) mod tests {
         let mut files = Files::new(dir.path().to_path_buf(), None);
         assert_eq!(files.lookup("src/"), Lookup::Loading);
         settled(&mut files, |files| !files.busy());
-        assert!(matches!(files.lookup("src/"), Lookup::Rows(found) if found.len() == 3));
+        // The folder's own row and its three entries (7c8ef4a3).
+        assert!(matches!(files.lookup("src/"), Lookup::Rows(found) if found.len() == 4));
         // The same directory, a different name: no second read.
         assert!(matches!(files.lookup("src/m"), Lookup::Rows(found) if found.len() == 1));
         assert!(!files.busy());
@@ -1898,7 +1899,12 @@ pub(crate) mod tests {
         assert_eq!(files.lookup("~/"), Lookup::Loading);
         settled(&mut files, |files| !files.busy());
         match files.lookup("~/") {
-            Lookup::Rows(found) => assert_eq!(found[0].path, "~/Cargo.toml"),
+            // `~` itself first, then what is in it (`listedFolder`,
+            // `path_completion.zig:133-143@481104fd`).
+            Lookup::Rows(found) => assert_eq!(
+                [found[0].path.as_str(), found[1].path.as_str()],
+                ["~", "~/Cargo.toml"]
+            ),
             other => panic!("{other:?}"),
         }
         let mut homeless = Files::new(PathBuf::from("/"), None);
