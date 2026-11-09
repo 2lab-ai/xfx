@@ -29,3 +29,8 @@ exit 0
 04 test: 5472 passed, 0 failed, 7 ignored
 06 test-fault-lib: 4579 passed, 0 failed, 7 ignored
 05 test-fault-tui: 195 passed, 0 failed, 0 ignored
+
+# on ee54095a (the docs-only commit after 91a1260d), outside the lock
+check-no-secrets rc=0 70s
+check-no-stubs rc=0 9s
+check-xfx-identity rc=0 1s
