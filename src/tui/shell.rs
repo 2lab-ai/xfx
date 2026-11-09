@@ -17163,6 +17163,38 @@ mod tests {
     }
 
     #[test]
+    fn a_card_sent_after_a_resize_before_a_frame_lands_is_written_whole() {
+        // fx measures its preview from its last committed frame
+        // (`presentation_shell.cursor_row`, committed at
+        // `src/ui/transcript/runtime.zig:9929-9932@481104fd`), and after a
+        // resize that is a frame of the old size. xfx has no frame of the new
+        // size to measure from until one lands, so it previews nothing: the
+        // card is written whole.
+        let paste = stale_paste();
+        let mut resized = shell(40, 120);
+        resized.document_rows = 2;
+        resized.band_landed();
+        resized.resize(30, 120);
+        resized.route_bytes(paste.as_bytes());
+        resized.route_bytes(b"\r");
+        assert!(
+            !resized.previewing(),
+            "a preview measured against a band no frame of this size painted"
+        );
+        assert!(resized.owes_document(), "the card is not owed whole");
+        // And once a frame of the new size has landed, the next card is
+        // previewed again.
+        land_document(&mut resized);
+        resized.band_landed();
+        resized.route_bytes(paste.as_bytes());
+        resized.route_bytes(b"\r");
+        assert!(
+            resized.previewing(),
+            "no preview after a frame of the new size landed"
+        );
+    }
+
+    #[test]
     fn a_preview_the_slash_menu_took_the_room_of_does_not_come_back() {
         // A preview the band lost the room for before its frame was the
         // frame that clears the composer: the card is written whole that
