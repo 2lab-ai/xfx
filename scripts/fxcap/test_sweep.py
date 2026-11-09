@@ -213,6 +213,16 @@ class Normalize(unittest.TestCase):
         # narrower than `<scratch>`: `$TMPDIR/fxcap.XXXXXX`, 13 columns or more).
         for prefix in ("<work___>", "<work:real__>", "<tmp______>", "<!scratch__>", "a_>", "<s__>", "<S__>", "x/"):
             self.assertEqual(len(compare("saved at %s/fxtmp/a.md" % prefix, "saved at %s/xfxtmp/a.md" % prefix, self.led)), 1, prefix)
+        # And only the name itself, ended where a path name ends (roots.py's
+        # EDGE, the characters that continue one): a directory under it, the
+        # end of the text, a quote after it. A sibling whose name extends
+        # `fxtmp` is another file, compared.
+        run = "<scratch______________>"
+        for fx, xfx in (("a %s/fxtmp/b.md", "a %s/xfxtmp/b.md"), ("TMPDIR=%s/fxtmp", "TMPDIR=%s/xfxtmp"),
+                        ('"%s/fxtmp" x', '"%s/xfxtmp" x')):
+            self.assertEqual(compare(fx % run, xfx % run, self.led), [], fx)
+        for name in ("fxtmp-old/a", "fxtmp.bak", "fxtmp_x", "fxtmpx", "fxtmp~", "fxtmp+1"):
+            self.assertEqual(len(compare("a %s/%s" % (run, name), "a %s/x%s" % (run, name), self.led)), 1, name)
 
     def test_capture_run_directories_are_masked_to_the_same_length(self):
         self.assertEqual(compare("ws=/t/fxcap.Kun3pm/work x", "ws=/t/fxcap.uqw49D/work x", self.led), [])
