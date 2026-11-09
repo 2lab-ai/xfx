@@ -38638,7 +38638,7 @@ mod tests {
                         .cloned(),
                 );
                 if cols >= 80 {
-                    assert_eq!(taken, [notice.clone()], "{cols} columns");
+                    assert_eq!(taken, std::slice::from_ref(&notice), "{cols} columns");
                 } else {
                     assert!(taken.len() > 1, "{cols}: {taken:?}");
                 }
