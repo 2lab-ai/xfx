@@ -1,41 +1,31 @@
-# head b0c8d70e339390fdc1c05b9b6e16eed2b4e1ece8, tree: 0 tracked changes
-# slot taken 2026-11-09T01:30:15Z
+# head 0e51395af69a2ee72fa85e0b4f8181ae738b7d7f, tree: 0 tracked changes
+# slot taken 2026-11-09T02:49:39Z
 00 false rc=1 0s
 01 fmt rc=0 2s
-02 clippy rc=0 7s
-03 clippy-fault rc=0 6s
-04 test rc=0 109s
-05 test-fault-tui rc=0 23s
-06 test-fault-lib rc=0 59s
-07 check-no-stubs rc=0 12s
-08 check-no-secrets rc=0 44s
-09 test-check-no-secrets rc=0 81s
-10 test-gate-env rc=0 212s
+02 clippy rc=0 11s
+03 clippy-fault rc=0 8s
+04 test rc=0 169s
+05 test-fault-tui rc=0 65s
+06 test-fault-lib rc=0 117s
+07 check-no-stubs rc=0 20s
+08 check-no-secrets rc=0 86s
+09 test-check-no-secrets rc=0 122s
+10 test-gate-env rc=0 436s
 11 check-xfx-identity rc=0 1s
-12 check-preview-contract rc=0 3s
-13 test-preview-contract rc=0 62s
-14 check-tui-preflight-cost rc=0 76s
+12 check-preview-contract rc=0 8s
+13 test-preview-contract rc=0 127s
+14 check-tui-preflight-cost rc=0 145s
 15 check-usage-clock rc=0 1s
-16 fxcap-test-sweep rc=0 14s
-17 fxcap-test-capture rc=0 266s
+16 fxcap-test-sweep rc=0 25s
+17 fxcap-test-capture rc=0 271s
 18 build-release rc=0 13s
-19 smoke rc=0 1s
+19 smoke rc=0 2s
 20 build-faulty rc=0 13s
-21 smoke-tui rc=0 64s
-# done 2026-11-09T01:48:04Z
+21 smoke-tui rc=0 65s
+# done 2026-11-09T03:18:06Z
 exit 0
 
 # step 04's and 06's test counts
-04 test: 5468 passed, 0 failed, 7 ignored
-06 test-fault-lib: 4575 passed, 0 failed, 7 ignored
+04 test: 5472 passed, 0 failed, 7 ignored
+06 test-fault-lib: 4579 passed, 0 failed, 7 ignored
 05 test-fault-tui: 195 passed, 0 failed, 0 ignored
-
-# on fe8e0440 (the docs-only commit after b0c8d70e), outside the lock
-check-no-secrets rc=0 36s
-check-no-stubs rc=0 8s
-check-xfx-identity rc=0 1s
-
-# on 8383a400 (the README correction, docs only), outside the lock
-check-no-secrets rc=0 47s
-check-no-stubs rc=0 12s
-check-xfx-identity rc=0 1s

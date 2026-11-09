@@ -185,12 +185,16 @@ Results:
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
-Round 4, at `3d09af8f`: 26 of 26 one-line mutants are killed, and the one
-expected equivalent survives, as it must. Each ran on a `git clone
---no-local` throwaway, never on the worktree, with a 600 s limit, against
-21 test filters (`TESTS` in `mutants.py`), which run 22 tests. The new ones
-are the fallback, the token, the exit's owed frame and its painted-band
-guard.
+Round 5, at `d3414f05`: 27 of 27 mutants are killed, and the one expected
+equivalent survives, as it must. Each ran on a `git clone --no-local`
+throwaway, never on the worktree, with a 600 s limit, against 26 test
+filters (`TESTS` in `mutants.py`), which run 27 tests. The new one is the
+exit's owed frame narrowed to the card, a mutant across `shell.rs` and
+`event_loop.rs`, which round 4's exit tests kill.
+
+- Round 4, at `3d09af8f`: 26 of 26 killed and the equivalent survived (21
+  filters, 22 tests). Its new ones were the fallback, the token, the exit's
+  owed frame and its painted-band guard.
 
 - Round 3, at `4db02b1e`: 22 of 22 killed (16 filters, 17 tests).
 - Round 2b, at `d82556e5`, 23 mutants: one survived, the room measured after
@@ -228,22 +232,17 @@ build (`3d09af8f`, sha256 `d2c264db…`). The comparison is
 one at a time, in one suite-lock slot: fmt, both clippy runs, the full
 `cargo test`, both fault-injection runs, every `check-*`/`test-*` script,
 the release build, `smoke.sh`, the faulty build and `smoke-tui.sh`. It ran
-on `b0c8d70e`, which adds round 3's captures. Every commit after it is docs
-only:
-- `fe8e0440` adds `gates.txt`, `mutants.txt`, the sweeps and this README;
-- `8e365e9e` adds the scanners' lines on `fe8e0440`;
-- the next commit corrects this README (the residual counts, the
-  equivalence check, the terminal model's limit).
+on `0e51395a`, round 4's head before this README's numbers. The commits after it
+are docs only: one adds `gates.txt`, `mutants.txt` and these numbers; the
+three tracked-file scanners then ran on it, outside the lock, and the next
+adds their lines to the end of `gates.txt`. Step 00 is `false` and reads
+`rc=1`.
 
-The three tracked-file scanners ran again on that last commit, outside the
-lock. Their lines are at the end of `gates.txt`, added by the commit after
-it. Step 00 is `false` and reads `rc=1`.
-
-All 21 steps read `rc=0`. Step 04 ran 5468 tests, step 06 ran 4575 and
-step 05 ran 195, with 0 failed in each. Earlier runs: `7e4f6d47` (round 2)
-and `be6fd7f9` (round 1), all `rc=0`; `93c11c9f` failed step 04 with two
-older shell tests that read the document right after Enter, which
-`4139bd68` fixed.
+All 21 steps read `rc=0`. Step 04 ran 5472 tests, step 06 ran 4579 and
+step 05 ran 195, with 0 failed in each. Earlier runs: `b0c8d70e` (round 3),
+`7e4f6d47` (round 2) and `be6fd7f9` (round 1), all `rc=0`; `93c11c9f` failed
+step 04 with two older shell tests that read the document right after
+Enter, which `4139bd68` fixed.
 
 ## Ledger, docs, references
 
