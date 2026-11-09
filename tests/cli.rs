@@ -4,6 +4,10 @@
 //! Every assertion here is a product promise: what the executable prints, what it
 //! exits with, what it refuses to advertise, and what it refuses to create or leak.
 
+// Runs this binary's cases in a copy of it whose environment is built from
+// nothing (`support::isolated`), and gives the binary's own children theirs.
+mod support;
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -68,18 +72,8 @@ impl Sandbox {
         // Built from nothing but where programs are and where temporary
         // files go: no variable of the developer's -- an xfx setting, a
         // credential, what chooses git's or llmux's configuration -- reaches
-        // the binary (`tests/support/sandbox.rs`'s `clear_env`, which this
-        // suite does not include).
-        command.env_clear();
-        let inherited = [
-            ("PATH", xfx::env_exception!(var_os("PATH"))),
-            ("TMPDIR", xfx::env_exception!(var_os("TMPDIR"))),
-        ];
-        for (key, value) in inherited {
-            if let Some(value) = value {
-                command.env(key, value);
-            }
-        }
+        // the binary.
+        support::sandbox::clear_env(&mut command);
         command.env("HOME", &self.home);
         command
     }

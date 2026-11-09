@@ -13,6 +13,10 @@
 //! about something that does not exist, which is the more embarrassing of the
 //! two.
 
+// Runs this binary's cases in a copy of it whose environment is built from
+// nothing (`support::isolated`).
+mod support;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;

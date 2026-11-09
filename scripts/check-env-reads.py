@@ -79,10 +79,16 @@ ALLOWED_NAMES = {
     "XFX_TEST_USAGE_CACHE_ARG": "a re-run test binary's role",
     "XFX_TEST_SENTINEL_RUNNER": "a re-run test binary's role",
     "XFX_TEST_ENV_PROXY_COPY": "a re-run test binary's role",
-    "XFX_TEST_ISOLATED_COPY": "a re-run test binary's role",
+    "XFX_TEST_ISOLATED_COPY": "the copy of an integration test binary, and what its home is called",
+    "HOME": "only the copy of an integration test binary's, made for it and confirmed empty before any case runs",
+    "RUST_BACKTRACE": "libtest's and std's own, handed to that copy",
+    "RUST_TEST_THREADS": "libtest's own, handed to that copy",
     "XFX_DRAWN_WIDER_LIST": "the drawn-wider sweep's own",
     "XFX_DRAWN_WIDER_OUT": "the drawn-wider sweep's own",
 }
+
+# `env_exception!(names())`: the names alone, never a value.
+NAMES = "names()"
 
 # Every `env_exception!` invocation: its file and the names it reads, one
 # entry per invocation.
@@ -97,8 +103,6 @@ EXCEPTIONS = [
     ("src/mcp/docker.rs", ("TMPDIR", "TEMP", "TMP")),
     ("tests/support/sandbox.rs", ("PATH",)),
     ("tests/support/sandbox.rs", ("TMPDIR",)),
-    ("tests/cli.rs", ("PATH",)),
-    ("tests/cli.rs", ("TMPDIR",)),
     # What the terminal says of itself.
     ("src/tui/term.rs", ("TMUX",)),
     ("src/tui/mod.rs", ("COLORFGBG",)),
@@ -119,7 +123,15 @@ EXCEPTIONS = [
     ("src/mcp/transport.rs", ("XFX_TEST_SENTINEL_RUNNER",)),
     ("src/mcp/transport.rs", ("XFX_TEST_SENTINEL_RUNNER",)),
     ("src/test_env/tests.rs", ("XFX_TEST_ENV_PROXY_COPY",)),
+    # Every integration test binary, before main: the one it was started as
+    # reads its marker and what it hands its copy; the copy confirms that it
+    # was given these names and no other, and the home the marker names.
     ("tests/support/isolated.rs", ("XFX_TEST_ISOLATED_COPY",)),
+    ("tests/support/isolated.rs", ("TMPDIR",)),
+    ("tests/support/isolated.rs", ("RUST_BACKTRACE",)),
+    ("tests/support/isolated.rs", ("RUST_TEST_THREADS",)),
+    ("tests/support/isolated.rs", (NAMES,)),
+    ("tests/support/isolated.rs", ("HOME",)),
     # An ignored case the drawn-wider sweep runs, with its own two.
     ("src/tui/drawn_wider.rs", ("XFX_DRAWN_WIDER_LIST",)),
     ("src/tui/drawn_wider.rs", ("XFX_DRAWN_WIDER_OUT",)),
@@ -147,12 +159,14 @@ PLAIN = [
 ]
 
 ENV_EXCEPTION_FILE = "src/env_exception.rs"
+ISOLATION_FILE = "tests/support/isolated.rs"
 PROCESS_ENV_FILE = "src/lib.rs"
 
 NAME = r'"([A-Z][A-Z0-9_]*)"'
 SINGLE = re.compile(
     r"^(?:[a-z_][a-z0-9_]*::)?env_exception!\s*\(\s*(?:var|var_os)\s*\(\s*" + NAME + r"\s*\)\s*\)$"
 )
+NAMES_ONLY = re.compile(r"^(?:[a-z_][a-z0-9_]*::)?env_exception!\s*\(\s*names\s*\(\s*\)\s*\)$")
 LIST = re.compile(
     r"^(?:[a-z_][a-z0-9_]*::)?env_exception!\s*\(\s*first_set_os\s*\(\s*\[\s*"
     r'((?:"[A-Z][A-Z0-9_]*"\s*,\s*)*"[A-Z][A-Z0-9_]*")\s*,?\s*\]\s*\)\s*\)$'
@@ -192,6 +206,7 @@ def clippy(crate, extra, env_extra=None):
         command, cwd=crate, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
     messages = []
+    tests = set()
     finished = None
     for line in run.stdout.decode().splitlines():
         if not line.startswith("{"):
@@ -199,9 +214,11 @@ def clippy(crate, extra, env_extra=None):
         record = json.loads(line)
         if record.get("reason") == "compiler-message":
             messages.append(record)
+        elif record.get("reason") == "compiler-artifact" and record["target"]["kind"] == ["test"]:
+            tests.add(record["target"]["name"])
         elif record.get("reason") == "build-finished":
             finished = record.get("success")
-    return run.returncode, finished, run.stderr.decode(), messages
+    return run.returncode, finished, run.stderr.decode(), messages, tests
 
 
 def expansions(span):
@@ -222,6 +239,8 @@ def invocation_names(crate, call):
     single = SINGLE.match(text)
     if single:
         return (single.group(1),)
+    if NAMES_ONLY.match(text):
+        return (NAMES,)
     listed = LIST.match(text)
     if listed:
         return tuple(re.findall(NAME, listed.group(1)))
@@ -294,7 +313,7 @@ def judge(invocations, plain, problems, exceptions, plain_listed):
     problems = list(problems)
     for file, names, line, _ in invocations:
         for name in names:
-            if name not in ALLOWED_NAMES:
+            if name not in ALLOWED_NAMES and name != NAMES:
                 problems.append((file, line, f"env_exception! reads {name}, which is not an allowed name"))
     wanted = collections.Counter(exceptions)
     have = collections.Counter((file, names) for file, names, _, _ in invocations)
@@ -315,12 +334,25 @@ def check_tree():
     invocations, process_env, plain, problems = [], 0, collections.Counter(), []
     seen_invocations = set()
     for features in ([], ["--features", "fault-injection"]):
-        status, finished, stderr, messages = clippy(ROOT, ["--locked"] + features)
+        status, finished, stderr, messages, tests = clippy(ROOT, ["--locked"] + features)
         if status != 0 or finished is not True:
             sys.stderr.write(stderr[-4000:])
             print(f"check-env-reads: clippy {' '.join(features) or '(default features)'} exited {status}")
             return 1
         found, arms, calls, wrong = classify(ROOT, messages, ENV_EXCEPTION_FILE, PROCESS_ENV_FILE)
+        # Every integration test binary reads its environment in
+        # support::isolated, before main: one that does not has escaped it.
+        isolating = {
+            record["target"]["name"]
+            for record in messages
+            if any(
+                expansion["span"]["file_name"] == ISOLATION_FILE
+                for span in record["message"]["spans"]
+                for expansion in expansions(span)[:1]
+            )
+        }
+        for name in sorted(tests - isolating):
+            wrong.append((f"tests/{name}.rs", 0, "a test binary that does not run its cases in a clean copy (support::isolated)"))
         for invocation in found:
             key = (invocation[0], invocation[3])
             if key not in seen_invocations:
@@ -477,7 +509,7 @@ def self_test():
         for name, (source, _) in FIXTURES.items():
             with open(os.path.join(crate, "tests", name + ".rs"), "w") as fixture:
                 fixture.write(source + "\n")
-        _, _, stderr, messages = clippy(
+        _, _, stderr, messages, _ = clippy(
             crate, ["--offline", "--keep-going"], {"CARGO_TARGET_DIR": os.path.join(scratch, "target")}
         )
         invocations, _, plain, problems = classify(crate, messages, macro, None)
