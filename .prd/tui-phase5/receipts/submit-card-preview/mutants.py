@@ -119,6 +119,15 @@ MUTANTS = [
         (LOOP, "    let owed = band.painted_top().is_some() && shell.owes_document();",
          "    let owed = band.painted_top().is_some() && shell.card_unwritten();"),
     ]),
+    # Test (d)'s presenter sentinel: the stop keeping the line the presenter
+    # holds, and the pacer never releasing a line into the presenter (which
+    # would leave the sentinel nothing to prove; its precondition must fail).
+    ("the stop: the presenter's held line kept", SHELL,
+     "        // Before the marks, which close the answer as they run: closing it\n"
+     "        // with the held line still in the presenter would paint that line.\n"
+     "        self.markdown.reset();\n", ""),
+    ("the pace: nothing released to the presenter", SHELL,
+     "            self.release(chunk, consumed);\n", "            let _ = (chunk, consumed);\n"),
     # Expected to survive: the room measured before the draft goes, where
     # 4db02b1e moved it from. Both read the last landed band, and none since
     # a resize is no preview at either.

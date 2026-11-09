@@ -167,16 +167,19 @@ Results:
     frame1, frame2 and card. The preview's frame was built a tick before
     the turn's start was read, so the whole document sat one row lower than
     fx's, not just the activity row (`round3/race.txt`).
-  - Seven more captures had the activity row in that frame. The receipt
-    holds the next one.
+  - Six more captures of it from the same build had the activity row in
+    that frame, as did two instrumented runs of that commit (round 3's
+    probe and `round4/preview-room-log.txt`): one lost in seven captures,
+    and both instrumented runs won. The receipt holds the next capture.
   - The ledger's cause `preview-frame-before-the-turn-start` names the
-    owner, SUBMIT-PREVIEW-EDGES. In every pair the frame after the card's is the
-  base's frame after its card on the screen, and its bytes are the base's
-  in 15 of 18 (`its bytes: the base's`). The other three differ only in the
-  activity row: the head's card frame took the activity update the base
-  painted in its second frame, and the frame after it is the base's. Each
-  capture lands this differently: 15 of 18 at `d82556e5` and here, and 18 of
-  18 at `4db02b1e`.
+    owner, SUBMIT-PREVIEW-EDGES.
+- **The frames after the card's.** In every pair the frame after the card's
+  is the base's frame after its card on the screen, and its bytes are the
+  base's in 15 of 18 (`its bytes: the base's`). The other three differ only
+  in the activity row: the head's card frame took the activity update the
+  base painted in its second frame, and the frame after it is the base's.
+  Each capture lands this differently: 15 of 18 at `d82556e5` and here, and
+  18 of 18 at `4db02b1e`.
   `4db02b1e` changes nothing the activity row reads, so the likely cause is
   when the turn started against the tick; it was not traced further. The
   card's own frame differs from the base's in its bytes: it writes over the
@@ -486,28 +489,38 @@ The dispatcher kept the exit's wide rule.
   nothing:
   - (a) an answer's rows a refused frame left owed: written once, in order;
   - (b) a winch outstanding at exit with a card held: the exit's resize
-    drops the preview, and the card is still written once. This is read off
-    the exit's own bytes: the composer drew the draft behind the same rail,
-    so the screen alone cannot tell (the first draft of this test passed
-    for that reason);
+    drops the preview, and the card is still written once, and nothing is
+    left owed (round 5). This is read off the exit's own bytes: the
+    composer drew the draft behind the same rail, so the screen alone cannot
+    tell (the first draft of this test passed for that reason). (b) kills a
+    narrowing flagged at `preview_landed`, as `mutants.py`'s is; a rule
+    flagged when the preview is built would pass it;
   - (c) rows owed while Ctrl-O held the other plane: written after the plane
     is given back;
   - (d) after a stop, the pacer's text, the presenter's held line and late
     text stay unwritten, and the stop's own line is written; at a `/clear`,
-    the pacer's text stays unwritten.
-  - RED: `round4/narrowing-red.txt`. With the exit's owed frame narrowed to
-    the card, all four fail and the card's exit tests pass. That narrowing
-    is in `mutants.py` and must die.
+    the pacer's text stays unwritten. (Round 5 made the presenter's line a
+    sentinel of its own: in round 4 both lines were still in the pacer at
+    the stop.)
+  - RED: `round4/narrowing-red.txt`, and `round5/narrowing-red.txt` with
+    each failure's panic. With the exit's owed frame narrowed to the card,
+    all four fail and the card's exit tests pass. That narrowing is in
+    `mutants.py` and must die.
   - Said in `shut_down`'s comment, `docs/parity.md` ("Every way out
     flushes") and above (`bd8f5d12`). The guard's comment now names every
     case it skips: before the first band, and after a handoff or a wipe
     lands until the next band.
-  - **Found, not this unit's** (the base's, not fixed). An operational
-    notice and an answer's last line, released together by `flush_paced`
-    (the exit's drain), share one row: `OWED-NOTICEOWED-ANSWER-TWO`. The
-    notice's mark runs before `close_answer` writes the line the presenter
-    held. This reproduces with `flush_paced` alone, without an exit; the
-    paced tick path was not reproduced. Test (a) uses answer rows only.
+  - **Not a defect on a real path.** The input was
+    `UiEvent::Operational("OWED-NOTICE")`, with no trailing `\n`, after an
+    answer's rows, released together by `flush_paced`. The notice and the
+    answer's last line then share one row (`OWED-NOTICEOWED-ANSWER-TWO`).
+    - No producer sends such a notice: each ends its text in `\n`
+      (`src/tui/worker.rs:156-157`, `:163-164`).
+    - The base pins the real shape in
+      `operational_text_is_answer_prose_ahead_of_the_line_the_presenter_holds`
+      (`src/tui/shell.rs:24046`).
+    - Test (a) uses answer rows only. The queue unit it prompted has been
+      withdrawn.
 - **2. The shrink test** (opus SHOULD 1, gpt6 SHOULD 1), `74da5413`.
   - It checks which write each step met, as the sibling test does.
   - Its claims are now exact and separate: written whole after the shrink,
@@ -522,7 +535,9 @@ The dispatcher kept the exit's wide rule.
     owner, SUBMIT-PREVIEW-EDGES.
   - The GREEN summary carries the qualification.
   - The instrumented log is a file: `round4/preview-room-log.txt` shows
-    `Some(1)` at the Enter.
+    `Some(1)` at the Enter. It is from a run that won the race (its line 2:
+    the activity row is in the first update after Enter), so it backs the
+    room, not the lost run's frame.
 - **5. The token scan** (opus SHOULD 5), `d3414f05`. A struct literal's
   `field: Reconciled` now counts as a token made. The scan is pinned on each
   shape.
@@ -530,6 +545,48 @@ The dispatcher kept the exit's wide rule.
   `src/` changed 0 code lines outside the tests (23 comment or blank lines).
   So the captures, `check.py`'s claims and the sweeps from `3d09af8f`'s
   build stand for the head, and neither was taken again.
+
+## Round 5 (opus and gpt6: APPROVE-WITH-FIXES, one MUST)
+
+Every claim below rests on a file in `round5/` or on a test named in it.
+
+- **1. Test (d) never put a line in the presenter** (the MUST), `4295a574`.
+  Round 4's two thrown lines were both still in the pacer at Ctrl-C:
+  `stream` only enqueues, and the key was read with no pace between. So
+  "the line the presenter held" was claimed but not exercised. Now there
+  are three sentinels, each where the stop finds it:
+  - `PRESENTER-HELD`, an unfinished line. Two pacer ticks (`settle_band`)
+    release it; the test asserts the presenter holds it
+    (`Shell::presenter_holds`, test-only) and that no row shows it;
+  - `PACER-THROWN`, enqueued after it, asserted still paced;
+  - `LATE-THROWN`, after the stop.
+  - None is written at the exit. RED: with `markdown.reset()` taken out of
+    `abandon_answer`, the test fails on `PRESENTER-HELD`
+    (`round5/presenter-red.txt`).
+  - `mutants.py` adds that mutant, and one that releases nothing to the
+    presenter. The second would let the sentinel pass trivially, so the
+    test's precondition must fail on it.
+- **2. The base "bug" is not a defect on a real path** (opus §5). Round 4's
+  paragraph now gives the input, an operational text with no trailing
+  `\n`, and says that no producer sends one.
+- **3. The race counts agree.**
+  - Seven captures of `p5-transcript-submit-multi` from `3d09af8f`'s build,
+    one of which lost the race.
+  - Two instrumented runs of that commit, both of which won; that includes
+    `round4/preview-room-log.txt`, whose line 2 says so.
+  - The README and the ledger's cause now say the same.
+- **4. The token scan** (both), `ab4d41b0`. A `let`'s annotation is the
+  part before its `=`, and a closure's parameters are between its first two
+  bars. `let held = Holder { token: Reconciled };` and
+  `items.map(|_| Holder { token: Reconciled })` are tokens made. RED:
+  round 4's rules miss both (`round5/token-red.txt`).
+- **5. Test (b)** also asserts that the exit leaves nothing owed. (b)
+  kills a narrowing flagged at `preview_landed`, as `mutants.py`'s is.
+- **6. NITs.** `round5/narrowing-red.txt` keeps each failure's panic. The
+  GREEN summary's race bullets end before the paragraph after them.
+- **No behaviour change** (`round5/outside-tests.txt`). Since `3d09af8f`,
+  the only code outside the tests is two `#[cfg(test)]` fns, compiled into
+  no binary. So the captures and sweeps still stand for the head.
 
 ## Local paths in the captures
 
