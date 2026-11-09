@@ -19067,18 +19067,18 @@ mod tests {
     /// xfx's sentence for input still being dropped while a paste begun behind
     /// the first one's end marker is open: its cause, and no release point.
     /// Spelled out, as [`still_ignored_after_the_paste`] is.
-    fn still_ignored_until_the_paste_ends() -> notice::Notice {
+    fn still_ignored_while_a_paste_is_open() -> notice::Notice {
         notice::Notice::warning("input", "Paste still open; keys are ignored.")
     }
 
     /// And while a marker is read past its first byte: the open sequence, true
     /// however many keys continue it.
-    fn still_ignored_until_the_sequence_ends() -> notice::Notice {
+    fn still_ignored_while_a_sequence_is_open() -> notice::Notice {
         notice::Notice::warning("input", "Key sequence open; keys are ignored.")
     }
 
     #[test]
-    fn the_repeat_while_a_dropped_paste_is_open_says_it_waits_for_the_paste_s_end() {
+    fn the_repeat_while_a_dropped_paste_is_open_says_the_paste_is_open() {
         // Both engines on PASTE-GAP round 2: with a paste begun behind the
         // first one's end marker still open, stopping the input releases
         // nothing -- the paste's own end marker does -- so "until it stops for
@@ -19118,13 +19118,13 @@ mod tests {
         // which was dropped too. Every one in the words of the open paste.
         let mut said_so = said(ignored_behind_the_paste());
         for _ in 0..3 {
-            said_so.extend(said(still_ignored_until_the_paste_ends()));
+            said_so.extend(said(still_ignored_while_a_paste_is_open()));
         }
         assert_eq!(shell.document(), said_so);
     }
 
     #[test]
-    fn the_repeat_while_a_marker_is_half_read_says_a_pause_waits_for_the_sequence() {
+    fn the_repeat_while_a_marker_is_half_read_says_the_sequence_is_open() {
         // A marker half read holds the quarantine through any pause (`ESC [`
         // is how a paste's start begins), so the repeat said in that state
         // says what must come first: the sequence finished or broken. Once a
@@ -19164,7 +19164,7 @@ mod tests {
             "the pause after the broken marker"
         );
         let mut said_so = said(ignored_behind_the_paste());
-        said_so.extend(said(still_ignored_until_the_sequence_ends()));
+        said_so.extend(said(still_ignored_while_a_sequence_is_open()));
         said_so.extend(said(still_ignored_after_the_paste()));
         assert_eq!(shell.document(), said_so);
         assert_eq!(shell.editor.text(), "priornew");
@@ -19210,7 +19210,7 @@ mod tests {
             "a pause released a continued marker"
         );
         let mut said_so = said(ignored_behind_the_paste());
-        said_so.extend(said(still_ignored_until_the_sequence_ends()));
+        said_so.extend(said(still_ignored_while_a_sequence_is_open()));
         assert_eq!(
             shell.document(),
             said_so,
@@ -19269,7 +19269,7 @@ mod tests {
         );
         let mut said_so = said(ignored_behind_the_paste());
         said_so.extend(said(still_ignored_after_the_paste()));
-        said_so.extend(said(still_ignored_until_the_sequence_ends()));
+        said_so.extend(said(still_ignored_while_a_sequence_is_open()));
         assert_eq!(shell.document(), said_so);
     }
 
@@ -38596,6 +38596,124 @@ mod tests {
                 "{sentence:?}: the key did nothing"
             );
         }
+    }
+
+    /// The three states, each with the sentence it says: what is read first,
+    /// and the byte read in the turn the repeat falls due in.
+    fn the_three_holds() -> [(&'static [u8], &'static [u8], &'static str); 3] {
+        [
+            (b"\x1b[200~new\x1b[201~", b"y", PASTE_STILL),
+            (b"\x1b[200~new\x1b[201~\x1b[200~two ", b"y", PASTE_UNTIL_END),
+            (b"\x1b[200~new\x1b[201~", b"\x1b[", PASTE_UNTIL_KEY),
+        ]
+    }
+
+    #[test]
+    fn the_quarantine_sentences_render_whole_at_120_80_and_20_columns() {
+        // gpt6 and opus on PASTE-GAP round 4: the sentence tests had moved to
+        // a 160-column screen, so nothing pinned how they render at ordinary
+        // widths. In the document: one row at 120 and at 80 -- the topic and
+        // the sentence -- and at 20 a row per piece, the first carrying the
+        // topic, the rest under a hanging indent, none wider than the screen,
+        // and every word there in order. On the review plane: the sentence
+        // whole on its status rows at all three.
+        for cols in [120u16, 80, 20] {
+            for (opening, last, sentence) in the_three_holds() {
+                let mut shell = shell(40, cols);
+                let _ = shell.document();
+                streamed_to_the_repeat(&mut shell, Instant::now(), opening, last);
+                let rows = shell.document();
+                let notice = format!("! input: {sentence}");
+                let at = rows
+                    .iter()
+                    .position(|row| {
+                        row.starts_with("! input: ") && notice.starts_with(row.as_str())
+                    })
+                    .unwrap_or_else(|| panic!("{cols}: {sentence:?} not in {rows:?}"));
+                let mut taken = vec![rows[at].clone()];
+                taken.extend(
+                    rows[at + 1..]
+                        .iter()
+                        .take_while(|row| row.starts_with("  "))
+                        .cloned(),
+                );
+                if cols >= 80 {
+                    assert_eq!(taken, [notice.clone()], "{cols} columns");
+                } else {
+                    assert!(taken.len() > 1, "{cols}: {taken:?}");
+                }
+                assert!(
+                    taken
+                        .iter()
+                        .all(|row| row.chars().count() <= usize::from(cols)),
+                    "{cols}: a row wider than the screen: {taken:?}"
+                );
+                assert_eq!(unwrapped(&taken), notice, "{cols} columns");
+
+                let mut plane = on_the_plane(cols);
+                streamed_to_the_repeat(&mut plane, Instant::now(), opening, last);
+                let painted = unwrapped(&plane.screen_rows());
+                assert!(painted.contains(sentence), "{cols}: {painted:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_hold_that_flaps_is_said_at_most_once_a_second_and_its_last_state_is_said() {
+        // gpt6 on PASTE-GAP round 4: `ESC [`, a byte that breaks it, `ESC [`,
+        // ... -- the hold alternating every turn between the open sequence
+        // and the quiet -- for several `PASTE_REPEAT`s. A sentence is said at
+        // most once a `PASTE_REPEAT`, however the hold flaps; and when it stops
+        // on `ESC [` with nothing after it, what holds it then is the last
+        // thing said.
+        let tick = super::super::event_loop::TICK;
+        let repeat = super::super::input::Decoder::PASTE_REPEAT;
+        let mut shell = shell(24, 160);
+        let _ = shell.document();
+        let t0 = Instant::now();
+        let mut said_at = Vec::new();
+        let mut last_said = String::new();
+        let mut take = |shell: &mut Fixture, at: Instant| {
+            let rows = shell.document();
+            if let Some(row) = rows.iter().find(|row| row.starts_with("! input: ")) {
+                said_at.push(at);
+                last_said = row.clone();
+            }
+        };
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery_at(t0);
+        take(&mut shell, t0);
+        let mut at = t0;
+        for step in 0..450 {
+            at += tick;
+            shell.route_read(if step % 2 == 0 { b"\x1b[" } else { b"x" });
+            shell.end_delivery_at(at);
+            take(&mut shell, at);
+        }
+        // It stops on an open sequence.
+        at += tick;
+        shell.route_read(b"\x1b[");
+        shell.end_delivery_at(at);
+        take(&mut shell, at);
+        let mut check = at;
+        while check < at + Duration::from_secs(3) {
+            check += tick * 25;
+            shell.end_delivery_at(check);
+            take(&mut shell, check);
+        }
+        assert!(
+            said_at.len() >= 4,
+            "too few said to mean anything: {said_at:?}"
+        );
+        for pair in said_at[1..].windows(2) {
+            assert!(
+                pair[1].saturating_duration_since(pair[0]) >= repeat,
+                "two sentences {:?} apart",
+                pair[1].saturating_duration_since(pair[0])
+            );
+        }
+        assert!(shell.decoder.quarantined(), "an open sequence was released");
+        assert_eq!(last_said, format!("! input: {PASTE_UNTIL_KEY}"));
     }
 
     #[test]
