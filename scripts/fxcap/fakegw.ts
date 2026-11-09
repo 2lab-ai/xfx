@@ -426,7 +426,9 @@ async function answer(req: Request, asked: number): Promise<Response> {
         const catalog = process.env.FAKEGW_MODELS
           ? await Bun.file(process.env.FAKEGW_MODELS).text()
           : JSON.stringify({ data: [{ id: "fake/model-a", type: "language", tags: ["tool-use"] }] });
-        const shaped = shapedCatalog(catalog, (line) => log(`GET ${url.pathname} -> ${line}`));
+        // Each line says when, in ms since the gateway started: a stalled read's last says when
+        // the client gave up on it.
+        const shaped = shapedCatalog(catalog, (line) => log(`GET ${url.pathname} -> ${line} at=${Date.now() - started}ms`));
         if (shaped) return shaped;
         if (process.env.FAKEGW_MODELS) return new Response(catalog, { headers: { "content-type": "application/json" } });
         return Response.json({ data: [{ id: "fake/model-a", type: "language", tags: ["tool-use"] }] });
