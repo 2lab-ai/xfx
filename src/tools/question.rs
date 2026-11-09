@@ -327,7 +327,7 @@ pub fn encode_answers(entries: &[QuestionEntry], answers: &[String]) -> Result<S
 
 /// One question of a saved answer document, as [`decode_answers`] reads it
 /// back: the question as the model was shown it and the answer it was sent.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedAnswer {
     pub question: String,
     pub answer: String,
@@ -345,17 +345,120 @@ pub struct SavedAnswer {
 /// `question` and a string `answer`, other keys ignored as `object.get`
 /// ignores them. Anything else is `None`, never a panic: text that is not JSON
 /// (a sentinel, a refusal), JSON with more after it, an array of none or of
-/// more than twenty, an element that is not an object, a field missing or not
-/// a string -- upstream's own rejects (`question_answer.zig:101-111`,
-/// `:113-141`). A key given twice is refused as well, by the derived struct;
-/// upstream's `std.json` default (`duplicate_field_behavior`) is taken to be
-/// the same, unread at the pin. Nothing here is made safe for a terminal: the
+/// more than twenty, an element that is not an object (`:63`), a field missing
+/// or not a string -- upstream's own rejects (`question_answer.zig:101-111`,
+/// `:113-141`). Any key given twice is refused as well, `question`, `answer`
+/// or one nobody reads: upstream's `std.json` default
+/// (`duplicate_field_behavior`) is taken to refuse it, unread at the pin, and
+/// refusing it is the reading that is never looser than upstream's.
+///
+/// Read by hand rather than derived: a derived struct also takes serde's
+/// positional form, so `[["Q","A"]]` would be an answer. The array is read
+/// element by element and refused at the twenty-first, before it is built;
+/// each element is read as an object only ([`Element`]). Neither goes through
+/// `serde_json::Value`, whose parse stops at a depth of 128: a key nobody
+/// reads is skipped ([`serde::de::IgnoredAny`]) at any depth, as upstream's
+/// heap-grown parse keeps it. Nothing here is made safe for a terminal: the
 /// rows that show it are (`crate::tui::question`'s `resolution_rows`).
 pub fn decode_answers(output: &str) -> Option<Vec<SavedAnswer>> {
-    let answers: Vec<SavedAnswer> = serde_json::from_str(output).ok()?;
-    (MIN_QUESTIONS..=MAX_QUESTIONS)
-        .contains(&answers.len())
-        .then_some(answers)
+    serde_json::from_str::<Batch>(output)
+        .ok()
+        .map(|batch| batch.0)
+}
+
+/// The document's array, read by [`BatchVisitor`].
+struct Batch(Vec<SavedAnswer>);
+
+impl<'de> serde::Deserialize<'de> for Batch {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_seq(BatchVisitor)
+    }
+}
+
+struct BatchVisitor;
+
+impl<'de> serde::de::Visitor<'de> for BatchVisitor {
+    type Value = Batch;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "an array of {MIN_QUESTIONS} to {MAX_QUESTIONS} answered questions"
+        )
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Batch, A::Error> {
+        let mut answers = Vec::new();
+        loop {
+            if answers.len() == MAX_QUESTIONS {
+                // The twenty-first is refused before it is read into
+                // anything: only whether there is one is asked.
+                return match seq.next_element::<serde::de::IgnoredAny>()? {
+                    Some(_) => Err(serde::de::Error::invalid_length(MAX_QUESTIONS + 1, &self)),
+                    None => Ok(Batch(answers)),
+                };
+            }
+            match seq.next_element::<Element>()? {
+                Some(Element(answer)) => answers.push(answer),
+                None if answers.len() < MIN_QUESTIONS => {
+                    return Err(serde::de::Error::invalid_length(answers.len(), &self))
+                }
+                None => return Ok(Batch(answers)),
+            }
+        }
+    }
+}
+
+/// One element of the array: an object and nothing else
+/// (`question_answer.zig:63@481104fd`).
+struct Element(SavedAnswer);
+
+impl<'de> serde::Deserialize<'de> for Element {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(ElementVisitor)
+    }
+}
+
+struct ElementVisitor;
+
+impl<'de> serde::de::Visitor<'de> for ElementVisitor {
+    type Value = Element;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("an object with a string `question` and a string `answer`")
+    }
+
+    // `visit_map` alone: an array, a string or a number is the visitor's
+    // default refusal (`invalid type`), never a positional answer.
+    //
+    // Any key given twice is refused, the two read and every other alike:
+    // upstream's object is one map, which its parse refuses to fill twice
+    // under the default `duplicate_field_behavior`.
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Element, A::Error> {
+        let (mut question, mut answer) = (None, None);
+        let mut others = std::collections::HashSet::new();
+        while let Some(key) = map.next_key::<String>()? {
+            let slot = match key.as_str() {
+                "question" => &mut question,
+                "answer" => &mut answer,
+                _ => {
+                    map.next_value::<serde::de::IgnoredAny>()?;
+                    if !others.insert(key) {
+                        return Err(serde::de::Error::custom("a key given twice"));
+                    }
+                    continue;
+                }
+            };
+            if slot.is_some() {
+                return Err(serde::de::Error::custom(format!("`{key}` given twice")));
+            }
+            *slot = Some(map.next_value::<String>()?);
+        }
+        Ok(Element(SavedAnswer {
+            question: question.ok_or_else(|| serde::de::Error::missing_field("question"))?,
+            answer: answer.ok_or_else(|| serde::de::Error::missing_field("answer"))?,
+        }))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -856,6 +959,9 @@ mod tests {
             r#"[["Q","A","x"]]"#,
             r#"[{"question":"Q","answer":"A"},["Q","A"]]"#,
             r#"[["Q","A"],{"question":"Q","answer":"A"}]"#,
+            // A key given twice, read or not.
+            r#"[{"question":"Q","question":"R","answer":"A"}]"#,
+            r#"[{"question":"Q","answer":"A","x":1,"x":2}]"#,
         ] {
             assert_eq!(decode_answers(output), None, "{output}");
         }

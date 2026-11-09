@@ -283,10 +283,14 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
                 // document in it is not an answered batch (`:4595`; the
                 // `failed` case of upstream's `execution replay keeps
                 // invalid question results on the generic path`,
-                // `:7991-8035`). Every other ending is `● Asked`, xfx's
-                // refusal included: xfx records a refused batch as a failed
-                // call where upstream's is a successful call's text
-                // (`docs/parity.md`'s adaptation (7)), and the screen shows
+                // `:7991-8035`). Every other ending is the grey `● Asked`.
+                // For a failed call that is xfx's own mapping, not
+                // upstream's: upstream draws a failed call with its red
+                // marker (`lifecycleMarker`'s `.failed`,
+                // `transcript/runtime.zig:616@481104fd`). But xfx's failed
+                // asks are its refusals, which xfx records as failed calls
+                // where upstream's are a successful call's text
+                // (`docs/parity.md`'s adaptation (7)), so the screen shows
                 // what upstream's shows for the same refusal.
                 if tool == ASK_USER_QUESTION.name() {
                     steps.push(match ok.then(|| decode_answers(output)).flatten() {
