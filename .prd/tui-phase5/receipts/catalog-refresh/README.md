@@ -350,7 +350,9 @@ home. The crate-wide guard (`Runtime::new` under `cfg(test)`) is the queued
 TEST-ENV-ISOLATION unit, not this one. **Item 5 passed first time**: `renew`
 already rebuilt the whole selector. Two mutants show the test fails when it
 does not -- `renew` keeping the old catalog state and read, and `renew`
-letting the old read run on (its gate still open after the switch).
+letting the old read run on (its gate still open after the switch). (Round 4
+corrected this: the rows and failure checks rested on the test seam, and those
+two mutants died at the hold and read checks; § Round 4.)
 
 **Decision (the dispatcher's, 2026-11-09, round 2 opus SHOULD 4):** the
 alternating-failure pin shows xfx's read count -- seven, three more for four
