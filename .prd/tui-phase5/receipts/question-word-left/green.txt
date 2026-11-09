@@ -1,6 +1,6 @@
-# GREEN at the code head 8cb952a2
+# GREEN at the round-2 code head fc32b83a
 
-## The pair: fx v0.0.16 (fx/) against the head binary (xfx/, row 1 x𝒇x v0.1.0-8cb952a, sha256 ade20524aa2b...), pairs.sh xfx
+## The pair: fx v0.0.16 (fx/) against the head binary (xfx/, row 1 x𝒇x v0.1.0-fc32b83, sha256 13374687a383...), pairs.sh xfx
 SAME p5-question-word-left-40x120-alt-b-first  (fx: Question 1 of 20; xfx: Question 1 of 20)
 SAME p5-question-word-left-40x120-alt-b  (fx: Question 3 of 20; xfx: Question 3 of 20)
 SAME p5-question-word-left-40x120-alt-f  (fx: Question 4 of 20; xfx: Question 4 of 20)
@@ -8,22 +8,41 @@ SAME p5-question-word-left-40x120-alt-left  (fx: Question 4 of 20; xfx: Question
 SAME p5-question-word-left-40x120-ctrl-left  (fx: Question 4 of 20; xfx: Question 4 of 20)
 SAME p5-question-word-left-40x120-ctrl-right  (fx: Question 4 of 20; xfx: Question 4 of 20)
 SAME p5-question-word-left-40x120-draft-alt-b  (fx: Question 2 of 20; xfx: Question 2 of 20)
+SAME p5-question-word-left-40x120-draft-shift-alt-b  (fx: Question 2 of 20; xfx: Question 2 of 20)
+SAME p5-question-word-left-40x120-draft-shift-alt-f  (fx: Question 2 of 20; xfx: Question 2 of 20)
 SAME p5-question-word-left-40x120-kitty-alt-b  (fx: Question 3 of 20; xfx: Question 3 of 20)
 SAME p5-question-word-left-40x120-kitty-ctrl-left  (fx: Question 4 of 20; xfx: Question 4 of 20)
 SAME p5-question-word-left-40x120-mok-alt-b  (fx: Question 3 of 20; xfx: Question 3 of 20)
 SAME p5-question-word-left-40x120-p4  (fx: Question 4 of 20; xfx: Question 4 of 20)
 SAME p5-question-word-left-40x120-right  (fx: Question 4 of 20; xfx: Question 4 of 20)
-12 of 12 pairs identical
+SAME p5-question-word-left-40x120-shift-alt-b  (fx: Question 4 of 20; xfx: Question 4 of 20)
+SAME p5-question-word-left-40x120-shift-alt-f  (fx: Question 4 of 20; xfx: Question 4 of 20)
+16 of 16 pairs identical
 
-## The tests: cargo test --locked --lib -- alt_b question:: input::tests, at the head
+## The tests: cargo test --locked --lib -- alt_b the_fold question:: input::tests, at the head
 test tui::input::tests::alt_b_is_its_own_action_and_the_modified_left_arrows_are_word_left ... ok
+test tui::input::tests::what_upstream_resolves_to_a_key_xfx_does_not_have_is_ignored ... ok
 test tui::question::tests::alt_b_goes_back_a_question_at_a_choice_and_a_word_in_a_draft ... ok
-test tui::shell::tests::alt_b_is_the_word_move_to_every_surface_below_a_question ... ok
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+test tui::shell::tests::alt_b_in_an_approval_amendment_is_the_word_move ... ok
 test tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not ... ok
-test result: ok. 164 passed; 0 failed; 0 ignored; 0 measured; 4464 filtered out; finished in 0.08s
+test result: ok. 165 passed; 0 failed; 0 ignored; 0 measured; 4464 filtered out; finished in 0.09s
 
-## probe/: the Left spellings that differ the other way, fx and the head binary (row 1 x𝒇x v0.1.0-8cb952a), from page 4
+## probe/: the head binary (row 1 x𝒇x v0.1.0-fc32b83) beside fx
+
+### p5-question-word-left-other: the Left spellings that differ the other way, from page 4
 p4             fx: Question 4 of 20   xfx: Question 4 of 20
 shift-left     fx: Question 4 of 20   xfx: Question 3 of 20
 ctrl-b         fx: Question 4 of 20   xfx: Question 3 of 20
 esc-esc-left   fx: Question 4 of 20   xfx: ▪ Cancelled
+
+### p5-approval-horizontal-keys: the marked choice (the row with ❯) after each key
+ask          fx:  ❯ 1 Apply once                          xfx:  ❯ 1 Apply once
+amend-alt-b  fx:  ❯ 1 Apply once, ab zcd                  xfx:  ❯ 1 Apply once, ab zcd
+down         fx:  ❯ 2 Apply + allow workspace file acce   xfx:  ❯ 2 Apply + allow future edits to thi
+left         fx:  ❯ 1 Apply once                          xfx:  ❯ 2 Apply + allow future edits to thi
+right        fx:  ❯ 2 Apply + allow workspace file acce   xfx:  ❯ 2 Apply + allow future edits to thi
+alt-f        fx:  ❯ 3 Don't apply                         xfx:  ❯ 2 Apply + allow future edits to thi
+alt-b        fx:  ❯ 2 Apply + allow workspace file acce   xfx:  ❯ 2 Apply + allow future edits to thi
+ctrl-right   fx:  ❯ 2 Apply + allow workspace file acce   xfx:  ❯ 2 Apply + allow future edits to thi
+ctrl-left    fx:  ❯ 2 Apply + allow workspace file acce   xfx:  ❯ 2 Apply + allow future edits to thi

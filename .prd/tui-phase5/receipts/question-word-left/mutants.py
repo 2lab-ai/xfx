@@ -12,6 +12,13 @@ Q = "src/tui/question.rs"
 I = "src/tui/input.rs"
 S = "src/tui/shell.rs"
 AT_A_CHOICE = "            Act::Left | Act::AltB if !drafting => {"
+SHIFT_ALT = ("        if mods & SHIFT != 0 {\n"
+             "            return Input::Action(if ascii == Some(b'b') {\n"
+             "                Action::WordLeft\n"
+             "            } else {\n"
+             "                Action::WordRight\n"
+             "            });\n"
+             "        }")
 MUTANTS = [
     ("M1 Alt-b at a choice does nothing again", Q, AT_A_CHOICE,
      "            Act::Left if !drafting => {"),
@@ -31,9 +38,13 @@ MUTANTS = [
      "            Action::WordLeft\n        } else {"),
     ("M7 the shell's fold lets Alt-b through to the other surfaces", S,
      "        Input::Action(Action::AltB) => Input::Action(Action::WordLeft),\n", ""),
+    ("M8 Shift-Alt-b and Shift-Alt-f back to Ignore", I, SHIFT_ALT,
+     "        if mods & SHIFT != 0 {\n            return ignore;\n        }"),
+    ("M9 Shift-Alt-b decodes as Alt-b (goes back a question at a choice)", I, SHIFT_ALT,
+     SHIFT_ALT.replace("                Action::WordLeft\n", "                Action::AltB\n")),
 ]
 TESTS = [
-    ["cargo", "test", "--locked", "--lib", "--", "alt_b", "question::", "input::tests"],
+    ["cargo", "test", "--locked", "--lib", "--", "alt_b", "the_fold", "question::", "input::tests"],
 ]
 env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(mut, "target"), TMPDIR=os.path.join(mut, "tmp"))
 os.makedirs(env["TMPDIR"], exist_ok=True)
