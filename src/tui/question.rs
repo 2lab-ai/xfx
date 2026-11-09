@@ -2877,10 +2877,17 @@ mod tests {
         let mut panel = batch(20);
         let page = |panel: &QuestionPanel| panel.hint_text(120, false);
         assert_eq!(panel.apply(Act::AltB, 120, 40), Answered::Nothing);
-        for _ in 0..3 {
-            panel.apply(Act::Tab, 120, 40);
-        }
+        // Page 3 left with its second choice marked, so the page Alt-b lands
+        // on can be told from one that came back with the first.
+        panel.apply(Act::Tab, 120, 40);
+        panel.apply(Act::Tab, 120, 40);
+        panel.apply(Act::Down, 120, 40);
+        panel.apply(Act::Tab, 120, 40);
         assert!(page(&panel).ends_with("Question 4 of 20"));
+        assert!(
+            panel.painted(120, 40, &DARK)[2].starts_with("\u{1b}[1;38;5;255m    1) Keep 4"),
+            "page 4 opens on its own first choice"
+        );
         for act in [Act::WordLeft, Act::WordRight, Act::Right] {
             assert_eq!(panel.apply(act, 120, 40), Answered::Nothing, "{act:?}");
             assert!(page(&panel).ends_with("Question 4 of 20"), "{act:?}");
@@ -2891,9 +2898,11 @@ mod tests {
             "one question back: {}",
             page(&panel)
         );
+        let painted = panel.painted(120, 40, &DARK);
         assert!(
-            panel.painted(120, 40, &DARK)[2].starts_with("\u{1b}[1;38;5;255m    1) Keep 3"),
-            "the page it lands on keeps its own marked choice"
+            painted[3].starts_with("\u{1b}[1;38;5;255m    2) Change 3")
+                && painted[2].starts_with("\u{1b}[38;5;245m    1) Keep 3"),
+            "the page it lands on keeps its own marked choice: {painted:?}"
         );
         panel.apply(Act::AltB, 120, 40);
         panel.apply(Act::AltB, 120, 40);

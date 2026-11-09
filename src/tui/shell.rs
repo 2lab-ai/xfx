@@ -22345,7 +22345,8 @@ mod tests {
         // decodes to in each of its spellings -- `ESC b`, kitty's `CSI 98;3u`
         // and xterm's `CSI 27;3;98~` (`escape_parser.zig:243-246`, `:528-533`)
         // -- while Ctrl-Left and Alt-Left are a composer move (`:83-92`) that a
-        // choice leaves alone, as it does Alt-f and Ctrl-Right (`:196-199`).
+        // choice leaves alone, as it does Alt-f and Ctrl-Right (`:196-199`),
+        // and Shift-Alt-b and Shift-Alt-f, a composer move too (`:244`, `:248`).
         // `fx-p5-question-word-left-40x120-*`.
         let mut fixture = shell(24, 120);
         asking_question(&mut fixture, a_batch());
@@ -22361,6 +22362,8 @@ mod tests {
                 b"\x1b[57417;5u",
                 b"\x1bf",
                 b"\x1b[1;5C",
+                b"\x1b[98;4u",
+                b"\x1b[102;4u",
             ] {
                 fixture.route_bytes(word_key);
                 assert!(
@@ -22390,20 +22393,54 @@ mod tests {
             "Alt-b in a draft left the question"
         );
         // The caret's cell is painted on its own, so the row is read unpainted.
-        assert!(
+        let draft = |fixture: &Fixture, text: &str| {
             fixture
                 .band_rows()
                 .iter()
-                .any(|row| sgr_free(row) == "    3) ab zcd"),
-            "{:?}",
-            fixture.band_rows()
+                .any(|row| sgr_free(row) == format!("    3) {text}"))
+        };
+        assert!(draft(&fixture, "ab zcd"), "{:?}", fixture.band_rows());
+        // So are Shift-Alt-b and Shift-Alt-f: the draft drops the Shift
+        // (`questionFreeformActionFromShortcut`, `src/ui/input/runtime.zig:155-176`;
+        // `fx-p5-question-word-left-40x120-draft-shift-alt-{b,f}`).
+        fixture.route_bytes(b"\x1b[98;4u");
+        fixture.route_bytes(b"y");
+        assert!(draft(&fixture, "ab yzcd"), "{:?}", fixture.band_rows());
+        fixture.route_bytes(b"\x1b[102;4u");
+        fixture.route_bytes(b"x");
+        assert!(draft(&fixture, "ab yzcdx"), "{:?}", fixture.band_rows());
+        assert!(on(&fixture, "Ship it?"), "a word move left the question");
+    }
+
+    #[test]
+    fn alt_b_in_an_approval_amendment_is_the_word_move() {
+        // The approval panel reads the event after the fold ([`folded`]), and
+        // the word move is what its draft binds (`approval::edits`): an
+        // `AltB` that reached it unfolded would be a key it swallows. fx's
+        // amendment takes Alt-b as `.cursor_word_left`
+        // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-96`,
+        // `input_approval_runtime.zig:79-88@481104fd`).
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        shell.route_bytes(b"\x1bb");
+        shell.route_bytes(b"z");
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("ab zcd".to_string()),
+            })
         );
     }
 
     #[test]
-    fn alt_b_is_the_word_move_to_every_surface_below_a_question() {
-        // Folded once, before the approvals, the menus and the composer read
-        // the event, as Shift on Up and Down is ([`folded`]).
+    fn the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest() {
+        // `folded`'s own contract: `AltB` to `WordLeft`, Shift taken off Up
+        // and Down, and every other key as it came.
         for (event, surfaces_see) in [
             (Action::AltB, Action::WordLeft),
             (Action::SelectUp, Action::Up),

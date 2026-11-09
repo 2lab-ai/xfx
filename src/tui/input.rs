@@ -1909,8 +1909,6 @@ mod tests {
                 b"\x1b[102;6u",
                 "composerMove character_right + selection :241",
             ),
-            (b"\x1b[98;4u", "composerMove word_left + selection :244"),
-            (b"\x1b[102;4u", "composerMove word_right + selection :248"),
             (
                 b"\x1b[111;6u",
                 "ctrlOKeyAction with Shift beside Ctrl :111-114",
@@ -1935,8 +1933,9 @@ mod tests {
     fn alt_b_is_its_own_action_and_the_modified_left_arrows_are_word_left() {
         // Upstream's `.word_left` is Alt-b's alone (`escape_parser.zig:243-246`,
         // `:528-533@481104fd`; kitty and xterm's report share the keycode
-        // table); Ctrl-Left and Alt-Left are a composer move (`:83-92`). Only
-        // a question's choice reads the two apart ([`Action::AltB`]).
+        // table); Ctrl-Left and Alt-Left are a composer move (`:83-92`). Of
+        // xfx's surfaces only a question's choice reads the two apart today;
+        // fx's approval choice does as well ([`Action::AltB`]).
         for (bytes, spelling) in [
             (&b"\x1bb"[..], "ESC b"),
             (b"\x1b[98;3u", "kitty"),
@@ -1960,8 +1959,19 @@ mod tests {
                 "{bytes:?}"
             );
         }
-        // Shift with it is a selection move upstream, which xfx has none of.
-        assert_eq!(decode(b"\x1b[98;4u"), vec![Input::Action(Action::Ignore)]);
+        // With Shift, upstream's word move extending a selection
+        // (`composerMove(.word_left, mods)`, :244, :248): the word move here,
+        // the Shift dropped as it is from the arrows, until the composer has
+        // a selection to extend (COMPOSER-SELECTION-EXTEND). A question's
+        // draft drops it too (`src/ui/input/runtime.zig:155-197@481104fd`).
+        for (bytes, action) in [
+            (&b"\x1b[98;4u"[..], Action::WordLeft),
+            (b"\x1b[27;4;98~", Action::WordLeft),
+            (b"\x1b[102;4u", Action::WordRight),
+            (b"\x1b[27;4;102~", Action::WordRight),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(action)], "{bytes:?}");
+        }
     }
 
     #[test]

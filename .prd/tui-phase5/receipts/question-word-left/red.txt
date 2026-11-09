@@ -1,12 +1,16 @@
-# RED at the base 32afd307 (code unchanged; the commit adds the test, the scenario and these files)
+# RED
 
-## The test: cargo test --locked --lib alt_b_at_a_choice, on the base's code
+Round 1 is the unit at its base 32afd307; round 2 is the round-1 head cedcd9da (code 8cb952a2), for Shift-Alt-b and Shift-Alt-f.
+
+## Round 1
+
+### The test: cargo test --locked --lib alt_b_at_a_choice, on the base's code
 test tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not ... FAILED
 thread 'tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not' (<tid>) panicked at src/tui/shell.rs:22364:13:
 [27, 98] did not go back a question: ["\u{1b}[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u{1b}[0m", "  \u{1b}[1mShip it?\u{1b}[0m", "", "\u{1b}[1;38;5;255m    1) Yes\u{1b}[0m", "\u{1b}[38;5;245m    2) No\u{1b}[0m", "\u{1b}[38;5;245m    3) Other\u{1b}[0m", "", "\u{1b}[38;5;240m────────────────────────────────────
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4624 filtered out; finished in 0.11s
 
-## The pair: fx v0.0.16 (fx/) against the base binary (red/, row 1 x𝒇x v0.1.0-32afd30), pairs.sh red
+### The pair: fx v0.0.16 (fx/) against the base binary (red/, row 1 x𝒇x v0.1.0-32afd30), pairs.sh red, on the round-2 scenario
 SAME p5-question-word-left-40x120-alt-b-first  (fx: Question 1 of 20; xfx: Question 1 of 20)
 DIFF p5-question-word-left-40x120-alt-b  (fx: Question 3 of 20; xfx: Question 4 of 20)
     row 6: fx [(7, '3', (('bold', True),)), (8, '?', (('bold', True),))]
@@ -20,6 +24,14 @@ SAME p5-question-word-left-40x120-alt-left  (fx: Question 4 of 20; xfx: Question
 SAME p5-question-word-left-40x120-ctrl-left  (fx: Question 4 of 20; xfx: Question 4 of 20)
 SAME p5-question-word-left-40x120-ctrl-right  (fx: Question 4 of 20; xfx: Question 4 of 20)
 SAME p5-question-word-left-40x120-draft-alt-b  (fx: Question 2 of 20; xfx: Question 2 of 20)
+DIFF p5-question-word-left-40x120-draft-shift-alt-b  (fx: Question 2 of 20; xfx: Question 2 of 20)
+    row 10: fx [(10, 'y', (('bold', True), ('fg', 255))), (11, 'z', (('reverse', True),)), (12, 'c', (('bold', True), ('fg', 255))), (13, 'd', (('bold', True), ('fg', 255)))]
+    row 10: xfx [(10, 'z', (('bold', True), ('fg', 255))), (11, 'y', (('bold', True), ('fg', 255))), (12, 'c', (('reverse', True),)), (13, 'd', (('bold', True), ('fg', 255)))]
+    1 rows differ in their cells (row 1 not compared)
+DIFF p5-question-word-left-40x120-draft-shift-alt-f  (fx: Question 2 of 20; xfx: Question 2 of 20)
+    row 10: fx [(10, 'y', (('bold', True), ('fg', 255))), (11, 'z', (('bold', True), ('fg', 255))), (12, 'c', (('bold', True), ('fg', 255))), (13, 'd', (('bold', True), ('fg', 255)))]
+    row 10: xfx [(10, 'z', (('bold', True), ('fg', 255))), (11, 'y', (('bold', True), ('fg', 255))), (12, 'x', (('bold', True), ('fg', 255))), (13, 'c', (('reverse', True),))]
+    1 rows differ in their cells (row 1 not compared)
 DIFF p5-question-word-left-40x120-kitty-alt-b  (fx: Question 3 of 20; xfx: Question 4 of 20)
     row 6: fx [(7, '3', (('bold', True),)), (8, '?', (('bold', True),))]
     row 6: xfx [(7, '4', (('bold', True),)), (8, '?', (('bold', True),))]
@@ -37,4 +49,44 @@ DIFF p5-question-word-left-40x120-mok-alt-b  (fx: Question 3 of 20; xfx: Questio
     row 9: xfx [(14, '4', (('fg', 245),)), (15, ' ', ()), (16, ' ', ()), (17, ' ', ())]
 SAME p5-question-word-left-40x120-p4  (fx: Question 4 of 20; xfx: Question 4 of 20)
 SAME p5-question-word-left-40x120-right  (fx: Question 4 of 20; xfx: Question 4 of 20)
-9 of 12 pairs identical
+SAME p5-question-word-left-40x120-shift-alt-b  (fx: Question 4 of 20; xfx: Question 4 of 20)
+SAME p5-question-word-left-40x120-shift-alt-f  (fx: Question 4 of 20; xfx: Question 4 of 20)
+11 of 16 pairs identical
+
+## Round 2
+
+### The tests: cargo test --locked --lib -- alt_b the_fold question:: input::tests, on cedcd9da's code with round 2's tests
+test tui::input::tests::alt_b_is_its_own_action_and_the_modified_left_arrows_are_word_left ... FAILED
+test tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not ... FAILED
+thread 'tui::input::tests::alt_b_is_its_own_action_and_the_modified_left_arrows_are_word_left' (<tid>) panicked at src/tui/input.rs:1973:13:
+assertion `left == right` failed: [27, 91, 57, 56, 59, 52, 117]
+  left: [Action(Ignore)]
+ right: [Action(WordLeft)]
+thread 'tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not' (<tid>) panicked at src/tui/shell.rs:22408:9:
+    the draft row, unpainted: ['    3) ab zycd'] (the assertion wants '    3) ab yzcd')
+test result: FAILED. 163 passed; 2 failed; 0 ignored; 0 measured; 4464 filtered out; finished in 0.08s
+
+### The pair: fx/ against the round-1 head binary (r1/, row 1 x𝒇x v0.1.0-8cb952a, sha256 ade20524aa2b...), pairs.sh r1
+SAME p5-question-word-left-40x120-alt-b-first  (fx: Question 1 of 20; xfx: Question 1 of 20)
+SAME p5-question-word-left-40x120-alt-b  (fx: Question 3 of 20; xfx: Question 3 of 20)
+SAME p5-question-word-left-40x120-alt-f  (fx: Question 4 of 20; xfx: Question 4 of 20)
+SAME p5-question-word-left-40x120-alt-left  (fx: Question 4 of 20; xfx: Question 4 of 20)
+SAME p5-question-word-left-40x120-ctrl-left  (fx: Question 4 of 20; xfx: Question 4 of 20)
+SAME p5-question-word-left-40x120-ctrl-right  (fx: Question 4 of 20; xfx: Question 4 of 20)
+SAME p5-question-word-left-40x120-draft-alt-b  (fx: Question 2 of 20; xfx: Question 2 of 20)
+DIFF p5-question-word-left-40x120-draft-shift-alt-b  (fx: Question 2 of 20; xfx: Question 2 of 20)
+    row 10: fx [(10, 'y', (('bold', True), ('fg', 255))), (11, 'z', (('reverse', True),)), (12, 'c', (('bold', True), ('fg', 255))), (13, 'd', (('bold', True), ('fg', 255)))]
+    row 10: xfx [(10, 'z', (('bold', True), ('fg', 255))), (11, 'y', (('bold', True), ('fg', 255))), (12, 'c', (('reverse', True),)), (13, 'd', (('bold', True), ('fg', 255)))]
+    1 rows differ in their cells (row 1 not compared)
+DIFF p5-question-word-left-40x120-draft-shift-alt-f  (fx: Question 2 of 20; xfx: Question 2 of 20)
+    row 10: fx [(10, 'y', (('bold', True), ('fg', 255))), (11, 'z', (('bold', True), ('fg', 255))), (12, 'c', (('bold', True), ('fg', 255))), (13, 'd', (('bold', True), ('fg', 255)))]
+    row 10: xfx [(10, 'z', (('bold', True), ('fg', 255))), (11, 'y', (('bold', True), ('fg', 255))), (12, 'x', (('bold', True), ('fg', 255))), (13, 'c', (('reverse', True),))]
+    1 rows differ in their cells (row 1 not compared)
+SAME p5-question-word-left-40x120-kitty-alt-b  (fx: Question 3 of 20; xfx: Question 3 of 20)
+SAME p5-question-word-left-40x120-kitty-ctrl-left  (fx: Question 4 of 20; xfx: Question 4 of 20)
+SAME p5-question-word-left-40x120-mok-alt-b  (fx: Question 3 of 20; xfx: Question 3 of 20)
+SAME p5-question-word-left-40x120-p4  (fx: Question 4 of 20; xfx: Question 4 of 20)
+SAME p5-question-word-left-40x120-right  (fx: Question 4 of 20; xfx: Question 4 of 20)
+SAME p5-question-word-left-40x120-shift-alt-b  (fx: Question 4 of 20; xfx: Question 4 of 20)
+SAME p5-question-word-left-40x120-shift-alt-f  (fx: Question 4 of 20; xfx: Question 4 of 20)
+14 of 16 pairs identical
