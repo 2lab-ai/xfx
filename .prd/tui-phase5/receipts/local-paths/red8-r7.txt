@@ -1,0 +1,12 @@
+# red8.sh on a clone at 98af91ed (round 7), under /bin/bash
+the volume:                        case-insensitive (FXTMP is fxtmp)
+the bash:                          3.2.57(1)-release
+dir FXTMP:                         run, exit 0 (RED)
+dir FxTmp:                         run, exit 0 (RED)
+dir XFXTMP:                        run, exit 0 (RED)
+dir Fxtmp-old:                     run, exit 0 (RED)
+dir xFxTmP.bak:                    run, exit 0 (RED)
+dir fxtmp:                         refused, exit 2
+dir Notes:                         run, exit 0
+dir tmp:                           run, exit 0
+dir xfx:                           run, exit 0

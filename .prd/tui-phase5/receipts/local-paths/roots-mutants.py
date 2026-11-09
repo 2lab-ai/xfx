@@ -1,4 +1,4 @@
-"""LOCAL-PATHS round 7: each mutant of scripts/fxcap/roots.py, capture.sh or
+"""LOCAL-PATHS round 8: each mutant of scripts/fxcap/roots.py, capture.sh or
 parity-ledger.toml, applied to a throwaway clone's copy (never a checkout
 anyone works in), must be failed by the tests that pin it. Each line names
 the tests that failed and the test file's line of the first failed
@@ -84,7 +84,10 @@ M = [
     ("parity-ledger.toml", SWEEP, "`/` or white space", TMPDIR_RULE, rule(end="(?=[/\\s])")),
     # round 7, item 3: no `dir` beside the binaries' TMPDIRs
     ("capture.sh", ["test_capture.py", "Refusals.test_a_dir_never_takes_a_binarys_tmpdir_name"], "dir takes fxtmp names (round 6)",
-     "*/*|fxtmp*|xfxtmp*)", "*/*)"),
+     "*/*|[fF][xX][tT][mM][pP]*|[xX][fF][xX][tT][mM][pP]*)", "*/*)"),
+    # round 8, item 1: in any case
+    ("capture.sh", ["test_capture.py", "Refusals.test_a_dir_never_takes_a_binarys_tmpdir_name"], "dir refuses lower case only (round 7)",
+     "*/*|[fF][xX][tT][mM][pP]*|[xX][fF][xX][tT][mM][pP]*)", "*/*|fxtmp*|xfxtmp*)"),
 ]
 env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 env["PYTHONDONTWRITEBYTECODE"] = "1"

@@ -1,3 +1,4 @@
+# The `afterN:` lines below each table are runs-tail.sh's (its last line from round 7 on).
 # Capture files under each sweep's runs/ holding any part of a run's paths (runs_scan.py:
 # a whole root, a shape, or a fragment a broken root leaves), the sweep's own capture.log
 # and status.json left out. SCAN_TMP is the TMPDIR every sweep ran under.
@@ -109,4 +110,4 @@ all        677     0     0        0     0
 after7: capture files holding a placeholder: 273
 after7: each run's roots line (widths masked here): roots: <work>=N <scratch>=N <scenarios>=N <bun>=N <bun:real>=N <tmp>=N <home>=N bytes
 after7: runs refused by roots.py (LOCAL-PATH GUARD in any file of runs/): 0
-after7: what follows fxtmp or xfxtmp in its captures: 8 `/`, nothing else
+after7: what follows fxtmp or xfxtmp in its captures: 8 `/`
