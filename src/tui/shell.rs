@@ -38524,6 +38524,63 @@ mod tests {
     }
 
     #[test]
+    fn the_quarantine_s_sentence_leaves_the_review_plane_when_the_quarantine_ends() {
+        // opus on PASTE-GAP round 4: the plane's status row is set and never
+        // taken down, so once the quarantine ended "keys ignored" stayed up for
+        // the rest of the question while keys worked again. Each of the three
+        // sentences is on the plane while its quarantine holds, and gone once
+        // it ends: by the quiet, and -- for the open paste and the open
+        // sequence -- by the byte that closes or breaks it and then the quiet.
+        let tick = super::super::event_loop::TICK;
+        let quiet = super::super::input::Decoder::PASTE_QUIET;
+        for (opening, last, closing, sentence) in [
+            (
+                &b"\x1b[200~new\x1b[201~"[..],
+                &b"y"[..],
+                &b""[..],
+                PASTE_STILL,
+            ),
+            (
+                b"\x1b[200~new\x1b[201~\x1b[200~two ",
+                b"y",
+                b"\x1b[201~",
+                PASTE_UNTIL_END,
+            ),
+            (b"\x1b[200~new\x1b[201~", b"\x1b[", b"x", PASTE_UNTIL_KEY),
+        ] {
+            let mut shell = on_the_plane(100);
+            let at = streamed_to_the_repeat(&mut shell, Instant::now(), opening, last);
+            let painted = unwrapped(&shell.screen_rows());
+            assert!(painted.contains(sentence), "not said: {painted:?}");
+            let mut at = at + tick;
+            if !closing.is_empty() {
+                shell.route_read(closing);
+                shell.end_delivery_at(at);
+                at += tick;
+            }
+            shell.end_delivery_at(at);
+            shell.end_delivery_at(at + quiet);
+            assert!(
+                !shell.decoder.quarantined(),
+                "{sentence:?}: still quarantined"
+            );
+            let painted = unwrapped(&shell.screen_rows());
+            for gone in [PASTE_STILL, PASTE_UNTIL_END, PASTE_UNTIL_KEY] {
+                assert!(
+                    !painted.contains(gone),
+                    "{gone:?} outlived the quarantine: {painted:?}"
+                );
+            }
+            // And a key is a key again: the question answers it.
+            shell.route_bytes(b"1");
+            assert!(
+                shell.controlled().is_some(),
+                "{sentence:?}: the key did nothing"
+            );
+        }
+    }
+
+    #[test]
     fn an_oversized_paste_with_input_behind_it_on_the_review_plane_ends_on_the_warning() {
         // fx writes two notices here, the limit's and then the warning
         // (`input_paste_runtime.zig:189-196@481104fd`); the plane has one
