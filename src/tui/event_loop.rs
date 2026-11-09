@@ -15989,4 +15989,37 @@ mod tests {
             "an Enter of its own did not send the draft"
         );
     }
+
+    #[test]
+    fn a_readiness_gap_inside_one_paste_does_not_turn_the_rest_of_it_into_keys() {
+        // One paste, written by its terminal in two goes, and a turn's check
+        // that finds the queue empty between them: two turns of the loop, the
+        // first drained by its own end marker, the second carrying what the
+        // clipboard held after it. fx settles at the first turn's empty check
+        // and reads the second as keys (`event_loop.zig:94-119@481104fd`).
+        let mut shell = shell();
+        shell.route_read(b"prior");
+        shell.end_delivery();
+        let first = Readable {
+            bytes: b"\x1b[200~new\x1b[201~".to_vec(),
+            at: std::cell::Cell::new(0),
+        };
+        first.turn(&mut shell);
+        assert_eq!(composer(&shell), format!("{COMPOSER_MARKER} priornew"));
+
+        let rest = Readable {
+            bytes: b"x\r".to_vec(),
+            at: std::cell::Cell::new(0),
+        };
+        rest.turn(&mut shell);
+        assert!(
+            shell._work.try_recv().is_err(),
+            "the Enter after the gap submitted the draft"
+        );
+        assert_eq!(
+            composer(&shell),
+            format!("{COMPOSER_MARKER} priornew"),
+            "the bytes after the gap were typed"
+        );
+    }
 }

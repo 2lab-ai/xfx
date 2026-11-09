@@ -2955,6 +2955,34 @@ mod tests {
     }
 
     #[test]
+    fn a_readiness_gap_behind_an_end_marker_does_not_make_what_follows_keys() {
+        // A paste longer than the pty's input queue reaches the decoder as the
+        // terminal refills it, so a readiness check can find the queue empty
+        // between two of its writes (the PASTE-GAP receipt: 1 022 bytes on
+        // macOS, and a paste of 4 KiB through tmux had its CR read as a key in
+        // every run). fx settles the paste at that gap and reads the rest as
+        // keys (`event_loop.zig:94-119@481104fd`). Whatever arrives before the
+        // input has gone quiet is the clipboard's too: not a character, not an
+        // Enter, not an arrow.
+        let mut decoder = Decoder::new();
+        let now = Instant::now();
+        let mut out = Vec::new();
+        for byte in b"\x1b[200~new\x1b[201~" {
+            decoder.feed(*byte, now, &mut out);
+        }
+        assert_eq!(
+            deliver(&mut decoder, &mut out),
+            Delivery::Pasted { dropped: 0 },
+            "the paste is settled where fx settles it"
+        );
+        for byte in b"x\r\x1b[A" {
+            decoder.feed(*byte, now, &mut out);
+        }
+        deliver(&mut decoder, &mut out);
+        assert_eq!(out, kept_new(), "the bytes after the gap were read as keys");
+    }
+
+    #[test]
     fn an_end_marker_split_across_two_deliveries_is_the_marker_and_the_next_key_a_key() {
         // A marker that lands across two reads -- or two deliveries -- is not
         // input behind the marker: it *is* the marker. The paste stays open

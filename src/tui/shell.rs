@@ -18844,6 +18844,35 @@ mod tests {
     }
 
     #[test]
+    fn a_readiness_gap_behind_a_paste_s_end_marker_does_not_make_the_rest_a_prompt() {
+        // The PASTE-GAP receipt's threat: a clipboard holding `ESC[201~`, a
+        // slash command and a newline, on a terminal that does not strip the
+        // marker, written in two goes with a check that found nothing between
+        // them -- an ordinary refill of a pty's 1 022-byte queue. fx settles
+        // the paste at the gap (`event_loop.zig:94-119@481104fd`) and reads
+        // the rest as keys, so the newline submits. Here the rest is the
+        // clipboard's: counted, never typed, and said.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery();
+        assert_eq!(shell.editor.text(), "priornew", "fx's settle point moved");
+        shell.route_read(b"/version\r");
+        shell.end_delivery();
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the newline after the gap sent a prompt"
+        );
+        assert_eq!(
+            shell.editor.text(),
+            "priornew",
+            "the bytes after the gap were typed"
+        );
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+    }
+
+    #[test]
     fn a_paste_past_the_budget_with_input_behind_it_says_the_limit_then_the_ignored_input() {
         // fx v0.0.16 finishes the paste first -- an overflowed capture is the
         // input-limit refusal (`input_paste_runtime.zig:189,210-235@481104fd`,
@@ -37888,6 +37917,29 @@ mod tests {
 
         shell.route_bytes(b"\x1b[200~\x1b[201~1\r");
         assert_eq!(shell.controlled(), None, "a `1` behind the marker answered");
+        assert!(shell.panel.is_some(), "the question went away");
+        assert_eq!(shell.document(), said(ignored_behind_the_paste()));
+    }
+
+    #[test]
+    fn a_choice_after_a_readiness_gap_behind_a_paste_answers_nothing() {
+        // The keys that act with no Enter are the reason the gap is closed for
+        // every key rather than for the newline alone: at an approval a `1`
+        // marks a choice. After a check that found nothing between the end
+        // marker and the rest of the clipboard, fx reads the `1` and the Enter
+        // as keys (`event_loop.zig:94-119@481104fd`) and the question is
+        // answered.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_read(b"\x1b[200~\x1b[201~");
+        shell.end_delivery();
+        shell.route_read(b"1\r");
+        shell.end_delivery();
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the keys after the gap answered the question"
+        );
         assert!(shell.panel.is_some(), "the question went away");
         assert_eq!(shell.document(), said(ignored_behind_the_paste()));
     }
