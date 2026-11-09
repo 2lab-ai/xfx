@@ -11,7 +11,9 @@ it with five SHOULDs. Rounds 3, 4 and 5 each found one more event after
 which the review plane's present-tense sentence outlived the state it named,
 and each fix added one more event that cleared it. This round removes the
 per-event clears: one reconcile, at one point. Every figure below rests on a
-file in this directory or the one named.
+file in this directory or the one named. Every `file:line` is at the branch
+head. Its code is `d0789285`'s apart from two doc comments (the table
+below).
 
 | commit | what |
 |---|---|
@@ -19,7 +21,7 @@ file in this directory or the one named.
 | `d0789285` | GREEN. **The code head**: the mutants and the gate ran here |
 | the commit after | this receipt, and two doc comments that still said round 5's rule: `input.rs`'s module doc ("takes down when the quarantine ends") and `clear_status_if`'s ("a state that has ended"). Comment text only; fmt and clippy green on it |
 
-Round 6 adds 90 non-test source lines, most of them doc comments. The unit's
+Round 6 adds 90 non-test source lines, about half of them doc comments. The unit's
 total is 562 (the counter, which gives round 5's 497 at `6cb46583`, is
 in section 7).
 
@@ -32,7 +34,7 @@ them has the decoder. (a) would also still need a repaint whenever the hold
 changes, and that is a reconcile under another name.
 
 **What is true now** is the decoder's to say: `Decoder::named_hold`
-(`src/tui/input.rs:639`). It gives the hold that the last repeat *in this
+(`src/tui/input.rs:640`). It gives the hold that the last repeat *in this
 quarantine* named (`Quarantine.said_hold`), while that hold still holds it.
 Otherwise it gives `None`:
 - when there is no quarantine;
@@ -161,7 +163,7 @@ test (`mutants-round5.txt`).
     `a_status_line_never_costs_the_question_its_answers` is still green.
   - The 30-column refusal test's comment now says three rows.
 - **(5) Docs.**
-  - `Hold` (`input.rs:493`) no longer says "what the user is told will end
+  - `Hold` (`input.rs:494`) no longer says "what the user is told will end
     it". Only the quiet's sentence names a release point.
   - The doc on the sentences (`shell.rs:554`) and `parity.md`'s paste
     paragraph now say a cut sentence appears at no width and no height.
