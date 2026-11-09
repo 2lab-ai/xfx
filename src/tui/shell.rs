@@ -6016,9 +6016,13 @@ impl Shell {
     /// Offers one keystroke to the `/settings` menu, and says whether it was
     /// taken.
     ///
-    /// The eight keys [`SettingsAction::of`] names, and nothing else: a letter,
+    /// The keys [`SettingsAction::of`] names, and nothing else: a letter,
     /// a Backspace or a C-u edits the search and goes on to the composer with
-    /// the menu still up. Up and Down wrap; Tab and Shift-Tab change the tab,
+    /// the menu still up. Up and Down wrap, and so do `C-j` and `C-k`; PgDn and
+    /// PgUp move a page -- the composer's row cap -- and from past either end
+    /// land on the other (`routeSettingsMenuMove`,
+    /// `input_completion_runtime.zig:431-463@481104fd`, and `Menu.move`,
+    /// `settings_catalog.zig:225-241`); Tab and Shift-Tab change the tab,
     /// and with it the menu's height, so the band is re-solved; Left and Right
     /// change the marked setting at once (`changeSettingsMenuSelection`,
     /// `app_input_runtime.zig:2489-2514`) -- on `Model`, Right opens the list
@@ -6027,8 +6031,9 @@ impl Shell {
     /// empties its search.
     ///
     /// **With the list open** the keys are its (`:2489-2552`;
-    /// `routeSettingsMenuMove`, `input_completion_runtime.zig:415-440`): Up
-    /// and Down move its mark, Left and Enter use the marked model and close
+    /// `routeSettingsMenuMove`, `input_completion_runtime.zig:440-455@481104fd`):
+    /// Up, Down, `C-j`, `C-k` and a page move its mark, Left and Enter use the
+    /// marked model and close
     /// it, Right does nothing, Tab and Shift-Tab close it with the tab change
     /// (`cycleSettingsMenuCategory`, `app_input_runtime.zig:3014-3018`).
     /// Escape closes the settings menu and only that
@@ -6049,6 +6054,18 @@ impl Shell {
         };
         let snapshot = self.settings_snapshot();
         let listing = snapshot.models.is_some();
+        // How far a move takes the mark: a row for the arrows, `C-j` and
+        // `C-k`, and the composer's row cap for a page -- whichever list has
+        // the keys (`routeComposerVertical` with `page`,
+        // `input_completion_runtime.zig:222-233@481104fd`, then
+        // `routeSettingsMenuMove`, `:431-463`).
+        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+        let delta = match request {
+            SettingsAction::Up | SettingsAction::Row(false) => Some(-1),
+            SettingsAction::Down | SettingsAction::Row(true) => Some(1),
+            SettingsAction::Page(down) => Some(if down { page } else { -page }),
+            _ => None,
+        };
         let mut change = None;
         let mut models = false;
         let mut use_model = false;
@@ -6057,13 +6074,16 @@ impl Shell {
         let mut refit = false;
         let mut repaint = false;
         match request {
-            SettingsAction::Up | SettingsAction::Down if listing => {
+            _ if listing && delta.is_some() => {
                 let visible = menu.visible_models(&snapshot, self.geometry.panel);
-                step_models = Some((request == SettingsAction::Down, visible));
+                step_models = delta.map(|delta| (delta, visible));
             }
-            SettingsAction::Up | SettingsAction::Down => {
+            SettingsAction::Up
+            | SettingsAction::Down
+            | SettingsAction::Row(_)
+            | SettingsAction::Page(_) => {
                 let visible = menu.visible_items(&snapshot, self.geometry.panel);
-                repaint = menu.step(request == SettingsAction::Down, visible, &snapshot);
+                repaint = menu.step_by(delta.unwrap_or_default(), visible, &snapshot);
             }
             SettingsAction::NextCategory | SettingsAction::PreviousCategory => {
                 menu.cycle(request == SettingsAction::NextCategory);
@@ -6090,13 +6110,21 @@ impl Shell {
             self.close_settings();
             return true;
         }
-        if let Some((down, visible)) = step_models {
+        if let Some((delta, visible)) = step_models {
+            // The list's move is spent whatever it did (`moveVisibleItems`'
+            // answer is dropped, `:441-455`).
             if let Some(list) = self.model_menu.as_mut() {
-                if list.step_by(if down { 1 } else { -1 }, visible.max(1)) {
+                if list.step_by(delta, visible.max(1)) {
                     self.render.request(Reason::Modal);
                 }
             }
             return true;
+        }
+        // Over an empty list `C-j`, `C-k` and a page go on to the composer, as
+        // upstream's do when `Menu.move` answers `false`
+        // (`settings_catalog.zig:227`); the arrows stay spent.
+        if matches!(request, SettingsAction::Row(_) | SettingsAction::Page(_)) && !repaint {
+            return false;
         }
         if matches!(
             request,
@@ -7127,7 +7155,9 @@ impl Shell {
     ///
     /// Only while a column is open over a `/model ` line, and never while
     /// `/model`'s menu or the catalog has the composer as its search. Up and
-    /// Down walk the open column, wrapping; Tab writes the marked row into the
+    /// Down walk the open column, wrapping, and so do `C-j` and `C-k`; PgDn
+    /// and PgUp move a page -- the composer's row cap -- and from past either
+    /// end land on the other; Tab writes the marked row into the
     /// composer; Left steps back a column -- and is the caret's from the first;
     /// Escape puts the column away and leaves the text; Enter takes the marked
     /// row, or falls through to the composer's own submit when the column has
@@ -7155,6 +7185,10 @@ impl Shell {
                 | Input::Action(
                     Action::Up
                         | Action::Down
+                        | Action::ControlK
+                        | Action::ControlJ
+                        | Action::PageUp
+                        | Action::PageDown
                         | Action::Tab
                         | Action::Left
                         | Action::Escape
@@ -7208,11 +7242,30 @@ impl Shell {
             }
             // No column before an `/effort ` line's to step back into.
             Input::Action(Action::Left) if query.effort_command() => false,
-            Input::Action(Action::Up | Action::Down) => {
-                let down = matches!(event, Input::Action(Action::Down));
+            // The arrows, `C-j`/`C-k` and a page -- the composer's row cap --
+            // in whichever stage is open, spent whether or not there was a row
+            // to move to: `routeNonSlashPickerMove` answers `true` once
+            // `hasModelQuery` does (`input_completion_runtime.zig:411-414`,
+            // `:222-233@481104fd`; `routePickerControlByte`,
+            // `app_input_runtime.zig:1093-1108@481104fd`).
+            Input::Action(
+                action @ (Action::Up
+                | Action::Down
+                | Action::ControlK
+                | Action::ControlJ
+                | Action::PageUp
+                | Action::PageDown),
+            ) => {
+                let page = i64::from(layout::input_row_limit(self.geometry.rows));
+                let delta = match action {
+                    Action::Up | Action::ControlK => -1,
+                    Action::PageUp => -page,
+                    Action::PageDown => page,
+                    _ => 1,
+                };
                 if self
                     .column
-                    .step(&query, known(self.catalog_known, &self.catalog), down)
+                    .step_by(&query, known(self.catalog_known, &self.catalog), delta)
                 {
                     self.render.request(Reason::Modal);
                     self.render.request(Reason::Footer);
@@ -9054,6 +9107,8 @@ impl Shell {
 
     /// Offers one keystroke to `/mcp `'s argument completions, and says
     /// whether it was taken: Up, Down, `C-k` and `C-j` move the mark and wrap;
+    /// PgUp and PgDn move it a page -- the composer's row cap -- and from past
+    /// either end land on the other;
     /// Tab writes the marked line; Escape closes them until the draft stops
     /// being a `/mcp ` line. Enter writes the marked line and is **not**
     /// taken, so the composer submits it in place of what was typed
@@ -9069,10 +9124,24 @@ impl Shell {
         let Some(args) = self.mcp_args.as_mut() else {
             return false;
         };
+        let page = i64::from(layout::input_row_limit(self.geometry.rows));
         match action {
-            Action::Up | Action::ControlK | Action::Down | Action::ControlJ => {
-                let down = matches!(action, Action::Down | Action::ControlJ);
-                if args.step_by(if down { 1 } else { -1 }) {
+            Action::Up
+            | Action::ControlK
+            | Action::Down
+            | Action::ControlJ
+            | Action::PageUp
+            | Action::PageDown => {
+                // A page is the composer's row cap, as for the slash list
+                // these are in fx (`navigateSlashCompletion(picker_delta)`,
+                // `input_completion_runtime.zig:222-233`, `:255-260@481104fd`).
+                let delta = match action {
+                    Action::Up | Action::ControlK => -1,
+                    Action::PageUp => -page,
+                    Action::PageDown => page,
+                    _ => 1,
+                };
+                if args.step_by(delta) {
                     self.render.request(Reason::Modal);
                 }
                 true

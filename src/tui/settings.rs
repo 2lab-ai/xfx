@@ -71,7 +71,7 @@ use crate::config::{Notifications, PermissionMode, StatusLine, StatusLineItem};
 
 use super::input::Action;
 use super::model_menu::{Inline, ModelMenu};
-use super::picker::{cells, edge_start, ellipsized, pad_to};
+use super::picker::{advanced, cells, edge_start, ellipsized, pad_to};
 use super::theme::Palette;
 
 /// The header and the blank row under it (`roomy_header_rows`,
@@ -516,6 +516,19 @@ pub(crate) enum SettingsAction {
     Up,
     /// The next one, wrapping to the first. Down.
     Down,
+    /// One row down (`true`, `C-j`) or up (`C-k`), as Down and Up -- but
+    /// spent only when there was a row to move to: upstream's control-byte
+    /// route goes on to the composer when the menu answers `false`
+    /// (`routePickerControlByte`, `app_input_runtime.zig:1093-1108@481104fd`;
+    /// `Menu.move` is `false` over an empty list, `settings_catalog.zig:227`).
+    Row(bool),
+    /// A page down (`true`, PgDn) or up (PgUp): the composer's row cap of
+    /// settings, to the other end when it would run past one
+    /// (`routeComposerVertical` with `page`,
+    /// `input_completion_runtime.zig:222-233@481104fd`, into
+    /// `routeSettingsMenuMove`, `:431-463`). Spent, like [`Self::Row`], only
+    /// when there was a row to move to.
+    Page(bool),
     /// The next tab, wrapping to `All`. Tab.
     NextCategory,
     /// The previous one. Shift-Tab (`toggle_permission_mode`'s first claimant,
@@ -540,6 +553,10 @@ impl SettingsAction {
         match action {
             Action::Up => Some(Self::Up),
             Action::Down => Some(Self::Down),
+            Action::ControlJ => Some(Self::Row(true)),
+            Action::ControlK => Some(Self::Row(false)),
+            Action::PageDown => Some(Self::Page(true)),
+            Action::PageUp => Some(Self::Page(false)),
             Action::Tab => Some(Self::NextCategory),
             Action::BackTab => Some(Self::PreviousCategory),
             Action::Left => Some(Self::Previous),
@@ -640,20 +657,19 @@ impl SettingsMenu {
         self.reset();
     }
 
-    /// Moves the mark one setting, wrapping at both ends, and scrolls a window
-    /// of `visible` settings only as far as keeps it in view (`move`,
-    /// `:225-241`). `false`, and nothing moved, when nothing is listed.
-    pub(crate) fn step(&mut self, down: bool, visible: u16, snapshot: &Snapshot<'_>) -> bool {
+    /// Moves the mark `delta` settings on -- one for Up and Down, a page for
+    /// PgUp and PgDn -- and scrolls a window of `visible` settings only as far
+    /// as keeps it in view (`move`, `:225-241`). Past either end it goes to
+    /// the **other** end, however far past it was asked to go: `move` sets
+    /// `next` to the last or the first rather than taking it round
+    /// (`:229-233`), so a page from the last setting is the first. `false`,
+    /// and nothing moved, when nothing is listed.
+    pub(crate) fn step_by(&mut self, delta: i64, visible: u16, snapshot: &Snapshot<'_>) -> bool {
         let count = self.items(snapshot).len();
         if count == 0 {
             return false;
         }
-        let current = self.selected % count;
-        self.selected = if down {
-            (current + 1) % count
-        } else {
-            (current + count - 1) % count
-        };
+        self.selected = advanced(self.selected, count, delta);
         self.window_start = edge_start(self.window_start, count, self.selected, visible.max(1));
         true
     }
@@ -1286,7 +1302,7 @@ mod tests {
         let mut snapshot = launched();
         let menu = on_tab(2);
         let mut fast = menu.clone();
-        assert!(fast.step(true, 5, &snapshot) && fast.step(true, 5, &snapshot));
+        assert!(fast.step_by(1, 5, &snapshot) && fast.step_by(1, 5, &snapshot));
         assert_eq!(fast.selected(&snapshot), Some(Setting::FastMode));
         assert_eq!(fast.change(true, &snapshot), None);
         snapshot.offers_fast = true;
@@ -1310,7 +1326,7 @@ mod tests {
         );
         // Ultra the same, by its own offer.
         let mut ultra = fast.clone();
-        assert!(ultra.step(true, 5, &snapshot));
+        assert!(ultra.step_by(1, 5, &snapshot));
         assert_eq!(ultra.selected(&snapshot), Some(Setting::UltraMode));
         assert_eq!(ultra.change(true, &snapshot), None);
         snapshot.offers_ultrafast = true;
@@ -1385,19 +1401,19 @@ mod tests {
     fn a_tab_change_and_a_new_search_put_the_mark_back_on_top() {
         let snapshot = launched();
         let mut menu = SettingsMenu::open("");
-        assert!(menu.step(true, 10, &snapshot));
-        assert!(menu.step(true, 10, &snapshot));
+        assert!(menu.step_by(1, 10, &snapshot));
+        assert!(menu.step_by(1, 10, &snapshot));
         assert_eq!(
             menu.selected(&snapshot),
             Some(Setting::Statusline(StatusLineItem::Workspace))
         );
         menu.cycle(true);
         assert_eq!(menu.selected, 0);
-        menu.step(true, 10, &snapshot);
+        menu.step_by(1, 10, &snapshot);
         menu.set_query("s");
         assert_eq!(menu.selected, 0);
         // The same text again is not a new search.
-        menu.step(true, 10, &snapshot);
+        menu.step_by(1, 10, &snapshot);
         menu.set_query("s");
         assert_eq!(menu.selected, 1);
     }
@@ -1406,9 +1422,9 @@ mod tests {
     fn up_and_down_wrap_at_both_ends() {
         let snapshot = launched();
         let mut menu = SettingsMenu::open("");
-        assert!(menu.step(false, 10, &snapshot));
+        assert!(menu.step_by(-1, 10, &snapshot));
         assert_eq!(menu.selected(&snapshot), Some(Setting::PromptHistory));
-        assert!(menu.step(true, 10, &snapshot));
+        assert!(menu.step_by(1, 10, &snapshot));
         assert_eq!(
             menu.selected(&snapshot),
             Some(Setting::Statusline(StatusLineItem::Context))
@@ -1545,7 +1561,7 @@ mod tests {
         let snapshot = launched();
         let mut menu = SettingsMenu::open("");
         for _ in 0..5 {
-            menu.step(true, 1, &snapshot);
+            menu.step_by(1, 1, &snapshot);
         }
         // Two rows: no header, the mark kept in view -- at the top of the
         // window its last move left (`buildBrowseLayout`'s `window_start`).
