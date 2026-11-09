@@ -495,6 +495,37 @@ class RootsRewrite(unittest.TestCase):
         data = b"x " + home.encode() + b"\x1b[1m/notes\x1b[0m\n"
         self.assertEqual(roots.survivors(data, rules, None), ["home"])
 
+    def test_a_root_with_a_gutter_character_the_view_drops_still_refuses(self):
+        # The view drops a row's edge gutters (spaces, tabs, U+2500-U+259F). A
+        # root that ends in one, at a row's end, loses that character to it;
+        # a root with one inside it, broken beside it at a row's end, reads
+        # joined without it. Neither is found to be written, so each refuses
+        # the file: fail closed.
+        for root in ("/tmp/fxt ", "/tmp/fxt\t", "/tmp/fxt\u2502"):
+            rules = roots.rules_for([(root, "tmp")])
+            for data in (("x %s\nnext\n" % root).encode(), ("x %s" % root).encode()):
+                with self.subTest(root=root, data=data):
+                    self.assertEqual(roots.survivors(roots.rewrite(data, rules)[0], rules, None), ["tmp"])
+        spaced = "/tmp/a b"
+        rules = roots.rules_for([(spaced, "tmp")])
+        for data in (b"x /tmp/a \nb/notes\n", b"x /tmp/a\n b/notes\n", b"x /tmp/a\t\n  \xe2\x94\x82 b/notes\n"):
+            with self.subTest(data=data):
+                self.assertEqual(roots.survivors(roots.rewrite(data, rules)[0], rules, None), ["tmp"])
+        # Away from a row's edge such a root is found and written, and
+        # nothing survives.
+        got = roots.rewrite(b"x /tmp/a b/notes\n", rules)[0]
+        self.assertEqual(got, b"x " + P("tmp", spaced).encode() + b"/notes\n")
+        self.assertEqual(roots.survivors(got, rules, None), [])
+
+    def test_a_root_whose_head_an_escape_took_is_refused_beside_a_styled_sibling(self):
+        # Conservative, on purpose: `ESC / h` takes the root's head, and a
+        # colour change where the root's bytes end makes them end whole. The
+        # reader sees `ome/alice2/notes`; nothing it holds tells the sibling
+        # from the root, so the file is refused.
+        home = "/ho" + "me/alice"
+        rules = roots.rules_for([(home, "home")])
+        self.assertEqual(roots.survivors(b"\x1b" + home.encode() + b"\x1b[1m2/notes\n", rules, None), ["home"])
+
     def test_a_root_in_a_control_sequences_bytes_still_refuses(self):
         # No reader sees an OSC payload, so its bytes are read: an OSC 8
         # link's target left unwritten refuses the file, a sibling there does not.
