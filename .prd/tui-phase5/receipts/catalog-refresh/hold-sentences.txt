@@ -1,0 +1,252 @@
+# Every comment line, parity-row sentence and README line of the unit that says
+# "backoff", "hold" or "asks nothing" -- each checked, with what was decided.
+# A promise of no read inside a failure's hold ("asks nothing", "only", "never",
+# "not before", or a closed list of when a read is due) holds only for readings
+# not earlier than the last read's start, and says so. Categories:
+#   [Q4] qualified in round 4
+#   [Q3] qualified in round 3
+#   [P] a read comes once/past the hold: stands (the hold is CatalogDue's, which carries the rule)
+#   [S] its own test's readings, none before the read's start: stands
+#   [E] the earlier-reading case itself
+#   [D] what the hold or backoff is, no promise about reads
+#   [I] an idle tick or a band with nothing to ask: not the hold
+#   [N] the /model <query> one-shot, which no backoff holds: true
+#   [U] not the catalog's hold
+
+## docs/parity.md:93, the /model row: sentences that say them
+[Q3] ...last read's start (both below) --, counted from when the failure arrived; a success clears the count (`failureBackoffMs`, `:40-54`;...
+[D] ...fter a laptop sleep the catalog is as old as the sleep made it and due again on the next ask, and a failure's hold ends in the sleep too; neither moves with the wall clock....
+[Q4] ...While a failure's hold holds -- by the readings above -- `/model` opens the menu over the failure at once and asks nothing; past it ...
+[Q4] ...u says `Unable to load models.` and, like any failed catalog, it is asked again only at the next ask past its hold, as above; a body that stops partway, or is not UTF-8, is no catalog either. xfx gives the connect alone 10 s...
+[Q4+I] ...r the queue holds), `unable to load models` -- and the next frame that draws it asks again once the failure's hold (above) is over, as upstream's render path lists the column's models through `ensureModelCache` (`app_render_...
+[Q4] ...rwise (`retryableFailureText`, `model_menu_presentation.zig:435-443@481104fd`); either is read again past its hold, as above....
+[P] ...odel_cache_runtime.zig:537-546`), told the moment it is found, a turn running or not, and read again past its hold like any other....
+[U] ... had no log to go into, and upstream holds every setting made before the first turn and writes them with it (`hold`, `writeFirstTurn`, `src/core/session_manager/session.zig:415-429`, `:503-539@481104fd`) -- and a resume -- a...
+
+## source comments (outside tests), the unit's seven files: 91 lines
+src/provider/catalog_clock.rs:1 [D] //! The clock a model catalog's age, and a failed read's backoff, are counted
+src/provider/catalog_clock.rs:65 [E] /// `backoff_over`, `model_cache_runtime.zig:610-618`). The runtime decides by
+src/provider/model.rs:1155 [U] /// Upstream's sentences for the two credentials xfx can hold. A llmux daemon's
+src/provider/model.rs:1283 [P] /// and the next trigger past the backoff reads again (upstream's
+src/provider/model.rs:1294 [D] /// last one began, how many have failed in a row, and when the hold
+src/provider/model.rs:1351 [D] /// (`failure_backoff_base_ms`, `failure_backoff_cap_ms`,
+src/provider/model.rs:1361 [D] /// The hold after the `streak`-th failure in a row (`failureBackoffMs`,
+src/provider/model.rs:1433 [Q3] /// which is due at once ([`CatalogDue::since`]): not before the hold a
+src/provider/model.rs:1439 [D] /// read yet, no hold.
+src/provider/model.rs:1445 [Q3] /// once they are `wait` old: not before a failure's hold ends (`:617`);
+src/provider/model.rs:1449 [P] /// a failure, at once past the hold (`:622`); `otherwise` when nothing
+src/provider/model.rs:1470 [Q4] /// success clears the streak and the hold; a failure counts one more and
+src/provider/model.rs:1471 [Q4] /// holds the next read off for its backoff, counted from its arrival --
+src/provider/model.rs:1597 [D] /// When its answer arrived, if it has: what a failure's backoff counts
+src/provider/model.rs:1836 [U] /// that parks the thread asking does not hold it, and it is handed back to
+src/provider/model.rs:2016 [U] /// thread does not hold it.
+src/provider/model.rs:2044 [Q3] /// is not taken yet (`:621`); never inside a failure's backoff, for a
+src/provider/model.rs:2209 [N] /// `src/main.zig:1996-2005`), which no backoff holds. The menu's, the
+src/provider/model.rs:2230 [D] /// When the hold a failure put on the next read ends, if one does.
+src/provider/model.rs:2373 [U] /// (`crate::tui::worker`) has to be able to hold a loaded catalog without
+src/provider/model.rs:2383 [D] /// when the last read began, and when the hold a failure put on the next
+src/tui/bridge.rs:307 [P] /// hold the failure put on the next read, as upstream's backoff holds it
+src/tui/bridge.rs:308 [P] /// (`crate::provider::model::failure_backoff`).
+src/tui/bridge.rs:320 [P] /// failure's hold is over -- and, for a failure asking again could not
+src/tui/bridge.rs:1202 [Q4] /// due -- a first load, a failure past its backoff, rows the menu last
+src/tui/worker.rs:120 [U] /// nobody can name does not hold a terminal the user asked for back.
+src/tui/worker.rs:170 [U] /// The runtime already holds everything it will hold: one piece of work in
+src/tui/worker.rs:248 [U] /// would hold a place in [`WORK_LIMIT`] and be refused as busy behind one
+src/tui/worker.rs:689 [U] /// band then asks nothing at the keystroke. `at` is the prompt's position
+src/tui/worker.rs:1030 [U] /// `None` for a session that asked nothing, which upstream does not keep
+src/tui/worker.rs:1151 [U] /// `hold` calls this before [`super::signals::install`] as well, which is the
+src/tui/worker.rs:1932 [U] /// in memory and written with that turn (`hold`, `writeFirstTurn`,
+src/tui/worker.rs:2732 [U] /// may say yes with is something a test can hold.
+src/tui/worker.rs:3214 [D] /// failure, when the hold it put on the next read ends; for rows, when
+src/tui/worker.rs:4161 [D] /// ([`Applied`]) -- the rows, the failure and when the hold it puts on the
+src/tui/worker.rs:4231 [Q4] /// and none is due -- a failure inside its backoff or rows read less than
+src/tui/worker.rs:4259 [P] /// ([`Held::Nothing`]), past any hold a failure left on it: the warmup the
+src/tui/worker.rs:5080 [U] // request carries it -- and the file is said not to hold it, in the words
+src/tui/worker.rs:6428 [U] /// named steps are named: it is a thing a test can hold. The whole of it is
+src/tui/shell.rs:473 [U] /// What the user is told when the screen cannot hold the question.
+src/tui/shell.rs:508 [U] /// What the user is told when the screen cannot hold a question the **model**
+src/tui/shell.rs:580 [U] /// What a `/model` explicit form that does not hold is answered with --
+src/tui/shell.rs:689 [U] /// answered**, and the band is left where it was until the screen can hold
+src/tui/shell.rs:856 [Q4] /// a refresh behind them failed, when the hold it put on the next read
+src/tui/shell.rs:1205 [U] /// could hold either would have every reader ask which kind it was before it
+src/tui/shell.rs:1553 [U] /// hold it as a pending submission: a turn that had started was still in
+src/tui/shell.rs:1708 [U] /// holds and when the Gateway is asked. It asks nothing until `/usage`
+src/tui/shell.rs:2008 [U] /// Upstream would have queued it at once rather than hold it as a
+src/tui/shell.rs:2292 [U] /// turn's scope would hold -- the available saved directories that are still
+src/tui/shell.rs:2388 [Q4] /// when the hold the failure put on the next read ends: a `/model` before
+src/tui/shell.rs:2389 [Q4] /// then opens the menu over the failure and asks nothing, as upstream's
+src/tui/shell.rs:2390 [Q4] /// model cache starts no load inside a failure's backoff
+src/tui/shell.rs:2391 [Q4] /// (`crate::provider::model::failure_backoff`). That holds for readings
+src/tui/shell.rs:2399 [U] /// A function of two fields rather than a method, so a caller can hold it
+src/tui/shell.rs:3400 [U] // After the three that hold a turn or a rule change, so it never covers
+src/tui/shell.rs:3977 [P] // hold, are read again. Nothing at launch, nor onto another provider:
+src/tui/shell.rs:4670 [P] // the next read once its hold ends -- or, for one asking again
+src/tui/shell.rs:5015 [U] /// **A change the band cannot hold on this screen is reviewed on the
+src/tui/shell.rs:6519 [U] /// `input_submit_runtime.zig:884-886`), since a file cannot hold the
+src/tui/shell.rs:7749 [U] /// they hold a turn or a decision, and they outrank the panel wherever the
+src/tui/shell.rs:7978 [U] /// cannot hold leaves the picker as it was, as upstream's does.
+src/tui/shell.rs:9447 [U] // and the receipt about it both still hold.
+src/tui/shell.rs:9925 [U] // And the presenter's own hold: the line it has not seen the end of yet
+src/tui/shell.rs:10343 [U] /// `/usage` asks nothing more: its fetch in flight is cancelled and its
+src/tui/shell.rs:10661 [U] /// that frame. A hold that ends without its turn -- the prompt stopped,
+src/tui/shell.rs:10669 [U] /// can hold the next start (`installPendingSubmission`,
+src/tui/shell.rs:12262 [U] // weight carries the payload, so a paste the history cannot hold
+src/tui/shell.rs:12877 [U] /// a block that outlived the draft it was pasted into would hold the whole
+src/tui/shell.rs:13222 [U] // Whether upstream would queue this prompt at once rather than hold it
+src/tui/shell.rs:13547 [U] /// for session state this side does not hold. What keeps the two from
+src/tui/shell.rs:13925 [U] /// hold it, a full queue does not refuse it, and a Ctrl-C does not drop it
+src/tui/shell.rs:14681 [P] /// began; a load that failed is read again once its backoff is over --
+src/tui/shell.rs:14716 [U] /// whose catalog row lists none -- or a catalog this side does not hold --
+src/tui/shell.rs:14821 [Q4] // Failed, and inside the hold the failure put on the next read
+src/tui/shell.rs:14843 [Q4] // Failed and due again -- past its hold, or at a reading earlier
+src/tui/shell.rs:14901 [Q4] /// `beginLoad`, `:612-623`): a failure whose hold has ended, rows that
+src/tui/shell.rs:14903 [Q4] /// hold has ended -- and any of them at a reading earlier than the last
+src/tui/shell.rs:14939 [P] /// failure's hold has ended ([`Self::settle_column`]).
+src/tui/shell.rs:14954 [P] /// failure again once its backoff is over (`beginLoad`,
+src/tui/shell.rs:14975 [I] /// asks nothing, here and upstream (`flushRequestedFrame` begins no
+src/tui/shell.rs:15532 [U] // turn -- so a question nobody answered could hold the runtime, and
+src/tui/shell.rs:16227 [U] // before the waiting prompt's when the screen cannot hold both, and
+src/tui/event_loop.rs:140 [U] /// failure leaves through `hold`, so `term::shutdown` still runs and the
+src/tui/event_loop.rs:223 [U] // Reported rather than painted, so it lands on a terminal `hold`'s
+src/tui/event_loop.rs:457 [U] // would otherwise hold every write below -- the drain's frames and the
+src/tui/event_loop.rs:530 [U] /// gone. Named, and taking its writer, so that is a thing a test can hold.
+src/tui/event_loop.rs:805 [U] /// A screen that turns out to hold no band is still silent afterwards, and that
+src/tui/event_loop.rs:842 [U] /// and it travels out through `hold` to `term::shutdown`: the terminal goes
+src/tui/event_loop.rs:1046 [U] // can hold a band again -- which is also the only thing that clears this
+src/tui/event_loop.rs:1089 [I] // ([`Shell::settle_column`]); a tick that owes no frame asks nothing.
+src/tui/event_loop.rs:2036 [U] // tick that had nothing to repaint would otherwise hold them forever.
+
+## source comments (in the test modules), the unit's seven files: 112 lines
+src/provider/model.rs:3003 [Q4] // failure's backoff, or at a reading earlier than the failed read's
+src/provider/model.rs:3061 [D] // `failureBackoffMs`'s own values (`model_cache_runtime.zig:1531-1535
+src/provider/model.rs:3074 [S] // A first load, at once; a failure, past its backoff only.
+src/provider/model.rs:3078 [S] // Rows whose refresh failed retryably: past the backoff, whatever
+src/provider/model.rs:3084 [D] // A success clears the streak and the hold.
+src/provider/model.rs:3100 [E] // backoff is over (`backoff_over`, `:617`): "callers treat a reading
+src/provider/model.rs:3169 [D] // seconds and the five minutes count from -- and the hold a failure
+src/provider/model.rs:3793 [U] /// every 50 ms `drip` times, then the connection held open for `hold` at
+src/provider/model.rs:3795 [U] /// within `drip * 50 ms + hold` of the request, whatever the client does,
+src/provider/model.rs:3834 [U] // Returns at the client's hang-up, or once `hold` is over.
+src/provider/model.rs:4040 [D] // @481104fd`) and the backoff a failure puts on it (`:40-54`, `:936-965`).
+src/provider/model.rs:4185 [D] // The hold after a failure is counted on the same clock
+src/provider/model.rs:4300 [E] // A refresh that fails, its answer's reading failing: the hold is
+src/provider/model.rs:4341 [Q4] // `failureBackoffMs` (`model_cache_runtime.zig:40-54@481104fd`): after
+src/provider/model.rs:4344 [Q4] // failed read's start (`backoff_over`, `:617`, `:621`),
+src/provider/model.rs:4415 [P] // again whatever asks, once its backoff ends (`retry_due`,
+src/tui/bridge.rs:2514 [U] // policy has to hold for a payload built by a caller that
+src/tui/worker.rs:6508 [U] /// A configuration from a home and a workspace that exist and hold no
+src/tui/worker.rs:8561 [U] // Open, but asked nothing yet: no history, nothing to come back to.
+src/tui/worker.rs:8705 [U] // The launch's (`super::super::hold`).
+src/tui/worker.rs:8718 [U] // can hold the lock's descriptor until its child execs: a held lock
+src/tui/worker.rs:8938 [U] // `a_lock_that_frees_during_the_grace_is_acquired_after_the_documented_backoff`).
+src/tui/worker.rs:9278 [U] // and writes them with that turn (`hold`, `writeFirstTurn`,
+src/tui/worker.rs:10082 [U] // must hold the test's own home and no variable, never the process's
+src/tui/worker.rs:10372 [U] // Titled and asked nothing, so no resume names it: it is the other
+src/tui/worker.rs:10943 [S] // (`crate::provider::model::failure_backoff`).
+src/tui/worker.rs:11111 [U] // model's question does not hold it: the load started by `/model`
+src/tui/worker.rs:11172 [Q4] // state, whoever started the load: inside the failure's backoff (by
+src/tui/worker.rs:11201 [S] // Inside its backoff: told again as it failed, and nothing read.
+src/tui/worker.rs:11965 [U] // file does not hold the `high` in force. The band is still handed
+src/tui/worker.rs:13594 [S] // Asked again inside the failure's backoff: told as it stands -- the
+src/tui/worker.rs:13595 [S] // same hold -- and nothing read (`beginLoad`,
+src/tui/worker.rs:16582 [P] /// backoff is over, in the background, as the band's ask starts it.
+src/tui/worker.rs:16693 [P] // A failure past its hold: activity reads it again, as upstream's
+src/tui/worker.rs:16694 [P] // `.failed` is read by any trigger past its backoff (`:621-622`);
+src/tui/worker.rs:16804 [S] // a success, and after a failure past its hold -- it reads nothing.
+src/tui/worker.rs:16877 [S] // Asked again, at once and past any hold: told as held, nothing
+src/tui/worker.rs:16970 [S] // way, whose answer is never told, and not a failure's hold, which
+src/tui/worker.rs:16981 [S] // Rows, and a refresh of them that failed: a hold on the next read.
+src/tui/worker.rs:17160 [Q4] // failure's backoff is over, for readings not earlier than the failed
+src/tui/worker.rs:17313 [D] // counted into the backoff like any other (`completeFetch`,
+src/tui/worker.rs:17318 [P] // next trigger past the backoff reads again. As `turn_loop` takes it
+src/tui/worker.rs:17336 [S] // Inside its backoff: the menu, waiting, is told the failure as held,
+src/tui/worker.rs:17348 [D] // backoff twice the first's.
+src/tui/worker.rs:17479 [D] // (`model_cache_runtime.zig:609-623@481104fd`) -- the hold's end over
+src/tui/worker.rs:17481 [D] // last read's start -- and a failure with its hold's end.
+src/tui/worker.rs:17526 [Q4] // 609-623@481104fd`): never inside the failure's backoff, for readings
+src/tui/worker.rs:17655 [U] // The turn's next request carrying them asks nothing more.
+src/tui/shell.rs:16481 [U] /// exist and hold no settings: the shell reads one field of it and a test
+src/tui/shell.rs:16883 [S] /// When the hold a failed read put on the next one ended: long enough
+src/tui/shell.rs:16885 [S] /// ([`crate::provider::model::failure_backoff`]).
+src/tui/shell.rs:16894 [S] /// When the hold a failed read put on the next one ends: still to come
+src/tui/shell.rs:17468 [U] // screen's panel can hold. Its approval draws what fits, and Enter
+src/tui/shell.rs:17761 [U] // opus-Y asked that a swallowed tap not hold the window open; opus-Md
+src/tui/shell.rs:17917 [U] // opus-A, opus-C: `--help` is a name `.mcp.json` may hold, and the
+src/tui/shell.rs:19170 [U] // the largest block a draft can hold: a collapsed paste is charged its
+src/tui/shell.rs:21136 [U] // enough that two rows do not hold all of it. A notice allowed to grow
+src/tui/shell.rs:21760 [U] // document stays visible behind a question the band can hold whole.
+src/tui/shell.rs:25060 [U] /// Waits for `path` to hold `expected`, or fails the case: the save is on
+src/tui/shell.rs:25747 [U] // holds the terminal; an open that waited for a writer would hold it
+src/tui/shell.rs:28621 [U] // so the live group to hold the replay to is the one without it.
+src/tui/shell.rs:29903 [U] // and while it runs a prompt typed straight after asks nothing
+src/tui/shell.rs:30131 [U] // A session that has asked nothing yet asks the runtime: **the one
+src/tui/shell.rs:30703 [S] // The prompt was activity past the failure's hold: it asked, without
+src/tui/shell.rs:30893 [P] // the failure's backoff is over (`beginLoad`,
+src/tui/shell.rs:30896 [I] // a tick that owes no frame draws nothing and asks nothing.
+src/tui/shell.rs:30905 [S] // A frame inside the hold: asks nothing.
+src/tui/shell.rs:30910 [I] // Past the hold, an idle tick -- no frame owed -- asks nothing:
+src/tui/shell.rs:31808 [P] // @481104fd`), and the next `/model` past the failure's backoff
+src/tui/shell.rs:31838 [Q4] // failure's backoff (for a reading not earlier than the failed
+src/tui/shell.rs:31865 [P] // `/model` after the hold asks.
+src/tui/shell.rs:32184 [U] // turn. Dropped silently, the question could hold the runtime -- and
+src/tui/shell.rs:32218 [U] // when it is not, because erasing a row that turned out to hold text
+src/tui/shell.rs:33484 [U] // screen can hold a band again.
+src/tui/shell.rs:35238 [U] /// A second shell, for the half of a claim the first one cannot hold at the
+src/tui/shell.rs:36900 [U] // Seven rows hold the hint, two rules, one row of document and three
+src/tui/shell.rs:38080 [U] // A draft really can hold newlines -- `C-j` at the panel, or a pasted
+src/tui/shell.rs:40826 [U] // `r` there asks nothing, and Escape closes it.
+src/tui/shell.rs:41198 [U] /// `app_commands.zig:2052-2082`): a turn that is running does not hold it,
+src/tui/shell.rs:43028 [U] // The two prompts above hold the runtime's two places; a third would
+src/tui/shell.rs:43684 [U] // hold `zz`, but no such name holds a `:` (MCP-Me). The second root's
+src/tui/shell.rs:43933 [U] // inactive when its suffix cannot render`): 20 columns hold `┃ ` and
+src/tui/shell.rs:45859 [U] // the shell's rows hold on their own.
+src/tui/shell.rs:47118 [U] // Upstream does not hold a prompt as a pending submission while its
+src/tui/shell.rs:48389 [Q4] // `beginLoad` starts no load inside a failure's backoff, five seconds
+src/tui/shell.rs:48470 [P] // catalog again once its backoff is over (`beginLoad`,
+src/tui/shell.rs:48496 [P] // `a_read_that_finds_no_runtime_tells_the_band_its_failure_and_is_read_again_past_its_backoff`):
+src/tui/shell.rs:48501 [P] // that failure's hold is over.
+src/tui/shell.rs:48535 [U] // band does not hold. The band asks again when the runtime's clock
+src/tui/shell.rs:48589 [D] // failed read's start, the backoff over, `model_cache_runtime.zig:
+src/tui/shell.rs:48611 [Q4] // backoff, for readings not earlier than the failed read's start --
+src/tui/shell.rs:48647 [I] // answer yet -- the launch's own read on its way -- asks nothing.
+src/tui/shell.rs:48704 [S] // Rows five minutes old, and a failure past its hold: read by
+src/tui/shell.rs:48724 [S] // it, and a failure's hold that ended in the night lets `/model` read
+src/tui/shell.rs:48742 [S] // Awake, inside the failure's hold, the menu opens over it and asks
+src/tui/shell.rs:48770 [E] // `beginLoad`'s `elapsed` and `backoff_over`,
+src/tui/shell.rs:48772 [E] // the reading, and a failure inside its hold, are both due then.
+src/tui/shell.rs:48809 [U] // wait does not hold back (the worker's
+src/tui/shell.rs:48812 [P] // way (the first load, or the failure past its hold), and with the
+src/tui/event_loop.rs:4462 [U] // 24 rows hold 21 document rows above a three-row band: the other 9
+src/tui/event_loop.rs:7639 [S] // here past the failure's hold.
+src/tui/event_loop.rs:7658 [I] // The tick after it owes nothing, paints nothing and asks nothing.
+src/tui/event_loop.rs:7667 [S] // failure just now holds the next read off for its backoff, and a
+src/tui/event_loop.rs:7668 [S] // sleep past it ends the hold.
+src/tui/event_loop.rs:7791 [U] // neither has a reason to hold it back.
+src/tui/event_loop.rs:9015 [U] // forced measurement happens, finds a screen that cannot hold a band,
+src/tui/event_loop.rs:10724 [U] // it cannot hold a band, not that the first frame after the news is.
+src/tui/event_loop.rs:14363 [U] // once (`installPendingSubmission` cannot hold it while a turn
+src/tui/event_loop.rs:14974 [U] // And the hold is over: nothing of it is left for a later tick.
+src/tui/event_loop.rs:15465 [U] /// A group of three commands whose rows each hold a unit with a variation
+src/tui/event_loop.rs:15549 [U] // is both depths', so the greys below hold with no depth to gate them.
+src/tui/event_loop.rs:15880 [P] // MODELS-REASK: a prompt past a failed catalog's hold asks the
+
+## .prd/tui-phase5/receipts/catalog-refresh/README.md: 19 lines, each read: a record of a round, fx's rule, or the security notes, already qualified (Q3) where they promise
+README.md:13 | `9ffb6310` | RED: a resume or fork asks nothing; `/settings` and the speed commands ask with activity's trigger; an earlier reading is held back (`red-triggers.txt`) |
+README.md:39 `beginLoad` loads `.idle`/`.failed` on any trigger past the backoff, `.ready`
+README.md:50 submitted prompts -- does not hold, and xfx's column ask is fx's.
+README.md:64 `elapsed` and `backoff_over`, `model_cache_runtime.zig:611-617`). The
+README.md:65 backoff's end is stamped on it (`:951`) and so is the 2 s retry wait
+README.md:85 | resume from the picker, `/fork` | `startResumedSessionWarmup` | stale/failed | **xfx asked nothing; now ACTIVITY** |
+README.md:114 settled) (`green.txt`). The band asks nothing on an idle tick
+README.md:266 failure past its hold, reads once -- fx's activity. `/settings`, `/fast` and
+README.md:270 failure's backoff, since a reading earlier than the last read's start is
+README.md:276 for activity or the menu, and a failure's hold would never end; one failed
+README.md:291 | 2 | Zig's `nowPosix` beside fx's rule; "never inside a failure's backoff" qualified; "does not fail" narrowed | `3d96f590`, `b2731faa`, this one | `clock-sources.txt`; § Security |
+README.md:328 20 at `38ba66a7` (5487 and 5524 passed). The files now hold round 3's
+README.md:342 | 5 | a switch drops the old provider's rows, its read on the way and a failure's hold, refuses that read's late answer, and keeps the clock | `f3e73339`, `26375df5` | `green.txt` (`a_switch_drops_the
+README.md:372 The files now hold round 4's, except `mutants.txt`, the last run of every
+README.md:383 | 1 | the parity row's "Inside a failure's hold `/model` ... asks nothing" and "asked again only at the next ask after the backoff" qualified, and two more of its sentences pointed at the rule (the co
+README.md:384 | 2 | `CatalogKnown::Unread`: the hold holds for readings not earlier than the failed read's start; an earlier one is due at once -- said apart | `08cfdef0` | `src/tui/shell.rs` |
+README.md:386 | 4 | `fresh == 0` after both switches; the seeded hold pinned with `retry_at()`; the fixture guard compares the environment's variables with an empty map, printing neither | RED `4dd1bb65` (the varia
+README.md:392 3's "item 5 passed first time" rested on its hold and read checks alone. The
+README.md:405 whose names hold "switch" or "shared fixture"): **6 killed**, 0 do not build,

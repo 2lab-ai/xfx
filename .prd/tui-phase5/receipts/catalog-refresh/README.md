@@ -1,7 +1,8 @@
 # catalog-refresh: which asks read the model catalog, and a clock that counts sleep
 
-**Round 2** is at the end (§ Round 2); the sections between are round 1's,
-with the round-2 corrections made in place where a sentence was wrong.
+**Rounds 2 to 4** are at the end (§ Round 2, § Round 3, § Round 4); the
+sections between are round 1's, with later rounds' corrections made in place
+where a sentence was wrong.
 
 The rest of U9 (I15, I16), and the sleep clock CATALOG-BOUNDS named; **S**: it
 decides when xfx sends background catalog requests. Base `e705a5dc`
@@ -190,9 +191,12 @@ rests on the tests and the table.
 - The shared fixture's environment (round 3), at `d67326e9`
   (`red-fixture.txt`): `recording()'s runtime holds a home other than the
   test's own` -- the homes compared, neither printed.
-- GREEN at `70fbfa1d` (code at `b2731faa`; comments since, `d2497396`):
-  every RED test above, the clock's, the counts', rounds 2's and 3's, and
-  the band's idle-tick test, 22 passing (`green.txt`).
+- `renew`'s test seam and the fixture's variables (round 4), at `08cfdef0`
+  (`mutants-before.txt`): a switch restoring the old provider's catalog state
+  and a fixture holding a variable both survive (§ Round 4).
+- GREEN at `bd67c79e` (code outside tests at `b2731faa`; since, comments and
+  `#[cfg(test)]` lines): every RED test above, the clock's, the counts',
+  rounds 2's to 4's, and the band's idle-tick test, 22 passing (`green.txt`).
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
@@ -202,7 +206,7 @@ counts four verdicts apart -- killed by an assertion, does not build, timed
 out, survived -- (round 3: a fifth, failed without a panic) and keeps each kill's failing tests with their panic's
 place and first message line.
 
-At `70fbfa1d` (code as at the head): **23 mutants -- 23 killed by an
+Round 4 adds two (§ Round 4), 25 in all. At `70fbfa1d` (code as at the head): **23 mutants -- 23 killed by an
 assertion, 0 do not build, 0 timed out, 0 failed without a panic, 0
 survived** (`mutants.txt`). Round 1's sixteen, with the two whose anchors
 moved rewritten (the awake clock now `Some(..)`; `/settings`' comment); four
@@ -223,8 +227,10 @@ before the read's thread had reached it; `fccaf848` settles each ask first.
 pairs, base `e705a5dc` (banner `v0.1.0-e705a5d`) against `3d96f590`
 (`v0.1.0-3d96f59`, round 2's code), fx's sha checked before and after each
 run: 77 / 92 both, **0 pairs moved**. After `3d96f590` the code outside
-tests changes by +0 -0 -- comments, and tests (`src-since-sweep.txt`) -- so
-the swept binary's behaviour is the head's. The 15 that fail in
+tests changes by +7 -1 (`src-since-sweep.txt`), every line of it under
+`#[cfg(test)]` -- round 4's `renew` test seam and `Environment::vars_for_test`
+-- and the rest is comments and tests, so the swept binary's behaviour is the
+head's. The 15 that fail in
 both are the same pairs: `sound-max` (6), the C7 help line (1), activity
 tokens (1), and fuzzy search (`model-anchor/alt-enter`, `p5-input-model`
 `q-*`, `inline-gpt6`: MODEL-FUZZY, a unit in flight).
@@ -239,18 +245,18 @@ check that nothing moved.
 
 ## Gate (`gates.sh`, `gate.txt`)
 
-Round 3's, at `3a0bcdb1`, under the suite lock: **20 steps, 0 failed** --
+Round 4's, at `bd67c79e`, under the suite lock: **20 steps, 0 failed** --
 fmt, both clippys, `cargo test` (15 binaries, 5489 passed, 0 failed, 7
 ignored) and `--features fault-injection` (5526 passed, 0 failed, 7
 ignored), six `check-*` scripts and three `test-*` ones, both fxcap
 self-tests, both release builds, smoke, and smoke-tui (37 scenarios and the
-oracle, 1168 checks, 0 failures). The two more tests than round 2's are
-round 3's: the fixture's home and the switch's dropped state. "tree clean:
-no" is this README and `mutants.txt`, edited while the gate waited for its
-slot and ran; `src/` last changed at `d2497396` (comments), before the
-gate's head, and the commits after the gate's head are this folder's. Round 2's gate (`38ba66a7`, 20 of
-20, 5487 and 5524 passed) and round 1's (`b57fa272`, 5482 and 5519) are
-replaced by this one.
+oracle, 1168 checks, 0 failures). The counts are round 3's: round 4 adds
+assertions, not tests. "tree clean: no" is this README and the receipt files
+written while the gate waited for its slot and ran; `src/` last changed at
+`bd67c79e`, the gate's head, and the commits after it are this folder's.
+Round 3's gate (`3a0bcdb1`, 5489 and 5526 passed), round 2's (`38ba66a7`,
+5487 and 5524) and round 1's (`b57fa272`, 5482 and 5519) are replaced by this
+one.
 
 ## Security
 
@@ -363,3 +369,57 @@ passed, smoke-tui 1168 checks, `gate.txt`); the sweep still at `3d96f590`
 `src-since-sweep.txt`); the size against `e705a5dc`, +515 -135 in all and
 +299 -98 in code outside tests (`size.txt`).
 
+The files now hold round 4's, except `mutants.txt`, the last run of every
+mutant, and the sweep (§ Round 4).
+
+## Round 4
+
+Round 3 (`86b86004`) had two confirming reviews: gpt6 APPROVE-WITH-FIXES with
+one doc MUST, opus APPROVE-WITH-FIXES with none (two SHOULDs, nits). The
+dispatcher's gate on `86b86004` passed 21 of 21.
+
+| # | item | commit | evidence here |
+|---|---|---|---|
+| 1 | the parity row's "Inside a failure's hold `/model` ... asks nothing" and "asked again only at the next ask after the backoff" qualified, and two more of its sentences pointed at the rule (the column's frame, the retryable sentences); in the source comments, every promise of no read inside a hold, or closed list of when a read is due, qualified -- outside tests and in them | `08cfdef0` | `hold-sentences.txt`: every sentence checked, each with its decision (`sentences.py` lists them) |
+| 2 | `CatalogKnown::Unread`: the hold holds for readings not earlier than the failed read's start; an earlier one is due at once -- said apart | `08cfdef0` | `src/tui/shell.rs` |
+| 3 | `renew`'s test seam turns only `Unavailable` into `NotLoaded` | RED `4dd1bb65`, fix `bd67c79e` | `mutants-before.txt`; `mutants-r4.txt` |
+| 4 | `fresh == 0` after both switches; the seeded hold pinned with `retry_at()`; the fixture guard compares the environment's variables with an empty map, printing neither | RED `4dd1bb65` (the variables), fix `bd67c79e` | `mutants-before.txt`; `mutants-r4.txt`; `green.txt` |
+
+**Item 3 had the hole the review named.** At `08cfdef0`, a mutant restoring
+the old provider's `catalog_state` after `Self::new` survived
+(`mutants-before.txt`): the seam set `NotLoaded` over whatever was there, so
+the switch test's rows and failure checks held whatever `renew` kept -- round
+3's "item 5 passed first time" rested on its hold and read checks alone. The
+seam now changes only `Unavailable`, the state `Self::new` builds for a
+provider with no catalog (`catalog_for`, `model.rs:1085-1104`): the Gateway's
+needs a credential, read only from the environment's variables
+(`resolve_credential`, `config.rs:2262-2275`), and the switch tests' are an
+empty map. So the deferred-TOLD test passes for the reason it gives -- the
+switch builds `Unavailable`, the test's catalog stands in for the provider's,
+and the one read is counted through it -- and the restoring mutant now dies at
+the switch test's first check. The fixture guard's variables check had the
+same kind of gap: a fixture holding a variable it was not given survived it
+(`XFX_MUTANT`, a name xfx never reads -- no real variable is read).
+
+**Mutants for items 3 and 4** (`mutants-r4.txt`, at `bd67c79e`, the six
+whose names hold "switch" or "shared fixture"): **6 killed**, 0 do not build,
+0 timed out, 0 failed without a panic, 0 survived. The restoring mutant and
+round 3's "keeps the old provider's catalog state and read" now both die at
+the switch test's first check (`worker.rs:17018`, `NotLoaded`); the switch's
+clock and read mutants at "the clock lost" and "the old provider's read was
+still waiting"; the two fixture mutants at the guard's home and variables
+checks (`worker.rs:10086`, `:10092`). The other 19 last ran at `70fbfa1d`
+(`mutants.txt`, 23 of 23); every one of the 25 edits' texts still stands, as
+many times as the script says, at `bd67c79e` -- round 4 changed comments
+beside them and tests, not the lines they edit.
+
+**Gate** (`gate.txt`): 20 of 20 at `bd67c79e`, 5489 and 5526 passed,
+smoke-tui 1168 checks and 0 failures (§ Gate).
+
+**Round 4's figures:** GREEN 22 of 22 at `bd67c79e` (`green.txt`); the two
+REDs at `08cfdef0` (`mutants-before.txt`, 2 survived); mutants 6 of 6 killed at `bd67c79e` (`mutants-r4.txt`), the 25 edits'
+texts all standing there; the gate 20 of 20 at `bd67c79e` (5489 and 5526
+passed, smoke-tui 1168 checks, `gate.txt`); the sweep
+still at `3d96f590` (§ Sweep); the size against `e705a5dc`, +548 -144 in all
+and +305 -98 in code outside tests (`size.txt`), the six more code lines
+`#[cfg(test)]`.
