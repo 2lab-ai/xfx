@@ -1,4 +1,4 @@
-# redaction_grep.sh at 8056c326 (round 2: the receipt in its final form but this file; the commit that adds it is checked the same way in the hand-back). check-no-secrets at 8056c326: check-no-secrets: ok (18288 tracked file(s) scanned)
+# redaction_grep.sh at 14313e12 (round 3: the receipt in its final form but this file and gates-files-r3.txt; the commit that adds them is checked the same way in the hand-back). check-no-secrets at 14313e12: check-no-secrets: ok (18297 tracked file(s) scanned)
 4a0b900b 0  Merge SUBMIT-CARD-PREVIEW (feat/p5-submit-card-preview @ 0c203cd3) int
 0040fa59 0  Merge CATALOG-REFRESH (feat/p5-catalog-refresh @ 3ffbe0c7) into train 
 d2ed0274 0  Merge PASTE-GAP (fix/p5-paste-gap @ 5cc2e42c) into train 11
@@ -14,5 +14,9 @@ ab6f4e50 0  docs(receipt): P5 train 11 -- the gate, the jobs and join check 2's 
 b5795fae 0  docs(receipt): P5 train 11 -- the sweeps, their compares and reruns, a
 0695c1c8 0  docs(receipt): P5 train 11 -- the file checks and the redaction check 
 8056c326 0  docs(receipt): P5 train 11 round 2 -- the sweep drop as the registered
-# range 32afd307..8056c326: 0; the commits' sum: 0 (of them the last term alone: 0)
+3be49c15 0  docs(receipt): P5 train 11 round 2 -- the redaction check and check-no
+c4354ec7 0  test(catalog-refresh): P5 train 11 round 3 -- the catalog tests that w
+a35ba6dd 0  docs(receipt): P5 train 11 round 3 -- PR #89's arm64 gate on a young b
+14313e12 0  docs(receipt): P5 train 11 round 3 -- the look-ahead's superset: 11 si
+# range 32afd307..14313e12: 0; the commits' sum: 0 (of them the last term alone: 0)
 # files of this directory holding the pattern: 0
