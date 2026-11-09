@@ -2266,3 +2266,116 @@
  2038                  app.alloc,
  2039                  target.start,
  2040                  target.end,
+
+== src/core/workspace/file_index.zig:284-288@481104fd -- AT-FOLDERS r6: the index's one pending scope
+  284      /// active additional roots follow in configured order.
+  285      roots: [][]u8 = &.{},
+  286      scope_epoch: u64 = 0,
+  287      /// Roots and their installed-scope identity transfer together.
+  288      pending_scope: ?PendingScope = null,
+
+== src/core/workspace/file_index.zig:386-389@481104fd -- AT-FOLDERS r6: startLoad clears the first index's failure
+  386          loading.scope_epoch = self.scope_epoch;
+  387          self.loading_generation = loading;
+  388          self.generation = generation_id;
+  389          self.initial_failed = false;
+
+== src/core/workspace/file_index.zig:407-461@481104fd -- AT-FOLDERS r6: joinThreadIfDone starts the pending scope when a walk ends, ready or failed
+  407      /// Reaps one terminal loader without waiting for incomplete work. Returns
+  408      /// whether candidate or initial-status facts changed and need rendering.
+  409      pub fn joinThreadIfDone(self: *FileIndex, alloc: Allocator) bool {
+  410          const handle = self.thread orelse return false;
+  411          const loading = self.loading_generation orelse return false;
+  412          const terminal_state = loading.currentState();
+  413          if (terminal_state == .loading) return false;
+  414  
+  415          handle.join();
+  416          self.thread = null;
+  417          debug_trace.logf("core", "file index generation joined generation={d} state={s}", .{ loading.id, @tagName(terminal_state) });
+  418  
+  419          var visible_changed = false;
+  420          const adopted_from_cache = terminal_state == .ready and loading.from_cache;
+  421          switch (terminal_state) {
+  422              .loading => unreachable,
+  423              .ready => {
+  424                  const previous = self.active_generation;
+  425                  self.active_generation = loading;
+  426                  self.loading_generation = null;
+  427                  self.initial_failed = false;
+  428                  debug_trace.logf("core", "file index generation adopted generation={d} count={d} from_cache={}", .{ loading.id, loading.count(), loading.from_cache });
+  429                  if (previous) |generation| generation.destroy(alloc);
+  430                  visible_changed = true;
+  431              },
+  432              .failed, .canceled => {
+  433                  self.loading_generation = null;
+  434                  if (self.active_generation == null and terminal_state == .failed) {
+  435                      self.initial_failed = true;
+  436                      visible_changed = true;
+  437                  }
+  438                  debug_trace.logf("core", "file index generation discarded generation={d} state={s}", .{ loading.id, @tagName(terminal_state) });
+  439                  loading.destroy(alloc);
+  440              },
+  441          }
+  442  
+  443          if (!self.stop_requested.load(.seq_cst)) {
+  444              if (self.pending_scope) |pending| {
+  445                  self.pending_scope = null;
+  446                  freeRoots(alloc, self.roots);
+  447                  self.roots = pending.roots;
+  448                  self.scope_epoch = pending.epoch;
+  449                  _ = self.startLoad(alloc);
+  450              }
+  451          }
+  452          // A cache-painted generation is a preview only: one real scan follows
+  453          // it and replaces it, unless a pending scope already started that load.
+  454          if (adopted_from_cache and
+  455              !self.stop_requested.load(.seq_cst) and
+  456              self.thread == null)
+  457          {
+  458              _ = self.startLoad(alloc);
+  459          }
+  460          return visible_changed;
+  461      }
+
+== src/core/workspace/file_index.zig:463-472@481104fd -- AT-FOLDERS r6: refresh: one coalesced replacement
+  463      /// Requests one replacement generation. A current loader retains its
+  464      /// immutable scope and coalesces only the latest owned replacement scope.
+  465      pub fn refresh(self: *FileIndex, alloc: Allocator) void {
+  466          const epoch = if (self.pending_scope) |pending| pending.epoch else self.scope_epoch;
+  467          const roots = cloneRoots(alloc, if (self.pending_scope) |pending| pending.roots else self.roots) catch |err| {
+  468              debug_trace.logf("core", "file index refresh snapshot failed generation={d} err={s}", .{ self.generation, @errorName(err) });
+  469              return;
+  470          };
+  471          self.refreshOwnedRoots(alloc, roots, epoch);
+  472      }
+
+== src/core/input/picker_state.zig:171-171@481104fd -- AT-FOLDERS r6: file_picker_episode_seen, a picker-state field set once (input_completion_runtime.zig:858-859) and never reset
+  171      file_picker_episode_seen: bool = false,
+
+== src/core/app/app_workspace_runtime.zig:98-104@481104fd -- AT-FOLDERS r6: invalidateScope moves the scope epoch and invalidates the open list
+   98          fn invalidateScope(app: *App) void {
+   99              app.workspace.scope_epoch +%= 1;
+  100              requestStop(app);
+  101              if (comptime @hasField(App, "input_runtime")) {
+  102                  app.input_runtime.picker.file_completion.invalidate();
+  103              }
+  104          }
+
+== src/core/app/app_workspace_runtime.zig:127-143@481104fd -- AT-FOLDERS r6: install: a changed scope invalidates it and refreshes the index
+  127          pub fn install(app: *App, replacement: *Access) bool {
+  128              if (comptime !runtime_profile.allows(App, .file_index)) {
+  129                  app.workspace.access.deinit(app.alloc);
+  130                  app.workspace.access = replacement.*;
+  131                  replacement.* = .{};
+  132                  return true;
+  133              }
+  134              const runtime_changed = !app.workspace.access.eql(replacement);
+  135              app.workspace.access.deinit(app.alloc);
+  136              app.workspace.access = replacement.*;
+  137              replacement.* = .{};
+  138              if (runtime_changed) {
+  139                  invalidateScope(app);
+  140                  refreshFileIndex(app);
+  141              }
+  142              return runtime_changed;
+  143          }

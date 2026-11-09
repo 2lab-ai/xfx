@@ -69,6 +69,12 @@ skip's effect.
 - No separate first-sight flag: one would change nothing xfx can show.
 - Queueing is the index's own build behaviour. It is recorded in
   `docs/parity.md`.
+- **Corrected in round 6:** "which is the skip's effect" overstated it. fx
+  skips only the session's first episode while its startup index loads;
+  after that it queues a refresh asked for during a walk, and runs it when
+  the walk ends, failed or not. xfx dropped those, so it could keep stale
+  rows, or `Files unavailable`, until another trigger. Round 6 copies fx's
+  queue (`../round6/README.md` §1).
 
 **Per keystroke, not per batch.** fx prepares after input batching. xfx
 reconciles every key, so a typed `@src/` walks at its bare `@`, as it did

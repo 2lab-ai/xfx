@@ -8424,10 +8424,24 @@ impl Shell {
     /// The directories in force are now `access`: the band's copy, and the
     /// roots the `@` index walks besides the workspace (`install`'s
     /// `refreshFileIndex`, `app_workspace_runtime.zig:131-147`).
+    ///
+    /// An open list on roots that changed asks for the index's refresh, as
+    /// fx's reconcile does when the scope's epoch moved (`scope_epoch !=
+    /// scope_epoch`, `file_completion_state.zig:164@481104fd`; the epoch moves
+    /// in `invalidateScope`, `app_workspace_runtime.zig:98-104`), and is
+    /// looked up again -- both, as everywhere, only while it is eligible
+    /// ([`Self::refresh_file_picker`]).
     fn adopt_workspace(&mut self, access: WorkspaceAccess) {
-        self.files
+        let moved = self
+            .files
             .set_extra_roots(index_roots(&self.workspace, &access));
         self.workspace_access = access;
+        if moved {
+            if let Some(files) = self.file_picker.as_mut() {
+                files.request_refresh();
+            }
+            self.refresh_file_picker();
+        }
         if self.workspace_menu.is_some() {
             // A list of another length is a picker of another height.
             self.refit();
@@ -9120,11 +9134,13 @@ impl Shell {
                 return;
             }
             // A picker opening is an episode, which reads a browsed folder
-            // fresh ([`Files::begin_episode`]). fx's reconcile asks for the
-            // index's refresh on a new episode and on a change between an
-            // indexed and an explicit query, and a request not yet taken
-            // stands (`refresh_requested = refresh_requested or !active or
-            // indexed != indexed`, `file_completion_state.zig:164@481104fd`).
+            // fresh ([`Files::begin_episode`]). fx's reconcile keeps a request
+            // not yet taken and asks for the index's refresh on a new episode
+            // and on a change between an indexed and an explicit query
+            // (`refresh_requested or !active or indexed != indexed`,
+            // `file_completion_state.zig:164@481104fd`); its fourth term, a
+            // change of the workspace's scope (`scope_epoch != scope_epoch`),
+            // is [`Self::adopt_workspace`]'s.
             let mut files = FilePicker::open(query);
             match self.file_picker.as_ref() {
                 None => {
@@ -34929,6 +34945,9 @@ mod tests {
         // `:775-786`). So the index's walk publishing while the full
         // transcript is up starts no listing of `@src/`'s folder -- the
         // lookup waits -- and closing the transcript starts exactly one.
+        // Listings are what is counted: the walk the bare `@` asked for while
+        // this one ran is queued, and starts when it ends, whatever the list
+        // is under (`joinThreadIfDone`, `file_index.zig:443-451`).
         let (_workspace, mut shell) = in_ws2(40, 120);
         let walk = super::super::file_index::tests::driven(shell.files_for_test());
         let _first = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
@@ -34938,7 +34957,11 @@ mod tests {
         shell.route_bytes(&[0x0f]);
         assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
         shell.settle_band(now);
-        let base = shell.files_for_test().started_for_test();
+        let listings = |shell: &mut Fixture| {
+            let files = shell.files_for_test();
+            files.started_for_test() - files.walks_for_test()
+        };
+        let base = listings(&mut shell);
         // The walk publishes, and the session hears it, behind the transcript.
         walk.send(super::super::file_index::Published::More(
             super::super::file_index::tests::candidates(&["Cargo.toml", "src/", "src/main.rs"]),
@@ -34952,13 +34975,13 @@ mod tests {
             !shell.files_for_test().listing_in_flight_for_test(),
             "a listing started under the transcript"
         );
-        assert_eq!(shell.files_for_test().started_for_test(), base);
+        assert_eq!(listings(&mut shell), base);
         // Closed: one fresh listing, and the folder's rows from it.
         shell.route_bytes(&[0x0f]);
         assert!(!shell.full.is_open());
         shell.settle_band(now);
         assert_eq!(
-            shell.files_for_test().started_for_test(),
+            listings(&mut shell),
             base + 1,
             "not exactly one listing after the transcript closed"
         );
@@ -34979,7 +35002,7 @@ mod tests {
             listed_paths(&shell),
             ["src", "src/deep", "src/lib.rs", "src/main.rs"]
         );
-        assert_eq!(shell.files_for_test().started_for_test(), base + 1);
+        assert_eq!(listings(&mut shell), base + 1);
     }
 
     #[test]
@@ -35060,10 +35083,9 @@ mod tests {
     #[test]
     fn an_indexed_query_opens_with_one_walk_or_none_while_one_runs() {
         // An indexed query's episode walks the workspace once
-        // (`refreshFileIndex`); while the first index is still loading, none
-        // is started beside it (`file_picker_episode_seen` with
-        // `isFileIndexLoading`, `input_completion_runtime.zig:857-861@481104fd`;
-        // in xfx no refresh starts a walk while one runs, `Files::refresh_index`).
+        // (`refreshFileIndex`); while a walk runs, none is started beside it
+        // -- a refresh asked for then waits for it (`refreshOwnedRoots`,
+        // `file_index.zig:488-509@481104fd`; `Files::refresh_index`).
         let (_workspace, mut shell) = in_ws2(40, 120);
         let walks = shell.files_for_test().walks_for_test();
         shell.route_bytes(b"@sch");
@@ -35112,12 +35134,13 @@ mod tests {
         // 230-233@481104fd`), and the refresh walks only for an indexed query
         // (`input_completion_runtime.zig:855-856`). So with the index's walk
         // failed, Tab on `@sch` walks again, and Tab on an unreadable folder
-        // reads the folder again and walks nothing.
+        // reads the folder again and walks nothing. The walk that fails is
+        // the episode's own, so no refresh waits for it.
         let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@sch");
         let walk = super::super::file_index::tests::driven(shell.files_for_test());
         walk.send(super::super::file_index::Published::Failed)
             .expect("the walk");
-        shell.route_bytes(b"@sch");
         listed(&mut shell);
         assert_eq!(
             shell.file_picker.as_ref().map(FilePicker::shown),

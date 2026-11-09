@@ -119,3 +119,12 @@ show $P src/core/permissions/approval_prompt.zig 61 63 "AT-FOLDERS r5: isActive 
 show $P src/core/permissions/approval_prompt.zig 119 146 "AT-FOLDERS r5: syncRuleManagement sets the request: a rule confirmation is an active approval prompt"
 show $P src/core/app/app_input_runtime.zig 1392 1411 "AT-FOLDERS r5: Enter asks the skills menu before the @ list"
 show $P src/core/app/app_input_runtime.zig 1998 2040 "AT-FOLDERS r5: submitSkillsMenuSelection: a marked skill binds; a mention menu with none closes and hands Enter on"
+# --- added by AT-FOLDERS round 6 (2026-11-09): fx's refresh queue, the
+# scope-epoch term, and the session-wide first-episode flag.
+show $P src/core/workspace/file_index.zig 284 288 "AT-FOLDERS r6: the index's one pending scope"
+show $P src/core/workspace/file_index.zig 386 389 "AT-FOLDERS r6: startLoad clears the first index's failure"
+show $P src/core/workspace/file_index.zig 407 461 "AT-FOLDERS r6: joinThreadIfDone starts the pending scope when a walk ends, ready or failed"
+show $P src/core/workspace/file_index.zig 463 472 "AT-FOLDERS r6: refresh: one coalesced replacement"
+show $P src/core/input/picker_state.zig 171 171 "AT-FOLDERS r6: file_picker_episode_seen, a picker-state field set once (input_completion_runtime.zig:858-859) and never reset"
+show $P src/core/app/app_workspace_runtime.zig 98 104 "AT-FOLDERS r6: invalidateScope moves the scope epoch and invalidates the open list"
+show $P src/core/app/app_workspace_runtime.zig 127 143 "AT-FOLDERS r6: install: a changed scope invalidates it and refreshes the index"

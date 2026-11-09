@@ -533,12 +533,15 @@ pub(crate) struct FilePicker {
     /// a lookup was owed meanwhile and not run (`prepareFilePicker`,
     /// `input_completion_runtime.zig:848-853`).
     lookup_dirty: bool,
-    /// Whether the index's refresh is asked for and not yet taken: on a new
+    /// Whether the index's refresh is asked for and not yet taken. fx's
+    /// reconcile keeps a request until it is taken and adds one on a new
     /// episode, on a change between an indexed and an explicit query, and on
-    /// a retry (`refresh_requested`, `file_completion_state.zig:164`,
-    /// `:230-233@481104fd`). Taken where the list prepares its lookup, only
-    /// while it is eligible, and walks the index only for an indexed query
-    /// (`prepareFilePicker`, `input_completion_runtime.zig:853-866`).
+    /// a change of the workspace's scope (`refresh_requested =
+    /// refresh_requested or !active or indexed != indexed or scope_epoch !=
+    /// scope_epoch`, `file_completion_state.zig:164@481104fd`); its retry
+    /// adds one too (`:230-233`). Taken where the list prepares its lookup,
+    /// only while it is eligible, and walks the index only for an indexed
+    /// query (`prepareFilePicker`, `input_completion_runtime.zig:853-866`).
     refresh_requested: bool,
 }
 

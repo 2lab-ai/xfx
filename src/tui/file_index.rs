@@ -463,7 +463,21 @@ fn list_directory_until(
     if stopped() {
         return Err(());
     }
-    let mut entries = std::fs::read_dir(directory).map_err(|_| ())?;
+    let entries = std::fs::read_dir(directory).map_err(|_| ())?;
+    list_entries(
+        entries.map(|entry| entry.map(|entry| (entry.file_name(), entry.path()))),
+        stopped,
+    )
+}
+
+/// The entries `entries` yields -- each a name and the path that reaches it,
+/// or the error its advance failed with -- as [`list_directory_until`] takes
+/// them: an iterator rather than the `read_dir` itself, so a case can make an
+/// advance fail after entries that read.
+fn list_entries(
+    mut entries: impl Iterator<Item = std::io::Result<(std::ffi::OsString, PathBuf)>>,
+    mut stopped: impl FnMut() -> bool,
+) -> Result<Vec<(String, Kind)>, ()> {
     let mut out = Vec::new();
     loop {
         if stopped() {
@@ -472,7 +486,7 @@ fn list_directory_until(
         // An advance that fails fails the listing, as fx's does
         // (`iterator.next(io) catch return error.PathUnavailable`, `:90`):
         // the folder is unavailable, not a shorter one.
-        let entry = match entries.next() {
+        let (name, path) = match entries.next() {
             None => break,
             Some(Ok(entry)) => entry,
             Some(Err(_)) => return Err(()),
@@ -480,7 +494,7 @@ fn list_directory_until(
         if stopped() {
             return Err(());
         }
-        let Ok(name) = entry.file_name().into_string() else {
+        let Ok(name) = name.into_string() else {
             continue;
         };
         if !is_terminal_safe(&name) {
@@ -489,7 +503,7 @@ fn list_directory_until(
         if stopped() {
             return Err(());
         }
-        let Ok(meta) = std::fs::metadata(entry.path()) else {
+        let Ok(meta) = std::fs::metadata(&path) else {
             continue;
         };
         let kind = if meta.is_dir() {
@@ -972,6 +986,13 @@ pub(crate) struct Files {
     /// Whether the last walk failed and there is no index to fall back on.
     failed: bool,
     walk: Option<Walk>,
+    /// Whether a refresh was asked for while a walk ran, to start when that
+    /// walk ends, whatever it ends in (fx's `pending_scope`,
+    /// `replacePendingRoots` and `joinThreadIfDone`, `file_index.zig:443-451`,
+    /// `:494-523@481104fd`). One however many were asked for: fx coalesces
+    /// to the latest scope, and xfx's roots change only through
+    /// [`Self::set_extra_roots`], which ends the walk.
+    pending_refresh: bool,
     /// The last directory listed and what it held, or `Err` when it could not
     /// be read.
     listed: Option<Listed>,
@@ -998,6 +1019,7 @@ impl Files {
             index: None,
             failed: false,
             walk: None,
+            pending_refresh: false,
             listed: None,
             listing: None,
             #[cfg(test)]
@@ -1014,19 +1036,20 @@ impl Files {
         self.listed = None;
     }
 
-    /// Walks the index again, unless a walk is already running
-    /// (`refreshFileIndex`, `app_workspace_runtime.zig:150-152@481104fd`).
-    /// Asked only for a list whose query the index answers
-    /// (`prepareFilePicker`, `input_completion_runtime.zig:854-866`).
+    /// Walks the index again (`refreshFileIndex`, `app_workspace_runtime.zig:
+    /// 150-152@481104fd`), or -- a walk already running -- once that walk
+    /// ends ([`Self::pending_refresh`]; `refreshOwnedRoots`,
+    /// `file_index.zig:488-509`). Asked only for a list whose query the index
+    /// answers (`prepareFilePicker`, `input_completion_runtime.zig:854-866`).
     ///
-    /// One walk at a time, on every episode: fx skips its first episode's
-    /// refresh while the startup index is loading (`file_picker_episode_seen`,
-    /// `:857-861`) and after that queues a refresh asked for during a walk
-    /// (`replacePendingRoots`, `file_index.zig:494-523`); xfx starts no walk
-    /// at launch and queues none, so no refresh starts a second walk beside
-    /// a running one.
+    /// fx also skips the app's first episode's refresh while its startup
+    /// index loads (`file_picker_episode_seen`, `:857-861`, set once for the
+    /// session); xfx starts no index at launch, so its first episode always
+    /// starts the first walk.
     pub(crate) fn refresh_index(&mut self) {
-        if self.walk.is_none() {
+        if self.walk.is_some() {
+            self.pending_refresh = true;
+        } else {
             self.start_walk();
         }
     }
@@ -1039,9 +1062,12 @@ impl Files {
     /// any more -- or leaves out one that is -- so a change throws it away,
     /// stops a walk of the old ones, and the next picker walks the new ones.
     /// The same roots again change nothing.
-    pub(crate) fn set_extra_roots(&mut self, extra: Vec<PathBuf>) {
+    ///
+    /// Says whether the roots changed: a list open on the old ones asks for
+    /// a refresh ([`super::shell`]'s `adopt_workspace`).
+    pub(crate) fn set_extra_roots(&mut self, extra: Vec<PathBuf>) -> bool {
         if extra == self.extra {
-            return;
+            return false;
         }
         self.extra = extra;
         if let Some(walk) = self.walk.take() {
@@ -1049,6 +1075,7 @@ impl Files {
         }
         self.index = None;
         self.failed = false;
+        true
     }
 
     fn start_walk(&mut self) {
@@ -1067,6 +1094,9 @@ impl Files {
                 self.started += 1;
                 self.walks += 1;
             }
+            // A load started clears the first index's failure (`startLoad`,
+            // `file_index.zig:389@481104fd`): the list says it is indexing.
+            self.failed = false;
             self.walk = Some(Walk {
                 rx,
                 stop,
@@ -1110,6 +1140,14 @@ impl Files {
                 }
                 Err(TryRecvError::Empty) => break,
             }
+        }
+        // The walk ended -- ready, failed or gone -- with a refresh asked for
+        // meanwhile: it starts now (`joinThreadIfDone`, `file_index.zig:
+        // 443-451@481104fd`), and after a failed first index the list says it
+        // is indexing again rather than that the files are unavailable.
+        if self.walk.is_none() && std::mem::take(&mut self.pending_refresh) {
+            self.start_walk();
+            changed = true;
         }
         if let Some(listing) = &self.listing {
             match listing.rx.try_recv() {
@@ -1829,6 +1867,35 @@ pub(crate) mod tests {
         });
         assert_eq!(listed.map(|entries| entries.len()), Err(()));
         assert_eq!(asked, 302, "the listing went on past its stop");
+    }
+
+    #[test]
+    fn an_advance_that_fails_after_entries_that_read_fails_the_listing() {
+        // gpt6 r5 SHOULD 3: fx's listing fails when an advance fails, entries
+        // read before it or not (`iterator.next(io) catch return
+        // error.PathUnavailable`, `path_completion.zig:90@481104fd`) -- the
+        // folder is unavailable, not a shorter one. Two entries that read and
+        // then an advance that fails.
+        let dir = tempfile::tempdir().expect("a folder");
+        for name in ["a.txt", "b.txt"] {
+            std::fs::write(dir.path().join(name), "").expect("a file");
+        }
+        let read = || {
+            ["a.txt", "b.txt"]
+                .into_iter()
+                .map(|name| Ok((std::ffi::OsString::from(name), dir.path().join(name))))
+        };
+        assert_eq!(
+            list_entries(read(), || false).map(|entries| entries.len()),
+            Ok(2),
+            "the entries that read did not list"
+        );
+        let failing = read().chain(std::iter::once(Err(std::io::Error::other("an advance"))));
+        assert_eq!(
+            list_entries(failing, || false),
+            Err(()),
+            "a failed advance gave a shorter folder"
+        );
     }
 
     #[test]
