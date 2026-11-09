@@ -75,14 +75,14 @@ fx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 xfx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 mask = "X"
 why = "capture.sh runs each binary in its own `mktemp -d .../fxcap.XXXXXX`, so a path on screen (/status's workspace, a picker's root) carries a different random suffix on each side. capture.sh writes the whole run directory as `<scratch>` (or `<work>`) since LOCAL-PATHS, wherever a frame wraps or colours it, and refuses a capture that keeps any of its name; this rule reads the captures taken before it (`--rescore`). Masked to the same length, so nothing after it moves."
-source = ["scripts/fxcap/capture.sh:659"]
+source = ["scripts/fxcap/capture.sh:671"]
 
 [[normalization]]
 id = "capture-tmpdir"
 fx = '(<scratch(?::real)?_*>/|fxcap\.XXXXXX/)fxtmp(?=/)'
 replace = '\1xfxtmp'
 why = "capture.sh gives each binary a TMPDIR inside its run named for the binary, fx `$run/fxtmp`, xfx `$run/xfxtmp`, so where `/trace` says it wrote names the driver's directory, not the product's. On fx's side, after run-directory, and only right after the run directory: as capture.sh writes it now, `<scratch___>` filled to its width (`<scratch:real___>` resolved), as units wrote it by hand before LOCAL-PATHS, `<scratch>`, or as a capture from before LOCAL-PATHS holds it, masked to `fxcap.XXXXXX`. The run directory, `$TMPDIR/fxcap.XXXXXX`, is 13 columns or more, never narrower than `<scratch>`, so its short form `<s__>` is not read (resolved, it is narrower than `<scratch:real>` only where the TMPDIR resolves to `/`, and `<S__>` is not read either); nor is an `fxtmp` under another placeholder (`<work___>/fxtmp` is a name in the workspace), an escaped literal (`<!scratch__>`) or other text. And only the name itself with a directory under it, `fxtmp/`: `/` is the one follower the tracked captures hold (w2's and w3's `/trace` reports and pasted images), and any other character can be part of a name, so `fxtmp-old`, `fxtmp,backup`, `fxtmp backup`, `fxtmp\u00e9` or the bare `fxtmp` before a quote is compared: the rule fails toward comparing. capture.sh's `dir` refuses a name that is or extends a binary's TMPDIR, so no scenario makes such a sibling beside them. This is not roots.py's EDGE: an over-wide rewrite there fails toward privacy (a sibling written as a placeholder), an over-wide normalization here toward false parity (a sibling read as the TMPDIR), so the ledger reads only the demonstrated form."
-source = ["scripts/fxcap/capture.sh:314-316", "scripts/fxcap/capture.sh:367-373", "scripts/fxcap/capture.sh:947", "scripts/fxcap/capture.sh:954"]
+source = ["scripts/fxcap/capture.sh:326-328", "scripts/fxcap/capture.sh:379-385", "scripts/fxcap/capture.sh:970", "scripts/fxcap/capture.sh:977"]
 
 # Each run's own clock and its own ids. The two binaries run one after the
 # other, so what a clock or a random id reads is the run's, not the product's;
@@ -144,7 +144,7 @@ fx = '^(Pane is dead \(status \d+, ).*(\))$'
 xfx = '^(Pane is dead \(status \d+, ).*(\))$'
 replace = '\1<tmux clock>\2'
 why = "tmux's own line under a pane whose program has exited (capture.sh `keep`) ends with tmux's clock; the exit status before it is compared."
-source = [".prd/tui-phase4/receipts/d1/README.md:145", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:987"]
+source = [".prd/tui-phase4/receipts/d1/README.md:151", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:1147"]
 
 [[normalization]]
 id = "session-id"
@@ -813,7 +813,7 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
 xfx_row = '^  tools: \d+ advertised|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
-xfx = ["src/tui/shell.rs:40879"]
+xfx = ["src/tui/shell.rs:41113"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
 why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:238). The tool list's later rows are matched at any width: rows of tool names alone, each ending `,` or `+N more)` (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools`; `  edit_file, write_file, shell, subagent, capability_search,` / `  +6 more)` at 60, `p5-transcript-question`)."
 
@@ -824,7 +824,7 @@ owner = "unowned (follows tool-schema and session-record)"
 scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize", "p5-transcript-records", "p5-transcript-question"]
 snaps = ["full-*"]
 rows = ["1-2", "35-37"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:40879"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41113"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command entry has two argument rows xfx's `terminal` has not (`tool-schema`), so a page counted from the tail starts two rows later on fx; fx's `* session:` record has two lines xfx's has not (`session-record`), so a page counted from the top ends two rows earlier, and a record shorter than the screen leaves xfx two more blank rows. Only the two rows at each edge of the record (and the footer's blank row under it); every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
 
@@ -836,7 +836,7 @@ scenarios = ["p5-toolgroup-ctrlo", "p5-toolgroup-ctrlo-tc"]
 snaps = ["full-*"]
 rows = ["34-37"]
 xfx_row = '^\s*$'
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:40879"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41113"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "TG-REDRAW's Ctrl-O pages hold the whole record, read from the top: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so xfx's record ends four rows higher and leaves rows 34-37 blank where fx's turn summary still stands. xfx's blank rows there only (`xfx_row`): no fx row and no xfx row with text is this cause's, and every other row of these pages is compared, the tool group's two rows among them (.prd/tui-phase5/receipts/toolgroup-redraw/)."
 
@@ -847,7 +847,7 @@ owner = "unowned (follows tool-schema and session-record)"
 scenarios = ["p5-transcript-safe", "p5-transcript-safetab"]
 snaps = ["full", "full-pgup"]
 rows = ["1-2", "33-36"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:40879"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41113"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "`transcript-page-offset` for `p5-transcript-safe` and `p5-transcript-safetab`, four rows deep: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so the tail page starts later on fx (xfx's top rows, the record's `+5 more)` and `mcp: none`, are above fx's) and the page at the top ends four rows earlier (xfx's rows 33-36, the read's heading and its two rows and the blank under them, are below fx's). The read's rows are compared on the tail page."
 
@@ -858,7 +858,7 @@ owner = "session-record and tool-schema's owners: the page offset those two caus
 scenarios = ["p5-transcript-cancel"]
 snaps = ["full"]
 rows = ["1-2"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:40879"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41113"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "`transcript-page-offset` for `p5-transcript-cancel`'s Ctrl-O page, read from the tail: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`action: run`, `yield_time_ms: 30000`; `tool-schema`), so xfx's page starts at its record's `* session:` row where fx's starts lower in its record (`skills: loading`). Every other row of the page is compared. Named by T-U4, which gave the scenario xfx's own turns (.prd/tui-phase5/receipts/cancel-marker/README.md)."
 
@@ -926,7 +926,7 @@ owner = "unowned (follows session-record and tool-schema)"
 scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
 snaps = ["*ctrl-o*", "full*"]
 whole_snap = true
-xfx = ["src/tui/shell.rs:40879", "src/tui/approval_view.rs:685"]
+xfx = ["src/tui/shell.rs:41113", "src/tui/approval_view.rs:685"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/execution/command_environment.zig:128@c1db9191"]
 why = "Every Ctrl-O row under fx's taller session record and its shell calls' argument rows stands lower than xfx's, so a page shows other entries; what else differs on these pages is read only once those two are fixed."
 
