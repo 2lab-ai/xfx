@@ -13755,10 +13755,10 @@ fn image_slash_prefix(text: &str) -> Option<usize> {
 /// An approval's choice moves on Left and Alt-f where fx's moves, and leaves
 /// Shift-Left, Ctrl-B and Ctrl-Right alone where fx's does
 /// (`input_approval_runtime.zig:90-128@481104fd`); no other surface reads them
-/// apart. The approval reads the event before this ([`Shell::decide`]); the
-/// full transcript, which holds Left and Right, and the question read it
-/// after, so they see exactly the keys they saw before the three were kept
-/// apart.
+/// apart. The approval reads the event as it came ([`Shell::decide`]); the
+/// full transcript, which holds Left and Right, and the question read what
+/// this gives, so they see exactly the keys they saw before the three were
+/// kept apart.
 fn unspelled(event: Input) -> Input {
     match event {
         Input::Action(Action::ComposerLeft) => Input::Action(Action::Left),
@@ -22678,30 +22678,41 @@ mod tests {
         // `key`, `Reply::Held`) and reads the event `unspelled`, so Shift- and
         // Super-Left and -Right and Ctrl-B and Ctrl-F, which the decoder keeps
         // apart for an approval's choice, are held too: none reaches the
-        // composer behind the screen.
+        // composer behind the screen. Each side on its own, from the end it
+        // would move away from, so a left and a right that got through cannot
+        // cancel out.
         let mut shell = shell(24, 80);
         shell.route_bytes(b"ab");
-        shell.route_bytes(b"\x0f");
-        assert!(shell.full.is_open(), "Ctrl-O opened no full transcript");
-        for key in [
-            &b"\x1b[1;2D"[..],
-            b"\x1b[1;9D",
-            &[0x02],
-            b"\x1b[1;2C",
-            b"\x1b[1;9C",
-            &[0x06],
+        for (home, keys, typed, text) in [
+            (
+                &b"\x05"[..],
+                [&b"\x1b[1;2D"[..], b"\x1b[1;9D", &[0x02]],
+                &b"z"[..],
+                "abz",
+            ),
+            (
+                &b"\x01"[..],
+                [&b"\x1b[1;2C"[..], b"\x1b[1;9C", &[0x06]],
+                &b"y"[..],
+                "yabz",
+            ),
         ] {
-            shell.route_bytes(key);
-            assert!(shell.full.is_open(), "{key:?} closed the full transcript");
+            shell.route_bytes(home);
+            shell.route_bytes(b"\x0f");
+            assert!(shell.full.is_open(), "Ctrl-O opened no full transcript");
+            for key in keys {
+                shell.route_bytes(key);
+                assert!(shell.full.is_open(), "{key:?} closed the full transcript");
+            }
+            shell.route_bytes(b"\x0f");
+            assert!(!shell.full.is_open(), "Ctrl-O did not close it");
+            shell.route_bytes(typed);
+            assert_eq!(
+                shell.editor.text(),
+                text,
+                "a key under the full transcript moved the composer's caret"
+            );
         }
-        shell.route_bytes(b"\x0f");
-        assert!(!shell.full.is_open(), "Ctrl-O did not close it");
-        shell.route_bytes(b"z");
-        assert_eq!(
-            shell.editor.text(),
-            "abz",
-            "a key under the full transcript moved the composer's caret"
-        );
     }
 
     #[test]
