@@ -12,8 +12,8 @@
 
 Prints each fixture that differs and why, then both counts.
 
-usage: python3 -I outcomes.py <fx probe>[,<fx probe>...] <xfx probe>
-  A later fx probe's fixture replaces an earlier one's.
+usage: python3 -I outcomes.py <fx probe>[,<fx probe>...] <xfx probe>[,<xfx probe>...]
+  A later probe's fixture replaces an earlier one's, on either side.
 """
 
 import re
@@ -44,7 +44,9 @@ def main():
     fx = {}
     for path in sys.argv[1].split(","):
         fx.update(load(path))
-    xfx = load(sys.argv[2])
+    xfx = {}
+    for path in sys.argv[2].split(","):
+        xfx.update(load(path))
     names = [n for n in fx if n in xfx]
     by_refusal = by_exit = 0
     for name in names:

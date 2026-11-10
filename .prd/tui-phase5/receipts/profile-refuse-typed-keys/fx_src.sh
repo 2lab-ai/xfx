@@ -71,4 +71,16 @@ show $IO 289 315 "makeFileBlocking: F_GETFL and F_SETFL without NONBLOCK; a fail
 echo "#### 7. Not copied: the /status panel's reader"
 show $C 1283 1308 "loadMergedSettingsFromPaths: no salvage and no cause classes; any parse error is the panel's error"
 
+echo "#### 8. Round 2: the connections, the preference cap, the limits, doctor, setup"
+P2=src/core/config/model_preferences.zig
+show $P 6 9 "max_providers 32, max_id_bytes 64, max_model_bytes 1024"
+show $T 18 18 "settings_store's max_model_bytes, validateModel's limit: 1024"
+show $Y 2414 2414 "ReasoningEffort's max_name_bytes: 64"
+show $P2 1 52 "max_preferences 35: putOwned (one per provider name, the 36th refused) and mergeOwnedFrom (two layers merged, the same cap)"
+show $P 105 130 "Registry.parse: not an object is InvalidObject, more than 32 is LimitExceeded, then each definition"
+show $P 166 177 "parse_definition's first checks: the id, the fields (a definition that is not an object is InvalidObject), the protocol"
+show $C 1057 1059 "parsePermissionMode: PermissionMode.parse, any case"
+show src/core/cli/doctor_runtime.zig 244 251 "formatConfigLoadFailure: '<prefix>: <ErrorName>'"
+show $S 1925 1940 "runPasteSetup: the keychain first, then a pasted key; no settings are read"
+
 echo "== $bad range(s) out of bounds"

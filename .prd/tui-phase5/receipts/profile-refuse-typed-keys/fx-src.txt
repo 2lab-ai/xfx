@@ -1076,4 +1076,137 @@
   1306	
   1307	    try mergeSettingsFile(&settings, alloc, paths.workspace_settings);
   1308	    try resolve_provider_selection(&settings);
+#### 8. Round 2: the connections, the preference cap, the limits, doctor, setup
+== src/core/config/configured_provider.zig:6-9@481104fd (640 lines) -- max_providers 32, max_id_bytes 64, max_model_bytes 1024
+     6	const max_providers = 32;
+     7	const max_models = 256;
+     8	pub const max_id_bytes = 64;
+     9	pub const max_model_bytes = 1024;
+== src/core/config/settings_store.zig:18-18@481104fd (4166 lines) -- settings_store's max_model_bytes, validateModel's limit: 1024
+    18	pub const max_model_bytes: usize = 1024;
+== src/core/shared/types.zig:2414-2414@481104fd (4022 lines) -- ReasoningEffort's max_name_bytes: 64
+  2414	    pub const max_name_bytes = 64;
+== src/core/config/model_preferences.zig:1-52@481104fd (79 lines) -- max_preferences 35: putOwned (one per provider name, the 36th refused) and mergeOwnedFrom (two layers merged, the same cap)
+     1	const std = @import("std");
+     2	const model_provider = @import("model_provider.zig");
+     3	
+     4	pub const max_preferences = 35;
+     5	pub const Preferences = struct {
+     6	    pub const Entry = struct { provider: model_provider.NameKey, model: []u8 };
+     7	    entries: std.ArrayList(Entry) = .empty,
+     8	
+     9	    pub fn get(self: *const Preferences, provider: model_provider.ProviderId) ?[]const u8 {
+    10	        return self.getName(provider.label());
+    11	    }
+    12	
+    13	    fn getName(self: *const Preferences, name: []const u8) ?[]const u8 {
+    14	        for (self.entries.items) |*entry| if (entry.provider.eqlName(name)) return entry.model;
+    15	        return null;
+    16	    }
+    17	
+    18	    pub fn putCopy(self: *Preferences, alloc: std.mem.Allocator, provider: model_provider.ProviderId, model: []const u8) !void {
+    19	        const owned = try alloc.dupe(u8, model);
+    20	        errdefer alloc.free(owned);
+    21	        try self.putOwned(alloc, provider, owned);
+    22	    }
+    23	
+    24	    /// Takes model only on success.
+    25	    fn putOwned(self: *Preferences, alloc: std.mem.Allocator, provider: model_provider.ProviderId, model: []u8) !void {
+    26	        for (self.entries.items) |*entry| if (entry.provider.eqlProvider(provider)) {
+    27	            alloc.free(entry.model);
+    28	            entry.model = model;
+    29	            return;
+    30	        };
+    31	        if (self.entries.items.len == max_preferences) return error.TooManyModelPreferences;
+    32	        try self.entries.append(alloc, .{ .provider = model_provider.NameKey.fromProvider(provider), .model = model });
+    33	    }
+    34	
+    35	    pub fn mergeOwnedFrom(self: *Preferences, alloc: std.mem.Allocator, incoming: *Preferences) !void {
+    36	        var additional: usize = 0;
+    37	        for (incoming.entries.items) |entry| if (self.getName(entry.provider.label()) == null) {
+    38	            additional += 1;
+    39	        };
+    40	        if (additional > max_preferences - self.entries.items.len) return error.TooManyModelPreferences;
+    41	        try self.entries.ensureUnusedCapacity(alloc, additional);
+    42	        for (incoming.entries.items) |entry| {
+    43	            for (self.entries.items) |*current| {
+    44	                if (!current.provider.eqlName(entry.provider.label())) continue;
+    45	                alloc.free(current.model);
+    46	                current.* = entry;
+    47	                break;
+    48	            } else self.entries.appendAssumeCapacity(entry);
+    49	        }
+    50	        incoming.entries.clearRetainingCapacity();
+    51	    }
+    52	
+== src/core/config/configured_provider.zig:105-130@481104fd (640 lines) -- Registry.parse: not an object is InvalidObject, more than 32 is LimitExceeded, then each definition
+   105	
+   106	pub const Registry = struct {
+   107	    definitions: []const Definition = &.{},
+   108	
+   109	    /// Parse the providers object itself, not the surrounding settings object.
+   110	    /// All returned storage is owned, independent of `providers`, and must be
+   111	    /// freed with deinit using the same allocator. Errors leave no owned state.
+   112	    /// PRECONDITION: the caller's JSON parser must reject duplicate keys at all
+   113	    /// depths (including providers in the enclosing settings). Value's ObjectMap
+   114	    /// cannot retain evidence of duplicates already discarded by another parser.
+   115	    pub fn parse(alloc: Allocator, providers: std.json.Value) ParseError!Registry {
+   116	        if (providers != .object) return error.InvalidObject;
+   117	        if (providers.object.count() > max_providers) return error.LimitExceeded;
+   118	        const definitions = try alloc.alloc(Definition, providers.object.count());
+   119	        var initialized: usize = 0;
+   120	        errdefer {
+   121	            for (definitions[0..initialized]) |definition| definition.deinit(alloc);
+   122	            alloc.free(definitions);
+   123	        }
+   124	        var iterator = providers.object.iterator();
+   125	        while (iterator.next()) |entry| {
+   126	            definitions[initialized] = try parse_definition(alloc, entry.key_ptr.*, entry.value_ptr.*);
+   127	            initialized += 1;
+   128	        }
+   129	        return .{ .definitions = definitions };
+   130	    }
+== src/core/config/configured_provider.zig:166-177@481104fd (640 lines) -- parse_definition's first checks: the id, the fields (a definition that is not an object is InvalidObject), the protocol
+   166	fn parse_definition(alloc: Allocator, id: []const u8, value: std.json.Value) ParseError!Definition {
+   167	    try validate_id(id);
+   168	    try check_fields(value, &.{ "protocol", "base_url", "auth", "tool_choice_mode", "reviewer_model", "model_metadata" });
+   169	    const protocol = try required(value, "protocol");
+   170	    if (protocol != .string or !std.mem.eql(u8, protocol.string, "openai-chat-completions")) return error.InvalidProtocol;
+   171	    const url = try required(value, "base_url");
+   172	    if (url != .string) return error.InvalidBaseUrl;
+   173	    const normalized = try validate_url(url.string);
+   174	    const auth = try parse_auth(try required(value, "auth"));
+   175	    var mode: ToolChoiceMode = .omit;
+   176	    if (value.object.get("tool_choice_mode")) |choice| {
+   177	        if (choice != .string) return error.InvalidToolChoiceMode;
+== src/core/config/config_runtime.zig:1057-1059@481104fd (4718 lines) -- parsePermissionMode: PermissionMode.parse, any case
+  1057	pub fn parsePermissionMode(raw: []const u8) ?types.PermissionMode {
+  1058	    return types.PermissionMode.parse(raw);
+  1059	}
+== src/core/cli/doctor_runtime.zig:244-251@481104fd (739 lines) -- formatConfigLoadFailure: '<prefix>: <ErrorName>'
+   244	fn appendConfigLoadFailureCheck(checks: *std.ArrayList(Check), alloc: Allocator, name: []const u8, prefix: []const u8, err: anyerror) !void {
+   245	    const detail = try formatConfigLoadFailure(alloc, prefix, err);
+   246	    try appendCheckOwned(checks, alloc, name, .fail, detail);
+   247	}
+   248	
+   249	fn formatConfigLoadFailure(alloc: Allocator, prefix: []const u8, err: anyerror) ![]u8 {
+   250	    return alloc.print("{s}: {s}", .{ prefix, @errorName(err) });
+   251	}
+== src/core/cli/cli_surface.zig:1925-1940@481104fd (5795 lines) -- runPasteSetup: the keychain first, then a pasted key; no settings are read
+  1925	}
+  1926	
+  1927	fn runPasteSetup(
+  1928	    alloc: Allocator,
+  1929	    secret_store: host.SecretStore,
+  1930	    deps: RunDeps,
+  1931	) !bool {
+  1932	    if (secret_store.isDisabled()) {
+  1933	        try writeStderr(deps, "fx setup: stored API keys are disabled by FX_DISABLE_KEYCHAIN\n");
+  1934	        return false;
+  1935	    }
+  1936	    if (!deps.setup_terminal_available(deps.setup_ctx)) {
+  1937	        try writeStderr(deps, "fx setup: an interactive terminal is required to paste an API key\n");
+  1938	        return false;
+  1939	    }
+  1940	
 == 0 range(s) out of bounds
