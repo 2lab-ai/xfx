@@ -17,6 +17,10 @@ its refusal of a key written twice, and the stop a bad `provider` or
 - **Source outside tests** (`count.py` → `count.txt`): 297 added lines at
   1157fe3e, 58 of them comments (`src/config.rs` 285, `src/app.rs` 8,
   `src/interactive.rs` 2, `src/tui/mod.rs` 2), under the brief's ~300.
+- **Round 2** (reviews r1-gpt6 and r1-opus of 164aca53): **code 9d010f33**,
+  then f631aec2 and later, this receipt only; section 9 says what changed
+  and where each claim rests. Source outside tests at 9d010f33: **354**
+  lines, 71 comments (`count-round2.txt`; round 2's budget, about 360).
 
 ## 1. fx's rule (`fx_src.sh` → `fx-src.txt`, every range checked: 0 out of bounds)
 
@@ -108,8 +112,9 @@ last lines).
   order, among the keys xfx reads and the two fx-only checks whose cause
   spares the launch -- `context_limits`, `skill_symlink_authorities` -- and
   the retired key). Then the provider: a configured name (`fx_provider`),
-  not xfx's own `llmux`, in a profile with no `providers` key, stops with
-  `UnknownConfiguredProvider`. Each value grammar is fx's, not xfx's:
+  not xfx's own `llmux`, that the global `providers` does not name stops
+  with `UnknownConfiguredProvider` (round 2; round 1 let any `providers`
+  key exempt it). Each value grammar is fx's, not xfx's:
   `fx_valid_model`, `fx_permission_mode` (any case, no trim), effort,
   `max_agent_steps` (an integer in i64, not negative), the permission table
   (`RuleSet::parse`, the same three errors), the context limits.
@@ -268,14 +273,24 @@ bounded at 900 s, under the suite lock. One or more per class:
   config): `llmux` is xfx's own (fx: `UnknownConfiguredProvider`,
   `provider-llmux`); `codex` and `grok` are fx's built-ins, and fx stops
   with `no Codex model is selected` where xfx refuses the turn
-  (`provider=rejected`; `provider-codex`); a profile with a `providers` key
-  defines fx's configured connections, which xfx does not read, so its
-  provider keeps xfx's turn refusal.
-- **A layer fx drops** at its first error is still applied key by key at
-  `status`, `doctor` and a reload in a session (fx applies nothing of it
-  but the salvaged routing). The launches refuse it, so this shows only
-  where nothing refuses. fx's `status` writes each diagnostic on stderr,
-  xfx's none (older than both units).
+  (`provider=rejected`; `provider-codex`); a provider the global
+  `providers` names is one of fx's configured connections, a registry xfx
+  does not have, so it keeps xfx's turn refusal (round 2; fx stops on
+  `provider-defined` with `no model is selected for this connection`, and
+  would run with a model for it). Each connection's own checks are not
+  copied either (`providers-bad-def`: fx `InvalidObject`, xfx starts; queued:
+  **PROVIDERS-REGISTRY**). [Round 1 said a `providers` key alone kept the
+  turn refusal; that hid `UnknownConfiguredProvider` -- fixed in round 2.]
+- **A layer fx drops** at its first error is still applied key by key here
+  (fx applies nothing of it but the salvaged routing). That shows wherever
+  the profile goes on: at `status`, `doctor` and a reload in a session, and
+  **at every launch** when the first error is one no launch refuses -- a
+  bad `context_limits`, `skill_symlink_authorities` or the retired
+  `skill_match_fuzzy` before, say, a valid `fast_mode` or `permission`
+  table: fx launches without them, xfx launches with them. [Round 1 said
+  only `status`, `doctor` and a reload; that was false -- r1-gpt6 MUST 2.]
+  Queued: **PROFILE-LAYER-DROP**. fx's `status` writes each diagnostic on
+  stderr, xfx's none (older than both units).
 - **fx's `/status` panel** reads with `loadMergedSettingsFromPaths`
   (`fx-src.txt` §7), which names a mistyped key's error; xfx's names only a
   file that does not read (now including one with a key twice:
@@ -319,6 +334,125 @@ the fxcap harness tests, both release builds, `smoke.sh` (47 checks) and
 - **Tree clean after: no** -- the one change during the run was
   `refs.txt`, this receipt's, written untracked; nothing tracked changed.
 
+## 9. Round 2 (code 9d010f33)
+
+The reviews of 164aca53: r1-gpt6 (two MUSTs, both confirmed at the pin by
+the dispatcher) and r1-opus (four SHOULDs, eight NITs).
+
+- **fx's rule, read at the pin** (`fx-src.txt` §3, §8):
+  - `bind` stops with `UnknownConfiguredProvider` whenever the registry
+    lacks the name (`model_provider.zig:53-62`), whatever else it holds;
+  - the global `providers` is parsed first (`config_runtime.zig:1623-1625`):
+    `Registry.parse` says `InvalidObject` for a non-object (and `null`),
+    `LimitExceeded` past 32 (`configured_provider.zig:6`, `:115-117`), then
+    checks each connection (`:166-177` on); the salvage carries it, so its
+    failure stops the load (`:888-925`, `:1011-1015`);
+  - one model preference per provider name, the 36th refused in a layer
+    (`putOwned`, `model_preferences.zig:26-34`; the `model`'s Gateway, fx's
+    `codex_model` and `grok_model` first in a whole parse) and in the two
+    layers merged (`mergeOwnedFrom`, `:36-52`): `TooManyModelPreferences`;
+  - doctor, on a load that fails: `[fail] config: failed to load config:
+    <Name>` and `[fail] startup: failed to resolve startup settings:
+    <Name>` (`doctor_runtime.zig:92-104`, `:244-251`).
+- **Oracle** (`fx-fixtures-round2.txt`: all 108 fixtures again, FX_AUTO_UPGRADE=0,
+  sha `8e6cda2efddb` before and after; its 90 of round 1 agree entry for
+  entry with `fx-fixtures.txt` and `fx-edge.txt`): `provider-missing-empty`
+  and `provider-missing-other` → `UnknownConfiguredProvider`;
+  `providers-type`, `providers-null`, `providers-bad-def` → `InvalidObject`;
+  `providers-many` (33) → `LimitExceeded`; `models-35` starts, `models-36`
+  and `models-split` (20 + 20) → `TooManyModelPreferences`, `model-and-35`
+  → `InvalidProfileConfiguration` (the salvage takes 35); `models-case`
+  starts; `models-order` (`"zz": 5` before `"aa": " x"`) → `InvalidModelType`,
+  the file's order; `entry-providers` starts (an entry's `providers` is
+  never parsed); `provider-defined` → `no model is selected for this
+  connection`; `drift-auto-compact` → `InvalidAutoCompactPercentType`;
+  `json-big-float`, `json-big-int`, `json-deep` start.
+- **What xfx does now** (`src/config.rs`, `src/app.rs`): the connection
+  name must be a key of the global `providers` (MUST 1); `fx_providers_error`
+  copies `Registry.parse`'s own two checks, its connections' checks not
+  (they are fx's configured-connection registry, which xfx does not have:
+  queued **PROVIDERS-REGISTRY**); `fx_routing` counts the preferences, a
+  layer's and the merged two's; `doctor_checks` writes fx's two failing
+  checks for a stopped load. The NITs: fx's limits are named constants
+  (`FX_MAX_ID_BYTES`, `FX_MAX_MODEL_BYTES`, `FX_MAX_PREFERENCES`); the
+  workspace entry is looked up once (`exact_workspace_entry`); the whole
+  parse's routing check in `fx_first_error_refuses` is now reachable (the
+  `model` counts there and not in the salvage) and says so.
+- **Outcomes over 108** (`outcomes-round2.txt`): the base **58** by refusal
+  and **51** by how each entry ended; round 1 (1157fe3e) **96** and **90**;
+  round 2 (9d010f33) **101** and **98**. Round 2 moves the 8 rows round 1
+  missed in this unit's classes -- `provider-missing-empty`,
+  `provider-missing-other`, `providers-type`, `providers-null`,
+  `providers-many`, `models-36`, `model-and-35`, `models-split`. The rows
+  still differing are the ones section 7 and the list below record:
+  `typed-fx-only`, `provider-llmux`, `provider-codex`, `provider-defined`,
+  `providers-bad-def`, `drift-auto-compact` (the name only), the three
+  `json-*`, and the two older `link-profile` and `dir-group-writable-torn`.
+  Every entry for three of the new stops (`xfx-head-entries-round2.txt`):
+  `ask`, `ask --json`, `status`, the TUI and the line shell stop with the
+  name, `tty=0B`, nothing touched; `doctor` answers.
+- **RED** (`red-round2.txt`: round 2's tests over round 1's `src`,
+  1157fe3e): `ask_refuses_a_profile_fx_refuses` fails at `a provider its
+  connections do not name` (round 1 says `provider=rejected` and goes on),
+  `status_stops_where_fxs_load_fails_and_the_rest_still_answer` at doctor's
+  lines for `a provider nothing defines` (round 1's doctor: `fail=1`, no
+  `failed to load config`), and the line-shell and TUI refusal tests find
+  an xfx that does not exit (the same fixture). The guard
+  `ask_goes_on_with_a_profile_fx_starts_with` passes there, and so does the
+  gateway test, which round 2 does not change. The parse table is round 1's
+  in that clone (its `src`); the mutants stand for its new rows.
+- **Mutants** (`mutants-round2.txt`, on a clone of c98af8c5, under the lock):
+  **18 of 18 killed**, every kill an assertion's panic location, none a
+  timeout. Round 1's M1-M8 again (M7 on its new text: the stop names the
+  whole parse's routing error, not the layer's first), and round 2's:
+  M9 (any `providers` object exempts a name: MUST 1), M10 (a non-object
+  `providers` passes), M11 (33 connections pass), M12 (36 preferences in a
+  layer), M13 (70 merged), M14 (the `model` no longer counts in a whole
+  parse), M15 (doctor silent), M16 and M17 (the skill authorities' and the
+  retired key's errors refuse: opus NIT 5), M18 (`models` read in reverse:
+  gpt6's order SHOULD). Killers: the parse table (`src/config.rs:4860`,
+  `:4909` for the generated rows), `a_launch_refuses_the_models_fx_refuses_and_no_other`
+  (`:4561`), and `tests/cli.rs:1997` (ask), `:2018` (fx starts), `:2073`
+  and `:2084` (status, doctor).
+- **Gate** (`gate-round2.txt`, on a `git clone --no-local` of the branch at
+  f631aec2, code 9d010f33, one hold of the lock): **22 steps, 0 failed** --
+  `cargo test` 5673 passed, 0 failed; `--features fault-injection` 5710
+  passed, 0 failed; `smoke.sh` 47 checks; `smoke-tui.sh` 37 scenarios and
+  the oracle, 1167 checks, 0 failures; the tree clean before and after. The
+  catalog-wait clock tests that failed round 1's plain run passed in this
+  one, so there was nothing to rerun. GREEN: `green-round2.txt`.
+- **Recorded, not fixed here** (section 7, the parity row):
+  - **MUST 2**: a spared layer's other keys apply at launches too
+    (section 7, corrected): **PROFILE-LAYER-DROP**.
+  - **Name drift** (opus SHOULD 3c): where a key only fx reads fails first
+    (`auto_compact_percent`, `codex_model`, `grok_model`, a connection's
+    definition), both products stop and name different errors; likewise a
+    merged-preference overflow after a failed layer, which fx names by that
+    layer's first error and xfx `TooManyModelPreferences`.
+  - **JSON limits** (opus SHOULD 1, now run): fx starts on `{"zzz": 1e400}`,
+    a 400-digit integer and a 129-deep array; xfx refuses every launch
+    (`malformed_settings`, serde_json's f64 range and recursion limit), at
+    the base too (`xfx-base-round2.txt`): **PROFILE-JSON-LIMITS**.
+  - **`"permission_mode": "ASK"`** (opus SHOULD 4): fx's `status` says
+    `permission_mode=ask` (`parsePermissionMode` → `PermissionMode.parse`,
+    any case: `config_runtime.zig:1057-1059`, `types.zig:2375-2382`); xfx's
+    says `permission_mode=auto` and drops the value with an `invalid_value`
+    line (`oneshot.txt`): the less restrictive mode. **PERMISSION-MODE-CASE**.
+  - **`setup`** (opus NIT 7): fx's `setup` reads no settings
+    (`runPasteSetup`, `cli_surface.zig:1925-1940`); run on the stopped
+    `{"provider": "not-a-provider"}`, it stops at the keychain the probe
+    disables, not at the profile (`oneshot.txt`). xfx's `setup` stays open
+    on a stopped profile, deliberately: it is the way back.
+- **Tests** (opus NITs 5, 6, 8; gpt6's order SHOULD): the parse table
+  gains the connection, cap, order and drift rows (and a generated loop for
+  the 33-, 35- and 36-name cases); `every_profile_key_xfx_reads_is_one_fxs_parse_checks`
+  is the drift guard over `PROFILE_ONLY_KEYS` (allowlist: `backend`,
+  `llmux_url`, `workspaces`, `credential_source`); STOPPED gains
+  `provider-missing-empty` and `providers-type`, so `ask`, `status`, the
+  shell and the TUI run them; `status_stops_where_fxs_load_fails_and_the_rest_still_answer`
+  checks doctor's two lines; `ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused`
+  asserts the whole stderr again.
+
 ## Files
 
 `fx_src.sh` → `fx-src.txt` · `probe.sh` → `fx-fixtures.txt`, `fx-edge.txt`,
@@ -327,3 +461,9 @@ the fxcap harness tests, both release builds, `smoke.sh` (47 checks) and
 `outcomes.txt` · `seed_scan.py` → `seed-scan.txt` · `count.py` → `count.txt` ·
 `refs.py` → `refs.txt` · `red.sh` → `red.txt` · `mutants.py` → `mutants.txt`,
 `mutants-r1.txt` · `gates.sh` → `gate.txt`, `green.txt` · `rerun.sh` → `gate.txt` (its last block) · `worker-alone.txt`
+· round 2: `probe.sh` → `fx-fixtures-round2.txt`, `xfx-base-round2.txt`,
+`xfx-round1-round2-rows.txt`, `xfx-head-fixtures-round2.txt`,
+`xfx-head-entries-round2.txt` · `outcomes.py` → `outcomes-round2.txt` ·
+`oneshot.sh` → `oneshot.txt` · `count.py` → `count-round2.txt` · `refs.py` → `refs-round2.txt` · `red.sh` →
+`red-round2.txt` · `mutants.py` → `mutants-round2.txt` · `gates.sh` →
+`gate-round2.txt`, `green-round2.txt`
