@@ -194,6 +194,14 @@ the first six failing tests of each):
 | M10 an empty first field is read as `0` | the third-field test alone |
 | M11 the number 200 opens a paste (the markers on the numeric path) | the paste-marker test, the leading-zero test, the decoder's noise-bound test |
 
+**Round 2, at `782c3752`: 13 of 13 killed** on a fresh clone, the clone's
+tree clean after the run (`mutants.txt`'s first block). M12 (the key field
+wraps, the others saturate) and M13 (the keycode field wraps) are new, and
+each is killed by `the_key_and_the_keycode_saturate_rather_than_wrap` alone
+(M12 by its `CSI 65537 ~`, M13 by its `CSI 27;5;65635 ~`: each mutant changes
+one field only). M6 (every field wraps) is now killed by that test too, and M4
+by the bound test as well.
+
 ## Gate (`gate.txt`)
 
 The brief's gate, once, under the suite lock with a short `TMPDIR`, at
@@ -216,6 +224,17 @@ A first run, at the receipt commit before `captures.txt`'s placeholder was
 fixed, failed `tests/parity.rs`'s identity test on that placeholder; it was
 stopped, the fix folded into that commit (now `0ed9a69f`), and this run is the gate. `green.txt`: the
 unit's 17 tests from both suites of this run, 34 of 34 ok.
+
+**Round 2, at `3e2dbb05`** (`gate.txt`'s first block; `src/` is `782c3752`'s):
+fmt, both clippy runs and the four check scripts exit 0; test-fi 5739
+passed, 0 failed, 7 ignored (5737 plus the two new tests). The plain run
+read 5699 passed and 3 failed: `tui::worker`'s three catalog-wait stop
+tests, each asserting a stop lands within 300 ms to 1 s, in a file this
+unit does not touch. All three pass in test-fi's run of the same code; each
+rerun alone passed three times, but one (`…ends_it_as_a_stop_and_records_it_as_one`)
+failed once when rerun without the lock beside this unit's mutant run, and
+passed three times out of three under the lock (`gate.txt`). `green.txt`'s
+first block: the unit's 19 tests in both suites, 38 of 38 ok.
 
 ## The ledger's refs (`refs.py`, `refs.txt`)
 

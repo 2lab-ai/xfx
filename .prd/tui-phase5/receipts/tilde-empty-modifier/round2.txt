@@ -14,3 +14,5 @@ $ { git diff ebb04642 -- src tests scripts/fxcap/scenarios | grep '^+'; git diff
 153 citations checked, 0 outside fx-src.txt's ranges
 $ python3 -I refs.py ebb04642 | tail -1
 refs: 16 checked, 0 wrong, 0 without an expected text
+mutants: mutants.txt's first block, on a --no-local clone at 782c3752: 13 of 13 killed, the clone's tree clean after; M12 and M13 each by the_key_and_the_keycode_saturate_rather_than_wrap alone, M6 by it and the past-256 test.
+gate: gate.txt's first block, at 3e2dbb05 (src/ = 782c3752): fmt, clippy, clippy-fi, identity, stubs, secrets, local-paths exit 0; test-fi 5739/0; test 5699 passed, 3 failed -- tui::worker's three catalog-wait stop-timing tests (src/tui/worker.rs, untouched), green in test-fi's run, rerun alone 3 times each (one failed once unlocked beside the mutant run, then 3 of 3 under the lock). green.txt's first block: 38 of 38.
