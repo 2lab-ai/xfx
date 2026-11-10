@@ -238,6 +238,37 @@
    841  };
 
 
+## A5b the scoped /allowlist tables: each is the top table with the scope inserted, same words, same order (round 2)
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 843,869p
+   843  fn scopedAllowlistCompletions(
+   844      comptime scope: []const u8,
+   845      comptime source: anytype,
+   846  ) [source.len][]const u8 {
+   847      var result: [source.len][]const u8 = undefined;
+   848      inline for (source, 0..) |completion, idx| {
+   849          const suffix = if (std.mem.startsWith(u8, completion, "/allowlist "))
+   850              completion["/allowlist ".len..]
+   851          else
+   852              completion;
+   853          result[idx] = std.fmt.comptimePrint("/allowlist {s} {s}", .{ scope, suffix });
+   854      }
+   855      return result;
+   856  }
+   857  
+   858  const allowlist_local_action_completions = scopedAllowlistCompletions("local", allowlist_scoped_action_suffixes);
+   859  const allowlist_user_action_completions = scopedAllowlistCompletions("user", allowlist_scoped_action_suffixes);
+   860  const allowlist_local_add_kind_completions = scopedAllowlistCompletions("local", allowlist_add_kind_completions);
+   861  const allowlist_user_add_kind_completions = scopedAllowlistCompletions("user", allowlist_add_kind_completions);
+   862  const allowlist_local_remove_kind_completions = scopedAllowlistCompletions("local", allowlist_remove_kind_completions);
+   863  const allowlist_user_remove_kind_completions = scopedAllowlistCompletions("user", allowlist_remove_kind_completions);
+   864  const allowlist_local_reset_scope_completions = scopedAllowlistCompletions("local", allowlist_reset_scope_completions);
+   865  const allowlist_user_reset_scope_completions = scopedAllowlistCompletions("user", allowlist_reset_scope_completions);
+   866  const allowlist_local_add_tool_completions = scopedAllowlistCompletions("local", allowlist_add_tool_completions);
+   867  const allowlist_user_add_tool_completions = scopedAllowlistCompletions("user", allowlist_add_tool_completions);
+   868  const allowlist_local_remove_tool_completions = scopedAllowlistCompletions("local", allowlist_remove_tool_completions);
+   869  const allowlist_user_remove_tool_completions = scopedAllowlistCompletions("user", allowlist_remove_tool_completions);
+
+
 ## A6 the filter: the command, then a space or a tab; the four trimmed both ends, /allowlist at the start only; a word matched by its start, case ignored, an empty query matching all
 ### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 909,943p
    909  fn argCompletionPrefix(prefix: []const u8, command: []const u8) ?[]const u8 {
@@ -841,6 +872,68 @@
    530          .history_slash_recall_until_edit => null,
    531      };
    532  }
+
+
+## A11b under the full transcript: it claims Ctrl-C and Ctrl-L as bytes and the arrows, Escape and the page keys as actions, so Tab and Enter reach the composer; the slash count never asks about it, only the file picker does (round 2)
+### git -C fx-upstream show 481104fd:src/core/app/input_full_transcript_runtime.zig | sed -n 147,179p
+   147          fn keyForByte(byte: u8) ?FullTranscriptKey {
+   148              return switch (byte) {
+   149                  3 => .interrupt,
+   150                  12 => .redraw,
+   151                  24 => null,
+   152                  else => null,
+   153              };
+   154          }
+   155  
+   156          fn keyForAction(resolved: input_action.Action) ?FullTranscriptKey {
+   157              return switch (resolved) {
+   158                  .toggle_full_transcript => .toggle,
+   159                  .cursor_left => .{ .navigate = .left },
+   160                  .cursor_right => .{ .navigate = .right },
+   161                  .cursor_up => .{ .wheel_scroll = .up },
+   162                  .cursor_down => .{ .wheel_scroll = .down },
+   163                  .escape => .close,
+   164                  .mouse_wheel => |direction| .{ .wheel_scroll = direction },
+   165                  .page_up => .{ .page_scroll = .up },
+   166                  .page_down => .{ .page_scroll = .down },
+   167                  .composer_shortcut => |shortcut| switch (shortcut) {
+   168                      .redraw => .redraw,
+   169                      else => null,
+   170                  },
+   171                  .remapped_byte => |byte| switch (byte) {
+   172                      3 => .interrupt,
+   173                      12 => .redraw,
+   174                      24 => null,
+   175                      else => null,
+   176                  },
+   177                  else => null,
+   178              };
+   179          }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_completion_runtime.zig | sed -n 116,125p
+   116          fn visibleSlashCompletionQueryActive(app: *App) bool {
+   117              if (comptime @hasField(App, "question_prompt")) {
+   118                  if (app.question_prompt.isActive()) return false;
+   119              }
+   120              if (comptime @hasField(App, "approval_prompt")) {
+   121                  if (app.approval_prompt.isActive()) return false;
+   122              }
+   123              if (hasFileQuery(app)) return false;
+   124              return slashCompletionQueryActive(app);
+   125          }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_completion_runtime.zig | sed -n 776,786p
+   776              if (comptime !runtime_profile.allows(App, .file_index)) return false;
+   777              if (comptime @hasField(App, "question_prompt")) if (app.question_prompt.isActive()) return false;
+   778              if (comptime @hasField(App, "approval_prompt")) if (app.approval_prompt.isActive()) return false;
+   779              if (comptime @hasField(App, "auth")) {
+   780                  if (comptime @hasDecl(@TypeOf(app.auth), "pickerView")) if (app.auth.pickerView().active) return false;
+   781              }
+   782              if (comptime @hasField(App, "shell")) {
+   783                  if (comptime @hasDecl(@TypeOf(app.shell), "fullTranscriptActive")) if (app.shell.fullTranscriptActive()) return false;
+   784              }
+   785              return !catalogMenuOwnsSurface(app);
+   786          }
 
 
 ## A12 the dim ghost is a mid-line slash word's (or a $word's), never an argument's

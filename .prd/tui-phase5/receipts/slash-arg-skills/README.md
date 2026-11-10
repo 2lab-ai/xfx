@@ -37,7 +37,7 @@ fx. One suite-lock slot ran all six captures (`caps.sh`, `caps.txt`: exit 0
 but the base's paired run, below). No `gwlog` step, so no request body is in
 the receipt.
 
-## What fx v0.0.16 does (`fx-src.txt`, made by `fx_src.sh`; every range checked)
+## What fx v0.0.16 does (`fx-src.txt`, made by `fx_src.sh`; every range checked: 43 ranges at round 2, exit 0)
 
 - **A1, the prefix.** Past the first blank the popup's prefix goes on for a
   name with arguments and stops for one without (`slashCompletionPrefix`,
@@ -77,6 +77,17 @@ the receipt.
   dismisses the visible kind, and that lasts while the kind is the same
   (`visibleInlinePickerKind`, `input_completion_runtime.zig:133-169`;
   `suppressionAfterEdit`, `picker_state.zig:515-532`).
+- **A5b, the scoped `/allowlist` tables** (round 2). `scopedAllowlistCompletions`
+  builds each `local`/`user` table from the top one, the same words in the
+  same order with the scope inserted, and its 12 consts are those
+  (`command_specs.zig:843-869`): what `arg_lists.rs` reuses.
+- **A11b, under the full transcript** (round 2). It claims Ctrl-C and Ctrl-L
+  as bytes, and the arrows, Escape and the page keys as actions (`keyForByte`,
+  `keyForAction`, `input_full_transcript_runtime.zig:147-179`); Tab and Enter
+  reach the composer behind it, whose submit runs the marked row while the
+  count is not zero (A9), and that count never asks about the transcript
+  (`visibleSlashCompletionQueryActive`, `input_completion_runtime.zig:116-125`)
+  -- only the file picker does (`:776-786`).
 - **A12, the ghost.** The dim rest after the caret is a mid-line slash
   word's (or a `$word`'s), never an argument's (`visibleInlineSlashCompletion`,
   `input_completion_runtime.zig:653-667`; `findInlineSlashQuery`,
@@ -136,8 +147,10 @@ fx keeps closed.
   `/statusline Context`, `/permissions full`, and `/permissions \t` with the
   tab as a key, which now completes): each sends its line with nothing to
   resolve -- a word nothing begins, or the list closed by Escape and the tab
-  pasted -- and the resolution is pinned beside it. The parser's own case
-  rules stay pinned in `crate::sound` and `crate::interactive`.
+  pasted -- and the resolution is pinned beside it. The parser's own rules
+  stay pinned where the parsers are: `ON` in `crate::sound` (`sound.rs:165`),
+  `Context` in `crate::interactive` (`interactive.rs:3756`), and `full` in
+  `crate::permission::slash` (`slash.rs:520`).
 
 ## RED (`red.txt`)
 
@@ -170,7 +183,7 @@ description (rank 2 of `skillMatchRank`), and Tab binds it over the whole
 description or path holds the words; `/help` takes nothing). For the unit
 that copies S1.
 
-## Mutants (`mutants.py`, `mutants.txt`)
+## Mutants, round 1 (`mutants.py`, `mutants.txt`'s second part; round 2 below)
 
 14 of 14 killed at the code head `245e99ec`, each on a throwaway
 `git clone --no-local` (its source restored after each, and clean at the
@@ -200,7 +213,7 @@ pairs. `cmp_sweeps.py` is SLASH-LEADING-WS' copy, unchanged.
   `failed` on the base (its run stopped, above) and normalized-identical at
   the head. Nothing outside it changed (`sweep-compare.txt`).
 
-## Gate (`gate.txt`, `gate.sh`)
+## Gate, round 1 (`gate.txt`'s second part, `gate.sh`; round 2 below)
 
 At `245e99ec`, the code head (src as `f7baf771`), the worktree clean, in one
 suite-lock slot: `cargo fmt --check`, both clippys with `-D warnings`,
@@ -250,18 +263,62 @@ the window of two either side it compares. The one WRONG (ledger:28, into
   paragraph, owner PAGE-KEYS-SETTINGS-COLUMN). The same at the base for `/mcp `.
 
 
-## For the dispatcher
+## For the dispatcher (round 1; both rulings came back: copy, and keep listed)
 
 - **Enter on a prefix runs the marked row, `/permissions` included.** fx's
   rule (A9), copied: `/permissions full` and Enter sets full access, `/permissions `
   alone sets `ask`, `/workspace ` alone lists -- each with the row marked in
   view before the key (`-permissions-full-enter`, `-permissions-enter`,
-  `-workspace-enter`). It changes what four older cases typed; it adds no new
-  way to reach full access (Shift-Tab and `/permissions full-access` were
-  there), but a security review may want to rule on it.
-- **`max`, `install_skill`, `subagent` are listed and refused.** Copied as fx
-  lists them, so the screens pair; dropping them from the tables instead is a
-  one-line change each in `arg_lists.rs` and a recorded divergence.
+  `-workspace-enter`). It adds no new way to reach full access (Shift-Tab and
+  `/permissions full-access` were there). **The other empty arguments that now
+  change state**, each the marked first row: `/allowlist reset ` and
+  `/allowlist local|user reset ` run `reset commands` (the parser alone says
+  the usage, `allowlist.rs:215-219`); `/allowlist add tool ` and
+  `/allowlist local|user add tool ` allow `read_file`; `/statusline ` flips
+  `context`; `/sound ` sets `on` (the parser alone toggles). Pinned in
+  `permissions_lists_…`, `allowlist_walks_its_words_under_the_one_being_typed`,
+  `statusline_lists_…` and `sound_lists_…`.
+- **Under the full transcript** the list is not on the screen, and Tab and
+  Enter still take its marked row (A11b), as fx's do at the pin: no guard,
+  pinned by `under_the_full_transcript_tab_and_enter_take_the_lists_marked_row_as_fxs_do`
+  and recorded in the TUI row.
+- **`max`, `install_skill`, `subagent` are listed and refused**, as fx lists
+  them.
 - **The second part** (S1, the skills past a blank) is the next unit: its fx
   evidence is `probe/`, its scenario `probe-mixed.cap`, its code site
   `picker::query_of` and `Picker::over` (both end the query at a blank today).
+
+## Round 2 (both reviews approve with no MUST; behaviour unchanged)
+
+| commit | what |
+|---|---|
+| `037a1c19` | tests and NITs: Enter and Tab under the full transcript (A11b); `/permissions ` and Enter is `Change::Mode(Ask)`; a caret move keeps a table's mark; N3 `picker::query_of`'s doc, N4 `offer_to_mcp_args`' doc, N5 (`rematch` skips `/mcp `'s query for a table, `completion` goes through `chosen`, `arg_lists`' walk takes `top`), N6 the doubled `self.mcp_args = None;` |
+| `4bd17129` | the 11 ledger refs `037a1c19` moved, re-pointed; numbers only |
+| `52f20cb9` | the empty-argument Enters that change state, pinned (`allowlist_walks_its_words_under_the_one_being_typed`, `sound_lists_…`) |
+| `555756bb` | **the code head**: the six ledger refs `52f20cb9` moved, re-pointed; numbers only. The gate and the mutants ran here |
+| the commits after | `.prd/` and `docs/parity.md` only |
+
+- **S1, under the full transcript: recorded and pinned, no guard** (the
+  dispatcher's ruling: fx does the same at the pin, A11b). The TUI row of
+  `docs/parity.md` says so with the citations; the case is
+  `under_the_full_transcript_tab_and_enter_take_the_lists_marked_row_as_fxs_do`.
+- **S2:** `fx_src.sh` quotes `command_specs.zig:843-869` (A5b) and the full
+  transcript's ranges (A11b); its run gives 43 ranges, every one checked, exit
+  0 (`fx-src.txt`).
+- **S3:** the empty-argument effects are named in "For the dispatcher" above
+  and in the `/allowlist` row, and pinned (`52f20cb9`).
+- **S4, N1:** `mutants.py`'s filter adds the older `/permissions full` case and
+  the two new ones; A15 rebuilds a table on every keystroke. **15 of 15 killed
+  at `555756bb`** (`mutants.txt`, its first part): A9 (Enter sending what was
+  typed) is now caught by the `/permissions full` case too, and A15 by the
+  caret case.
+- **N2:** the `/permissions` parser pin is named where it is
+  (`crate::permission::slash`, `slash.rs:520`), above.
+- **Gate** (`gate.txt`, round 2's part on top): at `555756bb`, on a clean
+  `git clone --no-local` of it, in one suite-lock slot. Every step exit 0 but
+  the fault-injection run, where three `tui::worker` catalog-wait cases failed
+  on their timing check (the known class; no file this unit touches); each
+  passed alone three times out of three (`rerun.sh`, 9 of 9). Plain 5708
+  passed (lib 4784), fault-injection 5742 passed and those 3 (lib 4804): two
+  cases more than round 1, the caret and full-transcript ones.
+

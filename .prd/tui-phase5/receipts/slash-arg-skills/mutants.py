@@ -28,6 +28,11 @@ SHELL_TESTS = [
     "tui::shell::tests::enter_on_a_mcp_line_submits_the_marked_completion",
     "tui::shell::tests::a_recalled_mcp_line_opens_no_completions_until_it_is_edited",
     "tui::shell::tests::a_mcp_line_opens_its_completions_under_the_argument_and_keeps_the_hint",
+    # Round 2: an older case the list's Enter rewrote (`/permissions full`),
+    # and the two new ones.
+    "tui::shell::tests::an_argument_nobody_understands_is_the_usage_line_and_changes_nothing",
+    "tui::shell::tests::a_caret_move_keeps_a_tables_mark_and_an_edit_puts_it_back_on_the_first_row",
+    "tui::shell::tests::under_the_full_transcript_tab_and_enter_take_the_lists_marked_row_as_fxs_do",
 ]
 TESTS = ["tui::arg_lists::", "tui::mcp_args::"] + SHELL_TESTS
 
@@ -55,8 +60,8 @@ MUTANTS = [
      "(tool, Some(name)) if tool.eq_ignore_ascii_case(\"tool\") =>",
      "(tool, Some(name)) if tool.is_empty() && name.is_empty() =>"),
     ("A8", "Tab writes no space after a line that takes more", ARGS,
-     "        let more = self.spaced.as_ref().is_some_and(|spaced| spaced[index]);",
-     "        let more = false;"),
+     "            .is_some_and(|spaced| spaced[self.matching[self.selected]]);",
+     "            .is_some_and(|_| false);"),
     ("A9", "Enter submits what was typed, not the marked line", SHELL,
      "                if let Some(line) = args.chosen().map(str::to_string) {\n                    if line != self.editor.text() {",
      "                if let Some(line) = args.chosen().filter(|_| false).map(str::to_string) {\n                    if line != self.editor.text() {"),
@@ -75,6 +80,9 @@ MUTANTS = [
     ("A14", "a row shows its whole line, not the label", ARGS,
      "            label_at: list.head.len(),",
      "            label_at: 0,"),
+    ("A15", "a table is rebuilt on every keystroke, a caret move included", SHELL,
+     "            .is_some_and(|open| open.is_table() && open.text() == text)",
+     "            .is_some_and(|_| false)"),
 ]
 
 

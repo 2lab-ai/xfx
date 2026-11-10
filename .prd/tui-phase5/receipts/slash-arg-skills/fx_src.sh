@@ -51,6 +51,9 @@ section "A5 the tables' words"
 cite $cs 750 776 "const statusline_arg_completions"
 cite $cs 778 841 "const allowlist_remove_tool_completions"
 
+section "A5b the scoped /allowlist tables: each is the top table with the scope inserted, same words, same order (round 2)"
+cite $cs 843 869 "fn scopedAllowlistCompletions"
+
 section "A6 the filter: the command, then a space or a tab; the four trimmed both ends, /allowlist at the start only; a word matched by its start, case ignored, an empty query matching all"
 cite $cs 909 943 "fn argCompletionPrefix"
 cite $cs 1031 1034 "fn argCompletionMatches"
@@ -83,6 +86,11 @@ cite src/core/app/input_completion_runtime.zig 97 109 "fn slashCompletionQueryAc
 cite src/core/app/input_completion_runtime.zig 133 169 "fn visibleInlinePickerKind"
 cite src/core/input/picker_state.zig 287 296 "pub fn inlinePickerTriggerKind"
 cite src/core/input/picker_state.zig 515 532 "fn suppressionAfterEdit"
+
+section "A11b under the full transcript: it claims Ctrl-C and Ctrl-L as bytes and the arrows, Escape and the page keys as actions, so Tab and Enter reach the composer; the slash count never asks about it, only the file picker does (round 2)"
+cite src/core/app/input_full_transcript_runtime.zig 147 179 "fn keyForByte"
+cite src/core/app/input_completion_runtime.zig 116 125 "fn visibleSlashCompletionQueryActive"
+cite src/core/app/input_completion_runtime.zig 776 786 "fullTranscriptActive"
 
 section "A12 the dim ghost is a mid-line slash word's (or a \$word's), never an argument's"
 cite src/core/app/input_completion_runtime.zig 653 667 "pub fn visibleInlineSlashCompletion"
