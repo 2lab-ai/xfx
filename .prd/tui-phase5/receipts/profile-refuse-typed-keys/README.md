@@ -498,13 +498,14 @@ launch (r2-gpt6, r2-opus). This round pins the limits' edges, fixes the
 comparison tool, corrects the records, and takes the code NITs. Behaviour
 does not change.
 
-- **fx's rule at each edge** (`fx-src.txt` §8, quoted whole at the pin):
+- **fx's rule at each edge** (`fx-src.txt` §8, §9 at the pin):
   `Registry.parse` refuses `count() > max_providers` (32;
   `configured_provider.zig:6`, `:117`), so 32 pass; `putOwned` replaces
   the entry of a provider already named before it counts
   (`model_preferences.zig:25-33`); `mergeOwnedFrom` counts only the
-  incoming names the merged set lacks (`:35-51`), by exact name, and a
-  built-in's is its label (lowercase).
+  incoming names the merged set lacks (`:35-51`), compared by exact bytes
+  (`NameKey.eqlName`, `model_provider.zig:92-94`), a built-in's name being
+  its lowercase label (`:17-23`; `parse` takes it in any case, `:106-108`).
 - **Oracle** (`fx-fixtures-round3.txt`, five new rows, FX_AUTO_UPGRADE=0,
   sha `8e6cda2efddb` before and after): `providers-32` (32 loopback
   connections), `model-gateway-34` (`model` and a `models` Gateway among
@@ -519,10 +520,11 @@ does not change.
   fixtures gain one of each new kind, the oracle's rows byte for byte --
   STOPPED `33 connections` (`LimitExceeded`), `36 model preferences` and
   `40 ... in the two layers merged` (`TooManyModelPreferences`), REJECTED
-  `a model and 35 other model preferences`, STARTED the three edges -- so
-  `ask`, `ask --json`, `status`, doctor, the line shell and the TUI run
-  each; doctor's test counts one `config` and one `startup` check (the ok
-  ones gone); the drift guard covers `max_agent_steps` and
+  `a model and 35 other model preferences`, STARTED the three edges. The
+  STOPPED run at `ask`, `ask --json`, `status`, doctor, the line shell and
+  the TUI; the REJECTED at `ask`, `ask --json`, the shell and the TUI; the
+  STARTED at `ask`. Doctor's test counts one `config` and one `startup`
+  check (the ok ones gone); the drift guard covers `max_agent_steps` and
   `context_limits` too.
 - **Code NITs** (opus 3, 4): `FX_MAX_PROVIDERS`; the model-bytes limit
   cited at `settings_store.zig:18`; the global `providers` checked once,
@@ -569,7 +571,13 @@ does not change.
   generated rows; `:4862`, the table), `ask_goes_on_with_a_profile_fx_starts_with`
   (`tests/cli.rs:2018`, the STARTED edges), and doctor's count
   (`tests/cli.rs:2088`).
-- RESULT-GATE
+- **Gate** (`gate-round3.txt`, on a `git clone --no-local` of the branch at
+  395ac4b0, the code head, one hold of one normal slot): **22 steps, 0
+  failed** -- `cargo test` 5673 passed, 0 failed; `--features
+  fault-injection` 5710 passed, 0 failed; `smoke.sh` 47 checks;
+  `smoke-tui.sh` 37 scenarios and the oracle, 1167 checks, 0 failures; the
+  tree clean before and after. No catalog-wait failure, so nothing to
+  rerun. GREEN: `green-round3.txt` (the unit's 14 tests in that run).
 - **No RED**: no behaviour changed. The new rows are guards toward
   refusing; each is pinned by the mutant it kills instead.
 
@@ -588,6 +596,6 @@ does not change.
 `red-round2.txt` · `mutants.py` → `mutants-round2.txt` · `gates.sh` →
 `gate-round2.txt`, `green-round2.txt`
 · round 3: `probe.sh` → `fx-fixtures-round3.txt`, `xfx-head-fixtures-round3.txt` ·
-`outcomes.py`, `same.sh` → `outcomes-round3.txt` · `count.py` → `count-round3.txt` ·
+`fx_src.sh` → `fx-src.txt` (§9) · `outcomes.py`, `same.sh` → `outcomes-round3.txt` · `count.py` → `count-round3.txt` ·
 `refs.py` → `refs-round3.txt` · `mutants.py` → `mutants-round3.txt` ·
 `gates.sh` → `gate-round3.txt`, `green-round3.txt`

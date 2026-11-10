@@ -83,4 +83,8 @@ show $C 1057 1059 "parsePermissionMode: PermissionMode.parse, any case"
 show src/core/cli/doctor_runtime.zig 244 251 "formatConfigLoadFailure: '<prefix>: <ErrorName>'"
 show $S 1925 1940 "runPasteSetup: the keychain first, then a pasted key; no settings are read"
 
+echo "#### 9. Round 3: how a preference's provider is named and compared"
+show $M 17 23 "ProviderId.label: a built-in's name is its lowercase word, a connection's its own bytes"
+show $M 76 99 "NameKey: the label's bytes; eqlName compares them exactly"
+
 echo "== $bad range(s) out of bounds"

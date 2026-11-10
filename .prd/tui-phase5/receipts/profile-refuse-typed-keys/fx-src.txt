@@ -1209,4 +1209,38 @@
   1938	        return false;
   1939	    }
   1940	
+#### 9. Round 3: how a preference's provider is named and compared
+== src/core/config/model_provider.zig:17-23@481104fd (207 lines) -- ProviderId.label: a built-in's name is its lowercase word, a connection's its own bytes
+    17	    pub fn label(self: *const ProviderId) []const u8 {
+    18	        return switch (self.*) {
+    19	            .gateway => "gateway",
+    20	            .codex => "codex",
+    21	            .grok => "grok",
+    22	            .configured => |*value| value.bytes[0..value.len],
+    23	        };
+== src/core/config/model_provider.zig:76-99@481104fd (207 lines) -- NameKey: the label's bytes; eqlName compares them exactly
+    76	pub const NameKey = struct {
+    77	    bytes: [configured_provider.max_id_bytes]u8 = @splat(0),
+    78	    len: u8 = 0,
+    79	
+    80	    pub fn fromProvider(provider: ProviderId) NameKey {
+    81	        var key: NameKey = .{};
+    82	        const name = provider.label();
+    83	        key.len = @intCast(name.len);
+    84	        @memcpy(key.bytes[0..name.len], name);
+    85	        return key;
+    86	    }
+    87	
+    88	    pub fn label(self: *const NameKey) []const u8 {
+    89	        return self.bytes[0..self.len];
+    90	    }
+    91	
+    92	    pub fn eqlName(self: *const NameKey, name: []const u8) bool {
+    93	        return self.len == name.len and std.mem.eql(u8, self.bytes[0..self.len], name);
+    94	    }
+    95	
+    96	    pub fn eqlProvider(self: *const NameKey, provider: ProviderId) bool {
+    97	        return self.eqlName(provider.label());
+    98	    }
+    99	};
 == 0 range(s) out of bounds
