@@ -1051,10 +1051,17 @@ struct Key {
 
 enum Body {
     Prompt(String),
-    /// What the presenter completed of the answer, as the document was given
-    /// it: rendered prose, code, tables and rules, laid out at the screen's
-    /// width when drawn.
+    /// One run of the answer's prose the presenter completed, as the document
+    /// was given it (only [`markdown::Event::Text`]), laid out at the
+    /// screen's width when drawn: upstream's assistant entry, which its
+    /// screen heads `Response` (`metadataKind`,
+    /// `full_transcript_screen.zig:6028-6056@481104fd`).
     Response(Vec<markdown::Event>),
+    /// A code block, a table or a rule the presenter completed: an entry of
+    /// its own, as upstream's store appends each (`appendAssistantTableOwned`,
+    /// `appendAssistantCodeBlockOwned`, `appendAssistantThematicRule`,
+    /// `store.zig:2955-3075@481104fd`), with no header.
+    Structure(markdown::Event),
     Notice(Notice),
     Usage(String),
     /// Rows the document was given already laid out: what a question batch
@@ -1604,25 +1611,48 @@ impl FullTranscript {
     /// (`store.zig:1343-1390`, `fx-fulltranscript-notice-40x120-full-top`).
     /// Prose that is only line breaks opens none, for the reason the document
     /// writes none for it (`super::shell`'s `write_prose`), and closes no
-    /// group either.
+    /// group either -- unless a block is the entry before it.
+    ///
+    /// A code block, a table or a rule is an entry of its own
+    /// ([`Body::Structure`]), and the prose after one opens a run of its own,
+    /// line breaks alone included: upstream's store opens a new assistant
+    /// entry, stamped then, on the first chunk that finds no assistant entry
+    /// at its tail, and the rest of the text joins it (`tailAssistantSegments`,
+    /// `commitAssistantStreamChunkFast`, `store.zig:3088-3150@481104fd`). So
+    /// its screen heads the text after a block with a `Response` of its own,
+    /// at the moment the first text after the block came -- the blank line
+    /// under a closing fence, often -- and heads no block; a run that is only
+    /// line breaks lays out as nothing and has no header
+    /// (`renderedBlockHasContent`, `transcript_blocks.zig:2114`).
     pub(crate) fn presented(&mut self, event: &markdown::Event) {
         self.revision += 1;
         let revision = self.revision;
-        if let Some(Entry {
-            body: Body::Response(events),
-            revision: entry,
-            ..
-        }) = self.entries.last_mut()
-        {
-            events.push(event.clone());
-            *entry = revision;
-            return;
-        }
-        if matches!(event, markdown::Event::Text(text) if text.trim().is_empty()) {
-            return;
+        let text = matches!(event, markdown::Event::Text(_));
+        match self.entries.last_mut() {
+            Some(Entry {
+                body: Body::Response(events),
+                revision: entry,
+                ..
+            }) if text => {
+                events.push(event.clone());
+                *entry = revision;
+                return;
+            }
+            Some(Entry {
+                body: Body::Structure(_),
+                ..
+            }) if text => {}
+            _ if matches!(event, markdown::Event::Text(text) if text.trim().is_empty()) => {
+                return;
+            }
+            _ => {}
         }
         self.group_open = false;
-        self.push(Body::Response(vec![event.clone()]));
+        self.push(if text {
+            Body::Response(vec![event.clone()])
+        } else {
+            Body::Structure(event.clone())
+        });
     }
 
     /// Answer text through a presenter of its own, completed, as the shell's
@@ -2059,6 +2089,10 @@ impl FullTranscript {
             Body::Response(events) => {
                 (Some(Kind::Response), written(answer(events, cols, palette)))
             }
+            Body::Structure(event) => (
+                None,
+                written(answer(std::slice::from_ref(event), cols, palette)),
+            ),
             Body::Notice(notice) => (
                 Some(if notice.tone == Tone::Error {
                     Kind::Error
@@ -2115,14 +2149,18 @@ impl FullTranscript {
     ) -> (Vec<crate::trace::Entry>, Vec<crate::trace::Entry>) {
         let plain = |entry: &Entry| {
             // Upstream's names for its own entries (`writeTranscriptTimeline`,
-            // `app_commands.zig:3481-3489`), where xfx has one of the same
-            // kind; a prompt is what was typed, as upstream's `user` entry is,
-            // rather than the card it was drawn as.
+            // `app_commands.zig:2675-2690@481104fd`), where xfx has one of the
+            // same kind -- an answer's block among them, an entry of its own
+            // there as here; a prompt is what was typed, as upstream's `user`
+            // entry is, rather than the card it was drawn as.
             let (kind, rows) = match &entry.body {
                 Body::Prompt(text) => ("user", text.lines().map(str::to_string).collect()),
                 body => {
                     let kind = match body {
                         Body::Response(_) => "assistant",
+                        Body::Structure(markdown::Event::Table(_)) => "assistant table",
+                        Body::Structure(markdown::Event::CodeBlock(_)) => "assistant code block",
+                        Body::Structure(_) => "assistant thematic rule",
                         Body::Notice(_) => "semantic notice",
                         Body::Usage(_) => "raw",
                         Body::Tool(_) => "tool",
