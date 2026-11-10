@@ -1,0 +1,5 @@
+# the four check scripts in the worktree at the receipt's head df1e8aee (porcelain 0), after the gate's code head 83dae68e; rc is each script's own (pipefail)
+check-xfx-identity rc=0 check-xfx-identity: ok (20514 tracked file(s) scanned)
+check-no-stubs rc=0 check-no-stubs: ok
+check-no-secrets rc=0 check-no-secrets: ok (20514 tracked file(s) scanned)
+check-no-local-paths rc=0 check-no-local-paths: ok (20514 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
