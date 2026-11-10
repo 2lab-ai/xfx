@@ -55,6 +55,8 @@ MUTANTS = [
      'if ! cmp -s "$tally" "$counted"; then', 'if false; then', 1),
     ("symlinks not looked at",
      '\t\t120000\\ *) ;;\n', '\t\t120000\\ *) continue ;;\n', 1),
+    ("a run that stops early passes (the EXIT trap's guard)",
+     """trap 'rm -rf "$work"; [ "$finished" = 1 ] || exit 1' EXIT""", """trap 'rm -rf "$work"' EXIT""", 1),
     ("a stream that ends inside a record accepted",
      '\tif [ -n "$path" ]; then\n\t\tprintf \'check-no-local-paths: git grep ended inside', '\tif false; then\n\t\tprintf \'check-no-local-paths: git grep ended inside', 1),
 ]
