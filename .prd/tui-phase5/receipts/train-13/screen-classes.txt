@@ -1,0 +1,5 @@
+== screen-moves-base.txt: 29 listed lines
+  22  a saved session's id (resume ids, /status's Session row)
+  3  HISTORY-NOTICES-COPY-FX: the reasoning notice gone (`... so that reasoning was not carried over`)
+  2  QUESTION-RESUME: a resumed batch's resolutions (`  N) <question>` and its answer) or its `● Asked` row
+  2  the build id: /status's Build row, and the banner where a `.full` snap keeps it below row 1

@@ -25,3 +25,25 @@ $P/compare.py "$T/ref-base-x" "$T/sw-head-x" | rd "$here/compare-base-x.txt"
 echo "compare-base-x: exit ${PIPESTATUS[0]}"
 $P/screen_moves.py "$T/ref-base-x" "$T/sw-head-x" | rd "$here/screen-moves-base-x.txt"
 $P/gained_rows.py "$T/ref-base-x" "$T/sw-head-x" | rd "$here/gained-rows-x.txt"
+# each unit's own sweep, as its receipt commits it, against the head's two sweeps taken together
+# (sw-head-all/pairs.json: the two pairs.json files, no pair in both)
+mkdir -p "$T/sw-head-all"
+python3 -I -B - "$T/sw-head/pairs.json" "$T/sw-head-x/pairs.json" "$T/sw-head-all/pairs.json" <<'PY'
+import json, sys
+a, b = (json.load(open(f)) for f in sys.argv[1:3])
+keys = {(p["scenario"], p["label"]) for p in a}
+assert not keys & {(p["scenario"], p["label"]) for p in b}
+json.dump(a + b, open(sys.argv[3], "w"))
+PY
+U=.prd/tui-phase5/receipts
+{ for spec in "board 714f6283:$U/history-notices-copy-fx/sweep-head.md" "diff d0e08d8c:$U/question-resume/sweep-diff.txt" \
+    "board a37a969e:$U/question-word-left/sweep-head.md" "board a37a969e:$U/approval-horizontal-keys/sweep-head.md" \
+    "board a37a969e:$U/approval-vertical-spellings/sweep-head.md"; do
+    echo "## ${spec#* }"
+    $P/unit_compare.py "$repo" "$T/sw-head-all" $spec
+    echo "# exit $?"
+  done; } | rd "$here/compare-units.txt"
+# compare.py's and screen_moves.py's screen counts tied together (screen_partition.py)
+{ echo "## the base and the head"; $P/screen_partition.py "$T/ref-base" "$T/sw-head"
+  echo "## the extra pair"; $P/screen_partition.py "$T/ref-base-x" "$T/sw-head-x"; } | rd "$here/screen-partition.txt"
+$P/screen_classes.py "$here/screen-moves-base-x.txt" | rd "$here/screen-classes-x.txt"

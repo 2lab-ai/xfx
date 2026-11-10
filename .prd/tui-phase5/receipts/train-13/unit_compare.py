@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Train 13: train 12's unit_compare.py; `board` lists a unit's scenario this sweep did not take apart, and counts it nowhere.
+# Train 13: train 12's unit_compare.py; `board` lists a unit's scenario this sweep did not take apart, and counts it nowhere;
+# `diff` (new) reads QUESTION-RESUME's sweep-diff.txt, a pair per line: `<scenario> <label>: base <v>, head <v>`, its head column.
 """Train 12: the head's sweep against a unit's own sweep, from the files the
 unit's receipt commits -- none of the three units' sweeps left a pairs.json
 here, so this reads what each committed (train 10's verdict-level compare,
@@ -42,9 +43,15 @@ repo, out, kind = sys.argv[1:4]
 with open(os.path.join(out, "pairs.json"), encoding="utf-8") as f:
     head = {(p["scenario"], p["label"]): p["verdict"] for p in json.load(f)}
 dropped = []
-if kind in ("runs", "tsv"):
+if kind in ("runs", "tsv", "diff"):
     unit = {}
-    if kind == "runs":
+    if kind == "diff":
+        import re
+        for line in show(repo, sys.argv[4]).splitlines():
+            m = re.match(r"^[~+ -] (\S+) (\S+): base [\w-]+, head ([\w-]+)(?: \(.*\))?$", line)
+            if m:
+                unit[(m.group(1), m.group(2))] = m.group(3)
+    elif kind == "runs":
         for spec in sys.argv[4:]:
             for line in show(repo, spec).splitlines():
                 if line.startswith("#") or " pass " not in line:

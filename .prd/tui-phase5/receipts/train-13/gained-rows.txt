@@ -1,0 +1,6 @@
+pairs that gained a differing row: 3
+    main unresolved-defect -> head unresolved-defect: 3
+  3  other
+    provider-carry-back turn2 (unresolved-defect -> unresolved-defect): fx '  <wall> (↑6 ↓40)' / xfx '┃'
+    provider-carry-back turn3 (unresolved-defect -> unresolved-defect): fx '  <wall> (↑4 ↓40)' / xfx '┃'
+    provider-carry-back-stop next (unresolved-defect -> unresolved-defect): fx 'ol · read the notes and tell me what  · 1k/272k 0%' / xfx ' · model-a · read the notes and tell me what  · 1k'

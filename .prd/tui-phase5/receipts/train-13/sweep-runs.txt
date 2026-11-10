@@ -1,0 +1,71 @@
+# Train 13's sweeps, as sweep.sh printed them; then each sweep's run.json, the banners (banners.py) and the base's rescore (sweep.sh --rescore on a copy, with the head's ledger).
+
+## base
+# base: build in c-base at f53606d1, exit 0; xfx sha256 30c71d10d3beedf481c5ceb8d7d06c6754a0f17ccd08098cd34a5eb874b00003
+# size 40x120; selection: selection.txt
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 22.16
+# base: sweep exit 0, 1790 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 28.52
+[127/129] xfx provider-switch: ran (10s)
+[128/129] xfx p5-lifecycle-osc-retry: ran (7s)
+[129/129] fx (inventory): ran (33s)
+pass = 175 / 296 = 59.1%; unresolved 120, failed 0, timeout 0
+wrote <tmp>/scoreboard.md
+# suite-lock.sh exit 0
+run.json: started 2026-11-10T11:05:06+09:00; wall 29m47s; start_load 22.16; peak_load 37.85; jobs 2; size 40x120; xfx_sha256 30c71d10d3beedf481c5ceb8d7d06c6754a0f17ccd08098cd34a5eb874b00003; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head f53606d1add2adb4c4943c546c568e286e0263c4
+
+## head
+# head: build in c-head at e1e15efd, exit 0; xfx sha256 00e9ae3689ccd16fe767b0630c8eaa6170c056cdf0af7e0b395ad28b2388fe4f
+# size 40x120; selection: selection.txt
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 15.13
+# head: sweep exit 0, 1841 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 10.93
+[137/139] fx p5-lifecycle-osc-retry: ran (8s)
+[138/139] xfx p5-lifecycle-osc-retry: ran (6s)
+[139/139] fx (inventory): ran (36s)
+pass = 197 / 373 = 52.8%; unresolved 175, failed 0, timeout 0
+wrote <tmp>/scoreboard.md
+# suite-lock.sh exit 0
+run.json: started 2026-11-10T11:31:39+09:00; wall 30m39s; start_load 15.13; peak_load 37.85; jobs 2; size 40x120; xfx_sha256 00e9ae3689ccd16fe767b0630c8eaa6170c056cdf0af7e0b395ad28b2388fe4f; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head e1e15efde6a5cf6cdf23a29b72523e59a8aefe60
+
+## base-x
+# base-x: build in c-base at f53606d1, exit 0; xfx sha256 30c71d10d3beedf481c5ceb8d7d06c6754a0f17ccd08098cd34a5eb874b00003
+# size 40x120; selection: selection-extra.txt
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 17.34
+# base-x: sweep exit 0, 502 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 18.31
+[35/37] xfx fulltranscript-notice: ran (17s)
+[36/37] xfx p5-ctrlo-wider-inline-fam: ran (10s)
+[37/37] fx (inventory): ran (37s)
+pass = 42 / 110 = 38.2%; unresolved 60, failed 0, timeout 0
+wrote <tmp>/scoreboard.md
+# suite-lock.sh exit 0
+run.json: started 2026-11-10T12:03:00+09:00; wall 8m21s; start_load 17.34; peak_load 46.31; jobs 2; size 40x120; xfx_sha256 30c71d10d3beedf481c5ceb8d7d06c6754a0f17ccd08098cd34a5eb874b00003; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head f53606d1add2adb4c4943c546c568e286e0263c4
+
+## head-x
+# head-x: build in c-head at e1e15efd, exit 0; xfx sha256 00e9ae3689ccd16fe767b0630c8eaa6170c056cdf0af7e0b395ad28b2388fe4f
+# size 40x120; selection: selection-extra.txt
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 17.99
+# head-x: sweep exit 0, 504 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 15.53
+[35/37] xfx fulltranscript-notice: ran (17s)
+[36/37] xfx p5-ctrlo-wider-inline-fam: ran (8s)
+[37/37] fx (inventory): ran (36s)
+pass = 42 / 110 = 38.2%; unresolved 60, failed 0, timeout 0
+wrote <tmp>/scoreboard.md
+# suite-lock.sh exit 0
+run.json: started 2026-11-10T12:01:29+09:00; wall 8m23s; start_load 17.99; peak_load 46.31; jobs 2; size 40x120; xfx_sha256 00e9ae3689ccd16fe767b0630c8eaa6170c056cdf0af7e0b395ad28b2388fe4f; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head e1e15efde6a5cf6cdf23a29b72523e59a8aefe60
+
+## banners
+head: 330 xfx snaps show the banner; 330 name v0.1.0-e1e15ef; others none
+base: 256 xfx snaps show the banner; 256 name v0.1.0-f53606d; others none
+head-x: 68 xfx snaps show the banner; 68 name v0.1.0-e1e15ef; others none
+base-x: 68 xfx snaps show the banner; 68 name v0.1.0-f53606d; others none
+
+## the base sweep rescored with the head's ledger
+# the rescore: cp -R sw-base ref-base, then the head clone's sweep.sh --rescore --out ref-base (no capture runs; the head's ledger, e1e15efd)
+rescore: exit 0; pass = 175 / 296 = 59.1%; unresolved 120, failed 0, timeout 0
+ref-base: before pass = 175 / 296; after pass = 175 / 296; ledger a6ce4579 (the head's a6ce4579)
+pair by pair: 296 pairs before, 296 after; verdicts moved by the rescore: 0
+
+## the base-x sweep rescored with the head's ledger
+# the rescore: cp -R sw-base-x ref-base-x, then the head clone's sweep.sh --rescore --out ref-base-x (no capture runs; the head's ledger, e1e15efd)
+rescore: exit 0; pass = 42 / 110 = 38.2%; unresolved 60, failed 0, timeout 0
+ref-base-x: before pass = 42 / 110; after pass = 42 / 110; ledger a6ce4579 (the head's a6ce4579)
+pair by pair: 110 pairs before, 110 after; verdicts moved by the rescore: 0
