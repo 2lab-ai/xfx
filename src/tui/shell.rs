@@ -9542,7 +9542,21 @@ impl Shell {
                 | Action::HistoryNext,
             ) => return,
             Input::Action(Action::Tab) => approval::Action::Tab,
-            Input::Action(Action::Submit) => approval::Action::Submit,
+            // **C-j answers as Enter does**, at a choice and in a draft, on
+            // either plane: fx v0.0.16 makes `'\r', '\n'` an approval's
+            // `.submit` (`approvalActionFromByte`,
+            // `src/ui/input/runtime.zig:64@481104fd`), and the focused-editor
+            // route it asks first keeps no newline (`fromFocusedEditorControlByte`,
+            // `shortcuts.zig:26`, `:31-41`). A kitty or xterm Ctrl+J is the
+            // byte replayed (`escape_parser.zig:255-258`), which the decoder
+            // gives as the same key. So it is an affirmative where Enter is,
+            // and meets the same readiness check below; on choice 3 it is a
+            // refusal, answered at once. Ahead of the draft's arm, which would
+            // swallow it. A menu open under the question never sees it: the
+            // question has the keys ([`Self::consume_inputs`]), as fx's
+            // approval takes the byte before any menu
+            // (`app_input_runtime.zig:1161-1216`).
+            Input::Action(Action::Submit | Action::ControlJ) => approval::Action::Submit,
             Input::Action(Action::Escape) => approval::Action::Escape,
             Input::Action(Action::Cancel) => approval::Action::Cancel,
             // **Ctrl-L does nothing at a permission question**, as fx

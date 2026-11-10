@@ -283,11 +283,14 @@ pub(crate) enum Action {
     InsertNewline,
     /// `C-j` (`0x0a`): a newline in the composer, exactly as
     /// [`Action::InsertNewline`] -- and the next row of a menu while one is up
-    /// (`app_input_runtime.zig:1220-1235`, `routePickerControlByte`).
+    /// (`app_input_runtime.zig:1220-1235`, `routePickerControlByte`), and
+    /// Enter at a permission question (`approvalActionFromByte`,
+    /// `src/ui/input/runtime.zig:64@481104fd`; APPROVAL-CTRL-J).
     ///
     /// Named for the key rather than folded into `InsertNewline`, because
-    /// upstream binds the menu move to the **byte**: Alt-Enter and Shift-Enter
-    /// are newlines everywhere, and only the key that is `0x0a` walks a menu.
+    /// upstream binds the menu move and the question's answer to the
+    /// **byte**: Alt-Enter and Shift-Enter are newlines everywhere, and only
+    /// the key that is `0x0a` walks a menu or answers a question.
     ControlJ,
     /// `C-k` (`0x0b`): [`Action::KillToEnd`] in the composer, and the row
     /// above in a menu while one is up -- the other half of `ControlJ`, for the

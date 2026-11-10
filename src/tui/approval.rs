@@ -732,7 +732,8 @@ fn keyed(
 /// `Submit`, `Escape`, `Cancel` and `Tab` are absent for the opposite reason:
 /// they are the panel's own keys and mean the same thing whether or not a draft
 /// is open, so a draft that took them would change what answering a question
-/// means. `InsertNewline`, `Eof`, `ControlP`, `HistoryNext`, `Redraw`
+/// means. So is `ControlJ`, which is `Submit` at a question (APPROVAL-CTRL-J;
+/// `super::shell::Shell::decide` reads it ahead of this). `InsertNewline`, `Eof`, `ControlP`, `HistoryNext`, `Redraw`
 /// and `Ignore` are the session's or the panel's and are not a draft's at all,
 /// and `SelectUp`, `ComposerUp` and their Down are composer moves an amendment
 /// leaves alone (`src/ui/input/runtime.zig:86@481104fd`). This reads a folded
