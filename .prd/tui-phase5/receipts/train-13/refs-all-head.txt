@@ -1,0 +1,34 @@
+# head e1e15efd; sides: base f53606d1, history-notices 714f6283, question-resume d0e08d8c, approval-vs a37a969e
+docs/superpowers/plans/2026-08-24-provider-frame.md: src/session/store.rs:2322
+    base MOVED -> 2314 | question-resume MOVED -> 2314 | approval-vs MOVED -> 2314
+docs/superpowers/plans/2026-08-24-provider-frame.md: tests/sessions.rs:281
+    base MOVED -> 282 | question-resume MOVED -> 282 | approval-vs MOVED -> 282
+docs/superpowers/plans/2026-08-26-tui-phase2.md: src/tui/worker.rs:122-158
+    history-notices MOVED -> 123-159 | question-resume MOVED -> 123-159 | approval-vs MOVED -> 123-159
+docs/superpowers/plans/2026-08-26-tui-phase2.md: src/tui/worker.rs:608-640
+    history-notices MOVED -> 609-641 | question-resume MOVED -> 609-641 | approval-vs MOVED -> 609-641
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
+    base MOVED -> 553-586 | history-notices MOVED -> 553-586 | question-resume MOVED -> 553-586
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:3108
+    history-notices MOVED -> 3221 | question-resume MOVED -> 3221 | approval-vs MOVED -> 3221
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:433
+    history-notices MOVED -> 435 | question-resume MOVED -> 435 | approval-vs MOVED -> 435
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:2376
+    history-notices MOVED -> 2377 | question-resume MOVED -> 2377 | approval-vs MOVED -> 2377
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:444-446
+    history-notices MOVED -> 445-447 | question-resume MOVED -> 445-447 | approval-vs MOVED -> 445-447
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:593
+    history-notices MOVED -> 594 | question-resume MOVED -> 594 | approval-vs MOVED -> 594
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/session/store.rs:1774
+    base MOVED -> 1766 | question-resume MOVED -> 1766 | approval-vs MOVED -> 1766
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:499-522
+    base MOVED -> 500-523 | history-notices MOVED -> 500-523 | question-resume MOVED -> 500-523
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:782
+    base MOVED -> 788 | history-notices MOVED -> 788 | question-resume MOVED -> 788
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/shell.rs:1593
+    history-notices MOVED -> 1682 | question-resume MOVED -> 1682 | approval-vs MOVED -> 1682
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.rs:889-923
+    history-notices MOVED -> 928-964 | question-resume MOVED -> 928-964 | approval-vs MOVED -> 928-964
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/shell.rs:1117
+    history-notices MOVED -> 1183 | question-resume MOVED -> 1183 | approval-vs MOVED -> 1183
+# 194 references in 606 files; 16 moved or changed on some side that cites them

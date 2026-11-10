@@ -1,0 +1,45 @@
+# scripts/fxcap/parity-ledger.toml at bbdde09c; blame ignoring nothing
+WRONG scripts/fxcap/parity-ledger.toml:28 .prd/07-fx-parity-program.md:19 (path; written by 6bc31872 as :19): the head's line holds ''; "5. A reference binary was replaced in place by fx'" -- its text is at 0 places; the head's line most like its first is :33 (ratio 0.28)
+WRONG scripts/fxcap/parity-ledger.toml:107 .prd/tui-phase4/receipts/d1/README.md:258 (path; written by 4fc0a538 as :258): the head's line holds '- **`resume-empty/while-streaming`.** The activity'; 'how much had streamed (`↓71` against `↓69`).' -- its text is at :259
+SAME-LINES scripts/fxcap/parity-ledger.toml:418 .prd/07-fx-parity-program.md:45 (path; written by a1007a00 as :45): the cited text the same, a neighbour not
+WRONG scripts/fxcap/parity-ledger.toml:505 src/tui/shell.rs:13866 (path; written by 6ae87955 as :13866): the head's line holds '/// the content bottom that leaves, less those thr'; 'let event = full_transcript::shown_event(event);' -- its text is at :13962
+WRONG scripts/fxcap/parity-ledger.toml:689 src/tui/shell.rs:16840 (path; written by 6ae87955 as :16840): the head's line holds "// band grows by them, as upstream's activity bloc"; 'pub(crate) fn resize(&mut self, rows: u16, cols: u' -- its text is at :16977
+WRONG scripts/fxcap/parity-ledger.toml:806 src/tui/shell.rs:41113 (path; written by 03fb5436 as :41113): the head's line holds ''; '"  tools: {} advertised ({},",' -- its text is at :42431
+WRONG scripts/fxcap/parity-ledger.toml:817 src/tui/shell.rs:41113 (path; written by 03fb5436 as :41113): the head's line holds ''; '"  tools: {} advertised ({},",' -- its text is at :42431
+WRONG scripts/fxcap/parity-ledger.toml:829 src/tui/shell.rs:41113 (path; written by 03fb5436 as :41113): the head's line holds ''; '"  tools: {} advertised ({},",' -- its text is at :42431
+WRONG scripts/fxcap/parity-ledger.toml:840 src/tui/shell.rs:41113 (path; written by 03fb5436 as :41113): the head's line holds ''; '"  tools: {} advertised ({},",' -- its text is at :42431
+WRONG scripts/fxcap/parity-ledger.toml:851 src/tui/shell.rs:41113 (path; written by 03fb5436 as :41113): the head's line holds ''; '"  tools: {} advertised ({},",' -- its text is at :42431
+WRONG scripts/fxcap/parity-ledger.toml:863 src/tui/shell.rs:10480 (path; written by 6ae87955 as :10480): the head's line holds '/// Puts one notice into the document, as upstream'; 'fn trailer_rows(&self) -> Vec<String> {' -- its text is at :10558
+WRONG scripts/fxcap/parity-ledger.toml:865 src/tui/shell.rs:10480 (path; written by 6ae87955 as :10480): the head's line holds '/// Puts one notice into the document, as upstream'; 'fn trailer_rows(&self) -> Vec<String> {' -- its text is at :10558
+WRONG scripts/fxcap/parity-ledger.toml:919 src/tui/shell.rs:41113 (path; written by 03fb5436 as :41113): the head's line holds ''; '"  tools: {} advertised ({},",' -- its text is at :42431
+WRONG scripts/fxcap/parity-ledger.toml:989 src/tui/shell.rs:16840 (path; written by 6ae87955 as :16840): the head's line holds "// band grows by them, as upstream's activity bloc"; 'pub(crate) fn resize(&mut self, rows: u16, cols: u' -- its text is at :16977
+WRONG scripts/fxcap/parity-ledger.toml:1066 src/tui/shell.rs:4541 (path; written by 6ae87955 as :4541): the head's line holds 'self.prompts.pop_front();'; 'self.tally.begin(Instant::now(), estimate);' -- its text is at :4557
+# SAME 103; SAME-ROW 37; SAME-LINES 1; WRONG 14; other product 3; unread 0; refs 158
+# exit 1
+# docs/parity.md at bbdde09c; blame ignoring nothing
+WRONG docs/parity.md:48 :1364-1375 (bare; written by 3577bddb as :1364-1375): the head's line holds '"manifest storage format `{}` is not `{STORAGE_FOR'; 'if self.schema_version != MANIFEST_SCHEMA_VERSION ' -- its text is at :1356-1367
+WRONG docs/parity.md:162 scripts/smoke-tui.sh:10462-10477 (path; written by d0e08d8c as :10462-10477): the head's line holds ')'; 'def scenario_23b(run):' -- its text is at :10483-10498
+WRONG docs/parity.md:162 :10514-10524 (bare; written by d0e08d8c as :10514-10524): the head's line holds 'trial.grid("panel")'; 'grid = on_the_grid(trial, marker, "the fresh turn ' -- its text is at :10535-10545
+WRONG docs/parity.md:237 scripts/smoke-tui.sh:10462-10477 (path; written by d0e08d8c as :10462-10477): the head's line holds ')'; 'def scenario_23b(run):' -- its text is at :10483-10498
+WRONG docs/parity.md:237 :10514-10524 (bare; written by d0e08d8c as :10514-10524): the head's line holds 'trial.grid("panel")'; 'grid = on_the_grid(trial, marker, "the fresh turn ' -- its text is at :10535-10545
+# SAME 20; SAME-ROW 0; SAME-LINES 0; WRONG 5; other product 112; unread 0; refs 137
+# exit 1
+# scripts/fxcap/capfile.py at bbdde09c; blame ignoring nothing
+WRONG scripts/fxcap/capfile.py:165 src/tui/shell.rs:15057-15082 (path; written by 6ae87955 as :15057-15082): the head's line holds ')) {'; "fn warning_shown(&self) -> Option<&'static str> {" -- its text is at :15194-15219
+# SAME 4; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 1; unread 0; refs 6
+# exit 1
+# scripts/smoke-tui.sh at bbdde09c; blame ignoring nothing
+WRONG scripts/smoke-tui.sh:194 term.rs:32-52 (short; written by fe38df53 as :32-52): the head's line holds '/// (`terminal.zig:4-13`), the theme-change subscr'; 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.88)
+WRONG scripts/smoke-tui.sh:291 src/tui/term.rs:32-52 (path; written by fe38df53 as :32-52): the head's line holds '/// (`terminal.zig:4-13`), the theme-change subscr'; 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.88)
+WRONG scripts/smoke-tui.sh:4708 src/main.rs:44-49 (path; written by 9fdf7596 as :44-49): the head's line holds 'Ok(code) => code,'; 'fn fail(message: &str) -> ExitCode {' -- its text is at :50-55
+WRONG scripts/smoke-tui.sh:4977 src/tui/check.rs:1084 (path; written by 9acf15d1 as :1084): the head's line holds ''; 'pub(crate) const RECOVERY_CLEANUP: &str = "\\x18\\x1' -- its text is at :1683
+SAME-LINES scripts/smoke-tui.sh:5755 src/process.rs:24-43 (path; written by 878186b5 as :24): the cited text the same, a neighbour not
+SAME-LINES scripts/smoke-tui.sh:5840 process.rs:24-43 (short; written by 878186b5 as :24): the cited text the same, a neighbour not
+WRONG scripts/smoke-tui.sh:11208 editor.rs:351 (short; written by 060e2a4b as :351): the head's line holds '}'; 'Action::KillToStart => self.delete(self.line_start' -- its text is at :540
+WRONG scripts/smoke-tui.sh:11213 input.rs:1063 (short; written by 6ae87955 as :1063): the head's line holds 'self.stage = Stage::Ground;'; '/// that were read. **Nothing of the body is ever ' -- its text is at :1152
+# SAME 13; SAME-ROW 0; SAME-LINES 2; WRONG 6; other product 4; unread 0; refs 25
+# exit 1
+# src/tui/shell.rs at bbdde09c; blame ignoring nothing
+WRONG src/tui/shell.rs:24555 shell.rs:6070 (short; written by 6ae87955 as :6070): the head's line holds 'if origin.is_mention() {'; 'true' -- its text is at :6086
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 67; unread 0; refs 69
+# exit 1

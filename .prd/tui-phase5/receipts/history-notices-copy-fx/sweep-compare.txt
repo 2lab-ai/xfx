@@ -1,0 +1,59 @@
+# python3 -I -B cmp_sweeps.py <base>/pairs.json <head>/pairs.json
+resume-paging/page1: base unresolved-defect -> head normalized-identical
+base: 95 / 154 pass; head: 96 / 154 pass; dropped: 0
+
+# python3 -I -B pair_rows.py <base>/pairs.json <head>/pairs.json provider-carry-back
+provider-carry-back/turn2: unattributed 2 -> 2, same rows: True; causes ['P1-carry-notice'] -> []
+provider-carry-back/turn3: unattributed 2 -> 2, same rows: True; causes ['P1-carry-notice'] -> []
+provider-carry-back-stop/next: unattributed 8 -> 8, same rows: True; causes ['P1-carry-notice'] -> []
+resume-paging/page1: unattributed 0 -> 0, same rows: True; causes ['session-age'] -> []
+pairs compared: 154; pairs whose rows or causes moved: 4
+## open: base unresolved-defect -> head unresolved-defect; causes ['provider-label'] -> ['provider-label']
+    fx:             codex · current
+    fx:             grok
+    xfx:             llmux · current
+    fx: auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
+    xfx: auto · model-a · read the notes and tell me what  · 1k/200k 0%
+## start: base unresolved-defect -> head unresolved-defect; causes [] -> []
+    fx: auto · gpt-5.6-sol
+    xfx: auto · model-a
+## switched: base unresolved-defect -> head unresolved-defect; causes [] -> []
+    fx: * auth: Switched credential to AI_GATEWAY_API_KEY.
+    fx: (blank)
+## turn1: base unresolved-defect -> head unresolved-defect; causes [] -> []
+    fx: auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
+    xfx: auto · model-a · read the notes and tell me what  · 1k/200k 0%
+## turn2: base unresolved-defect -> head unresolved-defect; causes ['P1-carry-notice'] -> []
+    fx: * auth: Switched credential to AI_GATEWAY_API_KEY.
+    fx: (blank)
+## turn3: base unresolved-defect -> head unresolved-defect; causes ['P1-carry-notice'] -> []
+    fx: * auth: Switched credential to AI_GATEWAY_API_KEY.
+    fx: (blank)
+
+# python3 -I -B pair_rows.py <base>/pairs.json <head>/pairs.json provider-carry-back-stop (its per-snap part)
+## next: base unresolved-defect -> head unresolved-defect; causes ['P1-carry-notice'] -> []
+    fx: * auth: Switched credential to AI_GATEWAY_API_KEY.
+    xfx: * provider: Preparing Vercel AI Gateway.
+    fx: * provider: Preparing Vercel AI Gateway.
+    xfx: * provider: Switched to Vercel AI Gateway with fake/model-a.
+    fx: * provider: Provider preparation cancelled. The current provider is unchanged.
+    xfx: ▪ Cancelled · What can xfx do differently?
+    fx: auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
+    xfx: auto · model-a · read the notes and tell me what  · 1k
+## stopped: base unresolved-defect -> head unresolved-defect; causes [] -> []
+    fx: * auth: Switched credential to AI_GATEWAY_API_KEY.
+    xfx: * provider: Preparing Vercel AI Gateway.
+    fx: * provider: Preparing Vercel AI Gateway.
+    xfx: * provider: Switched to Vercel AI Gateway with fake/model-a.
+    fx: * provider: Provider preparation cancelled. The current provider is unchanged.
+    xfx: ▪ Cancelled · What can xfx do differently?
+## turn1: base unresolved-defect -> head unresolved-defect; causes [] -> []
+    fx: auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
+    xfx: auto · model-a · read the notes and tell me what  · 1k/200k 0%
+
+# resume-paging/page1 on the base (the one verdict that moved): its one row, under cause session-age (kind nondeterminism)
+unresolved-defect ['session-age'] [{'row': 24, 'fx': '  question one          work · now · 1 turn', 'xfx': '  question one          work ·  1m · 1 turn', 'attrs_only': False, 'matched': []}]
+
+# the deleted line's words in each sweep's own captures (grep -l over runs/)
+base: sweep-base/runs/provider-carry-back-stop/xfx/xfx-provider-carry-back-stop-40x120-next.ansi sweep-base/runs/provider-carry-back-stop/xfx/xfx-provider-carry-back-stop-40x120-next.txt sweep-base/runs/provider-carry-back/xfx/xfx-provider-carry-back-40x120-turn2.ansi sweep-base/runs/provider-carry-back/xfx/xfx-provider-carry-back-40x120-turn2.txt sweep-base/runs/provider-carry-back/xfx/xfx-provider-carry-back-40x120-turn3.ansi sweep-base/runs/provider-carry-back/xfx/xfx-provider-carry-back-40x120-turn3.txt 
+head: 

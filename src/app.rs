@@ -439,9 +439,11 @@ async fn run_ask(
         }
     };
 
-    // Report any notices about dropped state before the turn starts. Inert:
-    // a notice quotes what the log names -- the wire and the model a step's
-    // reasoning was recorded under -- and the log is file input.
+    // Report any notices about what the history could not send again -- an
+    // image whose saved copy could not be read back -- before the turn
+    // starts. Inert: a notice quotes what the log names (the tool that
+    // returned the image, the reason its copy failed), and the log is file
+    // input.
     for notice in &opened.notices {
         writeln!(
             stderr,
@@ -617,8 +619,8 @@ async fn run_ask(
 }
 
 /// The most bytes of one history notice `ask` prints: a notice is a sentence
-/// around the names the log gave a step, and a log can make those as long as
-/// a frame.
+/// around what the log names -- the tool that returned an image -- and a log
+/// can make that as long as a frame.
 const MAX_NOTICE_BYTES: usize = 1024;
 
 /// The model a resumed `ask` is sent in.

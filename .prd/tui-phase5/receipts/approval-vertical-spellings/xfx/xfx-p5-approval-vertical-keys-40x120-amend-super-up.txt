@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ed5ab8b [debug] · Run /help for commands
+
+┃ edit the files
+
+● 1 tool call · 1 read
+└ Read a.txt
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+      1   alpha line 1
+      2 - alpha line 2
+      2 + ALPHA LINE TWO
+      3   alpha line 3
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  Permission needed · Review change                                                                      Edit · +1  -1
+
+  a.txt  ·  Apply this change?
+
+  ❯ 1  Apply once, yab cdx
+    2  Apply + allow future edits to this file for this session
+    3  Don't apply
+  2 = allow every future edit_file to `a.txt` for the rest of this session, whatever its contents, and in every later
+  `xfx ask --resume-id 1794260327830-32f64042b6d85e55` of this saved session
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

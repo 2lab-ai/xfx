@@ -1,0 +1,69 @@
+# merge 8adc57df: base f53606d1, ours afd891af (train 13), theirs d2b2ca75 (main, PR #90)
+ok   both  docs/parity.md (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+BAD  both  scripts/fxcap/capfile.py (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 0 line(s) more, 4 fewer
+       fewer +        # row (xfx `warning_shown`, src/tui/shell.rs:15059-15084, the full  [theirs :180]
+       fewer +        # transcript at :15077-15079; fx `dangerStatusText`,  [theirs :181]
+       fewer -        # row (xfx `warning_shown`, src/tui/shell.rs:15057-15082, the full  [base :165; in TIMERS = (]
+       fewer -        # transcript at :15075-15077; fx `dangerStatusText`,  [base :166; in TIMERS = (]
+     theirs->merged minus base->ours: 2 line(s) more, 2 fewer
+       more  -        # row (xfx `warning_shown`, src/tui/shell.rs:15059-15084, the full  [theirs :180]
+       more  -        # transcript at :15077-15079; fx `dangerStatusText`,  [theirs :181]
+       fewer -        # row (xfx `warning_shown`, src/tui/shell.rs:15057-15082, the full  [base :165; in TIMERS = (]
+       fewer -        # transcript at :15075-15077; fx `dangerStatusText`,  [base :166; in TIMERS = (]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+BAD  both  scripts/fxcap/parity-ledger.toml (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 0 line(s) more, 24 fewer
+       fewer +source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13864", "docs/parity.md:237"]  [theirs :506]
+       fewer +why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [theirs :875]
+       fewer +why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`  [theirs :1093]
+       fewer +xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41165"]  [theirs :827,839,850,861]
+       fewer +xfx = ["src/tui/shell.rs:10478"]  [theirs :873]
+       fewer +xfx = ["src/tui/shell.rs:16842"]  [theirs :690,999]
+       fewer +xfx = ["src/tui/shell.rs:41165", "src/tui/approval_view.rs:685"]  [theirs :929]
+       fewer +xfx = ["src/tui/shell.rs:41165"]  [theirs :816]
+       fewer -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13866", "docs/parity.md:237"]  [base :505; in [[divergence]] / id = "answer-drawn-wider-named"]
+       fewer -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [base :875; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`  [base :1076; in [[cause]] / id = "activity-tokens-before-request"]
+       fewer -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41113"]  [base :827,839,850,861; in [[cause]] / id = "transcript-page-offset"]
+       fewer -xfx = ["src/tui/shell.rs:10480"]  [base :873; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -xfx = ["src/tui/shell.rs:16840"]  [base :690,999; in [[cause]] / id = "at-resize-band-at-the-bottom"]
+       fewer -xfx = ["src/tui/shell.rs:41113", "src/tui/approval_view.rs:685"]  [base :929; in [[cause]] / id = "full-transcript-shift"]
+       fewer -xfx = ["src/tui/shell.rs:41113"]  [base :816; in [[cause]] / id = "session-record"]
+     theirs->merged minus base->ours: 12 line(s) more, 12 fewer
+       more  -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13864", "docs/parity.md:237"]  [theirs :506]
+       more  -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [theirs :875]
+       more  -why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`  [theirs :1093]
+       more  -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41165"]  [theirs :827,839,850,861]
+       more  -xfx = ["src/tui/shell.rs:10478"]  [theirs :873]
+       more  -xfx = ["src/tui/shell.rs:16842"]  [theirs :690,999]
+       more  -xfx = ["src/tui/shell.rs:41165", "src/tui/approval_view.rs:685"]  [theirs :929]
+       more  -xfx = ["src/tui/shell.rs:41165"]  [theirs :816]
+       fewer -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13866", "docs/parity.md:237"]  [base :505; in [[divergence]] / id = "answer-drawn-wider-named"]
+       fewer -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [base :875; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`  [base :1076; in [[cause]] / id = "activity-tokens-before-request"]
+       fewer -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41113"]  [base :827,839,850,861; in [[cause]] / id = "transcript-page-offset"]
+       fewer -xfx = ["src/tui/shell.rs:10480"]  [base :873; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -xfx = ["src/tui/shell.rs:16840"]  [base :690,999; in [[cause]] / id = "at-resize-band-at-the-bottom"]
+       fewer -xfx = ["src/tui/shell.rs:41113", "src/tui/approval_view.rs:685"]  [base :929; in [[cause]] / id = "full-transcript-shift"]
+       fewer -xfx = ["src/tui/shell.rs:41113"]  [base :816; in [[cause]] / id = "session-record"]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+ok   both  scripts/smoke-tui.sh (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/app.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/interactive.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+BAD  both  src/tui/shell.rs (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 0 line(s) more, 4 fewer
+       fewer +        // `:6256`). Concatenated rather than compared row by row, because a  [theirs :23740]
+       fewer +        // how the existing too-small assertions read it (`shell.rs:6068`,  [theirs :23739]
+       fewer -        // `:6258`). Concatenated rather than compared row by row, because a  [base :23738; in fn a_screen_too_small_for_the_question_cancels_it_rather_than_painting]
+       fewer -        // how the existing too-small assertions read it (`shell.rs:6070`,  [base :23737; in fn a_screen_too_small_for_the_question_cancels_it_rather_than_painting]
+     theirs->merged minus base->ours: 2 line(s) more, 2 fewer
+       more  -        // `:6256`). Concatenated rather than compared row by row, because a  [theirs :23740]
+       more  -        // how the existing too-small assertions read it (`shell.rs:6068`,  [theirs :23739]
+       fewer -        // `:6258`). Concatenated rather than compared row by row, because a  [base :23738; in fn a_screen_too_small_for_the_question_cancels_it_rather_than_painting]
+       fewer -        // how the existing too-small assertions read it (`shell.rs:6070`,  [base :23737; in fn a_screen_too_small_for_the_question_cancels_it_rather_than_painting]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+ok   both  tests/sessions.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  tests/tui.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+files both sides changed: 9; one side only: 1390 (ours 1211, theirs 179); disagreeing: 3; disagreeing with numbers masked: 0
+# exit 0

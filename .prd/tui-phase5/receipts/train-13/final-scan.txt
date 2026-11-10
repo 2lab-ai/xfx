@@ -1,0 +1,36 @@
+## 1. each commit this train adds, first-parent f53606d1..11c8a5f7: the brief's count; a merge also as everything it brings
+e776a6b0 0; as everything it brings (git diff ^1): 0  merge: HISTORY-NOTICES-COPY-FX (fix/p5-history-notices-copy-fx @ 714f6
+9acb47a0 0; as everything it brings (git diff ^1): 0  merge: QUESTION-RESUME (fix/p5-question-resume @ d0e08d8c) into train 
+bbdde09c 0; as everything it brings (git diff ^1): 0  merge: APPROVAL-VERTICAL-SPELLINGS (fix/p5-approval-vertical-spellings
+ea35d548 0  test(train): P5 train 13 -- two join tests where no unit's tests meet
+e1e15efd 0  docs(refs): P5 train 13 -- the 24 references the merges moved, re-poin
+8a2dbd29 0  docs(receipt): P5 train 13 -- the merges' scripts and checks, the join
+3e81637f 0  docs(receipt): P5 train 13 -- the gate, the jobs, the probe and the se
+1df65ee0 0  docs(receipt): P5 train 13 -- the sweeps and their compares
+3083bc8f 0  docs(receipt): P5 train 13 -- the reruns and the README
+28639e0e 0  docs(receipt): P5 train 13 -- the README's last figures tied to files
+11c8a5f7 0  docs(receipt): P5 train 13 -- gates-files.txt at 28639e0e
+# the brief's count, summed over this train's commits: 0
+# the brief's count over the range, git diff f53606d1..11c8a5f7: 0
+
+## 2. every commit of the range, and the range (midbranch_scan.py)
+# commits per side: 714f6283 13; d0e08d8c 14; a37a969e 27; the range f53606d1..11c8a5f7 65
+# the check's documented homes at HEAD: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
+# 65 commits scanned; 0 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
+
+## the range, git diff f53606d1..HEAD
+# the range: 0 lines hit (the brief's count); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0
+# midbranch_scan.py exit 0
+
+## 3. files of this directory holding the pattern: 0
+shapes.py over this directory: brief 0; run-name 0; uid-tail 0 (over 110 files)
+
+## 4. each commit after the code head e1e15efd, and the files it touches outside this directory
+8a2dbd29 outside: 0; inside: 79 file(s)
+3e81637f outside: 0; inside: 32 file(s)
+1df65ee0 outside: 0; inside: 22 file(s)
+3083bc8f outside: 0; inside: 2 file(s)
+28639e0e outside: 0; inside: 5 file(s)
+11c8a5f7 outside: 0; inside: 1 file(s)
+# files outside this directory touched after the code head: 0
+final-scan exit 0

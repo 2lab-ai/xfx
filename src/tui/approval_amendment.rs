@@ -61,8 +61,9 @@ pub(crate) const MAX_FEEDBACK_BYTES: usize = 4096;
 /// The draft is a **viewport** onto its own text, windowed on the caret
 /// ([`super::editor::window`]), so a long amendment scrolls inside its own rows
 /// rather than growing the panel until the question is off the screen. Three,
-/// which is enough to read a sentence back and small enough that both drafts
-/// together cannot outweigh the disclosure they sit under.
+/// which is enough to read a sentence back and small enough that the draft --
+/// only the one being typed is painted ([`Drafts::blocks`]) -- cannot outweigh
+/// the disclosure it sits under.
 pub(crate) const MAX_DRAFT_ROWS: usize = 3;
 
 /// What an edit the draft's budget refuses says: upstream's sentence for an
@@ -109,11 +110,6 @@ impl Default for Draft {
 }
 
 impl Draft {
-    /// Whether this side has anything to say.
-    fn empty(&self) -> bool {
-        self.editor.is_empty()
-    }
-
     /// Puts `text` in at the caret and records the delta, if the budget admits
     /// it whole.
     ///
@@ -266,8 +262,9 @@ pub(crate) struct Block {
     pub choice: usize,
     /// The rows themselves, unindented: the surface owns its own indent.
     pub rows: Vec<String>,
-    /// The caret's row inside [`Self::rows`] and the cells to its left, for the
-    /// draft that has the keys. `None` on a draft that is merely being shown.
+    /// The caret's row inside [`Self::rows`] and the cells to its left. Only
+    /// the draft that has the keys is painted ([`Drafts::blocks`]), so this is
+    /// always set today; the surfaces read it as an `Option`.
     pub caret: Option<(usize, u16)>,
 }
 
@@ -460,30 +457,29 @@ impl Drafts {
         self.notice.take()
     }
 
-    /// The rows both drafts would paint, each at its own choice's width, in
-    /// choice order.
+    /// The rows the drafts paint, each at its own choice's width, in choice
+    /// order: the one that has the keys, or none.
     ///
-    /// A draft is shown while it has the keys **or** while it holds text: a
-    /// sentence the user typed and then navigated away from still travels if
-    /// they submit that choice, so hiding it would be sending something they
-    /// cannot read back. (Upstream shows only the draft being typed; this is
-    /// the one place xfx shows more, for that reason.)
+    /// **Only the draft being typed is painted**, as upstream paints it
+    /// (`appendFileApprovalChoiceLabel`, `approval_ui.zig:1181-1193@481104fd`;
+    /// `:1413-1418`, `:1688-1694`). A draft navigated away from is kept and
+    /// not shown: Tab on its choice opens it again with its text, and
+    /// submitting that choice sends it, painted or not, as upstream's does
+    /// (`materializeResponse`, `approval_decision.zig:112-127`).
     pub(crate) fn blocks(&self, width: impl Fn(usize) -> u16) -> Vec<Block> {
         let mut blocks = Vec::new();
         for choice in 0..super::approval::CHOICE_COUNT {
             let Some(side) = side(choice) else {
                 continue;
             };
-            let draft = &self.sides[side];
-            let open = self.active == Some(choice);
-            if !open && draft.empty() {
+            if self.active != Some(choice) {
                 continue;
             }
-            let (rows, caret) = draft.viewport(width(choice));
+            let (rows, caret) = self.sides[side].viewport(width(choice));
             blocks.push(Block {
                 choice,
                 rows,
-                caret: open.then_some(caret),
+                caret: Some(caret),
             });
         }
         blocks
@@ -807,5 +803,34 @@ mod tests {
         assert_eq!(drafts.text(ALLOW), "");
         assert_eq!(drafts.text(DENY), "");
         assert!(drafts.blocks(|_| COLS).is_empty());
+    }
+
+    #[test]
+    fn super_up_and_down_are_the_whole_drafts_edges() {
+        // fx's amendment reads Super-Up and Super-Down (`draft_start`,
+        // `draft_end`) as `.cursor_home` and `.cursor_end`
+        // (`src/ui/input/runtime.zig:82-83@481104fd`), which set the caret to
+        // 0 and to the draft's length (`cursorHome`/`cursorEnd`,
+        // `approval_amendment.zig:84-92`): the whole draft's edges, Shift held
+        // or not. fx's draft never holds a line break -- its paste turns each
+        // into a space (`normalizeApprovalAmendmentPasteInPlace`,
+        // `input_paste_runtime.zig:19-25`) -- and xfx's paste keeps them
+        // (`a_bracketed_paste_becomes_draft_text_and_never_an_entity`), so
+        // the edges are the draft's here even where Home is a line's.
+        let mut drafts = typed_into(ALLOW, "ab cd\nef gh");
+        assert_eq!(caret(&drafts), (1, 5));
+        for shifted in [false, true] {
+            drafts.edit(Action::Left, COLS);
+            drafts.edit(Action::DraftStart { shifted }, COLS);
+            assert_eq!(caret(&drafts), (0, 0), "shifted={shifted}: Super-Up");
+            drafts.edit(Action::Right, COLS);
+            drafts.edit(Action::DraftEnd { shifted }, COLS);
+            assert_eq!(caret(&drafts), (1, 5), "shifted={shifted}: Super-Down");
+        }
+        assert_eq!(
+            drafts.text(ALLOW),
+            "ab cd\nef gh",
+            "a caret move changed the text"
+        );
     }
 }

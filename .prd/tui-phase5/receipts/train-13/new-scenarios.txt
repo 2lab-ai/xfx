@@ -1,0 +1,9 @@
+p5-approval-horizontal-keys: 29 pairs, pass 0; unresolved-defect 29
+    unresolved 29: causes approval-grant-scope; a row no cause covers: no
+p5-approval-vertical-keys: 27 pairs, pass 0; unresolved-defect 27
+    unresolved 27: causes approval-grant-scope; a row no cause covers: no
+p5-question-resume: 4 pairs, pass 4; identical 1, normalized-identical 3
+p5-question-resume-ctrlo: 1 pairs, pass 0; unresolved-defect 1
+    unresolved 1: causes question-resume-ctrlo-detail; a row no cause covers: no
+p5-question-word-left: 16 pairs, pass 16; normalized-identical 16
+# 5 scenarios the reference did not take, 77 pairs, 20 pass

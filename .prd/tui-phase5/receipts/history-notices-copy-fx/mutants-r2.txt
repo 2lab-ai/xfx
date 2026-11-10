@@ -1,0 +1,55 @@
+# mutants.py, the mechanism mutants, on the same git clone --no-local checked out at 81ee1733 (<tmp>/mclone), one suite-lock slot, start 2026-11-09T16:15:31Z -> rc=0 end 2026-11-09T16:24:23Z
+# clone after the run: 0 changed files
+r2 line-shell-marks-after-every-line [lib]: killed
+    test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... FAILED
+    thread 'interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write' (423134754) panicked at src/interactive.rs:4051:9:
+    test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 12.78s
+    error: test failed, to rerun pass `--lib`
+r2 tui-said-when-found [lib]: killed
+    test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs' (423160652) panicked at src/tui/worker.rs:19107:9:
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (423160654) panicked at src/tui/worker.rs:18895:9:
+    test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.39s
+    error: test failed, to rerun pass `--lib`
+r2 tui-said-even-if-refused [lib]: killed
+    test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs' (423193570) panicked at src/tui/worker.rs:19107:9:
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (423193571) panicked at src/tui/worker.rs:18895:9:
+    test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.46s
+    error: test failed, to rerun pass `--lib`
+r2 tui-never-said [lib]: killed
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation' (423215803) panicked at src/tui/worker.rs:19015:9:
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (423215802) panicked at src/tui/worker.rs:18895:9:
+    test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 15.01s
+    error: test failed, to rerun pass `--lib`
+r2 no-dedup-in-one-rebuild [lib]: killed
+    test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... FAILED
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... FAILED
+    test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written' (423261311) panicked at src/interactive.rs:3985:9:
+    thread 'tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation' (423261315) panicked at src/tui/worker.rs:19019:9:
+    thread 'tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs' (423261313) panicked at src/tui/worker.rs:19111:9:
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (423261314) panicked at src/tui/worker.rs:18899:9:
+    test result: FAILED. 2 passed; 4 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 12.92s
+    error: test failed, to rerun pass `--lib`
+r2 ledger-outlives-its-conversation [lib]: killed
+    test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... FAILED
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... FAILED
+    test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written' (423296573) panicked at src/interactive.rs:3989:9:
+    thread 'tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation' (423296577) panicked at src/tui/worker.rs:19019:9:
+    thread 'tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs' (423296575) panicked at src/tui/worker.rs:19111:9:
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (423296576) panicked at src/tui/worker.rs:18899:9:
+    test result: FAILED. 2 passed; 4 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.25s
+    error: test failed, to rerun pass `--lib`
+r2 screen-drops-notice-under-stop [lib]: killed
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... FAILED
+    thread 'tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation' (423326663) panicked at src/tui/shell.rs:23012:9:
+    test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 13.35s
+    error: test failed, to rerun pass `--lib`

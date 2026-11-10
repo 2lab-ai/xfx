@@ -1,0 +1,16 @@
+# jobs.sh net at 2026-11-10T02:22:06Z, load 11.52
+# net-clone at e1e15efd
+# logger pid 31443, 127.0.0.1:<ephemeral>; HTTPS_PROXY, https_proxy, HTTP_PROXY, http_proxy at it; NO_PROXY, no_proxy, ALL_PROXY, all_proxy unset
+## lib: `cargo test --locked --lib --no-fail-fast` exit 0, 96 s
+   test result: ok. 4761 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 57.29s
+   connections logged during it: 2
+     2 x CONNECT w.example:443 HTTP/1.1
+## tui: `cargo test --locked --test tui --no-fail-fast` exit 0, 46 s
+   test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.25s
+   connections logged during it: 0
+## sessions: `cargo test --locked --test sessions --no-fail-fast` exit 0, 8 s
+   test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.15s
+   connections logged during it: 0
+# logger 31443 ended (-15)
+# jobs.sh net done at 2026-11-10T02:24:42Z
+lock exit 0

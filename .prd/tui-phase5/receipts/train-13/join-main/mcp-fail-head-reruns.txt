@@ -1,0 +1,5 @@
+# mcpfail.sh at the code head 0dbfaf39: the gate's release build (target/release/xfx of the gate's clone), three runs of capture.sh xfx p5-mcp-fail 40x120, inside one hold of the suite lock right after the gate, TMPDIR the harness scratch root; row 6 of each run's list snap. A capture.sh run ends by stopping its fake gateway (its log's last line, 'Terminated: 15'), rc 0.
+head run 1 (xfx 0.2.0 (release 2026-11-10-1545-0dbfaf390c70)): rc=0 list row 6:› bad retrying profile
+head run 2 (xfx 0.2.0 (release 2026-11-10-1545-0dbfaf390c70)): rc=0 list row 6:› bad retrying profile
+head run 3 (xfx 0.2.0 (release 2026-11-10-1545-0dbfaf390c70)): rc=0 list row 6:› bad retrying profile
+exit=0

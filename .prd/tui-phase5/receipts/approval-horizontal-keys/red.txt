@@ -1,0 +1,230 @@
+# RED at the base f686b736
+
+## The pair: fx v0.0.16 (fx/) against the base binary (red/, row 1 x𝒇x v0.1.0-f686b73 [debug], sha256 31d44e252f15e075...), pairs.sh red
+DIFF   alt-b         rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   alt-f         rows: 18 19 20 21 22 23 24 25 
+         fx:    1 Apply once|  2 Apply + allow workspac|❯ 3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   alt-left      rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   alt-right     rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+floor  amend-alt-b   rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, ab zcd|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once, ab zcd|  2 Apply + allow future e|  3 Don't apply|
+floor  amend-keys    rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, aby zcd|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once, aby zcd|  2 Apply + allow future e|  3 Don't apply|
+DIFF   answered      rows: 5 7 9 10 11 12 13 14 15 17 18 19 20 21 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future w|  3 Don't apply|
+floor  ask           rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+DIFF   back          rows: 18 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   ctrl-b        rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   ctrl-f        rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   ctrl-left     rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   ctrl-right    rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   down          rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   kitty-alt-b   rows: 18 19 20 21 22 23 24 25 
+         fx:    1 Apply once|  2 Apply + allow workspac|❯ 3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   kitty-alt-f   rows: 18 19 20 21 22 23 24 25 
+         fx:    1 Apply once|  2 Apply + allow workspac|❯ 3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   left-wrap     rows: 18 19 20 21 22 23 24 25 
+         fx:    1 Apply once|  2 Apply + allow workspac|❯ 3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   left          rows: 18 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   mok-alt-b     rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   mok-alt-f     rows: 18 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   right-wrap    rows: 18 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   right         rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   shift-alt-f   rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   shift-left    rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   shift-right   rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   super-left    rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   super-right   rows: 18 19 21 22 23 24 25 
+         fx:    1 Apply once|❯ 2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|❯ 2 Apply + allow future e|  3 Don't apply|
+DIFF   tab-back      rows: 18 19 20 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, aby zcd|  2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|  2 Apply + allow future e|❯ 3 Don't apply|
+DIFF   unpainted     rows: 18 19 20 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx:   1 Apply once, aby zcd|  2 Apply + allow future e|❯ 3 Don't apply|
+floor (ask's rows): 19 21 22 23 24 25 
+3 of 29 pairs differ in no row but the floor's
+
+## The tests at the base: cargo test --locked --lib -- the_horizontal_keys_at_an_approval_choice a_draft_left_behind moving_the_choice_leaves_editing
+test tui::approval::tests::moving_the_choice_leaves_editing_and_keeps_both_drafts ... FAILED
+test tui::shell::tests::a_draft_left_behind_is_not_painted_and_still_travels_with_its_choice ... FAILED
+test tui::shell::tests::the_horizontal_keys_at_an_approval_choice_are_fxs ... FAILED
+thread 'tui::approval::tests::moving_the_choice_leaves_editing_and_keeps_both_drafts' panicked at src/tui/approval.rs:2615:9:
+  left: Moved
+ right: Reshaped
+thread 'tui::shell::tests::a_draft_left_behind_is_not_painted_and_still_travels_with_its_choice' panicked at src/tui/shell.rs:22532:9:
+  left: Some("    1  Apply once, ab cd")
+ right: Some("    1  Apply once")
+thread 'tui::shell::tests::the_horizontal_keys_at_an_approval_choice_are_fxs' panicked at src/tui/shell.rs:22477:13:
+[27, 91, 68] did not mark choice 1: "  ❯ 2  Apply + allow future edits to this file for this session"
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 4628 filtered out; finished in 0.00s
+
+## The same pair with the grant scope's rows set aside: python3 -I scope.py red
+DIFF  alt-b         1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  alt-f         4 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  "  ❯ 3  Don't apply"
+      xfx: "    3  Don't apply"
+DIFF  alt-left      1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  alt-right     1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+SAME  amend-alt-b   (22 rows compared)
+SAME  amend-keys    (22 rows compared)
+DIFF  answered      17 rows differ
+      fx:  '● 2 tool calls · 1 read · 1 edit'
+      xfx: '● 2 tool calls · 1 read · 1 edit · 1 denied'
+      fx:  '└ Edited a.txt +1 / -1'
+      xfx: '└ Denied file'
+      fx:  '┃ aby zcd'
+      xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+SAME  ask           (22 rows compared)
+DIFF  back          3 rows differ
+      fx:  '  ❯ 1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  '  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel'
+      xfx: '  1–3 choose now    ↑↓ or tab options    enter confirm    esc cancel'
+DIFF  ctrl-b        1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  ctrl-f        1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  ctrl-left     1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  ctrl-right    1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  down          1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  kitty-alt-b   4 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  "  ❯ 3  Don't apply"
+      xfx: "    3  Don't apply"
+DIFF  kitty-alt-f   4 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  "  ❯ 3  Don't apply"
+      xfx: "    3  Don't apply"
+DIFF  left-wrap     4 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  "  ❯ 3  Don't apply"
+      xfx: "    3  Don't apply"
+DIFF  left          3 rows differ
+      fx:  '  ❯ 1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  '  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel'
+      xfx: '  1–3 choose now    ↑↓ or tab options    enter confirm    esc cancel'
+DIFF  mok-alt-b     1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  mok-alt-f     3 rows differ
+      fx:  '  ❯ 1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  '  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel'
+      xfx: '  1–3 choose now    ↑↓ or tab options    enter confirm    esc cancel'
+DIFF  right-wrap    3 rows differ
+      fx:  '  ❯ 1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  '    2  Apply + allow '
+      xfx: '  ❯ 2  Apply + allow '
+      fx:  '  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel'
+      xfx: '  1–3 choose now    ↑↓ or tab options    enter confirm    esc cancel'
+DIFF  right         1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  shift-alt-f   1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  shift-left    1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  shift-right   1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  super-left    1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  super-right   1 rows differ
+      fx:  '    1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+DIFF  tab-back      2 rows differ
+      fx:  '  ❯ 1  Apply once, aby zcd'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  "    3  Don't apply"
+      xfx: "  ❯ 3  Don't apply"
+DIFF  unpainted     2 rows differ
+      fx:  '  ❯ 1  Apply once'
+      xfx: '    1  Apply once, aby zcd'
+      fx:  "    3  Don't apply"
+      xfx: "  ❯ 3  Don't apply"
+3 of 29 pairs identical once the grant scope's rows are set aside

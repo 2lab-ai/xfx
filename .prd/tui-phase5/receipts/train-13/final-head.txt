@@ -1,0 +1,190 @@
+# read at 93dd4169; code head e1e15efd
+## git show --stat, every commit of e1e15efd..93dd4169
+8a2dbd29 docs(receipt): P5 train 13 -- the merges' scripts and checks, the join jobs
+ .prd/tui-phase5/receipts/train-13/avs-refs.txt         |  77 ++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/banners.py           |  24 +++++
+ .prd/tui-phase5/receipts/train-13/blocks.py            |  68 ++++++++++++++
+ .prd/tui-phase5/receipts/train-13/check-merge.sh       |  19 ++++
+ .prd/tui-phase5/receipts/train-13/compare.py           | 111 +++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/content-a37a969e.txt |  32 +++++++
+ .prd/tui-phase5/receipts/train-13/content-bbdde09c.txt |  45 +++++++++
+ .prd/tui-phase5/receipts/train-13/content-f53606d1.txt |  25 +++++
+ .prd/tui-phase5/receipts/train-13/content-head.txt     |  59 ++++++++++++
+ .prd/tui-phase5/receipts/train-13/filecheck.py         | 132 +++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/final-scan.sh        |  62 +++++++++++++
+ .prd/tui-phase5/receipts/train-13/gained_rows.py       |  48 ++++++++++
+ .prd/tui-phase5/receipts/train-13/gates-files.sh       |  30 ++++++
+ .prd/tui-phase5/receipts/train-13/gates.sh             |  57 ++++++++++++
+ .prd/tui-phase5/receipts/train-13/gates_txt.py         |  41 +++++++++
+ .prd/tui-phase5/receipts/train-13/jobs-mutant.txt      |  20 ++++
+ .prd/tui-phase5/receipts/train-13/jobs.sh              |  50 ++++++++++
+ .prd/tui-phase5/receipts/train-13/join_mutants.py      |  40 ++++++++
+ .prd/tui-phase5/receipts/train-13/ledger_numbers.py    |  62 +++++++++++++
+ .prd/tui-phase5/receipts/train-13/merge-checks.sh      | 108 ++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/midbranch_scan.py    | 132 +++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/named.sh             |  32 +++++++
+ .prd/tui-phase5/receipts/train-13/named.txt            |  51 +++++++++++
+ .prd/tui-phase5/receipts/train-13/net.py               |  53 +++++++++++
+ .prd/tui-phase5/receipts/train-13/overlap.py           |  57 ++++++++++++
+ .prd/tui-phase5/receipts/train-13/overlap.txt          |  37 ++++++++
+ .prd/tui-phase5/receipts/train-13/pathcheck.sh         |  37 ++++++++
+ .prd/tui-phase5/receipts/train-13/probe-test.rs.in     |  38 ++++++++
+ .prd/tui-phase5/receipts/train-13/probe.sh             |  34 +++++++
+ .prd/tui-phase5/receipts/train-13/probe_table.py       |  30 ++++++
+ .prd/tui-phase5/receipts/train-13/redacted.py          |  49 ++++++++++
+ .prd/tui-phase5/receipts/train-13/refs-all-head.txt    |  34 +++++++
+ .prd/tui-phase5/receipts/train-13/refs-all-pre.txt     |  48 ++++++++++
+ .prd/tui-phase5/receipts/train-13/refs-bare-head.txt   | 128 ++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/refs-bare-pre.txt    | 136 ++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/refs-head.txt        | 170 ++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/refs-prd-head.txt    |  62 +++++++++++++
+ .prd/tui-phase5/receipts/train-13/refs-prd-pre.txt     |  62 +++++++++++++
+ .prd/tui-phase5/receipts/train-13/refs-pre.txt         | 170 ++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/refs-short-head.txt  | 140 ++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/refs-short-pre.txt   | 144 +++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/refs.py              | 102 +++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/refs_all.py          | 103 +++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/refs_bare.py         |  85 +++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/refs_content.py      | 288 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/refs_prd.py          |  93 +++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/refs_short.py        |  60 ++++++++++++
+ .prd/tui-phase5/receipts/train-13/remerge-1.txt        |  43 +++++++++
+ .prd/tui-phase5/receipts/train-13/remerge-2.txt        |  39 ++++++++
+ .prd/tui-phase5/receipts/train-13/remerge-3.txt        | 216 ++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/repoint-plan.txt     |  25 +++++
+ .prd/tui-phase5/receipts/train-13/repoint.py           | 167 ++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/repointed.py         |  77 ++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/repointed.txt        |  50 ++++++++++
+ .prd/tui-phase5/receipts/train-13/reproduce.sh         |  38 ++++++++
+ .prd/tui-phase5/receipts/train-13/rerun_verdicts.py    |  60 ++++++++++++
+ .prd/tui-phase5/receipts/train-13/reruns.sh            |  18 ++++
+ .prd/tui-phase5/receipts/train-13/reruns_txt.sh        |  32 +++++++
+ .prd/tui-phase5/receipts/train-13/resolutions.txt      |  50 ++++++++++
+ .prd/tui-phase5/receipts/train-13/rowcheck.py          |  47 ++++++++++
+ .prd/tui-phase5/receipts/train-13/rowsmerge.py         |  90 ++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/screen_classes.py    |  36 ++++++++
+ .prd/tui-phase5/receipts/train-13/screen_moves.py      |  62 +++++++++++++
+ .prd/tui-phase5/receipts/train-13/selection.py         |  79 ++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/selection.txt        |  38 ++++++++
+ .prd/tui-phase5/receipts/train-13/shapes.py            |  48 ++++++++++
+ .prd/tui-phase5/receipts/train-13/shared.py            | 136 ++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/shared.txt           |  36 ++++++++
+ .prd/tui-phase5/receipts/train-13/sweep-compare.sh     |  20 ++++
+ .prd/tui-phase5/receipts/train-13/sweep-rerun.sh       |  18 ++++
+ .prd/tui-phase5/receipts/train-13/sweep-runs.sh        |  38 ++++++++
+ .prd/tui-phase5/receipts/train-13/sweep.sh             |  36 ++++++++
+ .prd/tui-phase5/receipts/train-13/test-counts.txt      |  13 +++
+ .prd/tui-phase5/receipts/train-13/test_counts.sh       |  12 +++
+ .prd/tui-phase5/receipts/train-13/token-check.txt      | 125 +++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/token-self-test.txt  |  84 +++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/token_check.py       | 683 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/token_control.py     |  64 +++++++++++++
+ .prd/tui-phase5/receipts/train-13/unit_compare.py      | 100 ++++++++++++++++++++
+ 79 files changed, 6065 insertions(+)
+3e81637f docs(receipt): P5 train 13 -- the gate, the jobs, the probe and the selection
+ .prd/tui-phase5/receipts/train-13/banners.py          |   1 +
+ .prd/tui-phase5/receipts/train-13/check-merges.txt    |  22 +++++++
+ .prd/tui-phase5/receipts/train-13/compare.py          |   1 +
+ .prd/tui-phase5/receipts/train-13/connect.log         |   2 +
+ .prd/tui-phase5/receipts/train-13/fetch.sh            |  17 ++++++
+ .prd/tui-phase5/receipts/train-13/fetch.txt           |   3 +
+ .prd/tui-phase5/receipts/train-13/gained_rows.py      |   1 +
+ .prd/tui-phase5/receipts/train-13/gate-counts.txt     |  94 +++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/gate_counts.sh      |  28 +++++++++
+ .prd/tui-phase5/receipts/train-13/gates-files.sh      |  14 ++---
+ .prd/tui-phase5/receipts/train-13/gates.txt           | 159 +++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/gates_txt.py        |   2 +-
+ .prd/tui-phase5/receipts/train-13/jobs-net.txt        |  16 +++++
+ .prd/tui-phase5/receipts/train-13/ledger_numbers.py   |   1 +
+ .prd/tui-phase5/receipts/train-13/overlap.py          |   1 +
+ .prd/tui-phase5/receipts/train-13/probe.sh            |   3 +-
+ .prd/tui-phase5/receipts/train-13/probe.txt           | 449 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/refs.py             |   1 +
+ .prd/tui-phase5/receipts/train-13/refs_all.py         |   1 +
+ .prd/tui-phase5/receipts/train-13/refs_bare.py        |   1 +
+ .prd/tui-phase5/receipts/train-13/refs_prd.py         |   1 +
+ .prd/tui-phase5/receipts/train-13/refs_short.py       |   1 +
+ .prd/tui-phase5/receipts/train-13/rerun_verdicts.py   |   1 +
+ .prd/tui-phase5/receipts/train-13/rowcheck.py         |   1 +
+ .prd/tui-phase5/receipts/train-13/rowsmerge.py        |   1 +
+ .prd/tui-phase5/receipts/train-13/screen_moves.py     |   1 +
+ .prd/tui-phase5/receipts/train-13/selection-extra.txt |  39 ++++++++++++
+ .prd/tui-phase5/receipts/train-13/selection.py        |  37 +++++++++++-
+ .prd/tui-phase5/receipts/train-13/sweep-compare.sh    |  11 +++-
+ .prd/tui-phase5/receipts/train-13/sweep-runs.sh       |  21 ++++---
+ .prd/tui-phase5/receipts/train-13/token_control.py    |   1 +
+ .prd/tui-phase5/receipts/train-13/unit_compare.py     |   8 ++-
+ 32 files changed, 916 insertions(+), 24 deletions(-)
+1df65ee0 docs(receipt): P5 train 13 -- the sweeps and their compares
+ .prd/tui-phase5/receipts/train-13/compare-base-x.txt      | 128 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/compare-base.txt        | 224 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/compare-units.txt       |  98 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/gained-rows-x.txt       |   2 ++
+ .prd/tui-phase5/receipts/train-13/gained-rows.txt         |   6 ++++
+ .prd/tui-phase5/receipts/train-13/reruns.sh               |  13 ++++----
+ .prd/tui-phase5/receipts/train-13/reruns_txt.sh           |  35 +++++++-------------
+ .prd/tui-phase5/receipts/train-13/screen-classes-x.txt    |   2 ++
+ .prd/tui-phase5/receipts/train-13/screen-classes.txt      |   5 +++
+ .prd/tui-phase5/receipts/train-13/screen-moves-base-x.txt |   6 ++++
+ .prd/tui-phase5/receipts/train-13/screen-moves-base.txt   |  32 +++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/screen-partition.txt    |   8 +++++
+ .prd/tui-phase5/receipts/train-13/screen_classes.py       |  14 +++-----
+ .prd/tui-phase5/receipts/train-13/screen_partition.py     |  63 ++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/sweep-base-x.md         | 159 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/sweep-base.md           | 230 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/sweep-compare.sh        |  22 +++++++++++++
+ .prd/tui-phase5/receipts/train-13/sweep-head-x.md         | 159 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/sweep-head.md           | 236 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/sweep-rerun.sh          |   2 +-
+ .prd/tui-phase5/receipts/train-13/sweep-runs.txt          |  71 +++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/unit_compare.py         |  13 ++++++--
+ 22 files changed, 1483 insertions(+), 45 deletions(-)
+3083bc8f docs(receipt): P5 train 13 -- the reruns and the README
+ .prd/tui-phase5/receipts/train-13/README.md  | 591 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/reruns.txt | 113 ++++++++++++++++++++++++++++
+ 2 files changed, 704 insertions(+)
+28639e0e docs(receipt): P5 train 13 -- the README's last figures tied to files
+ .prd/tui-phase5/receipts/train-13/README.md         | 34 +++++++++++++++++++++-------------
+ .prd/tui-phase5/receipts/train-13/final-scan.sh     |  4 +++-
+ .prd/tui-phase5/receipts/train-13/new-scenarios.txt |  9 +++++++++
+ .prd/tui-phase5/receipts/train-13/new_scenarios.py  | 32 ++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/sweep-compare.sh  |  2 ++
+ 5 files changed, 67 insertions(+), 14 deletions(-)
+11c8a5f7 docs(receipt): P5 train 13 -- gates-files.txt at 28639e0e
+ .prd/tui-phase5/receipts/train-13/gates-files.txt | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+dd814d61 docs(receipt): P5 train 13 -- final-scan.txt at 11c8a5f7
+ .prd/tui-phase5/receipts/train-13/final-scan.txt | 36 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+caab9092 test(train): P5 train 13 round 2 -- the sealed state's two parts asserted apart
+ src/tui/worker.rs | 15 ++++++++++-----
+ 1 file changed, 10 insertions(+), 5 deletions(-)
+be3db603 docs(receipt): P5 train 13 round 2 -- the reviews' fixes
+ .prd/tui-phase5/receipts/train-13/README.md           | 224 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++---------------------------
+ .prd/tui-phase5/receipts/train-13/blocks-m3.txt       |  20 +++++++++++++
+ .prd/tui-phase5/receipts/train-13/blocks_m3.sh        |  43 +++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/compare-base-s2.txt |   8 +++++
+ .prd/tui-phase5/receipts/train-13/compare-units.txt   |  40 ++++++++++++-------------
+ .prd/tui-phase5/receipts/train-13/final-head.sh       |  25 ++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/jobs-mutant-r2.txt  |  36 +++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/jobs.sh             |   6 ++--
+ .prd/tui-phase5/receipts/train-13/join_mutants.py     |   9 ++++++
+ .prd/tui-phase5/receipts/train-13/merge-checks.sh     |  16 ++++++++--
+ .prd/tui-phase5/receipts/train-13/resolutions.txt     |   6 +++-
+ .prd/tui-phase5/receipts/train-13/s5.sh               |  19 ++++++++++++
+ .prd/tui-phase5/receipts/train-13/s5.txt              |   5 ++++
+ .prd/tui-phase5/receipts/train-13/selection-s2.txt    |   7 +++++
+ .prd/tui-phase5/receipts/train-13/sweep-base-s2.md    | 133 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/sweep-compare.sh    |  20 ++++++++-----
+ .prd/tui-phase5/receipts/train-13/sweep-head-s2.md    | 133 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/train-13/sweep-runs.sh       |   9 +++---
+ .prd/tui-phase5/receipts/train-13/sweep-runs.txt      |  34 +++++++++++++++++++++
+ 19 files changed, 711 insertions(+), 82 deletions(-)
+93dd4169 docs(receipt): P5 train 13 round 2 -- gates-files-r2.txt at be3db603
+ .prd/tui-phase5/receipts/train-13/gates-files-r2.txt | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+## git diff --stat e1e15efd 93dd4169, outside .prd/tui-phase5/receipts/train-13
+     src/tui/worker.rs | 15 ++++++++++-----
+     1 file changed, 10 insertions(+), 5 deletions(-)
+## src/tui/worker.rs: its test module opens at :6615 at 93dd4169; each hunk's lines there
+    -19892,5 +19892,10: new lines 19892-19901, inside the test module

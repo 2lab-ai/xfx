@@ -1,0 +1,178 @@
+# head 8adc57df; sides: train afd891af, main d2b2ca75
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:908]
+    train* = row | main* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:197]
+    train* = row | main* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:308]
+    train* = row | main* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:433]
+    train* = row | main* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:124]
+    train* = row | main* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:933]
+    train* = row | main* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:350]
+    train* = row | main* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:71, scripts/fxcap/parity-ledger.toml:156, scripts/fxcap/parity-ledger.toml:237, scripts/fxcap/parity-ledger.toml:268, scripts/fxcap/parity-ledger.toml:281, scripts/fxcap/parity-ledger.toml:295, scripts/fxcap/parity-ledger.toml:322, scripts/fxcap/parity-ledger.toml:336, scripts/fxcap/parity-ledger.toml:419]
+    train* = row | main* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:62]
+    train* = row | main* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:183, scripts/fxcap/parity-ledger.toml:336]
+    train* = row | main* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:574, scripts/fxcap/parity-ledger.toml:585]
+    train* = row | main* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:796]
+    train* = row | main* = row
+docs/parity.md:162	[scripts/fxcap/parity-ledger.toml:656]
+    train* = row | main* = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:897]
+    train* = row | main* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:760]
+    train* = row | main* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:156, scripts/fxcap/parity-ledger.toml:322]
+    train* = row | main* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:732]
+    train* = row | main* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:451, scripts/fxcap/parity-ledger.toml:506, scripts/fxcap/parity-ledger.toml:520, scripts/fxcap/parity-ledger.toml:534]
+    train* = row | main* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:140, scripts/fxcap/parity-ledger.toml:364, scripts/fxcap/parity-ledger.toml:378, scripts/fxcap/parity-ledger.toml:388, scripts/fxcap/parity-ledger.toml:392, scripts/fxcap/parity-ledger.toml:406, scripts/fxcap/parity-ledger.toml:464, scripts/fxcap/parity-ledger.toml:492, scripts/fxcap/parity-ledger.toml:808]
+    train* = row | main* = row
+docs/parity.md:243	[scripts/fxcap/parity-ledger.toml:251]
+    train* = row | main* = row
+scripts/check-xfx-identity.sh:5	[docs/parity.md:241]
+    train* = | main* =
+scripts/fxcap/capture.sh:326-328	[scripts/fxcap/parity-ledger.toml:86]
+    train* = | main* =
+scripts/fxcap/capture.sh:379-385	[scripts/fxcap/parity-ledger.toml:86]
+    train* = | main* =
+scripts/fxcap/capture.sh:681	[scripts/fxcap/parity-ledger.toml:79]
+    train -> 691 | main* =
+scripts/fxcap/capture.sh:980	[scripts/fxcap/parity-ledger.toml:86]
+    train -> 990 | main* =
+scripts/fxcap/capture.sh:987	[scripts/fxcap/parity-ledger.toml:86]
+    train -> 997 | main* =
+scripts/fxcap/capture.sh:1157	[scripts/fxcap/parity-ledger.toml:148]
+    train -> 1167 | main* =
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:54]
+    train* = | main* =
+scripts/smoke-tui.sh:10483-10498	[docs/parity.md:162, docs/parity.md:237]
+    train* = | main =
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    train* = | main* =
+src/config.rs:850-851	[scripts/fxcap/parity-ledger.toml:552, scripts/fxcap/parity-ledger.toml:553]
+    train = | main* =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    train* = | main* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:641, scripts/fxcap/parity-ledger.toml:651, docs/parity.md:237]
+    train* = | main* =
+src/gateway/mod.rs:994-995	[docs/parity.md:237]
+    train* = | main* =
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:760]
+    train* = | main* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:251]
+    train* = | main* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:251]
+    train* = | main* =
+src/mcp/runtime.rs:90	[scripts/fxcap/parity-ledger.toml:1161]
+    train* = | main* =
+src/mcp/transport.rs:1318-1320	[docs/parity.md:221]
+    train* = | main* =
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:886]
+    train* = | main* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:451]
+    train* = | main* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:886]
+    train* = | main* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:794]
+    train* = | main* =
+src/provider/mod.rs:117	[scripts/fxcap/parity-ledger.toml:782]
+    train* = | main* =
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    train* = | main* =
+src/session/store.rs:74	[docs/parity.md:48]
+    train* = | main* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:931]
+    train* = | main* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:1114, docs/parity.md:176]
+    train* = | main* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:583, docs/parity.md:158]
+    train* = | main* =
+src/tools/question.rs:60-76	[docs/parity.md:242]
+    train* = | main* =
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:583, docs/parity.md:158]
+    train* = | main* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:888]
+    train* = | main* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:943]
+    train* = | main* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:794, scripts/fxcap/parity-ledger.toml:817, scripts/fxcap/parity-ledger.toml:829, scripts/fxcap/parity-ledger.toml:840, scripts/fxcap/parity-ledger.toml:851, scripts/fxcap/parity-ledger.toml:874, scripts/fxcap/parity-ledger.toml:919]
+    train* = | main* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:464]
+    train* = | main* =
+src/tui/approval_view.rs:1224	[scripts/fxcap/parity-ledger.toml:1001]
+    train* = | main* =
+src/tui/frame.rs:2757	[scripts/fxcap/parity-ledger.toml:534]
+    train* = | main* =
+src/tui/frame.rs:2803	[docs/parity.md:244]
+    train = | main* =
+src/tui/full_transcript.rs:495	[scripts/fxcap/parity-ledger.toml:364]
+    train* = | main* =
+src/tui/full_transcript.rs:3010	[scripts/fxcap/parity-ledger.toml:492, scripts/fxcap/parity-ledger.toml:1001]
+    train* = | main* =
+src/tui/full_transcript.rs:3061	[scripts/fxcap/parity-ledger.toml:506, scripts/fxcap/parity-ledger.toml:520]
+    train* = | main* =
+src/tui/gesture.rs:162-164	[scripts/fxcap/parity-ledger.toml:1148]
+    train* = | main* =
+src/tui/gesture.rs:176-188	[scripts/fxcap/parity-ledger.toml:1136, scripts/fxcap/parity-ledger.toml:1148]
+    train* = | main* =
+src/tui/grid.rs:1088	[scripts/fxcap/parity-ledger.toml:978]
+    train* = | main* =
+src/tui/layout.rs:98	[scripts/fxcap/parity-ledger.toml:966, scripts/fxcap/parity-ledger.toml:1014]
+    train* = | main* =
+src/tui/mcp_menu.rs:786-791	[scripts/fxcap/parity-ledger.toml:1160]
+    train* = | main* =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:433]
+    train* = | main* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:1123]
+    train* = | main* =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    train* = | main* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:931]
+    train* = | main* =
+src/tui/settings.rs:539-551	[docs/parity.md:237]
+    train* = | main* =
+src/tui/shell.rs:183-191	[scripts/fxcap/parity-ledger.toml:45, scripts/fxcap/parity-ledger.toml:46]
+    train changed | main* =
+src/tui/shell.rs:1852	[scripts/fxcap/parity-ledger.toml:955]
+    train -> 1850 | main* =
+src/tui/shell.rs:3818-3835	[scripts/fxcap/parity-ledger.toml:552, scripts/fxcap/parity-ledger.toml:553]
+    train -> 3816-3833 | main* =
+src/tui/shell.rs:4557	[scripts/fxcap/parity-ledger.toml:1083]
+    train* -> 4555 MOVED | main -> 4573
+src/tui/shell.rs:10558	[scripts/fxcap/parity-ledger.toml:863, scripts/fxcap/parity-ledger.toml:865]
+    train* -> 10556 MOVED | main -> 10636
+src/tui/shell.rs:13962	[scripts/fxcap/parity-ledger.toml:506]
+    train* -> 13960 MOVED | main -> 14058
+src/tui/shell.rs:16977	[scripts/fxcap/parity-ledger.toml:689, scripts/fxcap/parity-ledger.toml:989]
+    train* -> 16979 MOVED | main -> 17114
+src/tui/shell.rs:42431	[scripts/fxcap/parity-ledger.toml:806, scripts/fxcap/parity-ledger.toml:817, scripts/fxcap/parity-ledger.toml:829, scripts/fxcap/parity-ledger.toml:840, scripts/fxcap/parity-ledger.toml:851, scripts/fxcap/parity-ledger.toml:919]
+    train* -> 42483 MOVED | main -> 43749
+src/tui/toolgroup.rs:940	[scripts/fxcap/parity-ledger.toml:378, scripts/fxcap/parity-ledger.toml:874]
+    train* = | main* =
+src/tui/toolgroup.rs:1017	[scripts/fxcap/parity-ledger.toml:392]
+    train* = | main* =
+src/tui/toolgroup.rs:1131	[scripts/fxcap/parity-ledger.toml:406]
+    train* = | main* =
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:350]
+    train* = | main* =
+src/tui/wrap.rs:673-693	[scripts/fxcap/parity-ledger.toml:978]
+    train* = | main* =
+src/tui/wrap.rs:726	[scripts/fxcap/parity-ledger.toml:478]
+    train* = | main* =
+tests/e2e/cli.test.ts:445	[docs/parity.md:244]
+    train = | main* =
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    train* = | main* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    train* = | main* =
+# 88 references; 5 (side, reference) pairs MOVED; * = the side's own text cites it

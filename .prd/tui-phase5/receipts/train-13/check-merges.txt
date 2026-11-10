@@ -1,0 +1,22 @@
+# check-merge.sh in the train's worktree, each merge staged before its commit (no lock: not heavy jobs by the P5 common brief); each exit from $? on the line after its command
+## merge 1 (HISTORY-NOTICES-COPY-FX), committed as e776a6b0
+cargo check --locked --all-targets: exit 0, 90 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 29s
+cargo check --locked --all-targets --features fault-injection: exit 0, 26 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 25.92s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 32 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 31.22s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 31 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 31.64s
+# 0 failed
+## merge 2 (QUESTION-RESUME), committed as 9acb47a0
+cargo check --locked --all-targets: exit 0, 24 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 24.89s
+cargo check --locked --all-targets --features fault-injection: exit 0, 18 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.17s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 16 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.78s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 15 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.41s
+# 0 failed
+## merge 3 (APPROVAL-VERTICAL-SPELLINGS), committed as bbdde09c
+cargo check --locked --all-targets: exit 0, 12 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.48s
+cargo check --locked --all-targets --features fault-injection: exit 0, 10 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.63s
+cargo fmt --check: exit 0, 2 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 24 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.98s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 12 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.85s
+# 0 failed

@@ -1,0 +1,54 @@
+# RED at the base 2593f49c: the unit's four tests on the base's code (the RED commit adds only them), and the pair.
+# cargo test --locked --lib -- vertical_spelling up_and_down_move_the_choice   (TMPDIR=<tmp>, timeout 1500 s)
+
+test tui::shell::tests::a_no_op_vertical_spelling_keeps_the_receipt_and_enter_answers_the_choice_shown ... FAILED
+test tui::shell::tests::up_and_down_move_the_choice_whether_or_not_a_draft_is_open ... FAILED
+test tui::shell::tests::the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do ... FAILED
+test tui::shell::tests::the_vertical_spellings_at_an_approval_choice_move_nothing_and_the_arrows_still_do ... FAILED
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 4633 filtered out; finished in 0.01s
+
+thread 'tui::shell::tests::a_no_op_vertical_spelling_keeps_the_receipt_and_enter_answers_the_choice_shown' panicked at src/tui/shell.rs:22878:17:
+assertion `left == right` failed: open=false shift-down: Enter did not answer the choice the last frame showed
+  left: Some(Answer { id: ApprovalId(1), answer: Always, feedback: None })
+ right: Some(Answer { id: ApprovalId(1), answer: Once, feedback: None })
+thread 'tui::shell::tests::up_and_down_move_the_choice_whether_or_not_a_draft_is_open' panicked at src/tui/shell.rs:38578:17:
+open=false ControlP: the marker moved: "  ❯ 3  Don't apply"
+thread 'tui::shell::tests::the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do' panicked at src/tui/shell.rs:22819:13:
+shift-up ([27, 91, 49, 59, 50, 65]) ended the amendment
+thread 'tui::shell::tests::the_vertical_spellings_at_an_approval_choice_move_nothing_and_the_arrows_still_do' panicked at src/tui/shell.rs:22733:13:
+shift-down ([27, 91, 49, 59, 50, 66]) moved the choice: "  ❯ 2  Apply + allow future edits to this file for this session"
+
+# pairs.sh red: fx/ against red/ (row 1 left out); the floor = ask's rows (the grant scope)
+DIFF   alt-down      rows: 18 19 20 21 22 23 24 25 
+DIFF   alt-up        rows: 18 19 21 22 23 24 25 
+DIFF   amend-alt-down rows: 18 19 21 22 23 24 25 
+DIFF   amend-alt-up  rows: 18 19 21 22 23 24 25 
+DIFF   amend-ctrl-down rows: 18 19 21 22 23 24 25 
+DIFF   amend-ctrl-n  rows: 18 19 20 21 22 23 24 25 
+DIFF   amend-ctrl-p  rows: 18 19 21 22 23 24 25 
+DIFF   amend-ctrl-up rows: 18 19 21 22 23 24 25 
+DIFF   amend-kitty-alt-down rows: 18 19 21 22 23 24 25 
+DIFF   amend-kitty-alt-up rows: 18 19 21 22 23 24 25 
+DIFF   amend-shift-down rows: 18 19 21 22 23 24 25 
+DIFF   amend-shift-up rows: 18 19 20 21 22 23 24 25 
+DIFF   amend-super-down rows: 18 19 21 22 23 24 25 
+DIFF   amend-super-up rows: 18 19 21 22 23 24 25 
+DIFF   answered      rows: 9 20 22 23 24 25 26 
+floor  ask           rows: 19 21 22 23 24 25 
+floor  choice-1      rows: 19 21 22 23 24 25 
+DIFF   ctrl-down     rows: 18 19 20 21 22 23 24 25 
+DIFF   ctrl-n        rows: 18 19 20 21 22 23 24 25 
+floor  ctrl-p        rows: 19 21 22 23 24 25 
+DIFF   ctrl-up       rows: 18 19 21 22 23 24 25 
+DIFF   kitty-alt-down rows: 18 19 20 21 22 23 24 25 
+DIFF   kitty-alt-up  rows: 18 19 21 22 23 24 25 
+DIFF   shift-down    rows: 18 19 21 22 23 24 25 
+DIFF   shift-up      rows: 18 19 21 22 23 24 25 
+DIFF   super-down    rows: 18 19 20 21 22 23 24 25 
+DIFF   super-up      rows: 18 19 21 22 23 24 25 
+floor (ask's rows): 19 21 22 23 24 25 
+floor (ask's rows): 19 21 22 23 24 25 
+3 of 27 pairs differ in no row but the floor's
+
+# scope.py red: the grant scope's rows set aside
+3 of 27 pairs identical once the grant scope's rows are set aside

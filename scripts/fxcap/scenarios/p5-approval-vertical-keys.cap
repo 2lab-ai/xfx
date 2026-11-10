@@ -1,0 +1,136 @@
+# The vertical spellings at a permission question
+# (APPROVAL-VERTICAL-SPELLINGS). fx v0.0.16 moves the choice on the plain
+# arrows alone. Shift-, Ctrl-, Super- and Alt-Up and -Down (Alt also as
+# kitty's report of the arrow) are composer moves, C-p the model-catalog
+# action, and C-n a raw byte the question does not read
+# (input_approval_runtime.zig:111-128, escape_parser.zig:73-108, :268-274,
+# src/ui/input/runtime.zig:61-108@481104fd).
+# First in an amendment on choice 1 holding `ab cd`, each key and then a
+# letter: the amendment stays open, Super-Up and Super-Down take the caret
+# to the draft's start and end, and the other ten leave it where it is. Then
+# Down and Up to choice 1 with no amendment open, and each key again: the
+# choice stays on 1. Enter last answers it, with the draft it holds.
+# Not here: `ESC ESC [ A` (fx's meta prefix), which xfx reads as Escape and
+# Up; the Escape cancels the turn (owner META-PREFIX-DECODE).
+# The turns, the workspace and the settings are approvals.cap's.
+fx: gateway approvals-fx.json
+xfx: gateway approvals-xfx.json
+work approvals-ws
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type edit the files
+key Enter
+wait 3
+snap ask
+key Tab
+wait 0.4
+type ab cd
+wait 0.4
+key S-Up
+wait 0.4
+type x
+wait 0.4
+snap amend-shift-up
+key -H 1b 5b 31 3b 39 41
+wait 0.4
+type y
+wait 0.4
+snap amend-super-up
+key -H 10
+wait 0.4
+type w
+wait 0.4
+snap amend-ctrl-p
+key S-Down
+wait 0.4
+type v
+wait 0.4
+snap amend-shift-down
+key C-Up
+wait 0.4
+type u
+wait 0.4
+snap amend-ctrl-up
+key C-Down
+wait 0.4
+type t
+wait 0.4
+snap amend-ctrl-down
+key -H 1b 5b 31 3b 33 41
+wait 0.4
+type s
+wait 0.4
+snap amend-alt-up
+key -H 1b 5b 31 3b 33 42
+wait 0.4
+type r
+wait 0.4
+snap amend-alt-down
+key -H 1b 5b 35 37 33 35 32 3b 33 75
+wait 0.4
+type q
+wait 0.4
+snap amend-kitty-alt-up
+key -H 1b 5b 35 37 33 35 33 3b 33 75
+wait 0.4
+type p
+wait 0.4
+snap amend-kitty-alt-down
+key -H 0e
+wait 0.4
+type o
+wait 0.4
+snap amend-ctrl-n
+key -H 1b 5b 31 3b 39 42
+wait 0.4
+type n
+wait 0.4
+snap amend-super-down
+key Down
+key Up
+wait 0.4
+snap choice-1
+# Down and Up alternate after the first two, so a key that moved the
+# choice (as each did before this unit) leaves it on 2 or 3 at every
+# snap but the last: six steps each way come back to 1.
+key S-Down
+wait 0.4
+snap shift-down
+key C-Down
+wait 0.4
+snap ctrl-down
+key S-Up
+wait 0.4
+snap shift-up
+key -H 1b 5b 31 3b 39 42
+wait 0.4
+snap super-down
+key C-Up
+wait 0.4
+snap ctrl-up
+key -H 1b 5b 31 3b 33 42
+wait 0.4
+snap alt-down
+key -H 1b 5b 31 3b 39 41
+wait 0.4
+snap super-up
+key -H 1b 5b 35 37 33 35 33 3b 33 75
+wait 0.4
+snap kitty-alt-down
+key -H 1b 5b 31 3b 33 41
+wait 0.4
+snap alt-up
+key -H 0e
+wait 0.4
+snap ctrl-n
+key -H 1b 5b 35 37 33 35 32 3b 33 75
+wait 0.4
+snap kitty-alt-up
+key -H 10
+wait 0.4
+snap ctrl-p
+key Enter
+wait 2.5
+snap answered

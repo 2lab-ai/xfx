@@ -1,0 +1,25 @@
+# scripts/fxcap/parity-ledger.toml at f53606d1; blame ignoring nothing
+WRONG scripts/fxcap/parity-ledger.toml:28 .prd/07-fx-parity-program.md:19 (path; written by 6bc31872 as :19): the head's line holds ''; "5. A reference binary was replaced in place by fx'" -- its text is at 0 places; the head's line most like its first is :33 (ratio 0.28)
+WRONG scripts/fxcap/parity-ledger.toml:107 .prd/tui-phase4/receipts/d1/README.md:258 (path; written by 4fc0a538 as :258): the head's line holds '- **`resume-empty/while-streaming`.** The activity'; 'how much had streamed (`↓71` against `↓69`).' -- its text is at :259
+SAME-LINES scripts/fxcap/parity-ledger.toml:418 .prd/07-fx-parity-program.md:45 (path; written by a1007a00 as :45): the cited text the same, a neighbour not
+# SAME 120; SAME-ROW 34; SAME-LINES 1; WRONG 2; other product 3; unread 0; refs 160
+# exit 1
+# docs/parity.md at f53606d1; blame ignoring nothing
+# SAME 22; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 102; unread 0; refs 124
+# exit 0
+# scripts/fxcap/capfile.py at f53606d1; blame ignoring nothing
+# SAME 5; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 6
+# exit 0
+# scripts/smoke-tui.sh at f53606d1; blame ignoring nothing
+WRONG scripts/smoke-tui.sh:194 term.rs:32-52 (short; written by fe38df53 as :32-52): the head's line holds '/// (`terminal.zig:4-13`), the theme-change subscr'; 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.88)
+WRONG scripts/smoke-tui.sh:291 src/tui/term.rs:32-52 (path; written by fe38df53 as :32-52): the head's line holds '/// (`terminal.zig:4-13`), the theme-change subscr'; 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.88)
+WRONG scripts/smoke-tui.sh:4708 src/main.rs:44-49 (path; written by 9fdf7596 as :44-49): the head's line holds 'Ok(code) => code,'; 'fn fail(message: &str) -> ExitCode {' -- its text is at :50-55
+WRONG scripts/smoke-tui.sh:4977 src/tui/check.rs:1084 (path; written by 9acf15d1 as :1084): the head's line holds ''; 'pub(crate) const RECOVERY_CLEANUP: &str = "\\x18\\x1' -- its text is at :1683
+SAME-LINES scripts/smoke-tui.sh:5755 src/process.rs:24-43 (path; written by 878186b5 as :24): the cited text the same, a neighbour not
+SAME-LINES scripts/smoke-tui.sh:5840 process.rs:24-43 (short; written by 878186b5 as :24): the cited text the same, a neighbour not
+WRONG scripts/smoke-tui.sh:11208 editor.rs:351 (short; written by 060e2a4b as :351): the head's line holds '}'; 'Action::KillToStart => self.delete(self.line_start' -- its text is at :521
+# SAME 14; SAME-ROW 0; SAME-LINES 2; WRONG 5; other product 4; unread 0; refs 25
+# exit 1
+# src/tui/shell.rs at f53606d1; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 47; unread 0; refs 49
+# exit 0

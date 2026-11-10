@@ -1,0 +1,36 @@
+## round 2: j1-signature against the round-1 test, at the code head e1e15efd (the && assertion)
+# jobs.sh mutant at 2026-11-10T04:12:30Z, load 59.16
+# mutant-clone at e1e15efd
+j1-signature: src/session/store.rs edited
+j1-signature:  1 file changed, 3 insertions(+), 1 deletion(-)
+j1-signature: exit 0, 82 s; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4767 filtered out; finished in 0.09s
+# the clone clean after: yes
+# jobs.sh mutant done at 2026-11-10T04:14:00Z
+## round 2: all four at caab9092 (each part asserted on its own)
+# jobs.sh mutant at 2026-11-10T04:14:00Z, load 62.78
+# mutant-clone at caab9092
+j1-history: src/session/store.rs edited
+j1-history:  1 file changed, 3 insertions(+)
+j1-history: exit 101, 83 s; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4767 filtered out; finished in 0.11s
+    thread 'tui::worker::tests::a_resumed_sealed_step_that_asked_replays_its_batch_and_says_nothing_of_its_reasoning' (467035854) panicked at src/tui/worker.rs:19882:13:
+j1-resume: src/tools/question.rs edited
+j1-resume:  1 file changed, 3 insertions(+)
+j1-resume: exit 101, 24 s; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4767 filtered out; finished in 0.10s
+    thread 'tui::worker::tests::a_resumed_sealed_step_that_asked_replays_its_batch_and_says_nothing_of_its_reasoning' (467062415) panicked at src/tui/worker.rs:19860:9:
+    assertion `left == right` failed: [Asked, Text("DONE")]
+      left: []
+     right: [[SavedAnswer { question: "Which depth?", answer: "Deep" }]]
+j2-word-left: src/tui/question.rs edited
+j2-word-left:  1 file changed, 1 insertion(+), 1 deletion(-)
+j2-word-left: exit 101, 25 s; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4767 filtered out; finished in 0.01s
+    thread 'tui::shell::tests::a_question_after_a_resume_that_replayed_a_batch_takes_alt_b_as_before' (467072464) panicked at src/tui/shell.rs:53087:9:
+j1-signature: src/session/store.rs edited
+j1-signature:  1 file changed, 3 insertions(+), 1 deletion(-)
+j1-signature: exit 101, 22 s; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4767 filtered out; finished in 0.10s
+    thread 'tui::worker::tests::a_resumed_sealed_step_that_asked_replays_its_batch_and_says_nothing_of_its_reasoning' (467083931) panicked at src/tui/worker.rs:19896:17:
+    assertion `left == right` failed: AnthropicMessages opus: sig-1 in [Message { role: User, content: [Text { text: "ask me" }] }, Message { role: Assistant, content: [Text { text: "sig-1" }, ToolCall(ToolCall { id: "toolu_
+      left: true
+     right: false
+# the clone clean after: yes
+# jobs.sh mutant done at 2026-11-10T04:16:45Z
+lock exit 0

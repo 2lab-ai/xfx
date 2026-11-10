@@ -1,0 +1,2 @@
+# probe: Ctrl-O on the live session (qr-ctrlo.cap, run on p5-question-resume-turns.json), fx v0.0.16 against xfx at a623824c, compare.py
+SAME normalized qr-ctrlo-40x120-live-ctrlo.ansi: 8 raw row(s) differ, equal after transcript-timestamp

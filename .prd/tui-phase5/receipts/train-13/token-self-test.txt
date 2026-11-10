@@ -1,0 +1,84 @@
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (preview-frame-before-the-turn-start) dropped: found
+  self-test ledger, a deleted entry (submit-multi-card-whole) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/effort`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/image`') as the other side has it: found
+  self-test parity, a row a side changed ('session event log') as the other side has it: found
+  self-test parity, a row a side changed ('session resume') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row one side changed ('`/model`'), two tokens swapped: found
+self-test e776a6b0: 15 of 15 found
+# exit 0
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (preview-frame-before-the-turn-start) dropped: found
+  self-test ledger, a deleted entry (submit-multi-card-whole) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/effort`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/image`') as the other side has it: found
+  self-test parity, a row a side changed ('`ask_user_question`') as the other side has it: found
+  self-test parity, a row a side changed ('session event log') as the other side has it: found
+  self-test parity, a row a side changed ('session resume') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as ours has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as theirs has it: found
+  self-test parity, a row both sides changed ('full-screen TUI'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('full-screen TUI'), a side's clause moved whole with its anchors: found
+  self-test parity, a row one side changed ('`/model`'), two tokens swapped: found
+self-test 9acb47a0: 19 of 19 found
+# exit 0
+  self-test ledger, an entry one side deleted and the other re-pointed (submit-multi-card-whole) back: found
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (preview-frame-before-the-turn-start) dropped: found
+  self-test ledger, a deleted entry (submit-multi-card-whole) back: found
+  self-test ledger, a comment line dropped: found
+  self-test ledger, a numbers-only entry (answer-drawn-wider-named) with a word changed: found
+  self-test ledger, a numbers-only entry (answer-drawn-wider-named) with a reference dropped: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/effort`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/image`') as the other side has it: found
+  self-test parity, a row a side changed ('session event log') as the other side has it: found
+  self-test parity, a row a side changed ('session resume') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row both sides changed ('`ask_user_question`') as ours has it: found
+  self-test parity, a row both sides changed ('`ask_user_question`') as theirs has it: found
+  self-test parity, a row both sides changed ('`ask_user_question`'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('`ask_user_question`'), a side's clause moved whole with its anchors: found
+  self-test parity, a row both sides changed ('full-screen TUI') as ours has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as theirs has it: found
+  self-test parity, a row both sides changed ('full-screen TUI'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('full-screen TUI'), a side's clause moved whole with its anchors: found
+  self-test parity, a row one side changed ('`/model`'), two tokens swapped: found
+self-test bbdde09c: 25 of 25 found
+# exit 0
+
+# token_control.py: the two token cases planted on every merged row both sides changed
+merge e776a6b0: no docs/parity.md row both sides changed; nothing to plant
+merge 9acb47a0: row 'full-screen TUI', changed by both sides; self_test's plant on a side's text of it finds nothing to replace (the merged row is neither side text)
+  a token ours added ('"...') dropped from the merged row: found
+  a token ours deleted ('(`event_loop.zig:94-119@481104') put back in the merged row: found
+  a token theirs added ('(`app_input_runtime.zig:2690-2') dropped from the merged row: found
+  a token theirs deleted ('batch:') put back in the merged row: found
+merge bbdde09c: row '`ask_user_question`', changed by both sides; self_test's plant on a side's text of it finds nothing to replace (the merged row is neither side text)
+  a token ours added ('(7)') dropped from the merged row: found
+  a token ours deleted ('(`src/tui/hydration.rs`,') put back in the merged row: found
+  a token theirs added ('(`:83-92`),') dropped from the merged row: found
+merge bbdde09c: row 'full-screen TUI', changed by both sides; self_test's plant on a side's text of it finds nothing to replace (the merged row is neither side text)
+  a token ours added ('"...') dropped from the merged row: found
+  a token ours deleted ('(`event_loop.zig:94-119@481104') put back in the merged row: found
+  a token theirs added ('!=') dropped from the merged row: found
+  a token theirs deleted ('`C-p`/`C-n`') put back in the merged row: found
+# 11 of 11 found
+# exit 0

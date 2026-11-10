@@ -1,0 +1,16 @@
+# RED, round 2: the object-only rejects and the ordering tests at the round-2 RED commit (src = 1f4b3d03's, tests added), cargo test --lib
+test tools::question::tests::anything_but_an_answer_document_is_none_and_never_a_panic ... FAILED
+test tui::hydration::tests::a_step_that_asked_starts_each_of_its_calls_just_before_its_result ... ok
+test tui::hydration::tests::an_ask_replays_its_decoded_batch_or_one_asked_row_and_never_a_tool_row ... FAILED
+test tui::shell::tests::a_resumed_step_with_its_ask_last_or_first_keeps_the_reads_beside_it_in_one_group ... ok
+test tui::shell::tests::a_resumed_batch_that_left_no_answered_document_is_one_asked_row ... FAILED
+thread 'tools::question::tests::anything_but_an_answer_document_is_none_and_never_a_panic' panicked at src/tools/question.rs:860:13:
+  left: Some([SavedAnswer { question: "Q", answer: "A" }])
+ right: None
+thread 'tui::hydration::tests::an_ask_replays_its_decoded_batch_or_one_asked_row_and_never_a_tool_row' panicked at src/tui/hydration.rs:679:13:
+  left: ["answered 1", "Done."]
+ right: ["asked", "Done."]
+thread 'tui::shell::tests::a_resumed_batch_that_left_no_answered_document_is_one_asked_row' panicked at src/tui/shell.rs:29075:13:
+  left: ["", "  1) Q", "     A", ""]
+ right: ["", "● Asked", "", "  Done."]
+test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 4630 filtered out; finished in 0.03s

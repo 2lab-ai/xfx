@@ -1,0 +1,13 @@
+# lines holding #[test] under src and tests (git grep -c '#\[test\]'), and '    def test_' under scripts/fxcap, per commit
+32afd307 Merge pull request #88 from 2lab-ai/train/p5-1109c           rust  5452  fxcap 176
+f53606d1 docs(receipt): P5 train 12 round 2 -- final-scan.txt at 0c32 rust  5567  fxcap 206
+714f6283 docs(receipt): HISTORY-NOTICES-COPY-FX round 3 -- the ask mu rust  5452  fxcap 176
+d0e08d8c docs: QUESTION-RESUME round 5 -- Zig 0.17's std read; true r rust  5465  fxcap 176
+f686b736 docs(receipt): QUESTION-WORD-LEFT round 2 -- mutants 9/9, sw rust  5457  fxcap 176
+2593f49c docs(approval): round 3 -- the vertical count, row 1 in pair rust  5462  fxcap 176
+a37a969e docs(approval): round 3 -- fx's gate is file approvals only, rust  5468  fxcap 176
+e776a6b0 merge: HISTORY-NOTICES-COPY-FX (fix/p5-history-notices-copy- rust  5567  fxcap 206
+9acb47a0 merge: QUESTION-RESUME (fix/p5-question-resume @ d0e08d8c) i rust  5580  fxcap 206
+bbdde09c merge: APPROVAL-VERTICAL-SPELLINGS (fix/p5-approval-vertical rust  5596  fxcap 206
+ea35d548 test(train): P5 train 13 -- two join tests where no unit's t rust  5598  fxcap 206
+e1e15efd docs(refs): P5 train 13 -- the 24 references the merges move rust  5598  fxcap 206

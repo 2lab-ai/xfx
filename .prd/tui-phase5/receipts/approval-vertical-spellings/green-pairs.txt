@@ -1,0 +1,83 @@
+floor  alt-down      rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+floor  alt-up        rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+floor  amend-alt-down rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, ywvutsrab |  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once, ywvutsrab |  2 Apply + allow future e|  3 Don't apply|
+floor  amend-alt-up  rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, ywvutsab c|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once, ywvutsab c|  2 Apply + allow future e|  3 Don't apply|
+floor  amend-ctrl-down rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, ywvutab cd|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once, ywvutab cd|  2 Apply + allow future e|  3 Don't apply|
+floor  amend-ctrl-n  rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, ywvutsrqpo|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once, ywvutsrqpo|  2 Apply + allow future e|  3 Don't apply|
+floor  amend-ctrl-p  rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, ywab cdx|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once, ywab cdx|  2 Apply + allow future e|  3 Don't apply|
+floor  amend-ctrl-up rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, ywvuab cdx|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once, ywvuab cdx|  2 Apply + allow future e|  3 Don't apply|
+floor  amend-kitty-alt-down rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, ywvutsrqpa|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once, ywvutsrqpa|  2 Apply + allow future e|  3 Don't apply|
+floor  amend-kitty-alt-up rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, ywvutsrqab|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once, ywvutsrqab|  2 Apply + allow future e|  3 Don't apply|
+floor  amend-shift-down rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, ywvab cdx|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once, ywvab cdx|  2 Apply + allow future e|  3 Don't apply|
+floor  amend-shift-up rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, ab cdx|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once, ab cdx|  2 Apply + allow future e|  3 Don't apply|
+floor  amend-super-down rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, ywvutsrqpo|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once, ywvutsrqpo|  2 Apply + allow future e|  3 Don't apply|
+floor  amend-super-up rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once, yab cdx|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once, yab cdx|  2 Apply + allow future e|  3 Don't apply|
+DIFF   answered      rows: 20 22 23 24 25 26 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future w|  3 Don't apply|
+floor  ask           rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+floor  choice-1      rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+floor  ctrl-down     rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+floor  ctrl-n        rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+floor  ctrl-p        rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+floor  ctrl-up       rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+floor  kitty-alt-down rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+floor  kitty-alt-up  rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+floor  shift-down    rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+floor  shift-up      rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+floor  super-down    rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+floor  super-up      rows: 19 21 22 23 24 25 
+         fx:  ❯ 1 Apply once|  2 Apply + allow workspac|  3 Don't apply|
+         xfx: ❯ 1 Apply once|  2 Apply + allow future e|  3 Don't apply|
+floor (ask's rows): 19 21 22 23 24 25 
+26 of 27 pairs differ in no row but the floor's

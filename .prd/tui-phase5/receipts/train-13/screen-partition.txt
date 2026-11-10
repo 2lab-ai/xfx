@@ -1,0 +1,8 @@
+## the base and the head
+# 296 shared snaps
+fx: .ansi moved 30 (compare.py's count); moved, by class: txt-masked 17, txt-other 4, ansi-only 9; 30 in all, 0 of them a .txt move whose .ansi did not move; snaps not read: 0
+xfx: .ansi moved 54 (compare.py's count); moved, by class: txt-masked 24, txt-other 25, ansi-only 5; 54 in all, 0 of them a .txt move whose .ansi did not move; snaps not read: 0
+## the extra pair
+# 110 shared snaps
+fx: .ansi moved 56 (compare.py's count); moved, by class: txt-masked 57, txt-other 0, ansi-only 0; 57 in all, 1 of them a .txt move whose .ansi did not move; snaps not read: 0
+xfx: .ansi moved 64 (compare.py's count); moved, by class: txt-masked 61, txt-other 3, ansi-only 0; 64 in all, 0 of them a .txt move whose .ansi did not move; snaps not read: 0

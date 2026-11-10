@@ -1,0 +1,50 @@
+SAME  scripts/fxcap/parity-ledger.toml:107 .prd/tui-phase4/receipts/d1/README.md: .prd/tui-phase4/receipts/d1/README.md:258@4fc0a538 -> :259@e1e15efd (+-2 lines the same as the frame's)
+    first: how much had streamed (`↓71` against `↓69`).
+SAME  scripts/fxcap/parity-ledger.toml:505 src/tui/shell.rs: src/tui/shell.rs:13866@6ae87955 -> :13962@e1e15efd (+-2 lines the same as the frame's)
+    first: let event = full_transcript::shown_event(event);
+SAME  scripts/fxcap/parity-ledger.toml:689 src/tui/shell.rs: src/tui/shell.rs:16840@6ae87955 -> :16977@e1e15efd (+-2 lines the same as the frame's)
+    first: pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {
+SAME  scripts/fxcap/parity-ledger.toml:806 src/tui/shell.rs: src/tui/shell.rs:41113@03fb5436 -> :42431@e1e15efd (+-2 lines the same as the frame's)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:817 src/tui/shell.rs: src/tui/shell.rs:41113@03fb5436 -> :42431@e1e15efd (+-2 lines the same as the frame's)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:829 src/tui/shell.rs: src/tui/shell.rs:41113@03fb5436 -> :42431@e1e15efd (+-2 lines the same as the frame's)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:840 src/tui/shell.rs: src/tui/shell.rs:41113@03fb5436 -> :42431@e1e15efd (+-2 lines the same as the frame's)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:851 src/tui/shell.rs: src/tui/shell.rs:41113@03fb5436 -> :42431@e1e15efd (+-2 lines the same as the frame's)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:863 src/tui/shell.rs: src/tui/shell.rs:10480@6ae87955 -> :10558@e1e15efd (+-2 lines the same as the frame's)
+    first: fn trailer_rows(&self) -> Vec<String> {
+SAME  scripts/fxcap/parity-ledger.toml:865 src/tui/shell.rs: src/tui/shell.rs:10480@6ae87955 -> :10558@e1e15efd (+-2 lines the same as the frame's)
+    first: fn trailer_rows(&self) -> Vec<String> {
+SAME  scripts/fxcap/parity-ledger.toml:865 (bare): src/tui/shell.rs:1747@6ae87955 -> :1929@e1e15efd (the head's line holds refs.py's text, on one line)
+    first: fn queue_card(transcript: &mut Transcript, text: &str) {
+SAME  scripts/fxcap/parity-ledger.toml:919 src/tui/shell.rs: src/tui/shell.rs:41113@03fb5436 -> :42431@e1e15efd (+-2 lines the same as the frame's)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:989 src/tui/shell.rs: src/tui/shell.rs:16840@6ae87955 -> :16977@e1e15efd (+-2 lines the same as the frame's)
+    first: pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {
+SAME  scripts/fxcap/parity-ledger.toml:1066 src/tui/shell.rs: src/tui/shell.rs:4541@6ae87955 -> :4557@e1e15efd (+-2 lines the same as the frame's)
+    first: self.tally.begin(Instant::now(), estimate);
+SAME  docs/parity.md:48 (bare): src/session/store.rs:1364-1375@3577bddb -> :1356-1367@e1e15efd (+-2 lines the same as the frame's)
+    first: if self.schema_version != MANIFEST_SCHEMA_VERSION {
+SAME  docs/parity.md:162 scripts/smoke-tui.sh: scripts/smoke-tui.sh:10462-10477@d0e08d8c -> :10483-10498@e1e15efd (+-2 lines the same as the frame's)
+    first: def scenario_23b(run):
+SAME  docs/parity.md:162 (bare): scripts/smoke-tui.sh:10514-10524@d0e08d8c -> :10535-10545@e1e15efd (+-2 lines the same as the frame's)
+    first: grid = on_the_grid(trial, marker, "the fresh turn after the cancelled question")
+SAME  docs/parity.md:237 scripts/smoke-tui.sh: scripts/smoke-tui.sh:10462-10477@d0e08d8c -> :10483-10498@e1e15efd (+-2 lines the same as the frame's)
+    first: def scenario_23b(run):
+SAME  docs/parity.md:237 (bare): scripts/smoke-tui.sh:10514-10524@d0e08d8c -> :10535-10545@e1e15efd (+-2 lines the same as the frame's)
+    first: grid = on_the_grid(trial, marker, "the fresh turn after the cancelled question")
+SAME  scripts/fxcap/capfile.py:165 src/tui/shell.rs: src/tui/shell.rs:15057-15082@6ae87955 -> :15194-15219@e1e15efd (+-2 lines the same as the frame's)
+    first: fn warning_shown(&self) -> Option<&'static str> {
+SAME  scripts/fxcap/capfile.py:166 (bare): src/tui/shell.rs:15075-15077@6ae87955 -> :15212-15214@e1e15efd (+-2 lines the same as the frame's)
+    first: if self.owner != ScreenOwner::Primary {
+SAME  scripts/smoke-tui.sh:11213 input.rs: src/tui/input.rs:1063@6ae87955 -> :1152@e1e15efd (+-2 lines the same as the frame's)
+    first: /// that were read. **Nothing of the body is ever emitted**, which is the
+SAME  src/tui/shell.rs:24555 shell.rs: src/tui/shell.rs:6070@6ae87955 -> :6086@e1e15efd (+-2 lines the same as the frame's)
+    first: true
+SAME  src/tui/shell.rs:24556 (bare): src/tui/shell.rs:6258@6ae87955 -> :6274@e1e15efd (+-2 lines the same as the frame's)
+    first: let mut repaint = false;
+# 24 of 24 the same code
+# e1e15efd: 21 lines out, 21 in; each the same once its numbers are masked

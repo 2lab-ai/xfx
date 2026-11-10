@@ -1,0 +1,35 @@
+# The brief's gate, once, in the worktree at the commit on the first line below, under the machine's suite lock, TMPDIR a short <tmp> dir
+# step | exit | wall time | the sum of every 'test result:' line
+
+## Round 2: the gate at 6dbdf72f, whose src/ and tests/ are the code head fc32b83a's
+head 6dbdf72f, tree clean: yes
+cargo fmt --check | exit 0 | 2s | 
+cargo clippy --locked --all-targets -- -D warnings | exit 0 | 12s | 
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings | exit 0 | 21s | 
+cargo test --locked --no-fail-fast | exit 0 | 264s | 15 result lines, 5544 passed, 0 failed, 7 ignored
+cargo test --locked --features fault-injection --no-fail-fast | exit 0 | 214s | 15 result lines, 5581 passed, 0 failed, 7 ignored
+scripts/check-xfx-identity.sh | exit 0 | 2s | 
+scripts/check-no-stubs.sh | exit 0 | 17s | 
+scripts/check-no-secrets.sh | exit 0 | 72s | 
+
+$ git diff --stat fc32b83a 6dbdf72f -- src tests Cargo.toml Cargo.lock
+(empty: src/, tests/, Cargo.toml and Cargo.lock identical)
+$ git diff --stat fc32b83a 6dbdf72f -- docs scripts
+ docs/parity.md | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+## Round 1: the gate at b3a23c52, whose src/ and tests/ are the code head 8cb952a2's
+head b3a23c52, tree clean: yes
+cargo fmt --check | exit 0 | 1s | 
+cargo clippy --locked --all-targets -- -D warnings | exit 0 | 6s | 
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings | exit 0 | 17s | 
+cargo test --locked --no-fail-fast | exit 0 | 226s | 15 result lines, 5543 passed, 0 failed, 7 ignored
+cargo test --locked --features fault-injection --no-fail-fast | exit 0 | 196s | 15 result lines, 5580 passed, 0 failed, 7 ignored
+scripts/check-xfx-identity.sh | exit 0 | 1s | 
+scripts/check-no-stubs.sh | exit 0 | 18s | 
+scripts/check-no-secrets.sh | exit 0 | 50s | 
+
+$ git diff --stat 8cb952a2 b3a23c52 -- src tests Cargo.toml Cargo.lock
+(empty)
+$ git diff --stat b3a23c52 cedcd9da -- src tests docs scripts Cargo.toml Cargo.lock
+(empty: the commit after the gate changed none of these)

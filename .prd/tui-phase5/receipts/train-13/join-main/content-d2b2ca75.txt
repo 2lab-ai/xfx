@@ -1,0 +1,42 @@
+## scripts/fxcap/parity-ledger.toml
+# scripts/fxcap/parity-ledger.toml at d2b2ca75; blame ignoring nothing
+WRONG scripts/fxcap/parity-ledger.toml:28 .prd/07-fx-parity-program.md:19 (path; written by 6bc31872 as :19): the head's line holds ''; "5. A reference binary was replaced in place by fx'" -- its text is at 0 places; the head's line most like its first is :33 (ratio 0.28)
+WRONG scripts/fxcap/parity-ledger.toml:108 .prd/tui-phase4/receipts/d1/README.md:258 (path; written by 4fc0a538 as :258): the head's line holds '- **`resume-empty/while-streaming`.** The activity'; 'how much had streamed (`↓71` against `↓69`).' -- its text is at :259
+SAME-LINES scripts/fxcap/parity-ledger.toml:419 .prd/07-fx-parity-program.md:45 (path; written by a1007a00 as :45): the cited text the same, a neighbour not
+# SAME 121; SAME-ROW 37; SAME-LINES 1; WRONG 2; other product 3; unread 0; refs 164
+# exit 1
+## docs/parity.md
+# docs/parity.md at d2b2ca75; blame ignoring nothing
+# SAME 23; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 103; unread 0; refs 126
+# exit 0
+## scripts/fxcap/capfile.py
+# scripts/fxcap/capfile.py at d2b2ca75; blame ignoring nothing
+# SAME 5; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 6
+# exit 0
+## scripts/smoke-tui.sh
+# scripts/smoke-tui.sh at d2b2ca75; blame ignoring nothing
+WRONG scripts/smoke-tui.sh:194 term.rs:32-52 (short; written by fe38df53 as :32-52): the head's line holds '/// (`terminal.zig:4-13`), the theme-change subscr'; 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.88)
+WRONG scripts/smoke-tui.sh:291 src/tui/term.rs:32-52 (path; written by fe38df53 as :32-52): the head's line holds '/// (`terminal.zig:4-13`), the theme-change subscr'; 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.88)
+WRONG scripts/smoke-tui.sh:4708 src/main.rs:44-49 (path; written by 9fdf7596 as :44-49): the head's line holds 'Ok(code) => code,'; 'fn fail(message: &str) -> ExitCode {' -- its text is at :50-55
+WRONG scripts/smoke-tui.sh:4977 src/tui/check.rs:1084 (path; written by 9acf15d1 as :1084): the head's line holds ''; 'pub(crate) const RECOVERY_CLEANUP: &str = "\\x18\\x1' -- its text is at :1683
+SAME-LINES scripts/smoke-tui.sh:5755 src/process.rs:24-43 (path; written by 878186b5 as :24): the cited text the same, a neighbour not
+SAME-LINES scripts/smoke-tui.sh:5840 process.rs:24-43 (short; written by 878186b5 as :24): the cited text the same, a neighbour not
+WRONG scripts/smoke-tui.sh:11208 editor.rs:351 (short; written by 060e2a4b as :351): the head's line holds '}'; 'Action::KillToStart => self.delete(self.line_start' -- its text is at :521
+# SAME 14; SAME-ROW 0; SAME-LINES 2; WRONG 5; other product 4; unread 0; refs 25
+# exit 1
+## src/tui/shell.rs
+# src/tui/shell.rs at d2b2ca75; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 47; unread 0; refs 49
+# exit 0
+## tests/tui.rs
+# tests/tui.rs at d2b2ca75; blame ignoring nothing
+WRONG tests/tui.rs:591 src/tui/mod.rs:269-270 (path; written by 43b27001 as :269-270): the head's line holds '// the two lines above -- `term::shutdown` itself '; 'term::enter_raw(stdin.as_fd(), &current)?;' -- its text is at :741-742
+WRONG tests/tui.rs:2404 .prd/tui-phase3/ssot.md:43 (path; written by 3dd16a11 as :43): the head's line holds ''; '| P3-THEME | TUI ladder 23 | Live theme monitoring' -- its text is at :51
+WRONG tests/tui.rs:2483 tests/tui.rs:1191 (path; written by 3dd16a11 as :1191): the head's line holds '// log, a history or a lock kept under it would ch'; 'pty.resize(24, 80);' -- its text is at 2 places
+WRONG tests/tui.rs:3129 .prd/tui-phase3/loop.md:416 (path; written by 6c421313 as :416): the head's line holds ''; '- R125 installed WezTerm encoder receipt inspected' -- its text is at :441
+# SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 4; other product 24; unread 0; refs 31
+# exit 1
+## tests/sessions.rs
+# tests/sessions.rs at d2b2ca75; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 3
+# exit 0

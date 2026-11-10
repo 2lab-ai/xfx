@@ -2848,7 +2848,7 @@ impl Runtime {
     /// safe because the history is never one wire's bytes: it is rebuilt from
     /// the log for every request ([`crate::session::DurableState::history_messages`]),
     /// a step's replay state goes only to the wire that sealed it -- upstream's
-    /// `projectProviderReplay`, `types.zig:1548-1563` -- and a call id the new
+    /// `projectProviderReplay`, `types.zig:1668-1682@481104fd` -- and a call id the new
     /// wire cannot take goes under a portable alias
     /// ([`crate::gateway::tool_call_ids`]). The switch itself is written into
     /// the log, provider and model both, as upstream's patch writes them
@@ -8778,6 +8778,34 @@ mod tests {
                 lines: None,
                 change: None,
             },
+            // An answered batch whose saved document carries it too: the
+            // resume decodes it into the batch's resolutions
+            // (`super::hydration::HydratedStep::Answered`).
+            SessionEvent::AssistantMessage {
+                text: String::new(),
+                tool_calls: vec![crate::session::RecordedToolCall {
+                    id: "q".to_string(),
+                    name: "ask_user_question".to_string(),
+                    input: serde_json::json!({ "questions": [] }),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            SessionEvent::ToolResult {
+                call_id: "q".to_string(),
+                tool: "ask_user_question".to_string(),
+                ok: true,
+                output: serde_json::json!([{
+                    "question": format!("q {HOSTILE}"),
+                    "answer": format!("a {HOSTILE}"),
+                }])
+                .to_string(),
+                ending: None,
+                lines: None,
+                change: None,
+            },
             SessionEvent::AssistantMessage {
                 text: format!("done {HOSTILE}"),
                 tool_calls: Vec::new(),
@@ -8815,6 +8843,13 @@ mod tests {
                         all.push_str(shown.target.as_deref().unwrap_or(""));
                     }
                     HydratedStep::ToolResult { id, .. } => all.push_str(id),
+                    HydratedStep::Answered(answers) => {
+                        for saved in answers {
+                            all.push_str(&saved.question);
+                            all.push_str(&saved.answer);
+                        }
+                    }
+                    HydratedStep::Asked => {}
                 }
             }
             for (id, detail) in &turn.details {
@@ -8847,6 +8882,9 @@ mod tests {
             .hydration();
         let text = replayed_text(&launch);
         assert!(text.contains("prompt x ]0;pwned y [2Jz 31m"), "{text:?}");
+        // The answered batch's question and answer, decoded and made inert.
+        assert!(text.contains("q x ]0;pwned y [2Jz 31m"), "{text:?}");
+        assert!(text.contains("a x ]0;pwned y [2Jz 31m"), "{text:?}");
         assert_eq!(obeyed(&text), Vec::<char>::new(), "{text:?}");
 
         // The picker's, across the channel as the runtime sends it.
@@ -19357,51 +19395,67 @@ mod tests {
     // HISTORY-NOTICE-STOP: a stopped turn leaves the history's notices unsaid
     // -----------------------------------------------------------------------
 
-    /// What the history notice about sealed reasoning says, whichever wire.
-    const NOT_CARRIED: &str = "not carried over";
+    /// What a history notice about an image says, whichever arm: one the
+    /// session never read back, and one whose saved copy could not be.
+    const NOT_SENT_AGAIN: &str = "so it was not sent again";
 
-    /// Puts into `state`'s conversation a turn llmux answered, both of whose
-    /// steps sealed their reasoning: on the Gateway its history rebuilds with
-    /// the same notice twice, once per step, and says it once.
-    fn sealed_on_llmux(state: &mut Runtime) {
-        let sealed = |text: &str| {
-            vec![
-                serde_json::json!({"type": "thinking", "thinking": "SEALED", "signature": "sig-1"}),
-                serde_json::json!({"type": "text", "text": text}),
+    /// Puts into `state`'s conversation a turn whose two `read_file` calls each
+    /// returned the same image, whose saved copy is not there: its history
+    /// rebuilds with the same notice twice, once per result, and says it once.
+    /// The same after a resume, which reads the copy back and finds it gone.
+    fn unreadable_tool_images(state: &mut Runtime) {
+        let image = crate::session::RecordedImage {
+            id: 1,
+            path: "shot.png".to_string(),
+            media_type: "image/png".to_string(),
+            sha256: crate::image::digest(crate::image::fixture::SHOT_PNG),
+            bytes: crate::image::fixture::SHOT_PNG.len() as u64,
+        };
+        let call = |id: &str| crate::session::RecordedToolCall {
+            id: id.to_string(),
+            name: "read_file".to_string(),
+            input: serde_json::json!({"path": "shot.png"}),
+        };
+        let result = |id: &str| {
+            [
+                SessionEvent::ToolResult {
+                    call_id: id.to_string(),
+                    tool: "read_file".to_string(),
+                    ok: true,
+                    output: "an image".to_string(),
+                    ending: None,
+                    lines: None,
+                    change: None,
+                },
+                SessionEvent::ToolImagesAttached {
+                    call_id: id.to_string(),
+                    images: vec![image.clone()],
+                },
             ]
         };
         let conversation = state.conversation.as_mut().expect("a conversation");
-        for event in [
+        let mut events = vec![
             SessionEvent::UserMessage {
-                text: "read it".to_string(),
+                text: "look at it".to_string(),
             },
             SessionEvent::AssistantMessage {
                 text: String::new(),
-                tool_calls: vec![crate::session::RecordedToolCall {
-                    id: "toolu_1".to_string(),
-                    name: "read_file".to_string(),
-                    input: serde_json::json!({"path": "notes.txt"}),
-                }],
-                raw_content: sealed(""),
+                tool_calls: vec![call("toolu_1"), call("toolu_2")],
+                raw_content: Vec::new(),
                 responses_state: Vec::new(),
-                wire: Some(Wire::AnthropicMessages),
+                wire: None,
                 model: None,
             },
-            SessionEvent::ToolResult {
-                call_id: "toolu_1".to_string(),
-                tool: "read_file".to_string(),
-                ok: true,
-                output: "NOTES".to_string(),
-                ending: None,
-                lines: None,
-                change: None,
-            },
+        ];
+        events.extend(result("toolu_1"));
+        events.extend(result("toolu_2"));
+        events.extend([
             SessionEvent::AssistantMessage {
-                text: "LLMUX-ANSWER".to_string(),
+                text: "LOOKED".to_string(),
                 tool_calls: Vec::new(),
-                raw_content: sealed("LLMUX-ANSWER"),
+                raw_content: Vec::new(),
                 responses_state: Vec::new(),
-                wire: Some(Wire::AnthropicMessages),
+                wire: None,
                 model: None,
             },
             SessionEvent::TurnConcluded {
@@ -19410,7 +19464,8 @@ mod tests {
                     steps: 2,
                 },
             },
-        ] {
+        ]);
+        for event in events {
             conversation.recorder.commit(event);
         }
         let wire = state.config.provider.wire();
@@ -19424,7 +19479,7 @@ mod tests {
             .history_messages(wire, &model);
         assert_eq!(replay.notices.len(), 2, "{:?}", replay.notices);
         assert!(
-            replay.notices[0] == replay.notices[1] && replay.notices[0].contains(NOT_CARRIED),
+            replay.notices[0] == replay.notices[1] && replay.notices[0].contains(NOT_SENT_AGAIN),
             "{:?}",
             replay.notices
         );
@@ -19433,10 +19488,12 @@ mod tests {
     #[test]
     fn a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn() {
         // xfx says once per conversation what the history could not carry --
-        // here, reasoning llmux sealed, on the Gateway (`/provider` in
-        // docs/parity.md; `.prd/04-providers.md` §Provenance: "a drop is never
-        // silent"). Upstream drops it without a word (`projectProviderReplay`,
-        // `types.zig:1668-1680@481104fd`). Its `[context]` lines, said once a
+        // here, an image a tool returned whose saved copy is not there (the
+        // `/image` row of docs/parity.md). Upstream has no such line: it tells
+        // the model of a tool image it cannot load, not the screen
+        // (`execution_memory.zig:1013-1018@481104fd`), and refuses a session a
+        // prompt image's blob is gone from (`session_adapter.zig:2876`,
+        // `:2881-2893`). Its `[context]` lines, said once a
         // session (`claimContextNotice`, `session.zig:1551-1561`), survive such
         // a stop too: a project file's is claimed and written at submission
         // (`refreshProjectContext`, `app_agent_runtime.zig:906-938`, from
@@ -19454,7 +19511,7 @@ mod tests {
         for wait in [CatalogWait::WindowRetry, CatalogWait::PromptImageFirstLoad] {
             for stop in [Some(Duration::from_millis(300)), None] {
                 let (_home, _workspace, mut state, first, held) = waiting_in(wait);
-                sealed_on_llmux(&mut state);
+                unreadable_tool_images(&mut state);
                 let log = first_of_two_and_a_stop(state, first, stop);
                 drop(held);
                 let mut ends = Vec::new();
@@ -19463,7 +19520,7 @@ mod tests {
                     match event {
                         UiEvent::TurnStarted { .. } => said.push(0),
                         UiEvent::TurnEnded { failure } => ends.push(failure.clone()),
-                        UiEvent::Notice(notice) if notice.text().contains(NOT_CARRIED) => {
+                        UiEvent::Notice(notice) if notice.text().contains(NOT_SENT_AGAIN) => {
                             *said.last_mut().expect("a notice inside a turn") += 1;
                         }
                         _ => {}
@@ -19493,7 +19550,9 @@ mod tests {
         // painted. So: said once (one), not again (two); a resume away and
         // back binds a new conversation of the same session, which says it
         // again (three); a reset starts one whose history has nothing to say
-        // (four).
+        // (four). The session is resumed once before (one) too, so every
+        // conversation reads the image back and finds it gone: one and three
+        // say the same line, and only a ledger per conversation says it twice.
         let model = "anthropic/claude-sonnet-5";
         let (_home, _workspace, mut state) = under_model(model);
         state.selector.set_fetcher_for_test(Box::new(Answering {
@@ -19509,7 +19568,7 @@ mod tests {
                 answers("four"),
             ])),
         });
-        sealed_on_llmux(&mut state);
+        unreadable_tool_images(&mut state);
         let first = state
             .conversation
             .as_ref()
@@ -19520,6 +19579,8 @@ mod tests {
         let other = a_saved_session(&state.config, &Grant::new("edit_file", "x".to_string()));
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(8);
         for work in [
+            TurnWork::Resume(other.to_string()),
+            TurnWork::Resume(first.to_string()),
             TurnWork::Submit("one".to_string()),
             TurnWork::Submit("two".to_string()),
             TurnWork::Resume(other.to_string()),
@@ -19577,12 +19638,14 @@ mod tests {
             log
         });
         let mut said: Vec<usize> = Vec::new();
+        let mut lines: Vec<String> = Vec::new();
         let (mut resumed, mut fresh) = (0, 0);
         for event in &log {
             match event {
                 UiEvent::TurnStarted { .. } => said.push(0),
-                UiEvent::Notice(notice) if notice.text().contains(NOT_CARRIED) => {
+                UiEvent::Notice(notice) if notice.text().contains(NOT_SENT_AGAIN) => {
                     *said.last_mut().expect("a notice inside a turn") += 1;
+                    lines.push(notice.text());
                 }
                 UiEvent::Resumed(_) => resumed += 1,
                 UiEvent::Fresh { .. } => fresh += 1,
@@ -19592,8 +19655,12 @@ mod tests {
         }
         assert_eq!(
             (said, resumed, fresh),
-            (vec![1, 0, 1, 0], 2, 1),
+            (vec![1, 0, 1, 0], 4, 1),
             "how many times each turn said the history's notice, the resumes, the reset"
+        );
+        assert!(
+            lines.len() == 2 && lines[0] == lines[1] && lines[0].contains("could not be read back"),
+            "both conversations say the one line a resume finds: {lines:?}"
         );
     }
 
@@ -19612,7 +19679,7 @@ mod tests {
         // `try_send_terminal`), before the next turn starts; and every place
         // is given back.
         let (_home, _workspace, mut state, first, held) = waiting_in(CatalogWait::WindowRetry);
-        sealed_on_llmux(&mut state);
+        unreadable_tool_images(&mut state);
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(3);
         work_tx.try_send(first).expect("room");
         work_tx.try_send(TurnWork::Compact).expect("room");
@@ -19669,7 +19736,7 @@ mod tests {
             match event {
                 UiEvent::TurnStarted { .. } => said.push(0),
                 UiEvent::TurnEnded { failure } => ends.push(failure.clone()),
-                UiEvent::Notice(notice) if notice.text().contains(NOT_CARRIED) => {
+                UiEvent::Notice(notice) if notice.text().contains(NOT_SENT_AGAIN) => {
                     *said.last_mut().expect("a notice inside a turn") += 1;
                 }
                 UiEvent::Compaction(update) => {
@@ -19689,5 +19756,149 @@ mod tests {
              with how many turns had started"
         );
         assert_eq!(outstanding.load(Ordering::Acquire), 0, "a place was kept");
+    }
+
+    // -----------------------------------------------------------------------
+    // P5 train 13, join check 1: HISTORY-NOTICES-COPY-FX x QUESTION-RESUME
+    // -----------------------------------------------------------------------
+
+    /// A saved session holding both units' cases in one step: llmux's
+    /// `fable` signed its thinking on the Anthropic wire and called
+    /// `ask_user_question`, and the batch was answered.
+    fn a_sealed_session_that_asked(config: &RuntimeConfig) -> SessionId {
+        let store = open_store(config).expect("a store");
+        let mut conversation = open_conversation(
+            &store,
+            config,
+            &config.model,
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        let input = serde_json::json!({ "questions": [] });
+        for event in [
+            SessionEvent::UserMessage {
+                text: "ask me".to_string(),
+            },
+            SessionEvent::AssistantMessage {
+                text: String::new(),
+                tool_calls: vec![crate::session::RecordedToolCall {
+                    id: "toolu_q".to_string(),
+                    name: "ask_user_question".to_string(),
+                    input: input.clone(),
+                }],
+                raw_content: vec![
+                    serde_json::json!({"type": "thinking", "thinking": "SEALED", "signature": "sig-1"}),
+                    serde_json::json!({"type": "tool_use", "id": "toolu_q", "name": "ask_user_question", "input": input}),
+                ],
+                responses_state: Vec::new(),
+                wire: Some(Wire::AnthropicMessages),
+                model: Some("fable".to_string()),
+            },
+            SessionEvent::ToolResult {
+                call_id: "toolu_q".to_string(),
+                tool: "ask_user_question".to_string(),
+                ok: true,
+                output: serde_json::json!([{"question": "Which depth?", "answer": "Deep"}])
+                    .to_string(),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+            SessionEvent::AssistantMessage {
+                text: "DONE".to_string(),
+                tool_calls: Vec::new(),
+                raw_content: vec![serde_json::json!({"type": "text", "text": "DONE"})],
+                responses_state: Vec::new(),
+                wire: Some(Wire::AnthropicMessages),
+                model: Some("fable".to_string()),
+            },
+            SessionEvent::TurnConcluded {
+                outcome: crate::session::TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 2,
+                },
+            },
+        ] {
+            conversation.recorder.commit(event);
+        }
+        conversation.recorder.id().clone()
+        // Dropped here, which closes the log and releases its lock.
+    }
+
+    #[test]
+    fn a_resumed_sealed_step_that_asked_replays_its_batch_and_says_nothing_of_its_reasoning() {
+        // The resume path both units change, read off one log. Hydration
+        // (QUESTION-RESUME): the answered batch is its resolutions, not an
+        // `Asked` row (`writeAnsweredQuestionResult`,
+        // `app_session_runtime.zig:4589-4607@481104fd`). The request history
+        // (HISTORY-NOTICES-COPY-FX): the state another provider or model
+        // sealed is dropped without a word (`projectProviderReplay`,
+        // `types.zig:1668-1682@481104fd`) -- `ReplayedHistory::notices`, the
+        // only source of the TUI's `! session:` lines
+        // (`Conversation::unsaid`), says nothing of it -- while the call and
+        // its answer document still go; back on the authority that sealed it,
+        // the state goes too.
+        use super::super::hydration::HydratedStep;
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let id = a_sealed_session_that_asked(&config);
+        let resumed = Resumption::open(&config, &crate::session::Selector::Id(id))
+            .expect("the saved session opens");
+
+        let replay = resumed.hydration();
+        let steps: Vec<&HydratedStep> = replay.turns.iter().flat_map(|turn| &turn.steps).collect();
+        let answered: Vec<_> = steps
+            .iter()
+            .filter_map(|step| match step {
+                HydratedStep::Answered(answers) => Some(answers.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            answered,
+            vec![vec![crate::tools::question::SavedAnswer {
+                question: "Which depth?".to_string(),
+                answer: "Deep".to_string(),
+            }]],
+            "{steps:?}"
+        );
+        assert!(
+            !steps.iter().any(|step| matches!(step, HydratedStep::Asked)),
+            "{steps:?}"
+        );
+
+        for (wire, model, keeps_state) in [
+            (Wire::VercelGateway, "zai/glm-5.2", false),
+            (Wire::AnthropicMessages, "opus", false),
+            (Wire::AnthropicMessages, "fable", true),
+        ] {
+            let history = resumed
+                .session
+                .state()
+                .history_messages(wire.clone(), model);
+            assert!(
+                history.notices.is_empty(),
+                "{wire:?} {model}: {:?}",
+                history.notices
+            );
+            let sent = format!("{:?}", history.messages);
+            assert!(
+                sent.contains("toolu_q") && sent.contains("Which depth?") && sent.contains("Deep"),
+                "{wire:?} {model}: {sent}"
+            );
+            // Each part of the sealed state on its own: the thinking text and
+            // its signature both go back to the authority that sealed it, and
+            // neither goes anywhere else.
+            for part in ["SEALED", "sig-1"] {
+                assert_eq!(
+                    sent.contains(part),
+                    keeps_state,
+                    "{wire:?} {model}: {part} in {sent}"
+                );
+            }
+        }
     }
 }

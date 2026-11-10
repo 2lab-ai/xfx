@@ -1,0 +1,29 @@
+# Not a parity scenario: the three Left spellings at a choice where xfx and
+# fx v0.0.16 differ the other way (xfx moves, fx does not), kept out of
+# p5-question-word-left so that pair can be GREEN. Each from page 4, reached
+# as there; ESC ESC [ D last, because xfx reads it as Escape and Left, and
+# the Escape cancels the batch.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-input-question20-turns.json
+wait 4
+type ask twenty
+key Enter
+wait 3
+key Tab Tab Tab
+wait 0.4
+snap p4
+key S-Left
+wait 0.4
+snap shift-left
+key Left Left Left Left
+key Tab Tab Tab
+wait 0.4
+key -H 02
+wait 0.4
+snap ctrl-b
+key Left Left Left Left
+key Tab Tab Tab
+wait 0.4
+key -H 1b 1b 5b 44
+wait 0.6
+snap esc-esc-left

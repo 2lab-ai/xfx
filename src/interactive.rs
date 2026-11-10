@@ -1173,24 +1173,27 @@ impl Conversation {
     /// shown.
     ///
     /// The history is rebuilt for every request, and so are the notices about
-    /// what it could not carry -- a reasoning state sealed by another wire, an
-    /// image that could not be read back -- so the same line would otherwise
-    /// open every turn after a switch or a resume. Said once, it stays true
-    /// for the rest of the conversation, as `.prd/04-providers.md`
-    /// §Provenance asks ("a one-line user-visible notice"). A new
-    /// conversation starts with nothing said.
+    /// what it could not send again -- an image whose saved copy could not be
+    /// read back -- so the same line would otherwise open every turn after a
+    /// resume. Said once, it stays true for the rest of the conversation. A
+    /// new conversation starts with nothing said. A reasoning state left
+    /// behind for another provider or model has no notice: upstream drops it
+    /// without a word (`projectProviderReplay`,
+    /// `types.zig:1668-1682@481104fd`), and so does xfx.
     ///
     /// **Said when handed to the screen, not when found.** A turn stopped
     /// before its request hands nothing on (the TUI refuses a stopped turn's
     /// events, `crate::tui::bridge::send_ui`), so a notice it found belongs to
     /// the next turn, which sends the history the notice is about. Upstream
-    /// says nothing about the history; its `[context]` lines, said once a
+    /// has no notice about the history; its `[context]` lines, said once a
     /// session (`claimContextNotice`), are not lost to such a stop either: a
     /// project file's is claimed and written when the prompt is submitted
     /// (`refreshProjectContext`, `app_agent_runtime.zig:906-938@481104fd`,
-    /// from `main.zig:1200`), and the skill and MCP catalogs' only once the
-    /// turn is past its stop checks (`orchestrator.zig:5950`, `:6001`, after
-    /// `:5893-5948`).
+    /// from `main.zig:1200`); the skill and MCP catalogs' only once the turn
+    /// is past its stop checks (`orchestrator.zig:5950`, `:6001`, after
+    /// `:5893-5948`); and those a tool run pushes mid-turn, after a request
+    /// (`orchestrator.zig:11345`, `:12354`), each claimed, then queued
+    /// (`app_callbacks.zig:1294-1307`).
     pub(crate) fn unsaid(&self, notices: Vec<String>) -> Vec<String> {
         let mut found = std::collections::BTreeSet::new();
         notices
@@ -3954,7 +3957,7 @@ mod tests {
         // line shell writes each line it found to stderr and records it then:
         // a line that could not be written is still unsaid, and once written,
         // the next turn's identical rebuild says nothing. A line the rebuild
-        // repeats (a sealed step per step) is said once.
+        // repeats (an image per result that returned it) is said once.
         struct Closed;
         impl Write for Closed {
             fn write(&mut self, _: &[u8]) -> io::Result<usize> {

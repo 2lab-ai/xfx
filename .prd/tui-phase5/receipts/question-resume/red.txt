@@ -1,0 +1,111 @@
+# RED: fx v0.0.16 (fx/) against xfx at the base 32afd307 (red/), compare.py: raw cells.py, then the ledger's normalizations
+SAME raw p5-input-question20-14x72-q20-answered.ansi
+SAME raw p5-input-question20-14x72-q20-answered.full.ansi
+SAME raw p5-input-question20-14x72-q20-back9.ansi
+SAME raw p5-input-question20-14x72-q20-first.ansi
+SAME raw p5-input-question20-14x72-q20-left.ansi
+SAME raw p5-input-question20-14x72-q20-panel.ansi
+SAME raw p5-input-question20-14x72-q20-tab10.ansi
+SAME raw p5-input-question20-14x72-q20-tab20.ansi
+SAME raw p5-input-question20-14x72-q20-wrap.ansi
+DIFF p5-input-question20-14x72-resumed.ansi: 13 row(s) differ after normalizing
+    row 1: fx  '  18) Pick 18?'
+    row 1: xfx '* session resumed: ask twenty'
+    row 2: fx  '      Change 18'
+    row 2: xfx ''
+    row 3: fx  '  19) Pick 19?'
+    row 3: xfx '┃ ask twenty'
+    row 4: fx  '      Keep 19'
+    row 4: xfx ''
+DIFF p5-input-question20-14x72-resumed.full.ansi: 44 row(s) differ after normalizing
+    row 49: fx  '  1) Pick 1?'
+    row 49: xfx '  Twenty done.'
+    row 50: fx  '     Keep 1'
+    row 50: xfx ''
+    row 51: fx  '  2) Pick 2?'
+    row 51: xfx '  <wall> (↑3 ↓80)'
+    row 52: fx  '     Change 2'
+    row 52: xfx ''
+SAME raw p5-input-question20-24x80-q20-answered.ansi
+SAME raw p5-input-question20-24x80-q20-answered.full.ansi
+SAME raw p5-input-question20-24x80-q20-back9.ansi
+SAME raw p5-input-question20-24x80-q20-first.ansi
+SAME raw p5-input-question20-24x80-q20-left.ansi
+SAME raw p5-input-question20-24x80-q20-panel.ansi
+SAME raw p5-input-question20-24x80-q20-tab10.ansi
+SAME raw p5-input-question20-24x80-q20-tab20.ansi
+SAME raw p5-input-question20-24x80-q20-wrap.ansi
+DIFF p5-input-question20-24x80-resumed.ansi: 20 row(s) differ after normalizing
+    row 1: fx  '  13) Pick 13?'
+    row 1: xfx '* session resumed: ask twenty'
+    row 2: fx  '      Keep 13'
+    row 2: xfx ''
+    row 3: fx  '  14) Pick 14?'
+    row 3: xfx '┃ ask twenty'
+    row 4: fx  '      Change 14'
+    row 4: xfx ''
+DIFF p5-input-question20-24x80-resumed.full.ansi: 44 row(s) differ after normalizing
+    row 43: fx  '  1) Pick 1?'
+    row 43: xfx '  Twenty done.'
+    row 44: fx  '     Keep 1'
+    row 44: xfx ''
+    row 45: fx  '  2) Pick 2?'
+    row 45: xfx '  <wall> (↑3 ↓80)'
+    row 46: fx  '     Change 2'
+    row 46: xfx ''
+SAME normalized p5-input-question20-40x120-q20-answered.ansi: 1 raw row(s) differ, equal after turn-wall-time
+SAME normalized p5-input-question20-40x120-q20-answered.full.ansi: 1 raw row(s) differ, equal after turn-wall-time
+SAME raw p5-input-question20-40x120-q20-back9.ansi
+SAME raw p5-input-question20-40x120-q20-first.ansi
+SAME raw p5-input-question20-40x120-q20-left.ansi
+SAME raw p5-input-question20-40x120-q20-panel.ansi
+SAME raw p5-input-question20-40x120-q20-tab10.ansi
+SAME raw p5-input-question20-40x120-q20-tab20.ansi
+SAME raw p5-input-question20-40x120-q20-wrap.ansi
+DIFF p5-input-question20-40x120-resumed.ansi: 36 row(s) differ after normalizing
+    row 1: fx  '  5) Pick 5?'
+    row 1: xfx '* session resumed: ask twenty'
+    row 2: fx  '     Keep 5'
+    row 2: xfx ''
+    row 3: fx  '  6) Pick 6?'
+    row 3: xfx '┃ ask twenty'
+    row 4: fx  '     Change 6'
+    row 4: xfx ''
+DIFF p5-input-question20-40x120-resumed.full.ansi: 44 row(s) differ after normalizing
+    row 27: fx  '  1) Pick 1?'
+    row 27: xfx '  Twenty done.'
+    row 28: fx  '     Keep 1'
+    row 28: xfx ''
+    row 29: fx  '  2) Pick 2?'
+    row 29: xfx '  <wall> (↑3 ↓80)'
+    row 30: fx  '     Change 2'
+    row 30: xfx ''
+SAME raw p5-question-resume-40x120-live.ansi
+SAME raw p5-question-resume-40x120-live.full.ansi
+DIFF p5-question-resume-40x120-resumed.ansi: 16 row(s) differ after normalizing
+    row 2: fx  '  <wall> (↑2 ↓80)'
+    row 2: xfx '  One done.'
+    row 4: fx  '┃ ask too many'
+    row 4: xfx '  <wall> (↑2 ↓80)'
+    row 6: fx  '● Asked'
+    row 6: xfx '┃ ask four'
+    row 8: fx  '  Too many.'
+    row 8: xfx '  Four done.'
+DIFF p5-question-resume-40x120-resumed.full.ansi: 39 row(s) differ after normalizing
+    row 30: fx  '  1) Solo 1?'
+    row 30: xfx '  One done.'
+    row 31: fx  '     Change 1'
+    row 31: xfx ''
+    row 32: fx  ''
+    row 32: xfx '  <wall> (↑2 ↓80)'
+    row 33: fx  '  One done.'
+    row 33: xfx ''
+DIFF p5-question-resume-ctrlo-40x120-resumed-ctrlo.ansi: 19 row(s) differ after normalizing
+    row 7: fx  '  1) Solo 1?'
+    row 7: xfx '  XXXXXXXXXXXXXXXXXXXXXXX UTC · Response'
+    row 8: fx  '     Change 1'
+    row 8: xfx '  One done.'
+    row 9: fx  '│  questions: [{"question":"Solo 1?","options":[{"label":"Keep 1","description":"Leave it as it is."},{"label":"Change'
+    row 9: xfx ''
+    row 10: fx  '│  1","description":"Apply the change."}]}]'
+    row 10: xfx '  XXXXXXXXXXXXXXXXXXXXXXX UTC · Usage'

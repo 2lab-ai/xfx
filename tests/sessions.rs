@@ -34,8 +34,9 @@ use xfx::output::SessionDetailSnapshot;
 use xfx::provider::Wire;
 use xfx::session::store::DurableState;
 use xfx::session::{
-    Clock, ListFilter, ListScope, NewSession, RecordedToolCall, Selector, SessionError,
-    SessionEvent, SessionId, SessionStore, TurnConclusion, TurnStep, EVENTS_FILE, MANIFEST_FILE,
+    Clock, ListFilter, ListScope, NewSession, RecordedImage, RecordedToolCall, Selector,
+    SessionError, SessionEvent, SessionId, SessionStore, TurnConclusion, TurnStep, EVENTS_FILE,
+    MANIFEST_FILE,
 };
 use xfx::workspace::{AccessScope, ProjectContext};
 
@@ -1913,12 +1914,18 @@ fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
     // The log is file input. A model xfx would not have written
     // (`model_id_problem`) is not sent, as the TUI's resume does not restore
     // one (`Resumption::selection`): the launch's model goes instead. And the
-    // notice about the history -- which quotes the wire a step's reasoning
-    // was recorded on, as the log names it -- reaches the terminal inert.
-    // Red before: the log's model was the one asked for, and the notice
-    // carried its escapes to stderr.
+    // history notice `ask` prints -- here an image a tool returned whose saved
+    // copy is gone, which quotes the tool's name as the log gives it -- reaches
+    // stderr through `safe_one_line` (`src/app.rs`): every control character a
+    // space, nothing raw. Red before: the log's model was the one asked for,
+    // and the notice carried its escapes to stderr. The reasoning a step
+    // sealed on the hostile wire is left out without a word, as fx leaves it
+    // (`projectProviderReplay`, `types.zig:1668-1682@481104fd`).
     const HOSTILE_MODEL: &str = "m\u{1b}]0;pwned\u{7}x";
     const HOSTILE_WIRE: &str = "w\u{1b}[2Jire\u{9b}31m";
+    // A line break, a carriage return and DEL too: without `safe_one_line`
+    // the notice would end early and a forged `xfx: ` line would follow it.
+    const HOSTILE_TOOL: &str = "read\u{1b}[2Jfile\u{9b}31m\u{7}\nxfx: forged\r\u{7f}line";
     let sandbox = Sandbox::new();
     let store = SessionStore::open(&sandbox.profile_dir()).expect("open the store");
     let mut session = store
@@ -1938,17 +1945,50 @@ fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
             text: "first question".to_string(),
         },
         SessionEvent::AssistantMessage {
-            text: "first answer".to_string(),
-            tool_calls: Vec::new(),
+            text: String::new(),
+            tool_calls: vec![RecordedToolCall {
+                id: "call-1".to_string(),
+                name: HOSTILE_TOOL.to_string(),
+                input: json!({"path": "shot.png"}),
+            }],
             raw_content: vec![json!({"type": "thinking", "thinking": "t", "signature": "s"})],
             responses_state: Vec::new(),
             wire: Some(Wire::parse(HOSTILE_WIRE)),
             model: None,
         },
+        SessionEvent::ToolResult {
+            call_id: "call-1".to_string(),
+            tool: HOSTILE_TOOL.to_string(),
+            ok: true,
+            output: "an image".to_string(),
+            ending: None,
+            lines: None,
+            change: None,
+        },
+        // Recorded, and never saved beside the log: the resume reads it back
+        // and finds its copy missing.
+        SessionEvent::ToolImagesAttached {
+            call_id: "call-1".to_string(),
+            images: vec![RecordedImage {
+                id: 1,
+                path: "shot.png".to_string(),
+                media_type: "image/png".to_string(),
+                sha256: "0".repeat(64),
+                bytes: 73,
+            }],
+        },
+        SessionEvent::AssistantMessage {
+            text: "first answer".to_string(),
+            tool_calls: Vec::new(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        },
         SessionEvent::TurnConcluded {
             outcome: TurnConclusion::Final {
                 finish_reason: "stop".to_string(),
-                steps: 1,
+                steps: 2,
             },
         },
     ] {
@@ -1968,9 +2008,27 @@ fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
     let model = asked.header("ai-language-model-id").expect("a model");
     assert!(!model.chars().any(char::is_control), "{model:?}");
     assert_ne!(model, HOSTILE_MODEL);
+    // The notice, made one inert line: the tool's escapes, its line break,
+    // its carriage return and its DEL are spaces, and no line of stderr
+    // begins with the forged words.
+    let notice = "xfx: an image `read [2Jfile 31m  xfx: forged  line` returned could not be read \
+                  back (its saved copy is missing), so it was not sent again";
+    assert_eq!(
+        run.stderr.lines().filter(|line| *line == notice).count(),
+        1,
+        "the notice is not on stderr as one inert line: {:?}",
+        run.stderr
+    );
     assert!(
-        run.stderr.contains("recorded reasoning on the"),
-        "the notice was not printed: {:?}",
+        !run.stderr
+            .lines()
+            .any(|line| line.starts_with("xfx: forged")),
+        "the tool's name forged a line: {:?}",
+        run.stderr
+    );
+    assert!(
+        !run.stderr.contains("recorded reasoning"),
+        "a notice fx does not have was printed: {:?}",
         run.stderr
     );
     for output in [&run.stdout, &run.stderr] {
@@ -2892,7 +2950,7 @@ fn a_legacy_record_with_blocks_and_no_wire_replays_on_the_messages_wire() {
 }
 
 #[test]
-fn a_legacy_record_is_dropped_with_a_notice_on_any_other_wire() {
+fn a_legacy_record_is_dropped_without_a_word_on_any_other_wire() {
     let (profile, workspace) = (Profile::new(), Workspace::new());
     let state = recorded_state(
         &profile,
@@ -2908,10 +2966,9 @@ fn a_legacy_record_is_dropped_with_a_notice_on_any_other_wire() {
     // The turn still replays as text and tool calls: dropped state degrades a
     // request, it never deletes a turn.
     assert_eq!(replay.messages[1].text(), "answered");
-    assert_eq!(replay.notices.len(), 1);
-    let notice = &replay.notices[0];
-    assert!(notice.contains("anthropic_messages"), "{notice}");
-    assert!(notice.contains("vercel_gateway"), "{notice}");
+    // And without a word, as fx drops a replay that does not match
+    // (`projectProviderReplay`, `types.zig:1668-1682@481104fd`).
+    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 }
 
 #[test]
@@ -2937,9 +2994,8 @@ fn responses_state_recorded_under_one_authority_is_never_sent_to_another() {
     ] {
         let replay = state.history_messages(active.clone(), &state.model);
         assert!(replay.messages[1].raw_blocks().is_none(), "for {active:?}");
-        assert_eq!(replay.notices.len(), 1, "for {active:?}");
         assert!(
-            replay.notices[0].contains("codex_responses"),
+            replay.notices.is_empty(),
             "for {active:?}: {:?}",
             replay.notices
         );
@@ -2961,18 +3017,15 @@ fn a_wire_this_version_does_not_know_drops_rather_than_guessing() {
 
     let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
     assert!(replay.messages[1].raw_blocks().is_none());
-    assert!(
-        replay.notices[0].contains("some_future_wire"),
-        "{:?}",
-        replay.notices
-    );
+    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 }
 
 #[test]
 fn a_wire_less_responses_state_record_drops_rather_than_replaying_under_active() {
     // A record with responses_state but no wire is invalid: no pre-wire binary
     // wrote responses_state, so it must be from a future wire this binary does
-    // not know. It must drop with a notice, never replay under the active wire.
+    // not know. It must drop, without a word as fx drops one, and never replay
+    // under the active wire.
     let (profile, workspace) = (Profile::new(), Workspace::new());
     let state = recorded_state(
         &profile,
@@ -2986,12 +3039,7 @@ fn a_wire_less_responses_state_record_drops_rather_than_replaying_under_active()
         replay.messages[1].raw_blocks().is_none(),
         "wire-less responses_state must not replay under active CodexResponses"
     );
-    assert_eq!(replay.notices.len(), 1, "must generate a drop notice");
-    assert!(
-        replay.notices[0].contains("responses"),
-        "notice should mention responses_state: {:?}",
-        replay.notices
-    );
+    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 }
 
 #[test]

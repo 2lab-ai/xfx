@@ -9328,7 +9328,7 @@ fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it
     // tells the child -- and a real terminal has the same gap: the kernel
     // raises `SIGWINCH` after the size has already changed, and no process can
     // withhold a frame for a size nobody has told it about. `Shell::blind`
-    // (`src/tui/shell.rs:16806`) is `resize_pending || screen != geometry`, and
+    // (`src/tui/shell.rs:16943`) is `resize_pending || screen != geometry`, and
     // neither is true until the handler has run. So a frame composed in that
     // gap is composed for the screen the session still believes in, and it is
     // not a frame written *while blind*.
@@ -9368,7 +9368,7 @@ fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it
     // the too-small screen has been observed and resolved, so `blind` is
     // established, and Ctrl-L asks for a frame the session cannot paint.
     // `Action::Redraw` inside the approval panel raises
-    // `Reason::ExternalDamage` (`src/tui/shell.rs:9667`) and answers nothing,
+    // `Reason::ExternalDamage` (`src/tui/shell.rs:9736`) and answers nothing,
     // which makes this a frame that is genuinely owed rather than a stretch of
     // time in which nothing happened to want one. The old assertion could pass
     // on a session with nothing to say; this one cannot.
@@ -9715,11 +9715,11 @@ fn a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_be
     // The other way, and the one part that does not translate: Anthropic's
     // signed `thinking` blocks. Upstream sends a message's replay state only
     // to the provider that produced it and the rest of the message as it is
-    // (`projectProviderReplay`, `types.zig:1548-1563`, called by every
-    // encoder -- `builtins/gateway.zig:183`): here the Gateway gets the call
-    // and the answer, and no thinking. Upstream drops it silently (a debug
-    // trace, `:185`); xfx says so (`.prd/04-providers.md` §Provenance) --
-    // once for the conversation, not once per step on every turn after.
+    // (`projectProviderReplay`, `types.zig:1668-1682@481104fd`, called by
+    // every encoder -- `builtins/gateway.zig:178@481104fd`): here the Gateway
+    // gets the call and the answer, and no thinking. Upstream drops it without
+    // a word (a debug trace, `gateway.zig:180@481104fd`), and so does xfx: no
+    // turn after the switch says anything about it.
     let daemon = support::fake_llmux::FakeLlmux::start(vec![
         support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_thinking_then_tool(
             "SECRET-THOUGHT",
@@ -9767,10 +9767,9 @@ fn a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_be
     assert_eq!(session.wait_exit().code(), Some(0));
 
     let text = session.settled_text();
-    assert_eq!(text.matches("not carried over").count(), 1, "{text:?}");
     assert!(
-        text.contains("continuing on") && !text.contains("resuming on"),
-        "the notice still speaks of a resume: {text:?}"
+        !text.contains("not carried over") && !text.contains("recorded reasoning"),
+        "xfx spoke of the reasoning it left behind, which fx does not: {text:?}"
     );
 
     let body = gateway.requests()[0].json();
@@ -9854,13 +9853,13 @@ fn after_a_switch_the_context_meter_keeps_the_tokens_against_the_new_providers_w
 #[test]
 fn after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent() {
     // fx's replay goes back only to the provider **and the model** that
-    // sealed it (`ProviderReplay.matches`, `vercel-labs/fx@c1db9191
-    // src/core/shared/types.zig:1512-1515`); a step it does not match is sent
-    // as its text and calls (`projectProviderReplay`, `:1548-1563`). A daemon
+    // sealed it (`ProviderReplay.matches`, `vercel-labs/fx@481104fd
+    // src/core/shared/types.zig:1609-1611`); a step it does not match is sent
+    // as its text and calls (`projectProviderReplay`, `:1668-1682`). A daemon
     // asked by one model to verify a signature another made can refuse the
     // request, so the request after `/model claude-fable-5[1m]` carries the
-    // first turn's call and answer and none of `m-1`'s thinking -- and says
-    // so, once.
+    // first turn's call and answer and none of `m-1`'s thinking -- and, as
+    // fx, says nothing about it.
     let daemon = support::fake_llmux::FakeLlmux::start(vec![
         support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_thinking_then_tool(
             "SIGNED-BY-M1",
@@ -9935,11 +9934,9 @@ fn after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent() {
         );
     }
     let text = session.settled_text();
-    assert_eq!(
-        text.matches("recorded reasoning from m-1 and is continuing with claude-fable-5[1m]")
-            .count(),
-        1,
-        "{text:?}"
+    assert!(
+        !text.contains("recorded reasoning") && !text.contains("not carried over"),
+        "xfx spoke of the reasoning m-1 sealed, which fx does not: {text:?}"
     );
     // The model is recorded beside the blocks it sealed, as fx records it
     // with its replay (`ProviderReplay.source`).
@@ -10026,7 +10023,7 @@ fn a_session_that_switched_provider_resumes_on_the_provider_it_recorded_whatever
     // resumed turn goes to llmux, in the model llmux was asked in, carrying
     // both turns -- the Gateway's as text, llmux's own blocks verbatim with
     // their signature, since this provider and model sealed them
-    // (`ProviderReplay.matches`, `types.zig:1512-1515`). Red before: it went
+    // (`ProviderReplay.matches`, `types.zig:1609-1611@481104fd`). Red before: it went
     // to the Gateway, in `zai/glm-5.2`.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
         support::fake_gateway::content_only(&["MARKER-GATEWAY-FIRST"]),

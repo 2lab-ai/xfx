@@ -463,10 +463,11 @@ pub const ABORTED_TOOL_OUTPUT: &str = crate::tools::question::ABORTED_OUTPUT;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplayedHistory {
     pub messages: Vec<Message>,
-    /// One line per assistant turn whose recorded state was not carried over.
-    ///
-    /// A drop is never silent: the user is entitled to know that the model
-    /// resumed with less context than the log holds.
+    /// One line per image the history names whose saved copy could not be
+    /// read back, so it was not sent again. A reasoning state left behind for
+    /// another provider or model has none: upstream drops it without a word
+    /// (`projectProviderReplay`, `types.zig:1668-1682@481104fd`), and so does
+    /// xfx.
     pub notices: Vec<String>,
 }
 
@@ -871,7 +872,9 @@ fn stopped_answer(ok: bool, output: &str) -> bool {
 
 /// One turn as the messages a request carries for it on `active`, its user
 /// message first ([`DurableState::history_messages`]). A reasoning state that
-/// does not replay on `active` is dropped with a line in `notices`.
+/// does not replay on `active` is dropped without a word, as upstream's is; an
+/// image whose saved copy could not be read back is dropped with a line in
+/// `notices`.
 pub fn turn_messages(
     turn: &HistoryTurn,
     active: &Wire,
@@ -883,8 +886,9 @@ pub fn turn_messages(
     // re-sends the history's images on every request
     // (`cap/fx-image-40x120-bodies/002-completion.json`) -- the bytes
     // the session saved, checked against the digest it saved them
-    // with. One it could not read back is left out and said so, the
-    // way a dropped reasoning record is: the prompt still names it.
+    // with. One it could not read back is left out and said so, once
+    // per conversation (`Conversation::unsaid`): the prompt still
+    // names it.
     let mut images = Vec::new();
     for image in &turn.images {
         let label = crate::image::MediaType::parse(&image.recorded.media_type);
@@ -980,29 +984,17 @@ pub fn turn_messages(
                 };
                 // **And the model**: a state goes back only to the model that
                 // sealed it, as upstream's does (`ProviderReplay.matches`,
-                // `vercel-labs/fx@c1db9191 src/core/shared/types.zig:1512-1515`,
+                // `vercel-labs/fx@481104fd src/core/shared/types.zig:1609-1611`,
                 // the same authority **and** `std.mem.eql` of the model): a
                 // daemon asked by one model to verify a signature another
                 // model made can refuse the request. The step is then sent as
                 // upstream sends one whose replay it dropped
-                // (`projectProviderReplay`, `:1548-1563`) -- its text and its
-                // calls.
+                // (`projectProviderReplay`, `:1668-1682`) -- its text and its
+                // calls -- and **without a word**, as upstream's projection
+                // drops it (the encoder writes a debug trace,
+                // `src/builtins/gateway.zig:178-180@481104fd`).
                 let same_model = sealed_by.as_deref().is_none_or(|sealed| sealed == model);
                 let state: &[serde_json::Value] = if same_model { on_wire } else { &[] };
-                if state.is_empty() && !(raw_content.is_empty() && responses_state.is_empty()) {
-                    notices.push(match sealed_by {
-                        Some(sealed) if !on_wire.is_empty() => format!(
-                            "xfx: this session recorded reasoning from {sealed} and is \
-                             continuing with {model}, so that reasoning was not carried over"
-                        ),
-                        _ => format!(
-                            "xfx: this session recorded reasoning on the {} wire and is \
-                             continuing on {}, so that reasoning was not carried over",
-                            recorded.label(),
-                            active.label()
-                        ),
-                    });
-                }
                 pending.push(if state.is_empty() {
                     Message::assistant(Some(text), calls)
                 } else {

@@ -1,0 +1,27 @@
+# the code units the two code files' conflict blocks sat in, at the merge 8adc57df
+## src/tui/shell.rs: `fn a_screen_too_small_for_the_question_cancels_it_rather_than_painting_half() {` -- merged :24549-24579, 31 lines
+   against ours (afd891af, :24547-24577): 0 line(s) differ; the same once numbers are masked: True
+   against theirs (d2b2ca75, :23731-23761): 4 line(s) differ; the same once numbers are masked: True
+      -        // how the existing too-small assertions read it (`shell.rs:6068`,
+      -        // `:6256`). Concatenated rather than compared row by row, because a
+      +        // how the existing too-small assertions read it (`shell.rs:6086`,
+      +        // `:6274`). Concatenated rather than compared row by row, because a
+   against base (f53606d1, :23729-23759): 4 line(s) differ; the same once numbers are masked: True
+      -        // how the existing too-small assertions read it (`shell.rs:6070`,
+      -        // `:6258`). Concatenated rather than compared row by row, because a
+      +        // how the existing too-small assertions read it (`shell.rs:6086`,
+      +        // `:6274`). Concatenated rather than compared row by row, because a
+## scripts/smoke-tui.sh: `def scenario_26(run):` -- merged :11035-11384, 350 lines
+   against ours (afd891af, :11035-11384): 2 line(s) differ; the same once numbers are masked: True
+      -    # through one `editor.insert()` call (`shell.rs:2705`), which is one
+      +    # through one `editor.insert()` call (`shell.rs:2703`), which is one
+   against theirs (d2b2ca75, :11035-11384): 2 line(s) differ; the same once numbers are masked: True
+      -    # history entry, so `C-_` (`Action::Undo`, `input.rs:1063`) reverses the
+      +    # history entry, so `C-_` (`Action::Undo`, `input.rs:1152`) reverses the
+   against base (f53606d1, :11035-11384): 4 line(s) differ; the same once numbers are masked: True
+      -    # through one `editor.insert()` call (`shell.rs:2705`), which is one
+      -    # history entry, so `C-_` (`Action::Undo`, `input.rs:1063`) reverses the
+      +    # through one `editor.insert()` call (`shell.rs:2703`), which is one
+      +    # history entry, so `C-_` (`Action::Undo`, `input.rs:1152`) reverses the
+# 0 (unit, side) readings that differ beyond their numbers
+# exit 0

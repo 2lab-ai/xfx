@@ -1,0 +1,37 @@
+== merge e776a6b0: ours f53606d1, theirs 714f6283, base 32afd307; files both changed: 7
+  docs/parity.md: ours 4 hunks, theirs 4 hunks; nearest: 0 unchanged base lines (ours 93-94, theirs 95-95)
+    touching: ours 93-94, theirs 95-95
+  scripts/fxcap/parity-ledger.toml: ours 25 hunks, theirs 1 hunks; nearest: 2 unchanged base lines (ours 689-689, theirs 692-700)
+  src/interactive.rs: ours 1 hunks, theirs 4 hunks; nearest: 939 unchanged base lines (ours 2133-2133, theirs 1191-1193)
+  src/provider/mod.rs: ours 1 hunks, theirs 1 hunks; nearest: 38 unchanged base lines (ours 15-14, theirs 53-55)
+  src/tui/shell.rs: ours 162 hunks, theirs 2 hunks; nearest: 312 unchanged base lines (ours 22671-22672, theirs 22985-22987)
+  src/tui/worker.rs: ours 47 hunks, theirs 25 hunks; nearest: 39 unchanged base lines (ours 2890-2891, theirs 2850-2850)
+  tests/tui.rs: ours 4 hunks, theirs 7 hunks; nearest: 346 unchanged base lines (ours 9245-9245, theirs 9592-9596)
+== merge 9acb47a0: ours e776a6b0, theirs d0e08d8c, base 32afd307; files both changed: 5
+  docs/parity.md: ours 7 hunks, theirs 2 hunks; nearest: 0 unchanged base lines (ours 237-237, theirs 237-237)
+    touching: ours 237-237, theirs 237-237
+  scripts/fxcap/parity-ledger.toml: ours 26 hunks, theirs 2 hunks; nearest: 26 unchanged base lines (ours 689-689, theirs 655-662)
+  src/tui/bridge.rs: ours 19 hunks, theirs 1 hunks; nearest: 21 unchanged base lines (ours 1024-1026, theirs 1003-1002)
+  src/tui/shell.rs: ours 164 hunks, theirs 2 hunks; nearest: 83 unchanged base lines (ours 4143-4143, theirs 4060-4059)
+  src/tui/worker.rs: ours 72 hunks, theirs 3 hunks; nearest: 1350 unchanged base lines (ours 10163-10162, theirs 8813-8812)
+== merge bbdde09c: ours 9acb47a0, theirs a37a969e, base 32afd307; files both changed: 6
+  docs/parity.md: ours 8 hunks, theirs 2 hunks; nearest: 0 unchanged base lines (ours 162-162, theirs 162-162)
+    touching: ours 162-162, theirs 162-162
+    touching: ours 237-237, theirs 237-237
+  scripts/fxcap/parity-ledger.toml: ours 28 hunks, theirs 12 hunks; nearest: 0 unchanged base lines (ours 505-505, theirs 505-505)
+    touching: ours 505-505, theirs 505-505
+    touching: ours 549-551, theirs 551-551
+    touching: ours 689-689, theirs 689-689
+    touching: ours 815-815, theirs 815-815
+    touching: ours 826-826, theirs 826-826
+    touching: ours 838-838, theirs 838-838
+    touching: ours 849-849, theirs 849-849
+    touching: ours 860-860, theirs 860-860
+    touching: ours 872-872, theirs 872-872
+    touching: ours 874-874, theirs 874-874
+    touching: ours 928-928, theirs 928-928
+    touching: ours 998-998, theirs 998-998
+  src/tui/approval.rs: ours 2 hunks, theirs 8 hunks; nearest: 637 unchanged base lines (ours 1369-1369, theirs 731-731)
+  src/tui/input.rs: ours 28 hunks, theirs 39 hunks; nearest: 31 unchanged base lines (ours 137-137, theirs 169-168)
+  src/tui/question.rs: ours 3 hunks, theirs 7 hunks; nearest: 55 unchanged base lines (ours 752-772, theirs 828-828)
+  src/tui/shell.rs: ours 166 hunks, theirs 23 hunks; nearest: 141 unchanged base lines (ours 38369-38368, theirs 38510-38510)

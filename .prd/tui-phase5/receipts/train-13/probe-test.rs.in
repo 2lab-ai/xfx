@@ -1,0 +1,38 @@
+
+    /// Train 13, join check 2 (a probe, never committed): what each spelling
+    /// decodes to, as the question surface reads it -- the decoder's own
+    /// output at QUESTION-WORD-LEFT's head, the decoder's output through
+    /// `unspelled` at the train's head (`PROBE_FOLD` swaps the one call).
+    #[test]
+    fn train13_probe_what_the_question_reads() {
+        let mut seqs: Vec<Vec<u8>> = Vec::new();
+        for x in [b'A', b'B', b'C', b'D', b'H', b'F'] {
+            seqs.push(vec![0x1b, b'[', x]);
+            seqs.push(vec![0x1b, b'O', x]);
+            for m in 1..=16u8 {
+                seqs.push(format!("\x1b[1;{m}{}", x as char).into_bytes());
+            }
+        }
+        for code in [57350u32, 57351, 57352, 57353, 57417, 57418, 57419, 57420, 57423, 57424] {
+            seqs.push(format!("\x1b[{code}u").into_bytes());
+            for m in 1..=16u8 {
+                seqs.push(format!("\x1b[{code};{m}u").into_bytes());
+            }
+        }
+        for letter in [b'b', b'f', b'B', b'F'] {
+            seqs.push(vec![0x1b, letter]);
+            for m in 1..=16u8 {
+                seqs.push(format!("\x1b[{};{m}u", letter).into_bytes());
+                seqs.push(format!("\x1b[27;{m};{}~", letter).into_bytes());
+            }
+        }
+        for byte in (0u8..=0x1f).chain([0x7f]) {
+            seqs.push(vec![byte]);
+        }
+        for bytes in &seqs {
+            let got: Vec<Input> = decode(bytes).into_iter().map(PROBE_FOLD).collect();
+            println!("PROBE {:?} -> {:?}", String::from_utf8_lossy(bytes), got);
+            println!("RAW {:?} -> {:?}", String::from_utf8_lossy(bytes), decode(bytes));
+        }
+        println!("PROBE-COUNT {}", seqs.len());
+    }

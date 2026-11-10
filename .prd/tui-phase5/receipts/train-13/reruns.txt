@@ -1,0 +1,113 @@
+# Train 13's reruns (reruns.sh, one hold of the suite lock, sweep-rerun.sh 3 times a scenario on each tree's own debug build; "main" in a name is the base f53606d1)
+
+## the movers: resume-paging (against HISTORY-NOTICES-COPY-FX's own sweep) and p5-input-question20 (against the base), head and base
+# head rerun 1 of resume-paging at e1e15efd; xfx sha256 00e9ae3689ccd16fe767b0630c8eaa6170c056cdf0af7e0b395ad28b2388fe4f; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 14.69
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 8 = 25.0%; unresolved 6, failed 0, timeout 0
+# head rerun 2 of resume-paging at e1e15efd; xfx sha256 00e9ae3689ccd16fe767b0630c8eaa6170c056cdf0af7e0b395ad28b2388fe4f; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 12.21
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 8 = 25.0%; unresolved 6, failed 0, timeout 0
+# head rerun 3 of resume-paging at e1e15efd; xfx sha256 00e9ae3689ccd16fe767b0630c8eaa6170c056cdf0af7e0b395ad28b2388fe4f; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 18.74
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 8 = 25.0%; unresolved 6, failed 0, timeout 0
+# main rerun 1 of resume-paging at f53606d1; xfx sha256 30c71d10d3beedf481c5ceb8d7d06c6754a0f17ccd08098cd34a5eb874b00003; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 16.55
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 8 = 25.0%; unresolved 6, failed 0, timeout 0
+# main rerun 2 of resume-paging at f53606d1; xfx sha256 30c71d10d3beedf481c5ceb8d7d06c6754a0f17ccd08098cd34a5eb874b00003; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 40.30
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 8 = 25.0%; unresolved 6, failed 0, timeout 0
+# main rerun 3 of resume-paging at f53606d1; xfx sha256 30c71d10d3beedf481c5ceb8d7d06c6754a0f17ccd08098cd34a5eb874b00003; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 34.96
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 8 = 25.0%; unresolved 6, failed 0, timeout 0
+# head rerun 1 of p5-input-question20 at e1e15efd; xfx sha256 00e9ae3689ccd16fe767b0630c8eaa6170c056cdf0af7e0b395ad28b2388fe4f; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 24.81
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 11 / 11 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 2 of p5-input-question20 at e1e15efd; xfx sha256 00e9ae3689ccd16fe767b0630c8eaa6170c056cdf0af7e0b395ad28b2388fe4f; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 63.39
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 11 / 11 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 3 of p5-input-question20 at e1e15efd; xfx sha256 00e9ae3689ccd16fe767b0630c8eaa6170c056cdf0af7e0b395ad28b2388fe4f; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 51.61
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 11 / 11 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 1 of p5-input-question20 at f53606d1; xfx sha256 30c71d10d3beedf481c5ceb8d7d06c6754a0f17ccd08098cd34a5eb874b00003; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 57.24
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 9 / 11 = 81.8%; unresolved 2, failed 0, timeout 0
+# main rerun 2 of p5-input-question20 at f53606d1; xfx sha256 30c71d10d3beedf481c5ceb8d7d06c6754a0f17ccd08098cd34a5eb874b00003; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 43.26
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 9 / 11 = 81.8%; unresolved 2, failed 0, timeout 0
+# main rerun 3 of p5-input-question20 at f53606d1; xfx sha256 30c71d10d3beedf481c5ceb8d7d06c6754a0f17ccd08098cd34a5eb874b00003; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 78.50
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 9 / 11 = 81.8%; unresolved 2, failed 0, timeout 0
+exit 0
+## head-resume-paging: 3 reruns
+    page1            UD UD UD  pass 0/3
+    down14           UD UD UD  pass 0/3
+    down15           UD UD UD  pass 0/3
+    down16-loaded    UD UD UD  pass 0/3
+    down17           UD UD UD  pass 0/3
+    tab-all          UD UD UD  pass 0/3
+    query-ve         NI NI NI  pass 3/3
+    query-ve-down3   NI NI NI  pass 3/3
+## main-resume-paging: 3 reruns
+    page1            UD UD UD  pass 0/3
+    down14           UD UD UD  pass 0/3
+    down15           UD UD UD  pass 0/3
+    down16-loaded    UD UD UD  pass 0/3
+    down17           UD UD UD  pass 0/3
+    tab-all          UD UD UD  pass 0/3
+    query-ve         NI NI NI  pass 3/3
+    query-ve-down3   NI NI NI  pass 3/3
+## head-p5-input-question20: 3 reruns
+    q20-panel        NI NI NI  pass 3/3
+    q20-left         NI NI NI  pass 3/3
+    q20-tab10        NI NI NI  pass 3/3
+    q20-back9        NI NI NI  pass 3/3
+    q20-tab20        NI NI NI  pass 3/3
+    q20-wrap         NI NI NI  pass 3/3
+    q20-first        NI NI NI  pass 3/3
+    q20-answered     ID ID NI  pass 3/3
+    q20-answered.full NI NI NI  pass 3/3
+    resumed          ID ID NI  pass 3/3
+    resumed.full     NI NI NI  pass 3/3
+## main-p5-input-question20: 3 reruns
+    q20-panel        NI NI NI  pass 3/3
+    q20-left         NI NI NI  pass 3/3
+    q20-tab10        NI NI NI  pass 3/3
+    q20-back9        NI NI NI  pass 3/3
+    q20-tab20        NI NI NI  pass 3/3
+    q20-wrap         NI NI NI  pass 3/3
+    q20-first        NI NI NI  pass 3/3
+    q20-answered     ID ID ID  pass 3/3
+    q20-answered.full NI NI NI  pass 3/3
+    resumed          UD UD UD  pass 0/3
+    resumed.full     UD UD UD  pass 0/3
+# and in the two sweeps, read as one run each
+## sweep-head-resume-paging: 1 reruns
+    page1            UD  pass 0/1
+    down14           UD  pass 0/1
+    down15           UD  pass 0/1
+    down16-loaded    UD  pass 0/1
+    down17           UD  pass 0/1
+    tab-all          UD  pass 0/1
+    query-ve         NI  pass 1/1
+    query-ve-down3   NI  pass 1/1
+## sweep-base-resume-paging: 1 reruns
+    page1            UD  pass 0/1
+    down14           UD  pass 0/1
+    down15           UD  pass 0/1
+    down16-loaded    UD  pass 0/1
+    down17           UD  pass 0/1
+    tab-all          UD  pass 0/1
+    query-ve         NI  pass 1/1
+    query-ve-down3   NI  pass 1/1
+## sweep-head-p5-input-question20: 1 reruns
+    q20-panel        NI  pass 1/1
+    q20-left         NI  pass 1/1
+    q20-tab10        NI  pass 1/1
+    q20-back9        NI  pass 1/1
+    q20-tab20        NI  pass 1/1
+    q20-wrap         NI  pass 1/1
+    q20-first        NI  pass 1/1
+    q20-answered     ID  pass 1/1
+    q20-answered.full NI  pass 1/1
+    resumed          ID  pass 1/1
+    resumed.full     NI  pass 1/1
+## sweep-base-p5-input-question20: 1 reruns
+    q20-panel        NI  pass 1/1
+    q20-left         NI  pass 1/1
+    q20-tab10        NI  pass 1/1
+    q20-back9        NI  pass 1/1
+    q20-tab20        NI  pass 1/1
+    q20-wrap         NI  pass 1/1
+    q20-first        NI  pass 1/1
+    q20-answered     ID  pass 1/1
+    q20-answered.full NI  pass 1/1
+    resumed          UD  pass 0/1
+    resumed.full     UD  pass 0/1

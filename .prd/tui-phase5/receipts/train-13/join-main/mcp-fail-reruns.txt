@@ -1,0 +1,7 @@
+head run 1 (xfx 0.2.0 (release 2026-11-10-1312-208a8dd4be52)): rc=0 list row 6:› bad retrying profile
+base run 1 (xfx 0.2.0 (preview 2026-11-10-1220-8f9214251710)): rc=0 list row 6:› bad retrying profile
+head run 2 (xfx 0.2.0 (release 2026-11-10-1312-208a8dd4be52)): rc=0 list row 6:› bad retrying profile
+base run 2 (xfx 0.2.0 (preview 2026-11-10-1220-8f9214251710)): rc=0 list row 6:› bad retrying profile
+head run 3 (xfx 0.2.0 (release 2026-11-10-1312-208a8dd4be52)): rc=0 list row 6:› bad retrying profile
+base run 3 (xfx 0.2.0 (preview 2026-11-10-1220-8f9214251710)): rc=0 list row 6:› bad retrying profile
+exit=0

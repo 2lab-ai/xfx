@@ -1,0 +1,19 @@
+# Review round 2's RED: the revocation test on a git clone --no-local throwaway at e22a9738 (3a0094fe plus the test), as committed and with the revocation turned off two ways (mutants.py's M15, M16), each run: cargo test --locked --lib -- leaving_a_filled_draft_revokes
+
+## none (the code as committed)
+test tui::shell::tests::leaving_a_filled_draft_revokes_the_receipt_and_the_next_frame_earns_it_back ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4633 filtered out; finished in 0.07s
+
+## M15 a reshape does not revoke the readiness receipt
+test tui::shell::tests::leaving_a_filled_draft_revokes_the_receipt_and_the_next_frame_earns_it_back ... FAILED
+thread 'tui::shell::tests::leaving_a_filled_draft_revokes_the_receipt_and_the_next_frame_earns_it_back'
+leaving a filled draft kept a receipt about the screen that showed it
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4633 filtered out; finished in 0.02s
+
+## M16 leaving a draft (an arrow) is not a reshape
+test tui::shell::tests::leaving_a_filled_draft_revokes_the_receipt_and_the_next_frame_earns_it_back ... FAILED
+thread 'tui::shell::tests::leaving_a_filled_draft_revokes_the_receipt_and_the_next_frame_earns_it_back'
+leaving a filled draft kept a receipt about the screen that showed it
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4633 filtered out; finished in 0.03s
+
+clone tree: clean

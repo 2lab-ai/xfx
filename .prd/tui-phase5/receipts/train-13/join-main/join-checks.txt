@@ -1,0 +1,31 @@
+## 1. XFX_BUILD_REVISION outside .prd (git grep -n)
+# at afd891af: 8 line(s)
+    afd891af:.github/workflows/preview.yml:312:          XFX_BUILD_REVISION: ${{ needs.preflight.outputs.commit }}
+    afd891af:build.rs:29:    println!("cargo:rerun-if-env-changed=XFX_BUILD_REVISION");
+    afd891af:build.rs:33:    println!("cargo:rustc-env=XFX_BUILD_REVISION={revision}");
+    afd891af:build.rs:125:    normalize_revision(&std::env::var("XFX_BUILD_REVISION").ok()?)
+    afd891af:scripts/check-preview-contract.sh:169:export CONTRACT_REVISION_VARIABLE='XFX_BUILD_REVISION'
+    afd891af:scripts/test-gate-env.sh:876:	(cd "$dir" && env -u XFX_BUILD_REVISION -u XFX_BUILD_CHANNEL PROFILE=debug OUT_DIR="$work" \
+    afd891af:scripts/test-gate-env.sh:880:	got="$(sed -n 's/^cargo:rustc-env=XFX_BUILD_REVISION=//p' "$work/$name.log")"
+    afd891af:src/lib.rs:80:    let revision = env!("XFX_BUILD_REVISION");
+# at d2b2ca75: 1 line(s)
+    d2b2ca75:CHANGELOG.md:40:  `version text`). `XFX_BUILD_REVISION` is gone; `build_revision` is the id's
+# at 0dbfaf39: 1 line(s)
+    0dbfaf39:CHANGELOG.md:40:  `version text`). `XFX_BUILD_REVISION` is gone; `build_revision` is the id's
+# XFX_BUILD_ID outside .prd at the head: 19 line(s)
+
+## 2. p5-mcp-fail's list snap: the files that time it, the head against each side
+scripts/fxcap/scenarios/p5-mcp-fail.cap: main same train same base same
+scripts/fxcap/scenarios/p5-mcp-fail-profile.json: main same train same base same
+scripts/fxcap/scenarios/p5-mcp-stdio.ts: main same train same base same
+scripts/fxcap/capture.sh: main same train DIFFERENT base DIFFERENT
+scripts/fxcap/fakegw.ts: main same train same base same
+src/mcp/runtime.rs: main same train same base same
+src/tui/mcp_menu.rs: main same train same base same
+# the train's changes (base -> train) under src/mcp, src/tui/mcp_*.rs and the fxcap harness's scripts: 0 file(s)
+
+## 3. #[test] lines in tracked .rs files (git grep -F), for the gate's counts against train 13's
+# base f53606d1: 5602
+# train afd891af: 5633
+# main d2b2ca75: 5616
+# head 0dbfaf39: 5647

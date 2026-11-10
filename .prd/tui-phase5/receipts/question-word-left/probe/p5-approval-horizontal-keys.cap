@@ -1,0 +1,48 @@
+# Not a parity scenario: the horizontal keys at a permission question, for
+# APPROVAL-HORIZONTAL-KEYS. fx v0.0.16 moves the choice on Left and Alt-b
+# (previous) and Right and Alt-f (next) while no amendment is open, and leaves
+# it on Ctrl-Left and Ctrl-Right (input_approval_runtime.zig:90-128). First an
+# amendment on choice 1 with Alt-b in it (the word move there), then Down,
+# which ends editing and marks choice 2, then each key with a snap after it.
+# The turns, the workspace and the settings are approvals.cap's.
+fx: gateway approvals-fx.json
+xfx: gateway approvals-xfx.json
+work approvals-ws
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type edit the files
+key Enter
+wait 3
+snap ask
+key Tab
+wait 0.4
+type ab cd
+wait 0.4
+key M-b
+wait 0.4
+type z
+wait 0.4
+snap amend-alt-b
+key Down
+wait 0.4
+snap down
+key Left
+wait 0.4
+snap left
+key Right
+wait 0.4
+snap right
+key M-f
+wait 0.4
+snap alt-f
+key M-b
+wait 0.4
+snap alt-b
+key C-Right
+wait 0.4
+snap ctrl-right
+key C-Left
+wait 0.4
+snap ctrl-left

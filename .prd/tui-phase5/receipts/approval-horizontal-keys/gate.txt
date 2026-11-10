@@ -1,0 +1,53 @@
+# The brief's gate, once, under the suite lock, TMPDIR a short scratch dir (<tmp>), at 12848e4c
+# (src/, tests/, Cargo.* are the code head 09f94a35's: the stat below is empty)
+$ git diff --stat 09f94a35 12848e4c -- src tests docs scripts Cargo.toml Cargo.lock
+$ git diff --stat 582ccb50 09f94a35 -- src tests docs scripts Cargo.toml Cargo.lock
+ src/tui/shell.rs | 51 +++++++++++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 47 insertions(+), 4 deletions(-)
+# (one hunk is the doc comment of unspelled, shell.rs:13755-13761; the other is in mod tests)
+
+head 12848e4c, start 19:51Z
+fmt rc=0 1s
+clippy rc=0 7s
+clippy-fi rc=0 21s
+test rc=0 128s
+test-fi rc=0 163s
+identity rc=0 2s
+stubs rc=0 19s
+secrets rc=0 55s
+test: passed=5548 failed=0 ignored=7 result-lines=15
+test-fi: passed=5585 failed=0 ignored=7 result-lines=15
+tree unchanged: 12848e4c, clean, end 19:58Z
+
+# test result lines, cargo test --locked --no-fail-fast
+test result: ok. 4626 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 186 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+# test result lines, cargo test --locked --features fault-injection --no-fail-fast
+test result: ok. 4649 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 200 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

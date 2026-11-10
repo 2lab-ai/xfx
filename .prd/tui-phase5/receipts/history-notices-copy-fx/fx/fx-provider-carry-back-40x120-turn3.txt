@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ read the notes and tell me what they say
+
+● 1 tool call · 1 read
+└ Read notes.txt
+
+  The notes say the meeting moved to Thursday.
+
+  0s (↑10 ↓80)
+
+* auth: Switched credential to AI_GATEWAY_API_KEY.
+
+* provider: Preparing Vercel AI Gateway.
+
+* provider: Switched to Vercel AI Gateway with fake/model-a.
+
+┃ what day was it again?
+
+  MARKER-AFTER-SWITCH: still Thursday.
+
+  0s (↑6 ↓40)
+
+┃ and once more?
+
+  MARKER-AGAIN: Thursday.
+
+  0s (↑4 ↓40)
+
+┃
+
+auto · model-a · read the notes and tell me what  · 1k
+
+
+
+
+
+
+
+

@@ -1,0 +1,224 @@
+pairs: reference 296, train 373, shared 296; only the reference: 0
+reference: 296 pairs, pass 175; approved-divergence-cascade 1, identical 13, normalized-identical 162, unresolved-defect 120
+train: 296 pairs, pass 177; approved-divergence-cascade 1, identical 14, normalized-identical 163, unresolved-defect 118
+p5-input-question20 resumed: 36 differing rows left, 0 new
+    left: fx '      Change 10' / xfx ''
+    left: fx '      Change 12' / xfx ''
+    left: fx '      Change 14' / xfx ''
+    left: fx '      Change 16' / xfx ''
+    left: fx '      Change 18' / xfx ''
+    left: fx '      Change 20' / xfx ''
+    left: fx '      Keep 11' / xfx ''
+    left: fx '      Keep 13' / xfx ''
+    left: fx '      Keep 15' / xfx ''
+    left: fx '      Keep 17' / xfx ''
+    left: fx '      Keep 19' / xfx ''
+    left: fx '     Change 6' / xfx ''
+    left: fx '     Change 8' / xfx ''
+    left: fx '     Keep 5' / xfx ''
+    left: fx '     Keep 7' / xfx ''
+    left: fx '     Keep 9' / xfx ''
+    left: fx '  10) Pick 10?' / xfx 'auto · model-a'
+    left: fx '  11) Pick 11?' / xfx ''
+    left: fx '  12) Pick 12?' / xfx ''
+    left: fx '  13) Pick 13?' / xfx ''
+    left: fx '  14) Pick 14?' / xfx ''
+    left: fx '  15) Pick 15?' / xfx ''
+    left: fx '  16) Pick 16?' / xfx ''
+    left: fx '  17) Pick 17?' / xfx ''
+    left: fx '  18) Pick 18?' / xfx ''
+    left: fx '  19) Pick 19?' / xfx ''
+    left: fx '  20) Pick 20?' / xfx ''
+    left: fx '  5) Pick 5?' / xfx '* session resumed: ask twenty'
+    left: fx '  6) Pick 6?' / xfx '┃ ask twenty'
+    left: fx '  7) Pick 7?' / xfx '  Twenty done.'
+    left: fx '  8) Pick 8?' / xfx '  <wall> (↑3 ↓80)'
+    left: fx '  9) Pick 9?' / xfx '┃'
+    left: fx '  <wall> (↑3 ↓80)' / xfx ''
+    left: fx '  Twenty done.' / xfx ''
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+p5-input-question20 resumed.full: 44 differing rows left, 0 new
+    left: fx '      Change 10' / xfx ''
+    left: fx '      Change 12' / xfx ''
+    left: fx '      Change 14' / xfx ''
+    left: fx '      Change 16' / xfx ''
+    left: fx '      Change 18' / xfx ''
+    left: fx '      Change 20' / xfx ''
+    left: fx '      Keep 11' / xfx ''
+    left: fx '      Keep 13' / xfx ''
+    left: fx '      Keep 15' / xfx ''
+    left: fx '      Keep 17' / xfx ''
+    left: fx '      Keep 19' / xfx ''
+    left: fx '     Change 2' / xfx ''
+    left: fx '     Change 4' / xfx ''
+    left: fx '     Change 6' / xfx ''
+    left: fx '     Change 8' / xfx ''
+    left: fx '     Keep 1' / xfx ''
+    left: fx '     Keep 3' / xfx ''
+    left: fx '     Keep 5' / xfx ''
+    left: fx '     Keep 7' / xfx ''
+    left: fx '     Keep 9' / xfx ''
+    left: fx '  1) Pick 1?' / xfx '  Twenty done.'
+    left: fx '  10) Pick 10?' / xfx ''
+    left: fx '  11) Pick 11?' / xfx ''
+    left: fx '  12) Pick 12?' / xfx ''
+    left: fx '  13) Pick 13?' / xfx ''
+    left: fx '  14) Pick 14?' / xfx ''
+    left: fx '  15) Pick 15?' / xfx ''
+    left: fx '  16) Pick 16?' / xfx ''
+    left: fx '  17) Pick 17?' / xfx ''
+    left: fx '  18) Pick 18?' / xfx ''
+    left: fx '  19) Pick 19?' / xfx ''
+    left: fx '  2) Pick 2?' / xfx '  <wall> (↑3 ↓80)'
+    left: fx '  20) Pick 20?' / xfx ''
+    left: fx '  3) Pick 3?' / xfx '┃'
+    left: fx '  4) Pick 4?' / xfx 'auto · model-a'
+    left: fx '  5) Pick 5?' / xfx ''
+    left: fx '  6) Pick 6?' / xfx ''
+    left: fx '  7) Pick 7?' / xfx ''
+    left: fx '  8) Pick 8?' / xfx ''
+    left: fx '  9) Pick 9?' / xfx ''
+    left: fx '  <wall> (↑3 ↓80)' / xfx ''
+    left: fx '  Twenty done.' / xfx ''
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx ''
+provider-carry-back turn2: 9 differing rows left, 4 new
+    left: fx '' / xfx '  <wall> (↑6 ↓40)'
+    left: fx '' / xfx '  MARKER-AFTER-SWITCH: still Thursday.'
+    left: fx '' / xfx '  reasoning was not carried over'
+    left: fx '' / xfx 'auto · model-a · read the notes and tell me what  · 1k'
+    left: fx '' / xfx '┃'
+    left: fx '  <wall> (↑6 ↓40)' / xfx ''
+    left: fx '  MARKER-AFTER-SWITCH: still Thursday.' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '┃ what day was it again?' / xfx 'e anthropic_messages wire and is continuing on vercel_gateway, so that'
+    NEW:  fx '  <wall> (↑6 ↓40)' / xfx '┃'
+    NEW:  fx '  MARKER-AFTER-SWITCH: still Thursday.' / xfx '  <wall> (↑6 ↓40)'
+    NEW:  fx '┃' / xfx 'auto · model-a · read the notes and tell me what  · 1k'
+    NEW:  fx '┃ what day was it again?' / xfx '  MARKER-AFTER-SWITCH: still Thursday.'
+provider-carry-back turn3: 15 differing rows left, 7 new
+    left: fx '' / xfx '  <wall> (↑4 ↓40)'
+    left: fx '' / xfx '  <wall> (↑6 ↓40)'
+    left: fx '' / xfx '  MARKER-AFTER-SWITCH: still Thursday.'
+    left: fx '' / xfx '  MARKER-AGAIN: Thursday.'
+    left: fx '' / xfx '  reasoning was not carried over'
+    left: fx '' / xfx 'auto · model-a · read the notes and tell me what  · 1k'
+    left: fx '' / xfx '┃'
+    left: fx '' / xfx '┃ and once more?'
+    left: fx '  <wall> (↑4 ↓40)' / xfx ''
+    left: fx '  <wall> (↑6 ↓40)' / xfx ''
+    left: fx '  MARKER-AFTER-SWITCH: still Thursday.' / xfx ''
+    left: fx '  MARKER-AGAIN: Thursday.' / xfx ''
+    left: fx '┃' / xfx ''
+    left: fx '┃ and once more?' / xfx ''
+    left: fx '┃ what day was it again?' / xfx 'e anthropic_messages wire and is continuing on vercel_gateway, so that'
+    NEW:  fx '  <wall> (↑4 ↓40)' / xfx '┃'
+    NEW:  fx '  <wall> (↑6 ↓40)' / xfx '┃ and once more?'
+    NEW:  fx '  MARKER-AFTER-SWITCH: still Thursday.' / xfx '  <wall> (↑6 ↓40)'
+    NEW:  fx '  MARKER-AGAIN: Thursday.' / xfx '  <wall> (↑4 ↓40)'
+    NEW:  fx '┃' / xfx 'auto · model-a · read the notes and tell me what  · 1k'
+    NEW:  fx '┃ and once more?' / xfx '  MARKER-AGAIN: Thursday.'
+    NEW:  fx '┃ what day was it again?' / xfx '  MARKER-AFTER-SWITCH: still Thursday.'
+provider-carry-back-stop next: 9 differing rows left, 1 new
+    left: fx '' / xfx '  <wall> (↑6 ↓40)'
+    left: fx '' / xfx '  MARKER-AFTER-STOP: still Thursday.'
+    left: fx '' / xfx '  reasoning was not carried over'
+    left: fx '' / xfx 'auto · model-a · read the notes and tell me what  · 1k'
+    left: fx '' / xfx '┃'
+    left: fx '  <wall> (↑6 ↓40)' / xfx ''
+    left: fx '  MARKER-AFTER-STOP: still Thursday.' / xfx 'e anthropic_messages wire and is continuing on vercel_gateway, so that'
+    left: fx 'auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%' / xfx ''
+    left: fx '┃' / xfx ''
+    NEW:  fx 'auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%' / xfx 'auto · model-a · read the notes and tell me what  · 1k'
+verdicts moved: 2
+    p5-input-question20 resumed: unresolved-defect -> identical
+    p5-input-question20 resumed.full: unresolved-defect -> normalized-identical
+fx screens not the same in the two sweeps: 30
+    image-paste ctrl-v
+    image-paste end.full
+    image-paste images
+    image-paste paste
+    image-paste sent
+    p5-lifecycle-login2 m04-codex-methods
+    p5-lifecycle-login2 m05-codex-signin
+    p5-lifecycle-login2 m06-grok-methods
+    p5-lifecycle-login2 m07-grok-signin
+    p5-lifecycle-osc s01-working
+    p5-lifecycle-osc s09-exit
+    p5-lifecycle-relhome h01-sessions.full
+    p5-lifecycle-relhome-made h02-sessions.full
+    p5-lifecycle-relhome-resume r00-resume.full
+    p5-lifecycle-relhome-unsaved u08-quit.full
+    p5-lifecycle-update u00-update
+    p5-lifecycle-update u01-update-dev
+    p5-lifecycle-update u02-upgrade-json
+    p5-lifecycle-update u03-help.full
+    p5-lifecycle-v1bad b02-launch-refused.full
+    provider-carry quit
+    resume quit
+    resume-launch quit
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+xfx screens not the same in the two sweeps: 54
+    approvals after-cc-cmd-ask
+    approvals cmd2-ask
+    approvals edit-amend-typed
+    approvals edit-ask
+    approvals edit-down1
+    approvals edit-down3-wrap
+    approvals edit-tab-amend
+    approvals write-ask
+    approvals-amend-limit asked
+    approvals-amend-limit refused
+    approvals-amend-limit refused-after-edit
+    approvals-amend-limit refused-again
+    approvals-big write-big
+    approvals-big write-big-walked
+    image-paste ctrl-v
+    image-paste end.full
+    image-paste images
+    image-paste paste
+    image-paste sent
+    p5-input-question20 resumed
+    p5-input-question20 resumed.full
+    p5-lifecycle-compactok c02-compacting
+    p5-lifecycle-relhome h01-sessions.full
+    p5-lifecycle-relhome-made h02-sessions.full
+    p5-lifecycle-relhome-resume r00-resume.full
+    p5-lifecycle-relhome-unsaved u02-status
+    p5-lifecycle-relhome-unsaved u08-quit.full
+    p5-lifecycle-retryok k01-1.5s
+    p5-lifecycle-retryok k02-4.5s
+    p5-lifecycle-update u00-update
+    p5-lifecycle-update u01-update-dev
+    p5-lifecycle-update u02-upgrade-json
+    p5-lifecycle-update u03-help.full
+    p5-lifecycle-v1bad b02-launch-refused.full
+    p5-lifecycle-v1resume v01-resumed
+    p5-lifecycle-v1resume v01-resumed.full
+    p5-lifecycle-v1resume v02-continued
+    provider-carry quit
+    provider-carry-back turn2
+    provider-carry-back turn3
+    provider-carry-back-stop next
+    resume quit
+    resume-launch quit
+    resume-tools cmd-ask
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools edit-ask
+    resume-tools exit-ask
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    resume-tools write-ask
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 3

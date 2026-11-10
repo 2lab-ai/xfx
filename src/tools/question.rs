@@ -325,6 +325,181 @@ pub fn encode_answers(entries: &[QuestionEntry], answers: &[String]) -> Result<S
     serde_json::to_string(&document).map_err(|err| bad(&err.to_string()))
 }
 
+/// One question of a saved answer document, as [`decode_answers`] reads it
+/// back: the question as the model was shown it and the answer it was sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavedAnswer {
+    pub question: String,
+    pub answer: String,
+}
+
+/// A call's answer document read back off a saved session, or `None` for
+/// anything else: upstream's `decodeJson` (`question_answer.zig:43-74@481104fd`),
+/// which a resume runs on a successful `ask_user_question` result before it
+/// draws the batch's resolutions (`writeAnsweredQuestionResult`,
+/// `app_session_runtime.zig:4589-4607`).
+///
+/// The document is file input -- anyone who can write the session log can
+/// change it -- and this is its whole bound, as upstream's is: one JSON array
+/// of [`MIN_QUESTIONS`] to [`MAX_QUESTIONS`] objects, each with a string
+/// `question` and a string `answer`, other keys ignored as `object.get`
+/// ignores them. Anything else is `None`, never a panic: text that is not JSON
+/// (a sentinel, a refusal), JSON with more after it, an array of none or of
+/// more than twenty, an element that is not an object (`:63`), a field missing
+/// or not a string -- upstream's own rejects (`question_answer.zig:101-111`,
+/// `:113-141`). A key given twice in an answer's own object is refused too,
+/// `question`, `answer` or one nobody reads, as upstream's `std.json` refuses
+/// it (`duplicate_field_behavior` defaults to `.@"error"`,
+/// `std/json/static.zig:20-26`, applied in `dynamic.zig:149-156`, in Zig
+/// 0.17.0 and 0.17.1, the releases the pin builds with, `build.zig.zon:28@481104fd`;
+/// the same lines as 0.16.0's).
+///
+/// **Looser than upstream in one place**: a key nobody reads is skipped
+/// ([`serde::de::IgnoredAny`]) without upstream's two checks inside it.
+/// Upstream's parse refuses a key given twice in *any* object at any depth,
+/// and an unpaired surrogate in *any* string (`Scanner.zig:25-32`), so
+/// `[{"question":"Q","answer":"A","x":{"k":1,"k":2}}]` and the same with
+/// `"x":"\ud800"` are answered batches here and, by those lines, null there
+/// (read in Zig 0.17.0's and 0.17.1's std, identical to 0.16.0's on these
+/// rules). The release binary was not run on such a session: the fxcap
+/// harness has no step that rewrites a saved session between a run and its
+/// resume (`rehomefile` writes a fixed file), and no forged session was
+/// tried outside it. Only a hand-forged log holds such a
+/// document, and its rows are drawn inert; matching upstream would mean a
+/// skipper of xfx's own.
+///
+/// Read by hand rather than derived: a derived struct also takes serde's
+/// positional form, so `[["Q","A"]]` would be an answer. The array is read
+/// element by element and a twenty-first is refused at its first byte, its
+/// value unread ([`TwentyFirst`]); each element is read as an object only
+/// ([`Element`]). Neither goes through `serde_json::Value`, whose parse stops
+/// at a depth of 128: a key nobody reads is skipped at any depth, as
+/// upstream's heap-grown parse keeps it. Nothing here is made safe for a
+/// terminal: the rows that show it are (`crate::tui::question`'s
+/// `resolution_rows`).
+pub fn decode_answers(output: &str) -> Option<Vec<SavedAnswer>> {
+    serde_json::from_str::<Batch>(output)
+        .ok()
+        .map(|batch| batch.0)
+}
+
+/// The document's array, read by [`BatchVisitor`].
+struct Batch(Vec<SavedAnswer>);
+
+impl<'de> serde::Deserialize<'de> for Batch {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_seq(BatchVisitor)
+    }
+}
+
+struct BatchVisitor;
+
+impl<'de> serde::de::Visitor<'de> for BatchVisitor {
+    type Value = Batch;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "an array of {MIN_QUESTIONS} to {MAX_QUESTIONS} answered questions"
+        )
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Batch, A::Error> {
+        let mut answers = Vec::new();
+        loop {
+            if answers.len() == MAX_QUESTIONS {
+                // Only whether there is a twenty-first is asked: the parser
+                // peeks its first byte to tell, and the seed refuses it there
+                // ([`TwentyFirst`]), so its value is not read past that byte.
+                return match seq.next_element_seed(TwentyFirst)? {
+                    Some(never) => match never {},
+                    None => Ok(Batch(answers)),
+                };
+            }
+            match seq.next_element::<Element>()? {
+                Some(Element(answer)) => answers.push(answer),
+                None if answers.len() < MIN_QUESTIONS => {
+                    return Err(serde::de::Error::invalid_length(answers.len(), &self))
+                }
+                None => return Ok(Batch(answers)),
+            }
+        }
+    }
+}
+
+/// What the array's visitor reads a twenty-first element with: a refusal
+/// that never calls the deserializer, so the element's value is not read.
+/// Its value type has no values, so a twenty-first can never be accepted.
+struct TwentyFirst;
+
+/// No twenty-first element is ever read into anything.
+enum Never {}
+
+impl<'de> serde::de::DeserializeSeed<'de> for TwentyFirst {
+    type Value = Never;
+
+    fn deserialize<D: serde::Deserializer<'de>>(self, _: D) -> Result<Never, D::Error> {
+        Err(serde::de::Error::invalid_length(
+            MAX_QUESTIONS + 1,
+            &"an array of at most twenty answered questions",
+        ))
+    }
+}
+
+/// One element of the array: an object and nothing else
+/// (`question_answer.zig:63@481104fd`).
+struct Element(SavedAnswer);
+
+impl<'de> serde::Deserialize<'de> for Element {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(ElementVisitor)
+    }
+}
+
+struct ElementVisitor;
+
+impl<'de> serde::de::Visitor<'de> for ElementVisitor {
+    type Value = Element;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("an object with a string `question` and a string `answer`")
+    }
+
+    // `visit_map` alone: an array, a string or a number is the visitor's
+    // default refusal (`invalid type`), never a positional answer.
+    //
+    // Any key of this object given twice is refused, the two read and every
+    // other alike, as upstream's parse refuses it (`duplicate_field_behavior
+    // = .@"error"`, `std/json/dynamic.zig:149-156`, the same in Zig 0.16.0,
+    // 0.17.0 and 0.17.1). A skipped value's own keys are not checked
+    // ([`decode_answers`]).
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Element, A::Error> {
+        let (mut question, mut answer) = (None, None);
+        let mut others = std::collections::HashSet::new();
+        while let Some(key) = map.next_key::<String>()? {
+            let slot = match key.as_str() {
+                "question" => &mut question,
+                "answer" => &mut answer,
+                _ => {
+                    map.next_value::<serde::de::IgnoredAny>()?;
+                    if !others.insert(key) {
+                        return Err(serde::de::Error::custom("a key given twice"));
+                    }
+                    continue;
+                }
+            };
+            if slot.is_some() {
+                return Err(serde::de::Error::custom(format!("`{key}` given twice")));
+            }
+            *slot = Some(map.next_value::<String>()?);
+        }
+        Ok(Element(SavedAnswer {
+            question: question.ok_or_else(|| serde::de::Error::missing_field("question"))?,
+            answer: answer.ok_or_else(|| serde::de::Error::missing_field("answer"))?,
+        }))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // the spec
 // ---------------------------------------------------------------------------
@@ -467,6 +642,13 @@ fn execute(input: &ToolInput, context: &ToolContext) -> ToolResult {
     }
 }
 
+/// The call's verbs (`action_label = "Asking"`, `completed_action_label =
+/// "Asked"`, `builtins/tools.zig:615-616@481104fd`). No live row says either:
+/// a question is never part of a tool group. A resume's row for a call that
+/// left no answered batch says the second (`crate::tui::question`'s
+/// `asked_row`).
+pub const PRESENTATION: Presentation = Presentation::new(Activity::Ask, "Asking", "Asked", "");
+
 /// `ask_user_question`. Mints no authority: `PermissionKind::Interaction`
 /// requires none, and the executor above never touches the filesystem or a
 /// process. `permission_request_id` is deliberately not advertised -- that
@@ -475,7 +657,7 @@ pub const ASK_USER_QUESTION: ToolSpec = ToolSpec::new(
     "ask_user_question",
     DESCRIPTION,
     PermissionKind::Interaction,
-    Presentation::new(Activity::Ask, "Asking", "Asked", ""),
+    PRESENTATION,
     INPUT_SCHEMA,
     decode,
     validate,
@@ -730,6 +912,169 @@ mod tests {
             r#"[{"question":"Which depth?","answer":"Thorough"},{"question":"Ship it?","answer":"Yes \"now\""}]"#
         );
         assert!(encode_answers(&entries, &["only one".into()]).is_err());
+    }
+
+    fn saved(question: &str, answer: &str) -> SavedAnswer {
+        SavedAnswer {
+            question: question.into(),
+            answer: answer.into(),
+        }
+    }
+
+    /// The document `encode_answers` writes for `count` questions.
+    fn document(count: usize) -> String {
+        let entries: Vec<QuestionEntry> = (1..=count)
+            .map(|index| entry(&format!("Question {index}?")))
+            .collect();
+        let answers: Vec<String> = (1..=count).map(|index| format!("Answer {index}")).collect();
+        encode_answers(&entries, &answers).unwrap()
+    }
+
+    #[test]
+    fn a_saved_answer_document_reads_back_in_order_with_its_escapes() {
+        // `question_answer.zig:76-99@481104fd`: the encoder's document decodes
+        // to the same pairs, in order, its escapes undone.
+        let entries = vec![entry("Which depth?"), entry("Ship it?")];
+        let written =
+            encode_answers(&entries, &["Thorough".into(), "Yes \"now\"\nlater".into()]).unwrap();
+        assert_eq!(
+            decode_answers(&written),
+            Some(vec![
+                saved("Which depth?", "Thorough"),
+                saved("Ship it?", "Yes \"now\"\nlater")
+            ])
+        );
+        // Whitespace around the document is JSON's, and a key the decoder
+        // does not read is ignored, as `object.get` ignores it.
+        assert_eq!(
+            decode_answers(" [{\"answer\":\"A\",\"question\":\"Q\",\"extra\":[1,{}]}]\n"),
+            Some(vec![saved("Q", "A")])
+        );
+    }
+
+    #[test]
+    fn a_saved_document_of_one_to_twenty_questions_decodes_and_no_other_count_does() {
+        // `question_answer.zig:59` and `:113-141@481104fd`: the bound is the
+        // tool's own, both ends of it.
+        assert_eq!(MIN_QUESTIONS, 1);
+        assert_eq!(decode_answers(&document(1)).map(|got| got.len()), Some(1));
+        assert_eq!(decode_answers(&document(4)).map(|got| got.len()), Some(4));
+        let twenty = decode_answers(&document(MAX_QUESTIONS)).expect("a full batch");
+        assert_eq!(twenty.len(), MAX_QUESTIONS);
+        assert_eq!(twenty[19], saved("Question 20?", "Answer 20"));
+        assert_eq!(decode_answers(&document(MAX_QUESTIONS + 1)), None);
+        assert_eq!(decode_answers("[]"), None);
+    }
+
+    #[test]
+    fn the_twenty_first_element_is_refused_at_its_first_byte_unread() {
+        // The array's visitor asks only whether a twenty-first element is
+        // there and refuses it with the count, before its value is read. Each
+        // tail below is a value whose reading fails -- a truncated object, an
+        // unclosed 100 000-deep array, an 8 MiB string with no closing quote,
+        // a control byte -- so a visitor that read it (round 2's
+        // `IgnoredAny`) gives that parse error instead of the count's, on
+        // every one. All four are checked before any assertion, so such a
+        // visitor's failure names each.
+        let twenty = document(MAX_QUESTIONS);
+        let open = &twenty[..twenty.len() - 1];
+        let tails = [
+            ("truncated object", r#"{"question":"#.to_string()),
+            ("unclosed deep array", "[".repeat(100_000)),
+            (
+                "unclosed 8 MiB string",
+                format!("\"{}", "x".repeat(8 << 20)),
+            ),
+            ("control byte", "\u{1}not json".to_string()),
+        ];
+        let read: Vec<(&str, String)> = tails
+            .iter()
+            .filter_map(|(name, tail)| {
+                let refused = serde_json::from_str::<Batch>(&format!("{open},{tail}"))
+                    .err()
+                    .expect("twenty-one is refused");
+                let counted = refused.classify() == serde_json::error::Category::Data
+                    && refused.to_string().starts_with("invalid length 21");
+                (!counted).then(|| (*name, format!("{:?}: {refused}", refused.classify())))
+            })
+            .collect();
+        assert_eq!(read, Vec::<(&str, String)>::new(), "read before refused");
+    }
+
+    #[test]
+    fn a_skipped_value_is_not_checked_as_upstreams_parse_checks_it() {
+        // Looser than upstream, and only here: upstream's `std.json` refuses
+        // a key given twice in **any** object and an unpaired surrogate in
+        // **any** string (`duplicate_field_behavior = .@"error"`,
+        // `std/json/static.zig:20-26`, applied in `dynamic.zig:149-156`;
+        // `Scanner.zig:25-32`; the same in Zig 0.16.0, 0.17.0 and 0.17.1),
+        // so both of these are null there.
+        // A key nobody reads is skipped here without either check
+        // (`IgnoredAny`), so both decode. Only a hand-forged log holds them,
+        // and the rows that show them are inert (`docs/parity.md`).
+        for output in [
+            r#"[{"question":"Q","answer":"A","x":{"k":1,"k":2}}]"#,
+            r#"[{"question":"Q","answer":"A","x":"\ud800"}]"#,
+        ] {
+            assert_eq!(
+                decode_answers(output),
+                Some(vec![saved("Q", "A")]),
+                "{output}"
+            );
+        }
+    }
+
+    #[test]
+    fn anything_but_an_answer_document_is_none_and_never_a_panic() {
+        // Upstream's rejects (`question_answer.zig:101-111@481104fd`) first,
+        // then the rest of what a session file could hold instead.
+        for output in [
+            CANCEL_SENTINEL,
+            "[]",
+            r#"[{"question":"Q"}]"#,
+            r#"[{"question":"Q","answer":1}]"#,
+            r#"[{"question":"Q","answer":"A"}] trailing"#,
+            ABORTED_OUTPUT,
+            NOT_AVAILABLE_SENTINEL,
+            "(ask_user_question: provide 1 to 20 questions)",
+            "",
+            "null",
+            r#"{"question":"Q","answer":"A"}"#,
+            r#"["Q"]"#,
+            r#"[{"question":"Q","answer":"A"},7]"#,
+            r#"[{"answer":"A"}]"#,
+            r#"[{"question":null,"answer":"A"}]"#,
+            r#"[{"question":"Q","answer":["A"]}]"#,
+            r#"[{"question":"Q","answer":"A","answer":"B"}]"#,
+            r#"[{"question":"Q","answer":"A"}"#,
+            r#"[{"question":"\ud800","answer":"A"}]"#,
+            // An element that is a JSON array, not an object, is refused
+            // whatever it holds (`if (item != .object) return null`,
+            // `question_answer.zig:63@481104fd`): a struct's positional form
+            // is not a saved answer.
+            r#"[["Q","A"]]"#,
+            r#"[["Q","A","x"]]"#,
+            r#"[{"question":"Q","answer":"A"},["Q","A"]]"#,
+            r#"[["Q","A"],{"question":"Q","answer":"A"}]"#,
+            // A key given twice, read or not.
+            r#"[{"question":"Q","question":"R","answer":"A"}]"#,
+            r#"[{"question":"Q","answer":"A","x":1,"x":2}]"#,
+        ] {
+            assert_eq!(decode_answers(output), None, "{output}");
+        }
+        // A key nobody reads is skipped whatever it holds, a hundred
+        // thousand arrays deep included, without a frame per level: no stack
+        // to overflow. Upstream's `std.json` keeps it (its stack grows on the
+        // heap) and `object.get` ignores it, so it decodes there too.
+        let deep = format!(
+            "[{{\"question\":\"Q\",\"answer\":\"A\",\"x\":{}{}}}]",
+            "[".repeat(100_000),
+            "]".repeat(100_000)
+        );
+        assert_eq!(decode_answers(&deep), Some(vec![saved("Q", "A")]));
+        // Deep where an answer is read is not an answer.
+        let nested = format!("{}{}", "[".repeat(100_000), "]".repeat(100_000));
+        assert_eq!(decode_answers(&nested), None);
     }
 
     #[test]

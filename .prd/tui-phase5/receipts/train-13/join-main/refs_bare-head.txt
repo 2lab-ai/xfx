@@ -1,0 +1,100 @@
+# head 0dbfaf39; sides: train afd891af, main d2b2ca75
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1942-1948 (after src/tui/shell.rs)
+    train MOVED -> :1940-1946
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1911 (after src/tui/shell.rs)
+    train MOVED -> :1909
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :584 (after src/tui/shell.rs)
+    train MOVED -> :582
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2170 (after src/tui/shell.rs)
+    train MOVED -> :2168
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2546 (after src/tui/shell.rs)
+    train MOVED -> :2544
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2571 (after src/tui/shell.rs)
+    train MOVED -> :2569
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2130 (after src/tui/shell.rs)
+    train MOVED -> :2128
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2188 (after src/tui/shell.rs)
+    train MOVED -> :2186
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2207 (after src/tui/shell.rs)
+    train MOVED -> :2205
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2263 (after src/tui/shell.rs)
+    train MOVED -> :2261
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2313 (after src/tui/shell.rs)
+    train MOVED -> :2311
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:207: :2208 (after src/tui/shell.rs)
+    train MOVED -> :2206
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:207: :2264 (after src/tui/shell.rs)
+    train MOVED -> :2262
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:208: :2314 (after src/tui/shell.rs)
+    train MOVED -> :2312
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:208: :2555 (after src/tui/shell.rs)
+    train MOVED -> :2553
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:276: :4013 (after src/tui/shell.rs)
+    train MOVED -> :4011
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:277: :4074 (after src/tui/shell.rs)
+    train MOVED -> :4072
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:33: :2858 (after src/tui/shell.rs)
+    train MOVED -> :2856
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:36: :634 (after src/output.rs)
+    train MOVED -> :642
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :544-549 (after src/tui/shell.rs)
+    train MOVED -> :542-547
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :640-655 (after src/tui/shell.rs)
+    train MOVED -> :638-653
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :790-795 (after src/tui/shell.rs)
+    train MOVED -> :788-793
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1040-1060 (after src/tui/shell.rs)
+    train MOVED -> :1038-1058
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1220 (after src/tui/shell.rs)
+    train MOVED -> :1218
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1792-1810 (after src/tui/shell.rs)
+    train MOVED -> :1790-1808
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :2777 (after src/tui/shell.rs)
+    train MOVED -> :2775
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:796: :7039 (after src/tui/shell.rs)
+    train MOVED -> :7037 | main MOVED -> :7055
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:851: :6004 (after src/tui/shell.rs)
+    train MOVED -> :6002 | main MOVED -> :6020
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md:428: :770-789 (after src/output.rs)
+    train MOVED -> :778-797
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md:429: :873-878 (after src/output.rs)
+    train MOVED -> :881-886
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :1202-1266 (after src/tui/shell.rs)
+    train MOVED -> :1200-1264
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :1520-1533 (after src/tui/shell.rs)
+    train MOVED -> :1518-1531
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:309: :242-244 (after src/tui/approval.rs)
+    main MOVED -> :243-245
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:309: :252-254 (after src/tui/approval.rs)
+    main MOVED -> :253-255
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:309: :225-235 (after src/tui/approval.rs)
+    main MOVED -> :226-236
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:309: :274-289 (after src/tui/approval.rs)
+    main MOVED -> :275-290
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:317: :339 (after src/tui/approval.rs)
+    main MOVED -> :340
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:318: :376-386 (after src/tui/approval.rs)
+    main MOVED -> :377-387
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:337: :743-754 (after src/tui/shell.rs)
+    train MOVED -> :741-752
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:337: :755 (after src/tui/shell.rs)
+    train MOVED -> :753
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:494: :3239 (after src/tui/shell.rs)
+    train MOVED -> :3237
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:494: :3187 (after src/tui/shell.rs)
+    train MOVED -> :3185
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1246 (after src/tui/approval.rs)
+    main MOVED -> :1252
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1199-1218 (after src/tui/approval.rs)
+    main MOVED -> :1205-1224
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1180-1196 (after src/tui/approval.rs)
+    main MOVED -> :1186-1202
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5577 (after src/tui/shell.rs)
+    train MOVED -> :5575 | main MOVED -> :5593
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5590 (after src/tui/shell.rs)
+    train MOVED -> :5588 | main MOVED -> :5606
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5600 (after src/tui/shell.rs)
+    train MOVED -> :5598 | main MOVED -> :5616
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :755 (after src/tui/approval.rs)
+    main MOVED -> :761
+# 80 bare continuations after a reference into a changed file; 49 moved or changed on some side that holds them

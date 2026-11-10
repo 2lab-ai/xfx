@@ -467,16 +467,17 @@ non-question.
 | `anthropic_messages` | `anthropic_messages` | replay `raw_content` **verbatim**, in arrival order, ahead of text and tool calls |
 | `codex_responses` | `codex_responses` | replay `responses_state` **verbatim**, items first, then text, then tool calls |
 | `grok_responses` | `grok_responses` | replay `responses_state` verbatim, same ordering |
-| `codex_responses` | `grok_responses`, or the reverse | **drop with notice.** Same serialization, different authority: the payload is state sealed by the other provider |
+| `codex_responses` | `grok_responses`, or the reverse | **drop.** Same serialization, different authority: the payload is state sealed by the other provider |
 | `None` with non-empty `raw_content` | `anthropic_messages` | replay verbatim — a legacy record's blocks can only have come from that wire |
-| `None` with non-empty `raw_content` | anything else | **drop with notice** |
-| any | `vercel_gateway` | **drop with notice** — that wire has no replay contract |
-| any | any other mismatch | **drop with notice** |
+| `None` with non-empty `raw_content` | anything else | **drop** |
+| any | `vercel_gateway` | **drop** — that wire has no replay contract |
+| any | any other mismatch | **drop** |
 
-A drop is **never silent**: it emits a one-line user-visible notice on resume naming the recorded
-wire, the active wire, and the fact that prior reasoning was not carried over, because the user is
-entitled to know that the model resumed with less context than the log holds. The stored items are
-**not** deleted — a later resume back onto the original authority replays them. Dropping shapes a
+A drop is **silent**, as upstream's is: `projectProviderReplay` leaves a step's replay state out of a
+request whose provider or model did not seal it, without a word to the user (`src/core/shared/types.zig:1668-1682`
+and its callers, e.g. `src/builtins/gateway.zig:178-180`, at fx `481104fd`). Until HISTORY-NOTICES-COPY-FX
+(2026-11-10) xfx said a one-line notice once per conversation instead; it copies fx now. The stored items
+are **not** deleted — a later resume back onto the original authority replays them. Dropping shapes a
 *request*; it never mutates a record.
 
 A dropped state still sends a complete assistant turn: text and tool calls replay as normal, which is
