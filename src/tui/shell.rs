@@ -12338,14 +12338,18 @@ impl Shell {
             // Every Enter while `/mcp`'s menu is up, whichever surface takes
             // it, is one the menu's held rule counts (opus-Y): an Enter the
             // model's panel took, then a second tap once the question is
-            // painted again, is a double tap, not an answer. A C-j that
-            // answers the model's panel is not counted (QUESTION-CTRL-J): the
-            // rule is about a held Enter's repeats, and a held C-j repeats as
-            // C-j, which the menu reads as Down -- nothing at a confirmation
-            // ([`Self::offer_to_mcp`]) -- so it cannot answer one.
-            let held = matches!(event, Input::Action(Action::Submit))
-                && self.mcp_menu.is_some()
-                && self.mcp_enter.enter(now);
+            // painted again, is a double tap, not an answer. So is a C-j the
+            // model's panel takes, which answers it as Enter does
+            // (QUESTION-CTRL-J): the window is how soon after the last
+            // answering key a person can have read the question painted
+            // again, whichever key that was. A C-j the menu takes is its Down,
+            // no answer, and counts for nothing.
+            let answers = match event {
+                Input::Action(Action::Submit) => true,
+                Input::Action(Action::ControlJ) => self.ask.is_some(),
+                _ => false,
+            };
+            let held = answers && self.mcp_menu.is_some() && self.mcp_enter.enter(now);
             // The full transcript, while it is up, has the keys it binds;
             // everything else goes where it would have gone with the screen
             // closed -- the composer, the band's menus -- as upstream routes
