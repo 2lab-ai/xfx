@@ -23243,18 +23243,19 @@ mod tests {
 
     #[test]
     fn an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft() {
-        // The feedback text: a letter typed, or C-u, C-w or a yank, asks for a
-        // frame as a move does (fx's insert, `app_input_runtime.zig:1251-1255
+        // The feedback text: a letter typed, or C-u or C-w, asks for a frame
+        // as a move does (fx's insert, `app_input_runtime.zig:1251-1255
         // @481104fd`; its draft edits, `input_approval_runtime.zig:79-89`), so
         // the Enter read with it sends nothing, and the Enter after the frame
-        // sends the draft that frame shows.
+        // sends the draft that frame shows. C-y after C-w yanks nothing: fx's
+        // draft has no yank (APPROVAL-DRAFT-KEYS), so `ab ` is sent.
         // `fx-p5-approval-readiness-settled-40x120-write-letter-enter`.
         let mut unseen = Vec::new();
         for (name, keys, sent) in [
             ("a letter", &b"x\r"[..], "ab cdx"),
             ("ctrl-u", b"\x15\r", ""),
             ("ctrl-w", b"\x17\r", "ab "),
-            ("ctrl-w then a yank", b"\x17\x19\r", "ab cd"),
+            ("ctrl-w then ctrl-y", b"\x17\x19\r", "ab "),
             // A digit in a draft is a character, not an answer.
             ("a letter then a digit", b"x1\r", "ab cdx1"),
         ] {
@@ -23445,6 +23446,219 @@ mod tests {
                 feedback: None,
             })
         );
+    }
+
+    /// Every spelling of the three keys xfx's draft took and fx v0.0.16's
+    /// does not: undo, redo and yank (APPROVAL-DRAFT-KEYS).
+    const DRAFT_KEYS_FX_DOES_NOT_TAKE: [(&str, &[u8]); 9] = [
+        ("ctrl-y", &[0x19]),
+        ("kitty ctrl-y", b"\x1b[121;5u"),
+        ("xterm ctrl-y", b"\x1b[27;5;121~"),
+        ("ctrl-_", &[0x1f]),
+        ("kitty ctrl-_", b"\x1b[95;5u"),
+        ("super-z", b"\x1b[122;9u"),
+        ("xterm super-z", b"\x1b[27;9;122~"),
+        ("super-shift-z", b"\x1b[122;10u"),
+        ("xterm super-shift-z", b"\x1b[27;10;122~"),
+    ];
+
+    /// A shell asking the edit question with `ab cd` typed into the first
+    /// choice's draft, then C-w (so the draft is `ab `, with something
+    /// killed and an edit to undo), and a frame that showed it. On the band,
+    /// or on the review plane.
+    fn drafting_ab_after_a_kill(review: bool) -> Fixture {
+        let mut shell = shell(24, 80);
+        if review {
+            let started = turn_running(&mut shell, b"edit the notes\r");
+            shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+            shell.settle_band(started);
+            assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+            delivered(&mut shell);
+        } else {
+            asking(&mut shell);
+        }
+        shell.route_bytes(b"\tab cd");
+        delivered(&mut shell);
+        shell.route_bytes(&[0x17]);
+        delivered(&mut shell);
+        assert!(shell.drafting(), "no draft has the keys");
+        assert!(shell.approval_ready(ApprovalId(1)), "no receipt was earned");
+        shell
+    }
+
+    #[test]
+    fn undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do() {
+        // fx v0.0.16's draft takes none of the three. A raw C-y or C-_ is
+        // no focused-editor key (`fromFocusedEditorControlByte`,
+        // `src/ui/input/shortcuts.zig:31-41@481104fd`, which keeps only the
+        // moves and three deletes of `fromControlByte`, `:11-29`) and no
+        // approval byte (`approvalActionFromByte`,
+        // `src/ui/input/runtime.zig:61-73`; `approvalActionFromRawByte`,
+        // `:103-108`), so the question takes it and asks for nothing
+        // (`app_input_runtime.zig:1173-1184`). A kitty or xterm Ctrl+Y and
+        // Ctrl+_ are remapped bytes (`escape_parser.zig:255-259`), replayed
+        // through the same raw route (`app_input_runtime.zig:647-650`,
+        // `:746-756`). Super+Z and Super+Shift+Z are a composer undo and
+        // redo (`escape_parser.zig:232-234`), no draft action
+        // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-96`),
+        // which the question's switch leaves to `else => {}`
+        // (`input_approval_runtime.zig:128`). So the draft is as it was,
+        // nothing is held back, and an Enter read with the key sends it --
+        // on the band and on the review plane.
+        let mut wrong = Vec::new();
+        for review in [false, true] {
+            let plane = if review { "the review plane" } else { "the band" };
+            for (name, key) in DRAFT_KEYS_FX_DOES_NOT_TAKE {
+                let sent = |shell: &mut Fixture| shell.controlled();
+                let want = Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some("ab ".to_string()),
+                });
+                // Alone: the receipt untouched, then the Enter sends `ab `.
+                let mut shell = drafting_ab_after_a_kill(review);
+                let receipt = format!("{:?}", shell.readiness);
+                shell.route_bytes(key);
+                if format!("{:?}", shell.readiness) != receipt {
+                    wrong.push(format!("{plane}, {name}: it touched the receipt"));
+                }
+                if !shell.drafting() {
+                    wrong.push(format!("{plane}, {name}: the draft lost the keys"));
+                }
+                shell.route_bytes(b"\r");
+                let answered = sent(&mut shell);
+                if answered != want {
+                    wrong.push(format!("{plane}, {name}, then Enter: {answered:?}"));
+                }
+                // With the Enter in one read: answered at once, `ab `.
+                let mut shell = drafting_ab_after_a_kill(review);
+                shell.route_bytes(&[key, b"\r"].concat());
+                let answered = sent(&mut shell);
+                if answered != want {
+                    wrong.push(format!("{plane}, {name} and Enter in one read: {answered:?}"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn tab_in_a_draft_changes_nothing_and_holds_the_enter_until_a_frame_as_fxs_does() {
+        // fx v0.0.16's Tab in an open amendment changes nothing and answers
+        // `.redraw` (`approval_decision.zig:142-143@481104fd`), which asks for
+        // a modal frame (`input_approval_runtime.zig:59-61`), so a Tab and an
+        // Enter in one read meet a pending frame and the Enter is refused
+        // (`:191-218`): the rule a draft edit that changes nothing follows.
+        // The Enter after the frame sends the draft as it was.
+        for review in [false, true] {
+            let plane = if review { "the review plane" } else { "the band" };
+            let mut shell = drafting_ab_after_a_kill(review);
+            shell.route_bytes(b"\t\r");
+            assert_eq!(
+                shell.controlled(),
+                None,
+                "{plane}: Tab and Enter in one read answered before a frame"
+            );
+            assert!(shell.drafting(), "{plane}: Tab ended the draft");
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some("ab ".to_string()),
+                }),
+                "{plane}: the Enter after the frame did not send the draft as it was"
+            );
+        }
+    }
+
+    #[test]
+    fn every_key_fxs_draft_takes_still_edits_it_and_holds_the_enter_until_a_frame() {
+        // fx v0.0.16's draft keys (`approvalDraftActionFromShortcut`,
+        // `src/ui/input/runtime.zig:75-96@481104fd`): by the raw-byte route
+        // C-a, C-e, C-b, C-f, C-k, C-u and C-w (`fromFocusedEditorControlByte`,
+        // `shortcuts.zig:31-41`) and Backspace (`runtime.zig:66`), each
+        // `.redraw` while an amendment is open (`approval_decision.zig:152-155`,
+        // `:170-174`); by the decoded route the arrows, Home and End, the word
+        // moves, Delete and the word and line deletes in each spelling
+        // (`shortcuts.zig:43-65`; `escape_parser.zig:73-109`, `:149-180`,
+        // `:243-264`, `:528-551`, `:628-635`, `:694-737`), each asking for the
+        // frame whatever it changed (`input_approval_runtime.zig:79-89`). So
+        // each, read with an Enter, holds it; the draft it leaves is the one
+        // the next frame shows, and an `X` typed after shows where the caret
+        // went. From `ab ` with the caret at its end, or (`start`) after C-a.
+        let mut wrong = Vec::new();
+        for (name, start, key, sent) in [
+            ("ctrl-a", false, &[0x01][..], "Xab "),
+            ("home", false, b"\x1b[H", "Xab "),
+            ("home ~", false, b"\x1b[1~", "Xab "),
+            ("ss3 home", false, b"\x1bOH", "Xab "),
+            ("shift-home", false, b"\x1b[1;2H", "Xab "),
+            ("kitty ctrl-a", false, b"\x1b[97;5u", "Xab "),
+            ("super-up", false, b"\x1b[1;9A", "Xab "),
+            ("ctrl-e", true, &[0x05], "ab X"),
+            ("end", true, b"\x1b[F", "ab X"),
+            ("end ~", true, b"\x1b[4~", "ab X"),
+            ("super-down", true, b"\x1b[1;9B", "ab X"),
+            ("ctrl-e at the end", false, &[0x05], "ab X"),
+            ("ctrl-b", false, &[0x02], "abX "),
+            ("left", false, b"\x1b[D", "abX "),
+            ("shift-left", false, b"\x1b[1;2D", "abX "),
+            ("ctrl-f", true, &[0x06], "aXb "),
+            ("right", true, b"\x1b[C", "aXb "),
+            ("right at the end", false, b"\x1b[C", "ab X"),
+            ("alt-b", false, b"\x1bb", "Xab "),
+            ("alt-left", false, b"\x1b[1;3D", "Xab "),
+            ("ctrl-left", false, b"\x1b[1;5D", "Xab "),
+            ("alt-f", true, b"\x1bf", "abX "),
+            ("ctrl-right", true, b"\x1b[1;5C", "abX "),
+            ("backspace", false, &[0x7f], "abX"),
+            ("ctrl-h", false, &[0x08], "abX"),
+            ("backspace at the start", true, &[0x7f], "Xab "),
+            ("delete", true, b"\x1b[3~", "Xb "),
+            ("alt-d", true, b"\x1bd", "X"),
+            ("ctrl-delete", true, b"\x1b[3;5~", "X"),
+            ("ctrl-k", true, &[0x0b], "X"),
+            ("kitty ctrl-k", true, b"\x1b[107;5u", "X"),
+            ("super-delete", true, b"\x1b[3;9~", "X"),
+            ("ctrl-u", false, &[0x15], "X"),
+            ("super-backspace", false, b"\x1b[127;9u", "X"),
+            ("ctrl-u at the start", true, &[0x15], "Xab "),
+            ("ctrl-w", false, &[0x17], "X"),
+            ("kitty ctrl-w", false, b"\x1b[119;5u", "X"),
+            ("alt-backspace", false, b"\x1b\x7f", "X"),
+        ] {
+            let mut shell = drafting_ab_after_a_kill(false);
+            if start {
+                shell.route_bytes(&[0x01]);
+                delivered(&mut shell);
+            }
+            shell.route_bytes(&[key, b"\r"].concat());
+            if let Some(answered) = shell.controlled() {
+                wrong.push(format!("{name} and Enter in one read: {answered:?}"));
+                continue;
+            }
+            if !shell.drafting() {
+                wrong.push(format!("{name}: the draft lost the keys"));
+                continue;
+            }
+            delivered(&mut shell);
+            shell.route_bytes(b"X");
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            let answered = shell.controlled();
+            let want = Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some(sent.to_string()),
+            });
+            if answered != want {
+                wrong.push(format!("{name}: {answered:?}, not {sent:?}"));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
     #[test]

@@ -2589,7 +2589,10 @@ mod tests {
         );
         assert!(panel.drafting(), "Tab on `1. Yes` did not open its draft");
         // And it never leaves one: Tab enters a draft, it does not exit it.
-        assert_eq!(panel.apply(Action::Tab, 80), Reply::Ignored);
+        // It changes nothing there and is `Moved` all the same, so it asks
+        // for a frame and holds an Enter read with it, as fx's `.redraw` does
+        // (`approval_decision.zig:142-143@481104fd`; APPROVAL-DRAFT-KEYS).
+        assert_eq!(panel.apply(Action::Tab, 80), Reply::Moved);
         assert!(panel.drafting());
 
         // Choice 1 is the ineligible one. Down ends editing and marks `Always`;

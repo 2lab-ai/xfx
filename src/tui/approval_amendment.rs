@@ -525,15 +525,14 @@ mod tests {
     }
 
     #[test]
-    fn undo_redo_and_yank_work_inside_a_draft() {
-        // **Asserted on real behavior**, never by comparing against
-        // `Editor::apply`: that returns `None` for all three
-        // (`super::super::editor`'s own arm), so a comparison would pass on a
-        // draft that did nothing at all. What is checked is the text and the
-        // caret after each key, which is what the user sees.
+    fn a_draft_has_no_undo_redo_or_yank_as_fxs_has_none() {
+        // fx v0.0.16's amendment is a buffer and a caret per side, with no
+        // history and no kill ring (`approval_amendment.zig:9-148@481104fd`),
+        // and its draft actions name none of the three
+        // (`approval_decision.zig:18-31`). A kill there only deletes. So an
+        // undo, a redo and a yank leave the text and the caret where they
+        // were, even with something killed and an edit to take back.
         let mut drafts = typed_into(ALLOW, "hello world");
-        assert_eq!(drafts.text(ALLOW), "hello world");
-        assert_eq!(caret(&drafts), (0, 11));
         assert!(
             drafts.editing_at(ALLOW),
             "the allow side does not have the keys"
@@ -542,43 +541,23 @@ mod tests {
 
         drafts.edit(Action::Home, COLS);
         assert_eq!(caret(&drafts), (0, 0), "Home did not reach the left edge");
-
         drafts.edit(Action::KillToEnd, COLS);
         assert_eq!(drafts.text(ALLOW), "", "the kill took nothing");
-        assert_eq!(caret(&drafts), (0, 0));
-
-        drafts.edit(Action::Undo, COLS);
-        assert_eq!(
-            drafts.text(ALLOW),
-            "hello world",
-            "an undo inside a draft did nothing, so the draft has no history"
-        );
-
-        drafts.edit(Action::Redo, COLS);
-        assert_eq!(drafts.text(ALLOW), "", "a redo inside a draft did nothing");
-
-        drafts.edit(Action::Yank, COLS);
-        assert_eq!(
-            drafts.text(ALLOW),
-            "hello world",
-            "the kill slot is the draft's own, and `C-y` did not read it"
-        );
-        assert_eq!(caret(&drafts), (0, 11), "the yank left the caret behind it");
-
-        // And the histories are **per draft**: an undo typed at the deny side
-        // cannot pull back a delta recorded at the allow side.
+        drafts.typed('x');
+        for key in [Action::Undo, Action::Redo, Action::Yank] {
+            drafts.edit(key, COLS);
+            assert_eq!(drafts.text(ALLOW), "x", "{key:?} changed the draft");
+            assert_eq!(caret(&drafts), (0, 1), "{key:?} moved the caret");
+        }
+        // And the two sides stay independent: text typed at the deny side
+        // leaves the allow side's alone.
         drafts.leave();
         assert!(!drafts.editing(), "leaving kept the keys");
         drafts.enter(DENY).expect("an eligible choice");
         assert!(drafts.editing_at(DENY) && !drafts.editing_at(ALLOW));
         drafts.typed('n');
-        drafts.edit(Action::Undo, COLS);
-        assert_eq!(drafts.text(DENY), "", "the deny side undid its own edit");
-        assert_eq!(
-            drafts.text(ALLOW),
-            "hello world",
-            "an undo at one side reached into the other side's history"
-        );
+        assert_eq!(drafts.text(DENY), "n");
+        assert_eq!(drafts.text(ALLOW), "x", "the deny side reached the allow side");
     }
 
     #[test]
