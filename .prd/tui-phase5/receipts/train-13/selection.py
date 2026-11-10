@@ -12,6 +12,12 @@ the sweep does not score with (ledger.py reads them for the file and the
 range alone, `_sources`).
 
     python3 -I -B selection.py <repo> <repoint> <merge>... > selection.txt
+    python3 -I -B selection.py --extra <repo> <repoint> <merge>... > selection-extra.txt
+
+`--extra` (added after the first sweeps, to close the reading's gap): the
+scenarios the re-point's entries name -- the entries whose cited lines the
+merges moved, merge 3's twelve conflict blocks among them -- that the first
+selection did not take, a `*` left out (every scenario: `session-record`).
 
 The output is a file of `--only` globs, one per line, `#` lines comments:
 sweep.sh's SELECTION.
@@ -46,14 +52,41 @@ def scenarios(body):
     return re.findall(r'"([^"]+)"', m.group(1)) if m else []
 
 
-repo, repoint, merges = sys.argv[1], sys.argv[2], sys.argv[3:]
+extra = sys.argv[1] == "--extra"
+args = sys.argv[2:] if extra else sys.argv[1:]
+repo, repoint, merges = args[0], args[1], args[2:]
 have = {p.rsplit("/", 1)[-1][:-4] for p in git(repo, "ls-tree", "--name-only", f"{repoint}:scripts/fxcap/scenarios").split()
         if p.endswith(".cap")}
+named, later = {}, {}
+if extra:
+    import fnmatch  # noqa: E402
+    old, new = entries(git(repo, "show", f"{repoint}^1:{L}")), entries(git(repo, "show", f"{repoint}:{L}"))
+    for k in sorted(kk for kk in set(old) | set(new) if old.get(kk) != new.get(kk)):
+        for sc in scenarios(new.get(k) or old.get(k)):
+            later.setdefault(sc, []).append(k[1])
+    print(f"# train 13's extra selection: the scenarios the {repoint[:8]} re-point's entries name that the first "
+          f"selection (the brief's globs; the merges' entries' provider* and p5-input-at-resize) did not take")
+    first = BRIEF + ["provider*", "p5-input-at-resize"]
+    have = {p.rsplit("/", 1)[-1][:-4] for p in git(repo, "ls-tree", "--name-only", f"{repoint}:scripts/fxcap/scenarios").split()
+            if p.endswith(".cap")}
+    for sc in sorted(later):
+        why = ", ".join(later[sc])
+        if sc == "*":
+            print(f"# *: every scenario ({why}): left out")
+        elif any(fnmatch.fnmatch(sc, g) for g in first):
+            print(f"# {sc} ({why}): in the first selection")
+        elif "*" in sc and not any(fnmatch.fnmatch(h, sc) for h in have):
+            print(f"# {sc} ({why}): a glob no scenario at the head matches")
+        elif "*" not in sc and sc not in have:
+            print(f"# {sc} ({why}): no scenario at the head")
+        else:
+            print(f"# {sc}: {why}")
+            print(sc)
+    sys.exit(0)
 print(f"# train 13's sweep selection: the brief's globs, then the scenarios named by the ledger entries "
       f"the merges ({', '.join(m[:8] for m in merges)}) touched")
 for g in BRIEF:
     print(g)
-named = {}
 for m in merges + [repoint]:
     old, new = entries(git(repo, "show", f"{m}^1:{L}")), entries(git(repo, "show", f"{m}:{L}"))
     changed = sorted(k for k in set(old) | set(new) if old.get(k) != new.get(k))

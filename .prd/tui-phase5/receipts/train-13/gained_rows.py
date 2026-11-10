@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Train 13: train 12's gained_rows.py, unchanged but for this line.
 """Train 12: the pairs compare.py counts as having gained a differing row
 (a row pair, fx text and xfx text, the head has and main's sweep had not),
 by their verdicts on main and at the head, and by what the new rows hold: one

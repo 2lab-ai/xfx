@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Train 13: train 12's refs_short.py, unchanged but for this line.
 """Short references, `<basename>:<line>` with no directory (`shell.rs:12275`,
 `capture.sh:430`), into a file some side of the train changed, in every
 tracked file outside `.prd/`: refs_all.py's check for the form it does not

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Train 13: train 12's refs_all.py, unchanged but for this line.
 """Every unpinned `path:line` reference in the tracked files outside `.prd/`
 (src, tests, scripts, docs, and the rest), mapped from each side's frame to
 the train head -- train 3's refs.py widened from the ledger and

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Train 13: train 12's rowcheck.py, unchanged but for this line.
 """Train 10: a row rowmerge.py merged, checked from both ends: the edits that
 take ours' row to the merged one are exactly the edits that took the base's to
 theirs', and the edits that take theirs' to the merged one exactly the edits

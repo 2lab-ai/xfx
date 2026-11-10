@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Train 13: train 12's banners.py, unchanged but for this line.
 """Each sweep's xfx snaps that show the banner, and how many name the build
 swept (`x𝒇x v0.1.0-<rev>`), as train 9 counted them.
 

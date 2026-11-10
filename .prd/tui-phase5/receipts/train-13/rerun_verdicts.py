@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Train 13: train 12's rerun_verdicts.py, unchanged but for this line.
 """Train 12: each rerun's verdicts (sweep-rerun.sh's `<prefix>-<i>`
 directories, one scenario each), pair by pair: the verdict in every rerun,
 how many passed, and -- for model-column-idle -- whether each binary's snap

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Train 13: train 12's screen_moves.py, unchanged but for this line.
 """Of the snaps two sweeps share whose screen (the .txt render, row 1 -- the
 banner -- left out) is not the same, how many differ only in clock-like or
 run-local text, masked on both sides; every other one is listed with its

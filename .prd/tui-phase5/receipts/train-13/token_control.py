@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Train 13: train 12's token_control.py, unchanged but for this line.
 """Train 12 (train 10's and 11's token_control.py; it now plants on every row
 both sides of a merge changed, and says so for a merge with none -- train 12's
 merges 1 and 2 change no docs/parity.md row on the units' side, where train

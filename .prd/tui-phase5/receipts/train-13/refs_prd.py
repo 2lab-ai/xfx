@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Train 13: train 12's refs_prd.py, unchanged but for this line.
 """Train 12: train 7's refs.py with its pattern moved to the `.prd/` files
 the ledger, docs/parity.md and capfile.py cite (a receipt's README, a
 loop file) -- which refs.py's `src|scripts|tests|docs` pattern does not

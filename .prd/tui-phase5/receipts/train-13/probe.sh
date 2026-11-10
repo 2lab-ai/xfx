@@ -29,6 +29,7 @@ if n != "qwl":
     open(p, "a").write("\n/// Train 13's probe only (never committed).\npub(crate) fn probe_unspelled(event: Input) -> Input {\n    unspelled(event)\n}\n")
 PY
   ( cd "$dir/probe-$n" && cargo test --locked --lib -- --nocapture train13_probe_what_the_question_reads ) > "$dir/probe-$n.out" 2>&1
-  echo "# $n at $(git -C "$dir/probe-$n" rev-parse --short=8 HEAD): exit $?; $(grep '^test result' "$dir/probe-$n.out")"
+  rc=$?
+  echo "# $n at $(git -C "$dir/probe-$n" rev-parse --short=8 HEAD): exit $rc; $(grep '^test result' "$dir/probe-$n.out")"
 done
 python3 -I -B "$here/probe_table.py" "$dir/probe-qwl.out" "$dir/probe-head.out"

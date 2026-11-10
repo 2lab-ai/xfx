@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Train 13: train 12's refs_bare.py, unchanged but for this line.
 """Bare continuations, `:N` or `:N-M` with no path of their own, that follow
 a `path:N` reference on the same line or one of the four lines after it
 (`src/tui/shell.rs:14585-14610, the full transcript at :14621-14623`) --

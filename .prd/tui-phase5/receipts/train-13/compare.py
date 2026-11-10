@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Train 13: train 12's compare.py, unchanged but for this line.
 """Two sweeps, pair by pair, over the pairs both took: what the train head
 changed against a reference sweep (main's, or a unit's own head sweep).
 

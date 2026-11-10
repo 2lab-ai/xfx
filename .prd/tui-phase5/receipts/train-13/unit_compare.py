@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Train 13: train 12's unit_compare.py; `board` lists a unit's scenario this sweep did not take apart, and counts it nowhere.
 """Train 12: the head's sweep against a unit's own sweep, from the files the
 unit's receipt commits -- none of the three units' sweeps left a pairs.json
 here, so this reads what each committed (train 10's verdict-level compare,
@@ -90,11 +91,14 @@ else:
     print(f"scenarios: unit {len(unit)}, head {len(heads)}, shared {len(set(unit) & set(heads))}")
     tu = th = 0
     for scenario in sorted(unit):
-        (n, u), (m, h) = unit[scenario], heads.get(scenario, (0, 0))
+        if scenario not in heads:
+            print(f"  {scenario}: unit {unit[scenario][1]} / {unit[scenario][0]}, not in this sweep's selection")
+            continue
+        (n, u), (m, h) = unit[scenario], heads[scenario]
         tu, th = tu + u, th + h
         print(f"  {scenario}: unit {u} / {n}, head {h} / {m}{'' if u == h and n == m else '  MOVED'}")
         if h < u:
             dropped.append((scenario, f"{u} -> {h}"))
-    print(f"pass: unit {tu}, head {th}")
+    print(f"pass over the shared scenarios: unit {tu}, head {th}")
 print(f"passed on the unit, not on the head: {len(dropped)}" + "".join(f"\n    {a} {b}" for a, b in dropped))
 sys.exit(1 if dropped else 0)

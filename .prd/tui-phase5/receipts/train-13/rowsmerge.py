@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Train 13: train 12's rowsmerge.py, unchanged but for this line.
 """Train 12: train 10's rowmerge.py for a conflict block of several table
 rows. Every conflict block of docs/parity.md (git's plain style, `<<<<<<<`
 .. `=======` .. `>>>>>>>`) must hold, on each side, whole table rows with
