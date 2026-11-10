@@ -18618,22 +18618,50 @@ mod tests {
         (home, workspace, state, open)
     }
 
+    /// What holds a turn's catalog wait back, and how the loop's harness
+    /// ([`first_of_two_and_a_stop`]) lets it go.
+    enum Held {
+        /// The retry behind a failed catalog, which does not land while the
+        /// loop runs: its gate opens when the sender goes, once the loop is
+        /// over. The wait it holds ends on its own after
+        /// [`FAILED_CATALOG_RETRY_WAIT`].
+        Retry(tokio::sync::oneshot::Sender<()>),
+        /// The first load, which lands when its gate opens: [`FIRST_LOAD_LANDS`]
+        /// in when nothing stops the turn, and -- with a stop -- only once the
+        /// stopped turn has ended, so nothing but the stop can end its wait.
+        FirstLoad(tokio::sync::oneshot::Sender<()>),
+    }
+
+    /// When a first load that nothing stops lands, counted from just before
+    /// the loop began.
+    const FIRST_LOAD_LANDS: Duration = Duration::from_millis(1_500);
+
     /// Two prompts through the real loop, submissions 1 and 2, and -- when
-    /// `stop_after` says when -- a Ctrl-C quoting 1 sent into the first:
+    /// `stop` -- a Ctrl-C quoting 1 sent into the first's catalog wait:
     /// every event the band was told, with when, until the second turn ended.
-    fn two_prompts_and_a_stop(
-        state: Runtime,
-        stop_after: Option<Duration>,
-    ) -> Vec<(Duration, UiEvent)> {
-        first_of_two_and_a_stop(state, TurnWork::Submit("first".to_string()), stop_after)
+    fn two_prompts_and_a_stop(state: Runtime, stop: bool, held: Held) -> Vec<(Duration, UiEvent)> {
+        first_of_two_and_a_stop(state, TurnWork::Submit("first".to_string()), stop, held)
     }
 
     /// [`two_prompts_and_a_stop`] with the first submission given: a prompt
-    /// with images attached, say.
+    /// with images attached, say. Each event comes with when the band read
+    /// it, counted from just before the loop began.
+    ///
+    /// **No clock places the stop.** The band is read on the loop's own
+    /// thread, so it hears the first turn's start only once the loop has
+    /// gone as far as it can without waiting: the first turn parked in its
+    /// catalog wait, the first thing its body waits for ([`one_turn`],
+    /// [`image_refusal`]). The stop is sent then, and read before the turn
+    /// moves again ([`raced_against_control`] reads control first). A first
+    /// load is held until the stopped turn has ended ([`Held::FirstLoad`]);
+    /// a retry's wait has an end of its own, [`FAILED_CATALOG_RETRY_WAIT`]
+    /// on the clock, which callers tell from the stop's by when the turn
+    /// ended: its timer starts after the count does.
     fn first_of_two_and_a_stop(
         state: Runtime,
         first: TurnWork,
-        stop_after: Option<Duration>,
+        stop: bool,
+        held: Held,
     ) -> Vec<(Duration, UiEvent)> {
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(2);
         work_tx.try_send(first).expect("room");
@@ -18641,20 +18669,26 @@ mod tests {
             .try_send(TurnWork::Submit("second".to_string()))
             .expect("room");
         drop(work_tx);
+        // Held until the loop has run out of work: a closed control channel
+        // is no stop.
         let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
         let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
         let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
         let outstanding = AtomicUsize::new(2);
         let started = Instant::now();
-        let stopper = std::thread::spawn(move || {
-            if let Some(after) = stop_after {
-                std::thread::sleep(after);
-                let _ = control_tx.send(TurnControl::Cancel { through: 1 });
+        // The retry's gate, kept shut until the loop is over; a first load's,
+        // let go as the stop says.
+        let (retry, mut load, opener) = match held {
+            Held::Retry(open) => (Some(open), None, None),
+            Held::FirstLoad(open) if !stop => {
+                let opener = std::thread::spawn(move || {
+                    std::thread::sleep(FIRST_LOAD_LANDS);
+                    let _ = open.send(());
+                });
+                (None, None, Some(opener))
             }
-            // Held until the loop has run out of work: a closed control
-            // channel is no stop.
-            std::thread::sleep(Duration::from_secs(8));
-        });
+            Held::FirstLoad(open) => (None, Some(open), None),
+        };
         let log = on_a_runtime(async {
             let run = turn_loop(
                 state,
@@ -18671,20 +18705,36 @@ mod tests {
                 while ends < 2 {
                     match tokio::time::timeout(TEST_DRAIN, seen.recv()).await {
                         Ok(Some(event)) => {
-                            if matches!(event, UiEvent::TurnEnded { .. }) {
-                                ends += 1;
+                            match &event {
+                                UiEvent::TurnStarted { submission: 1 } if stop => {
+                                    let _ = control_tx.send(TurnControl::Cancel { through: 1 });
+                                }
+                                UiEvent::TurnEnded { .. } => {
+                                    ends += 1;
+                                    if let Some(open) = load.take() {
+                                        let _ = open.send(());
+                                    }
+                                }
+                                _ => {}
                             }
                             log.push((started.elapsed(), event));
                         }
                         _ => break,
                     }
                 }
+                // Given up on a turn that never ended: its load is let go, so
+                // the loop can run out of work and return.
+                drop(load.take());
                 log
             };
             let (_, log) = tokio::join!(run, watch);
             log
         });
-        drop(stopper);
+        drop(control_tx);
+        drop(retry);
+        if let Some(opener) = opener {
+            opener.join().expect("the load's opener");
+        }
         log
     }
 
@@ -18699,17 +18749,22 @@ mod tests {
         // (`TurnControl::Cancel { through }`), and each start names its own
         // (`UiEvent::TurnStarted { submission }`), so the band tells the turn
         // it stopped from one typed after it. A Ctrl-C quoting the first of
-        // two prompts, 300 ms into the first's wait for a retry that never
+        // two prompts, read while the first waits for a retry that never
         // lands: the first ends at once, not two seconds later, as the stop's
         // own end; the second starts as submission 2 and runs. Without the
         // stop, the first waits its two seconds -- the wait the stop cut --
         // and ends as MODELS-REASK ends it.
+        //
+        // "At once" is measured against the wait's own end: its two seconds
+        // (`FAILED_CATALOG_RETRY_WAIT`) start after the count does, so a turn
+        // that waited them out ends past them, however late the thread runs;
+        // the stop is placed by the loop, not by a clock
+        // ([`first_of_two_and_a_stop`]).
         let mut got = Vec::new();
         for (case, history_image) in [("the turn's start", false), ("the image route", true)] {
-            for stop in [Some(Duration::from_millis(300)), None] {
+            for stop in [true, false] {
                 let (_home, _workspace, state, open) = retry_never_lands(history_image);
-                let log = two_prompts_and_a_stop(state, stop);
-                drop(open);
+                let log = two_prompts_and_a_stop(state, stop, Held::Retry(open));
                 let starts: Vec<usize> = log
                     .iter()
                     .filter_map(|(_, event)| match event {
@@ -18727,13 +18782,13 @@ mod tests {
                 let first = ends.first().cloned();
                 got.push((
                     case,
-                    stop.is_some(),
+                    stop,
                     starts,
                     first.as_ref().map(|(_, failure)| failure.clone()),
                     first.as_ref().is_some_and(|(at, _)| {
-                        if stop.is_some() {
-                            // After the stop, and long before the wait's end.
-                            *at >= Duration::from_millis(300) && *at < Duration::from_millis(1_000)
+                        if stop {
+                            // Before the wait could have ended by itself.
+                            *at < FAILED_CATALOG_RETRY_WAIT
                         } else {
                             *at >= Duration::from_millis(1_900)
                         }
@@ -18799,8 +18854,8 @@ mod tests {
                 ),
             ],
             "each: the starts, the first turn's end, whether it came when it should (with \
-             the stop: 300 ms to 1 s; without it: past the wait's 1.9 s), the ends, the \
-             second turn's end"
+             the stop: inside the wait's own 2 s, counted from before the loop began; \
+             without it: past the wait's 1.9 s), the ends, the second turn's end"
         );
     }
 
@@ -18816,7 +18871,8 @@ mod tests {
         /// is on (`orchestrator.zig:5885@481104fd`), and waits for the retry.
         UltraRetry,
         /// Ultra on an OpenAI model while the first load is on its way; it
-        /// lands 1.5 s in, with a row that does not offer Ultra.
+        /// lands as [`Held::FirstLoad`] says, with a row that does not offer
+        /// Ultra.
         UltraFirstLoad,
         /// A prompt with an image, on a model whose window is known, behind a
         /// failed catalog whose retry does not land: the prompt's images ask
@@ -18824,10 +18880,10 @@ mod tests {
         PromptImageRetry,
         /// A prompt with an image, on a model whose window is known and with
         /// no level or speed, while the first load is on its way; it lands
-        /// 1.5 s in, with a row that reads images. The prompt's images ask
-        /// at the turn's start as the retry's do (`:5886`), and a load is
-        /// what upstream's resolve waits for first (`.loading`,
-        /// `model_cache_runtime.zig:855-866`).
+        /// as [`Held::FirstLoad`] says, with a row that reads images. The
+        /// prompt's images ask at the turn's start as the retry's do
+        /// (`:5886`), and a load is what upstream's resolve waits for first
+        /// (`.loading`, `model_cache_runtime.zig:855-866`).
         PromptImageFirstLoad,
         /// No Ultra, no image, on the default model, whose window nothing but
         /// the catalog gives, behind a failed catalog whose retry does not
@@ -18865,8 +18921,7 @@ mod tests {
     }
 
     /// A runtime waiting as `wait` says, the first prompt it is given, and
-    /// what holds the catalog's read back: a retry's gate, held until it is
-    /// dropped, or the thread that opens a first load's 1.5 s in.
+    /// what holds the catalog's read back ([`Held`]).
     fn waiting_in(
         wait: CatalogWait,
     ) -> (
@@ -18874,7 +18929,7 @@ mod tests {
         tempfile::TempDir,
         Runtime,
         TurnWork,
-        Option<tokio::sync::oneshot::Sender<()>>,
+        Held,
     ) {
         let model = match wait {
             CatalogWait::UltraRetry | CatalogWait::UltraFirstLoad => "openai/gpt-6-astra",
@@ -18901,11 +18956,7 @@ mod tests {
             }));
             on_a_runtime(async { begin_catalog_read(&mut state, &events) });
             assert!(state.selector.is_loading(), "no first load on its way");
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(1_500));
-                let _ = open.send(());
-            });
-            None
+            Held::FirstLoad(open)
         } else {
             state
                 .selector
@@ -18918,7 +18969,7 @@ mod tests {
             assert!(matches!(state.selector.catalog(), CatalogState::Failed(_)));
             backdate_catalog(&mut state, Duration::from_secs(6));
             retry_behind_failure(&mut state, &events);
-            Some(open)
+            Held::Retry(open)
         };
         let first = if matches!(
             wait,
@@ -18997,13 +19048,20 @@ mod tests {
         // `interruption.zig:198-223`), and it checks the stop once more after
         // it (`orchestrator.zig:5923-5948`), before any request is planned --
         // Ultra's refusal is a request's (`:7657`). So a Ctrl-C quoting the
-        // first of two prompts, 300 ms into the first's wait: the first ends
+        // first of two prompts, read while the first waits: the first ends
         // at once as the stop's own end, its prompt (and its image) in the log
         // with the stop's conclusion, as a stop in the default model's window
         // wait already ends; the second starts as submission 2 and ends as it
         // does without the stop, unless the stopped prompt's image is in its
         // history. Without the stop, the first waits out its wait and is
         // refused (Ultra, the image) or answered (the window).
+        //
+        // "At once", without a clock where the wait has none: a first load is
+        // held until the stopped turn has ended ([`Held::FirstLoad`]), so a
+        // turn that ends at all was ended by the stop. A retry's wait ends by
+        // itself after `FAILED_CATALOG_RETRY_WAIT`, whose timer starts after
+        // the count does: a turn that waited it out ends past it, however
+        // late the thread runs ([`first_of_two_and_a_stop`]).
         let cancelled = Some(bridge::TURN_CANCELLED.to_string());
         let ultra = Some(ULTRAFAST_UNAVAILABLE.to_string());
         let unknown = Some(crate::image::CAPABILITY_UNKNOWN.to_string());
@@ -19022,8 +19080,9 @@ mod tests {
             CatalogWait::PromptImageFirstLoad,
             CatalogWait::WindowRetry,
         ] {
-            for stop in [Some(Duration::from_millis(300)), None] {
+            for stop in [true, false] {
                 let (_home, _workspace, state, first, held) = waiting_in(wait);
+                let first_load = matches!(held, Held::FirstLoad(_));
                 let sessions = state.store.sessions_dir().to_path_buf();
                 let id = state
                     .conversation
@@ -19032,8 +19091,7 @@ mod tests {
                     .recorder
                     .id()
                     .clone();
-                let log = first_of_two_and_a_stop(state, first, stop);
-                drop(held);
+                let log = first_of_two_and_a_stop(state, first, stop, held);
                 let starts: Vec<usize> = log
                     .iter()
                     .filter_map(|(_, event)| match event {
@@ -19048,16 +19106,18 @@ mod tests {
                         _ => None,
                     })
                     .collect();
-                let on_time = ends.first().is_some_and(|(at, _)| match stop {
-                    // After the stop, and long before the wait's end.
-                    Some(_) => {
-                        *at >= Duration::from_millis(300) && *at < Duration::from_millis(1_000)
-                    }
-                    None => *at >= Duration::from_millis(1_200),
-                });
+                let on_time = ends
+                    .first()
+                    .is_some_and(|(at, _)| match (stop, first_load) {
+                        // Ended while its load was held: by the stop.
+                        (true, true) => true,
+                        // Before the wait could have ended by itself.
+                        (true, false) => *at < FAILED_CATALOG_RETRY_WAIT,
+                        (false, _) => *at >= Duration::from_millis(1_200),
+                    });
                 got.push((
                     wait,
-                    stop.is_some(),
+                    stop,
                     starts,
                     ends.iter()
                         .map(|(_, failure)| failure.clone())
@@ -19065,7 +19125,7 @@ mod tests {
                     on_time,
                     turns_logged(&sessions, &id),
                 ));
-                let (ended, logged) = match (wait, stop.is_some()) {
+                let (ended, logged) = match (wait, stop) {
                     (CatalogWait::UltraRetry | CatalogWait::UltraFirstLoad, true) => {
                         (vec![cancelled.clone(), ultra.clone()], stopped("first"))
                     }
@@ -19127,7 +19187,7 @@ mod tests {
                         ],
                     ),
                 };
-                want.push((wait, stop.is_some(), vec![1, 2], ended, true, logged));
+                want.push((wait, stop, vec![1, 2], ended, true, logged));
             }
         }
         // The second turn ends as it does without the stop -- the stop quoted
@@ -19147,7 +19207,8 @@ mod tests {
         assert_eq!(
             got, want,
             "each: the starts, both turns' ends, whether the first came when it should (with \
-             the stop: 300 ms to 1 s; without it: past 1.2 s), what the log says of the turns"
+             the stop: at all while a first load was held, or inside a retry's own 2 s counted \
+             from before the loop began; without it: past 1.2 s), what the log says of the turns"
         );
     }
 
@@ -19186,11 +19247,13 @@ mod tests {
     fn a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop() {
         // Train 9, join check 2 (STOP-IN-CATALOG-WAIT x QUESTIONS-20). A
         // prompt with an image, on a model whose window is known, waits at its
-        // start for the first catalog load, which lands 1.5 s in with a row
-        // that reads images (`CatalogWait::PromptImageFirstLoad`); once asked,
-        // the model asks twenty questions in one call. The band's questioner
-        // is on the band's own channels, as `spawn` wires it, and the band
-        // answers a batch it is shown.
+        // start for the first catalog load, which lands with a row that reads
+        // images (`CatalogWait::PromptImageFirstLoad`) -- 1.5 s in without a
+        // stop, and with one only once the band has seen the turn end, so
+        // nothing but the stop can end its wait; once asked, the model asks
+        // twenty questions in one call. The band's questioner is on the
+        // band's own channels, as `spawn` wires it, and the band answers a
+        // batch it is shown.
         //
         // Without the stop the batch reaches the band whole -- twenty entries,
         // which QUESTIONS-20's cap lets through (`max_questions = 20`,
@@ -19283,10 +19346,15 @@ mod tests {
             let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
             let outstanding = AtomicUsize::new(1);
             let started = Instant::now();
-            let opener = std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(1_500));
-                let _ = open.send(());
-            });
+            let (opener, held) = if stop.is_some() {
+                (None, Some(open))
+            } else {
+                let opener = std::thread::spawn(move || {
+                    std::thread::sleep(FIRST_LOAD_LANDS);
+                    let _ = open.send(());
+                });
+                (Some(opener), None)
+            };
             // The band, on a thread of its own: the questioner parks the
             // runtime's thread while its panel is up, as it does in production.
             let band_control = control_tx.clone();
@@ -19321,6 +19389,9 @@ mod tests {
                         Err(_) => std::thread::sleep(Duration::from_millis(2)),
                     }
                 }
+                // The turn ended, or the band gave up on it: a load still held
+                // is let go, so the loop can return.
+                drop(held);
                 log
             });
             on_a_runtime(turn_loop(
@@ -19333,7 +19404,9 @@ mod tests {
                 &outstanding,
             ));
             let log = band.join().expect("the band");
-            opener.join().expect("the load's opener");
+            if let Some(opener) = opener {
+                opener.join().expect("the load's opener");
+            }
             drop(control_tx);
             let shown: Vec<usize> = log
                 .iter()
@@ -19350,8 +19423,8 @@ mod tests {
                 })
                 .collect();
             let on_time = ends.first().is_some_and(|(at, _)| match stop {
-                // After the stop, and long before the load lands.
-                Some(_) => *at >= Duration::from_millis(300) && *at < Duration::from_millis(1_000),
+                // After the stop, while the load was held.
+                Some(_) => *at >= Duration::from_millis(300),
                 None => *at >= Duration::from_millis(1_200),
             });
             got.push((
@@ -19386,8 +19459,8 @@ mod tests {
                 (false, vec![20], vec![None], true, 2, kept("final stop")),
             ],
             "each: whether stopped, the batches the band was shown (their sizes), the turn's \
-             end, whether it came when it should (with the stop: 300 ms to 1 s; without it: past \
-             1.2 s), the model's requests, what the log says of the turn"
+             end, whether it came when it should (with the stop: past 300 ms, while the load was \
+             held; without it: past 1.2 s), the model's requests, what the log says of the turn"
         );
     }
 
@@ -19509,11 +19582,10 @@ mod tests {
         let mut got = Vec::new();
         let mut want = Vec::new();
         for wait in [CatalogWait::WindowRetry, CatalogWait::PromptImageFirstLoad] {
-            for stop in [Some(Duration::from_millis(300)), None] {
+            for stop in [true, false] {
                 let (_home, _workspace, mut state, first, held) = waiting_in(wait);
                 unreadable_tool_images(&mut state);
-                let log = first_of_two_and_a_stop(state, first, stop);
-                drop(held);
+                let log = first_of_two_and_a_stop(state, first, stop, held);
                 let mut ends = Vec::new();
                 let mut said: Vec<usize> = Vec::new();
                 for (_, event) in &log {
@@ -19526,10 +19598,11 @@ mod tests {
                         _ => {}
                     }
                 }
-                got.push((wait, stop.is_some(), ends, said));
-                want.push(match stop {
-                    Some(_) => (wait, true, vec![cancelled.clone(), None], vec![0, 1]),
-                    None => (wait, false, vec![None, None], vec![1, 0]),
+                got.push((wait, stop, ends, said));
+                want.push(if stop {
+                    (wait, true, vec![cancelled.clone(), None], vec![0, 1])
+                } else {
+                    (wait, false, vec![None, None], vec![1, 0])
                 });
             }
         }
