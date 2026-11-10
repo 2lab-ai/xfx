@@ -1,0 +1,106 @@
+# COMPOSER-PARAGRAPH-MOVE: a held Up or Down with a menu open. fx v0.0.16's
+# Ctrl and Shift arrows are `visual_*`, which walk the open picker as the
+# plain arrow does (routeNonSlashPickerMove and the slash completion,
+# input_completion_runtime.zig:230-259@481104fd); its Alt and Super arrows are
+# `paragraph_*` and `draft_*`, which no picker reads: they drop a later
+# `/model` column (abandonModelPickerOptions, :1434-1437) and move the caret
+# (app_input_runtime.zig:298-309). A compact menu -- `/statusline` here --
+# reads none of them (`else => return`, app_input_runtime.zig:2259-2263).
+# Each key on its own, followed by a snap, and a letter where the caret moved.
+models models-effort.json
+fx: seed model-seed-fx.json
+xfx: seed model-seed-xfx.json
+nomodel
+work filepicker-ws
+wait 2.5
+xfx: wait 1
+# The slash completion: Shift-Down and Ctrl-Down walk it; Alt-Up and Super-Up
+# put the caret at the draft's start (`x`, `y` in front of `/st`).
+type /st
+wait 0.6
+snap slash
+key -H 1b 5b 31 3b 32 42
+wait 0.4
+snap slash-shift-down
+key -H 1b 5b 31 3b 35 42
+wait 0.4
+snap slash-ctrl-down
+key -H 1b 5b 31 3b 33 41
+wait 0.4
+snap slash-alt-up
+type x
+wait 0.4
+snap slash-alt-up-typed
+key C-e C-u
+type /st
+wait 0.4
+key -H 1b 5b 31 3b 39 41
+wait 0.4
+snap slash-super-up
+type y
+wait 0.4
+snap slash-super-up-typed
+key C-e C-u
+# `/model`'s effort column: Shift-Down walks the levels; Alt-Down, and then
+# Super-Down, each drop the column back to the models.
+type /model
+key Space
+wait 0.8
+type glm
+key Enter
+wait 0.6
+snap effort
+key -H 1b 5b 31 3b 32 42
+wait 0.4
+snap effort-shift-down
+key -H 1b 5b 31 3b 33 42
+wait 0.5
+snap effort-alt-down
+key C-e C-u
+type /model
+key Space
+wait 0.8
+type glm
+key Enter
+wait 0.6
+key -H 1b 5b 31 3b 39 42
+wait 0.5
+snap effort-super-down
+key C-e C-u
+# The `@` picker: Shift-Down walks it; Alt-Up puts the caret in front of the
+# `@` (`z`).
+type @
+wait 1
+snap at
+key -H 1b 5b 31 3b 32 42
+wait 0.4
+snap at-shift-down
+key -H 1b 5b 31 3b 33 41
+wait 0.4
+snap at-alt-up
+type z
+wait 0.4
+snap at-alt-up-typed
+key C-e C-u
+# `/statusline`: no held arrow moves its mark; the plain Down does.
+type /statusline
+key Enter
+wait 1
+snap statusline
+key -H 1b 5b 31 3b 35 42
+wait 0.4
+snap statusline-ctrl-down
+key -H 1b 5b 31 3b 32 42
+wait 0.4
+snap statusline-shift-down
+key -H 1b 5b 31 3b 33 42
+wait 0.4
+snap statusline-alt-down
+key -H 1b 5b 31 3b 39 42
+wait 0.4
+snap statusline-super-down
+key Down
+wait 0.4
+snap statusline-down
+key Escape
+wait 0.5

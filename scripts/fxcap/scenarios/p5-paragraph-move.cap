@@ -1,0 +1,210 @@
+# COMPOSER-PARAGRAPH-MOVE: a held Up or Down in the composer, as fx v0.0.16
+# decodes it (modifiedArrowAction, escape_parser.zig:73-108@481104fd) and
+# routes it (routeComposerShortcutAction, app_input_runtime.zig:298-327):
+# Alt (with Shift or Ctrl or not) by paragraph and Super to the draft's edges,
+# by moveInputCursor alone (horizontal_navigation.zig:29-46); Shift a row that
+# stops at the draft's first and last row (input_completion_runtime.zig:270);
+# Ctrl alone the plain arrow, edge and history included (:272-291).
+#
+# One turn first, so the history holds `hello` and a recall would show. Then
+# each key on its own, each followed by a letter (or a `cursor` line where two
+# presses of the one key are needed to cross a paragraph), so no two keys can
+# cancel: at an empty composer; across a draft with blank lines, one of them
+# two spaces (lineIsBlank, text_boundaries.zig:91-97); at the draft's start;
+# and behind the full transcript (C-o).
+gateway copy-turn.json
+fx: env FX_AUTO_UPGRADE=0
+env TZ=UTC
+wait 4
+type hello
+wait 1
+key Enter
+wait 4
+snap answered
+# An empty composer: no held Up but Ctrl's recalls `hello`.
+key -H 1b 5b 31 3b 33 41
+wait 0.5
+type a
+wait 0.5
+snap empty-alt-up
+key C-u
+key -H 1b 5b 31 3b 39 41
+wait 0.5
+type b
+wait 0.5
+snap empty-super-up
+key C-u
+key -H 1b 5b 31 3b 32 41
+wait 0.5
+type c
+wait 0.5
+snap empty-shift-up
+key C-u
+key -H 1b 5b 31 3b 34 41
+wait 0.5
+type d
+wait 0.5
+snap empty-shift-alt-up
+key C-u
+key -H 1b 5b 31 3b 36 41
+wait 0.5
+type e
+wait 0.5
+snap empty-ctrl-shift-up
+key C-u
+key -H 1b 5b 31 3b 35 41
+wait 0.5
+type h
+wait 0.5
+snap empty-ctrl-up
+key C-u
+wait 0.5
+# The draft `one/two/<two spaces>/<empty>/three/four/<empty>/five`, the caret
+# at its end.
+type one
+key C-j
+type two
+key C-j
+key Space Space
+key C-j
+key C-j
+type three
+key C-j
+type four
+key C-j
+key C-j
+type five
+wait 0.5
+snap draft
+# Alt-Up: the start of the caret's paragraph (`A`), then twice more, the
+# second across the empty line to `three` (`B`), then twice more, the second
+# across the two-space line and the empty one to `one` (`C`).
+key -H 1b 5b 31 3b 33 41
+wait 0.4
+cursor alt-up
+type A
+wait 0.4
+snap alt-up
+key -H 1b 5b 31 3b 33 41
+wait 0.4
+cursor alt-up2
+key -H 1b 5b 31 3b 33 41
+wait 0.4
+cursor alt-up3
+type B
+wait 0.4
+snap alt-up3
+key -H 1b 5b 31 3b 33 41
+wait 0.4
+cursor alt-up4
+key -H 1b 5b 31 3b 33 41
+wait 0.4
+cursor alt-up5
+type C
+wait 0.4
+snap alt-up5
+# At the draft's first paragraph Alt-Up goes to its start, and from there
+# nowhere: no history (`D` in front of `Cone`).
+key -H 1b 5b 31 3b 33 41
+wait 0.4
+cursor alt-up6
+key -H 1b 5b 31 3b 33 41
+wait 0.4
+cursor alt-up7
+type D
+wait 0.4
+snap alt-up7
+# Alt-Down: the next paragraph's start, over the blank lines (`E` at
+# `Bthree`, `F` at `Afive`), then the draft's end (`G`).
+key -H 1b 5b 31 3b 33 42
+wait 0.4
+type E
+wait 0.4
+snap alt-down
+key -H 1b 5b 31 3b 33 42
+wait 0.4
+type F
+wait 0.4
+snap alt-down2
+key -H 1b 5b 31 3b 33 42
+wait 0.4
+type G
+wait 0.4
+snap alt-down3
+# Super-Up: the draft's start (`S`), then from there nowhere, no history
+# (`U`); Super-Down the draft's end (`T`).
+key -H 1b 5b 31 3b 39 41
+wait 0.4
+type S
+wait 0.4
+snap super-up
+key -H 1b 5b 31 3b 39 42
+wait 0.4
+type T
+wait 0.4
+snap super-down
+key -H 1b 5b 31 3b 39 41
+wait 0.4
+cursor super-up2
+key -H 1b 5b 31 3b 39 41
+wait 0.4
+cursor super-up3
+type U
+wait 0.4
+snap super-up3
+# Shift-Up on the first row, the caret one cell in: no move, no edge (`W`
+# after `U`); from the draft's start, no history (`X`).
+key -H 1b 5b 31 3b 32 41
+wait 0.4
+type W
+wait 0.4
+snap shift-up
+key -H 1b 5b 31 3b 39 41
+wait 0.4
+cursor shift-up-start
+key -H 1b 5b 31 3b 32 41
+wait 0.4
+type X
+wait 0.4
+snap shift-up2
+# Ctrl-Up from the first row's second cell: the plain arrow's edge (`Y`).
+key -H 1b 5b 31 3b 35 41
+wait 0.4
+type Y
+wait 0.4
+snap ctrl-up
+# Behind the full transcript: Alt-Down (`V` at `Bthree`'s start, after `E`),
+# Super-Up (`Z` in front of everything), Shift-Up on the first row (`Q` after
+# `Z`), each with the screen up, then Escape and the letter.
+key C-o
+wait 2
+snap full
+key -H 1b 5b 31 3b 33 42
+wait 1
+snap full-alt-down
+key Escape
+wait 1
+type V
+wait 0.5
+snap full-typed
+key C-o
+wait 2
+key -H 1b 5b 31 3b 39 41
+wait 1
+snap full-super-up
+key Escape
+wait 1
+type Z
+wait 0.5
+snap full-typed2
+key C-o
+wait 2
+key -H 1b 5b 31 3b 32 41
+wait 1
+snap full-shift-up
+key Escape
+wait 1
+type Q
+wait 0.5
+snap full-typed3
+gwlog

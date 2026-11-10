@@ -24621,14 +24621,242 @@ mod tests {
     }
 
     #[test]
-    fn shift_on_the_arrows_is_the_arrow_everywhere_but_a_question() {
-        // The decoder keeps Shift on Up and Down for a question's field only;
-        // the composer's recall still answers `ESC[1;2A` as Up.
-        let mut fixture = shell(24, 80);
-        fixture.route_bytes(b"first\r");
-        let _ = fixture.picks_up();
-        fixture.route_bytes(b"\x1b[1;2A");
-        assert_eq!(fixture.editor.text(), "first", "Shift+Up did not recall");
+    fn a_held_up_at_an_empty_composer_recalls_only_under_ctrl() {
+        // fx's `paragraph_up` and `draft_start` move the caret alone
+        // (`app_input_runtime.zig:298-309@481104fd`) and its Shift-Up stops
+        // before the history (`input_completion_runtime.zig:270`); Ctrl-Up is
+        // the plain arrow (:272-291). This test said Shift-Up recalled before
+        // COMPOSER-PARAGRAPH-MOVE.
+        for (name, key, recalls) in [
+            ("shift-up", &b"\x1b[1;2A"[..], false),
+            ("ctrl-shift-up", b"\x1b[1;6A", false),
+            ("alt-up", b"\x1b[1;3A", false),
+            ("shift-alt-up", b"\x1b[1;4A", false),
+            ("ctrl-alt-up", b"\x1b[1;7A", false),
+            ("super-up", b"\x1b[1;9A", false),
+            ("shift-super-up", b"\x1b[1;10A", false),
+            ("kitty alt-up", b"\x1b[57352;3u", false),
+            ("ctrl-up", b"\x1b[1;5A", true),
+            ("up", b"\x1b[A", true),
+        ] {
+            // And behind the full transcript, which leaves each to the
+            // composer (`p5-paragraph-move`'s `full-*`).
+            for open in [false, true] {
+                let mut fixture = shell(24, 80);
+                fixture.route_bytes(b"first\r");
+                let _ = fixture.picks_up();
+                if open {
+                    fixture.route_bytes(b"\x0f");
+                }
+                fixture.route_bytes(key);
+                assert_eq!(fixture.full.is_open(), open, "{name}");
+                let expected = if recalls && !(open && name == "up") {
+                    "first"
+                } else {
+                    ""
+                };
+                assert_eq!(fixture.editor.text(), expected, "open={open} {name}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_held_up_or_down_in_a_draft_is_fxs_move_and_only_ctrls_reaches_the_edge_or_history() {
+        // The draft `ab/cd/<two spaces>/<empty>/ef` (a blank line is spaces,
+        // tabs and carriage returns, `lineIsBlank`, `text_boundaries.zig:91-97
+        // @481104fd`), the history holding `first`; from each caret one key.
+        // Alt by paragraph (`previousParagraphStart`/`nextParagraphStart`,
+        // :104-147) and Super to the draft's edges (`horizontal_navigation.zig:29-46`),
+        // neither past them; Shift one row, stopping at the first and the last
+        // (`input_completion_runtime.zig:262-270`); Ctrl the plain arrow, the
+        // edge and then the history (:272-291). `None` is the history's line.
+        const DRAFT: &str = "ab\ncd\n  \n\nef";
+        let end = DRAFT.len();
+        for (name, key, from, to) in [
+            ("alt-up", &b"\x1b[1;3A"[..], 11, Some(10)),
+            ("alt-up", b"\x1b[1;3A", 10, Some(0)),
+            ("alt-up", b"\x1b[1;3A", 7, Some(0)),
+            ("alt-up", b"\x1b[1;3A", 0, Some(0)),
+            ("shift-alt-up", b"\x1b[1;4A", 11, Some(10)),
+            ("ctrl-alt-up", b"\x1b[1;7A", 11, Some(10)),
+            ("alt-down", b"\x1b[1;3B", 1, Some(10)),
+            ("alt-down", b"\x1b[1;3B", 7, Some(10)),
+            ("alt-down", b"\x1b[1;3B", 10, Some(end)),
+            ("alt-down", b"\x1b[1;3B", end, Some(end)),
+            ("shift-alt-down", b"\x1b[1;4B", 4, Some(10)),
+            ("keypad alt-down", b"\x1b[57420;3u", 4, Some(10)),
+            ("super-up", b"\x1b[1;9A", 11, Some(0)),
+            ("super-up", b"\x1b[1;9A", 0, Some(0)),
+            ("shift-super-up", b"\x1b[1;10A", 11, Some(0)),
+            ("super-down", b"\x1b[1;9B", 1, Some(end)),
+            ("super-down", b"\x1b[1;9B", end, Some(end)),
+            ("shift-up", b"\x1b[1;2A", 11, Some(9)),
+            ("shift-up", b"\x1b[1;2A", 1, Some(1)),
+            ("shift-up", b"\x1b[1;2A", 0, Some(0)),
+            ("ctrl-shift-up", b"\x1b[1;6A", 1, Some(1)),
+            ("shift-down", b"\x1b[1;2B", 1, Some(4)),
+            ("shift-down", b"\x1b[1;2B", 11, Some(11)),
+            ("ctrl-up", b"\x1b[1;5A", 11, Some(9)),
+            ("ctrl-up", b"\x1b[1;5A", 1, Some(0)),
+            ("ctrl-up", b"\x1b[1;5A", 0, None),
+            ("ctrl-down", b"\x1b[1;5B", 11, Some(end)),
+        ] {
+            let mut shell = shell(24, 80);
+            submitted(&mut shell, "first");
+            shell.route_bytes(DRAFT.as_bytes());
+            for _ in from..end {
+                shell.route_bytes(b"\x1b[D");
+            }
+            assert_eq!(shell.editor.caret(), from, "{name} from {from}");
+            shell.route_bytes(key);
+            match to {
+                Some(to) => {
+                    assert_eq!(shell.editor.text(), DRAFT, "{name} from {from}");
+                    assert_eq!(shell.editor.caret(), to, "{name} from {from}");
+                }
+                None => assert_eq!(shell.editor.text(), "first", "{name} from {from}"),
+            }
+        }
+        // In a walk, at the recalled line's end: only Ctrl-Down steps on.
+        for (name, key, steps) in [
+            ("alt-down", &b"\x1b[1;3B"[..], false),
+            ("super-down", b"\x1b[1;9B", false),
+            ("shift-down", b"\x1b[1;2B", false),
+            ("ctrl-down", b"\x1b[1;5B", true),
+        ] {
+            let mut shell = shell(24, 80);
+            submitted(&mut shell, "first");
+            shell.route_bytes(b"\x1b[A");
+            assert_eq!(shell.editor.text(), "first");
+            shell.route_bytes(key);
+            let expected = if steps { "" } else { "first" };
+            assert_eq!(shell.editor.text(), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_held_up_at_an_empty_composer_takes_a_waiting_steer_back_only_under_ctrl() {
+        // `restoreQueuedSteerToComposer` is the unselected rows' alone
+        // (`input_completion_runtime.zig:279-281@481104fd`).
+        for (name, key, takes) in [
+            ("alt-up", &b"\x1b[1;3A"[..], false),
+            ("super-up", b"\x1b[1;9A", false),
+            ("shift-up", b"\x1b[1;2A", false),
+            ("ctrl-up", b"\x1b[1;5A", true),
+        ] {
+            let mut shell = running("run it");
+            let steering = shell.work.steering();
+            steering.open();
+            shell.route_bytes(b"change tone\r");
+            steering.tool_running(true);
+            shell.route_bytes(key);
+            assert_eq!(steering.pending(), !takes, "{name}");
+            let expected = if takes { "change tone" } else { "" };
+            assert_eq!(shell.editor.text(), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_held_up_or_down_walks_a_picker_under_ctrl_and_shift_and_only_moves_the_caret_under_alt_and_super(
+    ) {
+        // `p5-paragraph-move-menus`: fx's `visual_*` walk the open picker as
+        // the arrows do (`routeNonSlashPickerMove` and the slash completion,
+        // `input_completion_runtime.zig:230-259@481104fd`); `paragraph_*` and
+        // `draft_*` never reach one, and drop a later `/model` column
+        // (`abandonModelPickerOptions`, `app_input_runtime.zig:298-309`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/st");
+        let marked = |shell: &Fixture| shell.picker.as_ref().expect("a menu").marked().0;
+        shell.route_bytes(b"\x1b[1;2B");
+        assert_eq!(marked(&shell), 1);
+        shell.route_bytes(b"\x1b[1;5B");
+        assert_eq!(marked(&shell), 2);
+        shell.route_bytes(b"\x1b[1;6A");
+        assert_eq!(marked(&shell), 1);
+        for key in [&b"\x1b[1;9B"[..], b"\x1b[1;3A", b"\x1b[1;3B", b"\x1b[1;9A"] {
+            shell.route_bytes(key);
+            assert_eq!(marked(&shell), 1, "{key:?} walked the menu");
+        }
+        assert_eq!(shell.editor.caret(), 0);
+        shell.route_bytes(b"x");
+        assert_eq!(shell.editor.text(), "x/st");
+        // The `@` picker: Shift walks it, and Alt-Up is Home on one line.
+        let (_workspace, mut files) = in_ws2(24, 80);
+        files.route_bytes(b"@");
+        listed(&mut files);
+        let path = |shell: &Fixture| {
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(|files| files.marked())
+                .map(|found| found.path.clone())
+        };
+        let first = path(&files);
+        files.route_bytes(b"\x1b[1;2B");
+        assert_ne!(path(&files), first);
+        files.route_bytes(b"\x1b[1;5A");
+        assert_eq!(path(&files), first);
+        let (_home_ws, mut home) = in_ws2(24, 80);
+        home.route_bytes(b"@");
+        listed(&mut home);
+        home.route_bytes(b"\x1b[H");
+        files.route_bytes(b"\x1b[1;3A");
+        assert_eq!(files.band_rows(), home.band_rows());
+        assert_eq!(files.editor.caret(), 0);
+        // `/model`'s effort column: Shift walks the levels, Alt and Super
+        // put the column back to the models.
+        let mut levels = harness_shell();
+        levels.route_bytes(b"/model gpt\r\x1b[1;2B");
+        assert!(levels.hint().ends_with("\u{b7} low"), "{}", levels.hint());
+        for key in [&b"\x1b[1;3B"[..], b"\x1b[1;3A", b"\x1b[1;9B", b"\x1b[1;10A"] {
+            let mut shell = harness_shell();
+            shell.route_bytes(b"/model gpt\r");
+            assert!(shell.column.pending().is_some());
+            shell.route_bytes(key);
+            assert_eq!(shell.column.pending(), None, "{key:?} kept the column");
+        }
+    }
+
+    #[test]
+    fn no_held_up_or_down_moves_a_compact_menu_or_a_rule_confirmation() {
+        // fx's compact menus take the plain arrows only (`else => return`,
+        // `app_input_runtime.zig:2259-2263@481104fd`; `p5-paragraph-move-menus`'s
+        // `/statusline`), and a rule change is its approval band, which reads
+        // a composer move as nothing (`input_approval_runtime.zig:128`).
+        let held: [&[u8]; 9] = [
+            b"\x1b[1;5B",
+            b"\x1b[1;5A",
+            b"\x1b[1;2B",
+            b"\x1b[1;6B",
+            b"\x1b[1;3B",
+            b"\x1b[1;4B",
+            b"\x1b[1;9B",
+            b"\x1b[1;10B",
+            b"\x1b[57353;5u",
+        ];
+        let root = tempfile::tempdir().expect("a root");
+        let statusline = {
+            let mut shell = shell_at_home(root.path(), 40, 120);
+            shell.route_bytes(b"/statusline\r");
+            shell
+        };
+        let confirm = {
+            let (_home, _workspace, _rules, mut shell) = remembering_shell();
+            shell.route_bytes(
+                b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r",
+            );
+            assert!(shell.rule_confirm.is_some());
+            shell
+        };
+        for (name, mut shell) in [("statusline", statusline), ("confirm", confirm)] {
+            let before = shell.band_rows();
+            for key in held {
+                shell.route_bytes(key);
+                assert_eq!(shell.band_rows(), before, "{name}: {key:?} moved the mark");
+            }
+            shell.route_bytes(b"\x1b[B");
+            assert_ne!(shell.band_rows(), before, "{name}: Down moved nothing");
+        }
     }
 
     #[test]
