@@ -12769,6 +12769,8 @@ impl Shell {
             Action::AltF => self.act(Action::WordRight, now),
             Action::ComposerLeft => self.act(Action::Left, now),
             Action::ComposerRight => self.act(Action::Right, now),
+            Action::ComposerPageUp => self.act(Action::PageUp, now),
+            Action::ComposerPageDown => self.act(Action::PageDown, now),
             Action::Up | Action::Down => {
                 let cols = self.text_cols();
                 let from = self.editor.point(cols).0;
@@ -24152,6 +24154,20 @@ mod tests {
                 Action::Down,
                 Action::SelectDown,
             ),
+            // A page key held with a modifier: the full transcript tells it
+            // from the bare key (it pages on the bare one only), and every
+            // surface after the approval sees the page key.
+            (
+                Action::ComposerPageUp,
+                Action::PageUp,
+                Action::ComposerPageUp,
+            ),
+            (
+                Action::ComposerPageDown,
+                Action::PageDown,
+                Action::ComposerPageDown,
+            ),
+            (Action::PageUp, Action::PageUp, Action::PageUp),
             (Action::WordLeft, Action::WordLeft, Action::WordLeft),
             (Action::Left, Action::Left, Action::Left),
             (Action::Up, Action::Up, Action::Up),
@@ -37461,6 +37477,36 @@ mod tests {
             shell.route_bytes(step);
         }
         assert_eq!(marked(shell), paged, "a page is not {FX_PAGE_AT_41} steps");
+        // A page key held with a modifier is upstream's composer move to a
+        // page, which reaches each of these exactly as the bare key's own
+        // composer move does (`shortcuts.zig:53-54`, `routeComposerVertical`,
+        // `input_completion_runtime.zig:215-233@481104fd`): the tilde spelling
+        // under Ctrl, Alt or Caps Lock, and the keypad's under Super.
+        let (held_page, held_back): ([&[u8]; 2], [&[u8]; 2]) = if forward {
+            (
+                [b"\x1b[6;5~", b"\x1b[57422;9u"],
+                [b"\x1b[5;3~", b"\x1b[5;65~"],
+            )
+        } else {
+            (
+                [b"\x1b[5;5~", b"\x1b[57421;9u"],
+                [b"\x1b[6;3~", b"\x1b[6;65~"],
+            )
+        };
+        for (page, back) in held_page.into_iter().zip(held_back) {
+            shell.route_bytes(back);
+            assert_eq!(
+                marked(shell),
+                start,
+                "{back:?} did not page back as the bare key"
+            );
+            shell.route_bytes(page);
+            assert_eq!(
+                marked(shell),
+                paged,
+                "{page:?} did not page as the bare key"
+            );
+        }
     }
 
     #[test]
@@ -42970,6 +43016,119 @@ mod tests {
         );
         shell.route_bytes(b"\x0f");
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+    }
+
+    #[test]
+    fn a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen() {
+        // fx's full transcript pages on the bare `.page_up`/`.page_down` alone
+        // (`keyForAction`, `input_full_transcript_runtime.zig:156-178
+        // @481104fd`). Held with a modifier, the key is a composer move to a
+        // page (`escape_parser.zig:169-173`, `:708-709`), which the screen
+        // does not take (`routeAction`, `:47-52`; `app_input_runtime.zig:930`),
+        // and it goes on to the composer behind it (`:997-1001`, `:310-327`),
+        // which moves its caret a page. Each spelling up, then down, from the
+        // draft's last row: the screen stays at its tail, and the caret goes
+        // to the first row and back.
+        let mut shell = shell(24, 80);
+        for index in 0..20 {
+            shell.apply(UiEvent::Notice(notice::Notice::neutral(
+                "n",
+                format!("{index}"),
+            )));
+        }
+        let _ = shell.written();
+        shell.route_bytes(b"one\x0atwo\x0athree\x0afour");
+        shell.route_bytes(b"\x0f");
+        let tail = full_screen(&shell);
+        let row = |shell: &Fixture| shell.editor.point(shell.text_cols()).0;
+        assert_eq!(row(&shell), 3);
+        for (up, down) in [
+            (&b"\x1b[5;5~"[..], &b"\x1b[6;5~"[..]),
+            (b"\x1b[5;2~", b"\x1b[6;2~"),
+            (b"\x1b[5;65~", b"\x1b[6;65~"),
+            (b"\x1b[05;3~", b"\x1b[6;257~"),
+            (b"\x1b[57421;5u", b"\x1b[57422;9u"),
+            (b"\x1b[1;5;57421~", b"\x1b[27;3;57422~"),
+        ] {
+            shell.route_bytes(up);
+            assert_eq!(full_screen(&shell), tail, "{up:?} paged the screen");
+            assert!(shell.full.is_open(), "{up:?} closed the screen");
+            assert_eq!(row(&shell), 0, "{up:?} did not page the composer up");
+            shell.route_bytes(down);
+            assert_eq!(full_screen(&shell), tail, "{down:?} paged the screen");
+            assert_eq!(row(&shell), 3, "{down:?} did not page the composer down");
+        }
+        // The bare key, in every spelling a modifier field of none reads as,
+        // is the screen's: it pages, and the composer stays where it is.
+        for (up, down) in [
+            (&b"\x1b[5~"[..], &b"\x1b[6~"[..]),
+            (b"\x1b[5;1~", b"\x1b[6;~"),
+            (b"\x1b[57421u", b"\x1b[57422;65u"),
+        ] {
+            shell.route_bytes(up);
+            assert_ne!(full_screen(&shell), tail, "{up:?} did not page the screen");
+            assert_eq!(row(&shell), 3, "{up:?} moved the composer");
+            shell.route_bytes(down);
+            assert_eq!(full_screen(&shell), tail, "{down:?} did not page back");
+            assert_eq!(row(&shell), 3, "{down:?} moved the composer");
+        }
+        assert_eq!(shell.editor.text(), "one\ntwo\nthree\nfour");
+    }
+
+    #[test]
+    fn a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one() {
+        // fx's approval and question switch on the decoded action, and a page
+        // key, bare or held, is neither of their bindings: both reach `else
+        // => {}` (`input_approval_runtime.zig:90-128`,
+        // `input_question_runtime.zig:149-200@481104fd`), and neither is a
+        // draft edit or a choice move (`src/ui/input/runtime.zig:75-96`,
+        // `:155-197`). The draft behind them is left as it was.
+        let keys: [&[u8]; 8] = [
+            b"\x1b[5~",
+            b"\x1b[6~",
+            b"\x1b[5;5~",
+            b"\x1b[6;2~",
+            b"\x1b[5;65~",
+            b"\x1b[57421;5u",
+            b"\x1b[57422;9u",
+            b"\x1b[27;3;57421~",
+        ];
+        // At an approval's choice and in its amendment: Enter after them all
+        // answers the choice and the draft as they were.
+        for amending in [false, true] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            if amending {
+                shell.route_bytes(b"\tab cd");
+                delivered(&mut shell);
+            }
+            let marked = shell.marked();
+            let band = shell.band_rows();
+            for key in keys {
+                shell.route_bytes(key);
+                assert_eq!(shell.marked(), marked, "{key:?} moved the choice");
+                assert_eq!(shell.band_rows(), band, "{key:?} changed the approval");
+            }
+            assert_eq!(shell.controlled(), None, "a page key answered");
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: amending.then(|| "ab cd".to_string()),
+                }),
+                "amending={amending}"
+            );
+        }
+
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        let band = fixture.band_rows();
+        for key in keys {
+            fixture.route_bytes(key);
+            assert_eq!(fixture.band_rows(), band, "{key:?} changed the question");
+        }
     }
 
     #[test]

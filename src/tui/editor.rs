@@ -592,6 +592,8 @@ impl Editor {
             | Action::ToggleTranscript
             | Action::PageUp
             | Action::PageDown
+            | Action::ComposerPageUp
+            | Action::ComposerPageDown
             | Action::SelectAll
             | Action::CopySelection
             | Action::CutSelection

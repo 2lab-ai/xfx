@@ -1,0 +1,46 @@
+# MODIFIED-PAGE-KEYS: a page key held with a modifier is fx v0.0.16's
+# composer move to a page (escape_parser.zig:169-173, :708-709@481104fd),
+# which the full transcript does not take (input_full_transcript_runtime.zig:
+# 156-178): it goes on to the composer behind the screen and moves the caret
+# a page. p5-transcript-md's answer makes the document taller than the
+# screen, and a four-row draft waits in the composer. Ctrl-O; Ctrl-PgUp in
+# the tilde spelling and in the keypad's (the screen stays at its tail); the
+# bare PgUp (it pages); Escape; and an X typed where the caret is: the first
+# row, where the held keys took it, not the last, where it was.
+gateway p5-transcript-md-turns.json
+fx: env FX_AUTO_UPGRADE=0
+env TZ=UTC
+wait 4
+type show me the list
+wait 1
+key Enter
+wait 12
+snap answered
+type one
+key C-j
+type two
+key C-j
+type three
+key C-j
+type four
+wait 0.5
+snap draft
+key C-o
+wait 2
+snap full
+key -H 1b 5b 35 3b 35 7e
+wait 1
+snap full-ctrl-pgup
+key -H 1b 5b 35 37 34 32 31 3b 35 75
+wait 1
+snap full-kp-ctrl-pgup
+key PPage
+wait 1
+snap full-pgup
+key Escape
+wait 1
+snap closed
+type X
+wait 0.5
+snap typed
+gwlog

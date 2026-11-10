@@ -368,6 +368,22 @@ pub(crate) enum Action {
     PageUp,
     /// Page Down, the mirror of [`Action::PageUp`].
     PageDown,
+    /// A page key held with a modifier: upstream's composer move to a page
+    /// (`composerMove(.page_up, modifiers)`, `escape_parser.zig:708`, and the
+    /// keypad's `pageKeyAction`, `:169-173@481104fd`), not its `.page_up`.
+    ///
+    /// The full transcript is the one surface that tells the two apart: it
+    /// pages on the bare key alone (`keyForAction`,
+    /// `input_full_transcript_runtime.zig:156-178@481104fd`), and this goes on
+    /// to the composer behind it. Everywhere else the two are one move --
+    /// upstream gives the bare key the same composer move
+    /// (`shortcuts.zig:53-54`) -- so the shell folds this back to
+    /// [`Action::PageUp`] once the full transcript, the question and the
+    /// approval have read the event (`super::shell::Shell`'s `folded`). Shift's
+    /// selection extension is dropped, as the arrows drop it ([`cursor`]).
+    ComposerPageUp,
+    /// Page Down held with a modifier, the mirror of [`Action::ComposerPageUp`].
+    ComposerPageDown,
     /// The tab key. Bound by the approval panel, where it cycles the marked
     /// choice, and by the slash completion menu, where it takes the marked
     /// command (`super::picker`). With neither of those up it still does
@@ -2565,16 +2581,20 @@ mod tests {
             ),
             (b"\x1b[5~", Action::PageUp, "page_up :632"),
             (b"\x1b[6~", Action::PageDown, "page_down :633"),
-            (b"\x1b[5;5~", Action::PageUp, "composerMove page_up :708"),
+            (
+                b"\x1b[5;5~",
+                Action::ComposerPageUp,
+                "composerMove page_up :708",
+            ),
             (
                 b"\x1b[6;2~",
-                Action::PageDown,
+                Action::ComposerPageDown,
                 "composerMove page_down :709",
             ),
             (b"\x1b[57421u", Action::PageUp, "keypad page_up :169-173"),
             (
                 b"\x1b[57422;5u",
-                Action::PageDown,
+                Action::ComposerPageDown,
                 "composerMove page_down :171",
             ),
             (
@@ -2800,7 +2820,7 @@ mod tests {
             ("3", "05", Action::DeleteWordRight),
             ("03", "03", Action::DeleteWordRight),
             ("3", "009", Action::KillToEnd),
-            ("05", "05", Action::PageUp),
+            ("05", "05", Action::ComposerPageUp),
         ] {
             assert_eq!(
                 tilde(key, Some(modifier)),
@@ -2833,8 +2853,8 @@ mod tests {
             ("4", "300", Action::End),
             ("7", "65535", Action::Home),
             ("8", "99999", Action::End),
-            ("5", "257", Action::PageUp),
-            ("6", "300", Action::PageDown),
+            ("5", "257", Action::ComposerPageUp),
+            ("6", "300", Action::ComposerPageDown),
             // 256 and 257 (Shift): nothing Delete reads.
             ("3", "257", Action::Ignore),
             ("3", "258", Action::Ignore),
@@ -2893,8 +2913,16 @@ mod tests {
         // From 32, the sequence is discarded to its final byte: nothing.
         assert_eq!(delete(31), vec![Input::Action(Action::Ignore)]);
         assert_eq!(delete(61), vec![Input::Action(Action::Ignore)]);
+        // `delete(n)` is `n + 1` parameter bytes, the `3` counted: 63 are
+        // still discarded to the final, the last before the release.
+        assert_eq!(delete(62), vec![Input::Action(Action::Ignore)]);
         // From 64 bytes before the final, the discard gives up at the 64th
-        // (`Decoder::discarding`), and every byte after it is typed.
+        // (`Decoder::discarding`), and every byte after it is typed: at 64
+        // exactly, the `3` is the 64th and only the `~` is left.
+        assert_eq!(
+            delete(63),
+            vec![Input::Action(Action::Ignore), Input::Text('~')]
+        );
         assert_eq!(
             delete(64),
             vec![
@@ -2939,14 +2967,16 @@ mod tests {
         }
         // The moves count a lock bit as a modifier too (`modifiers != 0`,
         // `:699-711`), and a modifier with no Ctrl is the line's edge or the
-        // page: here, the key itself. On `5` and `6` this pins xfx's reading
-        // of every modified page key, the page key, which pages the full
-        // transcript where upstream's composer move does not
-        // (`docs/parity.md`, the full-screen TUI row; MODIFIED-PAGE-KEYS).
+        // page: here Home or End, and on `5` and `6` the composer's page
+        // move, which the full transcript does not take
+        // (`a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page`).
         for (key, want) in TILDE_KEYS {
-            if key == "3" {
-                continue;
-            }
+            let want = match want {
+                Action::Delete => continue,
+                Action::PageUp => Action::ComposerPageUp,
+                Action::PageDown => Action::ComposerPageDown,
+                other => other,
+            };
             for field in ["65", "129", "193"] {
                 assert_eq!(
                     tilde(key, Some(field)),
@@ -3036,6 +3066,97 @@ mod tests {
         // same page key.
         assert_eq!(csi(b"05", b'~'), Action::PageUp);
         assert_eq!(csi(b"5;1", b'~'), Action::PageUp);
+    }
+
+    #[test]
+    fn a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page() {
+        // The tilde page keys with any bit in the modifier field are
+        // `composerMove(.page_up/.page_down, modifiers)` (`escape_parser.zig:
+        // 699`, `:708-709@481104fd`), every bit counted, the lock bits and the
+        // bits past eight too; `0`, `1` and an empty field are the bare key
+        // (`:696`, `:715-716`).
+        for (key, up) in [("5", true), ("6", false), ("05", true)] {
+            let (moved, bare) = if up {
+                (Action::ComposerPageUp, Action::PageUp)
+            } else {
+                (Action::ComposerPageDown, Action::PageDown)
+            };
+            for (modifier, held) in TILDE_MODIFIERS {
+                assert_eq!(
+                    tilde(key, Some(modifier)),
+                    vec![Input::Action(moved)],
+                    "CSI {key} ; {modifier} ~ ({held})"
+                );
+            }
+            for modifier in ["05", "129", "257", "65535", "99999"] {
+                assert_eq!(
+                    tilde(key, Some(modifier)),
+                    vec![Input::Action(moved)],
+                    "CSI {key} ; {modifier} ~"
+                );
+            }
+            for modifier in [None, Some("1"), Some(""), Some("0"), Some("01")] {
+                assert_eq!(
+                    tilde(key, modifier),
+                    vec![Input::Action(bare)],
+                    "CSI {key} ; {modifier:?} ~"
+                );
+            }
+        }
+        // The keypad's page keys mask the lock bits first (`:186-187`), so
+        // Caps Lock or Num Lock alone is the bare key; Shift, Alt, Ctrl or
+        // Super is the composer move (`pageKeyAction`, `:169-173`, reached at
+        // `:198-199`); Hyper or Meta among them is no keypad key at all, and
+        // nothing else of the report names it (`:191`, `:265`).
+        for (code, moved, bare) in [
+            (57421, Action::ComposerPageUp, Action::PageUp),
+            (57422, Action::ComposerPageDown, Action::PageDown),
+        ] {
+            for modifier in ["2", "3", "5", "9", "6", "16", "69", "137"] {
+                assert_eq!(
+                    decode(format!("\x1b[{code};{modifier}u").as_bytes()),
+                    vec![Input::Action(moved)],
+                    "CSI {code} ; {modifier} u"
+                );
+            }
+            for spelling in ["", ";1", ";65", ";129", ";193"] {
+                assert_eq!(
+                    decode(format!("\x1b[{code}{spelling}u").as_bytes()),
+                    vec![Input::Action(bare)],
+                    "CSI {code} {spelling} u"
+                );
+            }
+            for modifier in ["17", "33", "18", "21"] {
+                assert_eq!(
+                    decode(format!("\x1b[{code};{modifier}u").as_bytes()),
+                    vec![Input::Action(Action::Ignore)],
+                    "CSI {code} ; {modifier} u"
+                );
+            }
+            // A repeat is the key, as a press is; a release is nothing.
+            assert_eq!(
+                decode(format!("\x1b[{code};5:2u").as_bytes()),
+                vec![Input::Action(moved)],
+            );
+            assert_eq!(
+                decode(format!("\x1b[{code};5:3u").as_bytes()),
+                vec![Input::Action(Action::Ignore)],
+            );
+            // And the same report as a tilde's third field, whatever the
+            // first holds (`:746-752`).
+            for (spelling, want) in [
+                (format!("27;5;{code}"), moved),
+                (format!("1;3;{code}"), moved),
+                (format!("27;1;{code}"), bare),
+                (format!("27;65;{code}"), bare),
+            ] {
+                assert_eq!(
+                    decode(format!("\x1b[{spelling}~").as_bytes()),
+                    vec![Input::Action(want)],
+                    "CSI {spelling} ~"
+                );
+            }
+        }
     }
 
     #[test]
