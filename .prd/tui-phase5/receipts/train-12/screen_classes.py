@@ -16,7 +16,7 @@ CLASSES = [
     ("the build id: /status's Build row, and the banner where a `.full` snap keeps it below row 1", ("Build             debug", "v0.1.0-df46777 [debug]")),
     ("a turn's retry, caught at a fixed moment (`Recovered answer.` or `recovered · attempt 3`; p5-lifecycle-retryok rerun in reruns.txt)", ("recovered · attempt", "RECOVERED-ANSWER", "Recovered answer")),
     ("an MCP server's connection state, caught at a fixed moment (`retrying` or `connecting`; p5-mcp-menu-new rerun in reruns.txt)", ("retrying                profile", "connecting              profile")),
-    ("xfx's /stats row: `ansi_bytes`, the bytes its frames wrote (4367 on main, 4391 at the head; the pairs' verdicts unmoved)", ("debounced_resizes=0, footer_updates=0",)),
+    ("xfx's /stats row: `ansi_bytes`, the bytes its frames wrote (rows-excerpts.txt; the pairs' verdicts unmoved)", ("debounced_resizes=0, footer_updates=0",)),
     ("SWEEP-WALLCLOCK-F: the eight catalog scenarios, the outage now ended at a scenario line",
      ("model-column-idle", "model-column-reask", "model-reask", "model-parked", "p5-input-model-fail",
       "p5-stop-in-catalog-wait", "model-floor", "p5-effort-fork-effort-down")),

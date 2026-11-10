@@ -46,7 +46,13 @@ After the merges, in order:
 |---|---|
 | `03fb5436` | the 13 references the merges moved, re-pointed; numbers only -- **the code head: the gate, every sweep and every job ran here** |
 | `e1122281` | the merges' scripts and checks, the scripts the gate, sweeps and jobs run |
-| the next ones | the gate's, the jobs' and the sweeps' files; this README; `final-scan.txt` last |
+| `c419837c` | the gate's files (`gates.txt`, `gate-counts.txt`) and the counts |
+| `95f26e58` | the jobs' files (`jobs-named.txt`, `jobs-mutant.txt`, `jobs-net.txt`) |
+| `39519cdd` | this README before the sweeps |
+| `603c1293`, `b20aca45` | the sweeps, their compares and reruns; the README's sweep sections |
+| `0d7d349f`, `e43387b6` | the README's screen class and Files list; `gates-files.txt` |
+| the next | `rows-excerpts.txt`; the README's last edits |
+| the last one | `final-scan.txt`: `final-scan.sh` at the commit before it. The last commit itself is gated by `pathcheck.sh` like every other, and is not in its own `final-scan.txt` |
 
 **No code after the code head**: `gates-files.txt` (`gates-files.sh`, in a
 clone at the receipt's final form) says what `git diff --stat 03fb5436 HEAD`
@@ -453,7 +459,8 @@ identical, `p5-transcript-submit` x2 to normalized-identical):
   apart; at the head LOCAL-PATHS writes the placeholder over the same
   cells and keeps each colour change at its offset (its README section 1),
   so the bold still falls where each random name put it
-  (`compare-main.txt`; rerun 2's row 13: fx bold at column 46, xfx at 44).
+  (`compare-main.txt`; `rows-excerpts.txt`: rerun 2's row 13, fx bold at
+  column 46 and xfx at 44; rerun 3's, fx at 65 and xfx not).
   **Rerun 3 times on each** (`reruns.txt`): **the head 1 of 3, main 2 of
   3**. **A flake on both**, by the run's random name; the ledger puts the
   snap under `at-ranking` (unit I-U2, fx's placement score), which covers
@@ -471,8 +478,8 @@ identical, `p5-transcript-submit` x2 to normalized-identical):
 snaps whose screen moved beyond clock-like or run-local text): 121 a saved
 session's id, 55 **LOCAL-PATHS's placeholder** where main's row held a path
 of the run, 7 xfx's `/stats` row (`ansi_bytes` 4367 on main, 4391 at the
-head, in `p5-panels-sweep-b`; *(cause not measured)*, the pairs' verdicts
-unmoved), 6 the build id, 2 a turn's retry at a fixed moment, 1
+head, in `p5-panels-sweep-b`, `rows-excerpts.txt`; *(cause not measured)*,
+the pairs' verdicts unmoved), 6 the build id, 2 a turn's retry at a fixed moment, 1
 SWEEP-WALLCLOCK-F's `model-parked` `menu-loading` (fx's screen: `Thinking`,
 `Models 0` while the turn waits on the failed catalog's retry, as the unit
 registered under `activity-tokens-before-request`), 1 the MCP state above.
@@ -545,8 +552,9 @@ each side (`workspace-index` `at-plan`, `p5-lifecycle-retryok` `k01-1.5s`).
   `p5-mcp-menu-new` (24 fx, 26 xfx), `p5-mcp-menu-old` (4 and 4) and
   `p5-mcp-fail` (2 and 2)). Their `/mcp` menu's `runs` row prints the stdio
   server's argument, `@SCENARIOS@/p5-mcp-stdio.ts` filled with the scenario
-  directory; under this train's clones that directory is 141 bytes, so both
-  binaries cut the row with `…` at the same column, and `roots.py`, which
+  directory; under this train's clones that directory is 141 bytes (the
+  run's `roots:` line), so both binaries cut the row with `…` at column 120
+  (`rows-excerpts.txt`), and `roots.py`, which
   writes a root it finds whole, leaves the cut one. It holds no run name, so
   it is not refused either. This is LOCAL-PATHS's stated limit (its README
   section 1: "a fragment of a root above it ... holds no run name, and in a
@@ -612,7 +620,9 @@ receipt's last commit (`final-scan.txt`).
   `pairs_of.py`, `short8.py`, `irl-pairs.txt`; `midbranch_scan.py`.
 - `gates.sh`, `gates_txt.py`, `gates.txt`, `gate_counts.sh`,
   `gate-counts.txt`; `test_counts.sh`, `test-counts.txt`; `gates-files.sh`,
-  `gates-files.txt`; `final-scan.sh`, `final-scan.txt`; `redacted.py`.
+  `gates-files.txt`; `final-scan.sh`, `final-scan.txt`; `redacted.py`;
+  `excerpts.sh` / `rows-excerpts.txt` (the capture rows three figures rest
+  on).
 - Sweeps: `sweep.sh`, `irl41-selection.txt`, `irl8-selection.txt`,
   `sweep-runs.sh` / `sweep-runs.txt`, `sweep-*.md`; `sweep-compare.sh`,
   `compare.py`, `screen_moves.py`, `screen_classes.py`, `gained_rows.py`,
