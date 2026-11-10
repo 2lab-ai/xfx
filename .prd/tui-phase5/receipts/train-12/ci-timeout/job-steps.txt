@@ -1,0 +1,15 @@
+# PR #90's second sweep run (42748982362): the sweep job's steps (gh run view --json jobs, name/conclusion/times only)
+sweep (fx v0.0.16, macOS arm64) | completed | cancelled | 2026-11-10T03:22:15Z | 2026-11-10T04:22:36Z
+  1 Set up job | success | 2026-11-10T03:22:16Z | 2026-11-10T03:22:18Z
+  2 Check out the exact commit, with history for the merge base | success | 2026-11-10T03:22:18Z | 2026-11-10T03:22:30Z
+  3 Confirm the checkout and find the base | success | 2026-11-10T03:22:30Z | 2026-11-10T03:22:30Z
+  4 The sweep's own tests | success | 2026-11-10T03:22:30Z | 2026-11-10T03:22:55Z
+  5 Fetch fx v0.0.16 and bun, each checked by sha256 | success | 2026-11-10T03:22:55Z | 2026-11-10T03:22:57Z
+  6 Install tmux | success | 2026-11-10T03:22:57Z | 2026-11-10T03:23:18Z
+  7 The capture harness's own tests | success | 2026-11-10T03:23:18Z | 2026-11-10T03:29:54Z
+  8 Install the toolchain | success | 2026-11-10T03:29:54Z | 2026-11-10T03:29:56Z
+  9 Build xfx at the base and at the head | success | 2026-11-10T03:29:56Z | 2026-11-10T03:32:06Z
+  10 Sweep the changed scenarios and the core set | cancelled | 2026-11-10T03:32:06Z | 2026-11-10T04:22:28Z
+  11 Keep the report and the scoreboards | success | 2026-11-10T04:22:28Z | 2026-11-10T04:22:29Z
+  22 Post Check out the exact commit, with history for the merge base | success | 2026-11-10T04:22:29Z | 2026-11-10T04:22:30Z
+  23 Complete job | success | 2026-11-10T04:22:30Z | 2026-11-10T04:22:32Z

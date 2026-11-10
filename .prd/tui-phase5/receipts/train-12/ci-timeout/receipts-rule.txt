@@ -1,0 +1,40 @@
+receipts the change adds or edits: 666 (508 new)
+receipt folders that name a receipt-only scenario: 25
+  s1                                  53 file(s)
+  d1                                  24 file(s)
+  w9                                   6 file(s)
+  cancel-marker                        6 file(s)
+  local-paths                          6 file(s)
+  train-12                             6 file(s)
+  w1                                   4 file(s)
+  w5                                   3 file(s)
+  c3                                   1 file(s)
+  c7                                   1 file(s)
+  d4b                                  1 file(s)
+  f2                                   1 file(s)
+  f5                                   1 file(s)
+  r1                                   1 file(s)
+  t5                                   1 file(s)
+  w2                                   1 file(s)
+  w3                                   1 file(s)
+  x1                                   1 file(s)
+  cli-ledger                           1 file(s)
+  epic-2-integration                   1 file(s)
+  fork-status-gap                      1 file(s)
+  info-panel                           1 file(s)
+  mcp-config-deltas                    1 file(s)
+  mcp-config                           1 file(s)
+  mcp-menu                             1 file(s)
+
+the rule as it is (names anywhere in each such file): 103 scenario(s) beyond core/changed/uses, run-seconds 4894
+names on the lines the change adds: 23 scenario(s) beyond core/changed/uses, run-seconds 1140
+names in receipts the change adds (new files only): 23 scenario(s) beyond core/changed/uses, run-seconds 1140
+names on the added lines of the 158 receipts it edits (not new): 15 scenario(s) beyond core/changed/uses, run-seconds 657
+
+head run-seconds: all 5517; core/changed/uses alone 623
+  as it is     125 scenarios, run-seconds  5517, head wall at 1.98/s about 2786 s
+  added lines   45 scenarios, run-seconds  1763, head wall at 1.98/s about  890 s
+  new files     45 scenarios, run-seconds  1763, head wall at 1.98/s about  890 s
+
+added-lines rule, its scenarios: approvals credits-busy p5-effort-fork-fork p5-effort-fork-fork-empty p5-mcp-fail p5-mcp-menu-new p5-mcp-menu-old p5-panels-keys p5-panels-sweep-b read-failures search-roots skills skills-ghost timeout titles titles-idle titles-off titles-rename titles-steer trace usage-billed usage-deferred workspace-index
+added-lines set == new-files set: True; added-lines within the whole-file set: True

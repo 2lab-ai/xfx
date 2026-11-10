@@ -1,0 +1,6 @@
+CI head scenarios: 125; in train 12's main sweep: 122; in its head sweep: 125
+against main: 119 scenario(s) pass as many pairs, 2 more, 1 fewer; 3 not in main's sweep: p5-input-row-limit p5-input-row-limit-menus p5-input-row-limit-short
+pairs main passed that the CI head does not, at least: 1
+
+scenario                           CI head   main      t12 head  the CI head's first unresolved pair
+resume-paging                      1/8       2/8       2/8       down14 row 22: fx '  question three        work ·  1m · 1 turn' / xfx '  question three        work · now · 1 turn'

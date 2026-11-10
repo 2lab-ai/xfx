@@ -1,0 +1,31 @@
+## The step's sweeps (its log)
+head           125 scenario(s), 251 run(s) logged, run-seconds  5555, wall 2800 s, run-seconds per wall second 1.98
+head-retry-1     2 scenario(s),   5 run(s) logged, run-seconds   260, wall 172 s, run-seconds per wall second 1.51
+head-retry-2     2 scenario(s),   1 run(s) logged, run-seconds    25, wall None s
+runs not `ran`: 1: fx p5-panels-badsettings: failed exit 1 (0s)
+
+## The selection (ci_sweep.select at HEAD 1b15dad9 against df46777e)
+125 scenario(s); removed none
+  receipt                      103
+  changed + receipt             11
+  core                           8
+  core + receipt                 2
+  changed + receipt + uses       1
+selected by a receipt alone: 103, run-seconds at the head 4894 (89% of the head's 5517)
+
+## The base sweep it never reached
+scenarios holding a pair the head does not pass: 51
+  new at the head (the base has no such scenario, never swept on the base): 2
+  surely swept on the base: 49, run-seconds at the head 2473
+  maybe (each failing pair could be a label the base lacks): 0, run-seconds 0: -
+estimated wall at the head's 1.98 run-seconds per second, plus fx's inventory run (38 s): 1285 to 1285 s
+
+## The whole step, estimated
+head 2800 s (measured)
+head retries: retry 1 172 s (measured, 2 scenario(s)); retries 2 and 3 at most the same: 516 s
+base: 1285 to 1285 s
+live nondeterminism causes: 3, their scenarios p5-transcript-submit-multi resume-paging titles-idle; of them in the base set: resume-paging titles-idle
+base retries, at most 3 x (their run-seconds / 1.98 + the inventory run): 450 s
+step, at most: 5050 s = 84.2 min
+the job before the step: 591 s (job start to the step's start, the job's steps)
+job, at most: 5641 s = 94.0 min

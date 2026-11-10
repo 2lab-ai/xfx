@@ -1,0 +1,14 @@
+# Every sweep row a receipt holds for p5-panels-badsettings, and train 12's README line on it (git grep at 1b15dad9)
+.prd/tui-phase5/receipts/cancel-marker/sweep-base-ledger-head.md:308:| p5-panels-badsettings | failed | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 0.0% |  |
+.prd/tui-phase5/receipts/cancel-marker/sweep-base.md:308:| p5-panels-badsettings | failed | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 0.0% |  |
+.prd/tui-phase5/receipts/cancel-marker/sweep-head.md:308:| p5-panels-badsettings | failed | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 0.0% |  |
+.prd/tui-phase5/receipts/ctrlo-wider/sweep-base.md:154:- `p5-panels-badsettings` failed: fx: exit 1
+.prd/tui-phase5/receipts/ctrlo-wider/sweep-head.md:157:- `p5-panels-badsettings` failed: fx: exit 1
+.prd/tui-phase5/receipts/launch-settle/sweep-base-1.md:327:| p5-panels-badsettings | failed | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 0.0% |  |
+.prd/tui-phase5/receipts/launch-settle/sweep-head-1.md:327:| p5-panels-badsettings | failed | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 0.0% |  |
+.prd/tui-phase5/receipts/train-12/README.md:604:- **`p5-panels-badsettings` fails on both sweeps**: fx ends before its first
+.prd/tui-phase5/receipts/train-12/sweep-head.md:368:| p5-panels-badsettings | failed | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 0.0% |  |
+.prd/tui-phase5/receipts/train-12/sweep-main.md:365:| p5-panels-badsettings | failed | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 0.0% |  |
+.prd/tui-phase5/receipts/train-5/sweep-unit-lu.md:321:| p5-panels-badsettings | failed | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 0.0% |  |
+.prd/tui-phase5/receipts/train-7/sweep-unit-launch-settle.md:327:| p5-panels-badsettings | failed | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 0.0% |  |
+# rows where it ran: 0

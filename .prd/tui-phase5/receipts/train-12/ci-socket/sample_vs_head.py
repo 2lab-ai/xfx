@@ -2,15 +2,23 @@
 
 usage: python3 -I sample_vs_head.py <sweep-result.json> <train-12/sweep-head.md>"""
 import json
-import re
 import sys
 
 res = json.load(open(sys.argv[1]))
-head = {}
+# The scoreboard's scenario table only (its group table has rows of the same
+# shape): scenario | status | total | ran | identical | normalized-identical
+# | ...; a pass is either of those two. (Its first form read only the
+# normalized column, from any table; the result held because no row of these
+# 11 had an identical pair, and a group named like its one scenario,
+# `startup`, has the same counts.)
+head, on = {}, False
 for line in open(sys.argv[2]):
-    cells = [c.strip().strip("`") for c in line.strip().strip("|").split("|")]
-    if len(cells) > 6 and re.fullmatch(r"\d+", cells[2] or "") and re.fullmatch(r"\d+", cells[5] or ""):
-        head[cells[0]] = (int(cells[5]), int(cells[2]))
+    if line.startswith("| scenario | status |"):
+        on = True
+        continue
+    cells = [c.strip() for c in line.strip().strip("|").split("|")]
+    if on and len(cells) >= 13 and cells[1] in ("ran", "failed", "timeout"):
+        head[cells[0]] = (int(cells[4]) + int(cells[5]), int(cells[2]))
 PASS = ("identical", "normalized-identical")
 counts = {}
 for pair in res["pairs"]:

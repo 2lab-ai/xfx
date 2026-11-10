@@ -134,6 +134,9 @@ The suite has 108 tests: the 107 from before plus the refusal test.
   tmux with `brew install tmux`. 103 is the limit on this machine's tmux
   3.7b (`limit-probe.txt`). The code's limit also comes from macOS's
   104-byte `sun_path`, which does not depend on the tmux version.
+  - **Answered later:** PR #90's next run installed tmux 3.8, and the
+    harness step passed there at `1b15dad9` (`../ci-timeout/tmux-ci.txt`,
+    `../ci-timeout/job-steps.txt`).
 - **The limit is macOS's.** On Linux (`sun_path` 108), capture.sh would
   refuse a path of 104 to 107 bytes that would have worked. No runner or
   gate uses Linux.
