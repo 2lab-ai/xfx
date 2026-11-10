@@ -1538,14 +1538,13 @@ pub(crate) struct Shell {
     /// text that [`Trigger::of`] -- a draft beginning with `/` -- does not
     /// read.
     provider_dismissed: bool,
-    /// `/mcp `'s argument completions, while the draft is a `/mcp ` line
-    /// ([`super::mcp_args`]): the provider column's kind -- a view of the
-    /// composer under its argument, opened and closed in
+    /// The argument completions, while the draft is a `/mcp ` line -- or a
+    /// line of one of fx's tables ([`super::arg_lists`]) -- ([`super::mcp_args`]):
+    /// a view of the composer under its argument, opened and closed in
     /// [`Self::reconcile_picker`] -- with the servers read at most twice a
-    /// second while it is up ([`Self::settle_mcp_args`]).
+    /// second while `/mcp `'s is up ([`Self::settle_mcp_args`]). The slash
+    /// menu's kind: [`Self::dismissed`] closes it.
     mcp_args: Option<McpArgs>,
-    /// Whether Escape closed it over the `/mcp ` line the draft still is.
-    mcp_args_dismissed: bool,
     /// What that row says, as of the last settle, or `None` while there is no
     /// work to say anything about.
     ///
@@ -2762,7 +2761,6 @@ impl Shell {
             provider_picker: None,
             provider_dismissed: false,
             mcp_args: None,
-            mcp_args_dismissed: false,
             activity_row: None,
             activity_more: Vec::new(),
             handoff: None,
@@ -8877,7 +8875,8 @@ impl Shell {
     /// word -- `/vers` completed to `/version` -- shows a menu of that one
     /// command, with the mark on it, for Enter to run or Escape to close. A
     /// name completed with the space its argument needs has stopped being a
-    /// slash word, and has no menu.
+    /// slash word: it has the argument's list when fx has one for it
+    /// ([`Self::reconcile_picker`]), and no menu otherwise.
     fn complete(&mut self, name: &'static str) {
         self.replace_word(&picker::completed(name));
     }
@@ -9150,15 +9149,12 @@ impl Shell {
             self.mcp_args = None;
             return;
         }
-        // `/mcp `'s argument the same way: a space after the name, so never
-        // the menu's query, and never an `@` word's either. Its kind is still
-        // `.slash` upstream (`rawFilePickerQuery` refuses a `/mcp` line,
-        // `:279-285`), so a completion menu Escape closed over `/mc` stays
-        // closed across it.
+        // `/mcp `'s argument the same way: a space after the name, and never
+        // an `@` word's (`rawFilePickerQuery` refuses a `/mcp` line,
+        // `:279-285`).
         if self.reconcile_mcp_args() {
             self.picker = None;
             self.file_picker = None;
-            let _ = self.dismissed.admits(Trigger::of(self.editor.text()));
             return;
         }
         // The `@` word first, as upstream asks (`inlinePickerTriggerKind`,
@@ -9180,6 +9176,7 @@ impl Shell {
         if !self.dismissed.admits(trigger) {
             self.picker = None;
             self.file_picker = None;
+            self.mcp_args = None;
             return;
         }
         // A `$word` is the skill ghost's and the `$` menu's, never the slash
@@ -9188,10 +9185,12 @@ impl Shell {
         if trigger == Some(Trigger::Skill) {
             self.picker = None;
             self.file_picker = None;
+            self.mcp_args = None;
             return;
         }
         if let Some(query) = file {
             self.picker = None;
+            self.mcp_args = None;
             // The same word, typed to the same point: the list and its mark
             // stay as they are. A caret moved inside the word is a different
             // query, as an edit is.
@@ -9216,6 +9215,26 @@ impl Shell {
         }
         self.file_picker = None;
         if self.recalled_slash {
+            self.picker = None;
+            self.mcp_args = None;
+            return;
+        }
+        // Past the blank after `/statusline`, `/sound`, `/permissions`,
+        // `/workspace` or `/allowlist`, fx's table under the argument and
+        // nothing else (`argCompletionAnchor`, `vercel-labs/fx@481104fd
+        // src/core/slash_commands/command_specs.zig:636-644`), rebuilt only
+        // when the text changed.
+        let text = self.editor.text();
+        if self
+            .mcp_args
+            .as_ref()
+            .is_some_and(|open| open.is_table() && open.text() == text)
+        {
+            self.picker = None;
+            return;
+        }
+        self.mcp_args = McpArgs::fixed(text, Instant::now());
+        if self.mcp_args.is_some() {
             self.picker = None;
             return;
         }
@@ -9242,13 +9261,22 @@ impl Shell {
     fn reconcile_mcp_args(&mut self) -> bool {
         let text = self.editor.text();
         if mcp_args::query_of(text).is_none() {
-            self.mcp_args_dismissed = false;
-            self.mcp_args = None;
+            // A table's list is settled with the slash menu, past the `@`
+            // word ([`Self::reconcile_picker`]).
+            if self.mcp_args.as_ref().is_some_and(|open| !open.is_table()) {
+                self.mcp_args = None;
+            }
             return false;
         }
-        // Closed over a recalled line until it is edited
-        // (`history_slash_recall_until_edit`), so Up goes on walking.
-        if self.mcp_args_dismissed || self.recalled_slash {
+        // The slash menu's kind upstream (`inlinePickerTriggerKind` says
+        // `.slash` for a line whose first character past its blanks is `/`),
+        // so the slash menu's dismissal closes them, a dismissal made over
+        // them closes it, and either lasts until the draft stops being a
+        // slash line (`visibleInlinePickerKind`, `vercel-labs/fx@481104fd
+        // src/core/app/input_completion_runtime.zig:142-169`). Closed over a
+        // recalled line until it is edited (`history_slash_recall_until_edit`)
+        // too, so Up goes on walking.
+        if !self.dismissed.admits(Trigger::of(text)) || self.recalled_slash {
             self.mcp_args = None;
             return true;
         }
@@ -9287,8 +9315,9 @@ impl Shell {
 
     /// Offers one keystroke to `/mcp `'s argument completions, and says
     /// whether it was taken: Up, Down, `C-k` and `C-j` move the mark and wrap;
-    /// Tab writes the marked line; Escape closes them until the draft stops
-    /// being a `/mcp ` line. Enter writes the marked line and is **not**
+    /// Tab writes the marked line, a table's with a space when more is to
+    /// come; Escape closes them, as the slash menu's dismissal, until the
+    /// draft stops being a slash line. Enter writes the marked line and is **not**
     /// taken, so the composer submits it in place of what was typed
     /// (`resolveSlashSubmission`, `vercel-labs/fx@481104fd
     /// src/core/app/input_submit_runtime.zig:1819-1824`).
@@ -9311,7 +9340,7 @@ impl Shell {
                 true
             }
             Action::Tab => {
-                if let Some(line) = args.chosen().map(str::to_string) {
+                if let Some(line) = args.completion() {
                     self.replace_word(&line);
                 }
                 true
@@ -9326,7 +9355,7 @@ impl Shell {
             }
             Action::Escape => {
                 self.mcp_args = None;
-                self.mcp_args_dismissed = true;
+                self.dismissed.dismiss(Trigger::Slash);
                 self.refit();
                 self.render.request(Reason::Modal);
                 true
@@ -27208,10 +27237,12 @@ mod tests {
     fn sound_with_a_word_that_is_not_a_level_is_the_usage_line_and_moves_nothing() {
         // `fx-sound-40x120-bogus.txt`: `✗ usage: /sound [on|off|max]`, no
         // topic -- here without the `max` this build does not have, which is
-        // why `max` itself is one of the refusals.
+        // why `max` itself is one of the refusals. (`ON` is the parser's
+        // refusal, `crate::sound`'s case; typed here, Enter runs the list's
+        // marked `on`.)
         let (_home, path) = profile();
         let mut shell = sounding(24, true, Some(path.clone()));
-        for line in ["/sound bogus", "/sound max", "/sound ON", "/sound on off"] {
+        for line in ["/sound bogus", "/sound max", "/sound on off"] {
             shell.route_bytes(line.as_bytes());
             shell.route_bytes(b"\r");
             assert_eq!(
@@ -27566,8 +27597,12 @@ mod tests {
         assert!(shell.info_panel.is_none());
         assert!(shell.document().is_empty());
         // Blanks after the name are still bare (`std.mem.trim(u8, rest, " \t")`,
-        // `app_commands.zig:590@481104fd`).
-        shell.route_bytes(b"/permissions \t \r");
+        // `app_commands.zig:590@481104fd`) -- sent with the argument list
+        // closed, whose marked `ask` Enter would run instead; the tab pasted,
+        // since the key completes.
+        shell.route_bytes(b"/permissions \x1b[200~\t \x1b[201~");
+        escape(&mut shell);
+        shell.route_bytes(b"\r");
         assert_eq!(
             shell.info_panel.as_ref().map(info_panel::Panel::title),
             Some("Permissions")
@@ -28885,7 +28920,7 @@ mod tests {
         // `cap/fx-permissions-40x120-bogus.txt`: `✗ usage: …`, no topic, and
         // its two continuation rows.
         let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
-        for typed in ["bogus", "reset now", "full"] {
+        for typed in ["bogus", "reset now", "fullaccess"] {
             shell.route_bytes(format!("/permissions {typed}\r").as_bytes());
             assert_eq!(
                 shell.document(),
@@ -28901,6 +28936,15 @@ mod tests {
         }
         assert!(changes_sent(&mut changes).is_empty());
         assert!(shell.hint().contains("auto · "), "{:?}", shell.hint());
+        // `full` begins `full-access`, the list's marked row, which Enter runs
+        // as fx's does (`resolveSlashSubmission`,
+        // `input_submit_runtime.zig:1818-1823@481104fd`;
+        // `fx-p5-slash-arg-skills-40x120-permissions-full-enter`).
+        shell.route_bytes(b"/permissions full\r");
+        assert_eq!(
+            changes_sent(&mut changes),
+            vec![Change::Mode(PermissionMode::Yolo)]
+        );
     }
 
     #[test]
@@ -38733,6 +38777,237 @@ mod tests {
         runtime.shutdown();
     }
 
+    /// One row of an fx table's list as the band paints it: the label alone
+    /// at `column`, bold hint grey when marked and dim otherwise.
+    fn table_row(column: usize, label: &str, marked: bool) -> String {
+        format!(
+            "{}{}{label}{}",
+            " ".repeat(column),
+            if marked {
+                PALETTE.subtitle()
+            } else {
+                PALETTE.dim()
+            },
+            PALETTE.reset()
+        )
+    }
+
+    /// The band's six rows for a table's `labels` in view, the first marked.
+    fn table(column: usize, labels: &[&str]) -> Vec<String> {
+        let mut rows: Vec<String> = labels
+            .iter()
+            .enumerate()
+            .map(|(at, label)| table_row(column, label, at == 0))
+            .collect();
+        rows.resize(6, String::new());
+        rows
+    }
+
+    #[test]
+    fn statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one() {
+        // `fx-p5-slash-arg-skills-40x120-statusline`, `-statusline-s`: fx's
+        // table (`statusline_arg_completions`, `command_specs.zig:750-754`) at
+        // column 14, no header, six rows; Enter runs the marked line
+        // (`resolveSlashSubmission`), so `/statusline ` and Enter flips
+        // `context`, as `-statusline-enter` shows.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/statusline ");
+        assert!(shell.picker.is_none(), "the slash menu is up too");
+        assert_eq!(
+            menu(&shell),
+            table(14, &["context", "session", "workspace"])
+        );
+        shell.route_bytes(b"s");
+        assert_eq!(menu(&shell), table(14, &["session"]));
+        let session = shell.statusline.session;
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.statusline.session, !session);
+        let context = shell.statusline.context;
+        shell.route_bytes(b"/statusline \r");
+        assert_eq!(shell.statusline.context, !context);
+        shell.route_bytes(b"/statusline Context\r");
+        assert_eq!(shell.statusline.context, context);
+        // Blanks before the name and past its space: the rows hang past the
+        // name's own space, as fx's anchor does (`-statusline-ws`).
+        shell.route_bytes(b"  /statusline  co");
+        assert_eq!(menu(&shell), table(16, &["context"]));
+        // Nothing the table has: no row, and no slash menu either.
+        shell.route_bytes(b"zz");
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        assert!(shell.picker.is_none());
+        // A table is never read again, as `/mcp `'s servers are.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/statusline ");
+        shell.settle_band(Instant::now() + Duration::from_secs(2));
+        assert_eq!(
+            menu(&shell),
+            table(14, &["context", "session", "workspace"])
+        );
+        // The history holds the line run, not the one typed (`submitSlashCommand`,
+        // `input_submit_runtime.zig:1009-1016`), and a line it hands back
+        // opens none until it is edited (`history_slash_recall_until_edit`).
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "/statusline context");
+        assert!(menu(&shell).is_empty(), "a recalled line opened the list");
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(menu(&shell), table(14, &["context"]));
+    }
+
+    #[test]
+    fn sound_lists_fxs_levels_and_enter_runs_the_marked_one() {
+        // `fx-p5-slash-arg-skills-40x120-sound`: `on`, `off`, `max` at column
+        // 9 (`notifications_arg_completions`, `command_specs.zig:756-760`).
+        // `max` is fx's and refused here, as it was before the list.
+        let (_home, path) = profile();
+        let mut shell = sounding(40, false, Some(path));
+        shell.route_bytes(b"/sound ");
+        assert_eq!(menu(&shell), table(9, &["on", "off", "max"]));
+        shell.route_bytes(b"o");
+        assert_eq!(menu(&shell), table(9, &["on", "off"]));
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.released(),
+            said(notice::Notice::neutral("sound", "on"))
+        );
+        shell.route_bytes(b"/sound ma\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("", "usage: /sound [on|off]"))
+        );
+        // The match ignores case; the parser does not, and is not asked.
+        shell.route_bytes(b"/sound OFF\r");
+        assert_eq!(
+            shell.released(),
+            said(notice::Notice::neutral("sound", "off"))
+        );
+    }
+
+    #[test]
+    fn permissions_lists_its_six_forms_and_tab_writes_the_marked_one() {
+        // `fx-p5-slash-arg-skills-40x120-permissions`: column 15
+        // (`permissions_arg_completions`, `command_specs.zig:762-769`).
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/permissions ");
+        assert_eq!(
+            menu(&shell),
+            table(
+                15,
+                &["ask", "auto", "remember", "revoke", "full-access", "reset"]
+            )
+        );
+        shell.route_bytes(b"RE");
+        assert_eq!(menu(&shell), table(15, &["remember", "revoke", "reset"]));
+        shell.route_bytes(b"\x1b[B\t");
+        assert_eq!(shell.editor.text(), "/permissions revoke");
+    }
+
+    #[test]
+    fn workspace_lists_its_verbs_and_tab_leaves_room_for_a_path() {
+        // `fx-p5-slash-arg-skills-40x120-workspace`: column 13
+        // (`workspace_arg_completions`, `command_specs.zig:771-776`); `add`
+        // and `remove` take a path, so Tab writes their space
+        // (`slashCompletionHasArgs`, `:692-703`), and `/workspace ` and Enter
+        // runs `list`.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/workspace ");
+        assert_eq!(menu(&shell), table(13, &["list", "add", "remove", "clear"]));
+        shell.route_bytes(b"a\t");
+        assert_eq!(shell.editor.text(), "/workspace add ");
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/workspace c\t");
+        assert_eq!(shell.editor.text(), "/workspace clear");
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/workspace \r");
+        assert!(
+            shell.document()[0].starts_with("* workspace: primary="),
+            "{:?}",
+            shell.document()
+        );
+    }
+
+    #[test]
+    fn allowlist_walks_its_words_under_the_one_being_typed() {
+        // `fx-p5-slash-arg-skills-40x120-allowlist`, `-allowlist-add`,
+        // `-allowlist-add-tool`, `-allowlist-local`
+        // (`allowlistArgCompletionState`, `command_specs.zig:1042-1204`).
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/allowlist ");
+        assert_eq!(
+            menu(&shell),
+            table(13, &["view", "add", "remove", "reset", "local", "user"])
+        );
+        shell.route_bytes(b"a\t");
+        assert_eq!(shell.editor.text(), "/allowlist add ");
+        assert_eq!(
+            menu(&shell),
+            table(17, &["command", "tool", "url", "web-fetch-domain"])
+        );
+        shell.route_bytes(b"t\t");
+        assert_eq!(shell.editor.text(), "/allowlist add tool ");
+        assert_eq!(
+            menu(&shell),
+            table(
+                22,
+                &[
+                    "read_file",
+                    "write_file",
+                    "edit_file",
+                    "glob_files",
+                    "grep_files",
+                    "skill"
+                ]
+            )
+        );
+        shell.route_bytes(b"sk\t");
+        assert_eq!(shell.editor.text(), "/allowlist add tool skill");
+        assert!(menu(&shell)[0].contains("skill"));
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/allowlist local ");
+        assert_eq!(menu(&shell), table(19, &["add", "remove", "reset"]));
+    }
+
+    #[test]
+    fn one_dismissal_closes_the_slash_menu_and_every_argument_list_for_the_line() {
+        // fx's one `.slash` kind (`visibleInlinePickerKind`,
+        // `input_completion_runtime.zig:142-169`; `suppressionAfterEdit`,
+        // `picker_state.zig:520-532`): Escape over an argument list lasts
+        // while the draft is a slash line -- back to the bare name, where the
+        // slash menu stays closed, and on to another command's list.
+        let (mut shell, runtime, _home) = mcp_args_shell();
+        shell.route_bytes(b"/mcp ");
+        assert_eq!(menu(&shell).len(), 6);
+        escape(&mut shell);
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(shell.editor.text(), "/mcp");
+        assert!(shell.picker.is_none(), "the slash menu came back");
+        assert!(menu(&shell).is_empty());
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/sound ");
+        assert_eq!(menu(&shell).len(), 6);
+        escape(&mut shell);
+        shell.route_bytes(&[0x7f, 0x7f]);
+        assert!(shell.picker.is_none(), "the slash menu came back");
+        shell.route_bytes(b"d ");
+        assert!(menu(&shell).is_empty(), "the list came back");
+        // A dismissal of the slash menu holds over the list the name grows into.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/stat");
+        assert!(shell.picker.is_some());
+        escape(&mut shell);
+        shell.route_bytes(b"usline ");
+        assert!(
+            menu(&shell).is_empty(),
+            "the list opened under the dismissal"
+        );
+        // An empty draft ends the line, and the dismissal with it.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/statusline ");
+        assert_eq!(menu(&shell).len(), 6);
+        runtime.shutdown();
+    }
+
     #[test]
     fn the_setup_prefix_typed_with_its_space_keeps_its_spelling_and_its_column() {
         // `fx-provider2-40x120-setup-space`: typed rather than run, `/setup `
@@ -39892,10 +40167,11 @@ mod tests {
     #[test]
     fn an_argument_that_names_no_item_is_upstreams_usage_error() {
         // `cap/fx-statusline-40x120-bogus`, and the match is exact and
-        // case-sensitive (`parseStatuslineItem`).
+        // case-sensitive (`parseStatuslineItem`): `Context`, typed, is the
+        // list's marked `context`, which Enter runs instead.
         let root = tempfile::tempdir().expect("a root");
         let mut shell = shell_at_home(root.path(), 40, 120);
-        for argument in ["bogus", "Context", "context please", "sandbox"] {
+        for argument in ["bogus", "context please", "sandbox"] {
             shell.route_bytes(format!("/statusline {argument}\r").as_bytes());
             assert_eq!(
                 shell.document(),

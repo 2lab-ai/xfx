@@ -30,8 +30,19 @@
 //! as fx's slash completion does (`resolveSlashSubmission`,
 //! `src/core/app/input_submit_runtime.zig:1819-1824@481104fd`) -- so
 //! `/mcp remove web` with only `web2` configured runs `/mcp remove web2`
-//! (`p5-mcp-verbs`); Escape closes it until the draft stops being a `/mcp `
-//! line. With nothing matching it is not up, and Enter submits the text.
+//! (`p5-mcp-verbs`); Escape closes it, as it closes the slash menu, until the draft
+//! stops being a slash line. With nothing matching it is not up, and Enter
+//! submits the text.
+//!
+//! # fx's tables
+//!
+//! The same rows, keys and place hold fx's fixed lists past `/statusline `,
+//! `/sound `, `/permissions `, `/workspace ` and `/allowlist `
+//! ([`super::arg_lists`]; [`McpArgs::fixed`]): no description, never read
+//! again, and Tab follows a line with more to come by a space
+//! (`slashCompletionHasArgs`, `command_specs.zig:692-703@481104fd`). They are
+//! the slash popup's kind, so the slash menu's dismissal closes them
+//! (`visibleInlinePickerKind`, `input_completion_runtime.zig:142-169`).
 
 use std::time::{Duration, Instant};
 
@@ -88,6 +99,11 @@ pub(crate) struct McpArgs {
     text: String,
     /// Where the argument starts in [`Self::text`]: what the rows hang under.
     token_start: usize,
+    /// Where each line's label starts: past `/mcp `, or a table's head.
+    label_at: usize,
+    /// A table's ([`Self::fixed`]): which lines Tab follows by a space. `None`
+    /// for the servers' list, which is matched here and read again.
+    spaced: Option<Vec<bool>>,
     /// Every completion, the whole line and its description, as last read.
     entries: Vec<(String, String)>,
     /// The ones [`Self::text`] matches, as indices into [`Self::entries`].
@@ -113,7 +129,37 @@ impl McpArgs {
         let mut args = Self {
             text: text.to_string(),
             token_start,
+            label_at: COMMAND.len() + 1,
+            spaced: None,
             entries,
+            matching: Vec::new(),
+            read_at: now,
+            selected: 0,
+            window_start: 0,
+            lost: false,
+        };
+        args.rematch();
+        Some(args)
+    }
+
+    /// fx's table for `text`, if `text` is one of its five commands then a
+    /// blank, past any leading blanks ([`super::arg_lists::of`]): the rows its
+    /// query finds, hung past the blanks and the table's head
+    /// (`slashRawAnchor`, `input_presentation.zig:287-292@481104fd`). One with
+    /// no row is still the table's, and is not up.
+    pub(crate) fn fixed(text: &str, now: Instant) -> Option<Self> {
+        let prefix = text.trim_start_matches(super::picker::BLANKS);
+        let list = super::arg_lists::of(prefix)?;
+        let (lines, spaced): (Vec<String>, Vec<bool>) = list.rows().into_iter().unzip();
+        let mut args = Self {
+            text: text.to_string(),
+            token_start: text.len() - prefix.len() + list.head.len(),
+            label_at: list.head.len(),
+            spaced: Some(spaced),
+            entries: lines
+                .into_iter()
+                .map(|line| (line, String::new()))
+                .collect(),
             matching: Vec::new(),
             read_at: now,
             selected: 0,
@@ -126,8 +172,9 @@ impl McpArgs {
 
     fn rematch(&mut self) {
         let query = query_of(&self.text).map_or("", |(_, query)| query);
+        let fixed = self.spaced.is_some();
         self.matching = (0..self.entries.len())
-            .filter(|&index| answers(&self.entries[index].0, query))
+            .filter(|&index| fixed || answers(&self.entries[index].0, query))
             .collect();
         let count = self.matching.len();
         if count > 0 {
@@ -137,6 +184,12 @@ impl McpArgs {
             self.selected = 0;
             self.window_start = 0;
         }
+    }
+
+    /// Whether it is one of fx's tables ([`Self::fixed`]) rather than the
+    /// servers' list.
+    pub(crate) fn is_table(&self) -> bool {
+        self.spaced.is_some()
     }
 
     /// The composer text it was built for.
@@ -156,7 +209,7 @@ impl McpArgs {
 
     /// Whether the list is due to be read again.
     pub(crate) fn due(&self, now: Instant) -> bool {
-        now.saturating_duration_since(self.read_at) >= REFRESH
+        self.spaced.is_none() && now.saturating_duration_since(self.read_at) >= REFRESH
     }
 
     /// Takes a fresh read of the completions, and says whether what it shows
@@ -223,7 +276,7 @@ impl McpArgs {
             .iter()
             .map(|&index| {
                 let (full, description) = &self.entries[index];
-                (&full[COMMAND.len() + 1..], description.as_str())
+                (&full[self.label_at..], description.as_str())
             })
             .collect();
         // The text column is as wide as the widest text **in view**.
@@ -263,13 +316,26 @@ impl McpArgs {
         true
     }
 
-    /// The marked line, whole: what Tab writes and Enter submits.
+    /// The marked line, whole: what Enter submits.
     pub(crate) fn chosen(&self) -> Option<&str> {
         if self.lost {
             return None;
         }
         let index = *self.matching.get(self.selected)?;
         Some(self.entries[index].0.as_str())
+    }
+
+    /// What Tab writes: the marked line, and a space after it when a table
+    /// says more is to come (`slashCompletionHasArgs`).
+    pub(crate) fn completion(&self) -> Option<String> {
+        let index = *self.matching.get(self.selected).filter(|_| !self.lost)?;
+        let more = self.spaced.as_ref().is_some_and(|spaced| spaced[index]);
+        let line = &self.entries[index].0;
+        Some(if more {
+            format!("{line} ")
+        } else {
+            line.clone()
+        })
     }
 }
 
