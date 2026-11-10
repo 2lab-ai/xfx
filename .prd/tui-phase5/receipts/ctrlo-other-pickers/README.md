@@ -358,7 +358,9 @@ again after `0ab399ed`, outside the gate: `check-no-stubs`, exit 0, and
   60 paragraphs on a 40-row screen and asserts, after each of Up, Down,
   PgUp and PgDn, the offset (toward the head, back to the tail) and the
   bar. CTRLO-AT-KEYS' `down-not-the-transcripts` survived that case; at
-  this head a transcript that does not scroll fails it.
+  this head a transcript that does not scroll would fail it on
+  `offsets[0] < tail` (read, not run: that mutant is not in this unit's
+  `mutants.py`).
 - **Shift-Up/Down.** The `@` list's pin: fx's composer move with
   `extend_selection` (`escape_parser.zig:66-71`, `:99-107`), unbound in the
   screen's map (`input_full_transcript_runtime.zig:167-170`), reaches
