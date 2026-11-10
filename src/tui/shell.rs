@@ -5266,8 +5266,10 @@ impl Shell {
     /// (`!question_active and approval == null`, `:1206`); neither term is
     /// needed here, because the screen is never up with one: a question or an
     /// approval closes it as it arrives ([`Self::full_transcript_sees`]), and
-    /// Ctrl-O opens none while one is up ([`Self::open_full_transcript`]
-    /// refuses while [`Self::modal`]).
+    /// a Ctrl-O while one is up never reaches [`Self::act`] -- the `ask` and
+    /// `asking` arms of [`Self::consume_inputs`] take every key first.
+    /// [`Self::open_full_transcript`]'s refusal while [`Self::modal`] is the
+    /// same rule written where the next edit reads it, not the barrier.
     fn reconcile_full_transcript(&mut self) {
         let menu = self.settings_menu.is_some()
             || self.help_menu.is_some()
@@ -5286,14 +5288,12 @@ impl Shell {
     /// (`routePickerControlByte`, `composerPickerSurfaceVisible`,
     /// `app_input_runtime.zig:1093-1116@481104fd`), so they reach the
     /// composer (`:881-893`) -- `C-j` its `insert_newline` (`:513-521`),
-    /// `C-k` a kill to the line's end (`:479-488`) -- past whatever is up
-    /// under the screen ([`Self::consume_inputs`], [`Self::act`]). The slash
-    /// menu, the `/provider` column, `/mcp `'s argument completions and the
-    /// `@` list hold the screen over them; the seven menus the frame shuts it
-    /// for ([`Self::reconcile_full_transcript`]) see one only in the burst
-    /// the Ctrl-O came in, before that frame, as fx's do (its loop reads up
-    /// to `max_input_reads_per_fact_collection` reads before a frame,
-    /// `src/ui/event_loop.zig:90-120@481104fd`).
+    /// `C-k` a kill to the line's end (`:479-488`). [`Self::consume_inputs`]
+    /// sends them past every picker, but `/mcp`'s menu is asked first and
+    /// takes every key while the screen covers it ([`Self::offer_to_mcp`]:
+    /// xfx's, over fx's, opus-C). Over the menus the frame shuts the screen
+    /// for, this is the burst the Ctrl-O came in
+    /// (`src/ui/event_loop.zig:90-120@481104fd`).
     fn composer_control(&self, action: Action) -> bool {
         self.full.is_open() && matches!(action, Action::ControlJ | Action::ControlK)
     }
@@ -5303,11 +5303,18 @@ impl Shell {
     /// menu, `/model`'s menu or the session picker is up (`:514`); otherwise
     /// a line break, which closes `/fork`'s and `/effort`'s menus as any edit
     /// does ([`Self::amended`]). It syncs no catalog menu, so the catalog and
-    /// the settings menu keep their marks over the search it changed; a line
-    /// break is no word of a search. A picker takes `C-j` everywhere but
-    /// under the full transcript ([`Self::composer_control`]), so only there
-    /// does it reach here with one up -- Alt-Enter's `InsertNewline` is still
-    /// `type_character('\n')` over them (INSERT-NEWLINE-MENUS).
+    /// the settings menu keep their marks over the search it changed.
+    ///
+    /// What reaches here with a menu up: under the full transcript, any but
+    /// `/mcp`'s ([`Self::composer_control`]); with the screen closed, three
+    /// that bind no `C-j` -- the settings menu (`super::settings`), so its
+    /// `keep` is for that too, where fx's menu moves (SETTINGS-CJ-CK); the
+    /// inline model column, where fx's moves too (MODEL-COLUMN-CJ-CK); and a
+    /// `$` menu that shows nothing, which fx's composer gives the same line
+    /// break. The help catalog, `/model`'s menu, the session picker,
+    /// `/fork`'s and `/effort`'s menus and a shown skills menu take `C-j`
+    /// themselves with the screen closed. Alt-Enter's `InsertNewline` is
+    /// still `type_character('\n')` over them (INSERT-NEWLINE-MENUS).
     fn composer_newline(&mut self) {
         let held = self
             .skills_menu
@@ -12735,9 +12742,11 @@ impl Shell {
             }
             // **The one editing action that adds text**, so it goes the way a
             // typed character goes rather than the way the moves and the
-            // deletes do: through the budget. `C-j` inserts a newline and
-            // nothing else (`super::editor::Editor::apply`), so routing it
-            // here is the same edit with the same question asked first.
+            // deletes do: through the budget. `C-j` is fx's `insert_newline`
+            // ([`Self::composer_newline`]): the same line break through the
+            // same budget, except that it adds nothing while `/skills`',
+            // `/model`'s or the session menu is up, and puts the catalog's
+            // and the settings menu's marks back after it.
             Action::InsertNewline => self.type_character('\n'),
             Action::ControlJ => self.composer_newline(),
             // A backslash right before the caret is a line that goes on, not a
