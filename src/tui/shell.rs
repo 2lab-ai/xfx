@@ -28657,6 +28657,231 @@ mod tests {
         assert!(!rules.exists(), "nothing was kept");
     }
 
+    /// A `remember` that opens a rule confirmation in [`remembering_shell`].
+    const REMEMBER_A: &[u8] =
+        b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r";
+
+    /// Which choice a rule confirmation marks, as its rows say it.
+    fn rule_mark(shell: &Fixture) -> Option<&'static str> {
+        let rows = confirmation_rows(shell);
+        if rows.iter().any(|row| row == "  ❯ 1. Confirm") {
+            Some("Confirm")
+        } else if rows.iter().any(|row| row == "  ❯ 2. Cancel") {
+            Some("Cancel")
+        } else {
+            None
+        }
+    }
+
+    #[test]
+    fn ctrl_j_at_a_rule_confirmation_answers_as_enter_does_on_either_choice() {
+        // fx v0.0.16 asks a rule change in its approval prompt, confirmation-
+        // only (`syncRuleManagement`, `approval_prompt.zig:119-146@481104fd`),
+        // so the approval's byte map is its: `'\r', '\n' => .submit`
+        // (`approvalActionFromByte`, `src/ui/input/runtime.zig:64`), the marked
+        // choice's decision (`approval_decision.zig:141`, `:75-80`) -- Confirm
+        // makes the change, Cancel says it was cancelled
+        // (`submitRuleManagementChoice`, `input_approval_runtime.zig:257-328`).
+        // Every spelling APPROVAL-CTRL-J's question takes, on either choice.
+        let mut wrong = Vec::new();
+        for (name, bytes) in CTRL_J {
+            let (_home, _workspace, rules, mut shell) = remembering_shell();
+            shell.route_bytes(REMEMBER_A);
+            shell.route_bytes(b"\x1b[B");
+            shell.route_bytes(bytes);
+            let said = shell.document();
+            if shell.rule_confirm.is_some()
+                || said
+                    != [
+                        "* permissions: saved-session permission change cancelled".to_string(),
+                        String::new(),
+                    ]
+            {
+                wrong.push(format!("{name} on Cancel: {said:?}"));
+            }
+            shell.route_bytes(REMEMBER_A);
+            shell.route_bytes(bytes);
+            let said = shell.document();
+            let kept = crate::permission::session_rules::load(&rules)
+                .map(|state| state.rules.len())
+                .unwrap_or(0);
+            if shell.rule_confirm.is_some()
+                || kept != 1
+                || said
+                    != [
+                        "* permissions: saved-session permission rule updated".to_string(),
+                        String::new(),
+                    ]
+            {
+                wrong.push(format!("{name} on Confirm: {said:?}, {kept} kept"));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_c_at_a_rule_confirmation_cancels_it_and_arms_no_exit() {
+        // `3 => .deny` (`src/ui/input/runtime.zig:63@481104fd`): a refusal,
+        // which a rule confirmation answers by saying the change was
+        // cancelled (`input_approval_runtime.zig:267-275`); the approval took
+        // the byte, so no exit is armed. On either choice.
+        for down in [false, true] {
+            let (_home, _workspace, rules, mut shell) = remembering_shell();
+            shell.route_bytes(REMEMBER_A);
+            if down {
+                shell.route_bytes(b"\x1b[B");
+            }
+            shell.route_bytes(&[0x03]);
+            assert!(shell.rule_confirm.is_none(), "down {down}");
+            assert_eq!(
+                shell.document(),
+                vec![
+                    "* permissions: saved-session permission change cancelled".to_string(),
+                    String::new(),
+                ],
+                "down {down}"
+            );
+            assert!(!rules.exists(), "down {down}: nothing was kept");
+            let hint = sgr_free(shell.band_rows().last().expect("a hint row"));
+            assert_ne!(hint, EXIT_ARMED, "down {down}");
+        }
+    }
+
+    #[test]
+    fn tab_and_the_horizontal_keys_move_a_rule_confirmations_mark_wrapping() {
+        // Tab with no draft to open moves the mark (`.tab`,
+        // `approval_decision.zig:142-151@481104fd`: `amendment_allowed =
+        // false`, `app_commands.zig:691`), and Left, Alt-b, Right and Alt-f
+        // are the approval's `move_choice` (`routeApprovalEscapeAction`,
+        // `input_approval_runtime.zig:90-110`), wrapping over two choices
+        // (`moveChoice`, `optionCount`, `approval_decision.zig:214-229`).
+        let (_home, _workspace, _rules, mut shell) = remembering_shell();
+        shell.route_bytes(REMEMBER_A);
+        let mut marks = Vec::new();
+        for (name, bytes) in [
+            ("tab", &b"\t"[..]),
+            ("tab", b"\t"),
+            ("right", b"\x1b[C"),
+            ("right", b"\x1b[C"),
+            ("left", b"\x1b[D"),
+            ("left", b"\x1b[D"),
+            ("alt-f", b"\x1bf"),
+            ("alt-b", b"\x1bb"),
+        ] {
+            shell.route_bytes(bytes);
+            marks.push((name, rule_mark(&shell)));
+        }
+        assert_eq!(
+            marks,
+            vec![
+                ("tab", Some("Cancel")),
+                ("tab", Some("Confirm")),
+                ("right", Some("Cancel")),
+                ("right", Some("Confirm")),
+                ("left", Some("Cancel")),
+                ("left", Some("Confirm")),
+                ("alt-f", Some("Cancel")),
+                ("alt-b", Some("Confirm")),
+            ]
+        );
+        assert!(shell.document().is_empty(), "a move says nothing");
+        // And the next Enter answers the choice moved to.
+        shell.route_bytes(b"\t\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: saved-session permission change cancelled".to_string(),
+                String::new(),
+            ]
+        );
+    }
+
+    #[test]
+    fn keys_fx_reads_as_nothing_leave_a_rule_confirmation_as_it_was() {
+        // What fx's approval does nothing with, at a rule confirmation as at
+        // a question (`Shell::decide`'s reasons, each at the pin): C-p, a
+        // decoded `.open_model_catalog`, and C-n, a raw byte no approval
+        // action is made of; Shift-, Ctrl-, Alt- and Super-Up and -Down, a
+        // composer move (`input_approval_runtime.zig:128@481104fd`); a third
+        // digit, past `optionCount` (`approval_decision.zig:157-158`, `:227-229`);
+        // a letter with no draft (`:165`, `:202`); and Ctrl-L, which asks for
+        // no repaint (`src/ui/input/runtime.zig:98-108`, `:61-73`).
+        let mut wrong = Vec::new();
+        for (name, bytes) in [
+            ("c-p", &[0x10][..]),
+            ("c-n", &[0x0e]),
+            ("3", b"3"),
+            ("j", b"j"),
+            ("k", b"k"),
+            ("shift-up", b"\x1b[1;2A"),
+            ("shift-down", b"\x1b[1;2B"),
+            ("ctrl-up", b"\x1b[1;5A"),
+            ("ctrl-down", b"\x1b[1;5B"),
+            ("alt-up", b"\x1b[1;3A"),
+            ("alt-down", b"\x1b[1;3B"),
+            ("super-up", b"\x1b[1;9A"),
+            ("super-down", b"\x1b[1;9B"),
+            ("ctrl-l", &[0x0c]),
+        ] {
+            let (_home, _workspace, rules, mut shell) = remembering_shell();
+            shell.route_bytes(REMEMBER_A);
+            shell.damage_told();
+            shell.route_bytes(bytes);
+            let said = shell.document();
+            if shell.rule_confirm.is_none()
+                || rule_mark(&shell) != Some("Confirm")
+                || !said.is_empty()
+                || shell.damage_untold
+                || rules.exists()
+            {
+                wrong.push(format!(
+                    "{name}: up {}, mark {:?}, said {said:?}, damaged {}",
+                    shell.rule_confirm.is_some(),
+                    rule_mark(&shell),
+                    shell.damage_untold
+                ));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn() {
+        // With an operation in hand, fx's Escape at its approval prompt is
+        // `cancelApprovalOperation` (`resolveEscape`,
+        // `app_input_runtime.zig:2689`, `:2712-2716@481104fd`): the turn is
+        // stopped and the prompt -- here the rule confirmation, asked while
+        // the turn runs (a command runs at once, `input_submit_runtime.zig:
+        // 721-724`) -- is cleared, saying nothing about the rule
+        // (`input_approval_runtime.zig:401-436`).
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        turn_running(&mut shell, b"ask something\r");
+        while shell.controlled().is_some() {}
+        shell.route_bytes(REMEMBER_A);
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        let _ = shell.document();
+        escape(&mut shell);
+        assert!(shell.rule_confirm.is_none(), "Escape closed it");
+        let mut controls = Vec::new();
+        while let Some(control) = shell.controlled() {
+            controls.push(control);
+        }
+        assert!(
+            controls
+                .iter()
+                .any(|control| matches!(control, TurnControl::Cancel { .. })),
+            "the turn was not stopped: {controls:?}"
+        );
+        assert!(
+            !shell
+                .document()
+                .iter()
+                .any(|row| row.contains("permission")),
+            "nothing is said about the rule"
+        );
+        assert!(!rules.exists(), "nothing was kept");
+    }
+
     #[test]
     fn a_remember_that_cannot_be_prepared_or_a_revoke_of_nothing_says_why() {
         let (_home, _workspace, _rules, mut shell) = remembering_shell();
