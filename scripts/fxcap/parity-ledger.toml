@@ -551,6 +551,15 @@ rows = ["32-36"]
 why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a multi-line card on a full screen, or keep the card whole from the first frame? fx v0.0.16's first frame after Enter shows only the prompt's last line and its next frame writes the card (70611a91); xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs:13301). One frame, a few milliseconds, and every snap after it is the same (.prd/tui-phase5/receipts/transcript-receipts, `frame` and `same`). xfx keeps the whole card until then: the dispatcher's interim choice (2026-11-07), not the user's, so it approves nothing. Resolved when the user answers: fx's preview copied, or the whole card written down as a lasting difference."
 
 [[cause]]
+id = "approval-settled-every-approval"
+kind = "decision"
+owner = "user decision approval readiness scope (the dispatcher's interim choice, 2026-11-10)"
+scenarios = ["p5-approval-readiness-settled"]
+snaps = ["cmd2-down-enter"]
+whole_snap = true
+why = "fx v0.0.16 holds an affirmative back while a modal frame is pending only at a file approval (`input_approval_runtime.zig:191-192@481104fd`; a run-command request has no `file`, `permission_request.zig:39-40`), so its Down and Enter in one read at the second command answer `Always` at once and the turn ends; xfx holds it back at every approval (`Shell::approval_changed`, `src/tui/approval_readiness.rs`'s `Readiness::changed`), so its question stays up with choice 2 marked. A grant widened past what the frame showed is a safety matter on any approval: the dispatcher's decision for APPROVAL-READINESS-SETTLED (reversible, kept for the user's veto), not the user's, so it approves nothing. Resolved when the user keeps it (written down as a lasting difference) or asks for fx's file-only check (`Shell::approval_changed` calling `changed` only for a path)."
+
+[[cause]]
 id = "diffctl-xfx-reads-first"
 kind = "scenario"
 owner = "T-U6"

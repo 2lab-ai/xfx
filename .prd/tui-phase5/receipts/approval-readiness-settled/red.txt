@@ -1,0 +1,137 @@
+# RED: the RED commit 4322bebe's tests on the base's code (a37a969e; that commit adds only tests and the scenario).
+# cargo test --locked --lib -- tui::shell::tests::a_move_and_enter tui::shell::tests::a_refusal_read tui::shell::tests::an_edit_and_enter tui::shell::tests::a_walk_of_the_review tui::shell::tests::a_vertical_spelling_and_enter
+
+running 6 tests
+test tui::shell::tests::a_walk_of_the_review_plane_and_enter_answer_nothing_until_it_is_drawn ... FAILED
+test tui::shell::tests::a_move_and_enter_in_one_read_at_an_edit_answer_nothing_until_a_frame_shows_the_move ... FAILED
+test tui::shell::tests::a_move_and_enter_in_one_read_at_a_command_answer_nothing_until_a_frame_shows_the_move ... FAILED
+test tui::shell::tests::an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft ... FAILED
+test tui::shell::tests::a_refusal_read_with_a_move_still_refuses_at_once ... ok
+test tui::shell::tests::a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown ... FAILED
+
+failures:
+
+---- tui::shell::tests::a_walk_of_the_review_plane_and_enter_answer_nothing_until_it_is_drawn stdout ----
+
+thread 'tui::shell::tests::a_walk_of_the_review_plane_and_enter_answer_nothing_until_it_is_drawn'  panicked at src/tui/shell.rs:23275:9:
+assertion `left == right` failed: an undrawn walk was answered
+  left: Some(Answer { id: ApprovalId, answer: Once, feedback: None })
+ right: None
+
+---- tui::shell::tests::a_move_and_enter_in_one_read_at_an_edit_answer_nothing_until_a_frame_shows_the_move stdout ----
+
+thread 'tui::shell::tests::a_move_and_enter_in_one_read_at_an_edit_answer_nothing_until_a_frame_shows_the_move'  panicked at src/tui/shell.rs:23140:9:
+answered before a frame showed the move: [
+    "an edit, down and Enter in one read: Answer { id: ApprovalId, answer: Always, feedback: None }",
+    "an edit, right and Enter in one read: Answer { id: ApprovalId, answer: Always, feedback: None }",
+    "an edit, alt-f and Enter in one read: Answer { id: ApprovalId, answer: Always, feedback: None }",
+    "an edit, down down up and Enter in one read: Answer { id: ApprovalId, answer: Always, feedback: None }",
+    "an edit, down down down and Enter in one read: Answer { id: ApprovalId, answer: Once, feedback: None }",
+]
+
+---- tui::shell::tests::a_move_and_enter_in_one_read_at_a_command_answer_nothing_until_a_frame_shows_the_move stdout ----
+
+thread 'tui::shell::tests::a_move_and_enter_in_one_read_at_a_command_answer_nothing_until_a_frame_shows_the_move'  panicked at src/tui/shell.rs:23140:9:
+answered before a frame showed the move: [
+    "a command, down and Enter in one read: Answer { id: ApprovalId, answer: Always, feedback: None }",
+    "a command, right and Enter in one read: Answer { id: ApprovalId, answer: Always, feedback: None }",
+    "a command, alt-f and Enter in one read: Answer { id: ApprovalId, answer: Always, feedback: None }",
+    "a command, down down up and Enter in one read: Answer { id: ApprovalId, answer: Always, feedback: None }",
+    "a command, down down down and Enter in one read: Answer { id: ApprovalId, answer: Once, feedback: None }",
+]
+
+---- tui::shell::tests::an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft stdout ----
+
+thread 'tui::shell::tests::an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft'  panicked at src/tui/shell.rs:23228:9:
+sent before a frame showed the draft: [
+    "a letter and Enter in one read: Answer { id: ApprovalId, answer: Once, feedback: Some(\"ab cdx\") }",
+    "ctrl-u and Enter in one read: Answer { id: ApprovalId, answer: Once, feedback: None }",
+    "ctrl-w and Enter in one read: Answer { id: ApprovalId, answer: Once, feedback: Some(\"ab \") }",
+    "ctrl-w then a yank and Enter in one read: Answer { id: ApprovalId, answer: Once, feedback: Some(\"ab cd\") }",
+    "a paste, then Enter with no frame between: Answer { id: ApprovalId, answer: Once, feedback: Some(\"ab cd zz\") }",
+]
+
+---- tui::shell::tests::a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown stdout ----
+
+thread 'tui::shell::tests::a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown'  panicked at src/tui/shell.rs:23044:13:
+assertion `left == right` failed: super-up and Enter in one read answered before the caret was drawn
+  left: Some(Answer { id: ApprovalId, answer: Once, feedback: Some("ab cd") })
+ right: None
+
+
+failures:
+    tui::shell::tests::a_move_and_enter_in_one_read_at_a_command_answer_nothing_until_a_frame_shows_the_move
+    tui::shell::tests::a_move_and_enter_in_one_read_at_an_edit_answer_nothing_until_a_frame_shows_the_move
+    tui::shell::tests::a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown
+    tui::shell::tests::a_walk_of_the_review_plane_and_enter_answer_nothing_until_it_is_drawn
+    tui::shell::tests::an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft
+
+test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 4639 filtered out; finished in 0.05s
+
+
+# The pair at the base: scope.py red (red/, the base's binary, row 1 x𝒇x v0.1.0-a37a969)
+DIFF  cmd-ask       18 rows differ
+      fx:  '● 4 tool calls · 1 read · 1 write · 1 edit · 1 command'
+      xfx: '● 5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied'
+      fx:  '├ Wrote c.txt +2'
+      xfx: '├ Denied file'
+      fx:  '└ Running echo hi > out.txt && cat out.txt'
+      xfx: '├ Ran echo hi > out.txt && cat out.txt'
+DIFF  cmd2-ask      16 rows differ
+      fx:  '├ Wrote c.txt +2'
+      xfx: '├ Denied file'
+      fx:  '├ Denied echo hi > out.txt && cat out.txt'
+      xfx: '├ Ran echo hi > out.txt && cat out.txt'
+      fx:  '└ Running echo again'
+      xfx: '└ Ran echo again'
+DIFF  cmd2-down-enter 9 rows differ
+      fx:  '├ Wrote c.txt +2'
+      xfx: '├ Denied file'
+      fx:  '├ Denied echo hi > out.txt && cat out.txt'
+      xfx: '├ Ran echo hi > out.txt && cat out.txt'
+      fx:  '  13s (↑4 ↓240)'
+      xfx: '  7s (↑4 ↓240)'
+SAME  edit-ask      (22 rows compared)
+DIFF  edit-down-enter 19 rows differ
+      fx:  '● 1 tool call · 1 read'
+      xfx: '● 2 tool calls · 1 read · 1 edit'
+      fx:  '└ Read a.txt'
+      xfx: '├ Read a.txt'
+      fx:  ''
+      xfx: '└ Edited a.txt +1 / -1'
+DIFF  edit-left-enter 19 rows differ
+      fx:  '● 1 tool call · 1 read'
+      xfx: '● 4 tool calls · 1 read · 1 write · 1 edit · 1 command · 1 denied'
+      fx:  '└ Read a.txt'
+      xfx: '├ Read a.txt'
+      fx:  ''
+      xfx: '├ Edited a.txt +1 / -1'
+DIFF  end           9 rows differ
+      fx:  '├ Wrote c.txt +2'
+      xfx: '├ Denied file'
+      fx:  '├ Denied echo hi > out.txt && cat out.txt'
+      xfx: '├ Ran echo hi > out.txt && cat out.txt'
+      fx:  '  13s (↑4 ↓240)'
+      xfx: '  7s (↑4 ↓240)'
+DIFF  write-ask     18 rows differ
+      fx:  '● 2 tool calls · 1 read · 1 edit'
+      xfx: '● 5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied'
+      fx:  '└ Edited a.txt +1 / -1'
+      xfx: '├ Edited a.txt +1 / -1'
+      fx:  ''
+      xfx: '├ Denied file'
+DIFF  write-letter-enter 17 rows differ
+      fx:  '● 2 tool calls · 1 read · 1 edit'
+      xfx: '● 5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied'
+      fx:  '└ Edited a.txt +1 / -1'
+      xfx: '├ Edited a.txt +1 / -1'
+      fx:  ''
+      xfx: '├ Denied file'
+DIFF  write-super-up-enter 19 rows differ
+      fx:  '● 2 tool calls · 1 read · 1 edit'
+      xfx: '● 5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied'
+      fx:  '└ Edited a.txt +1 / -1'
+      xfx: '├ Edited a.txt +1 / -1'
+      fx:  ''
+      xfx: '├ Denied file'
+1 of 10 pairs identical once the grant scope's rows are set aside

@@ -1,0 +1,2 @@
+# fx_src.sh <fx> with the unit's added lines on stdin, as its header says, at this receipt's head (README.md included)
+86 citations checked, 0 outside fx-src.txt's ranges
