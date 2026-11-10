@@ -21,6 +21,10 @@ its refusal of a key written twice, and the stop a bad `provider` or
   then f631aec2 and later, this receipt only; section 9 says what changed
   and where each claim rests. Source outside tests at 9d010f33: **354**
   lines, 71 comments (`count-round2.txt`; round 2's budget, about 360).
+- **Round 3** (reviews r2-gpt6 and r2-opus of a1845a9e, no MUST): **code
+  395ac4b0** (990be66e, 21754951, 395ac4b0), then this receipt; section 10.
+  No behaviour change. Source outside tests: **353** lines, 73 comments
+  (`count-round3.txt`).
 
 ## 1. fx's rule (`fx_src.sh` → `fx-src.txt`, every range checked: 0 out of bounds)
 
@@ -277,7 +281,8 @@ bounded at 900 s, under the suite lock. One or more per class:
   `providers` names is one of fx's configured connections, a registry xfx
   does not have, so it keeps xfx's turn refusal (round 2; fx stops on
   `provider-defined` with `no model is selected for this connection`, and
-  would run with a model for it). Each connection's own checks are not
+  would run with a model for it). `provider-codex` and `provider-defined`
+  are deliberate, no unit. Each connection's own checks are not
   copied either (`providers-bad-def`: fx `InvalidObject`, xfx starts; queued:
   **PROVIDERS-REGISTRY**). [Round 1 said a `providers` key alone kept the
   turn refusal; that hid `UnknownConfiguredProvider` -- fixed in round 2.]
@@ -291,6 +296,34 @@ bounded at 900 s, under the suite lock. One or more per class:
   only `status`, `doctor` and a reload; that was false -- r1-gpt6 MUST 2.]
   Queued: **PROFILE-LAYER-DROP**. fx's `status` writes each diagnostic on
   stderr, xfx's none (older than both units).
+- **Name drift** (round 2, opus SHOULD 3c; narrowed in round 3): where a
+  key only fx reads fails first, both stop and name different errors --
+  `auto_compact_percent` (`drift-auto-compact`: fx
+  `InvalidAutoCompactPercentType`, xfx `InvalidProviderType`), a
+  connection's definition, and `codex_model` or `grok_model` only when
+  xfx's routing error is in `models` (fx reads `provider` first,
+  `config_runtime.zig:1658`, `:1664`, `:1676`); likewise a merged overflow
+  after a failed layer, which fx names by that layer's first error.
+- **A layer fx drops at a key only it reads, parsed whole here** (round 3,
+  opus NIT 1; `drift-codex-merge`): its `model`, `codex_model` and
+  `grok_model` count toward the merged 35 here, not in fx's salvage. A
+  global `{"codex_model": 5, "models": {p01..p20}}` with an entry naming
+  `p21..p35`: fx refuses the launch (`InvalidProfileConfiguration`) and its
+  `status` answers (exit 0, `malformed_settings`); xfx stops both with
+  `TooManyModelPreferences`. The same with `"theme": 5` and a `model`.
+  Status only: the launch refuses in both. Part of the key-only-fx-reads
+  class (above); recorded, no unit.
+- **The JSON limits** (round 2, opus SHOULD 1): fx starts on
+  `{"zzz": 1e400}`, a 400-digit integer and a 129-deep array; xfx refuses
+  every launch (`malformed_settings`: serde_json's f64 range and recursion
+  limit), at the base too: **PROFILE-JSON-LIMITS**.
+- **`"permission_mode": "ASK"`** (round 2, opus SHOULD 4): fx runs in `ask`
+  (`PermissionMode.parse`, any case, `types.zig:2375-2382`); xfx in its
+  default `auto`, with an `invalid_value` line: **PERMISSION-MODE-CASE**.
+- **`setup`** (round 2, opus NIT 7): fx's reads no settings before the
+  keychain check (`runPasteSetup`, `cli_surface.zig:1925-1940`; the probe
+  stops there, `oneshot.txt`); xfx's stays open on a stopped profile,
+  deliberately: it is the way back.
 - **fx's `/status` panel** reads with `loadMergedSettingsFromPaths`
   (`fx-src.txt` §7), which names a mistyped key's error; xfx's names only a
   file that does not read (now including one with a key twice:
@@ -348,9 +381,9 @@ the dispatcher) and r1-opus (four SHOULDs, eight NITs).
     checks each connection (`:166-177` on); the salvage carries it, so its
     failure stops the load (`:888-925`, `:1011-1015`);
   - one model preference per provider name, the 36th refused in a layer
-    (`putOwned`, `model_preferences.zig:26-34`; the `model`'s Gateway, fx's
+    (`putOwned`, `model_preferences.zig:25-33`; the `model`'s Gateway, fx's
     `codex_model` and `grok_model` first in a whole parse) and in the two
-    layers merged (`mergeOwnedFrom`, `:36-52`): `TooManyModelPreferences`;
+    layers merged (`mergeOwnedFrom`, `:35-51`): `TooManyModelPreferences`;
   - doctor, on a load that fails: `[fail] config: failed to load config:
     <Name>` and `[fail] startup: failed to resolve startup settings:
     <Name>` (`doctor_runtime.zig:92-104`, `:244-251`).
@@ -378,9 +411,13 @@ the dispatcher) and r1-opus (four SHOULDs, eight NITs).
   workspace entry is looked up once (`exact_workspace_entry`); the whole
   parse's routing check in `fx_first_error_refuses` is now reachable (the
   `model` counts there and not in the salvage) and says so.
-- **Outcomes over 108** (`outcomes-round2.txt`): the base **58** by refusal
-  and **51** by how each entry ended; round 1 (1157fe3e) **96** and **90**;
-  round 2 (9d010f33) **101** and **98**. Round 2 moves the 8 rows round 1
+- **Outcomes over 108** (`outcomes-round2.txt`; corrected in round 3, the
+  figures below `outcomes-round3.txt`'s): the base **55** by refusal
+  and **51** by how each entry ended; round 1 (1157fe3e) **93** and **90**;
+  round 2 (9d010f33) **101** and **98**. [Round 2 said 58 and 96: its
+  `outcomes.py` saw only `Invalid*`, `Unknown*` and `Retired*` names, so
+  `providers-many`, `models-36` and `models-split` matched with nothing
+  compared -- r2-opus SHOULD 2.] Round 2 moves the 8 rows round 1
   missed in this unit's classes -- `provider-missing-empty`,
   `provider-missing-other`, `providers-type`, `providers-null`,
   `providers-many`, `models-36`, `model-and-35`, `models-split`. The rows
@@ -438,8 +475,8 @@ the dispatcher) and r1-opus (four SHOULDs, eight NITs).
     any case: `config_runtime.zig:1057-1059`, `types.zig:2375-2382`); xfx's
     says `permission_mode=auto` and drops the value with an `invalid_value`
     line (`oneshot.txt`): the less restrictive mode. **PERMISSION-MODE-CASE**.
-  - **`setup`** (opus NIT 7): fx's `setup` reads no settings
-    (`runPasteSetup`, `cli_surface.zig:1925-1940`); run on the stopped
+  - **`setup`** (opus NIT 7): fx's `setup` reads no settings before the
+    keychain check (`runPasteSetup`, `cli_surface.zig:1925-1940`); run on the stopped
     `{"provider": "not-a-provider"}`, it stops at the keychain the probe
     disables, not at the profile (`oneshot.txt`). xfx's `setup` stays open
     on a stopped profile, deliberately: it is the way back.
@@ -452,6 +489,72 @@ the dispatcher) and r1-opus (four SHOULDs, eight NITs).
   shell and the TUI run them; `status_stops_where_fxs_load_fails_and_the_rest_still_answer`
   checks doctor's two lines; `ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused`
   asserts the whole stderr again.
+
+## 10. Round 3 (code 395ac4b0)
+
+Both engines approved round 2 with no MUST and no lock-out reachable at
+launch (r2-gpt6, r2-opus). This round pins the limits' edges, fixes the
+comparison tool, corrects the records, and takes the code NITs. Behaviour
+does not change.
+
+- **fx's rule at each edge** (`fx-src.txt` §8, quoted whole at the pin):
+  `Registry.parse` refuses `count() > max_providers` (32;
+  `configured_provider.zig:6`, `:117`), so 32 pass; `putOwned` replaces
+  the entry of a provider already named before it counts
+  (`model_preferences.zig:25-33`); `mergeOwnedFrom` counts only the
+  incoming names the merged set lacks (`:35-51`), by exact name, and a
+  built-in's is its label (lowercase).
+- **Oracle** (`fx-fixtures-round3.txt`, five new rows, FX_AUTO_UPGRADE=0,
+  sha `8e6cda2efddb` before and after): `providers-32` (32 loopback
+  connections), `model-gateway-34` (`model` and a `models` Gateway among
+  35), `models-union-35` (the same 35 in both layers) and
+  `models-union-case` (`GATEWAY` in one, `gateway` in the other, 34 more in
+  both) start: `permissions` exit 0, `ask` on to the Gateway, `status` exit
+  0, the interactive launch still running. `drift-codex-merge` (opus NIT 1)
+  refuses the launch (`InvalidProfileConfiguration`) and its `status`
+  answers (exit 0, `malformed_settings`).
+- **Tests** (`src/config.rs`, `tests/support/profiles.rs`, `tests/cli.rs`):
+  the parse table gains the four edges as guard rows; the shared entry
+  fixtures gain one of each new kind, the oracle's rows byte for byte --
+  STOPPED `33 connections` (`LimitExceeded`), `36 model preferences` and
+  `40 ... in the two layers merged` (`TooManyModelPreferences`), REJECTED
+  `a model and 35 other model preferences`, STARTED the three edges -- so
+  `ask`, `ask --json`, `status`, doctor, the line shell and the TUI run
+  each; doctor's test counts one `config` and one `startup` check (the ok
+  ones gone); the drift guard covers `max_agent_steps` and
+  `context_limits` too.
+- **Code NITs** (opus 3, 4): `FX_MAX_PROVIDERS`; the model-bytes limit
+  cited at `settings_store.zig:18`; the global `providers` checked once,
+  before the layers, so no per-layer `filter` (`if global` is gone with
+  it); each layer's routing parsed once for the salvage and once whole,
+  and `fx_stop` handed the whole parse's error (no eager `.or`); a `Layer`
+  alias for the map. `model_preferences.zig` was cited one line late
+  (`:26-34`, `:36-52`); now `:25-33`, `:35-51`, here and in section 9.
+- **outcomes.py** (opus SHOULD 2): any `x?fx: <Name>` counts, but fx's
+  `NotDir` (its session store, after the launch went on, `profile-file`).
+  Rerun (`outcomes-round3.txt`) over the same 108: the base **55** by
+  refusal and **51** by how each entry ended, round 1 **93** and **90**,
+  round 2 **101** and **98** (its fixture lines unchanged): 58 and 96 were
+  `providers-many`, `models-36` and `models-split` matched with nothing
+  compared. Round 3 (990be66e, every fixture, 113): **105** and **102** --
+  the four edges match; `drift-codex-merge` is the recorded difference;
+  the other eleven are round 2's. `same.sh` finds round 2's and round 3's
+  xfx probes the same over those 108, line for line (0 lines differ), but
+  the revision, the terminal's byte count and the line shell's stderr once
+  the probe closes its pane. The probe ran the binary of 990be66e;
+  21754951 and 395ac4b0 change tests and comments only.
+- **Records** (section 7 and the parity row): name drift, JSON limits,
+  PERMISSION-MODE-CASE and `setup` now in section 7; `codex_model` and
+  `grok_model` drift only when xfx's routing error is in `models`; a cap
+  tipped by `model`, `codex_model` or `grok_model` is
+  `InvalidProfileConfiguration`; `setup` reads no settings "before the
+  keychain check"; `provider-codex` and `provider-defined` "deliberate, no
+  unit"; the status-only divergence of a layer fx drops at a key only it
+  reads (`drift-codex-merge`) recorded.
+- RESULT-MUTANTS
+- RESULT-GATE
+- **No RED**: no behaviour changed. The new rows are guards toward
+  refusing; each is pinned by the mutant it kills instead.
 
 ## Files
 
@@ -467,3 +570,7 @@ the dispatcher) and r1-opus (four SHOULDs, eight NITs).
 `oneshot.sh` → `oneshot.txt` · `count.py` → `count-round2.txt` · `refs.py` → `refs-round2.txt` · `red.sh` →
 `red-round2.txt` · `mutants.py` → `mutants-round2.txt` · `gates.sh` →
 `gate-round2.txt`, `green-round2.txt`
+· round 3: `probe.sh` → `fx-fixtures-round3.txt`, `xfx-head-fixtures-round3.txt` ·
+`outcomes.py`, `same.sh` → `outcomes-round3.txt` · `count.py` → `count-round3.txt` ·
+`refs.py` → `refs-round3.txt` · `mutants.py` → `mutants-round3.txt` ·
+`gates.sh` → `gate-round3.txt`, `green-round3.txt`

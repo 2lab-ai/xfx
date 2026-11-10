@@ -46,7 +46,8 @@ limits-double-underscore-then-typed limits-leading-underscore-then-typed limits-
 model-then-provider \
 provider-missing-empty provider-missing-other provider-defined providers-type providers-null \
 providers-many providers-bad-def models-35 models-36 model-and-35 models-split models-case \
-models-order drift-auto-compact json-big-float json-big-int json-deep entry-providers"
+models-order drift-auto-compact json-big-float json-big-int json-deep entry-providers \
+providers-32 model-gateway-34 models-union-35 models-union-case drift-codex-merge"
 fixtures=${*:-$all}
 
 # The fixture's profile: <home>/<prof>/settings.json, or what stands there.
@@ -164,6 +165,11 @@ seed() { # fixture home work
     json-big-int) printf '{"zzz": %s}' "$(head -c 400 /dev/zero | tr '\0' 7)" > "$s" ;;
     json-deep) printf '{"zzz": %s%s}' "$(head -c 129 /dev/zero | tr '\0' '[')" "$(head -c 129 /dev/zero | tr '\0' ']')" > "$s" ;;
     entry-providers) printf '{"workspaces": {"%s": {"providers": 5}}}' "$key" > "$s" ;;
+    providers-32) printf '{"providers": {%s}}' "$(names 01 32 "$DEF")" > "$s" ;;
+    model-gateway-34) printf '{"model": "a/b", "models": {"gateway": "c/d", %s}}' "$(names 01 34 '"m/x"')" > "$s" ;;
+    models-union-35) printf '{"models": {%s}, "workspaces": {"%s": {"models": {%s}}}}' "$(names 01 35 '"m/x"')" "$key" "$(names 01 35 '"m/x"')" > "$s" ;;
+    models-union-case) printf '{"models": {"GATEWAY": "a/b", %s}, "workspaces": {"%s": {"models": {"gateway": "c/d", %s}}}}' "$(names 01 34 '"m/x"')" "$key" "$(names 01 34 '"m/x"')" > "$s" ;;
+    drift-codex-merge) printf '{"codex_model": 5, "models": {%s}, "workspaces": {"%s": {"models": {%s}}}}' "$(names 01 20 '"m/x"')" "$key" "$(names 21 35 '"m/x"')" > "$s" ;;
     valid) printf '{"permission_mode": "auto"}' > "$s" ;;
     *) echo "unknown fixture $f" >&2; return 1 ;;
   esac

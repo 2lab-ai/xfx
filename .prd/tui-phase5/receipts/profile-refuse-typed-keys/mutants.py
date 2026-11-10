@@ -24,6 +24,13 @@ replaced by this unit's.)
     M16 the skill authorities' error refuses (fx's spares the launch)
     M17 the retired key's error refuses (fx's spares the launch)
     M18 `models` read in reverse, not in the order the file wrote it
+    -- round 3 (toward refusing, at each limit's edge; M7 and M11 on round 3's text):
+    M19 32 connections stop too (`>=` for fx's `>`)
+    M20 a `models` entry for a provider already named counts again
+    M21 the two layers' preferences add up, not their union
+    M22 a built-in's name keeps its case (`GATEWAY` and `gateway` two)
+    M23 an entry's `providers` is checked too (fx never parses it)
+    M24 doctor keeps its config and startup checks beside the failing two
 
 usage: python3 -I mutants.py <head repo> <clone dir>
 """
@@ -68,8 +75,8 @@ MUTANTS = [
      '        ("context_limits", &fx_context_limits, true),',
      [TABLE, STARTS]),
     ("M7", "src/config.rs",
-     "    fx_model_error(layer).or(fx_routing(layer, true).err())",
-     "    fx_routing(layer, true).err()",
+     "    fx_model_error(layer).unwrap_or(routing)",
+     "    routing",
      [TABLE]),
     ("M8", "src/config.rs",
      "    let status_line = |v: &Value| v.as_object().map_or(!global, |o| bools(o, items));",
@@ -80,19 +87,20 @@ MUTANTS = [
      "            && defined.is_none()",
      [TABLE, ASK, STATUS]),
     ("M10", "src/config.rs", '        _ => Some("InvalidObject"),', "        _ => None,", [TABLE, ASK, STATUS]),
-    ("M11", "src/config.rs", "(providers.len() > 32)", "(providers.len() > 33)", [TABLE]),
+    ("M11", "src/config.rs", "(providers.len() > FX_MAX_PROVIDERS)", "(providers.len() > FX_MAX_PROVIDERS + 1)",
+     [TABLE, ASK, STATUS]),
     ("M12", "src/config.rs",
      "            Value::String(_) if named.len() == FX_MAX_PREFERENCES => {",
      "            Value::String(_) if named.len() == FX_MAX_PREFERENCES + 1 => {",
-     [TABLE]),
+     [TABLE, ASK, STATUS]),
     ("M13", "src/config.rs",
      "        if preferences.len() > FX_MAX_PREFERENCES {",
      "        if preferences.len() > FX_MAX_PREFERENCES * 2 {",
-     [TABLE]),
+     [TABLE, ASK, STATUS]),
     ("M14", "src/config.rs",
      "        .filter(|(key, _)| whole && layer.contains_key(*key))",
      "        .filter(|(key, _)| !whole && layer.contains_key(*key))",
-     [TABLE]),
+     [TABLE, ASK]),
     ("M15", "src/app.rs",
      '        checks.insert(1, fail("config", "failed to load config"));',
      "",
@@ -106,6 +114,26 @@ MUTANTS = [
      "    for (name, model) in models {",
      "    for (name, model) in models.iter().rev() {",
      [TABLE]),
+    ("M19", "src/config.rs", "(providers.len() > FX_MAX_PROVIDERS)", "(providers.len() >= FX_MAX_PROVIDERS)",
+     [TABLE, STARTS]),
+    ("M20", "src/config.rs", "            Value::String(_) if named.contains(&provider) => {}\n", "",
+     [TABLE, STARTS]),
+    ("M21", "src/config.rs",
+     "    let (mut provider, mut preferences) = (None, std::collections::BTreeSet::new());",
+     "    let (mut provider, mut preferences) = (None, Vec::new());",
+     [TABLE, STARTS]),
+    ("M22", "src/config.rs", "            Some(true) => name.to_ascii_lowercase(),", "            Some(true) => name.clone(),",
+     [TABLE, STARTS]),
+    ("M23", "src/config.rs",
+     "        let [salvage, whole] = [false, true].map(|whole| fx_routing(layer, whole));",
+     "        if let Some(name) = fx_providers_error(layer) {\n"
+     "            return Some(ProfileRefusal::Stopped(name));\n"
+     "        }\n"
+     "        let [salvage, whole] = [false, true].map(|whole| fx_routing(layer, whole));",
+     [TABLE]),
+    ("M24", "src/app.rs",
+     '        checks.retain(|check| check.name != "config" && check.name != "startup");\n', "",
+     [STATUS]),
 ]
 
 

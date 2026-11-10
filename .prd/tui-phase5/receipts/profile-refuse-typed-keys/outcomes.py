@@ -3,10 +3,13 @@
 
 - **Refusal**: at `ask`, `status` and the interactive launch (xfx's TUI and
   its line shell, each against fx's interactive launch), the error the run
-  stopped with over the profile, or none: an error's name right after the
+  stopped with over the profile, or none: any error's name right after the
   program's name (`InvalidProfileConfiguration`, `UnknownConfiguredProvider`,
-  `InvalidModelValue`, `RetiredSkillMatchFuzzy`, ...; not a later failure
-  such as `NotDir`). The names must be equal.
+  `LimitExceeded`, `TooManyModelPreferences`, ...), but `NotDir`, a later
+  failure: fx's session store where `~/.fx` is a file (`profile-file`),
+  which xfx's says in words. The names must be equal. [Round 3: rounds 1
+  and 2 matched only `Invalid*`, `Unknown*` and `Retired*` names, so they
+  did not compare `LimitExceeded` or `TooManyModelPreferences`.]
 - **Exit**: at the same entries, how the run ended: the exit status, and for
   an interactive launch its exit status or that it was still running.
 
@@ -21,6 +24,9 @@ import sys
 
 sys.dont_write_bytecode = True
 
+# A name a run stops with after the launch went on, not over the profile.
+LATER = {"NotDir"}
+
 
 def load(path):
     runs, name = {}, None
@@ -34,8 +40,8 @@ def load(path):
         if name and entry:
             rest = entry.group(2)
             state = "running" if "still running" in rest else "exit=" + (re.search(r"exit=(\d*)", rest) or [None, "?"])[1]
-            named = re.search(r"(?:stderr=|\|)x?fx: ((?:Invalid|Unknown|Retired)[A-Za-z]+)\|", rest)
-            refused = named.group(1) if named else None
+            named = re.search(r"(?:stderr=|\|)x?fx: ([A-Z][A-Za-z]+)\|", rest)
+            refused = named.group(1) if named and named.group(1) not in LATER else None
             runs[name][entry.group(1)] = (refused, state)
     return runs
 
