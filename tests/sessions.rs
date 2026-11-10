@@ -2024,41 +2024,71 @@ fn ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstr
     // (`cli_ask.zig:1306-1326`, `app_entry_runtime.zig:158-166`,
     // `:563-567`); `--json` writes the name as its error
     // (`cli_ask.zig:8063-8079`). No model is asked, and the session -- its log
-    // tail too -- is left as it was.
-    for json in [false, true] {
-        let sandbox = Sandbox::new();
-        let dir = a_session_with_a_prompt_image(&sandbox, "gone-image", None);
-        let before = every_file(&dir);
-        let gateway = FakeGateway::start(Vec::new());
-        let url = gateway.chat_url();
-        let mut args = vec!["ask", "--resume-id", "gone-image", "and now?"];
-        if json {
-            args.insert(1, "--json");
+    // tail too -- is left as it was. A blob folder the check cannot read
+    // fails it with `Io` instead (`blobExists`, `notFoundOr`,
+    // `session.zig:1666-1681`; `imageBlobFailed` hands it up unchanged), and
+    // `ask` prints that name the same way. Root reads any folder, so that case
+    // is asked of everyone else.
+    let unreadable_folder = rustix::process::geteuid().as_raw() != 0;
+    for (how, name) in [
+        ("gone", "InvalidSessionFormat"),
+        ("unreadable folder", "Io"),
+    ] {
+        if how == "unreadable folder" && !unreadable_folder {
+            continue;
         }
-        let run = sandbox.run(&args, &gateway_env(&url, TEST_KEY));
-        assert_eq!(run.code, Some(1), "json: {json}, stderr={:?}", run.stderr);
-        if json {
-            assert!(
-                run.stdout
-                    .lines()
-                    .any(|line| line.contains("\"kind\":\"error\"")
-                        && line.contains("\"message\":\"InvalidSessionFormat\"")),
-                "{:?}",
-                run.stdout
+        for json in [false, true] {
+            let sandbox = Sandbox::new();
+            let copy = (how != "gone").then_some(SHOT);
+            let dir = a_session_with_a_prompt_image(&sandbox, "lost-image", copy);
+            let before = every_file(&dir);
+            let folder = dir.join("images");
+            let mode = |bits: u32| {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&folder, fs::Permissions::from_mode(bits)).expect("chmod")
+            };
+            if copy.is_some() {
+                mode(0o000);
+            }
+            let gateway = FakeGateway::start(Vec::new());
+            let url = gateway.chat_url();
+            let mut args = vec!["ask", "--resume-id", "lost-image", "and now?"];
+            if json {
+                args.insert(1, "--json");
+            }
+            let run = sandbox.run(&args, &gateway_env(&url, TEST_KEY));
+            if copy.is_some() {
+                mode(0o700);
+            }
+            assert_eq!(
+                run.code,
+                Some(1),
+                "{how}, json: {json}, stderr={:?}",
+                run.stderr
             );
-        } else {
-            assert_eq!(run.stderr, "xfx: InvalidSessionFormat\n");
+            if json {
+                let message = format!("\"message\":\"{name}\"");
+                assert!(
+                    run.stdout
+                        .lines()
+                        .any(|line| line.contains("\"kind\":\"error\"") && line.contains(&message)),
+                    "{how}: {:?}",
+                    run.stdout
+                );
+            } else {
+                assert_eq!(run.stderr, format!("xfx: {name}\n"), "{how}");
+            }
+            assert_eq!(
+                gateway.request_count(),
+                0,
+                "{how}, json: {json}: a model was asked"
+            );
+            assert_eq!(
+                every_file(&dir),
+                before,
+                "{how}, json: {json}: the refusal changed the session"
+            );
         }
-        assert_eq!(
-            gateway.request_count(),
-            0,
-            "json: {json}: a model was asked"
-        );
-        assert_eq!(
-            every_file(&dir),
-            before,
-            "json: {json}: the refusal changed the session"
-        );
     }
 }
 
@@ -2073,7 +2103,18 @@ fn ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams() 
     let sandbox = Sandbox::new();
     let mut tampered = SHOT.to_vec();
     tampered[40] ^= 0xff;
+    // What the failure writes is the turn, as upstream records one -- the
+    // context it was asked in, its prompt and how it ended -- and nothing
+    // else: no other file changes, and the copy is left as it was.
     let dir = a_session_with_a_prompt_image(&sandbox, "changed-image", Some(&tampered));
+    let log_before = fs::read_to_string(dir.join(EVENTS_FILE)).expect("the log");
+    let others = |dir: &Path| {
+        every_file(dir)
+            .into_iter()
+            .filter(|(name, ..)| !name.ends_with(EVENTS_FILE) && !name.ends_with("session.json"))
+            .collect::<Vec<_>>()
+    };
+    let before = others(&dir);
     let gateway = FakeGateway::start(Vec::new());
     let url = gateway.chat_url();
     let run = sandbox.run(
@@ -2084,9 +2125,28 @@ fn ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams() 
     assert_eq!(run.stderr, "xfx: ImageSnapshotCorrupt\n");
     assert_eq!(gateway.request_count(), 0, "a model was asked");
     let log = fs::read_to_string(dir.join(EVENTS_FILE)).expect("the log");
+    // The torn tail the session was left with is cut before the turn is written.
+    let published = log_before.rfind('\n').map_or(0, |at| at + 1);
+    let kinds = log[published..]
+        .lines()
+        .filter_map(|line| {
+            let value: serde_json::Value = serde_json::from_str(line).ok()?;
+            Some(value["event"]["kind"].as_str()?.to_string())
+        })
+        .collect::<Vec<_>>();
     assert!(
         log.contains(r#""kind":"user_message","text":"and now?""#),
         "the failed turn's prompt was not recorded: {log}"
+    );
+    assert_eq!(
+        kinds,
+        ["project_context_recorded", "user_message", "turn_concluded"],
+        "the failed request wrote more than its turn: {log}"
+    );
+    assert_eq!(
+        others(&dir),
+        before,
+        "the failed request changed another file"
     );
 }
 

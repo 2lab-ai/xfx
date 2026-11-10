@@ -18830,6 +18830,14 @@ mod tests {
     fn a_session_with_a_prompt_image(
         state: &Runtime,
     ) -> (crate::session::SessionId, std::path::PathBuf) {
+        a_session_with_a_prompt_image_of(state, crate::image::fixture::SHOT_PNG)
+    }
+
+    /// [`a_session_with_a_prompt_image`], its image `bytes`.
+    fn a_session_with_a_prompt_image_of(
+        state: &Runtime,
+        bytes: &[u8],
+    ) -> (crate::session::SessionId, std::path::PathBuf) {
         let store = open_store(&state.config).expect("a store");
         let mut conversation = open_conversation(
             &store,
@@ -18844,7 +18852,7 @@ mod tests {
             1,
             std::path::PathBuf::from("shot.png"),
             crate::image::MediaType::Png,
-            Arc::from(crate::image::fixture::SHOT_PNG),
+            Arc::from(bytes),
         );
         conversation.recorder.commit(SessionEvent::UserMessage {
             text: "[Image #1] what is it".to_string(),
@@ -19079,6 +19087,183 @@ mod tests {
             got, want,
             "each: the turn's end, the requests, the prompt's images, whether upstream's note is \
              in front of it and names the copy"
+        );
+    }
+
+    /// Upstream's note for image #1 of `type` at `width`x`height` held back
+    /// from a request of at most 20 images, its copy at `copy`, in front of
+    /// the prompt `a_session_with_a_prompt_image` recorded
+    /// (`writeWithheldAttachmentNotice`, `image_attachments.zig:960-988@481104fd`).
+    fn held_back(width: u32, height: u32, copy: &std::path::Path) -> String {
+        format!(
+            "[Image #1 not sent: image/png is {width}x{height} pixels. This request permits at \
+             most 8000 per side and 5 MiB encoded per image. The original is saved at {}. Use an \
+             available image tool to save a smaller copy to a new file ending in .png, then \
+             read_file the copy. If no image tool is available, ask the user before installing \
+             one.]\n[Image #1] what is it",
+            copy.display()
+        )
+    }
+
+    #[test]
+    fn a_resumed_copy_is_checked_again_at_each_request_of_one_turn() {
+        // Upstream projects every request of a turn afresh: the copy's size is
+        // read again (`attachmentRawBytes`, `image_attachments.zig:805-850@481104fd`)
+        // and its pixel size kept from the turn's first look, so a copy gone
+        // or grown past 5 MiB encoded since the turn's last request is held
+        // back with the note, and the request goes (`withholdOversizedAttachments`,
+        // `:1011-1045`, from `orchestrator.zig:7612-7632`); one changed is read
+        // and fails it (`loadVerifiedSnapshot`, `:1260-1320`). Here the copy is
+        // changed between the two requests of one turn, the first of which
+        // calls a tool.
+        struct Changing {
+            kept: Kept,
+            change: std::cell::RefCell<Option<Box<dyn FnOnce()>>>,
+        }
+        #[async_trait::async_trait(?Send)]
+        impl crate::gateway::Provider for Changing {
+            async fn stream(
+                &self,
+                request: &crate::gateway::protocol::CompletionRequest,
+                deltas: &mut dyn crate::gateway::DeltaSink,
+            ) -> Result<Completion, crate::gateway::ProviderError> {
+                let answer = self.kept.stream(request, deltas).await;
+                if let Some(change) = self.change.borrow_mut().take() {
+                    change();
+                }
+                answer
+            }
+        }
+        let fit = crate::image::MAX_ENCODED_BYTES / 4 * 3;
+        let mut got = Vec::new();
+        let mut want = Vec::new();
+        for how in ["changed", "gone", "grown past the limit"] {
+            let (_home, _workspace, mut state) = seeing_runtime();
+            let (id, copy) = a_session_with_a_prompt_image(&state);
+            let resumed = Resumption::open(&state.config, &crate::session::Selector::Id(id))
+                .expect("its copy is whole");
+            state.resume(resumed, &CancelToken::new());
+            let requests = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let changed = copy.clone();
+            let change: Box<dyn FnOnce()> = match how {
+                "changed" => Box::new(move || {
+                    let mut tampered = crate::image::fixture::SHOT_PNG.to_vec();
+                    tampered[40] ^= 0xff;
+                    std::fs::write(&changed, tampered).expect("tamper");
+                }),
+                "gone" => Box::new(move || std::fs::remove_file(&changed).expect("remove")),
+                _ => Box::new(move || {
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .open(&changed)
+                        .and_then(|file| file.set_len(fit as u64 + 1))
+                        .expect("grow");
+                }),
+            };
+            let told = one_turn_told(
+                &mut state,
+                "and now?",
+                Box::new(Changing {
+                    kept: Kept {
+                        script: ScriptedProvider::new(vec![
+                            calls(vec![call(
+                                "call-1",
+                                "read_file",
+                                serde_json::json!({"path": "missing.txt"}),
+                            )]),
+                            answers("answered"),
+                        ]),
+                        requests: std::rc::Rc::clone(&requests),
+                    },
+                    change: std::cell::RefCell::new(Some(change)),
+                }),
+            );
+            let requests = requests.borrow();
+            got.push((
+                how,
+                failure_of(&told),
+                requests.iter().map(first_prompt).collect::<Vec<_>>(),
+            ));
+            let first = (1, "[Image #1] what is it".to_string());
+            want.push(match how {
+                "changed" => (
+                    how,
+                    Some("request failed: ImageSnapshotCorrupt".to_string()),
+                    vec![first],
+                ),
+                _ => (how, None, vec![first, (0, held_back(4, 4, &copy))]),
+            });
+        }
+        assert_eq!(
+            got, want,
+            "each: the turn's end, and each request's prompt images and text"
+        );
+    }
+
+    #[test]
+    fn a_resumed_copy_is_held_back_past_each_limit_and_sent_at_it_with_upstreams_whole_note() {
+        // The pixel limit (8000 a side, at most 20 images) and 5 MiB encoded
+        // (`fitsEncodedImageLimit`, `image_data.zig:187-190@481104fd`), each
+        // met by one copy and passed by one byte or one pixel: met, the copy is
+        // sent; passed, it is held back with upstream's whole note
+        // (`writeWithheldAttachmentNotice`, `image_attachments.zig:960-988`).
+        let fit = crate::image::MAX_ENCODED_BYTES / 4 * 3;
+        let sized = |width: u32, height: u32, length: usize| {
+            let mut png = crate::image::fixture::SHOT_PNG.to_vec();
+            png[16..20].copy_from_slice(&width.to_be_bytes());
+            png[20..24].copy_from_slice(&height.to_be_bytes());
+            png.resize(length.max(png.len()), 0);
+            png
+        };
+        let mut got = Vec::new();
+        let mut want = Vec::new();
+        for (how, bytes, held) in [
+            ("8000 pixels wide", sized(8000, 10, 0), None),
+            ("8001 pixels wide", sized(8001, 10, 0), Some((8001, 10))),
+            ("8000 pixels high", sized(10, 8000, 0), None),
+            ("8001 pixels high", sized(10, 8001, 0), Some((10, 8001))),
+            ("as large as one request carries", sized(4, 4, fit), None),
+            ("one byte larger", sized(4, 4, fit + 1), Some((4, 4))),
+        ] {
+            let (_home, _workspace, mut state) = seeing_runtime();
+            let (id, copy) = a_session_with_a_prompt_image_of(&state, &bytes);
+            let resumed = Resumption::open(&state.config, &crate::session::Selector::Id(id))
+                .expect("its copy is whole");
+            state.resume(resumed, &CancelToken::new());
+            let requests = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let told = one_turn_told(
+                &mut state,
+                "and now?",
+                Box::new(Kept {
+                    script: ScriptedProvider::new(vec![answers("answered")]),
+                    requests: std::rc::Rc::clone(&requests),
+                }),
+            );
+            let requests = requests.borrow();
+            let sent = requests.first().map(|request| {
+                let image = request.messages.iter().find_map(|message| {
+                    message.content.iter().find_map(|part| match part {
+                        crate::gateway::protocol::ContentPart::Image { data, .. } => {
+                            Some(data.len())
+                        }
+                        _ => None,
+                    })
+                });
+                (image, first_prompt(request).1)
+            });
+            got.push((how, failure_of(&told), sent));
+            want.push((
+                how,
+                None,
+                Some(match held {
+                    None => (Some(bytes.len()), "[Image #1] what is it".to_string()),
+                    Some((width, height)) => (None, held_back(width, height, &copy)),
+                }),
+            ));
+        }
+        assert_eq!(
+            got, want,
+            "each: the turn's end, and the image bytes and prompt the request carried"
         );
     }
 

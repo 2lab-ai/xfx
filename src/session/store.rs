@@ -5716,19 +5716,20 @@ mod tests {
         // byte, `session.zig:1666-1681@481104fd`); its bytes are read when a
         // request is built, and every request after reads them again
         // ([`CopiesChecked`]). What the history holds is what was read then --
-        // no bytes when the copy cannot be opened, at most one byte past the
-        // limit -- for [`crate::image::withhold`] to leave out with upstream's
-        // note, or the check to refuse.
+        // no bytes when the copy cannot be opened, at most one byte past what
+        // one request can carry (upstream reads the header and the size,
+        // `image_attachments.zig:814-850@481104fd`) -- for
+        // [`crate::image::withhold`] to decide on; no byte of it is sent.
         let root_user = rustix::process::geteuid().as_raw() == 0;
         let mut tampered = crate::image::fixture::SHOT_PNG.to_vec();
         tampered[40] ^= 0xff;
         let whole = crate::image::fixture::SHOT_PNG.to_vec();
-        let past = usize::try_from(crate::image::MAX_IMAGE_BYTES).expect("fits") + 1;
+        let fit = crate::image::MAX_ENCODED_BYTES / 4 * 3;
         let mut cases = vec![
             ("whole", whole.clone(), whole.len()),
             ("other bytes", tampered.clone(), tampered.len()),
             ("cut short", whole[..10].to_vec(), 10),
-            ("too large", whole.clone(), past),
+            ("past what one request carries", whole.clone(), fit + 1),
         ];
         if !root_user {
             cases.push(("unreadable", Vec::new(), 0));
@@ -5747,7 +5748,14 @@ mod tests {
                 .join(shot(1).snapshot_name());
             match how {
                 "other bytes" => std::fs::write(&copy, &tampered).expect("tamper"),
-                "cut short" | "too large" => std::fs::OpenOptions::new()
+                // 20 MiB and one byte: read no further than one byte past the
+                // most one request can carry.
+                "past what one request carries" => std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&copy)
+                    .and_then(|file| file.set_len(crate::image::MAX_IMAGE_BYTES + 1))
+                    .expect("resize"),
+                "cut short" => std::fs::OpenOptions::new()
                     .write(true)
                     .open(&copy)
                     .and_then(|file| file.set_len(length as u64))
@@ -5799,6 +5807,147 @@ mod tests {
         let replay = state.history_messages(Wire::VercelGateway, "m");
         assert_eq!(image_parts(&replay.messages[0]), [(Vec::new(), None)]);
         assert!(replay.copies.is_empty());
+    }
+
+    #[tokio::test]
+    async fn each_request_sends_a_copy_upstream_has_just_checked_holds_it_back_or_fails() {
+        // Upstream, for every request: an image whose file it cannot open, or
+        // whose size from `stat` is past 5 MiB encoded, is held back with its
+        // note -- the pixel size kept from the turn's first look -- and the
+        // request goes (`withholdOversizedAttachments`, `attachmentRawBytes`,
+        // `image_attachments.zig:805-850@481104fd`, `:1011-1045`, each request
+        // from `orchestrator.zig:7612-7632`); one it keeps is sent as the bytes
+        // `loadVerifiedSnapshot` has just hashed, and bytes that are not the
+        // digest's fail the request, `ImageSnapshotCorrupt` (`:1260-1320`,
+        // `vercel_protocol.zig:873-890`). So no byte read when the history was
+        // built is ever sent: not a changed copy's after it is gone, and not
+        // after a repair, which a later request reads again.
+        use crate::gateway::Provider as _;
+        struct Sent(std::cell::RefCell<Vec<crate::gateway::protocol::CompletionRequest>>);
+        #[async_trait::async_trait(?Send)]
+        impl crate::gateway::Provider for Sent {
+            async fn stream(
+                &self,
+                request: &crate::gateway::protocol::CompletionRequest,
+                _deltas: &mut dyn crate::gateway::DeltaSink,
+            ) -> Result<crate::gateway::protocol::Completion, crate::gateway::ProviderError>
+            {
+                self.0.borrow_mut().push(request.clone());
+                Err(crate::gateway::ProviderError::Cancelled)
+            }
+        }
+        struct Quiet;
+        impl crate::gateway::DeltaSink for Quiet {
+            fn text_delta(&mut self, _text: &str) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let whole = crate::image::fixture::SHOT_PNG.to_vec();
+        let mut tampered = whole.clone();
+        tampered[40] ^= 0xff;
+        let fit = crate::image::MAX_ENCODED_BYTES / 4 * 3;
+        let note = |copy: &Path| {
+            format!(
+                "[Image #1 not sent: image/png is 4x4 pixels. This request permits at most 8000 \
+                 per side and 5 MiB encoded per image. The original is saved at {}. Use an \
+                 available image tool to save a smaller copy to a new file ending in .png, then \
+                 read_file the copy. If no image tool is available, ask the user before \
+                 installing one.]\n[Image #1] look",
+                copy.display()
+            )
+        };
+        // What the copy holds when the history is built, and before each of
+        // two requests; what each request sent, its image's bytes or its text.
+        enum Copy {
+            Is(Vec<u8>),
+            Grown,
+            Gone,
+        }
+        let cases = [
+            ("changed, then gone", tampered.clone(), vec![Copy::Gone]),
+            (
+                "changed, repaired, then gone",
+                tampered.clone(),
+                vec![Copy::Is(whole.clone()), Copy::Gone],
+            ),
+            (
+                "whole, then grown past the limit",
+                whole.clone(),
+                vec![Copy::Grown],
+            ),
+            (
+                "whole, then changed",
+                whole.clone(),
+                vec![Copy::Is(tampered.clone())],
+            ),
+        ];
+        for (how, built, before) in cases {
+            let root = tempfile::TempDir::new().expect("a root");
+            let (store, mut recorder, id, workspace) = recorder_in(root.path());
+            recorder.commit(SessionEvent::UserMessage {
+                text: "[Image #1] look".to_string(),
+            });
+            recorder.attach_images(&[shot(1)]);
+            drop(recorder);
+            let copy = store
+                .session_dir(&id)
+                .join(IMAGES_DIR)
+                .join(shot(1).snapshot_name());
+            std::fs::write(&copy, &built).expect("the copy at the build");
+            let resumed = store
+                .resume(&Selector::Id(id.clone()), &workspace)
+                .expect("resumed");
+            let state = resumed.session.state();
+            let replay = state.history_messages(Wire::VercelGateway, &state.model);
+            let request = crate::gateway::protocol::CompletionRequest {
+                model: "m".to_string(),
+                messages: crate::image::withhold(replay.messages),
+                tools: Vec::new(),
+                tool_choice: crate::gateway::protocol::ToolChoice::Auto,
+            };
+            let sent = Sent(std::cell::RefCell::new(Vec::new()));
+            let checked = CopiesChecked {
+                inner: &sent,
+                copies: replay.copies,
+            };
+            let mut got = Vec::new();
+            for change in before {
+                match change {
+                    Copy::Is(bytes) => std::fs::write(&copy, bytes).expect("rewrite"),
+                    Copy::Grown => std::fs::OpenOptions::new()
+                        .write(true)
+                        .open(&copy)
+                        .and_then(|file| file.set_len(fit as u64 + 1))
+                        .expect("grow"),
+                    Copy::Gone => std::fs::remove_file(&copy).expect("remove"),
+                }
+                let asked = sent.0.borrow().len();
+                let result = checked.stream(&request, &mut Quiet).await;
+                got.push(match sent.0.borrow().get(asked) {
+                    Some(sent) => match image_parts(&sent.messages[0]).as_slice() {
+                        [(data, _)] => {
+                            format!("sent {} bytes", data.len())
+                                + if *data == whole { ", whole" } else { "" }
+                        }
+                        [] => sent.messages[0].text(),
+                        _ => "two images".to_string(),
+                    },
+                    None => format!("{:?}", result.err()),
+                });
+            }
+            let held = note(&copy);
+            let corrupt = format!(
+                "{:?}",
+                Some(crate::gateway::ProviderError::Image("ImageSnapshotCorrupt"))
+            );
+            let want: Vec<String> = match how {
+                "changed, then gone" => vec![held],
+                "changed, repaired, then gone" => vec!["sent 73 bytes, whole".to_string(), held],
+                "whole, then grown past the limit" => vec![held],
+                _ => vec![corrupt],
+            };
+            assert_eq!(got, want, "{how}");
+        }
     }
 
     /// A `read_file` result and its tool images, recorded by `recorder` in
@@ -6124,14 +6273,19 @@ mod tests {
     }
 
     #[test]
-    fn a_prompt_images_copy_the_resume_cannot_stat_refuses_it_and_one_it_cannot_open_does_not() {
-        // Upstream's blob check opens the session's blob folder and `stat`s the
-        // blob: any failure but `NotFound` is `Io`, which `decodeUser` hands
-        // up, so the session does not open either (`blobExists`, `notFoundOr`,
-        // `session.zig:1666-1681@481104fd`; `imageBlobFailed`,
-        // `session_adapter.zig:2881-2893`). A blob it can `stat` but not open is
-        // the request's business (`api.zig:433-442`). Root opens anything, so
-        // this is asked of everyone else.
+    fn a_prompt_images_copy_the_resume_cannot_stat_refuses_it_with_io_and_one_it_cannot_open_does_not(
+    ) {
+        // Upstream's blob check opens the session's blob folder for reading --
+        // without following a link -- and `stat`s the blob in it: any failure
+        // but `NotFound` is `Io` (`blobExists`, `notFoundOr`,
+        // `session.zig:1666-1681@481104fd`; `openDir`, `storage.zig:135-143`;
+        // `translate`), which `imageBlobFailed` hands up unchanged
+        // (`session_adapter.zig:2881-2893`): the session does not open, and
+        // the launch and `ask` name the error, `Io`
+        // (`formatUnexpectedError`, `app_entry_runtime.zig:537-539`). A folder
+        // it can search but not read is refused too, and so is a link. A blob
+        // it can `stat` but not open is the request's business. Root opens
+        // anything, so this is asked of everyone else.
         if rustix::process::geteuid().as_raw() == 0 {
             return;
         }
@@ -6149,18 +6303,30 @@ mod tests {
         let dir = store.session_dir(&id);
         let folder = dir.join(IMAGES_DIR);
         let before = every_file(&dir);
-        mode(&folder, 0o000);
-        let refused = store.resume(&Selector::Id(id.clone()), &workspace);
-        mode(&folder, 0o700);
-        match refused {
-            Err(err) => assert_eq!(err.to_string(), "saved session is unreadable."),
-            Ok(_) => panic!("a copy the resume cannot stat let it go on"),
+        for bits in [0o000, 0o100, 0o400] {
+            mode(&folder, bits);
+            let refused = store.resume(&Selector::Id(id.clone()), &workspace);
+            mode(&folder, 0o700);
+            match refused {
+                Err(err) => assert_eq!(err.to_string(), "Io", "{bits:o}"),
+                Ok(_) => panic!("{bits:o}: a copy the resume cannot stat let it go on"),
+            }
+            assert_eq!(
+                every_file(&dir),
+                before,
+                "{bits:o}: the refused resume changed the session"
+            );
         }
-        assert_eq!(
-            every_file(&dir),
-            before,
-            "the refused resume changed the session"
-        );
+        let moved = dir.join("moved");
+        std::fs::rename(&folder, &moved).expect("move");
+        std::os::unix::fs::symlink(&moved, &folder).expect("link");
+        let refused = store.resume(&Selector::Id(id.clone()), &workspace);
+        std::fs::remove_file(&folder).expect("unlink");
+        std::fs::rename(&moved, &folder).expect("move back");
+        match refused {
+            Err(err) => assert_eq!(err.to_string(), "Io", "a linked folder"),
+            Ok(_) => panic!("a linked folder let it go on"),
+        }
         let copy = folder.join(shot(1).snapshot_name());
         mode(&copy, 0o000);
         let resumed = store.resume(&Selector::Id(id.clone()), &workspace);
