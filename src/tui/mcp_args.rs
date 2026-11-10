@@ -171,11 +171,15 @@ impl McpArgs {
     }
 
     fn rematch(&mut self) {
-        let query = query_of(&self.text).map_or("", |(_, query)| query);
-        let fixed = self.spaced.is_some();
-        self.matching = (0..self.entries.len())
-            .filter(|&index| fixed || answers(&self.entries[index].0, query))
-            .collect();
+        // A table's entries are the rows its query found ([`Self::fixed`]).
+        self.matching = if self.is_table() {
+            (0..self.entries.len()).collect()
+        } else {
+            let query = query_of(&self.text).map_or("", |(_, query)| query);
+            (0..self.entries.len())
+                .filter(|&index| answers(&self.entries[index].0, query))
+                .collect()
+        };
         let count = self.matching.len();
         if count > 0 {
             self.selected %= count;
@@ -328,13 +332,15 @@ impl McpArgs {
     /// What Tab writes: the marked line, and a space after it when a table
     /// says more is to come (`slashCompletionHasArgs`).
     pub(crate) fn completion(&self) -> Option<String> {
-        let index = *self.matching.get(self.selected).filter(|_| !self.lost)?;
-        let more = self.spaced.as_ref().is_some_and(|spaced| spaced[index]);
-        let line = &self.entries[index].0;
+        let line = self.chosen()?;
+        let more = self
+            .spaced
+            .as_ref()
+            .is_some_and(|spaced| spaced[self.matching[self.selected]]);
         Some(if more {
             format!("{line} ")
         } else {
-            line.clone()
+            line.to_string()
         })
     }
 }

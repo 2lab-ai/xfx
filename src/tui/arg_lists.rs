@@ -92,7 +92,7 @@ impl List<'_> {
 /// (`mixedSlashCompletionCount`, `src/ui/footer/picker_presentation.zig:1170-1175`).
 pub(crate) fn of(prefix: &str) -> Option<List<'_>> {
     if let Some(query) = argument(prefix, "/allowlist") {
-        return Some(allowlist("/allowlist ".into(), query));
+        return Some(allowlist("/allowlist ".into(), query, true));
     }
     let tables: [(&str, &'static [&'static str], &'static [&'static str]); 4] = [
         ("/statusline", STATUSLINE, &[]),
@@ -132,13 +132,12 @@ fn split(query: &str) -> (&str, Option<&str>) {
     }
 }
 
-/// `/allowlist `'s table for what follows `head` -- the command, or past
-/// `local ` or `user ` its scope too, which has no `view` and no scopes of
+/// `/allowlist `'s table for what follows `head` -- the command (`top`), or
+/// past `local ` or `user ` its scope too, which has no `view` and no scopes of
 /// its own (`allowlistArgCompletionState` and
 /// `scopedAllowlistArgCompletionState`, `command_specs.zig:1042-1204`; the
 /// anchor, `:1206-1249`, is the head's length in every arm).
-fn allowlist(head: String, query: &str) -> List<'_> {
-    let top = head == "/allowlist ";
+fn allowlist(head: String, query: &str, top: bool) -> List<'_> {
     let (word, rest) = split(query);
     let Some(rest) = rest else {
         let words = if top { ALLOWLIST } else { ALLOWLIST_SCOPED };
@@ -149,7 +148,7 @@ fn allowlist(head: String, query: &str) -> List<'_> {
         return list(head + "view ", ALLOWLIST_VIEW, &[], rest);
     }
     if let Some(scope) = ["local", "user"].into_iter().find(|scope| top && is(scope)) {
-        return allowlist(format!("{head}{scope} "), rest);
+        return allowlist(format!("{head}{scope} "), rest, false);
     }
     if let Some(verb) = ["add", "remove"].into_iter().find(|verb| is(verb)) {
         // The kinds, or past `tool ` the tools (`allowlistToolArgQuery`,

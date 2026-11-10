@@ -188,8 +188,12 @@ pub(crate) const BLANKS: [char; 4] = [' ', '\t', '\r', '\n'];
 /// `command_specs.zig:568-576@481104fd`).
 ///
 /// Upstream's prefix goes on past a blank for a name it does not know or one
-/// that takes an argument, which is its argument completion; xfx's menu has
-/// none, so the query ends at the first blank ([`Trigger::of`] does not).
+/// that takes an argument. Past the blank after `/mcp`, `/statusline`, `/sound`,
+/// `/permissions`, `/workspace` and `/allowlist` that is its argument
+/// completion, which xfx's own lists answer (`super::mcp_args`,
+/// `super::arg_lists`); for the others it is the skills the words find, which
+/// xfx has not copied yet, so this query ends at the first blank
+/// ([`Trigger::of`] does not).
 pub(crate) fn query_of(text: &str) -> Option<&str> {
     let word = text.trim_start_matches(BLANKS);
     (word.starts_with('/') && !word.contains(BLANKS)).then_some(word)

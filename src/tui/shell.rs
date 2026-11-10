@@ -9079,7 +9079,6 @@ impl Shell {
                 self.file_picker = None;
                 self.provider_picker = None;
                 self.mcp_args = None;
-                self.mcp_args = None;
                 return;
             }
         }
@@ -9313,8 +9312,8 @@ impl Shell {
         }
     }
 
-    /// Offers one keystroke to `/mcp `'s argument completions, and says
-    /// whether it was taken: Up, Down, `C-k` and `C-j` move the mark and wrap;
+    /// Offers one keystroke to the argument completions -- `/mcp `'s or a
+    /// table's -- and says whether it was taken: Up, Down, `C-k` and `C-j` move the mark and wrap;
     /// Tab writes the marked line, a table's with a space when more is to
     /// come; Escape closes them, as the slash menu's dismissal, until the
     /// draft stops being a slash line. Enter writes the marked line and is **not**
@@ -38887,8 +38886,9 @@ mod tests {
     #[test]
     fn permissions_lists_its_six_forms_and_tab_writes_the_marked_one() {
         // `fx-p5-slash-arg-skills-40x120-permissions`: column 15
-        // (`permissions_arg_completions`, `command_specs.zig:762-769`).
-        let mut shell = shell(40, 120);
+        // (`permissions_arg_completions`, `command_specs.zig:762-769`); and
+        // `-permissions-enter`: Enter on `/permissions ` runs the marked `ask`.
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
         shell.route_bytes(b"/permissions ");
         assert_eq!(
             menu(&shell),
@@ -38901,6 +38901,66 @@ mod tests {
         assert_eq!(menu(&shell), table(15, &["remember", "revoke", "reset"]));
         shell.route_bytes(b"\x1b[B\t");
         assert_eq!(shell.editor.text(), "/permissions revoke");
+        assert!(changes_sent(&mut changes).is_empty());
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/permissions \r");
+        assert_eq!(
+            changes_sent(&mut changes),
+            vec![Change::Mode(PermissionMode::Ask)]
+        );
+    }
+
+    #[test]
+    fn a_caret_move_keeps_a_tables_mark_and_an_edit_puts_it_back_on_the_first_row() {
+        // Rebuilt only when the text changed (`reconcileInlinePickerAfterEdit`
+        // zeroes the mark on an edit, `picker_state.zig:228-236@481104fd`): Left
+        // and Right move the caret and leave the mark on the row Down put it.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/statusline ");
+        shell.route_bytes(b"\x1b[B");
+        let marked = [
+            table_row(14, "context", false),
+            table_row(14, "session", true),
+            table_row(14, "workspace", false),
+        ];
+        assert_eq!(menu(&shell)[..3], marked[..]);
+        shell.route_bytes(b"\x1b[D\x1b[D");
+        assert_eq!(menu(&shell)[..3], marked[..], "a caret move moved the mark");
+        shell.route_bytes(b"\x1b[C\x1b[C");
+        assert_eq!(menu(&shell)[..3], marked[..]);
+        shell.route_bytes(b"s");
+        assert_eq!(menu(&shell), table(14, &["session"]));
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(
+            menu(&shell),
+            table(14, &["context", "session", "workspace"])
+        );
+    }
+
+    #[test]
+    fn under_the_full_transcript_tab_and_enter_take_the_lists_marked_row_as_fxs_do() {
+        // fx's full transcript claims Ctrl-C and Ctrl-L as bytes, and the
+        // arrows, Escape and the page keys as actions (`keyForByte`,
+        // `keyForAction`, `input_full_transcript_runtime.zig:147-179@481104fd`):
+        // Tab and Enter reach the composer behind it, whose submit runs the
+        // marked row while the list's count is not zero
+        // (`resolvedSlashSubmission`, `input_submit_runtime.zig:1098-1101`) --
+        // a count that never asks about the transcript
+        // (`visibleSlashCompletionQueryActive`,
+        // `input_completion_runtime.zig:116-125`; only the file picker does,
+        // `:782-784`). No guard here, as there is none there.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace a");
+        shell.route_bytes(b"\x0f");
+        assert!(shell.full.is_open(), "Ctrl-O opened nothing");
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "/workspace add ");
+        shell.route_bytes(&[0x15]);
+        let context = shell.statusline.context;
+        shell.route_bytes(b"/statusline \r");
+        assert_eq!(shell.statusline.context, !context);
+        assert!(shell.full.is_open(), "the submit closed the transcript");
     }
 
     #[test]
