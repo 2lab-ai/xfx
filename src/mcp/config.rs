@@ -3762,7 +3762,7 @@ mod tests {
         let scratch = fs::canonicalize(dir.path()).unwrap();
         assert!(!scratch.starts_with(&checkout), "{scratch:?}");
         assert!(
-            scratch.starts_with(fs::canonicalize(std::env::temp_dir()).unwrap()),
+            scratch.starts_with(fs::canonicalize(env_exception!(temp_dir())).unwrap()),
             "{scratch:?}"
         );
         let repo = scratch.join("repo");

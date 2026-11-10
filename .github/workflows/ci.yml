@@ -87,10 +87,14 @@ jobs:
             target: x86_64-apple-darwin
             part: release
     steps:
+      # No step after this one talks to the remote, so the token the
+      # checkout uses is not left in `.git/config`, where a test's git -- whose
+      # HOME is a fresh empty one -- would still find it.
       - name: Check out the exact commit
         uses: actions/checkout@v4
         with:
           ref: ${{ env.COMMIT_UNDER_TEST }}
+          persist-credentials: false
 
       # `build.rs` resolves the revision with `git rev-parse HEAD`, so the
       # checkout above is also what ends up in `xfx status`. Asserting it here
@@ -108,7 +112,7 @@ jobs:
           fi
           echo "gate is running on $actual"
 
-      - name: Install the pinned toolchain
+      - name: Install the stable toolchain
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup default stable

@@ -46,7 +46,7 @@ impl Scratch {
         let root = std::fs::canonicalize(dir.path()).unwrap();
         assert!(!root.starts_with(&checkout), "{root:?}");
         assert!(
-            root.starts_with(std::fs::canonicalize(std::env::temp_dir()).unwrap()),
+            root.starts_with(std::fs::canonicalize(env_exception!(temp_dir())).unwrap()),
             "{root:?}"
         );
         let work = root.join("work");

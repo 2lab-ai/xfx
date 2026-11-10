@@ -48,13 +48,16 @@ mod env_exception;
 /// - `child_var` and `child_var_os` are values only handed on to a child's
 ///   environment: the fake process's, or none (`PATH` and `TMPDIR` excepted).
 ///
-/// Every other read of the environment, in `src` and `tests`, is refused by
-/// clippy (`clippy.toml`'s `disallowed-methods`, on the resolved path) unless
-/// it is an `env_exception!`, whose names are literals.
-/// `scripts/check-env-reads.py` runs clippy with that lint forced on, so no
-/// allow of any spelling hides a read, and refuses every read but these
+/// Every other call of a reader `clippy.toml`'s `disallowed-methods` names,
+/// in `src` and `tests`, is refused by clippy on the resolved path unless it
+/// is an `env_exception!`, whose names are literals; `env!` and
+/// `option_env!` are held to the names cargo and `build.rs` set.
+/// `scripts/check-env-reads.py` runs clippy with those lints forced on, so
+/// no allow of any spelling hides a read, and refuses every read but these
 /// macros' own arms -- this one's, whose names are computed, and
-/// `env_exception!`'s, each held to its file and its names.
+/// `env_exception!`'s, each held to its file and its names. A C function
+/// declared by hand, the `environ` static and `/proc/self/environ` are
+/// outside what clippy can name.
 #[cfg(not(test))]
 macro_rules! process_env {
     ($who:literal, var($name:expr)) => {

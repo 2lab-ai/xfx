@@ -75,8 +75,11 @@ fn a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given() {
     // configuration in it.
     let sentinel = a_private_dir(named(1));
     std::fs::write(sentinel.join(".gitconfig"), "[core]\n").expect("a configuration");
-    // An empty home at a path the marker does not name.
+    // An empty home at a path the marker does not name, and one with the
+    // name the marker gives, in another directory.
     let other = a_private_dir(tmpdir.join("home"));
+    let elsewhere = a_private_dir(tmpdir.join("elsewhere"));
+    let misplaced = a_private_dir(elsewhere.join(format!("{HOME_PREFIX}{}", marker(6))));
     // An empty home the marker names, beside a variable the copy is not given.
     let beside = a_private_dir(named(3));
     // The path the marker names, a link to an empty private directory: as
@@ -88,11 +91,17 @@ fn a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given() {
     let trailing = PathBuf::from(format!("{}/", named(5).display()));
     // Each home, the marker beside it, any name more, and the refusal.
     type Case<'a> = (&'a Path, String, &'a [(&'a str, &'a str)], &'a str);
-    let cases: [Case; 5] = [
+    let cases: [Case; 6] = [
         (&sentinel, marker(1), &[], "HOME is not empty"),
         (
             &other,
             marker(2),
+            &[],
+            "HOME is not the path the parent makes for the marker",
+        ),
+        (
+            &misplaced,
+            marker(6),
             &[],
             "HOME is not the path the parent makes for the marker",
         ),

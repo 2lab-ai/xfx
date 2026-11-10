@@ -96,12 +96,15 @@ refused unless it is one of:
 3. **A call outside any macro listed in `PLAIN`** by file, path and count:
    `process::spawn` and `process::spawn_unless` (`Command::spawn`, 2) and
    `process::pipe` (`rustix::pipe::pipe`, 1) -- the start and the pipe every
-   other goes through -- and the build script.
+   other goes through -- and the build script's four reads and its two
+   `Command::output` calls (`git_path`, `git_revision`).
 
 Exactly one definition site in each of the two macro files may appear. That
 is the dispatcher's fact (a), realised: the only suppressions that let a read
 through are those two macros' arms and the build script's listed four;
-every start an allow lets through is one of the three. Fact (b): every
+every start an allow lets through is one of the five. *(Round 5: this held
+only for what `clippy.toml` named -- `Command::new` was a text check, and
+`env!`/`option_env!` were unchecked; see [`../round5/README.md`](../round5/README.md).)* Fact (b): every
 literal passed to `env_exception!` is in `ALLOWED_NAMES`.
 
 "Their count equals the macro's invocation count" is the `EXCEPTIONS`
@@ -291,7 +294,9 @@ confirms (`confirm`):
    (`env_exception!(names())`, the names alone, never a value);
 2. the marker is 32 hex digits, and `HOME`'s last component is
    `xfx-test-home-<marker>`;
-3. `HOME` is a directory, not a link, owned by this user, mode 0700;
+3. `HOME` is a directory, not a link, owned by this user, mode 0700
+   *(round 5: not with a trailing `/`, which makes `lstat` follow a link;
+   the copy now refuses that, and compares the whole path)*;
 4. `HOME` is empty.
 
 Anything else, and it prints which (names and paths it made, never a
@@ -395,6 +400,11 @@ with it.
   comment names closures and references, and no binding check.
 
 ### The check's boundary
+
+*Round 5 corrects this paragraph: it omitted `env!`/`option_env!`,
+`std::env::temp_dir`, `libc::_NSGetEnviron`, the release profile and the
+built artifacts, and "not a link" did not hold for a `HOME` with a trailing
+`/`. The boundary as it stands is in [`../round5/README.md`](../round5/README.md).*
 
 Clippy resolves each call's path, so an import, a rename, an alias of an
 alias, a closure over a reader and a reference to one are the reader they

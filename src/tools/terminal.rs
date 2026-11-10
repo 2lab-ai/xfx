@@ -2239,7 +2239,7 @@ mod tests {
 
     #[cfg(unix)]
     fn marker_for(tag: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("xfx-forked-{tag}"))
+        env_exception!(temp_dir()).join(format!("xfx-forked-{tag}"))
     }
 
     /// A shell that forks one child and then says that it has, in its own

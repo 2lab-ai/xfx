@@ -1,30 +1,39 @@
 #!/usr/bin/env python3
-"""Every read of the process environment, and every start of a child, that
-clippy's `disallowed-methods` (clippy.toml) is told to let through.
+"""Every read of the process environment, every start of a child, and every
+test binary, against what clippy.toml and cargo say.
 
     python3 scripts/check-env-reads.py              # the tree
     python3 scripts/check-env-reads.py --self-test  # the fixtures below
 
-The check runs clippy itself, with the lint forced on
-(`--force-warn clippy::disallowed_methods`): no `allow`, `expect`, group,
-`warnings`, crate-level attribute, `cfg_attr` or `-A` can turn a forced lint
-off, so every read and every start the lint knows of is reported, whatever
-lets it through in the ordinary run. Clippy resolves each call's path, so an
-import, an alias, a closure or a function reference is the call it names.
-Nothing here reads source text to find a read: the reports are clippy's.
+The check runs clippy itself, with `clippy::disallowed_methods` and
+`clippy::disallowed_macros` forced on (`--force-warn`): no `allow`, `expect`,
+group, `warnings`, crate-level attribute, `cfg_attr`, `-A` or `[lints]`
+table can turn a forced lint off, so every call the lints know of is
+reported, whatever lets it through in the ordinary run. Clippy resolves each
+call's path, so an import, an alias, a closure or a function reference is
+the call it names. It does so in the dev and release profiles, each with the
+default and with all features (PASSES), one union of reports. Nothing here
+reads source text to find a read: the reports are clippy's, and the only
+source bytes read are the compiler's own span of an invocation.
 
 Each reported call is refused unless it is one of:
 
-- an `env_exception!` arm (src/env_exception.rs): its invocation, read off the
-  bytes of the compiler's own span of it, has exactly the literal form, its
-  names are in ALLOWED_NAMES, and its file and names are an entry of
-  EXCEPTIONS -- the list of every invocation, compared both ways, so an
-  invocation added or one that goes missing fails alike;
-- a `process_env!` build arm (src/lib.rs): names computed by design, read from
-  the process in a build and from the case's fake process in a unit test
-  (src/test_env.rs);
-- a call outside any macro listed in PLAIN, by file, path and count: the
-  start every start goes through, and the build script.
+- an `env_exception!` arm (src/env_exception.rs): its invocation has exactly
+  the literal form, its names are in ALLOWED_NAMES, and its file and names
+  are an entry of EXCEPTIONS -- every invocation, compared both ways;
+- a `process_env!` build arm (src/lib.rs): names computed by design, read
+  from the process in a build and from the case's fake process in a unit
+  test (src/test_env.rs);
+- an `env!` or `option_env!` of a literal name in COMPILE_TIME_NAMES;
+- a call outside any macro listed in PLAIN, by file, path and count; one in
+  tests/ only in a test binary that runs in a clean copy of itself.
+
+Beside clippy's reports: rustc's dep-info names every compile-time read of
+every crate built from this manifest, held to COMPILE_TIME_NAMES; clippy.toml
+must hold every reader, start and macro listed here, and no .clippy.toml may
+shadow it; and every test executable cargo builds (TEST_BUILDS) is started,
+to show it refuses to run a case outside its clean copy
+(artifact_problems).
 
 The values of the environment are never read here, and never printed.
 """
@@ -47,7 +56,9 @@ ENV_READERS = {
     "std::env::vars",
     "std::env::vars_os",
     "std::env::home_dir",
+    "std::env::temp_dir",
     "libc::getenv",
+    "libc::_NSGetEnviron",
 }
 
 # The start rule's entries: what makes or starts a child, replaces the
@@ -157,6 +168,10 @@ EXCEPTIONS = [
     ("src/permission/gitconfig.rs", ("PATH",)),
     ("src/interactive.rs", ("TMPDIR",)),
     ("src/tui/shell.rs", ("TMPDIR",)),
+    # The standard library's temporary directory, in three unit tests.
+    ("src/tools/terminal.rs", ("TMPDIR",)),
+    ("src/mcp/config.rs", ("TMPDIR",)),
+    ("src/mcp/command/tests.rs", ("TMPDIR",)),
     ("src/mcp/docker.rs", ("TMPDIR", "TEMP", "TMP")),
     ("tests/support/sandbox.rs", ("PATH",)),
     ("tests/support/sandbox.rs", ("TMPDIR",)),
@@ -235,6 +250,7 @@ SINGLE = re.compile(
     r"^(?:[a-z_][a-z0-9_]*::)?env_exception!\s*\(\s*(?:var|var_os)\s*\(\s*" + NAME + r"\s*\)\s*\)$"
 )
 NAMES_ONLY = re.compile(r"^(?:[a-z_][a-z0-9_]*::)?env_exception!\s*\(\s*names\s*\(\s*\)\s*\)$")
+TEMP_DIR = re.compile(r"^(?:[a-z_][a-z0-9_]*::)?env_exception!\s*\(\s*temp_dir\s*\(\s*\)\s*\)$")
 LIST = re.compile(
     r"^(?:[a-z_][a-z0-9_]*::)?env_exception!\s*\(\s*first_set_os\s*\(\s*\[\s*"
     r'((?:"[A-Z][A-Z0-9_]*"\s*,\s*)*"[A-Z][A-Z0-9_]*")\s*,?\s*\]\s*\)\s*\)$'
@@ -330,6 +346,8 @@ def invocation_names(crate, call):
         return (single.group(1),)
     if NAMES_ONLY.match(text):
         return (NAMES,)
+    if TEMP_DIR.match(text):
+        return ("TMPDIR",)
     listed = LIST.match(text)
     if listed:
         return tuple(re.findall(NAME, listed.group(1)))
@@ -465,7 +483,7 @@ TEST_BUILDS = ([], ["--all-features"], ["--release"])
 PROBE_MARKER = "not-a-marker"
 
 
-def artifact_problems(root):
+def artifact_problems(root, cargo_flags=("--locked",), env_extra=None):
     """What cargo builds to run tests, and whether each runs its cases in a
     clean copy of itself.
 
@@ -492,8 +510,8 @@ def artifact_problems(root):
     probed = 0
     for build in TEST_BUILDS:
         run = subprocess.run(
-            ["cargo", "test", "--locked", "--no-run", "--all-targets", "--message-format=json"] + build,
-            cwd=root, env=tool_environment(), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            ["cargo", "test", *cargo_flags, "--no-run", "--all-targets", "--message-format=json"] + build,
+            cwd=root, env=tool_environment(env_extra), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
         label = " ".join(build) or "(dev, default features)"
         if run.returncode != 0:
@@ -615,7 +633,7 @@ def check_tree():
     print(
         f"check-env-reads: {len(invocations)} env_exception! invocations in "
         f"{len({file for file, _, _, _ in invocations})} files, {process_env} process_env! "
-        f"build arms, {sum(plain.values())} listed plain calls, "
+        f"call sites (over its build arms), {sum(plain.values())} listed plain calls, "
         f"{sum(compile_time.values())} compile-time reads of {len(compile_time)} names; "
         f"{probed} test binaries started with a marker no parent makes"
     )
@@ -736,6 +754,15 @@ FIXTURES = {
         'pub const BY: &str = concat!("by ", env!("CARGO_PKG_AUTHORS"));',
         ["compiled with CARGO_PKG_AUTHORS"],
     ),
+    "temp_dir_read": (
+        'pub fn f() -> std::path::PathBuf { std::env::temp_dir() }',
+        ["std::env::temp_dir outside"],
+    ),
+    "ns_get_environ": (
+        "/// # Safety\n/// The fixture is never called.\n"
+        '#[cfg(target_vendor = "apple")]\npub unsafe fn f() -> bool { libc::_NSGetEnviron().is_null() }',
+        ["libc::_NSGetEnviron outside"] if sys.platform == "darwin" else [],
+    ),
     "release_only_read": (
         "#[cfg(not(debug_assertions))]\n" + 'pub fn f() -> bool { std::env::var_os("HOME").is_some() }',
         ["std::env::var_os outside"],
@@ -831,12 +858,39 @@ def self_test():
         with open(os.path.join(config, ".clippy.toml"), "w") as rules:
             rules.write("")
         found = [why for _, _, why in config_problems(config)]
+        # What cargo builds to run tests: an integration test binary with no
+        # constructor, and a binary whose harness holds a case. Both must be
+        # refused, in every build.
+        built = os.path.join(scratch, "built")
+        os.makedirs(os.path.join(built, "src"))
+        os.makedirs(os.path.join(built, "tests"))
+        with open(os.path.join(built, "Cargo.toml"), "w") as manifest:
+            manifest.write('[package]\nname = "built"\nversion = "0.0.0"\nedition = "2021"\npublish = false\n')
+        with open(os.path.join(built, "src", "main.rs"), "w") as main:
+            main.write("fn main() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn runs() {}\n}\n")
+        with open(os.path.join(built, "tests", "plain.rs"), "w") as plain:
+            plain.write("#[test]\nfn runs() {}\n")
+        artifacts, _, probed = artifact_problems(
+            built, ("--offline",), {"CARGO_TARGET_DIR": os.path.join(scratch, "built-target")}
+        )
+        refusals = [why for _, _, why in artifacts]
+        wanted_built = [
+            ("tests/plain.rs", "without making a clean copy", len(TEST_BUILDS)),
+            ("src/main.rs", "that holds cases", len(TEST_BUILDS)),
+        ]
+        missing_built = [
+            (file, reason) for file, reason, count in wanted_built
+            if sum(1 for f, _, why in artifacts if f == file and reason in why) != count
+        ]
+        failures += bool(missing_built) or probed != len(TEST_BUILDS)
+        print(f"{'refused' if not missing_built else 'NOT REFUSED for ' + str(missing_built):9} test binaries cargo built"
+              + "".join(f"\n            {why}" for why in refusals))
         wanted = ["a .clippy.toml", "no longer holds std::env::var_os", "no longer holds std::process::Command::new"]
         missing = [reason for reason in wanted if not any(reason in why for why in found)]
         failures += bool(missing)
         print(f"{'refused' if not missing else 'NOT REFUSED for ' + str(missing):9} clippy configuration"
               + "".join(f"\n            {why}" for why in found))
-        print(f"check-env-reads --self-test: {len(FIXTURES) + 1} fixtures, {failures} not as expected")
+        print(f"check-env-reads --self-test: {len(FIXTURES) + 2} fixtures, {failures} not as expected")
         return 1 if failures else 0
     finally:
         shutil.rmtree(scratch, ignore_errors=True)

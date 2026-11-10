@@ -11,9 +11,12 @@
 # process environment is read through `process_env!`, so a unit test cannot
 # read the real one. Checked on the resolved call, so an imported `var`, an
 # aliased `std::env`, a closure over a reader and a reference to one are
-# caught as the plain path is. A read that stays outside it is an
-# `env_exception!` (`src/env_exception.rs`), whose names are literals; but
-# for the build script, cargo's own process, nothing else lets one through.
+# caught as the plain path is -- for the readers named below; a C function
+# declared by hand, the `environ` static (a static, which no entry can
+# name) and a read of `/proc/self/environ` are not. A read of a named
+# reader that stays outside `process_env!` is an `env_exception!`
+# (`src/env_exception.rs`), whose names are literals; but for the build
+# script, cargo's own process, nothing else lets one through.
 # `scripts/check-env-reads.py` runs clippy with the lint forced on, so an
 # allow of any spelling hides nothing from it, and holds each `env_exception!`
 # to its file and names and each start an allow lets through to a list.
@@ -21,8 +24,9 @@
 # `allow-invalid` marks a path that does not resolve in every build: tokio is
 # built without `process`, mio is not a dependency of xfx's own, `vfork`,
 # `clone`, `execvpe`, `fexecve` and the variadic `execl*` are not in libc on
-# every target, and `pipe_with` is rustix's only where the system has
-# `pipe2`. Each bites as soon as it resolves.
+# every target, `_NSGetEnviron` is libc's on Apple targets only, and
+# `pipe_with` is rustix's only where the system has `pipe2`. Each bites as
+# soon as it resolves.
 disallowed-methods = [
   { path = "std::process::Command::new", reason = "a child is made by crate::process::command, which gives a unit test's child the case's fake process, never the developer's" },
   { path = "tokio::process::Command::new", reason = "a child is made by crate::process::command, which gives a unit test's child the case's fake process, never the developer's", allow-invalid = true },
@@ -63,6 +67,8 @@ disallowed-methods = [
   { path = "std::env::vars_os", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one" },
   { path = "std::env::home_dir", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one" },
   { path = "libc::getenv", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one" },
+  { path = "libc::_NSGetEnviron", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one", allow-invalid = true },
+  { path = "std::env::temp_dir", reason = "it reads TMPDIR: the process environment is read through process_env! (src/lib.rs) or an env_exception!" },
 ]
 
 # Compile-time reads: `env!` and `option_env!` bake the compiling shell's

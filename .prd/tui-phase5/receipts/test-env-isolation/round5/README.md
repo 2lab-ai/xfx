@@ -193,3 +193,69 @@ for its reason, and no mark left in the home or in the link's target. And
 `TMPDIR=<scratch>/xfx-sentinel-tmpdir-value/gone`, where no home can be
 made -- the binary refuses ("under TMPDIR"), and the sentinel is not in
 anything it printed.
+
+The case list now also holds a home with the marker's name in another
+directory (`elsewhere/xfx-test-home-<marker>`): round 4's last-component
+comparison accepted it; the exact path refuses it.
+
+## Part 6: the boundary and the claims (opus M2a, M2b), and the SHOULDs
+
+**Named now** (`clippy.toml`'s readers):
+
+- `libc::_NSGetEnviron` (`allow-invalid`: libc has it on Apple targets
+  only). Fixture `ns_get_environ`, compiled and refused on macOS; on Linux
+  the fixture compiles to nothing and is expected to be accepted.
+- `std::env::temp_dir`, which reads `TMPDIR`. Its three uses, all in unit
+  tests (`tools/terminal.rs`, `mcp/config.rs`, `mcp/command/tests.rs`), are
+  now `env_exception!(temp_dir())`, a fifth form of the macro, listed as
+  reads of `TMPDIR` (EXCEPTIONS 39 in 26 files). Fixture `temp_dir_read`.
+
+**The boundary, as it stands after this round.** Clippy resolves each
+call's path, so an import, a rename, an alias of an alias, a closure over a
+reader or a start and a reference to one are the call they name;
+`--force-warn` reports them whatever allow sits over them, in the dev and
+release profiles, with and without every feature. `env_exception!` takes
+literals only, and `env!`/`option_env!` take only the six names cargo and
+`build.rs` set -- held by clippy's macro lint and by rustc's dep-info. What
+this does not see:
+
+- a C function declared by hand (`extern "C" { fn getenv(..) }`;
+  `src/local_time.rs:236` declares `tzset`, which reads `TZ` inside the C
+  library, as `localtime_r` does);
+- the `environ` static (a static, which no `disallowed-methods` entry can
+  name), and a read of `/proc/self/environ`;
+- a dependency's own reads, and a proc macro's that rustc does not track;
+- the system git configuration, read by design
+  (`src/test_env.rs:240-242`); the global one is `/dev/null` for a homeless
+  plan;
+- `PATH` and `TMPDIR`, which every test process keeps: a `git` early on
+  `PATH` or a hostile temporary directory is the developer's own machine;
+- a process that can already write as this user (part 5).
+
+In an integration test all of these meet an environment built from
+nothing; in a unit test they would meet the developer's. Doctests do not
+run (part 4).
+
+**Claims corrected:** `src/lib.rs`'s `process_env!` doc (it said every other
+read "is refused by clippy"; it now says which readers, adds the compile-time
+macros, and names what clippy cannot), `clippy.toml`'s rule comment (the
+same), and round 4's README (its PLAIN sentence omitted `build.rs`'s two
+`Command::output` calls; its boundary paragraph and its "not a link" line
+now point here).
+
+**SHOULDs.**
+
+- Doctests: `[lib] doctest = false` (part 4 says why that one).
+- Clippy configuration: a `.clippy.toml` is refused, and the script asserts
+  `clippy.toml` holds every reader, start and macro it knows of (part 1).
+- More starts: the exec family, `clone` and `CommandExt::exec` (part 1).
+- CI checkout: `persist-credentials: false` in `ci.yml` -- no later step
+  talks to the remote, and the token would otherwise sit in `.git/config`,
+  which a fresh `HOME` does not hide.
+- Linux: "not yet run", at the top of this file.
+- NITs: build.rs's two `output` calls (round 4's README); the summary line
+  says "12 process_env! call sites (over its build arms)", not "12 build
+  arms"; both CI steps run `python3 -I`; `ci.yml`'s "Install the pinned
+  toolchain" is "Install the stable toolchain" (it installs unpinned
+  stable; `release.yml` and `preview.yml` keep their names, outside this
+  unit); the tool variables not handed on are in `isolated.rs`'s doc.

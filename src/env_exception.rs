@@ -7,7 +7,9 @@
 /// A read of the real process environment, by a name written as a literal:
 /// `env_exception!(var("COLORTERM"))`, `env_exception!(var_os("PATH"))`, or
 /// the first of several that is set and not empty,
-/// `env_exception!(first_set_os(["TMPDIR", "TEMP", "TMP"]))`; or the names
+/// `env_exception!(first_set_os(["TMPDIR", "TEMP", "TMP"]))`; the standard
+/// library's temporary directory, which reads `TMPDIR`,
+/// `env_exception!(temp_dir())`; or the names
 /// alone, never a value, `env_exception!(names())`, for the one place that
 /// must know nothing else is set (`tests/support/isolated.rs`).
 ///
@@ -36,6 +38,15 @@ macro_rules! env_exception {
                 reason = "env: env_exception! -- a name scripts/check-env-reads.py lists"
             )]
             () => ::std::env::var_os($name),
+        }
+    };
+    (temp_dir()) => {
+        match () {
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "env: env_exception! -- TMPDIR, through the standard library"
+            )]
+            () => ::std::env::temp_dir(),
         }
     };
     (names()) => {
