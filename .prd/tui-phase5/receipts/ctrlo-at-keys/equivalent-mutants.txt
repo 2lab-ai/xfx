@@ -1,0 +1,32 @@
+# CTRLO-AT-KEYS: the mutants that survive, and why each is equivalent in
+# every state that reaches the line it changes. Line numbers are
+# src/tui/shell.rs at 1e41a773 (the mutants' clone).
+
+cj-ck-handed-on-whenever-ineligible
+  The hand-on keyed on `!eligible` instead of the full transcript. The two
+  differ only for an open `@` list that is not eligible with the transcript
+  closed, and no such list sees a key:
+  - a question, an approval or a rule change waiting takes every key before
+    any `offer_*` (`Shell::consume`, the `ask` arm at :12243, `asking` at
+    :12250, `rule_confirm` at :12261; `offer_to_files` at :12318);
+  - the catalog menus the other terms name -- the catalog (help), the
+    settings menu, the skills menu searching `/skills`, `/model`'s menu,
+    the session picker -- each set `file_picker = None` whenever the draft
+    is reconciled (`Shell::reconcile_picker`, :9043; the assignments at
+    :9066, :9081, :9096, :9109, :9119), so the list is gone while one is
+    up;
+  - a `$` mention's skills menu needs the caret in a `$` word, and then no
+    `@` word is at the caret (`file_picker::query_at`), so no list.
+  So under the mutant and the head alike only the transcript hands the
+  keys on.
+
+tab-base-order
+  Tab as the base had it: `files.chosen()` first, the retry arm gated on
+  `eligible`, no early return. Under ineligibility the distrust block above
+  has run (`files.distrust()`), so `chosen()` is `None` (it requires the
+  list's trust, AT-HEIGHT's gate: `src/tui/file_picker.rs:742-743`) and the gated retry does nothing; the
+  frame is the distrust block's in both. The base's order and fx's give the
+  same result in every state; the unit puts the check first because fx's
+  is first (`input_completion_runtime.zig:949` before `:950` and `:953`),
+  and the mutants that let the re-read run before the check
+  (`tab-check-after-the-reread`, `tab-check-gone`) are killed.
