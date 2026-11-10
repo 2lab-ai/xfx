@@ -1323,6 +1323,14 @@ def self_test():
         open(os.path.join(linked, "deps", "xfx-fedcba9876543210.d"), "w").close()
         copied = os.path.join(scratch, "names", "xfx")
         shutil.copyfile(os.path.join(names_dir, "xfx-fedcba9876543210"), copied)
+        # Two byte-identical originals of one copied file: no answer.
+        twins = os.path.join(scratch, "twins")
+        os.makedirs(os.path.join(twins, "deps"))
+        for name in ("twin", "deps/twin-aaaaaaaaaaaaaaaa", "deps/twin-bbbbbbbbbbbbbbbb"):
+            with open(os.path.join(twins, name), "w") as made:
+                made.write("the same bytes")
+        for name in ("deps/twin-aaaaaaaaaaaaaaaa.d", "deps/twin-bbbbbbbbbbbbbbbb.d"):
+            open(os.path.join(twins, name), "w").close()
         resolved = {
             what: (dep_info(path) or (None,))[0]
             for what, path in (
@@ -1330,6 +1338,7 @@ def self_test():
                 ("a library's .rlib", os.path.join(names_dir, "libxfx-0123456789abcdef.rlib")),
                 ("an executable uplifted by a hard link", os.path.join(linked, "xfx")),
                 ("an executable uplifted by a copy", copied),
+                ("a copy with two byte-identical originals", os.path.join(twins, "twin")),
             )
         }
         expected = {
@@ -1337,6 +1346,7 @@ def self_test():
             "a library's .rlib": os.path.join(names_dir, "xfx-0123456789abcdef.d"),
             "an executable uplifted by a hard link": os.path.join(linked, "deps", "xfx-fedcba9876543210.d"),
             "an executable uplifted by a copy": os.path.join(names_dir, "xfx-fedcba9876543210.d"),
+            "a copy with two byte-identical originals": None,
         }
         wrong = [what for what in expected if resolved[what] != expected[what]]
         failures += bool(wrong)
@@ -1382,7 +1392,13 @@ def self_test():
         artifacts += [(f, line, "after the dep-info is gone: " + why) for f, line, why in compiled_problems(compiled)]
         # Then each `.d` empty, then each cut inside its first line: neither
         # holds the artifact's own rule, so neither is evidence.
-        for label, cut in (("empty", lambda text: b""), ("truncated", lambda text: text[: len(text.split(b"\n")[0]) // 2])):
+        for label, cut in (
+            ("empty", lambda text: b""),
+            ("truncated", lambda text: text[: len(text.split(b"\n")[0]) // 2]),
+            # rustc's first rule is the `.d` file's own; cut after it, what
+            # is left is a well-formed rule for some other file.
+            ("cut after its first rule", lambda text: text.split(b"\n")[0] + b"\n"),
+        ):
             # Sources newer than the last build, so the builds run once more
             # and rustc writes every `.d` afresh, then each one cut.
             # Not later than now: a source dated in the future would keep
@@ -1411,6 +1427,7 @@ def self_test():
             ("src/main.rs", "after the dep-info is gone: built with no dep-info", 1),
             ("tests/plain.rs", "with every dep-info empty: built with no dep-info", 1),
             ("tests/plain.rs", "with every dep-info truncated: built with no dep-info", 1),
+            ("tests/plain.rs", "with every dep-info cut after its first rule: built with no dep-info", 1),
             ("build.rs", "sets a cfg (rustc-cfg)", 1),
         ]
         missing_built = [
