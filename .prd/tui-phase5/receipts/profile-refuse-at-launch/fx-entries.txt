@@ -8,7 +8,7 @@ binary sha256 before: 8e6cda2efddb
   status                 exit=0 stdout=685B stderr=fx: config user: malformed_settings| | touched: 
     stdout: [status] model=spacexai/grok-4.7|[status] model_origin=default|[status] effort=auto|[status] update_channel=stable|[status] build_channel=stable|[status] build_revision=481104fdbc24|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=fx needs access to Vercel AI Gateway. Run fx 
   doctor                 exit=0 stdout=963B stderr= | touched: 
-    stdout: [doctor] ok=3 warn=5 fail=1|[doctor] workspace=<run>/truncated/work|[doctor] model=spacexai/grok-4.7|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=0|[doctor] mcp_connection_check=not_checked|[doctor] mcp_servers
+    stdout: [doctor] ok=3 warn=5 fail=1|[doctor] workspace=<run>/truncated/work|[doctor] model=spacexai/grok-4.7|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=0|[doctor] mcp_connection_check=not_checked|[doctor] mcp_servers=0 mcp_configuration_issu
   sessions               exit=0 stdout=29B stderr= | touched: 
     stdout: [sessions] no saved sessions|
   session last           exit=1 stdout=0B stderr=fx session: no saved sessions for this workspace| | touched: 
@@ -28,7 +28,7 @@ binary sha256 before: 8e6cda2efddb
   status                 exit=0 stdout=681B stderr= | touched: 
     stdout: [status] model=spacexai/grok-4.7|[status] model_origin=default|[status] effort=auto|[status] update_channel=stable|[status] build_channel=stable|[status] build_revision=481104fdbc24|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=fx needs access to Vercel AI Gateway. Run fx 
   doctor                 exit=0 stdout=878B stderr= | touched: 
-    stdout: [doctor] ok=4 warn=3 fail=1|[doctor] workspace=<run>/valid/work|[doctor] model=spacexai/grok-4.7|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=0|[doctor] mcp_connection_check=not_checked|[doctor] mcp_servers=0 m
+    stdout: [doctor] ok=4 warn=3 fail=1|[doctor] workspace=<run>/valid/work|[doctor] model=spacexai/grok-4.7|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=0|[doctor] mcp_connection_check=not_checked|[doctor] mcp_servers=0 mcp_configuration_issues=0
   sessions               exit=0 stdout=29B stderr= | touched: 
     stdout: [sessions] no saved sessions|
   session last           exit=1 stdout=0B stderr=fx session: no saved sessions for this workspace| | touched: 

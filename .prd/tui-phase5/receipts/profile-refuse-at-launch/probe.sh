@@ -24,9 +24,11 @@ if [ "$product" = fx ] && [ "$(sha "$bin")" != "$FX_SHA" ]; then
 fi
 echo "binary sha256 before: $(sha "$bin" | cut -c1-12)"
 
-all="truncated nonobject toolarge model-space model-nonstring model-inner-space model-long \
+all="truncated nonobject toolarge at-ceiling model-space model-nonstring model-inner-space model-long \
 ws-nonobject entry-nonobject entry-model typed-key provider models-bad dir-settings \
-link-settings link-profile unreadable project-malformed retired-then-model group-writable valid"
+link-settings link-profile unreadable project-malformed retired-then-model group-writable \
+group-writable-torn group-writable-model other-writable-torn dir-group-writable-torn write-only \
+dir-unlistable hardlink profile-file fifo valid"
 fixtures=${*:-$all}
 
 # The fixture's profile: <home>/<prof>/settings.json, or what stands there.
@@ -37,7 +39,8 @@ seed() { # fixture home work
   case $f in
     truncated) printf '{"permission_mode": "auto", "sandbox": ' > "$s" ;;
     nonobject) printf '[1, 2]' > "$s" ;;
-    toolarge) { printf '{"pad":"'; head -c 65537 /dev/zero | tr '\0' x; printf '"}'; } > "$s" ;;
+    toolarge) { printf '{"pad":"'; head -c 65527 /dev/zero | tr '\0' x; printf '"}'; } > "$s" ;;
+    at-ceiling) { printf '{"pad":"'; head -c 65526 /dev/zero | tr '\0' x; printf '"}'; } > "$s" ;;
     model-space) printf '{"model": " openai/gpt-5"}' > "$s" ;;
     model-nonstring) printf '{"model": 5}' > "$s" ;;
     model-inner-space) printf '{"model": "openai/gpt 5"}' > "$s" ;;
@@ -57,11 +60,21 @@ seed() { # fixture home work
     project-malformed) printf '{"permission_mode": "auto"}' > "$s"; printf '{"max_agent_steps": ' > "$w/$proj" ;;
     retired-then-model) printf '{"skill_match_fuzzy": true, "model": " openai/gpt-5"}' > "$s" ;;
     group-writable) printf '{"permission_mode": "auto"}' > "$s"; chmod 664 "$s" ;;
+    group-writable-torn) printf '{"permission_mode": "auto", "sandbox": ' > "$s"; chmod 664 "$s" ;;
+    group-writable-model) printf '{"model":" a"}' > "$s"; chmod 664 "$s" ;;
+    other-writable-torn) printf '{"permission_mode": "auto", "sandbox": ' > "$s"; chmod 602 "$s" ;;
+    dir-group-writable-torn) printf '{"permission_mode": "auto", "sandbox": ' > "$s"; chmod 600 "$s"; chmod 770 "$p" ;;
+    write-only) printf '{"permission_mode": "auto"}' > "$s"; chmod 222 "$s" ;;
+    dir-unlistable) printf '{"permission_mode": "auto"}' > "$s"; chmod 600 "$s"; chmod 300 "$p" ;;
+    hardlink) printf '{"permission_mode": "auto"}' > "$s"; chmod 600 "$s"; ln "$s" "$h/other.json" ;;
+    profile-file) rmdir "$p"; printf '{}' > "$p" ;;
+    fifo) mkfifo -m 600 "$s" ;;
     valid) printf '{"permission_mode": "auto"}' > "$s" ;;
     *) echo "unknown fixture $f" >&2; return 1 ;;
   esac
   [ -e "$s" ] || [ -L "$s" ] || return 0
-  [ "$f" = unreadable ] || [ "$f" = group-writable ] || [ -L "$s" ] || [ -d "$s" ] || chmod 600 "$s"
+  case $f in unreadable|group-writable*|other-writable*|dir-*|write-only|hardlink|fifo) return 0 ;; esac
+  [ -L "$s" ] || [ -d "$s" ] || chmod 600 "$s"
 }
 
 envs() { # home tmp
@@ -78,7 +91,9 @@ listing() { # dir: every entry with its size and mtime, relative
     | xargs -0 stat -f '%N %z %m' 2>/dev/null | sort)
 }
 
-redact() { sed -e "s#$root#<run>#g" | tr -d '\r'; }
+real_root=$(mkdir -p "$root" && cd "$root" && pwd -P)
+# The run root, by both its spellings, before any line is cut short.
+redact() { sed -e "s#$real_root#<run>#g" -e "s#$root#<run>#g" | tr -d '\r'; }
 
 touched() { # before after
   comm -13 "$1" "$2" | awk '{print $1}' | tr '\n' ' '
@@ -93,9 +108,9 @@ run_cli() { # label home work tmp args...
      </dev/null >"$d/out" 2>"$d/err"); local code=$?
   for x in "$h" "$w" "$t"; do listing "$x"; done > "$d/after"
   printf '  %-22s exit=%s stdout=%sB stderr=%s | touched: %s\n' "$label" "$code" \
-    "$(wc -c < "$d/out" | tr -d ' ')" "$(head -c 300 "$d/err" | tr '\n' '|' | redact)" \
+    "$(wc -c < "$d/out" | tr -d ' ')" "$(redact < "$d/err" | tr '\n' '|' | head -c 300)" \
     "$(touched "$d/before" "$d/after" | redact)"
-  [ -s "$d/out" ] && printf '    stdout: %s\n' "$(head -c 300 "$d/out" | tr '\n' '|' | redact)"
+  [ -s "$d/out" ] && printf '    stdout: %s\n' "$(redact < "$d/out" | tr '\n' '|' | head -c 300)"
   return 0
 }
 
@@ -115,13 +130,14 @@ run_tty() { # label home work tmp [env...]
   for x in "$h" "$w" "$t"; do listing "$x"; done > "$d/after"
   printf '  %-22s %s exit=%s tty=%sB stderr=%s | touched: %s\n' "$label" "$state" \
     "$(cat "$d/exit" 2>/dev/null | tr -d '\n')" "$(wc -c < "$d/ts" 2>/dev/null | tr -d ' ')" \
-    "$(head -c 300 "$d/err" 2>/dev/null | tr '\n' '|' | redact)" "$(touched "$d/before" "$d/after" | redact)"
+    "$(redact < "$d/err" 2>/dev/null | tr '\n' '|' | head -c 300)" "$(touched "$d/before" "$d/after" | redact)"
   return 0
 }
 
 fresh() { # fixture -> sets H W T
   local d=$root/$1
   chmod -R u+rwx "$d" 2>/dev/null; rm -rf "$d"
+  [ ! -e "$d" ] || { echo "cannot clear $1's run" >&2; exit 2; }
   H=$d/home W=$d/work T=$d/tmp
   mkdir -p "$H" "$W" "$T"
   if [ "$product" = fx ]; then

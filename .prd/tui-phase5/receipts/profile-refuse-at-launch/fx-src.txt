@@ -393,7 +393,7 @@
    900	        if (std.ascii.isControl(byte)) return error.InvalidDurableField;
    901	    }
    902	}
-== src/core/config/settings_store.zig:340-367@481104fd (4166 lines) -- an unsafe profile directory (a link, not a directory) is DurablePathUnsafe
+== src/core/config/settings_store.zig:340-391@481104fd (4166 lines) -- the profile directory, read-only: opened without following a link (a link or not a directory: DurablePathUnsafe; another failure returned, so malformed_settings), then its mode: open to group or other is PrivateStatePermissionsUnsupported, a cause no launch refuses, and no store
    340	    pub fn initFromHome(alloc: Allocator, home_path: []const u8, mode: OpenMode) !Store {
    341	        const zio = io_mod.getIo();
    342	        var home = std.Io.Dir.openDirAbsolute(zio, home_path, .{ .iterate = true }) catch |err| switch (err) {
@@ -422,6 +422,30 @@
    365	            error.NotDir, error.SymLinkLoop => return error.DurablePathUnsafe,
    366	            else => return err,
    367	        };
+   368	        errdefer durable_home.close(zio);
+   369	
+   370	        if (mode == .writable) {
+   371	            durable_home.setPermissions(zio, std.Io.File.Permissions.fromMode(0o700)) catch {
+   372	                return error.PrivateStatePermissionsUnsupported;
+   373	            };
+   374	        }
+   375	        const stat = try durable_home.stat(zio);
+   376	        if (stat.kind != .directory) return error.DurablePathUnsafe;
+   377	        const durable_mode = stat.permissions.toMode() & 0o777;
+   378	        if (mode == .writable and durable_mode != 0o700) {
+   379	            return error.PrivateStatePermissionsUnsupported;
+   380	        }
+   381	        if (mode == .read_only and durableModeWritableByGroupOrOther(durable_mode)) {
+   382	            return error.PrivateStatePermissionsUnsupported;
+   383	        }
+   384	
+   385	        return .{
+   386	            .durable_home = .{ .dir = durable_home },
+   387	            .display_root = try io_mod.dirRealpathAlloc(alloc, durable_home, "."),
+   388	            .availability = .writable,
+   389	            .mode = mode,
+   390	        };
+   391	    }
 == src/core/config/settings_store.zig:400-420@481104fd (4166 lines) -- loadPrimary: absent, oversized, invalid, valid
    400	    pub fn loadPrimary(self: *Store, alloc: Allocator) !PrimaryLoad {
    401	        var raw = try self.loadRawPrimary(alloc);
@@ -444,7 +468,7 @@
    418	            },
    419	        }
    420	    }
-== src/core/config/settings_store.zig:715-749@481104fd (4166 lines) -- the settings file opened without following links: a link or a directory is DurablePathUnsafe; oversized past the ceiling
+== src/core/config/settings_store.zig:715-749@481104fd (4166 lines) -- the settings file: opened for reading without following a link (a failed open returned before the mode is looked at), then, read-only, open to group or other is PrivateStatePermissionsUnsupported before the size and the read
    715	
    716	    fn loadRawPrimary(self: *Store, alloc: Allocator) !RawPrimary {
    717	        if (self.durable_home == null) return .absent;
@@ -480,6 +504,97 @@
    747	        if (verified_stat.size > max_settings_bytes) return .oversized;
    748	        return .{ .bytes = try io_mod.readFileToEnd(alloc, &file, max_settings_bytes + 1) };
    749	    }
+== src/core/config/settings_store.zig:763-765@481104fd (4166 lines) -- open to group or other: mode & 0o022
+   763	    fn durableModeWritableByGroupOrOther(mode: std.posix.mode_t) bool {
+   764	        return mode & 0o022 != 0;
+   765	    }
+== src/core/shared/io.zig:170-180@481104fd (1878 lines) -- openExistingRegularFile: no link followed, hard links refused
+   170	pub fn openExistingRegularFile(
+   171	    dir: std.Io.Dir,
+   172	    sub_path: []const u8,
+   173	    mode: std.Io.Dir.OpenFileOptions.Mode,
+   174	) !std.Io.File {
+   175	    return openExistingRegularFileWithPolicy(dir, sub_path, .{
+   176	        .mode = mode,
+   177	        .final_symlink = .no_follow,
+   178	        .hardlinks = .reject,
+   179	    });
+   180	}
+== src/core/shared/io.zig:213-286@481104fd (1878 lines) -- lstat, then the kind (anything but a regular file is DurablePathUnsafe) and the link count (more than one: DurablePathUnsafe), then the open
+   213	fn openExistingRegularFileWithPolicy(
+   214	    dir: std.Io.Dir,
+   215	    sub_path: []const u8,
+   216	    policy: RegularFileOpenPolicy,
+   217	) !std.Io.File {
+   218	    const initial = try dir.statFile(getIo(), sub_path, .{
+   219	        .follow_symlinks = policy.final_symlink == .follow,
+   220	    });
+   221	    // A lookup that races an atomic replacement can return the replaced file
+   222	    // after its last link is gone. Apply the opened-file policy, so a
+   223	    // read-only open accepts that snapshot as the check after the open does.
+   224	    try verifyOpenedRegularFileWithPolicy(initial, policy);
+   225	
+   226	    if (comptime builtin.target.os.tag == .windows or builtin.target.os.tag == .wasi) {
+   227	        var file = try dir.openFile(getIo(), sub_path, .{
+   228	            .mode = policy.mode,
+   229	            .allow_directory = false,
+   230	            .follow_symlinks = policy.final_symlink == .follow,
+   231	        });
+   232	        errdefer file.close(getIo());
+   233	        const stat = try file.stat(getIo());
+   234	        try verifyOpenedRegularFileWithPolicy(stat, policy);
+   235	        return file;
+   236	    }
+   237	
+   238	    var flags: std.posix.O = .{
+   239	        .ACCMODE = switch (policy.mode) {
+   240	            .read_only => .RDONLY,
+   241	            .write_only => .WRONLY,
+   242	            .read_write => .RDWR,
+   243	        },
+   244	        .NOFOLLOW = policy.final_symlink == .no_follow,
+   245	        .NONBLOCK = true,
+   246	    };
+   247	    if (@hasField(std.posix.O, "CLOEXEC")) flags.CLOEXEC = true;
+   248	    if (@hasField(std.posix.O, "LARGEFILE")) flags.LARGEFILE = true;
+   249	    if (@hasField(std.posix.O, "NOCTTY")) flags.NOCTTY = true;
+   250	
+   251	    const fd = std.posix.openat(dir.handle, sub_path, flags, 0) catch |err| switch (err) {
+   252	        error.NoDevice, error.SymLinkLoop, error.NotDir => return error.DurablePathUnsafe,
+   253	        else => return err,
+   254	    };
+   255	    var file = std.Io.File{
+   256	        .handle = fd,
+   257	        .flags = .{ .nonblocking = true },
+   258	    };
+   259	    errdefer file.close(getIo());
+   260	    const stat = try file.stat(getIo());
+   261	    try verifyOpenedRegularFileWithPolicy(stat, policy);
+   262	    try makeFileBlocking(&file);
+   263	    return file;
+   264	}
+   265	
+   266	pub fn verifyOpenedRegularFile(
+   267	    stat: std.Io.File.Stat,
+   268	    mode: std.Io.Dir.OpenFileOptions.Mode,
+   269	) !void {
+   270	    return verifyOpenedRegularFileWithPolicy(stat, .{
+   271	        .mode = mode,
+   272	        .final_symlink = .no_follow,
+   273	        .hardlinks = .reject,
+   274	    });
+   275	}
+   276	
+   277	fn verifyOpenedRegularFileWithPolicy(stat: std.Io.File.Stat, policy: RegularFileOpenPolicy) !void {
+   278	    if (stat.kind != .file) {
+   279	        return error.DurablePathUnsafe;
+   280	    }
+   281	    if (policy.hardlinks == .reject and stat.nlink > 1) {
+   282	        return error.DurablePathUnsafe;
+   283	    }
+   284	    if (policy.hardlinks == .reject and policy.mode != .read_only and stat.nlink != 1) {
+   285	        return error.DurablePathUnsafe;
+   286	    }
 #### 3. Which loads refuse: the credential mode each entry passes
 == src/core/app/app_lifecycle.zig:420-438@481104fd (2901 lines) -- loadStartupStateForRun (ask): .refresh_if_needed; loadStartupStateWithoutCredentials (permissions, workspace, upgrade): null
    420	/// `model_override` is the run's `--model`. It stands in for a provider without
@@ -780,6 +895,64 @@
   1598	            };
   1599	            return runSessionList(alloc, deps, opts);
   1600	        },
+== src/core/cli/cli_surface.zig:1325-1335@481104fd (5795 lines) -- setup: runPasteSetup, or the host-managed result
+  1325	        .setup => |rest| {
+  1326	            if (rest.len != 0) {
+  1327	                try writeTopLevelUsage(cfg.command_catalog, deps, .setup);
+  1328	                return .handled_failure;
+  1329	            }
+  1330	            if (cfg.auth_mode == .host_managed) {
+  1331	                try writeHostManagedAuthResult(deps);
+  1332	                return .handled_success;
+  1333	            }
+  1334	            return if (try runPasteSetup(alloc, cfg.secret_store, deps)) .handled_success else .handled_failure;
+  1335	        },
+== src/core/cli/cli_surface.zig:1927-1971@481104fd (5795 lines) -- runPasteSetup reads a pasted key and stores it: no settings are read
+  1927	fn runPasteSetup(
+  1928	    alloc: Allocator,
+  1929	    secret_store: host.SecretStore,
+  1930	    deps: RunDeps,
+  1931	) !bool {
+  1932	    if (secret_store.isDisabled()) {
+  1933	        try writeStderr(deps, "fx setup: stored API keys are disabled by FX_DISABLE_KEYCHAIN\n");
+  1934	        return false;
+  1935	    }
+  1936	    if (!deps.setup_terminal_available(deps.setup_ctx)) {
+  1937	        try writeStderr(deps, "fx setup: an interactive terminal is required to paste an API key\n");
+  1938	        return false;
+  1939	    }
+  1940	
+  1941	    try writeStderr(deps, "Paste AI Gateway API key (input hidden): ");
+  1942	    const stored_interactively = secret_store.storeInteractive() catch {
+  1943	        try writeStderr(deps, "\nfx setup: API key was not saved\n");
+  1944	        return false;
+  1945	    };
+  1946	    if (!stored_interactively) {
+  1947	        const key = deps.read_masked_key(
+  1948	            deps.setup_ctx,
+  1949	            alloc,
+  1950	            deps.write_stderr,
+  1951	            deps.stderr_ctx,
+  1952	        ) catch {
+  1953	            try writeStderr(deps, "\nfx setup: API key was not saved\n");
+  1954	            return false;
+  1955	        };
+  1956	        defer secret.zeroAndFree(alloc, key);
+  1957	        try writeStderr(deps, "\n");
+  1958	        secret_store.store(alloc, key) catch {
+  1959	            try writeStderr(deps, "fx setup: API key was not saved\n");
+  1960	            return false;
+  1961	        };
+  1962	    }
+  1963	
+  1964	    const message = try alloc.print(
+  1965	        "Saved API key to {s}.\n",
+  1966	        .{secret_store.backend_label},
+  1967	    );
+  1968	    defer alloc.free(message);
+  1969	    try writeStdout(deps, message);
+  1970	    return true;
+  1971	}
 #### 4. The text and the status
 == src/core/app/app_entry_runtime.zig:158-168@481104fd (1456 lines) -- a command's error: 'fx: <ErrorName>' on stderr, exit 1
    158	pub fn runBeforeInteractive(alloc: Allocator, args: []const [:0]const u8, cfg: Config) !BeforeInteractiveResult {

@@ -5,133 +5,172 @@ and said `config: 1 configuration issue`. This unit copies the refusal:
 its conditions, its entry points, its text and its status.
 
 - **Base** 3943d667 (train 12's PR head). **Branch**
-  `fix/p5-profile-refuse-at-launch`. **Code** a57ba760; the commits after
-  it are this receipt only, so every capture and probe here is of a binary
-  built at a57ba760 (banner `v0.1.0-a57ba76`) or at the base (`3943d66`).
-  The commits after it change no source: this receipt, and one sentence of
-  `docs/parity.md` (the linked `~/.xfx` case).
-- Source outside tests: 125 added lines (`src/config.rs` 99, `src/app.rs`
-  12, `src/interactive.rs` 7, `src/tui/mod.rs` 7); `src/config.rs`'s other
-  126 are its unit tests.
+  `fix/p5-profile-refuse-at-launch`.
+- **Round 1** code a57ba760 (reviewed at 98d3513b). **Round 2** code
+  b209c786: the profile is read in fx's order, so a profile fx never reads
+  refuses nothing (both reviews' MUST). The commits after b209c786 change
+  no source: this receipt and `docs/parity.md`. Every xfx probe and capture
+  here names the commit its binary was built at (banner `v0.1.0-<sha7>`).
+- Source outside tests: 210 added lines at b209c786 (`src/config.rs` 184,
+  `src/app.rs` 12, `src/interactive.rs` 7, `src/tui/mod.rs` 7);
+  `src/config.rs`'s other 260 are its unit tests.
 
 ## 1. fx's rule (`fx_src.sh` → `fx-src.txt`, every range checked: 0 out of bounds)
 
 Read at the pin, then run against the oracle (`probe.sh` → `fx-fixtures.txt`
 for every fixture, `fx-entries.txt` for every entry with one bad and one
-good profile).
+good profile; FX_AUTO_UPGRADE=0, the oracle's sha256 checked before and
+after each run).
 
 - **The check** (`fx-src.txt:3-31`, `app_lifecycle.zig:689-703`): in the
   local auth mode, a diagnostic of the **user layer** with cause
   `malformed_settings`, `settings_too_large` or `invalid_model_id` returns
   `error.InvalidProfileConfiguration`; `durable_path_unsafe` returns it
   unless the load's credential mode is `.stored`.
-- **The causes, as they arise** (`fx-src.txt:77-482`):
-  - the file is not valid JSON, or not an object (`.invalid`); over 64 KiB
-    (`.oversized`); a read error other than an unsafe path or open
-    permissions (`:1038-1043`) -- all user-layer `malformed_settings` /
-    `settings_too_large`;
-  - `workspaces`, or this workspace's entry in it, is not an object
-    (`:589-597`): `malformed_settings`;
-  - a `model` (in the object or the entry) that is not a string, or that
-    fx's `validateModel` refuses -- empty, past 1024 bytes, a blank of
-    ` \t\r\n` around it, an ASCII control in it (`settings_store.zig:894-902`):
-    `malformed_settings` / `invalid_model_id`. A `skill_match_fuzzy` key fails
-    the object first, with a cause no launch refuses (`:1645`);
-  - `~/.fx` a link or not a directory, the settings file a link or a
-    directory (`settings_store.zig:351-367`, `:721-729`): `durable_path_unsafe`;
-  - **any other key of the wrong type** fails the whole user layer as
-    `malformed_settings` too (`:1009-1036`; e.g. `"fast_mode": "yes"`, run:
-    `fx-fixtures.txt` `typed-key`); and a bad `provider` or `models` stops fx
-    with the parse error's own name instead (the salvage, `:898-911`; run:
-    `provider` → `fx: UnknownConfiguredProvider`, `models-bad` →
-    `fx: InvalidModelValue`). Section 7 says why those two are not copied.
-  - Before the profile check, a bad `FX_ULTRAFAST` stops every mode
-    (`error.InvalidUltrafastOverride`, `fx-src.txt:13-16`); a bad
-    `FX_AUTH_MODE` is its own refusal (`main.zig:3281-3284`).
+- **The order a read-only load opens the profile in** (`fx-src.txt:396-597`):
+  1. `~/.fx`, opened without following a link: a link or not a directory
+     is `durable_path_unsafe`; another failed open is returned, so
+     `malformed_settings` (`settings_store.zig:351-367`, `config_runtime.zig:1038-1043`);
+  2. its mode: open to group or other (`mode & 0o022`, `:763-765`) is
+     `private_state_permissions_unsupported`, a cause no launch refuses, and
+     no store: the file is never opened (`:381-383`, `config_runtime.zig:467-474`);
+  3. `settings.json`, looked at without following a link: a link, anything
+     but a regular file, or a second hard link is `durable_path_unsafe`
+     (`io.zig:213-286`); then opened for reading -- a failure is returned,
+     so `malformed_settings`, before the mode is looked at;
+  4. its mode: open to group or other is again
+     `private_state_permissions_unsupported`, and the layer is absent
+     (`settings_store.zig:744-746`, `config_runtime.zig:477-484`);
+  5. only then the size (past 65,536 bytes: `settings_too_large`, `:747`),
+     the parse (not JSON, not an object: `malformed_settings`), and the
+     object:
+     - `workspaces`, or this workspace's entry in it, not an object
+       (`config_runtime.zig:589-597`): `malformed_settings`;
+     - a `model` (in the object or the entry) that is not a string, or that
+       `validateModel` refuses -- empty, past 1024 bytes, a blank of
+       ` \t\r\n` around it, an ASCII control in it (`settings_store.zig:894-902`):
+       `malformed_settings` / `invalid_model_id`. A `skill_match_fuzzy` key
+       fails the object first, with a cause no launch refuses (`:1645`);
+     - **any other key of the wrong type** fails the whole user layer as
+       `malformed_settings` too (`:1009-1036`; run: `typed-key`); a bad
+       `provider` or `models` stops fx with the parse error's own name
+       instead (the salvage, `:898-911`; run: `provider` →
+       `fx: UnknownConfiguredProvider`, `models-bad` → `fx: InvalidModelValue`).
+       Section 7 says what is done with those.
+- **The oracle on that order** (`fx-fixtures.txt`): torn JSON or
+  `{"model":" a"}` in a `0o664` file, torn JSON in a `0o602` file, and torn
+  JSON in a `0o770` `~/.fx` all start, each saying
+  `config user: private_state_permissions_unsupported`; a `0o222` file and
+  a `~/.fx` nobody may list (`0o300`) are refused at every entry; a
+  hard-linked file, a FIFO and a file where `~/.fx` belongs are refused by
+  `ask` alone; 65,536 bytes start and 65,537 are refused.
+- Before the profile check, a bad `FX_ULTRAFAST` stops every mode
+  (`error.InvalidUltrafastOverride`, `fx-src.txt:13-16`); a bad
+  `FX_AUTH_MODE` is its own refusal (`main.zig:3281-3284`).
 - **Layers**: the profile only -- its object and this workspace's entry.
   The project file's diagnostics are layer `.project` and never refuse
   (`fx-src.txt:145-184`; run: `project-malformed` starts).
 - **Auth modes**: `local` only, fx's default (`credentials.zig:28-29`).
   `host-managed` skips the check.
-- **Entry points** (`fx-src.txt:483-782`; run: `fx-entries.txt`): the TUI
+- **Entry points** (`fx-src.txt:598-955`; run: `fx-entries.txt`): the TUI
   (`loadInteractiveStartupState`, `.stored`: refuses all but an unsafe
-  path), `ask` (`loadStartupStateForRun`, `.refresh_if_needed`: refuses all
-  five), and `permissions`/`models`/`workspace`/`credits`/`usage`/`upgrade`
-  (no such xfx commands). `status`, `doctor`, `session`, `sessions`,
-  `setup`, `--version` and help never refuse. fx has no line shell: with no
-  terminal it says `fx requires an interactive terminal (TTY).` first
-  (`fx-src.txt:806-813`).
-- **Text and status** (`fx-src.txt:783-906`): `fx: InvalidProfileConfiguration`
+  path), `ask` (`loadStartupStateForRun`, `.refresh_if_needed`: refuses
+  all), and `permissions`/`models`/`workspace`/`credits`/`usage`/`upgrade`
+  (no such xfx commands). `status` (`loadStartupStatus`, `:635-706`),
+  `doctor` (`:800-849`), `session`/`sessions` (`:850-897`), `setup`
+  (`runPasteSetup`, which reads a pasted key and no settings, `:898-955`),
+  `--version` and help (`:752-776`) never refuse; `fx-entries.txt` runs all
+  of them but `setup`. fx has no line shell: with no terminal it says
+  `fx requires an interactive terminal (TTY).` first (`fx-src.txt:979-986`).
+- **Text and status** (`fx-src.txt:956-1079`): `fx: InvalidProfileConfiguration`
   and a newline on stderr, exit 1, stdout empty; `ask --json` puts the
   JSON result with `"error":"InvalidProfileConfiguration"` on stdout and
-  nothing on stderr (`fx-entries.txt:4-6`).
-- **Before the refusal** (`fx-src.txt:907-941`; run: every refusal in
+  nothing on stderr (`fx-entries.txt`, `truncated`).
+- **Before the refusal** (`fx-src.txt:1080-1114`; run: every refusal in
   `fx-fixtures.txt` has `tty=0B` and `touched:` empty): the TTY check and
   the termios capture are reads; the load comes before raw mode, the
-  resize signal and the layout query. Nothing is written to the terminal,
-  the home or the workspace.
+  resize signal and the layout query.
 - **A profile that goes bad after launch** still gives the `/status`
-  panel's `Settings  couldn't be read: <error>` row (`fx-src.txt:942-960`):
+  panel's `Settings  couldn't be read: <error>` row (`fx-src.txt:1115-1133`):
   only launches load the startup state.
 
 ## 2. What xfx does now
 
-`xfx-base-fixtures.txt` is the base (every launch went on); `xfx-head-fixtures.txt`
-and `xfx-head-entries.txt` are a57ba760.
-
 - `ProfileRefusal` (`src/config.rs`), computed by every load, acted on only
-  by the launches (`RuntimeConfig::refuses_launch`), so a reload in a
-  session never refuses:
-  - `Rejected` -- the profile is there and is not one readable JSON object
-    within 64 KiB; `workspaces` or this workspace's entry is not an object;
-    a `model` in either fails fx's `validateModel` (`fx_refuses_model`,
-    fx's rule, not xfx's own 200-byte one-word rule). Every launch refuses.
-  - `Unsafe` -- `~/.xfx` or the file is a link, or the file a directory
-    (`profile_path_unsafe`). Only `ask` refuses with this name; the TUI and
-    the line shell go on, as fx's stored-credential launch does -- except
-    that a linked `~/.xfx` is still refused by the session store's own rule
-    (`src/profile_home.rs`, kept by `docs/parity.md`), in its own words,
-    which this unit leaves as it was.
-- The TUI checks it after `load_config` and before `session` (before the
+  by the launches (`RuntimeConfig::refuses_launch(Launch)`), so a reload
+  in a session never refuses. `profile_open` walks fx's order above:
+  - `Unsafe` -- `~/.xfx` a link or not a directory; the file a link, not a
+    regular file, or with a second hard link. Only `ask` refuses; the TUI
+    and the line shell go on, as fx's stored-credential launch does --
+    except that a `~/.xfx` that is a link or a file is still refused by the
+    session store's own rule, in its own words (`src/profile_home.rs`,
+    kept by `docs/parity.md`'s profile home row).
+  - `Rejected` -- `~/.xfx` or the file does not open for reading (a `0o222`
+    file too); or the file is opened, private, and is not one JSON object
+    within 65,536 bytes, its `workspaces` or this workspace's entry is not
+    an object, or a `model` in either fails fx's `validateModel`
+    (`fx_refuses_model`, fx's rule, not xfx's own 200-byte one-word rule).
+    Every launch refuses.
+  - A `~/.xfx` or file open to group or other: not read, so nothing refuses.
+- The TUI checks after `load_config` and before `session` (before the
   terminal is taken and before a resume's lookup); the line shell after its
-  terminal check and before the session store; `ask` first. Each writes
-  `xfx: InvalidProfileConfiguration` and exits 1; `ask --json` writes
+  terminal check and before the session store; `ask` first, before the
+  permission mode is resolved. Each writes `xfx: InvalidProfileConfiguration`
+  and exits 1; `ask --json` writes
   `{"kind":"error","message":"InvalidProfileConfiguration"}` (xfx's JSONL
-  error event) on stdout, stderr empty (`xfx-head-entries.txt:4-6`).
-- Fixture by fixture the head matches fx on every refusal (`truncated`,
-  `nonobject`, `toolarge`, `model-space`, `model-nonstring`, `ws-nonobject`,
-  `entry-nonobject`, `entry-model`, `unreadable`: three entries each;
-  `dir-settings`, `link-settings`, `link-profile`: `ask` only) with
-  `tty=0B` and nothing touched (for `link-profile` the TUI and the line
-  shell exit 1 with the session store's `cannot hold session state: it is a
-  symbolic link`, as at the base); and starts where fx starts
-  (`model-inner-space`, `model-long`, `project-malformed`,
-  `retired-then-model`, `group-writable`, `valid`). The rest differ as
-  section 6 says.
+  error event) on stdout, stderr empty (`xfx-head-entries.txt`).
+- **Fixture by fixture** (`xfx-head-fixtures.txt`, b209c786, against
+  `fx-fixtures.txt`): fx's refuse-or-start at every entry for 28 of the 31
+  fixtures; `typed-key`, `provider` and `models-bad` are section 7's.
+  Refused at all three entries with `tty=0B` and nothing
+  touched: `truncated`, `nonobject`, `toolarge` (65,537 bytes),
+  `model-space`, `model-nonstring`, `ws-nonobject`, `entry-nonobject`,
+  `entry-model`, `unreadable`, `write-only`, `dir-unlistable`. Refused by
+  `ask` alone: `dir-settings`, `link-settings`, `link-profile`, `hardlink`,
+  `profile-file`, `fifo`. Started: `at-ceiling` (65,536 bytes),
+  `model-inner-space`, `model-long`, `project-malformed`,
+  `retired-then-model`, `group-writable`, `group-writable-torn`,
+  `group-writable-model`, `other-writable-torn`, `dir-group-writable-torn`
+  (`ask`), `valid`; and, where fx refuses, `typed-key`, `provider` and
+  `models-bad`. Where fx's interactive launch starts
+  and xfx's does not, it is the session store's own older rule, in its own
+  words, as at the base (`xfx-base-fixtures.txt`): `link-profile`,
+  `profile-file`, and `dir-group-writable-torn` (`it is mode 770`).
+- **Round 1 against the same fixtures** (`xfx-r1-fixtures.txt`, a57ba760's
+  code = 98d3513b's): round 1 refused `group-writable-torn`,
+  `group-writable-model`, `other-writable-torn` and
+  `dir-group-writable-torn` at all three entries, where fx starts (the
+  MUST); refused `fifo` at all three, where fx refuses only `ask`; and
+  started `dir-unlistable` and `hardlink`, which fx refuses. Round 2 fixes
+  all seven.
 
-## 3. RED → GREEN (`red.txt`, `green.txt`)
+## 3. RED → GREEN
 
-- **RED at the base's code** (the tests below over 3943d667's `src`):
-  `ask_refuses_a_profile_fx_refuses` (every refusing profile, text and
-  `--json`, home and workspace snapshots unchanged),
+- **Round 1** (`red.txt`, at 3943d667's code): 5 tests fail --
+  `ask_refuses_a_profile_fx_refuses`,
   `ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused`,
   `ask_with_a_permission_table_that_does_not_read_runs_no_tool`,
-  `the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything` and
-  `a_profile_fx_refuses_is_refused_before_the_terminal_is_taken` (the exact
-  pty text, no mode byte, the terminal's modes and both trees unchanged; a
-  `--resume` too) all fail: 5 tests.
-- **Guards, passing at the base and the head**: `ask_goes_on_with_a_profile_fx_starts_with`,
-  `the_commands_fx_answers_without_a_launch_answer_with_a_profile_it_refuses`,
+  `the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything`,
+  `a_profile_fx_refuses_is_refused_before_the_terminal_is_taken`.
+- **Round 2** (`red-r2.txt`, round 2's tests over 98d3513b's `src` in a
+  throwaway clone): `ask_goes_on_with_a_profile_fx_starts_with` fails at its
+  first new fixture, `torn JSON group may write: xfx:
+  InvalidProfileConfiguration`, and `ask_refuses_a_profile_fx_refuses` at
+  `a hard-linked file` (round 1 went on to the Gateway).
+- **Guards**: `the_commands_fx_answers_without_a_launch_answer_with_a_profile_it_refuses`,
   `the_shell_starts_with_a_profile_only_ask_refuses`,
   `a_profile_only_ask_refuses_starts_the_tui`, and
   `a_profile_that_goes_bad_after_the_launch_is_a_panel_row_not_a_refusal`
   (the `/status` row, no refusal, the session ends with 0).
-- **Unit tests** (new API, so not run at the base):
-  `config::tests::a_launch_refuses_the_models_fx_refuses_and_no_other` (each
-  edge of `validateModel`) and
-  `config::tests::the_refusal_is_read_from_the_profile_and_this_workspaces_entry_only`.
-- **GREEN**: all of them pass at a57ba760's code (`green.txt`); the whole
-  suite, 5664 passed and 0 failed (`test-dev.txt`).
+- **Unit tests**: `config::tests::a_launch_refuses_the_models_fx_refuses_and_no_other`
+  (each edge of `validateModel`),
+  `config::tests::the_refusal_is_read_from_the_profile_and_this_workspaces_entry_only`,
+  and `config::tests::the_profile_is_opened_in_fxs_order_before_what_it_holds_counts`
+  (every step of `profile_open`: nothing, torn, torn open to group, to
+  other, in a directory open to group, write-only, an unlistable directory,
+  a second hard link, a FIFO, a file for the directory).
+- **GREEN** (`green.txt`): all of them pass at b209c786; the whole suite in
+  the gate (section 8).
 
 ## 4. Tests changed to the refusal
 
@@ -142,86 +181,65 @@ the profiles each seeds were read against the rule.
 
 - `tests/cli.rs` `ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused`:
   its `{ this is not json` half now expects `xfx: InvalidProfileConfiguration`,
-  exit 1 (its `permission` half is a typed key: section 6).
+  exit 1 (its `permission` half is a typed key: section 7).
 - `tests/gateway.rs` `ask_with_a_permission_table_that_does_not_read_runs_no_tool`:
   three of its profiles -- an entry `["x"]`, `{ this is not json`, and a
   file nobody can read -- now expect the refusal, no request and no write;
   its other two keep the per-key table refusal.
+- Round 2: both helpers that seed those profiles now set the profile
+  `0o700` and the file `0o600` whatever the umask, since under a `0o002`
+  umask the file would be one fx does not read.
 - No other test launched with such a profile: the others seed valid
   profiles, or swap a bad one in after launch (`src/tui/shell.rs`'s
   `/status` tests, `tests/llmux.rs`'s `setup` over a torn file, which `setup`
   never refuses), or load configuration in-process (`RuntimeConfig::load_with`).
 - fxcap: `seed_scan.py` → `seed-scan.txt`: of 381 scenarios, 63 seed a
   profile before launch and one seeds a profile fx refuses,
-  `p5-panels-badsettings`, already a launch-only capture under `keep`.
+  `p5-panels-badsettings`, already a launch-only capture under `keep`
+  (capture.sh writes every seed `0o600` in a `0o700` profile).
 
 ## 5. Captures, sweep and ledger
 
-- `fx/`, `xfx/` (a57ba760) and `xfx-base/` (3943d667) hold
+- `fx/`, `xfx/` (round 1, a57ba760) and `xfx-base/` (3943d667) hold
   `p5-panels-badsettings` and `p5-panels-status-badsettings` at 40x120.
-  `cells.sh` → `cells.txt` (row 1 left out, no ledger rule): the head's
+  `cells.sh` → `cells.txt` (row 1 left out, no ledger rule): round 1's
   `p5-panels-badsettings` `launch` differs from fx's in one row, 40, against
   6 rows at the base (`cells.txt:1-4`, `:31-44`); the three
   `p5-panels-status-badsettings` snaps differ in the same rows at the head
-  and the base (1, 1 and 8: the hint row's `run /login`, and the panel's
-  rows the ledger approves), so a profile gone bad after launch is
-  unchanged.
+  and the base. Round 2 changes nothing these seeds reach (a private
+  profile): its sweep below runs both scenarios at b209c786.
 - **Still different, and the harness's**: each dead pane's last row is
   tmux's `Pane is dead (status 1, <date>)`, the date the run's clock; the
   ledger's `tmux-dead-pane` normalization masks it. The refusal's own line
   is on stderr, which capture.sh does not put in the pane, so neither
   product's text is in the pair: `fx-fixtures.txt` and
   `xfx-head-fixtures.txt` carry it.
-- **Sweep** (`sweep.sh` under the suite lock → `sweep.txt`): every
-  `p5-panels*`, `settings*`, `startup*` and `config*` scenario and every one
-  that seeds a profile, with HEAD's scenarios and ledger, once with the
-  head's xfx and once with the base's. 83 scenarios, 523 pairs, every run
-  `ran` on both sides; the oracle's sha256 the pin's before and after.
-  - Head 278/523 passing, base 277/523; **moved to passing: 1**,
-    `p5-panels-badsettings` `launch`, unresolved-defect → normalized-identical
-    (its only difference, row 40, under `tmux-dead-pane`); **dropped from
-    passing: 0** (`sweep.txt`; each side's `summary.md` in `sweep-head/`,
-    `sweep-base/`).
-  - One other verdict moved and both pass: `rules-read` `granted`,
-    normalized-identical at the base → identical at the head. The base's run
-    differed in one row, the turn's wall time (`0s` against `1s`), which the
-    ledger's `turn-wall-time` masks: the run's clock, not this change
-    (`sweep.txt`, last lines).
-  - Under HEAD's ledger, which no longer holds the cause, the base's
-    `p5-panels-badsettings` pair is an unresolved defect with 42 rows no
-    cause covers: the base does not pass it, so it is no regression for the
-    head either way.
+- **Sweep, round 2** (`sweep.sh` under the suite lock → `sweep-r2.txt`):
+  every `p5-panels*`, `settings*`, `startup*` and `config*` scenario and
+  every one that seeds a profile, with HEAD's scenarios and ledger, once
+  with b209c786's xfx and once with 3943d667's. SWEEP-R2
+- **Sweep, round 1** (`sweep.txt`, a57ba760 against 3943d667): 83
+  scenarios; head 278/523, base 277/523; moved to passing 1
+  (`p5-panels-badsettings` `launch`), dropped 0; `rules-read` `granted`
+  moved between two passing verdicts on the run's wall clock.
 - **Ledger**: the cause `profile-refuse-at-launch` is retired; a comment in
   its place says what it was and points here. The two scenarios' comments
   say both products refuse now.
 - **Parity**: `docs/parity.md`'s `config diagnostics` row says the refusal,
-  its conditions and entry points, and each part of fx's rule not copied.
+  fx's read order, its conditions and entry points, and each part of fx's
+  rule not copied.
 - **References** (`refs.py` → `refs.txt`): 10 `path:N` references into the
-  files this unit changed had moved and were re-pointed by text; at the
-  head 52 are checked, 0 moved. Of the 4 bare `<name>:N` it lists for a
-  hand, none names a file this unit changed at a moved line: `mod.rs:346`
-  is `src/tools/mod.rs`, `interactive.rs:457-464` is `src/interactive.rs`
+  files round 1 changed had moved and were re-pointed by text; at the head
+  52 are checked, 0 moved. Of the 4 bare `<name>:N` it lists for a hand,
+  none names a file this unit changed at a moved line: `mod.rs:346` is
+  `src/tools/mod.rs`, `interactive.rs:457-464` is `src/interactive.rs`
   (the line above this unit's), and `cli.rs:311-312` names `src/cli.rs`,
-  which this unit does not touch (that one was already stale at the base).
+  which this unit does not touch (already stale at the base).
 
 ## 6. Mutants (`mutants.py` → `mutants.txt`)
 
-On a `git clone --no-local` of the head outside the worktree, each test
-bounded at 900 s, under the suite lock. **12 of 12 killed**:
-
-- each condition dropped -- the unreadable/malformed/too-large file (M1),
-  `workspaces` or the entry not an object (M2), the profile's `model` (M3),
-  the entry's `model` (M4) -- killed by `ask_refuses_a_profile_fx_refuses`
-  and, but M3, the config unit test;
-- fx's model rule loosened (M5, a blank allowed) and its `skill_match_fuzzy`
-  order dropped (M6), the project file counted (M12): killed;
-- the unsafe path not refusing `ask` (M7), and refusing the interactive
-  launches too (M8): killed, M8 by the two pty tests that start with it;
-- the refusal after the terminal is taken (M9: the check moved into
-  `session`, after raw mode): killed by the exact-text assertion
-  (`tests/tui.rs:1102`); the line shell's after its store is opened (M10):
-  killed by the tree snapshot (`tests/interactive.rs:212`); `ask --json`
-  writing the refusal on stderr (M11): killed.
+On a `git clone --no-local` of b209c786 outside the worktree, each test
+bounded at 900 s, under the suite lock. MUTANTS-R2
 
 xfx has no auth mode -- no `FX_AUTH_MODE`, no host-managed launch -- so the
 brief's "refusal in a non-local auth mode" has no counterpart to mutate. M8
@@ -229,45 +247,52 @@ breaks the one mode split fx makes inside the local mode: an unsafe path
 refused by the interactive launches too, which fx's stored-credential
 launch does not do.
 
-## 7. Not copied, each a `docs/parity.md` sentence
+## 7. Not copied, and what is decided about each
 
-- **A key of the wrong type** (`"fast_mode": "yes"`, `"permission": {"bash":
-  "perhaps"}`): fx drops the whole profile and refuses; xfx keeps its
-  per-key diagnostic (a reading that predates this unit,
-  `parse_notifications`'s comment). Copying it means refusing every typed
-  key's mistake at launch: a user decision.
-- **A bad `provider` or `models`**: fx stops with the parse error's name
-  (`fx: UnknownConfiguredProvider`, `fx: InvalidModelValue`) at every
-  surface that loads settings, `status` too; xfx refuses the turn
-  (`provider=rejected`) or drops the entry. The provider sets differ
-  (`llmux` is xfx's alone).
-- **An unsafe profile in an interactive launch**: fx goes on with model
-  requests blocked. xfx goes on with a linked settings file or a directory
-  in its place, with no block; with a linked `~/.xfx` its session store
-  refuses the launch in its own words (`cannot hold session state: it is a
-  symbolic link`, `xfx-head-fixtures.txt` `link-profile`), a rule older than
-  this unit (`src/profile_home.rs`).
+- **(a) A key of the wrong type** (`"fast_mode": "yes"`, `"permission":
+  {"bash": "perhaps"}`): fx drops the whole profile and refuses; xfx keeps
+  its per-key diagnostic. **Decided by the dispatcher** (reversible, for
+  the user's veto): copy fx's typed-key refusal for the keys both products
+  read, in a separate unit, **PROFILE-REFUSE-TYPED-KEYS**; keys only xfx
+  reads keep their per-key diagnostic.
+- **(b) A bad `provider` or `models`** (recorded decision): fx stops with
+  the parse error's name (`fx: UnknownConfiguredProvider`,
+  `fx: InvalidModelValue`) at every surface that loads settings, `status`
+  too. xfx refuses the turn for a bad `provider` (`provider=rejected`), and
+  drops a bad `models` entry **silently**: no config line, and the turn
+  uses the model it would without it (`xfx-head-fixtures.txt`
+  `models-bad`). Queued: **MODELS-ENTRY-DIAGNOSTIC**, a config diagnostic
+  for a dropped `models` entry. The provider sets differ (`llmux` is
+  xfx's alone).
+- **(c) An unsafe profile in an interactive launch** (recorded decision):
+  fx goes on with model requests blocked, and never opens a linked
+  settings file. xfx goes on with a linked settings file, a hard-linked
+  one, a FIFO or a directory in its place, with no block -- and with a
+  linked file it **reads the link's target and applies its settings**
+  (`link-settings` starts like `valid`). With a linked `~/.xfx` or a file
+  in its place its session store refuses the launch in its own words, a
+  rule older than this unit (`src/profile_home.rs`).
+- A profile open to group or other: fx ignores its settings (the layer
+  absent); xfx reads and applies them, as it did at the base. Only the
+  refusal is copied here.
 - `FX_AUTH_MODE` and `FX_ULTRAFAST` have no xfx counterpart.
 - Seen in the oracle runs and older than this unit: fx's `status` writes
   `fx: config user: malformed_settings` on stderr for a refused profile
-  (`fx-entries.txt`); xfx's `status` writes nothing there.
+  (`fx-entries.txt`); xfx's `status` writes nothing there. fx's interactive
+  launch with a file where `~/.fx` belongs fails later with `fx: NotDir`
+  (`fx-fixtures.txt` `profile-file`).
 
 ## 8. Gate (`gates.sh` under the suite lock → `gate.txt`)
 
-At c782a6d8 (code a57ba760), the tree clean before and after, one hold of
-the lock: **22 steps, 0 failed** -- fmt, both clippys, `cargo test` (5664
-passed, 0 failed) and `--features fault-injection` (5701 passed, 0
-failed), the identity, stubs, secrets and local-path checks and their
-self-tests, the preview contract, the preflight cost, the usage clock,
-`test-gate-env`, the fxcap harness tests, both release builds, `smoke.sh`
-(47 checks) and `smoke-tui.sh` (37 scenarios and the oracle, 1167 checks,
-0 failures).
+GATE-R2
 
 ## Files
 
 `fx_src.sh` → `fx-src.txt` · `probe.sh` → `fx-fixtures.txt`, `fx-entries.txt`,
-`xfx-base-fixtures.txt`, `xfx-head-fixtures.txt`, `xfx-head-entries.txt` ·
-`red.txt`, `green.txt`, `test-dev.txt` · `seed_scan.py` → `seed-scan.txt` ·
-`refs.py` → `refs.txt` · `fx/`, `xfx/`, `xfx-base/` · `sweep.sh`,
-`compare.py` → `sweep.txt` · `cells.sh` → `cells.txt` · `sweep-head/`, `sweep-base/` · `mutants.py` → `mutants.txt` ·
-`gates.sh` → `gate.txt`
+`xfx-head-fixtures.txt`, `xfx-head-entries.txt` (b209c786),
+`xfx-r1-fixtures.txt` (a57ba760), `xfx-base-fixtures.txt` (3943d667) ·
+`red.txt`, `red-r2.txt`, `green.txt` · `seed_scan.py` → `seed-scan.txt` ·
+`refs.py` → `refs.txt` · `fx/`, `xfx/`, `xfx-base/`, `cells.sh` →
+`cells.txt` · `sweep.sh`, `compare.py` → `sweep.txt`, `sweep-r2.txt`,
+`sweep-head/`, `sweep-base/`, `sweep-r2-head/`, `sweep-r2-base/` ·
+`mutants.py` → `mutants.txt` · `gates.sh` → `gate.txt`

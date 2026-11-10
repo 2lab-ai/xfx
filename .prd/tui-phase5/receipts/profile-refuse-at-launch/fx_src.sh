@@ -41,9 +41,12 @@ show $C 1733 1737 "one typed key of many: a non-bool fast_mode fails the whole l
 show $C 1816 1836 "statusLine: a non-object one is tolerated only in a workspace entry"
 show $T 17 17 "the size ceiling"
 show $T 894 902 "validateModel: 1..1024 bytes, UTF-8, no surrounding whitespace, no ASCII control"
-show $T 340 367 "an unsafe profile directory (a link, not a directory) is DurablePathUnsafe"
+show $T 340 391 "the profile directory, read-only: opened without following a link (a link or not a directory: DurablePathUnsafe; another failure returned, so malformed_settings), then its mode: open to group or other is PrivateStatePermissionsUnsupported, a cause no launch refuses, and no store"
 show $T 400 420 "loadPrimary: absent, oversized, invalid, valid"
-show $T 715 749 "the settings file opened without following links: a link or a directory is DurablePathUnsafe; oversized past the ceiling"
+show $T 715 749 "the settings file: opened for reading without following a link (a failed open returned before the mode is looked at), then, read-only, open to group or other is PrivateStatePermissionsUnsupported before the size and the read"
+show $T 763 765 "open to group or other: mode & 0o022"
+show src/core/shared/io.zig 170 180 "openExistingRegularFile: no link followed, hard links refused"
+show src/core/shared/io.zig 213 286 "lstat, then the kind (anything but a regular file is DurablePathUnsafe) and the link count (more than one: DurablePathUnsafe), then the open"
 
 echo "#### 3. Which loads refuse: the credential mode each entry passes"
 show $L 420 438 "loadStartupStateForRun (ask): .refresh_if_needed; loadStartupStateWithoutCredentials (permissions, workspace, upgrade): null"
@@ -56,6 +59,8 @@ show $S 1336 1357 "status: loadStartupStatus, then the config diagnostics on std
 show $S 1520 1553 "doctor: doctor_runtime.collect"
 show src/core/cli/doctor_runtime.zig 92 105 "doctor reads the merged settings itself and reports a failure as checks"
 show $S 1554 1600 "session and sessions read the store, not the settings"
+show $S 1325 1335 "setup: runPasteSetup, or the host-managed result"
+show $S 1927 1971 "runPasteSetup reads a pasted key and stores it: no settings are read"
 
 echo "#### 4. The text and the status"
 show $E 158 168 "a command's error: 'fx: <ErrorName>' on stderr, exit 1"

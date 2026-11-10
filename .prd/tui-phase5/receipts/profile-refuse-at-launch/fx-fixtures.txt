@@ -12,6 +12,11 @@ binary sha256 before: 8e6cda2efddb
   permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
   ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
   interactive            exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+== at-ceiling
+  permissions            exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask                    exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=782B stderr= | touched: 
 == model-space
   permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
   ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
@@ -84,6 +89,46 @@ binary sha256 before: 8e6cda2efddb
   permissions            exit=0 stdout=100B stderr=fx: config user: private_state_permissions_unsupported| | touched: 
     stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
   ask                    exit=1 stdout=0B stderr=fx ask: config user: private_state_permissions_unsupported|fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=932B stderr= | touched: 
+== group-writable-torn
+  permissions            exit=0 stdout=100B stderr=fx: config user: private_state_permissions_unsupported| | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask                    exit=1 stdout=0B stderr=fx ask: config user: private_state_permissions_unsupported|fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=932B stderr= | touched: 
+== group-writable-model
+  permissions            exit=0 stdout=100B stderr=fx: config user: private_state_permissions_unsupported| | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask                    exit=1 stdout=0B stderr=fx ask: config user: private_state_permissions_unsupported|fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=932B stderr= | touched: 
+== other-writable-torn
+  permissions            exit=0 stdout=100B stderr=fx: config user: private_state_permissions_unsupported| | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask                    exit=1 stdout=0B stderr=fx ask: config user: private_state_permissions_unsupported|fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=932B stderr= | touched: 
+== dir-group-writable-torn
+  permissions            exit=0 stdout=100B stderr=fx: config user: private_state_permissions_unsupported| | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask                    exit=1 stdout=0B stderr=fx ask: config user: private_state_permissions_unsupported|fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=932B stderr= | touched: 
+== write-only
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+== dir-unlistable
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+== hardlink
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  interactive            still running after 6 s exit= tty=932B stderr= | touched: 
+== profile-file
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=197B stderr=fx: NotDir| | touched: 
+== fifo
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
   interactive            still running after 6 s exit= tty=932B stderr= | touched: 
 == valid
   permissions            exit=0 stdout=100B stderr= | touched: 
