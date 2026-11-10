@@ -9,10 +9,14 @@ show src/mcp/runtime.rs 1324 1355
 show src/mcp/runtime.rs 88 106
 show src/mcp/era.rs 60 68
 show src/mcp/runtime.rs 1586 1642
+show src/mcp/runtime.rs 1373 1377
 fxs src/mcp/core/era.zig 19 26
 fxs src/mcp/core/request.zig 76 79
 fxs src/mcp/core/engine.zig 193 211
 fxs src/mcp/core/http_modern.zig 21 24
+fxs src/mcp/server.zig 1242 1257
+fxs src/mcp/server.zig 966 971
+fxs src/mcp/server.zig 2043 2043
 show src/mcp/config.rs 453 461
 fxs src/core/mcp/project_config.zig 1050 1054
 fxs src/core/mcp/project_config.zig 1130 1140

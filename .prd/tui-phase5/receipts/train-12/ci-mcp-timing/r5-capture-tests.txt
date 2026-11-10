@@ -1,0 +1,6 @@
+== r5-capture-tests: bash -c cd '<repo>' && TMPDIR='<tmpdir>/' ./scripts/fxcap/test-capture.sh (at 6bfc6562)
+start 2026-11-10T10:18:24Z
+Ran 108 tests in 394.215s
+OK
+exit=0
+end 2026-11-10T10:25:07Z

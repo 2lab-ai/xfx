@@ -1,0 +1,170 @@
+== head-1
+startup         normalized-identical unmatched  0: with the word 0, without  0; first row -:
+    fx  ''
+    xfx ''
+list            unresolved-defect  unmatched  2: with the word 0, without  2; first row 3:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+show-fixture    unresolved-defect  unmatched  2: with the word 0, without  2; first row 3:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+show-remote     unresolved-defect  unmatched  2: with the word 0, without  2; first row 3:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+show-proj       unresolved-defect  unmatched 11: with the word 0, without 11; first row 3:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+login-stdio     unresolved-defect  unmatched 18: with the word 2, without 16; first row 3:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+login-remote    unresolved-defect  unmatched 18: with the word 2, without 16; first row 2:
+    fx  '  proj     .mcp.json       stdio      waiting for approval'
+    xfx '  proj     .mcp.json        stdio      waiting for approval'
+auth-remote     unresolved-defect  unmatched 18: with the word 2, without 16; first row 2:
+    fx  '  proj     .mcp.json       stdio      waiting for approval'
+    xfx '  proj     .mcp.json        stdio      waiting for approval'
+logout-remote   unresolved-defect  unmatched 17: with the word 2, without 15; first row 10:
+    fx  '* mcp: proj'
+    xfx '* mcp: remote'
+add-new-syntax  unresolved-defect  unmatched 17: with the word 2, without 15; first row 10:
+    fx  '* mcp: proj'
+    xfx '* mcp: remote'
+add-old-syntax  unresolved-defect  unmatched 17: with the word 2, without 15; first row 7:
+    fx  '* mcp: proj'
+    xfx '* mcp: remote'
+add-old-http    unresolved-defect  unmatched 17: with the word 2, without 15; first row 1:
+    fx  '* mcp: proj'
+    xfx '* mcp: remote'
+add-new-http    unresolved-defect  unmatched 15: with the word 1, without 14; first row 1:
+    fx  '    transport  stdio'
+    xfx '    transport  http'
+add-badname     unresolved-defect  unmatched  9: with the word 1, without  8; first row 1:
+    fx  '! mcp: fixture runs a command, so it has no login.'
+    xfx '    status     waiting for approval'
+approve         unresolved-defect  unmatched  2: with the word 0, without  2; first row 1:
+    fx  "    error      it refused or never answered xfx's initialize request"
+    xfx '! mcp: fixture runs a command, so it has no login.'
+trust-approve   unresolved-defect  unmatched  2: with the word 0, without  2; first row 1:
+    fx  "    error      it refused or never answered xfx's initialize request"
+    xfx '! mcp: fixture runs a command, so it has no login.'
+list-after      unresolved-defect  unmatched  2: with the word 0, without  2; first row 31:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+reject          unresolved-defect  unmatched  2: with the word 0, without  2; first row 24:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+remove-two      unresolved-defect  unmatched  2: with the word 0, without  2; first row 22:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+remove-three    unresolved-defect  unmatched  2: with the word 0, without  2; first row 22:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+remove-web      unresolved-defect  unmatched  2: with the word 0, without  2; first row 18:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+remove-web2     unresolved-defect  unmatched  2: with the word 0, without  2; first row 18:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+resource-list   unresolved-defect  unmatched  2: with the word 0, without  2; first row 18:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+prompt-list     unresolved-defect  unmatched  2: with the word 0, without  2; first row 17:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+show-bare       unresolved-defect  unmatched  2: with the word 0, without  2; first row 10:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+complete-args   unresolved-defect  unmatched  2: with the word 0, without  2; first row 7:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+complete-show   unresolved-defect  unmatched  2: with the word 0, without  2; first row 7:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+end.full        unresolved-defect  unmatched 21: with the word 2, without 19; first row 3:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+== base-1
+startup         normalized-identical unmatched  0: with the word 0, without  0; first row -:
+    fx  ''
+    xfx ''
+list            unresolved-defect  unmatched  2: with the word 0, without  2; first row 3:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+show-fixture    unresolved-defect  unmatched  2: with the word 0, without  2; first row 3:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+show-remote     unresolved-defect  unmatched  2: with the word 0, without  2; first row 3:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+show-proj       unresolved-defect  unmatched 11: with the word 0, without 11; first row 3:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+login-stdio     unresolved-defect  unmatched 18: with the word 2, without 16; first row 3:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+login-remote    unresolved-defect  unmatched 18: with the word 2, without 16; first row 2:
+    fx  '  proj     .mcp.json       stdio      waiting for approval'
+    xfx '  proj     .mcp.json        stdio      waiting for approval'
+auth-remote     unresolved-defect  unmatched 18: with the word 2, without 16; first row 2:
+    fx  '  proj     .mcp.json       stdio      waiting for approval'
+    xfx '  proj     .mcp.json        stdio      waiting for approval'
+logout-remote   unresolved-defect  unmatched 17: with the word 2, without 15; first row 10:
+    fx  '* mcp: proj'
+    xfx '* mcp: remote'
+add-new-syntax  unresolved-defect  unmatched 17: with the word 2, without 15; first row 10:
+    fx  '* mcp: proj'
+    xfx '* mcp: remote'
+add-old-syntax  unresolved-defect  unmatched 17: with the word 2, without 15; first row 7:
+    fx  '* mcp: proj'
+    xfx '* mcp: remote'
+add-old-http    unresolved-defect  unmatched 17: with the word 2, without 15; first row 1:
+    fx  '* mcp: proj'
+    xfx '* mcp: remote'
+add-new-http    unresolved-defect  unmatched 15: with the word 1, without 14; first row 1:
+    fx  '    transport  stdio'
+    xfx '    transport  http'
+add-badname     unresolved-defect  unmatched  9: with the word 1, without  8; first row 1:
+    fx  '! mcp: fixture runs a command, so it has no login.'
+    xfx '    status     waiting for approval'
+approve         unresolved-defect  unmatched  2: with the word 0, without  2; first row 1:
+    fx  "    error      it refused or never answered xfx's initialize request"
+    xfx '! mcp: fixture runs a command, so it has no login.'
+trust-approve   unresolved-defect  unmatched  2: with the word 0, without  2; first row 1:
+    fx  "    error      it refused or never answered xfx's initialize request"
+    xfx '! mcp: fixture runs a command, so it has no login.'
+list-after      unresolved-defect  unmatched  2: with the word 0, without  2; first row 31:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+reject          unresolved-defect  unmatched  2: with the word 0, without  2; first row 24:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+remove-two      unresolved-defect  unmatched  2: with the word 0, without  2; first row 22:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+remove-three    unresolved-defect  unmatched  2: with the word 0, without  2; first row 22:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+remove-web      unresolved-defect  unmatched  2: with the word 0, without  2; first row 18:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+remove-web2     unresolved-defect  unmatched  2: with the word 0, without  2; first row 18:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+resource-list   unresolved-defect  unmatched  2: with the word 0, without  2; first row 18:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+prompt-list     unresolved-defect  unmatched  2: with the word 0, without  2; first row 17:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+show-bare       unresolved-defect  unmatched  2: with the word 0, without  2; first row 10:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+complete-args   unresolved-defect  unmatched  2: with the word 0, without  2; first row 7:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+complete-show   unresolved-defect  unmatched  2: with the word 0, without  2; first row 7:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'
+end.full        unresolved-defect  unmatched 21: with the word 2, without 19; first row 3:
+    fx  '* mcp: NAME     SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME     SOURCE           TRANSPORT  STATUS'

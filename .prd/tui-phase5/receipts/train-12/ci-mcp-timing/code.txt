@@ -119,6 +119,12 @@
   1640	            return Ok(era::Event::ProbeTimerFired(probe));
   1641	        }
   1642	    }
+== xfx src/mcp/runtime.rs:1373-1377
+  1373	    fn open_as(&self, server: &Arc<Server>, _opening: Opening<'_>) -> Result<(), Box<Failed>> {
+  1374	        let config = &server.config;
+  1375	        let deadline = Instant::now() + config.startup_timeout();
+  1376	        let left = || deadline.saturating_duration_since(Instant::now());
+  1377	        let started = |error: McpError| Box::new(Failed::new(Step::Start, error, None, None));
 == fx src/mcp/core/era.zig:19-26@481104fd
     19	pub const Config = struct {
     20	    /// Modern versions, most preferred first.
@@ -158,6 +164,32 @@
     22	    /// POSTs per request after broken streams, counting the first.
     23	    max_attempts: u8 = 2,
     24	};
+== fx src/mcp/server.zig:1242-1257@481104fd
+  1242	    /// A 2026 attempt ended without an answer: the table forgets it, and the
+  1243	    /// exchange decides.
+  1244	    fn endAttempt(r: *Server, l: *Logical, id: request.Id, how: http.Ending, status: u16) Error!void {
+  1245	        l.id = null;
+  1246	        try r.stepRequest(.{ .transport_lost = id });
+  1247	        if (how == .http_failure) {
+  1248	            if (l.what == .discover) try r.stepEra(era.classifyDiscoverHttp(r.detector.config, status, null));
+  1249	            return r.stepExchange(l, .http_failure);
+  1250	        }
+  1251	        // Another attempt would bring the same answer again (HTTP-14).
+  1252	        if (how == .too_large) {
+  1253	            r.losing_oversized = true;
+  1254	            defer r.losing_oversized = false;
+  1255	            return r.stepExchange(l, .too_large);
+  1256	        }
+  1257	        try r.stepExchange(l, .stream_broken);
+== fx src/mcp/server.zig:966-971@481104fd
+   966	    /// What is left of the start's time, at most `after_ms`. An initialize
+   967	    /// that renews a ready 2025 session isn't a start.
+   968	    fn startLeft(r: *const Server, after_ms: u32) u32 {
+   969	        if (r.detector.ready()) return after_ms;
+   970	        return @intCast(std.math.clamp(r.start_due_ms - r.now(), 0, after_ms));
+   971	    }
+== fx src/mcp/server.zig:2043-2043@481104fd
+  2043	            .arm_probe_timer => |a| try r.timers.append(r.gpa, .{ .kind = .{ .probe = a.probe }, .due_ms = r.now() + r.startLeft(a.after_ms) }),
 == xfx src/mcp/config.rs:453-461
    453	    let startup_timeout_ms = policy(
    454	        object,
