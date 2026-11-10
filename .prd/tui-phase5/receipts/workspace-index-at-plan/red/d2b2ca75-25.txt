@@ -1,0 +1,28 @@
+# red-d2b2ca75-25: the unfixed harness (d2b2ca75), xfx d2b2ca75, TMPDIR of 25 bytes, twelve units of workspace-index.
+# run 01 fx: roots: <work>=61 <scratch>=56 <scenarios>=139 <bun>=21 <bun:real>=39 <tmp>=43 <home>=16 bytes
+# sweep: pass = 15 / 24 = 62.5%; unresolved 9, failed 0, timeout 0
+workspace-index-01       at-all   normalized-identical                             
+workspace-index-01       at-plan  unresolved-defect     notes/ row: fx 13, xfx 13  first row 13: same text, attributes differ
+workspace-index-02       at-all   normalized-identical                             
+workspace-index-02       at-plan  unresolved-defect     notes/ row: fx 13, xfx 13  first row 13: same text, attributes differ
+workspace-index-03       at-all   normalized-identical                             
+workspace-index-03       at-plan  unresolved-defect     notes/ row: fx 13, xfx 13  first row 13: same text, attributes differ
+workspace-index-04       at-all   normalized-identical                             
+workspace-index-04       at-plan  unresolved-defect     notes/ row: fx 13, xfx 13  first row 13: same text, attributes differ
+workspace-index-05       at-all   normalized-identical                             
+workspace-index-05       at-plan  unresolved-defect     notes/ row: fx 13, xfx 13  first row 13: same text, attributes differ
+workspace-index-06       at-all   normalized-identical                             
+workspace-index-06       at-plan  normalized-identical  notes/ row: fx 13, xfx 13  
+workspace-index-07       at-all   normalized-identical                             
+workspace-index-07       at-plan  unresolved-defect     notes/ row: fx 13, xfx 13  first row 13: same text, attributes differ
+workspace-index-08       at-all   normalized-identical                             
+workspace-index-08       at-plan  unresolved-defect     notes/ row: fx 13, xfx 13  first row 13: same text, attributes differ
+workspace-index-09       at-all   normalized-identical                             
+workspace-index-09       at-plan  unresolved-defect     notes/ row: fx 13, xfx 13  first row 13: same text, attributes differ
+workspace-index-10       at-all   normalized-identical                             
+workspace-index-10       at-plan  unresolved-defect     notes/ row: fx 13, xfx 13  first row 13: same text, attributes differ
+workspace-index-11       at-all   normalized-identical                             
+workspace-index-11       at-plan  normalized-identical  notes/ row: fx 13, xfx 13  
+workspace-index-12       at-all   normalized-identical                             
+workspace-index-12       at-plan  normalized-identical  notes/ row: fx 13, xfx 13  
+totals: {"normalized-identical": 15, "unresolved-defect": 9}
