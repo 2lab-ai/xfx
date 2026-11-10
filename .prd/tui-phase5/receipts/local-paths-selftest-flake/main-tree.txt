@@ -9,3 +9,7 @@ exit=0
 # the check at 373811b0 on the same tree (its own file swapped in): every one of the 88 lines accounted for
 check-no-local-paths: ok (18935 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
 exit=0
+
+# the check at 4743a479 (round 3) on the same tree, its own file swapped in
+check-no-local-paths: ok (18935 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+exit=0

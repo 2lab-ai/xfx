@@ -21,7 +21,7 @@ pristine = open(check).read()
 
 MUTANTS = [
     ("binary lines read as text",
-     '\t\t\tbinary_lines=$((binary_lines + 1))\n\t\t\tcontinue\n', '\t\t\tbinary_lines=$((binary_lines + 1))\n\t\t\t:\n', 1),
+     '>>"$trace"\n\t\t\tcontinue\n\t\tfi\n\t\t# A mark', '>>"$trace"\n\t\t\t:\n\t\tfi\n\t\t# A mark', 1),
     ("binary only by its first 8000 bytes",
      'probe="$(tr -d -c \'\\000\' <"$root/$path" | wc -c)"',
      'probe="$(head -c 8000 "$root/$path" | tr -d -c \'\\000\' | wc -c)"', 1),
@@ -50,6 +50,13 @@ MUTANTS = [
      '\t\tgiven=$((given + 1))\n', '\t\tgiven=$((given + 1))\n\t\tif [ "$path" = w3/trace-report.md ]; then continue; fi\n', 1),
     ("the count not checked",
      'if [ "$given" -ne $((refused + binary_lines + marked + placeheld)) ]; then', 'if false; then', 1),
+    # Round 3.
+    ("the second reading not compared",
+     'if ! cmp -s "$tally" "$counted"; then', 'if false; then', 1),
+    ("symlinks not looked at",
+     '\t\t120000\\ *) ;;\n', '\t\t120000\\ *) continue ;;\n', 1),
+    ("a stream that ends inside a record accepted",
+     '\tif [ -n "$path" ]; then\n\t\tprintf \'check-no-local-paths: git grep ended inside', '\tif false; then\n\t\tprintf \'check-no-local-paths: git grep ended inside', 1),
 ]
 
 env = dict(os.environ)
