@@ -37296,6 +37296,31 @@ mod tests {
     }
 
     #[test]
+    fn rxvts_csi_7_tilde_reaches_the_composer_as_home_and_csi_8_as_end() {
+        // DECODER-TILDE-HOME-END: `CSI 7 ~` and `CSI 8 ~` are fx's Home and
+        // End (`escape_parser.zig:628-631@481104fd`), the composer's move to
+        // the line's edge (`.home => move(.line_start)`, `shortcuts.zig:51-52`)
+        // -- here the editor's Home and End.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"abc def");
+        shell.route_bytes(b"\x1b[7~");
+        shell.route_bytes(b"X");
+        assert_eq!(shell.editor.text(), "Xabc def", "CSI 7 ~ was not Home");
+        shell.route_bytes(b"\x1b[8~");
+        shell.route_bytes(b"Y");
+        assert_eq!(shell.editor.text(), "Xabc defY", "CSI 8 ~ was not End");
+        // With a modifier, Ctrl-Home and Alt-End: fx's draft and line edges
+        // (`escape_parser.zig:699-707@481104fd`), one place on a one-line
+        // draft.
+        shell.route_bytes(b"\x1b[1;5~");
+        shell.route_bytes(b"<");
+        assert_eq!(shell.editor.text(), "<Xabc defY", "CSI 1 ; 5 ~ was not Home");
+        shell.route_bytes(b"\x1b[8;3~");
+        shell.route_bytes(b">");
+        assert_eq!(shell.editor.text(), "<Xabc defY>", "CSI 8 ; 3 ~ was not End");
+    }
+
+    #[test]
     fn alt_d_deletes_the_word_to_the_right_without_killing_it() {
         let mut shell = shell(24, 80);
         shell.route_bytes(b"hello, world");

@@ -2552,6 +2552,92 @@ mod tests {
         assert_eq!(decode(b"\x1bD"), vec![Input::Action(Action::Ignore)]);
     }
 
+    /// The modifier fields the tilde Home and End are tried with: one held key
+    /// of each kind, two and four at once, and the bits past Super, which
+    /// upstream's tilde stage counts as a modifier too (`modifiers != 0`,
+    /// `escape_parser.zig:699@481104fd`).
+    const TILDE_MODIFIERS: [(&str, &str); 9] = [
+        ("2", "Shift"),
+        ("3", "Alt"),
+        ("5", "Ctrl"),
+        ("9", "Super"),
+        ("6", "Ctrl+Shift"),
+        ("13", "Ctrl+Super"),
+        ("16", "Shift+Alt+Ctrl+Super"),
+        ("17", "Hyper"),
+        ("65", "Caps Lock"),
+    ];
+
+    /// `CSI <key> ~`, or `CSI <key> ; <modifier> ~`, as one delivery.
+    fn tilde(key: &str, modifier: Option<&str>) -> Vec<Input> {
+        let bytes = match modifier {
+            None => format!("\x1b[{key}~"),
+            Some(modifier) => format!("\x1b[{key};{modifier}~"),
+        };
+        decode(bytes.as_bytes())
+    }
+
+    /// Every modified spelling of one tilde key is `want`, and its `; 1`
+    /// spelling -- a modifier field that holds no modifier -- is still the one
+    /// shape this decoder refuses (see
+    /// `a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one`).
+    fn assert_modified_tilde(key: &str, want: Action) {
+        for (modifier, held) in TILDE_MODIFIERS {
+            assert_eq!(
+                tilde(key, Some(modifier)),
+                vec![Input::Action(want)],
+                "CSI {key} ; {modifier} ~ ({held})"
+            );
+        }
+        assert_eq!(
+            tilde(key, Some("1")),
+            vec![Input::Action(Action::Ignore)],
+            "CSI {key} ; 1 ~"
+        );
+    }
+
+    #[test]
+    fn rxvts_home_csi_7_tilde_is_home() {
+        // `1, 7 => .home` (`escape_parser.zig:628-629@481104fd`), the spelling
+        // rxvt sends for Home; fx's own test pins it
+        // (`src/ui/input/runtime.zig:4774-4779@481104fd`).
+        assert_eq!(tilde("7", None), vec![Input::Action(Action::Home)]);
+    }
+
+    #[test]
+    fn rxvts_end_csi_8_tilde_is_end() {
+        // `4, 8 => .end` (`escape_parser.zig:631@481104fd`).
+        assert_eq!(tilde("8", None), vec![Input::Action(Action::End)]);
+    }
+
+    #[test]
+    fn home_with_a_modifier_csi_1_mod_tilde_is_home() {
+        // `1, 7 => composerMove(... .draft_start else .line_start, modifiers)`
+        // (`escape_parser.zig:699-703@481104fd`): the line's start, the
+        // draft's under Ctrl, a selection under Shift. xfx reads it as
+        // `CSI 1 ; <mod> H` ([`cursor`]): Home.
+        assert_modified_tilde("1", Action::Home);
+    }
+
+    #[test]
+    fn end_with_a_modifier_csi_4_mod_tilde_is_end() {
+        // `4, 8 => composerMove(... .draft_end else .line_end, modifiers)`
+        // (`escape_parser.zig:704-707@481104fd`).
+        assert_modified_tilde("4", Action::End);
+    }
+
+    #[test]
+    fn rxvts_home_with_a_modifier_csi_7_mod_tilde_is_home() {
+        // The same arm as `1` (`escape_parser.zig:700@481104fd`).
+        assert_modified_tilde("7", Action::Home);
+    }
+
+    #[test]
+    fn rxvts_end_with_a_modifier_csi_8_mod_tilde_is_end() {
+        // The same arm as `4` (`escape_parser.zig:704@481104fd`).
+        assert_modified_tilde("8", Action::End);
+    }
+
     #[test]
     fn super_a_c_and_x_are_the_composers_selection_keys() {
         // `escape_parser.zig` at `c1db919`, :223-231: Super with `a`, `c` or
@@ -2842,7 +2928,11 @@ mod tests {
             &b"\x1b[01~"[..],
             &b"\x1b[03~"[..],
             &b"\x1b[04~"[..],
+            &b"\x1b[07~"[..],
+            &b"\x1b[08~"[..],
             &b"\x1b[1;1~"[..],
+            &b"\x1b[8;05~"[..],
+            &b"\x1b[7;5;1~"[..],
             &b"\x1b[3;05~"[..],
             &b"\x1b[3;5;1~"[..],
             &b"\x1b[30~"[..],
