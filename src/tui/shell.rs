@@ -5502,10 +5502,11 @@ impl Shell {
     /// `app_input_runtime.zig:1093-1116@481104fd`), so they reach the
     /// composer (`:881-893`) -- `C-j` its `insert_newline` (`:513-521`),
     /// `C-k` a kill to the line's end (`:479-488`). [`Self::consume_inputs`]
-    /// sends them past every picker, but `/mcp`'s menu is asked first and
-    /// takes every key while the screen covers it ([`Self::offer_to_mcp`]:
-    /// xfx's, over fx's, opus-C). Over the menus the frame shuts the screen
-    /// for, this is the burst the Ctrl-O came in
+    /// sends them past every picker and past `/mcp`'s menu, whose fx
+    /// counterpart passes both bytes on (`routeMcpHostMenuByte`,
+    /// `:1812-1824`) and which swallows every other key while the screen
+    /// covers it ([`Self::offer_to_mcp`]: xfx's, over fx's, opus-C). Over the menus
+    /// the frame shuts the screen for, this is the burst the Ctrl-O came in
     /// (`src/ui/event_loop.zig:90-120@481104fd`).
     fn composer_control(&self, action: Action) -> bool {
         self.full.is_open() && matches!(action, Action::ControlJ | Action::ControlK)
@@ -5518,15 +5519,16 @@ impl Shell {
     /// does ([`Self::amended`]). It syncs no catalog menu, so the catalog and
     /// the settings menu keep their marks over the search it changed.
     ///
-    /// What reaches here with a menu up: under the full transcript, any but
-    /// `/mcp`'s ([`Self::composer_control`]); with the screen closed, three
-    /// that bind no `C-j` -- the settings menu (`super::settings`), so its
-    /// `keep` is for that too, where fx's menu moves (SETTINGS-CJ-CK); the
-    /// inline model column, where fx's moves too (MODEL-COLUMN-CJ-CK); and a
-    /// `$` menu that shows nothing, which fx's composer gives the same line
-    /// break. The help catalog, `/model`'s menu, the session picker,
-    /// `/fork`'s and `/effort`'s menus and a shown skills menu take `C-j`
-    /// themselves with the screen closed. Alt-Enter's `InsertNewline` is
+    /// What reaches here with a menu up: under the full transcript, any
+    /// ([`Self::composer_control`]); with the screen closed, two -- the
+    /// settings menu over a search that lists nothing, whose move goes on
+    /// as fx's does when `Menu.move` answers `false` (`super::settings`,
+    /// PAGE-KEYS-SETTINGS-COLUMN), so its `keep` is for that too; and a `$`
+    /// menu that shows nothing, which fx's composer gives the same line
+    /// break. The help catalog, the settings menu over a list, `/model`'s
+    /// menu and its inline column, the session picker, `/fork`'s and
+    /// `/effort`'s menus and a shown skills menu take `C-j` themselves with
+    /// the screen closed. Alt-Enter's `InsertNewline` is
     /// still `type_character('\n')` over them (INSERT-NEWLINE-MENUS).
     fn composer_newline(&mut self) {
         let held = self
@@ -12825,16 +12827,17 @@ impl Shell {
                 self.offer_to_workspace(event);
                 continue;
             }
-            // `C-j` and `C-k` while the full transcript covers the composer:
-            // fx's `routePickerControlByte` refuses them
-            // (`composerPickerSurfaceVisible`, `app_input_runtime.zig:1094`,
-            // `:1110-1116@481104fd`), so no list behind the screen moves and
-            // they go on to the composer, a newline and a kill to the end --
-            // the `@` list's too, whose keys there are unit CTRLO-AT-KEYS's
-            // (`docs/parity.md`).
-            if self.full.is_open()
-                && matches!(event, Input::Action(Action::ControlJ | Action::ControlK))
-            {
+            // `C-j` and `C-k` while the full transcript covers the composer
+            // ([`Self::composer_control`]) go past every list to the
+            // composer, a newline and a kill to the end, as fx's do: its
+            // modal routing passes both bytes on over `/mcp`'s menu
+            // (`routeMcpHostMenuByte`, `app_input_runtime.zig:1186`,
+            // `:1812-1824@481104fd`), and `routePickerControlByte` refuses
+            // them while the screen is up (`:879`; `composerPickerSurfaceVisible`,
+            // `:1094`, `:1110-1116`). The surfaces above take them first, as
+            // fx's modal surfaces do (`routeActiveModalInput`, `:873`). The `@`
+            // list's keys there are unit CTRLO-AT-KEYS's (`docs/parity.md`).
+            if matches!(event, Input::Action(action) if self.composer_control(action)) {
                 if let Input::Action(action) = event {
                     self.act(action, now);
                 }
@@ -12845,12 +12848,7 @@ impl Shell {
             if self.offer_to_mcp(&event, held) {
                 continue;
             }
-            // `C-j` and `C-k` with the full transcript up go past every picker
-            // to the composer ([`Self::composer_control`]); every other key is
-            // offered to them first.
-            let to_the_composer =
-                matches!(event, Input::Action(action) if self.composer_control(action));
-            if !to_the_composer && self.offer_to_pickers(&event) {
+            if self.offer_to_pickers(&event) {
                 continue;
             }
             match event {
