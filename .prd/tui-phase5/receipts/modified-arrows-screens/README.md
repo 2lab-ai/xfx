@@ -18,7 +18,9 @@ review found it (round 1, SHOULD 1), and its round 2 recorded it in
 | `08d6d605` | RED: the full-transcript test, the question test, the decoder's two-modifier pins (Shift-Alt-Up/Down flipped, three added), the fold table's column for `unspelled` dropped; the scenarios `p5-modified-arrows-full` and `p5-modified-arrows-question`. Tests and scenarios only |
 | `8b5aacaa` | **the code head**: the full transcript and the question read the event as it came; `unspelled` merged into `folded`; `question::Act::of`'s arms and `Act::StepLeft`; the decoder's Alt before Shift on Up and Down; the docs of the decoder's variants |
 | `33cfeac4` | comments only: four fx citations named by file (`git diff 8b5aacaa 33cfeac4` changes `//` and `///` lines alone) |
-| `bc188108`, `5e985efb` and the commit after | `docs/parity.md`, the ledger, this folder (the gate ran at `5e985efb`); no `src/` change |
+| `bc188108`, `5e985efb`, `8a9be523` | round 1's records: `docs/parity.md`, the ledger, this folder (round 1's gate ran at `5e985efb`); no `src/` change |
+| `0f8c6e6a` | round 2: the Super-Right field pin (test), the question scenario split, three stale comments; no non-test code change |
+| the commits after | round 2's records (Round 2 below); no `src/` change |
 
 The source change outside the test modules is +133/-111 lines over the three
 files (`git diff -U0 c77a77ce 33cfeac4 -- src`, the hunks above each file's
@@ -77,9 +79,12 @@ screen too; see Decisions.
   Shift-Alt-Up (5) move nothing, Ctrl-Shift-Down (6) moves the choice, and
   on page 7 Super-Left, Shift-Left, Ctrl-B, Shift-Right and Ctrl-F move
   nothing (fx stays on page 7). In page 7's field (`ab cd`): Super-Up, `z`:
-  `zab cd`; Ctrl-Up and Shift-Alt-Down, `y`: `zyab cd` (nothing moved, the
-  field still marked); Ctrl-F, `x`: `zyaxb cd`; Super-Down, `w`:
-  `zyaxb cdw`; Shift-Left and Ctrl-B, `v`: `zyaxb cvdw`.
+  `zab cd`; Ctrl-Up, `y`: `zyab cd`; Shift-Alt-Down, `k`: `zykab cd` (each
+  moved nothing, and the field is still the choice: a choice move would
+  have left it and swallowed the letter); Ctrl-F, `x`: `zykaxb cd`;
+  Super-Down, `w`: `zykaxb cdw`; Shift-Left and Ctrl-B, `v`: `zykaxb cvdw`
+  (round 2's split scenario; round 1 pressed Ctrl-Up and Shift-Alt-Down
+  together, so two choice moves could have cancelled).
 
 ## What xfx does now (`git diff c77a77ce 8b5aacaa -- src`)
 
@@ -145,7 +150,7 @@ column is unchanged in every row; its comment now says what it is for.
   other 9 of the run pass: the fold table (its `folded` column is the
   base's), the question-word-left test, the approval's vertical and
   horizontal tests and the held-page-key tests.
-- The scenarios on the base's binary (`v0.1.0-c77a77c`, `red/`): **4 of 27**
+- The scenarios on the base's binary (`v0.1.0-c77a77c`, `red/`): **4 of 28**
   pairs identical (`red-pairs.txt`): `answered`, `draft`, `p1` and the guard
   `ctrl-shift-down`. The typed rows read `fY`, `fYX`, `fYXW` and `fYXWV`
   (every key held by the screen or scrolling it, each letter at the draft's
@@ -156,9 +161,12 @@ column is unchanged in every row; its comment now says what it is for.
 
 ## GREEN (`green-pairs.txt`, `green.txt`)
 
-- The scenarios on the code head's binary (`v0.1.0-8b5aaca`, `xfx/`):
-  - **22 of 27 pairs identical**, cell by cell (`cells.py`, row 1 left out):
-    all sixteen of `p5-modified-arrows-question`, and `answered`, `draft`,
+- The scenarios on the code head's binary (`v0.1.0-8b5aaca`, `xfx/`, for
+  `p5-modified-arrows-full`) and round 2's (`v0.1.0-0f8c6e6`, for the
+  question scenario; its non-test code is the code head's but for comments):
+  - **23 of 28 pairs identical**, cell by cell (`cells.py`, row 1 left out):
+    all seventeen of `p5-modified-arrows-question` (round 2's split, on
+    round 2's head binary `v0.1.0-0f8c6e6`), and `answered`, `draft`,
     `typed` (`Yf`), `typed2` (`tXhree`), `typed3` (`tWXhree`) and `typed4`
     (`tWXVhree`) of `p5-modified-arrows-full`;
   - the five full-transcript snaps differ across the sides before any key,
@@ -300,9 +308,19 @@ every citation falls inside a range of `fx-src.txt`.
   (Alt before Shift; the three surfaces read the event as it came, the fold
   is for the menus and the composer), the approval-horizontal sentence (the
   same), the META-PREFIX-DECODE note on QUESTION-LEFT-SPELLINGS, and one new
-  sentence: **Alt with Up or Down is a one-row step here, where fx's is a
-  paragraph move**, owner proposed COMPOSER-PARAGRAPH-MOVE. It was
-  unrecorded, and this unit makes it reachable under the full transcript.
+  sentence, rewritten in round 2: **a held Up or Down is the plain arrow
+  here, where fx's is a move of its own that never reaches the history**
+  (Alt by paragraph, Super to the draft's edges, Shift a row that stops at
+  the first and last row), with xfx's edge-then-recall road and its reach
+  under the full transcript, owner proposed COMPOSER-PARAGRAPH-MOVE,
+  widened to held Up and Down as fx's (Decisions). It was unrecorded, and
+  this unit makes it reachable under the full transcript.
+- **Round 2** also rewrites row 237's COMPOSER-SUPER-ARROWS sentence, which
+  still said only an approval tells `ComposerLeft`/`ComposerRight` and
+  `DraftStart`/`DraftEnd` apart (opus SHOULD 2), names the word move for
+  Super-Left/Right with Ctrl or Alt in rows 162 and 237 (opus NIT 1), and
+  gives row 238 the history recall in place of "moves the caret as it does
+  with the screen closed" (opus SHOULD 1).
 
 ## Decisions (reversible)
 
@@ -317,17 +335,73 @@ every citation falls inside a range of `fx-src.txt`.
 - **`Act::StepLeft`, a new variant**, rather than reading `ComposerLeft` as
   `Act::Left`: at a choice `Act::Left` is the previous question, which fx's
   composer move and its raw byte never reach.
-- **Not copied here, each recorded and owned elsewhere:** Super-Left and
-  -Right are the step in the composer and in the question's field, where fx's
-  jump to the line's edges, because the decoder reads Super on Left and
-  Right as `ComposerLeft`, like Shift (COMPOSER-SUPER-ARROWS); Super-Up and
-  -Down move the composer one row where fx's go to the draft's edges (the
-  same owner); Alt-Up and -Down move the composer one row where fx's move by
-  paragraph (COMPOSER-PARAGRAPH-MOVE, proposed); Shift's selection
-  (COMPOSER-SELECTION-EXTEND). The scenario's Super-Left is pressed with the
-  caret one cell into its row, where xfx's step and fx's jump land on the
-  same cell; anywhere else they differ by that owner's gap, which the
-  question test pins as xfx's step with that owner named.
+- **Not copied here, each recorded and owned elsewhere:**
+  - **A held Up or Down takes the plain arrow's road in the composer**,
+    where fx's has a move of its own that never reaches the history. fx:
+    Alt (`paragraph_*`) and Super (`draft_*`) move by `moveInputCursor`
+    alone (`app_input_runtime.zig:298-309`); Shift and Ctrl-Shift
+    (`visual_*` with the selection) move one row and stop at the draft's
+    first or last row (`vertical_navigation.zig:74-77`, called at
+    `input_completion_runtime.zig:262-268`; `input_completion_runtime.zig:270`),
+    before the edge jump, the steer and the history (`:272-291`). xfx folds
+    every one to the arrow, and `Shell::act`'s Up and Down go one row, then
+    to the draft's edge, then (Up, empty composer) to the waiting steer,
+    then to `Shell::recall`. So on the draft's first or last row, and at an
+    empty composer, xfx's Alt-, Super- and Shift-held Up and Down recall
+    the line before or after where fx's stop; Ctrl-Up and -Down are fx's
+    plain `visual_*` and recall alike. This unit made it reachable under
+    the full transcript, where Alt- and Super-Up and -Down scrolled the
+    screen before (Shift-Up reached the composer already): there the recall
+    happens behind a screen that does not show it. Owner proposed:
+    COMPOSER-PARAGRAPH-MOVE, widened to held Up and Down as fx's (Alt by
+    paragraph, Super to the draft's edges, Shift a row that stops at the
+    first and last row, none reaching the history), the decoder line's next
+    unit, ahead of META-PREFIX-DECODE (the dispatcher's decision); the
+    selection itself stays COMPOSER-SELECTION-EXTEND's (round 2, opus
+    SHOULD 1).
+  - **Super-Left and -Right are the step** in the composer and in the
+    question's field, and with Ctrl or Alt held too the word move (`cursor`
+    reads Ctrl and Alt first), where fx's jump to the line's edges whatever
+    else is held (Super's arm first, `escape_parser.zig:74-78`), because the
+    decoder reads Super on Left and Right as `ComposerLeft`, like Shift
+    (COMPOSER-SUPER-ARROWS). The scenario's Super-Left is pressed with the
+    caret one cell into its row, where xfx's step and fx's jump land on the
+    same cell; anywhere else they differ by that owner's gap, which the
+    question test pins as xfx's step with that owner named, for Super-Left
+    from the field's end and, since round 2, Super-Right from its start.
+  - Shift's selection (COMPOSER-SELECTION-EXTEND).
 - **The scenarios press each key on its own**, each followed by a letter
   where its effect shows (MODIFIED-PAGE-KEYS' round-2 lesson, its opus NIT
   2); at the question each vertical key on a page of its own.
+
+## Round 2 (the reviews of `8a9be523`: gpt6 no MUST; opus APPROVE-WITH-FIXES, no MUST)
+
+1. **The history recall** (opus SHOULD 1): recorded in `docs/parity.md`'s
+   rows 237 and 238 and in Decisions above, with fx's lines
+   (`app_input_runtime.zig:298-309`; `vertical_navigation.zig:74-77`,
+   `input_completion_runtime.zig:262-270`, `:272-291`, now in `fx-src.txt`);
+   owner COMPOSER-PARAGRAPH-MOVE, widened. No code change, as the dispatcher
+   decided: the fix is that unit's.
+2. **The stale clause** (opus SHOULD 2) and **Super with Ctrl or Alt**
+   (NIT 1): `docs/parity.md` above.
+3. **Comments** (NIT 2, `0f8c6e6a`): `editor.rs`' note on the vertical
+   arrows (Shift-Alt is `ComposerUp` now), and two in `input.rs` (Ctrl-B and
+   Ctrl-F are told apart by a question's choice and the full transcript
+   too).
+4. **The scenario** (NIT 3, `0f8c6e6a`): Ctrl-Up and Shift-Alt-Down each on
+   its own, each followed by a letter (`field-ctrl-up`, then the new
+   `field-shift-alt-down`). Recaptured on fx, on round 2's head binary
+   (`v0.1.0-0f8c6e6`) and on the base's (`captures.txt`, round 2's block):
+   the scenario's pairs went from **16 of 16** identical (round 1) to **17
+   of 17**, and on the base from 2 of 16 to 2 of 17 (`p1` and the guard
+   `ctrl-shift-down`); the receipt's totals from 22 of 27 to **23 of 28**,
+   and 4 of 27 to 4 of 28 (`green-pairs.txt`, `red-pairs.txt`).
+5. **Super-Right in the field** (NIT 4, `0f8c6e6a`): pinned as xfx's step
+   from the field's start (Super-Up, then Super-Right, then `p`:
+   `tpzsyaxb cduvwqr`), beside the Super-Left pin; fx's `line_end` would put
+   the `p` last. COMPOSER-SUPER-ARROWS flips both.
+6. **Refs and citations**: the comment and test lines moved six of the
+   ledger's refs into `src/tui/shell.rs`; `refs.py --fix` re-pointed them
+   (`refs.txt`: 16 checked, 0 wrong). `fx-src-check.txt` is round 2's run.
+7. **Gate**: `gate.txt`, round 2's block first.
+

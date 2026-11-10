@@ -1176,6 +1176,33 @@
   291              }
   292          }
 
+## src/core/input/vertical_navigation.zig:56-80
+   56      pub fn applyTargetWithSelection(
+   57          self: *State,
+   58          edit: *editor_state.State,
+   59          entities: *const registered_entities.State,
+   60          target_raw_offset: ?usize,
+   61          preferred_column: usize,
+   62          extend_selection: bool,
+   63      ) bool {
+   64          switch (decideTarget(
+   65              edit.input.items,
+   66              entities,
+   67              target_raw_offset,
+   68              preferred_column,
+   69          )) {
+   70              .reset => {
+   71                  self.reset();
+   72                  return false;
+   73              },
+   74              .move => |target| {
+   75                  _ = edit.moveCursorTo(target.raw_offset, extend_selection);
+   76                  self.preferred_column = target.preferred_column;
+   77                  return true;
+   78              },
+   79          }
+   80      }
+
 ## src/core/input/horizontal_navigation.zig:19-51
    19  pub fn moveIntent(
    20      intent: input_action.MoveIntent,

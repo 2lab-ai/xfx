@@ -73,15 +73,18 @@ SAME field-super-up     rows: none
 SAME field-ctrl-up      rows: none
        fx:  Question 7 of 20, 3) zyab cd
        xfx: Question 7 of 20, 3) zyab cd
+SAME field-shift-alt-down rows: none
+       fx:  Question 7 of 20, 3) zykab cd
+       xfx: Question 7 of 20, 3) zykab cd
 SAME field-ctrl-f       rows: none
-       fx:  Question 7 of 20, 3) zyaxb cd
-       xfx: Question 7 of 20, 3) zyaxb cd
+       fx:  Question 7 of 20, 3) zykaxb cd
+       xfx: Question 7 of 20, 3) zykaxb cd
 SAME field-super-down   rows: none
-       fx:  Question 7 of 20, 3) zyaxb cdw
-       xfx: Question 7 of 20, 3) zyaxb cdw
+       fx:  Question 7 of 20, 3) zykaxb cdw
+       xfx: Question 7 of 20, 3) zykaxb cdw
 SAME field-left         rows: none
-       fx:  Question 7 of 20, 3) zyaxb cvdw
-       xfx: Question 7 of 20, 3) zyaxb cvdw
+       fx:  Question 7 of 20, 3) zykaxb cvdw
+       xfx: Question 7 of 20, 3) zykaxb cvdw
 
-22 of 27 pairs identical
-banners (question p1 row 1; one binary per side ran both scenarios): fx 𝒇x v0.0.16 · Run /help for commands / xfx x𝒇x v0.1.0-8b5aaca [debug] · Run /help for commands
+23 of 28 pairs identical
+banners (question p1 row 1; round 2 recaptured this scenario, the full one is round 1's, captures.txt): fx 𝒇x v0.0.16 · Run /help for commands / xfx x𝒇x v0.1.0-0f8c6e6 [debug] · Run /help for commands

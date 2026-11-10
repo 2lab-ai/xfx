@@ -49,6 +49,9 @@ ranges=(
   src/core/app/app_input_runtime.zig:840-1010
   src/core/app/app_input_runtime.zig:1126-1186
   src/core/app/input_completion_runtime.zig:211-292
+  # Round 2: a selection-extending row move, which stops at the draft's
+  # first and last row.
+  src/core/input/vertical_navigation.zig:56-80
   src/core/input/horizontal_navigation.zig:19-51
   src/core/permissions/approval_amendment.zig:84-92
 )

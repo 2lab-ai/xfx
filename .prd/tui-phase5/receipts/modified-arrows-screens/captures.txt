@@ -1,3 +1,21 @@
+# Round 2: p5-modified-arrows-question recaptured after its split (Ctrl-Up and Shift-Alt-Down each on its own), on all three sides; its round-1 captures are replaced. p5-modified-arrows-full is round 1's, below.
+
+## p5-modified-arrows-question, fx/  (FX_BIN=<oracle>/fx-v0.0.16/bin/fx)
+roots: <work>=41 <scratch>=36 <scenarios>=94 <bun>=21 <bun:real>=39 <tmp>=23 <home>=16 bytes
+up: a first frame after 0.08 s (2 looks)
+guards: <oracle>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+
+## p5-modified-arrows-question, red/ (XFX_BIN = the base's binary, built at c77a77ce in a clean --no-local clone; sha256 1984d47e23e3...)
+roots: <work>=41 <scratch>=36 <scenarios>=94 <bun>=21 <bun:real>=39 <tmp>=23 <home>=16 bytes
+up: a first frame after 0.08 s (2 looks)
+
+## p5-modified-arrows-question, xfx/ (XFX_BIN = round 2's head binary, built at 0f8c6e6a with src/ clean; sha256 0f5ae9c9bb03...; its non-test src/ is the code head 8b5aacaa's but for comments)
+roots: <work>=41 <scratch>=36 <scenarios>=94 <bun>=21 <bun:real>=39 <tmp>=23 <home>=16 bytes
+up: a first frame after 1.02 s (16 looks)
+
+banners: base x𝒇x v0.1.0-c77a77c [debug], round 2 head x𝒇x v0.1.0-0f8c6e6 [debug] (question p1 row 1)
+
+# Round 1 below; its question-scenario captures are the ones round 2 replaced.
 # The six capture runs (scripts/fxcap/capture.sh <side> <scenario> 40x120), their log lines but the per-snap file list and the gateway's exit; paths written as placeholders.
 
 ## p5-modified-arrows-full, fx/  (FX_BIN=<oracle>/fx-v0.0.16/bin/fx)

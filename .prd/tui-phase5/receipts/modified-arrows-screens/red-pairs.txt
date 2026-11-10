@@ -73,15 +73,18 @@ DIFF field-super-up     rows: 6 8 9 10 13
 DIFF field-ctrl-up      rows: 6 8 9 10 13 
        fx:  Question 7 of 20, 3) zyab cd
        red: Question 5 of 20, 3) 3ab cd
+DIFF field-shift-alt-down rows: 6 8 9 10 13 
+       fx:  Question 7 of 20, 3) zykab cd
+       red: Question 5 of 20, 3) 3ab cd
 DIFF field-ctrl-f       rows: 6 8 9 10 13 
-       fx:  Question 7 of 20, 3) zyaxb cd
+       fx:  Question 7 of 20, 3) zykaxb cd
        red: Question 5 of 20, 3) 3ab cd
 DIFF field-super-down   rows: 6 8 9 10 13 
-       fx:  Question 7 of 20, 3) zyaxb cdw
+       fx:  Question 7 of 20, 3) zykaxb cdw
        red: Question 5 of 20, 3) 3ab cdw
 DIFF field-left         rows: 6 8 9 10 13 
-       fx:  Question 7 of 20, 3) zyaxb cvdw
+       fx:  Question 7 of 20, 3) zykaxb cvdw
        red: Question 5 of 20, 3) 3ab cvdw
 
-4 of 27 pairs identical
-banners (question p1 row 1; one binary per side ran both scenarios): fx 𝒇x v0.0.16 · Run /help for commands / red x𝒇x v0.1.0-c77a77c [debug] · Run /help for commands
+4 of 28 pairs identical
+banners (question p1 row 1; round 2 recaptured this scenario, the full one is round 1's, captures.txt): fx 𝒇x v0.0.16 · Run /help for commands / red x𝒇x v0.1.0-c77a77c [debug] · Run /help for commands

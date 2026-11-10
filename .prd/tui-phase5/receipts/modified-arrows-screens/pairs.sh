@@ -34,8 +34,8 @@ question=p5-modified-arrows-question-40x120
 inline=(answered draft typed typed2 typed3 typed4)
 screens=(full full-super-left full-ctrl-up full-ctrl-b full-ctrl-f)
 asked=(p1 ctrl-down alt-up super-up shift-super-down shift-alt-up ctrl-shift-down
-  super-left shift-left ctrl-b right-keys field-super-up field-ctrl-up field-ctrl-f
-  field-super-down field-left)
+  super-left shift-left ctrl-b right-keys field-super-up field-ctrl-up
+  field-shift-alt-down field-ctrl-f field-super-down field-left)
 
 echo "## $full: fx against $side, cell by cell (cells.py, row 1 left out)"
 for label in "${inline[@]}" "${screens[@]}"; do compare "$full" "$label"; done
@@ -69,4 +69,4 @@ for label in "${asked[@]}"; do
 done
 echo
 echo "$same of $total pairs identical"
-echo "banners (question p1 row 1; one binary per side ran both scenarios): fx $(head -1 "$here/fx/fx-$question-p1.txt" | sed 's/ *$//') / $side $(head -1 "$here/$side/xfx-$question-p1.txt" | sed 's/ *$//')"
+echo "banners (question p1 row 1; round 2 recaptured this scenario, the full one is round 1's, captures.txt): fx $(head -1 "$here/fx/fx-$question-p1.txt" | sed 's/ *$//') / $side $(head -1 "$here/$side/xfx-$question-p1.txt" | sed 's/ *$//')"
