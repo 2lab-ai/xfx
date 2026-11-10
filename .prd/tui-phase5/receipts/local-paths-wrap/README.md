@@ -154,6 +154,18 @@ to fx's bytes. Train 12 put the profile back in `6bfc6562` (on its branch
 after this base: the file there is as it was before `2ee33f58`), which
 touches no file this unit does.
 
+## 7. After the merge of train 12's head (`rerun.txt`)
+
+`1e023110` merges train 12's head `71d3e02b` (`--no-ff`, no conflict: the
+train's commits since the base touch none of this branch's files), which
+brings `6bfc6562`'s profile back. `rerun.sh` under the suite lock, `TMPDIR`
+the harness scratch root, at `1e023110`: **5 steps, 0 failed, the tree
+clean.** `cargo test --locked` and `cargo test --locked --features
+fault-injection`: 15 test targets ok each, `the_verbs_scenario_leaves_fx_v0_0_16s_bytes`
+ok in both; `test-capture.sh` 112 tests OK; `check-no-local-paths.sh` ok;
+`scan.sh`: the machine roots refuse 0 of the 17811 captures and receipts,
+the rest as in section 4.
+
 ## Decisions
 
 - **`↑` is a mark.** It is a scroll mark, not a wrap, but the row it leads
@@ -181,4 +193,4 @@ touches no file this unit does.
 `marks.md` · `mutants.py` -> `mutants.txt` · `e2e.sh`, `rows.py`, `cuts.py`
 -> `e2e-red.txt`, `e2e-green.txt` · `fix_tails.py`, `fix-tails.sh` ->
 `fix-tails.txt` · `scan.sh` -> `scan-before.txt`, `scan.txt` · `flake.py` ->
-`flake.txt` · `gate.sh` -> `gate.txt`
+`flake.txt` · `gate.sh` -> `gate.txt` · `rerun.sh` -> `rerun.txt`
