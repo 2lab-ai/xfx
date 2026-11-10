@@ -1,0 +1,33 @@
+# CTRLO-OTHER-PICKERS round 3: the help catalog with a search typed, then
+# Ctrl-O and an edit key in one burst (`key -H`, one send-keys).
+# `e`, C-a, `s`: the search `se`, the caret between its two letters; Down
+# twice moves the mark (`typed`).
+# Ctrl-O and C-j: the screen is still up, so the composer takes C-j
+# (routePickerControlByte, app_input_runtime.zig:1093-1116@481104fd) -- a
+# line break inside the word, `s` and `e` searched apart
+# (helpCatalogSpecMatches, command_specs.zig:460), and no menu synced
+# (insert_newline, app_input_runtime.zig:513-521): the mark stays on its
+# index over what is listed now (`burst-cj`).
+# Ctrl-O and C-k: a kill of the `e` after the caret, which syncs the catalog
+# (delete_to_line_end, app_input_runtime.zig:479-488, :485): the search is
+# `s` and the mark is back on the first row (`burst-ck`).
+fx: env FX_AUTO_UPGRADE=0
+wait 2
+type /help
+key Enter
+wait 1
+type e
+key C-a
+type s
+wait 0.4
+key Down
+wait 0.3
+key Down
+wait 0.5
+snap typed
+key -H 0f 0a
+wait 0.8
+snap burst-cj
+key -H 0f 0b
+wait 0.8
+snap burst-ck

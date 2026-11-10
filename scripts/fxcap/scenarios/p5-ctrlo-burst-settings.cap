@@ -1,0 +1,33 @@
+# CTRLO-OTHER-PICKERS round 3: the settings menu with a search typed, then
+# Ctrl-O and an edit key in one burst (`key -H`, one send-keys), as
+# p5-ctrlo-burst-help over the catalog.
+# `e`, C-a, `s`: the search `se`, the caret between its two letters; Down
+# twice moves the mark (`typed`).
+# Ctrl-O and C-j: the composer's line break inside the word, no menu synced
+# (insert_newline, app_input_runtime.zig:513-521@481104fd), so the mark
+# stays on its index (`burst-cj`).
+# Ctrl-O and C-k: a kill of the `e` after the caret, which syncs the menu
+# (delete_to_line_end, app_input_runtime.zig:479-488, :485): the mark is
+# back on the first row (`burst-ck`).
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+fx: env FX_AUTO_UPGRADE=0
+xfx: env XFX_SOUND=off
+wait 2
+type /settings
+key Enter
+wait 1
+type e
+key C-a
+type s
+wait 0.4
+key Down
+wait 0.3
+key Down
+wait 0.5
+snap typed
+key -H 0f 0a
+wait 0.8
+snap burst-cj
+key -H 0f 0b
+wait 0.8
+snap burst-ck

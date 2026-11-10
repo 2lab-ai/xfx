@@ -37614,7 +37614,7 @@ mod tests {
     }
 
     #[test]
-    fn c_j_and_c_k_in_ctrl_os_burst_over_fork_and_effort_close_the_menu_and_the_screen_stays() {
+    fn c_j_and_c_k_in_ctrl_os_burst_over_fork_close_the_menu_and_the_screen_stays() {
         // `p5-ctrlo-fork burst-ck`, `burst-cj`: the key is a composer edit,
         // which closes `/fork`'s and `/effort`'s menus
         // (`dismissActiveMenusForComposerEdit`, `app_input_runtime.zig:
@@ -37631,7 +37631,15 @@ mod tests {
             );
             assert_eq!(forked.editor.text(), text, "/fork, {key:#x}");
             assert!(forked.full.is_open(), "/fork, {key:#x}: the screen closed");
+        }
+    }
 
+    #[test]
+    fn c_j_and_c_k_in_ctrl_os_burst_over_effort_close_the_menu_and_the_screen_stays() {
+        // `/effort`'s menu the same way as `/fork`'s, on its own so that a
+        // break of `/effort`'s alone is seen failing here (CTRLO-OTHER-PICKERS
+        // round 3, opus NIT 2).
+        for (key, text) in [(0x0b, ""), (0x0a, "\n")] {
             let root = tempfile::tempdir().expect("a root");
             let mut effort = effort_shell(root.path());
             effort.route_bytes(b"/effort\r\x1b[B");
@@ -37647,6 +37655,271 @@ mod tests {
                 "/effort, {key:#x}: the screen closed"
             );
         }
+    }
+
+    // CTRLO-OTHER-PICKERS round 3. A catalog menu's mark across `C-j` in
+    // Ctrl-O's burst with its window scrolled and the line break inside a
+    // search word (gpt6 SHOULD 1), and `C-k` in the burst with text after the
+    // caret (opus NIT 6): fx's kill syncs every catalog menu
+    // (`app_input_runtime.zig:479-488@481104fd`, `syncCatalogMenus` at
+    // `:485`), as a Backspace does.
+
+    /// The band's item rows of a catalog menu -- the catalog's or the
+    /// settings menu's, two cells in -- top first, each with whether it is
+    /// the marked one (painted in the subtitle colour where the rest are
+    /// dim).
+    fn menu_item_rows(shell: &Fixture) -> Vec<(String, bool)> {
+        let indent = "  ";
+        shell
+            .band_rows()
+            .iter()
+            .filter_map(|row| {
+                let marked = row.starts_with(&format!("{indent}{}", PALETTE.subtitle()));
+                let dim = row.starts_with(&format!("{indent}{}", PALETTE.dim()));
+                (marked || dim).then(|| (visible_text(row).trim().to_string(), marked))
+            })
+            .collect()
+    }
+
+    /// Down until the window has scrolled, then Up until the mark is the
+    /// window's first row: a mark and a window a reset would not give back.
+    fn scrolled_mark_at_the_windows_top(
+        shell: &mut Fixture,
+        mark: impl Fn(&Fixture) -> (usize, usize),
+    ) -> (usize, usize) {
+        for _ in 0..40 {
+            if mark(shell).1 > 0 {
+                break;
+            }
+            shell.route_bytes(b"\x1b[B");
+        }
+        let (selected, window_start) = mark(shell);
+        assert!(
+            window_start > 0,
+            "the window never scrolled: {selected}, {window_start}"
+        );
+        for _ in window_start..selected {
+            shell.route_bytes(b"\x1b[A");
+        }
+        let kept = mark(shell);
+        assert_eq!(kept.0, kept.1, "the mark is not the window's first row");
+        assert!(kept.1 > 0, "Up scrolled the window back to the top");
+        kept
+    }
+
+    #[test]
+    fn c_j_in_ctrl_os_burst_inside_a_search_word_keeps_a_scrolled_catalogs_mark_and_window() {
+        // `e`, Home, `s`: the search `se` with the caret between the two
+        // letters, so C-j splits the word into `s` and `e` -- a different
+        // search (`helpCatalogSpecMatches`, `command_specs.zig:460`), which fx's
+        // line break syncs no menu to (`app_input_runtime.zig:513-521`): the
+        // mark and the window stay where they were, over what is listed now.
+        let mut shell = with_catalog(16, 80);
+        shell.route_bytes(b"e\x01s");
+        assert_eq!(shell.editor.text(), "se");
+        let mark = |shell: &Fixture| {
+            shell
+                .help_menu
+                .as_ref()
+                .map(HelpMenu::mark)
+                .expect("the catalog")
+        };
+        let kept = scrolled_mark_at_the_windows_top(&mut shell, mark);
+        one_burst_with_ctrl_o(&mut shell, 0x0a);
+        assert_eq!(shell.editor.text(), "s\ne");
+        assert!(!shell.full.is_open(), "the frame left the transcript up");
+        assert_eq!(mark(&shell), kept, "the mark or the window moved");
+        // Drawn from there: the marked command is the one at the kept index
+        // of what `s` and `e` list, and it is the window's first row.
+        let mut probe = HelpMenu::open("s\ne");
+        probe.keep((kept.0, 0));
+        let name = probe.selected().expect("a command").name;
+        let rows = menu_item_rows(&shell);
+        assert!(!rows.is_empty(), "no catalog rows in the band");
+        assert!(
+            rows[0].1,
+            "the window's first row is not the marked one: {rows:?}"
+        );
+        assert!(
+            rows[0].0.starts_with(name),
+            "the marked row is not {name}: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn c_j_in_ctrl_os_burst_inside_a_search_word_keeps_a_scrolled_settings_mark_and_window() {
+        // The settings menu the same way: its search's words are split at
+        // spaces, tabs and line breaks too (`super::settings`), and fx's line
+        // break leaves its mark and window where they were.
+        let mut shell = shell(16, 80);
+        shell.route_bytes(b"/settings\r");
+        assert!(shell.settings_menu.is_some(), "/settings opened no menu");
+        shell.route_bytes(b"e\x01s");
+        assert_eq!(shell.editor.text(), "se");
+        let mark = |shell: &Fixture| {
+            shell
+                .settings_menu
+                .as_ref()
+                .map(SettingsMenu::mark)
+                .expect("the settings menu")
+        };
+        let kept = scrolled_mark_at_the_windows_top(&mut shell, mark);
+        one_burst_with_ctrl_o(&mut shell, 0x0a);
+        assert_eq!(shell.editor.text(), "s\ne");
+        assert!(!shell.full.is_open(), "the frame left the transcript up");
+        assert_eq!(mark(&shell), kept, "the mark or the window moved");
+        let rows = menu_item_rows(&shell);
+        assert!(!rows.is_empty(), "no settings rows in the band");
+        assert!(
+            rows[0].1,
+            "the window's first row is not the marked one: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn c_k_in_ctrl_os_burst_with_text_after_the_caret_kills_it_and_each_menus_search_follows() {
+        // fx's kill syncs the menus (`:485`): the catalog, the settings menu,
+        // `/model`'s menu and the session picker put the mark back on their
+        // first row for a search that changed (`resetForQuery`,
+        // `ModelMenu.setQuery`, `SessionPicker.setQuery`); the skills menu
+        // keeps its mark, held to what is listed (`setMenuQuery`,
+        // `skill_runtime.zig:2603-2623`). Each search is typed, the caret
+        // taken to its start (Home) and the mark moved, then Ctrl-O and C-k
+        // in one burst kill the whole search.
+        use super::super::session_picker::{ListedSession, Listing};
+
+        let mut catalog = with_catalog(40, 120);
+        catalog.route_bytes(b"e\x01\x1b[B\x1b[B");
+        assert_eq!(catalog.help_menu.as_ref().map(HelpMenu::mark), Some((2, 0)));
+        one_burst_with_ctrl_o(&mut catalog, 0x0b);
+        assert_eq!(catalog.editor.text(), "", "the catalog: the kill");
+        assert_eq!(
+            catalog.help_menu.as_ref().map(HelpMenu::mark),
+            Some((0, 0)),
+            "the catalog: the mark"
+        );
+        assert!(!catalog.full.is_open(), "the catalog: the frame left it up");
+
+        let mut settings = shell(40, 120);
+        settings.route_bytes(b"/settings\re\x01\x1b[B\x1b[B");
+        let marked = settings.settings_menu.as_ref().map(SettingsMenu::mark);
+        assert_ne!(marked, Some((0, 0)), "settings: Down did not move the mark");
+        one_burst_with_ctrl_o(&mut settings, 0x0b);
+        assert_eq!(settings.editor.text(), "", "settings: the kill");
+        assert_eq!(
+            settings.settings_menu.as_ref().map(SettingsMenu::mark),
+            Some((0, 0)),
+            "settings: the mark"
+        );
+        assert!(!settings.full.is_open(), "settings: the frame left it up");
+
+        let mut models = shell(40, 120);
+        models.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            provider: ProviderId::Gateway,
+            entries: vec![
+                entry("one", Some(400_000), &[]),
+                entry("two", Some(400_000), &[]),
+            ],
+        });
+        let _ = models.document();
+        models.route_bytes(b"/model\ro\x01\x1b[B");
+        let model = |shell: &Fixture| {
+            shell
+                .model_menu
+                .as_ref()
+                .and_then(|menu| menu.selected().map(str::to_string))
+        };
+        let second = model(&models);
+        one_burst_with_ctrl_o(&mut models, 0x0b);
+        assert_eq!(models.editor.text(), "", "/model: the kill");
+        assert_ne!(model(&models), second, "/model: the mark stayed");
+        assert!(
+            model(&models).is_some_and(|id| id.ends_with("one")),
+            "/model: not back on the first row: {:?}",
+            model(&models)
+        );
+        assert!(!models.full.is_open(), "/model: the frame left it up");
+
+        let mut sessions = shell(40, 120);
+        sessions.route_bytes(b"/resume\r");
+        let _ = sessions.picks_up();
+        sessions.work.give_back();
+        let session = |id: &str| ListedSession {
+            id: id.to_string(),
+            title: Some(format!("question {id}")),
+            workspace: "/x/work".to_string(),
+            updated_at_ms: 0,
+            turns: 1,
+        };
+        sessions.apply(UiEvent::Sessions(Some(Listing {
+            current: vec![session("b"), session("a")],
+            all: Vec::new(),
+            now_ms: 0,
+        })));
+        sessions.route_bytes(b"q\x01\x1b[B");
+        let picked = |shell: &Fixture| {
+            shell
+                .sessions
+                .as_ref()
+                .and_then(SessionPicker::selected)
+                .as_deref()
+                .map(str::to_string)
+        };
+        assert_eq!(picked(&sessions).as_deref(), Some("a"));
+        one_burst_with_ctrl_o(&mut sessions, 0x0b);
+        assert_eq!(sessions.editor.text(), "", "sessions: the kill");
+        assert_eq!(
+            picked(&sessions).as_deref(),
+            Some("b"),
+            "sessions: the mark"
+        );
+        assert!(!sessions.full.is_open(), "sessions: the frame left it up");
+
+        let skill = |shell: &Fixture| {
+            shell
+                .skills_menu
+                .as_ref()
+                .filter(|menu| menu.visible())
+                .and_then(SkillsMenu::selected)
+                .map(|skill| skill.name.clone())
+        };
+        // The skills menu's mark stays on its index: the second row of the
+        // empty search, as a Down from the top of that search gives it.
+        let second_of_all = |keys: &[u8]| {
+            let mut reference = skilled();
+            reference.route_bytes(keys);
+            skills_landed(&mut reference);
+            reference.route_bytes(b"\x1b[B");
+            skill(&reference).expect("a second skill")
+        };
+        let mut skills = skilled();
+        skills.route_bytes(b"/skills\r");
+        skills_landed(&mut skills);
+        skills.route_bytes(b"e\x01\x1b[B");
+        assert!(skill(&skills).is_some(), "/skills: no mark");
+        one_burst_with_ctrl_o(&mut skills, 0x0b);
+        assert_eq!(skills.editor.text(), "", "/skills: the kill");
+        assert_eq!(
+            skill(&skills),
+            Some(second_of_all(b"/skills\r")),
+            "/skills: the mark"
+        );
+        assert!(!skills.full.is_open(), "/skills: the frame left it up");
+
+        // A `$` word: the kill takes the word's tail, and the menu searches
+        // what is left of it.
+        let mut dollar = skilled();
+        dollar.route_bytes(b"explain $e\x1b[D\x1b[B");
+        assert!(skill(&dollar).is_some(), "$: no mark");
+        one_burst_with_ctrl_o(&mut dollar, 0x0b);
+        assert_eq!(dollar.editor.text(), "explain $", "$: the kill");
+        assert_eq!(
+            skill(&dollar),
+            Some(second_of_all(b"explain $")),
+            "$: the mark"
+        );
+        assert!(!dollar.full.is_open(), "$: the frame left it up");
     }
 
     /// Ctrl-O over a menu the transcript holds over, and the frame: it is
@@ -37780,6 +38053,43 @@ mod tests {
         shell.route_bytes(&[0x7f]);
         assert_eq!(shell.editor.text(), "/provider ");
         assert_eq!(at(&shell), PROMPT_CELLS + 10);
+    }
+
+    #[test]
+    fn the_at_lists_column_hangs_from_the_carets_row_once_its_word_has_wrapped() {
+        // The `@` list hangs from the one anchor too (`picker_start_col`,
+        // `input_presentation.zig:383-386@481104fd`; [`Shell::anchor_at`]):
+        // under the `@` while the word starts on the caret's row, from the
+        // start of the caret's row once the word has wrapped past it
+        // (CTRLO-OTHER-PICKERS round 3, opus NIT 4).
+        let (_workspace, mut shell) = in_ws2(40, 24);
+        shell.route_bytes(b"ab @src");
+        listed(&mut shell);
+        let column = |shell: &Fixture| {
+            shell
+                .file_picker
+                .as_ref()
+                .map(|files| shell.file_picker_column(files))
+        };
+        assert_eq!(column(&shell), Some(PROMPT_CELLS + 4), "not under the @");
+        shell.route_bytes(b"xxxxxxxxxxxxxxxxxxxxxxxx");
+        let at = shell
+            .file_picker
+            .as_ref()
+            .map(|files| files.query().at)
+            .expect("the list closed");
+        let cols = shell.text_cols();
+        let (at_row, at_cell) = shell.editor.point_of(at, cols);
+        assert_ne!(at_row, shell.editor.point(cols).0, "the word did not wrap");
+        assert!(
+            at_cell > 0,
+            "the @ starts its row, where both anchors agree"
+        );
+        assert_eq!(
+            column(&shell),
+            Some(PROMPT_CELLS + 1),
+            "not at the caret's row's start"
+        );
     }
 
     /// `/mcp ` and a Down: the argument completions with the second marked.
