@@ -8406,7 +8406,7 @@ mod tests {
     // (`commit_document`), and a screen that narrowed in between got rows
     // wrapped for the screen it used to be -- which
     // `Band::append_document` -> `render_append` -> `place` -> `row_text` ->
-    // `clip` (`frame.rs:1533,1156,1626,1696,1758`) cuts to `geometry.cols`
+    // `clip` (`frame.rs:2631,1156,1626,1696,1758`) cuts to `geometry.cols`
     // **as it is now**. A row wrapped to 80 columns and clipped to 40 does not
     // get a second, narrower row for what fell off the end, and Phase 1 never
     // repaints a document row: the overhang was gone from the session rather
@@ -14222,10 +14222,10 @@ mod tests {
                 .any(|window| window == needle)
     }
 
-    /// `frame.rs`'s own `ERASE_LINE` (`frame.rs:61`) is private to that
+    /// `frame.rs`'s own `ERASE_LINE` (`frame.rs:102`) is private to that
     /// module, so this is a test-only copy of the same three bytes -- the
-    /// escape `place()` (`frame.rs:1615-1628`) writes once per document row,
-    /// and `grid.rs`'s band-diff painter (`grid.rs:41`) writes the identical
+    /// escape `place()` (`frame.rs:2733-2772`) writes once per document row,
+    /// and `grid.rs`'s band-diff painter (`grid.rs:47`) writes the identical
     /// bytes for its own reasons, so counting this in a sample's output
     /// bounds "rows repainted this tick" for the document *and* the band
     /// together, not the document alone.
@@ -14448,7 +14448,7 @@ mod tests {
     }
 
     /// How many rows one seed push holds the streamed line at: safely under
-    /// `transcript.rs:136`'s `MAX_TAIL_ROWS` (256, private to that module and
+    /// `transcript.rs:348`'s `MAX_TAIL_ROWS` (256, private to that module and
     /// pinned here as a literal for the reason every needle in this crate's
     /// tests is), and safely over either geometry's own document area, so the
     /// push a sample times always has more rows behind it than the screen can
@@ -15006,7 +15006,7 @@ mod tests {
             "the draft's caret (row {caret_row}) overlaps the document (band starts at row {})",
             rig.geometry.band_top()
         );
-        // Two `\n` (`InsertNewline`, `shell.rs:2815`) over three lines: this
+        // Two `\n` (`InsertNewline`, `shell.rs:2821`) over three lines: this
         // is really a *multirow* draft and not just a wide one-row composer.
         assert_eq!(
             rig.geometry.input_rows(),
@@ -15104,10 +15104,10 @@ mod tests {
     // What it is about is one join the controller already makes and nothing
     // here may loosen: the document's newest row is a function of the source
     // the transcript has **committed**, and a refused append commits nothing
-    // (`transcript.rs:505-531` adopts only on `Landed::All`). So an append the
+    // (`transcript.rs:1078-1104` adopts only on `Landed::All`). So an append the
     // terminal refused must leave the retained row reading exactly what the
     // last accepted vector put there -- and the frame that would have followed
-    // it must not run at all (`event_loop.rs:1046-1049`). Nothing here caches a
+    // it must not run at all (`event_loop.rs:1128-1131`). Nothing here caches a
     // source anywhere: the freshness is read off the screen the accepted bytes
     // make.
     //

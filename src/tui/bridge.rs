@@ -1741,7 +1741,7 @@ impl UiEventSink {
 /// be told twice.
 ///
 /// `Final` and `Error` are the turn's conclusion, emitted here by
-/// `agent::machine` (`machine.rs:334-345`) *and* returned from the same call as
+/// `agent::machine` (`machine.rs:849-860`) *and* returned from the same call as
 /// a `Result` the worker turns into exactly one `UiEvent::TurnEnded`. Sending
 /// one from here as well would put two conclusions on the channel, and the
 /// drain loop stops at the first -- before the worker has published its session
@@ -1794,7 +1794,7 @@ impl UiEventSink {
         match park_on(send_ui(&self.events, &self.cancel, event)) {
             Ok(()) => Ok(()),
             // The two the turn machine already knows how to report: it takes
-            // the sink's error as the turn's own (`machine.rs:641-648`), so the
+            // the sink's error as the turn's own (`machine.rs:1752-1766`), so the
             // kind is what a reader will be shown. An interrupted turn was
             // stopped on purpose; a broken pipe is a session that ended under
             // it.
@@ -2325,7 +2325,7 @@ mod tests {
     #[test]
     fn the_sink_reports_a_gone_ui_as_a_broken_pipe() {
         // The other half of the same seam: a turn that is still live writing
-        // to a session that is not. `machine.rs:646` reports the sink's error
+        // to a session that is not. `machine.rs:1766` reports the sink's error
         // as the turn's own, so the two have to be told apart at the source.
         let (tx, rx) = tokio::sync::mpsc::channel(UI_EVENTS);
         drop(rx);
@@ -2339,7 +2339,7 @@ mod tests {
     #[test]
     fn the_turn_machines_own_terminal_events_are_not_ui_terminal_events() {
         // `Final`/`Error` are the turn's conclusion emitted through the sink
-        // (`machine.rs:334-345`), and the worker sends exactly one `TurnEnded`
+        // (`machine.rs:849-860`), and the worker sends exactly one `TurnEnded`
         // derived from the very same `Result`. Translating them here would put
         // a second conclusion on the channel, and the UI's drain loop stops at
         // the first terminal event -- before the worker published its log.

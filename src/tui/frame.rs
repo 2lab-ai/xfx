@@ -7814,8 +7814,8 @@ mod tests {
     /// behavior observable, no production line changed to make it pass.
     ///
     /// The tamper strips the changed row's own placement, which
-    /// `check::preflight` must still catch (`frame.rs:1599-1622`, strictly
-    /// before `out.emit` at `frame.rs:1623`): the sink is never called and
+    /// `check::preflight` must still catch (`frame.rs:1607-1630`, strictly
+    /// before `out.emit` at `frame.rs:1631`): the sink is never called and
     /// `shadow` is never swapped in. Clearing the tamper through the
     /// existing seam (`Band.tamper`, `#[cfg(test)]`, a private field `mod
     /// tests` can reach directly) and retrying the identical append must
@@ -7898,7 +7898,7 @@ mod tests {
     /// bytes, which `deliver::classify` reports as `Emit::ZeroProgress`
     /// (`deliver.rs:190-196`) -- a delivery failure `out.emit` returns
     /// strictly *after* `check::preflight` already accepted the vector and
-    /// strictly *before* the `shadow`/`target` swap (`frame.rs:1623-1626`).
+    /// strictly *before* the `shadow`/`target` swap (`frame.rs:1631-1634`).
     /// Regression characterization, not TDD-first; no production line
     /// changed to make this pass.
     #[test]
@@ -7964,9 +7964,9 @@ mod tests {
     /// P3-WRAP diagnostic (not a gate): splits the `append` bucket already
     /// isolated by `event_loop::tests`'s near-cap breakdown (controller:
     /// 300x200 median 23.09ms) into `append_document`'s own three calls --
-    /// `seed` (`frame.rs:1462`), `render_append` (`frame.rs:1069-1234`:
+    /// `seed` (`frame.rs:1470`), `render_append` (`frame.rs:1069-1234`:
     /// clone shadow, place, clip, script) and `check::preflight`
-    /// (`frame.rs:1539-1591`) -- plus the sink write and the drop of what
+    /// (`frame.rs:1547-1599`) -- plus the sink write and the drop of what
     /// they built. Two runs: `whole` calls the real, unmodified
     /// `append_document`; `substeps` repeats its calls inline with its own
     /// separately measured `whole` span -- neither assumes the substeps sum
@@ -8141,7 +8141,7 @@ mod tests {
                 let sink_elapsed = t.elapsed();
 
                 // The same tail `append_document` runs after a landed emit
-                // (`frame.rs:1593-1604`), untimed here as it is there.
+                // (`frame.rs:1601-1612`), untimed here as it is there.
                 std::mem::swap(&mut band.shadow, &mut band.target);
                 band.document_bottom =
                     Some(geometry.band_top().saturating_sub(1)).filter(|row| *row > 0);

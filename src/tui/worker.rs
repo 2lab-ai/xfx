@@ -1,7 +1,7 @@
 //! The runtime thread: one turn at a time, and the protocol for ending it.
 //!
 //! This is where the tokio runtime lives now. `main` builds none on the TUI
-//! path (`src/main.rs:22-25`), because the UI thread has to be free to sit in
+//! path (`src/main.rs:28-31`), because the UI thread has to be free to sit in
 //! `pselect(2)` holding the terminal; the runtime is therefore built *here*, on
 //! a thread of its own, and a submitted prompt runs through exactly the call
 //! `xfx ask` runs -- [`crate::agent::run_turn_saved`], over a bundle from
@@ -30,7 +30,7 @@
 //! thread, and `signals::release`'s safety argument rests on it.
 //!
 //! **Exactly one terminal event per turn.** `agent::machine` emits its
-//! conclusion *and* returns it (`machine.rs:334-345`); the sink drops the
+//! conclusion *and* returns it (`machine.rs:849-860`); the sink drops the
 //! emitted half (`bridge::translate`), and the returned half becomes the single
 //! [`UiEvent::TurnEnded`] sent here, after the session log has been published.
 //! Publication before the terminal event is the ordering the UI's drain

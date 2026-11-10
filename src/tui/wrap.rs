@@ -2176,9 +2176,9 @@ mod tests {
     // --- P3-WRAP: `width`'s ASCII fast path, held to the general path's own
     // answers -------------------------------------------------------------
     //
-    // `wrap.rs:102-106`'s `width` re-segments into graphemes and re-measures a
+    // `wrap.rs:108-112`'s `width` re-segments into graphemes and re-measures a
     // cluster at a time for every call, and `grid.rs:212-216` /
-    // `check.rs:1808-1813` already hand it a single already-segmented ASCII
+    // `check.rs:1814-1819` already hand it a single already-segmented ASCII
     // cluster most of the time -- so the printable-ASCII case pays a
     // segmentation and a `unicode_width` lookup for an answer that is always
     // its own byte length. Every literal below was read from the *actual*
