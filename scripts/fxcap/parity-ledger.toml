@@ -590,7 +590,7 @@ scenarios = ["p5-panels-status-short"]
 snaps = ["*"]
 fx_row = '^<banner>$'
 xfx_row = '^x𝒇x v\S+ \[debug\] · Run /help for$|^commands$|^x𝒇x v\S+ \([a-z]+ \S+\)(?: ·)?$|^(?:· )?Run /help for commands$'
-why = "At 50 columns xfx's banner wraps onto row 2, which the banner rule does not read, so every row under it stands one lower than fx's: a debug build's `x𝒇x v0.1.0-<rev> [debug] · Run /help for commands` (52 cells) before the user's llmux format of 2026-11-10, and since it any build that knows its id, `x𝒇x v0.2.0 (debug 2026-11-10-0019-<rev>) · Run /help for commands` (57 cells; 59 for `release`)."
+why = "At 50 columns xfx's banner wraps onto row 2, which the banner rule does not read, so every row under it stands one lower than fx's: a debug build's `x𝒇x v0.1.0-<rev> [debug] · Run /help for commands` (52 cells) before the user's llmux format of 2026-11-10, and since it any build that knows its id, `x𝒇x v0.2.0 (debug 2026-11-10-0019-<rev>) · Run /help for commands` (72 cells, broken after `·`; 74 for `release` and `preview`, broken before it -- measured on a 24x50 tmux pane, 2026-11-10)."
 fix = "read a banner wrapped onto row 2 as the banner"
 
 [[cause]]
