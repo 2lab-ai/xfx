@@ -36853,7 +36853,224 @@ mod tests {
                 Ok(TurnWork::Submit(prompt)) => assert_eq!(prompt, draft),
                 other => panic!("{draft}: Enter under Ctrl-O sent {other:?}"),
             }
+            // The line went, so the composer is empty and its list closed.
+            assert!(shell.file_picker.is_none(), "{draft}: the list stayed up");
         }
+    }
+
+    /// CTRLO-AT-KEYS: `draft` typed, its `@` list listed and shown, then
+    /// Ctrl-O over it -- each step of `p5-ctrlo-at-keys`.
+    fn under_ctrl_o(draft: &[u8]) -> (tempfile::TempDir, Fixture) {
+        let (workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(draft);
+        listed(&mut shell);
+        assert!(
+            shell
+                .file_picker
+                .as_ref()
+                .is_some_and(|files| files.marked().is_some()),
+            "no rows for the draft"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O did not open the transcript");
+        (workspace, shell)
+    }
+
+    fn marked_path(shell: &Fixture) -> Option<String> {
+        shell
+            .file_picker
+            .as_ref()
+            .and_then(FilePicker::marked)
+            .map(|found| found.path.clone())
+    }
+
+    #[test]
+    fn c_j_under_the_full_transcript_is_a_new_line_and_closes_the_list() {
+        // fx's transcript binds no C-j (`keyForByte`,
+        // `input_full_transcript_runtime.zig:147-154@481104fd`), and no picker
+        // takes it while the transcript is up (`routePickerControlByte`'s
+        // `composerPickerSurfaceVisible`, `app_input_runtime.zig:1093-1116`):
+        // the byte is the composer's `insert_newline` (`shortcuts.zig:26`;
+        // `app_input_runtime.zig:513-521`). The caret leaves the `@` word, so
+        // the list closes, and it is not there when the plane comes back
+        // (`p5-ctrlo-at-keys cj`).
+        let (_workspace, mut shell) = under_ctrl_o(b"@src");
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(
+            shell.editor.text(),
+            "@src\n",
+            "C-j did not reach the composer"
+        );
+        assert!(shell.file_picker.is_none(), "the list is still up");
+        assert!(shell.full.is_open(), "C-j closed the transcript");
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        assert!(shell.file_picker.is_none(), "the list came back");
+        assert!(shell.sent.try_recv().is_err(), "C-j sent the line");
+    }
+
+    #[test]
+    fn c_k_under_the_full_transcript_kills_to_the_lines_end_and_keeps_the_list() {
+        // C-k reaches fx's composer the same way, as `delete_to_line_end`
+        // (`shortcuts.zig:19@481104fd`): a kill of what follows the caret
+        // (`app_input_runtime.zig:479-488`), so C-y yanks it back. The `@`
+        // word before the caret stays, and so does its list
+        // (`p5-ctrlo-at-keys ck`).
+        let (_workspace, mut shell) = under_ctrl_o(b" tail\x1b[H@src");
+        assert_eq!(shell.editor.text(), "@src tail");
+        let marked = marked_path(&shell);
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(
+            shell.editor.text(),
+            "@src",
+            "C-k did not kill to the line's end"
+        );
+        assert_eq!(
+            shell.file_picker.as_ref().and_then(FilePicker::lookup),
+            Some("src"),
+            "the list went with the kill"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        shell.file_picker_landed();
+        assert_eq!(marked_path(&shell), marked, "the bar moved");
+        shell.route_bytes(&[0x19]);
+        assert_eq!(shell.editor.text(), "@src tail", "C-k killed nothing");
+    }
+
+    #[test]
+    fn tab_under_the_full_transcript_chooses_nothing_and_keeps_the_list() {
+        // A Tab with a file query reaches fx's `autocompleteFilePickerSelection`
+        // (`app_input_runtime.zig:1317-1321@481104fd`), which returns at its
+        // eligibility check before it resolves a row
+        // (`input_completion_runtime.zig:946-950`): nothing is put in, and
+        // the list and its bar stay (`p5-ctrlo-at-keys tab`).
+        let (_workspace, mut shell) = under_ctrl_o(b"@src");
+        let marked = marked_path(&shell);
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "@src", "Tab chose a row");
+        shell.route_bytes(&[0x0f]);
+        shell.file_picker_landed();
+        assert_eq!(marked_path(&shell), marked, "the list or its bar moved");
+    }
+
+    #[test]
+    fn the_arrows_and_page_keys_under_the_full_transcript_are_its_own() {
+        // fx's transcript binds Up, Down and the page keys (`keyForAction`,
+        // `input_full_transcript_runtime.zig:156-166@481104fd`) and scrolls
+        // itself with them (`routeKey`, `:181-197`): none reaches the list,
+        // and the bar is where it was when the plane comes back
+        // (`p5-ctrlo-at-keys down`).
+        let (_workspace, mut shell) = under_ctrl_o(b"@src");
+        let marked = marked_path(&shell);
+        for key in [&b"\x1b[B"[..], b"\x1b[A", b"\x1b[6~", b"\x1b[5~"] {
+            shell.route_bytes(key);
+            assert!(shell.full.is_open(), "{key:?} closed the transcript");
+        }
+        shell.route_bytes(&[0x0f]);
+        shell.file_picker_landed();
+        assert_eq!(shell.editor.text(), "@src");
+        assert_eq!(marked_path(&shell), marked, "an arrow moved the bar");
+    }
+
+    #[test]
+    fn escape_under_the_full_transcript_closes_it_and_keeps_the_list() {
+        // fx's Escape is the transcript's close (`keyForAction`,
+        // `input_full_transcript_runtime.zig:163@481104fd`; `closeScreen`,
+        // `:129-145`) and goes no further (`app_input_runtime.zig:915-919`):
+        // the word and its list stay (`p5-ctrlo-at-keys esc`).
+        let (_workspace, mut shell) = under_ctrl_o(b"@src");
+        let marked = marked_path(&shell);
+        escape(&mut shell);
+        assert!(!shell.full.is_open(), "Escape left the transcript up");
+        assert_eq!(shell.editor.text(), "@src");
+        shell.file_picker_landed();
+        assert_eq!(marked_path(&shell), marked, "Escape took the list");
+    }
+
+    #[test]
+    fn a_letter_under_the_full_transcript_is_typed_and_looked_up_once_it_closes() {
+        // A printable byte is fx's composer's (`handleComposerByte`,
+        // `app_input_runtime.zig:1442-1478@481104fd`): the query changes, and
+        // the list is prepared only once it is eligible again
+        // (`prepareFilePicker`, `input_completion_runtime.zig:848-853`) --
+        // `@f-z`'s `no matching files` (`p5-ctrlo-at-keys letter`).
+        let (_workspace, mut shell) = under_ctrl_o(b"@src");
+        let lookups = shell.files_for_test().lookups_for_test();
+        shell.route_bytes(b"z");
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.editor.text(), "@srcz");
+        assert_eq!(
+            shell.file_picker.as_ref().and_then(FilePicker::lookup),
+            Some("srcz")
+        );
+        assert_eq!(
+            shell.files_for_test().lookups_for_test(),
+            lookups,
+            "the new query was looked up under the transcript"
+        );
+        shell.route_bytes(&[0x0f]);
+        listed(&mut shell);
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Empty)
+        );
+    }
+
+    #[test]
+    fn tab_under_the_full_transcript_over_files_unavailable_walks_nothing() {
+        // AT-HEIGHT r3 opus SHOULD 2: fx's Tab returns at its eligibility
+        // check (`input_completion_runtime.zig:949@481104fd`), before the
+        // retry that asks for the index's refresh (`:953`; `retry`,
+        // `file_completion_state.zig:230-233`). The first half of
+        // [`tab_in_the_interim_retries_and_still_says_files_unavailable`]
+        // with Ctrl-O around the Tab: nothing is queued behind B, so a retry
+        // would be a third walk once the list is eligible again -- and there
+        // are two.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_a, _path, first) = extra_with_plan(&shell);
+        let (_b, path, other) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        shell.start_file_index();
+        let a_walk = super::super::file_index::tests::held(shell.files_for_test());
+        adopt(&mut shell, first);
+        adopt(&mut shell, other);
+        shell.settle_band(Instant::now());
+        shell.route_bytes(b"@plan");
+        let _ = a_walk.send(super::super::file_index::Published::Ready);
+        shell.settle_band(Instant::now());
+        let b_walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.file_picker_landed();
+        assert_eq!(listed_rows(&shell)[0], status_row(FILES_UNAVAILABLE));
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O did not open the transcript");
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "@plan", "Tab put a path in");
+        assert!(
+            !shell
+                .file_picker
+                .as_ref()
+                .is_some_and(FilePicker::refresh_requested),
+            "Tab under the transcript asked for the index's refresh"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        shell.settle_band(Instant::now());
+        let after = listed_rows(&shell)[0].clone();
+        // B is the case's own walk, so its index is what it is sent: the
+        // added directory's `plan.md`, by its absolute path.
+        let plan = format!("{}/plan.md", path.display());
+        let _ = b_walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&[plan.as_str()]),
+        ));
+        let _ = b_walk.send(super::super::file_index::Published::Ready);
+        walked(&mut shell);
+        assert_eq!(listed_paths(&shell), [plan]);
+        assert_eq!(
+            (after, shell.files_for_test().walks_for_test() - walks),
+            (status_row(FILES_UNAVAILABLE), 2),
+            "Tab under the transcript queued a walk"
+        );
     }
 
     #[test]
