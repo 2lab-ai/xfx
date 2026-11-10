@@ -13,7 +13,9 @@ head `b3a19ede` (branch `fix/p5-approval-readiness-settled`, not yet on
 |---|---|
 | `5fadcf22` | RED: three new shell tests, one shell case flipped (C-w then C-y sends `ab `), the approval Tab case and the draft's undo test rewritten, the scenario `p5-approval-draft-keys`; tests only in `src/` |
 | `09077f5f` | **the code head**: `approval::edits` without `Undo`, `Redo` and `Yank`; Tab in a draft `Moved`; the draft's undo history deleted (`src/tui/approval_amendment.rs`); `docs/parity.md`'s approval sentence; the ledger's moved refs |
-| the commit after | this receipt, and in the parity sentence "the arrows" narrowed to "Left and Right in each spelling" (Up and Down move the choice); no `src/` change |
+| `62fe5624` | round 1's receipt, and in the parity sentence "the arrows" narrowed to "Left and Right in each spelling" (Up and Down move the choice); no `src/` change |
+| `58f3dd1f` | **round 2** (the reviews of `62fe5624`, no MUST): the word deletes told apart from `ab.cd`; an edit, a key the draft does not take and Enter in one read stay held; the parity sentence points to the units that own the five remaining differences; the ledger's moved refs; tests only in `src/` |
+| the commit after | round 2's receipt: `green2.txt`, the mutants again with M12-M14, `fx-src.txt` with fx's xterm `CSI 27;m;k~` stage, `refs.txt`, this file; no `src/` change |
 
 Captures, all `p5-approval-draft-keys` at 40x120: `fx/` is fx v0.0.16
 (sha256 `8e6cda2e…`, `FX_AUTO_UPGRADE=0`; `capture.sh` checked its bytes after
@@ -83,9 +85,9 @@ three deletes of `fromControlByte` (`shortcuts.zig:31-41`, `:11-29`).
 | Alt-Backspace (`ESC DEL`, `escape_parser.zig:546-550`; kitty, `escape_parser.zig:261`) | delete the word to the left (`approval_amendment.zig:111-115`) | same | same |
 | Super-Backspace (kitty, `escape_parser.zig:260`) | delete to the line's start | same | same |
 | Alt-d (`ESC d`, `escape_parser.zig:540-544`; kitty, `escape_parser.zig:251`) | delete the word to the right | same | same |
-| kitty or xterm Ctrl+letter (`escape_parser.zig:255-259`) | the letter's byte, replayed: the table above | same; Ctrl+Y a **yank**, Ctrl+_ an **undo** | same; both **nothing** |
+| kitty or xterm Ctrl+letter (kitty's `CSI <k>;<m>u`, `escape_parser.zig:686-691`; xterm's `CSI 27;<m>;<k>~`, read into a third field and handed to the same function, `escape_parser.zig:668-674`, `:740-752`; resolved at `escape_parser.zig:255-259`) | the letter's byte, replayed: the table above | same; Ctrl+Y a **yank**, Ctrl+_ an **undo** | same; both **nothing** |
 | Ctrl+Shift+A, B, E, F (kitty, `escape_parser.zig:235-242`) | caret to the start, one step left, to the end, one step right | **nothing** (the decoder's `Ignore`) | nothing (`docs/parity.md`, COMPOSER-SELECTION-EXTEND) |
-| Super+Z, Super+Shift+Z (`escape_parser.zig:232-234`) | nothing: a composer undo and redo, no draft action (`src/ui/input/runtime.zig:94`), the switch's `else` | **undo**, **redo** | **nothing** |
+| Super+Z, Super+Shift+Z, in either form (`escape_parser.zig:232-234`) | nothing: a composer undo and redo, no draft action (`src/ui/input/runtime.zig:94`), the switch's `else` | **undo**, **redo** | **nothing** |
 | Super+A, C, X (`escape_parser.zig:223-231`); Alt- and Shift-Enter (`escape_parser.zig:515-519`, `:219-221`); Shift-Tab (`escape_parser.zig:569`, `:254`) | nothing, the same way | nothing | nothing |
 
 **Paste.** A bracketed paste while a draft is open is the draft's
@@ -96,11 +98,20 @@ inserted with a modal frame (`input_paste_runtime.zig:308-334`). xfx's draft
 takes it too and keeps the line breaks and tabs (`docs/parity.md`,
 APPROVAL-PASTE-SPACES).
 
-**What each delete deletes**, which the kept-keys test checks from `ab `:
-`previousWordStart`, `nextWordEnd`, `nextWordDeleteEnd` and the line bounds
-(`text_boundaries.zig:34-89`), and the whitespace word
-(`text_boundaries.zig:149-167`). xfx's draft gives fx's answer in every case
-of that test, at the base already (`red.txt`: it passes there).
+**What each delete deletes.** The kept-keys test runs every kept key from
+`ab `, where C-w, Alt-Backspace and Alt-d all leave nothing, so it cannot
+tell the three apart (it passes at the base, `red.txt`). Round 2's
+`the_word_deletes_and_moves_stop_where_fxs_draft_stops_them` does, from
+`ab.cd`, against fx's boundaries read at the pin: C-w takes the run back to
+whitespace (`text_boundaries.zig:149-167`), so `X` after an `X` is typed;
+Alt-Backspace takes the word characters (`text_boundaries.zig:34-47`, `.` is
+none, `text_boundaries.zig:71-77`), so `ab.X`; Alt-d takes the word and the
+gap after it (`text_boundaries.zig:60-69`), so `Xcd`; Alt-b and Ctrl-Left stop
+at `ab.Xcd`, Alt-f and Ctrl-Right at `abX.cd` (`text_boundaries.zig:49-58`);
+C-k takes the line, `X`. Each in its kitty spelling too where it has one.
+xfx's draft gives fx's answer in all twelve (`green2.txt`), and mutants M12
+and M13 (Alt-Backspace as C-w's delete, Alt-d as C-k's) are killed by that
+test alone.
 
 ## The change (`git diff --stat b3a19ede 09077f5f -- src`: 3 files, +291 / -114; outside the `mod tests` blocks +41 / -74: comments and the deleted history)
 
@@ -185,12 +196,27 @@ C-w, both back to `ab `. `sent.txt`: the base sent `ab cd`.
   unchanged), and `write-ask` (the next Enter answered).
 - **The text sent** (`sent.txt`): fx `["ab "]`, the head `["ab "]`, the base
   `["ab cd"]`.
+- **Round 2** (`green2.txt`, at `58f3dd1f`): fmt and both clippy runs clean;
+  the filter with round 2's two test names added, 481 passed, 0 failed, 1
+  ignored (479 plus the two); `--test parity` 26 passed. The two tests:
+  - `the_word_deletes_and_moves_stop_where_fxs_draft_stops_them` (above,
+    "What each delete deletes");
+  - `an_edit_then_a_key_the_draft_does_not_take_and_enter_in_one_read_stay_held`:
+    a letter, each of the nine spellings and an Enter in one read send
+    nothing, on the band and on the review plane, and the Enter after the
+    frame sends `ab x`. A swallowed key asks for no frame and does not settle
+    the edit's either, as fx's reaches nothing that commits one
+    (`app_input_runtime.zig:1173-1184`, `input_approval_runtime.zig:128`).
+  Round 2 changes no product code, so its captures, sweep and gate are round
+  1's.
 
-## Mutants (`mutants.py`, `mutants.txt`): 11 of 11 killed
+## Mutants (`mutants.py`, `mutants.txt`): 14 of 14 killed
 
-On a fresh `git clone --no-local` throwaway of the branch at `09077f5f`
+Round 2's run, all fourteen, on a fresh `git clone --no-local` throwaway of the branch at `58f3dd1f`
 (remote removed) under `$TMPDIR/mut/`, one at a time, the file restored after
 each, under the suite lock. The clone's tree was clean after the run.
+Round 1's eleven, at `09077f5f`, are below them in `mutants.txt`, all
+killed.
 
 | mutant | killed by |
 |---|---|
@@ -200,11 +226,14 @@ each, under the suite lock. The clone's tree was clean after the run.
 | M4 Tab in a draft `Ignored` again | the shell Tab test and the approval Tab case |
 | M5 C-u and Super-Backspace removed (`KillToStart`) | the kept-keys test and the edit test |
 | M6 Delete removed | the kept-keys test |
-| M7 Home, C-a and their spellings removed | the kept-keys test |
-| M8 Alt-Backspace removed (`DeleteWordBackward`) | the kept-keys test |
+| M7 Home, C-a and their spellings removed | the kept-keys test and the word test |
+| M8 Alt-Backspace removed (`DeleteWordBackward`) | the kept-keys test and the word test |
 | M9 Super-Up and -Down in a draft swallowed | the kept-keys test and the two vertical-spelling tests |
-| M10 a draft edit holds no Enter (`Ignored`) | the kept-keys test, the edit test and the one-read test |
+| M10 a draft edit holds no Enter (`Ignored`) | the kept-keys test, the word test, the edit test and the one-read test |
 | M11 a removed key holds the Enter (marks a change) | the removed-keys test |
+| M12 Alt-Backspace deletes C-w's whitespace word (round 2) | the word test alone |
+| M13 Alt-d kills to the line's end, as C-k (round 2) | the word test alone |
+| M14 a swallowed key settles a pending change: a key the draft does not take, read after an edit, takes the screen as shown (round 2) | the held-edit test, and the edit test's "ctrl-w then ctrl-y" |
 
 With the history deleted, putting a removed key back in `edits` makes it a
 no-op that holds the Enter; putting back its old behaviour as well is the
@@ -263,14 +292,18 @@ was made (`git diff --cached`).
   list a yank; the yank clause is replaced by Tab's frame; and a new clause,
   **"The draft's keys are fx v0.0.16's"**, gives the set by route, the three
   removed and why, and what is still apart (Ctrl+Shift+A/B/E/F in a draft,
-  DECODER-TILDE-HOME-END, APPROVAL-CTRL-J). `fx_src.sh` checks those
+  DECODER-TILDE-HOME-END, APPROVAL-CTRL-J). Round 2 puts a pointer right
+  after the bold words to the units that own the five remaining differences
+  (COMPOSER-SUPER-ARROWS, APPROVAL-PASTE-SPACES, COMPOSER-SELECTION-EXTEND,
+  DECODER-TILDE-HOME-END, APPROVAL-CTRL-J), so the bold line does not read as
+  full parity. `fx_src.sh` checks those
   citations together with the unit's added lines (run as its header says;
   `fx-src-check.txt`).
 - The ledger's refs into `src/tui/shell.rs`, checked by content with
   APPROVAL-VERTICAL-SPELLINGS' `refs.py` (`python3 -I refs.py b3a19ede`, from
   the repo root): 17 checked, 0 wrong (`refs.txt`). The six `tools: {}
-  advertised` refs moved 224 lines with the new tests, and `--fix`
-  re-pointed them.
+  advertised` refs moved 224 lines with round 1's tests (40311 to 40535) and
+  107 more with round 2's (to 40642), and `--fix` re-pointed them each time.
 
 ## Safety
 

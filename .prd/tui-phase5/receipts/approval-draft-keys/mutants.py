@@ -3,7 +3,8 @@ Applies each mutant to the clone alone, runs the unit's tests there under a
 per-mutant timeout, and restores the file. A mutant is killed when a test
 fails. Never run against the worktree: the clone must sit under
 `$TMPDIR/mut/`, and its build and temp files go beside it there.
-APPROVAL-READINESS-SETTLED's mutants.py, with this unit's mutants."""
+APPROVAL-READINESS-SETTLED's mutants.py, with this unit's mutants (M12-M14 and
+the filter's last two names added in round 2)."""
 import os, subprocess, sys, time
 repo, out = sys.argv[1], sys.argv[2]
 mut = os.path.join(os.environ["TMPDIR"].rstrip("/"), "mut")
@@ -18,6 +19,11 @@ EDIT = "            drafts.edit(editing, width(open));\n            Reply::Moved
 SWALLOW = ("                Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),\n"
            "                _ => return,\n")
 EDGE = "                approval::Action::Edit(edge)\n"
+DRAFT_ARM = "                Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),\n"
+def as_key(old, new):
+    return ("                Input::Action(key) if approval::edits(key) => approval::Action::Edit(\n"
+            "                    if key == Action::%s { Action::%s } else { key },\n"
+            "                ),\n" % (old, new))
 MUTANTS = [
     # Each removed key put back in the draft's keys.
     ("M1 Undo put back in approval::edits", A, KILL_TO_START, put_back("Undo")),
@@ -39,13 +45,25 @@ MUTANTS = [
     ("M11 a key the draft does not take holds the Enter (marks a change)", S, SWALLOW,
      "                Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),\n"
      "                _ => {\n                    self.approval_changed();\n                    return;\n                }\n"),
+    # Round 2: the word deletes told apart, and a pending hold kept past a swallowed key.
+    ("M12 Alt-Backspace deletes C-w's whitespace word", S, DRAFT_ARM, as_key("DeleteWordBackward", "DeleteWordLeft")),
+    ("M13 Alt-d kills to the line's end, as C-k", S, DRAFT_ARM, as_key("DeleteWordRight", "KillToEnd")),
+    ("M14 a swallowed key settles a pending change (a frame taken as shown)", S, SWALLOW,
+     "                Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),\n"
+     "                _ => {\n"
+     "                    if self.asked_id.is_some_and(|id| self.approval_unshown(id)) {\n"
+     "                        self.intend_approval();\n"
+     "                        self.approval_landed(Outcome::Unchanged);\n"
+     "                    }\n"
+     "                    return;\n"
+     "                }\n"),
 ]
 TESTS = [
     ["cargo", "test", "--locked", "--lib", "--", "approval", "amendment", "alt_b", "alt_f", "the_fold",
      "horizontal", "draft_left", "up_and_down_move", "the_arrows_leave", "leaving_a_filled_draft",
      "revokes", "vertical", "super_up_and_down", "one_read", "until_a_frame", "refusal_read",
      "a_walk_of_the_review", "enter_takes_the_marked", "writes_nothing", "ctrl_l",
-     "undo_redo_and_yank", "tab_in_a_draft", "every_key_fxs"],
+     "undo_redo_and_yank", "tab_in_a_draft", "every_key_fxs", "the_word_deletes", "an_edit_then_a_key"],
 ]
 env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(mut, "target"), TMPDIR=os.path.join(mut, "tmp"))
 os.makedirs(env["TMPDIR"], exist_ok=True)

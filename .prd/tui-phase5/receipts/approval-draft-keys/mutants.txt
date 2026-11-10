@@ -1,3 +1,21 @@
+# round 2, at 58f3dd1f (a fresh clone, remote removed, under $TMPDIR/mut/)
+M1 Undo put back in approval::edits: KILLED (33s) 1 failed: tui::shell::tests::undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do
+M2 Redo put back in approval::edits: KILLED (16s) 1 failed: tui::shell::tests::undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do
+M3 Yank put back in approval::edits: KILLED (15s) 1 failed: tui::shell::tests::undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do
+M4 Tab in a draft is Ignored again (holds no Enter): KILLED (24s) 2 failed: tui::approval::tests::tab_enters_the_draft_of_an_eligible_choice_and_cycles_past_an_ineligible_one, tui::shell::tests::tab_in_a_draft_changes_nothing_and_holds_the_enter_until_a_frame_as_fxs_does
+M5 C-u and Super-Backspace removed (KillToStart): KILLED (25s) 2 failed: tui::shell::tests::an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft, tui::shell::tests::every_key_fxs_draft_takes_still_edits_it_and_holds_the_enter_until_a_frame
+M6 Delete removed: KILLED (19s) 1 failed: tui::shell::tests::every_key_fxs_draft_takes_still_edits_it_and_holds_the_enter_until_a_frame
+M7 Home, C-a and their spellings removed: KILLED (16s) 2 failed: tui::shell::tests::the_word_deletes_and_moves_stop_where_fxs_draft_stops_them, tui::shell::tests::every_key_fxs_draft_takes_still_edits_it_and_holds_the_enter_until_a_frame
+M8 Alt-Backspace removed (DeleteWordBackward): KILLED (14s) 2 failed: tui::shell::tests::the_word_deletes_and_moves_stop_where_fxs_draft_stops_them, tui::shell::tests::every_key_fxs_draft_takes_still_edits_it_and_holds_the_enter_until_a_frame
+M9 Super-Up and -Down in a draft swallowed: KILLED (25s) 3 failed: tui::shell::tests::the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do, tui::shell::tests::a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown, tui::shell::tests::every_key_fxs_draft_takes_still_edits_it_and_holds_the_enter_until_a_frame
+M10 a draft edit holds no Enter (Ignored): KILLED (21s) 4 failed: tui::shell::tests::an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft, tui::shell::tests::a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown, tui::shell::tests::the_word_deletes_and_moves_stop_where_fxs_draft_stops_them, tui::shell::tests::every_key_fxs_draft_takes_still_edits_it_and_holds_the_enter_until_a_frame
+M11 a key the draft does not take holds the Enter (marks a change): KILLED (39s) 1 failed: tui::shell::tests::undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do
+M12 Alt-Backspace deletes C-w's whitespace word: KILLED (27s) 1 failed: tui::shell::tests::the_word_deletes_and_moves_stop_where_fxs_draft_stops_them
+M13 Alt-d kills to the line's end, as C-k: KILLED (17s) 1 failed: tui::shell::tests::the_word_deletes_and_moves_stop_where_fxs_draft_stops_them
+M14 a swallowed key settles a pending change (a frame taken as shown): KILLED (35s) 2 failed: tui::shell::tests::an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft, tui::shell::tests::an_edit_then_a_key_the_draft_does_not_take_and_enter_in_one_read_stay_held
+14 of 14 killed; the clone's tree after the run: clean
+
+# round 1, at 09077f5f
 M1 Undo put back in approval::edits: KILLED (58s) 1 failed: tui::shell::tests::undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do
 M2 Redo put back in approval::edits: KILLED (9s) 1 failed: tui::shell::tests::undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do
 M3 Yank put back in approval::edits: KILLED (8s) 1 failed: tui::shell::tests::undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do

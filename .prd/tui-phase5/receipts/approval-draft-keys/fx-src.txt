@@ -1167,7 +1167,7 @@
   273      };
   274  }
 
-## src/ui/input/escape_parser.zig:500-738
+## src/ui/input/escape_parser.zig:500-780
   500      switch (base_stage) {
   501          1 => {
   502              if (byte == '[') {
@@ -1407,6 +1407,48 @@
   736              resetMouseEscapeDecode(stage, param, param2, mouse);
   737              return action;
   738          },
+  739          // Stage 6: third parameter (e.g. modifyOtherKeys: ESC[27;modifier;keycode~)
+  740          6 => {
+  741              if (byte >= '0' and byte <= '9') {
+  742                  appendCsiDigitSaturating(param, byte);
+  743                  return null;
+  744              }
+  745  
+  746              if (byte == '~') {
+  747                  const meta_prefixed = hasMetaPrefix(stage.*);
+  748                  const keycode = param.*;
+  749                  const modifiers = if (param2.* > 0) param2.* - 1 else 0;
+  750                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  751                  return kittyUnicodeKeyAction(keycode, modifiers, meta_prefixed);
+  752              }
+  753  
+  754              return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
+  755          },
+  756          // Kitty key reports with an event type: `ESC[<keycode>;modifier:event-type u`.
+  757          // Only press (1) and repeat (2) are actionable; release (3) must not
+  758          // close a panel or move the caret.
+  759          kitty_escape_event_type_stage => {
+  760              if (byte >= '0' and byte <= '9') {
+  761                  // The low nibble holds the event type while the high bits hold
+  762                  // the modifiers. Accumulate instead of overwriting so a
+  763                  // multi-digit event type stays out of the actionable range.
+  764                  const event_digits = (param.* & 0x0F) * 10 + (byte - '0');
+  765                  param.* = (param.* & 0xFFF0) | @min(event_digits, 0x0F);
+  766                  return null;
+  767              }
+  768              if (byte == 'u') {
+  769                  const meta_prefixed = hasMetaPrefix(stage.*);
+  770                  const keycode = param2.*;
+  771                  const modifiers = param.* >> 4;
+  772                  const event_type = param.* & 0x0F;
+  773                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  774                  if (event_type == 1 or event_type == 2) {
+  775                      return kittyUnicodeKeyAction(keycode, modifiers, meta_prefixed);
+  776                  }
+  777                  return .ignore;
+  778              }
+  779              return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
+  780          },
 
 ## src/ui/input/terminal_action_decoder.zig:92-124
    92              if (prior_stage == 1 and

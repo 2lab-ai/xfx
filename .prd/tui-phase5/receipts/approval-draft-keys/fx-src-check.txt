@@ -1,2 +1,2 @@
-# { git diff b3a19ede -- src tests scripts/fxcap/scenarios | grep '^+'; grep -o '[*][*]When an affirmative may be taken.*APPROVAL-CTRL-J)[.]' docs/parity.md; } | fx_src.sh <fx-upstream>   (from the repo root, at the receipt commit)
-202 citations checked, 0 outside fx-src.txt's ranges
+# { git diff b3a19ede -- src tests scripts/fxcap/scenarios | grep '^+'; grep -o '[*][*]When an affirmative may be taken.*APPROVAL-CTRL-J)[.]' docs/parity.md; } | fx_src.sh <fx-upstream>   (from the repo root, at round 2's receipt commit)
+222 citations checked, 0 outside fx-src.txt's ranges

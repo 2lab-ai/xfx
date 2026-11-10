@@ -53,7 +53,7 @@ ranges=(
   src/ui/input/shortcuts.zig:43-65
   src/ui/input/escape_parser.zig:60-109
   src/ui/input/escape_parser.zig:146-274
-  src/ui/input/escape_parser.zig:500-738
+  src/ui/input/escape_parser.zig:500-780
   src/ui/input/terminal_action_decoder.zig:92-124
   src/ui/input/terminal_action_decoder.zig:207-232
   src/core/app/app_input_runtime.zig:595-656
