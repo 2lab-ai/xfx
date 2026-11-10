@@ -429,16 +429,9 @@ async fn run_ask(
     // its name is printed, `fx: <Error>`, or with `--json` is the error
     // (`askErrorNotice`, `cli_ask.zig:1189-1197@481104fd`; `:1306-1326`,
     // `:1802-1823`; `tryWriteErrorMessage`, `app_entry_runtime.zig:563-567`).
-    let named = |error: &str| {
-        if request.json {
-            error.to_string()
-        } else {
-            format!("xfx: {error}")
-        }
-    };
     let failure = match open_session(config, &request, mode) {
         Ok(opened) => Ok(opened),
-        Err(SessionError::Unreadable { .. }) => Err(named("InvalidSessionFormat")),
+        Err(SessionError::Unreadable { error, .. }) => Err(named(request.json, error)),
         Err(err) => Err(err.to_string()),
     };
     let mut opened = match failure {
@@ -671,21 +664,27 @@ struct CopyErrorNamed<'a> {
     json: bool,
 }
 
+/// An error with no notice of its own, as upstream's `ask` prints it: its name
+/// after `fx: `, or with `--json` the name alone.
+fn named(json: bool, error: &str) -> String {
+    if json {
+        error.to_string()
+    } else {
+        format!("xfx: {error}")
+    }
+}
+
 impl EventSink for CopyErrorNamed<'_> {
     fn emit(&mut self, event: &Event) -> io::Result<()> {
-        let failed = crate::gateway::ProviderError::Image(crate::session::store::COPY_CHANGED);
-        match event {
-            Event::Error { message } if *message == failed.to_string() => {
-                let name = crate::session::store::COPY_CHANGED;
-                self.inner.emit(&Event::Error {
-                    message: if self.json {
-                        name.to_string()
-                    } else {
-                        format!("xfx: {name}")
-                    },
-                })
-            }
-            _ => self.inner.emit(event),
+        let image = |name: &&'static str| {
+            matches!(event, Event::Error { message }
+                if *message == crate::gateway::ProviderError::Image(name).to_string())
+        };
+        match crate::session::store::COPY_ERRORS.into_iter().find(image) {
+            Some(name) => self.inner.emit(&Event::Error {
+                message: named(self.json, name),
+            }),
+            None => self.inner.emit(event),
         }
     }
 

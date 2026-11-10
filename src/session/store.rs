@@ -218,12 +218,11 @@ pub enum SessionError {
     NoSession { detail: String },
     /// The session exists and cannot be trusted.
     Corrupt { id: String, detail: String },
-    /// A prompt image's saved copy is not there, or is not a regular file:
-    /// upstream's `InvalidSessionFormat` for the same session, which reads
-    /// every prompt image's blob as it reads the conversation (`decodeUser`,
-    /// `imageBlobFailed`, `vercel-labs/fx@481104fd
-    /// src/core/session/session_adapter.zig:2871-2893`).
-    Unreadable { id: String },
+    /// A prompt image's saved copy is not there or not a regular file, or its
+    /// folder cannot be read: `error` is upstream's for the same session,
+    /// which reads every prompt image's blob as it reads the conversation,
+    /// `InvalidSessionFormat` or `Io` ([`read_snapshots`]).
+    Unreadable { id: String, error: &'static str },
     /// Another process holds this session open for writing.
     ///
     /// Distinct from [`Self::Corrupt`] on purpose: nothing is wrong with the
@@ -280,7 +279,14 @@ impl fmt::Display for SessionError {
             // up to its two pointers, `Run \`fx doctor\`; if it is recoverable,
             // use \`fx session recover <id>\`.`: xfx's `doctor` reads no image
             // and xfx has no `session recover` (`docs/parity.md`, `/image`).
-            Self::Unreadable { .. } => f.write_str("saved session is unreadable."),
+            // Upstream's launch has a sentence for the one and prints the
+            // other's name (`app_entry_runtime.zig:278-301@481104fd`,
+            // `formatUnexpectedError`, `:537-539`).
+            Self::Unreadable {
+                error: "InvalidSessionFormat",
+                ..
+            } => f.write_str("saved session is unreadable."),
+            Self::Unreadable { error, .. } => f.write_str(error),
             Self::Busy { id } => write!(
                 f,
                 "session `{id}` is already open for writing by another xfx process; \
@@ -494,22 +500,35 @@ pub struct SavedCopy {
     size: u64,
 }
 
+/// One byte past the most one image may be in a request
+/// ([`crate::image::fits_encoded`]): as far as the history reads a copy, enough
+/// for its header, and to see it is past.
+const PAST_A_REQUEST: u64 = (crate::image::MAX_ENCODED_BYTES / 4 * 3 + 1) as u64;
+
 /// What a request a prompt image's changed copy is part of fails with:
 /// upstream's name for bytes that are not the digest's (`loadVerifiedSnapshot`,
 /// `image_attachments.zig:1260-1320@481104fd`).
 pub const COPY_CHANGED: &str = "ImageSnapshotCorrupt";
 
-/// `inner`, every request it is asked checked first: each image in it read
-/// from a [`SavedCopy`] is read again and held to its digest, as upstream's
-/// build reads each history image's blob for every request and fails on one
-/// that does not match (`writeImageFilePartJson`,
-/// `image_attachments.zig:1861-1877@481104fd`, a `try` from
-/// `vercel_protocol.zig:873-890` and `orchestrator.zig:7712-7716`). It is
-/// built after the turn's prompt is recorded, as upstream's
-/// (`p5-image-loss-changed`), so that turn stays in the log; the request
-/// fails, `request failed: ImageSnapshotCorrupt`, and nothing is sent. A copy
-/// that matches goes with the bytes just read. One gone since the turn read it
-/// goes as the turn read it.
+/// Every error [`CopiesChecked`] fails a request with: [`COPY_CHANGED`], and
+/// a read of the copy that fails, which upstream's reader calls `ReadFailed`
+/// (`readSliceShort` in `loadVerifiedSnapshot`).
+pub const COPY_ERRORS: [&str; 2] = [COPY_CHANGED, "ReadFailed"];
+
+/// `inner`, every request it is asked projected first as upstream projects
+/// each one: each image in it read from a [`SavedCopy`] is opened again. One
+/// that cannot be opened, or whose size is now past what one request carries,
+/// is left out with upstream's note -- its pixel size as the turn first read
+/// it -- and the request goes (`withholdOversizedAttachments`,
+/// `attachmentRawBytes`, `image_attachments.zig:805-850@481104fd`,
+/// `:1011-1045`, from `orchestrator.zig:7612-7632`). Any other is read whole
+/// and held to its digest, and only the bytes just checked are sent; bytes
+/// that are not the digest's, or a read that fails, fail the request with
+/// upstream's error, `request failed: ImageSnapshotCorrupt` (`loadVerifiedSnapshot`,
+/// `:1260-1320`, a `try` from `vercel_protocol.zig:873-890` and
+/// `orchestrator.zig:7712-7716`). No byte the history read is ever sent. It
+/// is built after the turn's prompt is recorded, as upstream's
+/// (`p5-image-loss-changed`), so that turn stays in the log.
 pub struct CopiesChecked<'a> {
     pub inner: &'a dyn crate::gateway::Provider,
     pub copies: Vec<SavedCopy>,
@@ -523,40 +542,58 @@ impl crate::gateway::Provider for CopiesChecked<'_> {
         deltas: &mut dyn crate::gateway::DeltaSink,
     ) -> Result<crate::gateway::protocol::Completion, crate::gateway::ProviderError> {
         use crate::gateway::protocol::ContentPart;
-        let mut fresh = None;
-        for (at, message) in request.messages.iter().enumerate() {
-            for (part_at, part) in message.content.iter().enumerate() {
+        if self.copies.is_empty() {
+            return self.inner.stream(request, deltas).await;
+        }
+        let limit = crate::image::request_max_dimension(crate::image::count(&request.messages));
+        let mut fresh = request.clone();
+        for message in &mut fresh.messages {
+            let mut notes = String::new();
+            let mut failed = None;
+            message.content.retain_mut(|part| {
                 let ContentPart::Image {
+                    id,
+                    media_type,
                     data,
                     saved: Some(saved),
-                    ..
                 } = part
                 else {
-                    continue;
+                    return true;
                 };
                 let Some(copy) = self.copies.iter().find(|copy| copy.path == *saved) else {
-                    continue;
+                    return true;
                 };
-                match read_snapshot(saved, &copy.sha256, copy.size) {
-                    Ok(bytes) if bytes != *data => {
-                        let request: &mut crate::gateway::protocol::CompletionRequest =
-                            fresh.get_or_insert_with(|| request.clone());
-                        if let ContentPart::Image { data, .. } =
-                            &mut request.messages[at].content[part_at]
-                        {
-                            *data = bytes;
-                        }
+                let opened = open_copy(saved).ok().filter(|(_, length)| {
+                    usize::try_from(*length).is_ok_and(crate::image::fits_encoded)
+                });
+                let Some((file, length)) = opened else {
+                    notes.push_str(&crate::image::withheld_note(
+                        *id,
+                        *media_type,
+                        crate::image::dimensions(data),
+                        limit,
+                        Some(saved),
+                    ));
+                    return false;
+                };
+                match read_from(file, length, length) {
+                    Ok(bytes)
+                        if bytes.len() as u64 == copy.size
+                            && crate::image::digest(&bytes) == copy.sha256 =>
+                    {
+                        *data = Arc::from(bytes);
                     }
-                    Err(Loss::Changed | Loss::TooLarge) => {
-                        return Err(crate::gateway::ProviderError::Image(COPY_CHANGED));
-                    }
-                    _ => {}
+                    Ok(_) => failed = Some(COPY_ERRORS[0]),
+                    Err(_) => failed = Some(COPY_ERRORS[1]),
                 }
+                true
+            });
+            if let Some(error) = failed {
+                return Err(crate::gateway::ProviderError::Image(error));
             }
+            crate::image::put_notes(message, notes);
         }
-        self.inner
-            .stream(fresh.as_ref().unwrap_or(request), deltas)
-            .await
+        self.inner.stream(&fresh, deltas).await
     }
 
     fn set_options(&self, options: crate::gateway::protocol::RequestOptions) {
@@ -1066,12 +1103,14 @@ fn prepend_note(note: &str, output: &str) -> String {
 /// message first ([`DurableState::history_messages`]). A reasoning state that
 /// does not replay on `active` is dropped without a word, as upstream's is.
 ///
-/// With `copies`, the images the session keeps beside the log are read now,
-/// as a request is built, and each prompt image's copy is added to `copies`
-/// for every request to read again ([`CopiesChecked`]); a result whose tool
-/// images cannot all go is sent without them and with upstream's note in front
-/// ([`tool_image`]). Without, as the compaction reads a turn
-/// (`crate::agent::compact`), nothing is read: its text alone.
+/// With `copies`, the images go with the turn: a prompt image's copy beside
+/// the log is read now as far as its header and its size, for
+/// [`crate::image::withhold`] to decide on, and added to `copies` for every
+/// request to open again and send only checked bytes of ([`CopiesChecked`]);
+/// a result whose tool images cannot all go is sent without them and with
+/// upstream's note in front ([`tool_image`]). Without, as the compaction reads
+/// a turn (`crate::agent::compact`), no image goes and nothing is read: the
+/// prompt's text, the steps and the results' text.
 pub fn turn_messages(
     turn: &HistoryTurn,
     active: &Wire,
@@ -1089,7 +1128,8 @@ pub fn turn_messages(
     // `attachmentDimensions`, `image_attachments.zig:1011-1045@481104fd`,
     // `:814-850`); so does one past the limit, read no further than it.
     let mut images = Vec::new();
-    for image in &turn.images {
+    let carried = copies.is_some();
+    for image in turn.images.iter().filter(|_| carried) {
         let Some(media_type) = crate::image::MediaType::parse(&image.recorded.media_type) else {
             continue;
         };
@@ -1101,8 +1141,9 @@ pub fn turn_messages(
                     sha256: image.recorded.sha256.clone(),
                     size: image.recorded.bytes,
                 });
-                let bytes = read_copy(path, crate::image::MAX_IMAGE_BYTES + 1)
-                    .map_or_else(|_| Vec::new(), |(bytes, _)| bytes);
+                let bytes = open_copy(path)
+                    .and_then(|(file, length)| read_from(file, length, PAST_A_REQUEST))
+                    .unwrap_or_default();
                 (Arc::from(bytes), Some(Arc::clone(path)))
             }
             (Snapshot::Saved(_), None) => continue,
@@ -2301,9 +2342,10 @@ impl SessionStore {
         // anything below writes, so a session one of them makes unreadable is
         // refused exactly as it was found.
         let mut state = replay.state;
-        if read_snapshots(&dir, &mut state) {
+        if let Some(error) = read_snapshots(&dir, &mut state) {
             return Err(SessionError::Unreadable {
                 id: id.as_str().to_string(),
+                error,
             });
         }
 
@@ -3085,61 +3127,83 @@ fn check_recorded(image: &RecordedImage) -> Result<(), String> {
 }
 
 /// Points every image `state`'s turns carried at its copy in `dir`, read when
-/// a request is built ([`Snapshot::Saved`]), and says whether a prompt image's
-/// copy makes the session unreadable.
+/// a request is built ([`Snapshot::Saved`]), and names the error a prompt
+/// image's copy refuses the session with.
 ///
 /// Upstream reads a prompt image's blob path as it reads the conversation and
 /// checks only that the blob is a file there: it opens the session's blob
-/// folder and `stat`s the blob without following a link, and anything but a
-/// regular file -- not there, something else, or a folder or `stat` that fails
-/// -- is `InvalidSessionFormat` or the I/O error, and the session does not
-/// open (`decodeUser`, `imageBlobFailed`,
+/// folder for reading without following a link and `stat`s the blob in it,
+/// also without following one. Not there, or not a regular file, is
+/// `InvalidSessionFormat`; a folder or `stat` that fails otherwise -- a link,
+/// no permission -- is `Io`, handed up unchanged; either way the session does
+/// not open (`decodeUser`, `imageBlobFailed`,
 /// `session_adapter.zig:2871-2893@481104fd`; `blobExists`, `notFoundOr`,
-/// `session.zig:1666-1681`; `storage.zig:341-346`). Its bytes are the
-/// request's, and a tool's images are not looked at until a request loads
-/// them (`materializeToolImages`, `execution_memory.zig:993-1022`).
-fn read_snapshots(dir: &Path, state: &mut DurableState) -> bool {
+/// `session.zig:1666-1681`; `openDir`, `storage.zig:135-143`; `stat`,
+/// `:341-346`). Its bytes are the request's, and a tool's images are not
+/// looked at until a request loads them (`materializeToolImages`,
+/// `execution_memory.zig:993-1022`).
+fn read_snapshots(dir: &Path, state: &mut DurableState) -> Option<&'static str> {
     let folder = dir.join(IMAGES_DIR);
-    let at = |image: &TurnImage| {
-        folder.join(crate::image::snapshot_name(
-            image.recorded.id,
-            &image.recorded.sha256,
-        ))
-    };
-    let folder_whole = fs::symlink_metadata(&folder).is_ok_and(|metadata| metadata.is_dir());
-    let mut unreadable = false;
+    let at =
+        |image: &TurnImage| crate::image::snapshot_name(image.recorded.id, &image.recorded.sha256);
+    let mut opened = None;
+    let mut refusal = None;
     for turn in &mut state.turns {
         for image in &mut turn.images {
-            let path = at(image);
-            unreadable |= !folder_whole
-                || !fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file());
-            image.snapshot = Snapshot::Saved(Arc::from(path));
+            let name = at(image);
+            if refusal.is_none() {
+                let found = opened
+                    .get_or_insert_with(|| {
+                        use rustix::fs::{Mode, OFlags};
+                        let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW;
+                        rustix::fs::open(&folder, flags | OFlags::CLOEXEC, Mode::empty())
+                    })
+                    .as_ref()
+                    .map_err(|err| *err)
+                    .and_then(|folder| {
+                        rustix::fs::statat(folder, &name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW)
+                    });
+                refusal = match found {
+                    Err(rustix::io::Errno::NOENT) => Some("InvalidSessionFormat"),
+                    Err(_) => Some("Io"),
+                    Ok(stat)
+                        if rustix::fs::FileType::from_raw_mode(stat.st_mode)
+                            != rustix::fs::FileType::RegularFile =>
+                    {
+                        Some("InvalidSessionFormat")
+                    }
+                    Ok(_) => None,
+                };
+            }
+            image.snapshot = Snapshot::Saved(Arc::from(folder.join(name)));
         }
         for step in &mut turn.steps {
             if let TurnStep::ToolResult { images, .. } = step {
                 for image in images {
-                    image.snapshot = Snapshot::Saved(Arc::from(at(image)));
+                    image.snapshot = Snapshot::Saved(Arc::from(folder.join(at(image))));
                 }
             }
         }
     }
-    unreadable
+    refusal
 }
 
-/// A copy beside the log as upstream opens a blob -- its name `lstat`ed first,
-/// as the blob check `stat`s one (`blobExists`, `session.zig:1666-1681@481104fd`;
-/// `storage.zig:341-346`), so a pipe by that name is not waited on; the file
-/// then opened without following a link and judged by what was opened -- with
-/// its length and at most `limit` of its bytes.
-fn read_copy(path: &Path, limit: u64) -> Result<(Vec<u8>, u64), Loss> {
-    let refused = |what: &str, err: io::Error| {
-        let reason = format!("its saved copy cannot be {what}: {err}");
-        if err.kind() == io::ErrorKind::PermissionDenied {
-            Loss::Denied(reason)
-        } else {
-            Loss::Failed(reason)
-        }
-    };
+/// Why a copy cannot be opened or read, in the system's words.
+fn refused(what: &str, err: io::Error) -> Loss {
+    let reason = format!("its saved copy cannot be {what}: {err}");
+    if err.kind() == io::ErrorKind::PermissionDenied {
+        Loss::Denied(reason)
+    } else {
+        Loss::Failed(reason)
+    }
+}
+
+/// A copy beside the log, opened as upstream opens a blob -- its name
+/// `lstat`ed first, as the blob check `stat`s one (`blobExists`,
+/// `session.zig:1666-1681@481104fd`; `storage.zig:341-346`), so a pipe by that
+/// name is not waited on; the file then opened without following a link and
+/// judged by what was opened -- and its length.
+fn open_copy(path: &Path) -> Result<(File, u64), Loss> {
     match fs::symlink_metadata(path) {
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Err(Loss::Missing),
         Err(err) => return Err(refused("read", err)),
@@ -3153,7 +3217,7 @@ fn read_copy(path: &Path, limit: u64) -> Result<(Vec<u8>, u64), Loss> {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
-    let mut file = options.open(path).map_err(|err| match err.kind() {
+    let file = options.open(path).map_err(|err| match err.kind() {
         io::ErrorKind::NotFound => Loss::Missing,
         _ if err.raw_os_error() == Some(libc::ELOOP) => Loss::NotAFile,
         _ => refused("opened", err),
@@ -3162,23 +3226,32 @@ fn read_copy(path: &Path, limit: u64) -> Result<(Vec<u8>, u64), Loss> {
     if !metadata.is_file() {
         return Err(Loss::NotAFile);
     }
-    let length = metadata.len();
-    let mut bytes = Vec::with_capacity(usize::try_from(length.min(limit)).unwrap_or(0));
-    (&mut file)
-        .take(limit)
-        .read_to_end(&mut bytes)
-        .map_err(|err| refused("read", err))?;
-    Ok((bytes, length))
+    Ok((file, metadata.len()))
 }
 
-/// One copy, checked -- a regular file of the size it was recorded with and
-/// the digest -- or why it cannot be used.
+/// At most `limit` bytes of an opened copy.
+fn read_from(file: File, length: u64, limit: u64) -> Result<Vec<u8>, Loss> {
+    let mut bytes = Vec::with_capacity(usize::try_from(length.min(limit)).unwrap_or(0));
+    file.take(limit)
+        .read_to_end(&mut bytes)
+        .map_err(|err| refused("read", err))?;
+    Ok(bytes)
+}
+
+/// One copy, checked -- a regular file within the image limit, of the size it
+/// was recorded with and the digest -- or why it cannot be used. The size is
+/// judged from the file's metadata before a byte is read
+/// (`loadVerifiedSnapshot`, `image_attachments.zig:1260-1320@481104fd`).
 fn read_snapshot(path: &Path, sha256: &str, size: u64) -> Result<Arc<[u8]>, Loss> {
-    let (bytes, length) = read_copy(path, size.min(crate::image::MAX_IMAGE_BYTES))?;
+    let (file, length) = open_copy(path)?;
     if length > crate::image::MAX_IMAGE_BYTES {
         return Err(Loss::TooLarge);
     }
-    if length != size || bytes.len() as u64 != size || crate::image::digest(&bytes) != sha256 {
+    if length != size {
+        return Err(Loss::Changed);
+    }
+    let bytes = read_from(file, length, size)?;
+    if bytes.len() as u64 != size || crate::image::digest(&bytes) != sha256 {
         return Err(Loss::Changed);
     }
     Ok(Arc::from(bytes))

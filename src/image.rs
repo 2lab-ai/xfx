@@ -886,17 +886,7 @@ pub fn withhold(
     mut messages: Vec<crate::gateway::protocol::Message>,
 ) -> Vec<crate::gateway::protocol::Message> {
     use crate::gateway::protocol::ContentPart;
-    // Every image the request carries counts, a tool result's with the
-    // user's (`countRequestImages`, `image_data.zig:171-178`).
-    let count = messages
-        .iter()
-        .flat_map(|message| message.content.iter())
-        .map(|part| match part {
-            ContentPart::Image { .. } => 1,
-            ContentPart::ToolResult { images, .. } => images.len(),
-            _ => 0,
-        })
-        .sum::<usize>();
+    let count = count(&messages);
     if count == 0 {
         return messages;
     }
@@ -944,18 +934,39 @@ pub fn withhold(
             ));
             false
         });
-        if notes.is_empty() {
-            continue;
-        }
-        match message.content.iter_mut().find_map(|part| match part {
-            ContentPart::Text { text } => Some(text),
-            _ => None,
-        }) {
-            Some(text) => text.insert_str(0, &notes),
-            None => message.content.insert(0, ContentPart::Text { text: notes }),
-        }
+        put_notes(message, notes);
     }
     messages
+}
+
+/// `notes` in front of the text of `message`, or as its text when it has none.
+pub fn put_notes(message: &mut crate::gateway::protocol::Message, notes: String) {
+    use crate::gateway::protocol::ContentPart;
+    if notes.is_empty() {
+        return;
+    }
+    match message.content.iter_mut().find_map(|part| match part {
+        ContentPart::Text { text } => Some(text),
+        _ => None,
+    }) {
+        Some(text) => text.insert_str(0, &notes),
+        None => message.content.insert(0, ContentPart::Text { text: notes }),
+    }
+}
+
+/// How many images `messages` carry, a tool result's with the user's
+/// (`countRequestImages`, `image_data.zig:172-179@481104fd`).
+pub fn count(messages: &[crate::gateway::protocol::Message]) -> usize {
+    use crate::gateway::protocol::ContentPart;
+    messages
+        .iter()
+        .flat_map(|message| message.content.iter())
+        .map(|part| match part {
+            ContentPart::Image { .. } => 1,
+            ContentPart::ToolResult { images, .. } => images.len(),
+            _ => 0,
+        })
+        .sum()
 }
 
 /// What a tool result says in place of an image of its own that a request
