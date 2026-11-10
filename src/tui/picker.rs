@@ -384,8 +384,9 @@ pub(crate) enum PickerOutcome {
     /// and `:1806-1811`): the menu is gone, and **the keystroke goes on** to
     /// submit it, so one Return runs the marked command.
     Run(&'static str),
-    /// A skill row was chosen, by Tab or by Enter: the slash word becomes the
-    /// skill's token and nothing is submitted (`bindSelectedSlashSkill`,
+    /// A skill row was chosen, by Tab or by Enter: the query -- the slash word,
+    /// or past its blank the whole line -- becomes the skill's token and
+    /// nothing is submitted (`bindSelectedSlashSkill`,
     /// `app_input_runtime.zig:2895-2919`, from Tab at `:1519-1521` and Enter
     /// at `:2820-2839`; `fx-skills-slash-40x120-slash-dem-tab`, `-rel-enter`).
     Bind(Skill),
@@ -435,12 +436,13 @@ pub(crate) struct Picker {
     /// draft's text does not rebuild the list and move the mark back to the
     /// top.
     ///
-    /// The whole draft, blanks before the slash word included: a blank typed
+    /// The whole draft, blanks before the query included: a blank typed
     /// or deleted there is an edit, and an edit puts the mark back on the
     /// first row (`reconcileInlinePickerAfterEdit`,
     /// `picker_state.zig:228-236@481104fd`).
     query: String,
-    /// Where the slash word starts in [`Self::query`] ([`query_of`]).
+    /// Where the query -- the draft past its leading blanks -- starts in
+    /// [`Self::query`] ([`query_of`]).
     word: usize,
     /// The trigger this menu belongs to, for the dismissal it may become.
     trigger: Trigger,
@@ -496,7 +498,7 @@ impl Picker {
         (!matches.is_empty()).then(|| Self {
             query: query.to_string(),
             word: query.len() - word.len(),
-            // A query is a slash word, so the kind is the slash one.
+            // A query is a slash line, so the kind is the slash one.
             trigger: Trigger::Slash,
             matches,
             commands: count,
@@ -511,7 +513,8 @@ impl Picker {
         &self.query
     }
 
-    /// The slash word in it: what is matched, and what the header reads.
+    /// The query in it -- the slash word, or past its blank the whole line:
+    /// what is matched, and what the header reads.
     fn word(&self) -> &str {
         &self.query[self.word..]
     }
@@ -527,6 +530,7 @@ impl Picker {
     pub(crate) fn marked(&self) -> (usize, usize) {
         (self.selected, self.matches.len())
     }
+
     /// The menu's shape on a screen `terminal_rows` tall, under a composer
     /// `input_extra` rows taller than one (`slashMenuLayoutForCounts`,
     /// `picker_presentation.zig:754-771@481104fd`, handed

@@ -48045,7 +48045,19 @@ mod tests {
     /// root holding one would add a skill to what the case sees: a search
     /// reads each skill's path too (`skillMatchRank`). `he` and the letters
     /// of `/skills` are typed as well, but both skills match those already.
-    const SEARCHED: [&str; 6] = ["de", "dem", "emo", "rel", "zz", "no-such-skill-here"];
+    /// `notes`, `help` and `rename` are the words [`mixed`]'s cases search for
+    /// past a blank; their other searches hold a blank, which no name has.
+    const SEARCHED: [&str; 9] = [
+        "de",
+        "dem",
+        "emo",
+        "rel",
+        "zz",
+        "no-such-skill-here",
+        "notes",
+        "help",
+        "rename",
+    ];
 
     /// The fixture over `root`, or over a root drawn again while the name of
     /// the one in hand holds a [`SEARCHED`] word: that name is `.tmp` and six
@@ -48885,6 +48897,83 @@ mod tests {
             "{:#?}",
             shell.document()
         );
+    }
+
+    #[test]
+    fn on_a_slash_word_alone_tab_takes_the_marked_row_for_no_ghost_is_there() {
+        // A slash word with only blanks before it has no ghost
+        // (`findInlineSlashQuery`, `src/core/input/picker_state.zig:613-623@481104fd`;
+        // `inline_completion::slash_word`), so Tab's ghost-first turn
+        // (`app_input_runtime.zig:1326-1332`) never meets it: a moved mark
+        // and Tab take the marked row, a skill's or a command's.
+        for draft in [&b"/he"[..], b"  /he"] {
+            let mut shell = skilled();
+            shell.route_bytes(draft);
+            let rows = slash_rows(&shell);
+            assert!(rows.len() > 1, "{rows:?}");
+            shell.route_bytes(b"\x1b[B");
+            assert!(shell.ghost().is_none(), "{draft:?}");
+            shell.route_bytes(b"\t");
+            let lead = &draft[..draft.len() - b"/he".len()];
+            let lead = std::str::from_utf8(lead).expect("blanks");
+            assert_eq!(
+                shell.editor.text(),
+                format!("{lead}{} ", rows[1]),
+                "{draft:?}"
+            );
+            assert_eq!(shell.editor.entities().skills().len(), 1, "{draft:?}");
+        }
+        for draft in [&b"/s"[..], b"  /s"] {
+            let mut shell = skilled();
+            shell.route_bytes(draft);
+            let rows = slash_rows(&shell);
+            assert!(rows[1].starts_with('/'), "{rows:?}");
+            shell.route_bytes(b"\x1b[B");
+            assert!(shell.ghost().is_none(), "{draft:?}");
+            shell.route_bytes(b"\t");
+            assert_eq!(
+                shell.editor.text(),
+                picker::completed(&rows[1]),
+                "{draft:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_column_line_opens_no_slash_menu_whatever_skill_its_line_would_find() {
+        // `/model`, `/effort`, `/provider` and `/setup` lines are their
+        // columns' kinds before the slash one (`inlinePickerTriggerKind`,
+        // `src/core/input/picker_state.zig:287-296@481104fd`), so the skills
+        // a line past their blank would find are never listed there.
+        let mut shell = mixed();
+        let dir = shell.work.join("skills/columns");
+        std::fs::create_dir_all(&dir).expect("a skill");
+        std::fs::write(
+            dir.join("SKILL.md"),
+            "---\nname: columns\ndescription: Keep columns for model notes, effort notes, \
+             provider notes and setup notes\n---\n\n# columns\n",
+        )
+        .expect("SKILL.md");
+        let (work, home) = (shell.work.clone(), shell.home.clone());
+        shell.skills = HeldSkills::new(&work, Some(&home));
+        shell.skills.settle_now();
+        // The skill answers each line where nothing else owns it.
+        shell.route_bytes(b"/for model notes");
+        assert_eq!(slash_rows(&shell), ["columns"]);
+        for line in [
+            &b"/model notes"[..],
+            b"/effort notes",
+            b"/provider notes",
+            b"/setup notes",
+        ] {
+            shell.route_bytes(&[0x15]);
+            shell.route_bytes(line);
+            assert!(
+                shell.picker.is_none(),
+                "{:?} opened the slash menu",
+                String::from_utf8_lossy(line)
+            );
+        }
     }
 
     #[test]
