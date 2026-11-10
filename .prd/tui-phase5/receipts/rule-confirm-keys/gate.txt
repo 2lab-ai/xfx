@@ -54,3 +54,9 @@ stubs: exit 0
 secrets: exit 0
 src/tests unchanged after: 0 dirty paths; HEAD 071b26e0
 
+
+# with round 2's receipt committed (97e955e9)
+identity: exit 0
+stubs: exit 0
+secrets: exit 0 (18306 tracked files)
+cargo test --locked --test parity: 26 passed, 0 failed (green.txt)
