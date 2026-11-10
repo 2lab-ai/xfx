@@ -43038,9 +43038,15 @@ mod tests {
         // does not take (`routeAction`, `input_full_transcript_runtime.zig:47-52`;
         // `app_input_runtime.zig:930`),
         // and it goes on to the composer behind it (`:997-1001`, `:310-327`),
-        // which moves its caret a page. Each spelling up, then down, from the
-        // draft's last row: the screen stays at its tail, and the caret goes
-        // to the first row and back.
+        // which moves its caret a page: the composer's row cap
+        // (`input_completion_runtime.zig:222-225`), `content_bottom / 2 + 1`
+        // (`input_presentation.zig:252-255@481104fd`), 11 at 24 rows as
+        // `FX_PAGE_AT_41` is 19 at 41. Each spelling up, then down, from the
+        // last of sixteen rows, so a page of any other size lands elsewhere:
+        // the screen stays at its tail, and the caret goes eleven rows up and
+        // back.
+        const PAGE: usize = 11;
+        assert_eq!(usize::from(layout::input_row_limit(24)), PAGE);
         let mut shell = shell(24, 80);
         for index in 0..20 {
             shell.apply(UiEvent::Notice(notice::Notice::neutral(
@@ -43049,11 +43055,13 @@ mod tests {
             )));
         }
         let _ = shell.written();
-        shell.route_bytes(b"one\x0atwo\x0athree\x0afour");
+        let draft: Vec<String> = (0..16).map(|line| format!("r{line:02}")).collect();
+        shell.route_bytes(draft.join("\n").as_bytes());
         shell.route_bytes(b"\x0f");
         let tail = full_screen(&shell);
         let row = |shell: &Fixture| shell.editor.point(shell.text_cols()).0;
-        assert_eq!(row(&shell), 3);
+        let last = draft.len() - 1;
+        assert_eq!(row(&shell), last);
         for (up, down) in [
             (&b"\x1b[5;5~"[..], &b"\x1b[6;5~"[..]),
             (b"\x1b[5;2~", b"\x1b[6;2~"),
@@ -43065,10 +43073,14 @@ mod tests {
             shell.route_bytes(up);
             assert_eq!(full_screen(&shell), tail, "{up:?} paged the screen");
             assert!(shell.full.is_open(), "{up:?} closed the screen");
-            assert_eq!(row(&shell), 0, "{up:?} did not page the composer up");
+            assert_eq!(
+                row(&shell),
+                last - PAGE,
+                "{up:?} did not page the composer up"
+            );
             shell.route_bytes(down);
             assert_eq!(full_screen(&shell), tail, "{down:?} paged the screen");
-            assert_eq!(row(&shell), 3, "{down:?} did not page the composer down");
+            assert_eq!(row(&shell), last, "{down:?} did not page the composer down");
         }
         // The bare key, in every spelling a modifier field of none reads as,
         // is the screen's: it pages, and the composer stays where it is.
@@ -43079,12 +43091,12 @@ mod tests {
         ] {
             shell.route_bytes(up);
             assert_ne!(full_screen(&shell), tail, "{up:?} did not page the screen");
-            assert_eq!(row(&shell), 3, "{up:?} moved the composer");
+            assert_eq!(row(&shell), last, "{up:?} moved the composer");
             shell.route_bytes(down);
             assert_eq!(full_screen(&shell), tail, "{down:?} did not page back");
-            assert_eq!(row(&shell), 3, "{down:?} moved the composer");
+            assert_eq!(row(&shell), last, "{down:?} moved the composer");
         }
-        assert_eq!(shell.editor.text(), "one\ntwo\nthree\nfour");
+        assert_eq!(shell.editor.text(), draft.join("\n"));
     }
 
     #[test]
@@ -43094,7 +43106,8 @@ mod tests {
         // => {}` (`input_approval_runtime.zig:90-128`,
         // `input_question_runtime.zig:149-200@481104fd`), and neither is a
         // draft edit or a choice move (`src/ui/input/runtime.zig:75-96`,
-        // `:155-197`). The draft behind them is left as it was.
+        // `:155-197`). The draft behind them is left as it was, and so is a
+        // draft of two lines open in front of them, caret and all.
         let keys: [&[u8]; 8] = [
             b"\x1b[5~",
             b"\x1b[6~",
@@ -43105,41 +43118,73 @@ mod tests {
             b"\x1b[57422;9u",
             b"\x1b[27;3;57421~",
         ];
-        // At an approval's choice and in its amendment: Enter after them all
-        // answers the choice and the draft as they were.
+        // At an approval's choice and in its amendment, a draft of two lines
+        // pasted in (the caret at its end): no key moves the caret or the
+        // choice, the `Z` typed after them all lands where the caret was, and
+        // Enter answers the choice and that draft.
         for amending in [false, true] {
             let mut shell = shell(24, 80);
             asking(&mut shell);
             if amending {
-                shell.route_bytes(b"\tab cd");
+                shell.route_bytes(b"\t\x1b[200~ab cd\nef gh\x1b[201~");
                 delivered(&mut shell);
             }
             let marked = shell.marked();
             let band = shell.band_rows();
+            let caret = shell.cursor();
             for key in keys {
                 shell.route_bytes(key);
                 assert_eq!(shell.marked(), marked, "{key:?} moved the choice");
+                assert_eq!(shell.cursor(), caret, "{key:?} moved the caret");
                 assert_eq!(shell.band_rows(), band, "{key:?} changed the approval");
             }
             assert_eq!(shell.controlled(), None, "a page key answered");
+            if amending {
+                shell.route_bytes(b"Z");
+                delivered(&mut shell);
+            }
             shell.route_bytes(b"\r");
             assert_eq!(
                 shell.controlled(),
                 Some(TurnControl::Answer {
                     id: ApprovalId(1),
                     answer: ApprovalAnswer::Once,
-                    feedback: amending.then(|| "ab cd".to_string()),
+                    feedback: amending.then(|| "ab cd\nef ghZ".to_string()),
                 }),
                 "amending={amending}"
             );
         }
 
-        let mut fixture = shell(40, 120);
-        asking_question(&mut fixture, a_batch());
-        let band = fixture.band_rows();
-        for key in keys {
-            fixture.route_bytes(key);
-            assert_eq!(fixture.band_rows(), band, "{key:?} changed the question");
+        // At a model question's choice, and in its freeform field with two
+        // lines pasted in: the same, the `Z` at the field's end and the
+        // answer the field as it was, `Z` and all.
+        for freeform in [false, true] {
+            let mut fixture = shell(40, 120);
+            asking_question(&mut fixture, a_batch());
+            if freeform {
+                fixture.route_bytes(b"3"); // the first question's freeform slot
+                fixture.route_bytes(b"\x1b[200~ab\ncd\x1b[201~");
+            }
+            let band = fixture.band_rows();
+            let caret = fixture.cursor();
+            for key in keys {
+                fixture.route_bytes(key);
+                assert_eq!(fixture.cursor(), caret, "{key:?} moved the caret");
+                assert_eq!(fixture.band_rows(), band, "{key:?} changed the question");
+            }
+            assert_eq!(fixture.controlled(), None, "a page key answered");
+            if freeform {
+                fixture.route_bytes(b"Z");
+                fixture.route_bytes(b"\r"); // Enter takes the field
+                fixture.route_bytes(b"1"); // and an ordinal ends the batch
+                assert_eq!(
+                    fixture.controlled(),
+                    Some(TurnControl::QuestionAnswer {
+                        id: QuestionId(1),
+                        answers: vec!["ab\ncdZ".to_string(), "Yes".to_string()],
+                    })
+                );
+            }
         }
     }
 
