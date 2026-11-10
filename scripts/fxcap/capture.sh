@@ -668,6 +668,16 @@ main() {
   # would name `<TMPDIR>//fxcap.XXXXXX`, a path a binary that normalizes it
   # prints otherwise.
   while [[ $tmpdir == */ && $tmpdir != / ]]; do tmpdir=${tmpdir%/}; done
+  # The run's tmux socket is $run/s, and tmux takes a socket path of at most
+  # 103 bytes (macOS's sun_path is 104 with its NUL): a longer TMPDIR is
+  # refused now, before anything starts, not by tmux's "File name too long"
+  # once the gateway is up. Bytes, not characters; the path is not printed.
+  local sock_len tmp_len
+  sock_len=$(printf %s "$tmpdir/fxcap.XXXXXX/s" | wc -c) tmp_len=$(printf %s "$tmpdir" | wc -c)
+  if (( sock_len > 103 )); then
+    echo "TMPDIR is too long for this run's tmux socket: <TMPDIR>/fxcap.XXXXXX/s would be $((sock_len)) bytes, and a socket path holds at most 103 (macOS's sun_path is 104 bytes with its NUL): a TMPDIR of at most $((tmp_len - sock_len + 103)) bytes, not $((tmp_len))" >&2
+    exit 2
+  fi
   run=$(mktemp -d "$tmpdir/fxcap.XXXXXX")
   mkdir -p "$run/home" "$run/work"
   # What roots.py writes each of this run's roots as (the list at the top),

@@ -53,9 +53,22 @@ _SCRATCH = []
 atexit.register(lambda: [shutil.rmtree(d, True) for d in _SCRATCH])
 
 
+# A tmux socket path has a length limit: macOS's `sun_path` is 104 bytes with
+# its NUL, so at most 103 (capture.sh refuses a TMPDIR past it). The run's
+# socket is <TMPDIR>/fxcap.XXXXXX/s.
+SOCKET_MAX = 103
+SOCKET_TAIL = "/fxcap.XXXXXX/s"
+
+
+def headroom(d):
+    """How many bytes longer than `d` a TMPDIR can be with capture.sh's socket
+    still inside the limit."""
+    return SOCKET_MAX - len(os.fsencode(d + SOCKET_TAIL))
+
+
 def scratch():
-    # A tmux socket path has a length limit (104 bytes on macOS): the run's
-    # socket is <here>/<case>/fxcap.XXXXXX/s, so a long TMPDIR gives way to /tmp.
+    # The run's socket is <here>/<case>/fxcap.XXXXXX/s, so a long TMPDIR gives
+    # way to /tmp.
     base = os.environ.get("TMPDIR") or "/tmp"
     if len(base) > 50:
         base = "/tmp"
@@ -250,6 +263,24 @@ class Refusals(unittest.TestCase):
             ):
                 with self.subTest(name=name, cap=cap.split("\n")[0]):
                     self.refused(cap, "@SCENARIOS@ would be written as '", files, scen_name=name)
+
+    def test_a_tmpdir_too_long_for_the_socket(self):
+        # One byte past the limit, with or without macOS's trailing slash:
+        # refused before anything starts, not tmux's "File name too long"
+        # once the gateway is up. At the limit it runs (RunRoots, the longest
+        # TMPDIR there).
+        d = scratch()
+        long = os.path.join(d, "t" * headroom(d))
+        os.makedirs(long)
+        self.assertEqual(len(os.fsencode(long + SOCKET_TAIL)), SOCKET_MAX + 1)
+        for tmpdir in (long, long + "/"):
+            with self.subTest(slash=tmpdir.endswith("/")):
+                r = capture("wait 1\nsnap a\n", env={"TMPDIR": tmpdir})
+                self.assertEqual(r.code, 2, r.stdout + r.stderr)
+                self.assertIn("TMPDIR is too long for this run's tmux socket: <TMPDIR>/fxcap.XXXXXX/s would be %d bytes, "
+                              "and a socket path holds at most %d" % (SOCKET_MAX + 1, SOCKET_MAX), r.stderr)
+                self.assertEqual(r.stdout, "", "nothing ran: no roots line, no guards line")
+                self.assertEqual(glob.glob(os.path.join(long, "fxcap.*")), [], "no run directory")
 
     def test_such_a_directory_still_runs_a_scenario_that_names_no_placeholder(self):
         r = capture("wait 1\nsnap a\n", scen_name="my scenarios")
@@ -842,8 +873,15 @@ class RunRoots(unittest.TestCase):
 
     def test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir(self):
         # Three lengths of TMPDIR: the wrap and the pads land at a different
-        # byte of each root on each.
-        for extra in (0, 9, 26):
+        # byte of each root on each. They are taken from the room this
+        # TMPDIR leaves under the socket limit, the longest at all of it (a
+        # socket path of exactly SOCKET_MAX bytes): a fixed 26 ran at a short
+        # TMPDIR and put the socket at 105 bytes under the CI runner's
+        # 49-byte one. An extra of 1 names no directory.
+        room = headroom(scratch())
+        self.assertGreaterEqual(room, 4, "a capture's tmux socket is at most %d bytes, which leaves %d bytes of TMPDIR "
+                                "to grow: three different lengths need 4" % (SOCKET_MAX, room))
+        for extra in (0, room // 2, room):
             with self.subTest(extra=extra):
                 r, d = self.capture_at(extra)
                 self.assert_written_by_placeholder(r, d)
