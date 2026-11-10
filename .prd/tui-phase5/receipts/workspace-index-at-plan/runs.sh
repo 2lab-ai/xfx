@@ -100,5 +100,23 @@ for p in d["pairs"]:
     cd "$SCRATCH/redtest"
     TMPDIR=$GATE_TMP python3 -I scripts/fxcap/test_capture.py RunDirectory || true
     TMPDIR=$GATE_TMP python3 -I scripts/fxcap/test_sweep.py Sweep.test_a_units_two_runs_share_one_run_directory_named_by_digits || true ;;
+  r2)
+    # Round 2: the pair again with f718e3c1's harness, four units a leg, and
+    # the new tests at cc913145 (RED), the mutants and the gate.
+    git clone --no-local -q "$XFX" "$SCRATCH/h2"; git -C "$SCRATCH/h2" checkout -q -b h2 f718e3c1
+    mkdir -p "$SCRATCH/scen-rep4"; cp -R "$SCRATCH/scen-rep/workspace-extra" "$SCRATCH/scen-rep4/"
+    for i in 01 02 03 04; do cp "$SCRATCH/scen-rep/workspace-index-01.cap" "$SCRATCH/scen-rep4/workspace-index-$i.cap"; done
+    H=$SCRATCH/h2
+    $LOCK bash -c "
+      $(declare -f sweep); FX=$FX SHA=$SHA
+      sweep $H $SCRATCH/scen-rep4 'workspace-index-*' $SCRATCH/xbin/xfx-f718e3c1 $TMP24 $SCRATCH/sw/r2-f718e3c1-24
+      sweep $H $SCRATCH/scen-rep4 'workspace-index-*' $SCRATCH/xbin/xfx-f718e3c1 $TMP49 $SCRATCH/sw/r2-f718e3c1-49"
+    git clone --no-local -q "$XFX" "$SCRATCH/red2"; git -C "$SCRATCH/red2" checkout -q -b red2 cc913145
+    git -C "$XFX" show f718e3c1:scripts/fxcap/test_capture.py > "$SCRATCH/red2/scripts/fxcap/test_capture.py"
+    git -C "$XFX" show f718e3c1:scripts/fxcap/test_sweep.py > "$SCRATCH/red2/scripts/fxcap/test_sweep.py"
+    (cd "$SCRATCH/red2" && TMPDIR=$GATE_TMP python3 -I scripts/fxcap/test_capture.py RunDirectory || true
+     TMPDIR=$GATE_TMP python3 -I scripts/fxcap/test_sweep.py Sweep.test_a_units_second_run_finds_nothing_its_first_left || true)
+    git clone --no-local -q "$XFX" "$SCRATCH/mut2"; git -C "$SCRATCH/mut2" checkout -q -b mut2 f718e3c1
+    SCRATCH=$SCRATCH MUT_TMP=$GATE_TMP/mut2 $LOCK "$(dirname "$0")/mutants2.sh" ;;
   *) echo "no step $1" >&2; exit 2 ;;
 esac

@@ -64,7 +64,17 @@ The happy path, and where it splits:
 **The two things that disagree:** fx's run directory
 `<tmp>/fxsw.<8>/<NNN>/fxcap.<6 letters>` and xfx's
 `<tmp>/fxsw.<8>/<NNN>/fxcap.<6 other letters>` -- same bytes long, other
-letters. `tests/red.txt` shows it without the placeholder: a checksum of each
+letters. The captures show where: the bold cells of the `notes/` row, read
+from the .ansi as bytes of the run path (bytes 50-55 are a run's own six).
+
+- CI's frame, unit 12 (`red/8f921425-24-unit12/`): xfx bolds byte 2 (the `p`
+  of `private`), **byte 54, inside xfx's own name**, then the `a` of `extra`
+  and the `n` of `notes`. fx's row 13 is blank: fx's name held no `l`.
+- The reverse, unit 04 (`red/8f921425-24-unit04/`): fx bolds byte 48 (the `p`
+  of `fxcap`), **byte 54, inside fx's own name**, then `a` and `n`. xfx's row
+  is blank.
+
+`tests/red.txt` shows the same without the placeholder: a checksum of each
 side's working directory, `sum=988592721 63` against `sum=4276430234 63`.
 
 The same cause, a second way: where both sides list the row, which letters
@@ -87,17 +97,18 @@ Sweeps of twelve copies of the scenario (`runs.sh red`, `runs.sh copies`):
 | xfx d2b2ca75 | 25 B, gate's | 9 / 12 | row on both, bold differs | `red/d2b2ca75-25.txt` |
 
 `at-all` (an empty query: the index's order, no match) is identical in all
-60 units. The harness tests, new in this unit, fail at d2b2ca75: 3 tests, 7
-failures (`tests/red.txt`).
+60 units. The harness tests, new in this unit, fail at d2b2ca75: 4 tests, 8
+failures (`tests/red.txt`: 3 tests and 7 failures in test_capture.py, 1 and 1
+in test_sweep.py).
 
 ## 4. The fix (2a721846; outside tests +75/-22: capture.sh, sweep.py, the ledger)
 
-- `scripts/fxcap/capture.sh` `make_run` (`:431-459`, used at `:711`): the run
+- `scripts/fxcap/capture.sh` `make_run` (`:431-459@2a721846`, used at `:711`): the run
   directory is `fxcap.` and six random digits, never one that exists, owner
   only; or the name `FXCAP_RUN` gives, refused (exit 2, nothing started)
   unless it is `fxcap.` and six digits and not already there.
 - `scripts/fxcap/sweep.py`: `run_unit` gives a unit's two runs one
-  `FXCAP_RUN` (`:191`, `:173`), so fx and xfx run in the same path, byte for
+  `FXCAP_RUN` (`:191@2a721846`, `:173`), so fx and xfx run in the same path, byte for
   byte; the sweep's root is `fxsw.` and eight digits (`digit_dir`, `:299`).
 - So no random letter is left in any path a run sees: a pair compares two
   binaries on one input, and a base sweep and a head sweep read the same
@@ -108,7 +119,8 @@ failures (`tests/red.txt`).
 
 ## 5. GREEN, at 2a721846's harness
 
-The same legs (`runs.sh green`):
+The same five legs, over four TMPDIR lengths (24 bytes twice, then 49, 16
+and 25; `runs.sh green`):
 
 | leg | TMPDIR | at-plan differing | `notes/` row | file |
 |---|---|---|---|---|
@@ -157,8 +169,8 @@ the parity defect it is, under the ledger's `at-ranking` cause.
     7 s since launch. [hypothesis] Under the runner's load (CI's head sweep
     read 11.4), that is too short. Here the pair passed on both builds, and
     `git ls-files` outside a repository took 0.01 s at load 12.
-  - The copy of fx would start the index at launch. That is a product change
-    of its own, not this unit's.
+  - The copy of fx, an index started at launch, is AT-LAUNCH-WALK (closed at
+    5a83bc4a, in train 14), not this unit.
 
 ## 7. Mutants
 
@@ -184,11 +196,53 @@ read tracked files pass: check-no-secrets, check-no-stubs,
 check-no-local-paths, check-xfx-identity, and test_ci_sweep.py
 (`gate/quick-checks-267ab4f1.txt`).
 
+## 8b. Round 2 (f718e3c1; the reviews' SHOULDs and NITs)
+
+- **The fx run's late writes.** `cleanup` read no pid and returned as soon as
+  kill-server did; a unit's next run reuses the name, so an fx still on its
+  way out could write into xfx's HOME or have xfx's mkdir refused. Now it
+  reads the pane's pid, and that pid's start time and command, before
+  kill-server, waits up to 3 s for it, then SIGKILLs that pid only while it is
+  still that process (`reap`, `scripts/fxcap/capture.sh:524-539@f718e3c1`; `cleanup`,
+  `:541-553`).
+- **Pinned** (`tests/red2.txt`: the three of new behaviour fail at cc913145):
+  - a binary on its way out is waited for;
+  - one that ignores SIGHUP is killed;
+  - with no TMPDIR, the first failure ends it.
+  Already true at cc913145 and now pinned:
+  - fx's sentinel profile, session and config are not in xfx's HOME;
+  - under `--jobs 2` two units get two TMPDIRs under one root, and both
+    sides' captures outlive the wipe;
+  - the named directory is 0700 under umask 022;
+  - a random name already there is passed over (an `od` shim).
+- **Mutants:** 14 / 14 killed at f718e3c1, round 1's eight and six new:
+  - `-m 700` dropped from the named branch;
+  - `mkdir -p` on the random branch;
+  - no reap;
+  - no kill after the wait;
+  - every mkdir failure retried;
+  - no wipe between sides.
+  (`mutants2.sh`, `mutants2.txt`.)
+- **The pair again,** with the round-2 harness and xfx f718e3c1, four units
+  each: 24 bytes 8 / 8, 49 bytes 8 / 8 (`r2/f718e3c1-24.txt`,
+  `r2/f718e3c1-49.txt`).
+- **Gate** at f718e3c1, on a clone, under the lock: 22 / 22
+  (`gate/gates-f718e3c1.txt`).
+- **NITs:**
+  - FXCAP_RUN is in capture.sh's usage header;
+  - roots.py no longer calls the run name mktemp's;
+  - make_run's loop ends on a failure other than "already there";
+  - sweep.py's imports are in order.
+
 ## 9. Open
 
 - AT-RANK (feat/p5-at-rank, not merged) adds a ledger cause
   `at-plan-run-directory` owned by SWEEP-TEMPNAME-STYLE. This unit is that
   queue item's fix: when AT-RANK joins, its cause and its owner text need
   re-anchoring or deleting.
-- `p5-input-row-limit`'s lazy index start (section 6) wants a unit of its
-  own.
+- CI no longer exercises the whole-path match: whether `notes/` is listed now
+  follows `--tmp`'s letters, so on CI's TMPDIR it is on neither side (on the
+  gate's, on both). **AT-PLAN-WHOLE-PATH** (queued) restores it: the letters
+  `@plan` needs placed inside the run (the `dir` name, say), once AT-RANK
+  lands.
+- `p5-input-row-limit`'s lazy index start (section 6) is AT-LAUNCH-WALK's.
