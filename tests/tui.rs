@@ -9328,7 +9328,7 @@ fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it
     // tells the child -- and a real terminal has the same gap: the kernel
     // raises `SIGWINCH` after the size has already changed, and no process can
     // withhold a frame for a size nobody has told it about. `Shell::blind`
-    // (`src/tui/shell.rs:16806`) is `resize_pending || screen != geometry`, and
+    // (`src/tui/shell.rs:16943`) is `resize_pending || screen != geometry`, and
     // neither is true until the handler has run. So a frame composed in that
     // gap is composed for the screen the session still believes in, and it is
     // not a frame written *while blind*.
@@ -9368,7 +9368,7 @@ fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it
     // the too-small screen has been observed and resolved, so `blind` is
     // established, and Ctrl-L asks for a frame the session cannot paint.
     // `Action::Redraw` inside the approval panel raises
-    // `Reason::ExternalDamage` (`src/tui/shell.rs:9667`) and answers nothing,
+    // `Reason::ExternalDamage` (`src/tui/shell.rs:9736`) and answers nothing,
     // which makes this a frame that is genuinely owed rather than a stretch of
     // time in which nothing happened to want one. The old assertion could pass
     // on a session with nothing to say; this one cannot.
