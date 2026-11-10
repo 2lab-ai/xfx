@@ -591,14 +591,9 @@ impl Report<'_> {
         let status = self.status;
         out.push_str("\n## Summary\n");
         let _ = writeln!(out, "generated: {}", generated_stamp(self.generated_ms));
-        match &status.build_revision {
-            Some(revision) => {
-                let _ = writeln!(out, "version: {} ({revision})", crate::VERSION);
-            }
-            None => {
-                let _ = writeln!(out, "version: {}", crate::VERSION);
-            }
-        }
+        // The line every other surface says, so a report names its build the
+        // way `--version` does.
+        let _ = writeln!(out, "version: {}", status.version);
         let _ = writeln!(
             out,
             "platform: {}/{}",
@@ -2417,10 +2412,7 @@ mod tests {
             ],
             "the line shell has no screen, so no network calls and no timeline"
         );
-        let version = match crate::build_info().revision {
-            Some(revision) => format!("version: {} ({revision})", crate::VERSION),
-            None => format!("version: {}", crate::VERSION),
-        };
+        let version = format!("version: {}", crate::build_info().version());
         for line in [
             version,
             format!(

@@ -1,0 +1,21 @@
+# take 1: python3 -I -B narrow_pairs.py scripts/fxcap <run-dir>/rt-base-1 <run-dir>/rt-head-1 60
+p5-mcp-menu-new          list-remote            base: unresolved (?)                   no-reader: unresolved (?)                   head: unresolved (?)
+  base     34 pairs, pass 32; approved-divergence 1, normalized-identical 32, unresolved-defect 1
+  head     34 pairs, pass 32; approved-divergence 1, normalized-identical 32, unresolved-defect 1
+pairs: 34; the same verdict in base and head: 34; would drop without the reader: 33
+dropped: 0
+
+# take 2: python3 -I -B narrow_pairs.py scripts/fxcap <run-dir>/rt-base-2 <run-dir>/rt-head-2 60
+p5-mcp-menu-new          list-remote            base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+  base     34 pairs, pass 33; approved-divergence 1, normalized-identical 33
+  head     34 pairs, pass 33; approved-divergence 1, normalized-identical 33
+pairs: 34; the same verdict in base and head: 34; would drop without the reader: 34
+dropped: 0
+
+# take 3: python3 -I -B narrow_pairs.py scripts/fxcap <run-dir>/rt-base-3 <run-dir>/rt-head-3 60
+p5-mcp-menu-new          list-remote            base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+  base     34 pairs, pass 33; approved-divergence 1, normalized-identical 33
+  head     34 pairs, pass 33; approved-divergence 1, normalized-identical 33
+pairs: 34; the same verdict in base and head: 34; would drop without the reader: 34
+dropped: 0
+

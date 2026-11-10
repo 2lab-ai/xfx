@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-df46777 [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────
+  MCP servers  3
+  fixture          ready, 1 tool
+› remote           retrying
+
+  Needs attention  1
+  proj             waiting for approval
+────────────────────────────────────────────────────────────
+↑↓ navigate     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

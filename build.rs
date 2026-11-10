@@ -1,11 +1,13 @@
-//! Build metadata: the exact source revision this binary was compiled from and
-//! the channel it claims.
+//! Build metadata: the channel this binary claims, and its id -- the UTC
+//! minute it was named and the exact source revision it was compiled from,
+//! `YYYY-MM-DD-HHMM-<12 hex>`.
 //!
-//! `status` reports both so that a receipt can be tied back to a commit. Neither
-//! value is invented: when the revision cannot be determined the variable is
-//! empty and the snapshot omits the field rather than printing a placeholder,
-//! and a channel that was asked for and is not a channel fails the build here
-//! rather than becoming a false claim in a published binary.
+//! Every version line says both (`xfx 0.2.0 (preview 2026-11-10-0019-
+//! ec40c7ad2e50)`), so a receipt can be tied back to a commit and a build says
+//! how old it is. Neither value is invented: when the id cannot be determined
+//! the variable is empty and the line says the channel alone rather than a
+//! placeholder, and a channel or an id that was given and is not one fails the
+//! build here rather than becoming a false claim in a published binary.
 //!
 //! The rules themselves live in `src/build_meta.rs` and are included rather
 //! than imported, because a build script cannot depend on the crate it builds.
@@ -26,11 +28,18 @@ include!("src/build_meta.rs");
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/build_meta.rs");
-    println!("cargo:rerun-if-env-changed=XFX_BUILD_REVISION");
+    println!("cargo:rerun-if-env-changed=XFX_BUILD_ID");
     println!("cargo:rerun-if-env-changed=XFX_BUILD_CHANNEL");
 
-    let revision = env_revision().or_else(git_revision).unwrap_or_default();
-    println!("cargo:rustc-env=XFX_BUILD_REVISION={revision}");
+    // A publishing workflow names the build after its own run; any other
+    // build is named after the commit it was built from.
+    let explicit = std::env::var("XFX_BUILD_ID").ok();
+    let id = match resolve_build_id(explicit.as_deref()) {
+        Ok(Some(id)) => id,
+        Ok(None) => git_build_id().unwrap_or_default(),
+        Err(message) => panic!("{message}"),
+    };
+    println!("cargo:rustc-env=XFX_BUILD_ID={id}");
 
     // Cargo sets PROFILE to the compile profile actually in use, which is the
     // channel unless the build that runs this said otherwise. A publishing
@@ -121,14 +130,30 @@ fn git_path(args: &[&str]) -> Option<std::path::PathBuf> {
     Some(std::path::PathBuf::from(text.trim()))
 }
 
-fn env_revision() -> Option<String> {
-    normalize_revision(&std::env::var("XFX_BUILD_REVISION").ok()?)
-}
-
-fn git_revision() -> Option<String> {
-    let output = git().args(["rev-parse", "HEAD"]).output().ok()?;
+/// HEAD's id: the UTC minute it was committed, then its revision.
+///
+/// The committer time rather than the author time, because a rebase or a
+/// cherry-pick makes a new commit that keeps the old one's author time: the
+/// minute a revision came to be is the minute it was committed.
+/// `--no-show-signature` because a `log.showSignature` in the builder's
+/// configuration would put a verification report in front of the two values,
+/// and anything that is not exactly them names no build.
+fn git_build_id() -> Option<String> {
+    let output = git()
+        .args([
+            "show",
+            "-s",
+            "--no-show-signature",
+            "--format=%H %ct",
+            "HEAD",
+            "--",
+        ])
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }
-    normalize_revision(&String::from_utf8(output.stdout).ok()?)
+    let text = String::from_utf8(output.stdout).ok()?;
+    let (revision, committed) = text.trim().split_once(' ')?;
+    build_id_of(committed.parse().ok()?, revision)
 }

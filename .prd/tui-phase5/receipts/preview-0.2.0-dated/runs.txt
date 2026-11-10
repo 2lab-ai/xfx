@@ -1,0 +1,10 @@
+# each sweep's run.json, its local paths left out: sw-base-* ran the df46777e build (sha256 5357330e9179...),
+# sw-head-* the 31ce4320 build (f2fea8a66fe9...), both debug; fx v0.0.16 (8e6cda2efddb...), checked by sweep.py and capture.sh.
+sw-base-120  size 40x120 xfx 5357330e9179 fx 8e6cda2efddb units h1-resize,p5-transcript-question started 2026-11-10T17:46:20+09:00 wall 1m27s load 95.8->100.0
+sw-head-120  size 40x120 xfx f2fea8a66fe9 fx 8e6cda2efddb units h1-resize,p5-transcript-question started 2026-11-10T17:57:50+09:00 wall 1m35s load 58.8->76.3
+sw-base-50   size 24x50  xfx 5357330e9179 fx 8e6cda2efddb units p5-panels-status-short started 2026-11-10T17:47:48+09:00 wall 0m46s load 99.9->100.7
+sw-head-50   size 24x50  xfx f2fea8a66fe9 fx 8e6cda2efddb units p5-panels-status-short started 2026-11-10T17:59:25+09:00 wall 0m47s load 68.9->79.2
+sw-base-60   size 40x60  xfx 5357330e9179 fx 8e6cda2efddb units p5-mcp-menu-new started 2026-11-10T17:49:00+09:00 wall 2m28s load 85.4->103.7
+sw-head-60   size 40x60  xfx f2fea8a66fe9 fx 8e6cda2efddb units p5-mcp-menu-new started 2026-11-10T18:00:13+09:00 wall 2m27s load 70.5->71.3
+sw-base-u50  size 40x50  xfx 5357330e9179 fx 8e6cda2efddb units p5-usage-budget,p5-usage-cached,p5-usage-many,p5-usage-nokey,p5-usage-turns started 2026-11-10T17:53:24+09:00 wall 4m25s load 91.6->96.2
+sw-head-u50  size 40x50  xfx f2fea8a66fe9 fx 8e6cda2efddb units p5-usage-budget,p5-usage-cached,p5-usage-many,p5-usage-nokey,p5-usage-turns started 2026-11-10T18:02:40+09:00 wall 4m14s load 62.0->86.8

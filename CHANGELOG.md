@@ -21,6 +21,17 @@ upstream `fx`.** What is and is not implemented lives in
 
 ### Changed
 
+- **Every version line says when the build is from.** `xfx --version`, the
+  shell's and the TUI's `/version`, the TUI's welcome line, `status` (a new
+  `version` field) and a `/trace` report say llmux's line, `xfx 0.2.0 (preview
+  2026-11-10-0019-ec40c7ad2e50)`: the version, the channel, and the build's id
+  -- on a preview the UTC minute of the run that published it and its commit
+  (`XFX_BUILD_ID`), on any other build the UTC minute its commit was made and
+  that commit, read from git. A build with neither says its channel alone.
+  This replaces upstream's bare `--version` and the welcome line's
+  `v<version>-<rev> [<channel>]`, at the user's request (`docs/parity.md`,
+  `version text`). `XFX_BUILD_REVISION` is gone; `build_revision` is the id's
+  commit. The version is 0.2.0.
 - **A preview is published per epic, not per push.** A push to `main`
   publishes only when it changes `.github/preview-epoch`, a one-line file
   naming the epic the preview closes, so the units of an epic can merge to

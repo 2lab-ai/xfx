@@ -1,0 +1,137 @@
+# python3 -I -B narrow_pairs.py scripts/fxcap <run-dir>/sw-base <run-dir>/sw-head 120 50 60 u50   (tree at the round-3 reader)
+## group 120, 40x120: base xfx 5357330e9179, head xfx f2fea8a66fe9, fx 8e6cda2efddb
+h1-resize                start                  base: normalized-identical             no-reader: normalized-identical             head: normalized-identical
+h1-resize                small                  base: unresolved (resize-document-repaint) no-reader: unresolved (resize-document-repaint) head: unresolved (resize-document-repaint)
+h1-resize                large                  base: unresolved (resize-document-repaint) no-reader: unresolved (resize-document-repaint) head: unresolved (resize-document-repaint)
+p5-transcript-question   asked                  base: unresolved (?)                   no-reader: unresolved (?)                   head: unresolved (?)
+p5-transcript-question   answered               base: normalized-identical             no-reader: normalized-identical             head: normalized-identical
+p5-transcript-question   full-120               base: unresolved (session-record, transcript-page-offset) no-reader: unresolved (session-record, transcript-page-offset) head: unresolved (session-record, transcript-page-offset)
+p5-transcript-question   narrow                 base: unresolved (?)                   no-reader: unresolved (?)                   head: unresolved (?)
+p5-transcript-question   full-60                base: unresolved (session-record, transcript-page-offset) no-reader: unresolved (transcript-page-offset, session-record) head: unresolved (transcript-page-offset, session-record)
+  base     8 pairs, pass 2; normalized-identical 2, unresolved-defect 6
+  no-reader 8 pairs, pass 2; normalized-identical 2, unresolved-defect 6
+  head     8 pairs, pass 2; normalized-identical 2, unresolved-defect 6
+
+## group 50, 24x50: base xfx 5357330e9179, head xfx f2fea8a66fe9, fx 8e6cda2efddb
+p5-panels-status-short   open                   base: unresolved (?)                   no-reader: unresolved (?)                   head: unresolved (?)
+p5-panels-status-short   down1                  base: approved-divergence-cascade      no-reader: unresolved (?)                   head: approved-divergence-cascade
+p5-panels-status-short   down-end               base: approved-divergence-cascade      no-reader: unresolved (status-panel-scroll-window) head: approved-divergence-cascade
+p5-panels-status-short   up1                    base: approved-divergence-cascade      no-reader: unresolved (status-panel-scroll-window) head: approved-divergence-cascade
+p5-panels-status-short   ctrl-k                 base: unresolved (status-panel-scroll-window) no-reader: unresolved (status-panel-scroll-window) head: unresolved (status-panel-scroll-window)
+p5-panels-status-short   esc                    base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+  base     6 pairs, pass 1; approved-divergence-cascade 3, normalized-identical 1, unresolved-defect 2
+  no-reader 6 pairs, pass 0; unresolved-defect 6
+  head     6 pairs, pass 1; approved-divergence-cascade 3, normalized-identical 1, unresolved-defect 2
+
+## group 60, 40x60: base xfx 5357330e9179, head xfx f2fea8a66fe9, fx 8e6cda2efddb
+p5-mcp-menu-new          startup                base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          startup-settled        base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          list                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          list-filter            base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          list-unfilter          base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          server-fixture         base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          server-fixture-tool    base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          server-fixture-nomatch base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          back-list              base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          list-remote            base: normalized-identical             no-reader: unresolved (?)                   head: unresolved (?)  DROPPED
+p5-mcp-menu-new          server-remote          base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          remove-inplace         base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          remove-no              base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          remove-cancel          base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          left-back              base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          list-proj              base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          server-proj            base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          approve-confirm        base: approved-divergence              no-reader: unresolved (?)                   head: approved-divergence
+p5-mcp-menu-new          approve-esc            base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          server-proj-reject     base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          reject-inplace         base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          reject-typed-x         base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          approved               base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          list-after-approve     base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          closed                 base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          closed-status          base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          reopened               base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          server-proj-ready      base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          reject-inplace-ready   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          rejected               base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          list-rejected          base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          removed-list           base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          ctrl-c                 base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-mcp-menu-new          end.full               base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+  base     34 pairs, pass 33; approved-divergence 1, normalized-identical 33
+  no-reader 34 pairs, pass 0; unresolved-defect 34
+  head     34 pairs, pass 32; approved-divergence 1, normalized-identical 32, unresolved-defect 1
+
+## group u50, 40x50: base xfx 5357330e9179, head xfx f2fea8a66fe9, fx 8e6cda2efddb
+p5-usage-budget          updating               base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-budget          open                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-budget          down                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-budget          detail                 base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-budget          detail-down            base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-budget          detail-tab             base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-budget          back                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-budget          tab-today              base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-budget          tab-7d                 base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-budget          right-month            base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-budget          left-7d                base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-budget          r-updating             base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-budget          r                      base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-budget          closed                 base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          updating               base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          open                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          down                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          detail                 base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          detail-down            base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          detail-tab             base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          back                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          tab-today              base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          tab-7d                 base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          right-month            base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          left-7d                base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          btab-today             base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          cj                     base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          ck                     base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          r-429                  base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          r-401                  base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          r-500                  base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          r-bad                  base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          r-updating             base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          r                      base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-cached          closed                 base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-many            open                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-many            bottom                 base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-many            last                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-many            top                    base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-many            closed                 base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-nokey           start                  base: approved-divergence              no-reader: unresolved (?)                   head: approved-divergence
+p5-usage-nokey           open                   base: approved-divergence              no-reader: unresolved (?)                   head: approved-divergence
+p5-usage-nokey           r                      base: approved-divergence              no-reader: unresolved (?)                   head: approved-divergence
+p5-usage-nokey           closed                 base: approved-divergence              no-reader: unresolved (?)                   head: approved-divergence
+p5-usage-turns           launch                 base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           turns                  base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           typed                  base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           open                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           down                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           enter                  base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           tab                    base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           btab                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           right                  base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           left                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           fetching               base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           r                      base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           r-today                base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           r-7d                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           esc                    base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           cost-typed             base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           cost                   base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           arg                    base: normalized-identical             no-reader: unresolved (?)                   head: normalized-identical
+p5-usage-turns           stats                  base: unresolved (stats-bytes)         no-reader: unresolved (stats-bytes, ?)      head: unresolved (stats-bytes)
+p5-usage-turns           credits                base: unresolved (stats-bytes)         no-reader: unresolved (stats-bytes)         head: unresolved (stats-bytes)
+  base     64 pairs, pass 58; approved-divergence 4, normalized-identical 58, unresolved-defect 2
+  no-reader 64 pairs, pass 0; unresolved-defect 64
+  head     64 pairs, pass 58; approved-divergence 4, normalized-identical 58, unresolved-defect 2
+
+pairs: 112; the same verdict in base and head: 111; would drop without the reader: 100
+dropped: 1
+  p5-mcp-menu-new list-remote
+exit 1
