@@ -5,8 +5,10 @@
 # that first row, and Down goes to the caret's own column, one cell into
 # `abcdef` (`B`). With no Shift-Up between, Down goes back to column 6 (`C`).
 # And a Shift-Up that moves keeps the column (vertical_navigation.zig:76):
-# `abcdef/x/abcdef`, two Shift-Ups from the end, through `x`, land at column 6
-# of the first row (`D`).
+# `abcdef/x/abcdef`, two Shift-Ups from the end, through `x`, put the caret at
+# column 6 of the first row. A `cursor` line and no letter: fx's Shift-Ups
+# select what they cross, and a letter would replace it, where xfx's select
+# nothing (COMPOSER-SELECTION-EXTEND).
 wait 2.5
 type x
 key C-j
@@ -44,6 +46,4 @@ key -H 1b 5b 31 3b 32 41
 wait 0.3
 key -H 1b 5b 31 3b 32 41
 wait 0.3
-type D
-wait 0.3
-snap shift-up-twice
+cursor shift-up-twice
