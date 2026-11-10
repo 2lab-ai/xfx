@@ -35998,7 +35998,9 @@ mod tests {
     /// The session's first `@plan`, typed after the first walk -- the
     /// change's -- has ended with `end` but before any poll has taken that
     /// end: the list's first row then, its rows, and the walks the change
-    /// and the `@` made. The walk publishes `plan.md` before it ends.
+    /// and the `@` made -- and the first row again after the next pass's
+    /// `settle_band`, which takes whatever the walk said and paints from
+    /// it. The walk publishes `plan.md` before it ends.
     ///
     /// The first assert is AT-LAUNCH-WALK's tripwire: with a launch walk the
     /// change's walk is not the first and the premise is gone. That unit
@@ -36006,7 +36008,7 @@ mod tests {
     /// change what this expects.
     fn first_at_before_the_poll(
         end: super::super::file_index::Published,
-    ) -> (String, Vec<String>, usize) {
+    ) -> (String, Vec<String>, usize, String) {
         let (_workspace, mut shell) = in_ws2(40, 120);
         let (_extra, path, access) = extra_with_plan(&shell);
         assert_eq!(
@@ -36024,7 +36026,9 @@ mod tests {
         shell.route_bytes(b"@plan");
         let row = listed_rows(&shell)[0].clone();
         let rows = listed_paths(&shell);
-        (row, rows, shell.files_for_test().walks_for_test())
+        let walks = shell.files_for_test().walks_for_test();
+        shell.settle_band(Instant::now());
+        (row, rows, walks, listed_rows(&shell)[0].clone())
     }
 
     #[test]
@@ -36038,27 +36042,39 @@ mod tests {
         // started by the join (`:443-451`) -- two walks, and the finished
         // generation's rows meanwhile (`searchableGeneration`, `:647-654`).
         // xfx's decision takes the walk's end first (`Files::take_walk`).
-        let (_row, rows, walks) =
+        let (_row, rows, walks, _settled) =
             first_at_before_the_poll(super::super::file_index::Published::Ready);
-        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(
+            (walks, rows.len()),
+            (2, 1),
+            "the first `@` skipped its refresh: {rows:?}"
+        );
         assert!(rows[0].ends_with("/plan.md"), "{rows:?}");
-        assert_eq!(walks, 2, "the first `@` skipped its refresh");
     }
 
     #[test]
     fn a_first_at_after_a_walk_failed_but_before_the_poll_says_indexing() {
         // The same with the walk failed (opus r2): fx's index is `.failed`
-        // before the join, so the first `@` asks for its refresh; the join
-        // then starts it and clears the failure (`startLoad`,
-        // `file_index.zig:389@481104fd`), and the list says `indexing
-        // files...` -- two walks. Skipping it, the list would say `Files
-        // unavailable` until Tab.
-        let (row, rows, walks) =
+        // before the join, so the first `@` asks for its refresh, which the
+        // join starts, clearing the failure (`startLoad`,
+        // `file_index.zig:389@481104fd`) -- two walks. xfx's decision takes
+        // the failure and starts that walk at once, and its lookup reads the
+        // new walk: `indexing files...` at the `@` itself; after the next
+        // `settle_band` the list is that walk's -- still indexing, or its
+        // rows -- never `Files unavailable`. Had the `@` skipped its
+        // refresh, that `settle_band` would take the failure with nothing
+        // queued, and the list would say `Files unavailable` until Tab.
+        let (row, rows, walks, settled) =
             first_at_before_the_poll(super::super::file_index::Published::Failed);
         assert_eq!(
             (row, rows, walks),
             (status_row("indexing files..."), Vec::<String>::new(), 2),
             "the first `@` after a failed walk skipped its refresh"
+        );
+        assert_ne!(
+            settled,
+            status_row(FILES_UNAVAILABLE),
+            "the failed walk was shown, with no walk after it"
         );
     }
 
