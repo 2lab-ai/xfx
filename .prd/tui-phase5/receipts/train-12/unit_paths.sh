@@ -15,7 +15,8 @@ P='/User[s]/[^/<]+/|/privat[e]/tm[p]/claude-[0-9]+|/tm[p]/claude-[0-9]+|/var/fol
 count() { git -C "$repo" grep -lE "$1" "$head" -- "$2" | wc -l | tr -d ' '; }
 for d in "$@"; do
   n=$(git -C "$repo" ls-tree -r --name-only "$head" "$d" | wc -l | tr -d ' ')
-  runs=$(git -C "$repo" grep -hoE 'fxca[p]\.[A-Za-z0-9]{6}|fxs[w]\.[A-Za-z0-9_]{6}' "$head" -- "$d" | sort | uniq -c | awk '$2 !~ /XXXXXX$/' | sed 's/^ *//' | tr '\n' ',' | sed 's/,$//')
-  echo "$d: $n files; the brief's pattern $(count "$P" "$d"); a placeholder $(count '<(work|scratch|tmp|home)(:real)?_*>' "$d"); run-directory names other than the template: ${runs:-none}"
+  # round 2: counted, not named (a run directory's name is a scan's shape)
+  runs=$(git -C "$repo" grep -hoE 'fxca[p]\.[A-Za-z0-9]{6}|fxs[w]\.[A-Za-z0-9_]{6}' "$head" -- "$d" | grep -vc 'XXXXXX$')
+  echo "$d: $n files; the brief's pattern $(count "$P" "$d"); a placeholder $(count '<(work|scratch|tmp|home)(:real)?_*>' "$d"); run-directory names other than the template: $runs"
   git -C "$repo" grep -cE "$P" "$head" -- "$d" | sed "s/^$head://; s/^/    the pattern: /"
 done

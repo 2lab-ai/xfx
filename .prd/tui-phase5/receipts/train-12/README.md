@@ -7,7 +7,9 @@ tags: [xfx, phase5, fx-0.0.16, train]
 # P5 train 12: four closed units, one branch
 
 Branch `train/p5-1110a`, from `origin/main` `df46777e` (#89, train 11), as
-the brief set it; `git fetch origin main` found it unmoved. Each unit was
+the brief set it; `git fetch origin main` found it unmoved (that fetch's
+output was not kept; `fetch.txt`, taken again at round 2, finds origin/main
+still `df46777e`). Each unit was
 closed by its own two-engine review and the dispatcher's gate; this train
 combines them. The program goal (the user's words): «최신 fx랑 비교해서 ui쪽으로
 모든 기능 구현하고 기본적으로 최신 fx ui를 그대로 구현해줘» (fx v0.0.16, pin
@@ -51,12 +53,17 @@ After the merges, in order:
 | `39519cdd` | this README before the sweeps |
 | `603c1293`, `b20aca45` | the sweeps, their compares and reruns; the README's sweep sections |
 | `0d7d349f`, `e43387b6` | the README's screen class and Files list; `gates-files.txt` |
-| the next | `rows-excerpts.txt`; the README's last edits |
-| the last one | `final-scan.txt`: `final-scan.sh` at the commit before it. The last commit itself is gated by `pathcheck.sh` like every other, and is not in its own `final-scan.txt` |
+| `63cb877d` | `rows-excerpts.txt`; the README's last edits |
+| `a1d94901` | round 1's `final-scan.txt` |
+| round 2, the first | the reviews' fixes: `compare-main.txt`'s 14 lines rewritten, the scans' new shapes, the decoy lines, the rescore pair by pair, the MCP capture's check, `fetch.txt`, this README (section "Round 2") |
+| round 2, then | `gates-files.txt`: `gates-files.sh` in a clone at the commit before it |
+| round 2, the last one | `final-scan.txt`: `final-scan.sh` at the commit before it. The last commit adds only that file, gated by `pathcheck.sh` like every other, and is not in its own `final-scan.txt` |
 
-**No code after the code head**: `gates-files.txt` (`gates-files.sh`, in a
-clone at the receipt's final form) says what `git diff --stat 03fb5436 HEAD`
-holds outside this folder.
+**No code after the code head**: `gates-files.txt` (`gates-files.sh` in a
+clone at the commit before it) says what `git diff --stat 03fb5436 HEAD`
+holds outside this folder there; `final-scan.txt` part 4 lists every commit
+after `03fb5436` through the one before it, each with the files it touches
+outside this folder: none. The last commit adds `final-scan.txt` alone.
 
 ### Merge 3's conflict (forecast): the ledger, three blocks
 
@@ -227,7 +234,8 @@ apart (`overlap.txt`).
 
 **At the head** (the gate's `test-gate-env` step, `gate-counts.txt`):
 `ok (64 cases)` -- the base's 62 and GATE-ENV-MAINTLOCK-F's two, both `ok`
-(`decoy-setup-maintenance`, `decoy-setup-starts-nothing`, `gates.txt`) -- and
+(`decoy-setup-maintenance`, `decoy-setup-starts-nothing`, their lines copied
+into `gate-counts.txt` at round 2) -- and
 its CI-coverage case `ci-script-tests-per-os` names
 `test-check-no-local-paths` among the script tests on macOS and Linux rows,
 LOCAL-PATHS's change.
@@ -275,8 +283,9 @@ its own branch (`../gate-env-maintlock/runs-r3/summary.txt`: `m1-no-guard`,
 ### 4. INPUT-ROW-LIMIT x LOCAL-PATHS
 
 **In `src/tui/shell.rs`** (`shell_hunks.sh`, `shell-hunks.txt`): both units'
-hunks there are in the tests module -- LOCAL-PATHS's five same-length
-stand-ins for a scratch root in test strings, INPUT-ROW-LIMIT's 233 lines of
+hunks there are in the tests module -- LOCAL-PATHS's five hunks of
+same-length stand-ins for a scratch root in test strings (four one line for
+one, one two lines for three), INPUT-ROW-LIMIT's 233 lines of
 tests and `effort_shell_at`; INPUT-ROW-LIMIT's one code change is
 `layout::input_row_limit` (`src/tui/layout.rs`), which LOCAL-PATHS does not
 touch. LOCAL-PATHS's hunks sit at its base's lines 20978-24928,
@@ -325,7 +334,9 @@ clone at `03fb5436`, one hold of the lock:
 | `cargo test --locked --test tui --no-fail-fast` | 188 passed, 0 failed | **0** |
 
 **No CONNECT to the Gateway host** [measured]; the two `w.example` lines are
-the known MCP probe (trains 6 to 11). No unit of this train adds a
+the known MCP probe (trains 6 to 11). The run covers the lib and `tui` test
+binaries only, as train 11's did; the other integration tests ran in the
+gate, with no logger. No unit of this train adds a
 network path: GATE-ENV-MAINTLOCK-F and SWEEP-WALLCLOCK-F change no `src/`,
 LOCAL-PATHS's `src/` edits are same-length stand-ins for a path in tests and
 a marked fixture (its README section 3; `shell-hunks.txt` for `shell.rs`),
@@ -344,11 +355,19 @@ time, never written; no hit printed but its kind and file):
 - **15 commits hold a hit, every one LOCAL-PATHS's** (33 lines, the brief's
   count, 43 matches); none of the other three units' commits and none of
   this train's.
-- **Placeholders (31 matches)**: homes named `u`, `me`, `example`,
-  `someone`, `z` (the check's documented placeholder homes, its tests and
-  README, `.prd/tui-phase4/loop.md`'s list), a harness root with uid `0`
-  (`red3.sh`), and `claud[e]-3/` and `claud[e]-2/` inside a name or after a
-  `/` (the model paths the check's tests pass on purpose).
+- **Placeholders (29 matches; round 2 counts only what is documented)**:
+  homes named `u`, `me`, `example`, `someone` -- each in the check's own
+  `allowed` list of nobody's homes, which `midbranch_scan.py` reads from
+  the head -- in the check, its tests, its README and
+  `.prd/tui-phase4/loop.md`'s list; and `claud[e]-3/` and `claud[e]-2/`
+  inside a name or after a `/` (the model paths the check's tests pass on
+  purpose).
+- **For review (2 matches), both gone by LOCAL-PATHS's tip**: a home named
+  `z` in `c57ffb77` (`scripts/fxcap/roots.py`'s docstring, a stand-in HOME,
+  removed in `89a3fef1`: LOCAL-PATHS's section 5) and a harness root with
+  uid `0` in `6b4f72fd` (`red3.sh`'s fixture root, assembled from parts
+  after round 3: LOCAL-PATHS's section 4). Neither is a name the account
+  or this machine has.
 - **Scratch-root shapes (12 matches)**, every one of this machine's uid or
   the macOS per-user temp root:
   - **10 on lines marked `local-path-ok`, 8 of them at the head**: the
@@ -364,8 +383,13 @@ time, never written; no hit printed but its kind and file):
     `5743e3c7`, LOCAL-PATHS's section 11). The repo keeps both commits; they
     publish this machine's harness root and uid, no name.
 - **The range** (`git diff df46777e..HEAD`'s added lines): 21 lines, the
-  brief's count -- all LOCAL-PATHS's: 21 placeholder matches and 8
-  scratch-root shapes, the 8 above, each on a `local-path-ok` line. This train's
+  brief's count -- all LOCAL-PATHS's: 21 placeholder matches, 0 for review
+  and 8 scratch-root shapes, the 8 above, each on a `local-path-ok` line.
+  **The dispatcher's decision (round 2): the 21 are accepted.** They are
+  placeholders and the check's and redactor's own fixtures, and the two
+  mid-branch mentions above were removed later; none is a user name or a
+  credential. So the brief's "0 for the whole range" reads, for this train,
+  as 0 in every commit this train adds and these 21 in the units' lines. This train's
   own commits add 0 (`final-scan.txt` part 1: every merge's combined diff,
   the re-point and every receipt commit 0); merge 3 read as everything it
   brings holds LOCAL-PATHS's 21.
@@ -416,7 +440,11 @@ train 11's with **every scenario** and a size). fx: the v0.0.16 binary,
 sha256 `8e6cda2e...` before and after each sweep, `FX_AUTO_UPGRADE=0`;
 40x120, `--jobs 2`; each sweep inside one hold of the suite lock
 (`sweep-runs.txt`). Main's sweep was rescored with the head's ledger
-(`sweep.sh --rescore` on a copy): no verdict moved, 1297 before and after.
+(`sweep.sh --rescore` on a copy): 1297 before and after, and pair by pair 0
+of 1854 verdicts moved (`sweep-runs.txt`, round 2). The two sweeps ran at
+the same time, each in its own lock slot: main's from 05:43:43 (+09:00) for
+136 min, the head's from 06:03:33 for 143 min (their `run.json` lines in
+`sweep-runs.txt`); their loads at start 39.8 and 45.7, peaks 74.8 and 61.0.
 Every xfx snap that shows the banner shows the build swept: `v0.1.0-03fb543`
 on all 1619 of the head's, `v0.1.0-df46777` on all 1601 of main's
 (`sweep-runs.txt`).
@@ -436,8 +464,8 @@ fx ends before its first frame on both (below).
 
 ### Against main (`compare-main.txt`, `screen-moves-main.txt`, `screen-classes.txt`, `gained-rows.txt`)
 
-**1854 shared pairs: 1297 -> 1298; 1 down, 2 up** [measured], and six moves
-between identical and normalized-identical, both passing
+**1854 shared pairs: 1297 -> 1298; 1 down, 2 up** [measured], and seven
+moves between identical and normalized-identical, both passing
 (`p5-submit-preview-full` x4 and `settings-collapse-open` `after-esc` to
 identical, `p5-transcript-submit` x2 to normalized-identical):
 
@@ -447,9 +475,12 @@ identical, `p5-transcript-submit` x2 to normalized-identical):
   in the head's sweep fx caught it `retrying` and xfx `connecting`, in
   main's both `retrying`. **Rerun 3 times on each** (`reruns.txt`): **the
   head 3 of 3 pass** (both `retrying`, both `connecting`, both `retrying`),
-  main 3 of 3. **A flake**: the snap's moment falls on either side of the
-  server's retry, on either binary; no unit of this train touches MCP or
-  its timing (join check 6's list). Not registered in the ledger as a
+  main 3 of 3. **An observed intermittent snap mismatch**: the snap's
+  moment falls on either side of the server's retry, on either binary. No
+  unit changes MCP product code; LOCAL-PATHS does add rewrite work between
+  scenario steps (each snap staged, rewritten by `roots.py` and renamed:
+  capture.sh's `publish`, `:455-469`), which moves when later steps run. 3
+  of 3 on rerun at the head. Not registered in the ledger as a
   nondeterminism; named here for its owner.
 - **up: `workspace-index` `at-plan`** (unresolved -> normalized-identical):
   `@plan` lists a folder under the run directory, and each binary bolds the
@@ -487,8 +518,10 @@ registered under `activity-tokens-before-request`), 1 the MCP state above.
 at the same rows as xfx's: the rows on both at the head, the failure on both
 in main's sweep; `screen-moves-main.txt`.) **Rows gained** (`gained-rows.txt`): 78
 pairs, 77 unresolved or approved on both sides; 57 hold a placeholder where
-main's row held a path, 21 run-local text (ports, clocks, a retry's moment,
-the `/stats` bytes) -- and `list-remote`, above.
+main's row held a path, and 21 the rest: 19 run-local text (ports, clocks, a
+retry's moment, the `/stats` bytes), 1 `list-remote` (above) and 1
+`model-parked` `menu-loading`, SWEEP-WALLCLOCK-F's outage screen (the
+turn's activity row while it waits on the failed catalog's retry).
 
 ### `model-column-idle`: did SWEEP-WALLCLOCK-F end `catalog-window`? **Yes** (`reruns.txt`)
 
@@ -547,25 +580,27 @@ each side (`workspace-index` `at-plan`, `p5-lifecycle-retryok` `k01-1.5s`).
 - **Train 11's token_control.py stops on a merge where no docs/parity.md row
   changed on a side** (a `KeyError`); its train 12 form plants on every row
   both sides changed and says so for a merge with none.
-- **Three MCP scenarios' captures keep a fragment of the scenario
-  directory** (`capture-scan.txt`: 62 files of the head's sweep, every one in
+- **Three MCP scenarios' captures keep a cut-short path of this machine,
+  the account's name in it** (owner: **MCP-CAPTURE-PATHS**, new). In the
+  head's sweep 62 capture files hold one (`capture-scan.txt`, which tags
+  each "the brief's pattern, the account's name" and quotes neither): all in
   `p5-mcp-menu-new` (24 fx, 26 xfx), `p5-mcp-menu-old` (4 and 4) and
-  `p5-mcp-fail` (2 and 2)). Their `/mcp` menu's `runs` row prints the stdio
-  server's argument, `@SCENARIOS@/p5-mcp-stdio.ts` filled with the scenario
-  directory; under this train's clones that directory is 141 bytes (the
-  run's `roots:` line), so both binaries cut the row with `…` at column 120
-  (`rows-excerpts.txt`), and `roots.py`, which
-  writes a root it finds whole, leaves the cut one. It holds no run name, so
-  it is not refused either. This is LOCAL-PATHS's stated limit (its README
-  section 1: "a fragment of a root above it ... holds no run name, and in a
-  tracked file the check's shapes are what refuse it"), met by a long
-  checkout path, not by this train's merge: the pairs read the same on both
-  sides, and a capture holding such a fragment would be refused by
-  `check-no-local-paths.sh`'s shapes if committed [read from the code: its
-  home-directory shape, LOCAL-PATHS's README section 4; not run on these
-  files]. Main's sweep, with no rewrite, has them in 950
-  of its 9474 capture files (`capture-scan-main.txt`); the head's in 62 of
-  9556.
+  `p5-mcp-fail` (2 and 2). None is committed; the sweep's captures stay in
+  scratch. **The cause**: their `/mcp` menu's `runs` row prints the stdio
+  server's argument, `@SCENARIOS@/p5-mcp-stdio.ts` filled with the
+  `scenarios` root -- 141 bytes under this train's clones (the run's
+  `roots:` line) -- and both binaries cut the row with `…` at column 120
+  (`rows-excerpts.txt`), so the root never stands whole in the capture.
+  `roots.py` writes a root it finds whole, so the cut `scenarios` root stays
+  as the binaries printed it; it holds no run name, so `--check` passes it.
+  **What the local-path check does with one** (`mcp_capture_check.sh`,
+  `mcp-capture-check.txt`): `fx-p5-mcp-menu-new-40x120-server-proj.txt`
+  staged in a throwaway clone at `03fb5436` -- `1 problem(s) found`, its
+  line 6, "a harness scratch root", exit 1. So such a capture cannot reach a
+  commit past the check; the gap is in capture.sh's rewrite (a root cut
+  short by the binary), not in the check. Main's sweep, with no rewrite,
+  has paths in 950 of its 9474 capture files (`capture-scan-main.txt`); the
+  head's in 62 of 9556.
 - **`p5-panels-badsettings` fails on both sweeps**: fx ends before its first
   frame (`up: the pane is gone after 0.02 s ... no keep held the pane`),
   exit 1, at main and at the head alike; its two pairs read `failed` on both
@@ -586,15 +621,64 @@ but for its line): scripts/fxcap/redact.py's `Redactor.write` -- at this
 head, LOCAL-PATHS's, which keeps a path that continues one of capture.sh's
 placeholders -- every path under a local root to `<local-path>` or a named
 root (`<scratch>`, `<repo>`, `<worktree>`), a checkout's path cut short to
-`<checkout>/`, the account's name to `<user>`. The scripts take the oracle's
+`<checkout>/`, the account's name to `<user>`, and -- round 2's tail rule --
+any token that holds a run directory's name or the harness root's uid part
+(the tail of a root a capture row wrapped, whose head the redactor had
+written `<local-path>`) to `<local-path>` whole. The scripts take the oracle's
 path, the suite lock and the scratch directories as arguments or variables,
 and spell the brief's pattern with bracket classes. **Every commit this train
 adds was gated on the brief's check** before it was made (`pathcheck.sh`,
 `set -o pipefail` and an explicit `if`): a merge as the combined diff `git
 show` prints of it, read from a probe commit of the staged tree
 (`git commit-tree`, on no branch), any other commit as its staged lines. Then
-check-no-local-paths.sh over the staged receipt. `final-scan.sh` at the
-receipt's last commit (`final-scan.txt`).
+check-no-local-paths.sh over the staged receipt. Round 2 adds to both
+`pathcheck.sh` and `final-scan.sh` the shapes round 1's scans missed
+(`shapes.py`: a run directory's name, `fxsw.` or `fxcap.` and six name
+characters; the uid tail, `claude-<digits>` or a token starting
+`-<digits>/`), over the staged lines and over every file of this folder:
+**0 remain** (`final-scan.txt` part 3). `final-scan.sh` at the receipt's
+last commit (`final-scan.txt`).
+
+**Round 1 published one such tail.** `compare-main.txt` as committed in
+`603c1293` held, in 14 lines, the tail of main's sweep TMPDIR -- this
+machine's uid, the scratch layout and a run directory's random name; no
+user name, no credential. compare.py cuts each row to its last 70
+characters after redacting it, and where a row ended in that root's head
+the next row held its tail, which no root starts. Round 2 rewrote the 14
+lines with redacted.py's tail rule, applied to the committed file (each of
+the folder's text files passed through it in scratch: `compare-main.txt`'s
+14 lines and `unit-paths.txt`'s run-directory names changed, nothing else;
+`unit_paths.sh` now counts those names instead of listing them). The
+history is not rewritten, so `603c1293` keeps them.
+
+## Round 2: the reviews of `a1d94901`
+
+Both engines approved the merges, the joins and the sweep, with fixes; all
+are receipt text. No code changed, no history was rewritten; the code head
+stays `03fb5436`, and the gate, the sweeps and the jobs stand.
+
+- **MUST 1, a machine-path tail at HEAD**: `compare-main.txt`'s 14 lines
+  rewritten by redacted.py's new tail rule; `shapes.py`'s run-name and
+  uid-tail shapes added to `pathcheck.sh` and `final-scan.sh`, over this
+  folder: 0 (section "Redaction").
+- **MUST 2, "no code after the code head"**: `gates-files.txt` taken again
+  at the commit before it, and `final-scan.txt` part 4 lists every commit
+  after `03fb5436` with the files it touches outside this folder.
+- **MUST 3, the sweep figures**: seven moves between identical and
+  normalized-identical, not six; the 21 rows gained split 19 + 1 + 1.
+- **SHOULDs**: the two decoy cases' `ok` lines copied into
+  `gate-counts.txt`; the MCP captures' item rewritten (the account's name
+  in them, the cause the cut `scenarios` root, the check run on one, owner
+  MCP-CAPTURE-PATHS); the rescore compared pair by pair (0 moved);
+  `midbranch_scan.py` calls a placeholder only what the check documents
+  and lists the rest for review (2); the `list-remote` paragraph reworded.
+- **The path-check conflict** raised in round 1: decided by the dispatcher,
+  the 21 range hits accepted (join check 7).
+- **NITs**: the network run's scope, `fetch.txt`, the stand-ins' hunk sizes,
+  the two sweeps' overlap in time. Not changed: `rowsmerge.py` does not
+  refuse two adjacent spans of one side (only spans of the two sides that
+  meet), which is rowmerge.py's rule; and the `/stats` byte count's cause
+  stays *(not measured)*.
 
 ## Files
 
@@ -621,6 +705,8 @@ receipt's last commit (`final-scan.txt`).
 - `gates.sh`, `gates_txt.py`, `gates.txt`, `gate_counts.sh`,
   `gate-counts.txt`; `test_counts.sh`, `test-counts.txt`; `gates-files.sh`,
   `gates-files.txt`; `final-scan.sh`, `final-scan.txt`; `redacted.py`;
+  `shapes.py` (round 2: the scans' three shapes); `fetch.sh` / `fetch.txt`;
+  `mcp_capture_check.sh` / `mcp-capture-check.txt`;
   `excerpts.sh` / `rows-excerpts.txt` (the capture rows three figures rest
   on).
 - Sweeps: `sweep.sh`, `irl41-selection.txt`, `irl8-selection.txt`,

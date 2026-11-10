@@ -59,3 +59,4 @@ irl8: 4 xfx snaps show the banner; 4 name v0.1.0-03fb543; others none
 
 ## main's sweep rescored with the head's ledger
 ref-main: before pass = 1297 / 1854; after pass = 1297 / 1854; ledger f995faeb (the head's f995faeb); run at df46777e
+ref-main, pair by pair: 1854 pairs before, 1854 after; verdicts moved by the rescore: 0

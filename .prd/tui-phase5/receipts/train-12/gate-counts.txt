@@ -84,5 +84,7 @@ test-check-no-local-paths: ok skip-worktree              refused by name
 test-check-no-local-paths: ok deleted                    refused by name
 test-check-no-local-paths: ok (10 cases)
 ## 15-test-gate-env
+test-gate-env: ok decoy-setup-maintenance        the retired product name is still in tracked content
+test-gate-env: ok decoy-setup-starts-nothing     new_decoy's commit starts no maintenance or gc
 test-gate-env: ok ci-script-tests-per-os         test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths on macOS and Linux rows
 test-gate-env: ok (64 cases)

@@ -8,6 +8,9 @@
 # is the brief's, each part spelt with a bracket class so this file does not
 # match itself. Prints the count, and every line the last term (`claude-<n>/`,
 # which a model path also matches) holds; exit 0 only when the count is 0.
+# Round 2 adds, through shapes.py, a run directory's name and the harness
+# root's uid tail over the same lines, and all three shapes over every file
+# of this folder as it is on disk; each must be 0 too.
 # usage: pathcheck.sh <worktree>
 set -u -o pipefail
 cd "$1" || exit 2
@@ -23,4 +26,10 @@ fi
 n=$(added | grep -cE "$P")
 echo "path check over $what: $n"
 added | grep -E "$P" | cut -c1-200 | sed 's/^/    hit: /'
-[ "$n" = 0 ]
+here=$(cd "$(dirname "$0")" && pwd)
+echo "shapes over $what: $(added | python3 -I -B "$here/shapes.py" lines)"
+added | python3 -I -B "$here/shapes.py" lines > /dev/null
+lines=${PIPESTATUS[1]}
+python3 -I -B "$here/shapes.py" files "$here"/* | sed '1s/^/shapes over this folder: /'
+folder=${PIPESTATUS[0]}
+[ "$n" = 0 ] && [ "$lines" = 0 ] && [ "$folder" = 0 ]

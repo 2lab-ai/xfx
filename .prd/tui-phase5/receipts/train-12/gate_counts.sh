@@ -3,7 +3,8 @@
 # each log's last lines only): every harness suite's 'Ran N tests' and its
 # verdict, each cargo test binary's 'test result' line and their sums, and
 # the one-line verdicts of the local-path check, its test and
-# test-gate-env (with its CI-coverage line for the script tests).
+# test-gate-env (with its CI-coverage line for the script tests, and -- round 2
+# -- the ok lines of GATE-ENV-MAINTLOCK-F's two decoy cases).
 # usage: gate_counts.sh <log-dir>
 set -u
 logs=$1
@@ -19,5 +20,5 @@ for f in "$logs"/*-test.log "$logs"/*-test-fault.log; do
 done
 for f in "$logs"/*check-no-local-paths.log "$logs"/*test-gate-env.log; do
   echo "## $(basename "$f" .log)"
-  grep -E '^(test-)?check-no-local-paths: |^test-gate-env: (ok \(|[0-9]+ problem)|ci-script-tests-per-os|test-check-no-local-paths' "$f" | cut -c1-220
+  grep -E '^(test-)?check-no-local-paths: |^test-gate-env: (ok \(|[0-9]+ problem)|ci-script-tests-per-os|decoy-setup-|test-check-no-local-paths' "$f" | cut -c1-220
 done

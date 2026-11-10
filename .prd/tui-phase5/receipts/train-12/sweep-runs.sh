@@ -5,7 +5,8 @@
 # binary, SHORT_TMP a short scratch directory), the last lines of its log, its
 # run.json's start, wall time, load and the xfx it ran, the banners its xfx
 # snaps show (banners.py), and main's sweep rescored with the head's ledger
-# (sweep.sh --rescore on a copy): the pass line before and after.
+# (sweep.sh --rescore on a copy): the pass line before and after, and (round
+# 2) the verdicts the rescore moved, pair by pair.
 # usage: sweep-runs.sh <scratch> <head-rev7> <main-rev7> <head-clone>
 set -u
 T=$1 head=$2 main=$3 hclone=$4
@@ -27,4 +28,11 @@ PY
   python3 -I -B "$here/banners.py" "head=$T/sw-head:$head" "main=$T/sw-main:$main" "irl41=$T/sw-irl41:$head" "irl8=$T/sw-irl8:$head"
   echo; echo "## main's sweep rescored with the head's ledger"
   echo "ref-main: before $(grep -o 'pass = [0-9]* / [0-9]*' "$T/sw-main/scoreboard.md"); after $(grep -o 'pass = [0-9]* / [0-9]*' "$T/ref-main/scoreboard.md"); ledger $(grep -o 'ledger sha256 `[0-9a-f]\{8\}' "$T/ref-main/scoreboard.md" | tail -c 9) (the head's $(shasum -a 256 "$hclone/scripts/fxcap/parity-ledger.toml" | cut -c1-8)); run at $(python3 -I -c "import json,sys; print(json.load(open(sys.argv[1]))['repo_head'][:8])" "$T/ref-main/run.json")"
+  # round 2: the rescore pair by pair, not only its pass line
+  python3 -I -B - "$T/sw-main/pairs.json" "$T/ref-main/pairs.json" <<'PY'
+import json, sys
+a, b = ({(p["scenario"], p["label"]): p["verdict"] for p in json.load(open(f))} for f in sys.argv[1:3])
+moved = sorted(k for k in a if a[k] != b.get(k))
+print(f"ref-main, pair by pair: {len(a)} pairs before, {len(b)} after; verdicts moved by the rescore: {len(moved)}" + "".join(f"\n    {k[0]} {k[1]}: {a[k]} -> {b.get(k)}" for k in moved))
+PY
 } | python3 -I -B "$here/redacted.py" "$here/sweep-runs.txt" "$T=<scratch>"

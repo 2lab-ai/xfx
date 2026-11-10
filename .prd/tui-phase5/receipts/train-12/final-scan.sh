@@ -9,12 +9,16 @@
 #   2. midbranch_scan.py: every commit of <base>..<head>, the units' own
 #      included, and the range itself, each hit classified (placeholder,
 #      SCRATCH, NAME; a NAME stops the train);
-#   3. every file of this directory, by the same pattern.
+#   3. every file of this directory, by the same pattern; round 2 adds
+#      shapes.py's three shapes over it (the brief's, a run directory's name,
+#      the harness root's uid tail);
+#   4. round 2: each commit this train adds after <code-head>, and the files
+#      it touches outside this directory (none: no code after the code head).
 # The pattern is the brief's, each part spelt with a bracket class so this
 # file does not match itself.
-# usage: final-scan.sh <repo> <base> <head>
+# usage: final-scan.sh <repo> <base> <head> [<code-head>]
 set -u
-repo=$1 base=$2 head=$3
+repo=$1 base=$2 head=$3 code=${4:-}
 here=$(cd "$(dirname "$0")" && pwd)
 P='/User[s]/[^/<]+/|/privat[e]/tm[p]/claude-[0-9]+|/tm[p]/claude-[0-9]+|/var/folder[s]/|zhugehyu[k]|claud[e]-[0-9]+/'
 echo "## 1. each commit this train adds, first-parent $base..$(git -C "$repo" rev-parse --short=8 "$head"): the brief's count; a merge also as everything it brings"
@@ -37,4 +41,17 @@ echo "# midbranch_scan.py exit $rc"
 echo
 f=$(grep -lE "$P" "$here"/* | wc -l | tr -d ' ')
 echo "## 3. files of this directory holding the pattern: $f"
-exit $(( mine + rc + f > 0 ))
+python3 -I -B "$here/shapes.py" files "$here"/* | sed '1s/^/shapes.py over this directory: /'
+sh=${PIPESTATUS[0]}
+out=0
+if [ -n "$code" ]; then
+  echo
+  echo "## 4. each commit after the code head $code, and the files it touches outside this directory"
+  for c in $(git -C "$repo" rev-list --reverse "$code..$head"); do
+    o=$(git -C "$repo" show --format= --name-only "$c" -- . ':!.prd/tui-phase5/receipts/train-12' | grep -c .)
+    echo "$(git -C "$repo" rev-parse --short=8 "$c") outside: $o; inside: $(git -C "$repo" show --format= --name-only "$c" -- .prd/tui-phase5/receipts/train-12 | grep -c .) file(s)"
+    out=$((out + o))
+  done
+  echo "# files outside this directory touched after the code head: $out"
+fi
+exit $(( mine + rc + f + sh + out > 0 ))

@@ -12,6 +12,17 @@ path that a capture row cut short (`...ai/xfx/.worktrees/<name>/scripts/...`,
 with no local root left at its start) becomes `<checkout>/`, as does any
 other path cut short before `scripts/fxcap/`, and the
 account's name, wherever it is left, `<user>`.
+
+Train 12, round 2 (the tail rule): a local root a capture row wrapped leaves
+its head on one row, which the redactor writes `<local-path>`, and its tail
+on the next, which no root starts. So, last, any token (a run of characters
+other than white space, quotes, backquotes and `(<>`) that holds a run
+directory's name -- `fxsw.` and six name characters, or `fxcap.` and six
+other than the masked `XXXXXX` -- or the harness root's uid part
+(`claude-<digits>`, or a token that starts with `-<digits>/`, that root's
+tail cut after its `claude`) becomes `<local-path>` whole. Each part below
+is spelt with a bracket class, so this file does not match the scans' own
+shapes.
 """
 import getpass
 import re
@@ -29,6 +40,9 @@ text = re.sub(r"[^\s'\"`(<]*\.worktrees/[\w.-]+/", "<checkout>/", text)
 # the harness directory it names -- a whole token's start; train 7: not a
 # diff's own `a/` or `b/` (a remerge-diff's file names).
 text = re.sub(r"(?<![^\s'\"`(<>])(?![ab]/scripts/fxcap/)[^\s'\"`(<>]+/(?=scripts/fxcap/)", "<checkout>/", text)
+TAIL = re.compile(r"[^\s'\"`(<>]*(?:fxs[w]\.[A-Za-z0-9_]{6}|fxca[p]\.(?!XXXXXX)[A-Za-z0-9]{6}|claud[e]-[0-9]+)[^\s'\"`)<>]*"
+                  r"|(?<![^\s'\"`(<>])-[0-9]+/[^\s'\"`)<>]*")
+text = TAIL.sub("<local-path>", text)
 user = getpass.getuser()
 if len(user) > 2:
     text = text.replace(user, "<user>")

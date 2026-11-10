@@ -8,11 +8,14 @@ run time (`pwd`, `os.getuid`), never written here, and never printed: a hit
 is printed as its kind and the file it is in, with a placeholder's own name
 or digits only where they are not this machine's.
 
-Kinds:
-  placeholder  a home whose name is not the account's (`me`, `someone`, ...)
-               or a harness temp root whose uid is not this machine's
-               (`claude-0`), or `claude-<n>/` inside a name or after a `/`
-               (a model path such as `models/claud[e]-3/`)
+Kinds (round 2: only what is documented is a placeholder):
+  placeholder  a home the local-path check documents as nobody's (its
+               `allowed` list, read from <head>'s check-no-local-paths.sh:
+               `u`, `me`, `example`, `someone`, `you`, `runner`), or
+               `claude-<n>/` inside a name or after a `/` (a model path such
+               as `models/claud[e]-3/`, the forms the check passes)
+  review       any other home, or a harness temp root whose uid is neither
+               this machine's nor documented: listed by name for a reader
   SCRATCH      this machine's harness temp root (its uid), the macOS
                per-user temp root, or `claude-<uid>/` standing as a root's
                broken tail
@@ -43,23 +46,34 @@ def git(repo, *a):
     return subprocess.run(["git", "-C", repo, *a], check=True, capture_output=True, text=True, errors="replace").stdout
 
 
+ALLOWED = set()
+
+
 def kind(line, m):
     home, tmp1, tmp2, short = m.group(1), m.group(2), m.group(3), m.group(4)
     if home is not None:
-        return ("NAME", "the account's home") if home == ME else ("placeholder", f"a home named {home!r}")
+        name = re.match(r"[A-Za-z0-9._-]*", home).group(0)  # the home's own name, not what the pattern ran on to
+        if name == ME or home == ME:
+            return ("NAME", "the account's home")
+        if f"/Users/{name}" in ALLOWED:
+            return ("placeholder", f"a documented home named {name!r}")
+        return ("review", f"a home named {name!r}, not in the check's documented list")
     if tmp1 is not None or tmp2 is not None:
         uid = tmp1 or tmp2
-        return ("SCRATCH", "the harness temp root, this machine's uid") if uid == UID else ("placeholder", f"a harness temp root, uid {uid}")
+        return ("SCRATCH", "the harness temp root, this machine's uid") if uid == UID else ("review", f"a harness temp root, uid {uid}")
     if short is not None:
         before = line[m.start() - 1] if m.start() > 0 else ""
         if before == "/" or before.isalnum() or before in "._-":
             return ("placeholder", f"`claud[e]-{short}/` inside a name or after a `/`")
-        return ("SCRATCH", "a root's tail, this machine's uid") if short == UID else ("placeholder", f"a root's tail, uid {short}")
+        return ("SCRATCH", "a root's tail, this machine's uid") if short == UID else ("review", f"a root's tail, uid {short}")
     return ("SCRATCH", "the macOS per-user temp root")
 
 
 repo, base, head = sys.argv[1:4]
-totals = {"placeholder": 0, "SCRATCH": 0, "NAME": 0, "CREDENTIAL": 0}
+block = git(repo, "show", f"{head}:scripts/check-no-local-paths.sh").split("allowed=(", 1)[1].split("\n)", 1)[0]
+ALLOWED = {m.group(1) for m in re.finditer(r"^\s*(/(?:home|Users)/[A-Za-z0-9._-]+)", block, re.M)}
+print(f"# the check's documented homes at {head[:8]}: {', '.join(sorted(ALLOWED))}")
+totals = {"placeholder": 0, "review": 0, "SCRATCH": 0, "NAME": 0, "CREDENTIAL": 0}
 total_lines = 0
 
 
@@ -103,7 +117,7 @@ print(f"# {len(commits)} commits scanned; {total_lines} lines hit (the brief's c
       + f"; commit messages holding the account's name: {names}")
 print()
 print(f"## the range, git diff {base}..{head}")
-rt = {"placeholder": 0, "SCRATCH": 0, "NAME": 0, "CREDENTIAL": 0}
+rt = {"placeholder": 0, "review": 0, "SCRATCH": 0, "NAME": 0, "CREDENTIAL": 0}
 hits, lines = scan(git(repo, "diff", f"{base}..{head}"))
 show(hits, rt)
 print(f"# the range: {lines} lines hit (the brief's count); matches: " + ", ".join(f"{k} {v}" for k, v in rt.items()))
