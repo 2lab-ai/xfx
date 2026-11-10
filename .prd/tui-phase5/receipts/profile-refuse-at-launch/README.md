@@ -169,8 +169,8 @@ after each run).
   (every step of `profile_open`: nothing, torn, torn open to group, to
   other, in a directory open to group, write-only, an unlistable directory,
   a second hard link, a FIFO, a file for the directory).
-- **GREEN** (`green.txt`): all of them pass at b209c786; the whole suite in
-  the gate (section 8).
+- **GREEN** (`green.txt`): all 13 pass in the gate's `cargo test` at
+  b209c786's code; the whole suite there too (section 8).
 
 ## 4. Tests changed to the refusal
 
@@ -217,7 +217,21 @@ the profiles each seeds were read against the rule.
 - **Sweep, round 2** (`sweep.sh` under the suite lock → `sweep-r2.txt`):
   every `p5-panels*`, `settings*`, `startup*` and `config*` scenario and
   every one that seeds a profile, with HEAD's scenarios and ledger, once
-  with b209c786's xfx and once with 3943d667's. SWEEP-R2
+  with b209c786's xfx and once with 3943d667's. 83 scenarios, 523 pairs,
+  every run `ran` on both sides; the oracle's sha256 the pin's before and
+  after.
+  - Head 278/523 passing, base 277/523; **moved to passing: 1**,
+    `p5-panels-badsettings` `launch` (unresolved-defect → normalized-identical,
+    its only difference row 40 under `tmux-dead-pane`); **dropped from
+    passing: 0** (`sweep-r2.txt`; each side's `summary.md` in
+    `sweep-r2-head/`, `sweep-r2-base/`).
+  - `p5-panels-status-badsettings`: the same three verdicts at the head and
+    the base (approved-divergence, -cascade, approved-divergence).
+  - Three other pairs moved between two passing verdicts
+    (`p5-panels-permissions` `revoke-done`, `revoke-prompt`;
+    `settings-collapse-open` `after-esc`): each differed in one row, a
+    turn's or an activity's clock (`3s` against `4s`), which the ledger
+    masks -- the run's clock, not this change (`sweep-r2.txt`, last lines).
 - **Sweep, round 1** (`sweep.txt`, a57ba760 against 3943d667): 83
   scenarios; head 278/523, base 277/523; moved to passing 1
   (`p5-panels-badsettings` `launch`), dropped 0; `rules-read` `granted`
@@ -239,7 +253,27 @@ the profiles each seeds were read against the rule.
 ## 6. Mutants (`mutants.py` → `mutants.txt`)
 
 On a `git clone --no-local` of b209c786 outside the worktree, each test
-bounded at 900 s, under the suite lock. MUTANTS-R2
+bounded at 900 s, under the suite lock. **17 of 17 killed**:
+
+- each condition dropped -- the unreadable/malformed/too-large file (M1),
+  `workspaces` or the entry not an object (M2), the profile's `model` (M3),
+  the entry's `model` (M4) -- killed by `ask_refuses_a_profile_fx_refuses`
+  and, but M3, a config unit test;
+- fx's model rule loosened (M5, a blank allowed), its `skill_match_fuzzy`
+  order dropped (M6), the project file counted (M12): killed;
+- the unsafe path not refusing `ask` (M7), and refusing the interactive
+  launches too (M8): killed, M8 by the two pty tests that start with it;
+- the refusal after the terminal is taken (M9: moved into `session`, after
+  raw mode), the line shell's after its store is opened (M10), `ask --json`
+  writing it on stderr (M11): killed;
+- round 2, fx's read order: the file's mode check dropped (M13) and the
+  directory's (M14) -- both killed by `ask_goes_on_with_a_profile_fx_starts_with`
+  and the open-order unit test; the open no longer checked before the mode
+  (M15, a `0o222` file taken as not read) and a second hard link no longer
+  unsafe (M16) -- killed by `ask_refuses_a_profile_fx_refuses` and the unit
+  test; a `~/.xfx` that does not open no longer refused (M17) -- killed by
+  the unit test. Dropping the regular-file check was not run: its FIFO case
+  would block in the open the check prevents.
 
 xfx has no auth mode -- no `FX_AUTH_MODE`, no host-managed launch -- so the
 brief's "refusal in a non-local auth mode" has no counterpart to mutate. M8
@@ -284,7 +318,14 @@ launch does not do.
 
 ## 8. Gate (`gates.sh` under the suite lock → `gate.txt`)
 
-GATE-R2
+At 41ac3864 (code b209c786), the tree clean before and after, one hold of
+the lock: **22 steps, 0 failed** -- fmt, both clippys, `cargo test` (5665
+passed, 0 failed) and `--features fault-injection` (5702 passed, 0
+failed), the identity, stubs, secrets and local-path checks and their
+self-tests, the preview contract, the preflight cost, the usage clock,
+`test-gate-env`, the fxcap harness tests, both release builds, `smoke.sh`
+(47 checks) and `smoke-tui.sh` (37 scenarios and the oracle, 1167 checks,
+0 failures). Round 1's gate (c782a6d8, 22/22) is in this file's history.
 
 ## Files
 
