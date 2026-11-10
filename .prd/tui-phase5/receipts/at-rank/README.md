@@ -269,7 +269,7 @@ query; `p5-mcp-*` type `@BUN@` and `@SCENARIOS@` as words.
 
 `gates.sh` (CTRLO-AT-KEYS' version) ran in a `--no-local` clone, the whole
 script in one hold of the suite lock, TMPDIR a short scratch directory.
-`gate.txt` has both runs. Before them, `units.txt` recorded fmt, both
+`gate.txt` has all three runs. Before them, `units.txt` recorded fmt, both
 clippys and the touched modules' 1147 tests at `bdee36f2`.
 
 - **At `dad8caa1`: 20 steps, 0 failed.** `cargo test`: 5560 passed, 0
@@ -279,7 +279,13 @@ clippys and the touched modules' 1147 tests at `bdee36f2`.
   failed. With `fault-injection`: 5598 passed, 0 failed (the one case
   `e2cba14b` added). smoke-tui: 1168 checks, 0 failures. The machine's
   load was 27–114 over the run.
-- Since `e2cba14b`, `src/` has changed in one test comment only.
+- **At `e7661322` (round 2): 20 steps, 0 failed.** `cargo test`: 5564
+  passed, 0 failed; with `fault-injection`: 5601 passed, 0 failed (the
+  three cases round 2 added). smoke-tui: 1168 checks, 0 failures. Load
+  53–134 over the run.
+- `e7661322` is the last commit that changes `src`, `scripts` or `tests`:
+  `git diff --stat e7661322..HEAD -- src scripts tests Cargo.toml
+  Cargo.lock build.rs` is empty at the head.
 
 ## 10. Queue items and open questions
 
