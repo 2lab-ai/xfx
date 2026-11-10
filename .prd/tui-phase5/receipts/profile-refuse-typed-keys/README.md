@@ -555,7 +555,20 @@ does not change.
   keychain check"; `provider-codex` and `provider-defined` "deliberate, no
   unit"; the status-only divergence of a layer fx drops at a key only it
   reads (`drift-codex-merge`) recorded.
-- RESULT-MUTANTS
+- **Mutants** (`mutants-round3.txt`, on a clone of 9fd9274b, code
+  395ac4b0, under the lock): **24 of 24 killed**, every kill an
+  assertion's panic location, none a timeout. Rounds 1-2's M1-M18 (M7 and
+  M11 on round 3's text; M11, M12, M13, M14 now also killed through the
+  shared entry fixtures at `tests/cli.rs:1997`, `:2073`), and round 3's,
+  each toward refusing at an edge: M19 (`>=` for `>`: 32 connections),
+  M20 (the arm for a provider already named deleted), M21 (the merged
+  `BTreeSet` a `Vec`), M22 (a built-in's name keeps its case), M23 (an
+  entry's `providers` checked: the brief's "remove `if global`", now that
+  the check sits before the layers), M24 (doctor's `retain` deleted).
+  Killers: the parse table's guard rows (`src/config.rs:4940`, the
+  generated rows; `:4862`, the table), `ask_goes_on_with_a_profile_fx_starts_with`
+  (`tests/cli.rs:2018`, the STARTED edges), and doctor's count
+  (`tests/cli.rs:2088`).
 - RESULT-GATE
 - **No RED**: no behaviour changed. The new rows are guards toward
   refusing; each is pinned by the mutant it kills instead.
