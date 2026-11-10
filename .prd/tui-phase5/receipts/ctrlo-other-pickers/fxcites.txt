@@ -1,0 +1,27 @@
+# python3 -I fxcites.py cb7c9c18, then --self-test (this folder's fxcites.py, at the receipt commit); the src hunks with 0 failed are left out, their sum is the src line
+README.md: 87 citations, 0 failed
+docs/parity.md:86: 1 citations, 0 failed
+docs/parity.md:90: 1 citations, 0 failed
+docs/parity.md:92: 1 citations, 0 failed
+docs/parity.md:93: 1 citations, 0 failed
+docs/parity.md:94: 1 citations, 0 failed
+docs/parity.md:95: 2 citations, 0 failed
+docs/parity.md:99: 1 citations, 0 failed
+docs/parity.md:100: 1 citations, 0 failed
+docs/parity.md:109: 1 citations, 0 failed
+docs/parity.md:237: 1 citations, 0 failed
+docs/parity.md:238: 2 citations, 0 failed
+src: 21 citations, 0 failed
+scripts/fxcap/scenarios/p5-ctrlo-help.cap: 3 citations, 0 failed
+scripts/fxcap/scenarios/p5-ctrlo-model.cap: 3 citations, 0 failed
+scripts/fxcap/scenarios/p5-ctrlo-sessions.cap: 3 citations, 0 failed
+scripts/fxcap/scenarios/p5-ctrlo-fork.cap: 3 citations, 0 failed
+scripts/fxcap/scenarios/p5-ctrlo-effort.cap: 3 citations, 0 failed
+scripts/fxcap/scenarios/skills-ctrlo.cap: 3 citations, 0 failed
+scripts/fxcap/scenarios/skills-ctrlo-dollar.cap: 3 citations, 0 failed
+scripts/fxcap/scenarios/p5-ctrlo-slash.cap: 5 citations, 0 failed
+scripts/fxcap/scenarios/provider-ctrlo.cap: 5 citations, 0 failed
+scripts/fxcap/scenarios/p5-ctrlo-mcp-args.cap: 7 citations, 0 failed
+all: 159 citations, 0 failed
+# exit 0
+self-test: 10 cases, 0 wrong
