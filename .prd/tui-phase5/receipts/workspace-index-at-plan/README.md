@@ -179,6 +179,11 @@ unit changes no `src/` file. The two are tests B and E of CATALOG-WAIT-CLOCK
 which names their 300 ms to 1 s wall-clock window as the race and moves them
 to tokio's paused clock (3c0a2ab3 to a6ab3ee6).
 
+The receipt's own commits came after the gate; at 267ab4f1 the checks that
+read tracked files pass: check-no-secrets, check-no-stubs,
+check-no-local-paths, check-xfx-identity, and test_ci_sweep.py
+(`gate/quick-checks-267ab4f1.txt`).
+
 ## 9. Open
 
 - AT-RANK (feat/p5-at-rank, not merged) adds a ledger cause
