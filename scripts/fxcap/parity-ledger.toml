@@ -1062,6 +1062,20 @@ xfx_row = '^\W*(?:(?:remote|web2?)\b.*|status\s+)\b(?:connecting|retrying)\b'
 fix = "point remote, web and web2 at a server whose state holds through the run (mcphttp `hang` with a long startup_timeout_ms, as p5-mcp-menu-profile.json does), and give `/mcp login remote` its refused failure some other way"
 why = "remote, web and web2 sit at a refused loopback port. Each try is a 10 s discover probe and the backoffs 1, 2, 4, 8 s, on both binaries, so a row naming one with `connecting` or `retrying` turns about 10, 11, 21, 23, 33, 37, 47 and 55 s after it started, and a snap near a turn reads one word on fx and the other on xfx (.prd/tui-phase5/receipts/train-12/ci-mcp-timing/README.md). The menu scenarios hold the word with a server that never answers; here that would make `/mcp login remote` wait instead of failing, which these snaps capture."
 
+# A `nondeterminism` cause where verbs-refused-port-word's is `scenario`: this
+# pair passes on a run that lands off the try (the base passed it in PR #90's
+# CI sweep), so the retries it buys can pass it.
+[[cause]]
+id = "mcp-fail-list-on-a-try"
+kind = "nondeterminism"
+owner = "scenario"
+scenarios = ["p5-mcp-fail"]
+snaps = ["list"]
+fx_row = '^\W*bad\b.*\b(?:connecting|retrying)\b'
+xfx_row = '^\W*bad\b.*\b(?:connecting|retrying)\b'
+fix = "draw the list between two tries, not on one: the first `wait` before `/mcp` shortened so the list is drawn near 11 s, between the tries near 7 and 15 s, and the `wait` after it lengthened by as much, so the screen's Enter still lands near the try at 15 s as server-1 needs"
+why = "The failing stdio server `bad` is `connecting` while a try runs and `retrying` between tries (xfx's src/mcp/runtime.rs:1336 and :1350; fx's two words read from the captures), and it is tried near 1, 3, 7, 15 and 31 s (1 s backoff doubling, src/mcp/runtime.rs:90). The list is drawn about 15 s in (`wait 13`, `/mcp`, `wait 2`), on the try at 15 s, so which word a run draws turns on how fast it got there: PR #90's CI sweep read `connecting` on fx and the base's xfx and `retrying` on the head's, one run each, and counted a regression; re-run locally, the head's and the base's xfx read `retrying` 3 of 3 each (.prd/tui-phase5/receipts/train-13/join-main/mcp-fail-ci-sweep.md, mcp-fail-reruns.txt)."
+
 # No cause for the catalog outage's window. `modelsdown <ms>` counted from the
 # fake gateway's start, and each binary launches a different time after it
 # (its first catalog read 1 to 17 s after the gateway started in train 11's
