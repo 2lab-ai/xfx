@@ -515,9 +515,19 @@ mod tests {
                 "{third}"
             );
         }
-        // The mode's parse trims nothing (`types.zig:2375-2382@481104fd`);
-        // the line is trimmed here, as fx's router trims it first
-        // (`command_router.zig:92-94`).
+        assert_eq!(Request::parse("reset"), Request::Reset);
+        assert_eq!(Request::parse("Reset"), Request::Reset);
+        for other in ["bogus", "reset now", "full", "remembering"] {
+            assert_eq!(Request::parse(other), Request::Usage, "{other}");
+        }
+    }
+
+    #[test]
+    fn the_line_is_trimmed_before_the_modes_parse_which_trims_nothing() {
+        // The mode's parse trims nothing (`types.zig:2375-2382@481104fd`), so
+        // the line is trimmed here first, as fx's router trims it
+        // (`command_router.zig:92-94`) -- though of every Unicode blank here,
+        // where fx's trims spaces and tabs (`docs/parity.md`, `/permissions`).
         assert_eq!(
             Request::parse(" \tFull Access \t"),
             Request::Select(PermissionMode::Yolo)
@@ -526,11 +536,7 @@ mod tests {
             Request::parse("  Auto "),
             Request::Select(PermissionMode::Auto)
         );
-        assert_eq!(Request::parse("reset"), Request::Reset);
-        assert_eq!(Request::parse("Reset"), Request::Reset);
-        for other in ["bogus", "reset now", "full", "remembering"] {
-            assert_eq!(Request::parse(other), Request::Usage, "{other}");
-        }
+        assert_eq!(Request::parse(" reset\t"), Request::Reset);
     }
 
     #[test]

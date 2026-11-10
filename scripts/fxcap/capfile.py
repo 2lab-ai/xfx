@@ -160,7 +160,10 @@ TIMERS = (
         "Full access",
         "src/tui/permissions.rs:38",
         "src/core/app/app_permission_runtime.zig:21@481104fd",
-        launch=re.compile(r'(?i)PERMISSION_MODE=(?:yolo|full-access)\b|"permission_mode"\s*:\s*"(?:yolo|full[- ]access)"'),
+        # A launch in full access, by either product's variable or the profile,
+        # in every spelling both now read (`PermissionMode.parse`,
+        # `types.zig:2375-2382@481104fd`; xfx's `parse_choice`), in any case.
+        launch=re.compile(r'(?i)PERMISSION_MODE=(?:yolo|full[- ]access)\b|"permission_mode"\s*:\s*"(?:yolo|full[- ]access)"'),
         # The cues, the menu and the full transcript keep the warning off the
         # row (xfx `warning_shown`, src/tui/shell.rs:15057-15082, the full
         # transcript at :15075-15077; fx `dangerStatusText`,

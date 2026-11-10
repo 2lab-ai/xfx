@@ -399,8 +399,10 @@ impl PermissionMode {
     /// **not trimmed**. fx reads every mode a person gives it with that parse
     /// (`parsePermissionMode`, `config_runtime.zig:1057-1059`): the settings
     /// key, `FX_PERMISSION_MODE`, the status load and `/permissions`, whose
-    /// router trims spaces and tabs first (`command_router.zig:92-94`), as
-    /// [`crate::permission::slash::Request::parse`] does.
+    /// router trims spaces and tabs first (`command_router.zig:92-94`).
+    /// [`crate::permission::slash::Request::parse`] trims too, but every
+    /// Unicode blank (`str::trim`), so a trailing no-break space is taken
+    /// there where fx answers with the usage (`docs/parity.md`, `/permissions`).
     ///
     /// The wire grammar is [`Self::parse`] and stays exact: a session log is
     /// something xfx wrote, and one that says `Full Access` is not one it

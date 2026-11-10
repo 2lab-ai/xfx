@@ -2345,6 +2345,27 @@ fn ask_help_advertises_only_the_implemented_flags() {
             "ask help must not advertise the deferred flag {deferred}"
         );
     }
+    // fx's two lines for full access, in its order: the flag, then its alias
+    // (`commands.zig:35-37@481104fd`), the product's own name in the first.
+    let lines: Vec<&str> = run.stdout.lines().map(str::trim).collect();
+    let full = lines
+        .iter()
+        .position(|line| {
+            line.starts_with("--full-access ") && line.ends_with(" Disable xfx permission checks")
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "ask help must list --full-access as fx does: {}",
+                run.stdout
+            )
+        });
+    assert!(
+        lines[full + 1].starts_with("--yolo ")
+            && lines[full + 1].ends_with(" Alias for --full-access"),
+        "ask help must list --yolo as fx's alias right after it: {}",
+        run.stdout
+    );
+    assert!(!run.stdout.contains("[alias"), "{}", run.stdout);
 }
 
 #[test]

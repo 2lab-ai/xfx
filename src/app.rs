@@ -1135,7 +1135,8 @@ fn permissions_check(mode: PermissionMode) -> DoctorCheck {
         PermissionMode::Yolo => DoctorCheck::new(
             "permissions",
             CheckStatus::Warn,
-            format!("mode=yolo: no permission check runs at all; sandbox={sandbox}"),
+            // xfx's own check (fx's doctor has none); its word is the lines' beside it.
+            format!("mode=full access: no permission check runs at all; sandbox={sandbox}"),
         ),
     }
 }

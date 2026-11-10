@@ -902,6 +902,8 @@ fn full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word() {
         "[doctor] permission_mode=full access\n",
         "[ok] startup: resolved model=",
         ", permission_mode=full access, agent_step_limit=",
+        // xfx's own check, in the same word as the two lines beside it.
+        "[warn] permissions: mode=full access: no permission check runs at all",
     ] {
         assert!(doctor.stdout.contains(line), "{line:?}: {}", doctor.stdout);
     }

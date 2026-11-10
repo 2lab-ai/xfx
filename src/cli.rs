@@ -227,6 +227,7 @@ impl RawCli {
                 no_save,
                 add_dir,
                 auto,
+                full_access,
                 yolo,
                 resume,
                 resume_id,
@@ -241,9 +242,9 @@ impl RawCli {
                             .to_string(),
                     };
                 }
-                // clap already rejects `--auto --yolo` together, so at most one
-                // is set here; the `else` order is not a precedence rule.
-                let mode = if yolo {
+                // clap already rejects any two mode flags together, so at most
+                // one is set here; the `else` order is not a precedence rule.
+                let mode = if yolo || full_access {
                     Some(PermissionMode::Yolo)
                 } else if auto {
                     Some(PermissionMode::Auto)
@@ -388,12 +389,17 @@ enum RawCommand {
         // (`cli_surface.zig:61`), and because `--yolo` should be a word a user
         // has to type deliberately rather than a value they could mistype into.
         // fx v0.0.16 spells the third `--full-access` or `--yolo`, exactly
-        // (`cli_ask.zig:3582`): both are this flag, and either twice is refused.
+        // (`cli_ask.zig:3582`), and lists them as two lines, the second an alias
+        // (`commands.zig:35-37@481104fd`): two flags here, so the help does too.
+        // Any second mode flag is refused (`cli_ask.zig:3580`, `:3583`).
         /// Run bounded reversible workspace changes and read-only commands without asking
-        #[arg(long, conflicts_with = "yolo")]
+        #[arg(long, conflicts_with_all = ["yolo", "full_access"])]
         auto: bool,
-        /// Skip every permission check for this run (prints a warning)
-        #[arg(long, visible_alias = "full-access")]
+        /// Disable xfx permission checks
+        #[arg(long = "full-access", conflicts_with = "yolo")]
+        full_access: bool,
+        /// Alias for --full-access
+        #[arg(long)]
         yolo: bool,
         /// The question. Everything after `--`, and everything after the first
         /// prompt word, is prompt text rather than a flag. A leading `-` before
@@ -721,6 +727,9 @@ mod tests {
             ["ask", "--full-access", "--yolo", "hi"],
             ["ask", "--yolo", "--yolo", "hi"],
             ["ask", "--auto", "--auto", "hi"],
+            ["ask", "--full-access", "--full-access", "hi"],
+            ["ask", "--yolo", "--full-access", "hi"],
+            ["ask", "--yolo", "--auto", "hi"],
         ] {
             assert!(
                 matches!(parse(&args), Command::Rejected { .. }),
