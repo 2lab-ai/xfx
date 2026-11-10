@@ -17,8 +17,12 @@ step() {
   "$@" > "$log" 2>&1
   local status=$?
   echo "== $n: $* -> exit $status"
-  grep -E '^test result|^error|^warning: unused|FAILED|panicked|Running |check-|OK|ok$|refused|NOT REFUSED|^accepted|^resolved|NOT RESOLVED|no case runs' "$log" \
-    | grep -vE '^test .* \.\.\. ok$' | tail -60
+  # Every line of the self-test, whose fixture lines are the receipt; the
+  # last 60 of any other step.
+  local keep=60
+  [ "$n" = env-reads-self-test ] && keep=+1
+  grep -E '^test result|^error|^warning: unused|FAILED|panicked|Running |check-|OK|ok$|refused|NOT REFUSED|^accepted|^resolved|NOT RESOLVED|^lexed|NOT LEXED|no case runs' "$log" \
+    | grep -vE '^test .* \.\.\. ok$' | tail -n "$keep"
 }
 
 main() {
