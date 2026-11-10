@@ -487,20 +487,7 @@ fn hold(
         colorterm.as_deref(),
         term_program.as_deref(),
     ));
-    // A resumed launch writes no welcome line, as upstream's does not
-    // (`app_bootstrap_runtime.zig:619`): the session's own notice and turns
-    // are the document, on the screen the launch's push left.
-    match replay {
-        Some(replay) => shell.hydrate(replay, false),
-        None => {
-            shell.welcome();
-            shell.session_assembled();
-        }
-    }
-    // Fresh or resumed, as upstream's launch says them either way
-    // (`app_bootstrap_runtime.zig:666-687`).
-    shell.config_issues(config);
-    shell.history_unavailable();
+    open(&mut shell, config, replay);
     let code = event_loop::run(
         &mut shell,
         band,
@@ -522,6 +509,32 @@ fn hold(
     // by the shell, because the palette and the width are its.
     let handoff = worker.resumable().map(|id| shell.resume_handoff(id));
     Ok(Exit { code, handoff })
+}
+
+/// The session as the launch hands it to the loop, before its first frame:
+/// the document it starts with, the launch's notices, and the `@` index's
+/// walk. Upstream's `runInteractiveWithDeps` (`app_entry_runtime.zig:
+/// 302-343@481104fd`) builds the app -- `App.init`, which resumes -- then
+/// starts the index's walk, and only then runs the loop that paints.
+fn open(
+    shell: &mut shell::Shell,
+    config: &crate::config::RuntimeConfig,
+    replay: Option<hydration::Hydration>,
+) {
+    // A resumed launch writes no welcome line, as upstream's does not
+    // (`app_bootstrap_runtime.zig:619`): the session's own notice and turns
+    // are the document, on the screen the launch's push left.
+    match replay {
+        Some(replay) => shell.hydrate(replay, false),
+        None => {
+            shell.welcome();
+            shell.session_assembled();
+        }
+    }
+    // Fresh or resumed, as upstream's launch says them either way
+    // (`app_bootstrap_runtime.zig:666-687`).
+    shell.config_issues(config);
+    shell.history_unavailable();
 }
 
 /// The one measurement a launch is computed from.
@@ -1179,5 +1192,56 @@ mod tests {
                 && refusal.contains(&layout::MIN_COLS.to_string()),
             "the refusal does not say what would be big enough: {refusal}"
         );
+    }
+
+    #[test]
+    fn the_launch_starts_the_index_walk_fresh_or_resumed() {
+        // fx's launch walks the `@` index once the app is built -- `App.init`,
+        // which resumes -- and before the loop paints: `startFileIndex` at
+        // `app_entry_runtime.zig:334@481104fd`, whatever `resume_requested`
+        // says (it gates only the warmup, `:330`). The shell's constructor
+        // walks nothing, as `App.init` does not; the launch's `open` does,
+        // over a workspace that is this case's own.
+        let resumed = hydration::Hydration {
+            title: None,
+            turns: Vec::new(),
+            model: None,
+            settings: None,
+            keeps_fast_binding: true,
+            provider: None,
+            unauthenticated: None,
+            model_replaced: false,
+            next_image: 1,
+        };
+        for replay in [None, Some(resumed)] {
+            let home = tempfile::tempdir().expect("a home");
+            let workspace = tempfile::tempdir().expect("a workspace");
+            let config = crate::config::RuntimeConfig::load_with(
+                &crate::config::Environment::new(
+                    Some(home.path().to_path_buf()),
+                    std::collections::BTreeMap::new(),
+                ),
+                workspace.path(),
+            )
+            .expect("a configuration");
+            let (work, _work, _control) = worker::WorkHandle::detached();
+            let mut shell = shell::Shell::new(
+                &config,
+                layout::solve(24, 80, 1).expect("a band"),
+                theme::Palette {
+                    mode: theme::Mode::Dark,
+                },
+                false,
+                work,
+            );
+            let built = shell.files_for_test().walks_for_test();
+            let fresh = replay.is_none();
+            open(&mut shell, &config, replay);
+            assert_eq!(
+                (built, shell.files_for_test().walks_for_test()),
+                (0, 1),
+                "the launch's walks (fresh: {fresh}): none built, one opened"
+            );
+        }
     }
 }

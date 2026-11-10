@@ -8467,6 +8467,17 @@ impl Shell {
         }
     }
 
+    /// The `@` index's launch walk (`startFileIndex`,
+    /// `app_workspace_runtime.zig:145-148@481104fd`), which the launch
+    /// starts once the session is open and before its first frame
+    /// (`app_entry_runtime.zig:334`; `super::open`): the workspace and the
+    /// directories in force, with the scope's epoch now ([`Files::start_index`]).
+    /// Not the constructor's, as it is not fx's `App.init`'s: a shell a test
+    /// builds walks nothing unless the test starts it here.
+    pub(crate) fn start_file_index(&mut self) {
+        self.files.start_index();
+    }
+
     /// Every pass while `/usage` is up, and only then
     /// (`collectUsageDashboardFacts`, `app_commands.zig:846-860@481104fd`): the
     /// runtime takes in a fetch that ended and starts the 15-minute one when
@@ -35807,17 +35818,17 @@ mod tests {
     }
 
     /// The trace gpt6 asked of AT-FOLDERS round 10 (r10-gpt6 NTH 1): the
-    /// session's first `@` after two changes of roots, A's walk (the first
-    /// change's) held by the case, and ended with `a_ends` before the `@` --
-    /// or, with `None`, still running at the `@` and ended whole after it.
-    /// The list's first row as the `@` left it, the rows once every walk is
-    /// done, and how many walks it all took.
+    /// session's first `@` after two changes of roots, A's walk -- the
+    /// launch's, which both changes find running -- held by the case, and
+    /// ended with `a_ends` before the `@` -- or, with `None`, still running at
+    /// the `@` and ended whole after it. The list's first row as the `@` left
+    /// it, the rows once every walk is done, and how many walks it all took.
     ///
     /// Its premise -- nothing adopted while A runs, A being the session's
-    /// first walk -- is xfx's: fx's first walk is its launch walk
-    /// (`app_entry_runtime.zig:334@481104fd`), which plays A's part in fx's
-    /// version of this trace. That is the gap AT-LAUNCH-WALK
-    /// (`docs/parity.md`).
+    /// first walk -- is fx's: A is the launch walk
+    /// (`app_entry_runtime.zig:334@481104fd`; [`Shell::start_file_index`]).
+    /// Until AT-LAUNCH-WALK xfx had none, and the first change's walk played
+    /// A's part.
     fn first_at_after_two_changes(
         a_ends: Option<super::super::file_index::Published>,
     ) -> (String, Vec<String>, usize) {
@@ -35825,8 +35836,9 @@ mod tests {
         let (_a, _path, first) = extra_with_plan(&shell);
         let (_b, path, other) = extra_with_plan(&shell);
         let walks = shell.files_for_test().walks_for_test();
+        shell.start_file_index();
+        let a_walk = super::super::file_index::tests::held(shell.files_for_test());
         adopt(&mut shell, first);
-        let a_walk = super::super::file_index::tests::driven(shell.files_for_test());
         adopt(&mut shell, other);
         let held = match a_ends {
             Some(end) => {
@@ -35894,13 +35906,16 @@ mod tests {
         // (`replacePendingRoots`, `file_index.zig:511-523`): with the list's
         // own refresh already queued there it adds nothing; with nothing
         // queued -- the first `@` skipped its refresh, and A's adoption
-        // started B with the queue -- it adds a walk after B.
+        // started B with the queue -- it adds a walk after B. A is the launch
+        // walk, which both changes find running (the trace's premise,
+        // [`first_at_after_two_changes`]).
         let (_workspace, mut shell) = in_ws2(40, 120);
         let (_a, _path, first) = extra_with_plan(&shell);
         let (_b, path, other) = extra_with_plan(&shell);
         let walks = shell.files_for_test().walks_for_test();
+        shell.start_file_index();
+        let a_walk = super::super::file_index::tests::held(shell.files_for_test());
         adopt(&mut shell, first);
-        let a_walk = super::super::file_index::tests::driven(shell.files_for_test());
         adopt(&mut shell, other);
         shell.settle_band(Instant::now());
         shell.route_bytes(b"@plan");
@@ -35948,37 +35963,126 @@ mod tests {
     }
 
     #[test]
-    fn a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk() {
-        // NOT fx's: the gap AT-LAUNCH-WALK (`docs/parity.md`), pinned so
-        // that unit flips it, as this one flipped the keeps-the-rows case.
-        // The first assert is that unit's tripwire: it must drive the launch
-        // walk before the change -- and then expect `Files unavailable` --
-        // not only change the rows this expects.
-        // fx walks at launch (`app_entry_runtime.zig:334@481104fd`;
-        // `startFileIndex` -> `ensureScopeEpoch`, `app_workspace_runtime.zig:
-        // 145-148`), so a change of the access before the first `@` finds a
-        // generation of the launch's epoch, adopted or loading, and an
-        // indexed list says `Files unavailable` until the new scope's walk
-        // is adopted (`input_completion_runtime.zig:887-888`). xfx starts no
-        // walk at launch: the change's walk is the session's first, of the
-        // new epoch, and its prefix is searched as it is published --
-        // `indexing files...`, then its rows.
+    fn a_fresh_sessions_first_at_after_the_launch_walk_is_whole_shows_its_rows_at_once() {
+        // fx walks the index at launch, before its first frame
+        // (`app_entry_runtime.zig:334@481104fd`; `startFileIndex` ->
+        // `ensureScopeEpoch`, `app_workspace_runtime.zig:145-148`), so the
+        // session's first `@` can find it whole: adopted, so `.ready`
+        // (`file_index.zig:333-341`); the list asks for its refresh
+        // (`input_completion_runtime.zig:857-864`) and reads the adopted
+        // generation while that walk runs (`searchableGeneration`,
+        // `file_index.zig:647-654`) -- its rows at once, not `indexing
+        // files...`. The launch walk is a real one, over this case's own
+        // workspace.
         let (_workspace, mut shell) = in_ws2(40, 120);
-        let (_extra, path, access) = extra_with_plan(&shell);
+        shell.start_file_index();
+        walks_done(&mut shell);
+        shell.route_bytes(b"@sch");
+        assert_eq!(
+            (
+                shell.file_picker.as_ref().map(FilePicker::shown),
+                listed_paths(&shell)
+            ),
+            (
+                Some(file_picker::Shown::Rows),
+                vec!["src/deep/sched.rs".to_string()]
+            ),
+            "the first `@` after a whole launch walk did not list its rows at once"
+        );
         assert_eq!(
             shell.files_for_test().walks_for_test(),
-            0,
-            "a walk at launch: this case's premise is gone"
+            2,
+            "not the launch walk and the first list's refresh"
         );
+    }
+
+    #[test]
+    fn a_change_before_the_launch_walk_is_whole_says_files_unavailable_until_the_new_scopes_walk_is(
+    ) {
+        // AT-LAUNCH-WALK flipped this case, which pinned xfx's side of the
+        // gap as
+        // `a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk`.
+        // fx walks at launch (`app_entry_runtime.zig:334@481104fd`;
+        // `startFileIndex` -> `ensureScopeEpoch`, `app_workspace_runtime.zig:
+        // 145-148`) with the launch's epoch, which the walk keeps
+        // (`file_index.zig:386`). A change of the access
+        // before that walk is whole moves the epoch and queues the new scope
+        // behind it (`:494-497`); the launch generation, loading and then
+        // adopted, is the searchable one, of the old epoch
+        // (`searchableGeneration`, `:647-654`), so an indexed list says
+        // `Files unavailable` (`input_completion_runtime.zig:887-888`) until
+        // the new scope's walk is adopted. The first `@` skips its refresh
+        // while the launch walk loads (`:857-861`): two walks in all.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, path, access) = extra_with_plan(&shell);
+        shell.start_file_index();
+        let launch = super::super::file_index::tests::held(shell.files_for_test());
         adopt(&mut shell, access);
-        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.route_bytes(b"@plan");
+        let at_once = listed_rows(&shell)[0].clone();
+        launch
+            .send(super::super::file_index::Published::More(
+                super::super::file_index::tests::candidates(&["notes/plan.md"]),
+            ))
+            .expect("the launch walk");
+        shell.settle_band(Instant::now());
+        let published = listed_rows(&shell)[0].clone();
+        launch
+            .send(super::super::file_index::Published::Ready)
+            .expect("the launch walk");
+        shell.settle_band(Instant::now());
+        let adopted = listed_rows(&shell)[0].clone();
+        let walk = super::super::file_index::tests::held(shell.files_for_test());
+        let plan = format!("{}/plan.md", path.display());
+        walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&[&plan]),
+        ))
+        .expect("the change's walk");
+        walk.send(super::super::file_index::Published::Ready)
+            .expect("the change's walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            (at_once, published, adopted, listed_paths(&shell)),
+            (
+                status_row(FILES_UNAVAILABLE),
+                status_row(FILES_UNAVAILABLE),
+                status_row(FILES_UNAVAILABLE),
+                vec![plan]
+            ),
+            "not fx's interim while the launch walk's epoch was the old one"
+        );
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            2,
+            "not the launch walk and then the change's"
+        );
+    }
+
+    #[test]
+    fn a_change_after_the_launch_walk_failed_lists_the_new_walks_prefix() {
+        // A launch walk that failed is no searchable generation
+        // (`searchableGeneration`, `file_index.zig:647-654@481104fd`;
+        // dropped at its join, `:432-440`), so the walk a change starts --
+        // clearing the failure (`startLoad`, `:389`) -- is the first index
+        // again, of the new epoch, searched as it is published: `indexing
+        // files...`, then its rows. What the case above expected before
+        // AT-LAUNCH-WALK, on the one premise fx gives it.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, path, access) = extra_with_plan(&shell);
+        shell.start_file_index();
+        super::super::file_index::tests::held(shell.files_for_test())
+            .send(super::super::file_index::Published::Failed)
+            .expect("the launch walk");
+        shell.settle_band(Instant::now());
+        adopt(&mut shell, access);
+        let walk = super::super::file_index::tests::held(shell.files_for_test());
         shell.route_bytes(b"@plan");
         let at_once = listed_rows(&shell)[0].clone();
         let plan = format!("{}/plan.md", path.display());
         walk.send(super::super::file_index::Published::More(
             super::super::file_index::tests::candidates(&[&plan]),
         ))
-        .expect("the walk");
+        .expect("the change's walk");
         shell.settle_band(Instant::now());
         assert_eq!(
             (
@@ -35991,59 +36095,74 @@ mod tests {
                 Some(file_picker::Shown::Rows),
                 vec![plan]
             ),
-            "xfx's first walk after a change before any walk"
+            "the change's walk after a failed launch walk was not the first index"
         );
     }
 
-    /// The session's first `@plan`, typed after the first walk -- the
-    /// change's -- has ended with `end` but before any poll has taken that
-    /// end: the list's first row then, its rows, and the walks the change
-    /// and the `@` made -- and the first row again after the next pass's
-    /// `settle_band`, which takes whatever the walk said and paints from
-    /// it. The walk publishes `plan.md` before it ends.
+    /// The session's first `@plan`, typed after a walk has ended with `end`
+    /// but before any poll has taken that end: the list's first row then,
+    /// its rows, the walks since the launch -- and the first row again after
+    /// the next pass's `settle_band`, which takes whatever the walk said and
+    /// paints from it. A walk the `@` starts is held, so that row is the
+    /// state's, not a race with a real walk.
     ///
-    /// The first assert is AT-LAUNCH-WALK's tripwire: with a launch walk the
-    /// change's walk is not the first and the premise is gone. That unit
-    /// must drive the launch walk to its end before the change, not only
-    /// change what this expects.
+    /// AT-LAUNCH-WALK flipped its premise. Without `change` the walk is the
+    /// launch's, the session's first -- the part the change's walk played
+    /// until then -- and it publishes `notes/plan.md`. With `change` the
+    /// launch walk is driven whole first, as AT-SCOPE-INTERIM's tripwire
+    /// asked, and the walk is the change's, which publishes the added
+    /// directory's `plan.md`.
     fn first_at_before_the_poll(
         end: super::super::file_index::Published,
+        change: bool,
     ) -> (String, Vec<String>, usize, String) {
         let (_workspace, mut shell) = in_ws2(40, 120);
         let (_extra, path, access) = extra_with_plan(&shell);
-        assert_eq!(
-            shell.files_for_test().walks_for_test(),
-            0,
-            "a walk at launch: this case's premise is gone"
-        );
-        adopt(&mut shell, access);
-        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.start_file_index();
+        let launch = super::super::file_index::tests::held(shell.files_for_test());
+        let (walk, published) = if change {
+            launch
+                .send(super::super::file_index::Published::Ready)
+                .expect("the launch walk");
+            shell.settle_band(Instant::now());
+            adopt(&mut shell, access);
+            (
+                super::super::file_index::tests::held(shell.files_for_test()),
+                format!("{}/plan.md", path.display()),
+            )
+        } else {
+            (launch, "notes/plan.md".to_string())
+        };
         walk.send(super::super::file_index::Published::More(
-            super::super::file_index::tests::candidates(&[&format!("{}/plan.md", path.display())]),
+            super::super::file_index::tests::candidates(&[&published]),
         ))
         .expect("the walk");
         walk.send(end).expect("the walk");
+        let before = shell.files_for_test().walks_for_test();
         shell.route_bytes(b"@plan");
         let row = listed_rows(&shell)[0].clone();
         let rows = listed_paths(&shell);
         let walks = shell.files_for_test().walks_for_test();
+        let _refresh =
+            (walks > before).then(|| super::super::file_index::tests::held(shell.files_for_test()));
         shell.settle_band(Instant::now());
         (row, rows, walks, listed_rows(&shell)[0].clone())
     }
 
     #[test]
-    fn a_first_at_after_a_walk_ended_whole_but_before_the_poll_refreshes() {
+    fn a_first_at_after_the_launch_walk_ended_whole_but_before_the_poll_refreshes() {
         // fx's `currentState` reads the loading generation's own state, so a
         // loader that has finished is `.ready` before the join takes it
         // (`file_index.zig:336-340@481104fd`): the session's first `@` typed
         // then is not loading and asks for its refresh
         // (`input_completion_runtime.zig:857-864`), queued behind the
         // unjoined loader (`refreshOwnedRoots`, `file_index.zig:494-497`) and
-        // started by the join (`:443-451`) -- two walks, and the finished
-        // generation's rows meanwhile (`searchableGeneration`, `:647-654`).
-        // xfx's decision takes the walk's end first (`Files::take_walk`).
+        // started by the join (`:443-451`) -- two walks, the launch's and
+        // the refresh, and the finished generation's rows meanwhile
+        // (`searchableGeneration`, `:647-654`). xfx's decision takes the
+        // walk's end first (`Files::take_walk`).
         let (_row, rows, walks, _settled) =
-            first_at_before_the_poll(super::super::file_index::Published::Ready);
+            first_at_before_the_poll(super::super::file_index::Published::Ready, false);
         assert_eq!(
             (walks, rows.len()),
             (2, 1),
@@ -36053,19 +36172,19 @@ mod tests {
     }
 
     #[test]
-    fn a_first_at_after_a_walk_failed_but_before_the_poll_says_indexing() {
-        // The same with the walk failed (opus r2): fx's index is `.failed`
-        // before the join, so the first `@` asks for its refresh, which the
-        // join starts, clearing the failure (`startLoad`,
+    fn a_first_at_after_the_launch_walk_failed_but_before_the_poll_says_indexing() {
+        // The same with the launch walk failed (opus r2): fx's index is
+        // `.failed` before the join, so the first `@` asks for its refresh,
+        // which the join starts, clearing the failure (`startLoad`,
         // `file_index.zig:389@481104fd`) -- two walks. xfx's decision takes
         // the failure and starts that walk at once, and its lookup reads the
         // new walk: `indexing files...` at the `@` itself; after the next
-        // `settle_band` the list is that walk's -- still indexing, or its
-        // rows -- never `Files unavailable`. Had the `@` skipped its
-        // refresh, that `settle_band` would take the failure with nothing
-        // queued, and the list would say `Files unavailable` until Tab.
+        // `settle_band` the list is that walk's, never `Files unavailable`.
+        // Had the `@` skipped its refresh, that `settle_band` would take the
+        // failure with nothing queued, and the list would say `Files
+        // unavailable` until Tab.
         let (row, rows, walks, settled) =
-            first_at_before_the_poll(super::super::file_index::Published::Failed);
+            first_at_before_the_poll(super::super::file_index::Published::Failed, false);
         // The screen first, so a skip dies on the row it paints.
         assert_ne!(
             settled,
@@ -36075,7 +36194,34 @@ mod tests {
         assert_eq!(
             (row, rows, walks),
             (status_row("indexing files..."), Vec::<String>::new(), 2),
-            "the first `@` after a failed walk skipped its refresh"
+            "the first `@` after a failed launch walk skipped its refresh"
+        );
+    }
+
+    #[test]
+    fn a_first_at_after_a_change_whose_walk_failed_before_the_poll_says_files_unavailable() {
+        // The launch walk whole before the change: fx's adopted generation
+        // survives the change with the old epoch, and a walk that fails
+        // after it is dropped at its join, the adopted one kept
+        // (`joinThreadIfDone`, `file_index.zig:432-440@481104fd`). So the
+        // first `@` is `.ready`, not loading, and asks for its refresh,
+        // queued behind the unjoined walk (`:494-497`) and started at its
+        // join (`:443-451`); the list reads the launch generation, of the
+        // old epoch -- `Files unavailable` (`input_completion_runtime.zig:
+        // 887-888`) at the `@` and after the next pass, until that refresh
+        // is whole. Three walks: the launch's, the change's, the refresh.
+        // Before AT-LAUNCH-WALK xfx said `indexing files...` here.
+        let (row, rows, walks, settled) =
+            first_at_before_the_poll(super::super::file_index::Published::Failed, true);
+        assert_eq!(
+            (row, settled, rows, walks),
+            (
+                status_row(FILES_UNAVAILABLE),
+                status_row(FILES_UNAVAILABLE),
+                Vec::<String>::new(),
+                3
+            ),
+            "not fx's list after a failed change of scope behind the launch's index"
         );
     }
 

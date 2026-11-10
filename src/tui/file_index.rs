@@ -1059,6 +1059,9 @@ impl Files {
         }
     }
 
+    /// The launch's walk (AT-LAUNCH-WALK): not walked yet.
+    pub(crate) fn start_index(&mut self) {}
+
     /// A picker has just opened: the directory listing is forgotten, so a
     /// browsed path is read fresh. Whether the index is walked again is the
     /// list's refresh request's ([`Self::refresh_index`]).
@@ -1599,6 +1602,80 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn the_launch_walks_a_root_once_and_an_empty_root_never() {
+        // fx's launch walk (`startFileIndex`, `app_workspace_runtime.zig:
+        // 145-148@481104fd`): none for an empty workspace root (`:146`;
+        // `ensureScopeEpoch`'s own check, `file_index.zig:358`), and none
+        // unless the index is idle -- nothing adopted, loading or failed
+        // (`currentState() != .idle`, `:357`; `:333-341`).
+        let dir = seeded();
+        let mut files = Files::new(dir.path().to_path_buf(), None);
+        files.git = None;
+        files.start_index();
+        assert_eq!(files.walks_for_test(), 1, "the launch walked nothing");
+        files.start_index();
+        assert_eq!(files.walks_for_test(), 1, "a second walk while one ran");
+        settled(&mut files, |files| !files.busy());
+        assert!(files.index.is_some(), "the launch walk was not adopted");
+        files.start_index();
+        assert_eq!(files.walks_for_test(), 1, "a walk over an adopted index");
+
+        let mut failed = Files::new(dir.path().to_path_buf(), None);
+        failed.git = None;
+        driven(&mut failed)
+            .send(Published::Failed)
+            .expect("the walk listens");
+        failed.poll();
+        failed.start_index();
+        assert_eq!(failed.walks_for_test(), 0, "a walk after a failed index");
+
+        let mut empty = Files::new(PathBuf::new(), None);
+        empty.git = None;
+        empty.start_index();
+        assert_eq!(empty.walks_for_test(), 0, "an empty root was walked");
+    }
+
+    #[test]
+    fn the_launch_walk_keeps_the_launch_epoch_through_a_change() {
+        // The launch walk carries the scope's epoch when it starts
+        // (`ensureScopeEpoch`, `file_index.zig:361@481104fd`; `startLoad`,
+        // `:386`), and a change of the access does not touch it: its prefix,
+        // and its index once adopted, are of the old epoch, unavailable to
+        // an indexed lookup (`readableRevision`, `:572-583`;
+        // `input_completion_runtime.zig:887-888`) until a walk of the new
+        // scope is whole.
+        let dir = seeded();
+        let mut files = Files::new(dir.path().to_path_buf(), None);
+        files.git = None;
+        // The constructor's change, as the shell's makes it.
+        files.change_scope(Vec::new());
+        files.start_index();
+        let launch = held(&mut files);
+        launch
+            .send(Published::More(candidates(&["src/main.rs"])))
+            .expect("the walk listens");
+        files.poll();
+        assert_eq!(found_paths(files.lookup("main")), ["src/main.rs"]);
+        files.change_scope(Vec::new());
+        assert_eq!(
+            files.lookup("main"),
+            Lookup::Unavailable,
+            "the launch walk's prefix answered after a change"
+        );
+        launch.send(Published::Ready).expect("the walk listens");
+        files.poll();
+        assert!(files.index.is_some(), "the launch walk was not adopted");
+        assert_eq!(
+            files.lookup("main"),
+            Lookup::Unavailable,
+            "the launch walk's index answered after a change"
+        );
+        files.refresh_index();
+        settled(&mut files, |files| !files.busy());
+        assert_eq!(found_paths(files.lookup("main"))[0], "src/main.rs");
+    }
+
+    #[test]
     fn a_walk_lists_files_and_directories_in_one_byte_order() {
         let dir = seeded();
         let found = discover(dir.path(), None, &AtomicBool::new(false)).expect("a walk");
@@ -2106,6 +2183,16 @@ pub(crate) mod tests {
             epoch: files.epoch,
             published: Vec::new(),
         });
+        tx
+    }
+
+    /// The walk in flight -- the one the code started, with the epoch the
+    /// code gave it -- driven by the test from here on: what its worker would
+    /// publish is sent on the returned sender, and the worker's own sends go
+    /// nowhere. A source with no walk in flight fails the case.
+    pub(crate) fn held(files: &mut Files) -> mpsc::Sender<Published> {
+        let (tx, rx) = mpsc::channel();
+        files.walk.as_mut().expect("no walk in flight").rx = rx;
         tx
     }
 
