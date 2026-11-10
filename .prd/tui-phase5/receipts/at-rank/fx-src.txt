@@ -1,0 +1,1655 @@
+
+== src/core/workspace/file_index.zig:1-9@481104fd -- the module: ranked by its best query placement (alignBest), highlights from the same placement
+    1  //! Background workspace file index for the @-mention picker.
+    2  //!
+    3  //! Each generation owns immutable parallel buffers. The loader publishes complete
+    4  //! prefixes with release stores; readers acquire `ready_count` before scanning.
+    5  //! Replacement generations remain private until the main thread adopts them.
+    6  //! Search uses pre-lowercased paths and a per-path ASCII bitmap to reject
+    7  //! impossible subsequence matches before scoring. Each remaining path is
+    8  //! ranked by its best query placement (`alignBest`), and highlights show that
+    9  //! same placement.
+
+== src/core/workspace/file_index.zig:23-24@481104fd -- max_indexed_files (100,000), max_path_len
+   23  const Allocator = std.mem.Allocator;
+   24  
+
+== src/core/workspace/file_index.zig:585-645@481104fd -- searchAtRevision: an empty query is the index's order (601-611); rankTopN keeps min(out, 64) (617); the spans from the ranked placement (621-643)
+  585      /// Main-thread-only search of the captured prefix. Results retain the same
+  586      /// borrowing contract as searchTyped; this revision is not a generation lease.
+  587      pub fn searchAtRevision(
+  588          self: *const FileIndex,
+  589          revision: ReadableRevision,
+  590          query: []const u8,
+  591          out: []SearchResult,
+  592          match_spans: []MatchSpan,
+  593      ) SearchError!usize {
+  594          if (out.len == 0 or revision.count == 0) return 0;
+  595          const generation = self.searchableGeneration() orelse return error.InvalidIndexData;
+  596          if (generation.id != revision.generation or generation.scope_epoch != revision.scope_epoch or
+  597              revision.count > generation.kinds.len) return error.InvalidIndexData;
+  598          const total = revision.count;
+  599          if (query.len > max_path_len) return 0;
+  600  
+  601          if (query.len == 0) {
+  602              const result_count = @min(total, out.len);
+  603              for (out[0..result_count], 0..) |*result, index| {
+  604                  result.* = .{
+  605                      .path = generation.pathAt(index),
+  606                      .kind = generation.kindAt(index),
+  607                      .matched_spans = match_spans[0..0],
+  608                  };
+  609              }
+  610              return result_count;
+  611          }
+  612  
+  613          var query_scratch: QueryScratch = undefined;
+  614          const prepared = prepareQuery(query, &query_scratch) orelse return 0;
+  615          var indices: [max_search_results]u32 = undefined;
+  616          var align_scratch: AlignScratch = undefined;
+  617          const result_count = rankTopN(generation, total, prepared, indices[0..@min(out.len, max_search_results)], &align_scratch);
+  618  
+  619          var path_scratch: FoldedPathScratch = undefined;
+  620          var matched_offsets: [max_path_len]u16 = undefined;
+  621          var span_scratch: [max_path_len]MatchSpan = undefined;
+  622          var spans_used: usize = 0;
+  623          for (indices[0..result_count], 0..) |index, result_index| {
+  624              const path = generation.pathAt(index);
+  625              const base_start = generation.basename_starts[index] - generation.offsets[index];
+  626              const span_count = reconstructMatchSpans(
+  627                  path,
+  628                  base_start,
+  629                  prepared.folded,
+  630                  &path_scratch,
+  631                  &align_scratch,
+  632                  &matched_offsets,
+  633                  &span_scratch,
+  634              ) orelse return error.InvalidIndexData;
+  635              if (span_count > match_spans.len -| spans_used) return error.NoSpaceLeft;
+  636              @memcpy(match_spans[spans_used..][0..span_count], span_scratch[0..span_count]);
+  637              out[result_index] = .{
+  638                  .path = path,
+  639                  .kind = generation.kindAt(index),
+  640                  .matched_spans = match_spans[spans_used..][0..span_count],
+  641              };
+  642              spans_used += span_count;
+  643          }
+  644          return result_count;
+  645      }
+
+== src/core/workspace/file_index.zig:1086-1105@481104fd -- appendDiscoveredCandidate: an added root's entries by their absolute paths
+ 1086  fn appendDiscoveredCandidate(
+ 1087      alloc: Allocator,
+ 1088      candidates: *std.ArrayList(Candidate),
+ 1089      seen: *std.StringHashMapUnmanaged(void),
+ 1090      root_path: []const u8,
+ 1091      root_index: usize,
+ 1092      relative: []const u8,
+ 1093      kind: CandidateKind,
+ 1094  ) !bool {
+ 1095      const absolute = try std.Io.Dir.path.resolveAlloc(alloc, &.{ root_path, relative });
+ 1096      if (!pathing.pathInside(root_path, absolute)) return false;
+ 1097  
+ 1098      const display = if (root_index == 0) relative else absolute;
+ 1099      if (acceptedCandidate(.{ .path = display, .kind = kind }) == null) return false;
+ 1100  
+ 1101      const seen_entry = try seen.getOrPut(alloc, absolute);
+ 1102      if (seen_entry.found_existing) return false;
+ 1103      try candidates.append(alloc, .{ .path = display, .kind = kind });
+ 1104      return true;
+ 1105  }
+
+== src/core/workspace/file_index.zig:1176-1176@481104fd -- max_search_results = 64
+ 1176  pub const max_search_results: usize = 64;
+
+== src/core/input/file_completion_state.zig:7-7@481104fd -- capacity = 32: the picker's out buffer
+    7  pub const capacity = 32;
+
+== src/core/app/input_completion_runtime.zig:895-899@481104fd -- the lookup's results[file_picker_completion_cap]
+  895              var results: [file_picker_completion_cap]file_index.SearchResult = undefined;
+  896              var spans: [file_picker_match_span_cap]file_index.MatchSpan = undefined;
+  897              var paths: [file_picker_path_storage_cap]u8 = undefined;
+  898              const lookup = if (comptime @hasDecl(App, "fileCompletionsAtRevision"))
+  899                  app.fileCompletionsAtRevision(source, decoded, &results, &spans, &paths)
+
+== src/core/app/app_workspace_runtime.zig:39-50@481104fd -- fileCompletionsAtRevision -> searchAtRevision
+   39  
+   40          pub fn fileCompletionsAtRevision(
+   41              app: *App,
+   42              revision: file_index.ReadableRevision,
+   43              query: []const u8,
+   44              out: []file_index.SearchResult,
+   45              match_spans: []file_index.MatchSpan,
+   46              _: []u8,
+   47          ) FileCompletionError!usize {
+   48              if (path_completion.queryMode(query) != .workspace_index or revision.scope_epoch != app.workspace.scope_epoch) return error.PathUnavailable;
+   49              return app.file_index.searchAtRevision(revision, query, out, match_spans);
+   50          }
+
+== src/core/workspace/file_index.zig:1254-1309@481104fd -- MatchScore (1254-1265); NameQuery: score (1286-1300), better (1302-1309)
+ 1254  const MatchScore = struct {
+ 1255      exact_fit: bool,
+ 1256      /// The scored placement ends in the file or folder name rather than in a
+ 1257      /// parent folder.
+ 1258      name_fit: bool,
+ 1259      /// Additive score of the chosen placement, including `name_bonus` when it
+ 1260      /// lies inside the name.
+ 1261      quality: i32,
+ 1262      /// Scalar index of the first matched character, relative to the scored range.
+ 1263      first_position: u32,
+ 1264  };
+ 1265  
+ 1266  /// Owns its prepared query without interior pointers. Names are borrowed only
+ 1267  /// during each call; scoring and highlighting share the indexed-search rules.
+ 1268  pub const NameQuery = struct {
+ 1269      scratch: QueryScratch,
+ 1270      len: usize,
+ 1271      ascii: bool,
+ 1272      ascii_mask: u32,
+ 1273  
+ 1274      pub const Score = MatchScore;
+ 1275  
+ 1276      pub fn init(query: []const u8) ?NameQuery {
+ 1277          if (query.len > max_path_len) return null;
+ 1278          var result: NameQuery = undefined;
+ 1279          const prepared = prepareQuery(query, &result.scratch) orelse return null;
+ 1280          result.len = prepared.folded.len;
+ 1281          result.ascii = prepared.ascii != null;
+ 1282          result.ascii_mask = if (prepared.ascii) |bytes| alphaMask(bytes) else 0;
+ 1283          return result;
+ 1284      }
+ 1285  
+ 1286      pub fn score(self: *const NameQuery, name: []const u8) ?Score {
+ 1287          if (name.len == 0 or name.len > max_path_len) return null;
+ 1288          if (self.len == 0) return .{ .exact_fit = false, .name_fit = false, .quality = 0, .first_position = 0 };
+ 1289          var align_scratch: AlignScratch = undefined;
+ 1290          for (name) |byte| {
+ 1291              if (byte >= 0x80) {
+ 1292                  var scratch: FoldedPathScratch = undefined;
+ 1293                  return scoreFoldedMatchWith(&align_scratch, name, 0, self.scratch.folded[0..self.len], &scratch, .{});
+ 1294              }
+ 1295          }
+ 1296          if (!self.ascii or alphaMask(name) & self.ascii_mask != self.ascii_mask) return null;
+ 1297          var lower: [max_path_len]u8 = undefined;
+ 1298          for (name, lower[0..name.len]) |byte, *folded| folded.* = asciiToLower(byte);
+ 1299          return scoreAsciiMatchWith(&align_scratch, name, lower[0..name.len], 0, self.scratch.ascii[0..self.len], .{});
+ 1300      }
+ 1301  
+ 1302      pub fn better(self: *const NameQuery, left: Score, left_path: []const u8, right: Score, right_path: []const u8) bool {
+ 1303          if (self.len > 0) {
+ 1304              if (scoreBetter(left, right)) return true;
+ 1305              if (scoreBetter(right, left)) return false;
+ 1306              if (left_path.len != right_path.len) return left_path.len < right_path.len;
+ 1307          }
+ 1308          return std.mem.order(u8, left_path, right_path) == .lt;
+ 1309      }
+
+== src/core/workspace/file_index.zig:1330-1403@481104fd -- rankTopN: the pruning (Needed, length_limit, 1344-1370), the alphaMask prefilter (1371-1373), insertion of the kept (1389-1398), sortRanked (1400)
+ 1330  fn rankTopN(generation: *const Generation, total: usize, query: PreparedQuery, out: []u32, align_scratch: *AlignScratch) usize {
+ 1331      const top_cap = @min(out.len, max_search_results);
+ 1332      if (top_cap == 0) return 0;
+ 1333  
+ 1334      var ranked: [max_search_results]RankedCandidate = undefined;
+ 1335      var filled: usize = 0;
+ 1336      var worst_slot: usize = 0;
+ 1337  
+ 1338      const query_ascii = query.ascii;
+ 1339      const query_mask = if (query_ascii) |ascii| alphaMask(ascii) else 0;
+ 1340      const max_crossing = maxCrossingQuality(u21, query.folded);
+ 1341      const max_name = maxNameQuality(query.folded.len);
+ 1342      var scalar_scratch: FoldedPathScratch = undefined;
+ 1343  
+ 1344      var candidate_index: u32 = 0;
+ 1345      while (candidate_index < total) : (candidate_index += 1) {
+ 1346          const path_mask = generation.char_masks[candidate_index];
+ 1347          const base_start = generation.basename_starts[candidate_index] - generation.offsets[candidate_index];
+ 1348          // Once the worst kept result has the best score a non-exact match can
+ 1349          // reach, only an exact match or a shorter path can still enter, so
+ 1350          // longer paths are not scored. Once every kept result is exact, only
+ 1351          // exact matches can enter.
+ 1352          const length_limit: ?usize = if (filled < top_cap) null else limit: {
+ 1353              const worst = ranked[worst_slot];
+ 1354              if (worst.score.exact_fit) break :limit 0;
+ 1355              if (worst.score.name_fit and worst.score.quality == max_name and worst.score.first_position == 0) {
+ 1356                  break :limit generation.pathAt(worst.index).len;
+ 1357              }
+ 1358              break :limit null;
+ 1359          };
+ 1360          // Skip the placements that can no longer enter the kept results; the
+ 1361          // results stay those of scoring every path.
+ 1362          const needed: Needed = if (filled < top_cap) .{} else needed: {
+ 1363              const worst = ranked[worst_slot].score;
+ 1364              break :needed .{
+ 1365                  // A placement ending in a folder ranks below every name match.
+ 1366                  .folder = !(worst.exact_fit or worst.name_fit),
+ 1367                  // A placement starting in a folder scores at most `max_crossing`.
+ 1368                  .crossing = !(worst.exact_fit or (worst.name_fit and worst.quality > max_crossing)),
+ 1369              };
+ 1370          };
+ 1371          const score = if ((path_mask & non_ascii_mask) == 0) ascii_path: {
+ 1372              const ascii = query_ascii orelse continue;
+ 1373              if ((path_mask & query_mask) != query_mask) continue;
+ 1374              if (length_limit) |limit| {
+ 1375                  const path_lower = generation.lowerPathAt(candidate_index);
+ 1376                  if (path_lower.len > limit and !exactFit(u8, path_lower, path_lower[base_start..], ascii)) continue;
+ 1377              }
+ 1378              break :ascii_path scoreAsciiMatchWith(
+ 1379                  align_scratch,
+ 1380                  generation.pathAt(candidate_index),
+ 1381                  generation.lowerPathAt(candidate_index),
+ 1382                  base_start,
+ 1383                  ascii,
+ 1384                  needed,
+ 1385              );
+ 1386          } else scoreFoldedMatchWith(align_scratch, generation.pathAt(candidate_index), base_start, query.folded, &scalar_scratch, needed);
+ 1387          const match_score = score orelse continue;
+ 1388          const candidate: RankedCandidate = .{ .score = match_score, .index = candidate_index };
+ 1389  
+ 1390          if (filled < top_cap) {
+ 1391              ranked[filled] = candidate;
+ 1392              filled += 1;
+ 1393              if (filled == top_cap) worst_slot = findWorstSlot(generation, ranked[0..filled]);
+ 1394          } else if (rankedCandidateBetter(generation, candidate, ranked[worst_slot])) {
+ 1395              ranked[worst_slot] = candidate;
+ 1396              worst_slot = findWorstSlot(generation, ranked[0..filled]);
+ 1397          }
+ 1398      }
+ 1399  
+ 1400      sortRanked(generation, ranked[0..filled]);
+ 1401      for (ranked[0..filled], 0..) |candidate, result_index| out[result_index] = candidate.index;
+ 1402      return filled;
+ 1403  }
+
+== src/core/workspace/file_index.zig:1405-1438@481104fd -- fzf's v2 path-scheme score: the constants (1410-1423), AlignScratch (1427-1438)
+ 1405  // Best-alignment scoring with fzf's v2 path-scheme score. A placement's score
+ 1406  // is defined by `scoreAlignment`; `alignBest` returns the placement with the
+ 1407  // highest score and, among those, the earliest first position. The dynamic
+ 1408  // program is exact because its state carries the run bonus that fzf's
+ 1409  // consecutive rule depends on, normalized to one of four values.
+ 1410  const max_align_cells: usize = 4096;
+ 1411  const run_slot_count: usize = 4;
+ 1412  const run_slot_bonus = [run_slot_count]i32{ 4, 7, 8, 9 };
+ 1413  const score_match: i32 = 16;
+ 1414  const score_gap_start: i32 = -3;
+ 1415  const score_gap_extension: i32 = -1;
+ 1416  const bonus_boundary: i32 = score_match / 2;
+ 1417  const bonus_non_word: i32 = score_match / 2;
+ 1418  const bonus_camel_123: i32 = bonus_boundary + score_gap_extension;
+ 1419  const bonus_consecutive: i32 = -(score_gap_start + score_gap_extension);
+ 1420  const bonus_first_char_multiplier: i32 = 2;
+ 1421  const bonus_boundary_white: i32 = bonus_boundary;
+ 1422  const bonus_boundary_delimiter: i32 = bonus_boundary + 1;
+ 1423  const invalid_score: i32 = std.math.minInt(i32);
+ 1424  
+ 1425  /// One search's alignment workspace. Callers create it once and reuse it for
+ 1426  /// every candidate; nothing in it survives between calls.
+ 1427  const AlignScratch = struct {
+ 1428      scores: [max_align_cells * run_slot_count]i32,
+ 1429      starts: [max_align_cells * run_slot_count]u16,
+ 1430      pred_entries: [max_align_cells * run_slot_count]u16,
+ 1431      pred_slots: [max_align_cells * run_slot_count]u8,
+ 1432      /// Text position of each sparse cell, row by row.
+ 1433      columns: [max_align_cells]u16,
+ 1434      row_offsets: [max_path_len + 1]u16,
+ 1435      forward: [max_path_len]u16,
+ 1436      backward: [max_path_len]u16,
+ 1437      positions: [max_path_len]u16,
+ 1438  };
+
+== src/core/workspace/file_index.zig:1440-1525@481104fd -- Alignment; CharClass, charClassOf (1445-1457); bonusFor (1459-1475); bonusAt (1477-1481); runSlot (1483-1491); consecutiveBonus (1493-1496); scoreAlignment (1498-1521); betterCandidate (1523-1525)
+ 1440  const Alignment = struct {
+ 1441      quality: i32,
+ 1442      first_position: u32,
+ 1443  };
+ 1444  
+ 1445  const CharClass = enum { white, non_word, delimiter, lower, upper, letter, number };
+ 1446  
+ 1447  fn charClassOf(byte: u8) CharClass {
+ 1448      return switch (byte) {
+ 1449          'a'...'z' => .lower,
+ 1450          'A'...'Z' => .upper,
+ 1451          '0'...'9' => .number,
+ 1452          ' ', '\t', '\n', '\r' => .white,
+ 1453          '/' => .delimiter,
+ 1454          0x80...0xff => .letter,
+ 1455          else => .non_word,
+ 1456      };
+ 1457  }
+ 1458  
+ 1459  fn bonusFor(prev: CharClass, class: CharClass) i32 {
+ 1460      switch (class) {
+ 1461          .lower, .upper, .letter, .number => switch (prev) {
+ 1462              .white => return bonus_boundary_white,
+ 1463              .delimiter => return bonus_boundary_delimiter,
+ 1464              .non_word => return bonus_boundary,
+ 1465              else => {},
+ 1466          },
+ 1467          else => {},
+ 1468      }
+ 1469      if ((prev == .lower and class == .upper) or (prev != .number and class == .number)) return bonus_camel_123;
+ 1470      return switch (class) {
+ 1471          .non_word, .delimiter => bonus_non_word,
+ 1472          .white => bonus_boundary_white,
+ 1473          else => 0,
+ 1474      };
+ 1475  }
+ 1476  
+ 1477  fn bonusAt(path: []const u8, byte_offsets: ?[]const u16, position: usize) i32 {
+ 1478      const byte_index: usize = if (byte_offsets) |offsets| offsets[position] else position;
+ 1479      const prev: CharClass = if (byte_index == 0) .delimiter else charClassOf(path[byte_index - 1]);
+ 1480      return bonusFor(prev, charClassOf(path[byte_index]));
+ 1481  }
+ 1482  
+ 1483  fn runSlot(run_bonus: i32) usize {
+ 1484      return switch (@max(run_bonus, bonus_consecutive)) {
+ 1485          4 => 0,
+ 1486          7 => 1,
+ 1487          8 => 2,
+ 1488          9 => 3,
+ 1489          else => unreachable,
+ 1490      };
+ 1491  }
+ 1492  
+ 1493  fn consecutiveBonus(bonus: i32, run_bonus: i32) struct { bonus: i32, run: i32 } {
+ 1494      if (bonus >= bonus_boundary and bonus > run_bonus) return .{ .bonus = bonus, .run = bonus };
+ 1495      return .{ .bonus = @max(bonus, @max(run_bonus, bonus_consecutive)), .run = run_bonus };
+ 1496  }
+ 1497  
+ 1498  /// Pure: the score of one fixed placement. This defines the ranking score.
+ 1499  fn scoreAlignment(path: []const u8, byte_offsets: ?[]const u16, range_start: usize, positions: []const u16) Alignment {
+ 1500      var total: i32 = 0;
+ 1501      var run: i32 = 0;
+ 1502      for (positions, 0..) |position, index| {
+ 1503          const bonus = bonusAt(path, byte_offsets, position);
+ 1504          if (index == 0) {
+ 1505              total = score_match + bonus * bonus_first_char_multiplier;
+ 1506              run = bonus;
+ 1507              continue;
+ 1508          }
+ 1509          const previous = positions[index - 1];
+ 1510          if (position == previous + 1) {
+ 1511              const step = consecutiveBonus(bonus, run);
+ 1512              total += score_match + step.bonus;
+ 1513              run = step.run;
+ 1514          } else {
+ 1515              const gap: i32 = @intCast(position - previous - 1);
+ 1516              total += score_match + bonus + score_gap_start + (gap - 1) * score_gap_extension;
+ 1517              run = bonus;
+ 1518          }
+ 1519      }
+ 1520      return .{ .quality = total, .first_position = @intCast(positions[0] - range_start) };
+ 1521  }
+ 1522  
+ 1523  inline fn betterCandidate(score: i32, start: u16, best_score: i32, best_start: u16) bool {
+ 1524      return score > best_score or (score == best_score and start < best_start);
+ 1525  }
+
+== src/core/workspace/file_index.zig:1527-1720@481104fd -- alignBest: one letter (1546-1564), the greedy scans (1566-1589), one placement or past the cell budget (1591-1604), the sparse rows (1606-1617), the DP (1619-1688), the best and its path back (1690-1720)
+ 1527  /// Pure: finds the best placement of `query` in `text[range_start..]` whose
+ 1528  /// last letter lands at or after `end_min`, and writes its text positions to
+ 1529  /// `scratch.positions[0..query.len]`. When the search would need more than
+ 1530  /// `max_align_cells` cells, the leftmost greedy such placement is scored
+ 1531  /// instead.
+ 1532  fn alignBest(
+ 1533      comptime T: type,
+ 1534      text: []const T,
+ 1535      path: []const u8,
+ 1536      byte_offsets: ?[]const u16,
+ 1537      range_start: usize,
+ 1538      end_min: usize,
+ 1539      query: []const T,
+ 1540      scratch: *AlignScratch,
+ 1541  ) ?Alignment {
+ 1542      const m = query.len;
+ 1543      if (m == 0 or range_start > text.len or m > text.len - range_start) return null;
+ 1544      std.debug.assert(end_min >= range_start);
+ 1545  
+ 1546      if (m == 1 and text.len - end_min <= max_align_cells) {
+ 1547          // The earliest occurrence with the highest bonus, in one scan: the
+ 1548          // window fits the cell budget, and no bonus beats the one after `/`.
+ 1549          var best_position: ?usize = null;
+ 1550          var best_bonus: i32 = 0;
+ 1551          var j = end_min;
+ 1552          while (j < text.len) : (j += 1) {
+ 1553              if (text[j] != query[0]) continue;
+ 1554              const bonus = bonusAt(path, byte_offsets, j);
+ 1555              if (best_position == null or bonus > best_bonus) {
+ 1556                  best_position = j;
+ 1557                  best_bonus = bonus;
+ 1558                  if (bonus == bonus_boundary_delimiter) break;
+ 1559              }
+ 1560          }
+ 1561          const only = best_position orelse return null;
+ 1562          scratch.positions[0] = @intCast(only);
+ 1563          return .{ .quality = score_match + best_bonus * bonus_first_char_multiplier, .first_position = @intCast(only - range_start) };
+ 1564      }
+ 1565  
+ 1566      var query_index: usize = 0;
+ 1567      var position = range_start;
+ 1568      while (position < text.len and query_index < m) : (position += 1) {
+ 1569          if (text[position] != query[query_index]) continue;
+ 1570          scratch.forward[query_index] = @intCast(position);
+ 1571          query_index += 1;
+ 1572      }
+ 1573      if (query_index < m) return null;
+ 1574  
+ 1575      var back_index: usize = m;
+ 1576      var back_position: usize = text.len;
+ 1577      while (back_index > 0) {
+ 1578          back_position -= 1;
+ 1579          if (text[back_position] != query[back_index - 1]) continue;
+ 1580          back_index -= 1;
+ 1581          scratch.backward[back_index] = @intCast(back_position);
+ 1582      }
+ 1583      if (scratch.backward[m - 1] < end_min) return null;
+ 1584      if (scratch.forward[m - 1] < end_min) {
+ 1585          // Still after forward[m - 2], which lies before the old forward[m - 1].
+ 1586          var last = end_min;
+ 1587          while (text[last] != query[m - 1]) last += 1;
+ 1588          scratch.forward[m - 1] = @intCast(last);
+ 1589      }
+ 1590  
+ 1591      // Both greedy scans agree only when a single placement exists.
+ 1592      if (std.mem.eql(u16, scratch.forward[0..m], scratch.backward[0..m])) {
+ 1593          @memcpy(scratch.positions[0..m], scratch.forward[0..m]);
+ 1594          return scoreAlignment(path, byte_offsets, range_start, scratch.positions[0..m]);
+ 1595      }
+ 1596  
+ 1597      // Row r may only place query[r] in forward[r]..backward[r]. The cell budget
+ 1598      // is defined on those window widths.
+ 1599      var cells: usize = 0;
+ 1600      for (scratch.forward[0..m], scratch.backward[0..m]) |first, last| cells += @as(usize, last) - first + 1;
+ 1601      if (cells > max_align_cells) {
+ 1602          @memcpy(scratch.positions[0..m], scratch.forward[0..m]);
+ 1603          return scoreAlignment(path, byte_offsets, range_start, scratch.positions[0..m]);
+ 1604      }
+ 1605  
+ 1606      // Sparse rows: one cell per position where query[r] matches inside its window.
+ 1607      var entries: usize = 0;
+ 1608      for (0..m) |row| {
+ 1609          scratch.row_offsets[row] = @intCast(entries);
+ 1610          var j: usize = scratch.forward[row];
+ 1611          while (j <= scratch.backward[row]) : (j += 1) {
+ 1612              if (text[j] != query[row]) continue;
+ 1613              scratch.columns[entries] = @intCast(j);
+ 1614              entries += 1;
+ 1615          }
+ 1616      }
+ 1617      scratch.row_offsets[m] = @intCast(entries);
+ 1618  
+ 1619      for (0..m) |row| {
+ 1620          const row_begin: usize = scratch.row_offsets[row];
+ 1621          const row_end: usize = scratch.row_offsets[row + 1];
+ 1622          const prev_begin: usize = if (row > 0) scratch.row_offsets[row - 1] else 0;
+ 1623          const prev_end: usize = if (row > 0) scratch.row_offsets[row] else 0;
+ 1624          var best_gap: i32 = invalid_score;
+ 1625          var best_gap_start: u16 = 0;
+ 1626          var best_gap_entry: u16 = 0;
+ 1627          var best_gap_slot: u8 = 0;
+ 1628          var next_gap = prev_begin;
+ 1629          var diag = prev_begin;
+ 1630  
+ 1631          for (row_begin..row_end) |entry| {
+ 1632              const j: usize = scratch.columns[entry];
+ 1633              const cell = entry * run_slot_count;
+ 1634              @memset(scratch.scores[cell..][0..run_slot_count], invalid_score);
+ 1635              const bonus = bonusAt(path, byte_offsets, j);
+ 1636              if (row == 0) {
+ 1637                  const slot = runSlot(bonus);
+ 1638                  scratch.scores[cell + slot] = score_match + bonus * bonus_first_char_multiplier;
+ 1639                  scratch.starts[cell + slot] = @intCast(j);
+ 1640                  continue;
+ 1641              }
+ 1642              // Fold in every predecessor at least two positions back.
+ 1643              while (next_gap < prev_end and @as(usize, scratch.columns[next_gap]) + 2 <= j) : (next_gap += 1) {
+ 1644                  const prev_cell = next_gap * run_slot_count;
+ 1645                  const shift: i32 = scratch.columns[next_gap];
+ 1646                  for (0..run_slot_count) |slot| {
+ 1647                      const value = scratch.scores[prev_cell + slot];
+ 1648                      if (value == invalid_score) continue;
+ 1649                      const start = scratch.starts[prev_cell + slot];
+ 1650                      if (betterCandidate(value + shift, start, best_gap, best_gap_start)) {
+ 1651                          best_gap = value + shift;
+ 1652                          best_gap_start = start;
+ 1653                          best_gap_entry = @intCast(next_gap);
+ 1654                          best_gap_slot = @intCast(slot);
+ 1655                      }
+ 1656                  }
+ 1657              }
+ 1658              while (diag < prev_end and @as(usize, scratch.columns[diag]) + 1 < j) diag += 1;
+ 1659              if (diag < prev_end and @as(usize, scratch.columns[diag]) + 1 == j) {
+ 1660                  const prev_cell = diag * run_slot_count;
+ 1661                  for (0..run_slot_count) |prev_slot| {
+ 1662                      const value = scratch.scores[prev_cell + prev_slot];
+ 1663                      if (value == invalid_score) continue;
+ 1664                      const step = consecutiveBonus(bonus, run_slot_bonus[prev_slot]);
+ 1665                      const slot = runSlot(step.run);
+ 1666                      const candidate = value + score_match + step.bonus;
+ 1667                      const start = scratch.starts[prev_cell + prev_slot];
+ 1668                      if (betterCandidate(candidate, start, scratch.scores[cell + slot], scratch.starts[cell + slot])) {
+ 1669                          scratch.scores[cell + slot] = candidate;
+ 1670                          scratch.starts[cell + slot] = start;
+ 1671                          scratch.pred_entries[cell + slot] = @intCast(diag);
+ 1672                          scratch.pred_slots[cell + slot] = @intCast(prev_slot);
+ 1673                      }
+ 1674                  }
+ 1675              }
+ 1676              if (best_gap != invalid_score) {
+ 1677                  const slot = runSlot(bonus);
+ 1678                  const candidate = best_gap - @as(i32, @intCast(j)) - 1 + score_match + bonus;
+ 1679                  if (betterCandidate(candidate, best_gap_start, scratch.scores[cell + slot], scratch.starts[cell + slot])) {
+ 1680                      scratch.scores[cell + slot] = candidate;
+ 1681                      scratch.starts[cell + slot] = best_gap_start;
+ 1682                      scratch.pred_entries[cell + slot] = best_gap_entry;
+ 1683                      scratch.pred_slots[cell + slot] = best_gap_slot;
+ 1684                  }
+ 1685              }
+ 1686          }
+ 1687      }
+ 1688  
+ 1689      var best_score: i32 = invalid_score;
+ 1690      var best_start: u16 = 0;
+ 1691      var best_entry: usize = 0;
+ 1692      var best_slot: usize = 0;
+ 1693      for (scratch.row_offsets[m - 1]..scratch.row_offsets[m]) |entry| {
+ 1694          for (0..run_slot_count) |slot| {
+ 1695              const value = scratch.scores[entry * run_slot_count + slot];
+ 1696              if (value == invalid_score) continue;
+ 1697              if (betterCandidate(value, scratch.starts[entry * run_slot_count + slot], best_score, best_start)) {
+ 1698                  best_score = value;
+ 1699                  best_start = scratch.starts[entry * run_slot_count + slot];
+ 1700                  best_entry = entry;
+ 1701                  best_slot = slot;
+ 1702              }
+ 1703          }
+ 1704      }
+ 1705      if (best_score == invalid_score) return null;
+ 1706  
+ 1707      var row = m - 1;
+ 1708      var entry = best_entry;
+ 1709      var slot = best_slot;
+ 1710      while (true) {
+ 1711          scratch.positions[row] = scratch.columns[entry];
+ 1712          if (row == 0) break;
+ 1713          const cell = entry * run_slot_count + slot;
+ 1714          entry = scratch.pred_entries[cell];
+ 1715          slot = scratch.pred_slots[cell];
+ 1716          row -= 1;
+ 1717      }
+ 1718      std.debug.assert(scratch.positions[0] == best_start);
+ 1719      return .{ .quality = best_score, .first_position = @intCast(@as(usize, best_start) - range_start) };
+ 1720  }
+
+== src/core/workspace/file_index.zig:1722-1774@481104fd -- name_bonus (1722-1727); maxCrossingQuality (1736-1743); maxNameQuality (1745-1751); exactFit (1753-1758); Needed, Placement
+ 1722  /// Points a placement inside the file or folder name earns over one that
+ 1723  /// starts in the folder holding the name. A close call favors the name, so
+ 1724  /// for `abcd`, `src/x/ab-cd.ts` stays above `src/ab/cd.ts`, while a clean
+ 1725  /// folder-plus-name match such as `vercle` for `vercel-json/clean-urls.mdx`
+ 1726  /// can still beat letters scattered through a name.
+ 1727  const name_bonus: i32 = 4;
+ 1728  
+ 1729  comptime {
+ 1730      // `maxCrossingQuality` assumes no character earns more than this bonus.
+ 1731      for ([_]i32{ bonus_boundary, bonus_non_word, bonus_camel_123, bonus_consecutive, bonus_boundary_white }) |bonus| {
+ 1732          std.debug.assert(bonus <= bonus_boundary_delimiter);
+ 1733      }
+ 1734  }
+ 1735  
+ 1736  /// The highest score of a placement that starts in a parent folder and ends
+ 1737  /// in the name. Without a `/` in the query such a placement skips the `/`
+ 1738  /// before the name, which costs at least one gap.
+ 1739  fn maxCrossingQuality(comptime T: type, query: []const T) i32 {
+ 1740      const m: i32 = @intCast(query.len);
+ 1741      const ceiling = score_match * m + bonus_boundary_delimiter * (m + 1);
+ 1742      return if (std.mem.findScalar(T, query, '/') == null) ceiling + score_gap_start else ceiling;
+ 1743  }
+ 1744  
+ 1745  /// The highest score a non-exact match can reach: the query as a run at the
+ 1746  /// start of the name, right after its `/`, plus `name_bonus`. Its first
+ 1747  /// position is 0, because only the first letter of a name follows a `/`.
+ 1748  fn maxNameQuality(query_len: usize) i32 {
+ 1749      const m: i32 = @intCast(query_len);
+ 1750      return score_match * m + bonus_boundary_delimiter * (m + 1) + name_bonus;
+ 1751  }
+ 1752  
+ 1753  /// A query that spells the whole path, the name, or the name up to a dot,
+ 1754  /// such as `main` for `main.zig`, is an exact match.
+ 1755  fn exactFit(comptime T: type, whole: []const T, name: []const T, query: []const T) bool {
+ 1756      return std.mem.eql(T, whole, query) or std.mem.eql(T, name, query) or
+ 1757          (name.len > query.len and std.mem.startsWith(T, name, query) and name[query.len] == '.');
+ 1758  }
+ 1759  
+ 1760  /// Which placements a candidate may still need. Ranking turns a kind off only
+ 1761  /// once it can no longer enter the kept results.
+ 1762  const Needed = struct {
+ 1763      /// Placements that end in a parent folder.
+ 1764      folder: bool = true,
+ 1765      /// Placements that start in the folder holding the name and end in the name.
+ 1766      crossing: bool = true,
+ 1767  };
+ 1768  
+ 1769  const Placement = struct {
+ 1770      name_fit: bool,
+ 1771      alignment: Alignment,
+ 1772      range_start: usize,
+ 1773      end_min: usize,
+ 1774  };
+
+== src/core/workspace/file_index.zig:1776-1829@481104fd -- choosePlacement (1776-1819); isSubsequence (1821-1829)
+ 1776  /// Pure: picks the placement that defines a candidate's score. A placement
+ 1777  /// ending in the file or folder name ranks above one ending in a parent
+ 1778  /// folder. Among those, the best placement inside the name, plus
+ 1779  /// `name_bonus`, competes with the best one that starts in the folder that
+ 1780  /// holds the name, as in `vercle` for `vercel-json/clean-urls.mdx`. Crossing
+ 1781  /// placements start no higher than that folder, so their search covers only
+ 1782  /// the folder and the name.
+ 1783  fn choosePlacement(
+ 1784      comptime T: type,
+ 1785      text: []const T,
+ 1786      path: []const u8,
+ 1787      byte_offsets: ?[]const u16,
+ 1788      base_start: usize,
+ 1789      query: []const T,
+ 1790      scratch: *AlignScratch,
+ 1791      needed: Needed,
+ 1792  ) ?Placement {
+ 1793      var best: ?Placement = null;
+ 1794      if (alignBest(T, text, path, byte_offsets, base_start, base_start, query, scratch)) |inside| {
+ 1795          best = .{
+ 1796              .name_fit = true,
+ 1797              .alignment = .{ .quality = inside.quality + name_bonus, .first_position = inside.first_position },
+ 1798              .range_start = base_start,
+ 1799              .end_min = base_start,
+ 1800          };
+ 1801      }
+ 1802      // Without a placement in the name, a path that does not hold the letters
+ 1803      // in order has no other placement either; one scan settles it.
+ 1804      if (best == null and query.len > 1 and !isSubsequence(T, text, query)) return null;
+ 1805      const crossing_can_win = if (best) |inside| inside.alignment.quality < maxCrossingQuality(T, query) else true;
+ 1806      if (needed.crossing and base_start > 0 and query.len > 1 and crossing_can_win) {
+ 1807          // text[base_start - 1] is the `/` before the name.
+ 1808          const folder_start = if (std.mem.findScalarLast(T, text[0 .. base_start - 1], '/')) |slash| slash + 1 else 0;
+ 1809          if (alignBest(T, text, path, byte_offsets, folder_start, base_start, query, scratch)) |crossing| {
+ 1810              if (best == null or crossing.quality > best.?.alignment.quality) {
+ 1811                  best = .{ .name_fit = true, .alignment = crossing, .range_start = folder_start, .end_min = base_start };
+ 1812              }
+ 1813          }
+ 1814      }
+ 1815      if (best != null) return best;
+ 1816      if (!needed.folder) return null;
+ 1817      const anywhere = alignBest(T, text, path, byte_offsets, 0, 0, query, scratch) orelse return null;
+ 1818      return .{ .name_fit = false, .alignment = anywhere, .range_start = 0, .end_min = 0 };
+ 1819  }
+ 1820  
+ 1821  fn isSubsequence(comptime T: type, text: []const T, query: []const T) bool {
+ 1822      var query_index: usize = 0;
+ 1823      for (text) |item| {
+ 1824          if (item != query[query_index]) continue;
+ 1825          query_index += 1;
+ 1826          if (query_index == query.len) return true;
+ 1827      }
+ 1828      return false;
+ 1829  }
+
+== src/core/workspace/file_index.zig:1831-1882@481104fd -- scoreOf; scoreAsciiMatchWith, scoreFoldedMatchWith (1850-1882)
+ 1831  fn scoreOf(exact_fit: bool, placement: Placement) MatchScore {
+ 1832      return .{
+ 1833          .exact_fit = exact_fit,
+ 1834          .name_fit = placement.name_fit,
+ 1835          .quality = placement.alignment.quality,
+ 1836          .first_position = placement.alignment.first_position,
+ 1837      };
+ 1838  }
+ 1839  
+ 1840  fn scoreAsciiMatch(
+ 1841      path: []const u8,
+ 1842      path_lower: []const u8,
+ 1843      basename_start: u32,
+ 1844      query: []const u8,
+ 1845  ) ?MatchScore {
+ 1846      var scratch: AlignScratch = undefined;
+ 1847      return scoreAsciiMatchWith(&scratch, path, path_lower, basename_start, query, .{});
+ 1848  }
+ 1849  
+ 1850  fn scoreAsciiMatchWith(
+ 1851      scratch: *AlignScratch,
+ 1852      path: []const u8,
+ 1853      path_lower: []const u8,
+ 1854      basename_start: u32,
+ 1855      query: []const u8,
+ 1856      needed: Needed,
+ 1857  ) ?MatchScore {
+ 1858      if (query.len == 0 or path.len == 0) return null;
+ 1859      const base_start: usize = basename_start;
+ 1860      const exact_fit = exactFit(u8, path_lower, path_lower[base_start..], query);
+ 1861      // An exact match always enters, so it is always scored in full.
+ 1862      const placement = choosePlacement(u8, path_lower, path, null, base_start, query, scratch, if (exact_fit) .{} else needed) orelse return null;
+ 1863      return scoreOf(exact_fit, placement);
+ 1864  }
+ 1865  
+ 1866  fn scoreFoldedMatchWith(
+ 1867      align_scratch: *AlignScratch,
+ 1868      path: []const u8,
+ 1869      basename_byte_start: u32,
+ 1870      query: []const u21,
+ 1871      scratch: *FoldedPathScratch,
+ 1872      needed: Needed,
+ 1873  ) ?MatchScore {
+ 1874      if (query.len == 0 or path.len == 0) return null;
+ 1875      const base_start: usize = basename_byte_start;
+ 1876      const decoded = decodeFoldedPath(path, base_start, scratch) orelse return null;
+ 1877      const scalars = scratch.scalars[0..decoded.scalar_count];
+ 1878      const exact_fit = exactFit(u21, scalars, scalars[decoded.basename_scalar_start..], query);
+ 1879      const byte_offsets = scratch.byte_offsets[0 .. decoded.scalar_count + 1];
+ 1880      const placement = choosePlacement(u21, scalars, path, byte_offsets, decoded.basename_scalar_start, query, align_scratch, if (exact_fit) .{} else needed) orelse return null;
+ 1881      return scoreOf(exact_fit, placement);
+ 1882  }
+
+== src/core/workspace/file_index.zig:1884-1918@481104fd -- scoreBetter (1884-1890); rankedCandidateBetter (1892-1899); findWorstSlot; sortRanked
+ 1884  inline fn scoreBetter(left: MatchScore, right: MatchScore) bool {
+ 1885      if (left.exact_fit != right.exact_fit) return left.exact_fit;
+ 1886      if (left.name_fit != right.name_fit) return left.name_fit;
+ 1887      if (left.quality != right.quality) return left.quality > right.quality;
+ 1888      if (left.first_position != right.first_position) return left.first_position < right.first_position;
+ 1889      return false;
+ 1890  }
+ 1891  
+ 1892  fn rankedCandidateBetter(generation: *const Generation, left: RankedCandidate, right: RankedCandidate) bool {
+ 1893      if (scoreBetter(left.score, right.score)) return true;
+ 1894      if (scoreBetter(right.score, left.score)) return false;
+ 1895      const left_path = generation.pathAt(left.index);
+ 1896      const right_path = generation.pathAt(right.index);
+ 1897      if (left_path.len != right_path.len) return left_path.len < right_path.len;
+ 1898      return std.mem.order(u8, left_path, right_path) == .lt;
+ 1899  }
+ 1900  
+ 1901  fn findWorstSlot(generation: *const Generation, ranked: []const RankedCandidate) usize {
+ 1902      var worst_slot: usize = 0;
+ 1903      for (ranked[1..], 1..) |candidate, candidate_index| {
+ 1904          if (rankedCandidateBetter(generation, ranked[worst_slot], candidate)) worst_slot = candidate_index;
+ 1905      }
+ 1906      return worst_slot;
+ 1907  }
+ 1908  
+ 1909  fn sortRanked(generation: *const Generation, ranked: []RankedCandidate) void {
+ 1910      var candidate_index: usize = 1;
+ 1911      while (candidate_index < ranked.len) : (candidate_index += 1) {
+ 1912          const candidate = ranked[candidate_index];
+ 1913          var insertion_index = candidate_index;
+ 1914          while (insertion_index > 0 and rankedCandidateBetter(generation, candidate, ranked[insertion_index - 1])) : (insertion_index -= 1) {
+ 1915              ranked[insertion_index] = ranked[insertion_index - 1];
+ 1916          }
+ 1917          ranked[insertion_index] = candidate;
+ 1918      }
+
+== src/core/workspace/file_index.zig:1921-1983@481104fd -- reconstructMatchSpans: the chosen search again (1934-1935); spansFromMatchedOffsets
+ 1921  fn reconstructMatchSpans(
+ 1922      path: []const u8,
+ 1923      basename_byte_start: u32,
+ 1924      query: []const u21,
+ 1925      path_scratch: *FoldedPathScratch,
+ 1926      align_scratch: *AlignScratch,
+ 1927      matched_offsets: *[max_path_len]u16,
+ 1928      span_scratch: *[max_path_len]MatchSpan,
+ 1929  ) ?usize {
+ 1930      const decoded = decodeFoldedPath(path, basename_byte_start, path_scratch) orelse return null;
+ 1931      const scalars = path_scratch.scalars[0..decoded.scalar_count];
+ 1932      const byte_offsets = path_scratch.byte_offsets[0 .. decoded.scalar_count + 1];
+ 1933      const placement = choosePlacement(u21, scalars, path, byte_offsets, decoded.basename_scalar_start, query, align_scratch, .{}) orelse return null;
+ 1934      // Rerun the chosen search: a later search in the choice reuses the positions.
+ 1935      _ = alignBest(u21, scalars, path, byte_offsets, placement.range_start, placement.end_min, query, align_scratch) orelse return null;
+ 1936      for (align_scratch.positions[0..query.len], matched_offsets[0..query.len]) |position, *offset| {
+ 1937          offset.* = byte_offsets[position];
+ 1938      }
+ 1939      return spansFromMatchedOffsets(path, matched_offsets[0..query.len], span_scratch);
+ 1940  }
+ 1941  
+ 1942  fn spansFromMatchedOffsets(
+ 1943      path: []const u8,
+ 1944      matched_offsets: []const u16,
+ 1945      out: *[max_path_len]MatchSpan,
+ 1946  ) ?usize {
+ 1947      var matched_index: usize = 0;
+ 1948      var span_count: usize = 0;
+ 1949      var cursor: usize = 0;
+ 1950      while (cursor < path.len and matched_index < matched_offsets.len) {
+ 1951          const cluster_start = cursor;
+ 1952          const first = display_width.displayUnitAt(path, cursor);
+ 1953          if (first.byte_len == 0) return null;
+ 1954          cursor += first.byte_len;
+ 1955          while (cursor < path.len) {
+ 1956              const continuation = display_width.displayUnitAt(path, cursor);
+ 1957              if (continuation.byte_len == 0) return null;
+ 1958              if (continuation.cell_width != 0) break;
+ 1959              cursor += continuation.byte_len;
+ 1960          }
+ 1961          const cluster_end = cursor;
+ 1962  
+ 1963          var cluster_matched = false;
+ 1964          while (matched_index < matched_offsets.len and matched_offsets[matched_index] < cluster_end) {
+ 1965              if (matched_offsets[matched_index] < cluster_start) return null;
+ 1966              cluster_matched = true;
+ 1967              matched_index += 1;
+ 1968          }
+ 1969          if (!cluster_matched) continue;
+ 1970  
+ 1971          if (span_count > 0 and out[span_count - 1].byte_end == cluster_start) {
+ 1972              out[span_count - 1].byte_end = std.math.cast(u16, cluster_end) orelse return null;
+ 1973              continue;
+ 1974          }
+ 1975          out[span_count] = .{
+ 1976              .byte_start = std.math.cast(u16, cluster_start) orelse return null,
+ 1977              .byte_end = std.math.cast(u16, cluster_end) orelse return null,
+ 1978          };
+ 1979          span_count += 1;
+ 1980      }
+ 1981      if (matched_index != matched_offsets.len) return null;
+ 1982      return span_count;
+ 1983  }
+
+== src/core/workspace/path_completion.zig:44-131@481104fd -- completeCancellable: each name scored by NameQuery (56, 93), inserted by better (106)
+   44  pub fn completeCancellable(
+   45      workspace_root: []const u8,
+   46      home_dir: ?[]const u8,
+   47      query: []const u8,
+   48      cancel: ?*const std.atomic.Value(bool),
+   49      out: []file_index.SearchResult,
+   50      match_spans: []file_index.MatchSpan,
+   51      path_storage: []u8,
+   52  ) (Error || error{Cancelled})!usize {
+   53      try checkCancellation(cancel);
+   54      if (out.len == 0) return 0;
+   55      const parsed = parseExplicitQuery(query) orelse return 0;
+   56      const matcher = file_index.NameQuery.init(parsed.basename_query) orelse return 0;
+   57      var scores: [file_index.max_search_results]file_index.NameQuery.Score = undefined;
+   58      const slot_len: usize = file_index.max_path_len;
+   59      if (out.len > scores.len or out.len > path_storage.len / slot_len) return error.NoSpaceLeft;
+   60  
+   61      var resolve_storage: [file_index.max_path_len * 4]u8 = undefined;
+   62      var resolve_fba = std.heap.FixedBufferAllocator.init(&resolve_storage);
+   63      try checkCancellation(cancel);
+   64      const resolved = pathing.resolve_workspace_or_external_literal_path_with_home(
+   65          resolve_fba.allocator(),
+   66          workspace_root,
+   67          parsed.parent,
+   68          home_dir,
+   69      ) catch |err| switch (err) {
+   70          error.OutOfMemory => return error.NoSpaceLeft,
+   71          else => return error.PathUnavailable,
+   72      };
+   73  
+   74      const io = io_mod.getIo();
+   75      try checkCancellation(cancel);
+   76      var dir = std.Io.Dir.openDirAbsolute(io, resolved, .{ .iterate = true }) catch return error.PathUnavailable;
+   77      defer dir.close(io);
+   78  
+   79      // Listing a folder's contents: the folder itself is the first row, so it
+   80      // can be selected and not only opened.
+   81      const folder = listedFolder(parsed);
+   82      const reserved: usize = @intFromBool(folder != null);
+   83      const entries = out[reserved..];
+   84      const entry_storage = path_storage[reserved * slot_len ..];
+   85  
+   86      var count: usize = 0;
+   87      var iterator = dir.iterate();
+   88      while (true) {
+   89          try checkCancellation(cancel);
+   90          const entry = (iterator.next(io) catch return error.PathUnavailable) orelse break;
+   91          try checkCancellation(cancel);
+   92          if (!text_utils.isTerminalSafe(entry.name)) continue;
+   93          const score = matcher.score(entry.name) orelse continue;
+   94          // candidateKind may stat symlinks or unknown kinds.
+   95          try checkCancellation(cancel);
+   96          const kind = candidateKind(&dir, entry.name, entry.kind) orelse continue;
+   97  
+   98          var candidate_storage: [file_index.max_path_len]u8 = undefined;
+   99          const candidate_len = parsed.display_prefix.len + entry.name.len;
+  100          if (candidate_len > candidate_storage.len) continue;
+  101          @memcpy(candidate_storage[0..parsed.display_prefix.len], parsed.display_prefix);
+  102          @memcpy(candidate_storage[parsed.display_prefix.len..candidate_len], entry.name);
+  103          const candidate = candidate_storage[0..candidate_len];
+  104          if (!text_utils.isTerminalSafe(candidate)) continue;
+  105          if (!file_picker_path.isRepresentable(candidate)) continue;
+  106          count = insertCandidate(entries, entry_storage, &scores, &matcher, count, candidate, kind, score);
+  107      }
+  108  
+  109      var spans_used: usize = 0;
+  110      for (entries[0..count]) |*result| {
+  111          try checkCancellation(cancel);
+  112          const span_count = matcher.match_spans(result.path[parsed.display_prefix.len..], match_spans[spans_used..]) catch |err| switch (err) {
+  113              error.NoSpaceLeft => return error.NoSpaceLeft,
+  114              error.InvalidIndexData => return error.PathUnavailable,
+  115          };
+  116          const spans = match_spans[spans_used..][0..span_count];
+  117          for (spans) |*span| {
+  118              span.byte_start += @intCast(parsed.display_prefix.len);
+  119              span.byte_end += @intCast(parsed.display_prefix.len);
+  120          }
+  121          result.matched_spans = spans;
+  122          spans_used += span_count;
+  123      }
+  124      if (folder) |path| {
+  125          const slot = pathSlot(path_storage, 0);
+  126          @memcpy(slot[0..path.len], path);
+  127          out[0] = .{ .path = slot[0..path.len], .kind = .directory, .matched_spans = &.{} };
+  128      }
+  129      try checkCancellation(cancel);
+  130      return reserved + count;
+  131  }
+
+== src/core/workspace/path_completion.zig:226-252@481104fd -- insertCandidate: matcher.better (234)
+  226      scores: []file_index.NameQuery.Score,
+  227      matcher: *const file_index.NameQuery,
+  228      count: usize,
+  229      path: []const u8,
+  230      kind: file_index.CandidateKind,
+  231      score: file_index.NameQuery.Score,
+  232  ) usize {
+  233      var insertion_index: usize = 0;
+  234      while (insertion_index < count and !matcher.better(score, path, scores[insertion_index], out[insertion_index].path)) : (insertion_index += 1) {}
+  235      if (insertion_index >= out.len) return count;
+  236  
+  237      const next_count = @min(count + 1, out.len);
+  238      var index = next_count - 1;
+  239      while (index > insertion_index) : (index -= 1) {
+  240          const previous = out[index - 1];
+  241          scores[index] = scores[index - 1];
+  242          const slot = pathSlot(path_storage, index);
+  243          @memcpy(slot[0..previous.path.len], previous.path);
+  244          out[index] = .{
+  245              .path = slot[0..previous.path.len],
+  246              .kind = previous.kind,
+  247              .matched_spans = &.{},
+  248          };
+  249      }
+  250  
+  251      const slot = pathSlot(path_storage, insertion_index);
+  252      scores[insertion_index] = score;
+
+== src/core/workspace/path_completion.zig:497-516@481104fd -- test: path completion fuzzy ranking retains the best bounded result
+  497  test "path completion fuzzy ranking retains the best bounded result and checks span capacity" {
+  498      const alloc = std.testing.allocator;
+  499      var tmp = std.testing.tmpDir(.{});
+  500      defer tmp.cleanup();
+  501      try tmp.dir.createDirPath(std.testing.io, "Desktop");
+  502      try tmp.dir.createDirPath(std.testing.io, "ktop");
+  503      try tmp.dir.createDirPath(std.testing.io, "OtherDesktop");
+  504      const root = try io_mod.dirRealpathAlloc(alloc, tmp.dir, ".");
+  505      defer alloc.free(root);
+  506      var results: [1]file_index.SearchResult = undefined;
+  507      var spans: [4]file_index.MatchSpan = undefined;
+  508      var paths: [file_index.max_path_len]u8 = undefined;
+  509      try std.testing.expectEqual(@as(usize, 1), try complete(root, "./ktop", &results, &spans, &paths));
+  510      try std.testing.expectEqualStrings("./ktop", results[0].path);
+  511      try std.testing.expectError(error.NoSpaceLeft, complete(root, "./dsktp", &results, spans[0..1], &paths));
+  512      try std.testing.expectEqual(@as(usize, 1), try complete(root, "./dsktp", &results, &spans, &paths));
+  513      try std.testing.expectEqualStrings("./Desktop", results[0].path);
+  514  }
+  515  
+  516  test "path completion validates the current explicit candidate kind" {
+
+== src/core/workspace/file_index.zig:2033-2055@481104fd -- TestSearchBuffer; expectFirstSearchPath
+ 2033  fn TestSearchBuffer(comptime capacity: usize) type {
+ 2034      return struct {
+ 2035          results: [capacity]SearchResult = undefined,
+ 2036          spans: [capacity * max_path_len]MatchSpan = undefined,
+ 2037  
+ 2038          fn run(self: *@This(), index: *const FileIndex, query: []const u8) SearchError![]const SearchResult {
+ 2039              const count = try index.searchTyped(query, &self.results, &self.spans);
+ 2040              return self.results[0..count];
+ 2041          }
+ 2042      };
+ 2043  }
+ 2044  
+ 2045  fn expectFirstSearchPath(raw: []const u8, query: []const u8, expected: []const u8) !void {
+ 2046      const alloc = std.testing.allocator;
+ 2047      var index = FileIndex{};
+ 2048      defer index.deinit(alloc);
+ 2049      try index.buildFromRaw(alloc, raw);
+ 2050  
+ 2051      var search: TestSearchBuffer(8) = .{};
+ 2052      const results = try search.run(&index, query);
+ 2053      try std.testing.expect(results.len > 0);
+ 2054      try std.testing.expectEqualStrings(expected, results[0].path);
+ 2055  }
+
+== src/core/workspace/file_index.zig:2373-2442@481104fd -- subsequence scoring tests; search returns best matches first; abbreviated subsequences (FIIDX)
+ 2373  test "subsequence scoring prefers basename prefix over mid-path match" {
+ 2374      const path_a = "src/main.zig";
+ 2375      const path_b = "src/wasm_term_main.zig";
+ 2376  
+ 2377      const a = scoreAsciiMatch(path_a, path_a, 4, "main").?;
+ 2378      const b = scoreAsciiMatch(path_b, path_b, 4, "main").?;
+ 2379      try std.testing.expect(scoreBetter(a, b));
+ 2380  }
+ 2381  
+ 2382  test "subsequence scoring prefers earlier match position" {
+ 2383      const path = "src/main.zig";
+ 2384      const early = scoreAsciiMatch(path, path, 4, "main").?;
+ 2385      const late_path = "foo/bar/baz-main.zig";
+ 2386      const late = scoreAsciiMatch(late_path, late_path, 8, "main").?;
+ 2387      try std.testing.expect(scoreBetter(early, late));
+ 2388  }
+ 2389  
+ 2390  test "subsequence scoring returns no match when query is absent" {
+ 2391      const path = "src/main.zig";
+ 2392      try std.testing.expect(scoreAsciiMatch(path, path, 4, "xyz") == null);
+ 2393  }
+ 2394  
+ 2395  test "subsequence scoring accepts longer query than basename via full path" {
+ 2396      const path = "src/main.zig";
+ 2397      try std.testing.expect(scoreAsciiMatch(path, path, 4, "src/main") != null);
+ 2398  }
+ 2399  
+ 2400  test "search returns best matches first" {
+ 2401      const alloc = std.testing.allocator;
+ 2402      var index = FileIndex{};
+ 2403      defer index.deinit(alloc);
+ 2404  
+ 2405      const raw = "src/wasm_term_main.zig\nsrc/main.zig\nREADME.md\nsrc/core/shared/io.zig\nbenchmarks/startup.sh\n";
+ 2406      try index.buildFromRaw(alloc, raw);
+ 2407  
+ 2408      var search: TestSearchBuffer(8) = .{};
+ 2409      const results = try search.run(&index, "main");
+ 2410      try std.testing.expect(results.len >= 2);
+ 2411      try std.testing.expectEqualStrings("src/main.zig", results[0].path);
+ 2412      try std.testing.expectEqualStrings("src/wasm_term_main.zig", results[1].path);
+ 2413  }
+ 2414  
+ 2415  test "typed search supports abbreviated subsequences and caller-owned spans" {
+ 2416      const alloc = std.testing.allocator;
+ 2417      const candidates = [_]Candidate{
+ 2418          .{ .path = "src/core/workspace", .kind = .directory },
+ 2419          .{ .path = "src/core/workspace/file_index.zig", .kind = .file },
+ 2420          .{ .path = "src/core/workspace/workspace_files.zig", .kind = .file },
+ 2421      };
+ 2422      var index = FileIndex{};
+ 2423      defer index.deinit(alloc);
+ 2424      try index.buildFromCandidates(alloc, &candidates);
+ 2425  
+ 2426      var results: [4]SearchResult = undefined;
+ 2427      var spans: [32]MatchSpan = undefined;
+ 2428      const result_count = try index.searchTyped("FIIDX", &results, &spans);
+ 2429      try std.testing.expectEqual(@as(usize, 1), result_count);
+ 2430      try std.testing.expectEqualStrings("src/core/workspace/file_index.zig", results[0].path);
+ 2431      try std.testing.expectEqual(CandidateKind.file, results[0].kind);
+ 2432      try expectValidSearchSpans(results[0]);
+ 2433  
+ 2434      var matched_bytes: [16]u8 = undefined;
+ 2435      var matched_len: usize = 0;
+ 2436      for (results[0].matched_spans) |span| {
+ 2437          const bytes = results[0].path[span.byte_start..span.byte_end];
+ 2438          @memcpy(matched_bytes[matched_len..][0..bytes.len], bytes);
+ 2439          matched_len += bytes.len;
+ 2440      }
+ 2441      try std.testing.expectEqualStrings("fiidx", matched_bytes[0..matched_len]);
+ 2442  }
+
+== src/core/workspace/file_index.zig:2444-2630@481104fd -- the ranking table; ties; score tiers; name prefix, whole word, before an extension, vercle, abcd, comp, own folder only; highlights
+ 2444  test "ranking signals follow the accepted descending influence" {
+ 2445      const cases = [_]struct {
+ 2446          name: []const u8,
+ 2447          raw: []const u8,
+ 2448          query: []const u8,
+ 2449          expected: []const u8,
+ 2450      }{
+ 2451          .{
+ 2452              .name = "exact full path",
+ 2453              .raw = "other/src/core/main.zig\nsrc/core/main.zig\n",
+ 2454              .query = "src/core/main.zig",
+ 2455              .expected = "src/core/main.zig",
+ 2456          },
+ 2457          .{
+ 2458              .name = "exact basename",
+ 2459              .raw = "src/main.zig.backup\nsrc/main.zig\n",
+ 2460              .query = "main.zig",
+ 2461              .expected = "src/main.zig",
+ 2462          },
+ 2463          .{
+ 2464              .name = "basename",
+ 2465              .raw = "core/guide.txt\ndocs/core-guide.txt\n",
+ 2466              .query = "core",
+ 2467              .expected = "docs/core-guide.txt",
+ 2468          },
+ 2469          .{
+ 2470              .name = "contiguous segment start over spread segment starts",
+ 2471              .raw = "src/core/main.zig\nmisc/scattered/memo.zig\n",
+ 2472              .query = "scm",
+ 2473              .expected = "misc/scattered/memo.zig",
+ 2474          },
+ 2475          .{
+ 2476              .name = "basename prefix",
+ 2477              .raw = "src/xwidget.zig\nsrc/widgetx.zig\n",
+ 2478              .query = "wid",
+ 2479              .expected = "src/widgetx.zig",
+ 2480          },
+ 2481          .{
+ 2482              .name = "adjacent segment starts over a wider gap",
+ 2483              .raw = "a/x/b\nx/a/b\n",
+ 2484              .query = "ab",
+ 2485              .expected = "x/a/b",
+ 2486          },
+ 2487          .{
+ 2488              .name = "earlier position",
+ 2489              .raw = "src/xxidxx.zig\nsrc/xidxxx.zig\n",
+ 2490              .query = "id",
+ 2491              .expected = "src/xidxxx.zig",
+ 2492          },
+ 2493          .{
+ 2494              .name = "consecutive run",
+ 2495              .raw = "src/axbyc.zig\nsrc/abczz.zig\n",
+ 2496              .query = "abc",
+ 2497              .expected = "src/abczz.zig",
+ 2498          },
+ 2499          .{
+ 2500              .name = "smaller gaps",
+ 2501              .raw = "src/axxxbxc.zig\nsrc/axbxczz.zig\n",
+ 2502              .query = "abc",
+ 2503              .expected = "src/axbxczz.zig",
+ 2504          },
+ 2505          .{
+ 2506              .name = "shorter path",
+ 2507              .raw = "src/abc-long-name.txt\nsrc/abc.txt\n",
+ 2508              .query = "abc",
+ 2509              .expected = "src/abc.txt",
+ 2510          },
+ 2511      };
+ 2512  
+ 2513      for (cases) |case| {
+ 2514          try expectFirstSearchPath(case.raw, case.query, case.expected);
+ 2515      }
+ 2516  }
+ 2517  
+ 2518  test "ranking is independent of discovery order and resolves ties bytewise" {
+ 2519      try expectFirstSearchPath(
+ 2520          "src/zeta.txt\nsrc/beta.txt\n",
+ 2521          "ta",
+ 2522          "src/beta.txt",
+ 2523      );
+ 2524      try expectFirstSearchPath(
+ 2525          "src/beta.txt\nsrc/zeta.txt\n",
+ 2526          "ta",
+ 2527          "src/beta.txt",
+ 2528      );
+ 2529  }
+ 2530  
+ 2531  test "score comparison ranks tiers before alignment quality and position" {
+ 2532      const base: MatchScore = .{ .exact_fit = false, .name_fit = false, .quality = 10, .first_position = 5 };
+ 2533      var exact = base;
+ 2534      exact.exact_fit = true;
+ 2535      exact.quality = 0;
+ 2536      var name_match = base;
+ 2537      name_match.name_fit = true;
+ 2538      name_match.quality = 0;
+ 2539      var stronger = base;
+ 2540      stronger.quality = 11;
+ 2541      stronger.first_position = 9;
+ 2542      var earlier = base;
+ 2543      earlier.first_position = 4;
+ 2544      try std.testing.expect(scoreBetter(exact, name_match));
+ 2545      try std.testing.expect(scoreBetter(name_match, stronger));
+ 2546      try std.testing.expect(scoreBetter(stronger, earlier));
+ 2547      try std.testing.expect(scoreBetter(earlier, base));
+ 2548      try std.testing.expect(!scoreBetter(base, base));
+ 2549  }
+ 2550  
+ 2551  test "a contiguous name prefix ranks above letters scattered across word breaks" {
+ 2552      const alloc = std.testing.allocator;
+ 2553      var index = FileIndex{};
+ 2554      defer index.deinit(alloc);
+ 2555      try index.buildFromRaw(alloc, "spikes/noisy/clusters-a.toml\nspikes/noisy/results/conn-storm-pro-activity.csv\n" ++
+ 2556          "spikes/noisy/results/conn-storm-free-activity.csv\nSTATUS.md\ncontracts/fixtures/stats_response.json\n");
+ 2557      var search: TestSearchBuffer(8) = .{};
+ 2558      const results = try search.run(&index, "stat");
+ 2559      try std.testing.expectEqual(@as(usize, 5), results.len);
+ 2560      try std.testing.expectEqualStrings("STATUS.md", results[0].path);
+ 2561      try std.testing.expectEqualStrings("contracts/fixtures/stats_response.json", results[1].path);
+ 2562  }
+ 2563  
+ 2564  test "a whole word inside a name ranks above scattered letters" {
+ 2565      try expectFirstSearchPath("scripts/test-matrix.ts\nsrc/test-stat.zig\n", "stat", "src/test-stat.zig");
+ 2566      try expectFirstSearchPath("src/ui/inline_dex_view.zig\nsrc/core/workspace/file_index.zig\n", "index", "src/core/workspace/file_index.zig");
+ 2567  }
+ 2568  
+ 2569  test "a query equal to a file name before an extension is an exact match" {
+ 2570      try expectFirstSearchPath("bench/file_index_bench.zig\nsrc/core/workspace/file_index.zig\n", "file_index", "src/core/workspace/file_index.zig");
+ 2571  }
+ 2572  
+ 2573  test "a match across the file's folder and its name ranks above letters scattered through a name" {
+ 2574      try expectFirstSearchPath("packages/vercel-error.ts\ndocs/vercel-json/clean-urls.mdx\n", "vercle", "docs/vercel-json/clean-urls.mdx");
+ 2575  }
+ 2576  
+ 2577  test "a name match beats a match of the same shape through the folder" {
+ 2578      // Without name_bonus, `ab/cd` scores two points above `ab-cd`.
+ 2579      try expectFirstSearchPath("src/ab/cd.ts\nsrc/x/ab-cd.ts\n", "abcd", "src/x/ab-cd.ts");
+ 2580  }
+ 2581  
+ 2582  test "a match that ends in a folder ranks below every name match" {
+ 2583      try expectFirstSearchPath("src/components/card.tsx\nsrc/use-comparison.ts\n", "comp", "src/use-comparison.ts");
+ 2584  }
+ 2585  
+ 2586  test "a match may start in the file's own folder but not further up" {
+ 2587      const alloc = std.testing.allocator;
+ 2588      var index = FileIndex{};
+ 2589      defer index.deinit(alloc);
+ 2590      try index.buildFromRaw(alloc, "ab/x/cd.ts\nzz/x-a-b-c-d.ts\n");
+ 2591      var search: TestSearchBuffer(4) = .{};
+ 2592      const results = try search.run(&index, "abcd");
+ 2593      try std.testing.expectEqual(@as(usize, 2), results.len);
+ 2594      // `ab/x/cd.ts` scores higher, but only by crossing from its grandparent,
+ 2595      // so it ranks as a folder match below a scattered name match.
+ 2596      try std.testing.expectEqualStrings("zz/x-a-b-c-d.ts", results[0].path);
+ 2597  }
+ 2598  
+ 2599  test "highlights of a folder-and-name match cover both parts" {
+ 2600      const alloc = std.testing.allocator;
+ 2601      var index = FileIndex{};
+ 2602      defer index.deinit(alloc);
+ 2603      try index.buildFromRaw(alloc, "docs/vercel-json/clean-urls.mdx\n");
+ 2604      var search: TestSearchBuffer(1) = .{};
+ 2605      const results = try search.run(&index, "vercle");
+ 2606      try std.testing.expectEqual(@as(usize, 1), results.len);
+ 2607      const spans = results[0].matched_spans;
+ 2608      try std.testing.expectEqual(@as(usize, 2), spans.len);
+ 2609      try std.testing.expectEqual(@as(u16, 5), spans[0].byte_start);
+ 2610      try std.testing.expectEqual(@as(u16, 8), spans[0].byte_end);
+ 2611      try std.testing.expectEqual(@as(u16, 17), spans[1].byte_start);
+ 2612      try std.testing.expectEqual(@as(u16, 20), spans[1].byte_end);
+ 2613  }
+ 2614  
+ 2615  test "highlights mark the placement that was scored" {
+ 2616      const alloc = std.testing.allocator;
+ 2617      var index = FileIndex{};
+ 2618      defer index.deinit(alloc);
+ 2619      try index.buildFromRaw(alloc, "src/test-stat.zig\nSTATUS.md\n");
+ 2620      var search: TestSearchBuffer(4) = .{};
+ 2621      const results = try search.run(&index, "stat");
+ 2622      try std.testing.expectEqual(@as(usize, 2), results.len);
+ 2623      for (results) |result| {
+ 2624          try std.testing.expectEqual(@as(usize, 1), result.matched_spans.len);
+ 2625          const expected_start: u16 = if (std.mem.eql(u8, result.path, "STATUS.md")) 0 else 9;
+ 2626          try std.testing.expectEqual(expected_start, result.matched_spans[0].byte_start);
+ 2627          try std.testing.expectEqual(expected_start + 4, result.matched_spans[0].byte_end);
+ 2628      }
+ 2629  }
+ 2630  
+
+== src/core/workspace/file_index.zig:2633-2740@481104fd -- bruteForceAlignment; best alignment equals a brute-force search; the greedy placement past the cell budget
+ 2633      /// Highest score among placements that start before `end_min`.
+ 2634      crossing_peak: ?i32 = null,
+ 2635  };
+ 2636  
+ 2637  fn bruteForceAlignment(path: []const u8, lower: []const u8, range_start: usize, end_min: usize, query: []const u8) BruteForce {
+ 2638      var positions: [8]u16 = undefined;
+ 2639      var result: BruteForce = .{};
+ 2640      bruteForceVisit(path, lower, range_start, end_min, query, 0, range_start, &positions, &result);
+ 2641      return result;
+ 2642  }
+ 2643  
+ 2644  fn bruteForceVisit(
+ 2645      path: []const u8,
+ 2646      lower: []const u8,
+ 2647      range_start: usize,
+ 2648      end_min: usize,
+ 2649      query: []const u8,
+ 2650      depth: usize,
+ 2651      from: usize,
+ 2652      positions: *[8]u16,
+ 2653      result: *BruteForce,
+ 2654  ) void {
+ 2655      if (depth == query.len) {
+ 2656          if (positions[query.len - 1] < end_min) return;
+ 2657          const alignment = scoreAlignment(path, null, range_start, positions[0..query.len]);
+ 2658          if (positions[0] < end_min) result.crossing_peak = @max(result.crossing_peak orelse alignment.quality, alignment.quality);
+ 2659          if (result.best) |current| {
+ 2660              if (alignment.quality < current.quality or
+ 2661                  (alignment.quality == current.quality and alignment.first_position >= current.first_position)) return;
+ 2662          }
+ 2663          result.best = alignment;
+ 2664          return;
+ 2665      }
+ 2666      var position = from;
+ 2667      while (position < lower.len) : (position += 1) {
+ 2668          if (lower[position] != query[depth]) continue;
+ 2669          positions[depth] = @intCast(position);
+ 2670          bruteForceVisit(path, lower, range_start, end_min, query, depth + 1, position + 1, positions, result);
+ 2671      }
+ 2672  }
+ 2673  
+ 2674  test "best alignment equals a brute-force search over a small alphabet" {
+ 2675      const alphabet = "aAb/-1";
+ 2676      const query_alphabet = "ab/-1";
+ 2677      const scratch = try std.testing.allocator.create(AlignScratch);
+ 2678      defer std.testing.allocator.destroy(scratch);
+ 2679      var text: [4]u8 = undefined;
+ 2680      var lower: [4]u8 = undefined;
+ 2681      var query: [3]u8 = undefined;
+ 2682      var checked: usize = 0;
+ 2683      for (1..text.len + 1) |text_len| {
+ 2684          var text_code: usize = 0;
+ 2685          while (text_code < std.math.pow(usize, alphabet.len, text_len)) : (text_code += 1) {
+ 2686              var code = text_code;
+ 2687              for (text[0..text_len], lower[0..text_len]) |*byte, *folded| {
+ 2688                  byte.* = alphabet[code % alphabet.len];
+ 2689                  folded.* = asciiToLower(byte.*);
+ 2690                  code /= alphabet.len;
+ 2691              }
+ 2692              const basename_start = if (std.mem.findScalarLast(u8, text[0..text_len], '/')) |slash| slash + 1 else 0;
+ 2693              const ranges = [_][2]usize{ .{ 0, 0 }, .{ basename_start, basename_start }, .{ 0, basename_start } };
+ 2694              for (ranges) |range| {
+ 2695                  const range_start = range[0];
+ 2696                  const end_min = range[1];
+ 2697                  for (1..query.len + 1) |query_len| {
+ 2698                      var query_code: usize = 0;
+ 2699                      while (query_code < std.math.pow(usize, query_alphabet.len, query_len)) : (query_code += 1) {
+ 2700                          var q = query_code;
+ 2701                          for (query[0..query_len]) |*byte| {
+ 2702                              byte.* = query_alphabet[q % query_alphabet.len];
+ 2703                              q /= query_alphabet.len;
+ 2704                          }
+ 2705                          const brute = bruteForceAlignment(text[0..text_len], lower[0..text_len], range_start, end_min, query[0..query_len]);
+ 2706                          // The pruning bound holds for every placement that crosses into the name.
+ 2707                          if (brute.crossing_peak) |peak| try std.testing.expect(peak <= maxCrossingQuality(u8, query[0..query_len]));
+ 2708                          const expected = brute.best;
+ 2709                          const actual = alignBest(u8, lower[0..text_len], text[0..text_len], null, range_start, end_min, query[0..query_len], scratch);
+ 2710                          checked += 1;
+ 2711                          if (expected == null) {
+ 2712                              try std.testing.expect(actual == null);
+ 2713                              continue;
+ 2714                          }
+ 2715                          try std.testing.expectEqual(expected.?.quality, actual.?.quality);
+ 2716                          try std.testing.expectEqual(expected.?.first_position, actual.?.first_position);
+ 2717                          try std.testing.expect(scratch.positions[query_len - 1] >= end_min);
+ 2718                          const placed = scoreAlignment(text[0..text_len], null, range_start, scratch.positions[0..query_len]);
+ 2719                          try std.testing.expectEqual(actual.?.quality, placed.quality);
+ 2720                          for (scratch.positions[0..query_len], query[0..query_len]) |position, byte| {
+ 2721                              try std.testing.expectEqual(byte, lower[position]);
+ 2722                          }
+ 2723                      }
+ 2724                  }
+ 2725              }
+ 2726          }
+ 2727      }
+ 2728      try std.testing.expect(checked > 600_000);
+ 2729  }
+ 2730  
+ 2731  test "alignment scores the greedy placement beyond the cell budget" {
+ 2732      const path: [2000]u8 = @splat('a');
+ 2733      const query: [100]u8 = @splat('a');
+ 2734      const scratch = try std.testing.allocator.create(AlignScratch);
+ 2735      defer std.testing.allocator.destroy(scratch);
+ 2736      const alignment = alignBest(u8, &path, &path, null, 0, 0, &query, scratch).?;
+ 2737      for (scratch.positions[0..query.len], 0..) |position, index| try std.testing.expectEqual(@as(u16, @intCast(index)), position);
+ 2738      try std.testing.expectEqual(scoreAlignment(&path, null, 0, scratch.positions[0..query.len]).quality, alignment.quality);
+ 2739  }
+ 2740  
+
+== src/core/workspace/file_index.zig:2775-2850@481104fd -- pruned ranking keeps the results of scoring every path (4 cases); file and directory have no ranking priority
+ 2775  test "pruned ranking keeps the results of scoring every path" {
+ 2776      const alloc = std.testing.allocator;
+ 2777      var raw: std.ArrayList(u8) = .empty;
+ 2778      defer raw.deinit(alloc);
+ 2779      for (0..12) |i| try raw.print(alloc, "src/tools/alpha/tango/x{d}.zig\n", .{i});
+ 2780      for (0..80) |i| try raw.print(alloc, "pkg/{d}/st-at{d}.zig\n", .{ i, i });
+ 2781      for (0..70) |i| try raw.print(alloc, "src/tools/alpha/tango/y{d}.zig\n", .{i});
+ 2782      try raw.appendSlice(alloc, "docs/stat.md\nstat\nsrc/STATUS.md\n");
+ 2783      try std.testing.expectEqualStrings("stat", try expectPrunedRankingMatchesFullScoring(raw.items, "stat"));
+ 2784  }
+ 2785  
+ 2786  test "pruned ranking keeps short queries over crowded names" {
+ 2787      const alloc = std.testing.allocator;
+ 2788      var raw: std.ArrayList(u8) = .empty;
+ 2789      defer raw.deinit(alloc);
+ 2790      // More than 64 names at the top score for `s` and `st`, at many path
+ 2791      // lengths and with equal-length ties, then shorter and exact paths that
+ 2792      // arrive after the kept results are full.
+ 2793      for (0..90) |i| try raw.print(alloc, "pkg/{d}/st{d}.zig\n", .{ i % 7, i });
+ 2794      for (0..40) |i| try raw.print(alloc, "deep/nested/folder/{d}/stage{d}.md\n", .{ i, i });
+ 2795      for (0..30) |i| try raw.print(alloc, "a/sx{d}.ts\nb/ts{d}.ts\n", .{ i, i });
+ 2796      try raw.appendSlice(alloc, "zz/st.md\nq/s\nst\nx/s.zig\npkg/0/st0.zig\nw/st1.zi\n");
+ 2797      _ = try expectPrunedRankingMatchesFullScoring(raw.items, "s");
+ 2798      try std.testing.expectEqualStrings("st", try expectPrunedRankingMatchesFullScoring(raw.items, "st"));
+ 2799  }
+ 2800  
+ 2801  test "pruned ranking keeps exact matches once the kept results are all exact" {
+ 2802      const alloc = std.testing.allocator;
+ 2803      var raw: std.ArrayList(u8) = .empty;
+ 2804      defer raw.deinit(alloc);
+ 2805      for (0..70) |i| try raw.print(alloc, "service/{d}/main.zig\n", .{i});
+ 2806      for (0..30) |i| try raw.print(alloc, "x/mainframe{d}.zig\n", .{i});
+ 2807      try raw.appendSlice(alloc, "src/main.zig\nmain.zig\n");
+ 2808      try std.testing.expectEqualStrings("main.zig", try expectPrunedRankingMatchesFullScoring(raw.items, "main"));
+ 2809  }
+ 2810  
+ 2811  test "pruned ranking keeps folder-and-name matches" {
+ 2812      const alloc = std.testing.allocator;
+ 2813      var raw: std.ArrayList(u8) = .empty;
+ 2814      defer raw.deinit(alloc);
+ 2815      // Name matches of every strength, matches through the own folder, matches
+ 2816      // that only end in a folder, and perfect names that end the crossing search.
+ 2817      for (0..40) |i| try raw.print(alloc, "pkg/{d}/vercel-error{d}.ts\n", .{ i, i });
+ 2818      for (0..30) |i| try raw.print(alloc, "docs/{d}/vercel-json/clean{d}.mdx\n", .{ i, i });
+ 2819      for (0..30) |i| try raw.print(alloc, "vercel/cle/x{d}/z.md\n", .{i});
+ 2820      for (0..20) |i| try raw.print(alloc, "v/e/r/c/l/e{d}.txt\n", .{i});
+ 2821      for (0..70) |i| try raw.print(alloc, "lib/{d}/vercle{d}.ts\n", .{ i, i });
+ 2822      try raw.appendSlice(alloc, "apps/vercle.ts\n");
+ 2823      try std.testing.expectEqualStrings("apps/vercle.ts", try expectPrunedRankingMatchesFullScoring(raw.items, "vercle"));
+ 2824      // Without the perfect names the crossing search is never skipped by rank.
+ 2825      const cut = std.mem.find(u8, raw.items, "lib/0/").?;
+ 2826      _ = try expectPrunedRankingMatchesFullScoring(raw.items[0..cut], "vercle");
+ 2827  }
+ 2828  
+ 2829  test "file and directory candidates have no ranking priority" {
+ 2830      const alloc = std.testing.allocator;
+ 2831      const first_kinds = [_]Candidate{
+ 2832          .{ .path = "src/zeta.txt", .kind = .file },
+ 2833          .{ .path = "src/beta.txt", .kind = .directory },
+ 2834      };
+ 2835      const reversed_kinds = [_]Candidate{
+ 2836          .{ .path = "src/zeta.txt", .kind = .directory },
+ 2837          .{ .path = "src/beta.txt", .kind = .file },
+ 2838      };
+ 2839  
+ 2840      for ([_][]const Candidate{ &first_kinds, &reversed_kinds }) |candidates| {
+ 2841          var index = FileIndex{};
+ 2842          defer index.deinit(alloc);
+ 2843          try index.buildFromCandidates(alloc, candidates);
+ 2844          var results: [2]SearchResult = undefined;
+ 2845          var spans: [8]MatchSpan = undefined;
+ 2846          try std.testing.expectEqual(@as(usize, 2), try index.searchTyped("ta", &results, &spans));
+ 2847          try std.testing.expectEqualStrings("src/beta.txt", results[0].path);
+ 2848          try std.testing.expectEqualStrings("src/zeta.txt", results[1].path);
+ 2849      }
+ 2850  }
+
+== src/core/workspace/file_index.zig:2885-2907@481104fd -- search is case-insensitive
+ 2885  test "search is case-insensitive" {
+ 2886      const alloc = std.testing.allocator;
+ 2887      var index = FileIndex{};
+ 2888      defer index.deinit(alloc);
+ 2889  
+ 2890      const raw = "README.md\nsrc/Main.zig\n";
+ 2891      try index.buildFromRaw(alloc, raw);
+ 2892  
+ 2893      var readme_search: TestSearchBuffer(4) = .{};
+ 2894      const readme_results = try readme_search.run(&index, "README");
+ 2895      try std.testing.expect(readme_results.len >= 1);
+ 2896      try std.testing.expectEqualStrings("README.md", readme_results[0].path);
+ 2897  
+ 2898      var lowercase_search: TestSearchBuffer(4) = .{};
+ 2899      const lowercase_results = try lowercase_search.run(&index, "readme");
+ 2900      try std.testing.expect(lowercase_results.len >= 1);
+ 2901      try std.testing.expectEqualStrings("README.md", lowercase_results[0].path);
+ 2902  
+ 2903      var main_search: TestSearchBuffer(4) = .{};
+ 2904      const main_results = try main_search.run(&index, "main");
+ 2905      try std.testing.expect(main_results.len >= 1);
+ 2906      try std.testing.expectEqualStrings("src/Main.zig", main_results[0].path);
+ 2907  }
+
+== src/core/workspace/file_index.zig:2909-2944@481104fd -- search uses Unicode 17 simple folding (not transcribed: xfx folds with to_lowercase)
+ 2909  test "search uses Unicode 17 simple folding and preserves raw spelling" {
+ 2910      const alloc = std.testing.allocator;
+ 2911      var index = FileIndex{};
+ 2912      defer index.deinit(alloc);
+ 2913  
+ 2914      try index.buildFromRaw(alloc, "docs/Ärger-file.txt\x00docs/Σigma.txt\x00docs/ςigma-final.txt\x00docs/Kelvin.txt\x00docs/kettle.txt\x00");
+ 2915  
+ 2916      var search: TestSearchBuffer(8) = .{};
+ 2917      const arger_results = try search.run(&index, "ärger");
+ 2918      try std.testing.expectEqual(@as(usize, 1), arger_results.len);
+ 2919      try std.testing.expectEqualStrings("docs/Ärger-file.txt", arger_results[0].path);
+ 2920  
+ 2921      const sigma_results = try search.run(&index, "σigma");
+ 2922      try std.testing.expectEqual(@as(usize, 2), sigma_results.len);
+ 2923      try std.testing.expectEqualStrings("docs/Σigma.txt", sigma_results[0].path);
+ 2924  
+ 2925      const kelvin_results = try search.run(&index, "kelvin");
+ 2926      try std.testing.expect(kelvin_results.len >= 1);
+ 2927      try std.testing.expectEqualStrings("docs/Kelvin.txt", kelvin_results[0].path);
+ 2928  
+ 2929      const ascii_k_results = try search.run(&index, "k");
+ 2930      try std.testing.expect(ascii_k_results.len >= 2);
+ 2931      var saw_kelvin = false;
+ 2932      for (ascii_k_results) |result| {
+ 2933          if (std.mem.eql(u8, result.path, "docs/Kelvin.txt")) saw_kelvin = true;
+ 2934      }
+ 2935      try std.testing.expect(saw_kelvin);
+ 2936  
+ 2937      const kelvin_query_results = try search.run(&index, "K");
+ 2938      try std.testing.expect(kelvin_query_results.len >= 2);
+ 2939      var saw_ascii_k = false;
+ 2940      for (kelvin_query_results) |result| {
+ 2941          if (std.mem.eql(u8, result.path, "docs/kettle.txt")) saw_ascii_k = true;
+ 2942      }
+ 2943      try std.testing.expect(saw_ascii_k);
+ 2944  }
+
+== src/core/workspace/file_index.zig:3124-3164@481104fd -- mixed Unicode basename and full-path scores; empty query in index order; no a-z letters
+ 3124  test "Unicode search compares mixed basename and full-path scores" {
+ 3125      const alloc = std.testing.allocator;
+ 3126      var index = FileIndex{};
+ 3127      defer index.deinit(alloc);
+ 3128      try index.buildFromRaw(alloc, "docs/Ärger.txt\x00Ärger/docs.txt\x00");
+ 3129  
+ 3130      var search: TestSearchBuffer(4) = .{};
+ 3131      const results = try search.run(&index, "ärger");
+ 3132      try std.testing.expectEqual(@as(usize, 2), results.len);
+ 3133      try std.testing.expectEqualStrings("docs/Ärger.txt", results[0].path);
+ 3134      try std.testing.expectEqualStrings("Ärger/docs.txt", results[1].path);
+ 3135  }
+ 3136  
+ 3137  test "search with empty query returns files in index order" {
+ 3138      const alloc = std.testing.allocator;
+ 3139      var index = FileIndex{};
+ 3140      defer index.deinit(alloc);
+ 3141  
+ 3142      const raw = "a.zig\nb.zig\nc.zig\n";
+ 3143      try index.buildFromRaw(alloc, raw);
+ 3144  
+ 3145      var search: TestSearchBuffer(2) = .{};
+ 3146      const results = try search.run(&index, "");
+ 3147      try std.testing.expectEqual(@as(usize, 2), results.len);
+ 3148      try std.testing.expectEqualStrings("a.zig", results[0].path);
+ 3149      try std.testing.expectEqualStrings("b.zig", results[1].path);
+ 3150  }
+ 3151  
+ 3152  test "bitmap prefilter does not reject when query has no a-z letters" {
+ 3153      const alloc = std.testing.allocator;
+ 3154      var index = FileIndex{};
+ 3155      defer index.deinit(alloc);
+ 3156  
+ 3157      const raw = "docs/123.md\nsrc/main.zig\n";
+ 3158      try index.buildFromRaw(alloc, raw);
+ 3159  
+ 3160      var search: TestSearchBuffer(4) = .{};
+ 3161      const results = try search.run(&index, "123");
+ 3162      try std.testing.expect(results.len >= 1);
+ 3163      try std.testing.expectEqualStrings("docs/123.md", results[0].path);
+ 3164  }
+
+== benchmarks/file_index_bench.zig:1-31@481104fd -- the shipping latency gate: 100,000 candidates, 32 results, p95 under 16 ms (16), the eight queries (24-31)
+    1  //! Shipping latency gate for typed `FileIndex` fuzzy search.
+    2  //!
+    3  //! The benchmark builds a deterministic mixed file/directory inventory
+    4  //! through the production synthetic builder, then measures the complete
+    5  //! typed-result path, including final match-span reconstruction.
+    6  //!
+    7  //!     zig build run-bench-file-index -Doptimize=ReleaseFast -- 100000 500
+    8  
+    9  const std = @import("std");
+   10  const file_index = @import("file_index");
+   11  
+   12  const default_path_count: usize = file_index.max_indexed_files;
+   13  const default_iters_per_query: usize = 500;
+   14  const max_iters_per_query: usize = default_iters_per_query * 10;
+   15  const picker_cap: usize = 32;
+   16  const latency_budget_ns: u64 = 16_000_000;
+   17  
+   18  const QueryCase = struct {
+   19      name: []const u8,
+   20      query: []const u8,
+   21  };
+   22  
+   23  const query_cases = [_]QueryCase{
+   24      .{ .name = "exact", .query = "src/core/workspace/file_index.zig" },
+   25      .{ .name = "boundary", .query = "scwfi" },
+   26      .{ .name = "low-selectivity", .query = "ae" },
+   27      .{ .name = "long-gap", .query = "ashr" },
+   28      .{ .name = "no-match", .query = "zzz-no-match-Ω" },
+   29      .{ .name = "punctuation", .query = "api-route" },
+   30      .{ .name = "unicode", .query = "ärf" },
+   31      .{ .name = "unicode-fold", .query = "Klv" },
+
+== benchmarks/file_index_bench.zig:84-125@481104fd -- generateInventory: the inventory this receipt's fixture tree is made from
+   84  }
+   85  
+   86  fn generateInventory(alloc: std.mem.Allocator, path_count: usize) !GeneratedInventory {
+   87      var out: std.Io.Writer.Allocating = .init(alloc);
+   88      errdefer out.deinit();
+   89  
+   90      for (0..path_count) |candidate_index| {
+   91          switch (candidate_index) {
+   92              0 => try out.writer.writeAll("docs/Ärger-file.txt"),
+   93              1 => try out.writer.writeAll("docs/Kelvin"),
+   94              2 => try out.writer.writeAll("src/core/workspace/file_index.zig"),
+   95              3 => try out.writer.writeAll("apps/web/api-route-handler"),
+   96              else => {
+   97                  const subsystem = subsystems[candidate_index % subsystems.len];
+   98                  const area = areas[(candidate_index / subsystems.len) % areas.len];
+   99                  const depth_roll = (candidate_index / 7) % 3;
+  100                  const name = names[(candidate_index / 31) % names.len];
+  101  
+  102                  try out.writer.writeAll(subsystem);
+  103                  try out.writer.writeByte('/');
+  104                  try out.writer.writeAll(area);
+  105                  try out.writer.writeByte('/');
+  106                  if (depth_roll >= 1) {
+  107                      try out.writer.writeAll(subareas[(candidate_index / 17) % subareas.len]);
+  108                      try out.writer.writeByte('/');
+  109                  }
+  110                  if (depth_roll >= 2) {
+  111                      try out.writer.writeAll(subareas[(candidate_index / 23) % subareas.len]);
+  112                      try out.writer.writeByte('/');
+  113                  }
+  114                  try out.writer.writeAll(name);
+  115                  try out.writer.print("{d}", .{candidate_index});
+  116                  if (candidateKind(candidate_index) == .file) {
+  117                      try out.writer.writeAll(extensions[(candidate_index / 13) % extensions.len]);
+  118                  }
+  119              },
+  120          }
+  121          try out.writer.writeByte(0);
+  122      }
+  123  
+  124      const storage = try out.toOwnedSlice();
+  125      errdefer alloc.free(storage);
+
+== benchmarks/file_index_bench.zig:283-289@481104fd -- the gate: overall p95 < latency_budget_ns
+  283      var gate_p95_buf: [32]u8 = undefined;
+  284      const gate_passed = overall_p95 < latency_budget_ns;
+  285      try out.print("\nlatency gate: {s} p95={s} budget=<16.00ms\n", .{
+  286          if (gate_passed) "PASS" else "FAIL",
+  287          formatNs(overall_p95, &gate_p95_buf),
+  288      });
+  289      try out.flush();

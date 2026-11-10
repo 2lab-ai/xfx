@@ -20,13 +20,14 @@
 //!   none longer than [`MOST_PATH_BYTES`], files and directories merged in byte
 //!   order. A query shows at most [`MOST_RESULTS`] of them
 //!   (`file_completion_state.zig:5`).
-//! * **How a query ranks them** (`file_index.zig:1405-1902@481104fd`): a
-//!   case-blind subsequence, placed where fzf's v2 path score is highest --
-//!   inside the name, or from the folder holding it into the name, or, only
-//!   failing both, anywhere -- and ranked by four facts in a fixed order: the
-//!   query *is* the path, the name or the name before a dot; the placement
-//!   ends in the name; its score; where it starts. Then the shorter path, then
-//!   byte order. The bold letters are that placement. An empty query is the
+//! * **How a query ranks them** (`choosePlacement` and `scoreBetter`,
+//!   `file_index.zig:1776-1819`, `:1884-1890@481104fd`): a case-blind
+//!   subsequence, placed where fzf's v2 path score is highest -- inside the
+//!   name, or from the folder holding it into the name, or, only failing
+//!   both, anywhere -- and ranked by four facts in a fixed order: the query
+//!   *is* the path, the name or the name before a dot; the placement ends in
+//!   the name; its score; where it starts. Then the shorter path, then byte
+//!   order. The bold letters are that placement. An empty query is the
 //!   index's own order.
 //!
 //! **The walk never runs on the thread that paints** ([`Files`]): a
@@ -577,7 +578,7 @@ const INVALID: i32 = i32::MIN;
 /// folder holding it (`name_bonus`, `file_index.zig:1722-1727`).
 const NAME_BONUS: i32 = 4;
 
-/// A byte's class (`CharClass`, `charClassOf`, `file_index.zig:1443-1455`).
+/// A byte's class (`CharClass`, `charClassOf`, `file_index.zig:1445-1457`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Class {
     White,
@@ -601,7 +602,7 @@ fn class(byte: u8) -> Class {
     }
 }
 
-/// What a character after `prev` earns (`bonusFor`, `file_index.zig:1457-1473`).
+/// What a character after `prev` earns (`bonusFor`, `file_index.zig:1459-1475`).
 fn bonus_for(prev: Class, class: Class) -> i32 {
     use Class::*;
     if matches!(class, Lower | Upper | Letter | Number) {
@@ -623,7 +624,7 @@ fn bonus_for(prev: Class, class: Class) -> i32 {
 }
 
 /// The bonus of scalar `position`, read from the path's own bytes: the case
-/// as written, and the start a separator (`bonusAt`, `file_index.zig:1475-1479`).
+/// as written, and the start a separator (`bonusAt`, `file_index.zig:1477-1481`).
 fn bonus_at(path: &[u8], offsets: &[usize], position: usize) -> i32 {
     let at = offsets[position];
     let prev = if at == 0 {
@@ -645,7 +646,7 @@ fn run_slot(run: i32) -> usize {
 }
 
 /// A character in a run: its bonus and the run's (`consecutiveBonus`,
-/// `file_index.zig:1491-1494`).
+/// `file_index.zig:1493-1496`).
 fn consecutive_bonus(bonus: i32, run: i32) -> (i32, i32) {
     if bonus >= BONUS_BOUNDARY && bonus > run {
         return (bonus, bonus);
@@ -654,7 +655,7 @@ fn consecutive_bonus(bonus: i32, run: i32) -> (i32, i32) {
 }
 
 /// The score of one placement and its first scalar from `range_start`
-/// (`scoreAlignment`, `file_index.zig:1496-1520`).
+/// (`scoreAlignment`, `file_index.zig:1498-1521`).
 fn score_alignment(
     path: &[u8],
     offsets: &[usize],
@@ -694,7 +695,7 @@ struct Scratch {
 
 #[derive(Default)]
 struct Align {
-    /// Four run slots a cell (`AlignScratch`, `file_index.zig:1427-1437`).
+    /// Four run slots a cell (`AlignScratch`, `file_index.zig:1427-1438`).
     scores: Vec<i32>,
     starts: Vec<usize>,
     pred_entries: Vec<usize>,
@@ -721,7 +722,7 @@ impl Scratch {
 
 impl Align {
     /// Keeps `score` in slot `at` if it beats what is there (`betterCandidate`,
-    /// `file_index.zig:1522-1524`): higher, or as high and starting earlier.
+    /// `file_index.zig:1523-1525`): higher, or as high and starting earlier.
     fn offer(&mut self, at: usize, score: i32, start: usize, entry: usize, from: usize) {
         if better_candidate(score, start, self.scores[at], self.starts[at]) {
             self.scores[at] = score;
@@ -735,7 +736,7 @@ impl Align {
 /// The best placement of `query` in `text[range_start..]` whose last scalar is
 /// at or after `end_min`: its score and first scalar, the highest score and
 /// then the earliest start, its positions in `align.positions`; past
-/// [`MOST_ALIGN_CELLS`], the leftmost one (`alignBest`, `file_index.zig:1526-1720`).
+/// [`MOST_ALIGN_CELLS`], the leftmost one (`alignBest`, `file_index.zig:1527-1720`).
 fn align_best(
     text: &[char],
     path: &[u8],
@@ -751,7 +752,7 @@ fn align_best(
     }
     s.positions.clear();
     if m == 1 && text.len() - end_min <= MOST_ALIGN_CELLS {
-        // The earliest scalar with the highest bonus (`:1543-1559`).
+        // The earliest scalar with the highest bonus (`:1546-1564`).
         let mut best: Option<(usize, i32)> = None;
         for (j, _) in text
             .iter()
@@ -811,7 +812,7 @@ fn align_best(
         .map(|(a, b)| b - a + 1)
         .sum();
     if s.forward == s.backward || cells > MOST_ALIGN_CELLS {
-        // One placement, or too many cells: the leftmost (`:1584-1598`).
+        // One placement, or too many cells: the leftmost (`:1591-1604`).
         s.positions.extend_from_slice(&s.forward);
         return Some(score_alignment(path, offsets, range_start, &s.positions));
     }
@@ -885,7 +886,7 @@ fn align_best(
             }
             if gap != INVALID {
                 // A gap of `j - p - 1`: `GAP_START`, then `GAP_EXTENSION`
-                // for each position past its first (`:1665-1672`).
+                // for each position past its first (`:1676-1685`).
                 let score = gap - j as i32 - 1 + SCORE_MATCH + bonus;
                 s.offer(
                     cell + run_slot(bonus),
@@ -928,7 +929,7 @@ fn max_crossing_quality(query: &[char]) -> i32 {
 }
 
 /// The placement a path is ranked by, and the search that found it
-/// (`choosePlacement`, `file_index.zig:1783-1815`): the best inside the name
+/// (`choosePlacement`, `file_index.zig:1776-1819`): the best inside the name
 /// plus [`NAME_BONUS`], or a better one from the folder holding the name into
 /// it; failing both, the best anywhere, which ends in a folder.
 fn choose_placement(
@@ -1033,7 +1034,7 @@ fn loaded(path: &str, s: &mut Scratch) -> usize {
 }
 
 /// How well `query` matches `path` (`scoreAsciiMatchWith`,
-/// `scoreFoldedMatchWith`, `file_index.zig:1849-1882`).
+/// `scoreFoldedMatchWith`, `file_index.zig:1850-1882`).
 fn score(path: &str, query: &Folded, s: &mut Scratch) -> Option<Score> {
     let query = &query.0[..];
     if query.is_empty() || path.is_empty() || !holds(path, query) {
@@ -1041,7 +1042,8 @@ fn score(path: &str, query: &Folded, s: &mut Scratch) -> Option<Score> {
     }
     let base = loaded(path, s);
     let (whole, name) = (&s.text[..], &s.text[base..]);
-    // `exactFit` (`:1752-1757`): the path, the name, or the name before a dot.
+    // `exactFit` (`file_index.zig:1753-1758`): the path, the name, or the
+    // name before a dot.
     let exact = whole == query
         || name == query
         || (name.len() > query.len() && name.starts_with(query) && name[query.len()] == '.');
@@ -2255,7 +2257,7 @@ pub(crate) mod tests {
         // longer. `main/other.rs` runs `main` from its own folder's start into
         // `.rs` (173), which fx ranks as a name match above `x/remain.rs`'s
         // run from the middle of its name (148, and the name bonus 4):
-        // `choosePlacement` (`file_index.zig:1783-1815@481104fd`), and
+        // `choosePlacement` (`file_index.zig:1776-1819@481104fd`), and
         // `p5-at-rank`'s `main-rs` on fx.
         assert_eq!(
             rows(&entries, "main.rs"),
@@ -2583,7 +2585,7 @@ pub(crate) mod tests {
         // "subsequence scoring prefers basename prefix over mid-path match",
         // "... prefers earlier match position", "... returns no match when
         // query is absent", "... accepts longer query than basename via full
-        // path" and "search returns best matches first" (`:2373-2413`).
+        // path" and "search returns best matches first" (`file_index.zig:2373-2413`).
         assert_eq!(
             rows(
                 &candidates(&[
@@ -2628,7 +2630,7 @@ pub(crate) mod tests {
             found[..2],
             ["STATUS.md", "contracts/fixtures/stats_response.json"]
         );
-        // "a whole word inside a name ranks above scattered letters" (`:2564-2567`).
+        // "a whole word inside a name ranks above scattered letters" (`file_index.zig:2564-2567`).
         assert_eq!(
             first_row(&["scripts/test-matrix.ts", "src/test-stat.zig"], "stat"),
             "src/test-stat.zig"
@@ -2644,7 +2646,7 @@ pub(crate) mod tests {
             "src/core/workspace/file_index.zig"
         );
         // "a query equal to a file name before an extension is an exact
-        // match" (`:2569-2571`).
+        // match" (`file_index.zig:2569-2571`).
         assert_eq!(
             first_row(
                 &[
@@ -2672,13 +2674,13 @@ pub(crate) mod tests {
             "docs/vercel-json/clean-urls.mdx"
         );
         // "a name match beats a match of the same shape through the folder"
-        // (`:2577-2580`).
+        // (`file_index.zig:2577-2580`).
         assert_eq!(
             first_row(&["src/ab/cd.ts", "src/x/ab-cd.ts"], "abcd"),
             "src/x/ab-cd.ts"
         );
         // "a match that ends in a folder ranks below every name match"
-        // (`:2582-2584`).
+        // (`file_index.zig:2582-2584`).
         assert_eq!(
             first_row(
                 &["src/components/card.tsx", "src/use-comparison.ts"],
@@ -2687,7 +2689,7 @@ pub(crate) mod tests {
             "src/use-comparison.ts"
         );
         // "a match may start in the file's own folder but not further up"
-        // (`:2586-2597`).
+        // (`file_index.zig:2586-2597`).
         assert_eq!(
             rows(&candidates(&["ab/x/cd.ts", "zz/x-a-b-c-d.ts"]), "abcd"),
             ["zz/x-a-b-c-d.ts", "ab/x/cd.ts"]
@@ -2700,13 +2702,13 @@ pub(crate) mod tests {
         // (`file_index.zig:2599-2613@481104fd`): bytes 5..8 and 17..20.
         let found = search(&candidates(&["docs/vercel-json/clean-urls.mdx"]), "vercle");
         assert_eq!(found[0].spans, [5..8, 17..20]);
-        // "highlights mark the placement that was scored" (`:2615-2630`).
+        // "highlights mark the placement that was scored" (`file_index.zig:2615-2630`).
         for found in search(&candidates(&["src/test-stat.zig", "STATUS.md"]), "stat") {
             let start = if found.path == "STATUS.md" { 0 } else { 9 };
             assert_eq!(found.spans, one(start..start + 4), "{}", found.path);
         }
         // "typed search supports abbreviated subsequences and caller-owned
-        // spans" (`:2415-2442`): one row, its bold letters `fiidx`.
+        // spans" (`file_index.zig:2415-2442`): one row, its bold letters `fiidx`.
         let paths = [
             "src/core/workspace/",
             "src/core/workspace/file_index.zig",
@@ -2735,7 +2737,7 @@ pub(crate) mod tests {
             first_row(&["src/beta.txt", "src/zeta.txt"], "ta"),
             "src/beta.txt"
         );
-        // "file and directory candidates have no ranking priority" (`:2829-2850`).
+        // "file and directory candidates have no ranking priority" (`file_index.zig:2829-2850`).
         for paths in [
             ["src/zeta.txt", "src/beta.txt/"],
             ["src/zeta.txt/", "src/beta.txt"],
@@ -2753,7 +2755,7 @@ pub(crate) mod tests {
         assert_eq!(first_row(&paths, "README"), "README.md");
         assert_eq!(first_row(&paths, "readme"), "README.md");
         assert_eq!(first_row(&paths, "main"), "src/Main.zig");
-        // "Unicode search compares mixed basename and full-path scores" (`:3124-3135`).
+        // "Unicode search compares mixed basename and full-path scores" (`file_index.zig:3124-3135`).
         assert_eq!(
             rows(
                 &candidates(&["docs/\u{c4}rger.txt", "\u{c4}rger/docs.txt"]),
@@ -2761,7 +2763,7 @@ pub(crate) mod tests {
             ),
             ["docs/\u{c4}rger.txt", "\u{c4}rger/docs.txt"]
         );
-        // "bitmap prefilter does not reject when query has no a-z letters" (`:3152-3164`).
+        // "bitmap prefilter does not reject when query has no a-z letters" (`file_index.zig:3152-3164`).
         assert_eq!(
             first_row(&["docs/123.md", "src/main.zig"], "123"),
             "docs/123.md"
@@ -2782,7 +2784,7 @@ pub(crate) mod tests {
         ];
         assert_eq!(rows(&candidates(&paths), "road_map"), paths);
         // A match that ends in one of its folders ranks below every name
-        // match (`:2582-2584`): `ext` is only in `extra`.
+        // match (`file_index.zig:2582-2584`): `ext` is only in `extra`.
         assert_eq!(
             rows(
                 &candidates(&["/run/extra/notes/a.md", "docs/text.md"]),
@@ -2797,9 +2799,9 @@ pub(crate) mod tests {
         // The listing scores each name with `NameQuery` (`path_completion.zig:
         // 56`, `:93`, `:234@481104fd`): the name is the whole text, its
         // first character follows a separator (`bonusAt`,
-        // `file_index.zig:1475-1479`), and the order is `better`'s
+        // `file_index.zig:1477-1481`), and the order is `better`'s
         // (`:1302-1309`). So a name ranks there as it does under a folder:
-        // the whole word first (`:2564-2567`).
+        // the whole word first (`file_index.zig:2564-2567`).
         let names = entries(&[
             "test-matrix.ts",
             "test-stat.zig",

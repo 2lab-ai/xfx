@@ -1,0 +1,7 @@
+# git diff --stat cb7c9c18 ebe38755 -- src/
+ src/tui/file_index.rs | 1382 +++++++++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 1232 insertions(+), 150 deletions(-)
+# cb7c9c18: tests start at line 1427; ranking section lines 522-844 = 322 lines
+# ebe38755: tests start at line 1798; ranking section lines 523-1215 = 692 lines
+outside the tests: +516 -145 (net +371); of the added, 62 comment and 17 blank lines
+inside the tests: +716 -5

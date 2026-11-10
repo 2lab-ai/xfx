@@ -1,0 +1,20 @@
+# head ranking: ebe38755, release lib test binary, run alone under the suite lock
+# XFX_AT_BENCH_TREE=<scratch>/tree100k (the same tree)
+# uptime: 15:56  load averages: 75.68 56.73 46.59 (18 cores)
+running 1 test
+entries: 100000
+exact            33 keys  1 rows p50 3.329583ms p95 9.215917ms max 13.890209ms
+boundary          5 keys 32 rows p50 4.079334ms p95 11.332ms max 12.667625ms
+low-selectivity   2 keys 32 rows p50 8.241792ms p95 12.154667ms max 12.579583ms
+long-gap          4 keys 32 rows p50 6.475292ms p95 12.45875ms max 12.734542ms
+no-match         14 keys  0 rows p50 2.923959ms p95 3.31425ms max 4.711791ms
+punctuation       9 keys  1 rows p50 3.272916ms p95 8.349084ms max 8.769625ms
+unicode           3 keys  1 rows p50 2.850834ms p95 3.12625ms max 3.402375ms
+unicode-fold      3 keys 32 rows p50 4.026125ms p95 4.339667ms max 4.410542ms
+every keystroke: 1460 searches p50 3.288791ms p95 11.023791ms p99 13.355375ms max 13.890209ms
+whole queries (fx's gate): 160 searches p50 3.150458ms p95 12.025542ms
+thread 'tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame' (472749730) panicked at src/tui/file_index.rs:3008:9:
+a keystroke's search took 11.023791ms at the 95th percentile, against an 8 ms frame
+test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 12.96s
+# uptime: 15:57  load averages: 54.80 55.10 46.87 (18 cores)
