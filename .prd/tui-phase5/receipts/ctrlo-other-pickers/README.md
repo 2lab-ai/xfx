@@ -587,10 +587,35 @@ equivalent survivor has no line left (`equivalent-mutants.txt`, its round
 
 ### 11.7 Sweep (`sweeps-r2.sh`; `sweep-r1.md`, `sweep-r2.md`, `sweep-compare-r2.txt`)
 
-`sweeps-r2.sh`: round 1's build and round 2's against fx v0.0.16, §6's
-list and the `@` list's families (`filepicker*`, `p5-input-at*`), which
-the one check and the merged anchor reach. It runs under the lock after
-this README's first round 2 commit; its result is the next commit's.
+`sweeps-r2.sh`: round 1's build (`v0.1.0-91c4673`) and round 2's
+(`v0.1.0-13646df`) against fx v0.0.16 (sha256 checked before and after
+each run), §6's list and the `@` list's families (`filepicker*`,
+`p5-input-at*`), which the one check and the merged anchor reach: 95
+scenarios, 665 pairs, both sweeps in one hold of the suite lock (2079 s,
+2059 s), round 2's scenarios and ledger for both.
+
+- **Round 1 427/665 -> round 2 427/665** (`sweep-compare-r2.txt`): 3
+  moved to passing, 3 dropped, 1 other change.
+- Of this unit's: `p5-ctrlo-fork burst-ck` and `burst-cj` moved to
+  passing (their timestamps normalized). `p5-ctrlo-help burst-ck` and
+  `burst-cj` stay where `p5-ctrlo-help open` is, unresolved on both, for
+  the catalog's rows (11.5).
+- **The 3 dropped, `model-column-idle` `col-down`, `col-idle` and
+  `col-typed`, and the one up, `model-busy during`, are fx's screens
+  moving, not xfx's.** Round 2's xfx drew the same rows as round 1's in
+  both sweeps; fx -- the same binary -- drew different ones. In
+  `model-column-idle` the catalog is down for its first 9000 ms: in round
+  1's sweep fx's second read came at 12214 ms and listed the models, in
+  round 2's at 7562 ms, still down, so fx said `unable to load models`
+  three times while xfx listed them. In `model-busy during` fx's
+  `Next turn will use` landed after the snap in round 1's sweep and before
+  it in round 2's. Rows and read times are in `sweep-compare-r2.txt`'s
+  last lines; the column's rows start in the same cell on all four sides
+  (cell 9, as `cells.py` counts), so the merged anchor did not move it.
+- The other change, `settings-collapse-open after-esc`, moved within
+  passing again (normalized-identical to identical), as in §6.
+- `filepicker*` and `p5-input-at*`: the same on both builds, 20 of 20 and
+  24 of 33 passing; the 9 left are the ones round 1's build leaves too.
 
 ### 11.8 Gate (`gate-r2.txt`)
 
