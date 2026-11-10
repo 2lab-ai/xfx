@@ -999,13 +999,15 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
     checks.push(permissions_check(config.permission_mode));
     checks.push(sessions_check(config));
 
+    // fx's words: `full access`, not the wire `yolo` (`doctor_runtime.zig:237-240`,
+    // `:529-535@481104fd`).
     checks.push(DoctorCheck::new(
         "startup",
         CheckStatus::Ok,
         format!(
             "resolved model={}, permission_mode={}, agent_step_limit={}",
             config.model,
-            config.permission_mode.label(),
+            config.permission_mode.display_label(),
             config.max_agent_steps
         ),
     ));

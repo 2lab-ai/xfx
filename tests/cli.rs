@@ -873,6 +873,38 @@ fn a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs() {
 }
 
 #[test]
+fn full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word() {
+    // fx's `[status]` and `[doctor]` lines and doctor's startup check say
+    // `full access` (`output_contracts.zig:839`, `:1806`,
+    // `doctor_runtime.zig:237-240`, `:529-535@481104fd`); its `--json` says
+    // `yolo` (`output_contracts.zig:944-945`), the word the settings file keeps.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(r#"{"permission_mode": "Full Access"}"#);
+    let status = sandbox.run(&["status"]);
+    assert!(
+        status
+            .stdout
+            .contains("[status] permission_mode=full access\n"),
+        "{}",
+        status.stdout
+    );
+    assert_eq!(
+        sandbox.run(&["status", "--json"]).json()["permission_mode"],
+        "yolo"
+    );
+    let doctor = sandbox.run(&["doctor"]);
+    for line in [
+        "[doctor] permission_mode=full access\n",
+        "[ok] startup: resolved model=",
+        ", permission_mode=full access, agent_step_limit=",
+    ] {
+        assert!(doctor.stdout.contains(line), "{line:?}: {}", doctor.stdout);
+    }
+    let json = sandbox.run(&["doctor", "--json"]).json();
+    assert_eq!(json["permission_mode"], "yolo");
+}
+
+#[test]
 fn ask_takes_fxs_two_spellings_of_full_access_exactly() {
     // `--full-access` or `--yolo`, compared exactly, and one mode flag at most
     // (`cli_ask.zig:3579-3584@481104fd`).
