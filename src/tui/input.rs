@@ -2032,15 +2032,22 @@ mod tests {
         assert_eq!(csi(b"122;10;3", b'u'), Action::Ignore, "a third parameter");
         assert_eq!(csi(b"", b'u'), Action::Ignore);
         assert_eq!(csi(b"27;10;121", b'~'), Action::Ignore, "y is not z");
-        assert_eq!(csi(b"28;10;122", b'~'), Action::Ignore, "27 is the family");
+        // The tilde spelling's first field is overwritten upstream
+        // (`escape_parser.zig:668-674`, `:746-752@481104fd`), so `28` there
+        // is the same report as `27`.
+        assert_eq!(
+            csi(b"28;10;122", b'~'),
+            Action::Redo,
+            "the first field is overwritten"
+        );
         assert_eq!(csi(b"27;10", b'~'), Action::Ignore, "no keycode");
         assert_eq!(
             csi(b"27;10;122;1", b'~'),
             Action::Ignore,
             "a fourth parameter"
         );
-        // And the five literal tilde spellings still decode, because the new
-        // arm is under the same final byte.
+        // And the tilde keys and the paste markers still decode under the
+        // same final byte.
         assert_eq!(csi(b"1", b'~'), Action::Home);
         assert_eq!(csi(b"3", b'~'), Action::Delete);
         assert_eq!(csi(b"4", b'~'), Action::End);
@@ -2105,31 +2112,23 @@ mod tests {
         // the tilde spelling cannot stay refused while the other is bound.
         assert_eq!(csi(b"27;5;95", b'~'), Action::Undo, "Ctrl-_ is undo");
 
-        // Every spelling of Ctrl-C's code that is not the exact captured
-        // bytes `99`, refused for two different reasons. A leading zero
-        // (`099`) and an oversized leading zero (`0099`) are the genuine
-        // numeric-parse-leniency case: a numeric parse folds digits into a
-        // value and does not care how many leading zeros came first, so
-        // both would parse to `99` and be wrongly accepted -- the canonical-
-        // spelling check (`decimal`) is what refuses them here. A trailing
-        // digit (`990`), no
-        // code at all, and Kitty's colon-separated event-qualifier suffix
-        // for a release or a repeat (`99:2`) are not that: `990` parses to
-        // a different number than `99`, and an empty or suffixed field
-        // does not parse as `99` either, so a numeric parse would have
-        // refused these three on its own merits too. They are tested here
-        // for a different property -- that the match is exact-length and
-        // exact-shape, not just exact-value, so none of these is mistaken
-        // for a byte-string prefix or extension of the real code.
+        // Ctrl-C's code in the spellings upstream reads as the number 99 is
+        // Ctrl-C: a leading zero, one or two, is folded into the number
+        // (`appendCsiDigitSaturating`, `escape_parser.zig:19-23`, `:741-744
+        // @481104fd`). A trailing digit (`990`) is a different number, no
+        // code at all is `0`, and Kitty's colon-separated event-qualifier
+        // suffix for a release or a repeat (`99:2`) is no digit, which ends
+        // the report (`:754`): none of these is mistaken for a prefix or an
+        // extension of the real code.
         assert_eq!(
             csi(b"27;5;099", b'~'),
-            Action::Ignore,
-            "a leading zero is not the canonical spelling"
+            Action::Cancel,
+            "a leading zero is the number"
         );
         assert_eq!(
             csi(b"27;5;0099", b'~'),
-            Action::Ignore,
-            "a leading zero, oversized too"
+            Action::Cancel,
+            "two leading zeros are the number"
         );
         assert_eq!(
             csi(b"27;5;990", b'~'),
@@ -2599,10 +2598,10 @@ mod tests {
         decode(bytes.as_bytes())
     }
 
-    /// Every modified spelling of one tilde key is `want`, and its `; 1`
-    /// spelling -- a modifier field that holds no modifier -- is still a shape
-    /// this decoder refuses (see
-    /// `a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one`).
+    /// Every modified spelling of one tilde key is `want`, and so is its
+    /// `; 1` spelling: a modifier field that holds no modifier, which upstream
+    /// reads as the bare key (`escape_parser.zig:696`, `:712-718@481104fd`;
+    /// `a_modifier_field_of_1_is_the_bare_tilde_key`).
     fn assert_modified_tilde(key: &str, want: Action) {
         for (modifier, held) in TILDE_MODIFIERS {
             assert_eq!(
@@ -2613,7 +2612,7 @@ mod tests {
         }
         assert_eq!(
             tilde(key, Some("1")),
-            vec![Input::Action(Action::Ignore)],
+            vec![Input::Action(want)],
             "CSI {key} ; 1 ~"
         );
     }
@@ -2636,8 +2635,8 @@ mod tests {
     fn home_with_a_modifier_csi_1_mod_tilde_is_home() {
         // `1, 7 => composerMove(... .draft_start else .line_start, modifiers)`
         // (`escape_parser.zig:699-703@481104fd`): the line's start, the
-        // draft's under Ctrl, a selection under Shift. xfx reads it as
-        // `CSI 1 ; <mod> H` ([`cursor`]): Home.
+        // draft's under Ctrl, a selection under Shift. xfx reads it through
+        // [`cursor`]'s H row: Home.
         assert_modified_tilde("1", Action::Home);
     }
 
@@ -2661,17 +2660,21 @@ mod tests {
     }
 
     #[test]
-    fn every_modifier_field_from_2_to_256_on_the_tilde_home_and_end_is_the_key() {
+    fn every_modifier_field_on_the_tilde_home_and_end_is_the_key() {
         // `TILDE_MODIFIERS` names the cases that say what is meant; this walks
-        // every field the decoder accepts (`key_modifiers`: `1` to `256`, one
-        // more than an eight-bit mask), so no value between them is missed.
+        // the fields around them. Upstream's field is a number that saturates
+        // at 65535 (`appendCsiDigitSaturating`, `escape_parser.zig:19-23
+        // @481104fd`), `0` and `1` hold no modifier and are the bare key
+        // (`:696`, `:712-714`), and anything else is the move (`:699-707`),
+        // which is Home or End here: so every field is the key, past eight
+        // bits and past sixteen alike.
         for (key, want) in [
             ("1", Action::Home),
             ("4", Action::End),
             ("7", Action::Home),
             ("8", Action::End),
         ] {
-            for field in 2..=256 {
+            for field in 0..=1024 {
                 let field = field.to_string();
                 assert_eq!(
                     tilde(key, Some(&field)),
@@ -2679,13 +2682,69 @@ mod tests {
                     "CSI {key} ; {field} ~"
                 );
             }
-            // Either side of the range: `1` holds no modifier and is refused
-            // (`modified_tilde`'s doc), and `257` is past eight bits, which
-            // `key_modifiers` refuses before any key is looked at.
-            for field in ["1", "257"] {
+            for field in ["", "65535", "65536", "99999", "4294967297"] {
                 assert_eq!(
                     tilde(key, Some(field)),
-                    vec![Input::Action(Action::Ignore)],
+                    vec![Input::Action(want)],
+                    "CSI {key} ; {field} ~"
+                );
+            }
+        }
+    }
+
+    /// Each tilde key with the action its bare spelling has: upstream's
+    /// `1, 7 => .home`, `3 => .delete_next`, `4, 8 => .end`, `5 => .page_up`
+    /// and `6 => .page_down` (`escape_parser.zig:628-635`, `:712-718
+    /// @481104fd`; Delete's `forwardDeleteKeyAction(0)`, `:179`, `:698`).
+    const TILDE_KEYS: [(&str, Action); 7] = [
+        ("1", Action::Home),
+        ("3", Action::Delete),
+        ("4", Action::End),
+        ("5", Action::PageUp),
+        ("6", Action::PageDown),
+        ("7", Action::Home),
+        ("8", Action::End),
+    ];
+
+    #[test]
+    fn a_modifier_field_of_1_is_the_bare_tilde_key() {
+        // `const modifiers = if (param.* > 0) param.* - 1 else 0`
+        // (`escape_parser.zig:696@481104fd`): `1` is one more than no
+        // modifier at all, and with none the stage reads the bare key --
+        // Delete through `forwardDeleteKeyAction(0)` (`:698`, `:179`), the
+        // others through the switch below the moves (`:712-718`).
+        for (key, want) in TILDE_KEYS {
+            assert_eq!(
+                tilde(key, Some("1")),
+                vec![Input::Action(want)],
+                "CSI {key} ; 1 ~"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_modifier_field_is_the_bare_tilde_key() {
+        // The `;` hands the key's number on and starts the next field at
+        // `0` (`escape_parser.zig:606-611@481104fd`); with no digit after it
+        // the `~` reads `0`, no modifier (`:694-696`), and the bare key.
+        for (key, want) in TILDE_KEYS {
+            assert_eq!(
+                tilde(key, Some("")),
+                vec![Input::Action(want)],
+                "CSI {key} ; ~"
+            );
+        }
+    }
+
+    #[test]
+    fn a_modifier_field_of_0_is_the_bare_tilde_key() {
+        // `if (param.* > 0) ... else 0` (`escape_parser.zig:696@481104fd`):
+        // `0` is no modifier, as an empty field is.
+        for (key, want) in TILDE_KEYS {
+            for field in ["0", "00"] {
+                assert_eq!(
+                    tilde(key, Some(field)),
+                    vec![Input::Action(want)],
                     "CSI {key} ; {field} ~"
                 );
             }
@@ -2693,28 +2752,170 @@ mod tests {
     }
 
     #[test]
-    fn delete_with_a_lock_bit_alone_is_delete_here_and_nothing_upstream() {
-        // Today's reading, pinned so that a change to it is made on purpose.
-        // `modified_tilde` takes Caps Lock (64) and Num Lock (128) out of
-        // Delete's mask, so with nothing else held it is the bare key. fx
-        // hands the raw modifiers to `forwardDeleteKeyAction`
-        // (`escape_parser.zig:694-698@481104fd`), which reads 64, 128 and 192
-        // as nothing (`escape_parser.zig:176-180@481104fd`). Recorded in
-        // `docs/parity.md`; the owner is TILDE-EMPTY-MODIFIER (proposed),
-        // whose change flips these three to `Ignore`.
+    fn a_leading_zero_in_a_tilde_field_is_the_number() {
+        // Every digit is appended to a number (`appendCsiDigitSaturating`,
+        // `escape_parser.zig:19-23`; `:600-602` for the key, `:663-665` for
+        // the modifier, `@481104fd`), so a zero in front changes nothing.
+        for (key, want) in TILDE_KEYS {
+            for spelling in [format!("0{key}"), format!("00{key}")] {
+                assert_eq!(
+                    tilde(&spelling, None),
+                    vec![Input::Action(want)],
+                    "CSI {spelling} ~"
+                );
+                assert_eq!(
+                    tilde(&spelling, Some("1")),
+                    vec![Input::Action(want)],
+                    "CSI {spelling} ; 1 ~"
+                );
+            }
+        }
+        for (key, modifier, want) in [
+            ("1", "05", Action::Home),
+            ("8", "05", Action::End),
+            ("3", "05", Action::DeleteWordRight),
+            ("03", "03", Action::DeleteWordRight),
+            ("3", "009", Action::KillToEnd),
+            ("05", "05", Action::PageUp),
+        ] {
+            assert_eq!(
+                tilde(key, Some(modifier)),
+                vec![Input::Action(want)],
+                "CSI {key} ; {modifier} ~"
+            );
+        }
+        // The paste markers are the one exception, upstream's too: they are
+        // three digits exactly (`digit_count == 3`, `:625-626`), so `0200`
+        // is the number 200, which is no key (`:634`), and opens nothing.
+        for spelling in ["0200", "0201", "00200"] {
+            assert_eq!(
+                tilde(spelling, None),
+                vec![Input::Action(Action::Ignore)],
+                "CSI {spelling} ~"
+            );
+        }
+    }
+
+    #[test]
+    fn a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits() {
+        // The field is a `u16` that saturates (`escape_parser.zig:19-23
+        // @481104fd`), and the tilde stage reads all of it: any bit is a
+        // modifier to the moves (`modifiers != 0`, `:699-711`), and Delete
+        // reads the raw bits (`:698`, `forwardDeleteKeyAction`, `:176-180`),
+        // so a bit past eight is a modifier it has no case for -- nothing --
+        // unless Super, Alt or Ctrl is among them.
+        for (key, modifier, want) in [
+            ("1", "257", Action::Home),
+            ("4", "300", Action::End),
+            ("7", "65535", Action::Home),
+            ("8", "99999", Action::End),
+            ("5", "257", Action::PageUp),
+            ("6", "300", Action::PageDown),
+            // 256 and 257 (Shift): nothing Delete reads.
+            ("3", "257", Action::Ignore),
+            ("3", "258", Action::Ignore),
+            // 258: Alt and the ninth bit.
+            ("3", "259", Action::DeleteWordRight),
+            // 264: Super and the ninth bit.
+            ("3", "265", Action::KillToEnd),
+            // 65535 once it saturates, so 65534: Super among the rest.
+            ("3", "65536", Action::KillToEnd),
+            ("3", "99999", Action::KillToEnd),
+        ] {
+            assert_eq!(
+                tilde(key, Some(modifier)),
+                vec![Input::Action(want)],
+                "CSI {key} ; {modifier} ~"
+            );
+        }
+    }
+
+    #[test]
+    fn delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it() {
+        // fx hands the tilde stage's raw modifiers to `forwardDeleteKeyAction`
+        // (`escape_parser.zig:694-698@481104fd`), which is `.delete_next`
+        // with no bit at all and nothing for a bit it has no case for --
+        // Caps Lock (64), Num Lock (128) or both (192) alone
+        // (`escape_parser.zig:176-180@481104fd`). Flipped from xfx's old
+        // reading, which took the lock bits out of Delete's mask and so read
+        // these three as Delete.
         for field in ["65", "129", "193"] {
             assert_eq!(
                 tilde("3", Some(field)),
-                vec![Input::Action(Action::Delete)],
+                vec![Input::Action(Action::Ignore)],
                 "CSI 3 ; {field} ~"
             );
         }
-        // With a modifier beside the lock bit, both read the modifier:
-        // Alt-Delete is the word to the right either way.
-        assert_eq!(
-            tilde("3", Some("67")),
-            vec![Input::Action(Action::DeleteWordRight)]
-        );
+        // With a modifier beside the lock bit, both read the modifier: Alt-
+        // or Ctrl-Delete is the word to the right, Super-Delete the rest of
+        // the line, and Shift or Hyper beside one is still nothing.
+        for (field, want) in [
+            ("67", Action::DeleteWordRight),
+            ("69", Action::DeleteWordRight),
+            ("73", Action::KillToEnd),
+            ("66", Action::Ignore),
+            ("81", Action::Ignore),
+        ] {
+            assert_eq!(
+                tilde("3", Some(field)),
+                vec![Input::Action(want)],
+                "CSI 3 ; {field} ~"
+            );
+        }
+        // The moves count a lock bit as a modifier too (`modifiers != 0`,
+        // `:699-711`), and a modifier with no Ctrl is the line's edge or the
+        // page: here, the key itself.
+        for (key, want) in TILDE_KEYS {
+            if key == "3" {
+                continue;
+            }
+            for field in ["65", "129", "193"] {
+                assert_eq!(
+                    tilde(key, Some(field)),
+                    vec![Input::Action(want)],
+                    "CSI {key} ; {field} ~"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_third_tilde_field_is_a_key_report_whatever_the_first_holds() {
+        // A second `;` hands the modifier on and starts the keycode
+        // (`escape_parser.zig:668-674@481104fd`), and its `~` resolves
+        // `kittyUnicodeKeyAction(keycode, modifiers)` (`:746-752`): the first
+        // field is overwritten, so any number there is the same report, and
+        // the other two are numbers as every tilde field is (`:741-744`;
+        // `:749` for the modifier, `0` and `1` alike holding none).
+        for (spelling, want) in [
+            ("1;5;99", Action::Cancel),
+            ("7;5;97", Action::Home),
+            ("4;5;101", Action::End),
+            ("3;;13", Action::Submit),
+            ("200;5;99", Action::Cancel),
+            ("027;5;99", Action::Cancel),
+            ("27;0;13", Action::Submit),
+            ("27;05;099", Action::Cancel),
+            // 260 is Ctrl (4) once the lock and higher bits are masked off,
+            // as `kittyUnicodeKeyAction` masks every report (`:186-187`).
+            ("27;261;99", Action::Cancel),
+        ] {
+            assert_eq!(
+                decode(format!("\x1b[{spelling}~").as_bytes()),
+                vec![Input::Action(want)],
+                "CSI {spelling} ~"
+            );
+        }
+        // Still nothing: a keycode no key has (`1`, an empty field), a fourth
+        // field (`:754`, a `;` is no digit), and an empty first field (a digit
+        // starts the stage, `:583-589`).
+        for spelling in ["7;5;1", "3;5;", "27;5;99;1", ";5;99", ";5"] {
+            assert_eq!(
+                decode(format!("\x1b[{spelling}~").as_bytes()),
+                vec![Input::Action(Action::Ignore)],
+                "CSI {spelling} ~"
+            );
+        }
     }
 
     #[test]
@@ -2751,10 +2952,12 @@ mod tests {
         ] {
             assert_eq!(decode(bytes), vec![Input::Action(action)], "{bytes:?}");
         }
-        // A spelling of the tilde key no terminal sends is not a page key, for
-        // the reason every tilde key is matched as bytes (`csi`).
-        assert_eq!(csi(b"05", b'~'), Action::Ignore);
-        assert_eq!(csi(b"5;1", b'~'), Action::Ignore);
+        // The tilde page key in the spellings upstream reads as its number
+        // with no modifier -- a leading zero, a modifier field of `1`
+        // (`escape_parser.zig:600-602`, `:696`, `:715@481104fd`) -- is the
+        // same page key.
+        assert_eq!(csi(b"05", b'~'), Action::PageUp);
+        assert_eq!(csi(b"5;1", b'~'), Action::PageUp);
     }
 
     #[test]
@@ -3000,21 +3203,20 @@ mod tests {
             &b"\x1b[1;C"[..],
             &b"\x1b[1;5:3C"[..],
             &b"\x1b[1;17C"[..],
-            // The tilde keys are exact in the same way, and for the same
-            // reason the paste markers are: one spelling each, so a stream
-            // cannot reach a binding by a route the rest of the decoder does
-            // not recognize.
-            &b"\x1b[01~"[..],
-            &b"\x1b[03~"[..],
-            &b"\x1b[04~"[..],
-            &b"\x1b[07~"[..],
-            &b"\x1b[08~"[..],
-            &b"\x1b[1;1~"[..],
-            &b"\x1b[8;05~"[..],
+            // The tilde keys read upstream's numbers instead
+            // (`a_leading_zero_in_a_tilde_field_is_the_number` and the tests
+            // beside it), and these are no key there either: a third field
+            // whose keycode no key has, a code no key has (Insert's `2`
+            // among them), a parameter that is no digit, and no field at
+            // all (`escape_parser.zig:583-589`, `:620`, `:634`, `:676-684`,
+            // `:746-754@481104fd`).
             &b"\x1b[7;5;1~"[..],
-            &b"\x1b[3;05~"[..],
             &b"\x1b[3;5;1~"[..],
             &b"\x1b[30~"[..],
+            &b"\x1b[2~"[..],
+            &b"\x1b[1;5:1~"[..],
+            &b"\x1b[?1~"[..],
+            &b"\x1b[ 1~"[..],
             &b"\x1b[~"[..],
         ] {
             assert_eq!(
