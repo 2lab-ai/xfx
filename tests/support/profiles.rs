@@ -59,7 +59,19 @@ pub enum Profile {
     LinkedDir,
     /// A valid profile, and a project file holding these bytes.
     Project(&'static str),
+    /// The settings file holds what this makes of the workspace's key (a
+    /// JSON string): the profiles too long to write out.
+    Built(fn(&str) -> String),
 }
+
+/// `"pFF": value, ...` for FF in `first..=last`: distinct connection names.
+pub fn names(first: u32, last: u32, value: &str) -> String {
+    let names = (first..=last).map(|i| format!(r#""p{i:02}": {value}"#));
+    names.collect::<Vec<_>>().join(", ")
+}
+
+/// A loopback connection fx's registry takes (`probe.sh`'s `DEF`).
+const CONNECTION: &str = r#"{"protocol": "openai-chat-completions", "base_url": "http://127.0.0.1:9/v1", "auth": {"type": "none"}}"#;
 
 /// Every launch refuses these: the TUI, the line shell and `ask`.
 pub const REJECTED: &[(&str, Profile)] = &[
@@ -113,6 +125,15 @@ pub const REJECTED: &[(&str, Profile)] = &[
         "a key twice inside a table",
         Profile::Text(r#"{"permission": {"bash": "allow", "bash": "deny"}}"#),
     ),
+    (
+        "a model and 35 other model preferences",
+        Profile::Built(|_| {
+            format!(
+                r#"{{"model": "a/b", "models": {{{}}}}}"#,
+                names(1, 35, r#""m/x""#)
+            )
+        }),
+    ),
 ];
 
 /// fx's load itself fails on these, and every launch and `status` exit 1
@@ -152,6 +173,26 @@ pub const STOPPED: &[(&str, Profile, &str)] = &[
         "connections that are not an object",
         Profile::Text(r#"{"providers": 5}"#),
         "InvalidObject",
+    ),
+    (
+        "33 connections",
+        Profile::Built(|_| format!(r#"{{"providers": {{{}}}}}"#, names(1, 33, CONNECTION))),
+        "LimitExceeded",
+    ),
+    (
+        "36 model preferences",
+        Profile::Built(|_| format!(r#"{{"models": {{{}}}}}"#, names(1, 36, r#""m/x""#))),
+        "TooManyModelPreferences",
+    ),
+    (
+        "36 model preferences in the two layers merged",
+        Profile::Built(|key| {
+            let (global, entry) = (names(1, 20, r#""m/x""#), names(21, 36, r#""m/x""#));
+            format!(
+                r#"{{"models": {{{global}}}, "workspaces": {{{key}: {{"models": {{{entry}}}}}}}}}"#
+            )
+        }),
+        "TooManyModelPreferences",
     ),
 ];
 
@@ -245,6 +286,30 @@ pub const STARTED: &[(&str, Profile)] = &[
     (
         "a valid profile",
         Profile::Text(r#"{"permission_mode": "auto"}"#),
+    ),
+    (
+        "32 connections",
+        Profile::Built(|_| format!(r#"{{"providers": {{{}}}}}"#, names(1, 32, CONNECTION))),
+    ),
+    (
+        "a model and a models Gateway among 35",
+        Profile::Built(|_| {
+            let others = names(1, 34, r#""m/x""#);
+            format!(r#"{{"model": "a/b", "models": {{"gateway": "c/d", {others}}}}}"#)
+        }),
+    ),
+    (
+        "the same 35 model preferences in both layers, a built-in in either case",
+        Profile::Built(|key| {
+            let others = names(1, 34, r#""m/x""#);
+            let (global, entry) = (
+                format!(r#""GATEWAY": "a/b", {others}"#),
+                format!(r#""gateway": "c/d", {others}"#),
+            );
+            format!(
+                r#"{{"models": {{{global}}}, "workspaces": {{{key}: {{"models": {{{entry}}}}}}}}}"#
+            )
+        }),
     ),
 ];
 
@@ -346,6 +411,11 @@ pub fn lay(home: &Path, workspace: &Path, profile: Profile) -> bool {
         Profile::Project(text) => {
             write(r#"{"permission_mode": "auto"}"#);
             fs::write(workspace.join(".xfx.json"), text).expect("the project file");
+        }
+        Profile::Built(build) => {
+            write(&build(
+                &serde_json::to_string(&workspace.display().to_string()).expect("a key"),
+            ));
         }
     }
     true

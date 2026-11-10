@@ -2255,37 +2255,44 @@ impl LayerRead {
     }
 }
 
-/// fx's limits: a connection name's bytes and a model's
-/// (`configured_provider.zig:8-9`), and a load's model preferences
-/// (`model_preferences.zig:4`).
+/// One layer of the profile fx parses: the global object or a workspace's entry.
+type Layer = serde_json::Map<String, Value>;
+
+/// fx's limits: a load's connections (`configured_provider.zig:6`), a
+/// connection name's bytes (`:8`), a model's (`settings_store.zig:18`), and a
+/// load's model preferences (`model_preferences.zig:4`).
+const FX_MAX_PROVIDERS: usize = 32;
 const FX_MAX_ID_BYTES: usize = 64;
 const FX_MAX_MODEL_BYTES: usize = 1024;
 const FX_MAX_PREFERENCES: usize = 35;
 
 /// What fx v0.0.16's load makes of the profile object it read, for the keys
-/// xfx reads too (`config_runtime.zig:463-632@481104fd`): the global object,
-/// then this workspace's entry, each parsed whole and dropped at its first
-/// error, its routing salvaged or the load failed ([`fx_stop`]); their model
-/// preferences merged, at most 35 (`model_preferences.zig:36-52`); then the
-/// provider bound to the global `providers` (`:350-355`;
-/// `model_provider.zig:53-63`), a name it lacks stopping all but xfx's `llmux`.
-fn fx_profile_refusal(
-    object: &serde_json::Map<String, Value>,
-    workspace_root: &Path,
-) -> Option<ProfileRefusal> {
+/// xfx reads too (`config_runtime.zig:463-632@481104fd`): the global
+/// `providers` ([`fx_providers_error`]); the global object, then this
+/// workspace's entry, each parsed whole and dropped at its first error, its
+/// routing salvaged or the load failed ([`fx_stop`]); their model preferences
+/// merged, at most 35 (`model_preferences.zig:36-52`); then the provider bound
+/// to the global `providers` (`:350-355`; `model_provider.zig:53-63`), a name
+/// it lacks stopping all but xfx's `llmux`.
+fn fx_profile_refusal(object: &Layer, workspace_root: &Path) -> Option<ProfileRefusal> {
+    if let Some(name) = fx_providers_error(object) {
+        return Some(ProfileRefusal::Stopped(name));
+    }
     let entry = exact_workspace_entry(object, workspace_root, &mut Vec::new());
     let mut rejected = entry.is_err();
     let (mut provider, mut preferences) = (None, std::collections::BTreeSet::new());
     for (layer, global) in
         std::iter::once((object, true)).chain(entry.ok().flatten().map(|e| (e, false)))
     {
-        if let Some(name) = fx_stop(layer, global) {
-            return Some(ProfileRefusal::Stopped(name));
+        // The routing keys alone, as the salvage parses them, and in a whole parse.
+        let [salvage, whole] = [false, true].map(|whole| fx_routing(layer, whole));
+        if let (Err(_), Err(routing)) = (&salvage, &whole) {
+            return Some(ProfileRefusal::Stopped(fx_stop(layer, routing)));
         }
-        let first = fx_first_error_refuses(layer, global);
+        let first = fx_first_error_refuses(layer, global, whole.is_err());
         rejected |= first == Some(true);
         // A layer that parsed is merged whole; one that did not, its routing.
-        preferences.extend(fx_routing(layer, first.is_none()).unwrap_or_default());
+        preferences.extend(if first.is_none() { whole } else { salvage }.unwrap_or_default());
         if preferences.len() > FX_MAX_PREFERENCES {
             return Some(ProfileRefusal::Stopped("TooManyModelPreferences"));
         }
@@ -2303,29 +2310,24 @@ fn fx_profile_refusal(
     rejected.then_some(ProfileRefusal::Rejected)
 }
 
-/// The error fx's load fails with over one profile layer: the global
-/// `providers` not one fx's registry takes ([`fx_providers_error`]), or
-/// routing that does not parse even alone ([`fx_routing`]), so the salvage
+/// The error fx's load fails with over a layer whose routing does not parse
+/// even alone (a whole parse's fails too: it names more), so the salvage
 /// fails and the layer's first error is returned (`config_runtime.zig:1011-1015`):
 /// the retired key, the `model`, or the routing keys' own in a whole parse.
-fn fx_stop(layer: &serde_json::Map<String, Value>, global: bool) -> Option<&'static str> {
-    if let Some(name) = fx_providers_error(layer).filter(|_| global) {
-        return Some(name);
-    }
-    fx_routing(layer, false).err()?;
+fn fx_stop(layer: &Layer, routing: &'static str) -> &'static str {
     if layer.contains_key("skill_match_fuzzy") {
-        return Some("RetiredSkillMatchFuzzy");
+        return "RetiredSkillMatchFuzzy";
     }
-    fx_model_error(layer).or(fx_routing(layer, true).err())
+    fx_model_error(layer).unwrap_or(routing)
 }
 
 /// The global `providers` object, parsed first (`config_runtime.zig:1623-1625`;
-/// `Registry.parse`, `configured_provider.zig:6`, `:115-117`): an object of at
-/// most 32 connections. Each connection's checks are not copied (queued:
-/// PROVIDERS-REGISTRY).
-fn fx_providers_error(layer: &serde_json::Map<String, Value>) -> Option<&'static str> {
-    match layer.get("providers")? {
-        Value::Object(providers) => (providers.len() > 32).then_some("LimitExceeded"),
+/// `Registry.parse`, `configured_provider.zig:116-117`): an object of at most
+/// 32 connections. An entry's is never parsed. Each connection's checks are
+/// not copied (queued: PROVIDERS-REGISTRY).
+fn fx_providers_error(object: &Layer) -> Option<&'static str> {
+    match object.get("providers")? {
+        Value::Object(providers) => (providers.len() > FX_MAX_PROVIDERS).then_some("LimitExceeded"),
         _ => Some("InvalidObject"),
     }
 }
@@ -2338,13 +2340,13 @@ fn fx_providers_error(layer: &serde_json::Map<String, Value>) -> Option<&'static
 /// `invalid_model_id` do; a retired key, the context limits and the skill
 /// authorities do not (`:1025-1037`). A `statusLine` that is not an object,
 /// and its `workspace`, count only in the global object.
-fn fx_first_error_refuses(layer: &serde_json::Map<String, Value>, global: bool) -> Option<bool> {
+fn fx_first_error_refuses(layer: &Layer, global: bool, routing_fails: bool) -> Option<bool> {
     if layer.contains_key("skill_match_fuzzy") {
         return Some(false);
     }
     // The whole parse's routing can fail where the salvage's did not: the
     // `model`'s preference counts in it (`model_preferences.zig:26-34`).
-    if fx_model_error(layer).is_some() || fx_routing(layer, true).is_err() {
+    if fx_model_error(layer).is_some() || routing_fails {
         return Some(true);
     }
     use crate::permission::rules::RuleSet;
@@ -2391,7 +2393,7 @@ fn fx_first_error_refuses(layer: &serde_json::Map<String, Value>, global: bool) 
 }
 
 /// A `model` fx's parse refuses (`:1651-1656`), and its error's name.
-fn fx_model_error(layer: &serde_json::Map<String, Value>) -> Option<&'static str> {
+fn fx_model_error(layer: &Layer) -> Option<&'static str> {
     match layer.get("model")? {
         Value::String(model) if fx_valid_model(model) => None,
         Value::String(_) => Some("InvalidModelValue"),
@@ -2404,10 +2406,7 @@ fn fx_model_error(layer: &serde_json::Map<String, Value>) -> Option<&'static str
 /// `validateModel` takes, one preference per provider (a built-in in any
 /// case), at most 35 with what a whole parse names first: the `model`'s
 /// Gateway, fx's `codex_model` and `grok_model` (`model_preferences.zig:26-34`).
-fn fx_routing(
-    layer: &serde_json::Map<String, Value>,
-    whole: bool,
-) -> Result<Vec<String>, &'static str> {
+fn fx_routing(layer: &Layer, whole: bool) -> Result<Vec<String>, &'static str> {
     match layer.get(PROVIDER_KEY) {
         Some(Value::String(name)) if fx_provider(name).is_none() => {
             return Err("InvalidProviderValue")
@@ -4533,7 +4532,7 @@ mod tests {
         let refused = |model: Value| {
             let mut object = serde_json::Map::new();
             object.insert("model".to_string(), model);
-            fx_first_error_refuses(&object, true) == Some(true)
+            fx_first_error_refuses(&object, true, false) == Some(true)
         };
         for model in ["", " a", "a ", "\ta", "a\r", "a\n", "a\u{1}b", "a\u{7f}b"] {
             assert!(refused(serde_json::json!(model)), "{model:?}");
@@ -4556,10 +4555,13 @@ mod tests {
         ] {
             assert!(!refused(serde_json::json!(model)), "{model:?}");
         }
-        assert_eq!(fx_first_error_refuses(&serde_json::Map::new(), true), None);
+        assert_eq!(
+            fx_first_error_refuses(&serde_json::Map::new(), true, false),
+            None
+        );
         let retired = serde_json::json!({"skill_match_fuzzy": true, "model": " a"});
         assert_eq!(
-            fx_first_error_refuses(retired.as_object().unwrap(), true),
+            fx_first_error_refuses(retired.as_object().unwrap(), true, false),
             Some(false)
         );
     }
@@ -4905,6 +4907,35 @@ mod tests {
                 format!(r#"{{"providers": {{{}}}}}"#, names(1, 33, "1")),
                 Some(Stopped("LimitExceeded")),
             ),
+            // Round 3: each limit's edge starts -- 32 connections (fx's
+            // `count() > max_providers`), a `models` Gateway in place of the `model`'s
+            // (`putOwned` replaces), and two layers naming the same 35, a
+            // built-in in either case (`mergeOwnedFrom` counts what is new).
+            (
+                format!(r#"{{"providers": {{{}}}}}"#, names(1, 32, connection)),
+                None,
+            ),
+            (
+                format!(
+                    r#"{{"model": "a/b", "models": {{"gateway": "c/d", {}}}}}"#,
+                    names(1, 34, r#""m/x""#)
+                ),
+                None,
+            ),
+            (
+                format!(
+                    r#"{{"models": {{{0}}}, "workspaces": {{"{{ROOT}}": {{"models": {{{0}}}}}}}}}"#,
+                    names(1, 35, r#""m/x""#)
+                ),
+                None,
+            ),
+            (
+                format!(
+                    r#"{{"models": {{"GATEWAY": "a/b", {0}}}, "workspaces": {{"{{ROOT}}": {{"models": {{"gateway": "c/d", {0}}}}}}}}}"#,
+                    names(1, 34, r#""m/x""#)
+                ),
+                None,
+            ),
         ] {
             assert_eq!(refusal(&profile, None), expected, "{profile}");
         }
@@ -4916,19 +4947,25 @@ mod tests {
     /// fx's parse fails at -- but the keys only xfx reads (`backend`,
     /// `llmux_url`), `workspaces` (looked up, not parsed), and one fx reads
     /// that xfx does not (`credential_source`): a key added to
-    /// [`PROFILE_ONLY_KEYS`] must be added to fx's checks too, or here.
+    /// [`PROFILE_ONLY_KEYS`] must be added to fx's checks too, or here. So
+    /// are the project-safe keys xfx checks as fx's `parseProjectSafeFields`
+    /// does (`config_runtime.zig:1898-1953`).
     #[test]
     fn every_profile_key_xfx_reads_is_one_fxs_parse_checks() {
         let not_checked = ["backend", "llmux_url", "workspaces", "credential_source"];
+        let project_safe = ["max_agent_steps", "context_limits"];
         for key in PROFILE_ONLY_KEYS
             .iter()
+            .chain(&project_safe)
             .filter(|key| !not_checked.contains(key))
         {
             let layer = serde_json::json!({ *key: [[1]] });
             let layer = layer.as_object().expect("an object");
-            let caught =
-                fx_stop(layer, true).is_some() || fx_first_error_refuses(layer, true).is_some();
-            assert!(caught, "{key}");
+            let routing_fails = fx_routing(layer, true).is_err();
+            assert!(
+                fx_first_error_refuses(layer, true, routing_fails).is_some(),
+                "{key}"
+            );
         }
     }
 

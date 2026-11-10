@@ -2083,6 +2083,10 @@ fn status_stops_where_fxs_load_fails_and_the_rest_still_answer() {
         ] {
             assert!(doctor.contains(&line), "{name}: {doctor}");
         }
+        // In their place: no other config or startup check stands beside them.
+        for check in ["] config: ", "] startup: "] {
+            assert_eq!(doctor.matches(check).count(), 1, "{name}: {doctor}");
+        }
         for args in [
             &["--version"][..],
             &["help"],
