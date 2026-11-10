@@ -1,10 +1,10 @@
 ---
-title: 0.0.16 delta -- P5 train 12, the CI sweep job's 60-minute limit (TRAIN12-CI round 2)
+title: 0.0.16 delta -- P5 train 12, the CI sweep job's 60-minute limit (TRAIN12-CI rounds 2 and 3)
 type: receipt
 tags: [xfx, phase5, fx-0.0.16, train, fxcap, ci]
 ---
 
-# Train 12: the sweep job ran out of time, and one fx run never launched
+# Train 12: the sweep job ran out of time, and one fx run was never held
 
 PR #90's second CI run (42748982362, head `1b15dad9`) passed all five gate
 jobs and the sweep job's harness tests. The sweep job was then cancelled at
@@ -15,9 +15,11 @@ retry's scoreboards). `ci-sweep2-step.log` is that step's log.
 
 | commit | what |
 |---|---|
-| `1a9121a4` | deletes the scenario `p5-panels-badsettings` and its seed file, which fx v0.0.16 never launches (§ The failed run) |
+| `1a9121a4` | round 2: deleted `p5-panels-badsettings` and its seed file. Its reason was false for xfx; round 3 restores it (§ The failed run) |
 | `09bf63ab` | `sweep.yml`'s job timeout goes from 60 to 120 minutes; `test_ci_sweep.py` pins it and `--jobs 2` |
-| the next commit | this receipt, plus a parser fix in `../ci-socket/sample_vs_head.py` (§ Also) |
+| `fc1d9830`, `5651cf23` | round 2's receipt, and a parser fix in `../ci-socket/sample_vs_head.py` (§ Also) |
+| `f0a9af5b` | round 3: the scenario restored as a launch-only capture, its ledger cause, the sibling scenario's false comment, and "estimated" in `sweep.yml` and the test |
+| the next commit after `f0a9af5b` | round 3's corrections to this receipt |
 
 ## What the step did (`measure.txt`, from the log)
 
@@ -52,33 +54,36 @@ retry's scoreboards). `ci-sweep2-step.log` is that step's log.
     they are the same 23 the new receipts name.
   - So **80 scenarios are selected only by unchanged lines of receipts whose
     other lines changed.**
-- **What the whole step needs** (`measure.txt`). This is an estimate: the
-  parts after the head never ran.
+- **What the whole step needs** (`measure.txt`). This is an estimate from
+  one run: the parts after the head never ran.
 
   | part | seconds | from |
   |---|---|---|
   | head | 2800 | measured |
-  | head retries | 516 at most | 3 x the first retry's 172 s |
+  | head retries | about 516 | 3 x the first retry's measured 172 s (each retry re-runs at most the scenarios the one before it did, `ci_sweep.py:375-385`) |
   | base sweep | about 1285 | the 49 scenarios that hold a pair the head does not pass and the base snaps (2 more are new at the head and are never swept on the base): their head run-seconds at 1.98 per second, plus fx's inventory run |
-  | base retries | 450 at most | 3 x the two base-swept scenarios that a live `nondeterminism` cause covers |
-  | **step** | **at most 5050 (84 min)** | |
+  | base retries | about 516 | 3 x the first retry's measured 172 s: the two base-swept scenarios a live `nondeterminism` cause covers are the two the head's retry re-ran |
+  | **step** | **about 5117 (85 min)** | |
   | before the step | 591 | job start to the step's start (`job-steps.txt`) |
-  | **job** | **at most 5641 (94 min)** | |
+  | **job** | **about 5708 (95 min)** | |
 
   60 minutes could not hold this selection: the head sweep plus the steps
   before it already took 57 minutes.
 
 ## The fix (`09bf63ab`)
 
-- **`timeout-minutes: 120`**: the 94 minutes measured, plus about a quarter.
-  A comment in `sweep.yml` gives the figures. `--jobs` stays 2.
+- **`timeout-minutes: 120`**: the estimated 95 minutes, plus about a
+  quarter. A comment in `sweep.yml` gives the figures and says they are an
+  estimate from one run. `--jobs` stays 2.
 - **The test.** `test_the_sweep_job_has_the_time_its_selection_needs`
-  requires the job's timeout to be at least 94 x 5/4 (117) minutes, and the
+  requires the job's timeout to be at least 95 x 5/4 (118) minutes, and the
   sweep step to run `--jobs 2`.
   - `wf-test-red.txt`: against the old file it fails with `60 not greater
-    than or equal to 117`.
+    than or equal to 118`.
   - `wf-test-green.txt`: it passes at 120.
-  - `sweep-tests.txt`: `test-sweep.sh` passes, 72 and 28 tests OK.
+  - `sweep-tests.txt`: `test-sweep.sh` passes, 72 and 28 tests OK, and
+    `capture-tests.txt`: `test-capture.sh` passes, 108 tests OK, both on
+    round 3's tree at the runner-length TMPDIR.
   - No other test pins `sweep.yml`'s timeout (`timeout-pins.txt`): the
     only other pin is `test-preview-contract.sh`'s, on `preview.yml`'s 45.
 - **Proposed, not changed: a narrower receipts rule.** A receipt would
@@ -90,7 +95,9 @@ retry's scoreboards). `ci-sweep2-step.log` is that step's log.
   - What it gives up: a scenario named only on a receipt's unchanged lines,
     such as a path rewrite's untouched neighbours, is no longer swept.
   - Which scenarios a change sweeps is a review decision, so the rule is
-    left as it is.
+    left as it is here. It is queued as its own unit, CI-SELECT-ADDED-LINES,
+    which the review would have count removed lines as well (a retracted
+    claim about a scenario). `receipts-rule.txt` counts added lines only.
 
 ## The failed run: `fx p5-panels-badsettings`, exit 1 in 0 s
 
@@ -117,37 +124,54 @@ retry's scoreboards). `ci-sweep2-step.log` is that step's log.
     `../sweep-head.md`, and trains 5 and 7, cancel-marker, ctrlo-wider and
     launch-settle before them. No row reads `ran`, so it was never a
     verdict.
-- **Its surface is covered elsewhere.**
-  - The scenario's comment cites fx `8a964aca`, which is in the pin's
-    history (`fx-src.txt`). That commit adds the `/status` row `Settings
-    couldn't be read: <error>`. fx reads the profile again when the panel
-    opens (`openStatusSnapshot`, `session_commands.zig:283-296@481104fd`).
-  - So the surface needs a profile that is valid at launch and malformed by
-    the time `/status` opens. `p5-panels-status-badsettings` does exactly
-    that (`766169eb`), as does the `h1-rehomefile` scenario.
-- **Fixed by deleting it** (`1a9121a4`): the `.cap` and the one seed file
-  only it used.
-  - A rewrite would duplicate `p5-panels-status-badsettings`.
-  - `select-after.txt` now lists it as `removed`. A run reaches its verdict
-    with a removed scenario: the report names it (`ci_sweep.py:543-544`),
-    and `test_ci_sweep.py`'s regression test (`:176`, whose head removes a
-    scenario, `:146`) and `--select` test (`:333`) cover it.
-  - `/status` keeps 12 scenarios without it, and CI's inventory covered 45
-    of 45 surfaces (`edited-receipts.txt`, from `artifact/head/scoreboard.json`).
-  - `surface-sweep.txt`: the covering scenario and the `h1-rehomefile`
-    scenario both ran on fx v0.0.16 and the head's xfx, with the oracle's
-    sha256 the pin's before and after.
-  - `p5-panels-status-badsettings` gives 3 pairs: 2 approved-divergence and
-    1 approved-divergence-cascade. That is the same as CI's head
-    (`artifact/head/scoreboard.json`) and train 12's base sweep
-    (`../sweep-main.md`).
+- **Round 2 deleted it for a false reason.** Its receipt said the surface
+  was covered elsewhere and that a rewrite would duplicate
+  `p5-panels-status-badsettings`. That is true of the `/status` row, but not
+  of the launch:
+  - fx refuses the malformed profile at launch. xfx does not: malformed
+    content is never fatal (`src/config.rs:850-851`). It starts and
+    announces `config: 1 configuration issue (ctrl+o to view)`
+    (`src/tui/shell.rs:3820-3837`).
+  - CI's own log has both sides: `fx p5-panels-badsettings: failed exit 1
+    (0s)` and `xfx p5-panels-badsettings: ran` (`ci-sweep2-step.log`).
+  - The other two scenarios swap the bad file in after launch, so this one
+    was the only capture of that gap. Its 0-second failure was the missing
+    `keep`: without it, a pane whose binary ended is a failed run
+    (`capture.sh:606`); with it, a final state.
+- **Round 3 restores it as a launch-only capture.** The new form keeps
+  `keep`, the env lines, the seed (restored byte for byte), `wait 3` and
+  `snap launch`. It drops `type /status`, `key Enter` and `snap open`,
+  since fx leaves no TUI to type into.
+  - Its comment says what each binary does.
+  - `p5-panels-status-badsettings`'s comment no longer says both binaries
+    refuse at launch.
+- **The ledger cause `profile-refuse-at-launch`.** It covers the whole
+  `launch` snap; the owner is PROFILE-REFUSE-AT-LAUNCH, a new queue unit
+  outside this PR. It is the first `[[cause]]`, so it is that snap's only
+  cause.
+- **Swept the way CI sweeps it** (`restored-sweep.sh` → `restored-sweep.txt`,
+  the runner-length TMPDIR, the oracle's sha256 the pin's before and after;
+  `restored-launch-fx.txt` and `restored-launch-xfx.txt`, the head's snaps):
+  - With HEAD's scenarios and ledger, both runs now `ran`: fx's pane reads
+    `Pane is dead (status 1, …)`, and xfx's has its banner, the config
+    notice and a permissions refusal.
+  - With the head's xfx and the base's (`df46777e`), the pair is
+    `unresolved-defect` on both, its only cause `profile-refuse-at-launch`,
+    with 0 rows no cause covers.
+  - So it is reported, not a regression: the base does not pass it
+    (`ci_sweep.py:427`).
+  - `select-after.txt` (`--select` at `f0a9af5b`) selects it as `changed,
+    receipt`, so the next CI run sweeps it.
 
 ## Look-ahead: what the base sweep could call a regression (`lookahead.txt`)
 
-- **What was compared.** The artifact has no per-pair verdicts (no
-  `pairs.json`), so this compares pass counts scenario by scenario. CI's
-  head is set beside train 12's sweep of `df46777e` (`../sweep-main.md`,
-  the PR's base) and of its own code head (`../sweep-head.md`).
+- **What was compared.** The artifact has every scenario's counts but not
+  every pair's verdict (no `pairs.json`). Its per-pair entries are the 42
+  scenarios' first unresolved pairs (`first_unresolved` in
+  `artifact/head/scoreboard.json`). So this compares pass counts scenario
+  by scenario, then those first pairs. CI's head is set beside train 12's
+  sweep of `df46777e` (`../sweep-main.md`, the PR's base) and of its own
+  code head (`../sweep-head.md`).
 - **Result.** Of 125 scenarios:
   - 119 pass as many pairs;
   - 2 pass more;
@@ -156,13 +180,20 @@ retry's scoreboards). `ci-sweep2-step.log` is that step's log.
   - **1 passes fewer**: `resume-paging`, 1 of 8 at CI's head (and on its
     retry) against 2 of 8 at main and at train 12's head.
 - **That pair is the `session-age` nondeterminism**
-  (`parity-ledger.toml:1047-1056`). The picker's age column reads ` 1m` on
+  (`parity-ledger.toml:1058-1067`). The picker's age column reads ` 1m` on
   one side and `now` on the other (CI's first unresolved pair is `down14`
   row 22).
   - It gets three retries on each build.
   - It is called a regression only if no head run passes it and some base
     run does. Then it would be this flake, not a change of the head's.
-- **Not seen:** two pairs of one scenario trading places at equal counts.
+- **The first unresolved pairs.** sweep.py walks a scenario's snaps in the
+  `.cap`'s order and keeps the first unresolved one (`sweep.py:468`,
+  `:523-526`). So a CI first-unresolved snap that comes earlier than main's
+  was not unresolved at main: it passed there or was approved. Of the 40
+  scenarios with one on both sides, **0** are earlier. A pair main passed
+  and CI's head does not, hidden at equal counts, would show here if it
+  came before main's first unresolved snap.
+- **Not seen:** such a swap after both sides' first unresolved snap.
 
 ## Also
 
@@ -186,5 +217,8 @@ checkouts) · `measure.py` · `receipts_rule.py` · `lookahead.py` ·
 `badsettings-history.txt` · `artifact/head/`
 and `artifact/head-retry-1/` (`scoreboard.json`, `summary.md`) ·
 `badsettings-repro.sh` → `badsettings-repro.txt` · `fx_src.sh` →
-`fx-src.txt` · `surface-sweep.sh` → `surface-sweep.txt` · `wf-test-red.txt`
-· `wf-test-green.txt` · `sweep-tests.txt`
+`fx-src.txt` · `restored-sweep.sh` → `restored-sweep.txt`,
+`restored-launch-fx.txt`, `restored-launch-xfx.txt` · `surface-sweep.sh` →
+`surface-sweep.txt` (round 2: the `/status` row's two scenarios swept) ·
+`wf-test-red.txt` · `wf-test-green.txt` · `sweep-tests.txt` ·
+`capture-tests.txt`

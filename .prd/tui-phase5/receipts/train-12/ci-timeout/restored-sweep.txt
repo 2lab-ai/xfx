@@ -1,0 +1,24 @@
+== restored-sweep: bash <repo>/.prd/tui-phase5/receipts/train-12/ci-timeout/restored-sweep.sh <repo> <fx v0.0.16> <scratch>/bin/xfx-head <scratch>/bin/xfx-base <tmpdir>/ <tmpdir>/rt3 <scratch>/restored-out
+start 2026-11-10T05:19:35Z
+fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+head xfx: 0.1.0; base xfx: 0.1.0
+== sweep.sh --only p5-panels-badsettings, the head's xfx
+[1/3] fx p5-panels-badsettings: ran (5s)
+[2/3] xfx p5-panels-badsettings: ran (5s)
+[3/3] fx (inventory): ran (35s)
+pass = 0 / 1 = 0.0%; unresolved 1, failed 0, timeout 0
+wrote <out>/scoreboard.md
+exit=0
+== sweep.sh --only p5-panels-badsettings, the base's xfx
+[1/3] fx p5-panels-badsettings: ran (8s)
+[2/3] xfx p5-panels-badsettings: ran (4s)
+[3/3] fx (inventory): ran (37s)
+pass = 0 / 1 = 0.0%; unresolved 1, failed 0, timeout 0
+wrote <out>/scoreboard.md
+exit=0
+fx sha256 after:  8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+head: launch unresolved-defect, causes ['profile-refuse-at-launch'], rows no cause covers 0
+base: launch unresolved-defect, causes ['profile-refuse-at-launch'], rows no cause covers 0
+regression (head not passing, base passing): False
+exit=0
+end 2026-11-10T05:20:50Z

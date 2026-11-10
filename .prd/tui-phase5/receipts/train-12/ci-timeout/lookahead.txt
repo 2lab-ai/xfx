@@ -4,3 +4,6 @@ pairs main passed that the CI head does not, at least: 1
 
 scenario                           CI head   main      t12 head  the CI head's first unresolved pair
 resume-paging                      1/8       2/8       2/8       down14 row 22: fx '  question three        work ·  1m · 1 turn' / xfx '  question three        work · now · 1 turn'
+
+first unresolved snaps: 40 CI scenarios have one and are in main's sweep
+CI's first unresolved snap comes before main's (so main passed or approved it): 0

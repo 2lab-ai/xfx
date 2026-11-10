@@ -15,4 +15,4 @@ python3 -I "$here/measure.py" "$old" df46777e "$here/ci-sweep2-step.log" "$a/hea
   "$a/head-retry-1/scoreboard.json" "$here/job-steps.txt" > "$here/measure.txt"
 python3 -I "$here/receipts_rule.py" "$old" df46777e "$here/ci-sweep2-step.log" > "$here/receipts-rule.txt"
 python3 -I "$here/lookahead.py" "$a/head/scoreboard.json" "$a/head-retry-1/scoreboard.json" \
-  "$here/../sweep-main.md" "$here/../sweep-head.md" > "$here/lookahead.txt"
+  "$here/../sweep-main.md" "$here/../sweep-head.md" "$old" > "$here/lookahead.txt"

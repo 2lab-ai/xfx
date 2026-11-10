@@ -1,0 +1,10 @@
+== ./scripts/fxcap/test-capture.sh, round 3's tree, TMPDIR 49 bytes
+== capture-tests: bash -c cd '<repo>' && TMPDIR='<tmpdir>/' ./scripts/fxcap/test-capture.sh
+start 2026-11-10T05:12:55Z
+............................................................................................................
+----------------------------------------------------------------------
+Ran 108 tests in 399.326s
+
+OK
+exit=0
+end 2026-11-10T05:19:35Z

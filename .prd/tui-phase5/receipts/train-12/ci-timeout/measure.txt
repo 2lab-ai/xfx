@@ -25,7 +25,7 @@ head 2800 s (measured)
 head retries: retry 1 172 s (measured, 2 scenario(s)); retries 2 and 3 at most the same: 516 s
 base: 1285 to 1285 s
 live nondeterminism causes: 3, their scenarios p5-transcript-submit-multi resume-paging titles-idle; of them in the base set: resume-paging titles-idle
-base retries, at most 3 x (their run-seconds / 1.98 + the inventory run): 450 s
-step, at most: 5050 s = 84.2 min
+base retries: 3 x the first head retry's measured 172 s (the same scenarios): 516 s
+step, estimated: about 5117 s = 85.3 min
 the job before the step: 591 s (job start to the step's start, the job's steps)
-job, at most: 5641 s = 94.0 min
+job, estimated: about 5708 s = 95.1 min

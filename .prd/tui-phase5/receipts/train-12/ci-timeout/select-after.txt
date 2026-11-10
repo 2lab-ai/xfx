@@ -19,6 +19,8 @@ p5-input-model-fail	changed, receipt
 p5-input-row-limit-menus	changed, uses p5-input-row-limit-models.json, receipt
 p5-input-row-limit-short	changed, receipt
 p5-input-row-limit	changed, receipt
+p5-panels-badsettings	changed, receipt
+p5-panels-status-badsettings	changed, receipt
 p5-stop-in-catalog-wait	changed, receipt
 status-version-stats	receipt
 alias	receipt
@@ -114,7 +116,6 @@ p5-panels-permissions	receipt
 p5-panels-permissions-saved	receipt
 p5-panels-slash	receipt
 p5-panels-status	receipt
-p5-panels-status-badsettings	receipt
 p5-panels-status-first	receipt
 p5-panels-status-short	receipt
 p5-panels-sweep-a	receipt
@@ -122,4 +123,3 @@ p5-panels-sweep-b	receipt
 p5-permissions-early	receipt
 p5-permissions-early-probe-ask-after	receipt
 p5-session-early-prefs	receipt
-p5-panels-badsettings	removed

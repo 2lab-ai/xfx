@@ -1,17 +1,17 @@
-== the same test, sweep.yml as it was (timeout-minutes 60)
+== the same test, sweep.yml as it was at 1b15dad9 (timeout-minutes 60)
 test_the_sweep_job_has_the_time_its_selection_needs (__main__.Workflows.test_the_sweep_job_has_the_time_its_selection_needs) ... FAIL
 
 ======================================================================
 FAIL: test_the_sweep_job_has_the_time_its_selection_needs (__main__.Workflows.test_the_sweep_job_has_the_time_its_selection_needs)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "<repo>/scripts/fxcap/test_ci_sweep.py", line 521, in test_the_sweep_job_has_the_time_its_selection_needs
-    self.assertGreaterEqual(w["jobs"]["sweep"]["timeout-minutes"], 94 * 5 // 4)
+  File "<repo>/scripts/fxcap/test_ci_sweep.py", line 522, in test_the_sweep_job_has_the_time_its_selection_needs
+    self.assertGreaterEqual(w["jobs"]["sweep"]["timeout-minutes"], 95 * 5 // 4)
     ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: 60 not greater than or equal to 117
+AssertionError: 60 not greater than or equal to 118
 
 ----------------------------------------------------------------------
-Ran 1 test in 0.059s
+Ran 1 test in 0.047s
 
 FAILED (failures=1)
 exit=1

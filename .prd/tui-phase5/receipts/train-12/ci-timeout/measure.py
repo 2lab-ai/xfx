@@ -134,12 +134,16 @@ led = ci_sweep.ledgermod.load(os.path.join(repo, "scripts", "fxcap", "parity-led
 nd = [c for c in ci_sweep.ledgermod.live_causes(led) if "nondeterminism" in c["kind"]]
 nd_scen = sorted({n for c in nd for n in c["scenarios"]})
 in_base = [n for n in nd_scen if n in surely + maybe]
-bret = 3 * (sum(per[n] for n in in_base) / par + inventory)
+# Those two are the scenarios the head's first retry re-ran, measured at
+# 172 s (at 1.51 run-seconds per second, not the head's 1.98), so each base
+# retry is taken at that measured time, not extrapolated.
+same = len(sweeps) > 1 and set(in_base) == {r[1] for r in sweeps[1]["runs"]} - {"(inventory)"}
+bret = 3 * r1 if same else 3 * (sum(per[n] for n in in_base) / par + inventory)
 print("live nondeterminism causes: %d, their scenarios %s; of them in the base set: %s"
       % (len(nd), " ".join(nd_scen), " ".join(in_base) or "none"))
-print("base retries, at most 3 x (their run-seconds / %.2f + the inventory run): %.0f s" % (par, bret))
+print("base retries: 3 x %s: %.0f s" % ("the first head retry's measured %d s (the same scenarios)" % r1 if same else "their run-seconds / %.2f + the inventory run" % par, bret))
 step = head["wall"] + 3 * r1 + hi + bret
-print("step, at most: %.0f s = %.1f min" % (step, step / 60))
+print("step, estimated: about %.0f s = %.1f min" % (step, step / 60))
 
 pre = None
 for line in open(steps):
@@ -151,4 +155,4 @@ for line in open(steps):
         job_start = t(m2.group(1))
 pre = (started - job_start).total_seconds()
 print("the job before the step: %d s (job start to the step's start, the job's steps)" % pre)
-print("job, at most: %.0f s = %.1f min" % (pre + step, (pre + step) / 60))
+print("job, estimated: about %.0f s = %.1f min" % (pre + step, (pre + step) / 60))
