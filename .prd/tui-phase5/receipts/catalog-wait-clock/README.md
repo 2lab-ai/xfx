@@ -333,7 +333,12 @@ line counts five.)
 
 ## Gate
 
-TBD-GATE3
+`gates3.txt` (`gates.sh`), in a `git clone --no-local` at `bbf15d6d` -- the
+code head `9d2e7f3c` plus round 3's receipt but for the gate's own file --
+inside one hold of the suite lock: **22 steps, 0 failed**, the tree clean
+before and after. `test` 5685 passed, 0 failed; `test-fault` 5722 passed, 0
+failed; A to E `ok` in both; smoke-tui 37 scenarios and the oracle, 1167
+checks, 0 failures.
 
 `gates2.txt` (`gates.sh`, train 13's, unchanged but for its header), in a
 `git clone --no-local` at `6b0c613f` -- the code head `a6ab3ee6` plus round
