@@ -99,6 +99,25 @@ MUTANTS = [
     ("walk-in-the-constructor", SH, once(
         "                    &WorkspaceAccess::load(&config.workspace_root, &config.additional_directories),\n                ));\n                files\n",
         "                    &WorkspaceAccess::load(&config.workspace_root, &config.additional_directories),\n                ));\n                files.start_index();\n                files\n")),
+    # round 2: the first `@`'s decision takes the walk's end only with no
+    # index adopted -- fx's frame for a new scope's walk behind the launch
+    # index (one frame of `Files unavailable`), where xfx records its own
+    ("take-end-only-without-an-index", FI, once(
+        "            self.episode_seen = true;\n            self.take_walk();\n",
+        "            self.episode_seen = true;\n            if self.index.is_none() {\n                self.take_walk();\n            }\n")),
+    # round 2: AT-SCOPE-INTERIM round 3's tick, the decision before the walk's end
+    ("decision-before-the-walks-end", FI, once(
+        "            self.episode_seen = true;\n            self.take_walk();\n",
+        "            self.episode_seen = true;\n")),
+    # round 2: the launch walk with the epoch before the launch's change
+    ("launch-walk-stale-epoch", FI, once(
+        "            return;\n        }\n        self.start_walk();\n    }\n\n    /// A picker has just opened",
+        "            return;\n        }\n        self.start_walk();\n        if let Some(walk) = self.walk.as_mut() {\n"
+        "            walk.epoch = self.epoch.wrapping_sub(1);\n        }\n    }\n\n    /// A picker has just opened")),
+    # round 2: the launch walk's scope without the launch's directories
+    ("launch-scope-without-the-saved-directories", SH, once(
+        "                    &WorkspaceAccess::load(&config.workspace_root, &config.additional_directories),\n                ));\n                files\n",
+        "                    &WorkspaceAccess::load(&config.workspace_root, &[]),\n                ));\n                files\n")),
     # test-side: the tripwires' guards and expectations put back as the base had them
     ("tripwire-cases-restored", SH, tripwires_restored),
     # test-side: the flipped cases with no launch walk driven
