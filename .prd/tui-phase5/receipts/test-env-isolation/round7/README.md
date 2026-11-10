@@ -106,3 +106,33 @@ crate's `.d` files stripped of their `# env-dep:` lines -- refused for
   case.
 - **NITs:** the round-7 mutant harness quotes a "NOT RESOLVED" line;
   `gates.sh` keeps the "accepted" and "resolved" lines.
+
+## RED: each hole, at `9a4d5ef2` and at `c405fb7d`
+
+`red.txt` (`red.py`, on the clone; each hole planted, then that revision's
+own gates -- clippy `-D warnings` and `check-env-reads.py`). Every hole
+passes every gate at `9a4d5ef2` and is refused at `c405fb7d`:
+
+| hole | refused now by |
+|---|---|
+| MUST 1(a): `#[cfg(/*)*/ all(test, not(clippy)))]` over a `HOME` read | the cfg check |
+| MUST 1(a): `#[cfg /* c */ (not(clippy))]` over a `HOME` read | the cfg check |
+| MUST 1(b): `/*` then `// */ #[cfg(all(test, not(clippy)))]` | the cfg check |
+| MUST 1(c): `#[path = "hidden.inc"] mod hidden;`, its test under `not(clippy)` | the cfg check, in `src/test_env/hidden.inc` (from dep-info) |
+| MUST 2: a nested `env!`, the library's `.d` files emptied after a run (48-68 files) | "built with no dep-info" (round 6 **passed**) |
+| SHOULD: `cargo:rustc-cfg` in build.rs | the build-script check |
+| SHOULD: `libc::getpwent` in a unit test | clippy and the check |
+| SHOULD: `default = []` | the matrix check |
+
+clippy `-D warnings` passes the cfg plants at both revisions: it never
+compiles the code they hide, which is the hole.
+
+## GREEN under the sentinel environment, and the enumeration
+
+On the clone at `c405fb7d`, under `../sentinel-run.sh`: `green-lib.txt`,
+the lib suite, 4638 passed, 0 failed, no sentinel value in the output;
+`integration-green.txt`, all 13 integration suites, 0 failed (isolation 4
+and its ignored marking case; the rest as in round 6);
+`integration-reads.txt`, 17,259 reads -- 15,352 by the `xfx` binary the
+suites start, 1,829 in clean copies, 78 in the processes the developer
+started (the constructor's own), **0 of them through `process_env!`**.
