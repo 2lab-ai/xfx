@@ -1,0 +1,50 @@
+# Other tests in the crate whose proof is a wall-clock upper bound (not changed by this unit)
+
+Lines are at 3c0a2ab3 (the same as afd891af for every site before src/tui/worker.rs:18618).
+Found with: grep -rnE "(<|<=) *Duration::from_(millis|secs)|elapsed\(\) *(<|<=)|took *(<|<=)" src tests
+(95 hits), then each hit read and kept when the bound is an assertion that something ended
+"at once" or "did not wait out X". Dropped: hang guards of 5 s or more that only keep a failure
+from hanging, `while started.elapsed() < ...` poll-loop conditions, the release-only perf budgets
+in src/tui/check.rs, and src/tui/event_loop.rs:13575 (byte offsets, not time).
+
+## Tight: a window, or a bound within about 1.5 s of the work it times (the three tests' kind)
+
+src/tui/titles.rs:1250            the_drain_is_bounded_and_the_answer_stands_when_it_runs_out          150 ms <= elapsed < 1.4 s
+src/tui/worker.rs:6880            a_drain_whose_runtime_is_already_gone_returns_at_once                < 1 s (against a 10 s deadline)
+src/tui/worker.rs:18307           the_image_route_waits_two_seconds_at_most_and_once_a_turn            < 1 s "waited twice" (against a 2 s wait)
+src/tui/worker.rs:18318           the_image_route_waits_two_seconds_at_most_and_once_a_turn            < 1 s (same)
+src/tui/worker.rs:18472           the_historys_images_wait_at_the_image_route_and_not_at_the_turns_start  < 3.5 s (one 2 s wait, not two)
+src/agent/machine.rs:2757         a_wait_that_is_already_cancelled_never_sleeps                        < 1 s (against a 30 s wait)
+src/mcp/tests.rs:3160             a_call_waiting_on_another_calls_restart_ends_when_its_own_turn_is_cancelled  < 500 ms
+src/mcp/tests.rs:3231             a_restart_closes_the_dead_connection_it_replaces_outside_the_servers_lock    slowest read < 250 ms
+src/usage/report.rs:1875          a_fetch_runs_on_its_own_thread_and_can_be_cancelled_mid_body         start < 1 s
+src/usage/dashboard/tests.rs:1083 a_fetch_started_while_open_finishes_after_close_and_starts_nothing_new  close < 100 ms
+src/usage/dashboard/tests.rs:1133 quit_cancels_the_fetch_in_flight_and_nothing_is_asked_after_it       <= QUIT_WAIT (1 s) + 100 ms
+src/usage/dashboard/tests.rs:1752 an_admitted_answer_outlives_a_switch_or_quit_under_its_own_sign_in_only  <= QUIT_WAIT + 200 ms
+src/usage/cache/tests.rs:1590     a_store_waits_five_seconds_for_the_lock_and_no_longer                5 s <= waited < 8 s
+tests/tui.rs:4553                 escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does  < 1 s (pty)
+tests/permissions.rs:3556         a_command_past_its_deadline_is_killed_at_once_and_the_screen_says_it_timed_out  < 900 ms
+tests/sessions.rs:791             a_genuine_second_writer_is_still_refused_within_the_bounded_wait     < 1 s
+tests/tool_loop.rs:4041           a_timeout_inside_a_command_ends_it_on_time_from_a_thread_that_blocks_signals  900 ms <= took < 3 s
+
+The same race with no bound asserted: src/tui/worker.rs:19741
+a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs.
+Its own stopper thread sends the stop 300 ms in (:19768) behind the WindowRetry wait; a stop read
+past the retry's 2 s lets the first turn be answered, and its asserted ends flip. Same fix as here
+(the stop sent when the band hears the start) would close it; not done, out of this unit's three.
+
+## Wider: a bound 2 s or more past the work it times
+
+src/tui/worker.rs:8371            a_concluded_turn_reaches_the_ui_through_a_channel_that_had_no_room_for_it  < DRAIN_DEADLINE (2 s)
+src/tui/worker.rs:18300           the_image_route_waits_two_seconds_at_most_and_once_a_turn            < 4 s after a 2 s wait
+src/tui/worker.rs:18521           a_turn_waits_two_seconds_at_most_for_the_retry_behind_a_failed_catalog  < 4 s after a 2 s wait
+src/agent/machine.rs:2742         a_wait_stops_as_soon_as_the_turn_is_cancelled                        < 2 s
+src/mcp/tests.rs:2670             a_reload_ends_an_http_handshake_against_a_silent_endpoint_at_once    < 2 s
+src/mcp/tests.rs:2686             the_end_of_a_session_ends_an_http_handshake_against_a_silent_endpoint_at_once  < 2 s
+src/mcp/tests.rs:2751             a_stop_ends_a_stdio_handshake_whose_output_a_stray_grandchild_holds  < 2 s
+src/mcp/tests.rs:3323             a_stop_ends_an_http_handshake_held_at_its_initialized_notification_or_its_tool_list  < 2 s
+src/usage/report.rs:1889          a_fetch_runs_on_its_own_thread_and_can_be_cancelled_mid_body         < 5.5 s from the cancel
+src/provider/model.rs:3933        a_gateway_catalog_past_its_deadline_is_a_failure_asked_again_about   < 3 s
+tests/gateway.rs:1178             a_retry_waits_for_the_server_requested_delay                         < 3 s
+tests/gateway.rs:1247             cancelling_during_a_backoff_ends_the_turn_without_another_attempt    < 3 s
+tests/tui.rs:13754                a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind  < 4 s (pty)

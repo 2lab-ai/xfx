@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+"""CATALOG-WAIT-CLOCK's mutants, each on a throwaway `git clone --no-local`,
+never on the worktree; run over the base's clone and the head's, so each
+row says whether the old tests and the new ones kill it.
+
+    python3 -I -B mutants.py <clone> <label> <out> [<mutant>...]
+
+For each mutant: the clone's tracked files are reset (`git checkout -- .`),
+its replacements applied (each must match exactly once, or the mutant is
+refused), the lib tests built, and the three catalog-wait tests run under a
+LIMIT-second bound (their process group killed past it). `killed` when the
+run fails, `SURVIVED` when it passes, `timeout` past the bound. The clone is
+reset after each. Writes one line per mutant, the failing tests and their
+assertion's `left`/`right` lines under it.
+"""
+import os
+import re
+import signal
+import subprocess
+import sys
+
+LIMIT = 900
+TESTS = [
+    "tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number",
+    "tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one",
+    "tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop",
+]
+SHORT = {TESTS[0]: "A", TESTS[1]: "B", TESTS[2]: "C"}
+
+W = "src/tui/worker.rs"
+M = "src/agent/machine.rs"
+B = "src/tui/bridge.rs"
+Q = "src/tools/question.rs"
+
+# STOP-IN-CATALOG-WAIT's mutants.py, unchanged texts.
+ARM = (
+    "        // Stopped: nothing will be sent, so nothing is asked for, and the\n"
+    "        // machine ends the turn as the stop (above).\n"
+    "        Err(_) if turn.token.is_cancelled() => crate::gateway::protocol::RequestOptions::default(),\n"
+)
+SKIP = "    if carries_images && !turn.token.is_cancelled() {\n"
+GUARD = (
+    "        if self.request.cancel.is_cancelled() {\n"
+    "            stopped = Some(TurnError::Cancelled);\n"
+    "        } else if self.compactor.is_some() {\n"
+)
+EFFORT_END = (
+    "            let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;\n"
+    "        }\n"
+    "    }\n"
+    "    // **A stop that came while the catalog was waited for is the turn's end,\n"
+)
+FIRST_LOAD = (
+    "    if !images.is_empty()\n"
+    "        || !state.settings.effort.is_default()\n"
+)
+
+MUTANTS = {
+    # The stop ignored until each wait ends by itself: its arm gone from the
+    # select (train 7's J2 for the retry).
+    "retry-wait-ignores-stop": [(
+        W,
+        "        () = turn.token.cancelled() => {}\n"
+        "        _ = tokio::time::timeout(FAILED_CATALOG_RETRY_WAIT, state.selector.settle_load()) => {}\n",
+        "        _ = tokio::time::timeout(FAILED_CATALOG_RETRY_WAIT, state.selector.settle_load()) => {}\n",
+    )],
+    "window-first-load-ignores-stop": [(
+        W,
+        "        return;\n    }\n    let fresh = tokio::select! {\n        biased;\n"
+        "        () = turn.token.cancelled() => false,\n",
+        "        return;\n    }\n    let fresh = tokio::select! {\n        biased;\n",
+    )],
+    "turn-catalog-read-ignores-stop": [(
+        W,
+        "            () = turn.token.cancelled() => false,\n"
+        "            fresh = state.load_catalog() => fresh,\n",
+        "            fresh = state.load_catalog() => fresh,\n",
+    )],
+    # The stop honoured, half a second late: still inside the retry's 2 s,
+    # and before a first load lands.
+    "retry-wait-stop-late": [(
+        W,
+        "        () = turn.token.cancelled() => {}\n"
+        "        _ = tokio::time::timeout(FAILED_CATALOG_RETRY_WAIT, state.selector.settle_load()) => {}\n",
+        "        () = turn.token.cancelled() => tokio::time::sleep(std::time::Duration::from_millis(500)).await,\n"
+        "        _ = tokio::time::timeout(FAILED_CATALOG_RETRY_WAIT, state.selector.settle_load()) => {}\n",
+    )],
+    "turn-catalog-read-stop-late": [(
+        W,
+        "            () = turn.token.cancelled() => false,\n"
+        "            fresh = state.load_catalog() => fresh,\n",
+        "            () = turn.token.cancelled() => {\n"
+        "                tokio::time::sleep(std::time::Duration::from_millis(500)).await;\n"
+        "                false\n"
+        "            }\n"
+        "            fresh = state.load_catalog() => fresh,\n",
+    )],
+    "image-route-read-ignores-stop": [(
+        W,
+        "        () = turn.token.cancelled() => false,\n"
+        "        fresh = state.load_catalog() => fresh,\n    };\n    // The image route",
+        "        fresh = state.load_catalog() => fresh,\n    };\n    // The image route",
+    )],
+    # STOP-IN-CATALOG-WAIT's own.
+    "prompt-images-first-load-not-waited": [
+        (W, FIRST_LOAD, "    if !state.settings.effort.is_default()\n")
+    ],
+    "ultra-refusal-not-yielded": [(W, ARM, "")],
+    "image-refusal-asked-when-stopped": [(W, SKIP, "    if carries_images {\n")],
+    "candidate-bare-return": [
+        (W, ARM, ""),
+        (W, SKIP, "    if carries_images {\n"),
+        (
+            W,
+            EFFORT_END,
+            EFFORT_END.replace(
+                "    }\n    // **A stop",
+                "    }\n    if turn.token.is_cancelled() {\n"
+                "        return Some(bridge::TURN_CANCELLED.to_string());\n"
+                "    }\n    // **A stop",
+            ),
+        ),
+    ],
+    "no-machine-guard": [(M, GUARD, "        if self.compactor.is_some() {\n")],
+    "stop-leaks-to-next-turn": [(B, "        self.mirror.reset();\n", "")],
+    # QUESTIONS-20's M1, for test C's turn that asks twenty.
+    "questions-cap-back-to-4": [(Q, "pub const MAX_QUESTIONS: usize = 20;", "pub const MAX_QUESTIONS: usize = 4;")],
+}
+
+
+def env():
+    out = dict(os.environ)
+    for name in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"):
+        out.pop(name, None)
+    return out
+
+
+def git(clone, *args):
+    return subprocess.run(["git", "-C", clone, *args], env=env(), capture_output=True, text=True)
+
+
+def apply(clone, edits):
+    for path, old, new in edits:
+        full = os.path.join(clone, path)
+        with open(full, encoding="utf-8") as handle:
+            text = handle.read()
+        count = text.count(old)
+        if count != 1:
+            return f"{path}: the mutant's text matches {count} times"
+        with open(full, "w", encoding="utf-8") as handle:
+            handle.write(text.replace(old, new))
+    return None
+
+
+def bounded(clone, args):
+    proc = subprocess.Popen(args, cwd=clone, env=env(), stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, start_new_session=True)
+    try:
+        out, _ = proc.communicate(timeout=LIMIT)
+        return proc.returncode, out, False
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        out, _ = proc.communicate()
+        return None, out, True
+
+
+def main():
+    clone, label, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
+    only = sys.argv[4:] or list(MUTANTS)
+    head = git(clone, "rev-parse", "--short=8", "HEAD").stdout.strip()
+    lines = [f"# {label}: mutants.py on a git clone --no-local at {head}; the three tests "
+             f"(A, B, C) per mutant, bounded at {LIMIT} s"]
+    for name in only:
+        git(clone, "checkout", "--", ".")
+        refused = apply(clone, MUTANTS[name])
+        if refused:
+            lines.append(f"{label} {name}: NOT APPLIED ({refused})")
+            print(lines[-1], flush=True)
+            continue
+        rc, out, _ = bounded(clone, ["cargo", "test", "--locked", "--lib", "--no-run"])
+        if rc != 0:
+            lines.append(f"{label} {name}: BUILD FAILED")
+            lines += ["    " + l for l in out.splitlines() if l.startswith("error")][:5]
+            print(lines[-1], flush=True)
+            git(clone, "checkout", "--", ".")
+            continue
+        rc, out, hung = bounded(clone, ["cargo", "test", "--locked", "--lib", "--", "--exact", *TESTS])
+        failed = re.findall(r"^test (\S+) \.\.\. FAILED$", out, re.M)
+        verdict = "timeout" if hung else ("SURVIVED" if rc == 0 else "killed")
+        named = " ".join(SHORT.get(t, t) for t in failed)
+        lines.append(f"{label} {name}: {verdict}" + (f" (failed: {named})" if failed else ""))
+        lines += ["    " + l for l in out.splitlines()
+                  if l.startswith(("  left:", " right:", "test result"))]
+        print(lines[-1 - sum(1 for l in out.splitlines() if l.startswith(("  left:", " right:", "test result")))],
+              flush=True)
+        git(clone, "checkout", "--", ".")
+    status = git(clone, "status", "--porcelain").stdout
+    lines.append(f"clone after: {'clean' if not status.strip() else 'DIRTY: ' + status}")
+    with open(out_path, "w") as handle:
+        handle.write("\n".join(lines) + "\n")
+    print(lines[-1])
+
+
+main()
