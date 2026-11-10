@@ -9,6 +9,16 @@ unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
 git clone -q --no-local "$repo" "$work/rollback" || exit 2
 cd "$work/rollback" || exit 2
 git checkout -q "$head" || exit 2
+# Each cargo run's whole output is kept in <scratch>/<name>.log; its result lines, and each failure's
+# panic place and first lines, are printed.
+run() {
+	local name=$1; shift
+	"$@" > "$work/$name.log" 2>&1
+	local rc=$?
+	grep -E '^test result|FAILED|^error' "$work/$name.log"
+	grep -A3 'panicked at' "$work/$name.log" | cut -c1-240 | head -60
+	echo "cargo rc=$rc"
+}
 echo "# the set, oldest first (git log --reverse 714f6283..$head)"
 git log --format='%h %s' --reverse 714f6283..HEAD
 echo "# git revert --no-edit 714f6283..HEAD (newest first)"
@@ -18,11 +28,8 @@ echo "# git diff --stat 714f6283 (empty: the tree is 714f6283's)"
 git diff --stat 714f6283
 echo "files changed against 714f6283: $(git diff --name-only 714f6283 | wc -l | tr -d ' ')"
 echo "# cargo test --locked --lib -- session:: tui::worker interactive:: image:: agent::compact"
-cargo test --locked --lib -- session:: tui::worker interactive:: image:: agent::compact 2>&1 | grep -E '^test result|FAILED|^error'
-echo "cargo rc=${PIPESTATUS[0]}"
+run lib cargo test --locked --lib -- session:: tui::worker interactive:: image:: agent::compact
 echo "# cargo test --locked --test sessions --test parity --test tool_loop"
-cargo test --locked --test sessions --test parity --test tool_loop 2>&1 | grep -E '^test result|FAILED|^error'
-echo "cargo rc=${PIPESTATUS[0]}"
+run targets cargo test --locked --test sessions --test parity --test tool_loop
 echo "# cargo test --locked --test tui -- resume image"
-cargo test --locked --test tui -- resume image 2>&1 | grep -E '^test result|FAILED|^error'
-echo "cargo rc=${PIPESTATUS[0]}"
+run tui cargo test --locked --test tui -- resume image

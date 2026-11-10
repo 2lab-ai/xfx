@@ -19,7 +19,8 @@ one this unit added to `docs/parity.md`, the code and the scenarios (`new_cites.
 | `2336c989` | round 2 fix and `docs/parity.md`: **the code head** |
 | `f290f697` | round 2 scenarios: the seeds corrected, `p5-image-loss-whole` and `-changed`; the binary of every head capture and of the head sweep (`binaries.txt`) |
 | `f42a68ab` | round 2 test: the TUI's per-request test resumes a second time, so the read moved back to the resume fails it (`mutants-r2.txt`) |
-| (the receipt commits) | this folder; the last records the rollback check (`rollback.txt`) |
+| `b2f95c55` | round 2 receipt: this folder |
+| (the next commit) | the rollback check (`rollback.txt`, `rollback.sh` keeping every log), and the set named here and in `docs/parity.md` |
 
 ## fx's rule, case by case (`fx-src.txt`, and the captures of round 2)
 
@@ -194,8 +195,33 @@ commit after it changes a test only.
 
 ## The rollback (`rollback.txt`)
 
-Recorded by the commit after this folder's first round-2 commit: the exact set, checked on a
-throwaway clone at this one (`rollback.txt`).
+**The set.** The unit is ten commits after `714f6283`. Reverting all of them leaves `714f6283`'s tree.
+Revert them newest first, in one `git revert --no-edit 714f6283..<the unit's head>`:
+1. the commit that adds `rollback.txt` (only this folder and the set's wording in
+   `docs/parity.md`'s `/image` row);
+2. `b2f95c55` (round 2's receipt);
+3. `f42a68ab` (test);
+4. `f290f697` (scenarios);
+5. `2336c989` (round 2's fix);
+6. `3a17da54` (round 2's RED);
+7. `dba6007b` (round 1's receipt);
+8. `67a80e48` (scenario);
+9. `0f0b6789` (round 1's fix);
+10. `f61bcf1a` (round 1's RED).
+
+**Checked** (`rollback.txt`, `rollback.sh`) on a `git clone --no-local` copy at `b2f95c55`, in one
+suite-lock slot:
+- the revert of the nine commits up to it succeeds;
+- the tree then differs from `714f6283`'s in 0 files;
+- the area's lib tests (437), `--test sessions` (65), `--test parity` (26), `--test tool_loop`
+  (109) and the resume and image pty tests (20) pass on it.
+
+Commit 1 changes nothing else, so reverting it first gives `b2f95c55`'s tree.
+
+**The first run failed and is kept.** Its pty target failed 17 of 20 together at 21.39 s, which is
+the harness's 20 s wait, and the script then kept no panic lines. In the same clone, unchanged,
+the 20 tests passed. The run recorded above used a script that keeps every log, in a new clone,
+and everything passed. The cause of the first failure is not known.
 
 ## Open
 

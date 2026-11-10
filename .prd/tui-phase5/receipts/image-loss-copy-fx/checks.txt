@@ -32,3 +32,18 @@ rc=0
 # python3 -I -B new_cites.py src tests scripts/fxcap/scenarios > <file>: 43 spans this unit added; bash fx_src.sh <fx-upstream> --check <file>
 checked 43 citations
 rc=0
+
+# again with the rollback commit staged (docs/parity.md's set, README.md, rollback.sh, rollback.txt)
+check-no-secrets rc=0
+check-xfx-identity rc=0
+check-no-stubs rc=0
+redaction grep over git diff --cached 714f6283 (every commit of the unit and this folder): 0
+# bash fx_src.sh <fx-upstream> --check README.md
+checked 49 citations
+rc=0
+# python3 -I -B new_cites.py docs/parity.md > <file>: 11 spans this unit added; bash fx_src.sh <fx-upstream> --check <file>
+checked 11 citations
+rc=0
+# python3 -I -B new_cites.py src tests scripts/fxcap/scenarios > <file>: 43 spans this unit added; bash fx_src.sh <fx-upstream> --check <file>
+checked 43 citations
+rc=0
