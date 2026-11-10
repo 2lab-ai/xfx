@@ -967,6 +967,9 @@ case $scenario in
   ok|pair-*)
     printf 'same %s\nrow\n' "$TMPDIR" > "$out/$which-$scenario-$size-a.ansi"
     printf '%s says\n' "$which" > "$out/$which-$scenario-$size-b.ansi" ;;
+  run-*)
+    printf 'run %s\n' "${FXCAP_RUN-unset}" > "$out/$which-$scenario-$size-a.ansi"
+    printf '%s\n' "$TMPDIR" > "$out/$which-$scenario-$size-tmp.txt" ;;
 esac
 """
 
@@ -1194,6 +1197,30 @@ class Sweep(unittest.TestCase):
         self.assertIn("a verb only the harness's own tests use", r.stderr)
         self.assertIn("stub (fx): `nodraw`", r.stderr)
         self.assertFalse(os.path.exists(out), "nothing was captured")
+
+    def test_a_units_two_runs_share_one_run_directory_named_by_digits(self):
+        # WORKSPACE-INDEX-AT-PLAN: capture.sh made each run its own
+        # `mktemp -d fxcap.XXXXXX`, so fx and xfx ran in paths of one width
+        # and other letters, and `@plan` matched an added directory through
+        # one side's letters only. The sweep names one run directory for a
+        # unit's two runs (FXCAP_RUN), digits only, under a root of digits.
+        for name in ("run-a", "run-b"):
+            with open(os.path.join(self.scen, name + ".cap"), "w") as f:
+                f.write("snap a\n")
+        r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, "--only", "run-*", "--jobs", "2")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        for unit in ("run-a", "run-b"):
+            seen = {}
+            for side in ("fx", "xfx"):
+                d = os.path.join(out, "runs", unit, side)
+                seen[side] = (
+                    slurp(os.path.join(d, "%s-%s-40x120-a.ansi" % (side, unit))),
+                    slurp(os.path.join(d, "%s-%s-40x120-tmp.txt" % (side, unit))).strip(),
+                )
+            self.assertEqual(seen["fx"], seen["xfx"], unit)
+            self.assertRegex(seen["fx"][0], r"^run fxcap\.[0-9]{6}\n$", unit)
+            self.assertRegex(os.path.basename(os.path.dirname(seen["fx"][1])), r"^fxsw\.[0-9]{8}$", unit)
+        self.assertEqual(self.board(out)["totals"]["identical"], 2)
 
     def test_the_out_directory_is_outside_the_repository(self):
         r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, out=os.path.join(REPO, "target", "sweep-out"))

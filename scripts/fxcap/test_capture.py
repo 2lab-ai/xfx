@@ -151,7 +151,7 @@ def capture(cap, files=None, which="fx", binary="/bin/bash", size="30x200", scen
         write(os.path.join(out, name), text)
     extra = env
     env = dict(os.environ, FXCAP_SCENARIOS=scen, TMPDIR=d)
-    for k in ("TMUX", "TMUX_PANE", "FX_BIN", "XFX_BIN"):
+    for k in ("TMUX", "TMUX_PANE", "FX_BIN", "XFX_BIN", "FXCAP_RUN"):
         env.pop(k, None)
     env["FX_BIN" if which == "fx" else "XFX_BIN"] = link
     env.update(extra or {})
@@ -286,6 +286,76 @@ class Refusals(unittest.TestCase):
         r = capture("wait 1\nsnap a\n", scen_name="my scenarios")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         self.assertIn("guards:", r.stdout)
+
+
+class RunDirectory(unittest.TestCase):
+    """The run directory's name (WORKSPACE-INDEX-AT-PLAN). A binary reads its
+    path's letters, not only its width: workspace-index's `@plan` matched the
+    added directory `<run>/extra/notes/` through its whole path, so on CI,
+    whose TMPDIR holds no `l` after its `p`, the row was there only on the
+    side whose random `fxcap.XXXXXX` had one -- and roots.py writes both runs'
+    paths as the same placeholder, so no capture showed why. A sweep unit's
+    two runs get one name (FXCAP_RUN, sweep.py `run_unit`), and every name is
+    six digits."""
+
+    # The stub prints a checksum of its working directory: a number, which
+    # roots.py has no reason to rewrite, so the two sides' paths are compared
+    # byte for byte where their placeholders would read the same.
+    CAP = "keep\nwait 1\ntype clear; echo \"sum=$(pwd | cksum)\"; echo DO\"\"NE\nkey Enter\nuntil shown DONE\nsnap a\n"
+
+    def sum_row(self, r):
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        rows = [row for row in r.file("a").split("\n") if row.startswith("sum=")]
+        self.assertEqual(len(rows), 1, r.file("a"))
+        return rows[0]
+
+    def test_a_sweep_units_two_runs_see_the_same_path(self):
+        # The sweep's way: both sides in one TMPDIR, one after the other, the
+        # directory emptied between them (sweep.py `run_unit`).
+        d = scratch()
+        name = "fxcap.%06d" % (os.getpid() % 1000000)
+        fx = capture(self.CAP, d=d, env={"FXCAP_RUN": name})
+        runs = [os.path.basename(p) for p in glob.glob(os.path.join(d, "fxcap.*"))]
+        for run in runs:
+            shutil.rmtree(os.path.join(d, run))
+        xfx = capture(self.CAP, which="xfx", d=d, env={"FXCAP_RUN": name})
+        self.assertEqual(self.sum_row(fx), self.sum_row(xfx), "the two binaries ran in different paths")
+        runs += [os.path.basename(p) for p in glob.glob(os.path.join(d, "fxcap.*"))]
+        self.assertEqual(runs, [name, name])
+
+    def test_a_run_of_its_own_is_six_digits_owner_only(self):
+        d = scratch()
+        for which in ("fx", "xfx"):
+            self.sum_row(capture(self.CAP, which=which, d=d))
+        runs = glob.glob(os.path.join(d, "fxcap.*"))
+        self.assertEqual(len(runs), 2, "two runs, two directories: neither reused the other's")
+        for run in runs:
+            self.assertRegex(os.path.basename(run), r"^fxcap\.[0-9]{6}$")
+            self.assertEqual(os.stat(run).st_mode & 0o777, 0o700)
+
+    def test_a_name_of_another_shape_or_already_there_is_refused(self):
+        # One level down, so the level above, where `../` would reach, is
+        # this test's own too.
+        d = os.path.join(scratch(), "in")
+        os.makedirs(d)
+        for name, needle in (
+            ("fxcap.abcdef", "FXCAP_RUN is `fxcap.` and six digits"),
+            ("fxcap.1234567", "FXCAP_RUN is `fxcap.` and six digits"),
+            ("../fxcap.123456", "FXCAP_RUN is `fxcap.` and six digits"),
+            ("fxcap.12345/", "FXCAP_RUN is `fxcap.` and six digits"),
+        ):
+            with self.subTest(name=name):
+                r = capture("wait 1\nsnap a\n", d=d, env={"FXCAP_RUN": name})
+                self.assertEqual(r.code, 2, r.stdout + r.stderr)
+                self.assertIn(needle, r.stderr)
+                self.assertEqual(r.stdout, "", "nothing ran: no roots line, no guards line")
+                self.assertEqual(glob.glob(os.path.join(d, "fxcap.*")) + glob.glob(os.path.join(os.path.dirname(d), "fxcap.*")), [])
+        os.mkdir(os.path.join(d, "fxcap.000001"))
+        r = capture("wait 1\nsnap a\n", d=d, env={"FXCAP_RUN": "fxcap.000001"})
+        self.assertEqual(r.code, 2, r.stdout + r.stderr)
+        self.assertIn("FXCAP_RUN names a run directory that is already there or cannot be made", r.stderr)
+        self.assertEqual(r.stdout, "")
+        self.assertEqual(os.listdir(os.path.join(d, "fxcap.000001")), [], "the directory there is left as it was")
 
 
 class Placeholders(unittest.TestCase):

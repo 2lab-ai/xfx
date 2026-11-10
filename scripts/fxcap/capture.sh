@@ -377,8 +377,8 @@
 # name anywhere -- refuses the file. roots.py's docstring is the whole rule.
 #
 # fx's side and xfx's are rewritten by the same rule, so a pair compares as it
-# did: the two runs of a sweep unit share one TMPDIR, so each root is as long
-# on both sides. The two binaries' own TMPDIRs are no roots of their own:
+# did: the two runs of a sweep unit share one run directory (FXCAP_RUN), so
+# each root is the same path on both. The binaries' own TMPDIRs are no roots:
 # each is written as the run directory's placeholder and its own name,
 # `<scratch___>/fxtmp` and `<scratch___>/xfxtmp`, so a row that names one is
 # a column wider on xfx's side, as it was on the screen, and the ledger's
@@ -427,6 +427,36 @@ writable='^/[A-Za-z0-9._/+-]+$'
 # is written to before the out directory sees it, roots.py itself, and what
 # the exit's check reads (main sets them once the run directory exists).
 root_args=() stage='' roots_py='' net_out='' net_prefix='' net_since=''
+
+# Makes the run directory under $1, owner-only, and prints its path: the name
+# FXCAP_RUN gives (`fxcap.` and six digits), refused if it is another shape or
+# already there, or else `fxcap.` and six random digits, never one that
+# exists. Digits, not mktemp's letters: a binary reads its path's letters --
+# workspace-index's `@plan` matched the added `<run>/extra/notes/` through the
+# whole path, so mktemp's letters decided whether that row was there at all
+# (WORKSPACE-INDEX-AT-PLAN) -- and digits leave every run the same letters.
+# The sweep gives a unit's two runs one FXCAP_RUN (sweep.py `run_unit`), so fx
+# and xfx see the same path, byte for byte.
+make_run() {
+  local tmpdir=$1 name n try
+  if [[ -n ${FXCAP_RUN:-} ]]; then
+    [[ $FXCAP_RUN =~ ^fxcap\.[0-9]{6}$ ]] || { echo "FXCAP_RUN is \`fxcap.\` and six digits" >&2; return 1; }
+    mkdir -m 700 "$tmpdir/$FXCAP_RUN" 2> /dev/null ||
+      { echo "FXCAP_RUN names a run directory that is already there or cannot be made" >&2; return 1; }
+    printf '%s\n' "$tmpdir/$FXCAP_RUN"
+    return 0
+  fi
+  for (( try = 0; try < 100; try++ )); do
+    n=$(od -An -N4 -tu4 /dev/urandom | tr -d ' \n')
+    name=fxcap.$(printf '%06d' $(( n % 1000000 )))
+    if mkdir -m 700 "$tmpdir/$name" 2> /dev/null; then
+      printf '%s\n' "$tmpdir/$name"
+      return 0
+    fi
+  done
+  echo "no run directory could be made under TMPDIR in 100 tries" >&2
+  return 1
+}
 
 # Each root's length on this run, in bytes (the C locale's `${#}`), for a
 # claim about a path's width: its placeholder is that many columns wide for
@@ -664,8 +694,8 @@ main() {
   if [[ $path_bun =~ $writable ]]; then fill_bun=$path_bun; fi
 
   local run port='' bin tmpdir=${TMPDIR:-/tmp}
-  # Without its trailing slashes (macOS's own TMPDIR ends in one): mktemp
-  # would name `<TMPDIR>//fxcap.XXXXXX`, a path a binary that normalizes it
+  # Without its trailing slashes (macOS's own TMPDIR ends in one): the run
+  # would be `<TMPDIR>//fxcap.XXXXXX`, a path a binary that normalizes it
   # prints otherwise.
   while [[ $tmpdir == */ && $tmpdir != / ]]; do tmpdir=${tmpdir%/}; done
   # The run's tmux socket is $run/s, and tmux takes a socket path of at most
@@ -678,7 +708,7 @@ main() {
     echo "TMPDIR is too long for this run's tmux socket: <TMPDIR>/fxcap.XXXXXX/s would be $((sock_len)) bytes, and a socket path holds at most 103 (macOS's sun_path is 104 bytes with its NUL): a TMPDIR of at most $((tmp_len - sock_len + 103)) bytes, not $((tmp_len))" >&2
     exit 2
   fi
-  run=$(mktemp -d "$tmpdir/fxcap.XXXXXX")
+  run=$(make_run "$tmpdir") || exit 2
   mkdir -p "$run/home" "$run/work"
   # What roots.py writes each of this run's roots as (the list at the top),
   # and the run directory's own name, which no file may keep. A shared system
