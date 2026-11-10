@@ -1,0 +1,3 @@
+tmux tmux 3.7b
+socket path 103 bytes: started; probe
+socket path 104 bytes: refused: error connecting to <path> (File name too long)

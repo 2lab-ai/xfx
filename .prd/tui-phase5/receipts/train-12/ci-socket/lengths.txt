@@ -1,0 +1,7 @@
+socket limit (test_capture.SOCKET_MAX): 103 bytes; tail '/fxcap.XXXXXX/s': 15 bytes
+CI run (PR #90): runner TMPDIR 49 bytes; socket path tmux refused 105 bytes
+runner-length TMPDIR: 49 bytes given, 57 resolved; scratch dir 64 bytes; headroom 24; extras (0, 12, 24); socket at each [79, 91, 103]
+  old fixed extras (0, 9, 26): socket at each [79, 88, 105]
+gate TMPDIR: 23 bytes given, 23 resolved; scratch dir 39 bytes; headroom 49; extras (0, 24, 49); socket at each [54, 78, 103]
+  old fixed extras (0, 9, 26): socket at each [54, 63, 80]
+RED socket path tmux refused: 105 bytes

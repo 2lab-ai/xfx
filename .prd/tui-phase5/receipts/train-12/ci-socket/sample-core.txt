@@ -1,0 +1,13 @@
+# Look-ahead sample: the p5 scenarios LOCAL-PATHS swept, and the scenarios whose
+# catalog outage SWEEP-WALLCLOCK-F moved to a scenario line (catalog-window's retirement).
+p5-panels-status
+p5-panels-status-short
+p5-mcp-empty
+p5-lifecycle-relhome-image
+model-reask
+model-parked
+p5-input-model-fail
+model-column-idle
+model-column-reask
+p5-stop-in-catalog-wait
+startup

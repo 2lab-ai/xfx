@@ -1,0 +1,33 @@
+guard lines left: 0
+FF
+======================================================================
+FAIL: test_a_tmpdir_too_long_for_the_socket (__main__.Refusals.test_a_tmpdir_too_long_for_the_socket) (slash=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/mutant/scripts/fxcap/test_capture.py", line 279, in test_a_tmpdir_too_long_for_the_socket
+    self.assertEqual(r.code, 2, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 2 : roots: <work>=107 <work:real>=115 <scratch>=102 <scratch:real>=110 <scenarios>=82 <bun>=21 <bun:real>=39 <tmp>=89 <tmp:real>=97 <home>=16 bytes
+guards: <tmpdir>/fxcapt.tueqwfq9/bin/it sha256 67e853b74060 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+error connecting to <tmpdir>/fxcapt.4tpzrd7f/tttttttttttttttttttttttt/fxcap.nhxB2u/s (File name too long)
+<scratch>/mutant/scripts/fxcap/capture.sh: line 1: 99145 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+======================================================================
+FAIL: test_a_tmpdir_too_long_for_the_socket (__main__.Refusals.test_a_tmpdir_too_long_for_the_socket) (slash=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/mutant/scripts/fxcap/test_capture.py", line 279, in test_a_tmpdir_too_long_for_the_socket
+    self.assertEqual(r.code, 2, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 2 : roots: <work>=107 <work:real>=115 <scratch>=102 <scratch:real>=110 <scenarios>=82 <bun>=21 <bun:real>=39 <tmp>=89 <tmp:real>=97 <home>=16 bytes
+guards: <tmpdir>/fxcapt.fcs3ra65/bin/it sha256 67e853b74060 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+error connecting to <tmpdir>/fxcapt.4tpzrd7f/tttttttttttttttttttttttt/fxcap.u76B1x/s (File name too long)
+<scratch>/mutant/scripts/fxcap/capture.sh: line 1: 99819 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+----------------------------------------------------------------------
+Ran 1 test in 2.481s
+
+FAILED (failures=2)
+exit=1
