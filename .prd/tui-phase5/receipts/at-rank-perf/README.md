@@ -504,8 +504,12 @@ inventory) CI's Intel row measured 9.82 ms where this machine measures
 3.49-3.65 ms: **a ratio of 2.7-2.8**. At that ratio the head's 1.56-1.93
 ms is **4.2-5.4 ms on Intel**, against the 8 ms bar; the `exact` class,
 13.42 ms there at a ratio of 2.8-3.1, would be 5.0-6.3 ms. x86_64 Linux
-(7.69 ms, ratio 2.1-2.2) would be 3.3-4.2 ms. These are estimates; the
-dispatcher's CI run measures them.
+(7.69 ms, ratio 2.1-2.2) would be 3.3-4.2 ms. These are estimates, and
+they assume the ratio carries across the change: it was measured on byte
+loops, and the head's scans are `memchr`, which on x86_64 picks its SSE2
+or AVX2 routine at run time where this machine (arm64) uses NEON
+directly, so short searches may cost Intel relatively more. The
+dispatcher's CI run measures it.
 
 **The work count** (§6) was set again: the masks spare most searches, so
 the counts fell (`exact` 607,118 -> 154,620, `api-route` 189,720 -> 13,989;
