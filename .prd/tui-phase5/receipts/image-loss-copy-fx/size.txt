@@ -1,19 +1,26 @@
-# python3 -I -B size.py 20a69fc2 (the unit, from 714f6283)
+# python3 -I -B size.py 023430f4 (the unit, from 714f6283)
 src/agent/compact.rs: tests from line 3272: +4 -3
 src/agent/machine.rs: tests from line 1777: +2 -1
-src/app.rs: tests from line 1355: +96 -38
-src/gateway/mod.rs: tests from line 1076: +7 -0
+src/app.rs: tests from line 1357: +98 -38
+src/gateway/mod.rs: tests from line 1080: +11 -0
 src/image.rs: tests from line 1167: +32 -21
 src/interactive.rs: tests from line 2814: +3 -62
-src/session/store.rs: tests from line 4108: +428 -111
+src/session/store.rs: tests from line 4148: +467 -110
 src/session/store/carry_tests.rs: tests from line 0: +0 -0
 src/session/store/fork.rs: tests from line 605: +6 -2
 src/session/store/fork/tests.rs: tests from line 0: +0 -0
 src/tui/full_transcript.rs: tests from line 3252: +2 -2
 src/tui/shell.rs: tests from line 16507: +0 -0
 src/tui/titles.rs: tests from line 934: +3 -1
-src/tui/worker.rs: tests from line 6565: +10 -25
-outside tests: +593 -266 (859 lines changed, net +327)
+src/tui/worker.rs: tests from line 6566: +11 -25
+outside tests: +639 -265 (904 lines changed, net +374)
+
+# python3 -I -B size.py 023430f4 9131b35b (round 4)
+src/app.rs: tests from line 1357: +12 -10
+src/gateway/mod.rs: tests from line 1080: +6 -2
+src/session/store.rs: tests from line 4148: +64 -24
+src/tui/worker.rs: tests from line 6566: +1 -0
+outside tests: +83 -36 (119 lines changed, net +47)
 
 # python3 -I -B size.py 20a69fc2 d079b843 (round 3)
 src/app.rs: tests from line 1355: +20 -21

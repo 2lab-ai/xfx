@@ -1,0 +1,25 @@
+# Round 4 RED: 44a6532a (round 3's code, its tests and a test-only seam between a copy's open and its read) on a git clone --no-local at that commit, one suite-lock slot, the a-z TMPDIR:
+#   cargo test --locked --lib -- each_request_sends_a_copy a_resumed_copy_is_held_back_past_each_limit
+#   python3 -I scripts/fxcap/test_capture.py -k homemode
+# Each test's verdict, each panic's place and its first lines (cut at 300 characters).
+test session::store::tests::each_request_sends_a_copy_upstream_has_just_checked_holds_it_back_or_fails ... FAILED
+test tui::worker::tests::a_resumed_copy_is_held_back_past_each_limit_and_sent_at_it_with_upstreams_whole_note ... ok
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4630 filtered out; finished in 2.99s
+FAIL: test_homemode_sets_a_mode_and_never_changes_one_through_a_link (__main__.Confinement.test_homemode_sets_a_mode_and_never_changes_one_through_a_link) (file='.fx/f')
+FAIL: test_homemode_sets_a_mode_and_never_changes_one_through_a_link (__main__.Confinement.test_homemode_sets_a_mode_and_never_changes_one_through_a_link) (file='.fx-hard')
+Ran 1 test in 9.616s
+FAILED (failures=2)
+
+thread 'session::store::tests::each_request_sends_a_copy_upstream_has_just_checked_holds_it_back_or_fails' (466067007) panicked at src/session/store.rs:6078:13:
+assertion `left == right` failed: whole, then a byte more in the read
+  left: ["sent 73 bytes, whole"]
+ right: ["Some(Image(\"ImageSnapshotCorrupt\"))"]
+AssertionError: 0 != 2 : up: a first frame after 0.09 s (2 looks)
+<tmp>
+guards: <tmp> sha256 67e853b74060 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+
+--
+AssertionError: 0 != 2 : up: a first frame after 0.12 s (2 looks)
+until shown 'made-it': after 0.03 s, 0.61 s since launch
+<tmp>
+guards: <tmp> sha256 67e853b74060 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories

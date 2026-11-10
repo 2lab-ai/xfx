@@ -60,6 +60,7 @@ show src/core/shared/types.zig 1667 1682 "projectProviderReplay: a replay state 
 # --- W: before the build, an image whose file the request cannot vouch for is held back with a note
 show src/core/images/image_attachments.zig 24 24 "image_too_large_notice"
 show src/core/images/image_attachments.zig 805 850 "the dimension cache (a turn's; the file size is checked again on each request), attachmentDimensions, probeSnapshotDimensions, attachmentRawBytes, attachmentFitsEncodedLimit: an open or a header that fails is no size"
+show src/core/images/image_data.zig 6 6 "max_encoded_image_bytes: 5 MiB"
 show src/core/images/image_data.zig 168 179 "requestMaxDimension, countRequestImages: every image of the request, a tool result's with the user's"
 show src/core/images/image_data.zig 186 190 "fitsEncodedImageLimit: 5 MiB once encoded"
 show src/core/images/image_attachments.zig 960 988 "writeWithheldAttachmentNotice"

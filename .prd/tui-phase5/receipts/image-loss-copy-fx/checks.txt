@@ -1,50 +1,34 @@
-# round 3's checks (green3.sh, one suite-lock slot; step 00 is `false` and must read rc=1; clippy touches the crate roots first)
-# TMPDIR <tmp>/abcdefghijklmnopqrstuvwxyz; head f273880b, tracked changes outside the receipt: 0
+# round 4's checks (green4.sh, one suite-lock slot; step 00 is `false` and must read rc=1; clippy touches the crate roots first)
+# TMPDIR <tmp>/abcdefghijklmnopqrstuvwxyz; head 023430f4, tracked changes outside the receipt: 0
 00 false rc=1 0s
-01 fmt rc=0 1s
-02 clippy rc=0 6s
-03 clippy-fault rc=0 6s
-04 lib rc=0 70s
-05 sessions rc=101 11s
-06 parity rc=0 4s
-07 tool_loop rc=0 10s
-08 tui-resume-image rc=0 8s
-09 capture-homemode rc=0 5s
-10 build rc=0 7s
-11 cap-xfx-p5-image-loss-folder rc=0 11s
-11 cap-xfx-p5-image-loss-gone rc=0 10s
-11 cap-xfx-p5-image-loss-whole rc=0 11s
-11 cap-xfx-p5-image-loss-changed rc=0 15s
-12 cap-base-folder rc=0 10s
-exit=0
-  04-lib: test result: ok. 4625 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 54.98s
-  05-sessions: test result: FAILED. 66 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.15s
-  06-parity: test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.71s
-  07-tool_loop: test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.93s
-  08-tui-resume-image: test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 166 filtered out; finished in 4.85s
-  09-capture-homemode: Ran 1 test in 5.467s OK 
-  05-sessions' one failure: test ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstreams_and_changes_nothing ... FAILED
-test result: FAILED. 66 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.15s -- the folder put back at 0700 where its helper made it 0755 (README, RED and GREEN)
+01 fmt rc=0 2s
+02 clippy rc=0 7s
+03 clippy-fault rc=0 7s
+04 lib rc=101 78s
+05 sessions rc=0 14s
+06 parity rc=0 3s
+07 tool_loop rc=0 2s
+08 tui-resume-image rc=0 6s
+09 test-capture rc=0 339s
+  04-lib: test result: FAILED. 4623 passed; 2 failed; 7 ignored; 0 measured; 0 filtered out; finished in 61.73s
+  05-sessions: test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.32s
+  06-parity: test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.66s
+  07-tool_loop: test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+  08-tui-resume-image: test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 166 filtered out; finished in 4.22s
+  09-test-capture: Ran 80 tests in 339.360s OK 
+  04-lib's two failures: the timing windows of two catalog-wait stop tests; run alone, 5 of 5 each (flake4.txt)
 
-# --test sessions again after 9f4bf2cf (tail3.sh, one suite-lock slot, the a-z TMPDIR)
-# head 9f4bf2cf
-05b sessions rc=0
-  05b-sessions: test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.19s
-
-# both clippy runs in a slot of their own just before, at the same code (the a-z TMPDIR)
-clippy rc=0 (1 'Checking xfx' line); clippy-fault rc=0
-
-# the file checks at 9f4bf2cf with this folder staged, and the citation checks
+# the file checks at 023430f4 with this folder staged, and the citation checks
 check-no-secrets rc=0
 check-xfx-identity rc=0
 check-no-stubs rc=0
 redaction grep over git diff --cached 714f6283 (every commit of the unit and this folder): 0
 # bash fx_src.sh <fx-upstream> --check README.md
-checked 59 citations
+checked 61 citations
 rc=0
 # python3 -I -B new_cites.py docs/parity.md > <file>: 14 spans this unit added; bash fx_src.sh <fx-upstream> --check <file>
 checked 14 citations
 rc=0
-# python3 -I -B new_cites.py src tests scripts/fxcap/scenarios > <file>: 50 spans this unit added; bash fx_src.sh <fx-upstream> --check <file>
-checked 50 citations
+# python3 -I -B new_cites.py src tests scripts/fxcap/scenarios > <file>: 52 spans this unit added; bash fx_src.sh <fx-upstream> --check <file>
+checked 52 citations
 rc=0

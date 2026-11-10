@@ -602,6 +602,9 @@
   849      return image_data.fitsEncodedImageLimit(size);
   850  }
 
+== src/core/images/image_data.zig:6-6@481104fd -- max_encoded_image_bytes: 5 MiB
+    6  pub const max_encoded_image_bytes: usize = 5 * 1024 * 1024;
+
 == src/core/images/image_data.zig:168-179@481104fd -- requestMaxDimension, countRequestImages: every image of the request, a tool result's with the user's
   168  pub fn requestMaxDimension(image_count: usize) u32 {
   169      return if (image_count > strict_image_count) max_image_dimension else max_single_image_dimension;

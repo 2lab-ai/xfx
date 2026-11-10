@@ -4,7 +4,8 @@ HISTORY-NOTICES-COPY-FX (714f6283, this unit's base) kept xfx's four image read-
 N2, N5 and N6, and queued this unit: fx v0.0.16 (pin `481104fd`) has no such line, and it does not
 go on quietly either. This unit copies what fx does in each case, deletes the four lines and the
 once-per-conversation ledger that said them, and records the harder failure as a decision for the
-user's veto. Round 2 acts on the four reviews of `dba6007b`, round 3 on the four of `d079b843`.
+user's veto. Round 2 acts on the four reviews of `dba6007b`, round 3 on the four of `d079b843`,
+round 4 on the three of `9131b35b`.
 Every claim is tied to a file in this folder. Every fx line cited is in `fx-src.txt`, printed by `fx_src.sh`, and
 `fx_src.sh <fx> --check README.md` finds each citation inside a printed range, as it does each
 one this unit added to `docs/parity.md`, the code and the scenarios (`new_cites.py`, `checks.txt`).
@@ -25,7 +26,10 @@ one this unit added to `docs/parity.md`, the code and the scenarios (`new_cites.
 | `20a69fc2` | round 3 fix and `docs/parity.md`: **the code head** |
 | `f273880b` | round 3 scenario `p5-image-loss-folder`, and the capture verb `homemode`, which refuses a link on its path, with its test |
 | `9f4bf2cf` | round 3 test: `ask`'s unreadable-folder case puts the folder's own mode back |
-| this README's commit, the unit's last | round 3 receipt |
+| `9131b35b` | round 3 receipt |
+| `44a6532a` | round 4 RED, tests and a test-only seam between a copy's open and its read (`red4.txt`) |
+| `023430f4` | round 4 fix, `homemode` a folder only, and `docs/parity.md`: **the code head** |
+| this README's commit, the unit's last | round 4 receipt |
 
 ## fx's rule, case by case (`fx-src.txt`, and the captures of rounds 2 and 3)
 
@@ -34,7 +38,7 @@ one this unit added to `docs/parity.md`, the code and the scenarios (`new_cites.
 | a prompt image's copy **not there, or not a regular file** | the reader opens the blob folder and `stat`s each blob as it reads the conversation, without following a link; not there, or anything but a regular file, is `InvalidSessionFormat`, and the session does not open (`session_adapter.zig:2871-2893`, `session_adapter.zig:4320-4327`; `api.zig:433-442`; `session.zig:1666-1681`; `storage.zig:341-346`) | launch: `fx: saved session is unreadable. Run \`fx doctor\`; if it is recoverable, use \`fx session recover <id>\`.`, exit 1, once it has given the terminal back (`app_entry_runtime.zig:278-285`; `fx/`, `wire.txt`); picker: `Unable to resume this session.` (`app_input_runtime.zig:91-99`, `app_input_runtime.zig:1644-1662`, `resume_menu_presentation.zig:463-467`); `ask --resume`: `fx: InvalidSessionFormat`, or the name as `--json`'s error (`cli_ask.zig:926-936`, `cli_ask.zig:1189-1197`, `cli_ask.zig:1306-1326`, `cli_ask.zig:8063-8079`, `app_entry_runtime.zig:158-166`, `app_entry_runtime.zig:563-567`) | fx's refused launch appends a `workspace` line and a `closed` line (`logs.txt`) |
 | a prompt image's copy **in a folder that cannot be opened for reading, or is a link, or whose `stat` fails otherwise** | the folder is opened for reading without following a link (`storage.zig:135-143`); a failure other than NotFound is `Refused` or `Io` (`storage.zig:400-417`), which `notFoundOr` makes `Io` (`session.zig:1666-1681`), and `imageBlobFailed` hands `Io` up unchanged (`session_adapter.zig:2871-2893`) | launch: `fx: Io`, exit 1, once it has given the terminal back: no storage fault has a sentence for it (`app_entry_runtime.zig:286-301`, `app_entry_runtime.zig:537-556`; `fx/fx-p5-image-loss-folder-40x120-refused.full.txt`); picker: `Unable to resume this session.`, as above; `ask --resume`: `fx: Io`, or the name as `--json`'s error, by the same paths as above | the same two lines as above (`logs.txt`) |
 | a resumed copy that is a file: **unopenable, no size in its header, or past 5 MiB encoded** (so past the 20 MiB limit too) -- at a turn's first request, or any later one | before every build, on the native route, an image whose file it cannot vouch for -- its size from `stat` on each request, its dimensions from its header as the turn first read it -- is left out with a note, and the request goes (`image_attachments.zig:805-813`, `image_attachments.zig:814-850`, `image_attachments.zig:960-988`, `image_attachments.zig:1011-1045`, `image_attachments.zig:1050-1054`; `orchestrator.zig:7612-7632`). The request budget does not hold one back alone: 30 MiB, and 20 MiB is 28 MiB encoded (`request_image_budget.zig:1-22`, `request_image_budget.zig:76-92`). So the build's `ImageTooLarge` (`image_attachments.zig:24`, which `app_process_runtime.zig:99-136` would show as `request failed: image exceeds the 20 MiB limit (ImageTooLarge)`) is not reached | nothing on screen | the model gets `[Image #N not sent: its dimensions could not be verified. The original is saved at <blob>. …]` or `[Image #N not sent: <type> is <W>x<H> pixels. …]` in front of the prompt |
-| a resumed copy that is a file with a size and a header, **its bytes not the digest's** | the build reads it for every request, sends only the bytes it has just hashed, and fails with a `try`: `ImageSnapshotCorrupt` (`image_attachments.zig:1260-1320`, `image_attachments.zig:1861-1877`, `vercel_protocol.zig:873-890`, `orchestrator.zig:7712-7716`), after the image route's own refusal (`orchestrator.zig:7520-7525`) | TUI: the prompt's card, `0s (↑4 ↓0)`, `✗ system: request failed: ImageSnapshotCorrupt` (`app_process_runtime.zig:62-74`, `app_process_runtime.zig:99-136`; `fx/fx-p5-image-loss-changed-40x120-failed.txt`); `ask`: `fx: ImageSnapshotCorrupt` (`cli_ask.zig:1802-1823`) | the turn is recorded -- `turn_started`, the prompt, a `turn_end`, `turn_committed` (`logs.txt`); nothing is sent |
+| a resumed copy that is a file with a size and a header, **its bytes not the digest's** (or past the limit, or unreadable, as it is read) | the build reads it to its end for every request, sends only the bytes it has just hashed, and fails with a `try`: `ImageSnapshotCorrupt`, `ImageTooLarge` past 20 MiB, or the reader's error (`image_attachments.zig:1260-1320`, `image_attachments.zig:1861-1877`, `vercel_protocol.zig:873-890`, `orchestrator.zig:7712-7716`), after the image route's own refusal (`orchestrator.zig:7520-7525`) | TUI: the prompt's card, `0s (↑4 ↓0)`, `✗ system: request failed: ImageSnapshotCorrupt` (`app_process_runtime.zig:62-74`, `app_process_runtime.zig:99-136`; `fx/fx-p5-image-loss-changed-40x120-failed.txt`); `ask`: `fx: ImageSnapshotCorrupt` (`cli_ask.zig:1802-1823`) | the turn is recorded -- `turn_started`, the prompt, a `turn_end`, `turn_committed` (`logs.txt`); nothing is sent |
 | a prompt image **never read** (no bytes, no file) | `imageFile` finds none; no size, so left out with the note that names no file (`image_attachments.zig:1213-1243`, `image_attachments.zig:960-988`) | nothing | `[Image #N not sent: its dimensions could not be verified. No local image file is available; ask the user for a smaller copy.]` |
 | a tool's image **whose copy fails its checks** | a result's images load whole or not at all, per request (`execution_memory.zig:975-991`, `result_store.zig:286-302`, `result_store.zig:584-595`); `NotFound`, `Corrupt`, `Io` become `ResultHandleNotFound`, `BlobDamaged`, `BlobStoreFailed` (`session.zig:1642-1665`, `session_adapter.zig:1134-1160`, `result_store.zig:728-742`, `session_child_store.zig:61-76`, `session_child_store.zig:832-836`) | nothing (`execution_memory.zig:993-1022`) | `[Stored tool image unavailable: <Error>]\n` in front of the result, cut to fit 64 KiB beside it (`execution_memory.zig:1013-1018`, `execution_memory.zig:1071-1076`, `tool_result_limits.zig:7`), native route only (`orchestrator.zig:7612-7632`) |
 | a tool's image **never read** | the handle with nothing to load it from (`execution_memory.zig:1009-1011`) | nothing | `[Stored tool image is unavailable in this session.]\n` |
@@ -81,8 +85,11 @@ A tool image that cannot go is told to the model. The launch line drops fx's two
     fx's note, its pixel size as the turn first read it, and the request goes;
   - otherwise it is read whole and held to its size and digest: the bytes just checked are sent,
     and any other bytes fail the request, `ImageSnapshotCorrupt`;
-  - a read that fails after the open fails it too, `ReadFailed`, the error of Zig's reader that
-    `loadVerifiedSnapshot` calls (the name is the standard library's, not read in fx's tree).
+  - a read that fails after the open fails it too, `ReadFailed`. That is the name fx gives a
+    failed read elsewhere: its log says `err=ReadFailed` for one
+    (`.prd/tui-phase4/receipts/w9/README.md:104`), and xfx's `read_file` already copies it
+    (`src/tools/read.rs:1026-1037`). That `readSliceShort` in `loadVerifiedSnapshot` fails with
+    that name comes from Zig's standard library, not from fx's tree, and is not read here [추정].
   So a copy changed and then removed sends nothing, a repair is sent by the next request of the
   same turn, and one gone or grown between two requests of a turn is held back from the later one.
   **A decision against the brief's wording, from the pin:** the brief says such a request fails
@@ -110,8 +117,31 @@ A tool image that cannot go is told to the model. The launch line drops fx's two
 - `ask` names an image error through the one helper that names a refusal (`named`, `src/app.rs`).
 - `turn_messages` without copies (the compaction) carries no image at all, where a live image went
   before.
-- Source outside tests, this round: +222 / -139, net +83. The unit from 714f6283: +593 / -266,
-  net +327 (`size.txt`).
+- Source outside tests, this round: +222 / -139, net +83 (`size.txt`).
+
+**Round 4 (`023430f4`).**
+- **A copy is read to its end** (`CopiesChecked`), as fx's `loadVerifiedSnapshot` reads it, no
+  further than one byte past the 20 MiB limit. Round 3 read only the size the open found, so a
+  copy appended to between the open and the read was sent as its checked prefix. Now a byte more
+  is not the digest's, `ImageSnapshotCorrupt`, and past the limit is fx's `ImageTooLarge`, shown as
+  fx's build shows it, `request failed: image exceeds the 20 MiB limit (ImageTooLarge)`
+  (`app_process_runtime.zig:99-136`, `image_attachments.zig:24`; `xfx: ImageTooLarge` from `ask`).
+  The size the open found is compared with the recorded one before any byte is read.
+- **The history's bytes are taken out of the part before anything is decided:** the note's pixel
+  size comes from them first, then the part holds nothing until the bytes just checked go in. An
+  arm that neither checks nor fails sends no image bytes at all (`read-failure-goes-on`, below).
+- **`homemode` takes a folder only:** a file may be a hard link to one outside the run, whose
+  inode a chmod would change. A run that dies before the line that sets the mode back leaves it in
+  the run directory, which `cleanup` keeps anyway (its comment says so).
+- `ask` names a copy's failure from the value `CopiesChecked` failed with (a shared cell), not by
+  matching the error's text.
+- The request is cloned only when it carries an image from a copy.
+- `turn_messages`'s unreachable arm is gone.
+- Tests: a test-only seam between the open and the read grows the copy (by a byte, and past the
+  limit) or swaps in a descriptor that cannot be read; the 5 MiB limit is written out in the
+  boundary test; `homemode` refuses a file and a hard link to one outside the run.
+- Source outside tests, this round: +83 / -36, net +47, the test-only seam's lines among them
+  (`size.py` counts them as source). The unit from 714f6283: +639 / -265, net +374 (`size.txt`).
 
 ## The captures (`fx/`, `xfx/`, `base-xfx/`, `green.txt`, `logs.txt`, `wire.txt`)
 
@@ -179,7 +209,7 @@ scenario too:
 
   The rest pass on round 2's code too: the boundary test, and `ask`'s log test, which now also
   checks every line and file the failed request writes.
-- **GREEN, round 3** (`checks.txt`), under the a-z TMPDIR, one suite-lock slot at `f273880b`:
+- **GREEN, round 3** (`r3-checks.txt`), under the a-z TMPDIR, one suite-lock slot at `f273880b`:
   fmt, both clippy runs, the lib (4625 passed), `--test parity` (26), `--test tool_loop` (109),
   the image and resume pty tests (21), and the capture harness's `homemode` test pass.
   `--test sessions` failed 1 of 67 there: `ask`'s new unreadable-folder case put the folder back
@@ -187,6 +217,21 @@ scenario too:
   that mode alone (the session's files and bytes were the same). `9f4bf2cf` puts the folder's own
   mode back, and `--test sessions` passes, 67 of 67. Both clippy runs also passed in a slot of
   their own just before, at the same code. The full gate is the dispatcher's.
+- **Round 4** (`red4.txt`): `44a6532a`'s tests on round 3's code, 2 fail:
+  - a copy that grows by a byte between the open and the read is sent as its 73-byte prefix
+    where fx fails it, `ImageSnapshotCorrupt` (the store test's first failing case);
+  - `homemode` changes the mode of a file and of a hard link to one outside the run.
+
+  The boundary test passes on round 3's code too: its 5 MiB is now written out.
+- **GREEN, round 4** (`checks.txt`), under the a-z TMPDIR, one suite-lock slot at `023430f4`:
+  fmt, both clippy runs, `--test sessions` (67), `--test parity` (26), `--test tool_loop`
+  (109), the image and resume pty tests (21) and `test-capture.sh` (80 tests) pass. The lib ran
+  4623 of 4625: two TUI tests whose stop must end a turn between 300 ms and 1 s missed that window
+  (`a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop`,
+  `a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one`). The load was 63, from
+  jobs outside the suite lock. Their sessions have no copy, so `CopiesChecked` returns at its
+  first check. Run alone five times at the same head, under a load of 49 to 54, both pass 5 of 5
+  (`flake4.txt`), and they passed at round 3's head. The full gate is the dispatcher's.
 - **GREEN, round 2:** at `f42a68ab`, the lib (4622 passed), `--test sessions` (67), `--test parity`
   (26), `--test tool_loop` (109) and the image and resume pty tests (21) pass, as do fmt and both
   clippy runs, each run again with the crate roots touched so every target is checked
@@ -222,7 +267,24 @@ the manifest (round 3); the TUI's test checks the prompt; `xfx/…-changed-…-f
 copy at 73 bytes. **This supersedes round 1's "a failed request writes nothing to the
 log"**: fx records the turn, so xfx does.
 
-## Mutants (`mutants-r3.txt`, `mutants-r2.txt`, the runner `mutants.py`)
+## Mutants (`mutants-r4.txt`, `mutants-r3.txt`, `mutants-r2.txt`, the runner `mutants.py`)
+
+**Round 4** (`mutants-r4.txt`): all 23 mutants in one run, on a `git clone --no-local` copy at
+`023430f4`, in the GREEN slot, 900 s per test target, 0 changed files in the clone after it. The
+runner has a `capture` target now: the harness's own test, by name. Round 3's 19 are moved onto
+round 4's code; four are new, the brief's three among them:
+
+| mutant | what it breaks | lib | sessions | tui | capture |
+|---|---|---|---|---|---|
+| `growth-accepted` (MUST 1) | the read stops at the size the open found: a copy grown since is sent as its prefix | killed | SURVIVED | | |
+| `too-large-as-changed` | a copy past the limit as it is read fails as changed, not `ImageTooLarge` | killed | SURVIVED | | |
+| `read-failure-goes-on` (S1) | a read that fails lets the request go: with the history's bytes taken first, the part goes with no bytes, and the test sees it | killed | SURVIVED | | |
+| `homemode-on-a-file` (MUST 2) | `homemode` changes a file's mode, a hard link's included | | | | killed |
+
+Every one of round 3's 19 has the verdicts it had in round 3. The `--test sessions` survivors are
+the same kind as round 3's: `ask`'s test has one request whose copy is changed and stays there, so
+it fails whichever rule is broken. The store test kills each of them, through its seam between
+the open and the read.
 
 **Round 3** (`mutants-r3.txt`): all 19 mutants in one run, on a `git clone --no-local` copy at
 `9f4bf2cf`, in one suite-lock slot, 900 s per test target, the clone reset after each.
@@ -344,12 +406,24 @@ oldest first:
 12. `20a69fc2` (round 3's fix);
 13. `f273880b` (scenario and `homemode`);
 14. `9f4bf2cf` (test);
-15. this README's commit, the last.
+15. `9131b35b` (round 3's receipt);
+16. `44a6532a` (round 4's RED);
+17. `023430f4` (round 4's fix);
+18. this README's commit, the last.
 
 `rollback.txt` is round 2's rehearsal, at `b2f95c55`: kept as it was run.
 
 ## Open
 
+- **One open, where fx has two:** fx opens a copy for its hold-back and again in
+  `loadVerifiedSnapshot`; xfx opens it once and reads the descriptor it checked. A copy removed or
+  replaced between the two is held back or failed by fx's second open, and read from the open
+  descriptor by xfx. The bytes sent still match the digest; only which of a race's outcomes a
+  request sees differs.
+- **The order of notes on one message:** a note `CopiesChecked` adds goes in front of one
+  `crate::image::withhold` added to the same message, where fx orders notes by image. It needs a
+  copy that vanishes or grows between two requests of a turn, on a message with another image
+  already held back.
 - **Tool images** are read once a turn, where fx reads them for every request; a tool image is
   verified when it is read, so none goes unchecked.
 - **The pixel limit of a request with more than 20 images**, for a copy held back by a later

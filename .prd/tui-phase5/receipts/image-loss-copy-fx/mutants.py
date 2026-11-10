@@ -18,6 +18,7 @@ import subprocess
 import sys
 
 STORE = "src/session/store.rs"
+CAPTURE = "scripts/fxcap/capture.sh"
 APP = "src/app.rs"
 W = "src/tui/worker.rs"
 
@@ -201,7 +202,7 @@ MUTANTS = {
     ),
     # The request going on past a changed copy, with its bytes.
     "request-goes-on": (
-        [(STORE, "                    Ok(_) => failed = Some(COPY_ERRORS[0]),\n", "                    Ok(bytes) => *data = Arc::from(bytes),\n")],
+        [(STORE, "                    Ok(_) => failed = Some(COPY_CHANGED),\n", "                    Ok(bytes) => *data = Arc::from(bytes),\n")],
         REQUEST,
     ),
     # Round 3 (MUST 1): a copy that cannot be opened again sends what the history read -- the catch-all
@@ -212,6 +213,29 @@ MUTANTS = {
             (STORE, "                        Some(saved),\n                    ));\n                    return false;\n", "                        Some(saved),\n                    ));\n                    return true;\n"),
         ],
         REQUEST,
+    ),
+    # Round 4 (MUST 1): the read stops at the size the open found, so a copy grown since is sent as
+    # its checked prefix.
+    "growth-accepted": (
+        [(STORE, "read_from(file, length, crate::image::MAX_IMAGE_BYTES + 1)", "read_from(file, length, length)")],
+        REQUEST,
+    ),
+    # Round 4: a copy past the limit when it is read fails as changed, not as upstream's
+    # `ImageTooLarge`.
+    "too-large-as-changed": (
+        [(STORE, '                        failed = Some("ImageTooLarge");\n', "                        failed = Some(COPY_CHANGED);\n")],
+        REQUEST,
+    ),
+    # Round 4 (S1): a read that fails lets the request go: with the history's bytes taken first,
+    # it sends none of them.
+    "read-failure-goes-on": (
+        [(STORE, '                    Err(_) => failed = Some("ReadFailed"),\n', "                    Err(_) => {}\n")],
+        REQUEST,
+    ),
+    # Round 4 (MUST 2): `homemode` changes a file's mode, a hard link's included.
+    "homemode-on-a-file": (
+        [(CAPTURE, '        [[ -d $at ]] || { echo "homemode takes a folder, not ~/$dest" >&2; exit 2; }\n', "")],
+        {"capture": ["homemode"]},
     ),
     # Round 3 (MUST 1): the bytes just checked not swapped in; the history's go.
     "swap-in-deleted": (
@@ -225,7 +249,7 @@ MUTANTS = {
     ),
     # `ask` saying the TUI's words in place of upstream's `ask`'s.
     "ask-name-not-copied": (
-        [(APP, "COPY_ERRORS.into_iter().find(image) {", "COPY_ERRORS.into_iter().find(image).filter(|_| false) {")],
+        [(APP, "            (Event::Error { .. }, Some(name)) => self.inner.emit(&Event::Error {\n", "            (Event::Error { .. }, Some(name)) if false => self.inner.emit(&Event::Error {\n")],
         {"sessions": ["ask_resume_whose_prompt_images_copy_changed"]},
     ),
     # The tool-image text missing: the note not put in front.
@@ -263,8 +287,14 @@ def run(clone, target, tests):
     for name in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"):
         env.pop(name, None)
     which = ["--lib"] if target == "lib" else ["--test", target]
+    # The capture harness's own tests (`test-capture.sh`), by name.
+    command = (
+        ["python3", "-I", "scripts/fxcap/test_capture.py", *[f"-k{test}" for test in tests]]
+        if target == "capture"
+        else ["cargo", "test", "--locked", *which, "--", *tests]
+    )
     child = subprocess.Popen(
-        ["cargo", "test", "--locked", *which, "--", *tests],
+        command,
         cwd=clone,
         env=env,
         stdout=subprocess.PIPE,
@@ -300,6 +330,8 @@ def main():
                 for at, line in enumerate(lines):
                     if line.startswith("test ") and line.endswith("FAILED"):
                         print(f"    {line}")
+                    elif line.startswith(("FAIL: ", "ERROR: ", "AssertionError")):
+                        print(f"    {line[:200]}")
                     elif "panicked at" in line:
                         print(f"    {line.split('panicked at', 1)[1].strip()}")
                         if at + 1 < len(lines):
