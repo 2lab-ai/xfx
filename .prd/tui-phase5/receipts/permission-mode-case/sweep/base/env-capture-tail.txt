@@ -1,0 +1,6 @@
+== the last lines of the base's p5-mode-case-env capture.log (xfx at 9c64ddd3): the run failed at its until
+until shown 'Full access': still not shown after 29.75 s (476 looks); the screen's rows that are not blank:
+  | x𝒇x v0.1.0-9c64ddd [debug] · Run /help for commands
+  | * config: 1 configuration issue (ctrl+o to view)
+  | ┃
+  | auto · model-a
