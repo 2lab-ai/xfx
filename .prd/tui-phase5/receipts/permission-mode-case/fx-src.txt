@@ -79,6 +79,27 @@
   1934	            return error.InvalidSettingsFormat;
   1935	        }
   1936	    }
+== src/core/config/settings_store.zig:536-539@481104fd (4166 lines) -- ... run on the candidate every settings write would leave
+   536	            const candidate = try serializeJson(alloc, root);
+   537	            defer alloc.free(candidate);
+   538	            if (candidate.len > max_settings_bytes) return error.SettingsTooLarge;
+   539	            try validateCandidate(alloc, candidate, mutation);
+== src/core/config/settings_store.zig:1849-1859@481104fd (4166 lines) -- ... validateCandidate: the whole object through validateKnownSettingsObject
+  1849	fn validateCandidate(
+  1850	    alloc: Allocator,
+  1851	    bytes: []const u8,
+  1852	    mutation: SettingsMutation,
+  1853	) !void {
+  1854	    var parsed = std.json.parseFromSlice(std.json.Value, alloc, bytes, .{}) catch {
+  1855	        return error.InvalidSettingsFormat;
+  1856	    };
+  1857	    defer parsed.deinit();
+  1858	    if (parsed.value != .object) return error.InvalidSettingsFormat;
+  1859	    try validateKnownSettingsObject(parsed.value.object, false);
+== src/core/slash_commands/command_router.zig:92-94@481104fd (643 lines) -- (round 2) the router trims space and tab only -- xfx's str::trim takes every Unicode blank
+    92	fn command_payload(cmd: []const u8, prefix: []const u8) []const u8 {
+    93	    return std.mem.trim(u8, cmd[prefix.len..], " \t");
+    94	}
 #### 3. /permissions: the same parse, after the router trims spaces and tabs
 == src/core/slash_commands/command_router.zig:92-94@481104fd (643 lines) -- command_payload: the rest of the line trimmed of space and tab
     92	fn command_payload(cmd: []const u8, prefix: []const u8) []const u8 {

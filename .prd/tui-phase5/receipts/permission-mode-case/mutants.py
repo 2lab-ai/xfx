@@ -10,11 +10,17 @@ One per surface:
     M2  XFX_PERMISSION_MODE reads the exact wire parse again
     M3  XFX_PERMISSION_MODE is trimmed again before the parse
     M4  the launch refusal's check reads the exact wire parse
-    M5  `ask` loses `--full-access`
+    M5  `--full-access` no longer sets full access (round 2: two flags now)
     M6  the `[status]` line says the wire word again
     M7  the `[doctor]` line says the wire word again
     M8  doctor's startup check says the wire word again
-    M14 `/permissions` no longer trims its line (the mode's parse does not)
+    M14 `/permissions` no longer trims its line (the mode's parse does not);
+        round 2: caught by its own test, not the bare-blank assertion
+    -- round 2:
+    M15 a blank XFX_PERMISSION_MODE is read (and complained of) again
+    M16 `--full-access`'s help line is not fx's
+    M17 doctor's own `permissions` check says the wire word again
+    M18 `--auto` and `--full-access` together are taken
 One per alias, in the parse every surface shares:
     M9  `full-access` is not the third mode
     M10 `full access` is not the third mode
@@ -39,7 +45,7 @@ WORDS_UNIT = (LIB, "config::tests::a_typed_mode_reads_upstreams_words_in_any_cas
 SURFACES_UNIT = (LIB, "config::tests::a_mode_is_read_with_fxs_parse_wherever_a_person_writes_one")
 TABLE = (LIB, "config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses")
 FLAGS_UNIT = (LIB, "cli::tests::the_permission_flags_select_a_mode_and_cannot_be_combined")
-SLASH = (LIB, "permission::slash::tests::an_argument_is_read_in_upstreams_order_and_case")
+SLASH_TRIM = (LIB, "permission::slash::tests::the_line_is_trimmed_before_the_modes_parse_which_trims_nothing")
 SURFACES = (CLI, "a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs")
 SPOKEN = (CLI, "full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word")
 FLAG = (CLI, "ask_takes_fxs_two_spellings_of_full_access_exactly")
@@ -64,9 +70,9 @@ MUTANTS = [
      "v.as_str().and_then(PermissionMode::parse).is_some()",
      [TABLE]),
     ("M5", "src/cli.rs",
-     '        #[arg(long, visible_alias = "full-access")]',
-     "        #[arg(long)]",
-     [FLAGS_UNIT, FLAG, HELP]),
+     "                let mode = if yolo || full_access {",
+     "                let mode = if yolo {",
+     [FLAGS_UNIT, FLAG]),
     ("M6", "src/output.rs",
      '        line("permission_mode", &display_mode(&self.permission_mode));',
      '        line("permission_mode", &self.permission_mode);',
@@ -99,7 +105,23 @@ MUTANTS = [
     ("M14", "src/permission/slash.rs",
      "        let argument = argument.trim();",
      "        let argument = argument.trim_end_matches('\\u{0}');",
-     [SLASH]),
+     [SLASH_TRIM]),
+    ("M15", "src/config.rs",
+     "        .filter(|raw| !raw.trim().is_empty())",
+     "        .filter(|_| true)",
+     [SURFACES_UNIT]),
+    ("M16", "src/cli.rs",
+     "        /// Disable xfx permission checks",
+     "        /// Skip every permission check for this run (prints a warning)",
+     [HELP]),
+    ("M17", "src/app.rs",
+     'format!("mode=full access: no permission check runs at all; sandbox={sandbox}")',
+     'format!("mode=yolo: no permission check runs at all; sandbox={sandbox}")',
+     [SPOKEN]),
+    ("M18", "src/cli.rs",
+     '        #[arg(long, conflicts_with_all = ["yolo", "full_access"])]',
+     '        #[arg(long, conflicts_with = "yolo")]',
+     [FLAGS_UNIT, FLAG]),
 ]
 
 
