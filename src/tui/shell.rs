@@ -35613,8 +35613,10 @@ mod tests {
         // (`file_picker_episode_seen`, `prepareFilePicker`,
         // `input_completion_runtime.zig:854-861@481104fd`; the flag lasts the
         // session, `picker_state.zig:171`), and every later one refreshes,
-        // loading or not. A `/workspace` change before any `@` starts the
-        // install's walk, so the first `@` can meet a loading index.
+        // loading or not. In a session the first `@` meets the launch's walk
+        // (`Shell::start_file_index`, AT-LAUNCH-WALK); this shell was never
+        // launched, and the walk a `/workspace` change starts stands in for
+        // it, so the first `@` can meet a loading index.
         let (_workspace, mut shell) = in_ws2(40, 120);
         let (_extra, _path, access) = extra_with_plan(&shell);
         let walks = shell.files_for_test().walks_for_test();
@@ -36196,6 +36198,40 @@ mod tests {
             (status_row("indexing files..."), Vec::<String>::new(), 2),
             "the first `@` after a failed launch walk skipped its refresh"
         );
+    }
+
+    #[test]
+    fn a_first_at_after_a_change_whose_walk_ended_whole_before_the_poll_lists_its_rows() {
+        // Not fx's frame, a recorded decision (`docs/parity.md`, the `@`
+        // row's loop order): fx joins a finished loader at the top of a
+        // pass, then routes the keys, then prepares the list
+        // (`event_loop.zig:79-119@481104fd`; `main.zig:2851`, `:2998`). A new
+        // scope's walk that ends whole during the key wait, behind the
+        // adopted launch generation of the old epoch, is unjoined when the
+        // first `@` is prepared: that frame reads the launch generation and
+        // says `Files unavailable` (`input_completion_runtime.zig:887-888`;
+        // `searchableGeneration`, `file_index.zig:647-654`), and the next
+        // pass's join adopts the walk and lists its rows. xfx's decision
+        // takes the walk's end first (`Files::take_walk`), so the `@` itself
+        // lists the added directory's `plan.md`, and so does the next pass;
+        // three walks -- the launch's, the change's, the first list's refresh.
+        let (row, rows, walks, settled) =
+            first_at_before_the_poll(super::super::file_index::Published::Ready, true);
+        assert_eq!(
+            (rows.len(), walks),
+            (1, 3),
+            "not the change's walk adopted at the `@`: {rows:?}"
+        );
+        assert!(
+            rows[0].ends_with("/plan.md") && std::path::Path::new(&rows[0]).is_absolute(),
+            "not the added directory's `plan.md`: {rows:?}"
+        );
+        assert_ne!(
+            row,
+            status_row(FILES_UNAVAILABLE),
+            "xfx painted fx's one-frame interim"
+        );
+        assert_eq!(settled, row, "the next pass changed the list");
     }
 
     #[test]

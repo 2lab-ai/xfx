@@ -1269,6 +1269,12 @@ impl Files {
         self.walks
     }
 
+    /// The scope's epoch now, and the epoch of the walk in flight, if any.
+    #[cfg(test)]
+    pub(crate) fn epochs_for_test(&self) -> (u64, Option<u64>) {
+        (self.epoch, self.walk.as_ref().map(|walk| walk.epoch))
+    }
+
     /// The lookups the session has asked of this source.
     #[cfg(test)]
     pub(crate) fn lookups_for_test(&self) -> usize {
