@@ -28,3 +28,6 @@ test:       5567 passed, 0 failed, 7 ignored, over 15 binaries
 test-fault: 5604 passed, 0 failed, 7 ignored, over 15 binaries
 # smoke-tui's last line but one (the last names the evidence directory, in <tmp>)
 smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+# the parity rows' two readers inside the gate: tests/parity.rs's result line in step 04's log, and check-no-stubs' last line (step 07)
+tests/parity.rs: test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.42s
+check-no-stubs: ok

@@ -54,10 +54,11 @@ SHOULD 1); the wordings opus asked for, here and in `docs/parity.md`.
 
 Every fx line cited here is printed in `fx-src.txt` (`fx_src.sh`, at
 `481104fd`); "fx-src.txt:N" is its line. `fxcites.py` (CTRLO-AT-KEYS', with
-this unit's ten scenarios as its fourth input) checks every fx citation in
+this unit's scenarios -- ten, thirteen since round 3 -- as its fourth
+input) checks every fx citation in
 this README, in the parity rows' changed text, in the lines this unit added
 under `src/` and in the scenarios' headers against `fx_src.sh`'s ranges
-(`fxcites.txt`: round 1 159 citations, round 2 205, 0 failed; its
+(`fxcites.txt`: round 1 159 citations, round 2 205, round 3 234, 0 failed; its
 self-test, 10 cases, 0 wrong).
 
 ## 1. fx's rule
@@ -425,7 +426,9 @@ again after `0ab399ed`, outside the gate: `check-no-stubs`, exit 0, and
     left `InsertNewline` as it was: with the screen closed those three
     menus take `C-j` as their move, so only under the screen -- the burst
     -- does `C-j` reach the composer over one, and Alt-Enter's path is
-    this proposal's.
+    this proposal's. Since round 2 it is a one-line change,
+    `Action::InsertNewline => self.composer_newline()` in `Shell::act`
+    (opus' round 2 NIT 7), with its own RED and pairs.
   - MODEL-COLUMN-CJ-CK: with the screen closed, fx's `C-j`/`C-k` move the
     `/model ` column (`hasModelQuery` -> `navigateModelPicker`,
     `input_completion_runtime.zig:411-414`); xfx's `offer_to_column` binds
@@ -439,6 +442,12 @@ APPROVE-WITH-FIXES, two SHOULDs and six NITs. The dispatcher's brief: pin
 MUST 1's invariant, close MUST 2 here (its call), with a stop rule; opus'
 SHOULD 1 and the wordings.
 
+**Where round 2's runs ran** (opus' round 2 review asked; the dispatcher
+confirmed both): the gate, the mutants and GREEN at `5d6c4cbb`, the sweep
+and the captures on round 2's build of `13646dfa`; `git diff --stat
+3369622a 5d6c4cbb -- src` and `git diff --stat 3369622a 13646dfa -- src`
+are both empty, so each ran the code head's source.
+
 ### 11.1 fx's question and approval terms (gpt6 MUST 1)
 
 fx's frame shuts the screen over the seven menus only with no question
@@ -446,7 +455,11 @@ and no approval up (`!question_active and approval == null`,
 `app_render_runtime.zig:1206`, fx-src.txt:16). xfx's reconcile has neither
 term and gets none: the screen is never up with one. An approval or a
 question closes it as it arrives (`Shell::full_transcript_sees`), and
-`Shell::open_full_transcript` refuses while `Shell::modal`. The case
+a Ctrl-O while one is up never reaches `Shell::act`: `consume_inputs`'
+`ask` and `asking` arms take every key first. (Round 2 named
+`Shell::open_full_transcript`'s refusal while `Shell::modal` as that
+barrier; it is the rule restated, not reached from Ctrl-O at a question --
+opus' round 2 NIT 1, corrected in round 3.) The case
 `a_question_over_a_menu_closes_the_full_transcript_and_ctrl_o_opens_none_over_it`
 puts the catalog up, the screen over it, then an approval -- and, in a new
 shell, a question -- with no tick between: each closes the screen, Ctrl-O
@@ -610,8 +623,12 @@ scenarios, 665 pairs, both sweeps in one hold of the suite lock (2079 s,
   three times while xfx listed them. In `model-busy during` fx's
   `Next turn will use` landed after the snap in round 1's sweep and before
   it in round 2's. Rows and read times are in `sweep-compare-r2.txt`'s
-  last lines; the column's rows start in the same cell on all four sides
-  (cell 9, as `cells.py` counts), so the merged anchor did not move it.
+  last lines. The column's rows start in the same cell on both sides --
+  round 2's sweep prints both, nine blanks before `unable to load models`
+  and before `openai/gpt-6-astra` (`sweep-r2.md:108`), and round 1's
+  passed the pair -- so the merged anchor did not move it. (Round 2 said
+  "cell 9, as `cells.py` counts", a figure no receipt file held: opus'
+  round 2 NIT 8.)
 - The other change, `settings-collapse-open after-esc`, moved within
   passing again (normalized-identical to identical), as in §6.
 - `filepicker*` and `p5-input-at*`: the same on both builds, 20 of 20 and
@@ -627,7 +644,9 @@ clean before and after. `cargo test` **5567 passed, 0 failed**; with
 `fault-injection` **5604 passed, 0 failed** (15 binaries each): round 1's
 5561 and 5598 and round 2's six cases. smoke-tui: 37 scenarios and the
 oracle, 1168 checks, 0 failures. `check-no-stubs` and `tests/parity.rs`
-(26 cases) ran inside it, after `13ed6a79`'s parity rows.
+ran inside it, after `13ed6a79`'s parity rows: `ok`, and 26 passed
+(`gate-r2.txt`'s last lines, added in round 3 from the gate's own logs,
+opus' round 2 NIT 8).
 
 ### 11.9 The rest
 
@@ -640,12 +659,165 @@ oracle, 1168 checks, 0 failures. `check-no-stubs` and `tests/parity.rs`
   citation in the README, the parity rows this unit changed, the source
   lines it added and its scenarios' headers, against `fx_src.sh`'s ranges
   (its fifth part is round 2's: `event_loop.zig`, `command_specs.zig`,
-  `input_presentation.zig`).
+  `input_presentation.zig`; its sixth round 3's, what a kill syncs).
 - `equivalent-mutants.txt`: its survivor's line, the `@` list's inline
   copy, is gone at this head (11.2), so round 2 runs no mutant there.
 - Review points not taken: none. opus SHOULD 2 (queue the burst) is
   superseded by the dispatcher's call to close it here.
 
-## 12. Open questions
+## 12. Round 3
+
+The reviews of `ec0dfe00`: gpt6 no MUST, two SHOULDs; opus
+APPROVE-WITH-FIXES, one SHOULD and eight NITs. **No behaviour changed**:
+past `ec0dfe00` the source's non-test lines that changed are doc comments
+only, and the burst C-k case the round added found no gap.
+
+| commit | what |
+|---|---|
+| `c2452375` | four doc comments that said what the code does not do (12.1) |
+| `bcb4e211` | the round's cases and three burst-edit scenarios -- **the code head** |
+| `ee3a7417` | the ledger's 12 refs past the new lines re-pointed (`refs.txt`) |
+| `c5c177a3` | the round's runners (`mutants.py`, `fx_src.sh` part 6, `pairs.py`, `fxcites.py`) and the burst-edit captures -- **round 3's gate commit** and the mutants' clone |
+| (receipt) | this section, `gate-r3.txt`, `mutants-r3.txt`, `gate-r2.txt`'s parity lines, `green-unit.txt`, `refs.txt`, `fxcites.txt`; §10, §11.1, §11.7 and §11.8 corrected |
+
+### 12.1 The doc comments (opus SHOULD 1, gpt6 SHOULD 2, opus NIT 1)
+
+- `Shell::composer_newline`: with the screen closed `C-j` reaches it over
+  three menus that bind none -- the settings menu (so its `keep` is for
+  that too, where fx's menu moves: SETTINGS-CJ-CK), the inline model
+  column (MODEL-COLUMN-CJ-CK) and a `$` menu that shows nothing -- and the
+  rest take `C-j` themselves; round 2 said only the burst reached it.
+- `Shell::act`'s `C-j` comment: it can add nothing (`app_input_runtime.zig:514`'s menus) and
+  puts the catalog's and the settings menu's marks back.
+- `Shell::composer_control`: `/mcp`'s menu is asked first and takes every
+  key while the screen covers it (`Shell::offer_to_mcp`, opus-C); what
+  restated the reconcile's doc is gone.
+- `Shell::reconcile_full_transcript`: the barrier against a Ctrl-O at a
+  question is `consume_inputs`' `ask`/`asking` arms; the refusal in
+  `open_full_transcript` is the rule restated (§11.1 corrected).
+
+### 12.2 The cases (`bcb4e211`)
+
+Each passes on `ec0dfe00`'s code -- the head's source differs from it in
+comments and cases only -- so none has a RED: each pins what the head
+already did (`green-unit.txt`, its third part).
+
+- **`keep` over a scrolled window** (gpt6 SHOULD 1, opus NIT 2):
+  `c_j_in_ctrl_os_burst_inside_a_search_word_keeps_a_scrolled_catalogs_mark_and_window`
+  and `..._settings_mark_and_window`, at 16x80. `e`, Home, `s` types the
+  search `se` with the caret between its letters; Down until the window
+  has scrolled, then Up until the mark is the window's first row (a mark
+  and a window a reset would not give back). Ctrl-O and C-j in one burst
+  make it `s` and `e`, a different search (`command_specs.zig:460`): both
+  indices are kept and the band's first item row is the marked one -- for
+  the catalog, the command at the kept index of what `s` and `e` list.
+- **C-k in the burst with text after the caret** (opus NIT 6):
+  `c_k_in_ctrl_os_burst_with_text_after_the_caret_kills_it_and_each_menus_search_follows`,
+  over every menu whose list a kill changes: the catalog, the settings
+  menu, `/model`'s menu, the session picker, `/skills`' and a `$` word's.
+  A search typed, the caret taken back (Home, or Left inside the `$`
+  word), the mark moved, then Ctrl-O and C-k: the kill, and each menu
+  synced as fx's kill syncs it (`syncCatalogMenus`,
+  `app_input_runtime.zig:2478-2544`, from `:485`) -- the catalog and the
+  settings menu back to the top (`resetForQuery`,
+  `command_specs.zig:209-212`, `settings_catalog.zig:208-211`), `/model`'s
+  menu and the session picker too (`model_cache_runtime.zig:209-215`,
+  `app_session_runtime.zig:496-503`), the skills menu's mark on its index,
+  held to what is listed (`skill_runtime.zig:2603-2623`). In xfx the kill
+  goes `act` -> `amended` -> `reconcile_picker`, each menu's `set_query`
+  or `sync`, the path a Backspace takes. fx's durable session picker
+  lists again for the query (`searchSessionPicker`,
+  `app_session_runtime.zig:2271-2283`) where xfx's filters what it holds;
+  its mark is the first row either way, and that is the session picker's
+  own unit's, not this one's.
+- **`/effort` alone** (opus NIT 2): the fork and effort burst case is two
+  cases, so `edit-leaves-effort-up` is seen failing in `/effort`'s.
+- **The `@` list's anchor** (opus NIT 4):
+  `the_at_lists_column_hangs_from_the_carets_row_once_its_word_has_wrapped`,
+  at 40x24: `ab @src` hangs the list under the `@`; 24 more letters wrap
+  the word, the `@` on the row above the caret and not at its start, and
+  the list hangs from the start of the caret's row.
+
+### 12.3 The burst edits against fx (`pairs.txt`; `p5-ctrlo-burst-*`)
+
+Three scenarios, each `typed`, then `key -H 0f 0a` (`burst-cj`) and `key -H
+0f 0b` (`burst-ck`), on the fx oracle (sha256 `8e6cda2e...`, printed
+unchanged after the runs) and on round 2's build (`v0.1.0-13646df`, the
+head's code but for comments and cases). **9 pairs: `/model`'s 3
+identical; the settings menu's 3 differ in one row, Sound level's `max`,
+which fx offers and xfx's settings do not, already in `typed`; the
+catalog's 3 in the rows fx's catalog has and xfx's has not (`/login`,
+`/logout`, `Commands N`, `/version`'s name), `typed` 13 rows, the bursts 9
+each.** `cells.py` compares attributes too, so each marked row is the
+same on both sides: the catalog's mark on `/new` (`typed`), on `/status`
+after C-j -- the third row of what `s` and `e` list, its index kept -- and
+on `/help` after C-k, the first; the settings menu's on Model, Status line
+workspace, Status line context; `/model`'s stays put on C-j (`app_input_runtime.zig:514`) and
+goes to the first row on C-k. So fx's kill and xfx's sync the same, and
+both took the two bytes in one burst: after the frame, C-j and C-k would
+have moved the catalog's mark instead.
+
+All pairs: **78; identical: base 11, round 1 39, head 42; the head's other
+36: 27 differ only in their scenario's first snap's rows, 9 more** --
+round 2's five (§11.5) and the catalog's and settings menu's bursts
+above.
+
+### 12.4 Mutants (`mutants.py`, `mutants-r3.txt`)
+
+`mutants.py` (round 3's list) on a `--no-local` clone at `c5c177a3`, the
+same tests, limit and lock as §5 (one normal slot). None failed to build;
+the clone was clean after. **24 run, 24 killed**: round 2's 19 again and
+the five opus' round 2 NIT 2 asked for.
+
+| mutant | what it breaks | killed by |
+|---|---|---|
+| `burst-held-mention-too` | a `$` menu held as `/skills`' is (`.is_some()` for the mention test) | the `$` burst case, alone |
+| `sees-close-gone` | an approval or a question leaves the screen up | the modal case (11.1) and the older `a_question_closes_the_full_transcript_and_a_large_change_takes_the_plane_over` |
+| `keep-help-selected-only`, `keep-settings-selected-only` | `keep` puts the mark back and leaves the window reset | each menu's scrolled-window case, alone -- before round 3 none scrolled, and both survived |
+| `edit-leaves-effort-up` | `/effort`'s menu, and only it, stays up through an edit | `/effort`'s own burst case and two older edit cases |
+
+The rest moved with the new cases: `b-check-gone` 13 -> 16,
+`b-cj-only` 8 -> 10, `b-ck-only` 9 -> 11, `a-reconcile-gone` 12 -> 15, the
+two `burst-*-mark-reset` 1 -> 2 each (the scrolled-window cases), and
+`anchor-row-check-gone` now the `@` list's case too
+(`the_at_lists_column_hangs_from_the_carets_row_once_its_word_has_wrapped`),
+beside the provider and model columns' (opus' round 2 NIT 4).
+
+### 12.5 Gate (`gate-r3.txt`)
+
+`gates.sh` in a `--no-local` clone at `c5c177a3` -- after every commit
+that touches `src/`, the scenarios or the ledger; the receipt commit after
+it touches only `.prd/` -- the whole script in one hold of one normal slot
+of the suite lock: **20 steps, 0 failed**, the tree clean before and after.
+`cargo test` **5572 passed, 0 failed**; with `fault-injection` **5609
+passed, 0 failed** (15 binaries each): round 2's 5567 and 5604 and
+round 3's five cases (four new, and the fork and effort case made two).
+smoke-tui: 37 scenarios and the oracle, 1168 checks, 0 failures.
+`tests/parity.rs`, 26 passed, and `check-no-stubs`, `ok`, inside it
+(`gate-r3.txt`'s last lines). GREEN for the unit's 28 cases is the gate's
+own run (`green-unit.txt`, its third part).
+
+### 12.6 The timing pairs in the ledger (opus NIT 5)
+
+- **`model-column-idle`: already there.** The ledger's `catalog-window`
+  cause (`kind = "nondeterminism"`, owner FLAKE-MODELSDOWN, registry #19,
+  `scripts/fxcap/parity-ledger.toml`) lists the scenario and its `col-*`
+  snaps, and round 2's sweep printed the three pairs under it
+  (`sweep-r2.md:213`). A cause approves nothing, so the verdict stays
+  `unresolved-defect` with its owner named; nothing to add.
+- **`model-busy during`: no cause.** The ledger's note above its timing
+  causes (`parity-ledger.toml:1028-1035`) keeps a cause off a moment in
+  time -- one for where a stream stood covered every token count of every
+  scenario -- and has the scenario wait on an event instead. `model-busy`
+  holds its stream already (`held`); what moved is whether fx had acted on
+  `/model grok`, Escape and Enter when `snap during` came 0.8 s later: its
+  composer still holds `/model grok` in round 1's sweep and is empty under
+  `Next turn will use` in round 2's (`sweep-compare-r2.txt`). A cause on
+  `during` would cover the whole snap. **What would fix it:** `until shown
+  Next turn will use` before `snap during` (capture.sh's `until`) in
+  `scripts/fxcap/scenarios/model-busy.cap` and `model-busy-known.cap`, a
+  change for those scenarios' owner -- a queue proposal, MODEL-BUSY-UNTIL.
+
+## 13. Open questions
 
 None that needs a user decision.

@@ -1,5 +1,5 @@
-# python3 -I fxcites.py cb7c9c18, then --self-test (this folder's fxcites.py, at round 2's receipt commit); the src hunks with 0 failed are left out, their sum is the src line
-README.md: 101 citations, 0 failed
+# python3 -I fxcites.py cb7c9c18, then --self-test (this folder's fxcites.py, at round 3's receipt commit); the src hunks with 0 failed are left out, their sum is the src line
+README.md: 112 citations, 0 failed
 docs/parity.md:86: 1 citations, 0 failed
 docs/parity.md:90: 1 citations, 0 failed
 docs/parity.md:92: 1 citations, 0 failed
@@ -11,7 +11,7 @@ docs/parity.md:100: 1 citations, 0 failed
 docs/parity.md:109: 2 citations, 0 failed
 docs/parity.md:237: 1 citations, 0 failed
 docs/parity.md:238: 5 citations, 0 failed
-src: 44 citations, 0 failed
+src: 51 citations, 0 failed
 scripts/fxcap/scenarios/p5-ctrlo-help.cap: 5 citations, 0 failed
 scripts/fxcap/scenarios/p5-ctrlo-model.cap: 3 citations, 0 failed
 scripts/fxcap/scenarios/p5-ctrlo-sessions.cap: 3 citations, 0 failed
@@ -22,7 +22,10 @@ scripts/fxcap/scenarios/skills-ctrlo-dollar.cap: 3 citations, 0 failed
 scripts/fxcap/scenarios/p5-ctrlo-slash.cap: 5 citations, 0 failed
 scripts/fxcap/scenarios/provider-ctrlo.cap: 6 citations, 0 failed
 scripts/fxcap/scenarios/p5-ctrlo-mcp-args.cap: 7 citations, 0 failed
-all: 205 citations, 0 failed
+scripts/fxcap/scenarios/p5-ctrlo-burst-help.cap: 5 citations, 0 failed
+scripts/fxcap/scenarios/p5-ctrlo-burst-settings.cap: 3 citations, 0 failed
+scripts/fxcap/scenarios/p5-ctrlo-burst-model.cap: 3 citations, 0 failed
+all: 234 citations, 0 failed
 # exit 0
 ok   a quoted citation passes: 0 failed, planted 0
 ok   a quoted bare :N after its .zig passes: 0 failed, planted 0

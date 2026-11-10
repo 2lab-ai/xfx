@@ -1,23 +1,23 @@
-# python3 -I refs.py cb7c9c18 at 5d6c4cbb (this folder's refs.py), after --fix at a0634606 (16 moved), at 91c46731 (13 moved past the anchor's lines) and at 13646dfa (13 moved past round 2's lines)
+# python3 -I refs.py cb7c9c18 at c5c177a3 (this folder's refs.py), after --fix at a0634606 (16 moved), at 91c46731 (13 moved past the anchor's lines), at 13646dfa (13 moved past round 2's lines) and at ee3a7417 (12 moved past round 3's)
 ok    src/tui/shell.rs:187 (base 187)  "{}x\u{1d487}x{}{} {label} \u{b7} Run /help for commands{}",
 ok    src/tui/shell.rs:187 (base 187)  "{}x\u{1d487}x{}{} {label} \u{b7} Run /help for commands{}",
 ok    src/tui/full_transcript.rs:495 (base 495)  fn detail_spelled(text: &str, tab: &str) -> String {
 ok    src/tui/full_transcript.rs:3015 (base 3005)  pub(crate) fn drawn_wider_named(text: &str) -> Cow<'_, str> 
 ok    src/tui/full_transcript.rs:3066 (base 3056)  /// (`scripts/fxcap/parity-ledger.toml`, `answer-drawn-wider
-ok    src/tui/shell.rs:13788 (base 13742)  let event = full_transcript::shown_event(event);
+ok    src/tui/shell.rs:13797 (base 13742)  let event = full_transcript::shown_event(event);
 ok    src/tui/full_transcript.rs:3066 (base 3056)  /// (`scripts/fxcap/parity-ledger.toml`, `answer-drawn-wider
-ok    src/tui/shell.rs:13477 (base 13431)  fn send(&mut self, prompt: String, text: &str) -> bool {
-ok    src/tui/shell.rs:16694 (base 16648)  pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Res
-ok    src/tui/shell.rs:42090 (base 41264)  "  tools: {} advertised ({},",
-ok    src/tui/shell.rs:42090 (base 41264)  "  tools: {} advertised ({},",
-ok    src/tui/shell.rs:42090 (base 41264)  "  tools: {} advertised ({},",
-ok    src/tui/shell.rs:42090 (base 41264)  "  tools: {} advertised ({},",
-ok    src/tui/shell.rs:42090 (base 41264)  "  tools: {} advertised ({},",
-ok    src/tui/shell.rs:10568 (base 10513)  fn trailer_rows(&self) -> Vec<String> {
-ok    src/tui/shell.rs:10568 (base 10513)  fn trailer_rows(&self) -> Vec<String> {
-ok    src/tui/shell.rs:42090 (base 41264)  "  tools: {} advertised ({},",
+ok    src/tui/shell.rs:13486 (base 13431)  fn send(&mut self, prompt: String, text: &str) -> bool {
+ok    src/tui/shell.rs:16703 (base 16648)  pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Res
+ok    src/tui/shell.rs:42409 (base 41264)  "  tools: {} advertised ({},",
+ok    src/tui/shell.rs:42409 (base 41264)  "  tools: {} advertised ({},",
+ok    src/tui/shell.rs:42409 (base 41264)  "  tools: {} advertised ({},",
+ok    src/tui/shell.rs:42409 (base 41264)  "  tools: {} advertised ({},",
+ok    src/tui/shell.rs:42409 (base 41264)  "  tools: {} advertised ({},",
+ok    src/tui/shell.rs:10575 (base 10513)  fn trailer_rows(&self) -> Vec<String> {
+ok    src/tui/shell.rs:10575 (base 10513)  fn trailer_rows(&self) -> Vec<String> {
+ok    src/tui/shell.rs:42409 (base 41264)  "  tools: {} advertised ({},",
 ok    src/tui/shell.rs:1770 (base 1770)  "ansi_bytes={}, redraws={}, debounced_resizes={}, footer_upd
-ok    src/tui/shell.rs:16694 (base 16648)  pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Res
+ok    src/tui/shell.rs:16703 (base 16648)  pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Res
 ok    src/tui/full_transcript.rs:3015 (base 3005)  pub(crate) fn drawn_wider_named(text: &str) -> Cow<'_, str> 
 ok    src/tui/shell.rs:4349 (base 4349)  self.tally.begin(Instant::now(), estimate);
 ok    src/tui/mod.rs:127-133 (base 127-133)  // The session `--resume` names, opened -- and locked -- **b
