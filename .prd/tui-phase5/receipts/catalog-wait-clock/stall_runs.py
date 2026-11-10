@@ -24,9 +24,12 @@ TESTS = [
     "tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop",
     "tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs",
     "tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn",
+    "tui::worker::tests::the_place_watcher_ends_when_the_run_it_watches_panics",
+    "tui::worker::tests::a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound",
 ]
 SHORT = {TESTS[0]: "A next-start", TESTS[1]: "B records-one", TESTS[2]: "C twenty-questions",
-         TESTS[3]: "D compaction-join", TESTS[4]: "E history-notice"}
+         TESTS[3]: "D compaction-join", TESTS[4]: "E history-notice", TESTS[5]: "F watcher-unwind",
+         TESTS[6]: "G watcher-late"}
 VARS = {"turn": "XFX_SCRATCH_TURN_STALL_MS", "select": "XFX_SCRATCH_SELECT_STALL_MS",
         "start": "XFX_SCRATCH_START_STALL_MS"}
 
@@ -56,7 +59,7 @@ def main():
     stalls = sys.argv[4:]
     head = subprocess.run(["git", "-C", tree, "rev-parse", "--short=8", "HEAD"],
                           capture_output=True, text=True).stdout.strip()
-    summary = [f"# {label}: the five tests at {head} with stall_patch.py's points planted, "
+    summary = [f"# {label}: the catalog-wait tests at {head} with stall_patch.py's points planted, "
                f"one run per stall spec, each bounded at {LIMIT} s"]
     bodies = []
     for stall in stalls:

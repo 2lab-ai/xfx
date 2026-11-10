@@ -26,8 +26,12 @@ TESTS = [
     "tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop",
     "tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs",
     "tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn",
+    # Round 4's two: the watcher's unwind guard, and its late stamp.
+    "tui::worker::tests::the_place_watcher_ends_when_the_run_it_watches_panics",
+    "tui::worker::tests::a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound",
 ]
-SHORT = {TESTS[0]: "A", TESTS[1]: "B", TESTS[2]: "C", TESTS[3]: "D", TESTS[4]: "E"}
+SHORT = {TESTS[0]: "A", TESTS[1]: "B", TESTS[2]: "C", TESTS[3]: "D", TESTS[4]: "E",
+         TESTS[5]: "F", TESTS[6]: "G"}
 # Run over the whole lib suite, not the five: whether anything in the crate
 # kills them (opus SHOULD 1).
 FULL_LIB = {"window-first-load-ignores-stop", "image-route-read-ignores-stop"}
@@ -194,6 +198,19 @@ MUTANTS = {
         "        () = turn.token.cancelled() => {\n" + XTHREAD(ms) + "\n        }\n"
         "        _ = tokio::time::timeout(FAILED_CATALOG_RETRY_WAIT, state.selector.settle_load()) => {}\n",
     )] for ms in (500, 6000, 12000)},
+    # Round 4: the watcher stopped only on the normal path (round 3's shape),
+    # and the wall bound not asserted.
+    "watcher-guard-removed": [(
+        W,
+        "            // Dropped as this closure ends or unwinds, before the scope\n"
+        "            // joins the watcher.\n"
+        "            let _stop = StopWatching(&watching);\n"
+        "            run()\n",
+        "            let out = run();\n"
+        "            watching.store(false, Ordering::Release);\n"
+        "            out\n",
+    )],
+    "bound-not-asserted": [(W, "                took < STOP_TO_END,\n", "                took < Duration::MAX,\n")],
     # QUESTIONS-20's M1, for test C's turn that asks twenty.
     "questions-cap-back-to-4": [(Q, "pub const MAX_QUESTIONS: usize = 20;", "pub const MAX_QUESTIONS: usize = 4;")],
 }
@@ -240,7 +257,7 @@ def main():
     only = sys.argv[4:] or list(MUTANTS)
     head = git(clone, "rev-parse", "--short=8", "HEAD").stdout.strip()
     lines = [f"# {label}: mutants.py on a git clone --no-local at {head}; the catalog-wait "
-             f"tests (A, B, C, D, E) per mutant -- the whole lib suite for {sorted(FULL_LIB)} -- "
+             f"tests (A to G) per mutant -- the whole lib suite for {sorted(FULL_LIB)} -- "
              f"bounded at {LIMIT} s"]
     for name in only:
         git(clone, "checkout", "--", ".")

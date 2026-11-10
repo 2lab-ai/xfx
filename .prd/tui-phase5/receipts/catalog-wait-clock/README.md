@@ -3,8 +3,8 @@
 Unit CATALOG-WAIT-CLOCK: test-only -- `src/tui/worker.rs`'s tests module and
 one `[dev-dependencies]` line in `Cargo.toml`; no product line changes. Base
 `afd891af` (train 13's head). Every claim below is tied to a file in this
-folder. Source lines are at `afd891af` unless marked `@a6ab3ee6` or
-`@9d2e7f3c`.
+folder. Source lines are at `afd891af` unless marked `@a6ab3ee6`,
+`@9d2e7f3c` or `@6073cdc5`.
 
 | commit | what |
 |---|---|
@@ -14,8 +14,10 @@ folder. Source lines are at `afd891af` unless marked `@a6ab3ee6` or
 | `a6ab3ee6` | round 2 (the reviews of `d525cc7b`): every stopped run on the paused clock, first loads included; no clock places a stop; the compaction test; two new first-load cases |
 | `6b0c613f`, `b54cffb4` | round 2's receipt, gate and repeat check (files with a `2` in their name) |
 | `ce221384` | round 3 (the reviews of `a6ab3ee6`): the wall-clock stop-to-end bound, at 5 s; `Held::run`; C's give-up at 30 s; the closed-channel comments |
-| `9d2e7f3c` | round 3: the bound at 10 s, sized from `ce221384`'s repeat -- **the code head** |
-| the next commits | round 3's receipt (files with a `3` in their name, and this README), gate (`gates3.txt`) |
+| `9d2e7f3c` | round 3: the bound at 10 s, sized from `ce221384`'s repeat |
+| `bbf15d6d`, `6f07dd89` | round 3's receipt and gate (files with a `3` in their name) |
+| `6073cdc5` | round 4 (gpt6 on round 3): the watcher stopped by an unwind guard (`watched`), its stamp named an observation, both stamps required, two tests (F, G) -- **the code head** |
+| the next commits | round 4's receipt (files with a `4` in their name, and this README), gate (`gates4.txt`) |
 
 ## The gap
 
@@ -39,7 +41,10 @@ C `a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_
 D `a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs`
 (round 2: the same race, fixed here); E
 `a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn`
-(on the same harness; its assertions are unchanged).
+(on the same harness; its assertions are unchanged). Round 4 adds F
+`the_place_watcher_ends_when_the_run_it_watches_panics` and G
+`a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound`,
+which test the harness's watcher.
 
 ## What each bound proved, and what proves it now
 
@@ -127,29 +132,53 @@ deterministic test. It applies at all four stop points: the window's,
 the image route's and the turn's catalog reads (`:4585-4589`, `:5850-5854`,
 `:6150-6154`) and the retry wait (`:4552-4556`).
 
-**The backstop (round 3): a stop-to-end bound on the wall clock** in
-`first_of_two_and_a_stop` (A, B, E; not C, whose band runs on its own
-thread):
+**The backstop (round 3): an empirical stop-to-end watchdog on the wall
+clock** in `first_of_two_and_a_stop` (A, B, E; not C, whose band runs on its
+own thread). It is a measured margin, not a guarantee:
 
 - **The segment.** From the stop, stamped as the band sends it
-  (`:18891@9d2e7f3c`), to the first turn's end, stamped by a watcher thread
-  the moment the loop gives the first turn's place back (`outstanding`,
-  `:18847@9d2e7f3c`; the loop gives it back after the turn's terminal event and
-  before it takes the next work, `worker.rs:3554-3561`). Not the band's read
-  of `TurnEnded`: the band reads a turn's end only after the next turn has
-  started (round 1's finding), so a stall at the next turn's start would fall
-  inside. No stall point does now: `green3-head.txt` and `green3b-head.txt`
-  pass `turn=5000` and `turn=12000`, past the bound.
-- **The bound, `STOP_TO_END` = 10 s** (`:18742@9d2e7f3c`, asserted at
-  `:18931`). The brief: at least max(2 s, 10 x the segment's measured
-  maximum over the 50-run repeat). Measured at `ce221384`, 550 stopped runs
-  at load 5.6-23.4 (`load-check3.txt`): median 97.9 ms, p99 629.3 ms, **max
-  831.9 ms**; 10 x = 8.3 s, so 10 s (the crate's `TEST_DRAIN`). The segment
-  holds the stopped turn's own `fsync`ed record (`session::store`), which is
-  why its tail is long. The final repeat at `9d2e7f3c` (`load-check3b.txt`,
-  load 4.0-13.9): median 68.6 ms, p99 361.3 ms, max 725.9 ms. Round 3 first
-  committed 5 s (`ce221384`), before the repeat measured; the 832 ms maximum
-  put that under the rule, so `9d2e7f3c` raised it.
+  (`:18935@6073cdc5`), to the first turn's end as **a watcher thread observes
+  it**: the loop giving the first turn's place back (`outstanding`; the loop
+  gives it back after the turn's terminal event and before it takes the next
+  work, `worker.rs:3554-3561`). The stamp is the watcher's observation, not
+  the release (`watched`, `:18755@6073cdc5`): the watcher looks every
+  millisecond, and if its thread waits for a core it stamps late -- possibly
+  after the next turn has started, and so after a stall at that turn's start.
+  No product hook stamps the release itself; this unit stays test-only (the
+  dispatcher's decision, reversible). It is not the band's read of
+  `TurnEnded` either: the band reads a turn's end only after the next turn has
+  started (round 1's finding), which would put every turn-2 stall inside.
+  **Retracted from round 3:** that no stall point falls in the segment, and
+  that the bound does not measure the scheduler. What holds: in a normal run
+  nothing stalls a turn's start (the stall points exist only in the RED
+  patch), so the watcher's lateness is scheduling noise. The stall table's
+  passes at `turn=5000` and `turn=12000` (`green3b-head.txt`,
+  `green4-head.txt`) are one schedule's evidence that the watcher usually
+  looks before turn 2's stall, not a proof for every schedule.
+- **The bound, `STOP_TO_END` = 10 s** (`:18745@6073cdc5`, asserted at
+  `:18980`), an empirical watchdog sized at **about twelve times** the
+  segment's measured maximum. The brief: at least max(2 s, 10 x the
+  maximum over the 50-run repeat). Measured at `ce221384`, 550 stopped runs at
+  load 5.6-23.4 (`load-check3.txt`): median 97.9 ms, p99 629.3 ms, **max
+  831.9 ms**; 10 x = 8.3 s, so 10 s (the crate's `TEST_DRAIN`, 12.0 x). The
+  segment holds the stopped turn's own `fsync`ed record (`session::store`),
+  which is why its tail is long; neither `fsync` nor scheduling has a known
+  upper bound, so a load past anything measured could breach it with the
+  product right. The repeats since: `load-check3b.txt` (`9d2e7f3c`) max
+  725.9 ms; `load-check4.txt` (`6073cdc5`) below. Round 3 first committed
+  5 s (`ce221384`), before the repeat measured; the 832 ms maximum put that
+  under the rule, so `9d2e7f3c` raised it.
+- **Round 4: the watcher cannot hang an unwinding test.** `watched` stops the
+  watcher from a drop guard that ends as the run ends or unwinds, before the
+  scope joins (`:18786@6073cdc5`); round 3 stopped it only on the normal path,
+  so a panic before the first place came back left the scope waiting for
+  ever. F runs a panicking run under `watched` and must see the panic within
+  10 s. A stopped run now requires both stamps (`:18974`) rather than
+  skipping the bound when one is missing.
+- **Round 4: a late watcher, on purpose** (G). The harness's watcher stamps 3 s
+  after it sees the place given back: the run passes, its first turn ended as
+  the stop. Then 11 s, past `STOP_TO_END`: the run fails on the bound, the
+  product right -- what a watcher descheduled that long would do.
 - **What it catches** (`mutants3b-head.txt`, at 10 s): a 12 s hold, by the
   thread or by a cross-thread wait, at the turn's read (B E) and at the retry
   wait (A B E). What it does not: 700 ms, 500 ms and 6 s holds (6 s was killed

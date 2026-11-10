@@ -1,0 +1,22 @@
+# head: mutants.py on a git clone --no-local at 6073cdc5; the catalog-wait tests (A to G) per mutant -- the whole lib suite for ['image-route-read-ignores-stop', 'window-first-load-ignores-stop'] -- bounded at 900 s
+head watcher-guard-removed: killed (failed: F)
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 14.32s
+head bound-not-asserted: killed (failed: G)
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 14.40s
+head first-load-late-turn-read-thread: SURVIVED
+    test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 14.31s
+head first-load-late-turn-read-thread-12000: killed (failed: B E)
+    test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 14.32s
+head first-load-late-turn-read-xthread-700: SURVIVED
+    test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 14.32s
+head first-load-late-turn-read-xthread-12000: killed (failed: B E)
+    test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 14.28s
+head retry-wait-stop-late-thread-500: SURVIVED
+    test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 15.24s
+head retry-wait-stop-late-thread-12000: killed (failed: B A E G)
+    test result: FAILED. 3 passed; 4 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 15.17s
+head retry-wait-stop-late-xthread-500: SURVIVED
+    test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 15.34s
+head retry-wait-stop-late-xthread-12000: killed (failed: B A E G)
+    test result: FAILED. 3 passed; 4 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 15.20s
+clone after: clean
