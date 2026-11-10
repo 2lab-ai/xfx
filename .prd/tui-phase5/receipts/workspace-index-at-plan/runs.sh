@@ -151,5 +151,24 @@ for p in d["pairs"]:
        RunDirectory.test_a_pane_pid_that_cannot_be_read_fails_the_run RunDirectory.test_a_ps_that_fails_in_the_wait_fails_the_run || true)
     git clone --no-local -q "$XFX" "$SCRATCH/mut4"; git -C "$SCRATCH/mut4" checkout -q -b mut4 2e85d15b
     SCRATCH=$SCRATCH MUT_TMP=$GATE_TMP/mut4 $LOCK "$(dirname "$0")/mutants4.sh" ;;
+  r5)
+    # Round 5: the pair with 80486812's harness, eight units a leg, the new
+    # tests at 05d80375 (RED), the mutants. The gate is gates.sh on a clone at 80486812.
+    git clone --no-local -q "$XFX" "$SCRATCH/h5"; git -C "$SCRATCH/h5" checkout -q -b h5 80486812
+    H=$SCRATCH/h5
+    $LOCK bash -c "
+      $(declare -f sweep); FX=$FX SHA=$SHA
+      sweep $H $SCRATCH/scen-rep8 'workspace-index-*' $SCRATCH/xbin/xfx-80486812 $TMP24 $SCRATCH/sw/r5-80486812-24
+      sweep $H $SCRATCH/scen-rep8 'workspace-index-*' $SCRATCH/xbin/xfx-80486812 $TMP49 $SCRATCH/sw/r5-80486812-49"
+    git clone --no-local -q "$XFX" "$SCRATCH/red5"; git -C "$SCRATCH/red5" checkout -q -b red5 05d80375
+    git -C "$XFX" show 80486812:scripts/fxcap/test_capture.py > "$SCRATCH/red5/scripts/fxcap/test_capture.py"
+    (cd "$SCRATCH/red5" && TMPDIR=$GATE_TMP python3 -I scripts/fxcap/test_capture.py \
+       RunDirectory.test_a_record_copy_the_binary_deletes_changes_nothing \
+       RunDirectory.test_a_record_copy_the_binary_writes_gone_changes_nothing \
+       RunDirectory.test_a_record_copy_the_binary_writes_without_a_start_changes_nothing \
+       RunDirectory.test_a_ps_that_fails_at_launch_fails_the_run \
+       RunDirectory.test_a_relaunch_that_fails_after_respawning_says_the_pane_was_being_remade || true)
+    git clone --no-local -q "$XFX" "$SCRATCH/mut5"; git -C "$SCRATCH/mut5" checkout -q -b mut5 80486812
+    SCRATCH=$SCRATCH MUT_TMP=$GATE_TMP/mut5 $LOCK "$(dirname "$0")/mutants5.sh" ;;
   *) echo "no step $1" >&2; exit 2 ;;
 esac

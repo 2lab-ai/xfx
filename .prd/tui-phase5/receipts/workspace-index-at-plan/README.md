@@ -301,7 +301,8 @@ failed look ended the run 0, and the sweep reused its directory.
     reused);
   - `unknown`: any look that failed, among them a `ps` that fails on a pid
     `kill -0` finds. `start_of` (`:547-552`) now fails when `ps` does.
-- **The record** (`$run/pane`):
+- **The record** (`$run/pane` at 2e85d15b; **round 5 (8e) moved it into
+  capture.sh's own shell**, as the binary can write that file):
   - it reads `unknown` from just before the pane is made (`:1120`);
   - `own_pane` (`:530-543`) then writes `pid` with the pid and start time,
     `gone`, or `unknown` with a reason;
@@ -321,7 +322,8 @@ failed look ended the run 0, and the sweep reused its directory.
   - `ps` failing in the wait (a `ps` shim, turned on once the stub is
     recorded), exit 4 with "in a state no look could read";
   - a live process the run did not start (the test's own), recorded with its
-    pid and start time, waited for and the run failed (exit 4);
+    pid and start time, waited for and the run failed (exit 4) -- a test that
+    forged the file, and so went in round 5;
   - the sweep: both TMPDIRs a failed unit used are gone at its end.
   The two fault-injection tests fail at a7dbc9d0 (exit 0). The same-start
   test fails there too, but only because it writes round 4's record format.
@@ -343,6 +345,55 @@ failed look ended the run 0, and the sweep reused its directory.
   `gone`. A binary that exits at once without `keep` fails its run anyway:
   `await_up` fails a pane gone before its first frame, and that exit status
   is kept.
+
+## 8e. Round 5 (80486812; gpt6's two MUSTs: the record file)
+
+Round 4's cleanup decided from `$run/pane`: a missing file returned 0, and a
+`pid` record without its fields read as gone. The binary in the pane can
+write its run directory (round 3's REUSED test rewrote that file), so no
+check of the file would make it trustworthy.
+
+- **The record is shell state** (`scripts/fxcap/capture.sh:422-426@80486812`):
+  `pane_kind`, `pane_pid`, `pane_start`, `pane_why`, set only by `pane_set`
+  (`:528-535`).
+  - `unknown` ("the pane was being made") right before `new-session`
+    (`:1131`), and ("being remade") before each relaunch's `respawn-pane`
+    (`:1321`); then `own_pane` (`:542-555`).
+  - An empty kind -- no pane was ever made -- is the one case that returns
+    0 without a confirmed gone.
+- **Cleanup reads only that state.** `await_pane` (`:587-606`) reads no file.
+  The EXIT trap runs in the same shell, and every `own_pane` call is in it:
+  the scenario loop reads `< "$file"`, not a pipe.
+- **`$run/pane` is a copy for the tests,** never read back. It is written as
+  a new file (`rm -f`, then `set -C`), so a link the binary left at its name
+  is not followed.
+- **Tests** (`tests/red5.txt`; each stub stays past the wait):
+  - the binary deletes the copy: exit 4;
+  - the binary writes `gone` into it: exit 4;
+  - the binary writes `pid` and its pid, without a start time: exit 4;
+  - all three exit 0 at 05d80375;
+  - a tmux that respawns the pane and then fails: the run says "the pane
+    was being remade" (at 05d80375, no such line);
+  - `ps` failing at launch: exit 4 (round 4 already did this; now pinned);
+  - REUSED is now a `ps` shim giving the recorded pid another start time:
+    gone at the first look, exit 0, the stub alive and sent nothing;
+  - the same-start-second case cannot be told from a binary that stays, so
+    the stays test covers it, as its comment says.
+- **Mutants:** 9 / 9 killed at 80486812 (`mutants5.sh`, `mutants5.txt`):
+  - cleanup reads the file again (killed by the forged `gone` and forged
+    `pid` tests);
+  - an empty kind for an unreadable pane pid (that is, read as no pane);
+  - the relaunch's reset to unknown dropped;
+  - round 4's six at their new lines.
+- **The pair again,** with xfx 80486812, eight units a leg: 24 bytes 16 /
+  16, 49 bytes 16 / 16, no LIVE-WRITER line (`r5/80486812-24.txt`,
+  `r5/80486812-49.txt`).
+- **Gate** at 80486812, on a clone, under the lock: 22 / 22; the capture
+  harness ran 125 tests (`gate/gates-80486812.txt`).
+- **Not covered:** the first process a `relaunch` replaces is not waited
+  for. `respawn-pane -k` hangs it up, and the record moves to the new one.
+  It writes, if at all, into the same side's own run, while the scenario
+  goes on.
 
 ## 9. Open
 
