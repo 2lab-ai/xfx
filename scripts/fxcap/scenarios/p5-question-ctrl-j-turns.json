@@ -1,0 +1,8 @@
+[
+ {"tool":{"name":"ask_user_question","input":{"questions":[{"question":"Which depth?","options":[{"label":"Thorough","description":"Reads every file."},{"label":"Quick"}]},{"question":"Ship it?","options":[{"label":"Yes"},{"label":"No"}]},{"question":"Anything else?","options":[{"label":"Nothing"},{"label":"Later"}]}]}}},
+ {"delayMs":100,"chunks":["Three ","done."]},
+ {"tool":{"name":"ask_user_question","input":{"questions":[{"question":"Kitty?","options":[{"label":"Keep"},{"label":"Change"}]},{"question":"Xterm?","options":[{"label":"Keep"},{"label":"Change"}]}]}}},
+ {"delayMs":100,"chunks":["Two ","done."]},
+ {"tool":{"name":"ask_user_question","input":{"questions":[{"question":"First?","options":[{"label":"One"},{"label":"Two"}]},{"question":"Second?","options":[{"label":"Three"},{"label":"Four"}]}]}}},
+ {"delayMs":100,"chunks":["Order ","done."]}
+]

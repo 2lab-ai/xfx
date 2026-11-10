@@ -2726,6 +2726,25 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_j_is_enter_to_a_model_question_and_the_newline_keys_are_not() {
+        // `'\r', '\n' => .submit` (`questionActionFromByte`,
+        // `src/ui/input/runtime.zig:141@481104fd`): the byte C-j is, in every
+        // spelling the decoder reads as `ControlJ`. Alt-Enter and Shift-Enter
+        // are `.insert_newline`, which a question has no action for
+        // (`questionActionFromDecoded`, `:211-227`; `:155-176`).
+        assert_eq!(Act::of(Action::ControlJ), Some(Act::Submit));
+        assert_eq!(Act::of(Action::Submit), Some(Act::Submit));
+        assert_eq!(Act::of(Action::InsertNewline), None);
+        // In the field it is the draft's answer, as Enter's is: no newline.
+        let mut panel = captured();
+        panel.apply(Act::Text('4'), 60, 40);
+        panel.apply(Act::Text('a'), 60, 40);
+        let act = Act::of(Action::ControlJ).expect("bound");
+        assert!(matches!(panel.apply(act, 60, 40), Answered::Redraw));
+        assert_eq!(submitted(&mut panel, &[Act::Text('1')], 60, 40)[0], "a");
+    }
+
+    #[test]
     fn the_answers_word_and_kill_keys_reach_it_and_nothing_at_a_choice() {
         let mut panel = captured();
         for act in [Act::WordLeft, Act::KillToEnd, Act::DeleteWordLeft] {
