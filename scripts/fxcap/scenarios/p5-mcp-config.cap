@@ -7,6 +7,9 @@
 # `@SCENARIOS@` (capture.sh writes both in). xfx is given the same files; its
 # `/mcp` verbs are MCP-V's, so its side of these bytes is the writer's unit
 # test (`src/mcp/config.rs`) until they land.
+# `web` is mcphttp in `hang`: `connecting` through `list`, 10 s after its add,
+# where a refused port ended its first try's 10 s probe right then.
+mcphttp hang
 work p5-mcp-config-ws
 fx: homefile .fx/mcp.json p5-mcp-config-profile.json
 xfx: homefile .xfx/mcp.json p5-mcp-config-profile.json
@@ -19,7 +22,7 @@ wait 3
 type /mcp add --env K=v --env Z=1 three -- @BUN@ @SCENARIOS@/p5-mcp-stdio.ts --flag
 key Enter
 wait 3
-type /mcp add --header X-Team=core web http://127.0.0.1:9/web
+type /mcp add --header X-Team=core web http://127.0.0.1:@MCPPORT@/web
 key Enter
 wait 3
 type /mcp add --project p2 -- @BUN@ @SCENARIOS@/p5-mcp-stdio.ts

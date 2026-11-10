@@ -1,10 +1,17 @@
 # p5 mcp: v0.0.16's /mcp menu with three servers -- a ready profile stdio
-# server (fixture), a profile HTTP server at a loopback port nothing listens
-# on (remote: connecting/retrying, never failed), and a project server
-# waiting for approval (proj). List order: fixture, remote, then
-# "Needs attention": proj.
+# server (fixture), a profile HTTP server that never answers (remote:
+# `connecting` the whole run), and a project server waiting for approval
+# (proj). List order: fixture, remote, then "Needs attention": proj.
 # The stdio server is p5-mcp-stdio.ts, which the profile names by `@BUN@` and
 # `@SCENARIOS@` (capture.sh writes both in), and xfx is given the same profile.
+# `remote` is mcphttp in `hang` with a 600 s `startup_timeout_ms`, so its try
+# outlasts the run on both binaries. At a refused port (`127.0.0.1:9`, until
+# train 12) each try was a 10 s discover probe and its backoff 1, 2, 4, 8 s
+# (era.rs `Config::FX`, runtime.rs `Retry::FX`, from fx's era.zig and
+# engine.zig), so a snap within a second of a try's end read `connecting` on
+# one binary and `retrying` on the other: PR #90's two regressions
+# (.prd/tui-phase5/receipts/train-12/ci-mcp-timing/).
+mcphttp hang
 work p5-mcp-ws
 fx: homefile .fx/mcp.json p5-mcp-profile.json
 xfx: homefile .xfx/mcp.json p5-mcp-profile.json
@@ -13,7 +20,7 @@ snap startup
 wait 8
 # The status line keeps its MCP text back while a server is still
 # starting, up to 10 s (statusline.rs MCP_STARTUP_QUIET,
-# menu.zig:443@481104fd), and `remote` (127.0.0.1:9) keeps retrying, so
+# menu.zig:443@481104fd), and `remote` never comes up, so
 # here it is the full 10 s. The snap is the text once it is up, not a
 # second count 2 s past the 10 (FLAKE-HINT4).
 until shown proj is waiting for approval
