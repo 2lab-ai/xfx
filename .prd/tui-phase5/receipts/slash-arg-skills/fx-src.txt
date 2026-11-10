@@ -1,0 +1,1092 @@
+# fx v0.0.16 (pin 481104fd): every line SLASH-ARG-SKILLS's claims about fx rest on.
+
+## A1 past a blank the popup's prefix goes on for a name with arguments, and stops for one without
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 568,576p
+   568  pub fn slashCompletionPrefix(registry: SlashRegistry, input: []const u8) ?[]const u8 {
+   569      const prefix = std.mem.trimStart(u8, input, " \t\r\n");
+   570      if (prefix.len == 0 or prefix[0] != '/') return null;
+   571  
+   572      const command_end = std.mem.findAny(u8, prefix, " \t\r\n") orelse return prefix;
+   573      const spec = registry.lookup(prefix[0..command_end]) orelse return prefix;
+   574      if (!spec.has_args) return null;
+   575      return prefix;
+   576  }
+
+
+## A2 the anchored commands: /mcp (its verbs on), /statusline, /sound, /permissions, /workspace, /allowlist's anchor
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 636,644p
+   636  pub fn argCompletionAnchor(prefix: []const u8) usize {
+   637      if (mcpVerbsOn() and argCompletionPrefix(prefix, "/mcp") != null) return "/mcp ".len;
+   638      if (statuslineArgCompletionPrefix(prefix) != null) return "/statusline ".len;
+   639      if (notificationsArgCompletionPrefix(prefix) != null) return "/sound ".len;
+   640      if (permissionsArgCompletionPrefix(prefix) != null) return "/permissions ".len;
+   641      if (workspaceArgCompletionPrefix(prefix) != null) return "/workspace ".len;
+   642      if (allowlistArgCompletionAnchor(prefix)) |anchor| return anchor;
+   643      return 0;
+   644  }
+
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 871,874p
+   871  /// `/mcp` completes the MCP verbs and server names.
+   872  fn mcpVerbsOn() bool {
+   873      return true;
+   874  }
+
+
+## A3 each command's list, in this order: /mcp's run-time list first, then the tables
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 610,631p
+   610  pub fn nthSlashCompletion(registry: SlashRegistry, prefix: []const u8, n: usize) ?[]const u8 {
+   611      if (runtimeArgQuery(registry, prefix)) |query| {
+   612          return (nthRuntimeArg(registry, query, n) orelse return null).full;
+   613      }
+   614      if (allowlistArgCompletionPrefix(prefix)) |query| {
+   615          return nthAllowlistArgCompletion(query, n);
+   616      }
+   617      if (statuslineArgCompletionPrefix(prefix)) |query| {
+   618          return nthStatuslineArgCompletion(query, n);
+   619      }
+   620      if (notificationsArgCompletionPrefix(prefix)) |query| {
+   621          return nthNotificationsArgCompletion(query, n);
+   622      }
+   623      if (permissionsArgCompletionPrefix(prefix)) |query| {
+   624          return nthPermissionsArgCompletion(query, n);
+   625      }
+   626      if (workspaceArgCompletionPrefix(prefix)) |query| {
+   627          return nthWorkspaceArgCompletion(query, n);
+   628      }
+   629      if (prefix.len == 0 or prefix[0] != '/') return null;
+   630      return (nthSlashCommandCompletionMatch(registry, prefix, n) orelse return null).command;
+   631  }
+
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 578,608p
+   578  pub fn slashCompletionCount(registry: SlashRegistry, prefix: []const u8) usize {
+   579      if (runtimeArgQuery(registry, prefix)) |query| {
+   580          var count: usize = 0;
+   581          for (registry.arguments) |entry| {
+   582              if (runtimeArgMatches(registry, entry.full, query)) count += 1;
+   583          }
+   584          return count;
+   585      }
+   586      if (allowlistArgCompletionPrefix(prefix)) |query| {
+   587          return allowlistArgCompletionCount(query);
+   588      }
+   589      if (statuslineArgCompletionPrefix(prefix)) |query| {
+   590          return statuslineArgCompletionCount(query);
+   591      }
+   592      if (notificationsArgCompletionPrefix(prefix)) |query| {
+   593          return notificationsArgCompletionCount(query);
+   594      }
+   595      if (permissionsArgCompletionPrefix(prefix)) |query| {
+   596          return permissionsArgCompletionCount(query);
+   597      }
+   598      if (workspaceArgCompletionPrefix(prefix)) |query| {
+   599          return workspaceArgCompletionCount(query);
+   600      }
+   601      if (prefix.len == 0 or prefix[0] != '/') return 0;
+   602      var count: usize = 0;
+   603      for (registry.commands) |spec| {
+   604          if (spec.help_entry == null) continue;
+   605          if (matchedCompletionCommand(spec, prefix) != null) count += 1;
+   606      }
+   607      return count;
+   608  }
+
+
+## A4 the label is the line past the command; the tables have no description and no category
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 646,671p
+   646  /// Like `nthSlashCompletion` but returns the display label only.
+   647  /// For argument completions the command prefix is stripped so the bar
+   648  /// shows only the argument. For everything else the
+   649  /// full command string is returned unchanged.
+   650  pub fn nthSlashCompletionLabel(registry: SlashRegistry, prefix: []const u8, n: usize) ?[]const u8 {
+   651      if (runtimeArgQuery(registry, prefix)) |query| {
+   652          const entry = nthRuntimeArg(registry, query, n) orelse return null;
+   653          return entry.full[runtimeArgCommand(registry).len + 1 ..];
+   654      }
+   655      if (allowlistArgCompletionPrefix(prefix)) |query| {
+   656          return nthAllowlistArgLabel(query, n);
+   657      }
+   658      if (statuslineArgCompletionPrefix(prefix)) |query| {
+   659          return nthStatuslineArgLabel(query, n);
+   660      }
+   661      if (notificationsArgCompletionPrefix(prefix)) |query| {
+   662          return nthNotificationsArgLabel(query, n);
+   663      }
+   664      if (permissionsArgCompletionPrefix(prefix)) |query| {
+   665          return nthPermissionsArgLabel(query, n);
+   666      }
+   667      if (workspaceArgCompletionPrefix(prefix)) |query| {
+   668          return nthWorkspaceArgLabel(query, n);
+   669      }
+   670      return nthSlashCompletion(registry, prefix, n);
+   671  }
+
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 673,690p
+   673  pub fn nthSlashCompletionDescription(registry: SlashRegistry, prefix: []const u8, n: usize) ?[]const u8 {
+   674      if (runtimeArgQuery(registry, prefix)) |query| {
+   675          return (nthRuntimeArg(registry, query, n) orelse return null).description;
+   676      }
+   677      if (allowlistArgCompletionPrefix(prefix) != null) return null;
+   678      if (statuslineArgCompletionPrefix(prefix) != null) return null;
+   679      if (notificationsArgCompletionPrefix(prefix) != null) return null;
+   680      if (permissionsArgCompletionPrefix(prefix) != null) return null;
+   681      if (workspaceArgCompletionPrefix(prefix) != null) return null;
+   682      if (prefix.len == 0 or prefix[0] != '/') return null;
+   683      return (nthSlashCommandCompletionMatch(registry, prefix, n) orelse return null).spec.completion_description;
+   684  }
+   685  
+   686  pub fn nthSlashCompletionCategory(registry: SlashRegistry, prefix: []const u8, n: usize) ?SlashPresentationCategory {
+   687      if (argCompletionAnchor(prefix) != 0) return null;
+   688      if (prefix.len == 0 or prefix[0] != '/') return null;
+   689      return (nthSlashCommandCompletionMatch(registry, prefix, n) orelse return null).spec.presentation_category;
+   690  }
+
+
+## A5 the tables' words
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 750,776p
+   750  const statusline_arg_completions = [_][]const u8{
+   751      "/statusline context",
+   752      "/statusline session",
+   753      "/statusline workspace",
+   754  };
+   755  
+   756  const notifications_arg_completions = [_][]const u8{
+   757      "/sound on",
+   758      "/sound off",
+   759      "/sound max",
+   760  };
+   761  
+   762  const permissions_arg_completions = [_][]const u8{
+   763      "/permissions ask",
+   764      "/permissions auto",
+   765      "/permissions remember",
+   766      "/permissions revoke",
+   767      "/permissions full-access",
+   768      "/permissions reset",
+   769  };
+   770  
+   771  const workspace_arg_completions = [_][]const u8{
+   772      "/workspace list",
+   773      "/workspace add",
+   774      "/workspace remove",
+   775      "/workspace clear",
+   776  };
+
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 778,841p
+   778  const allowlist_action_completions = [_][]const u8{
+   779      "/allowlist view",
+   780      "/allowlist add",
+   781      "/allowlist remove",
+   782      "/allowlist reset",
+   783      "/allowlist local",
+   784      "/allowlist user",
+   785  };
+   786  
+   787  const allowlist_view_completions = [_][]const u8{
+   788      "/allowlist view effective",
+   789      "/allowlist view local",
+   790      "/allowlist view user",
+   791  };
+   792  
+   793  const allowlist_scoped_action_suffixes = [_][]const u8{
+   794      "add",
+   795      "remove",
+   796      "reset",
+   797  };
+   798  
+   799  const allowlist_add_kind_completions = [_][]const u8{
+   800      "/allowlist add command",
+   801      "/allowlist add tool",
+   802      "/allowlist add url",
+   803      "/allowlist add web-fetch-domain",
+   804  };
+   805  
+   806  const allowlist_remove_kind_completions = [_][]const u8{
+   807      "/allowlist remove command",
+   808      "/allowlist remove tool",
+   809      "/allowlist remove url",
+   810      "/allowlist remove web-fetch-domain",
+   811  };
+   812  
+   813  const allowlist_reset_scope_completions = [_][]const u8{
+   814      "/allowlist reset commands",
+   815      "/allowlist reset tools",
+   816      "/allowlist reset urls",
+   817      "/allowlist reset web-fetch-domains",
+   818      "/allowlist reset all",
+   819  };
+   820  
+   821  const allowlist_add_tool_completions = [_][]const u8{
+   822      "/allowlist add tool read_file",
+   823      "/allowlist add tool write_file",
+   824      "/allowlist add tool edit_file",
+   825      "/allowlist add tool glob_files",
+   826      "/allowlist add tool grep_files",
+   827      "/allowlist add tool skill",
+   828      "/allowlist add tool install_skill",
+   829      "/allowlist add tool subagent",
+   830  };
+   831  
+   832  const allowlist_remove_tool_completions = [_][]const u8{
+   833      "/allowlist remove tool read_file",
+   834      "/allowlist remove tool write_file",
+   835      "/allowlist remove tool edit_file",
+   836      "/allowlist remove tool glob_files",
+   837      "/allowlist remove tool grep_files",
+   838      "/allowlist remove tool skill",
+   839      "/allowlist remove tool install_skill",
+   840      "/allowlist remove tool subagent",
+   841  };
+
+
+## A6 the filter: the command, then a space or a tab; the four trimmed both ends, /allowlist at the start only; a word matched by its start, case ignored, an empty query matching all
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 909,943p
+   909  fn argCompletionPrefix(prefix: []const u8, command: []const u8) ?[]const u8 {
+   910      if (!std.mem.startsWith(u8, prefix, command)) return null;
+   911      if (prefix.len == command.len) return null;
+   912      const boundary = prefix[command.len];
+   913      if (boundary != ' ' and boundary != '\t') return null;
+   914      return std.mem.trim(u8, prefix[command.len..], " \t");
+   915  }
+   916  
+   917  fn rawArgCompletionPrefix(prefix: []const u8, command: []const u8) ?[]const u8 {
+   918      if (!std.mem.startsWith(u8, prefix, command)) return null;
+   919      if (prefix.len == command.len) return null;
+   920      const boundary = prefix[command.len];
+   921      if (boundary != ' ' and boundary != '\t') return null;
+   922      return std.mem.trimStart(u8, prefix[command.len..], " \t");
+   923  }
+   924  
+   925  pub fn allowlistArgCompletionPrefix(prefix: []const u8) ?[]const u8 {
+   926      return rawArgCompletionPrefix(prefix, "/allowlist");
+   927  }
+   928  
+   929  pub fn statuslineArgCompletionPrefix(prefix: []const u8) ?[]const u8 {
+   930      return argCompletionPrefix(prefix, "/statusline");
+   931  }
+   932  
+   933  pub fn notificationsArgCompletionPrefix(prefix: []const u8) ?[]const u8 {
+   934      return argCompletionPrefix(prefix, "/sound");
+   935  }
+   936  
+   937  pub fn permissionsArgCompletionPrefix(prefix: []const u8) ?[]const u8 {
+   938      return argCompletionPrefix(prefix, "/permissions");
+   939  }
+   940  
+   941  pub fn workspaceArgCompletionPrefix(prefix: []const u8) ?[]const u8 {
+   942      return argCompletionPrefix(prefix, "/workspace");
+   943  }
+
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 1031,1034p
+  1031  fn argCompletionMatches(completion: []const u8, command_with_space_len: usize, query: []const u8) bool {
+  1032      const arg = completion[command_with_space_len..];
+  1033      return query.len == 0 or std.ascii.startsWithIgnoreCase(arg, query);
+  1034  }
+
+
+## A7 /allowlist walks its words, and its anchor is each arm's head
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 1042,1101p
+  1042  fn allowlistArgCompletionState(query: []const u8) AllowlistArgCompletionState {
+  1043      const split = splitAllowlistArgQuery(query);
+  1044      if (split.has_rest) {
+  1045          if (std.ascii.eqlIgnoreCase(split.word, "view")) {
+  1046              return .{
+  1047                  .completions = &allowlist_view_completions,
+  1048                  .label_offset = "/allowlist view ".len,
+  1049                  .query = split.rest,
+  1050              };
+  1051          }
+  1052          if (std.ascii.eqlIgnoreCase(split.word, "local")) {
+  1053              return scopedAllowlistArgCompletionState(.local, split.rest);
+  1054          }
+  1055          if (std.ascii.eqlIgnoreCase(split.word, "user")) {
+  1056              return scopedAllowlistArgCompletionState(.user, split.rest);
+  1057          }
+  1058          if (std.ascii.eqlIgnoreCase(split.word, "add")) {
+  1059              if (allowlistToolArgQuery(split.rest)) |tool_query| {
+  1060                  return .{
+  1061                      .completions = &allowlist_add_tool_completions,
+  1062                      .label_offset = "/allowlist add tool ".len,
+  1063                      .query = tool_query,
+  1064                  };
+  1065              }
+  1066              return .{
+  1067                  .completions = &allowlist_add_kind_completions,
+  1068                  .label_offset = "/allowlist add ".len,
+  1069                  .query = split.rest,
+  1070              };
+  1071          }
+  1072          if (std.ascii.eqlIgnoreCase(split.word, "remove")) {
+  1073              if (allowlistToolArgQuery(split.rest)) |tool_query| {
+  1074                  return .{
+  1075                      .completions = &allowlist_remove_tool_completions,
+  1076                      .label_offset = "/allowlist remove tool ".len,
+  1077                      .query = tool_query,
+  1078                  };
+  1079              }
+  1080              return .{
+  1081                  .completions = &allowlist_remove_kind_completions,
+  1082                  .label_offset = "/allowlist remove ".len,
+  1083                  .query = split.rest,
+  1084              };
+  1085          }
+  1086          if (std.ascii.eqlIgnoreCase(split.word, "reset")) {
+  1087              return .{
+  1088                  .completions = &allowlist_reset_scope_completions,
+  1089                  .label_offset = "/allowlist reset ".len,
+  1090                  .query = split.rest,
+  1091              };
+  1092          }
+  1093          return .{ .completions = &.{}, .label_offset = "/allowlist ".len, .query = "" };
+  1094      }
+  1095  
+  1096      return .{
+  1097          .completions = &allowlist_action_completions,
+  1098          .label_offset = "/allowlist ".len,
+  1099          .query = split.word,
+  1100      };
+  1101  }
+
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 1108,1204p
+  1108  fn scopedAllowlistArgCompletionState(
+  1109      scope: AllowlistCompletionScope,
+  1110      query: []const u8,
+  1111  ) AllowlistArgCompletionState {
+  1112      const scope_label = @tagName(scope);
+  1113      const split = splitAllowlistArgQuery(query);
+  1114      if (!split.has_rest) {
+  1115          return switch (scope) {
+  1116              .local => .{
+  1117                  .completions = &allowlist_local_action_completions,
+  1118                  .label_offset = "/allowlist local ".len,
+  1119                  .query = split.word,
+  1120              },
+  1121              .user => .{
+  1122                  .completions = &allowlist_user_action_completions,
+  1123                  .label_offset = "/allowlist user ".len,
+  1124                  .query = split.word,
+  1125              },
+  1126          };
+  1127      }
+  1128  
+  1129      if (std.ascii.eqlIgnoreCase(split.word, "add")) {
+  1130          if (allowlistToolArgQuery(split.rest)) |tool_query| {
+  1131              return switch (scope) {
+  1132                  .local => .{
+  1133                      .completions = &allowlist_local_add_tool_completions,
+  1134                      .label_offset = "/allowlist local add tool ".len,
+  1135                      .query = tool_query,
+  1136                  },
+  1137                  .user => .{
+  1138                      .completions = &allowlist_user_add_tool_completions,
+  1139                      .label_offset = "/allowlist user add tool ".len,
+  1140                      .query = tool_query,
+  1141                  },
+  1142              };
+  1143          }
+  1144          return switch (scope) {
+  1145              .local => .{
+  1146                  .completions = &allowlist_local_add_kind_completions,
+  1147                  .label_offset = "/allowlist local add ".len,
+  1148                  .query = split.rest,
+  1149              },
+  1150              .user => .{
+  1151                  .completions = &allowlist_user_add_kind_completions,
+  1152                  .label_offset = "/allowlist user add ".len,
+  1153                  .query = split.rest,
+  1154              },
+  1155          };
+  1156      }
+  1157      if (std.ascii.eqlIgnoreCase(split.word, "remove")) {
+  1158          if (allowlistToolArgQuery(split.rest)) |tool_query| {
+  1159              return switch (scope) {
+  1160                  .local => .{
+  1161                      .completions = &allowlist_local_remove_tool_completions,
+  1162                      .label_offset = "/allowlist local remove tool ".len,
+  1163                      .query = tool_query,
+  1164                  },
+  1165                  .user => .{
+  1166                      .completions = &allowlist_user_remove_tool_completions,
+  1167                      .label_offset = "/allowlist user remove tool ".len,
+  1168                      .query = tool_query,
+  1169                  },
+  1170              };
+  1171          }
+  1172          return switch (scope) {
+  1173              .local => .{
+  1174                  .completions = &allowlist_local_remove_kind_completions,
+  1175                  .label_offset = "/allowlist local remove ".len,
+  1176                  .query = split.rest,
+  1177              },
+  1178              .user => .{
+  1179                  .completions = &allowlist_user_remove_kind_completions,
+  1180                  .label_offset = "/allowlist user remove ".len,
+  1181                  .query = split.rest,
+  1182              },
+  1183          };
+  1184      }
+  1185      if (std.ascii.eqlIgnoreCase(split.word, "reset")) {
+  1186          return switch (scope) {
+  1187              .local => .{
+  1188                  .completions = &allowlist_local_reset_scope_completions,
+  1189                  .label_offset = "/allowlist local reset ".len,
+  1190                  .query = split.rest,
+  1191              },
+  1192              .user => .{
+  1193                  .completions = &allowlist_user_reset_scope_completions,
+  1194                  .label_offset = "/allowlist user reset ".len,
+  1195                  .query = split.rest,
+  1196              },
+  1197          };
+  1198      }
+  1199      return .{
+  1200          .completions = &.{},
+  1201          .label_offset = "/allowlist ".len + scope_label.len + 1,
+  1202          .query = "",
+  1203      };
+  1204  }
+
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 1206,1276p
+  1206  fn allowlistArgCompletionAnchor(prefix: []const u8) ?usize {
+  1207      const query = allowlistArgCompletionPrefix(prefix) orelse return null;
+  1208      const split = splitAllowlistArgQuery(query);
+  1209      if (!split.has_rest) return "/allowlist ".len;
+  1210      if (std.ascii.eqlIgnoreCase(split.word, "view")) return "/allowlist view ".len;
+  1211      if (std.ascii.eqlIgnoreCase(split.word, "local")) {
+  1212          return scopedAllowlistArgCompletionAnchor(.local, split.rest);
+  1213      }
+  1214      if (std.ascii.eqlIgnoreCase(split.word, "user")) {
+  1215          return scopedAllowlistArgCompletionAnchor(.user, split.rest);
+  1216      }
+  1217      if (std.ascii.eqlIgnoreCase(split.word, "add")) {
+  1218          if (allowlistToolArgQuery(split.rest) != null) return "/allowlist add tool ".len;
+  1219          return "/allowlist add ".len;
+  1220      }
+  1221      if (std.ascii.eqlIgnoreCase(split.word, "remove")) {
+  1222          if (allowlistToolArgQuery(split.rest) != null) return "/allowlist remove tool ".len;
+  1223          return "/allowlist remove ".len;
+  1224      }
+  1225      if (std.ascii.eqlIgnoreCase(split.word, "reset")) return "/allowlist reset ".len;
+  1226      return "/allowlist ".len;
+  1227  }
+  1228  
+  1229  fn scopedAllowlistArgCompletionAnchor(
+  1230      scope: AllowlistCompletionScope,
+  1231      query: []const u8,
+  1232  ) usize {
+  1233      const split = splitAllowlistArgQuery(query);
+  1234      const base = switch (scope) {
+  1235          .local => "/allowlist local ",
+  1236          .user => "/allowlist user ",
+  1237      };
+  1238      if (!split.has_rest) return base.len;
+  1239      if (std.ascii.eqlIgnoreCase(split.word, "add")) {
+  1240          if (allowlistToolArgQuery(split.rest) != null) return base.len + "add tool ".len;
+  1241          return base.len + "add ".len;
+  1242      }
+  1243      if (std.ascii.eqlIgnoreCase(split.word, "remove")) {
+  1244          if (allowlistToolArgQuery(split.rest) != null) return base.len + "remove tool ".len;
+  1245          return base.len + "remove ".len;
+  1246      }
+  1247      if (std.ascii.eqlIgnoreCase(split.word, "reset")) return base.len + "reset ".len;
+  1248      return base.len;
+  1249  }
+  1250  
+  1251  fn allowlistToolArgQuery(query: []const u8) ?[]const u8 {
+  1252      const split = splitAllowlistArgQuery(query);
+  1253      if (!split.has_rest) return null;
+  1254      if (!std.ascii.eqlIgnoreCase(split.word, "tool")) return null;
+  1255      return split.rest;
+  1256  }
+  1257  
+  1258  const AllowlistArgQuery = struct {
+  1259      word: []const u8,
+  1260      rest: []const u8,
+  1261      has_rest: bool,
+  1262  };
+  1263  
+  1264  fn splitAllowlistArgQuery(query: []const u8) AllowlistArgQuery {
+  1265      const trimmed_start = std.mem.trimStart(u8, query, " \t");
+  1266      for (trimmed_start, 0..) |c, idx| {
+  1267          if (c == ' ' or c == '\t') {
+  1268              return .{
+  1269                  .word = trimmed_start[0..idx],
+  1270                  .rest = std.mem.trimStart(u8, trimmed_start[idx + 1 ..], " \t"),
+  1271                  .has_rest = true,
+  1272              };
+  1273          }
+  1274      }
+  1275      return .{ .word = trimmed_start, .rest = "", .has_rest = false };
+  1276  }
+
+
+## A8 Tab writes the marked line, with a space when more is to come
+### git -C fx-upstream show 481104fd:src/core/app/app_input_runtime.zig | sed -n 1331,1353p
+  1331                      } else if (!(app.stream.active and app.input_runtime.picker.isModelShapedInput(&app.input_runtime.edit_state))) {
+  1332                          const count = completion_rt.visibleSlashCompletionCount(app);
+  1333                          if (count > 0) {
+  1334                              const items = app.input_runtime.edit_state.input.items;
+  1335                              const prefix = command_specs.slashCompletionPrefix(
+  1336                                  app.slashRegistry(),
+  1337                                  items,
+  1338                              ) orelse return;
+  1339                              const idx = app.input_runtime.picker.slash_completion_index % count;
+  1340                              if (try bindSelectedSlashSkill(app, idx)) {
+  1341                                  app.shell.render_requests.request(.footer);
+  1342                              } else if (command_specs.nthSlashCompletion(app.slashRegistry(), prefix, idx)) |completion| {
+  1343                                  if (command_specs.slashCompletionHasArgs(app.slashRegistry(), completion)) {
+  1344                                      var buf: [128]u8 = undefined;
+  1345                                      const with_space = std.mem.print(&buf, "{s} ", .{completion}) catch completion;
+  1346                                      try app.input_runtime.textReplacementState().replace(app.alloc, with_space);
+  1347                                  } else {
+  1348                                      try app.input_runtime.textReplacementState().replace(app.alloc, completion);
+  1349                                  }
+  1350                                  app.shell.render_requests.request(.footer);
+  1351                              }
+  1352                          }
+  1353                      }
+
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 692,748p
+   692  pub fn slashCompletionHasArgs(registry: SlashRegistry, command: []const u8) bool {
+   693      if (allowlistCompletionHasArgs(command)) return true;
+   694      if (std.mem.eql(u8, command, "/workspace add") or
+   695          std.mem.eql(u8, command, "/workspace remove")) return true;
+   696      for (registry.commands) |spec| {
+   697          if (std.mem.eql(u8, spec.command, command)) return spec.has_args;
+   698          for (spec.aliases) |alias| {
+   699              if (std.mem.eql(u8, alias, command)) return spec.has_args;
+   700          }
+   701      }
+   702      return false;
+   703  }
+   704  
+   705  fn allowlistCompletionHasArgs(command: []const u8) bool {
+   706      const completions_with_more_args = [_][]const u8{
+   707          "/allowlist add",
+   708          "/allowlist remove",
+   709          "/allowlist reset",
+   710          "/allowlist view",
+   711          "/allowlist local",
+   712          "/allowlist user",
+   713          "/allowlist local add",
+   714          "/allowlist local remove",
+   715          "/allowlist local reset",
+   716          "/allowlist user add",
+   717          "/allowlist user remove",
+   718          "/allowlist user reset",
+   719          "/allowlist add command",
+   720          "/allowlist add tool",
+   721          "/allowlist add url",
+   722          "/allowlist add web-fetch-domain",
+   723          "/allowlist remove command",
+   724          "/allowlist remove tool",
+   725          "/allowlist remove url",
+   726          "/allowlist remove web-fetch-domain",
+   727          "/allowlist local add command",
+   728          "/allowlist local add tool",
+   729          "/allowlist local add url",
+   730          "/allowlist local add web-fetch-domain",
+   731          "/allowlist local remove command",
+   732          "/allowlist local remove tool",
+   733          "/allowlist local remove url",
+   734          "/allowlist local remove web-fetch-domain",
+   735          "/allowlist user add command",
+   736          "/allowlist user add tool",
+   737          "/allowlist user add url",
+   738          "/allowlist user add web-fetch-domain",
+   739          "/allowlist user remove command",
+   740          "/allowlist user remove tool",
+   741          "/allowlist user remove url",
+   742          "/allowlist user remove web-fetch-domain",
+   743      };
+   744      for (completions_with_more_args) |completion| {
+   745          if (std.mem.eql(u8, command, completion)) return true;
+   746      }
+   747      return false;
+   748  }
+
+
+## A9 Enter runs the marked line in place of what was typed, while the list shows, and the history records the line run
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n 719,729p
+   719              const left_trimmed = std.mem.trimStart(u8, expanded.text, " \t\r\n");
+   720              const resolved_slash_submission = resolvedSlashSubmission(app, left_trimmed);
+   721              if (knownSlashCommand(app, resolved_slash_submission)) |command| {
+   722                  if (requiresPromptCredential(command, resolved_slash_submission) and !try preflightPrompt(app)) return;
+   723                  try submitSlashCommand(app, left_trimmed, null, max_prompt_history);
+   724                  return;
+   725              }
+   726              if (shouldRouteUnknownSlashCommand(app, resolved_slash_submission)) {
+   727                  try submitSlashCommand(app, left_trimmed, null, max_prompt_history);
+   728                  return;
+   729              }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n 1098,1101p
+  1098          fn resolvedSlashSubmission(app: *App, text: []const u8) []const u8 {
+  1099              if (completion_rt.visibleSlashCompletionCount(app) == 0) return text;
+  1100              return resolveSlashSubmission(app.slashRegistry(), text, app.input_runtime.picker.slash_completion_index);
+  1101          }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n 1009,1016p
+  1009          fn submitSlashCommand(
+  1010              app: *App,
+  1011              text: []const u8,
+  1012              retained_prefix: ?[]const u8,
+  1013              max_prompt_history: usize,
+  1014          ) !void {
+  1015              const command_text = resolvedSlashSubmission(app, text);
+  1016              const command_copy = try app.alloc.dupe(u8, command_text);
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n 1059,1064p
+  1059              recordAcceptedSlashCommandHistory(
+  1060                  app,
+  1061                  max_prompt_history,
+  1062                  command_copy,
+  1063              );
+  1064              try App.handleCommand(app, command_copy);
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n 1818,1823p
+  1818          fn resolveSlashSubmission(registry: command_specs.SlashRegistry, text: []const u8, selected_index: usize) []const u8 {
+  1819              const count = command_specs.slashCompletionCount(registry, text);
+  1820              if (count == 0) return text;
+  1821              const idx = selected_index % count;
+  1822              return command_specs.nthSlashCompletion(registry, text, idx) orelse text;
+  1823          }
+
+
+## A10 the rows hang under the anchor, past the draft's leading blanks; no header (an anchored prefix has no slash layout); the list picker's rows
+### git -C fx-upstream show 481104fd:src/ui/footer/input_presentation.zig | sed -n 287,292p
+   287  fn slashRawAnchor(input_items: []const u8, prefix: []const u8) ?usize {
+   288      const slash_anchor = command_specs.argCompletionAnchor(prefix);
+   289      if (slash_anchor == 0 or prefix.len > input_items.len or slash_anchor > prefix.len) return null;
+   290      const leading_ws = input_items.len - prefix.len;
+   291      return leading_ws + slash_anchor;
+   292  }
+
+### git -C fx-upstream show 481104fd:src/ui/footer/picker_presentation.zig | sed -n 710,732p
+   710  pub fn slashMenuLayout(
+   711      registry: command_specs.SlashRegistry,
+   712      prefix: []const u8,
+   713      skills: []const skill_runtime.Skill,
+   714      selection_index: usize,
+   715      current_window_start: usize,
+   716      terminal_rows: u16,
+   717      input_extra: u16,
+   718      banner_rows: u16,
+   719  ) ?SlashMenuLayout {
+   720      if (command_specs.argCompletionAnchor(prefix) != 0) return null;
+   721      const command_count = command_specs.slashCompletionCount(registry, prefix);
+   722      const result_count = mixedSlashCompletionCount(registry, prefix, skills);
+   723      return slashMenuLayoutForCounts(
+   724          command_count,
+   725          result_count,
+   726          selection_index,
+   727          current_window_start,
+   728          terminal_rows,
+   729          input_extra,
+   730          banner_rows,
+   731      );
+   732  }
+
+### git -C fx-upstream show 481104fd:src/ui/footer/paint_plan.zig | sed -n 911,923p
+   911                  } else {
+   912                      const selected = input.picker_selection_index % count;
+   913                      const window_start = picker_presentation.updateEdgeScrollPickerWindowStart(input.picker_window_start, count, selected, input.picker_rows);
+   914                      const window = picker_presentation.edgeScrollPickerWindowFromStart(count, window_start, input.picker_rows);
+   915                      const command_width = picker_presentation.mixedSlashCompletionCommandColumnWidth(ctx.slash_registry, slash_prefix, ctx.skills_menu.items, window);
+   916                      var row = rows.picker_start;
+   917                      var match_idx = window.start;
+   918                      while (match_idx < window.end) : (match_idx += 1) {
+   919                          var slash_row = try picker_presentation.composeMixedSlashCompletionOptionRow(alloc, ctx.slash_registry, slash_prefix, ctx.skills_menu.items, match_idx, match_idx == selected, input.picker_start_col, command_width, shell.layout.cols);
+   920                          try pushFooterBandRow(alloc, &frame, plan, row, &slash_row);
+   921                          row += 1;
+   922                      }
+   923                  }
+
+### git -C fx-upstream show 481104fd:src/ui/footer/picker_presentation.zig | sed -n 1446,1486p
+  1446  pub fn composeSlashCompletionOptionRow(
+  1447      alloc: Allocator,
+  1448      registry: command_specs.SlashRegistry,
+  1449      prefix: []const u8,
+  1450      match_idx: usize,
+  1451      selected: bool,
+  1452      start_col: u16,
+  1453      command_width: usize,
+  1454      width: u16,
+  1455  ) !std.ArrayList(u8) {
+  1456      var row: std.ArrayList(u8) = .empty;
+  1457      const width_usize: usize = width;
+  1458      if (width_usize == 0) return row;
+  1459  
+  1460      const label = command_specs.nthSlashCompletionLabel(registry, prefix, match_idx) orelse return row;
+  1461      const description = command_specs.nthSlashCompletionDescription(registry, prefix, match_idx) orelse "";
+  1462      const label_col: u16 = if (start_col > 1) start_col else 3;
+  1463      if (label_col > 1) try row_text.appendAbsoluteColumn(alloc, &row, label_col);
+  1464  
+  1465      const before_label_width: usize = label_col - 1;
+  1466      if (before_label_width >= width_usize) return row;
+  1467      const remaining: u16 = @intCast(width_usize - before_label_width);
+  1468  
+  1469      try row.appendSlice(alloc, if (selected) ui_render.selected_completion_style else ui_render.dim_style);
+  1470      try row_text.appendClipped(alloc, &row, label, remaining);
+  1471      try row.appendSlice(alloc, ui_render.reset_style);
+  1472  
+  1473      var visible = display_width.visibleWidth(label);
+  1474      while (visible < command_width and before_label_width + visible < width_usize) : (visible += 1) {
+  1475          try row.append(alloc, ' ');
+  1476      }
+  1477  
+  1478      if (description.len > 0 and before_label_width + visible < width_usize) {
+  1479          try row.appendSlice(alloc, ui_render.dim_style);
+  1480          const desc_remaining: u16 = @intCast(width_usize - before_label_width - visible);
+  1481          try row_text.appendClipped(alloc, &row, description, desc_remaining);
+  1482          try row.appendSlice(alloc, ui_render.reset_style);
+  1483      }
+  1484  
+  1485      return row;
+  1486  }
+
+### git -C fx-upstream show 481104fd:src/ui/footer/surface_frame.zig | sed -n 659,666p
+   659      else if (slash_menu_layout) |layout|
+   660          layout.row_count
+   661      else if (show_file_query)
+   662          picker_presentation.filePickerReservedRows(shell.layout.rows, geometry.input_extra, banner_rows)
+   663      else if (show_picker)
+   664          list_picker_rows
+   665      else
+   666          0;
+
+
+## A11 one .slash kind: the popup, the argument lists and the ghost; Escape dismisses the visible kind, which lasts while the kind is the same
+### git -C fx-upstream show 481104fd:src/core/app/input_completion_runtime.zig | sed -n 97,109p
+    97          fn slashCompletionQueryActive(app: *App) bool {
+    98              if (app.input_runtime.picker.isInlinePickerSuppressed(.slash)) return false;
+    99              if (app.input_runtime.picker.inlinePickerTriggerKind(&app.input_runtime.edit_state) != .slash) return false;
+   100              // Model query always owns this slot. Mid-turn bare `/model` does too;
+   101              // idle bare `/model` still surfaces slash rows.
+   102              if (comptime @hasField(App, "stream")) {
+   103                  if (app.stream.active and picker_state.isBareModelCommandAtCursor(&app.input_runtime.edit_state)) return false;
+   104              }
+   105              return command_specs.slashCompletionPrefix(
+   106                  app.slashRegistry(),
+   107                  app.input_runtime.edit_state.input.items,
+   108              ) != null;
+   109          }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_completion_runtime.zig | sed -n 133,169p
+   133          pub fn dismissVisibleInlinePicker(app: *App) bool {
+   134              const kind = visibleInlinePickerKind(app) orelse return false;
+   135              // Escaping the picker abandons the columns it had opened, so the
+   136              // next `/provider` starts from the provider column again.
+   137              if (kind == .provider) provider_picker_runtime.Runtime(App).abandon(app);
+   138              app.input_runtime.picker.dismissInlinePicker(kind);
+   139              return true;
+   140          }
+   141  
+   142          fn visibleInlinePickerKind(app: *App) ?picker_state.InlinePickerKind {
+   143              if (comptime @hasField(App, "question_prompt")) {
+   144                  if (app.question_prompt.isActive()) return null;
+   145              }
+   146              if (comptime @hasField(App, "approval_prompt")) {
+   147                  if (app.approval_prompt.isActive()) return null;
+   148              }
+   149              if (comptime @hasField(App, "stream")) {
+   150                  if (app.stream.active) {
+   151                      if (hasModelQuery(app)) return .model;
+   152                      if (hasFileQuery(app)) return .file;
+   153                      if (visibleInlineSlashCompletion(app) != null) return .slash;
+   154                      if (visibleSlashCompletionCount(app) > 0) return .slash;
+   155                      return null;
+   156                  }
+   157              }
+   158              if (hasModelQuery(app)) return .model;
+   159              if (provider_picker_runtime.Runtime(App).hasQuery(app)) return .provider;
+   160              if (hasFileQuery(app)) return .file;
+   161              if (visibleInlineCompletion(app)) |completion| {
+   162                  return switch (completion) {
+   163                      .skill => .skill,
+   164                      .slash => .slash,
+   165                  };
+   166              }
+   167              if (visibleSlashCompletionCount(app) > 0) return .slash;
+   168              return null;
+   169          }
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 287,296p
+   287      pub fn inlinePickerTriggerKind(self: *const State, editor: *const editor_state.State) ?InlinePickerKind {
+   288          if (self.rawModelPickerQuery(editor) != null) return .model;
+   289          if (self.rawProviderPickerQuery(editor) != null) return .provider;
+   290          if (self.rawFilePickerQuery(editor) != null) return .file;
+   291          if (findInlineSkillQuery(editor.input.items, editor.cursor) != null) return .skill;
+   292          if (findInlineSlashQuery(editor.input.items, editor.cursor) != null) return .slash;
+   293          const trimmed = std.mem.trimStart(u8, editor.input.items, " \t\r\n");
+   294          if (trimmed.len > 0 and trimmed[0] == '/') return .slash;
+   295          return null;
+   296      }
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 515,532p
+   515  fn suppressionForHistoryRecall(trigger: ?InlinePickerKind) ?InlinePickerSuppression {
+   516      if (trigger != .slash) return null;
+   517      return .history_slash_recall_until_edit;
+   518  }
+   519  
+   520  fn suppressionAfterEdit(
+   521      current: ?InlinePickerSuppression,
+   522      trigger: ?InlinePickerKind,
+   523  ) ?InlinePickerSuppression {
+   524      const suppression = current orelse return null;
+   525      return switch (suppression) {
+   526          .dismissed_until_trigger_change => |dismissed| if (trigger == dismissed)
+   527              suppression
+   528          else
+   529              null,
+   530          .history_slash_recall_until_edit => null,
+   531      };
+   532  }
+
+
+## A12 the dim ghost is a mid-line slash word's (or a $word's), never an argument's
+### git -C fx-upstream show 481104fd:src/core/app/input_completion_runtime.zig | sed -n 653,667p
+   653          pub fn visibleInlineSlashCompletion(app: *App) ?InlineSlashCompletion {
+   654              if (!inlineCompletionSurfaceAvailable(app)) return null;
+   655              if (app.input_runtime.picker.inlinePickerTriggerKind(&app.input_runtime.edit_state) != .slash) return null;
+   656              const query = app.input_runtime.picker.activeInlineSlashQuery(&app.input_runtime.edit_state) orelse return null;
+   657              const command = command_specs.firstSlashCompletion(app.slashRegistry(), query.prefix) orelse return null;
+   658              const suffix = command[query.prefix.len..];
+   659              if (!inlineSuffixCanRender(app, suffix)) return null;
+   660              return .{ .suffix = suffix };
+   661          }
+   662  
+   663          pub fn visibleInlineCompletion(app: *App) ?InlineCompletion {
+   664              if (visibleInlineSkillCompletion(app)) |completion| return .{ .skill = completion };
+   665              if (visibleInlineSlashCompletion(app)) |completion| return .{ .slash = completion };
+   666              return null;
+   667          }
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 613,624p
+   613  fn findInlineSlashQuery(items: []const u8, cursor: usize) ?InlineSlashQuery {
+   614      if (cursor != items.len) return null;
+   615  
+   616      var token_start = cursor;
+   617      while (token_start > 0 and !isFilePickerTerminator(items[token_start - 1])) {
+   618          token_start -= 1;
+   619      }
+   620      if (token_start == 0 or token_start + 1 >= cursor or items[token_start] != '/') return null;
+   621      if (std.mem.trim(u8, items[0..token_start], " \t\r\n").len == 0) return null;
+   622  
+   623      return .{ .prefix = items[token_start..cursor] };
+   624  }
+
+
+## A13 /mcp's run-time list: the eight verbs, then each server's lines
+### git -C fx-upstream show 481104fd:src/core/app/app_mcp_runtime.zig | sed -n 459,468p
+   459      const verb_completions = [_]mod_registry.ArgumentCompletion{
+   460          .{ .full = "/mcp list", .description = "configured servers" },
+   461          .{ .full = "/mcp show", .description = "connect to a server and list its tools" },
+   462          .{ .full = "/mcp add", .description = "add a server" },
+   463          .{ .full = "/mcp remove", .description = "remove a server and its login" },
+   464          .{ .full = "/mcp login", .description = "sign in to an HTTP server" },
+   465          .{ .full = "/mcp logout", .description = "sign out of an HTTP server" },
+   466          .{ .full = "/mcp approve", .description = "approve a project server" },
+   467          .{ .full = "/mcp reject", .description = "reject a project server" },
+   468      };
+
+### git -C fx-upstream show 481104fd:src/core/app/app_mcp_runtime.zig | sed -n 487,513p
+   487      fn buildCompletion(self: *State, a: Allocator) ![]const mod_registry.ArgumentCompletion {
+   488          var out: std.ArrayList(mod_registry.ArgumentCompletion) = .empty;
+   489          try out.appendSlice(a, &verb_completions);
+   490          const lease = self.leaseHost() orelse return out.items;
+   491          defer lease.deinit();
+   492          // Rebuilt twice a second on the UI thread, so it doesn't wait for
+   493          // saved credentials: a description says "signed in" from the next
+   494          // rebuild after they are restored.
+   495          const statuses = try lease.host.runtime.statusesNow(a);
+   496          for (statuses, lease.host.runtime.servers()) |status, server| {
+   497              if (!mcp_verbs.isValidServerName(status.name)) continue;
+   498              const description = try mcp_verbs.statusText(a, status);
+   499              const applies = [_]struct { verb: []const u8, ok: bool }{
+   500                  .{ .verb = "show", .ok = true },
+   501                  .{ .verb = "remove", .ok = true },
+   502                  .{ .verb = "login", .ok = server.transport != .stdio },
+   503                  .{ .verb = "logout", .ok = server.transport != .stdio },
+   504                  .{ .verb = "approve", .ok = server.source == .workspace },
+   505                  .{ .verb = "reject", .ok = server.source == .workspace },
+   506              };
+   507              for (applies) |verb| if (verb.ok) try out.append(a, .{
+   508                  .full = try a.print("/mcp {s} {s}", .{ verb.verb, status.name }),
+   509                  .description = description,
+   510              });
+   511          }
+   512          return out.items;
+   513      }
+
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 876,907p
+   876  fn runtimeArgCommand(registry: SlashRegistry) []const u8 {
+   877      const first = registry.arguments[0].full;
+   878      return first[0 .. std.mem.findScalar(u8, first, ' ') orelse first.len];
+   879  }
+   880  
+   881  /// What follows the command the app's completions are for, untrimmed at
+   882  /// the end so a finished word moves on to the next one.
+   883  fn runtimeArgQuery(registry: SlashRegistry, prefix: []const u8) ?[]const u8 {
+   884      if (registry.arguments.len == 0) return null;
+   885      const command = runtimeArgCommand(registry);
+   886      if (!std.mem.startsWith(u8, prefix, command) or prefix.len == command.len) return null;
+   887      if (prefix[command.len] != ' ') return null;
+   888      return std.mem.trimStart(u8, prefix[command.len..], " ");
+   889  }
+   890  
+   891  /// A verb matches before its first space, and `VERB NAME` after it.
+   892  fn runtimeArgMatches(registry: SlashRegistry, full: []const u8, query: []const u8) bool {
+   893      const rest = full[runtimeArgCommand(registry).len + 1 ..];
+   894      const naming = std.mem.findScalar(u8, query, ' ') != null;
+   895      if (naming != (std.mem.findScalar(u8, rest, ' ') != null)) return false;
+   896      return std.ascii.startsWithIgnoreCase(rest, query);
+   897  }
+   898  
+   899  fn nthRuntimeArg(registry: SlashRegistry, query: []const u8, n: usize) ?mod_registry.ArgumentCompletion {
+   900      var idx: usize = 0;
+   901      for (registry.arguments) |entry| {
+   902          if (!runtimeArgMatches(registry, entry.full, query)) continue;
+   903          if (idx == n) return entry;
+   904          idx += 1;
+   905      }
+   906      return null;
+   907  }
+
+
+## S1 (not this unit: the split's second part) an unanchored prefix lists the skills its words find, after the commands
+### git -C fx-upstream show 481104fd:src/ui/footer/picker_presentation.zig | sed -n 1170,1227p
+  1170  pub fn mixedSlashCompletionCount(registry: command_specs.SlashRegistry, prefix: []const u8, skills: []const skill_runtime.Skill) usize {
+  1171      const command_count = command_specs.slashCompletionCount(registry, prefix);
+  1172      if (command_specs.argCompletionAnchor(prefix) != 0) return command_count;
+  1173      if (prefix.len == 0 or prefix[0] != '/') return command_count;
+  1174      return command_count + skill_runtime.skillMenuFilterQueryCount(skills, .all, prefix[1..]);
+  1175  }
+  1176  
+  1177  pub fn mixedSlashCompletionIsSkill(registry: command_specs.SlashRegistry, prefix: []const u8, skills: []const skill_runtime.Skill, n: usize) bool {
+  1178      return switch (mixedSlashCompletionEntry(registry, prefix, skills, n) orelse return false) {
+  1179          .command => false,
+  1180          .skill => true,
+  1181      };
+  1182  }
+  1183  
+  1184  pub fn nthMixedSlashCompletionSkill(registry: command_specs.SlashRegistry, prefix: []const u8, skills: []const skill_runtime.Skill, n: usize) ?skill_runtime.Skill {
+  1185      return switch (mixedSlashCompletionEntry(registry, prefix, skills, n) orelse return null) {
+  1186          .command => null,
+  1187          .skill => |skill| skill,
+  1188      };
+  1189  }
+  1190  
+  1191  pub fn nthMixedSlashCompletionText(registry: command_specs.SlashRegistry, prefix: []const u8, skills: []const skill_runtime.Skill, n: usize) ?[]const u8 {
+  1192      return switch (mixedSlashCompletionEntry(registry, prefix, skills, n) orelse return null) {
+  1193          .command => |match_idx| command_specs.nthSlashCompletion(registry, prefix, match_idx),
+  1194          .skill => |skill| skill.name,
+  1195      };
+  1196  }
+  1197  
+  1198  pub fn mixedSlashCompletionCommandColumnWidth(
+  1199      registry: command_specs.SlashRegistry,
+  1200      prefix: []const u8,
+  1201      skills: []const skill_runtime.Skill,
+  1202      window: PickerWindow,
+  1203  ) usize {
+  1204      var width: usize = 0;
+  1205      var match_idx = window.start;
+  1206      while (match_idx < window.end) : (match_idx += 1) {
+  1207          const label = mixedSlashCompletionLabel(registry, prefix, skills, match_idx) orelse continue;
+  1208          width = @max(width, display_width.visibleWidth(label));
+  1209      }
+  1210      return width + 2;
+  1211  }
+  1212  
+  1213  fn mixedSlashCompletionEntry(registry: command_specs.SlashRegistry, prefix: []const u8, skills: []const skill_runtime.Skill, n: usize) ?MixedSlashCompletionEntry {
+  1214      const command_count = command_specs.slashCompletionCount(registry, prefix);
+  1215      if (n < command_count) return .{ .command = n };
+  1216      if (command_specs.argCompletionAnchor(prefix) != 0) return null;
+  1217      if (prefix.len == 0 or prefix[0] != '/') return null;
+  1218      const skill = skill_runtime.skillMenuSkillAtQuery(skills, .all, prefix[1..], n - command_count) orelse return null;
+  1219      return .{ .skill = skill };
+  1220  }
+  1221  
+  1222  fn mixedSlashCompletionLabel(registry: command_specs.SlashRegistry, prefix: []const u8, skills: []const skill_runtime.Skill, n: usize) ?[]const u8 {
+  1223      return switch (mixedSlashCompletionEntry(registry, prefix, skills, n) orelse return null) {
+  1224          .command => |match_idx| command_specs.nthSlashCompletionLabel(registry, prefix, match_idx),
+  1225          .skill => |skill| skill.name,
+  1226      };
+  1227  }
+
+### git -C fx-upstream show 481104fd:src/core/skills/skill_runtime.zig | sed -n 1380,1392p
+  1380  fn skillMatchRank(skill: Skill, query: []const u8) ?usize {
+  1381      const trimmed = std.mem.trim(u8, query, " \t\r\n/");
+  1382      if (trimmed.len == 0) return 0;
+  1383      if (std.ascii.startsWithIgnoreCase(skill.name, trimmed)) return 0;
+  1384      if (asciiContainsIgnoreCase(skill.name, trimmed)) return 1;
+  1385      if (asciiContainsIgnoreCase(skill.description, trimmed) or
+  1386          asciiContainsIgnoreCase(skillSourceShortLabel(skill.source), trimmed) or
+  1387          asciiContainsIgnoreCase(skill.path, trimmed))
+  1388      {
+  1389          return 2;
+  1390      }
+  1391      return null;
+  1392  }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_input_runtime.zig | sed -n 2366,2396p
+  2366          fn submitSlashPickerSelection(app: *App) !bool {
+  2367              if (comptime !@hasField(App, "skills")) return false;
+  2368              if (nonSlashPickerOwnsEnter(app)) return false;
+  2369              const items = app.input_runtime.edit_state.input.items;
+  2370              const prefix = command_specs.slashCompletionPrefix(
+  2371                  app.slashRegistry(),
+  2372                  items,
+  2373              ) orelse return false;
+  2374              if (app.slashRegistry().matchExact(prefix) != null) return false;
+  2375              const count = completion_rt.visibleSlashCompletionCount(app);
+  2376              if (count == 0) return false;
+  2377              const idx = app.input_runtime.picker.slash_completion_index % count;
+  2378              if (!picker_presentation.mixedSlashCompletionIsSkill(
+  2379                  app.slashRegistry(),
+  2380                  prefix,
+  2381                  app.skills.items,
+  2382                  idx,
+  2383              )) {
+  2384                  const selected = picker_presentation.nthMixedSlashCompletionText(
+  2385                      app.slashRegistry(),
+  2386                      prefix,
+  2387                      app.skills.items,
+  2388                      idx,
+  2389                  ) orelse return false;
+  2390                  const spec = app.slashRegistry().matchExact(selected) orelse return false;
+  2391                  if (spec.command.kind != .model) return false;
+  2392                  try openModelBrowseCatalog(app);
+  2393                  return true;
+  2394              }
+  2395              return try bindSelectedSlashSkill(app, idx);
+  2396          }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_input_runtime.zig | sed -n 2451,2476p
+  2451          fn bindSelectedSlashSkill(app: *App, selected_index: usize) !bool {
+  2452              if (comptime !@hasField(App, "skills")) return false;
+  2453              const items = app.input_runtime.edit_state.input.items;
+  2454              const prefix = command_specs.slashCompletionPrefix(
+  2455                  app.slashRegistry(),
+  2456                  items,
+  2457              ) orelse return false;
+  2458              const skill = picker_presentation.nthMixedSlashCompletionSkill(
+  2459                  app.slashRegistry(),
+  2460                  prefix,
+  2461                  app.skills.items,
+  2462                  selected_index,
+  2463              ) orelse return false;
+  2464              const leading_ws = items.len - prefix.len;
+  2465              try app.input_runtime.skillBindingState().bindSkillToken(
+  2466                  app.alloc,
+  2467                  leading_ws,
+  2468                  leading_ws + prefix.len,
+  2469                  skill.name,
+  2470                  skill.path,
+  2471                  skill_runtime.skillDisplaySource(app.skills.items, skill),
+  2472              );
+  2473              app.input_runtime.picker.resetInlinePickerEpisode();
+  2474              app.shell.render_requests.request(.footer);
+  2475              return true;
+  2476          }
+
