@@ -2771,6 +2771,28 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_rows_window_ends_before_the_next_rows_last_place() {
+        // The right-hand greedy scan (`file_index.zig:1575-1582@481104fd`)
+        // places each letter at its last place before the next letter's,
+        // not at its last place in the path. For `ab` over `a`, 2100 `x`,
+        // `-ab`, 2000 `x` and a final `a`: row `a` runs to the `a` of `-ab`,
+        // 2104 cells in all, so the program finds the run after the `-`.
+        // Ended at the final `a`, the rows would be 4106 cells, past the
+        // budget, and the leftmost placement would be scored instead.
+        let text = format!("a{}-ab{}a", "x".repeat(2100), "x".repeat(2000));
+        let (path, chars) = (text.as_bytes(), text.chars().collect::<Vec<_>>());
+        let offsets: Vec<usize> = (0..=path.len()).collect();
+        let mut align = Align::default();
+        let found =
+            align_best(&chars, path, &offsets, 0, 0, &['a', 'b'], &mut align).expect("a placement");
+        assert_eq!(align.positions, [2102, 2103]);
+        assert_eq!(found, score_alignment(path, &offsets, 0, &align.positions));
+        let found = align_best(path, path, &offsets, 0, 0, b"ab", &mut align).expect("a placement");
+        assert_eq!(align.positions, [2102, 2103], "the same over bytes");
+        assert_eq!(found, score_alignment(path, &offsets, 0, &align.positions));
+    }
+
+    #[test]
     fn the_cell_budget_is_four_thousand_and_ninety_six_cells() {
         // `max_align_cells` (`file_index.zig:1410@481104fd`) and the check
         // past it (`:1601`). `a`, n `x`, `b`, 2000 `x`, `-ab`: row `a`'s
