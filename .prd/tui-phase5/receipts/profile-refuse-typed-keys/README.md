@@ -326,4 +326,4 @@ the fxcap harness tests, both release builds, `smoke.sh` (47 checks) and
 `xfx-head-entries.txt` (1157fe3e) · `outcomes.py` → `outcomes-base.txt`,
 `outcomes.txt` · `seed_scan.py` → `seed-scan.txt` · `count.py` → `count.txt` ·
 `refs.py` → `refs.txt` · `red.sh` → `red.txt` · `mutants.py` → `mutants.txt`,
-`mutants-r1.txt` · `gates.sh` → `gate.txt`, `green.txt`, `worker-alone.txt`
+`mutants-r1.txt` · `gates.sh` → `gate.txt`, `green.txt` · `rerun.sh` → `gate.txt` (its last block) · `worker-alone.txt`
