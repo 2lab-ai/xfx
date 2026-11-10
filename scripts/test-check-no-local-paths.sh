@@ -336,7 +336,7 @@ fi
 shim="$work/shim"
 mkdir -p "$shim"
 cat >"$shim/git" <<'SH'
-#!/bin/sh
+#!/usr/bin/env bash
 case "$SHIM_MODE: $* " in
 # The tree's scan (`-C .`, not the control's) gives one line more, of a file
 # with no shape in it.
