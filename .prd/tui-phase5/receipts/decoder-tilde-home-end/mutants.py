@@ -5,7 +5,8 @@ fails. Never run against the worktree: the clone must sit under
 `$TMPDIR/mut/`, and its build and temp files go beside it there.
 APPROVAL-VERTICAL-SPELLINGS' mutants.py, with this unit's mutants: one per
 spelling (M1-M6), then the `; 1` refusal and the Home/End sides of the
-modified table."""
+modified table; round 2 adds the field's range (M9, M10) and the lock bits on
+Delete (M11)."""
 import os, subprocess, sys, time
 repo, out = sys.argv[1], sys.argv[2]
 mut = os.path.join(os.environ["TMPDIR"].rstrip("/"), "mut")
@@ -17,6 +18,7 @@ BARE_END = '            b"4" | b"8" => Input::Action(Action::End),\n'
 MOD_HOME = '        b"1" | b"7" => cursor(b\'H\', mods),\n'
 MOD_END = '        b"4" | b"8" => cursor(b\'F\', mods),\n'
 GUARD = "    if mask == 0 {\n        return Input::Action(Action::Ignore);\n    }\n"
+DELETE = '        b"3" => forward_delete(mods),\n'
 MUTANTS = [
     ("M1 CSI 7 ~ is not Home (the base's reading)", I, BARE_HOME, BARE_HOME.replace(' | b"7"', "")),
     ("M2 CSI 8 ~ is not End", I, BARE_END, BARE_END.replace(' | b"8"', "")),
@@ -27,6 +29,14 @@ MUTANTS = [
     ("M7 a modifier field of 1 is the bare key (fx's reading)", I, GUARD, ""),
     ("M8 Home and End swapped under a modifier", I, MOD_HOME + "        b\"3\" => forward_delete(mods),\n" + MOD_END,
      MOD_HOME.replace("'H'", "'F'") + "        b\"3\" => forward_delete(mods),\n" + MOD_END.replace("'F'", "'H'")),
+    # Round 2: the accepted range of the modifier field, and the lock bits
+    # on Delete pinned as they are.
+    ("M9 Home and End only for the fields 2..=16 (the H/F table's range)", I, MOD_HOME + DELETE + MOD_END,
+     MOD_HOME.replace(" =>", " if mask < 16 =>") + DELETE + MOD_END.replace(" =>", " if mask < 16 =>")),
+    ("M10 Home and End only for the fields 2..=255 (256 dropped)", I, MOD_HOME + DELETE + MOD_END,
+     MOD_HOME.replace(" =>", " if mask < 255 =>") + DELETE + MOD_END.replace(" =>", " if mask < 255 =>")),
+    ("M11 Delete with a lock bit alone is nothing (fx's reading)", I, DELETE,
+     "        b\"3\" if mods == 0 => Action::Ignore,\n" + DELETE),
 ]
 TESTS = [
     ["cargo", "test", "--locked", "--lib", "--", "tui::input::tests", "rxvts"],

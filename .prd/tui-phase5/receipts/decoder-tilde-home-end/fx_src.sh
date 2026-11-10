@@ -26,6 +26,8 @@ ranges=(
   src/ui/input/escape_parser.zig:58-71
   src/ui/input/escape_parser.zig:73-108
   src/ui/input/escape_parser.zig:134-167
+  # Delete under a modifier, which the tilde stage hands the raw modifiers.
+  src/ui/input/escape_parser.zig:175-180
   src/ui/input/escape_parser.zig:550-555
   src/ui/input/escape_parser.zig:561-636
   src/ui/input/escape_parser.zig:662-755
@@ -45,7 +47,7 @@ ranges=(
   # The route a decoded action takes, surface by surface.
   src/core/app/app_input_runtime.zig:895-1047
   src/core/app/app_input_runtime.zig:2223-2263
-  src/core/app/input_full_transcript_runtime.zig:156-176
+  src/core/app/input_full_transcript_runtime.zig:156-177
   src/core/app/input_approval_runtime.zig:71-130
   src/core/app/input_question_runtime.zig:139-201
 )

@@ -90,6 +90,14 @@
   166      return modifiedArrowAction(letter, modifiers, meta_prefixed) orelse plain;
   167  }
 
+## src/ui/input/escape_parser.zig:175-180
+  175  // Keypad Delete mirrors the main-row `ESC[3~` family.
+  176  fn forwardDeleteKeyAction(modifiers: u16) InputEscapeAction {
+  177      if ((modifiers & super_modifier) != 0) return .delete_to_line_end;
+  178      if ((modifiers & (alt_modifier | ctrl_modifier)) != 0) return .delete_word_right;
+  179      return if (modifiers == 0) .delete_next else .ignore;
+  180  }
+
 ## src/ui/input/escape_parser.zig:550-555
   550                  return .delete_word_left;
   551              }
@@ -714,7 +722,7 @@
  2262                  else => return,
  2263              };
 
-## src/core/app/input_full_transcript_runtime.zig:156-176
+## src/core/app/input_full_transcript_runtime.zig:156-177
   156          fn keyForAction(resolved: input_action.Action) ?FullTranscriptKey {
   157              return switch (resolved) {
   158                  .toggle_full_transcript => .toggle,
@@ -736,6 +744,7 @@
   174                      24 => null,
   175                      else => null,
   176                  },
+  177                  else => null,
 
 ## src/core/app/input_approval_runtime.zig:71-130
    71          pub fn routeApprovalEscapeAction(

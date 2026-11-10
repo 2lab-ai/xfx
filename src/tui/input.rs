@@ -1532,19 +1532,31 @@ fn tilde_report(params: &[u8]) -> Input {
 /// (`composerMove(.page_up, ...)`, :708-709) -- Shift's selection extension is
 /// dropped with the selection, as the arrows drop it ([`cursor`]).
 ///
+/// Delete reads its mask with Caps Lock and Num Lock taken out (`mods`), so
+/// Delete with a lock bit and nothing else (`CSI 3 ; 65 ~`, `; 129 ~`,
+/// `; 193 ~`) is Delete here. Upstream hands the raw modifiers on
+/// (`escape_parser.zig:694-698@481104fd`), and its `forwardDeleteKeyAction`
+/// reads them as nothing (`escape_parser.zig:176-180@481104fd`): looser than
+/// upstream, recorded in `docs/parity.md` and left to TILDE-EMPTY-MODIFIER
+/// (proposed), which owns this function's grammar.
+///
 /// Home and End -- `1` or rxvt's `7`, `4` or rxvt's `8` -- with any modifier
 /// are upstream's move to the line's edge, the draft's under Ctrl, extending a
 /// selection under Shift (`escape_parser.zig:699-707@481104fd`). Here each is
-/// the key `CSI 1 ; <mod> H` or `F` is, through [`cursor`]: Home or End, the
-/// edge of the caret's line whatever is held. On a one-line draft that is
-/// upstream's place too; the draft's edge under Ctrl and the selection under
-/// Shift are the composer's to add (`docs/parity.md`, the full-screen TUI row).
+/// Home or End whatever is held (every field from `2` to `256`), as
+/// [`cursor`]'s `H` and `F` rows read it: the edge of the caret's line. On a
+/// one-line draft that is upstream's place too; the draft's edge under Ctrl and
+/// the selection under Shift are the composer's to add (`docs/parity.md`, the
+/// full-screen TUI row).
 ///
-/// A modifier field of `1` -- no modifier at all -- is not a spelling any
-/// terminal sends for these keys, and is refused as the bare `CSI 1 ; 1 Z` is
-/// ([`csi`]): the bare key has its one spelling. Upstream reads it as the bare
-/// key (`escape_parser.zig:698`, `:712-718@481104fd`), Home and End included;
-/// `docs/parity.md` records the difference.
+/// A modifier field of `1` -- no modifier at all -- is refused, as an empty
+/// field and `0` are ([`key_modifiers`]). That is this decoder's own choice,
+/// not upstream's: upstream reads all three as the bare key
+/// (`escape_parser.zig:696`, `:698`, `:712-718@481104fd`), and this decoder
+/// reads `CSI 1 ; 1 H` as Home ([`modifier`]). It is kept so the six tilde
+/// codes follow one rule until TILDE-EMPTY-MODIFIER; taking out the
+/// `mask == 0` guard below would give upstream's reading for `; 1` alone,
+/// since an empty field and `0` stop at [`key_modifiers`] first.
 fn modified_tilde(key: &[u8], mask: u8) -> Input {
     let mods = mask & 0x3f;
     if mask == 0 {
@@ -2588,8 +2600,8 @@ mod tests {
     }
 
     /// Every modified spelling of one tilde key is `want`, and its `; 1`
-    /// spelling -- a modifier field that holds no modifier -- is still the one
-    /// shape this decoder refuses (see
+    /// spelling -- a modifier field that holds no modifier -- is still a shape
+    /// this decoder refuses (see
     /// `a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one`).
     fn assert_modified_tilde(key: &str, want: Action) {
         for (modifier, held) in TILDE_MODIFIERS {
@@ -2646,6 +2658,63 @@ mod tests {
     fn rxvts_end_with_a_modifier_csi_8_mod_tilde_is_end() {
         // The same arm as `4` (`escape_parser.zig:704@481104fd`).
         assert_modified_tilde("8", Action::End);
+    }
+
+    #[test]
+    fn every_modifier_field_from_2_to_256_on_the_tilde_home_and_end_is_the_key() {
+        // `TILDE_MODIFIERS` names the cases that say what is meant; this walks
+        // every field the decoder accepts (`key_modifiers`: `1` to `256`, one
+        // more than an eight-bit mask), so no value between them is missed.
+        for (key, want) in [
+            ("1", Action::Home),
+            ("4", Action::End),
+            ("7", Action::Home),
+            ("8", Action::End),
+        ] {
+            for field in 2..=256 {
+                let field = field.to_string();
+                assert_eq!(
+                    tilde(key, Some(&field)),
+                    vec![Input::Action(want)],
+                    "CSI {key} ; {field} ~"
+                );
+            }
+            // Either side of the range: `1` holds no modifier and is refused
+            // (`modified_tilde`'s doc), and `257` is past eight bits, which
+            // `key_modifiers` refuses before any key is looked at.
+            for field in ["1", "257"] {
+                assert_eq!(
+                    tilde(key, Some(field)),
+                    vec![Input::Action(Action::Ignore)],
+                    "CSI {key} ; {field} ~"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn delete_with_a_lock_bit_alone_is_delete_here_and_nothing_upstream() {
+        // Today's reading, pinned so that a change to it is made on purpose.
+        // `modified_tilde` takes Caps Lock (64) and Num Lock (128) out of
+        // Delete's mask, so with nothing else held it is the bare key. fx
+        // hands the raw modifiers to `forwardDeleteKeyAction`
+        // (`escape_parser.zig:694-698@481104fd`), which reads 64, 128 and 192
+        // as nothing (`escape_parser.zig:176-180@481104fd`). Recorded in
+        // `docs/parity.md`; the owner is TILDE-EMPTY-MODIFIER (proposed),
+        // whose change flips these three to `Ignore`.
+        for field in ["65", "129", "193"] {
+            assert_eq!(
+                tilde("3", Some(field)),
+                vec![Input::Action(Action::Delete)],
+                "CSI 3 ; {field} ~"
+            );
+        }
+        // With a modifier beside the lock bit, both read the modifier:
+        // Alt-Delete is the word to the right either way.
+        assert_eq!(
+            tilde("3", Some("67")),
+            vec![Input::Action(Action::DeleteWordRight)]
+        );
     }
 
     #[test]
