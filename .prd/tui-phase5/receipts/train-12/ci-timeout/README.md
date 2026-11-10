@@ -19,7 +19,7 @@ retry's scoreboards). `ci-sweep2-step.log` is that step's log.
 | `09bf63ab` | `sweep.yml`'s job timeout goes from 60 to 120 minutes; `test_ci_sweep.py` pins it and `--jobs 2` |
 | `fc1d9830`, `5651cf23` | round 2's receipt, and a parser fix in `../ci-socket/sample_vs_head.py` (§ Also) |
 | `f0a9af5b` | round 3: the scenario restored as a launch-only capture, its ledger cause, the sibling scenario's false comment, and "estimated" in `sweep.yml` and the test |
-| the next commit after `f0a9af5b` | round 3's corrections to this receipt |
+| `9e3a056e` | round 3's corrections to this receipt |
 
 ## What the step did (`measure.txt`, from the log)
 
