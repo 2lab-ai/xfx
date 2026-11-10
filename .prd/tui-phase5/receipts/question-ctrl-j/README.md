@@ -260,8 +260,8 @@ pair-listing appended).
   sweep read the ledger as `244d3248` has it (sha256 `e92c917f…`), the head
   sweep as `87daec96` has it (`2067edc0…`). They differ only in the nine
   `src/tui/shell.rs` ref numbers `87daec96` re-pointed (`git diff 244d3248
-  87daec96 -- scripts/fxcap/parity-ledger.toml`: 9 lines out, 9 in, and 4
-  lines left once those numbers are masked), so no normalization, divergence or
+  87daec96 -- scripts/fxcap/parity-ledger.toml`: 9 lines out, 9 in, the
+  same lines once those numbers are masked), so no normalization, divergence or
   cause pattern differs and the classification is the same on both sides.
 - No other pair changed class, cause or count. The four pairs that do not pass
   at the head are the panel's three cascades and `p5-question-resume-ctrlo`
