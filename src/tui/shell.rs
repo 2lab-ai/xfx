@@ -12350,10 +12350,13 @@ impl Shell {
             // ([`Self::full_transcript_sees`]) and it does not open over one
             // ([`Self::open_full_transcript`]).
             //
-            // It reads the event with the approval's own spellings folded
-            // back, as the question does ([`unspelled`]); the approval below
-            // reads every spelling the decoder tells apart.
-            let (spelled, event) = (event.clone(), unspelled(event));
+            // It reads the event as it came, as the question and the approval
+            // below do: it binds the plain arrows and the bare page keys only
+            // (`keyForAction`, `input_full_transcript_runtime.zig:156-178
+            // @481104fd`), so a composer move -- an arrow held with Super,
+            // Alt, Ctrl or Shift, Ctrl-B, Ctrl-F, a held page key -- is no key
+            // of its and goes on to the composer behind it, as fx's does
+            // (`app_input_runtime.zig:930`, `:872`, `:997-1001`).
             if self.full.is_open() && self.view_full_transcript(&event) {
                 continue;
             }
@@ -12373,17 +12376,16 @@ impl Shell {
                 self.answer(event, now);
                 continue;
             }
-            // The approval reads the event before any fold: Left and Alt-b
-            // move its choice where a composer move and the word arrows do not
-            // ([`Self::decide`]).
+            // The approval reads the event before any fold too: Left and
+            // Alt-b move its choice where a composer move and the word arrows
+            // do not ([`Self::decide`]).
             if self.asking() {
-                self.decide(spelled, now);
+                self.decide(event, now);
                 continue;
             }
-            // Shift on Up and Down means something only to a question's
-            // field, and Alt-b apart from the word arrows only to a question's
-            // choice and an approval's; to every surface below they are the
-            // keys they always were.
+            // Every spelling the decoder keeps apart means something apart
+            // only to those three; to every surface below they are the keys
+            // they always were.
             let event = folded(event);
             // The `/statusline` picker has the focus whenever no question
             // does: everything is its, and what it does not bind it swallows
@@ -14172,68 +14174,42 @@ fn image_slash_prefix(text: &str) -> Option<usize> {
     })
 }
 
-/// `event` with the spellings only an approval tells apart made the keys they
-/// are everywhere else: a composer move on Left or Right
-/// (`super::input::Action::ComposerLeft`) the arrow, Alt-f
-/// (`super::input::Action::AltF`) the word move, Ctrl- and Alt-Up and -Down
-/// (`super::input::Action::ComposerUp`) the arrows, and Super-Up and -Down
-/// (`super::input::Action::DraftStart`) the arrow they were before -- the
-/// shifted one with Shift held.
+/// `event` with every spelling the decoder keeps apart made the key it is to
+/// the menus and the composer: a composer move on Left or Right
+/// (`super::input::Action::ComposerLeft`, Ctrl-B and Ctrl-F among them) the
+/// arrow, Alt-b and Alt-f (`super::input::Action::AltB`) the word moves, every
+/// held Up and Down -- Ctrl and Alt (`super::input::Action::ComposerUp`),
+/// Shift (`super::input::Action::SelectUp`), Super with Shift or without
+/// (`super::input::Action::DraftStart`) -- the arrow, and a page key held with
+/// a modifier (`super::input::Action::ComposerPageUp`) the page key.
 ///
-/// An approval's choice moves on Left and Alt-f where fx's moves, and leaves
-/// Shift-Left, Ctrl-B and Ctrl-Right alone where fx's does, and every
-/// modified Up and Down (`input_approval_runtime.zig:90-128@481104fd`); its
-/// amendment takes Super-Up and -Down to the draft's edges
-/// (`src/ui/input/runtime.zig:82-83`). No other surface reads them apart. The
-/// approval reads the event as it came ([`Shell::decide`]); the full
-/// transcript, which holds Left and Right, and the question read what this
-/// gives, so they see exactly the keys they saw before these were kept apart.
-fn unspelled(event: Input) -> Input {
+/// The three surfaces that tell them apart read the event before this, as it
+/// came: the full transcript binds the plain arrows and the bare page keys
+/// alone and leaves every composer move to the composer behind it
+/// (`keyForAction`, `input_full_transcript_runtime.zig:156-178@481104fd`); a
+/// question moves its choice on Shift and the plain arrows, goes back a
+/// question on Left and Alt-b, and reads the rest as its field's moves
+/// (`src/ui/input/runtime.zig:155-197`, `input_question_runtime.zig:139-201`);
+/// an approval moves its choice on the arrows and Alt-b and Alt-f, and takes
+/// Super-Up and -Down to its amendment's edges
+/// (`input_approval_runtime.zig:90-128`, `src/ui/input/runtime.zig:82-83`).
+/// Folded here, once, before the menus and the composer read the event, so
+/// those see exactly the keys they saw before any was kept apart -- as
+/// upstream's composer moves are the bare keys' own to them (`shortcuts.zig:43-65`,
+/// `routeComposerVertical`, `input_completion_runtime.zig:215-233`). An
+/// approval's draft reads its keys through this too ([`Shell::decide`]).
+fn folded(event: Input) -> Input {
     match event {
         Input::Action(Action::ComposerLeft) => Input::Action(Action::Left),
         Input::Action(Action::ComposerRight) => Input::Action(Action::Right),
+        Input::Action(Action::AltB) => Input::Action(Action::WordLeft),
         Input::Action(Action::AltF) => Input::Action(Action::WordRight),
-        Input::Action(Action::ComposerUp | Action::DraftStart { shifted: false }) => {
+        Input::Action(Action::ComposerUp | Action::SelectUp | Action::DraftStart { .. }) => {
             Input::Action(Action::Up)
         }
-        Input::Action(Action::ComposerDown | Action::DraftEnd { shifted: false }) => {
+        Input::Action(Action::ComposerDown | Action::SelectDown | Action::DraftEnd { .. }) => {
             Input::Action(Action::Down)
         }
-        Input::Action(Action::DraftStart { shifted: true }) => Input::Action(Action::SelectUp),
-        Input::Action(Action::DraftEnd { shifted: true }) => Input::Action(Action::SelectDown),
-        other => other,
-    }
-}
-
-/// `event` with every spelling the decoder keeps for a question or an
-/// approval made the key it is to every other surface: [`unspelled`], Shift
-/// taken off Up and Down, Alt-b the word move, and a page key held with a
-/// modifier the page key.
-///
-/// The held page key is kept apart for the full transcript, which pages on
-/// the bare key alone and leaves the held one to the composer behind it
-/// (`keyForAction`, `input_full_transcript_runtime.zig:156-178@481104fd`;
-/// `super::input::Action::ComposerPageUp`). The question and the approval
-/// bind neither; every surface below takes the two as one move, as upstream's
-/// composer move to a page is the bare key's own (`shortcuts.zig:53-54`,
-/// `routeComposerVertical`, `input_completion_runtime.zig:215-233`).
-///
-/// The decoder keeps Shift on the vertical arrows because a question's
-/// freeform field binds it -- the plain arrows walk the field's rows and the
-/// shifted ones choose (`super::input::Action::SelectUp`) -- and Alt-b apart
-/// from Ctrl-Left and Alt-Left because a question's choice binds it -- the
-/// previous question, where the arrows do nothing -- and an approval's -- the
-/// previous choice (`super::input::Action::AltB`). Folded back here, once,
-/// after the full transcript, the question and the approval have read the
-/// event (the full transcript binds neither, so it takes them as unbound) and
-/// before the menus and the composer do, so those see exactly the keys they
-/// saw before any were kept apart. An approval's draft reads its keys through
-/// this too ([`Shell::decide`]).
-fn folded(event: Input) -> Input {
-    match unspelled(event) {
-        Input::Action(Action::SelectUp) => Input::Action(Action::Up),
-        Input::Action(Action::SelectDown) => Input::Action(Action::Down),
-        Input::Action(Action::AltB) => Input::Action(Action::WordLeft),
         Input::Action(Action::ComposerPageUp) => Input::Action(Action::PageUp),
         Input::Action(Action::ComposerPageDown) => Input::Action(Action::PageDown),
         other => other,
@@ -23620,7 +23596,7 @@ mod tests {
         assert!(draft(&fixture, "ab yzcdx"), "{:?}", fixture.band_rows());
         // And Shift-Left and Alt-f, which the decoder keeps apart for an
         // approval's choice, reach the draft as the step and the word move
-        // they always were (`unspelled`; `questionFreeformActionFromShortcut`
+        // they always were (`question::Act::of`; `questionFreeformActionFromShortcut`
         // reads only the move's kind, `src/ui/input/runtime.zig:155-176`).
         fixture.route_bytes(b"\x1b[1;2D");
         fixture.route_bytes(b"v");

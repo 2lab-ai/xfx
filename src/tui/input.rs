@@ -239,10 +239,13 @@ pub(crate) enum Action {
     /// (`shortcuts.zig:15`); its approval's choice moves on `.cursor_left`
     /// alone and leaves both where they are, while an amendment takes them as
     /// the caret's move (`input_approval_runtime.zig:79-128`,
-    /// `src/ui/input/runtime.zig:75-108`). The approval is the only xfx surface
-    /// that reads this: the shell folds it back to [`Action::Left`] before the
-    /// full transcript, the question and the rest see the event
-    /// (`super::shell::Shell`'s `unspelled`).
+    /// `src/ui/input/runtime.zig:75-108`). Its full transcript does not bind
+    /// a composer move or the byte, and they go on to the composer behind it
+    /// (`keyForAction`, `keyForByte`, `input_full_transcript_runtime.zig:147-178`);
+    /// its question's choice leaves them alone and its field takes them as
+    /// the step (`src/ui/input/runtime.zig:155-209`). Those three xfx surfaces
+    /// read this as it came; the shell folds it back to [`Action::Left`] for
+    /// the menus and the composer (`super::shell::Shell`'s `folded`).
     ComposerLeft,
     /// Right as a composer move: Shift-Right, Super-Right and Ctrl-F, the
     /// mirror of [`Action::ComposerLeft`].
@@ -256,10 +259,13 @@ pub(crate) enum Action {
     /// `paragraph_up` under Alt (`modifiedArrowAction`,
     /// `escape_parser.zig:83-98@481104fd`), which an approval's choice and its
     /// amendment both leave alone (`input_approval_runtime.zig:79-128`,
-    /// `src/ui/input/runtime.zig:75-96`). The approval is the only xfx surface
-    /// that reads this; the shell folds it back to [`Action::Up`] for the full
-    /// transcript, the question and the rest (`super::shell::Shell`'s
-    /// `unspelled`).
+    /// `src/ui/input/runtime.zig:75-96`), and so do its question's choice and
+    /// field (`:155-197`), while its full transcript leaves it to the composer
+    /// behind it (`keyForAction`, `input_full_transcript_runtime.zig:156-178`).
+    /// Alt with Shift is this too (`paragraph_up`, `escape_parser.zig:83-85`).
+    /// Those three xfx surfaces read this as it came; the shell folds it back
+    /// to [`Action::Up`] for the menus and the composer
+    /// (`super::shell::Shell`'s `folded`).
     ComposerUp,
     /// Down as a composer move, the mirror of [`Action::ComposerUp`].
     ComposerDown,
@@ -269,11 +275,13 @@ pub(crate) enum Action {
     ///
     /// In an approval's amendment it takes the caret to the draft's start
     /// (`.cursor_home`, `src/ui/input/runtime.zig:82`; `cursorHome`,
-    /// `approval_amendment.zig:84-87`); at its choice it does nothing. An
-    /// editor reads it as that move. `shifted` is whether Shift was held too,
-    /// because every surface but the approval sees the key it saw before this
-    /// was kept apart -- [`Action::SelectUp`] with Shift, [`Action::Up`]
-    /// without (`super::shell::Shell`'s `unspelled`).
+    /// `approval_amendment.zig:84-87`); at its choice it does nothing. A
+    /// question's field takes it to the answer's start, as Home, and its
+    /// choice does nothing (`src/ui/input/runtime.zig:162`, `:184-189`); the
+    /// full transcript leaves it to the composer behind it, Shift or not. The
+    /// menus and the composer read it as the arrow (`super::shell::Shell`'s
+    /// `folded`). `shifted` is whether Shift was held too, which no xfx
+    /// surface reads (the selection it would extend is dropped).
     DraftStart {
         shifted: bool,
     },
@@ -284,19 +292,21 @@ pub(crate) enum Action {
     DraftEnd {
         shifted: bool,
     },
-    /// Up and Down with Shift held and not Super: `CSI 1;<mask> A/B` and the
-    /// kitty arrow reports with a mask that has Shift in it.
+    /// Up and Down with Shift held, with Ctrl or without, and neither Super
+    /// nor Alt: `CSI 1;<mask> A/B` and the kitty arrow reports with a mask that
+    /// has Shift in it (Shift with Alt is [`Action::ComposerUp`]).
     ///
-    /// Upstream reads them as a selection move (`extend_selection`), which
-    /// only a question's freeform field gives a meaning of its own -- the
-    /// choice above or below, where the plain arrows walk the field's rows
-    /// (`src/ui/input/runtime.zig:175-188`, `input_question_runtime.zig:150-185`,
-    /// `c1db919`). An approval leaves them alone, at its choice and in its
-    /// amendment (`visual_up` is no draft key, `src/ui/input/runtime.zig:86
-    /// @481104fd`). Everywhere else they are the arrows they always were here:
-    /// the shell folds them back once the full transcript, the question and
-    /// the approval have read the event, before the menus and the composer do
-    /// (`super::shell::Shell`'s `folded`).
+    /// Upstream reads them as `visual_up` extending a selection, which only a
+    /// question gives a meaning of its own -- the choice above or below, at a
+    /// choice and from its freeform field, where the plain arrows walk the
+    /// field's rows (`src/ui/input/runtime.zig:184-189@481104fd`,
+    /// `input_question_runtime.zig:149-178`). An approval leaves them alone, at
+    /// its choice and in its amendment (`visual_up` is no draft key,
+    /// `src/ui/input/runtime.zig:86@481104fd`), and the full transcript
+    /// leaves them to the composer behind it. Everywhere else they are the
+    /// arrows they always were here: the shell folds them back once the full
+    /// transcript, the question and the approval have read the event, before
+    /// the menus and the composer do (`super::shell::Shell`'s `folded`).
     SelectUp,
     SelectDown,
     Home,
@@ -323,9 +333,11 @@ pub(crate) enum Action {
     /// (`escape_parser.zig:247-250`, `:534-539@481104fd`), the mirror of
     /// [`Action::AltB`]. An approval's choice reads it as the next choice, as
     /// Right is (`input_approval_runtime.zig:101-110`); Ctrl-Right and
-    /// Alt-Right are a composer move it leaves alone. A question's choice binds
-    /// neither, so the shell folds this to [`Action::WordRight`] for every
-    /// surface but the approval (`super::shell::Shell`'s `unspelled`).
+    /// Alt-Right are a composer move it leaves alone. A question binds the two
+    /// alike, nothing at a choice and the word move in its field
+    /// (`input_question_runtime.zig:196-199`), and the full transcript neither;
+    /// the shell folds this to [`Action::WordRight`] for the menus and the
+    /// composer (`super::shell::Shell`'s `folded`).
     AltF,
     Backspace,
     Delete,
@@ -1433,29 +1445,32 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
 /// ([`kitty_key`]).
 ///
 /// On Left and Right "ctrl or alt means by word"; Shift or Super without them
-/// is upstream's composer move, which only an approval's choice tells apart
-/// from the cursor key ([`Action::ComposerLeft`]) -- the selection Shift would
-/// extend is dropped, and so is Super's jump to the line's edge. On Up and Down
-/// every modifier is kept apart from the arrow, in **this decoder's own
-/// classification**: Super first ([`Action::DraftStart`], with Shift
-/// remembered), then Shift ([`Action::SelectUp`]), then Ctrl or Alt
-/// ([`Action::ComposerUp`]). Upstream's table reads Super, then Alt, then
-/// Ctrl, then Shift (`modifiedArrowAction`, `escape_parser.zig:73-108
-/// @481104fd`). The only line an approval draws through those is Super's --
-/// `draft_start`/`draft_end` against every other composer move, which it
-/// leaves alone -- so any order with Super first gives upstream's result
-/// there; Shift before Ctrl and Alt is so `super::shell::Shell`'s
-/// `unspelled` can give every other surface the key it had (any Shift was
-/// [`Action::SelectUp`]). A mask with none of the four is the arrow, as
+/// is upstream's composer move, which the full transcript, a question's choice
+/// and an approval's choice leave alone ([`Action::ComposerLeft`]) -- the
+/// selection Shift would extend is dropped, and so is Super's jump to the
+/// line's edge. On Up and Down every modifier is kept apart from the arrow, in
+/// upstream's order (`modifiedArrowAction`, `escape_parser.zig:73-108
+/// @481104fd`) but for Shift beside Ctrl: Super first ([`Action::DraftStart`],
+/// `draft_start`, with Shift remembered), then Alt ([`Action::ComposerUp`],
+/// `paragraph_up`, with Shift or without), then Shift ([`Action::SelectUp`],
+/// `visual_up` extending a selection, with Ctrl or without), then Ctrl
+/// ([`Action::ComposerUp`], `visual_up`). Upstream reads Ctrl before Shift and
+/// gives both the one move, Shift's selection apart; the surface that tells
+/// the selection apart is a question's choice, which moves on it alone
+/// (`src/ui/input/runtime.zig:184-189`), and Shift-Alt-Up is `paragraph_up`
+/// to it, which it does not. A mask with none of the four is the arrow, as
 /// upstream's table answers `null` and the plain arrow follows (`:727-733`).
 fn cursor(letter: u8, mask: u8) -> Action {
     let word = mask & (ALT | CTRL) != 0;
+    let alt = mask & ALT != 0;
     let shifted = mask & SHIFT != 0;
     let draft = mask & SUPER != 0;
     let composer = mask & (SHIFT | SUPER) != 0;
     match letter {
         b'A' if draft => Action::DraftStart { shifted },
         b'B' if draft => Action::DraftEnd { shifted },
+        b'A' if alt => Action::ComposerUp,
+        b'B' if alt => Action::ComposerDown,
         b'A' if shifted => Action::SelectUp,
         b'B' if shifted => Action::SelectDown,
         b'A' if word => Action::ComposerUp,

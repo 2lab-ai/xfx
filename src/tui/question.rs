@@ -184,9 +184,21 @@ pub(crate) enum Act {
     /// The draft's caret left -- or, with no draft open, the previous
     /// **question** (`retreatToPrevious`, `input_question_runtime.zig:186-192`).
     Left,
+    /// The draft's caret left, as [`Act::Left`] -- and nothing at a choice:
+    /// Shift-Left, Super-Left and Ctrl-B ([`super::input::Action::ComposerLeft`]).
+    /// Upstream's two arrows are a composer move its choice leaves to the
+    /// switch's `else` and its field reads as the step (`.character_left`) or
+    /// the line's start (`.line_start`, which xfx's decoder does not tell
+    /// from the step: COMPOSER-SUPER-ARROWS), and Ctrl-B a byte that is the
+    /// field's step and no question action at a choice
+    /// (`src/ui/input/runtime.zig:135-176`, `:199-209`;
+    /// `input_question_runtime.zig:181-200@481104fd`).
+    StepLeft,
     /// The draft's caret right. Nothing at a choice: Enter is what moves on,
     /// and a key that skipped a question would skip an answer
-    /// (`input_question_runtime.zig:193-195`).
+    /// (`input_question_runtime.zig:193-195`). Shift-Right, Super-Right and
+    /// Ctrl-F too, which upstream's choice leaves alone as it leaves Right
+    /// ([`Act::StepLeft`]).
     Right,
     /// The start and the end of the whole answer (`question_prompt.zig:455-466`).
     Home,
@@ -231,10 +243,21 @@ impl Act {
             Action::Down => Some(Self::Down),
             Action::SelectUp => Some(Self::SelectUp),
             Action::SelectDown => Some(Self::SelectDown),
+            // Super-Up and -Down, with Shift or without: upstream's
+            // `draft_start`/`draft_end`, the field's edges, as its Home and End
+            // are (`src/ui/input/runtime.zig:162-163@481104fd`), and nothing at
+            // a choice -- no `visual_up` -- where they are not the arrows.
+            Action::DraftStart { .. } => Some(Self::Home),
+            Action::DraftEnd { .. } => Some(Self::End),
+            Action::ComposerLeft => Some(Self::StepLeft),
+            Action::ComposerRight => Some(Self::Right),
             Action::Delete => Some(Self::Delete),
             Action::WordLeft => Some(Self::WordLeft),
             Action::AltB => Some(Self::AltB),
-            Action::WordRight => Some(Self::WordRight),
+            // Alt-f is upstream's `.word_right`, which its choice leaves as it
+            // leaves Right and its field reads as the word move
+            // (`input_question_runtime.zig:196-199@481104fd`).
+            Action::WordRight | Action::AltF => Some(Self::WordRight),
             // `C-w`, and Alt-Backspace, which the decoder reads as a deletion
             // by word characters: this field has the whitespace one only.
             Action::DeleteWordLeft | Action::DeleteWordBackward => Some(Self::DeleteWordLeft),
@@ -254,6 +277,12 @@ impl Act {
             Action::Right => Some(Self::Right),
             Action::Home => Some(Self::Home),
             Action::End => Some(Self::End),
+            // Ctrl-, Alt- and Shift-Alt-Up and -Down, and a held page key:
+            // upstream's `visual_up`, `paragraph_up` and page moves, which its
+            // question reads as nothing, at a choice and in the field
+            // (`src/ui/input/runtime.zig:155-197`; `input_question_runtime.zig:181-200
+            // @481104fd`). They fall to the `None` below with every key a
+            // question has no meaning for.
             _ => None,
         }
     }
@@ -849,6 +878,7 @@ impl QuestionPanel {
             Act::Backspace
             | Act::Delete
             | Act::Left
+            | Act::StepLeft
             | Act::Right
             | Act::Home
             | Act::End
@@ -881,7 +911,7 @@ impl QuestionPanel {
                     Act::KillToEnd => {
                         draft.kill_to_end();
                     }
-                    Act::Left => draft.left(),
+                    Act::Left | Act::StepLeft => draft.left(),
                     Act::Right => draft.right(),
                     Act::WordLeft | Act::AltB => draft.word_left(),
                     Act::WordRight => draft.word_right(),
