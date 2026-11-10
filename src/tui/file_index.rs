@@ -2300,9 +2300,13 @@ pub(crate) mod tests {
             .map(|n| candidates(&[&format!("dir/x{n:03}")])[0].clone())
             .collect();
         let found = search(&entries, "x");
-        assert_eq!(found.len(), MOST_RESULTS);
+        // fx's `capacity`, the lookup's buffer (`file_completion_state.zig:7`,
+        // `input_completion_runtime.zig:895@481104fd`), as a number: a cap
+        // written as the constant would follow the constant.
+        assert_eq!(found.len(), 32);
         assert_eq!(found[0].path, "dir/x000");
         assert_eq!(found[31].path, "dir/x031");
+        assert_eq!(search(&entries, "").len(), 32);
     }
 
     /// The first row `query` finds among `paths` (fx's `expectFirstSearchPath`,
@@ -2445,6 +2449,49 @@ pub(crate) mod tests {
             align_best(&text, &path, &offsets, 0, 0, &['a'; 100], &mut align).expect("a placement");
         assert_eq!(align.positions, (0..100).collect::<Vec<_>>());
         assert_eq!(found, score_alignment(&path, &offsets, 0, &align.positions));
+    }
+
+    #[test]
+    fn a_camel_start_and_a_matched_punctuation_earn_their_bonuses() {
+        // `bonusFor` (`file_index.zig:1459-1475@481104fd`): an upper-case
+        // letter after a lower-case one earns 7, so `axB` (54) ranks above
+        // `aab` (47) for `ab`, where without it the two tie and bytes put
+        // `aab` first.
+        assert_eq!(rows(&candidates(&["aab", "axB"]), "ab"), ["axB", "aab"]);
+        // A matched `-` earns 8 and starts a run of 8 (`consecutiveBonus`,
+        // `file_index.zig:1493-1496`): `aa-b` scores 79 for `a-b`, `a-xb`
+        // 72; without the 8, `aa-b` scores 71 and goes second.
+        assert_eq!(
+            rows(&candidates(&["a-xb", "aa-b"]), "a-b"),
+            ["aa-b", "a-xb"]
+        );
+    }
+
+    #[test]
+    fn the_cell_budget_is_four_thousand_and_ninety_six_cells() {
+        // `max_align_cells` (`file_index.zig:1410@481104fd`) and the check
+        // past it (`:1601`). `a`, n `x`, `b`, 2000 `x`, `-ab`: row `a`'s
+        // window runs from the first `a` to the last, row `b`'s from the
+        // first `b` to the last, n + 2 * 2000 + 8 cells. The best placement
+        // is the closing `ab` after its `-`; the leftmost is the first `a`
+        // and the first `b`, a gap of n between them.
+        let mut align = Align::default();
+        for (n, cells, searched) in [(88, 4096, true), (89, 4097, false)] {
+            let text = format!("a{}b{}-ab", "x".repeat(n), "x".repeat(2000));
+            let (path, chars) = (text.as_bytes(), text.chars().collect::<Vec<_>>());
+            let offsets: Vec<usize> = (0..=path.len()).collect();
+            assert_eq!(n + 2 * 2000 + 8, cells);
+            let found = align_best(&chars, path, &offsets, 0, 0, &['a', 'b'], &mut align)
+                .expect("a placement");
+            let last = chars.len() - 2;
+            let expected = if searched {
+                vec![last, last + 1]
+            } else {
+                vec![0, n + 1]
+            };
+            assert_eq!(align.positions, expected, "{cells} cells");
+            assert_eq!(found, score_alignment(path, &offsets, 0, &align.positions));
+        }
     }
 
     #[test]
