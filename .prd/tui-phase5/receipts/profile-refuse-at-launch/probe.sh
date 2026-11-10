@@ -28,7 +28,8 @@ all="truncated nonobject toolarge at-ceiling model-space model-nonstring model-i
 ws-nonobject entry-nonobject entry-model typed-key provider models-bad dir-settings \
 link-settings link-profile unreadable project-malformed retired-then-model group-writable \
 group-writable-torn group-writable-model other-writable-torn dir-group-writable-torn write-only \
-dir-unlistable hardlink profile-file fifo home-unlistable dup-key valid"
+dir-unlistable hardlink profile-file fifo home-unlistable dup-key valid \
+hardlink-unreadable home-unlistable-empty"
 fixtures=${*:-$all}
 
 # The fixture's profile: <home>/<prof>/settings.json, or what stands there.
@@ -70,12 +71,14 @@ seed() { # fixture home work
     profile-file) rmdir "$p"; printf '{}' > "$p" ;;
     fifo) mkfifo -m 600 "$s" ;;
     home-unlistable) printf '{"permission_mode": "auto"}' > "$s"; chmod 600 "$s"; chmod 300 "$h" ;;
+    home-unlistable-empty) rmdir "$p"; chmod 300 "$h" ;;
+    hardlink-unreadable) printf '{"permission_mode": "auto"}' > "$s"; ln "$s" "$h/other.json"; chmod 000 "$s" ;;
     dup-key) printf '{"permission_mode": "auto", "permission_mode": "ask"}' > "$s" ;;
     valid) printf '{"permission_mode": "auto"}' > "$s" ;;
     *) echo "unknown fixture $f" >&2; return 1 ;;
   esac
   [ -e "$s" ] || [ -L "$s" ] || return 0
-  case $f in unreadable|group-writable*|other-writable*|dir-*|write-only|hardlink|fifo|home-*) return 0 ;; esac
+  case $f in unreadable|group-writable*|other-writable*|dir-*|write-only|hardlink*|fifo|home-*) return 0 ;; esac
   [ -L "$s" ] || [ -d "$s" ] || chmod 600 "$s"
 }
 
@@ -88,9 +91,18 @@ envs() { # home tmp
   fi
 }
 
-listing() { # dir: every entry with its size and mtime, relative
+listing() { # dir: every entry with its size and mtime, relative. A directory
+  # its owner may not list is listed with u+r given for the look, then its mode
+  # put back: a mode change moves no mtime. (No run path holds a blank.)
+  local d undo="" pass
+  for pass in 1 2 3; do # a locked directory inside another shows once that one opens
+    for d in $(find "$1" -type d ! -perm -u+r 2>/dev/null); do
+      undo="chmod $(stat -f %Lp "$d") $d; $undo"; chmod u+r "$d"
+    done
+  done
   (cd "$1" && find . -mindepth 1 \( -name '*.sock' -prune \) -o -print0 2>/dev/null \
     | xargs -0 stat -f '%N %z %m' 2>/dev/null | sort)
+  eval "$undo"
 }
 
 real_root=$(mkdir -p "$root" && cd "$root" && pwd -P)

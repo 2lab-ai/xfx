@@ -1,0 +1,19 @@
+== probe.sh fx <fx v0.0.16> <run> dir-unlistable home-unlistable home-unlistable-empty hardlink-unreadable (round 4: locked directories listed; two new fixtures)
+binary sha256 before: 8e6cda2efddb
+== dir-unlistable
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+== home-unlistable
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+== home-unlistable-empty
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+== hardlink-unreadable
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  interactive            still running after 6 s exit= tty=932B stderr= | touched: 
+binary sha256 after: 8e6cda2efddb

@@ -1,4 +1,13 @@
-== python3 -I outcomes.py fx-fixtures.txt xfx-head-fixtures.txt (02c32c3f, round 3)
+== python3 -I outcomes.py fx-fixtures.txt,fx-r4-fixtures.txt xfx-head-fixtures.txt (adaa56de, round 4; fx-r4-fixtures.txt reruns dir-unlistable and home-unlistable with locked directories listed, and adds hardlink-unreadable and home-unlistable-empty)
+typed-key: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+provider: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+models-bad: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+link-profile: end at interactive: fx running xfx exit=1; end at line shell: fx running xfx exit=1
+dir-group-writable-torn: end at interactive: fx running xfx exit=1; end at line shell: fx running xfx exit=1
+dup-key: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+== 35 fixtures: 31 match on refusal at every entry, 29 on how every entry ended
+
+== python3 -I outcomes.py fx-fixtures.txt xfx-r3-fixtures.txt (02c32c3f, round 3)
 typed-key: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
 provider: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
 models-bad: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
