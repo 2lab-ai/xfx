@@ -1,3 +1,10 @@
+# Round 2: python3 -I mutants.py <clone> M14 on a throwaway git clone --no-local at d758345b (round2.sh, one suite-lock
+# slot, TMPDIR=<scratch>/sms-r2), the source restored after.
+M14 KILLED (a `/model` or `/effort` line is the slash kind, not its column's): a_column_line_opens_no_slash_menu_whatever_skill_its_line_would_find
+killed 1 of 1
+mutants M14 rc=0; porcelain after: 0
+
+# Round 1
 # python3 -I mutants.py <scratch>/sms-mut/clone under suite-lock.sh (slot 4, SUITE_LOCK_SLOTS=4, the dispatcher's one-time
 # exception), TMPDIR=<scratch>: a git clone --no-local at the code head 83dae68e, its source restored after each
 # mutant (porcelain 0 at the end). Each line: the mutant, what it takes out, the cases that failed.

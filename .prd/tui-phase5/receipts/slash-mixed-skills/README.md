@@ -183,7 +183,7 @@ base and the head (`caps.sh`): `-git-log` and `-git-log-tab` now the same as
 fx at the head (`Results 1`, `release-notes`; bound), different at the base;
 `-skills-x`, `-help-x`, `-rename-notes` the same on all three.
 
-## Mutants (`mutants.py`, `mutants.txt`)
+## Mutants, round 1 (`mutants.py`, `mutants.txt`'s second part; round 2 below)
 
 **13 of 13 killed** at the code head `83dae68e`, each on a throwaway
 `git clone --no-local` (its source restored after each, and clean at the
@@ -224,7 +224,7 @@ binary and once with the head's, in one suite-lock slot. `p5-skills*` and
   (`/skills create`, `/skills add`). Past a blank with no skill, no menu
   opens, as at the base.
 
-## Gate (`gate.sh`, `gate.txt`)
+## Gate, round 1 (`gate.sh`, `gate.txt`'s second part; round 2 below)
 
 At `83dae68e`, the code head, on a clean `git clone --no-local` of it
 (porcelain 0), in one suite-lock slot with a short `TMPDIR`: `cargo fmt
@@ -313,3 +313,15 @@ recorded, not this unit's to change.
   `/model notes`, `/effort notes`, `/provider notes`, `/setup notes` open no
   slash menu.
 - **opus S2:** `has-args.txt`, above (M11).
+- **Mutant M14** (`mutants.py`, `round2.sh`, `mutants.txt`'s first part): a
+  `/model` or `/effort` line made the slash kind (`completion_kind` without
+  `model_column::shaped_line`), on a throwaway clone at `d758345b`: killed
+  by `a_column_line_opens_no_slash_menu_…`, and by it alone. 14 of 14 over
+  both rounds.
+- **Gate** (`gate.txt`'s first part, `round2.sh`): at `d758345b`, the head
+  with every source and test change, on a clean `git clone --no-local`, in
+  one suite-lock slot after M14: every step exit 0, nothing re-run; plain
+  5717 passed, 0 failed, 7 ignored (lib 4793), fault injection 5754 passed,
+  0 failed, 7 ignored (lib 4816) -- the two new shell cases more than round
+  1. The commit after it adds this receipt's result files only; the four
+  check scripts ran at that commit (`checks-final.txt`, round 2's run).
