@@ -18663,12 +18663,12 @@ mod tests {
         (home, workspace, state, Held::FirstLoad(open))
     }
 
-    /// What holds a turn's catalog wait back, and how the loop's harness
-    /// ([`first_of_two_and_a_stop`]) lets it go. Made only where the gate is
+    /// What holds a turn's catalog wait back. Made only where the gate is
     /// made ([`retry_never_lands`], [`first_load_behind_a_history_image`],
-    /// [`waiting_in`]), so no test holds a gate's sender of its own: the
-    /// harness alone opens it, and the clock it runs the loop on is chosen
-    /// here.
+    /// [`waiting_in`]), and spent only by [`Held::run`], which picks the
+    /// clock the loop runs on and lets the gate go: no test that takes one
+    /// holds a gate's sender of its own. (The twenty-question test builds
+    /// its own gate and clock; it takes no `Held`.)
     enum Held {
         /// The retry behind a failed catalog, which does not land while the
         /// loop runs: its gate opens when the sender goes, once the loop is
@@ -18688,9 +18688,57 @@ mod tests {
         FirstLoad(tokio::sync::oneshot::Sender<()>),
     }
 
+    impl Held {
+        /// Whether a run under this wait is on tokio's clock, paused.
+        fn paused(&self, stop: bool) -> bool {
+            stop || matches!(self, Self::Retry(_))
+        }
+
+        /// Runs the loop and its band, `run`, on this wait's clock
+        /// ([`Self::paused`]), and lets the gate go as the wait needs: a
+        /// retry's after the run; a first load's, with a stop, to `run`,
+        /// to open once the stopped turn has ended; without one, to an
+        /// opener [`FIRST_LOAD_LANDS`] after the wall-clock reading `run` is
+        /// given, which is taken before the opener starts.
+        fn run<T, F: Future<Output = T>>(
+            self,
+            stop: bool,
+            run: impl FnOnce(Option<tokio::sync::oneshot::Sender<()>>, Instant) -> F,
+        ) -> T {
+            let begun = Instant::now();
+            match self {
+                Self::Retry(open) => {
+                    let out = on_a_paused_runtime(run(None, begun));
+                    drop(open);
+                    out
+                }
+                Self::FirstLoad(open) if stop => on_a_paused_runtime(run(Some(open), begun)),
+                Self::FirstLoad(open) => {
+                    let opener = std::thread::spawn(move || {
+                        std::thread::sleep(FIRST_LOAD_LANDS);
+                        let _ = open.send(());
+                    });
+                    let out = on_a_runtime(run(None, begun));
+                    opener.join().expect("the load's opener");
+                    out
+                }
+            }
+        }
+    }
+
     /// When a first load that nothing stops lands, counted from before the
     /// opener starts.
     const FIRST_LOAD_LANDS: Duration = Duration::from_millis(1_500);
+
+    /// How long, on the wall clock, a stopped first turn may take from its
+    /// stop to its end in [`first_of_two_and_a_stop`]. It bounds a
+    /// **failure** -- a stop held up off tokio's timers, which the paused
+    /// clock reads as no time -- not the scheduler: the segment holds the
+    /// stopped turn's own `fsync`ed record (`session::store`), so it is
+    /// sized well past both the crate's 2 s for "at once" and ten times the
+    /// most the receipt's repeat measured (CATALOG-WAIT-CLOCK,
+    /// `load-check3.txt`), for the load the gate meets.
+    const STOP_TO_END: Duration = Duration::from_secs(5);
 
     /// How long the band waits, on the wall clock, for a run that never ends:
     /// far past anything here, because it bounds a **failure**.
@@ -18758,8 +18806,15 @@ mod tests {
     /// ended at once ends with no tokio time gone; one that waited the retry
     /// out ends at its two seconds, and one whose stop slept on a tokio timer
     /// first ends that much later, however long the machine holds the
-    /// thread. What it cannot see is a stop held up by the thread itself --
-    /// a blocking sleep, or work -- which reads as no time at all.
+    /// thread. What it cannot see is lateness off the loop runtime's timers
+    /// -- the thread held, `spawn_blocking`, a wait on another thread with
+    /// no timer standing -- which reads as no time at all. For that, the
+    /// wall clock bounds the stopped turn from its stop to its end
+    /// ([`STOP_TO_END`]): the stop is stamped as the band sends it, the end
+    /// by a watcher thread the moment the loop gives the first turn's place
+    /// back (`outstanding`, after its terminal event and before the next
+    /// turn starts -- no stall of the loop's thread at a turn's start or
+    /// before its first select falls in between).
     fn first_of_two_and_a_stop(
         state: Runtime,
         first: TurnWork,
@@ -18773,95 +18828,108 @@ mod tests {
             .expect("room");
         drop(work_tx);
         // Held until the loop has run out of work: a closed control channel
-        // is no stop.
+        // is the session's end, which stops every turn.
         let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
         let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
         let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
         let outstanding = AtomicUsize::new(2);
-        // The wall clock's count begins before a first load's opener does:
-        // a thread held between them cannot make the load look early.
-        let begun = Instant::now();
-        // The retry's gate, kept shut until the loop is over; a first load's,
-        // let go as the stop says.
-        let (paused, retry, mut load, opener) = match held {
-            Held::Retry(open) => (true, Some(open), None, None),
-            Held::FirstLoad(open) if stop => (true, None, Some(open), None),
-            Held::FirstLoad(open) => {
-                let opener = std::thread::spawn(move || {
-                    std::thread::sleep(FIRST_LOAD_LANDS);
-                    let _ = open.send(());
-                });
-                (false, None, None, Some(opener))
-            }
-        };
-        let first_load = retry.is_none();
+        let paused = held.paused(stop);
+        let first_load = matches!(held, Held::FirstLoad(_));
         let (deadline, mut due) = WallDeadline::start(RUN_DEADLINE);
-        let loop_and_band = async {
-            let started = if paused {
-                tokio::time::Instant::now()
-            } else {
-                tokio::time::Instant::from_std(begun)
-            };
-            let run = turn_loop(
-                state,
-                &events,
-                &mut work_rx,
-                &mut changes,
-                ControlChannel::new(control_rx),
-                Cancellation::new(CancelToken::new()),
-                &outstanding,
-            );
-            let watch = async {
-                let mut log = Vec::new();
-                let mut ends = 0;
-                while ends < 2 {
-                    let event = tokio::select! {
-                        biased;
-                        event = seen.recv() => event,
-                        Ok(()) = &mut due => None,
-                    };
-                    let Some(event) = event else { break };
-                    match &event {
-                        UiEvent::TurnStarted { submission: 1 } if stop => {
-                            let _ = control_tx.send(TurnControl::Cancel { through: 1 });
-                        }
-                        UiEvent::TurnEnded { .. } => {
-                            ends += 1;
-                            if let Some(open) = load.take() {
-                                let _ = open.send(());
-                            }
-                        }
-                        _ => {}
+        // The stop as the band sends it, and the first turn's place given
+        // back, both on the wall clock.
+        let stop_sent = std::cell::Cell::new(None::<Instant>);
+        let first_end = std::sync::OnceLock::<Instant>::new();
+        let watching = AtomicBool::new(stop);
+        let log = std::thread::scope(|scope| {
+            if stop {
+                scope.spawn(|| loop {
+                    // Read before the place, so a run that ended between two
+                    // looks is still seen once more: its place is back.
+                    let over = !watching.load(Ordering::Acquire);
+                    if outstanding.load(Ordering::Acquire) < 2 {
+                        let _ = first_end.set(Instant::now());
+                        return;
                     }
-                    log.push((started.elapsed(), event));
-                }
-                // Given up on a turn that never ended: its load is let go, so
-                // the loop can run out of work and return.
-                drop(load.take());
+                    if over {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                });
+            }
+            let (events, work_rx, changes, outstanding) =
+                (&events, &mut work_rx, &mut changes, &outstanding);
+            let (seen, due, control_tx, stop_sent) = (&mut seen, &mut due, &control_tx, &stop_sent);
+            let log = held.run(stop, |mut load, begun| async move {
+                let started = if paused {
+                    tokio::time::Instant::now()
+                } else {
+                    tokio::time::Instant::from_std(begun)
+                };
+                let run = turn_loop(
+                    state,
+                    events,
+                    work_rx,
+                    changes,
+                    ControlChannel::new(control_rx),
+                    Cancellation::new(CancelToken::new()),
+                    outstanding,
+                );
+                let watch = async {
+                    let mut log = Vec::new();
+                    let mut ends = 0;
+                    while ends < 2 {
+                        let event = tokio::select! {
+                            biased;
+                            event = seen.recv() => event,
+                            Ok(()) = &mut *due => None,
+                        };
+                        let Some(event) = event else { break };
+                        match &event {
+                            UiEvent::TurnStarted { submission: 1 } if stop => {
+                                stop_sent.set(Some(Instant::now()));
+                                let _ = control_tx.send(TurnControl::Cancel { through: 1 });
+                            }
+                            UiEvent::TurnEnded { .. } => {
+                                ends += 1;
+                                if let Some(open) = load.take() {
+                                    let _ = open.send(());
+                                }
+                            }
+                            _ => {}
+                        }
+                        log.push((started.elapsed(), event));
+                    }
+                    // Given up on a turn that never ended: its load is let
+                    // go, so the loop can run out of work and return.
+                    drop(load.take());
+                    log
+                };
+                let (_, log) = tokio::join!(run, watch);
                 log
-            };
-            let (_, log) = tokio::join!(run, watch);
+            });
+            watching.store(false, Ordering::Release);
             log
-        };
-        let log = if paused {
-            on_a_paused_runtime(loop_and_band)
-        } else {
-            on_a_runtime(loop_and_band)
-        };
+        });
         drop(deadline);
         drop(control_tx);
-        drop(retry);
         if paused && first_load {
-            // The waits were the catalog thread's, which no timer stands for:
-            // nothing moved the paused clock, so nothing was run past.
+            // No advance of the paused clock before the last event the band
+            // read: the waits were the catalog thread's, not a timer's.
             assert!(
                 log.iter().all(|(at, _)| at.is_zero()),
-                "a tokio timer ran in a first load's run: {:?}",
+                "the paused clock moved in a first load's run: {:?}",
                 log.iter().map(|(at, _)| *at).collect::<Vec<_>>()
             );
         }
-        if let Some(opener) = opener {
-            opener.join().expect("the load's opener");
+        if let (Some(sent), Some(end)) = (stop_sent.get(), first_end.get()) {
+            let took = end.saturating_duration_since(sent);
+            // Read by the receipt's repeat check (`--nocapture`).
+            eprintln!("stop-to-end-us {}", took.as_micros());
+            assert!(
+                took < STOP_TO_END,
+                "the stopped turn ended {took:?} after its stop on the wall clock, past {STOP_TO_END:?}"
+            );
         }
         log
     }
@@ -19544,7 +19612,7 @@ mod tests {
             let band_control = control_tx.clone();
             let band = std::thread::spawn(move || {
                 let mut log = Vec::new();
-                let deadline = Instant::now() + TEST_DRAIN;
+                let deadline = Instant::now() + RUN_DEADLINE;
                 while Instant::now() < deadline {
                     match seen.try_recv() {
                         Ok(event) => {
@@ -19950,9 +20018,7 @@ mod tests {
         // `try_send_terminal`), before the next turn starts; and every place
         // is given back.
         let (_home, _workspace, mut state, first, held) = waiting_in(CatalogWait::WindowRetry);
-        let Held::Retry(retry) = held else {
-            panic!("WindowRetry is a retry")
-        };
+        assert!(matches!(held, Held::Retry(_)), "WindowRetry is a retry");
         unreadable_tool_images(&mut state);
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(3);
         work_tx.try_send(first).expect("room");
@@ -19966,7 +20032,8 @@ mod tests {
         let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
         let outstanding = AtomicUsize::new(3);
         let (deadline, mut due) = WallDeadline::start(RUN_DEADLINE);
-        let log = on_a_paused_runtime(async {
+        // A retry: on the paused clock, its gate let go after the run.
+        let log = held.run(true, |_, _| async {
             let run = turn_loop(
                 state,
                 &events,
@@ -20002,9 +20069,8 @@ mod tests {
         });
         drop(deadline);
         // Held until the loop has run out of work: a closed control channel
-        // is no stop; and the retry stays at its gate until then.
+        // is the session's end, which stops every turn.
         drop(control_tx);
-        drop(retry);
         let mut ends = Vec::new();
         let mut said: Vec<usize> = Vec::new();
         let mut compactions = Vec::new();
