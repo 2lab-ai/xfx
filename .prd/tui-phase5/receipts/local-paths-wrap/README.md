@@ -12,7 +12,8 @@ Base `635e7242` (train 12's head, with LOCAL-PATHS). Branch
 `fix/p5-local-paths-wrap`. Every claim below names the file in this
 directory that backs it; no file here holds a path of a machine. Round 2
 answers the reviews of `4851ba05` (section 8), round 3 gpt6's of `ff59f0f7`
-(section 9), round 4 both engines' of `76fbee40` (section 10).
+(section 9), round 4 both engines' of `76fbee40` (section 10), round 5
+gpt6's check of `d7e797a0` (section 11).
 
 ## 1. The marks (`marks.md`)
 
@@ -149,8 +150,10 @@ or host).
   they are (check-no-local-paths allows a runner's HOME by name). 213 rows
   of tracked files open behind a mark (2998 in round 1, before a bare `↑`
   stopped counting), counted since round 4 in every file holding `↳`, or
-  `┃` and `↑` apart, so a split mark would count (`split-marks.txt`: the
-  same 213).
+  `┃` and `↑` apart: the widened filter adds no marked rows (8466 files
+  read, 173 with round 3's filter, 213 rows in both; `split-marks.txt`).
+  That cannot see a split mark in a file that also holds an intact one;
+  the byte count below can.
 - **What the tail rule could refuse in a run.** Round 1's measured only a
   random scratch name's 1-6 letters (`flake.py`, dropped in round 2: opus
   showed the real false refusals were fixed words, which that model could
@@ -258,14 +261,17 @@ subtests in round 3's run (6 and 2 in round 4's, `mutants.txt:10` and
 - **SHOULD, a mark split by a colour change.** `ESC[2m┃ESC[0mESC[1m↑` was no
   mark: `_trim` matched a mark within one run's bytes. Both renderers draw
   `┃↑` in one run (xfx `src/tui/shell.rs:2924-2932`, fx
-  `input_presentation.zig:1020-1022@481104fd`), and no committed capture
-  has one: `scan.sh` now reads every file holding `↳`, or `┃` and `↑` apart
-  -- 8465 files, 172 with round 3's filter -- and finds 213 rows behind a
-  mark in both, 0 that only a split mark adds (`split-marks.txt`,
-  `split_marks.py`; opus round 3 SHOULD 1); the reader now matches the row's visible bytes
-  across runs. A
-  styled `┃`, a space, then `↑↓` is still a key hint, and
-  `ESC[2m  ESC[0m↳` stays a mark.
+  `input_presentation.zig:1020-1022@481104fd`), and **no tracked file holds
+  one, by its bytes**: of the 12824 tracked files with a rail `┃`, 0 hold a
+  rail, one or more control sequences and then `↑` -- 0 occurrences
+  (`split-marks.txt`, `split_marks.py`, round 5: gpt6's MUST; it checks its
+  pattern on the two split forms and two that are not before it counts).
+  Round 4's figure for this, the widened filter's rows (8466 files, 173
+  with round 3's filter, 213 rows in both), says only that the filter adds
+  no marked rows: it read one View per file for both sets, so a split mark
+  beside an intact one counted in both. The reader now matches the row's
+  visible bytes across runs. A styled `┃`, a space, then `↑↓` is still a
+  key hint, and `ESC[2m  ESC[0m↳` stays a mark.
 
 Reruns (`rerun3.txt`, `TMPDIR` the harness scratch root): `test-capture.sh`
 at `f5fed4b4`, under the suite lock, **118 tests OK**; every mutant, old and
@@ -286,8 +292,10 @@ opening `/x` or `\/x` is refused and before `x` passes; a percent-form end
 (`e%20one/x`) is refused and `e%20one more` passes; `\/` at the end of the
 file is refused and a lone `\` passes; a split mark with nothing after it
 leads nothing; a rail and an arrow a cursor move parts are no mark.
-`scan.sh` reads a file holding `↳`, or `┃` and `↑` apart, so its count
-can see a split mark (opus SHOULD 1). Decisions say what passes (SHOULD 2).
+`scan.sh` reads a file holding `↳`, or `┃` and `↑` apart, so a split mark
+in a file with no intact one is counted (opus SHOULD 1); whether any file
+holds a split mark at all is round 5's byte count (section 11), which
+supersedes round 4's `split-marks.txt` line in `rerun4.txt`. Decisions say what passes (SHOULD 2).
 
 Reruns (`rerun4.txt`, `TMPDIR` the harness scratch root): `test-capture.sh`
 at `f5e95437`, under the suite lock, **119 tests OK**; every mutant
@@ -297,6 +305,20 @@ every tracked file with this receipt staged, **0 of the 17820 captures
 and receipts refused** on the machine roots and the same files elsewhere
 as rounds 2 and 3, **no new refusal**, 213 rows behind a mark;
 `check-no-local-paths.sh` **ok**.
+
+## 11. Round 5: gpt6's check of `d7e797a0`
+
+One MUST, receipt only: round 4's `split_marks.py` compared two counts
+from the same View per file, so a split mark beside an intact one counted
+in both and "0 that only a split mark adds" could not see it. It now
+counts split marks by their bytes -- `┃`, one or more control sequences as
+roots.py's `CONTROL` reads them, `↑` -- after checking its pattern on both
+split forms the tests pin (match) and on `┃↑` and `┃`, a reset, a space,
+`↑` (no match): **12824 tracked files hold a rail, 0 a split rail-arrow, 0
+occurrences** (`split-marks.txt`; the dispatcher's own count agrees). Its
+second line keeps the widened filter's figures, described as what they
+are. Reruns (`rerun5.txt`): `split_marks.py` and `check-no-local-paths.sh`
+over the tree with this receipt staged.
 
 ## Decisions
 
@@ -337,4 +359,5 @@ as rounds 2 and 3, **no new refusal**, 213 rows behind a mark;
 `fix-tails.txt` · `scan.sh` -> `scan-before.txt`, `scan.txt` ·
 `gutter_tails.py` -> `gutter-tails.txt` · `gate.sh` -> `gate.txt`,
 `gate-head-diff.txt` · `rerun.sh` -> `rerun.txt`, `rerun2.txt`, `rerun3.txt`,
-`rerun4.txt` · `same_rule.py` -> `same-rule.txt`
+`rerun4.txt`, `rerun5.txt` · `same_rule.py` -> `same-rule.txt` ·
+`split_marks.py` -> `split-marks.txt`
