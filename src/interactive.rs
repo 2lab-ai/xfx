@@ -1837,11 +1837,9 @@ async fn one_turn(
         config.home().map(std::path::Path::to_path_buf),
     );
 
-    // A prompt image the history cannot send fails the request before it is
-    // built, as upstream's does ([`crate::session::DurableState::unsendable`]).
-    if let Some(error) = conversation.recorder.state().unsendable() {
-        return report_turn_failure(format!("request failed: {error}"));
-    }
+    // This shell continues no saved session, so its history holds no image
+    // read from a copy beside the log: nothing for a request to check again
+    // ([`crate::session::store::CopiesChecked`]).
     let replay = conversation
         .recorder
         .state()

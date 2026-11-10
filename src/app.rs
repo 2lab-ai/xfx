@@ -437,10 +437,7 @@ async fn run_ask(
         }
     };
     let failure = match open_session(config, &request, mode) {
-        Ok(opened) => match opened.unsendable {
-            Some(error) => Err(named(error)),
-            None => Ok(opened),
-        },
+        Ok(opened) => Ok(opened),
         Err(SessionError::Unreadable { .. }) => Err(named("InvalidSessionFormat")),
         Err(err) => Err(err.to_string()),
     };
@@ -459,11 +456,15 @@ async fn run_ask(
     // On a terminal the answer arrives inert: the approval question is asked
     // on the same one, after it, and must not find a state the model left
     // there.
-    let mut sink: Box<dyn EventSink + '_> = if request.json {
+    let inner: Box<dyn EventSink + '_> = if request.json {
         Box::new(JsonlSink::new(stdout).on_terminal(stdout_is_terminal))
     } else {
         Box::new(TextSink::new(stdout, stderr).on_terminal(stdout_is_terminal))
     };
+    let mut sink: Box<dyn EventSink + '_> = Box::new(CopyErrorNamed {
+        inner,
+        json: request.json,
+    });
 
     // A resumed session's model, by [`resumed_model`]'s rule; a fresh one's is
     // the configuration's.
@@ -570,18 +571,16 @@ async fn run_ask(
         tools: tools.clone(),
     };
 
+    // Each request's images read again from the session's copies
+    // ([`crate::session::store::CopiesChecked`]).
+    let checked = crate::session::store::CopiesChecked {
+        inner: bundle.stream.as_ref(),
+        copies: std::mem::take(&mut opened.copies),
+    };
     // The turn writes its own terminal event, including on failure.
     let outcome = match opened.recorder.as_mut() {
         Some(recorder) => {
-            run_turn_with_skills(
-                turn,
-                context,
-                &skills,
-                bundle.stream.as_ref(),
-                sink.as_mut(),
-                recorder,
-            )
-            .await
+            run_turn_with_skills(turn, context, &skills, &checked, sink.as_mut(), recorder).await
         }
         None => {
             let mut journal = crate::agent::NoJournal;
@@ -589,7 +588,7 @@ async fn run_ask(
                 turn,
                 context,
                 &skills,
-                bundle.stream.as_ref(),
+                &checked,
                 sink.as_mut(),
                 &mut journal,
             )
@@ -661,13 +660,69 @@ fn resumed_model<'a>(config: &'a RuntimeConfig, state: &'a DurableState) -> &'a 
     }
 }
 
+/// `ask`'s events, a request a changed copy failed said as upstream's `ask`
+/// says it: no notice is its, so the error goes up and its name is printed,
+/// `fx: ImageSnapshotCorrupt`, or with `--json` is the error (`askErrorNotice`,
+/// `cli_ask.zig:1189-1197@481104fd`; `:1802-1823`; `tryWriteErrorMessage`,
+/// `app_entry_runtime.zig:563-567`). The TUI says `request failed: …`, as
+/// upstream's does ([`crate::session::store::CopiesChecked`]).
+struct CopyErrorNamed<'a> {
+    inner: Box<dyn EventSink + 'a>,
+    json: bool,
+}
+
+impl EventSink for CopyErrorNamed<'_> {
+    fn emit(&mut self, event: &Event) -> io::Result<()> {
+        let failed = crate::gateway::ProviderError::Image(crate::session::store::COPY_CHANGED);
+        match event {
+            Event::Error { message } if *message == failed.to_string() => {
+                let name = crate::session::store::COPY_CHANGED;
+                self.inner.emit(&Event::Error {
+                    message: if self.json {
+                        name.to_string()
+                    } else {
+                        format!("xfx: {name}")
+                    },
+                })
+            }
+            _ => self.inner.emit(event),
+        }
+    }
+
+    fn retrying(
+        &mut self,
+        error: &crate::gateway::ProviderError,
+        attempt: u32,
+        limit: u32,
+        delay: std::time::Duration,
+    ) {
+        self.inner.retrying(error, attempt, limit, delay);
+    }
+
+    fn retry_started(&mut self, attempt: u32, limit: u32) {
+        self.inner.retry_started(attempt, limit);
+    }
+
+    fn recovered(&mut self, attempt: u32, limit: u32) {
+        self.inner.recovered(attempt, limit);
+    }
+
+    fn steered(&mut self, steers: &[crate::agent::Steer]) {
+        self.inner.steered(steers);
+    }
+
+    fn output_tokens(&mut self, progress: crate::agent::tokens::Progress) {
+        self.inner.output_tokens(progress);
+    }
+}
+
 /// What opening a session produced for the turn that follows.
 struct OpenedSession {
     recorder: Option<SessionRecorder>,
     history: Vec<crate::gateway::protocol::Message>,
-    /// Why the turn's request cannot be built, when a prompt image of the
-    /// history cannot go ([`crate::session::DurableState::unsendable`]).
-    unsendable: Option<&'static str>,
+    /// The copies the history's prompt images were read from, which every
+    /// request reads again ([`crate::session::store::CopiesChecked`]).
+    copies: Vec<crate::session::store::SavedCopy>,
     restored_grants: Vec<Grant>,
     restored_model: Option<String>,
 }
@@ -685,7 +740,7 @@ fn open_session(
     let empty = OpenedSession {
         recorder: None,
         history: Vec::new(),
-        unsendable: None,
+        copies: Vec::new(),
         restored_grants: Vec::new(),
         restored_model: None,
     };
@@ -708,13 +763,12 @@ fn open_session(
             // The model the turn will be sent to.
             let model = resumed_model(config, state);
             let replay = state.history_messages(config.provider.wire(), model);
-            let unsendable = state.unsendable();
             let restored_grants = state.grants.clone();
             let restored_model = Some(model.to_string());
             Ok(OpenedSession {
                 recorder: Some(SessionRecorder::new(store, resumed.session)),
                 history: replay.messages,
-                unsendable,
+                copies: replay.copies,
                 restored_grants,
                 restored_model,
             })

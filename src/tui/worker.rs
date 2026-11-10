@@ -6141,18 +6141,6 @@ async fn one_turn(
         if let Some(refusal) = image_refusal(state, events, turn).await {
             return Some(refusal);
         }
-        // **Then a history image the request cannot carry**, as upstream's
-        // build fails on it after the image route has let the request through
-        // (`orchestrator.zig:7520-7525@481104fd`, then `:7712-7716`): the
-        // turn ends `request failed: <error>` and no model is asked
-        // ([`crate::session::DurableState::unsendable`]).
-        let unsendable = state
-            .conversation
-            .as_ref()
-            .and_then(|conversation| conversation.recorder.state().unsendable());
-        if let Some(error) = unsendable {
-            return Some(format!("request failed: {error}"));
-        }
     }
     // Project instructions are read now rather than remembered, so editing
     // `AGENTS.md` in another window takes effect on the next prompt -- and
@@ -6256,6 +6244,7 @@ async fn one_turn(
         .recorder
         .state()
         .history_messages(state.config.provider.wire(), &model);
+    let replay_copies = replay.copies;
 
     let request = TurnRequest {
         images,
@@ -6301,6 +6290,13 @@ async fn one_turn(
         events.clone(),
         turn.token.clone(),
     );
+    // And each request's images read again from the session's copies, so a
+    // changed one fails it before the network hears of it, after the turn's
+    // prompt is recorded ([`crate::session::store::CopiesChecked`]).
+    let provider = crate::session::store::CopiesChecked {
+        inner: &provider,
+        copies: replay_copies,
+    };
     let provider = ToolImageGate {
         inner: &provider,
         provider: provider_id,
