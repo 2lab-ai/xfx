@@ -15,16 +15,20 @@ recorded the gap and named this unit its owner.
 | `0ed9a69f` | this folder (but `mutants.txt`, `gate.txt`, `green.txt`), `docs/parity.md`, DECODER-TILDE-HOME-END's README (one word); no `src/` change |
 | `71876daa` | `mutants.txt`; no `src/` change. **The gate ran here** |
 | the commit after | `gate.txt`, `green.txt`, this file's mutant and gate sections; no `src/` change |
+| `db2904ef` | `gate.txt` names no dangling commit; the head both reviews read |
+| `782c3752` | **round 2's code head**: two tests (saturation, the CSI bound) and two test comments (the `:779` cite, the key's first digit); no non-test change |
+| the commits after | round 2's receipt: `round2.txt`, `round2-base.txt`, `fx_src.sh`'s two ranges and `fx-src.txt`, `mutants.py` M12-M13, this file, `docs/parity.md`; then the mutants and the gate |
 
 The source change outside the test modules is +107/-88 lines
 (`git diff 074f5113 ce4f9c6b --stat -- src`); every hunk is above `mod tests`.
 
 ## fx's tilde grammar (`fx-src.txt`, written by `fx_src.sh`: every line read with `git show 481104fd:<path>`)
 
-A digit after `CSI` starts the first field (`escape_parser.zig:583-589`), and
-every digit of every field goes through `appendCsiDigitSaturating`
-(`escape_parser.zig:19-23`): a `u16` that stops at 65535, a leading zero
-nothing. A `;` hands the field on and starts the next at `0`
+A digit after `CSI` starts the first field and is its number
+(`escape_parser.zig:583-589`, `:584`); every digit after it, in that field
+and the next two, goes through `appendCsiDigitSaturating`
+(`escape_parser.zig:19-23`, `:601`, `:664`, `:742`): a `u16` that stops at
+65535, a leading zero nothing. A `;` hands the field on and starts the next at `0`
 (`escape_parser.zig:606-611`, `:668-674`), so an empty field is `0`.
 
 - **One field**, `~` (`escape_parser.zig:620-635`): the paste markers when the
@@ -71,8 +75,20 @@ Every changed cell is pinned by a test of `src/tui/input.rs`:
 "The key" for a move is Home, End or the page key, as it was for every
 modifier from `2` to `256` at the base: xfx has no draft-edge move and no
 selection (DECODER-TILDE-HOME-END's records, `docs/parity.md`). The `5`/`6`
-cells of the last three rows are PageUp and PageDown here and a composer move
-to a page in fx; the two differ on the full transcript only (below).
+cells that are a composer move to a page in fx -- the leading zero with a
+modifier held, past 256, and the lock bits -- are PageUp and PageDown here.
+The two differ on the full transcript (below), and under Shift, where fx's
+move would extend a selection the composer here does not have
+(COMPOSER-SELECTION-EXTEND, `docs/parity.md`). The third-field row has no
+per-key cell: its key is the report's keycode.
+
+**The key report under `27`, too.** `CSI 27 ; m ; c ~`, the one third-field
+spelling the base read, now reads its fields as fx does as well: a leading
+zero in `m` or `c` is the number, `m` of `0` or empty holds none, as `1` did,
+`m` past 256 is masked to its low six bits as fx masks it
+(`escape_parser.zig:186-187`), and `c` past 65535 is 65535, which no key has
+(`a_ctrl_letter_is_upstreams_table_in_a_strict_spelling`,
+`the_key_and_the_keycode_saturate_rather_than_wrap`).
 
 **The oracle.** tmux sends each spelling as bytes (`key -H`), so the fx
 binary was run on every class (`fx/`, `captures.txt`): `; 1`, empty and `0`
@@ -105,11 +121,26 @@ tests and to the probe below.
 
 ## Left apart, each recorded in `docs/parity.md` (the full-screen TUI row)
 
-1. **A tilde sequence past 32 parameter bytes** is discarded here, as every
-   `CSI` is (`MOST_BYTES`), where fx's accumulators have no bound. Only a run
-   of leading zeros, or digits past where fx's number stops, makes one.
+1. **A tilde sequence of 32 parameter bytes or more is not read here**, as no
+   `CSI` of that length is (`MOST_BYTES`; `Decoder::in_csi` stops keeping
+   parameters at 32, `Decoder::discarding` gives up after 32 more). With 32 to
+   63 parameter bytes the sequence is nothing; with 64 or more the 64th ends
+   the discard and every byte after it is typed: `ESC [` + 64 zeros + `3~` is
+   nothing and then the text `3~`, where fx reads Delete. fx's accumulators
+   have no bound (`escape_parser.zig:600-603`, `:663-666`, `:741-744`). Only
+   a run of leading zeros, or digits past where fx's number stops, makes such
+   a tilde sequence. Older than this unit and the same for every `CSI`;
+   pinned by `a_tilde_sequence_past_the_csi_bound_is_read_as_every_csi_is`.
 2. **A page key held with a modifier pages the full transcript here, not in
-   fx** (found by this unit's lock-bit check; older than this unit). fx's
+   fx** (found by this unit's lock-bit check). **Older than this unit**: at
+   the base, `modified_tilde` gave PageUp and PageDown for every modifier
+   `key_modifiers` took (`git show ebb04642:src/tui/input.rs`, its `b"5"` and
+   `b"6"` arms), and the keypad's page keys do so still. **Widened by it**:
+   spellings the base read as nothing, as fx's full transcript does, now page
+   it here -- a modifier with a leading zero (`CSI 5 ; 05 ~`) or a key with
+   one (`CSI 05 ; 5 ~`), a modifier past 256 (`CSI 5 ; 257 ~`), and a key
+   report of the keypad's page keys with a modifier under a first field other
+   than `27` (`CSI 1 ; 5 ; 57421 ~`). fx's
    modified page key, tilde (`escape_parser.zig:708-709`) or keypad
    (`escape_parser.zig:169-173`), is a composer move to a page, and the full
    transcript takes only the bare `.page_up` (`input_full_transcript_runtime.zig:156-178`;
@@ -118,9 +149,10 @@ tests and to the probe below.
    `full == full-ctrl-pgup == full-caps-pgup` and the page moves on
    `CSI 5 ; 1 ~` and `CSI 5 ~`; in xfx's, `CSI 5 ; 5 ~` already moved it
    (`probe/frames.txt`). The parity row's sentence that said fx pages the
-   full transcript on a modified page key now says this. Owner proposed:
-   MODIFIED-PAGE-KEYS (a surface change: an action of its own for a modified
-   page key, folded back to the page key after the full transcript reads it).
+   full transcript on a modified page key now says this, and when it began.
+   Owner: MODIFIED-PAGE-KEYS, queued next on the decoder line (a surface
+   change: an action of its own for a modified page key, folded back to the
+   page key after the full transcript reads it).
    The lock-bit page key reads as every other modified page key does, on
    both sides.
 

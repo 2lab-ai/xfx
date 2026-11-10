@@ -34,6 +34,11 @@ ranges=(
   # modified tilde keys), and the third field's (6).
   src/ui/input/escape_parser.zig:561-636
   src/ui/input/escape_parser.zig:662-755
+  # Round 2: the discard a byte outside a stage's grammar starts (a final
+  # byte ends the sequence as nothing), and the event-type stage after a
+  # colon, whose `~` is such a byte.
+  src/ui/input/escape_parser.zig:342-362
+  src/ui/input/escape_parser.zig:756-780
   # What an action is to the composer, and the event that carries both.
   src/ui/input/shortcuts.zig:43-65
   src/ui/input/terminal_action_decoder.zig:214-224

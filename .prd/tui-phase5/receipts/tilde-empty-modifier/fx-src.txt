@@ -334,6 +334,56 @@
   754              return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
   755          },
 
+## src/ui/input/escape_parser.zig:342-362
+  342  fn beginControlSequenceDiscard(
+  343      stage: *u8,
+  344      param: *u16,
+  345      param2: *u16,
+  346      mouse: *MouseInput,
+  347      byte: u8,
+  348  ) ?InputEscapeAction {
+  349      if (byte >= 0x40 and byte <= 0x7e) {
+  350          resetMouseEscapeDecode(stage, param, param2, mouse);
+  351          return .ignore;
+  352      }
+  353      if (byte >= 0x20 and byte <= 0x3f) {
+  354          setBaseEscapeStage(stage, control_sequence_discard_stage);
+  355          param.* = 1;
+  356          param2.* = 0;
+  357          mouse.reset();
+  358          return null;
+  359      }
+  360      resetMouseEscapeDecode(stage, param, param2, mouse);
+  361      return .ignore;
+  362  }
+
+## src/ui/input/escape_parser.zig:756-780
+  756          // Kitty key reports with an event type: `ESC[<keycode>;modifier:event-type u`.
+  757          // Only press (1) and repeat (2) are actionable; release (3) must not
+  758          // close a panel or move the caret.
+  759          kitty_escape_event_type_stage => {
+  760              if (byte >= '0' and byte <= '9') {
+  761                  // The low nibble holds the event type while the high bits hold
+  762                  // the modifiers. Accumulate instead of overwriting so a
+  763                  // multi-digit event type stays out of the actionable range.
+  764                  const event_digits = (param.* & 0x0F) * 10 + (byte - '0');
+  765                  param.* = (param.* & 0xFFF0) | @min(event_digits, 0x0F);
+  766                  return null;
+  767              }
+  768              if (byte == 'u') {
+  769                  const meta_prefixed = hasMetaPrefix(stage.*);
+  770                  const keycode = param2.*;
+  771                  const modifiers = param.* >> 4;
+  772                  const event_type = param.* & 0x0F;
+  773                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  774                  if (event_type == 1 or event_type == 2) {
+  775                      return kittyUnicodeKeyAction(keycode, modifiers, meta_prefixed);
+  776                  }
+  777                  return .ignore;
+  778              }
+  779              return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
+  780          },
+
 ## src/ui/input/shortcuts.zig:43-65
    43  pub fn fromEscapeAction(action: InputEscapeAction) ?ShortcutAction {
    44      return switch (action) {
