@@ -23128,17 +23128,21 @@ mod tests {
         // Every case is run before any is reported, so a failure names each
         // move that was answered unseen rather than the first.
         let mut unseen = Vec::new();
-        for (name, keys, lands) in [
-            ("down", &b"\x1b[B"[..], "2"),
-            ("right", b"\x1b[C", "2"),
-            ("alt-f", b"\x1bf", "2"),
-            ("down down up", b"\x1b[B\x1b[B\x1b[A", "2"),
-            ("down down down", b"\x1b[B\x1b[B\x1b[B", "1"),
+        // The affirmative is Enter, or a digit: a digit answers without moving
+        // the marker, and it is an affirmative all the same.
+        for (name, keys, lands, key) in [
+            ("down", &b"\x1b[B"[..], "2", &b"\r"[..]),
+            ("right", b"\x1b[C", "2", b"\r"),
+            ("alt-f", b"\x1bf", "2", b"\r"),
+            ("down down up", b"\x1b[B\x1b[B\x1b[A", "2", b"\r"),
+            ("down down down", b"\x1b[B\x1b[B\x1b[B", "1", b"\r"),
+            ("down then 1", b"\x1b[B", "2", b"1"),
+            ("down then 2", b"\x1b[B", "2", b"2"),
         ] {
             let mut shell = shell(24, 80);
             asking_for(&mut shell, request.clone());
             let _ = shell.released();
-            shell.route_bytes(&[keys, b"\r"].concat());
+            shell.route_bytes(&[keys, key].concat());
             if let Some(answered) = shell.controlled() {
                 unseen.push(format!(
                     "{what}, {name} and Enter in one read: {answered:?}"
@@ -23158,12 +23162,12 @@ mod tests {
                 "{what}, {name}: the refusal said the question was not shown: {said:?}"
             );
             // Nor in a second delivery, with no frame between.
-            shell.route_bytes(b"\r");
-            assert_eq!(shell.controlled(), None, "{what}, {name}: second Enter");
+            shell.route_bytes(key);
+            assert_eq!(shell.controlled(), None, "{what}, {name}: second key");
             delivered(&mut shell);
-            shell.route_bytes(b"\r");
-            let shown = match lands {
-                "1" => ApprovalAnswer::Once,
+            shell.route_bytes(key);
+            let shown = match (key, lands) {
+                (b"1", _) | (b"\r", "1") => ApprovalAnswer::Once,
                 _ => ApprovalAnswer::Always,
             };
             assert_eq!(
@@ -23173,7 +23177,7 @@ mod tests {
                     answer: shown,
                     feedback: None,
                 }),
-                "{what}, {name}: the Enter after the frame did not answer what it marked"
+                "{what}, {name}: the key after the frame did not answer what it marks"
             );
         }
         assert!(
@@ -23208,6 +23212,21 @@ mod tests {
                 );
             }
         }
+        // Escape, through the decoder's own resolution of a lone `ESC`
+        // (`Decoder::ESC_TIMEOUT`): the turn's cancellation, at once.
+        for request in [asked(), asked_to_run()] {
+            let mut shell = shell(24, 80);
+            asking_for(&mut shell, request);
+            let accepted = shell.work.accepted();
+            shell.route_bytes(b"\x1b[B\x1b");
+            assert_eq!(shell.controlled(), None, "the lone ESC is not a key yet");
+            shell.settle_input(Instant::now() + Duration::from_millis(100));
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Cancel { through: accepted }),
+                "Escape read with a move waited for a frame"
+            );
+        }
     }
 
     #[test]
@@ -23224,6 +23243,8 @@ mod tests {
             ("ctrl-u", b"\x15\r", ""),
             ("ctrl-w", b"\x17\r", "ab "),
             ("ctrl-w then a yank", b"\x17\x19\r", "ab cd"),
+            // A digit in a draft is a character, not an answer.
+            ("a letter then a digit", b"x1\r", "ab cdx1"),
         ] {
             let mut shell = shell(24, 80);
             asking(&mut shell);
@@ -23278,6 +23299,96 @@ mod tests {
                 feedback: Some("ab cd zz".to_string()),
             })
         );
+    }
+
+    #[test]
+    fn a_frame_that_writes_nothing_settles_a_change_it_already_shows() {
+        // Down and Up in one read leave the marker where the last frame drew
+        // it, so the frame they ask for is the screen's own bytes and the band
+        // writes nothing (`Outcome::Unchanged`). That frame settles them: the
+        // Enter after it answers. Without that, a move undone in one read would
+        // hold every Enter until something else repainted.
+        // `fx-p5-approval-readiness-settled-40x120-edit-down-up-enter`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\x1b[B\x1b[A\r");
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the Enter read with the moves answered before any frame"
+        );
+        assert!(shell.marked().contains("❯ 1  "), "{:?}", shell.marked());
+        // The band's answer to a frame identical to the screen, and no
+        // reconcile: a repaint that wrote nothing keeps the receipt at once.
+        shell.intend_approval();
+        shell.approval_landed(Outcome::Unchanged);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            }),
+            "a frame that wrote nothing did not settle a change it already showed"
+        );
+    }
+
+    #[test]
+    fn ctrl_l_at_a_question_does_nothing_as_fxs_does() {
+        // fx v0.0.16 makes no approval action of the raw byte `12`
+        // (`approvalActionFromRawByte`, `src/ui/input/runtime.zig:98-108
+        // @481104fd`; `shortcuts.zig:24`, `:31-41`), so the question takes it
+        // and asks for nothing (`app_input_runtime.zig:1173-1184`): no
+        // repaint, no `.external_damage`. So the receipt stands, and an Enter
+        // read with it answers the choice shown -- at a choice, in a draft, and
+        // on the review plane. Before, xfx marked the screen damaged and kept
+        // the receipt until the next frame, so that Enter answered against a
+        // screen it had just called damaged.
+        let review = |shell: &mut Fixture| {
+            let started = turn_running(shell, b"edit the notes\r");
+            shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+            shell.settle_band(started);
+            assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+            delivered(shell);
+        };
+        for (what, draft) in [
+            ("a choice", false),
+            ("a draft", true),
+            ("the review plane", false),
+        ] {
+            let mut shell = shell(24, 80);
+            if what == "the review plane" {
+                review(&mut shell);
+            } else {
+                asking(&mut shell);
+            }
+            if draft {
+                shell.route_bytes(b"\tab cd");
+                delivered(&mut shell);
+            }
+            let receipt = format!("{:?}", shell.readiness);
+            shell.route_bytes(&[0x0c]);
+            assert!(
+                !shell.damage_untold,
+                "{what}: Ctrl-L marked the screen damaged"
+            );
+            assert_eq!(
+                format!("{:?}", shell.readiness),
+                receipt,
+                "{what}: Ctrl-L touched the receipt"
+            );
+            shell.route_bytes(&[0x0c, b'\r']);
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: draft.then(|| "ab cd".to_string()),
+                }),
+                "{what}: Ctrl-L and Enter in one read"
+            );
+        }
     }
 
     #[test]
