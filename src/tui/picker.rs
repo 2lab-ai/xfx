@@ -41,9 +41,11 @@
 //! `src/core/input/picker_state.zig:293-294@481104fd`). The menu's query is
 //! that slash word, while it is the rest of the draft ([`query_of`];
 //! `slashCompletionPrefix`, `command_specs.zig:568-576@481104fd`): the shape
-//! `crate::interactive::classify` calls a command, past the same blanks, which
-//! is what keeps the menu from offering a completion for a line that would not
-//! be run as one.
+//! `crate::interactive::classify` calls a command, which is what keeps the menu
+//! from offering a completion for a line that would not be run as one.
+//! (`classify` skips every Unicode blank before the slash, these four and
+//! more: `docs/parity.md` says what that does to a line led by a no-break
+//! space.)
 //!
 //! Escape closes it, and the closing has to *stay* closed while the user keeps
 //! typing -- otherwise the next keystroke re-opens the thing they just
@@ -179,7 +181,7 @@ impl Trigger {
 /// The bytes upstream skips before a slash word, and the ones that end it
 /// (`std.mem.trimStart(u8, …, " \t\r\n")`, `picker_state.zig:293@481104fd`;
 /// `findAny(u8, prefix, " \t\r\n")`, `command_specs.zig:569-572`).
-const BLANKS: [char; 4] = [' ', '\t', '\r', '\n'];
+pub(crate) const BLANKS: [char; 4] = [' ', '\t', '\r', '\n'];
 
 /// The slash word the menu completes: the draft past its leading blanks, while
 /// that is one word (`slashCompletionPrefix`,
@@ -425,7 +427,6 @@ impl Picker {
     /// three-tier order cannot be produced from it.
     fn over(registry: &'static [SlashSpec], query: &str, skills: &[Skill]) -> Option<Self> {
         let word = query_of(query)?;
-        let trigger = Trigger::of(query)?;
         let mut commands: Vec<Match> = registry
             .iter()
             .filter_map(|spec| found(spec, word))
@@ -443,7 +444,8 @@ impl Picker {
         (!matches.is_empty()).then(|| Self {
             query: query.to_string(),
             word: query.len() - word.len(),
-            trigger,
+            // A query is a slash word, so the kind is the slash one.
+            trigger: Trigger::Slash,
             matches,
             commands: count,
             selected: 0,

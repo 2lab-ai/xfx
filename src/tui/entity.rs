@@ -751,6 +751,9 @@ impl EntitySnapshot {
     /// The same run in an entry whose first `by` bytes were left out, or
     /// `None` when the run began inside them.
     pub(crate) fn earlier(mut self, by: usize) -> Option<Self> {
+        // `new` and `image` take the span as given; every caller hands them
+        // a run of the text, which ends where it starts or after.
+        debug_assert!(self.start <= self.end);
         self.start = self.start.checked_sub(by)?;
         self.end -= by;
         Some(self)

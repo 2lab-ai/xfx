@@ -8924,7 +8924,8 @@ impl Shell {
     }
 
     /// The kind of completion the draft asks for, as upstream reads it ahead
-    /// of any menu (`inlinePickerTriggerKind`, `picker_state.zig:233-242`):
+    /// of any menu (`inlinePickerTriggerKind`,
+    /// `picker_state.zig:287-296@481104fd`):
     /// the `/model` and `/provider` columns' lines are theirs, then an `@`
     /// word, a `$word`, a draft that begins with `/` past its leading blanks,
     /// and a slash word that ends a draft ([`inline_completion`]).
@@ -9133,7 +9134,8 @@ impl Shell {
             return;
         }
         // The `/provider` column next: a draft that is its argument has a
-        // space in it, so it is never a slash word as well.
+        // space after the name, so it is never the menu's query
+        // ([`picker::query_of`]) as well.
         if self.reconcile_provider_picker() {
             self.picker = None;
             // Before the `@` word, as upstream asks (`rawFilePickerQuery`,
@@ -9148,10 +9150,11 @@ impl Shell {
             self.mcp_args = None;
             return;
         }
-        // `/mcp `'s argument the same way: a space in it, so never a slash
-        // word, and never an `@` word's either. Its kind is still `.slash`
-        // upstream (`rawFilePickerQuery` refuses a `/mcp` line, `:279-285`),
-        // so a completion menu Escape closed over `/mc` stays closed across it.
+        // `/mcp `'s argument the same way: a space after the name, so never
+        // the menu's query, and never an `@` word's either. Its kind is still
+        // `.slash` upstream (`rawFilePickerQuery` refuses a `/mcp` line,
+        // `:279-285`), so a completion menu Escape closed over `/mc` stays
+        // closed across it.
         if self.reconcile_mcp_args() {
             self.picker = None;
             self.file_picker = None;
@@ -13458,7 +13461,7 @@ impl Shell {
         // comes back as `/version`. A prompt is kept as typed.
         let lead = match submitted {
             Submitted::Command { .. } | Submitted::UnknownCommand { .. } => {
-                text.len() - text.trim_start_matches([' ', '\t', '\r', '\n']).len()
+                text.len() - text.trim_start_matches(picker::BLANKS).len()
             }
             Submitted::Prompt(_) | Submitted::Blank => 0,
         };
@@ -16568,8 +16571,9 @@ impl Shell {
             self.dismissed.forget();
         }
         // `/mcp `'s argument completions are the slash popup's kind upstream
-        // (`inlinePickerTriggerKind` says `.slash` for any line that starts
-        // with `/`), so a recalled `/mcp VERB NAME` keeps them closed too.
+        // (`inlinePickerTriggerKind` says `.slash` for any line whose first
+        // character past leading blanks is `/`), so a recalled
+        // `/mcp VERB NAME` keeps them closed too.
         self.recalled_slash = self.completion_kind() == Some(Trigger::Slash)
             || mcp_args::query_of(self.editor.text()).is_some();
         // A `/fork` still waiting for its answer is left behind with the
@@ -36337,6 +36341,70 @@ mod tests {
             provider.picker.is_some(),
             "a dismissal outlived the `/provider ` line"
         );
+    }
+
+    #[test]
+    fn a_dismissal_lasts_across_a_mcp_line_whose_kind_is_still_slash() {
+        // `rawFilePickerQuery` refuses a `/mcp` line
+        // (`picker_state.zig:279-285@481104fd`), so `/mcp x` is the `.slash`
+        // kind (`:293-294`) and a dismissal made over `/mc` lasts across it
+        // (`suppressionAfterEdit`, `:520-532`): back at `/mcp`, no menu.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/mc");
+        assert!(shell.picker.is_some());
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        shell.route_bytes(b"p x");
+        assert_eq!(shell.editor.text(), "/mcp x");
+        shell.route_bytes(&[0x7f, 0x7f]);
+        assert_eq!(shell.editor.text(), "/mcp");
+        assert!(
+            shell.picker.is_none(),
+            "a dismissal made over `/mc` was forgotten at `/mcp x`"
+        );
+        // A draft that stops beginning with `/` forgets it.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/mc");
+        assert!(shell.picker.is_some());
+    }
+
+    #[test]
+    fn a_dismissed_slash_line_shows_no_ghost_while_it_is_still_one() {
+        // The ghost asks for the `.slash` kind and an unsuppressed query
+        // (`visibleInlineSlashCompletion`, `input_completion_runtime.zig:653-661`;
+        // `activeInlineSlashQuery`, `picker_state.zig:274-277@481104fd`), and
+        // `/he x /ve` is still that kind (`:293-294`): the dismissal made over
+        // `/he` hides the ghost of `/ve` after it.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/he");
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        shell.route_bytes(b" x /ve");
+        assert_eq!(shell.editor.text(), "/he x /ve");
+        assert!(shell.ghost().is_none(), "the ghost outlived the dismissal");
+        // A draft that does not begin with `/` is another kind: the ghost is
+        // back.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"say /ve");
+        assert!(shell.ghost().is_some());
+    }
+
+    #[test]
+    fn a_blank_edited_before_the_word_puts_the_mark_back_on_the_first_row() {
+        // Every edit zeroes the mark (`reconcileInlinePickerAfterEdit`,
+        // `picker_state.zig:228-236@481104fd`), a blank before the word
+        // included; a caret move is not an edit.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"  /e");
+        shell.route_bytes(b"\x1b[B");
+        let mark = |shell: &Fixture| shell.picker.as_ref().expect("the menu").marked().0;
+        assert_eq!(mark(&shell), 1);
+        shell.route_bytes(&[0x01]);
+        assert_eq!(shell.editor.caret(), 0);
+        assert_eq!(mark(&shell), 1, "a caret move put the mark back");
+        shell.route_bytes(b"\x1b[3~");
+        assert_eq!(shell.editor.text(), " /e");
+        assert_eq!(mark(&shell), 0, "a blank deleted kept the mark");
     }
 
     #[test]
