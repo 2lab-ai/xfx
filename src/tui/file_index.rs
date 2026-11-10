@@ -1929,6 +1929,496 @@ pub(crate) mod tests {
         assert_eq!(found[31].path, "dir/x031");
     }
 
+    /// The first row `query` finds among `paths` (fx's `expectFirstSearchPath`,
+    /// `file_index.zig:2045-2055@481104fd`).
+    fn first_row(paths: &[&str], query: &str) -> String {
+        rows(&candidates(paths), query)
+            .into_iter()
+            .next()
+            .expect("a row")
+    }
+
+    #[test]
+    fn the_rows_rank_as_fxs_ranking_table_says() {
+        // "ranking signals follow the accepted descending influence"
+        // (`file_index.zig:2444-2516@481104fd`), every case.
+        for (paths, query, expected) in [
+            (
+                &["other/src/core/main.zig", "src/core/main.zig"][..],
+                "src/core/main.zig",
+                "src/core/main.zig",
+            ),
+            (
+                &["src/main.zig.backup", "src/main.zig"],
+                "main.zig",
+                "src/main.zig",
+            ),
+            (
+                &["core/guide.txt", "docs/core-guide.txt"],
+                "core",
+                "docs/core-guide.txt",
+            ),
+            (
+                &["src/core/main.zig", "misc/scattered/memo.zig"],
+                "scm",
+                "misc/scattered/memo.zig",
+            ),
+            (
+                &["src/xwidget.zig", "src/widgetx.zig"],
+                "wid",
+                "src/widgetx.zig",
+            ),
+            (&["a/x/b", "x/a/b"], "ab", "x/a/b"),
+            (
+                &["src/xxidxx.zig", "src/xidxxx.zig"],
+                "id",
+                "src/xidxxx.zig",
+            ),
+            (&["src/axbyc.zig", "src/abczz.zig"], "abc", "src/abczz.zig"),
+            (
+                &["src/axxxbxc.zig", "src/axbxczz.zig"],
+                "abc",
+                "src/axbxczz.zig",
+            ),
+            (
+                &["src/abc-long-name.txt", "src/abc.txt"],
+                "abc",
+                "src/abc.txt",
+            ),
+        ] {
+            assert_eq!(first_row(paths, query), expected, "{query} over {paths:?}");
+        }
+        // "subsequence scoring prefers basename prefix over mid-path match",
+        // "... prefers earlier match position", "... returns no match when
+        // query is absent", "... accepts longer query than basename via full
+        // path" and "search returns best matches first" (`:2373-2413`).
+        assert_eq!(
+            rows(
+                &candidates(&[
+                    "src/wasm_term_main.zig",
+                    "src/main.zig",
+                    "README.md",
+                    "src/core/shared/io.zig",
+                    "benchmarks/startup.sh",
+                ]),
+                "main"
+            )[..2],
+            ["src/main.zig", "src/wasm_term_main.zig"]
+        );
+        assert_eq!(
+            first_row(&["foo/bar/baz-main.zig", "src/main.zig"], "main"),
+            "src/main.zig"
+        );
+        assert!(rows(&candidates(&["src/main.zig"]), "xyz").is_empty());
+        assert_eq!(
+            rows(&candidates(&["src/main.zig"]), "src/main"),
+            ["src/main.zig"]
+        );
+    }
+
+    #[test]
+    fn a_name_prefix_or_a_whole_word_outranks_letters_scattered_through_a_name() {
+        // "a contiguous name prefix ranks above letters scattered across word
+        // breaks" (`file_index.zig:2551-2562@481104fd`): all five rows, the
+        // first two named.
+        let found = rows(
+            &candidates(&[
+                "spikes/noisy/clusters-a.toml",
+                "spikes/noisy/results/conn-storm-pro-activity.csv",
+                "spikes/noisy/results/conn-storm-free-activity.csv",
+                "STATUS.md",
+                "contracts/fixtures/stats_response.json",
+            ]),
+            "stat",
+        );
+        assert_eq!(found.len(), 5);
+        assert_eq!(
+            found[..2],
+            ["STATUS.md", "contracts/fixtures/stats_response.json"]
+        );
+        // "a whole word inside a name ranks above scattered letters" (`:2564-2567`).
+        assert_eq!(
+            first_row(&["scripts/test-matrix.ts", "src/test-stat.zig"], "stat"),
+            "src/test-stat.zig"
+        );
+        assert_eq!(
+            first_row(
+                &[
+                    "src/ui/inline_dex_view.zig",
+                    "src/core/workspace/file_index.zig"
+                ],
+                "index"
+            ),
+            "src/core/workspace/file_index.zig"
+        );
+        // "a query equal to a file name before an extension is an exact
+        // match" (`:2569-2571`).
+        assert_eq!(
+            first_row(
+                &[
+                    "bench/file_index_bench.zig",
+                    "src/core/workspace/file_index.zig"
+                ],
+                "file_index"
+            ),
+            "src/core/workspace/file_index.zig"
+        );
+    }
+
+    #[test]
+    fn a_match_may_start_in_the_names_own_folder_and_one_that_ends_in_a_folder_is_last() {
+        // "a match across the file's folder and its name ranks above letters
+        // scattered through a name" (`file_index.zig:2573-2575@481104fd`).
+        assert_eq!(
+            first_row(
+                &[
+                    "packages/vercel-error.ts",
+                    "docs/vercel-json/clean-urls.mdx"
+                ],
+                "vercle"
+            ),
+            "docs/vercel-json/clean-urls.mdx"
+        );
+        // "a name match beats a match of the same shape through the folder"
+        // (`:2577-2580`).
+        assert_eq!(
+            first_row(&["src/ab/cd.ts", "src/x/ab-cd.ts"], "abcd"),
+            "src/x/ab-cd.ts"
+        );
+        // "a match that ends in a folder ranks below every name match"
+        // (`:2582-2584`).
+        assert_eq!(
+            first_row(
+                &["src/components/card.tsx", "src/use-comparison.ts"],
+                "comp"
+            ),
+            "src/use-comparison.ts"
+        );
+        // "a match may start in the file's own folder but not further up"
+        // (`:2586-2597`).
+        assert_eq!(
+            rows(&candidates(&["ab/x/cd.ts", "zz/x-a-b-c-d.ts"]), "abcd"),
+            ["zz/x-a-b-c-d.ts", "ab/x/cd.ts"]
+        );
+    }
+
+    #[test]
+    fn the_bold_letters_are_the_placement_that_was_scored() {
+        // "highlights of a folder-and-name match cover both parts"
+        // (`file_index.zig:2599-2613@481104fd`): bytes 5..8 and 17..20.
+        let found = search(&candidates(&["docs/vercel-json/clean-urls.mdx"]), "vercle");
+        assert_eq!(found[0].spans, [5..8, 17..20]);
+        // "highlights mark the placement that was scored" (`:2615-2630`).
+        for found in search(&candidates(&["src/test-stat.zig", "STATUS.md"]), "stat") {
+            let start = if found.path == "STATUS.md" { 0 } else { 9 };
+            assert_eq!(found.spans, one(start..start + 4), "{}", found.path);
+        }
+        // "typed search supports abbreviated subsequences and caller-owned
+        // spans" (`:2415-2442`): one row, its bold letters `fiidx`.
+        let paths = [
+            "src/core/workspace/",
+            "src/core/workspace/file_index.zig",
+            "src/core/workspace/workspace_files.zig",
+        ];
+        let found = search(&candidates(&paths), "FIIDX");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].path, paths[1]);
+        let bold: String = found[0]
+            .spans
+            .iter()
+            .map(|span| &found[0].path[span.clone()])
+            .collect();
+        assert_eq!(bold, "fiidx");
+    }
+
+    #[test]
+    fn ties_go_to_the_shorter_path_then_bytes_whatever_the_order_or_the_kind() {
+        // "ranking is independent of discovery order and resolves ties
+        // bytewise" (`file_index.zig:2518-2529@481104fd`).
+        assert_eq!(
+            first_row(&["src/zeta.txt", "src/beta.txt"], "ta"),
+            "src/beta.txt"
+        );
+        assert_eq!(
+            first_row(&["src/beta.txt", "src/zeta.txt"], "ta"),
+            "src/beta.txt"
+        );
+        // "file and directory candidates have no ranking priority" (`:2829-2850`).
+        for paths in [
+            ["src/zeta.txt", "src/beta.txt/"],
+            ["src/zeta.txt/", "src/beta.txt"],
+        ] {
+            let found = search(&candidates(&paths), "ta");
+            let found: Vec<&str> = found.iter().map(|found| found.path.as_str()).collect();
+            assert_eq!(found, ["src/beta.txt", "src/zeta.txt"], "{paths:?}");
+        }
+    }
+
+    #[test]
+    fn case_is_folded_and_a_mixed_unicode_path_ranks_by_the_same_score() {
+        // "search is case-insensitive" (`file_index.zig:2885-2907@481104fd`).
+        let paths = ["README.md", "src/Main.zig"];
+        assert_eq!(first_row(&paths, "README"), "README.md");
+        assert_eq!(first_row(&paths, "readme"), "README.md");
+        assert_eq!(first_row(&paths, "main"), "src/Main.zig");
+        // "Unicode search compares mixed basename and full-path scores" (`:3124-3135`).
+        assert_eq!(
+            rows(
+                &candidates(&["docs/\u{c4}rger.txt", "\u{c4}rger/docs.txt"]),
+                "\u{e4}rger"
+            ),
+            ["docs/\u{c4}rger.txt", "\u{c4}rger/docs.txt"]
+        );
+        // "bitmap prefilter does not reject when query has no a-z letters" (`:3152-3164`).
+        assert_eq!(
+            first_row(&["docs/123.md", "src/main.zig"], "123"),
+            "docs/123.md"
+        );
+    }
+
+    #[test]
+    fn an_added_directorys_entries_rank_by_the_same_score_on_their_absolute_paths() {
+        // An added root's entries are absolute (`appendDiscoveredCandidate`,
+        // `file_index.zig:1086-1105@481104fd`) and scored as any other
+        // (`rankTopN`, `:1330-1403`). `p5-at-rank`'s `road-map` on fx: the
+        // workspace's name before its extension, the added one's, then the
+        // added one's other name.
+        let paths = [
+            "docs/road_map.md",
+            "/run/extra/notes/road_map.md",
+            "/run/extra/roadmaps/x_map.txt",
+        ];
+        assert_eq!(rows(&candidates(&paths), "road_map"), paths);
+        // A match that ends in one of its folders ranks below every name
+        // match (`:2582-2584`): `ext` is only in `extra`.
+        assert_eq!(
+            rows(
+                &candidates(&["/run/extra/notes/a.md", "docs/text.md"]),
+                "ext"
+            ),
+            ["docs/text.md", "/run/extra/notes/a.md"]
+        );
+    }
+
+    #[test]
+    fn a_browsed_folder_ranks_its_names_by_the_same_score() {
+        // The listing scores each name with `NameQuery` (`path_completion.zig:
+        // 56`, `:93`, `:234@481104fd`): the name is the whole text, its
+        // first character follows a separator (`bonusAt`,
+        // `file_index.zig:1475-1479`), and the order is `better`'s
+        // (`:1302-1309`). So a name ranks there as it does under a folder:
+        // the whole word first (`:2564-2567`).
+        let names = entries(&[
+            "test-matrix.ts",
+            "test-stat.zig",
+            "inline_dex_view.zig",
+            "file_index.zig",
+        ]);
+        assert_eq!(listed(&names, "src/stat")[0].0, "src/test-stat.zig");
+        assert_eq!(listed(&names, "src/index")[0].0, "src/file_index.zig");
+        let found = rank_listing(&names, &explicit("src/stat").expect("a path"));
+        assert_eq!(found[0].spans, one(9..13), "the bold word, past the prefix");
+        // "path completion fuzzy ranking retains the best bounded result"
+        // (`path_completion.zig:497-516`).
+        let names = entries(&["Desktop/", "ktop/", "OtherDesktop/"]);
+        assert_eq!(listed(&names, "./ktop")[0].0, "./ktop");
+        assert_eq!(listed(&names, "./dsktp")[0].0, "./Desktop");
+    }
+
+    #[test]
+    fn the_p5_at_rank_workspace_ranks_as_fx_shows_it() {
+        // The rows fx v0.0.16 shows for the scenario `p5-at-rank` (the AT-RANK
+        // receipt's fx/), over the workspace it copies.
+        let entries = discover(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/fxcap/scenarios/p5-at-rank-ws"),
+            None,
+            &AtomicBool::new(false),
+        )
+        .expect("a walk");
+        let shown = |query: &str| -> Vec<String> {
+            let mut found = rows(&entries, query);
+            found.truncate(10);
+            found
+        };
+        assert_eq!(
+            shown("scm"),
+            [
+                "misc/scattered/memo.zig",
+                "scripts/test-matrix.ts",
+                "src/main.rs",
+                "src/Main.zig",
+                "src/components/",
+                "src/use-comparison.ts",
+                "docs/vercel-json/clean-urls.mdx",
+                "src/core/main.zig",
+                "src/components/card.tsx",
+            ]
+        );
+        assert_eq!(
+            shown("stat"),
+            [
+                "STATUS.md",
+                "contracts/fixtures/stats_response.json",
+                "src/test-stat.zig",
+                "src/beta.txt",
+                "src/zeta.txt",
+                "scripts/test-matrix.ts",
+                "src/components/card.tsx",
+            ]
+        );
+        assert_eq!(
+            shown("index"),
+            [
+                "bench/file_index_bench.zig",
+                "src/core/workspace/file_index.zig",
+                "src/ui/inline_dex_view.zig",
+            ]
+        );
+        assert_eq!(
+            shown("file_index"),
+            [
+                "src/core/workspace/file_index.zig",
+                "bench/file_index_bench.zig"
+            ]
+        );
+        assert_eq!(
+            shown("main.rs"),
+            ["main.rs", "src/main.rs", "main/other.rs", "x/remain.rs"]
+        );
+        assert_eq!(
+            shown("vercle"),
+            [
+                "docs/vercel-json/clean-urls.mdx",
+                "packages/vercel-error.ts"
+            ]
+        );
+        assert_eq!(shown("abcd"), ["zz/x-a-b-c-d.ts", "ab/x/cd.ts"]);
+        assert_eq!(
+            shown("comp"),
+            [
+                "src/components/",
+                "src/use-comparison.ts",
+                "docs/road_map.md",
+                "src/components/card.tsx",
+            ]
+        );
+        assert_eq!(
+            shown("ab"),
+            [
+                "ab/",
+                "zz/x-a-b-c-d.ts",
+                "x/a/b",
+                "ab/x/",
+                "ab/x/cd.ts",
+                "a/x/b"
+            ]
+        );
+        assert_eq!(
+            shown("ta"),
+            [
+                "scripts/test-matrix.ts",
+                "src/test-stat.zig",
+                "STATUS.md",
+                "contracts/fixtures/stats_response.json",
+                "src/beta.txt",
+                "src/zeta.txt",
+                "contracts/",
+                "src/components/card.tsx",
+                "contracts/fixtures/",
+            ]
+        );
+        assert_eq!(
+            shown("MAIN"),
+            [
+                "main/",
+                "main.rs",
+                "src/main.rs",
+                "src/Main.zig",
+                "src/core/main.zig",
+                "x/remain.rs",
+                "src/use-comparison.ts",
+                "main/other.rs",
+            ]
+        );
+    }
+
+    #[test]
+    #[ignore = "a benchmark: XFX_AT_BENCH_TREE names a tree to walk; run it with --release"]
+    fn a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame() {
+        // fx's own gate, over its own inventory and queries
+        // (`benchmarks/file_index_bench.zig:16-31@481104fd`): 100,000 entries,
+        // p95 under 16 ms a search. Here every prefix of each query is timed,
+        // as every keystroke looks the query up again ([`Files::lookup`]), and
+        // the p95 is held to xfx's frame: the lookup runs on the thread that
+        // paints, which comes round every `TICK` (8 ms, `event_loop.rs`).
+        let Some(tree) = std::env::var_os("XFX_AT_BENCH_TREE") else {
+            return;
+        };
+        let entries = discover(Path::new(&tree), None, &AtomicBool::new(false)).expect("a walk");
+        eprintln!("entries: {}", entries.len());
+        let queries = [
+            ("exact", "src/core/workspace/file_index.zig"),
+            ("boundary", "scwfi"),
+            ("low-selectivity", "ae"),
+            ("long-gap", "ashr"),
+            ("no-match", "zzz-no-match-\u{3a9}"),
+            ("punctuation", "api-route"),
+            ("unicode", "\u{e4}rf"),
+            ("unicode-fold", "Klv"),
+        ];
+        let percentile = |sorted: &[Duration], fraction: f64| {
+            sorted[((sorted.len() - 1) as f64 * fraction) as usize]
+        };
+        let mut every = Vec::new();
+        let mut whole = Vec::new();
+        for (name, query) in queries {
+            let mut timings = Vec::new();
+            let mut hits = 0;
+            for (end, _) in query.char_indices().skip(1).chain([(query.len(), ' ')]) {
+                for pass in 0..23 {
+                    let started = Instant::now();
+                    hits = std::hint::black_box(search(&entries, &query[..end])).len();
+                    let took = started.elapsed();
+                    if pass >= 3 {
+                        timings.push(took);
+                        if end == query.len() {
+                            whole.push(took);
+                        }
+                    }
+                }
+            }
+            timings.sort();
+            eprintln!(
+                "{name:16} {:>2} keys {hits:>2} rows p50 {:?} p95 {:?} max {:?}",
+                query.chars().count(),
+                percentile(&timings, 0.5),
+                percentile(&timings, 0.95),
+                timings[timings.len() - 1]
+            );
+            every.extend(timings);
+        }
+        every.sort();
+        whole.sort();
+        let p95 = percentile(&every, 0.95);
+        eprintln!(
+            "every keystroke: {} searches p50 {:?} p95 {p95:?} p99 {:?} max {:?}",
+            every.len(),
+            percentile(&every, 0.5),
+            percentile(&every, 0.99),
+            every[every.len() - 1]
+        );
+        eprintln!(
+            "whole queries (fx's gate): {} searches p50 {:?} p95 {:?}",
+            whole.len(),
+            percentile(&whole, 0.5),
+            percentile(&whole, 0.95)
+        );
+        assert!(
+            cfg!(debug_assertions) || p95 < Duration::from_millis(8),
+            "a keystroke's search took {p95:?} at the 95th percentile, against an 8 ms frame"
+        );
+    }
+
     #[test]
     fn a_path_shaped_query_browses_rather_than_searches() {
         for query in [
