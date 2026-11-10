@@ -45,15 +45,18 @@ cite src/core/slash_commands/command_specs.zig 568 576 "pub fn slashCompletionPr
 cite src/ui/footer/input_presentation.zig 269 276 "pub fn slashCompletionPickerPrefix"
 cite src/core/app/input_completion_runtime.zig 97 109 "fn slashCompletionQueryActive"
 
-section "F4 the /model and /provider kinds skip spaces and tabs only"
+section "F4 the /model and /provider kinds skip spaces and tabs only; a /provider, /login or /setup line is the .provider kind whatever its argument, so a slash dismissal is forgotten there"
 cite src/core/input/picker_state.zig 584 588 "fn leadingWhitespaceLen"
 cite src/core/input/picker_state.zig 298 309 "fn rawModelPickerQuery"
-cite src/core/input/picker_state.zig 336 340 "fn rawProviderPickerQuery"
+cite src/core/input/picker_state.zig 336 366 "if (stage == .provider) return .{"
+cite src/core/input/picker_state.zig 645 651 "fn providerPickerPrefixLen"
+cite src/core/input/picker_state.zig 54 61 'pub const login_prefix = "/login ";'
 
-section "F5 Escape's latch lasts while the kind is the same; every edit zeroes the mark; a recalled slash line is closed until edited"
+section "F5 Escape's latch lasts while the kind is the same, and hides the ghost too; every edit zeroes the mark; a recalled slash line is closed until edited"
 cite src/core/input/picker_state.zig 203 213 "pub fn dismissInlinePicker"
 cite src/core/input/picker_state.zig 228 236 "pub fn reconcileInlinePickerAfterEdit"
 cite src/core/input/picker_state.zig 515 532 "fn suppressionAfterEdit"
+cite src/core/input/picker_state.zig 274 277 "if (self.isInlinePickerSuppressed(.slash)) return null;"
 cite src/core/app/input_completion_runtime.zig 133 140 "pub fn dismissVisibleInlinePicker"
 
 section "F6 Tab: a command row replaces the whole composer; a skill row binds over the slash word and keeps the blanks before it"

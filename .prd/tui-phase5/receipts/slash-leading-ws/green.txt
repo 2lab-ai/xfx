@@ -1,6 +1,6 @@
-# GREEN at the code head 1ae99e6d (its src is 057e3d1e's but for two comments)
+# GREEN at the round-2 code head 9af11724 (7eb2eac2's src; 9af11724 re-points ledger numbers only)
 
-## The pairs: fx v0.0.16 (fx/) against the head binary (xfx/, row 1 x𝒇x v0.1.0-1ae99e6 [debug], sha256 20d930fe6f9c...), pairs.sh xfx
+## The pairs: fx v0.0.16 (fx/) against the head binary (xfx/, row 1 x𝒇x v0.1.0-9af1172 [debug], sha256 98f135cf1b53...), pairs.sh xfx
 SAME p5-slash-leading-ws-40x120-esc-space-back
 SAME p5-slash-leading-ws-40x120-esc-space
 SAME p5-slash-leading-ws-40x120-mid
@@ -30,8 +30,8 @@ DIFF p5-slash-leading-ws-short-18x80-four-all (head)
 (at the head the /he probes differ only in fx's /shell row and the name column it widens -- the ledger's C8 cause, scripts/fxcap/parity-ledger.toml:606-613 --
  and four-all only in the registry's size, 38 against 34; the range 1–3, the hint and the three rows are fx's)
 
-## The tests at the head: cargo test --locked --lib -- tui::picker:: tui::entity::tests::a_snapshot_moves tui::inline_completion:: and eight shell cases
-test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 4742 filtered out; finished in 0.03s
+## The tests at the head: cargo test --locked --lib -- tui::picker:: tui::entity::tests::a_snapshot_moves tui::inline_completion:: the router case and eleven shell cases
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 4742 filtered out; finished in 0.06s
 test tui::entity::tests::a_snapshot_moves_with_the_bytes_left_out_before_it ... ok
 test tui::inline_completion::tests::a_dollar_word_is_the_run_back_to_its_dollar_with_the_caret_at_the_end ... ok
 test tui::inline_completion::tests::a_slash_word_needs_words_before_it_and_a_letter_after_its_slash ... ok
@@ -58,8 +58,12 @@ test tui::picker::tests::the_marked_row_is_the_one_tab_and_enter_take ... ok
 test tui::picker::tests::the_name_column_is_as_wide_as_the_names_in_view ... ok
 test tui::picker::tests::the_window_scrolls_at_its_edge_and_only_there ... ok
 test tui::picker::tests::with_categories_off_no_row_has_one_and_the_summary_takes_the_width ... ok
+test tui::router::tests::a_command_led_by_a_no_break_space_runs_with_an_argument_and_is_refused_without ... ok
+test tui::shell::tests::a_blank_edited_before_the_word_puts_the_mark_back_on_the_first_row ... ok
+test tui::shell::tests::a_dismissal_lasts_across_a_mcp_line_whose_kind_is_still_slash ... ok
 test tui::shell::tests::a_dismissal_lasts_while_the_draft_still_begins_with_a_slash ... ok
 test tui::shell::tests::a_dismissal_survives_query_growth_until_the_draft_stops_being_a_command ... ok
+test tui::shell::tests::a_dismissed_slash_line_shows_no_ghost_while_it_is_still_one ... ok
 test tui::shell::tests::a_recalled_slash_line_opens_no_menu_until_it_is_edited ... ok
 test tui::shell::tests::a_skill_row_binds_over_the_word_and_keeps_the_blanks_before_it ... ok
 test tui::shell::tests::a_slash_word_past_leading_blanks_opens_the_menu ... ok

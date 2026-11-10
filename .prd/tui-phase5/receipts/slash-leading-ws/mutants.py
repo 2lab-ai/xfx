@@ -20,6 +20,9 @@ SHELL_TESTS = [
     "tui::shell::tests::tab_and_enter_over_leading_blanks_put_the_bare_name_in_the_composer",
     "tui::shell::tests::the_menu_leaves_a_taller_composer_its_rows",
     "tui::shell::tests::a_skill_row_binds_over_the_word_and_keeps_the_blanks_before_it",
+    "tui::shell::tests::a_dismissal_lasts_across_a_mcp_line_whose_kind_is_still_slash",
+    "tui::shell::tests::a_dismissed_slash_line_shows_no_ghost_while_it_is_still_one",
+    "tui::shell::tests::a_blank_edited_before_the_word_puts_the_mark_back_on_the_first_row",
 ]
 TESTS = ["tui::picker::"] + SHELL_TESTS
 
@@ -58,11 +61,14 @@ MUTANTS = [
     ("M11", "the `/provider ` line keeps a slash dismissal", SHELL,
      "            let _ = self.dismissed.admits(None);",
      "            let _ = self.dismissed.admits(Trigger::of(self.editor.text()));"),
+    ("M14", "a `/mcp ` line forgets a slash dismissal (round 2)", SHELL,
+     "            let _ = self.dismissed.admits(Trigger::of(self.editor.text()));\n            return;\n        }\n        // The `@` word first",
+     "            let _ = self.dismissed.admits(None);\n            return;\n        }\n        // The `@` word first"),
     ("M13", "the header reads the whole draft for a bare slash", PICKER,
      '        let left = if self.word() == "/" {',
      '        let left = if self.query == "/" {'),
     ("M12", "a command is recorded with the blanks before it", SHELL,
-     "                text.len() - text.trim_start_matches([' ', '\\t', '\\r', '\\n']).len()\n",
+     "                text.len() - text.trim_start_matches(picker::BLANKS).len()\n",
      "                0\n"),
 ]
 

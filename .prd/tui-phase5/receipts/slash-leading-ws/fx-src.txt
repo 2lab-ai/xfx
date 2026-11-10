@@ -93,7 +93,7 @@
    109          }
 
 
-## F4 the /model and /provider kinds skip spaces and tabs only
+## F4 the /model and /provider kinds skip spaces and tabs only; a /provider, /login or /setup line is the .provider kind whatever its argument, so a slash dismissal is forgotten there
 ### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 584,588p
    584  fn leadingWhitespaceLen(bytes: []const u8) usize {
    585      var index: usize = 0;
@@ -115,15 +115,60 @@
    308          const prefix = "/model ";
    309          if (trimmed.len < prefix.len or !std.ascii.eqlIgnoreCase(trimmed[0..prefix.len], prefix)) return null;
 
-### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 336,340p
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 336,366p
    336      fn rawProviderPickerQuery(self: *const State, editor: *const editor_state.State) ?ProviderPickerQuery {
    337          const items = editor.input.items;
    338          const trim_start = leadingWhitespaceLen(items);
    339          const trimmed = items[trim_start..];
    340          const prefix_len = providerPickerPrefixLen(trimmed) orelse return null;
+   341  
+   342          const stage = self.provider_picker_stage;
+   343          if (stage == .provider) return .{
+   344              .stage = .provider,
+   345              .prefix = trimmed[0..prefix_len],
+   346              .query = trimmed[prefix_len..],
+   347              .token_start = trim_start + prefix_len,
+   348          };
+   349  
+   350          const method: ?[]const u8 = switch (stage) {
+   351              .team, .key_source, .api_key => self.provider_picker_pending_method.items,
+   352              .provider, .method => null,
+   353          };
+   354          const token_start = providerPickerTokenStart(
+   355              trimmed,
+   356              prefix_len,
+   357              self.provider_picker_pending_provider.items,
+   358              method,
+   359          ) orelse return null;
+   360          return .{
+   361              .stage = stage,
+   362              .prefix = trimmed[0..prefix_len],
+   363              .query = trimmed[token_start..],
+   364              .token_start = trim_start + token_start,
+   365          };
+   366      }
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 645,651p
+   645  fn providerPickerPrefixLen(trimmed: []const u8) ?usize {
+   646      for (provider_picker_prefixes) |prefix| {
+   647          if (trimmed.len < prefix.len) continue;
+   648          if (std.ascii.eqlIgnoreCase(trimmed[0..prefix.len], prefix)) return prefix.len;
+   649      }
+   650      return null;
+   651  }
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 54,61p
+    54  /// `/login` and `/setup` are aliases of `/provider`: all open the same
+    55  /// columnar picker. Typed text keeps whichever spelling the user wrote;
+    56  /// executing the bare command reseeds the composer with the canonical
+    57  /// `/provider ` prefix.
+    58  pub const provider_prefix = "/provider ";
+    59  pub const login_prefix = "/login ";
+    60  const setup_prefix = "/setup ";
+    61  pub const provider_picker_prefixes = [_][]const u8{ provider_prefix, login_prefix, setup_prefix };
 
 
-## F5 Escape's latch lasts while the kind is the same; every edit zeroes the mark; a recalled slash line is closed until edited
+## F5 Escape's latch lasts while the kind is the same, and hides the ghost too; every edit zeroes the mark; a recalled slash line is closed until edited
 ### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 203,213p
    203      pub fn resetInlinePickerForHistoryRecall(self: *State, editor: *const editor_state.State) void {
    204          self.resetInlinePickerEpisode();
@@ -167,6 +212,12 @@
    530          .history_slash_recall_until_edit => null,
    531      };
    532  }
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 274,277p
+   274      pub fn activeInlineSlashQuery(self: *const State, editor: *const editor_state.State) ?InlineSlashQuery {
+   275          if (self.isInlinePickerSuppressed(.slash)) return null;
+   276          return findInlineSlashQuery(editor.input.items, editor.cursor);
+   277      }
 
 ### git -C fx-upstream show 481104fd:src/core/app/input_completion_runtime.zig | sed -n 133,140p
    133          pub fn dismissVisibleInlinePicker(app: *App) bool {

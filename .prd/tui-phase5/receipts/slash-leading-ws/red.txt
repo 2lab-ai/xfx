@@ -112,3 +112,21 @@ test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4768 filtered ou
 
 ## The picker's unit cases (a_slash_word_past_spaces_tabs_and_line_breaks_is_the_query, the_budget_leaves_a_taller_composer_its_rows)
 ## call query_of and the two-argument height/rows, which the base does not have: their RED is that they do not compile there.
+
+## Round 2: the three new shell cases, put onto the base's src/tui/shell.rs in a throwaway clone,
+## cargo test --locked --lib -- a_dismissal_lasts_across_a_mcp a_dismissed_slash_line_shows_no_ghost a_blank_edited_before_the_word
+test tui::shell::tests::a_blank_edited_before_the_word_puts_the_mark_back_on_the_first_row ... FAILED
+test tui::shell::tests::a_dismissed_slash_line_shows_no_ghost_while_it_is_still_one ... FAILED
+test tui::shell::tests::a_dismissal_lasts_across_a_mcp_line_whose_kind_is_still_slash ... FAILED
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 4768 filtered out; finished in 0.02s
+thread 'tui::shell::tests::a_blank_edited_before_the_word_puts_the_mark_back_on_the_first_row' panicked at src/tui/shell.rs:36284:60:
+the menu
+thread 'tui::shell::tests::a_dismissed_slash_line_shows_no_ghost_while_it_is_still_one' panicked at src/tui/shell.rs:36268:9:
+the ghost outlived the dismissal
+thread 'tui::shell::tests::a_dismissal_lasts_across_a_mcp_line_whose_kind_is_still_slash' panicked at src/tui/shell.rs:36245:9:
+a dismissal made over `/mc` was forgotten at `/mcp x`
+## (the mark case fails at its first look: the base opens no menu for `  /e`.)
+## The router case (a_command_led_by_a_no_break_space_runs_with_an_argument_and_is_refused_without) records a
+## difference the base already had: the code it reads (src/tui/router.rs's classify, src/interactive.rs's) is
+## unchanged since afd891af (git diff afd891af 9af11724 -- src/interactive.rs is empty; router.rs gains only the
+## case), so it is not a RED.
