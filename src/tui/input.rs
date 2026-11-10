@@ -89,10 +89,10 @@
 //! marker matched loosely would be a start no end could pair with: `CSI 0200 ~`
 //! and `CSI 200 ; 1 ~` parse as 200 and open a paste that only the exact
 //! `CSI 201 ~` closes, which latches the session into paste mode on a stream
-//! the terminal never framed. `csi` therefore compares raw parameter bytes, and
-//! the same strictness covers every other sequence it reads: the numbers in a
-//! key report are read only from their one canonical spelling, so no two
-//! spellings ever reach the same key.
+//! the terminal never framed. `csi` therefore compares the markers' raw
+//! parameter bytes before any number is read; the tilde keys after them read
+//! upstream's numbers, under which `CSI 0200 ~` is 200, no key, as upstream
+//! reads it too.
 //!
 //! The end marker is matched byte by byte, so its prefix has to be held back:
 //! typing `ESC`, `[`, `2` into the composer as they arrive would be wrong when
@@ -1351,19 +1351,22 @@ fn control(byte: u8) -> Action {
 
 /// What a completed `ESC [ <params> <final>` means.
 ///
-/// The parameters are matched **as bytes, in the exact shapes a terminal sends
-/// a key in**, and -- outside a key report -- never parsed into numbers that
-/// are then compared. A numeric comparison accepts spellings no terminal
-/// emits -- `CSI 0200 ~` and
+/// The paste markers are matched **as bytes**, before any number is read. A
+/// numeric comparison accepts spellings no terminal emits -- `CSI 0200 ~` and
 /// `CSI 200 ; 1 ~` both *parse* as 200 -- and the paste markers are where that
 /// stops being cosmetic: [`Decoder::pasted`] matches the end marker byte for
 /// byte, so a decoder that opened a paste on `CSI 0200 ~` could never be closed
 /// by the same spelling. A stream that opens one is latched into paste mode,
 /// and every keystroke after it is content. Exact both ways, or the two halves
-/// disagree. The one place numbers are read is a key report, whose key is any
-/// Unicode scalar and cannot be a table of spellings; there each field is
-/// accepted only in its canonical spelling first ([`decimal`]), which makes the
-/// reading one-to-one and keeps the same property.
+/// disagree; upstream's markers are exact too (`digit_count == 3`,
+/// `escape_parser.zig:625-626@481104fd`).
+///
+/// Every other tilde sequence is read as upstream reads it, each field a number
+/// ([`tilde_report`]). The rest are matched **in the exact shapes a terminal
+/// sends a key in**: a cursor key's modifier ([`modifier`]), and a kitty key
+/// report's fields, each accepted only in its canonical spelling ([`decimal`]),
+/// which makes that reading one-to-one -- stricter than upstream's numbers,
+/// recorded in `docs/parity.md`.
 ///
 /// Everything that is not one of these shapes is [`Action::Ignore`], which is
 /// the same answer the bounded discard gives and for the same reason: an input
@@ -1376,21 +1379,14 @@ fn control(byte: u8) -> Action {
 /// character: a keypad digit, or Shift+Space ([`replayed`]).
 fn csi(params: &[u8], final_byte: u8) -> Input {
     match final_byte {
-        // The tilde keys, each code in exactly one spelling. Home is `1` and
-        // rxvt's `7`, End `4` and rxvt's `8`, as upstream reads them
-        // (`1, 7 => .home`, `4, 8 => .end`, `escape_parser.zig:628-635@481104fd`).
+        // The paste markers in their one spelling, then every tilde key --
+        // Home `1` and rxvt's `7`, Delete `3`, End `4` and rxvt's `8`, the
+        // page keys `5` and `6` (`escape_parser.zig:628-635@481104fd`), bare
+        // or with a modifier -- and xterm's `modifyOtherKeys` key report, as
+        // upstream reads them.
         b'~' => match params {
-            b"1" | b"7" => Input::Action(Action::Home),
-            b"3" => Input::Action(Action::Delete),
-            b"4" | b"8" => Input::Action(Action::End),
-            // The page keys (`escape_parser.zig` at `c1db919`, :632-633).
-            b"5" => Input::Action(Action::PageUp),
-            b"6" => Input::Action(Action::PageDown),
             b"200" => Input::Action(Action::PasteStart),
             b"201" => Input::Action(Action::PasteEnd),
-            // xterm's `modifyOtherKeys` spelling of a key report -- a
-            // **params shape** under a final byte that already carries five
-            // literal ones -- or a tilde key with a modifier.
             _ => tilde_report(params),
         },
         // The cursor keys, bare or with one modifier.
@@ -1499,86 +1495,109 @@ fn report(params: &[u8]) -> Input {
     }
 }
 
-/// `CSI 27 ; <modifier> ; <code> ~`, the other spelling of the same report,
-/// resolved by the same function (`escape_parser.zig` at `c1db919`, :746-752).
+/// `CSI <key> ~`, `CSI <key> ; <modifier> ~` or `CSI <a> ; <modifier> ;
+/// <code> ~`: a tilde key, bare or held with a modifier, or xterm's
+/// `modifyOtherKeys` spelling of a key report, read as upstream's tilde
+/// stages read it (`escape_parser.zig:583-636`, `:662-755@481104fd`).
 ///
-/// Upstream discards the first field (:606-611 and :668-674 overwrite it), so
-/// it would read `CSI 28 ; 10 ; 122 ~` as this key too; `27` is the only value
-/// a terminal sends there, and the only one this decoder accepts.
+/// Every field is a number ([`tilde_field`]): a leading zero is the number, an
+/// empty second or third field is `0`, a field past 65535 is 65535. The first
+/// needs a digit, which is what starts the stage (`:583-589`), and a fourth
+/// field is nothing (`:754`).
+///
+/// * One field is the key with no modifier (`:620-635`), and two are the key
+///   and one more than its modifiers, `0` and `1` alike holding none
+///   (`:694-718`): both are [`tilde_key`].
+/// * Three are a key report, resolved by the function kitty's `u` spelling is
+///   ([`kitty_key`], `:746-752`). The first field is overwritten whatever it
+///   holds (`:668-674`), so `CSI 28 ; 10 ; 122 ~` is Super+Shift+Z as
+///   `CSI 27 ; 10 ; 122 ~` is; and every bit past Meta is masked off there, as
+///   upstream masks it (`:186-187`), so the low byte is all it is handed.
+///
+/// The paste markers are not read here: [`csi`] matches them as bytes first, so
+/// `CSI 0200 ~` is the number 200, which is no key, as it is upstream
+/// (`digit_count == 3`, `:625-626`).
 fn tilde_report(params: &[u8]) -> Input {
     let ignore = Input::Action(Action::Ignore);
     let mut fields = params.split(|byte| *byte == b';');
-    match (fields.next(), fields.next(), fields.next(), fields.next()) {
-        (Some(b"27"), Some(mask), Some(code), None) => {
-            match (key_modifiers(mask), decimal(code, KEYCODE_DIGITS)) {
-                (Some(mask), Some(code)) => kitty_key(code, mask),
-                _ => ignore,
-            }
-        }
-        (Some(key), Some(mask), None, None) => match key_modifiers(mask) {
-            Some(mask) => modified_tilde(key, mask),
-            None => ignore,
-        },
-        _ => ignore,
+    let (Some(key), modifier, code, None) =
+        (fields.next(), fields.next(), fields.next(), fields.next())
+    else {
+        return ignore;
+    };
+    if key.is_empty() {
+        return ignore;
     }
+    let field = |field: Option<&[u8]>| field.map_or(Some(0), tilde_field);
+    let (Some(key), Some(modifier), Some(keycode)) =
+        (tilde_field(key), field(modifier), field(code))
+    else {
+        return ignore;
+    };
+    let modifiers = modifier.saturating_sub(1);
+    if code.is_some() {
+        let [low, _] = modifiers.to_le_bytes();
+        return kitty_key(u32::from(keycode), low);
+    }
+    tilde_key(key, modifiers)
 }
 
-/// `CSI <key> ; <modifier> ~`: a tilde key held with a modifier
-/// (`escape_parser.zig` at `c1db919`, :694-718).
+/// One field of a tilde sequence as upstream accumulates it: its digits as a
+/// number that stops at 65535 rather than wrapping (`appendCsiDigitSaturating`,
+/// `escape_parser.zig:19-23@481104fd`), an empty field `0`, and a field with
+/// anything but a digit in it no field at all.
+fn tilde_field(field: &[u8]) -> Option<u16> {
+    field.iter().try_fold(0u16, |value, byte| {
+        byte.is_ascii_digit().then(|| {
+            value
+                .saturating_mul(10)
+                .saturating_add(u16::from(byte - b'0'))
+        })
+    })
+}
+
+/// A tilde key and its modifiers, `0` for none, as upstream's stage after the
+/// `;` reads them (`escape_parser.zig:694-718@481104fd`); the bare key is the
+/// same reading with none (`:628-635`).
 ///
-/// Delete is upstream's `forwardDeleteKeyAction` (:175-180): Super kills to
-/// the end of the line, Alt or Ctrl deletes the word to the right, and Shift
-/// alone is nothing. The page keys are a page move with any modifier
-/// (`composerMove(.page_up, ...)`, :708-709) -- Shift's selection extension is
-/// dropped with the selection, as the arrows drop it ([`cursor`]).
+/// Delete is upstream's `forwardDeleteKeyAction` over **every** bit of the
+/// field (`:698`, `:175-180`): none is Delete, Super kills to the end of the
+/// line, Alt or Ctrl deletes the word to the right, and any other bit alone --
+/// Shift, Hyper, Meta, Caps Lock, Num Lock, a bit past eight -- is nothing.
 ///
-/// Delete reads its mask with Caps Lock and Num Lock taken out (`mods`), so
-/// Delete with a lock bit and nothing else (`CSI 3 ; 65 ~`, `; 129 ~`,
-/// `; 193 ~`) is Delete here. Upstream hands the raw modifiers on
-/// (`escape_parser.zig:694-698@481104fd`), and its `forwardDeleteKeyAction`
-/// reads them as nothing (`escape_parser.zig:176-180@481104fd`): looser than
-/// upstream, recorded in `docs/parity.md` and left to TILDE-EMPTY-MODIFIER
-/// (proposed), which owns this function's grammar.
+/// Home and End -- `1` or rxvt's `7`, `4` or rxvt's `8` -- are the bare key with
+/// no modifier (`:712-714`), and with any are upstream's move to the line's
+/// edge, the draft's under Ctrl, extending a selection under Shift
+/// (`:699-707`), a lock bit counted as a modifier like any other. Here each is
+/// Home or End whatever is held, through [`cursor`]'s `H` and `F` rows: the
+/// edge of the caret's line. On a one-line draft that is upstream's place too;
+/// the draft's edge under Ctrl and the selection under Shift are the composer's
+/// to add (`docs/parity.md`, the full-screen TUI row).
 ///
-/// Home and End -- `1` or rxvt's `7`, `4` or rxvt's `8` -- with any modifier
-/// are upstream's move to the line's edge, the draft's under Ctrl, extending a
-/// selection under Shift (`escape_parser.zig:699-707@481104fd`). Here each is
-/// Home or End whatever is held (every field from `2` to `256`), as
-/// [`cursor`]'s `H` and `F` rows read it: the edge of the caret's line. On a
-/// one-line draft that is upstream's place too; the draft's edge under Ctrl and
-/// the selection under Shift are the composer's to add (`docs/parity.md`, the
-/// full-screen TUI row).
-///
-/// A modifier field of `1` -- no modifier at all -- is refused, as an empty
-/// field and `0` are ([`key_modifiers`]). That is this decoder's own choice,
-/// not upstream's: upstream reads all three as the bare key
-/// (`escape_parser.zig:696`, `:698`, `:712-718@481104fd`), and this decoder
-/// reads `CSI 1 ; 1 H` as Home ([`modifier`]). It is kept so the six tilde
-/// codes follow one rule until TILDE-EMPTY-MODIFIER; taking out the
-/// `mask == 0` guard below would give upstream's reading for `; 1` alone,
-/// since an empty field and `0` stop at [`key_modifiers`] first.
-fn modified_tilde(key: &[u8], mask: u8) -> Input {
-    let mods = mask & 0x3f;
-    if mask == 0 {
-        return Input::Action(Action::Ignore);
-    }
+/// The page keys are a page move with any modifier (`composerMove(.page_up,
+/// ...)`, `:708-709`) and the page key with none (`:715-716`) -- a page either
+/// way here, Shift's selection extension dropped with the selection, as the
+/// arrows drop it ([`cursor`]).
+fn tilde_key(key: u16, modifiers: u16) -> Input {
+    let [low, _] = modifiers.to_le_bytes();
     Input::Action(match key {
-        b"1" | b"7" => cursor(b'H', mods),
-        b"3" => forward_delete(mods),
-        b"4" | b"8" => cursor(b'F', mods),
-        b"5" => Action::PageUp,
-        b"6" => Action::PageDown,
+        1 | 7 => cursor(b'H', low),
+        3 => forward_delete(modifiers),
+        4 | 8 => cursor(b'F', low),
+        5 => Action::PageUp,
+        6 => Action::PageDown,
         _ => Action::Ignore,
     })
 }
 
 /// Delete under a modifier mask (`forwardDeleteKeyAction`,
-/// `escape_parser.zig` at `c1db919`, :175-180), shared by the legacy tilde
-/// spelling and the keypad's.
-fn forward_delete(mods: u8) -> Action {
-    if mods & SUPER != 0 {
+/// `escape_parser.zig:175-180@481104fd`), shared by the legacy tilde spelling,
+/// which hands it every bit of its field (`:698`), and the keypad's, which
+/// hands it what is left once the lock states are masked off (`:187`, `:205`).
+fn forward_delete(mods: u16) -> Action {
+    if mods & u16::from(SUPER) != 0 {
         Action::KillToEnd
-    } else if mods & (ALT | CTRL) != 0 {
+    } else if mods & u16::from(ALT | CTRL) != 0 {
         Action::DeleteWordRight
     } else if mods == 0 {
         Action::Delete
@@ -1736,7 +1755,7 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
             return kitty_key(13, modifiers);
         } else if code == KP_DELETE {
             // The main-row `ESC[3~` family (:175-180).
-            return Input::Action(forward_delete(mods));
+            return Input::Action(forward_delete(u16::from(mods)));
         }
     }
     if code == KITTY_UP || code == KITTY_DOWN {
