@@ -38881,6 +38881,18 @@ mod tests {
             shell.released(),
             said(notice::Notice::neutral("sound", "off"))
         );
+        // An empty argument runs the marked `on` -- from on too, where the
+        // parser alone toggles to off.
+        shell.route_bytes(b"/sound \r");
+        assert_eq!(
+            shell.released(),
+            said(notice::Notice::neutral("sound", "on"))
+        );
+        shell.route_bytes(b"/sound \r");
+        assert_eq!(
+            shell.released(),
+            said(notice::Notice::neutral("sound", "on"))
+        );
     }
 
     #[test]
@@ -39026,6 +39038,27 @@ mod tests {
         shell.route_bytes(&[0x15]);
         shell.route_bytes(b"/allowlist local ");
         assert_eq!(menu(&shell), table(19, &["add", "remove", "reset"]));
+        // Enter on an empty argument runs the marked first row, as fx's does
+        // (`resolveSlashSubmission`): a reset with no scope is `reset
+        // commands`, where the parser alone says the usage, and `add tool `
+        // allows `read_file`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/allowlist reset \r");
+        assert_eq!(
+            shell.document()[0],
+            "* allowlist: reset commands: removed 0 rules (scope=local)"
+        );
+        shell.route_bytes(b"/allowlist user reset \r");
+        assert_eq!(
+            shell.document()[0],
+            "* allowlist: reset commands: removed 0 rules (scope=user)"
+        );
+        shell.route_bytes(b"/allowlist add tool \r");
+        assert_eq!(
+            shell.document()[0],
+            "* allowlist: added tool read: \"*\" (scope=local)"
+        );
     }
 
     #[test]
