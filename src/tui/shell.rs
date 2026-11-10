@@ -7635,14 +7635,16 @@ impl Shell {
     /// (`submitRuleManagementChoice`, `input_approval_runtime.zig:257-328`);
     /// the arrows, Tab, Left, Right, Alt-b and Alt-f move the mark
     /// ([`RuleConfirm::apply`]). Escape closes it saying nothing
-    /// (`cancelApprovalOperation`, `:401-436`, which `resolveEscape` reached
-    /// at every Escape the receipt traced, `app_input_runtime.zig:2689`,
+    /// (`cancelApprovalOperation`, `:401-436`, which `resolveEscape` takes at
+    /// every Escape after the prompt's first frame, `app_input_runtime.zig:2689`,
     /// `:2712-2716`), and over a running turn or compaction -- read as the
-    /// composer's Escape reads one -- stops that too, writing no cancellation
-    /// row: that route writes none, where Ctrl-C's does
+    /// composer's Escape reads one -- stops that too
+    /// (`cancelApprovalTurn`, `worker_runtime.zig:777-791`: the worker's
+    /// cancel and its compaction's stop), writing no cancellation row: that
+    /// route writes none, where Ctrl-C's does
     /// (`input_interrupt_runtime.zig:118-126`). A stop already asked for is
-    /// not asked again ([`Self::cancel_turn`]'s rule). Everything else,
-    /// Ctrl-L included, is swallowed, as the approval swallows it.
+    /// not asked again ([`Self::stop_owed`]). Everything else, Ctrl-L
+    /// included, is swallowed, as the approval swallows it.
     fn offer_to_rule_confirm(&mut self, event: Input, now: Instant) {
         use super::rule_confirm::Reply;
         let Some(action) = Self::approval_action(event, false) else {
@@ -7657,7 +7659,12 @@ impl Shell {
             Reply::Dismiss => {
                 self.close_rule_confirm();
                 if self.activity.working() || self.compacting() {
-                    if !self.stop_requested || self.work_typed_since_the_stop() {
+                    if self.stop_owed() {
+                        // `true`: this key writes no `▪ Cancelled` row of
+                        // its own and settles no group here; a running
+                        // command's report says it was cancelled, as fx's
+                        // does (`cancelApprovalOperation` presents no tool
+                        // cancellation, `input_approval_runtime.zig:401-436`).
                         self.cancel_turn_with(true);
                     }
                     self.settle_band(now);
@@ -12957,10 +12964,18 @@ impl Shell {
     /// `auth_runtime.zig:2052-2056`), and would otherwise quote the count
     /// again and drop what was typed between the presses.
     fn cancel_turn(&mut self) {
-        if self.stop_requested && !self.work_typed_since_the_stop() {
+        if !self.stop_owed() {
             return;
         }
         self.cancel_turn_with(false);
+    }
+
+    /// Whether a keystroke that stops work owes a stop now: none is still
+    /// requested, or work it did not cover has been typed since
+    /// ([`Self::cancel_turn`]'s rule, which a rule confirmation's Escape
+    /// keeps too).
+    fn stop_owed(&self) -> bool {
+        !self.stop_requested || self.work_typed_since_the_stop()
     }
 
     /// Whether work a stop still requested did not cover is in hand: a
@@ -28927,6 +28942,125 @@ mod tests {
             "nothing is said about the rule or the turn"
         );
         assert!(!rules.exists(), "nothing was kept");
+    }
+
+    /// A remembering shell with a turn running, as the runtime took it.
+    fn remembering_and_running(prompt: &str) -> (tempfile::TempDir, tempfile::TempDir, Fixture) {
+        let (home, workspace, _rules, mut shell) = remembering_shell();
+        shell.route_bytes(prompt.as_bytes());
+        shell.route_bytes(b"\r");
+        let _taken = shell.picks_up();
+        shell.start_turn();
+        shell.settle_band(Instant::now());
+        let _ = shell.take_pending();
+        (home, workspace, shell)
+    }
+
+    #[test]
+    fn escape_at_a_rule_confirmation_over_a_manual_compaction_stops_it() {
+        // fx's `cancelApprovalOperation` asks the worker to stop through
+        // `cancelApprovalTurn`, which stops a compaction as well as a turn
+        // (`stopCompactionActivityLocked`, `worker_runtime.zig:777-791
+        // @481104fd`), and a manual compaction is an operation in hand
+        // (`cancellationTarget`, `input_interrupt_runtime.zig:12-21`). So
+        // with no turn working, Escape at the confirmation stops the
+        // compaction.
+        let (_home, _workspace, _rules, mut shell) = remembering_shell();
+        shell.work.publish_status(a_status(1, 0));
+        shell.route_bytes(b"/compact\r");
+        assert_eq!(shell.picks_up(), TurnWork::Compact);
+        while shell.controlled().is_some() {}
+        assert!(!shell.activity.working(), "a turn is working");
+        assert!(shell.compacting(), "no compaction in hand");
+        shell.route_bytes(REMEMBER_A);
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        escape(&mut shell);
+        assert!(shell.rule_confirm.is_none());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { through: 1 }),
+            "the compaction was not stopped"
+        );
+    }
+
+    #[test]
+    fn escape_at_a_rule_confirmation_asks_no_second_stop_and_stops_work_typed_since() {
+        // fx's Escape there asks the worker again only for what is not
+        // already cancelled (`already_cancelled`, `input_approval_runtime.zig:
+        // 421-434@481104fd`), as its Ctrl-C does (`:94`); xfx's rule is
+        // `Shell::stop_owed`, its Ctrl-C's. A turn stopped while a read is
+        // still out keeps working until the read reports, and Escape then
+        // sends no second stop; a `/compact` typed after the stop is work the
+        // stop did not cover, and Escape stops it.
+        let now = Instant::now();
+        let (_home, _workspace, mut shell) = remembering_and_running("first");
+        shell.apply(tool_start(
+            "1",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        assert_eq!(shell.controlled(), Some(TurnControl::Cancel { through: 1 }));
+        assert!(shell.activity.working(), "the stopped turn stopped working");
+        shell.route_bytes(REMEMBER_A);
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        escape(&mut shell);
+        assert!(shell.rule_confirm.is_none());
+        assert_eq!(shell.controlled(), None, "a second stop was sent");
+
+        let (_home, _workspace, mut shell) = remembering_and_running("first");
+        shell.work.publish_status(a_status(1, 0));
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        let _ = shell.controlled();
+        shell.route_bytes(b"/compact\r");
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.work.give_back();
+        shell.settle_band(now);
+        while shell.controlled().is_some() {}
+        assert!(
+            shell.stop_requested,
+            "the first stop is no longer requested"
+        );
+        shell.route_bytes(REMEMBER_A);
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        escape(&mut shell);
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { through: 2 }),
+            "the /compact typed after the stop was not stopped"
+        );
+    }
+
+    #[test]
+    fn the_turns_clock_stops_while_a_rule_confirmation_is_up_over_it() {
+        // fx's `syncState` holds the turn's clock while an approval prompt is
+        // up (`syncWaitingClock(..., modal_active, ...)`,
+        // `app_worker_runtime.zig:729`, `:760@481104fd`), and a rule
+        // confirmation is one: answered either way, the turn is not charged
+        // for the time it was up.
+        for (answer, key) in [("Confirm", &b"\r"[..]), ("Cancel", b"2")] {
+            let (_home, _workspace, _rules, mut shell) = remembering_shell();
+            let started = turn_running(&mut shell, b"ask me\r");
+            shell.settle_band(started + Duration::from_secs(2));
+            let before = shell.activity_row.clone().expect("a running turn");
+            assert!(before.contains("2s"), "{answer}: {before:?}");
+            shell.route_bytes(REMEMBER_A);
+            assert!(shell.rule_confirm.is_some(), "{answer}");
+            shell.settle_band(started + Duration::from_secs(2));
+            shell.settle_band(started + Duration::from_secs(30));
+            assert_eq!(shell.activity_row, None, "{answer}: a row under it");
+            shell.route_bytes(key);
+            assert!(shell.rule_confirm.is_none(), "{answer}");
+            shell.settle_band(started + Duration::from_secs(30));
+            shell.settle_band(started + Duration::from_secs(33));
+            let after = shell.activity_row.clone().expect("the turn goes on");
+            assert!(
+                after.contains("5s"),
+                "{answer}: the turn was charged for the confirmation: {after:?}"
+            );
+        }
     }
 
     #[test]
