@@ -18,7 +18,7 @@ review found it (round 1, SHOULD 1), and its round 2 recorded it in
 | `08d6d605` | RED: the full-transcript test, the question test, the decoder's two-modifier pins (Shift-Alt-Up/Down flipped, three added), the fold table's column for `unspelled` dropped; the scenarios `p5-modified-arrows-full` and `p5-modified-arrows-question`. Tests and scenarios only |
 | `8b5aacaa` | **the code head**: the full transcript and the question read the event as it came; `unspelled` merged into `folded`; `question::Act::of`'s arms and `Act::StepLeft`; the decoder's Alt before Shift on Up and Down; the docs of the decoder's variants |
 | `33cfeac4` | comments only: four fx citations named by file (`git diff 8b5aacaa 33cfeac4` changes `//` and `///` lines alone) |
-| the commits after | `docs/parity.md`, the ledger, this folder; no `src/` change |
+| `bc188108`, `5e985efb` and the commit after | `docs/parity.md`, the ledger, this folder (the gate ran at `5e985efb`); no `src/` change |
 
 The source change outside the test modules is +133/-111 lines over the three
 files (`git diff -U0 c77a77ce 33cfeac4 -- src`, the hunks above each file's
@@ -50,6 +50,9 @@ same bytes (`escape_parser.zig:255-258`).
 | Super-Left/Right (`line_start`/`line_end`) | to the composer behind it | nothing | the field's start and end (`src/ui/input/runtime.zig:162-163`) |
 | Ctrl- and Alt-Left/Right (the word moves) | to the composer behind it | nothing | the word move (`src/ui/input/runtime.zig:164-165`) |
 | Ctrl-B, Ctrl-F (bytes 2, 6) | not its byte (`keyForByte`, `input_full_transcript_runtime.zig:147-154`): to the composer (`app_input_runtime.zig:872`, `:887-893`) | no question action (`questionActionFromByte`, `src/ui/input/runtime.zig:135-153`), swallowed (`app_input_runtime.zig:1136-1159`) | the step (`fromFocusedEditorControlByte`, `shortcuts.zig:31-41`; `src/ui/input/runtime.zig:199-209`) |
+| Home/End held (`H`/`F` with a modifier: Super and Ctrl `draft_start`/`draft_end`, Shift `line_start`/`line_end`, Alt the plain key, `escape_parser.zig:79-80`, `:95-96`, `:104-105`, `:83-89`) | to the composer behind it, as the plain Home and End (`.home`/`.end` are no key of the screen's, `input_full_transcript_runtime.zig:156-178`) | nothing | the field's start and end (`src/ui/input/runtime.zig:162-163`) |
+
+xfx read the held Home and End alike before this unit, and still does: its decoder reads every one as Home or End (`cursor`), which the screen leaves to the composer and the question reads as `Act::Home`/`Act::End` (the field's edges, nothing at a choice); the composer's Ctrl-Home is the line's start where fx's is the draft's (COMPOSER-SUPER-ARROWS, the full-screen TUI row).
 
 **What the composer behind the screen does with them** is the composer's
 own move (`routeComposerShortcutAction`, `app_input_runtime.zig:244-330`):
@@ -169,9 +172,91 @@ column is unchanged in every row; its comment now says what it is for.
     differing rows are a list of its own (2-23, 25-30, 32-36).
 - `green.txt`: the unit's tests in the gate's run.
 
-## Mutants, sweep and gate
+## Mutants (`mutants.py`, `mutants.txt`)
 
-Recorded by the commit after this folder's first.
+On a `git clone --no-local` (its remote removed) of `33cfeac4` under
+`$TMPDIR/mut/`, one at a time, the file restored after each, the run under
+the suite lock, each running the TUI's unit tests (`cargo test --lib --
+tui::`): **14 of 14 killed**, the clone's tree clean after the run
+(`mutants.txt`, each naming the first six failing tests):
+
+| mutant | killed by |
+|---|---|
+| M1 the full transcript reads the composer spellings as the arrows (the base's reading) | the full-transcript test |
+| M2 the question reads them as the arrows (the base's reading) | the question test |
+| M3 a question takes Shift-Left, Super-Left and Ctrl-B as Left | the question test |
+| M4 a question binds no Alt-f | the question-word-left test (its draft's Alt-f) |
+| M5 a question takes Super-Up as Up | the question test |
+| M6 a question takes Ctrl- and Alt-Up as Up | the question test |
+| M7 the decoder reads Shift before Alt on Up and Down (the base's order) | the decoder's two-modifier pins, the question test |
+| M8 a question binds no Super-Up | the question test (its field) |
+| M9 a question binds no Shift-Left, Super-Left or Ctrl-B | the question test, the question-word-left test |
+| M10 a question binds no Shift-Right, Super-Right or Ctrl-F | the question test (its field) |
+| M11 the full transcript scrolls on Ctrl- and Alt-Up | the full-transcript test |
+| M12 the full transcript holds Shift-Left, Super-Left and Ctrl-B | the full-transcript test |
+| M13 the merged fold leaves a composer move on Left as itself | the fold table, the approval amendment's word-move test |
+| M14 Shift-Left, Super-Left and Ctrl-B go back a question at a choice | the question test |
+
+M1 and M2 put `unspelled` back, as a match over the decoded action, in front
+of the full transcript's `key` and of `question::Act::of`. Not mutated: the
+approval's reading, which this unit does not change and its own tests pin.
+
+## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
+
+`scripts/fxcap/sweep.sh --only 'fulltranscript*' --only p5-modified-page-keys
+--only 'question*' --only 'p5-question*' --only 'p5-input-question*' --only
+'composer*' --only 'p5-modified-arrows*'` at 40x120, `--jobs 2`, this
+branch's scenarios, once with the base's binary (`v0.1.0-c77a77c`) and once
+with the code head's (`v0.1.0-8b5aaca`), both in one suite-lock slot, then
+both rescored (`--rescore`) with this branch's ledger once its refs were
+re-pointed and the response-header cause named `p5-modified-arrows-full`.
+Sixteen scenarios, 145 pairs: `composer-keys`, `composer-wrap`,
+`fulltranscript`, `fulltranscript-notice`, `p5-input-question`, `-20`,
+`-21`, `p5-modified-page-keys`, `p5-question-resume`, `-resume-ctrlo`,
+`p5-question-word-left`, `question`, `question-field`, `question-other` and
+this unit's two. APPROVAL-VERTICAL-SPELLINGS' `cmp_sweeps.py` (unchanged, run
+from its folder) compares them pair by pair:
+
+- **base 101 / 145, head 119 / 145, drops 0.**
+- The eighteen that pass at the head and not at the base are this unit's:
+  `typed`-`typed4` of `p5-modified-arrows-full` (unresolved to identical) and
+  fourteen of `p5-modified-arrows-question` (unresolved to
+  normalized-identical; `p1` and `ctrl-shift-down` passed on both).
+  `full-ctrl-up` keeps its class, its uncaused rows 5 → 0: the base had
+  scrolled the screen.
+- One other pair changes class, and both classes pass:
+  `p5-input-question20/resumed`, identical at the base and
+  normalized-identical at the head -- a normalization the ledger already
+  makes matched a row on one run and not the other; the scenario presses no
+  key this unit changes.
+- The head's one pair left with uncaused rows is `p5-modified-page-keys`'
+  `full-pgup`, the document's head, with the same uncaused rows at the base:
+  older than this unit (MODIFIED-PAGE-KEYS' README, its round-2 sweep).
+
+## Gate (`gate.txt`, `green.txt`)
+
+The brief's gate, once, under the suite lock in one normal slot with a short
+`TMPDIR`, at `5e985efb`, whose `src/` is the code head `8b5aacaa`'s but for
+`33cfeac4`'s comment lines (`gate.txt` carries the diff stat and the empty
+list of its non-comment lines). Every step exits 0 and the tree was the same
+at the end:
+
+| step | result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo clippy --locked --all-targets -- -D warnings` | clean |
+| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | clean |
+| `cargo test --locked --no-fail-fast` | 5706 passed, 0 failed, 7 ignored (15 result lines) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 5743 passed, 0 failed, 7 ignored (15 result lines) |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh`, `check-no-local-paths.sh` | exit 0 each |
+
+MODIFIED-PAGE-KEYS' round-2 gate read 5705 and 5742; this unit adds two
+`#[test]`s (the full-transcript test, the question test) and replaces one
+(`the_full_transcript_holds_the_composer_spellings_of_the_arrows_as_it_holds_the_arrows`).
+No catalog-wait failure in this run. `green.txt`: the unit's twelve tests
+(its three, the fold table, the question-word-left test, the approval's four
+key tests, the held-page-key tests and `Act::of`'s test) in both suites of
+this run, 24 of 24 ok.
 
 ## The citations (`fx-src-check.txt`)
 
