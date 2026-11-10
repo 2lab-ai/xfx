@@ -1,39 +1,45 @@
 === ~/.fx/history.jsonl (126 bytes)
-{"schema_version":1,"timestamp_ms":1794313663706,"workspace_root":"<scratch>/work","text":"/help"}
+{"schema_version":1,"timestamp_ms":1794321984317,"workspace_root":"<scratch>/work","text":"/help"}
 
 === ~/.fx/history.lock (0 bytes)
-=== ~/trace.txt (2420 bytes)
-1794313664726 [full_transcript] open_request state=ready
-1794313664726 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
-1794313664726 [full_transcript] close_full_transcript restore=exact
-1794313665548 [full_transcript] open_request state=ready
-1794313665548 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
-1794313665548 [full_transcript] close_full_transcript restore=exact
-1794313666364 [full_transcript] open_request state=ready
-1794313666364 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
-1794313666365 [full_transcript] close_full_transcript restore=exact
-1794313667596 [full_transcript] open_request state=ready
-1794313667597 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
-1794313667597 [full_transcript] close_full_transcript restore=exact
-1794313668416 [full_transcript] open_request state=ready
-1794313668416 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
-1794313668416 [full_transcript] close_full_transcript restore=exact
-1794313669634 [full_transcript] open_request state=ready
-1794313669635 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
-1794313669635 [full_transcript] close_full_transcript restore=exact
-1794313670459 [full_transcript] open_request state=ready
-1794313670459 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
-1794313670459 [full_transcript] close_full_transcript restore=exact
-1794313671689 [full_transcript] open_request state=ready
-1794313671689 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
-1794313671689 [full_transcript] close_full_transcript restore=exact
-1794313672514 [full_transcript] open_request state=ready
-1794313672514 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
-1794313672514 [full_transcript] close_full_transcript restore=exact
-1794313673746 [full_transcript] open_request state=ready
-1794313673746 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
-1794313673746 [full_transcript] close_full_transcript restore=exact
-1794313674569 [full_transcript] open_request state=ready
-1794313674569 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
-1794313674569 [full_transcript] close_full_transcript restore=exact
+=== ~/trace.txt (2860 bytes)
+1794321985358 [full_transcript] open_request state=ready
+1794321985359 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794321985359 [full_transcript] close_full_transcript restore=exact
+1794321986233 [full_transcript] open_request state=ready
+1794321986233 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794321986234 [full_transcript] close_full_transcript restore=exact
+1794321987055 [full_transcript] open_request state=ready
+1794321987058 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794321987058 [full_transcript] close_full_transcript restore=exact
+1794321988298 [full_transcript] open_request state=ready
+1794321988299 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794321988299 [full_transcript] close_full_transcript restore=exact
+1794321989131 [full_transcript] open_request state=ready
+1794321989131 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794321989131 [full_transcript] close_full_transcript restore=exact
+1794321990374 [full_transcript] open_request state=ready
+1794321990374 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794321990374 [full_transcript] close_full_transcript restore=exact
+1794321991206 [full_transcript] open_request state=ready
+1794321991206 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794321991206 [full_transcript] close_full_transcript restore=exact
+1794321992447 [full_transcript] open_request state=ready
+1794321992447 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794321992447 [full_transcript] close_full_transcript restore=exact
+1794321993271 [full_transcript] open_request state=ready
+1794321993272 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794321993272 [full_transcript] close_full_transcript restore=exact
+1794321994514 [full_transcript] open_request state=ready
+1794321994514 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794321994514 [full_transcript] close_full_transcript restore=exact
+1794321995347 [full_transcript] open_request state=ready
+1794321995348 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794321995348 [full_transcript] close_full_transcript restore=exact
+1794321998547 [full_transcript] open_request state=ready
+1794321998548 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794321998548 [full_transcript] close_full_transcript restore=exact
+1794321999402 [full_transcript] open_request state=ready
+1794321999402 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794321999402 [full_transcript] close_full_transcript restore=exact
 

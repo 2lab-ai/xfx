@@ -26,6 +26,13 @@ is two rules, and the brief's gap holds for three pickers of the nine:**
   composer's** (`routePickerControlByte`, `app_input_runtime.zig:1093-1116`),
   as the brief said. xfx moved the picker.
 
+**Round 2** (on `69491c9a`, from gpt6's and opus' reviews of it; §11): fx's
+question and approval terms are shown redundant by a test, not copied (gpt6
+MUST 1); a `C-j` or `C-k` in the burst a Ctrl-O came in over a group A menu
+is now the composer's, as fx's (gpt6 MUST 2, the dispatcher's call) -- one
+check in `consume_inputs` where four guards were; one anchor function (opus
+SHOULD 1); the wordings opus asked for, here and in `docs/parity.md`.
+
 | commit | what |
 |---|---|
 | `67c8d0d1` | RED: one case per picker, the menus that open under the screen, the `@` list's arrows with the transcript's offset, Shift-Up/Down; the ten scenarios (`red-unit.txt`) |
@@ -33,18 +40,25 @@ is two rules, and the brief's gap holds for three pickers of the nine:**
 | `1faed29d` | `docs/parity.md`: each picker's row and the full transcript's (§7) |
 | `a0634606` | the ledger's 16 refs re-pointed (`refs.txt`) |
 | `9545abe4` | RED: the `/provider` column's anchor off the caret's row (`red-unit.txt`, its second part) -- `provider-ctrlo cj` showed it |
-| `9ffaef29` | the anchor fix, and the two parity rows that name it -- **the code head** |
-| `91c46731` | the ledger's refs past the anchor's lines re-pointed -- **the head's build** for the captures, the sweep and the mutants' clone |
-| `76a5052d` | this folder's runners, fx quotes, captures, unit runs and refs -- **the gate's commit** |
+| `9ffaef29` | the anchor fix, and the two parity rows that name it -- round 1's code head |
+| `91c46731` | the ledger's refs past the anchor's lines re-pointed -- round 1's build (`v0.1.0-91c4673`) for the captures, the sweep and the mutants' clone |
+| `76a5052d` | this folder's runners, fx quotes, captures, unit runs and refs -- round 1's gate commit |
 | `0ab399ed` | two parity wordings (`/settings`' pointer, `/provider`'s anchor sentence); `check-no-stubs` and `tests/parity.rs` run again after it (§8) |
-| (receipt) | this README, `gate.txt`, `fxcites.txt`, `mutants.txt`, the sweep's files (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`, `remote-rerun.txt`), `equivalent-mutants.txt` corrected (§5) |
+| `e46116ed`, `69491c9a` | round 1's receipt: this README, `gate.txt`, `fxcites.txt`, `mutants.txt`, the sweep's files (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`, `remote-rerun.txt`), `equivalent-mutants.txt` corrected (§5) |
+| `69743117` | round 2's RED: the modal invariant, C-j and C-k in Ctrl-O's burst over each group A menu, the turn's plane (`red-unit.txt`, its third part); the burst steps in `p5-ctrlo-help` and `p5-ctrlo-fork`, Backspace and Alt-Enter in `provider-ctrlo` |
+| `3369622a` | round 2's fix: one check in `consume_inputs`, the composer's `C-j`, one anchor; the settings menu's burst -- **the code head** |
+| `13ed6a79` | round 2's parity wording: the full transcript row's burst, the settings row's `C-j` |
+| `13646dfa` | the ledger's 13 refs past round 2's lines re-pointed -- **round 2's build** (`v0.1.0-13646df`) for the captures and the sweep |
+| `5d6c4cbb` | round 2's runners: `fx_src.sh`'s fifth part, `mutants.py` -- **round 2's gate commit** and the mutants' clone |
+| (receipt, two commits) | round 2's receipt: this README's §11 and the corrections it lists, `xfx-r1/` (round 1's captures, moved), `xfx/` and three scenarios' `fx/` again, `pairs.txt`, `gate-r2.txt`, `mutants-r2.txt`, `sweeps-r2.sh`, `fxcites.txt`, `refs.txt`, `red-unit.txt`, `green-unit.txt` and `equivalent-mutants.txt` extended; then the sweep's files and §11.7 |
 
 Every fx line cited here is printed in `fx-src.txt` (`fx_src.sh`, at
 `481104fd`); "fx-src.txt:N" is its line. `fxcites.py` (CTRLO-AT-KEYS', with
 this unit's ten scenarios as its fourth input) checks every fx citation in
 this README, in the parity rows' changed text, in the lines this unit added
 under `src/` and in the scenarios' headers against `fx_src.sh`'s ranges
-(`fxcites.txt`: 159 citations, 0 failed; its self-test, 10 cases, 0 wrong).
+(`fxcites.txt`: round 1 159 citations, round 2 205, 0 failed; its
+self-test, 10 cases, 0 wrong).
 
 ## 1. fx's rule
 
@@ -158,24 +172,30 @@ group B, `down` and `esc` keep the mark, `ck` keeps it, `cj` is a new line
   picker, `/fork`'s or `/effort`'s menu is up -- `close_full_transcript`,
   which gives the plane back and asks for a frame, as fx's
   `requestNormalViewportRecovery` does. One mechanism, fx's shape: no
-  refusal in `open_full_transcript`, which fx does not have and which would
-  miss a menu opened under the screen.
+  refusal over a menu in `open_full_transcript` (its one refusal, while
+  `Shell::modal`, is older than this unit), which fx does not have and
+  which would miss a menu opened under the screen.
 - **Group B: `Shell::composer_control`** -- `C-j` or `C-k` with the screen
   up -- returned `false` early in `offer_to_picker`, `offer_to_mcp_args` and
   `offer_to_provider_picker`, so the key goes on to `act`: `ControlJ` is
   `type_character('\n')`, `ControlK` the editor's kill, the path
-  CTRLO-AT-KEYS gave the `@` list.
+  CTRLO-AT-KEYS gave the `@` list. (Round 2 makes the three guards and the
+  `@` list's copy one check in `consume_inputs`, §11.)
 - **The anchor** (`9ffaef29`): `Shell::anchor_at`, which hangs the
   `/provider` column and `/mcp `'s completions, now copies
   `projectedAnchorColumn` (`visual_layout.zig:705-713`): under the
   argument while it starts on the caret's row, from the start of the
   caret's row otherwise -- the `@` list's column already did
   (`Shell::file_picker_column`). `provider-ctrlo cj` showed it: after C-j
-  the column's `no matching providers` was ten cells right of fx's.
+  the column's `no matching providers` was ten cells right of fx's. (Round
+  2: `Shell::column_anchor`, the same function for the inline model
+  column (`Shell::column_rows`), is gone, and the `@` list's column hangs
+  from `anchor_at` too, §11.)
 
-Source outside the tests: 60 lines added and 3 removed in
+Source outside the tests, round 1: 60 lines added and 3 removed in
 `src/tui/shell.rs`, about half of them doc comments;
-`src/tui/full_transcript.rs` gains only a test-only accessor (§9).
+`src/tui/full_transcript.rs` gains only a test-only accessor (§9). Round
+2's are in §11.
 
 ## 3. RED (`red-unit.txt`) and GREEN (`green-unit.txt`)
 
@@ -215,18 +235,25 @@ the base took them as the menu's moves, fx's visible result. What the base
 got wrong is the screen holding -- `held`, then Up, Down and Escape going to
 it.
 
-## 4. Pairs (`pairs.py`, `pairs.txt`; `fx/`, `xfx/`, `xfx-base/`)
+## 4. Pairs (`pairs.py`, `pairs.txt`; `fx/`, `xfx-r1/`, `xfx-base/`)
 
 The ten scenarios, each step a key between a Ctrl-O and its return (group
 A's `held` is Ctrl-O alone, then a second Ctrl-O, a no-op in fx and the
 head, the base's close), captured with `scripts/fxcap/capture.sh` at 40x120:
 fx v0.0.16 (its sha256 printed unchanged after the runs), the base's debug
-build (`v0.1.0-cb7c9c1`) and the head's (`v0.1.0-91c4673`), each banner in
-`pairs.txt`'s first lines. `skills-ctrlo*` and `provider-ctrlo` are named
-for their families so the ledger rows those share apply in the sweep.
+build (`v0.1.0-cb7c9c1`) and round 1's (`v0.1.0-91c4673`, now `xfx-r1/`),
+each banner in `pairs.txt`'s first lines. `skills-ctrlo*` and
+`provider-ctrlo` are named for their families so the ledger rows those
+share apply in the sweep. This section is round 1's 63 pairs; `pairs.txt`
+is round 2's run, whose `round 1` column holds them (§11).
 
-**63 pairs. Base: 11 identical. Head: 38 identical, 23 differing only in
-the rows their scenario's `open` snap differs in, 2 in the product's name.**
+**63 pairs. Base: 11 identical. Round 1: 38 identical, 23 differing only
+in the rows their scenario's `open` snap differs in, and 2 others:
+`p5-ctrlo-help tab`, row 10 (`show the fx version` / `xfx`), and
+`skills-ctrlo tab`, two rows -- the source tabs, where fx has five more
+agents' (`Claude`, `Codex`, `Agents`, `OpenCode`, `Claw`) and its own
+name, and the skill's source, `fx` / `xfx`.** (Round 1 said "2 in the
+product's name", half wrong: opus' NIT 5.)
 
 | scenario | base differs | head |
 |---|---|---|
@@ -319,7 +346,8 @@ the rule is the full transcript's.
   `/mcp` rows say C-j and C-k are the composer's under the screen, and both
   name the anchor (§2); the full-screen TUI row's slash menu, which named
   five keys, names C-k and C-j and the screen; the full transcript row says
-  both rules and the one window narrower than fx's (§10).
+  both rules and the one window narrower than fx's (§10) -- round 2
+  (`13ed6a79`) replaced that sentence with the burst, now fx's (§11).
 - The ledger (`a0634606`, `91c46731`): 16 refs past the new lines
   re-pointed by `refs.py` (CTRLO-AT-KEYS', with `full_transcript.rs` among
   its files -- three of its refs moved with the test-only accessor), then 13
@@ -377,25 +405,222 @@ again after `0ab399ed`, outside the gate: `check-no-stubs`, exit 0, and
   `/provider` column put the caret on a second row, and the column's anchor
   was the next break: fixed here (§2). Under the slash menu and `/mcp `'s
   completions nothing is left to hang (none shown).
-- **Narrower than fx's, by a frame** (in the full transcript's parity row):
-  a `C-j` or `C-k` that arrives in the same read as a Ctrl-O over a group A
-  menu, before its frame, moves the menu here; fx's screen is still up for
-  it and its composer takes it (`app_input_runtime.zig:1093-1116`; a new
-  line, or nothing while `/skills`', `/model`'s or the session menu is up,
-  `:514`). No capture can hold that window: each key is its own read.
+- **The same burst -- closed in round 2** (§11). Round 1 left, as
+  narrower than fx's by a frame, a `C-j` or `C-k` that arrives in the same
+  burst as a Ctrl-O over a group A menu, before its frame: it moved the
+  menu here, where fx's screen is still up for it and its composer takes it
+  (`app_input_runtime.zig:1093-1116`; a new line, or nothing while
+  `/skills`', `/model`'s or the session menu is up, `:514`). Round 1 also
+  said no capture could hold that window, each key its own read; that is
+  withdrawn: one `send-keys` of the two bytes is one burst, on fx and on
+  xfx (§11), and round 1's "the same read" is "the same burst".
 - **Queue proposals for the dispatcher (read, not run):**
   - INSERT-NEWLINE-MENUS: Alt-Enter or Shift-Enter with `/skills`',
     `/model`'s menu or the session picker up. fx's `insert_newline` adds
     nothing then (`app_input_runtime.zig:514`; Shift-Enter is that
     shortcut, `shortcuts.zig:43-65`); xfx's `act` puts a line break in the
     menu's search (`ModelAction::of(InsertNewline)` is `None`,
-    `src/tui/model_menu.rs`, so it reaches `type_character('\n')`).
+    `src/tui/model_menu.rs`, so it reaches `type_character('\n')`). Round
+    2 gave the composer's `C-j` fx's rule (`Shell::composer_newline`) and
+    left `InsertNewline` as it was: with the screen closed those three
+    menus take `C-j` as their move, so only under the screen -- the burst
+    -- does `C-j` reach the composer over one, and Alt-Enter's path is
+    this proposal's.
   - MODEL-COLUMN-CJ-CK: with the screen closed, fx's `C-j`/`C-k` move the
     `/model ` column (`hasModelQuery` -> `navigateModelPicker`,
     `input_completion_runtime.zig:411-414`); xfx's `offer_to_column` binds
     neither, so they are a new line and a kill. SETTINGS-CJ-CK, already
     queued, is the same for the settings menu (`:397`).
 
-## 11. Open questions
+## 11. Round 2
+
+The reviews of `69491c9a`: gpt6 REJECT, two MUSTs; opus
+APPROVE-WITH-FIXES, two SHOULDs and six NITs. The dispatcher's brief: pin
+MUST 1's invariant, close MUST 2 here (its call), with a stop rule; opus'
+SHOULD 1 and the wordings.
+
+### 11.1 fx's question and approval terms (gpt6 MUST 1)
+
+fx's frame shuts the screen over the seven menus only with no question
+and no approval up (`!question_active and approval == null`,
+`app_render_runtime.zig:1206`, fx-src.txt:16). xfx's reconcile has neither
+term and gets none: the screen is never up with one. An approval or a
+question closes it as it arrives (`Shell::full_transcript_sees`), and
+`Shell::open_full_transcript` refuses while `Shell::modal`. The case
+`a_question_over_a_menu_closes_the_full_transcript_and_ctrl_o_opens_none_over_it`
+puts the catalog up, the screen over it, then an approval -- and, in a new
+shell, a question -- with no tick between: each closes the screen, Ctrl-O
+over each opens nothing. It passed at the RED commit, as a pin does. The
+reconcile's doc names fx's two terms and those two lines (opus NIT 3).
+
+### 11.2 The burst (gpt6 MUST 2)
+
+**fx.** Its loop takes up to `max_input_reads_per_fact_collection` reads
+before one frame (`src/ui/event_loop.zig:90-120`, fx-src.txt:987-1023), so
+a `C-j` or `C-k` that comes with a Ctrl-O over a group A menu finds the
+screen still up: `composerPickerSurfaceVisible` gives no picker the byte
+(`app_input_runtime.zig:1110-1116`) and the composer takes it
+(`app_input_runtime.zig:881-893`):
+
+- `C-k` is a kill to the line's end (`app_input_runtime.zig:479-488`);
+  `C-j` is `insert_newline` (`app_input_runtime.zig:513-521`), which adds
+  nothing while `/skills`' menu, `/model`'s menu or the session menu is up
+  (`app_input_runtime.zig:514`).
+- An editing byte closes `/fork`'s and `/effort`'s menus
+  (`dismissActiveMenusForComposerEdit`, `app_input_runtime.zig:1984-1990`),
+  never a catalog menu. `insert_newline` syncs none, so the catalog's and
+  the settings menu's marks stay where they were, and a line break is no
+  word of the catalog's search (`helpCatalogSpecMatches` splits at `" \t\r\n"`,
+  `command_specs.zig:460`): the same list.
+- Then the frame shuts the screen over whichever menu is left; with
+  `/fork`'s or `/effort`'s gone, the screen stays.
+
+**The copy** (`3369622a`):
+
+- **One check** in `Shell::consume_inputs`, after `offer_to_mcp`: a `C-j`
+  or `C-k` with the screen up (`Shell::composer_control`) skips every
+  picker (`Shell::offer_to_pickers`, the chain the loop had inline) and
+  goes to `act`. It replaces the three per-picker guards and the `@` list's
+  inline copy (opus NIT 1); over the seven menus it is the burst, over the
+  slash menu, the `/provider` column, `/mcp `'s completions and the `@`
+  list it is round 1's rule.
+- **The composer's `C-j`**, `Shell::composer_newline`: nothing while
+  `/skills`' menu (not a `$` word's), `/model`'s menu or the session picker
+  is up; otherwise `type_character('\n')`, which closes `/fork`'s and
+  `/effort`'s menus as any edit does, and the catalog's and the settings
+  menu's marks put back (`HelpMenu::mark`/`keep`, `SettingsMenu::mark`/
+  `keep`). `C-k` is the editor's kill, as before.
+- **The stop rule did not fire.** `InsertNewline` (Alt-Enter) is left as
+  it was: `C-j` gets fx's rule in a function of its own, so
+  INSERT-NEWLINE-MENUS is not needed first (§10). Source outside the tests,
+  round 2: 123 lines added and 105 removed (`src/tui/shell.rs` +94/-105,
+  most of it the chain moved into `offer_to_pickers`; `help_menu.rs` +15,
+  `settings.rs` +14), 62 of the 123 doc comments.
+- **One side effect, outside the burst:** the settings menu binds neither
+  key (`src/tui/settings.rs`), so with the screen closed its `C-j` reaches
+  `composer_newline` too, which now keeps the mark where round 1 reset it.
+  fx's menu moves there (`input_completion_runtime.zig:397`); both are
+  SETTINGS-CJ-CK's, already queued, and the settings row says so.
+
+**Captures** (`p5-ctrlo-help`, `p5-ctrlo-fork`: `burst-ck`, `burst-cj`).
+`key -H 0f 0b` and `key -H 0f 0a` are each one `tmux send-keys` of two
+bytes (`capture.sh`'s `key` step, `scripts/fxcap/capture.sh:891-892`).
+They landed in one burst on fx: in
+`p5-ctrlo-help`, after Down puts the mark on `/clear`, fx's `burst-ck`
+keeps it on `/clear`, where its `ck` -- a C-k after the frame -- moves the
+menu up; `burst-cj` keeps it too, one row lower under the composer's new
+line. In `p5-ctrlo-fork`, fx's `burst-ck` and `burst-cj` show the
+transcript's screen: the key closed the menu, so the frame kept the
+screen -- after the frame the menu would have moved instead. fx's trace
+(`fx/fx-p5-ctrlo-help-40x120-end.files`) has thirteen
+`close_full_transcript restore=exact` lines now, one per Ctrl-O over the
+catalog. xfx's round 2 build shows the same screens; round 1's moved the
+catalog's mark and kept `/fork`'s menu.
+
+### 11.3 One anchor (opus SHOULD 1, NIT 2)
+
+`Shell::column_anchor` is gone; the inline model column calls
+`Shell::anchor_at`, and `Shell::file_picker_column` is
+`anchor_at(..).saturating_add(1).min(cols)` -- fx hangs the model,
+provider, file and slash columns from the one `projectedAnchorColumn`
+(`input_presentation.zig:383-386`, `visual_layout.zig:705-713`).
+`provider_anchor`'s doc now says it places the argument's first byte as
+`anchor_at` places any column. The pairs that show those columns did not
+move (11.5): `p5-ctrlo-model`, `provider-ctrlo` (with a Backspace and an
+Alt-Enter snap now, NIT 6) and the sweep's `model*`, `provider*`,
+`filepicker*` and `p5-input-at*`.
+
+### 11.4 RED and GREEN
+
+- At `69743117` (round 1's code, the cases added), the six run alone:
+  **4 failed, 2 passed** (`red-unit.txt`, its third part). Failed: the
+  catalog's burst (`0xb moved the mark`), `/model`'s, the session picker's
+  and `/skills`' (`/model, 0xa moved the mark`), a `$` word's (`explain $`,
+  no line break), `/fork`'s and `/effort`'s. Passed, as pins: the modal
+  invariant (11.1) and the event loop's turn (NIT 4,
+  `ctrl_o_over_the_catalog_writes_no_plane_change_in_its_turn`: Ctrl-O
+  over the catalog, then the loop's tick and frame, writes neither
+  `?1049h` nor `?1049l`).
+- The settings menu's burst came with the fix, which adds the
+  `SettingsMenu::mark` it reads; its RED is the mutant
+  `burst-settings-mark-reset` (11.6).
+- GREEN, at `5d6c4cbb`, from the gate's own `cargo test`: the unit's 23
+  cases, both rounds', pass (`green-unit.txt`, its second part).
+
+### 11.5 Pairs (`pairs.txt`; `fx/`, `xfx/`, `xfx-r1/`, `xfx-base/`)
+
+`p5-ctrlo-help`, `p5-ctrlo-fork` and `provider-ctrlo` captured again on fx
+and on round 1's build with their new snaps; all ten on round 2's build
+(`v0.1.0-13646df`, `xfx/`). Base, round 1 and round 2, each against fx:
+
+**69 pairs. Identical: base 11, round 1 39, round 2 39. Round 2's other
+30: 25 differ only in their scenario's `open` rows, and 5 more.** The 5:
+`p5-ctrlo-help tab` and `skills-ctrlo tab` (§4); `p5-ctrlo-help burst-cj`,
+`open`'s catalog rows one row lower under the new line; `p5-ctrlo-fork
+burst-ck` and `burst-cj`, 12 rows each, the record's timestamps and the
+network notice's latency, nothing else -- round 1's 32 there were its
+menu over the screen. The new snaps: help's `burst-ck` round 1 11 rows,
+round 2 `open`'s 9; help's `burst-cj` 26 -> 9; fork's 32 -> 12; provider's
+`bspace` `open`'s 3 on both; `alt-enter` identical on both. No pair round
+1 had identical differs in round 2.
+
+### 11.6 Mutants (`mutants.py`, `mutants-r2.txt`)
+
+`mutants.py` (round 2's list) on a `--no-local` clone at `5d6c4cbb`, the
+same tests, limit and lock as §5. None failed to build; the clone was clean
+after. **19 run, 19 killed.** Round 1's group A mutants run again; round
+1's three guard mutants are one now (`b-check-gone`), and CTRLO-AT-KEYS'
+equivalent survivor has no line left (`equivalent-mutants.txt`, its round
+2 note).
+
+| mutant | what it breaks | killed by |
+|---|---|---|
+| `a-settings-dropped` ... `a-effort-dropped` (7) | one menu off the frame's list | as §5, and now burst cases too: settings and the catalog by the catalog's burst case, `/model`, the session picker and `/skills` by theirs, `/skills` by a `$` word's as well |
+| `a-skills-unshown-too` | the skills menu counted unshown | the opens-under case's `$zz`, alone |
+| `a-reconcile-gone` | no reconcile at all | 12 cases, the event loop's turn (NIT 4) among them |
+| `b-check-gone` | no check: every picker takes `C-j`/`C-k` under the screen again | 13 cases: every burst case but the modal one, group B's six, the anchor case and CTRLO-AT-KEYS' two for the `@` list -- the copy this check replaced |
+| `b-cj-only` / `b-ck-only` | one of the two keys past the pickers | 8 / 9 cases, each the other key's |
+| `burst-held-gone` | `C-j` a line break over `/skills`', `/model`'s and the session menu (no `app_input_runtime.zig:514`) | the model-session-skills burst case |
+| `burst-held-no-skills`, `-no-model`, `-no-sessions` | one menu off `app_input_runtime.zig:514`'s three | the same case, each at its menu |
+| `burst-catalog-mark-reset`, `burst-settings-mark-reset` | the line break resets the mark (round 1's path, `type_character('\n')`) | the catalog's burst case, each at its menu |
+| `anchor-row-check-gone` | the base's anchor, now under every column | the anchor case and the inline model column's own (`a_column_over_a_line_the_caret_has_left_hangs_from_the_caret_rows_start`): both columns hang from one function now |
+
+### 11.7 Sweep (`sweeps-r2.sh`; `sweep-r1.md`, `sweep-r2.md`, `sweep-compare-r2.txt`)
+
+`sweeps-r2.sh`: round 1's build and round 2's against fx v0.0.16, §6's
+list and the `@` list's families (`filepicker*`, `p5-input-at*`), which
+the one check and the merged anchor reach. It runs under the lock after
+this README's first round 2 commit; its result is the next commit's.
+
+### 11.8 Gate (`gate-r2.txt`)
+
+`gates.sh` (round 1's) in a `--no-local` clone at `5d6c4cbb` -- after
+every commit that touches `src/`, `docs/parity.md`, the scenarios or the
+ledger; the receipt commit after it touches only `.prd/` -- the whole
+script in one hold of the suite lock: **20 steps, 0 failed**, the tree
+clean before and after. `cargo test` **5567 passed, 0 failed**; with
+`fault-injection` **5604 passed, 0 failed** (15 binaries each): round 1's
+5561 and 5598 and round 2's six cases. smoke-tui: 37 scenarios and the
+oracle, 1168 checks, 0 failures. `check-no-stubs` and `tests/parity.rs`
+(26 cases) ran inside it, after `13ed6a79`'s parity rows.
+
+### 11.9 The rest
+
+- `docs/parity.md` (`13ed6a79`): the full transcript row's last sentence
+  is the burst, round 1's "No capture can hold that window" gone; the
+  settings row says its `C-j` keeps the mark (SETTINGS-CJ-CK).
+- The ledger (`13646dfa`): 13 refs past round 2's lines; `refs.txt` at the
+  head against the base, **22 checked, 0 wrong**.
+- `fxcites.txt`, run again after this README's last edit: every fx
+  citation in the README, the parity rows this unit changed, the source
+  lines it added and its scenarios' headers, against `fx_src.sh`'s ranges
+  (its fifth part is round 2's: `event_loop.zig`, `command_specs.zig`,
+  `input_presentation.zig`).
+- `equivalent-mutants.txt`: its survivor's line, the `@` list's inline
+  copy, is gone at this head (11.2), so round 2 runs no mutant there.
+- Review points not taken: none. opus SHOULD 2 (queue the burst) is
+  superseded by the dispatcher's call to close it here.
+
+## 12. Open questions
 
 None that needs a user decision.

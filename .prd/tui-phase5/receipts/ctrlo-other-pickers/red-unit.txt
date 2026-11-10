@@ -153,3 +153,56 @@ failures:
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4650 filtered out; finished in 0.01s
 
 error: test failed, to rerun pass `--lib`
+
+# 3. Round 2: RED run at 69743117 (69491c9a's code, round 2's six cases added), filtered to those six by name (`running 6 tests` below); the settings case of the catalog's burst case came with the fix (3369622a), which adds the `SettingsMenu::mark` it reads -- its RED is the mutant `burst-settings-mark-reset` (mutants-r2.txt)
+   Compiling xfx v0.1.0 (<work>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.39s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 6 tests
+test tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_fork_and_effort_close_the_menu_and_the_screen_stays ... FAILED
+test tui::shell::tests::c_j_in_ctrl_os_burst_over_model_session_and_skills_menus_does_nothing_and_c_k_kills_nothing ... FAILED
+test tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_the_catalog_edit_its_search_and_keep_its_mark ... FAILED
+test tui::shell::tests::c_j_in_ctrl_os_burst_over_a_dollar_menu_is_a_new_line_after_its_word ... FAILED
+test tui::shell::tests::a_question_over_a_menu_closes_the_full_transcript_and_ctrl_o_opens_none_over_it ... ok
+test tui::event_loop::tests::ctrl_o_over_the_catalog_writes_no_plane_change_in_its_turn ... ok
+
+failures:
+
+---- tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_fork_and_effort_close_the_menu_and_the_screen_stays stdout ----
+
+thread 'tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_fork_and_effort_close_the_menu_and_the_screen_stays' (493937817) panicked at src/tui/shell.rs:37605:13:
+/fork, 0xb: the menu stayed
+
+---- tui::shell::tests::c_j_in_ctrl_os_burst_over_model_session_and_skills_menus_does_nothing_and_c_k_kills_nothing stdout ----
+
+thread 'tui::shell::tests::c_j_in_ctrl_os_burst_over_model_session_and_skills_menus_does_nothing_and_c_k_kills_nothing' (493937820) panicked at src/tui/shell.rs:37515:13:
+assertion `left == right` failed: /model, 0xa moved the mark
+  left: Some("vendor/one")
+ right: Some("vendor/two")
+
+---- tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_the_catalog_edit_its_search_and_keep_its_mark stdout ----
+
+thread 'tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_the_catalog_edit_its_search_and_keep_its_mark' (493937818) panicked at src/tui/shell.rs:37482:13:
+assertion `left == right` failed: 0xb moved the mark
+  left: Some("/help")
+ right: Some("/clear")
+
+---- tui::shell::tests::c_j_in_ctrl_os_burst_over_a_dollar_menu_is_a_new_line_after_its_word stdout ----
+
+thread 'tui::shell::tests::c_j_in_ctrl_os_burst_over_a_dollar_menu_is_a_new_line_after_its_word' (493937819) panicked at src/tui/shell.rs:37578:13:
+assertion `left == right` failed: 0xa: the composer
+  left: "explain $"
+ right: "explain $\n"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_fork_and_effort_close_the_menu_and_the_screen_stays
+    tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_the_catalog_edit_its_search_and_keep_its_mark
+    tui::shell::tests::c_j_in_ctrl_os_burst_over_a_dollar_menu_is_a_new_line_after_its_word
+    tui::shell::tests::c_j_in_ctrl_os_burst_over_model_session_and_skills_menus_does_nothing_and_c_k_kills_nothing
+
+test result: FAILED. 2 passed; 4 failed; 0 ignored; 0 measured; 4651 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--lib`

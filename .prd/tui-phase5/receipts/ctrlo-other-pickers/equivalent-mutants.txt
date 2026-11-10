@@ -30,3 +30,11 @@ at-cj-ck-handed-on-whenever-ineligible
   So under the mutant and the head alike only the transcript hands the
   keys on. This unit adds a fourth reason for the catalog menus: none of
   them is up under the transcript for a frame (`Shell::reconcile_full_transcript`).
+
+Round 2 (5d6c4cbb): the line this survivor changes -- the `@` list's
+inline hand-on in `Shell::offer_to_files` -- is gone. Round 2 put it, and
+the three per-picker guards, into one check in `Shell::consume_inputs`
+(`Shell::composer_control`, before `Shell::offer_to_pickers`), so no
+picker sees `C-j` or `C-k` with the full transcript up, eligible or not.
+Round 2's mutants (`mutants-r2.txt`) run none here; the one check's own
+mutants are `b-check-gone`, `b-cj-only` and `b-ck-only`.

@@ -25,3 +25,29 @@ test tui::shell::tests::the_arrows_and_page_keys_under_the_full_transcript_are_i
 
 test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 4634 filtered out; finished in 0.03s
 
+
+# Round 2: GREEN at 5d6c4cbb (round 2's gate commit, the code of 3369622a), from the gate's own `cargo test` (gate-r2.txt, step 04): the unit's 23 cases' lines, rounds 1 and 2, and the lib binary's result line
+test tui::event_loop::tests::ctrl_o_over_the_catalog_writes_no_plane_change_in_its_turn ... ok
+test tui::shell::tests::a_column_hangs_under_its_argument_only_on_the_carets_row ... ok
+test tui::shell::tests::a_menu_that_opens_under_the_full_transcript_takes_the_plane_back ... ok
+test tui::shell::tests::a_question_over_a_menu_closes_the_full_transcript_and_ctrl_o_opens_none_over_it ... ok
+test tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_fork_and_effort_close_the_menu_and_the_screen_stays ... ok
+test tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_the_catalog_edit_its_search_and_keep_its_mark ... ok
+test tui::shell::tests::c_j_in_ctrl_os_burst_over_a_dollar_menu_is_a_new_line_after_its_word ... ok
+test tui::shell::tests::c_j_in_ctrl_os_burst_over_model_session_and_skills_menus_does_nothing_and_c_k_kills_nothing ... ok
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_mcp_arguments_is_a_new_line ... ok
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_provider_column_is_a_new_line ... ok
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_slash_menu_is_a_new_line ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_mcp_arguments_moves_no_mark ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_provider_column_moves_no_mark ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_slash_menu_moves_no_mark ... ok
+test tui::shell::tests::ctrl_o_over_the_effort_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_fork_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_help_catalog_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_model_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_session_picker_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_settings_menu_holds_no_frame ... ok
+test tui::shell::tests::ctrl_o_over_the_skills_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::shift_up_and_down_under_the_full_transcript_scroll_nothing_and_move_no_bar ... ok
+test tui::shell::tests::the_arrows_and_page_keys_under_the_full_transcript_are_its_own ... ok
+test result: ok. 4650 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 48.55s
