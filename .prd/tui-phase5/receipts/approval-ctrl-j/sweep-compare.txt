@@ -1,0 +1,43 @@
+# python3 -I ../approval-readiness-settled/cmp_sweeps.py <base pairs.json> <head pairs.json>: sweep.sh --only 'approvals*' --only 'p5-approval*' --only 'p5-input-approval*', 40x120, --jobs 4, this branch's scenarios and ledger at the code head, base binary v0.1.0-d791617 then the head's v0.1.0-9dd02bc, one suite-lock slot
+change p5-approval-ctrl-j/cmd-ask: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope', 'tool-schema'] -> ['approval-grant-scope', 'tool-schema']; uncaused 26 -> 0
+change p5-approval-ctrl-j/cmd2-ask: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope', 'tool-schema'] -> ['approval-grant-scope', 'tool-schema']; uncaused 27 -> 0
+change p5-approval-ctrl-j/end: unresolved-defect -> normalized-identical; causes ['approval-grant-scope'] -> []; uncaused 26 -> 0
+change p5-approval-ctrl-j/write-ask: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 15 -> 0
+change p5-approval-ctrl-j/write-letter-ctrl-j: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 15 -> 0
+change p5-approval-ctrl-j-panel/approval-ctrl-j: unresolved-defect -> approved-divergence-cascade; causes ['approval-grant-scope', 'tool-schema'] -> []; uncaused 24 -> 0
+change p5-approval-ctrl-j-panel/end: unresolved-defect -> approved-divergence-cascade; causes ['approval-grant-scope', 'tool-schema'] -> []; uncaused 24 -> 0
+base: 110 pairs, 3 pass, 10 with uncaused rows
+head: 110 pairs, 4 pass, 3 with uncaused rows
+drops: 0
+
+# pairs with uncaused rows, per side, and every pair of the unit's scenarios (side scenario label verdict causes uncaused-count)
+base p5-approval-ctrl-j edit-ask unresolved-defect ['approval-grant-scope'] 0
+base p5-approval-ctrl-j edit-down-ctrl-j unresolved-defect ['approval-grant-scope'] 0
+base p5-approval-ctrl-j edit-up-ctrl-j unresolved-defect ['approval-grant-scope'] 0
+base p5-approval-ctrl-j write-ask unresolved-defect ['approval-grant-scope'] 15
+base p5-approval-ctrl-j write-letter-ctrl-j unresolved-defect ['approval-grant-scope'] 15
+base p5-approval-ctrl-j cmd-ask unresolved-defect ['tool-schema', 'approval-grant-scope'] 26
+base p5-approval-ctrl-j cmd2-ask unresolved-defect ['tool-schema', 'approval-grant-scope'] 27
+base p5-approval-ctrl-j end unresolved-defect ['approval-grant-scope'] 26
+base p5-approval-ctrl-j-panel open-before-approval approved-divergence-cascade None 0
+base p5-approval-ctrl-j-panel approval-arrives unresolved-defect ['tool-schema', 'approval-grant-scope'] 0
+base p5-approval-ctrl-j-panel approval-ctrl-j unresolved-defect ['tool-schema', 'approval-grant-scope'] 24
+base p5-approval-ctrl-j-panel end unresolved-defect ['tool-schema', 'approval-grant-scope'] 24
+base p5-input-approval cmd-ask unresolved-defect ['tool-schema'] 15
+base p5-input-approval edit-ask unresolved-defect ['approval-grant-scope'] 17
+base p5-input-approval after unresolved-defect [] 13
+head p5-approval-ctrl-j edit-ask unresolved-defect ['approval-grant-scope'] 0
+head p5-approval-ctrl-j edit-down-ctrl-j unresolved-defect ['approval-grant-scope'] 0
+head p5-approval-ctrl-j edit-up-ctrl-j unresolved-defect ['approval-grant-scope'] 0
+head p5-approval-ctrl-j write-ask unresolved-defect ['approval-grant-scope'] 0
+head p5-approval-ctrl-j write-letter-ctrl-j unresolved-defect ['approval-grant-scope'] 0
+head p5-approval-ctrl-j cmd-ask unresolved-defect ['tool-schema', 'approval-grant-scope'] 0
+head p5-approval-ctrl-j cmd2-ask unresolved-defect ['tool-schema', 'approval-grant-scope'] 0
+head p5-approval-ctrl-j end normalized-identical None 0
+head p5-approval-ctrl-j-panel open-before-approval approved-divergence-cascade None 0
+head p5-approval-ctrl-j-panel approval-arrives unresolved-defect ['tool-schema', 'approval-grant-scope'] 0
+head p5-approval-ctrl-j-panel approval-ctrl-j approved-divergence-cascade None 0
+head p5-approval-ctrl-j-panel end approved-divergence-cascade None 0
+head p5-input-approval cmd-ask unresolved-defect ['tool-schema'] 15
+head p5-input-approval edit-ask unresolved-defect ['approval-grant-scope'] 17
+head p5-input-approval after unresolved-defect [] 13

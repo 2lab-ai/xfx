@@ -1,0 +1,2 @@
+# { git diff d7916178 -- src tests scripts/fxcap/scenarios | grep '^+'; grep -o '[*][*]C-j answers a permission question as Enter does.*RULE-CONFIRM-KEYS, proposed)[.]' docs/parity.md; } | fx_src.sh <fx-upstream>   (from the repo root, at the receipt's commit; README.md is read too)
+90 citations checked, 0 outside fx-src.txt's ranges
