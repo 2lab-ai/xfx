@@ -374,22 +374,27 @@ def dep_info(filename):
         try:
             stats[candidate] = os.stat(candidate)
         except OSError:
-            # A dangling link among the candidates: no answer, not a crash.
-            return None
-    same_file = [c for c in candidates if (stats[c].st_dev, stats[c].st_ino) == (mine.st_dev, mine.st_ino)]
+            # A dangling link: it can match neither the inode nor the bytes.
+            continue
+    same_file = [c for c, s in stats.items() if (s.st_dev, s.st_ino) == (mine.st_dev, mine.st_ino)]
     if not same_file:
-        same_file = [c for c in candidates if stats[c].st_size == mine.st_size and same_bytes(c, filename)]
+        same_file = [c for c, s in stats.items() if s.st_size == mine.st_size and same_bytes(c, filename)]
     return dep_info(same_file[0]) if len(same_file) == 1 else None
 
 
 def same_bytes(one, other):
-    with open(one, "rb") as a, open(other, "rb") as b:
-        while True:
-            left, right = a.read(1 << 20), b.read(1 << 20)
-            if left != right:
-                return False
-            if not left:
-                return True
+    """Whether two files hold the same bytes; one that cannot be read does
+    not."""
+    try:
+        with open(one, "rb") as a, open(other, "rb") as b:
+            while True:
+                left, right = a.read(1 << 20), b.read(1 << 20)
+                if left != right:
+                    return False
+                if not left:
+                    return True
+    except OSError:
+        return False
 
 
 RULE = re.compile(r"^((?:[^:\\\s]|\\.)+):(?:\s+(.*))?$")
@@ -882,9 +887,9 @@ def cfg_problems(root, compiled=None, also=()):
             if CLIPPY_WORD.search(predicate):
                 line = text.count("\n", 0, call.start()) + 1
                 problems.append((os.path.relpath(path, root), line, "a cfg predicate that names clippy, under which code is never linted"))
-        for start, predicate in cfg_select_predicates(text):
+        for arrow, predicate in cfg_select_predicates(text):
             if CLIPPY_WORD.search(predicate):
-                line = text.count("\n", 0, start) + 1
+                line = text.count("\n", 0, arrow) + 1
                 problems.append((os.path.relpath(path, root), line, "a cfg_select! arm whose predicate names clippy, under which code is never linted"))
     return problems
 
@@ -905,44 +910,35 @@ def closing(text, at):
 
 
 def cfg_select_predicates(text):
-    """Each `cfg_select!` arm's predicate -- the text before its `=>`, at
-    the top level of the body, whatever the delimiter -- with where the
-    macro starts. The arms' bodies, a braced group or an expression up to
-    the next top-level `,`, are skipped: an `allow(clippy::x)` there is not
-    a predicate."""
+    """Each `cfg_select!` arm's predicate as the check reads it, with where
+    its `=>` is. In the macro's body, whatever its delimiter, every nested
+    bracket group is blanked, so each `=>` left is one at the top level and
+    ends a segment: from the previous one, or the body's start, through the
+    previous arm's body to this arm's predicate. A segment's last group,
+    when it ends the segment, is the predicate's own -- `not(..)`,
+    `all(..)` -- and is read as written. No arm's end is looked for, so no
+    comma, brace or generic can hide a predicate. A `clippy` word at the
+    top level of an expression arm is refused with it, which fails closed;
+    an `allow(clippy::x)` in a body is in a blanked group."""
     for found in CFG_SELECT.finditer(text):
-        body_end = closing(text, found.end() - 1) - 1
-        at = found.end()
-        while at < body_end:
-            depth, arrow = 0, None
-            for index in range(at, body_end):
-                char = text[index]
-                if char in OPENS:
-                    depth += 1
-                elif char in CLOSES:
-                    depth -= 1
-                elif depth == 0 and text.startswith("=>", index):
-                    arrow = index
-                    break
-            if arrow is None:
-                break
-            yield found.start(), text[at:arrow]
-            at = arrow + 2
-            while at < body_end and text[at].isspace():
-                at += 1
-            if at < body_end and text[at] == "{":
-                at = closing(text, at)
-                while at < body_end and text[at].isspace():
-                    at += 1
-                if at < body_end and text[at] == ",":
-                    at += 1
-            else:
-                depth = 0
-                while at < body_end and not (depth == 0 and text[at] == ","):
-                    depth += text[at] in OPENS
-                    depth -= text[at] in CLOSES
-                    at += 1
-                at += 1
+        start, end = found.end(), closing(text, found.end() - 1) - 1
+        body, flat, depth = text[start:end], [], 0
+        for char in body:
+            if char in CLOSES:
+                depth -= 1
+            flat.append(char if depth == 0 else " ")
+            if char in OPENS:
+                depth += 1
+        flat = "".join(flat)
+        segment_start = 0
+        for arrow in re.finditer("=>", flat):
+            segment = flat[segment_start : arrow.start()]
+            kept = len(segment.rstrip())
+            opened = max(segment.rfind(bracket, 0, kept) for bracket in OPENS) if kept else -1
+            if kept and segment[kept - 1] in CLOSES and opened >= 0:
+                segment = segment[:opened] + body[segment_start + opened : segment_start + kept] + segment[kept:]
+            yield start + arrow.start(), segment
+            segment_start = arrow.end()
 
 
 def build_script_problems(root, compiled):
@@ -1241,6 +1237,25 @@ FIXTURES = {
         "pub fn g() -> u8 {\n    cfg_select! { unix => 1, not(clippy) => 2, _ => 3 }\n}",
         ["a cfg_select! arm whose predicate names clippy"],
     ),
+    "cfg_select_after_an_if_else_arm": (
+        "pub fn g() -> usize {\n"
+        "    cfg_select! { windows => if true { 0 } else { 0 } not(clippy) => 1, _ => 7 }\n}",
+        ["a cfg_select! arm whose predicate names clippy"],
+    ),
+    "cfg_select_after_a_braced_arm": (
+        "cfg_select!(\n    unix => { pub fn h() -> [u8; 1] { [0] } }\n"
+        "    not(clippy) => { pub fn h() -> [u8; 1] { [1] } }\n    _ => {}\n);",
+        ["a cfg_select! arm whose predicate names clippy"],
+    ),
+    "cfg_select_a_generic_comma_in_an_arm": (
+        "pub fn g() -> Result<u8, u16> {\n    cfg_select! { unix => Result::<u8, u16>::Ok({ "
+        "#[allow(clippy::let_and_return)] let n = 1; n }), _ => Ok(0) }\n}",
+        [],
+    ),
+    "cfg_select_a_clippy_name_in_a_braced_arm": (
+        "cfg_select! {\n    unix => { pub fn clippy() {} }\n    _ => { pub fn clippy() {} }\n}",
+        [],
+    ),
     "cfg_select_naming_a_clippy_lint_in_an_arm": (
         "cfg_select! {\n    unix => { #[allow(clippy::needless_return)] pub fn h() {} }\n    _ => { pub fn h() {} }\n}",
         [],
@@ -1447,6 +1462,17 @@ def self_test():
                 made.write("the same bytes")
         for name in ("deps/twin-aaaaaaaaaaaaaaaa.d", "deps/twin-bbbbbbbbbbbbbbbb.d"):
             open(os.path.join(twins, name), "w").close()
+        # A copy beside a dangling link and an unreadable file of its size,
+        # both named like its original, and the original.
+        odd = os.path.join(scratch, "odd")
+        os.makedirs(os.path.join(odd, "deps"))
+        for name in ("thing", "deps/thing-cccccccccccccccc", "deps/thing-bbbbbbbbbbbbbbbb"):
+            with open(os.path.join(odd, name), "w") as made:
+                made.write("the bytes")
+        os.chmod(os.path.join(odd, "deps/thing-bbbbbbbbbbbbbbbb"), 0)
+        os.symlink(os.path.join(odd, "gone"), os.path.join(odd, "deps/thing-aaaaaaaaaaaaaaaa"))
+        for name in ("deps/thing-aaaaaaaaaaaaaaaa.d", "deps/thing-bbbbbbbbbbbbbbbb.d", "deps/thing-cccccccccccccccc.d"):
+            open(os.path.join(odd, name), "w").close()
         resolved = {
             what: (dep_info(path) or (None,))[0]
             for what, path in (
@@ -1455,6 +1481,7 @@ def self_test():
                 ("an executable uplifted by a hard link", os.path.join(linked, "xfx")),
                 ("an executable uplifted by a copy", copied),
                 ("a copy with two byte-identical originals", os.path.join(twins, "twin")),
+                ("a copy beside a dangling and an unreadable candidate", os.path.join(odd, "thing")),
             )
         }
         expected = {
@@ -1463,6 +1490,7 @@ def self_test():
             "an executable uplifted by a hard link": os.path.join(linked, "deps", "xfx-fedcba9876543210.d"),
             "an executable uplifted by a copy": os.path.join(names_dir, "xfx-fedcba9876543210.d"),
             "a copy with two byte-identical originals": None,
+            "a copy beside a dangling and an unreadable candidate": os.path.join(odd, "deps", "thing-cccccccccccccccc.d"),
         }
         wrong = [what for what in expected if resolved[what] != expected[what]]
         failures += bool(wrong)
