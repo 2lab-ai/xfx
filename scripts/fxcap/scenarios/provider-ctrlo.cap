@@ -6,6 +6,10 @@
 # after the argument (:513-521). Down and Escape are the transcript's
 # (input_full_transcript_runtime.zig:156-197). Down first, so a move would
 # show.
+# Last, with no Ctrl-O: Backspace takes the new line back, and Alt-Enter
+# (ESC CR, insert_newline in both) puts it in again, so the column's anchor
+# follows the caret's row without the screen (projectedAnchorColumn,
+# visual_layout.zig:705-713; `alt-enter`).
 fx: env FX_AUTO_UPGRADE=0
 seed provider-settings.json
 nomodel
@@ -42,3 +46,9 @@ wait 0.4
 key C-o
 wait 0.8
 snap cj
+key BSpace
+wait 0.4
+snap bspace
+key M-Enter
+wait 0.6
+snap alt-enter

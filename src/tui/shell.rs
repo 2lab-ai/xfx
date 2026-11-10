@@ -37407,6 +37407,225 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_question_over_a_menu_closes_the_full_transcript_and_ctrl_o_opens_none_over_it() {
+        // fx's frame closes the screen over the seven menus only while no
+        // question and no approval is up (`!question_active and approval ==
+        // null`, `app_render_runtime.zig:1206@481104fd`). xfx's reconcile
+        // needs neither term (CTRLO-OTHER-PICKERS round 2, gpt6 MUST 1): an
+        // approval or a question closes the screen as it arrives
+        // ([`Shell::full_transcript_sees`]), and Ctrl-O opens none while one
+        // is up ([`Shell::open_full_transcript`] refuses while
+        // [`Shell::modal`]) -- so the reconcile never sees the screen up with
+        // one. Here with the catalog up under the screen.
+        for approval in [true, false] {
+            let mut shell = shell(24, 80);
+            let started = turn_running(&mut shell, b"edit the notes\r");
+            shell.route_bytes(b"/help\r");
+            assert!(shell.help_menu.is_some(), "/help opened no catalog");
+            shell.route_bytes(&[0x0f]);
+            assert!(shell.full.is_open(), "Ctrl-O did not open the transcript");
+            if approval {
+                shell.apply(UiEvent::Approval(question(asked())));
+            } else {
+                shell.apply(UiEvent::Question(a_batch()));
+            }
+            assert!(shell.modal(), "approval {approval}: no question is up");
+            assert!(
+                !shell.full.is_open(),
+                "approval {approval}: the question left the transcript up"
+            );
+            shell.route_bytes(&[0x0f]);
+            assert!(
+                !shell.full.is_open(),
+                "approval {approval}: Ctrl-O opened it over the question"
+            );
+            shell.settle_band(started);
+            assert!(!shell.full.is_open());
+        }
+    }
+
+    // CTRLO-OTHER-PICKERS round 2 (gpt6 MUST 2): Ctrl-O and C-j or C-k in
+    // one burst -- one read, before any frame. fx reads up to
+    // `max_input_reads_per_fact_collection` reads before a frame
+    // (`event_loop.zig:90-120@481104fd`), so the second key finds the screen
+    // still up: no picker takes it (`routePickerControlByte`,
+    // `app_input_runtime.zig:1093-1116`) and the composer does (`:881-893`).
+    // Then the frame closes the screen over whichever menu is still up.
+
+    /// Ctrl-O and `key` in one read, then the loop's tick before the frame.
+    fn one_burst_with_ctrl_o(shell: &mut Fixture, key: u8) {
+        shell.route_bytes(&[0x0f, key]);
+        shell.settle_band(Instant::now());
+    }
+
+    #[test]
+    fn c_j_and_c_k_in_ctrl_os_burst_over_the_catalog_edit_its_search_and_keep_its_mark() {
+        // `p5-ctrlo-help burst-ck`, `burst-cj`: C-k a kill of nothing
+        // (`:479-488`), C-j a line break in the search (`:513-521`), which
+        // syncs no catalog menu, so the mark stays on `/clear`; a line break
+        // is no word of the search (`command_specs.zig`'s tokenizer), so the
+        // list is the same.
+        let marked = |shell: &Fixture| {
+            shell
+                .help_menu
+                .as_ref()
+                .and_then(HelpMenu::selected)
+                .map(|spec| spec.name)
+        };
+        for (key, text) in [(0x0b, ""), (0x0a, "\n")] {
+            let mut shell = with_catalog(40, 120);
+            shell.route_bytes(b"\x1b[B");
+            assert_eq!(marked(&shell), Some("/clear"));
+            one_burst_with_ctrl_o(&mut shell, key);
+            assert_eq!(shell.editor.text(), text, "{key:#x}: the composer");
+            assert_eq!(marked(&shell), Some("/clear"), "{key:#x} moved the mark");
+            assert!(!shell.full.is_open(), "{key:#x}: the frame left it up");
+        }
+    }
+
+    #[test]
+    fn c_j_in_ctrl_os_burst_over_model_session_and_skills_menus_does_nothing_and_c_k_kills_nothing()
+    {
+        // fx's `insert_newline` adds nothing while `/skills`' menu, `/model`'s
+        // or the session picker is up (`app_input_runtime.zig:514
+        // @481104fd`), and C-k kills nothing at the line's end (`:479-488`):
+        // the mark stays, the composer is empty, the frame closes the screen.
+        use super::super::session_picker::{ListedSession, Listing};
+        for key in [0x0a, 0x0b] {
+            let mut models = shell(40, 120);
+            models.shell.apply(UiEvent::CatalogLoaded {
+                due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+                provider: ProviderId::Gateway,
+                entries: vec![
+                    entry("one", Some(400_000), &[]),
+                    entry("two", Some(400_000), &[]),
+                ],
+            });
+            let _ = models.document();
+            models.route_bytes(b"/model\r\x1b[B");
+            let marked = |shell: &Fixture| {
+                shell
+                    .model_menu
+                    .as_ref()
+                    .and_then(|menu| menu.selected().map(str::to_string))
+            };
+            let mark = marked(&models);
+            one_burst_with_ctrl_o(&mut models, key);
+            assert_eq!(marked(&models), mark, "/model, {key:#x} moved the mark");
+            assert_eq!(models.editor.text(), "", "/model, {key:#x}");
+            assert!(!models.full.is_open());
+
+            let mut sessions = shell(40, 120);
+            sessions.route_bytes(b"/resume\r");
+            let _ = sessions.picks_up();
+            sessions.work.give_back();
+            let session = |id: &str| ListedSession {
+                id: id.to_string(),
+                title: Some(format!("question {id}")),
+                workspace: "/x/work".to_string(),
+                updated_at_ms: 0,
+                turns: 1,
+            };
+            sessions.apply(UiEvent::Sessions(Some(Listing {
+                current: vec![session("b"), session("a")],
+                all: Vec::new(),
+                now_ms: 0,
+            })));
+            sessions.route_bytes(b"\x1b[B");
+            one_burst_with_ctrl_o(&mut sessions, key);
+            assert_eq!(
+                sessions
+                    .sessions
+                    .as_ref()
+                    .and_then(SessionPicker::selected)
+                    .as_deref(),
+                Some("a"),
+                "sessions, {key:#x} moved the mark"
+            );
+            assert_eq!(sessions.editor.text(), "", "sessions, {key:#x}");
+            assert!(!sessions.full.is_open());
+
+            let mut skills = skilled();
+            skills.route_bytes(b"/skills\r");
+            skills_landed(&mut skills);
+            skills.route_bytes(b"\x1b[B");
+            one_burst_with_ctrl_o(&mut skills, key);
+            assert_eq!(
+                skills
+                    .skills_menu
+                    .as_ref()
+                    .and_then(SkillsMenu::selected)
+                    .map(|skill| skill.name.as_str()),
+                Some("release-notes"),
+                "/skills, {key:#x} moved the mark"
+            );
+            assert_eq!(skills.editor.text(), "", "/skills, {key:#x}");
+            assert!(!skills.full.is_open());
+        }
+    }
+
+    #[test]
+    fn c_j_in_ctrl_os_burst_over_a_dollar_menu_is_a_new_line_after_its_word() {
+        // A `$` word's menu owns neither key (`activeCatalogMenuOwnsByte`,
+        // `app_input_runtime.zig:1609-1619@481104fd`) and is not `/skills`'
+        // (`:514`): C-j is a line break after the word, which still ends the
+        // word, so the menu and its mark stay; C-k kills nothing.
+        for (key, text) in [(0x0a, "explain $\n"), (0x0b, "explain $")] {
+            let mut shell = skilled();
+            shell.route_bytes(b"explain $\x1b[B");
+            one_burst_with_ctrl_o(&mut shell, key);
+            assert_eq!(shell.editor.text(), text, "{key:#x}: the composer");
+            assert_eq!(
+                shell
+                    .skills_menu
+                    .as_ref()
+                    .filter(|menu| menu.visible())
+                    .and_then(SkillsMenu::selected)
+                    .map(|skill| skill.name.as_str()),
+                Some("release-notes"),
+                "{key:#x}: the menu or its mark"
+            );
+            assert!(!shell.full.is_open(), "{key:#x}: the frame left it up");
+        }
+    }
+
+    #[test]
+    fn c_j_and_c_k_in_ctrl_os_burst_over_fork_and_effort_close_the_menu_and_the_screen_stays() {
+        // `p5-ctrlo-fork burst-ck`, `burst-cj`: the key is a composer edit,
+        // which closes `/fork`'s and `/effort`'s menus
+        // (`dismissActiveMenusForComposerEdit`, `app_input_runtime.zig:
+        // 1984-1990@481104fd`); with no menu left the frame keeps the screen,
+        // and the line break C-j typed is in the composer behind it.
+        for (key, text) in [(0x0b, ""), (0x0a, "\n")] {
+            let mut forked = shell(40, 120);
+            forked_menu(&mut forked, three_points());
+            forked.route_bytes(b"\x1b[A");
+            one_burst_with_ctrl_o(&mut forked, key);
+            assert!(
+                forked.fork_menu.is_none(),
+                "/fork, {key:#x}: the menu stayed"
+            );
+            assert_eq!(forked.editor.text(), text, "/fork, {key:#x}");
+            assert!(forked.full.is_open(), "/fork, {key:#x}: the screen closed");
+
+            let root = tempfile::tempdir().expect("a root");
+            let mut effort = effort_shell(root.path());
+            effort.route_bytes(b"/effort\r\x1b[B");
+            assert!(effort.effort_menu.is_some());
+            one_burst_with_ctrl_o(&mut effort, key);
+            assert!(
+                effort.effort_menu.is_none(),
+                "/effort, {key:#x}: the menu stayed"
+            );
+            assert_eq!(effort.editor.text(), text, "/effort, {key:#x}");
+            assert!(
+                effort.full.is_open(),
+                "/effort, {key:#x}: the screen closed"
+            );
+        }
+    }
+
     /// Ctrl-O over a menu the transcript holds over, and the frame: it is
     /// still up.
     fn held_over(shell: &mut Fixture) {

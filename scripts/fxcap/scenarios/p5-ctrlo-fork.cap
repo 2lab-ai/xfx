@@ -1,6 +1,11 @@
 # CTRLO-OTHER-PICKERS: Ctrl-O over /fork's menu after three turns (the
 # newest prompt marked), then one key at a time between a Ctrl-O and its
 # return. Up first: the mark is on the last row.
+# Then Ctrl-O and C-k, and Ctrl-O and C-j, each pair one `send-keys` of two
+# bytes, so one burst: the screen is still up for the second byte, no picker
+# takes it (routePickerControlByte, app_input_runtime.zig:1093-1116), and
+# the composer's edit closes the menu (dismissActiveMenusForComposerEdit,
+# :1984-1990) -- C-j leaving a new line (`burst-ck`, `burst-cj`).
 # fx closes the full transcript before every frame while this menu is up
 # (reconcileBeforeFrameRender, app_render_runtime.zig:1206-1215@481104fd), so
 # Ctrl-O over it shows nothing and every key below is the menu's own, as
@@ -61,3 +66,19 @@ wait 0.8
 key Escape
 wait 0.8
 snap esc
+type /fork
+key Enter
+wait 1
+key Up
+wait 0.4
+key -H 0f 0b
+wait 0.8
+snap burst-ck
+type /fork
+key Enter
+wait 1
+key Up
+wait 0.4
+key -H 0f 0a
+wait 0.8
+snap burst-cj

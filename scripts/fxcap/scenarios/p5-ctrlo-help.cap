@@ -8,6 +8,11 @@
 # Escape closes the menu (resolveEscape, :2765).
 # fx's trace log (scope full_transcript) shows each Ctrl-O open the screen
 # and the frame close it; `home end` keeps it.
+# Then Ctrl-O and C-k, and Ctrl-O and C-j, each pair one `send-keys` of two
+# bytes, so one burst: the screen is still up for the second byte, no picker
+# takes it (routePickerControlByte, app_input_runtime.zig:1093-1116), and the
+# composer does -- a kill of nothing, then a new line in the catalog's
+# search (:513-521), which no word of the search is (`burst-ck`, `burst-cj`).
 fx: env FX_AUTO_UPGRADE=0 FX_TRACE_LOG=@HOME@/trace.txt FX_TRACE_SCOPES=full_transcript
 wait 2
 type /help
@@ -52,4 +57,15 @@ wait 0.8
 key Escape
 wait 0.8
 snap esc
+type /help
+key Enter
+wait 1
+key Down
+wait 0.5
+key -H 0f 0b
+wait 0.8
+snap burst-ck
+key -H 0f 0a
+wait 0.8
+snap burst-cj
 home end

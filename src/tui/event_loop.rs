@@ -16694,4 +16694,48 @@ mod tests {
         assert_eq!(list.keys(UP), at_window(7, 12, 12), "the first Up");
         assert_eq!(list.keys(UP), at_window(7, 12, 11), "the second Up");
     }
+
+    #[test]
+    fn ctrl_o_over_the_catalog_writes_no_plane_change_in_its_turn() {
+        // CTRLO-OTHER-PICKERS (opus NIT 4): fx's frame closes the screen
+        // Ctrl-O opened over the catalog (`reconcileBeforeFrameRender`,
+        // `app_render_runtime.zig:1206-1215@481104fd`), and here the tick
+        // does before the frame ([`Shell::settle_band`]), so the turn's bytes
+        // hold no `?1049h` and no `?1049l`, and the band stays on the normal
+        // plane with the catalog in it.
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut out = screen();
+        let mut failures = FrameFailures::default();
+        let mut tick = |shell: &mut Fixture, band: &mut Band, out: &mut FlakyScreen| {
+            let now = Instant::now();
+            shell.settle_input(now);
+            shell.settle_band(now);
+            commit_frame(shell, band, out, &mut failures, now, Reconciled).expect("a frame");
+        };
+        tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"/help\r");
+        tick(&mut shell, &mut band, &mut out);
+        assert!(
+            shell.band_rows().join("\n").contains("Commands "),
+            "no catalog"
+        );
+        let before = out.written.len();
+        shell.route_bytes(b"\x0f");
+        tick(&mut shell, &mut band, &mut out);
+        let turn = String::from_utf8_lossy(&out.written[before..]).into_owned();
+        assert!(
+            !turn.contains(ENTERS_ALTERNATE),
+            "the turn took the plane: {turn:?}"
+        );
+        assert!(
+            !turn.contains(LEAVES_ALTERNATE),
+            "the turn gave a plane back: {turn:?}"
+        );
+        assert!(!band.on_alternate(), "the band is on the other plane");
+        assert!(
+            shell.band_rows().join("\n").contains("Commands "),
+            "the catalog went"
+        );
+    }
 }
