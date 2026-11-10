@@ -9,7 +9,8 @@
 # -Down the field's edges, Ctrl-F, Shift-Left and Ctrl-B the step, and Ctrl-
 # and Shift-Alt-Up and -Down nothing. Each vertical key on a page of its own
 # (Tab between), then the horizontal ones on page 7, where going back a page
-# would show; then a draft on page 7, a letter typed after each key.
+# would show; then a draft on page 7, a letter typed after each key (each
+# vertical key on its own, so a choice move up and one down cannot cancel).
 fx: env FX_AUTO_UPGRADE=0
 gateway p5-input-question20-turns.json
 wait 4
@@ -70,11 +71,15 @@ type z
 wait 0.4
 snap field-super-up
 key -H 1b 5b 31 3b 35 41
-key -H 1b 5b 31 3b 34 42
 wait 0.4
 type y
 wait 0.4
 snap field-ctrl-up
+key -H 1b 5b 31 3b 34 42
+wait 0.4
+type k
+wait 0.4
+snap field-shift-alt-down
 key -H 06
 wait 0.4
 type x

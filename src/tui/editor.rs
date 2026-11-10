@@ -494,10 +494,11 @@ impl Editor {
                 self.move_to(self.text.len());
                 None
             }
-            // Shift on the vertical arrows is a question field's to bind
-            // (`super::input::Action::SelectUp`), and Ctrl or Alt an
-            // approval's to leave alone (`super::input::Action::ComposerUp`);
-            // to an editor each is the arrow.
+            // Shift on the vertical arrows, with Ctrl or without, is a
+            // question's choice move (`super::input::Action::SelectUp`), and
+            // Alt (Shift or not) or Ctrl alone a move a question and an
+            // approval leave alone (`super::input::Action::ComposerUp`); to
+            // an editor each is the arrow.
             Action::Up | Action::SelectUp | Action::ComposerUp => {
                 self.move_by_row(Step::Up, cols);
                 None

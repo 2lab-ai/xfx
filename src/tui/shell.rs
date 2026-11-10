@@ -24342,8 +24342,15 @@ mod tests {
             // Super-Left and -Right are the step here, where fx's jump to the
             // line's edge (`line_start`/`line_end`, `src/ui/input/runtime.zig:162-163`): xfx's decoder
             // reads Super on Left and Right as the step (COMPOSER-SUPER-ARROWS,
-            // which flips this case).
+            // which flips both cases). Super-Left from the end: fx's `q` would
+            // stand first. Super-Right from the start (Super-Up first): fx's
+            // `p` would stand last.
             (&[&b"\x1b[1;9D"[..]][..], b"q", "tzsyaxb cduvwqr"),
+            (
+                &[&b"\x1b[1;9A"[..], b"\x1b[1;9C"][..],
+                b"p",
+                "tpzsyaxb cduvwqr",
+            ),
         ] {
             for key in keys {
                 fixture.route_bytes(key);

@@ -1353,7 +1353,8 @@ fn control(byte: u8) -> Action {
     match byte {
         0x01 => Action::Home,
         // A raw byte to upstream rather than its cursor key: an approval's
-        // choice leaves it alone ([`Action::ComposerLeft`]).
+        // choice and a question's leave it alone, and the full transcript
+        // leaves it to the composer ([`Action::ComposerLeft`]).
         0x02 => Action::ComposerLeft,
         0x03 => Action::Cancel,
         0x04 => Action::Eof,
@@ -2266,7 +2267,8 @@ mod tests {
         ("super+z", b"\x1b[122;9u", Action::Undo),
         ("super+shift+z", b"\x1b[122;10u", Action::Redo),
         // Ctrl-B and Ctrl-F are their control bytes, which an approval's
-        // choice tells apart from the arrows ([`Action::ComposerLeft`]).
+        // choice, a question's choice and the full transcript tell apart
+        // from the arrows ([`Action::ComposerLeft`]).
         ("ctrl+b", b"\x1b[98;5u", Action::ComposerLeft),
         ("ctrl+f", b"\x1b[102;5u", Action::ComposerRight),
         ("ctrl+h", b"\x1b[104;5u", Action::Backspace),
