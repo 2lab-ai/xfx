@@ -97,32 +97,47 @@ The tree is fx's benchmark inventory (`benchmarks/file_index_bench.zig:
 queries, every prefix timed (1,460 searches), release build, under the suite
 lock, the machine at load 40-75 on 18 cores.
 
-| | base | head |
-|---|---|---|
-| every keystroke p50 / p95 | 32.7 / 46.7 ms | 3.3 / 11.0 ms |
-| whole queries p95 (fx's gate shape) | 51.8 ms | 12.0 ms |
+| | base (load 40) | head run 1 (load 76) | head run 2 (load 37-43) |
+|---|---|---|---|
+| every keystroke p50 / p95 | 32.7 / 46.7 ms | 3.3 / 11.0 ms | 5.6 / 25.1 ms |
+| whole queries p95 (fx's gate shape) | 51.8 ms | 12.0 ms | 20.7 ms |
 
 **The number held to: 8 ms p95 a keystroke**, the event loop's `TICK`
 (`src/tui/event_loop.rs`): the lookup runs on the thread that paints. fx's
-own gate is 16 ms p95 (`benchmarks/file_index_bench.zig:16`). The head meets
-fx's gate and misses 8 ms at this load; the misses are the low-selectivity
-queries (`ae`, `ashr`, `scwfi`, p95 11-12 ms), the ones fx's pruning cuts.
+own gate is 16 ms p95 (`benchmarks/file_index_bench.zig:16`); the assertion
+is one constant in the benchmark if fx's number is preferred. The head is
+about ten times the base's speed at p50 and **misses 8 ms in both runs**,
+and fx's 16 ms in the second; the shared machine's load moves the tail
+(run 2's p50 is 1.7 times run 1's). The slow keys are the low-selectivity
+ones (`ae`, `ashr`, `scwfi`), which fx's pruning cuts. The benchmark is
+`#[ignore]`d: no gate runs it.
 
 ## 6. The split proposed
 
 - **A (this branch):** AT-RANK as committed: the score, order and bold
-  letters, +370 lines net. Then mutants, sweep, gate, the parity row and the
-  ledger's `at-ranking` cause closed.
+  letters, +371 net outside the tests (`size.txt`: +516 -145; 437 code
+  lines added). It does not split further: the score, the placement and the
+  order are one rule, and the bold letters are that placement's. Then
+  mutants, the sweep, the gate, the parity row and the ledger's `at-ranking`
+  cause closed.
 - **B, AT-RANK-PERF:** fx's pruning (`rankTopN`, `file_index.zig:1344-1373`:
-  `Needed`, `length_limit`, the bitmap), about 60-80 lines, held to 8 ms by
-  the benchmark already in the tree, RED today (`bench-head.txt`).
+  `Needed`, `length_limit`, the bitmap), not written [estimate: 60-80
+  lines], held to 8 ms by the benchmark already in the tree, which is its
+  RED today (`bench-head.txt`).
 - Not proposed: order without the bold letters (wrong letters on screen
   between the two PRs), or the engine first with its wiring later (dead code
   under `-D warnings`).
 
 ## 7. Open questions
 
-- The split (§6).
+- The split (§6): one bit -- go on with A at +371 lines (mutants, sweep,
+  gate, parity row, ledger), or not.
+- Not run: the mutants (so "would the tests fail if reverted" is
+  unanswered), the sweep (`at*`, `p5-input-at*` -- a listing with a query
+  such as `p5-input-at-folders` `sto-query` has a unit test here but no
+  screen -- `filepicker*`, `p5-ctrlo*`, `p5-input-at-resize`) and the full
+  gate. Run (`units.txt`): fmt, both clippys, and `tui::file_index`, `tui::file_picker`,
+  `tui::shell`, `tui::event_loop` (`units.txt`: 1147 passed).
 - Not this unit's: xfx folds with `to_lowercase` where fx uses Unicode simple
   folding (`σ` and `ς` match each other in fx; `file_index.zig:2909-2944`); fx's test of
   it is not transcribed here.
