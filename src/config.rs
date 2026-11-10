@@ -1086,14 +1086,13 @@ impl RuntimeConfig {
         }
 
         let before_user = diagnostics.len();
-        let profile_opened = profile_dir
-            .as_deref()
-            .zip(user_settings_path.as_deref())
-            .map_or(ProfileOpen::Absent, |(dir, file)| profile_open(dir, file));
-        let user = match user_settings_path.as_ref() {
-            Some(path) => read_layer(path, ConfigLayer::User, &mut diagnostics),
-            None => LayerRead::absent(),
-        };
+        let (profile_opened, profile_file) =
+            env.home().map_or((ProfileOpen::Absent, None), profile_open);
+        let user = read_user_layer(
+            profile_file,
+            user_settings_path.as_deref(),
+            &mut diagnostics,
+        );
         let user_settings_present = user.present;
         let user_settings_loaded = user.object.is_some();
         let mut profile_rejected = user.present && !user_settings_loaded;
@@ -2299,103 +2298,183 @@ enum ProfileOpen {
     Read,
 }
 
-/// fx's read-only load of the profile, step by step (`initFromHome`,
-/// `settings_store.zig:340-391@481104fd`; `loadRawPrimary`, `:716-748`;
-/// `openExistingRegularFile`, `io.zig:170-180`, `:213-286`):
-/// `~/.xfx` looked at without following a link -- a link or not a
-/// directory is unsafe -- then opened, then its mode; the settings file
-/// looked at the same way -- a link, anything but a regular file, or one
-/// with another hard link is unsafe -- then opened for reading, then its
-/// mode. Only a file that passes all of that is read.
-fn profile_open(dir: &Path, file: &Path) -> ProfileOpen {
-    let looked = |path: &Path| match fs::symlink_metadata(path) {
-        Ok(metadata) => Ok(Some(metadata)),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(_) => Err(()),
+/// fx's read-only load of the profile, step by step, on descriptors as fx
+/// keeps it (`initFromHome`, `settings_store.zig:340-391@481104fd`;
+/// `loadRawPrimary`, `:716-748`; `openExistingRegularFile`, `io.zig:170-180`,
+/// `:213-286`):
+///
+/// 1. `home`, opened as a directory: there or not at all.
+/// 2. `~/.xfx` opened in it without following a link; the open descriptor's
+///    kind, then its mode.
+/// 3. The settings file in that directory looked at without following a
+///    link, its kind and links checked; then opened without following a link
+///    or waiting on a FIFO, the open descriptor's kind and links checked
+///    again, then its mode.
+///
+/// A file that passes all of that is handed back open, and the layer is read
+/// from that descriptor ([`read_user_layer`]): what is judged is what was
+/// checked, whatever the path names by then.
+#[cfg(unix)]
+fn profile_open(home: &Path) -> (ProfileOpen, Option<fs::File>) {
+    use rustix::fs::{fstat, openat, statat, AtFlags, Mode, OFlags, CWD};
+    use rustix::io::Errno;
+
+    let directory = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
+    // HOME is followed, as fx's `openDirAbsolute` follows it; only a missing
+    // one is no profile (`settings_store.zig:342-348`).
+    let home = match openat(CWD, home, directory, Mode::empty()) {
+        Ok(fd) => fd,
+        Err(Errno::NOENT) => return (ProfileOpen::Absent, None),
+        Err(_) => return (ProfileOpen::Unopenable, None),
     };
-    let open_to_others = |metadata: &fs::Metadata| mode_bits(metadata) & 0o022 != 0;
-    let dir_metadata = match looked(dir) {
-        Ok(None) => return ProfileOpen::Absent,
-        Ok(Some(metadata)) => metadata,
-        Err(()) => return ProfileOpen::Unopenable,
+    let dir = match openat(
+        &home,
+        PROFILE_DIR_NAME,
+        directory | OFlags::NOFOLLOW,
+        Mode::empty(),
+    ) {
+        Ok(fd) => fd,
+        Err(Errno::NOENT) => return (ProfileOpen::Absent, None),
+        Err(Errno::NOTDIR | Errno::LOOP) => return (ProfileOpen::Unsafe, None),
+        Err(_) => return (ProfileOpen::Unopenable, None),
     };
-    if !dir_metadata.is_dir() {
-        return ProfileOpen::Unsafe;
+    match fstat(&dir) {
+        Ok(stat) if !is_kind(&stat, rustix::fs::FileType::Directory) => {
+            return (ProfileOpen::Unsafe, None)
+        }
+        Ok(stat) if open_to_others(&stat) => return (ProfileOpen::NotRead, None),
+        Ok(_) => {}
+        Err(_) => return (ProfileOpen::Unopenable, None),
     }
-    if fs::read_dir(dir).is_err() {
-        return ProfileOpen::Unopenable;
+    match statat(&dir, USER_SETTINGS_FILE, AtFlags::SYMLINK_NOFOLLOW) {
+        Ok(stat) if !sole_regular(&stat) => return (ProfileOpen::Unsafe, None),
+        Ok(_) => {}
+        Err(Errno::NOENT) => return (ProfileOpen::Absent, None),
+        Err(_) => return (ProfileOpen::Unopenable, None),
     }
-    if open_to_others(&dir_metadata) {
-        return ProfileOpen::NotRead;
-    }
-    let metadata = match looked(file) {
-        Ok(None) => return ProfileOpen::Absent,
-        Ok(Some(metadata)) => metadata,
-        Err(()) => return ProfileOpen::Unopenable,
+    open_settings(&dir, USER_SETTINGS_FILE)
+}
+
+/// The settings file's open itself (`io.zig:238-261`): no link followed, no
+/// wait on a FIFO, and the open descriptor checked again before its mode --
+/// so a link, a FIFO or a second name put there after the look is unsafe
+/// still, and the open before the mode, as fx: a file nobody may read is
+/// refused whatever its mode lets others write.
+#[cfg(unix)]
+fn open_settings(dir: &std::os::fd::OwnedFd, name: &str) -> (ProfileOpen, Option<fs::File>) {
+    use rustix::fs::{fstat, openat, Mode, OFlags};
+    use rustix::io::Errno;
+
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let fd = match openat(dir, name, flags, Mode::empty()) {
+        Ok(fd) => fd,
+        Err(Errno::NOENT) => return (ProfileOpen::Absent, None),
+        Err(Errno::NXIO | Errno::LOOP | Errno::NOTDIR) => return (ProfileOpen::Unsafe, None),
+        Err(_) => return (ProfileOpen::Unopenable, None),
     };
-    if !metadata.is_file() || hard_links(&metadata) > 1 {
-        return ProfileOpen::Unsafe;
+    match fstat(&fd) {
+        Ok(stat) if !sole_regular(&stat) => (ProfileOpen::Unsafe, None),
+        Ok(stat) if open_to_others(&stat) => (ProfileOpen::NotRead, None),
+        Ok(_) => (ProfileOpen::Read, Some(fs::File::from(fd))),
+        Err(_) => (ProfileOpen::Unopenable, None),
     }
-    // The open before the mode, as fx: a file nobody may read is refused
-    // whatever its mode lets others write.
-    if fs::File::open(file).is_err() {
-        return ProfileOpen::Unopenable;
-    }
-    if open_to_others(&metadata) {
-        return ProfileOpen::NotRead;
-    }
-    ProfileOpen::Read
+}
+
+/// A regular file with no other name.
+#[cfg(unix)]
+fn sole_regular(stat: &rustix::fs::Stat) -> bool {
+    is_kind(stat, rustix::fs::FileType::RegularFile) && stat.st_nlink == 1
 }
 
 #[cfg(unix)]
-fn mode_bits(metadata: &fs::Metadata) -> u32 {
-    std::os::unix::fs::PermissionsExt::mode(&metadata.permissions())
+fn is_kind(stat: &rustix::fs::Stat, kind: rustix::fs::FileType) -> bool {
+    rustix::fs::FileType::from_raw_mode(stat.st_mode) == kind
 }
 
-#[cfg(not(unix))]
-fn mode_bits(_: &fs::Metadata) -> u32 {
-    0
-}
-
+/// Group or other may write to it (`mode & 0o022`, `settings_store.zig:763-765`).
 #[cfg(unix)]
-fn hard_links(metadata: &fs::Metadata) -> u64 {
-    std::os::unix::fs::MetadataExt::nlink(metadata)
+fn open_to_others(stat: &rustix::fs::Stat) -> bool {
+    u32::from(stat.st_mode) & 0o022 != 0
 }
 
+/// Without descriptors to hold, the file is opened by its path and its
+/// content decides.
 #[cfg(not(unix))]
-fn hard_links(_: &fs::Metadata) -> u64 {
-    1
+fn profile_open(home: &Path) -> (ProfileOpen, Option<fs::File>) {
+    match fs::File::open(home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE)) {
+        Ok(file) => (ProfileOpen::Read, Some(file)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => (ProfileOpen::Absent, None),
+        Err(_) => (ProfileOpen::Unopenable, None),
+    }
+}
+
+/// The profile layer: read from the descriptor [`profile_open`] checked when
+/// it handed one back -- never the path again -- and otherwise, where no
+/// launch's refusal turns on what it holds, as any layer is read.
+fn read_user_layer(
+    opened: Option<fs::File>,
+    path: Option<&Path>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> LayerRead {
+    match (opened, path) {
+        (Some(file), _) => read_opened(file, ConfigLayer::User, diagnostics),
+        (None, Some(path)) => read_layer(path, ConfigLayer::User, diagnostics),
+        (None, None) => LayerRead::absent(),
+    }
 }
 
 /// Reads one settings file, recording why it was rejected and whether it was
 /// there at all.
+///
+/// Opened once, without waiting on a FIFO, and read from that descriptor:
+/// what is judged is what was opened.
 fn read_layer(path: &Path, layer: ConfigLayer, diagnostics: &mut Vec<Diagnostic>) -> LayerRead {
-    let metadata = match fs::metadata(path) {
-        Ok(metadata) => metadata,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return LayerRead::absent(),
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NONBLOCK);
+    match options.open(path) {
+        Ok(file) => read_opened(file, layer, diagnostics),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => LayerRead::absent(),
         Err(_) => {
-            // The entry could not be stat'ed. Something is there, or something
-            // is wrong with the path; either way xfx owes the user a report.
+            // Something is there, or something is wrong with the path; either
+            // way xfx owes the user a report.
             diagnostics.push(Diagnostic::new(layer, DiagnosticCause::UnreadableSettings));
-            return LayerRead::rejected();
+            LayerRead::rejected()
         }
+    }
+}
+
+/// One settings layer from an open file: a regular file within
+/// [`MAX_SETTINGS_BYTES`] holding one JSON object.
+fn read_opened(file: fs::File, layer: ConfigLayer, diagnostics: &mut Vec<Diagnostic>) -> LayerRead {
+    use std::io::Read;
+
+    let reject = |diagnostics: &mut Vec<Diagnostic>, cause| {
+        diagnostics.push(Diagnostic::new(layer, cause));
+        LayerRead::rejected()
+    };
+    let metadata = match file.metadata() {
+        Ok(metadata) => metadata,
+        Err(_) => return reject(diagnostics, DiagnosticCause::UnreadableSettings),
     };
     if !metadata.is_file() {
-        diagnostics.push(Diagnostic::new(layer, DiagnosticCause::MalformedSettings));
-        return LayerRead::rejected();
+        return reject(diagnostics, DiagnosticCause::MalformedSettings);
     }
     if metadata.len() > MAX_SETTINGS_BYTES as u64 {
-        diagnostics.push(Diagnostic::new(layer, DiagnosticCause::SettingsTooLarge));
-        return LayerRead::rejected();
+        return reject(diagnostics, DiagnosticCause::SettingsTooLarge);
     }
-
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(_) => {
-            diagnostics.push(Diagnostic::new(layer, DiagnosticCause::UnreadableSettings));
-            return LayerRead::rejected();
+    let mut text = String::new();
+    match (&file)
+        .take(MAX_SETTINGS_BYTES as u64 + 1)
+        .read_to_string(&mut text)
+    {
+        Ok(read) if read > MAX_SETTINGS_BYTES => {
+            return reject(diagnostics, DiagnosticCause::SettingsTooLarge)
         }
-    };
+        Ok(_) => {}
+        Err(_) => return reject(diagnostics, DiagnosticCause::UnreadableSettings),
+    }
     match serde_json::from_str::<Value>(&text) {
         Ok(Value::Object(object)) => LayerRead::loaded(object),
         Ok(_) | Err(_) => {
@@ -4316,8 +4395,18 @@ mod tests {
             fs::write(file, "{").expect("file");
             private(file, 0o600);
         }
-        let cases: [(&str, Lay, ProfileOpen, Option<ProfileRefusal>); 10] = [
+        let cases: [(&str, Lay, ProfileOpen, Option<ProfileRefusal>); 11] = [
             ("nothing", |_, _| {}, ProfileOpen::Absent, None),
+            (
+                "a HOME nobody may list",
+                |dir, file| {
+                    torn(dir, file);
+                    fs::write(file, "{}").expect("a valid file");
+                    private(dir.parent().expect("home"), 0o300);
+                },
+                ProfileOpen::Unopenable,
+                Some(ProfileRefusal::Rejected),
+            ),
             (
                 "torn",
                 torn,
@@ -4404,19 +4493,119 @@ mod tests {
             let dir = home.path().join(PROFILE_DIR_NAME);
             let file = dir.join(USER_SETTINGS_FILE);
             lay(&dir, &file);
-            if name == "write-only, open to all" && fs::read(&file).is_ok() {
-                continue; // a reader the mode bits do not stop (root)
+            // A reader the mode bits do not stop (root) cannot make these.
+            let unstopped = match name {
+                "write-only, open to all" => fs::read(&file).is_ok(),
+                "a directory nobody may list" => fs::read_dir(&dir).is_ok(),
+                "a HOME nobody may list" => fs::read_dir(home.path()).is_ok(),
+                _ => false,
+            };
+            if !unstopped {
+                assert_eq!(profile_open(home.path()).0, opened, "{name}");
+                let config = RuntimeConfig::load_with(
+                    &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+                    workspace.path(),
+                )
+                .expect("load");
+                assert_eq!(config.profile_refusal, refusal, "{name}");
             }
-            assert_eq!(profile_open(&dir, &file), opened, "{name}");
-            let config = RuntimeConfig::load_with(
-                &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
-                workspace.path(),
-            )
-            .expect("load");
-            assert_eq!(config.profile_refusal, refusal, "{name}");
+            private(home.path(), 0o700);
             if dir.is_dir() {
                 private(&dir, 0o700);
             }
         }
+    }
+
+    /// The settings file's open on its own, the path standing as it may stand
+    /// by the time the open comes, after the look: a link is not followed, a
+    /// FIFO is not waited on, a second name or an open mode is seen on the
+    /// open descriptor (`io.zig:238-261`, `settings_store.zig:744-746`).
+    #[cfg(unix)]
+    #[test]
+    fn the_open_checks_what_it_opened_not_what_was_looked_at() {
+        let root = tempfile::tempdir().expect("a root");
+        let dir_path = root.path().join("profile");
+        fs::create_dir(&dir_path).expect("dir");
+        private(&dir_path, 0o700);
+        let dir = rustix::fs::open(
+            &dir_path,
+            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::DIRECTORY,
+            rustix::fs::Mode::empty(),
+        )
+        .expect("the directory");
+        let name = "settings.json";
+        let file = dir_path.join(name);
+        let fresh = |text: &str, mode: u32| {
+            let _ = fs::remove_file(&file);
+            fs::write(&file, text).expect("a file");
+            private(&file, mode);
+        };
+
+        fresh("{}", 0o600);
+        assert_eq!(open_settings(&dir, name).0, ProfileOpen::Read);
+        fresh("{}", 0o664);
+        assert_eq!(open_settings(&dir, name).0, ProfileOpen::NotRead);
+
+        fresh("{}", 0o600);
+        fs::rename(&file, dir_path.join("real.json")).expect("move");
+        std::os::unix::fs::symlink("real.json", &file).expect("a link");
+        assert_eq!(open_settings(&dir, name).0, ProfileOpen::Unsafe, "a link");
+
+        fresh("{}", 0o600);
+        fs::hard_link(&file, dir_path.join("other.json")).expect("a second name");
+        assert_eq!(
+            open_settings(&dir, name).0,
+            ProfileOpen::Unsafe,
+            "a hard link"
+        );
+
+        // A FIFO nobody writes to: an open that waited would wait forever, so
+        // it runs on a thread, and a writer is opened to free it if it does.
+        let _ = fs::remove_file(&file);
+        let made = crate::process::status(std::process::Command::new("mkfifo").arg(&file))
+            .expect("run mkfifo");
+        assert!(made.success(), "a FIFO");
+        let (sent, got) = std::sync::mpsc::channel();
+        let opener = {
+            let dir = dir.try_clone().expect("the descriptor");
+            std::thread::spawn(move || sent.send(open_settings(&dir, name).0))
+        };
+        let opened = got.recv_timeout(std::time::Duration::from_secs(5));
+        if opened.is_err() {
+            let _writer = fs::OpenOptions::new().write(true).open(&file);
+            let _ = opener.join();
+            panic!("the open waited on a FIFO");
+        }
+        assert_eq!(opened.expect("an answer"), ProfileOpen::Unsafe, "a FIFO");
+        let _ = opener.join();
+    }
+
+    /// The profile layer is read from the descriptor that was checked, not
+    /// from the path: a file put in its place after the open is not what is
+    /// judged.
+    #[cfg(unix)]
+    #[test]
+    fn the_profile_layer_is_read_from_the_descriptor_that_was_checked() {
+        let home = tempfile::tempdir().expect("a home");
+        let dir = home.path().join(PROFILE_DIR_NAME);
+        let file = dir.join(USER_SETTINGS_FILE);
+        fs::create_dir(&dir).expect("dir");
+        private(&dir, 0o700);
+        fs::write(&file, r#"{"max_agent_steps": 7}"#).expect("the profile");
+        private(&file, 0o600);
+        let (opened, descriptor) = profile_open(home.path());
+        assert_eq!(opened, ProfileOpen::Read);
+        let torn = dir.join("torn.json");
+        fs::write(&torn, "{").expect("a torn file");
+        fs::rename(&torn, &file).expect("put in its place");
+        let mut diagnostics = Vec::new();
+        let read = read_user_layer(descriptor, Some(&file), &mut diagnostics);
+        assert_eq!(
+            read.object
+                .and_then(|object| object.get("max_agent_steps").cloned()),
+            Some(serde_json::json!(7)),
+            "{diagnostics:?}"
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 }

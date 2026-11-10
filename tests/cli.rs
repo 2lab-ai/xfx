@@ -1977,6 +1977,7 @@ fn ask_refuses_a_profile_fx_refuses() {
                 profiles::snapshot(&sandbox.workspace),
             );
             assert_eq!(after, before, "{name} json={json}: the refusal wrote");
+            profiles::unlock(&sandbox.home);
         }
     }
 }

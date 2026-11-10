@@ -1111,6 +1111,7 @@ fn a_profile_fx_refuses_is_refused_before_the_terminal_is_taken() {
             profiles::snapshot(&sandbox.workspace),
         );
         assert_eq!(tree_after, tree_before, "{name}: the refusal wrote");
+        profiles::unlock(&sandbox.home);
     }
 }
 

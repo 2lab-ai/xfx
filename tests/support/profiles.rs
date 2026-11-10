@@ -39,6 +39,14 @@ pub enum Profile {
     HardLinked,
     /// `~/.xfx` itself a regular file (`settings_store.zig:365`, `:376`).
     FileForDir,
+    /// A FIFO where the file belongs (`io.zig:278-280`).
+    Fifo,
+    /// A valid profile in a `~/.xfx` nobody may list (`0o300`): its open
+    /// fails (`settings_store.zig:351-367`).
+    UnlistableDir,
+    /// A valid profile under a HOME nobody may list (`0o300`): fx opens HOME
+    /// first (`settings_store.zig:342-348`).
+    UnlistableHome,
     /// A `model` of 300 bytes: past xfx's own 200, inside fx's 1024.
     LongModel,
     /// A directory where the file belongs.
@@ -61,6 +69,11 @@ pub const REJECTED: &[(&str, Profile)] = &[
     ("one byte past the ceiling", Profile::Sized(64 * 1024 + 1)),
     ("unreadable", Profile::Unreadable),
     ("write-only, open to group and other", Profile::WriteOnly),
+    (
+        "a profile directory nobody may list",
+        Profile::UnlistableDir,
+    ),
+    ("a HOME nobody may list", Profile::UnlistableHome),
     (
         "a model with a blank before it",
         Profile::Text(r#"{"model": " openai/gpt-5"}"#),
@@ -87,6 +100,7 @@ pub const UNSAFE: &[(&str, Profile)] = &[
     ("a linked file", Profile::LinkedFile),
     ("a linked profile", Profile::LinkedDir),
     ("a hard-linked file", Profile::HardLinked),
+    ("a FIFO", Profile::Fifo),
     (
         "a file where the profile directory belongs",
         Profile::FileForDir,
@@ -126,7 +140,8 @@ pub const STARTED: &[(&str, Profile)] = &[
 
 /// Lays `profile` down under `home` for `workspace`. False when it cannot be
 /// made here: a reader the mode bits do not stop (root) cannot have an
-/// unreadable file.
+/// unreadable file or an unlistable directory. [`unlock`] undoes the modes
+/// that would keep the sandbox from being removed.
 pub fn lay(home: &Path, workspace: &Path, profile: Profile) -> bool {
     let dir = home.join(".xfx");
     let file = dir.join("settings.json");
@@ -177,6 +192,24 @@ pub fn lay(home: &Path, workspace: &Path, profile: Profile) -> bool {
             fs::hard_link(&file, home.join("other.json")).expect("the second link");
         }
         Profile::FileForDir => fs::write(&dir, "{}").expect("a file where the directory belongs"),
+        Profile::Fifo => {
+            let made = xfx::process::status(std::process::Command::new("mkfifo").arg(&file))
+                .expect("run mkfifo");
+            assert!(made.success(), "a FIFO");
+        }
+        Profile::UnlistableDir | Profile::UnlistableHome => {
+            write(r#"{"permission_mode": "auto"}"#);
+            let locked = if matches!(profile, Profile::UnlistableDir) {
+                dir.clone()
+            } else {
+                home.to_path_buf()
+            };
+            private(&locked, 0o300);
+            if fs::read_dir(&locked).is_ok() {
+                unlock(home);
+                return false;
+            }
+        }
         Profile::LongModel => write(&format!(r#"{{"model": "openai/{}"}}"#, "m".repeat(293))),
         Profile::Directory => fs::create_dir(&file).expect("a directory"),
         Profile::LinkedFile => {
@@ -201,6 +234,15 @@ pub fn lay(home: &Path, workspace: &Path, profile: Profile) -> bool {
         }
     }
     true
+}
+
+/// Gives HOME and `~/.xfx` back to their owner, so the sandbox can be removed.
+pub fn unlock(home: &Path) {
+    let _ = fs::set_permissions(home, fs::Permissions::from_mode(0o700));
+    let dir = home.join(".xfx");
+    if fs::symlink_metadata(&dir).is_ok_and(|metadata| metadata.is_dir()) {
+        let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
+    }
 }
 
 /// Every entry under `root`, not following links, with its size and

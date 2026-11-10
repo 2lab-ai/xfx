@@ -210,6 +210,7 @@ fn the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything() {
             profiles::snapshot(&sandbox.workspace),
         );
         assert_eq!(after, before, "{name}: the refusal wrote");
+        profiles::unlock(&sandbox.home);
     }
 }
 
