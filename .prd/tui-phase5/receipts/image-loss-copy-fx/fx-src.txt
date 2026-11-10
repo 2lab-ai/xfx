@@ -73,12 +73,43 @@
   345          const st = dir.handle.statFile(s.io, name, .{ .follow_symlinks = false }) catch |err|
   346              return translate(err);
 
+== src/core/session_manager/storage.zig:135-143@481104fd -- openDir: opened for reading (iterate), without following a link
+  135      pub fn openDir(s: Storage, parent: Dir, name: []const u8) Error!Dir {
+  136          try s.alive();
+  137          assertComponent(name);
+  138          const handle = parent.handle.openDir(s.io, name, .{
+  139              .iterate = true,
+  140              .follow_symlinks = false,
+  141          }) catch |err| return translate(err);
+  142          return .{ .handle = handle };
+  143      }
+
+== src/core/session_manager/storage.zig:400-417@481104fd -- translate: a link, no permission, a wrong kind are Refused, which notFoundOr makes Io
+  400  fn translate(err: anyerror) Error {
+  401      return switch (err) {
+  402          error.FileNotFound => error.NotFound,
+  403          error.PathAlreadyExists, error.DirNotEmpty => error.AlreadyExists,
+  404          error.SymLinkLoop,
+  405          error.NotDir,
+  406          error.IsDir,
+  407          error.AccessDenied,
+  408          error.PermissionDenied,
+  409          error.BadPathName,
+  410          => error.Refused,
+  411          error.NoSpaceLeft, error.DiskQuota => error.NoSpace,
+  412          error.ReadOnlyFileSystem => error.ReadOnly,
+  413          error.FileTooBig => error.TooBig,
+  414          error.Canceled => error.Canceled,
+  415          else => error.Io,
+  416      };
+  417  }
+
 == src/core/app/app_entry_runtime.zig:222-224@481104fd -- initFailure: the launch's refusals
   222  
   223  /// The exit for an interactive launch whose app could not start.
   224  fn initFailure(deps: RunDeps, launch: *cli_surface.InteractiveLaunch, alloc: Allocator, err: anyerror) anyerror!RunOutcome {
 
-== src/core/app/app_entry_runtime.zig:278-285@481104fd -- the launch: saved session is unreadable
+== src/core/app/app_entry_runtime.zig:278-301@481104fd -- the launch: saved session is unreadable; any other error is printed by its name
   278          error.InvalidSessionFormat => {
   279              if (launch.resume_refusal) |reason| {
   280                  const message = alloc.print("fx: this session can't be converted (InvalidSessionFormat): {s}\n", .{reason}) catch null;
@@ -87,6 +118,44 @@
   283              } else writeStderr(deps, "fx: saved session is unreadable. Run `fx doctor`; if it is recoverable, use `fx session recover <id>`.\n");
   284              return .{ .exit = 1 };
   285          },
+  286          error.UnsupportedSessionSchema => {
+  287              writeStderr(deps, "fx: saved session uses an unsupported version and cannot be resumed by this fx build.\n");
+  288              return .{ .exit = 1 };
+  289          },
+  290          else => {
+  291              // A storage fault is named (D29).
+  292              if (v2StorageFaultMessage(err)) |message| {
+  293                  writeStderr(deps, message);
+  294                  return .{ .exit = 1 };
+  295              }
+  296              reportUnexpectedInteractiveError(deps, err);
+  297              return err;
+  298          },
+  299      }
+  300  }
+  301  
+
+== src/core/app/app_entry_runtime.zig:537-556@481104fd -- formatUnexpectedError: fx: <ErrorName>; Io is no storage fault with a sentence
+  537  fn formatUnexpectedError(buffer: []u8, err: anyerror) ![]const u8 {
+  538      return std.mem.print(buffer, "fx: {s}\n", .{config_runtime.modelNotSelectedMessage(err) orelse @errorName(err)});
+  539  }
+  540  
+  541  /// A v2 session that cannot be written at startup, in one sentence; null
+  542  /// for any other error.
+  543  fn v2StorageFaultMessage(err: anyerror) ?[]const u8 {
+  544      return switch (err) {
+  545          error.AccessDenied => "fx: this session cannot be opened for writing: permission denied. Check the permissions under ~/.fx/sessions/v2, then resume again.\n",
+  546          error.ReadOnlyFileSystem => "fx: this session cannot be opened for writing: the disk is read-only.\n",
+  547          error.NoSpaceLeft => "fx: this session cannot be saved: the disk is full. Free some space, then resume again.\n",
+  548          error.FileTooBig => "fx: this session cannot be saved: a file-size limit was reached.\n",
+  549          else => null,
+  550      };
+  551  }
+  552  
+  553  fn reportUnexpectedInteractiveError(deps: RunDeps, err: anyerror) void {
+  554      var buffer: [256]u8 = undefined;
+  555      const message = deps.format_unexpected_error(&buffer, err) catch return;
+  556      deps.write_stderr(deps.stderr_ctx, message) catch {};
 
 == src/core/app/app_input_runtime.zig:91-99@481104fd -- the picker: anything but busy or being updated is unavailable
    91  fn classifyResumeFailure(err: anyerror) session_catalog.ResumeFailure {
@@ -485,7 +554,16 @@
 == src/core/images/image_attachments.zig:24-24@481104fd -- image_too_large_notice
    24  pub const image_too_large_notice = "image exceeds the 20 MiB limit";
 
-== src/core/images/image_attachments.zig:814-850@481104fd -- attachmentDimensions, probeSnapshotDimensions, attachmentRawBytes, attachmentFitsEncodedLimit: an open or a header that fails is no size
+== src/core/images/image_attachments.zig:805-850@481104fd -- the dimension cache (a turn's; the file size is checked again on each request), attachmentDimensions, probeSnapshotDimensions, attachmentRawBytes, attachmentFitsEncodedLimit: an open or a header that fails is no size
+  805  /// Reports whether a snapshot file is wider or taller than the model pixel
+  806  /// limit. Unreadable dimensions report false and keep the byte-limit path.
+  807  /// Cached header dimensions of immutable snapshots, keyed by snapshot digest.
+  808  /// File size is checked again on each request. Keys are owned by the allocator
+  809  /// passed alongside the cache.
+  810  pub const AttachmentDimensionCache = std.StringHashMapUnmanaged(?image_data.Dimensions);
+  811  
+  812  /// Pixel size of an attachment, or null when it cannot be read. Unreadable
+  813  /// snapshots are reported where the request loads them.
   814  fn attachmentDimensions(
   815      cache_alloc: std.mem.Allocator,
   816      cache: *AttachmentDimensionCache,
@@ -523,6 +601,27 @@
   848      const size = attachmentRawBytes(attachment) orelse return false;
   849      return image_data.fitsEncodedImageLimit(size);
   850  }
+
+== src/core/images/image_data.zig:168-179@481104fd -- requestMaxDimension, countRequestImages: every image of the request, a tool result's with the user's
+  168  pub fn requestMaxDimension(image_count: usize) u32 {
+  169      return if (image_count > strict_image_count) max_image_dimension else max_single_image_dimension;
+  170  }
+  171  
+  172  pub fn countRequestImages(messages: []const types.ChatMessage) usize {
+  173      var count: usize = 0;
+  174      for (messages) |message| {
+  175          count +|= message.images.len;
+  176          if (message.tool_result_memory) |memory| count +|= memory.tool_images.len;
+  177      }
+  178      return count;
+  179  }
+
+== src/core/images/image_data.zig:186-190@481104fd -- fitsEncodedImageLimit: 5 MiB once encoded
+  186  
+  187  pub fn fitsEncodedImageLimit(raw_bytes: usize) bool {
+  188      const encoded = encodedImageBytes(raw_bytes) orelse return false;
+  189      return encoded <= max_encoded_image_bytes;
+  190  }
 
 == src/core/images/image_attachments.zig:960-988@481104fd -- writeWithheldAttachmentNotice
   960  fn writeWithheldAttachmentNotice(

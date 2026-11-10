@@ -35,7 +35,10 @@ REQUEST = {
     "lib": [
         "session::store::tests::a_resumed_prompt_images_copy_is_read_when_the_history_is_built",
         "session::store::tests::a_prompt_image_never_read_back_goes_without",
+        "session::store::tests::each_request_sends_a_copy",
         "tui::worker::tests::a_resumed_prompt_images_copy_is_read_at_each_request",
+        "tui::worker::tests::a_resumed_copy_is_checked_again_at_each_request",
+        "tui::worker::tests::a_resumed_copy_is_held_back_past_each_limit",
         "tui::worker::tests::a_copy_a_request_cannot_carry",
         "tui::worker::tests::a_prompt_image_never_read_back_is_held_back",
     ],
@@ -64,9 +67,10 @@ LOST_TOOL_IMAGE = (
 # Right after `ask` has opened its session and before its sink is made.
 OPENED_END = "    // On a terminal the answer arrives inert: the approval question is asked\n"
 REFUSAL = (
-    "        if read_snapshots(&dir, &mut state) {\n"
+    "        if let Some(error) = read_snapshots(&dir, &mut state) {\n"
     "            return Err(SessionError::Unreadable {\n"
     "                id: id.as_str().to_string(),\n"
+    "                error,\n"
     "            });\n"
     "        }\n"
 )
@@ -108,7 +112,7 @@ MUTANTS = {
     ),
     # The resume going on past a lost prompt image.
     "resume-goes-on": (
-        [(STORE, REFUSAL, REFUSAL.replace("if read_snapshots(&dir, &mut state) {", "if read_snapshots(&dir, &mut state) && false {"))],
+        [(STORE, REFUSAL, REFUSAL.replace("read_snapshots(&dir, &mut state) {", "read_snapshots(&dir, &mut state).filter(|_| false) {"))],
         RESUME,
     ),
     # A refused resume touching the session file: refused only after the log's tail is cut.
@@ -119,9 +123,10 @@ MUTANTS = {
                 STORE,
                 TRUNCATED,
                 TRUNCATED
-                + "        if refused {\n"
+                + "        if let Some(error) = refused {\n"
                 "            return Err(SessionError::Unreadable {\n"
                 "                id: id.as_str().to_string(),\n"
+                "                error,\n"
                 "            });\n"
                 "        }\n",
             ),
@@ -130,17 +135,32 @@ MUTANTS = {
     ),
     # Round 2: a stat that fails resumes the session; only a copy not there, or not a file, refuses it.
     "stat-failure-resumed": (
+        [(STORE, '                    Err(_) => Some("Io"),\n', "                    Err(_) => None,\n")],
+        {"lib": ["session::store::tests::a_prompt_images_copy_the_resume_cannot_stat"]},
+    ),
+    # Round 3: a failed stat refused in the gone copy's words, not upstream's `Io`.
+    "stat-failure-named-invalid": (
+        [(STORE, '                    Err(_) => Some("Io"),\n', '                    Err(_) => Some("InvalidSessionFormat"),\n')],
+        {
+            "lib": ["session::store::tests::a_prompt_images_copy_the_resume_cannot_stat"],
+            "sessions": ["ask_resume_of_a_session_a_prompt_images_copy_is_gone"],
+        },
+    ),
+    # Round 3: the images folder followed when it is a link.
+    "folder-followed": (
+        [(STORE, "OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW", "OFlags::RDONLY | OFlags::DIRECTORY")],
+        {"lib": ["session::store::tests::a_prompt_images_copy_the_resume_cannot_stat"]},
+    ),
+    # Round 3: the folder not opened for reading, the copy `lstat`ed through its path (round 2's check):
+    # a folder that can be searched but not read, and a linked one, let the resume go on.
+    "folder-not-opened": (
         [
+            (STORE, "rustix::fs::open(&folder, flags | OFlags::CLOEXEC, Mode::empty())", 'rustix::fs::open("/", flags | OFlags::CLOEXEC, Mode::empty())'),
             (
                 STORE,
-                "            unreadable |= !folder_whole\n"
-                "                || !fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file());\n",
-                "            let _ = folder_whole;\n"
-                "            unreadable |= match fs::symlink_metadata(&path) {\n"
-                "                Ok(metadata) => !metadata.is_file(),\n"
-                "                Err(err) => err.kind() == io::ErrorKind::NotFound,\n"
-                "            };\n",
-            )
+                "rustix::fs::statat(folder, &name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW)",
+                "rustix::fs::statat(folder, &dir.join(IMAGES_DIR).join(&name), rustix::fs::AtFlags::SYMLINK_NOFOLLOW)",
+            ),
         ],
         {"lib": ["session::store::tests::a_prompt_images_copy_the_resume_cannot_stat"]},
     ),
@@ -149,38 +169,53 @@ MUTANTS = {
         [
             (
                 STORE,
-                "            image.snapshot = Snapshot::Saved(Arc::from(path));\n        }\n        for step in &mut turn.steps {\n",
+                "            image.snapshot = Snapshot::Saved(Arc::from(folder.join(name)));\n",
+                "            let path = folder.join(name);\n"
                 "            image.snapshot = match read_snapshot(&path, &image.recorded.sha256, image.recorded.bytes) {\n"
                 "                Ok(bytes) => Snapshot::Loaded { bytes, path: Some(Arc::from(path)) },\n"
                 "                Err(_) => Snapshot::Saved(Arc::from(path)),\n"
-                "            };\n        }\n        for step in &mut turn.steps {\n",
+                "            };\n",
             )
         ],
         REQUEST,
     ),
-    # Round 2: a copy past the limit reaches the check and fails the request, where upstream holds it back
-    # (round 1's ImageTooLarge): the history read stops at the header.
-    "oversized-fails": (
-        [(STORE, "read_copy(path, crate::image::MAX_IMAGE_BYTES + 1)", "read_copy(path, 64)")],
-        {"lib": ["tui::worker::tests::a_copy_a_request_cannot_carry"]},
+    # Round 3 (S2): the history reads a copy whole, to the 20 MiB limit, where upstream reads its header
+    # and its size.
+    "build-reads-past-a-request": (
+        [(STORE, "read_from(file, length, PAST_A_REQUEST)", "read_from(file, length, crate::image::MAX_IMAGE_BYTES + 1)")],
+        {"lib": ["session::store::tests::a_resumed_prompt_images_copy_is_read_when_the_history_is_built"]},
     ),
     # Round 2: a copy past the limit held back without its detail (the brief's "ImageTooLarge without
-    # its detail"; upstream's build never reaches ImageTooLarge, its note carries the detail): the read
-    # past the limit dropped, so the note says the dimensions could not be verified, not the type,
-    # the pixels and the limits.
+    # its detail"; upstream's build never reaches ImageTooLarge, its note carries the detail): no byte
+    # read of a copy past what one request carries, so the note says the dimensions could not be
+    # verified, not the type, the pixels and the limits.
     "oversized-without-detail": (
         [
             (
                 STORE,
-                ".map_or_else(|_| Vec::new(), |(bytes, _)| bytes);",
-                ".map_or_else(|_| Vec::new(), |(bytes, _)| if bytes.len() as u64 > crate::image::MAX_IMAGE_BYTES { Vec::new() } else { bytes });",
+                ".and_then(|(file, length)| read_from(file, length, PAST_A_REQUEST))",
+                ".and_then(|(file, length)| if length >= PAST_A_REQUEST { Ok(Vec::new()) } else { read_from(file, length, PAST_A_REQUEST) })",
             )
         ],
-        {"lib": ["tui::worker::tests::a_copy_a_request_cannot_carry"]},
+        {"lib": ["tui::worker::tests::a_copy_a_request_cannot_carry", "tui::worker::tests::a_resumed_copy_is_held_back_past_each_limit"]},
     ),
-    # The request going on past a changed copy.
+    # The request going on past a changed copy, with its bytes.
     "request-goes-on": (
-        [(STORE, "                    Err(Loss::Changed | Loss::TooLarge) => {\n", "                    Err(Loss::Changed | Loss::TooLarge) if false => {\n")],
+        [(STORE, "                    Ok(_) => failed = Some(COPY_ERRORS[0]),\n", "                    Ok(bytes) => *data = Arc::from(bytes),\n")],
+        REQUEST,
+    ),
+    # Round 3 (MUST 1): a copy that cannot be opened again sends what the history read -- the catch-all
+    # arm of round 2 -- with no note.
+    "catch-all-sends": (
+        [
+            (STORE, "                    notes.push_str(&crate::image::withheld_note(\n", "                    let _ = (&mut notes, crate::image::withheld_note(\n"),
+            (STORE, "                        Some(saved),\n                    ));\n                    return false;\n", "                        Some(saved),\n                    ));\n                    return true;\n"),
+        ],
+        REQUEST,
+    ),
+    # Round 3 (MUST 1): the bytes just checked not swapped in; the history's go.
+    "swap-in-deleted": (
+        [(STORE, "                        *data = Arc::from(bytes);\n", "                        let _ = bytes;\n")],
         REQUEST,
     ),
     # The TUI's check gone: the turn's provider sees no copies.
@@ -190,7 +225,7 @@ MUTANTS = {
     ),
     # `ask` saying the TUI's words in place of upstream's `ask`'s.
     "ask-name-not-copied": (
-        [(APP, "            Event::Error { message } if *message == failed.to_string() => {\n", "            Event::Error { message } if *message == failed.to_string() && false => {\n")],
+        [(APP, "COPY_ERRORS.into_iter().find(image) {", "COPY_ERRORS.into_iter().find(image).filter(|_| false) {")],
         {"sessions": ["ask_resume_whose_prompt_images_copy_changed"]},
     ),
     # The tool-image text missing: the note not put in front.

@@ -3,3 +3,7 @@ fx    v0.0.16 release  8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d17
 base  built at 714f6283  daf40ec4b932a658a113a991c763d301e024d4054842e8be43a06a3e7c6f2b0a  <scratch>/bin/xfx-base (cargo build --locked, debug, in a git clone --no-local at 714f6283)
 head  built at f290f697  51e8fe77ac6acc572b0411a1867d0ef04be5a1bb26d02fdda3d6ad2abe20be54  <scratch>/bin/xfx-head2 (cargo build --locked, debug, in the worktree at f290f697; its code is 2336c989's)
 # banners: base x𝒇x v0.1.0-714f628, head x𝒇x v0.1.0-f290f69 (base-xfx/ and xfx/ captures, row 1)
+
+# round 3
+head3 built at f273880b  c27a589cb93a1297b0b91a82ab2fb9148825f6e3780cf85a956959b1199a6699  <scratch>/bin/xfx-head3 (cargo build --locked, debug, in the worktree at f273880b; its code is 20a69fc2's, and the commits after it change tests and this folder only)
+# banners: head x𝒇x v0.1.0-f273880 (every xfx/ capture of round 3), base x𝒇x v0.1.0-714f628 (base-xfx/ folder), fx v0.0.16 (fx/ folder, sha256 8e6cda2e… as above)

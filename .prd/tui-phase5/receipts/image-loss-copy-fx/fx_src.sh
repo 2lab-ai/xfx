@@ -26,8 +26,11 @@ show src/core/session/session_adapter.zig 4320 4327 "the conversation is read th
 show src/core/session_manager/api.zig 433 442 "blobPath: the blob exists; its bytes are not read"
 show src/core/session_manager/session.zig 1666 1681 "blobExists: stat without following; not a regular file is NotFound"
 show src/core/session_manager/storage.zig 341 346 "stat does not follow a symlink"
+show src/core/session_manager/storage.zig 135 143 "openDir: opened for reading (iterate), without following a link"
+show src/core/session_manager/storage.zig 400 417 "translate: a link, no permission, a wrong kind are Refused, which notFoundOr makes Io"
 show src/core/app/app_entry_runtime.zig 222 224 "initFailure: the launch's refusals"
-show src/core/app/app_entry_runtime.zig 278 285 "the launch: saved session is unreadable"
+show src/core/app/app_entry_runtime.zig 278 301 "the launch: saved session is unreadable; any other error is printed by its name"
+show src/core/app/app_entry_runtime.zig 537 556 "formatUnexpectedError: fx: <ErrorName>; Io is no storage fault with a sentence"
 show src/core/app/app_input_runtime.zig 91 99 "the picker: anything but busy or being updated is unavailable"
 show src/core/app/app_input_runtime.zig 1644 1662 "the picker's failed resume"
 show src/ui/footer/resume_menu_presentation.zig 463 467 "Unable to resume this session."
@@ -56,7 +59,9 @@ show src/core/shared/types.zig 1667 1682 "projectProviderReplay: a replay state 
 
 # --- W: before the build, an image whose file the request cannot vouch for is held back with a note
 show src/core/images/image_attachments.zig 24 24 "image_too_large_notice"
-show src/core/images/image_attachments.zig 814 850 "attachmentDimensions, probeSnapshotDimensions, attachmentRawBytes, attachmentFitsEncodedLimit: an open or a header that fails is no size"
+show src/core/images/image_attachments.zig 805 850 "the dimension cache (a turn's; the file size is checked again on each request), attachmentDimensions, probeSnapshotDimensions, attachmentRawBytes, attachmentFitsEncodedLimit: an open or a header that fails is no size"
+show src/core/images/image_data.zig 168 179 "requestMaxDimension, countRequestImages: every image of the request, a tool result's with the user's"
+show src/core/images/image_data.zig 186 190 "fitsEncodedImageLimit: 5 MiB once encoded"
 show src/core/images/image_attachments.zig 960 988 "writeWithheldAttachmentNotice"
 show src/core/images/image_attachments.zig 1011 1045 "withholdOversizedAttachments: held back unless its size is known, within the limit, and 5 MiB encoded"
 show src/core/images/image_attachments.zig 1050 1054 "savedImagePath: the blob"
