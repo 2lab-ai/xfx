@@ -18785,10 +18785,11 @@ mod tests {
         //
         // "At once" is measured on the clock the wait itself runs on, tokio's,
         // paused ([`first_of_two_and_a_stop`]): it moves only while every task
-        // is parked, so the stopped turn ends with no time gone and one that
-        // waited the retry out ends at its two seconds
-        // (`FAILED_CATALOG_RETRY_WAIT`), however long the machine holds the
-        // thread. The stop is placed by the loop, not by a clock.
+        // is parked, so the stopped turn ends with no time gone -- asserted
+        // -- and one that waited the retry out, or took any time over the
+        // stop, would not (`FAILED_CATALOG_RETRY_WAIT` is two seconds),
+        // however long the machine holds the thread. The stop is placed by
+        // the loop, not by a clock.
         let mut got = Vec::new();
         for (case, history_image) in [("the turn's start", false), ("the image route", true)] {
             for stop in [true, false] {
@@ -18816,8 +18817,9 @@ mod tests {
                     first.as_ref().map(|(_, failure)| failure.clone()),
                     first.as_ref().is_some_and(|(at, _)| {
                         if stop {
-                            // Before the wait could have ended by itself.
-                            *at < FAILED_CATALOG_RETRY_WAIT
+                            // At once: no time gone on the wait's own clock,
+                            // where waiting the retry out is its two seconds.
+                            at.is_zero()
                         } else {
                             *at >= Duration::from_millis(1_900)
                         }
@@ -18883,8 +18885,8 @@ mod tests {
                 ),
             ],
             "each: the starts, the first turn's end, whether it came when it should (with \
-             the stop: before the wait's own 2 s on the paused clock; without it: past \
-             the wait's 1.9 s), the ends, the second turn's end"
+             the stop: with no time gone on the paused clock; without it: past the wait's \
+             1.9 s), the ends, the second turn's end"
         );
     }
 
@@ -19089,9 +19091,10 @@ mod tests {
         // held until the stopped turn has ended ([`Held::FirstLoad`]), so a
         // turn that ends at all was ended by the stop. A retry's wait ends by
         // itself after `FAILED_CATALOG_RETRY_WAIT`, tokio's timer, and those
-        // runs are on tokio's clock, paused: a turn that waited the retry out
-        // ends at its two seconds, the stopped one with no time gone, however
-        // long the machine holds the thread ([`first_of_two_and_a_stop`]).
+        // runs are on tokio's clock, paused: the stopped turn ends with no
+        // time gone -- asserted -- where one that waited the retry out ends
+        // at its two seconds, however long the machine holds the thread
+        // ([`first_of_two_and_a_stop`]).
         let cancelled = Some(bridge::TURN_CANCELLED.to_string());
         let ultra = Some(ULTRAFAST_UNAVAILABLE.to_string());
         let unknown = Some(crate::image::CAPABILITY_UNKNOWN.to_string());
@@ -19141,8 +19144,9 @@ mod tests {
                     .is_some_and(|(at, _)| match (stop, first_load) {
                         // Ended while its load was held: by the stop.
                         (true, true) => true,
-                        // Before the wait could have ended by itself.
-                        (true, false) => *at < FAILED_CATALOG_RETRY_WAIT,
+                        // At once: no time gone on the wait's own clock,
+                        // where waiting the retry out is its two seconds.
+                        (true, false) => at.is_zero(),
                         (false, _) => *at >= Duration::from_millis(1_200),
                     });
                 got.push((
@@ -19237,7 +19241,7 @@ mod tests {
         assert_eq!(
             got, want,
             "each: the starts, both turns' ends, whether the first came when it should (with \
-             the stop: at all while a first load was held, or before a retry's own 2 s on the \
+             the stop: at all while a first load was held, or with no time gone on a retry's \
              paused clock; without it: past 1.2 s), what the log says of the turns"
         );
     }
