@@ -809,7 +809,10 @@ def self_test():
         with open(os.path.join(crate, "Cargo.toml"), "w") as manifest:
             manifest.write(
                 '[package]\nname = "env_fixtures"\nversion = "0.0.0"\nedition = "2021"\npublish = false\n\n'
-                f'[dependencies]\nlibc = "={lock_version("libc")}"\n'
+                f'[dependencies]\nlibc = "={lock_version("libc")}"\n\n'
+                # As the tree has it: off in the ordinary run, so a fixture
+                # is refused only if the check forces the lint on.
+                '[lints.clippy]\ndisallowed_macros = "allow"\n'
             )
         shutil.copy(os.path.join(ROOT, "clippy.toml"), crate)
         shutil.copy(os.path.join(ROOT, "Cargo.lock"), crate)
