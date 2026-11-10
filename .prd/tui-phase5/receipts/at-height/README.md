@@ -324,7 +324,7 @@ by assertion.
     The base sent the first and completed the second
     (`ctrlo-probe/enter-*`).
   - Tab, C-j and C-k there are CTRLO-AT-KEYS's, as `docs/parity.md` now
-    says.
+    says. (Since copied by that unit: `../ctrlo-at-keys/README.md`.)
 - **Resume (opus SHOULD 2).** The mapping holds at the pin:
   - a resume runs `requestTerminalReset` (`app_lifecycle.zig:1200-1211`),
     which sets `terminal_reset_pending` (`transcript/runtime.zig:7167`),
@@ -509,7 +509,9 @@ The receipt pointer names this folder.
   - The keys the transcript leaves unbound go somewhere else in fx. Its C-j
     under Ctrl-O lands in the composer as a new line, which closes the list
     (`ctrlo-probe/`: fx, base and head `cj-back` captures, and the
-    scenario's lines; the scenario itself is not committed).
+    scenario's lines; the scenario itself is not committed). CTRLO-AT-KEYS
+    has since copied it, with C-k and Tab, and committed the scenario
+    `p5-ctrlo-at-keys` (`../ctrlo-at-keys/README.md`).
   - xfx spends them.
   - This is the full transcript's key routing (`filePickerEligible` false,
     so the composer gets the key; `input_completion_runtime.zig:775-786`,

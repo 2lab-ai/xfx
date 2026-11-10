@@ -271,7 +271,9 @@ after (load 14-45 over the run):
 ## 11. Not this unit's
 
 - **CTRLO-AT-KEYS** (opus r3 SHOULD 2): Tab under Ctrl-O over an unreadable
-  list re-reads the index. Untouched.
+  list re-reads the index. Untouched. (Round 4 gated the retry on the
+  list's eligibility, `round4/README.md`; CTRLO-AT-KEYS put the check ahead
+  of the row, as fx's is, `../ctrlo-at-keys/README.md`.)
 - fx's `isCurrentFileCompletion` check before a choice is applied
   (`input_completion_runtime.zig:981-985`, `fx-src.txt:765-769`) is not
   ported, here or at the base. It belongs to the queued AT-STALE-SELECTION
