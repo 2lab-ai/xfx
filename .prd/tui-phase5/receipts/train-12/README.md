@@ -435,7 +435,37 @@ between identical and normalized-identical, both passing
 (`p5-submit-preview-full` x4 and `settings-collapse-open` `after-esc` to
 identical, `p5-transcript-submit` x2 to normalized-identical):
 
-MOVERS
+- **down: `p5-mcp-menu-new` `list-remote`** (normalized-identical ->
+  unresolved, one row): the `remote` server, a loopback port nothing listens
+  on, which the scenario's own comment says shows "connecting/retrying";
+  in the head's sweep fx caught it `retrying` and xfx `connecting`, in
+  main's both `retrying`. **Rerun 3 times on each** (`reruns.txt`): **the
+  head 3 of 3 pass** (both `retrying`, both `connecting`, both `retrying`),
+  main 3 of 3. **A flake**: the snap's moment falls on either side of the
+  server's retry, on either binary; no unit of this train touches MCP or
+  its timing (join check 6's list). Not registered in the ledger as a
+  nondeterminism; named here for its owner.
+- **up: `workspace-index` `at-plan`** (unresolved -> normalized-identical):
+  `@plan` lists a folder under the run directory, and each binary bolds the
+  characters its fuzzy match picked -- some of them inside the run
+  directory's random name, which differs by side. On main the ledger's
+  `run-directory` mask makes the text the same and leaves the bold cells
+  apart; at the head LOCAL-PATHS writes the placeholder over the same
+  cells and keeps each colour change at its offset (its README section 1),
+  so the bold still falls where each random name put it
+  (`compare-main.txt`; rerun 2's row 13: fx bold at column 46, xfx at 44).
+  **Rerun 3 times on each** (`reruns.txt`): **the head 1 of 3, main 2 of
+  3**. **A flake on both**, by the run's random name; the ledger puts the
+  snap under `at-ranking` (unit I-U2, fx's placement score), which covers
+  where the match falls, not the random name under it. Not LOCAL-PATHS's
+  improvement, and no drop. Its own sweep had it unresolved at its base and its head
+  (`verdicts.tsv`).
+- **up: `p5-lifecycle-retryok` `k01-1.5s`** (unresolved ->
+  normalized-identical): a turn's retry caught at a fixed 1.5 s, `✓
+  recovered · attempt 3` against `RECOVERED-ANSWER.` on main; rerun 3 times
+  on each (`reruns.txt`): **3 of 3 pass on both**. Main's one miss in its
+  sweep was the moment, not main's code; the head's pass is not a change
+  to credit.
 
 **The screens** (`screen-classes.txt`, over `screen_moves.py`'s 193 listed
 snaps whose screen moved beyond clock-like or run-local text): 121 a saved
@@ -480,11 +510,15 @@ ledger"); nothing at the head needed it.
 |---|---|---|---|
 | GATE-ENV-MAINTLOCK-F | -- | -- | no sweep (no UI change) |
 | SWEEP-WALLCLOCK-F (`green-verdicts.txt`, `green-r2-verdicts.txt`: five runs each) | 26 pairs | 25 -> 25 | **0 up, 0 down** |
-| LOCAL-PATHS (`verdicts.tsv`, round 7's column) | 145 pairs | 106 -> 108 | **2 up, 0 down**: `workspace-index` `at-all` and `at-plan` (the run's random name, above) |
+| LOCAL-PATHS (`verdicts.tsv`, round 7's column) | 145 pairs | 106 -> 108 | **2 up, 0 down**: `workspace-index` `at-all` (normalized-identical on main's sweep too, and 3 of 3 on rerun at the head and on main: main's code, not on the unit's base `ccced1f5`) and `at-plan` (the flake above) |
 | INPUT-ROW-LIMIT (`sweep-41x120-head.md`, at 41x120) | 18 scenarios, 120 pairs | 67 -> 67 | **0**: every scenario the same count (join check 4) |
 
 **So no pair that passes on main's sweep or on any unit's own fails at the
-head, but `p5-mcp-menu-new` `list-remote`** -- MCPLINE
+head, but `p5-mcp-menu-new` `list-remote`** -- a flake on its server's retry
+moment, 3 of 3 at the head on rerun. Every other move is a unit's change
+(SWEEP-WALLCLOCK-F's `catalog-window` ended; LOCAL-PATHS's placeholders in
+55 screens), a capture's run-local text, or a flake rerun three times on
+each side (`workspace-index` `at-plan`, `p5-lifecycle-retryok` `k01-1.5s`).
 
 ## Found on the way, not changed here
 
@@ -521,7 +555,10 @@ head, but `p5-mcp-menu-new` `list-remote`** -- MCPLINE
 - **`p5-panels-badsettings` fails on both sweeps**: fx ends before its first
   frame (`up: the pane is gone after 0.02 s ... no keep held the pane`),
   exit 1, at main and at the head alike; its two pairs read `failed` on both
-  (RERUN_BADSETTINGS). Not this train's change; named for its owner.
+  (3 of 3 failed again on each, `reruns.txt`). fx ends on its bad settings
+  file before the scenario's first frame, which the scenario needs to
+  start (no `keep`); the scenario (`d74640c8`) and fx are the same on both.
+  Not this train's change; named for whoever owns the scenario.
 - **A sweep at 8 rows cannot finish**: sweep.py reads fx's surface inventory
   from `/help`, which an 8-row screen does not show (`sweep: a help snap
   shows no menu`, exit 2, after both captures were taken). INPUT-ROW-LIMIT's

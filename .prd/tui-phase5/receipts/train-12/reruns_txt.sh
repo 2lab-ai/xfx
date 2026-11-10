@@ -25,6 +25,8 @@ here=$(cd "$(dirname "$0")" && pwd)
   done
   echo; echo "## call 2: the sweeps' movers against main (p5-mcp-menu-new, p5-lifecycle-retryok, workspace-index) and the scenario that failed on both (p5-panels-badsettings), head and main"
   cat "$T/reruns-2.out"
+  echo "# p5-mcp-menu-new in the two sweeps, read as one run each"
+  python3 -I -B "$here/rerun_verdicts.py" "$T" "sweep-head-p5-mcp-menu-new=$T/sw-head" "sweep-main-p5-mcp-menu-new=$T/sw-main"
   python3 -I -B "$here/rerun_verdicts.py" "$T/rr2" head-p5-mcp-menu-new main-p5-mcp-menu-new head-p5-lifecycle-retryok main-p5-lifecycle-retryok \
     head-workspace-index main-workspace-index head-p5-panels-badsettings main-p5-panels-badsettings
 } | python3 -I -B "$here/redacted.py" "$here/reruns.txt" "$T=<scratch>"
