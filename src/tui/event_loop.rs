@@ -14224,7 +14224,7 @@ mod tests {
 
     /// `frame.rs`'s own `ERASE_LINE` (`frame.rs:102`) is private to that
     /// module, so this is a test-only copy of the same three bytes -- the
-    /// escape `place()` (`frame.rs:2733-2772`) writes once per document row,
+    /// escape `place()` (`frame.rs:2734-2772`) writes once per document row,
     /// and `grid.rs`'s band-diff painter (`grid.rs:47`) writes the identical
     /// bytes for its own reasons, so counting this in a sample's output
     /// bounds "rows repainted this tick" for the document *and* the band
