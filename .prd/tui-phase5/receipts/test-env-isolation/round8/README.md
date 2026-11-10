@@ -55,7 +55,8 @@ failing case gives a process a TMPDIR of its own and then checks what is in
 it.
 
 `integration-reads-under-tmpdir.txt` (round 4's log place, at `92b6ebca`)
-fails the same ten cases:
+fails with the same per-suite counts as round 7 -- interactive 1, isolation
+1, tui 8; round 7's file names no case -- and names these ten:
 
 - **isolation:** `a_parent_under_a_relative_tmpdir_makes_no_home_and_runs_no_case`
   -- "a home was made under a relative TMPDIR". The case makes
@@ -97,7 +98,10 @@ in the processes the developer started (the constructor's own), **0 of
 them through `process_env!`**. The 10 reads more than round 4's place
 counted are all in isolation (the two files' tables differ there only):
 the parents its cases start run under TMPDIRs of their own, where round 4's
-place wrote, and lost, their lines.
+place wrote, and lost, their lines. The other totals rise too (15,785
+against 15,350 by the `xfx` binary, 1,864 against 1,829 in copies): round
+4's place reads back only `$TMPDIR/xfx-env-reads.log` of the script's own
+TMPDIR, so every total in rounds 4-7, all taken there, was a lower bound.
 
 ## SHOULD 2: lexer fixtures (opus S2, gpt6 SHOULD 3)
 
