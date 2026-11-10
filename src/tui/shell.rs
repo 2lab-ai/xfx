@@ -37509,6 +37509,30 @@ mod tests {
         assert!(shell.sent.try_recv().is_err(), "C-j sent the line");
     }
 
+    #[test]
+    fn a_column_hangs_under_its_argument_only_on_the_carets_row() {
+        // fx hangs a column at its argument's column only while the argument
+        // starts on the caret's row; on any other row the column hangs from
+        // the start of the caret's (`projectedAnchorColumn`,
+        // `visual_layout.zig:705-713@481104fd`): after C-j `provider-ctrlo
+        // cj` shows `no matching providers` two cells in, under the empty
+        // second row -- as the `@` list's column already does
+        // ([`Shell::file_picker_column`]). The `/mcp ` completions hang from
+        // the same anchor.
+        let mut shell = provider_column_second_row();
+        let at = |shell: &Fixture| {
+            let column = shell.provider_picker.as_ref().expect("the column");
+            shell.provider_anchor(column)
+        };
+        assert_eq!(at(&shell), PROMPT_CELLS + 10, "not under the argument");
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(at(&shell), PROMPT_CELLS, "not at the caret's row's start");
+        // Back on the argument's row, under it again.
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(shell.editor.text(), "/provider ");
+        assert_eq!(at(&shell), PROMPT_CELLS + 10);
+    }
+
     /// `/mcp ` and a Down: the argument completions with the second marked.
     fn mcp_args_second_row() -> (Fixture, Arc<crate::mcp::McpRuntime>, tempfile::TempDir) {
         let (mut shell, runtime, home) = mcp_args_shell();
