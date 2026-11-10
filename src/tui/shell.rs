@@ -21159,12 +21159,34 @@ mod tests {
     /// A shell with a turn running and a question in front of the user, on a
     /// screen that has really shown it.
     fn asking(shell: &mut Fixture) -> Instant {
+        asking_for(shell, asked())
+    }
+
+    /// [`asking`], with `request` the question.
+    fn asking_for(shell: &mut Fixture, request: ApprovalRequest) -> Instant {
         let started = turn_running(shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(question(asked())));
+        shell.apply(UiEvent::Approval(question(request)));
         shell.settle_band(started);
         let _ = shell.document();
         delivered(shell);
         started
+    }
+
+    /// The question a scripted command puts to the user: no file in it, the
+    /// kind fx v0.0.16 does not gate (`input_approval_runtime.zig:191-192
+    /// @481104fd`).
+    fn asked_to_run() -> ApprovalRequest {
+        ApprovalRequest {
+            tool: "terminal",
+            target: "echo hi".to_string(),
+            summary: "run `echo hi`".to_string(),
+            always_scope: "allow every future run of exactly `echo hi` in .".to_string(),
+            diff: None,
+            subject: crate::permission::ApprovalSubject::Command {
+                command: "echo hi".to_string(),
+                cwd: ".".to_string(),
+            },
+        }
     }
 
     /// A question **`crate::permission` really built**, recorded or not.
@@ -22990,46 +23012,277 @@ mod tests {
                 );
             }
         }
-        // All twelve and `\r` in one buffer, at a choice and in an amendment:
-        // nothing moves, and Super-Up and -Down there move only the caret,
-        // which is not part of the receipt's identity
-        // (`super::approval_readiness::Intent`), so the draft is unchanged.
-        for amending in [false, true] {
-            let mut shell = shell(24, 80);
-            asking(&mut shell);
-            if amending {
-                open(&mut shell);
-            }
-            let mut all: Vec<u8> = VERTICAL_SPELLINGS
-                .iter()
-                .flat_map(|(_, key)| key.iter().copied())
-                .collect();
-            all.push(b'\r');
-            shell.route_bytes(&all);
-            answered(
-                &mut shell,
-                amending.then_some("ab cd"),
-                &format!("amending={amending}: the twelve and Enter in one read"),
-            );
-        }
-        // Super-Up or Super-Down in an amendment, then Enter at once. The
-        // caret moved, which is a frame (`Moved`) and not a new screen: a
-        // receipt is about the question, its plane, its size and its layout,
-        // never the caret (`super::approval_readiness::Intent`), so it holds,
-        // and the answer is the choice shown with the draft unchanged. fx
-        // refuses this Enter on a file approval like this one, until the
-        // frame the caret asked for is drawn (`input_approval_runtime.zig:191-218`);
-        // APPROVAL-READINESS-SETTLED flips this case.
-        for (name, key) in [
-            ("super-up", &b"\x1b[1;9A"[..]),
-            ("super-down", b"\x1b[1;9B"),
+        // All twelve and `\r` in one buffer at a choice: nothing moves, so the
+        // Enter answers the choice shown.
+        let all: Vec<u8> = VERTICAL_SPELLINGS
+            .iter()
+            .flat_map(|(_, key)| key.iter().copied())
+            .chain([b'\r'])
+            .collect();
+        let mut at_a_choice = shell(24, 80);
+        asking(&mut at_a_choice);
+        at_a_choice.route_bytes(&all);
+        answered(
+            &mut at_a_choice,
+            None,
+            "the twelve and Enter in one read at a choice",
+        );
+        // Super-Up or Super-Down in an amendment, alone or among the twelve,
+        // then Enter in the same read. The caret moved, which asks for a
+        // frame (`Moved`), so the Enter answers nothing until that frame is
+        // drawn, as fx's does (`input_approval_runtime.zig:86`, `:191-218`):
+        // the draft, then, is the one the next frame shows.
+        for (name, keys) in [
+            ("super-up", &b"\x1b[1;9A\r"[..]),
+            ("super-down", b"\x1b[1;9B\r"),
+            ("the twelve", &all),
         ] {
             let mut shell = shell(24, 80);
             asking(&mut shell);
             open(&mut shell);
-            shell.route_bytes(&[key, b"\r"].concat());
+            shell.route_bytes(keys);
+            assert_eq!(
+                shell.controlled(),
+                None,
+                "{name} and Enter in one read answered before the caret was drawn"
+            );
+            assert!(
+                shell.drafting(),
+                "{name}: the refused Enter ended the draft"
+            );
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
             answered(&mut shell, Some("ab cd"), name);
         }
+    }
+
+    #[test]
+    fn a_move_and_enter_in_one_read_at_an_edit_answer_nothing_until_a_frame_shows_the_move() {
+        // fx v0.0.16 takes no affirmative while a modal frame is pending
+        // (`settledForApproval`, `render_request.zig:172-177@481104fd`; the
+        // refusal, `input_approval_runtime.zig:207-218`), and every move of
+        // the choice asks for one (`:98`, `:108`, `:117`, `:125`): a move and
+        // the Enter after it in one read answer nothing, the refusal says
+        // nothing (fx's is a trace line, `:209-216`), and the Enter after the
+        // frame answers the choice that frame marks.
+        // `fx-p5-approval-readiness-settled-40x120-edit-down-enter`.
+        a_move_and_enter_in_one_read_answer_nothing_until_a_frame_shows_it("an edit", asked());
+    }
+
+    #[test]
+    fn a_move_and_enter_in_one_read_at_a_command_answer_nothing_until_a_frame_shows_the_move() {
+        // fx asks this of a file approval only (`input_approval_runtime.zig:191-192
+        // @481104fd`), so its Down and Enter at a command answer `Always` at
+        // once (`fx-p5-approval-readiness-settled-40x120-cmd2-down-enter`);
+        // xfx asks it of every approval (the dispatcher's decision,
+        // `docs/parity.md`).
+        a_move_and_enter_in_one_read_answer_nothing_until_a_frame_shows_it(
+            "a command",
+            asked_to_run(),
+        );
+    }
+
+    /// The cases of the two tests above, at the question `request`.
+    fn a_move_and_enter_in_one_read_answer_nothing_until_a_frame_shows_it(
+        what: &str,
+        request: ApprovalRequest,
+    ) {
+        // Every case is run before any is reported, so a failure names each
+        // move that was answered unseen rather than the first.
+        let mut unseen = Vec::new();
+        for (name, keys, lands) in [
+            ("down", &b"\x1b[B"[..], "2"),
+            ("right", b"\x1b[C", "2"),
+            ("alt-f", b"\x1bf", "2"),
+            ("down down up", b"\x1b[B\x1b[B\x1b[A", "2"),
+            ("down down down", b"\x1b[B\x1b[B\x1b[B", "1"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking_for(&mut shell, request.clone());
+            let _ = shell.released();
+            shell.route_bytes(&[keys, b"\r"].concat());
+            if let Some(answered) = shell.controlled() {
+                unseen.push(format!(
+                    "{what}, {name} and Enter in one read: {answered:?}"
+                ));
+                continue;
+            }
+            assert!(shell.asking(), "{what}, {name}: the question went down");
+            assert!(
+                shell.marked().contains(&format!("❯ {lands}  ")),
+                "{what}, {name}: {:?}",
+                shell.marked()
+            );
+            let said = unwrapped(&shell.released());
+            assert!(
+                !said.contains(&unwrapped(&[APPROVAL_NOT_READY.to_string()])),
+                "{what}, {name}: the refusal said the question was not shown: {said:?}"
+            );
+            // Nor in a second delivery, with no frame between.
+            shell.route_bytes(b"\r");
+            assert_eq!(shell.controlled(), None, "{what}, {name}: second Enter");
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            let shown = match lands {
+                "1" => ApprovalAnswer::Once,
+                _ => ApprovalAnswer::Always,
+            };
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: shown,
+                    feedback: None,
+                }),
+                "{what}, {name}: the Enter after the frame did not answer what it marked"
+            );
+        }
+        assert!(
+            unseen.is_empty(),
+            "answered before a frame showed the move: {unseen:#?}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_read_with_a_move_still_refuses_at_once() {
+        // fx gates the affirmatives only (`decision != .deny`,
+        // `input_approval_runtime.zig:191`): a refusal is answerable at
+        // every moment, a move read with it or not.
+        for (name, keys) in [
+            ("down down enter", &b"\x1b[B\x1b[B\r"[..]),
+            ("up enter", b"\x1b[A\r"),
+            ("down 3", b"\x1b[B3"),
+            ("down ctrl-c", b"\x1b[B\x03"),
+        ] {
+            for request in [asked(), asked_to_run()] {
+                let mut shell = shell(24, 80);
+                asking_for(&mut shell, request);
+                shell.route_bytes(keys);
+                assert_eq!(
+                    shell.controlled(),
+                    Some(TurnControl::Answer {
+                        id: ApprovalId(1),
+                        answer: ApprovalAnswer::Deny,
+                        feedback: None,
+                    }),
+                    "{name}: a refusal read with a move waited for a frame"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft() {
+        // The feedback text: a letter typed, or C-u, C-w or a yank, asks for a
+        // frame as a move does (fx's insert, `app_input_runtime.zig:1251-1255
+        // @481104fd`; its draft edits, `input_approval_runtime.zig:79-89`), so
+        // the Enter read with it sends nothing, and the Enter after the frame
+        // sends the draft that frame shows.
+        // `fx-p5-approval-readiness-settled-40x120-write-letter-enter`.
+        let mut unseen = Vec::new();
+        for (name, keys, sent) in [
+            ("a letter", &b"x\r"[..], "ab cdx"),
+            ("ctrl-u", b"\x15\r", ""),
+            ("ctrl-w", b"\x17\r", "ab "),
+            ("ctrl-w then a yank", b"\x17\x19\r", "ab cd"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell.route_bytes(b"\tab cd");
+            delivered(&mut shell);
+            shell.route_bytes(keys);
+            if let Some(answered) = shell.controlled() {
+                unseen.push(format!("{name} and Enter in one read: {answered:?}"));
+                continue;
+            }
+            assert!(
+                shell.drafting(),
+                "{name}: the refused Enter ended the draft"
+            );
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: (!sent.is_empty()).then(|| sent.to_string()),
+                }),
+                "{name}: the Enter after the frame did not send the draft it showed"
+            );
+        }
+        // A paste's end, then Enter in the next delivery with no frame
+        // between: a paste ends with its delivery (`Shell::end_delivery`), so
+        // bytes after its marker in the same one are not keys.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        delivered(&mut shell);
+        shell.route_bytes(b"\x1b[200~ zz\x1b[201~");
+        shell.route_bytes(b"\r");
+        if let Some(answered) = shell.controlled() {
+            unseen.push(format!(
+                "a paste, then Enter with no frame between: {answered:?}"
+            ));
+        }
+        assert!(
+            unseen.is_empty(),
+            "sent before a frame showed the draft: {unseen:#?}"
+        );
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("ab cd zz".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn a_walk_of_the_review_plane_and_enter_answer_nothing_until_it_is_drawn() {
+        // The part of a change in view is part of what the question shows
+        // (`reasonsAffectApproval`'s doc, `render_request.zig:363-366
+        // @481104fd`; fx's wheel asks for a frame, `input_approval_runtime.zig:173-176`):
+        // a walk that moved and the Enter after it answer nothing until it
+        // is drawn. A walk that cannot move -- `C-p` at the head -- changes
+        // nothing and does not hold the Enter.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+        delivered(&mut shell);
+        shell.route_bytes(&[0x10, b'\r']);
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            }),
+            "a walk that moved nothing held the Enter"
+        );
+
+        let mut shell = self::shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        delivered(&mut shell);
+        shell.route_bytes(&[0x0e, b'\r']);
+        assert_eq!(shell.controlled(), None, "an undrawn walk was answered");
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            })
+        );
     }
 
     #[test]
