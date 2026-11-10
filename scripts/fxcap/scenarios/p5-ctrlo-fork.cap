@@ -1,0 +1,63 @@
+# CTRLO-OTHER-PICKERS: Ctrl-O over /fork's menu after three turns (the
+# newest prompt marked), then one key at a time between a Ctrl-O and its
+# return. Up first: the mark is on the last row.
+# fx closes the full transcript before every frame while this menu is up
+# (reconcileBeforeFrameRender, app_render_runtime.zig:1206-1215@481104fd), so
+# Ctrl-O over it shows nothing and every key below is the menu's own, as
+# without Ctrl-O: `held` is the composer's plane with the menu, C-j and C-k
+# move the mark (routePickerControlByte, app_input_runtime.zig:1093-1116),
+# Escape closes the menu (resolveEscape, :2765).
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-effort-fork-turns.json
+wait 3
+type first prompt alpha
+key Enter
+wait 3
+type second prompt beta
+key Enter
+wait 3
+type third prompt gamma
+key Enter
+wait 3
+type /fork
+key Enter
+wait 1
+snap open
+key C-o
+wait 0.8
+snap held
+key C-o
+wait 0.8
+key C-o
+wait 0.8
+key Up
+wait 0.4
+key C-o
+wait 0.8
+snap up
+key C-o
+wait 0.8
+key C-k
+wait 0.4
+key C-o
+wait 0.8
+snap ck
+key C-o
+wait 0.8
+key C-j
+wait 0.4
+key C-o
+wait 0.8
+snap cj
+key C-o
+wait 0.8
+key Tab
+wait 0.4
+key C-o
+wait 0.8
+snap tab
+key C-o
+wait 0.8
+key Escape
+wait 0.8
+snap esc

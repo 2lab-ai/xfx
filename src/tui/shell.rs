@@ -36980,17 +36980,77 @@ mod tests {
         // `input_full_transcript_runtime.zig:156-166@481104fd`) and scrolls
         // itself with them (`routeKey`, `:181-197`): none reaches the list,
         // and the bar is where it was when the plane comes back
-        // (`p5-ctrlo-at-keys down`).
-        let (_workspace, mut shell) = under_ctrl_o(b"@src");
+        // (`p5-ctrlo-at-keys down`). Over a record taller than the screen,
+        // so each key's scroll is measured (CTRLO-AT-KEYS gpt6 NTH): the
+        // screen opens at the tail, Up and PgUp move it toward the head, Down
+        // and PgDn back, and the bar stays put after every one of them.
+        let (_workspace, mut shell) = scrolled_under_ctrl_o(b"@src");
         let marked = marked_path(&shell);
-        for key in [&b"\x1b[B"[..], b"\x1b[A", b"\x1b[6~", b"\x1b[5~"] {
+        let tail = transcript_offset(&shell).expect("the transcript is up");
+        let mut offsets = Vec::new();
+        for key in [&b"\x1b[A"[..], b"\x1b[B", b"\x1b[5~", b"\x1b[6~"] {
             shell.route_bytes(key);
             assert!(shell.full.is_open(), "{key:?} closed the transcript");
+            assert_eq!(marked_path(&shell), marked, "{key:?} moved the bar");
+            offsets.push(transcript_offset(&shell).expect("the transcript is up"));
         }
+        assert!(
+            offsets[0] < tail && offsets[2] < offsets[0],
+            "Up or PgUp did not scroll toward the head: {tail} then {offsets:?}"
+        );
+        assert_eq!(
+            (offsets[1], offsets[3]),
+            (tail, tail),
+            "Down or PgDn did not scroll back"
+        );
         shell.route_bytes(&[0x0f]);
         shell.file_picker_landed();
         assert_eq!(shell.editor.text(), "@src");
         assert_eq!(marked_path(&shell), marked, "an arrow moved the bar");
+    }
+
+    /// [`under_ctrl_o`] over a record the screen has to scroll: 60 answer
+    /// paragraphs before the draft, on a 40-row screen.
+    fn scrolled_under_ctrl_o(draft: &[u8]) -> (tempfile::TempDir, Fixture) {
+        let (workspace, mut shell) = in_ws2(40, 120);
+        let record: String = (0..60).map(|row| format!("answer row {row}\n\n")).collect();
+        shell.full.answer(&record);
+        shell.route_bytes(draft);
+        listed(&mut shell);
+        assert!(marked_path(&shell).is_some(), "no rows for the draft");
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O did not open the transcript");
+        (workspace, shell)
+    }
+
+    /// The first row the full transcript shows, `None` while it is closed.
+    fn transcript_offset(shell: &Fixture) -> Option<usize> {
+        shell
+            .full
+            .offset(shell.geometry.cols, shell.geometry.rows, shell.palette)
+    }
+
+    #[test]
+    fn shift_up_and_down_under_the_full_transcript_scroll_nothing_and_move_no_bar() {
+        // A shifted arrow is fx's composer move with `extend_selection`
+        // (`escape_parser.zig:66-71`, `:99-107@481104fd`), which the
+        // transcript's map does not bind (`keyForAction`,
+        // `input_full_transcript_runtime.zig:167-170`): it reaches
+        // `routeComposerVertical`, where the file query takes it
+        // (`input_completion_runtime.zig:230`) and, the list not eligible,
+        // moves nothing (`:407-410`). Here the transcript leaves both
+        // unbound, `unshifted` folds them to the arrows after it, and the
+        // distrusted list's step moves nothing (CTRLO-AT-KEYS opus NIT).
+        let (_workspace, mut shell) = scrolled_under_ctrl_o(b"@src");
+        let marked = marked_path(&shell);
+        let tail = transcript_offset(&shell);
+        for key in [&b"\x1b[1;2A"[..], b"\x1b[1;2B"] {
+            shell.route_bytes(key);
+            assert!(shell.full.is_open(), "{key:?} closed the transcript");
+            assert_eq!(transcript_offset(&shell), tail, "{key:?} scrolled it");
+            assert_eq!(marked_path(&shell), marked, "{key:?} moved the bar");
+            assert_eq!(shell.editor.text(), "@src", "{key:?} edited the draft");
+        }
     }
 
     #[test]
@@ -37006,6 +37066,454 @@ mod tests {
         assert_eq!(shell.editor.text(), "@src");
         shell.file_picker_landed();
         assert_eq!(marked_path(&shell), marked, "Escape took the list");
+    }
+
+    // CTRLO-OTHER-PICKERS. fx closes the full transcript before every frame
+    // while the settings menu, the help catalog, the skills menu it shows,
+    // `/model`'s menu, the session picker, `/fork`'s or `/effort`'s menu is
+    // up (`reconcileBeforeFrameRender`, `app_render_runtime.zig:1206-1215
+    // @481104fd`; its tests, `:2001-2033`), so no key ever reaches one of
+    // them under Ctrl-O: each is the menu's own. The slash menu, the
+    // `/provider` column and `/mcp `'s argument completions are not on the
+    // list, so the screen holds over them, and `C-j` and `C-k` reach the
+    // composer there (`routePickerControlByte`, `app_input_runtime.zig:
+    // 1093-1116`).
+
+    /// Ctrl-O, which opens the full transcript, then the loop's tick before
+    /// the frame ([`Shell::settle_band`]): whether the transcript is still up
+    /// for that frame.
+    fn ctrl_o_then_a_frame(shell: &mut Fixture) -> bool {
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O did not open the transcript");
+        shell.settle_band(Instant::now());
+        shell.full.is_open()
+    }
+
+    /// A menu the transcript does not hold over, driven as `p5-ctrlo-*`
+    /// drives it: Ctrl-O and its frame -- the transcript gone, the plane
+    /// the composer's -- then each key of `moves` after a Ctrl-O and its
+    /// frame, the mark where the menu's own key puts it (`marked` reads it),
+    /// then Escape after a Ctrl-O and its frame, which closes the menu (`up`
+    /// says whether it is there).
+    fn the_menus_keys_under_ctrl_o<T: PartialEq + std::fmt::Debug>(
+        shell: &mut Fixture,
+        marked: impl Fn(&Fixture) -> T,
+        moves: &[(&[u8], T)],
+        up: impl Fn(&Fixture) -> bool,
+    ) {
+        assert!(
+            !ctrl_o_then_a_frame(shell),
+            "the transcript held over the menu for a frame"
+        );
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert!(up(shell), "Ctrl-O took the menu down");
+        for (key, mark) in moves {
+            assert!(!ctrl_o_then_a_frame(shell), "{key:?}: the transcript held");
+            shell.route_bytes(key);
+            assert_eq!(&marked(shell), mark, "{key:?} was not the menu's");
+        }
+        assert!(!ctrl_o_then_a_frame(shell), "Escape: the transcript held");
+        escape(shell);
+        assert!(!up(shell), "Escape left the menu up");
+        assert!(!shell.full.is_open());
+    }
+
+    #[test]
+    fn ctrl_o_over_the_help_catalog_holds_no_frame_and_its_keys_stay_its() {
+        // `p5-ctrlo-help` `held`, `down`, `ck`, `cj`, `esc`; fx's trace in its
+        // `end` shows each Ctrl-O open the screen and the frame close it.
+        let mut shell = with_catalog(40, 120);
+        let marked = |shell: &Fixture| {
+            shell
+                .help_menu
+                .as_ref()
+                .and_then(HelpMenu::selected)
+                .map(|spec| spec.name)
+        };
+        assert_eq!(marked(&shell), Some("/help"));
+        the_menus_keys_under_ctrl_o(
+            &mut shell,
+            marked,
+            &[
+                (b"\x1b[B", Some("/clear")),
+                (&[0x0b], Some("/help")),
+                (&[0x0a], Some("/clear")),
+            ],
+            |shell| shell.help_menu.is_some(),
+        );
+    }
+
+    #[test]
+    fn ctrl_o_over_the_model_menu_holds_no_frame_and_its_keys_stay_its() {
+        // `p5-ctrlo-model`.
+        let mut shell = shell(40, 120);
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,
+            provider: ProviderId::Gateway,
+            entries: vec![
+                entry("one", Some(400_000), &[]),
+                entry("two", Some(400_000), &[]),
+            ],
+        });
+        let _ = shell.document();
+        shell.route_bytes(b"/model\r");
+        let marked = |shell: &Fixture| {
+            shell
+                .model_menu
+                .as_ref()
+                .and_then(|menu| menu.selected().map(str::to_string))
+        };
+        let first = marked(&shell);
+        shell.route_bytes(b"\x1b[B");
+        let second = marked(&shell);
+        shell.route_bytes(b"\x1b[A");
+        assert_ne!(first, second);
+        the_menus_keys_under_ctrl_o(
+            &mut shell,
+            marked,
+            &[
+                (b"\x1b[B", second.clone()),
+                (&[0x0b], first.clone()),
+                (&[0x0a], second),
+            ],
+            |shell| shell.model_menu.is_some(),
+        );
+    }
+
+    #[test]
+    fn ctrl_o_over_the_session_picker_holds_no_frame_and_its_keys_stay_its() {
+        // `p5-ctrlo-sessions`.
+        use super::super::session_picker::{ListedSession, Listing};
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/resume\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        let session = |id: &str| ListedSession {
+            id: id.to_string(),
+            title: Some(format!("question {id}")),
+            workspace: "/x/work".to_string(),
+            updated_at_ms: 0,
+            turns: 1,
+        };
+        shell.apply(UiEvent::Sessions(Some(Listing {
+            current: vec![session("b"), session("a")],
+            all: Vec::new(),
+            now_ms: 0,
+        })));
+        let marked = |shell: &Fixture| shell.sessions.as_ref().and_then(SessionPicker::selected);
+        assert_eq!(marked(&shell).as_deref(), Some("b"));
+        the_menus_keys_under_ctrl_o(
+            &mut shell,
+            marked,
+            &[
+                (b"\x1b[B", Some("a".to_string())),
+                (&[0x0b], Some("b".to_string())),
+                (&[0x0a], Some("a".to_string())),
+            ],
+            |shell| shell.sessions.is_some(),
+        );
+    }
+
+    #[test]
+    fn ctrl_o_over_the_fork_menu_holds_no_frame_and_its_keys_stay_its() {
+        // `p5-ctrlo-fork`: the newest prompt marked, so Up first.
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, three_points());
+        let marked = |shell: &Fixture| shell.fork_menu.as_ref().map(|menu| menu.selected().turn);
+        assert_eq!(marked(&shell), Some(3));
+        the_menus_keys_under_ctrl_o(
+            &mut shell,
+            marked,
+            &[(b"\x1b[A", Some(2)), (&[0x0b], Some(1)), (&[0x0a], Some(2))],
+            |shell| shell.fork_menu.is_some(),
+        );
+    }
+
+    #[test]
+    fn ctrl_o_over_the_effort_menu_holds_no_frame_and_its_keys_stay_its() {
+        // `p5-ctrlo-effort`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort\r");
+        let marked = |shell: &Fixture| {
+            shell
+                .effort_menu
+                .as_ref()
+                .map(|menu| menu.selected().clone())
+        };
+        let level = |name: &str| Some(Effort::Named(name.to_string()));
+        assert_eq!(marked(&shell), Some(Effort::Auto));
+        the_menus_keys_under_ctrl_o(
+            &mut shell,
+            marked,
+            &[
+                (b"\x1b[B", level("low")),
+                (&[0x0b], Some(Effort::Auto)),
+                (&[0x0a], level("low")),
+            ],
+            |shell| shell.effort_menu.is_some(),
+        );
+    }
+
+    #[test]
+    fn ctrl_o_over_the_skills_menu_holds_no_frame_and_its_keys_stay_its() {
+        // `skills-ctrlo`: `/skills`' menu, then a `$` word's
+        // (`skills-ctrlo-dollar`) -- the skills menu shown either way
+        // (`menuVisible`).
+        let marked = |shell: &Fixture| {
+            shell
+                .skills_menu
+                .as_ref()
+                .and_then(SkillsMenu::selected)
+                .map(|skill| skill.name.clone())
+        };
+        let name = |name: &str| Some(name.to_string());
+        let moves: [(&[u8], Option<String>); 3] = [
+            (b"\x1b[B", name("release-notes")),
+            (&[0x0b], name("demo")),
+            (&[0x0a], name("release-notes")),
+        ];
+        let mut command = skilled();
+        command.route_bytes(b"/skills\r");
+        skills_landed(&mut command);
+        assert_eq!(marked(&command), name("demo"));
+        the_menus_keys_under_ctrl_o(&mut command, marked, &moves, |shell| {
+            shell.skills_menu.is_some()
+        });
+        let mut mention = skilled();
+        mention.route_bytes(b"explain $");
+        assert_eq!(marked(&mention), name("demo"));
+        the_menus_keys_under_ctrl_o(&mut mention, marked, &moves, |shell| {
+            shell.skills_menu.is_some()
+        });
+    }
+
+    #[test]
+    fn ctrl_o_over_the_settings_menu_holds_no_frame() {
+        // The seventh menu fx's frame shuts the transcript for
+        // (`settingsMenuActive`, `app_render_runtime.zig:1206`).
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/settings\r");
+        assert!(shell.settings_menu.is_some(), "/settings opened nothing");
+        assert!(!ctrl_o_then_a_frame(&mut shell), "the transcript held");
+        assert!(shell.settings_menu.is_some(), "Ctrl-O took the menu down");
+    }
+
+    #[test]
+    fn a_menu_that_opens_under_the_full_transcript_takes_the_plane_back() {
+        // fx's frame closes the screen whichever way the menu came: `/help`
+        // sent from the composer under it (Enter is the composer's there,
+        // `app_input_runtime.zig:1392-1395`), a `$` typed, a `/fork`
+        // answered. A `$` word nothing matches shows no menu, and the screen
+        // holds over it (`menuVisible`).
+        let mut shell = shell(40, 120);
+        shell.route_bytes(&[0x0f]);
+        shell.route_bytes(b"/help\r");
+        assert!(shell.full.is_open() && shell.help_menu.is_some());
+        shell.settle_band(Instant::now());
+        assert!(!shell.full.is_open(), "the transcript held over /help");
+
+        let mut skilled = skilled();
+        skilled.route_bytes(&[0x0f]);
+        skilled.route_bytes(b"$zz");
+        skilled.settle_band(Instant::now());
+        assert!(
+            skilled
+                .skills_menu
+                .as_ref()
+                .is_some_and(|menu| !menu.visible()),
+            "the $ word matched a skill"
+        );
+        assert!(skilled.full.is_open(), "a menu nobody sees closed it");
+        skilled.route_bytes(&[0x7f, 0x7f]);
+        skilled.settle_band(Instant::now());
+        assert!(skilled
+            .skills_menu
+            .as_ref()
+            .is_some_and(SkillsMenu::visible));
+        assert!(
+            !skilled.full.is_open(),
+            "the transcript held over the $ menu"
+        );
+
+        let mut forked = super::tests::shell(40, 120);
+        forked.route_bytes(b"/fork\r");
+        assert_eq!(forked.picks_up(), TurnWork::ForkPoints);
+        forked.work.give_back();
+        forked.route_bytes(&[0x0f]);
+        forked.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(forked.full.is_open() && forked.fork_menu.is_some());
+        forked.settle_band(Instant::now());
+        assert!(
+            !forked.full.is_open(),
+            "the transcript held over /fork's menu"
+        );
+    }
+
+    /// Ctrl-O over a menu the transcript holds over, and the frame: it is
+    /// still up.
+    fn held_over(shell: &mut Fixture) {
+        assert!(ctrl_o_then_a_frame(shell), "the transcript closed over it");
+    }
+
+    /// `/` and a Down: the slash menu with its second row marked.
+    fn slash_menu_second_row() -> Fixture {
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/\x1b[B");
+        assert_eq!(shell.picker.as_ref().map(|menu| menu.marked().0), Some(1));
+        held_over(&mut shell);
+        shell
+    }
+
+    #[test]
+    fn c_k_under_the_full_transcript_over_the_slash_menu_moves_no_mark() {
+        // `p5-ctrlo-slash ck`: C-k reaches fx's composer, a kill of nothing
+        // with the caret at the end (`app_input_runtime.zig:479-488
+        // @481104fd`), and the mark is where it was.
+        let mut shell = slash_menu_second_row();
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.editor.text(), "/");
+        assert_eq!(
+            shell.picker.as_ref().map(|menu| menu.marked().0),
+            Some(1),
+            "C-k moved the mark"
+        );
+        assert!(shell.full.is_open());
+    }
+
+    #[test]
+    fn c_j_under_the_full_transcript_over_the_slash_menu_is_a_new_line() {
+        // `p5-ctrlo-slash cj`: `/` and a new line are no slash word, so the
+        // menu closes (`app_input_runtime.zig:513-521@481104fd`).
+        let mut shell = slash_menu_second_row();
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(shell.editor.text(), "/\n", "C-j did not reach the composer");
+        assert!(shell.picker.is_none(), "the menu is still up");
+        assert!(shell.full.is_open(), "C-j closed the transcript");
+        assert!(shell.sent.try_recv().is_err(), "C-j sent the line");
+    }
+
+    /// `/provider ` and a Down: the column with its second row marked.
+    fn provider_column_second_row() -> Fixture {
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/provider ");
+        let first = shell
+            .provider_picker
+            .as_ref()
+            .and_then(ProviderPicker::chosen);
+        shell.route_bytes(b"\x1b[B");
+        assert_ne!(
+            shell
+                .provider_picker
+                .as_ref()
+                .and_then(ProviderPicker::chosen),
+            first
+        );
+        held_over(&mut shell);
+        shell
+    }
+
+    #[test]
+    fn c_k_under_the_full_transcript_over_the_provider_column_moves_no_mark() {
+        // `provider-ctrlo ck`.
+        let mut shell = provider_column_second_row();
+        let chosen = shell
+            .provider_picker
+            .as_ref()
+            .and_then(ProviderPicker::chosen);
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.editor.text(), "/provider ");
+        assert_eq!(
+            shell
+                .provider_picker
+                .as_ref()
+                .and_then(ProviderPicker::chosen),
+            chosen,
+            "C-k moved the mark"
+        );
+        assert!(shell.full.is_open());
+    }
+
+    #[test]
+    fn c_j_under_the_full_transcript_over_the_provider_column_is_a_new_line() {
+        // `provider-ctrlo cj`: the line is still the column's, and its
+        // argument -- a new line -- matches no provider (fx's `no matching
+        // providers`).
+        let mut shell = provider_column_second_row();
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(
+            shell.editor.text(),
+            "/provider \n",
+            "C-j did not reach the composer"
+        );
+        assert!(shell.provider_picker.is_some(), "the column closed");
+        assert_eq!(
+            shell
+                .provider_picker
+                .as_ref()
+                .and_then(ProviderPicker::chosen),
+            None,
+            "a provider matched the new line"
+        );
+        assert!(shell.full.is_open(), "C-j closed the transcript");
+        assert!(shell.sent.try_recv().is_err(), "C-j sent the line");
+    }
+
+    /// `/mcp ` and a Down: the argument completions with the second marked.
+    fn mcp_args_second_row() -> (Fixture, Arc<crate::mcp::McpRuntime>, tempfile::TempDir) {
+        let (mut shell, runtime, home) = mcp_args_shell();
+        shell.route_bytes(b"/mcp ");
+        let first = shell
+            .mcp_args
+            .as_ref()
+            .and_then(|args| args.chosen().map(str::to_string));
+        shell.route_bytes(b"\x1b[B");
+        assert_ne!(
+            shell
+                .mcp_args
+                .as_ref()
+                .and_then(|args| args.chosen().map(str::to_string)),
+            first
+        );
+        held_over(&mut shell);
+        (shell, runtime, home)
+    }
+
+    #[test]
+    fn c_k_under_the_full_transcript_over_the_mcp_arguments_moves_no_mark() {
+        // `p5-ctrlo-mcp-args ck`: fx's are the slash completion's
+        // (`verb_completions`, `app_mcp_runtime.zig:459-468@481104fd`).
+        let (mut shell, _runtime, _home) = mcp_args_second_row();
+        let chosen = shell
+            .mcp_args
+            .as_ref()
+            .and_then(|args| args.chosen().map(str::to_string));
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.editor.text(), "/mcp ");
+        assert_eq!(
+            shell
+                .mcp_args
+                .as_ref()
+                .and_then(|args| args.chosen().map(str::to_string)),
+            chosen,
+            "C-k moved the mark"
+        );
+        assert!(shell.full.is_open());
+    }
+
+    #[test]
+    fn c_j_under_the_full_transcript_over_the_mcp_arguments_is_a_new_line() {
+        // `p5-ctrlo-mcp-args cj`: the completions close.
+        let (mut shell, _runtime, _home) = mcp_args_second_row();
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(
+            shell.editor.text(),
+            "/mcp \n",
+            "C-j did not reach the composer"
+        );
+        assert!(shell.mcp_args.is_none(), "the completions are still up");
+        assert!(shell.full.is_open(), "C-j closed the transcript");
+        assert!(shell.sent.try_recv().is_err(), "C-j sent the line");
     }
 
     #[test]
