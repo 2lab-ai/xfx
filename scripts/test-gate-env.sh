@@ -210,7 +210,7 @@ mkdir -p "$bin"
 cat >"$bin/cargo" <<'EOF'
 #!/bin/sh
 # One test of the two ran: the other was renamed.
-printf '   Compiling xfx v0.1.0\n'
+printf '   Compiling xfx v0.2.0\n'
 printf '    Finished `release` profile [optimized] target(s) in 0.10s\n'
 printf '     Running unittests src/lib.rs\n\n'
 printf 'running %s test\n' "$XFX_TEST_CARGO_RAN"
@@ -865,25 +865,27 @@ refuses ci-checkout-assertion "checked out" assertion GIT_DIR="$decoy/.git" GIT_
 
 # build.rs, compiled alone. build_case <case> <dir> runs it in <dir> under a
 # GIT_DIR naming the decoy, a GIT_TRACE and the HOME that runs programs, and
-# requires the revision it stamps to be <dir>'s HEAD, the decoy unchanged and
-# nothing run. What it printed is left in "$work/<case>.log".
+# requires the id it stamps to be <dir>'s HEAD -- the UTC minute it was
+# committed, then its revision -- the decoy unchanged and nothing run. What it
+# printed is left in "$work/<case>.log".
 edition="$(sed -n 's/^edition *= *"\([0-9]*\)".*/\1/p' Cargo.toml | head -n 1)"
 build_case() {
 	local name="$1" dir="$2" want got status=0
-	want="$(sg -C "$dir" rev-parse HEAD)"
+	want="$(TZ=UTC0 sg -C "$dir" show -s --no-show-signature --date=format-local:%Y-%m-%d-%H%M --format='%cd-%H' HEAD)"
+	want="${want:0:28}"
 	new_decoy
 	decoy_sums >"$work/decoy.before"
-	(cd "$dir" && env -u XFX_BUILD_REVISION -u XFX_BUILD_CHANNEL PROFILE=debug OUT_DIR="$work" \
+	(cd "$dir" && env -u XFX_BUILD_ID -u XFX_BUILD_CHANNEL PROFILE=debug OUT_DIR="$work" \
 		GIT_DIR="$decoy/.git" GIT_TRACE="$trace" HOME="$home" "$work/build-script") \
 		>"$work/$name.log" 2>&1 </dev/null || status=$?
 	decoy_sums >"$work/decoy.after"
-	got="$(sed -n 's/^cargo:rustc-env=XFX_BUILD_REVISION=//p' "$work/$name.log")"
+	got="$(sed -n 's/^cargo:rustc-env=XFX_BUILD_ID=//p' "$work/$name.log")"
 	if [ "$status" -ne 0 ]; then
 		problem "$name: it exited $status"
 		tail -n 6 "$work/$name.log" >&2
 		return 1
-	elif [ -z "$got" ] || [ "${want#"$got"}" = "$want" ]; then
-		problem "$name: it stamped '$got', which is not the HEAD of its checkout, ${want:0:12}"
+	elif [ "${#want}" -ne 28 ] || [ "$got" != "$want" ]; then
+		problem "$name: it stamped '$got', which is not the id of its checkout's HEAD, '$want'"
 		return 1
 	elif ! cmp -s "$work/decoy.before" "$work/decoy.after"; then
 		problem "$name: it wrote into the decoy repository"

@@ -169,6 +169,12 @@ pub struct StatusSnapshot {
     /// (`<N characters, not shown>`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_rejected: Option<String>,
+    /// [`crate::BuildInfo::version`]: `0.2.0 (preview 2026-11-10-0019-
+    /// ec40c7ad2e50)`, the line `--version` and the welcome line say. The
+    /// channel and the revision follow it on their own, because a formula's
+    /// test reads them (`build_channel`, `build_revision`). The `/status`
+    /// panel's `Build` row stays upstream's `<channel> · <rev>`.
+    pub version: String,
     pub build_channel: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build_revision: Option<String>,
@@ -238,8 +244,9 @@ impl StatusSnapshot {
                 .provider_rejected
                 .as_ref()
                 .map(|r| shown_provider_value(&r.value)),
+            version: build.version(),
             build_channel: build.channel.to_string(),
-            build_revision: build.revision.map(str::to_string),
+            build_revision: build.revision().map(str::to_string),
             auth: auth.source,
             auth_refreshable: auth.refreshable,
             auth_help: auth.help,
@@ -388,6 +395,7 @@ impl StatusSnapshot {
         if let Some(rejected) = &self.provider_rejected {
             line("provider_rejected", rejected);
         }
+        line("version", &self.version);
         line("build_channel", &self.build_channel);
         if let Some(revision) = &self.build_revision {
             line("build_revision", revision);
@@ -2307,6 +2315,36 @@ mod tests {
         assert!(snapshot
             .render_text()
             .contains("[status] build_revision=0123456789ab\n"));
+    }
+
+    #[test]
+    fn the_version_line_comes_before_the_build_facts_it_is_made_of() {
+        let (_workspace, config) = empty_config();
+        let build = crate::BuildInfo {
+            channel: "preview",
+            id: Some("2026-11-10-0019-ec40c7ad2e50"),
+        };
+        let snapshot = StatusSnapshot::new(&config, build, SessionFacts::default());
+        let version = format!("{} (preview 2026-11-10-0019-ec40c7ad2e50)", crate::VERSION);
+        assert!(snapshot.render_text().contains(&format!(
+            "[status] version={version}\n[status] build_channel=preview\n[status] build_revision=ec40c7ad2e50\n"
+        )));
+        assert!(snapshot.render_json().contains(&format!(
+            "\"version\":\"{version}\",\"build_channel\":\"preview\",\"build_revision\":\"ec40c7ad2e50\""
+        )));
+
+        let unnamed = StatusSnapshot::new(
+            &config,
+            crate::BuildInfo {
+                channel: "debug",
+                id: None,
+            },
+            SessionFacts::default(),
+        );
+        assert!(unnamed.render_text().contains(&format!(
+            "[status] version={} (debug)\n[status] build_channel=debug\n[status] auth=",
+            crate::VERSION
+        )));
     }
 
     #[test]

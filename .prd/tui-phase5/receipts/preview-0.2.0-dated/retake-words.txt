@@ -1,0 +1,9 @@
+# python3 -I -B retake_words.py <run-dir>/{sw,rt}-...-60: take 0 is narrow-pairs.txt's group 60; takes 1-3 are retake-60.sh's, base then head, alternating
+sw-base-60       fx retrying     xfx retrying     same
+sw-head-60       fx connecting   xfx retrying     differ
+rt-base-1-60     fx connecting   xfx retrying     differ
+rt-head-1-60     fx connecting   xfx retrying     differ
+rt-base-2-60     fx retrying     xfx retrying     same
+rt-head-2-60     fx retrying     xfx retrying     same
+rt-base-3-60     fx retrying     xfx retrying     same
+rt-head-3-60     fx retrying     xfx retrying     same

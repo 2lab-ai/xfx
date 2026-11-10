@@ -188,8 +188,11 @@ async fn run_streams(
         }
         Command::Version => {
             // Upstream prints the bare version with no program name
-            // (`tests/e2e/cli.test.ts:445`).
-            writeln!(stdout, "{}", crate::VERSION)?;
+            // (`tests/e2e/cli.test.ts:445`). xfx prints llmux's line,
+            // `xfx 0.2.0 (preview 2026-11-10-0019-ec40c7ad2e50)`, because the
+            // user asked for it on 2026-11-10: the bare version cannot tell
+            // two local builds apart (`docs/parity.md`, `version text`).
+            writeln!(stdout, "{}", crate::interactive::version_line())?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Ask {
@@ -1310,9 +1313,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn version_prints_only_the_version_on_stdout() {
+    async fn version_prints_the_version_line_on_stdout() {
         let (_, stdout, stderr) = run_capture(Command::Version).await;
-        assert_eq!(stdout, format!("{}\n", crate::VERSION));
+        assert_eq!(stdout, format!("xfx {}\n", crate::build_info().version()));
         assert_eq!(stderr, "");
     }
 

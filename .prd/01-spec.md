@@ -10,14 +10,16 @@ stable cut; `CHANGELOG.md` dates its `[0.1.0]` section to that day and opens an 
 section above it. Two Homebrew formulae, one executable: `2lab-ai/tap/xfx` (stable, from `v*` tags)
 and `2lab-ai/tap/xfx-preview` (rolling, from each merge to `main` that bumps `.github/preview-epoch`). Both install `bin/xfx`, so only one
 can be held at a time, and `xfx status --json` distinguishes them by `build_channel` (`release` vs
-`preview`) rather than by version, which is `0.1.0` on every channel. `README.md` §Install states the
+`preview`) rather than by version, which a preview shares with the next release (`0.2.0` since
+2026-11-10); `xfx --version` says both, `xfx 0.2.0 (preview 2026-11-10-0019-<sha12>)`. `README.md` §Install states the
 stable formula conditionally — "once a stable release is published" — because publication is what
 the tag's workflow does, not what the tag alone proves.
 
 Three words that are not synonyms, and this document keeps them apart:
 
-- **Version** — the semver in `Cargo.toml`, `0.1.0`. It is the same on every channel and it says
-  nothing about which build you hold. It also never encodes closeness to upstream `fx`.
+- **Version** — the semver in `Cargo.toml`, `0.2.0` (`0.1.0` until 2026-11-10). It is the same on
+  every channel and by itself says nothing about which build you hold; the version line adds the
+  channel and the build's id (`docs/parity.md`, `version text`). It also never encodes closeness to upstream `fx`.
 - **Release identifier** — the git tag a stable build is cut from, `v0.1.0`, and the name of the
   release whose archives Homebrew resolves.
 - **Preview identifier** — the prerelease tag `preview-<date>-<time>-<run>-<attempt>-<sha12>`, which

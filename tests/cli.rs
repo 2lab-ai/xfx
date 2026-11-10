@@ -156,20 +156,78 @@ fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+/// Whether the tree this binary was built from is a git checkout (`.git` a
+/// directory, or the file a linked worktree has). build.rs names a build from
+/// git there; a tree with none -- a `git archive`, a source tarball -- builds
+/// a binary with no id, which says its channel alone and is supported.
+///
+/// A git checkout with no id is refused on purpose: build.rs must name a
+/// checkout's build, and CI and every gate build from a checkout with git, so
+/// a checkout without an id is a broken stamp, not the supported no-git build.
+fn built_from_a_checkout() -> bool {
+    manifest_dir().join(".git").exists()
+}
+
 // ---------------------------------------------------------------------------
 // version
 // ---------------------------------------------------------------------------
 
 #[test]
-fn version_aliases_print_the_bare_package_version() {
+fn version_aliases_print_the_version_line_status_reports() {
+    // llmux's line in this product's name, at the user's word of 2026-11-10:
+    // `xfx 0.2.0 (preview 2026-11-10-0019-ec40c7ad2e50)`. The same text as
+    // `status`'s `version`, so the two cannot disagree about the build.
     let sandbox = Sandbox::new();
+    let status = sandbox.run(&["status", "--json"]);
+    let json: serde_json::Value = serde_json::from_str(&status.stdout).expect("status json");
+    let version = json["version"].as_str().expect("version");
+    let channel = json["build_channel"].as_str().expect("build_channel");
+    match json["build_revision"].as_str() {
+        // A build with an id: `<version> (<channel> YYYY-MM-DD-HHMM-<rev>)`.
+        Some(revision) => {
+            let prefix = format!("{} ({channel} ", env!("CARGO_PKG_VERSION"));
+            let id = version
+                .strip_prefix(&prefix)
+                .and_then(|rest| rest.strip_suffix(')'))
+                .unwrap_or_else(|| panic!("{version:?} is not `<version> ({channel} <id>)`"));
+            let (stamp, tail) = id.split_at(id.len().saturating_sub(revision.len()));
+            assert_eq!(tail, revision, "the id ends with the revision: {id}");
+            assert!(
+                stamp.len() == 16
+                    && stamp.ends_with('-')
+                    && stamp[..15]
+                        .char_indices()
+                        .all(|(at, c)| if matches!(at, 4 | 7 | 10) {
+                            c == '-'
+                        } else {
+                            c.is_ascii_digit()
+                        }),
+                "the id starts with YYYY-MM-DD-HHMM-: {id}"
+            );
+        }
+        // A build with none -- no git, no `XFX_BUILD_ID` -- says its channel
+        // alone, with no placeholder. A checkout always names its build
+        // (`built_from_a_checkout` says why), so a missing id there is a
+        // broken stamp, not this case.
+        None => {
+            assert!(
+                !built_from_a_checkout(),
+                "a build from a git checkout has no id: {version:?}"
+            );
+            assert_eq!(
+                version,
+                format!("{} ({channel})", env!("CARGO_PKG_VERSION")),
+                "a build with no id says its channel alone"
+            );
+        }
+    }
     for alias in ["--version", "-v"] {
         let run = sandbox.run(&[alias]);
         assert_eq!(run.code, Some(0), "{alias} must exit 0");
         assert_eq!(
             run.stdout,
-            format!("{}\n", env!("CARGO_PKG_VERSION")),
-            "{alias} must print only the version"
+            format!("xfx {version}\n"),
+            "{alias} must print the version line"
         );
         assert_eq!(run.stderr, "", "{alias} must not write diagnostics");
     }
@@ -405,14 +463,26 @@ fn status_json_is_a_single_newline_terminated_document() {
         "build_channel must be a declared channel, got {:?}",
         json["build_channel"]
     );
-    let revision = json["build_revision"].as_str().expect("build_revision");
-    assert_eq!(revision.len(), 12, "build revision is 12 characters");
-    assert!(
-        revision
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()),
-        "build revision is lowercase hex, got {revision}"
-    );
+    // A build from a tree with no git and no `XFX_BUILD_ID` has no revision
+    // and omits the field; a checkout's build always has one.
+    match json["build_revision"].as_str() {
+        Some(revision) => {
+            assert_eq!(revision.len(), 12, "build revision is 12 characters");
+            assert!(
+                revision
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()),
+                "build revision is lowercase hex, got {revision}"
+            );
+        }
+        None => {
+            assert!(
+                !built_from_a_checkout(),
+                "a build from a git checkout reports no build_revision"
+            );
+            assert!(json.get("build_revision").is_none(), "absent, not null");
+        }
+    }
 }
 
 #[test]
