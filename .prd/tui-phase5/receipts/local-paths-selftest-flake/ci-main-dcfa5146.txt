@@ -1,0 +1,54 @@
+CI run 42880581900 (main, dcfa5146, train 13 merged), job 130055471921, gate (aarch64-apple-darwin)
+##[group]Runner Image
+Image: macos-15-arm64
+Version: 20261104.0514.1
+Included Software: https://github.com/actions/runner-images/blob/macos-15-arm64/20261104.0514/images/macos/macos-15-arm64-Readme.md
+##[group]Run ./scripts/test-check-no-local-paths.sh
+./scripts/test-check-no-local-paths.sh
+shell: /bin/bash -e {0}
+env:
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: 1
+  COMMIT_UNDER_TEST: dcfa5146b520bd3f5d6b2d0d20ba7acced8ad806
+##[endgroup]
+test-check-no-local-paths: FAIL shapes: not named: w3/trace-report.md:1: a Linux home directory
+    | check-no-local-paths: a path that belongs to one machine is in tracked content (write it as a placeholder such as <tmp>, <home> or <work>, derive it from $TMPDIR or $HOME at run time, or mark a fixture's line local-path-ok):
+    | -:1: a Linux home directory
+    | -x/last.txt:3: a harness scratch root
+    | accented.md:1: a harness scratch root, broken after its tmp/
+    | at-sign.md:1: a harness scratch root, broken after its tmp/
+    | bare.md:1: a macOS home directory
+    | bare.md:2: a Linux home directory
+    | blob.bin: (a binary file, which cannot be marked): a local path
+    | body.json:1: a macOS per-user temporary root
+    | both.rs:1: a Linux home directory
+    | café	name.md:1: a macOS home directory
+    | colour.ansi:1: a macOS home directory
+    | docs/fx-guide-40x120-notes.md:1: a Linux home directory
+    | fx-x-40x120-bodies/001-completion.json:1: a Linux home directory
+    | harness.py:1: a harness scratch root
+    | link.ansi:1: a macOS per-user temporary root
+    | linux-harness.txt:2: a harness scratch root
+    | linux.sh:1: a Linux home directory
+    | mac.md:1: a macOS home directory
+    | marked.rs:2: a macOS per-user temporary root
+    | midline.md:1: a macOS home directory
+    | notes.txt:1: a macOS home directory
+    | redirect.sh:1: a Linux home directory
+    | sentinel.sh:1: a Linux home directory
+    | tag.html:1: a macOS home directory
+    | ticked.md:1: a harness scratch root, broken after its tmp/
+    | w3/xfx-trace-40x120-report-1.md:1: a Linux home directory
+    | wrapped.ansi:1: a harness scratch root, broken after its tmp/
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: ok self                       its own source matches none of its shapes
+test-check-no-local-paths: ok passes                     placeholders, relative and derived paths, a marked fixture, a renamed report
+test-check-no-local-paths: ok env GIT_DIR                the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_INDEX_FILE         the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_WORK_TREE          the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GREP_OPTIONS           the plant named, the decoy unchanged
+test-check-no-local-paths: ok env HOME                   the plant named, the decoy unchanged
+test-check-no-local-paths: ok skip-worktree              refused by name
+test-check-no-local-paths: 1 of 10 case(s) failed
+test-check-no-local-paths: ok deleted                    refused by name
+##[error]Process completed with exit code 1.

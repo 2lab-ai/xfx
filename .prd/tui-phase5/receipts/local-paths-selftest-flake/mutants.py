@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Mutants of scripts/check-no-local-paths.sh, each run through the self-test.
 
-    mutants.py <throwaway clone>   (a `git clone --no-local`, at the head under test)
+    mutants.py <throwaway clone> [<mutant name>...]
+                                   (a `git clone --no-local`, at the head under test;
+                                   names limit the run to those mutants)
 
 Each mutant is one textual change to the clone's check; the clone's
 self-test then runs and its failing cases are printed. The check is restored
@@ -19,7 +21,7 @@ pristine = open(check).read()
 
 MUTANTS = [
     ("binary lines read as text",
-     '\t\tif [ "$binary" = yes ]; then\n\t\t\tcontinue\n', '\t\tif [ "$binary" = yes ]; then\n\t\t\t:\n', 1),
+     '\t\t\tbinary_lines=$((binary_lines + 1))\n\t\t\tcontinue\n', '\t\t\tbinary_lines=$((binary_lines + 1))\n\t\t\t:\n', 1),
     ("binary only by its first 8000 bytes",
      'probe="$(tr -d -c \'\\000\' <"$root/$path" | wc -c)"',
      'probe="$(head -c 8000 "$root/$path" | tr -d -c \'\\000\' | wc -c)"', 1),
@@ -51,7 +53,10 @@ MUTANTS = [
 ]
 
 env = dict(os.environ)
+only = set(sys.argv[2:])
 for name, old, new, count in MUTANTS:
+    if only and name not in only:
+        continue
     if pristine.count(old) != count:
         print(f"{name}: SKIPPED, the text to change is there {pristine.count(old)} time(s)")
         continue

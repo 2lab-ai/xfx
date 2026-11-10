@@ -1,0 +1,4 @@
+$ /bin/bash -c 're="("; [[ a =~ $re ]]; echo "status=$?"'   # bash 3.2.57: a pattern it cannot compile
+status=2
+$ /bin/bash -c 'if [[ a =~ $re ]]; then echo match; else echo "no match"; fi'   # what an if reads it as
+no match

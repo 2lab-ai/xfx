@@ -1,0 +1,10 @@
+# the step 'The local-path check refuses what it exists for' on the macOS arm64 row, CI runs since PR #90's train (gh api runs/<id>/attempts/<n>/jobs, 2026-11-11)
+# run/attempt	commit	result
+42863297443/2	4ad6405e	failure
+42863297443/3	4ad6405e	success (attempt 3, read after it finished)
+42844785601/1	d2b2ca75	success
+42826560660/1	208a8dd4	success
+42804085086/1	71d3e02b	success
+42762620279/1	3943d667	success
+42748982261/1	1b15dad9	success
+42734376456/1	f53606d1	success
