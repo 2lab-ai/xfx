@@ -1,0 +1,15 @@
+# refs_content.py (train 13's) at 245e99ec, the ledger and docs/parity.md
+# scripts/fxcap/parity-ledger.toml at 245e99ec; blame ignoring nothing
+WRONG scripts/fxcap/parity-ledger.toml:28 .prd/07-fx-parity-program.md:19 (path; written by 6bc31872 as :19): the head's line holds ''; "5. A reference binary was replaced in place by fx'" -- its text is at 0 places; the head's line most like its first is :33 (ratio 0.28)
+SAME-LINES scripts/fxcap/parity-ledger.toml:418 .prd/07-fx-parity-program.md:45 (path; written by a1007a00 as :45): the cited text the same, a neighbour not
+# SAME 115; SAME-ROW 38; SAME-LINES 1; WRONG 1; other product 3; unread 0; refs 158
+# docs/parity.md at 245e99ec; blame ignoring nothing
+# SAME 25; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 112; unread 0; refs 137
+
+# at the base 4bb8af77, for comparison
+# scripts/fxcap/parity-ledger.toml at 4bb8af77; blame ignoring nothing
+WRONG scripts/fxcap/parity-ledger.toml:28 .prd/07-fx-parity-program.md:19 (path; written by 6bc31872 as :19): the head's line holds ''; "5. A reference binary was replaced in place by fx'" -- its text is at 0 places; the head's line most like its first is :33 (ratio 0.28)
+SAME-LINES scripts/fxcap/parity-ledger.toml:418 .prd/07-fx-parity-program.md:45 (path; written by a1007a00 as :45): the cited text the same, a neighbour not
+# SAME 116; SAME-ROW 37; SAME-LINES 1; WRONG 1; other product 3; unread 0; refs 158
+# docs/parity.md at 4bb8af77; blame ignoring nothing
+# SAME 25; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 112; unread 0; refs 137

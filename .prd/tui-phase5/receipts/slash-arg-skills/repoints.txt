@@ -1,0 +1,25 @@
+# repoint.py at da9222bc (applied, committed as f0399486)
+repoint ledger:505 src/tui/shell.rs:13996 -> src/tui/shell.rs:14025
+repoint ledger:689 src/tui/shell.rs:17015 -> src/tui/shell.rs:17044
+repoint ledger:806 src/tui/shell.rs:42680 -> src/tui/shell.rs:42956
+repoint ledger:817 src/tui/shell.rs:42680 -> src/tui/shell.rs:42956
+repoint ledger:829 src/tui/shell.rs:42680 -> src/tui/shell.rs:42956
+repoint ledger:840 src/tui/shell.rs:42680 -> src/tui/shell.rs:42956
+repoint ledger:851 src/tui/shell.rs:42680 -> src/tui/shell.rs:42956
+repoint ledger:863 src/tui/shell.rs:10575 -> src/tui/shell.rs:10604
+repoint ledger:865 src/tui/shell.rs:10575 -> src/tui/shell.rs:10604
+repoint ledger:865 :1930 -> :1929
+repoint ledger:919 src/tui/shell.rs:42680 -> src/tui/shell.rs:42956
+repoint ledger:955 src/tui/shell.rs:1855 -> src/tui/shell.rs:1854
+repoint ledger:989 src/tui/shell.rs:17015 -> src/tui/shell.rs:17044
+repoint ledger:1066 src/tui/shell.rs:4561 -> src/tui/shell.rs:4559
+14 re-points written
+
+# repoint.py at f7baf771 (applied, committed as 245e99ec)
+repoint ledger:806 src/tui/shell.rs:42956 -> src/tui/shell.rs:42966
+repoint ledger:817 src/tui/shell.rs:42956 -> src/tui/shell.rs:42966
+repoint ledger:829 src/tui/shell.rs:42956 -> src/tui/shell.rs:42966
+repoint ledger:840 src/tui/shell.rs:42956 -> src/tui/shell.rs:42966
+repoint ledger:851 src/tui/shell.rs:42956 -> src/tui/shell.rs:42966
+repoint ledger:919 src/tui/shell.rs:42956 -> src/tui/shell.rs:42966
+6 re-points

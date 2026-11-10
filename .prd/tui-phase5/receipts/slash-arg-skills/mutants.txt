@@ -1,0 +1,33 @@
+# Round 2: mutants.py at 245e99ec (the code head), on a throwaway git clone --no-local, clean at the end
+A1 KILLED (a table line opens no list (the base's rule)): allowlist_walks_its_words_under_the_one_being_typed, one_dismissal_closes_the_slash_menu_and_every_argument_list_for_the_line, permissions_lists_its_six_forms_and_tab_writes_the_marked_one, sound_lists_fxs_levels_and_enter_runs_the_marked_one, statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one, workspace_lists_its_verbs_and_tab_leaves_room_for_a_path
+A2 KILLED (a word is matched with its case): each_table_is_fxs_matched_by_the_start_of_its_word_ignoring_case, permissions_lists_its_six_forms_and_tab_writes_the_marked_one, sound_lists_fxs_levels_and_enter_runs_the_marked_one, statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one
+A3 KILLED (the four tables trim the argument's start only): each_table_is_fxs_matched_by_the_start_of_its_word_ignoring_case
+A4 KILLED (a tab is not a boundary): allowlist_walks_its_words_and_hangs_under_the_one_being_typed, each_table_is_fxs_matched_by_the_start_of_its_word_ignoring_case
+A5 KILLED (the rows hang past the head but not the draft's blanks): statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one
+A6 KILLED (/allowlist's scopes are not walked): allowlist_walks_its_words_and_hangs_under_the_one_being_typed, allowlist_walks_its_words_under_the_one_being_typed
+A7 KILLED (/allowlist's `tool ` step is not walked): allowlist_walks_its_words_and_hangs_under_the_one_being_typed, allowlist_walks_its_words_under_the_one_being_typed
+A8 KILLED (Tab writes no space after a line that takes more): allowlist_walks_its_words_under_the_one_being_typed, workspace_lists_its_verbs_and_tab_leaves_room_for_a_path
+A9 KILLED (Enter submits what was typed, not the marked line): enter_on_a_mcp_line_submits_the_marked_completion, sound_lists_fxs_levels_and_enter_runs_the_marked_one, statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one, workspace_lists_its_verbs_and_tab_leaves_room_for_a_path
+A10 KILLED (Escape over a list keeps a latch of its own, not the slash kind's): one_dismissal_closes_the_slash_menu_and_every_argument_list_for_the_line
+A11 KILLED (a `/mcp ` list ignores the slash dismissal): one_dismissal_closes_the_slash_menu_and_every_argument_list_for_the_line
+A12 KILLED (a table is read again as `/mcp `'s servers are): statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one
+A13 KILLED (a recalled table line opens its list): statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one
+A14 KILLED (a row shows its whole line, not the label): allowlist_walks_its_words_under_the_one_being_typed, permissions_lists_its_six_forms_and_tab_writes_the_marked_one, sound_lists_fxs_levels_and_enter_runs_the_marked_one, statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one, workspace_lists_its_verbs_and_tab_leaves_room_for_a_path
+killed 14 of 14
+
+# Round 1: the same at f0399486 -- A11 survived; f7baf771 adds the case that kills it
+A1 KILLED (a table line opens no list (the base's rule)): allowlist_walks_its_words_under_the_one_being_typed, one_dismissal_closes_the_slash_menu_and_every_argument_list_for_the_line, permissions_lists_its_six_forms_and_tab_writes_the_marked_one, sound_lists_fxs_levels_and_enter_runs_the_marked_one, statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one, workspace_lists_its_verbs_and_tab_leaves_room_for_a_path
+A2 KILLED (a word is matched with its case): each_table_is_fxs_matched_by_the_start_of_its_word_ignoring_case, permissions_lists_its_six_forms_and_tab_writes_the_marked_one, sound_lists_fxs_levels_and_enter_runs_the_marked_one, statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one
+A3 KILLED (the four tables trim the argument's start only): each_table_is_fxs_matched_by_the_start_of_its_word_ignoring_case
+A4 KILLED (a tab is not a boundary): allowlist_walks_its_words_and_hangs_under_the_one_being_typed, each_table_is_fxs_matched_by_the_start_of_its_word_ignoring_case
+A5 KILLED (the rows hang past the head but not the draft's blanks): statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one
+A6 KILLED (/allowlist's scopes are not walked): allowlist_walks_its_words_and_hangs_under_the_one_being_typed, allowlist_walks_its_words_under_the_one_being_typed
+A7 KILLED (/allowlist's `tool ` step is not walked): allowlist_walks_its_words_and_hangs_under_the_one_being_typed, allowlist_walks_its_words_under_the_one_being_typed
+A8 KILLED (Tab writes no space after a line that takes more): allowlist_walks_its_words_under_the_one_being_typed, workspace_lists_its_verbs_and_tab_leaves_room_for_a_path
+A9 KILLED (Enter submits what was typed, not the marked line): enter_on_a_mcp_line_submits_the_marked_completion, sound_lists_fxs_levels_and_enter_runs_the_marked_one, statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one, workspace_lists_its_verbs_and_tab_leaves_room_for_a_path
+A10 KILLED (Escape over a list keeps a latch of its own, not the slash kind's): one_dismissal_closes_the_slash_menu_and_every_argument_list_for_the_line
+A11 SURVIVED (a `/mcp ` list ignores the slash dismissal)
+A12 KILLED (a table is read again as `/mcp `'s servers are): statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one
+A13 KILLED (a recalled table line opens its list): statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one
+A14 KILLED (a row shows its whole line, not the label): allowlist_walks_its_words_under_the_one_being_typed, permissions_lists_its_six_forms_and_tab_writes_the_marked_one, sound_lists_fxs_levels_and_enter_runs_the_marked_one, statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one, workspace_lists_its_verbs_and_tab_leaves_room_for_a_path
+killed 13 of 14

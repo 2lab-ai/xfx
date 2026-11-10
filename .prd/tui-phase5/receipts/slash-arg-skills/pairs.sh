@@ -8,6 +8,8 @@
 # `* version: ` read as `<build>` on both sides, in copies under $TMPDIR --
 # and every pair it touched is named.
 #
+# A snap the side has not got (a run that stopped early) is MISSING.
+#
 # usage: pairs.sh <red|xfx>  (run from anywhere; reads this directory)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -23,6 +25,7 @@ for fxf in "$here"/fx/fx-*.ansi; do
   name=${fxf##*/fx-}
   xf=$here/$side/xfx-$name
   total=$((total + 1))
+  if [[ ! -f $xf ]]; then echo "MISSING ${name%.ansi} (no $side snap)"; continue; fi
   norm "$fxf" "$tmp/fx.ansi"
   norm "$xf" "$tmp/xfx.ansi"
   note=''
