@@ -52,11 +52,39 @@ wrote <tmp>/scoreboard.md
 # suite-lock.sh exit 0
 run.json: started 2026-11-10T12:01:29+09:00; wall 8m23s; start_load 17.99; peak_load 46.31; jobs 2; size 40x120; xfx_sha256 00e9ae3689ccd16fe767b0630c8eaa6170c056cdf0af7e0b395ad28b2388fe4f; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head e1e15efde6a5cf6cdf23a29b72523e59a8aefe60
 
+## base-s2
+# base-s2: build in c-base at f53606d1, exit 0; xfx sha256 6789cc454cd67266015e202a1aef250cb4a7e8024ebb9218a89ad641a5c75230
+# size 40x120; selection: selection-s2.txt
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 64.93
+# base-s2: sweep exit 0, 83 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 59.97
+[7/9] xfx interrupt-question: ran (9s)
+[8/9] xfx filepicker-keys: ran (9s)
+[9/9] fx (inventory): ran (35s)
+pass = 11 / 14 = 78.6%; unresolved 3, failed 0, timeout 0
+wrote <tmp>/scoreboard.md
+# suite-lock.sh exit 0
+run.json: started 2026-11-10T13:10:57+09:00; wall 1m22s; start_load 64.93; peak_load 71.95; jobs 2; size 40x120; xfx_sha256 6789cc454cd67266015e202a1aef250cb4a7e8024ebb9218a89ad641a5c75230; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head f53606d1add2adb4c4943c546c568e286e0263c4
+
+## head-s2
+# head-s2: build in c-head at e1e15efd, exit 0; xfx sha256 985e49db481d37b62b548590f7433f32f15950e9e7243c49adddabcf4614d959
+# size 40x120; selection: selection-s2.txt
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 64.93
+# head-s2: sweep exit 0, 82 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 62.67
+[7/9] xfx interrupt-question: ran (9s)
+[8/9] xfx filepicker-keys: ran (9s)
+[9/9] fx (inventory): ran (35s)
+pass = 11 / 14 = 78.6%; unresolved 3, failed 0, timeout 0
+wrote <tmp>/scoreboard.md
+# suite-lock.sh exit 0
+run.json: started 2026-11-10T13:10:56+09:00; wall 1m21s; start_load 64.93; peak_load 71.95; jobs 2; size 40x120; xfx_sha256 985e49db481d37b62b548590f7433f32f15950e9e7243c49adddabcf4614d959; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head e1e15efde6a5cf6cdf23a29b72523e59a8aefe60
+
 ## banners
 head: 330 xfx snaps show the banner; 330 name v0.1.0-e1e15ef; others none
 base: 256 xfx snaps show the banner; 256 name v0.1.0-f53606d; others none
 head-x: 68 xfx snaps show the banner; 68 name v0.1.0-e1e15ef; others none
 base-x: 68 xfx snaps show the banner; 68 name v0.1.0-f53606d; others none
+head-s2: 14 xfx snaps show the banner; 14 name v0.1.0-e1e15ef; others none
+base-s2: 14 xfx snaps show the banner; 14 name v0.1.0-f53606d; others none
 
 ## the base sweep rescored with the head's ledger
 # the rescore: cp -R sw-base ref-base, then the head clone's sweep.sh --rescore --out ref-base (no capture runs; the head's ledger, e1e15efd)
@@ -69,3 +97,9 @@ pair by pair: 296 pairs before, 296 after; verdicts moved by the rescore: 0
 rescore: exit 0; pass = 42 / 110 = 38.2%; unresolved 60, failed 0, timeout 0
 ref-base-x: before pass = 42 / 110; after pass = 42 / 110; ledger a6ce4579 (the head's a6ce4579)
 pair by pair: 110 pairs before, 110 after; verdicts moved by the rescore: 0
+
+## the base-s2 sweep rescored with the head's ledger
+# the rescore: cp -R sw-base-s2 ref-base-s2, then the head clone's sweep.sh --rescore --out ref-base-s2 (no capture runs; the head's ledger, e1e15efd)
+rescore: exit 0; pass = 11 / 14 = 78.6%; unresolved 3, failed 0, timeout 0
+ref-base-s2: before pass = 11 / 14; after pass = 11 / 14; ledger a6ce4579 (the head's a6ce4579)
+pair by pair: 14 pairs before, 14 after; verdicts moved by the rescore: 0

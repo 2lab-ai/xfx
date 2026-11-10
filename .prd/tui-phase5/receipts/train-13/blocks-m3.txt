@@ -1,0 +1,20 @@
+## scripts/fxcap/parity-ledger.toml in git's merge style: 11 blocks, at lines 505 553 699 820 835 851 866 881 897 959 1033 
+## scripts/fxcap/parity-ledger.toml in git's diff3 style: 12 blocks, at lines 505 555 705 828 845 863 880 897 915 923 983 1059 
+## the two styles' blocks around amendment-card-after-stop
+# merge: 1 block(s) within the entry's 30 lines
+# diff3: 2 block(s) within the entry's 30 lines
+## blocks.py on the diff3-style file (reproduce.sh's run, its output kept)
+scripts/fxcap/parity-ledger.toml:505: numbers -- ours kept; ours :13866 / theirs :13578
+scripts/fxcap/parity-ledger.toml:549: ours -- ours kept (3 base lines -> 4); theirs had moved only :13187 -> :13267
+scripts/fxcap/parity-ledger.toml:689: numbers -- ours kept; ours :16840 / theirs :16534
+scripts/fxcap/parity-ledger.toml:806: numbers -- ours kept; ours :41113 / theirs :39893
+scripts/fxcap/parity-ledger.toml:817: numbers -- ours kept; ours :41113 / theirs :39893
+scripts/fxcap/parity-ledger.toml:829: numbers -- ours kept; ours :41113 / theirs :39893
+scripts/fxcap/parity-ledger.toml:840: numbers -- ours kept; ours :41113 / theirs :39893
+scripts/fxcap/parity-ledger.toml:851: numbers -- ours kept; ours :41113 / theirs :39893
+scripts/fxcap/parity-ledger.toml:863: numbers -- ours kept; ours :10480 / theirs :10339
+scripts/fxcap/parity-ledger.toml:865: numbers -- ours kept; ours :10480 / theirs :10339, ours :1747 / theirs :1840
+scripts/fxcap/parity-ledger.toml:919: numbers -- ours kept; ours :41113 / theirs :39893
+scripts/fxcap/parity-ledger.toml:989: numbers -- ours kept; ours :16840 / theirs :16534
+# scripts/fxcap/parity-ledger.toml: 12 blocks resolved
+# blocks.py exit 0

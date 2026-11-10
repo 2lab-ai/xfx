@@ -11,7 +11,8 @@
 # re-point and at <head>; refs_content.py (the content-comparing check) and
 # APPROVAL-VERTICAL-SPELLINGS' refs.py at the unit's head, the merges' head
 # and <head>; the re-points against their code (repointed.py); the overlaps;
-# and join check 3's functions (shared.py). The brief's path check over every
+# and join check 3's functions (shared.py); round 2: blocks-m3.txt and an
+# input.rs negative control. The brief's path check over every
 # commit of the range is final-scan.sh's, at the receipt's last commit.
 # usage: merge-checks.sh <repo> <head> <scratch>   (no lock: git and python only)
 set -u
@@ -25,6 +26,10 @@ CODE_HEAD=bbdde09c
 JOIN=ea35d548
 REPOINT=e1e15efd
 SIDES=(base=$BASE history-notices=714f6283 question-resume=d0e08d8c approval-vs=a37a969e)
+# Round 2 (opus M1): merge 3's ledger blocks in both conflict styles and
+# blocks.py's line for each diff3 block, kept (blocks-m3.txt); the header
+# below reads its counts from that file.
+bash "$here/blocks_m3.sh" "$repo" "$scratch" 2>&1 | rd "$here/blocks-m3.txt"
 {
   echo "# Each merge's both-changed files, checked from both ends against its first parent (ours), second (theirs) and merge base 32afd307."
   for m in "${MERGES[@]}"; do
@@ -46,7 +51,7 @@ SIDES=(base=$BASE history-notices=714f6283 question-resume=d0e08d8c approval-vs=
   for row in '| `ask_user_question` |' '| full-screen TUI |'; do
     $P/rowcheck.py "$repo" 32afd307 bbdde09c^1 bbdde09c^2 bbdde09c docs/parity.md "$row"; echo "# exit $?"
   done
-  echo "## merge 3: the ledger with every reference number masked (twelve blocks: eleven numbers, ours'; one ours, the new rule)"
+  echo "## merge 3: the ledger with every reference number masked (blocks-m3.txt: $(grep -o 'diff3 style: [0-9]* blocks' "$here/blocks-m3.txt"), $(grep -c ': numbers -- ' "$here/blocks-m3.txt") numbers, ours'; $(grep -c ': ours -- ' "$here/blocks-m3.txt") ours, the new rule; $(grep -o 'merge style: [0-9]* blocks' "$here/blocks-m3.txt"))"
   $P/filecheck.py --numbers-masked "$repo" 32afd307 bbdde09c^1 bbdde09c^2 bbdde09c scripts/fxcap/parity-ledger.toml; echo "# exit $?"
   echo "## merge 3: the code files both sides changed (all merged clean)"
   $P/filecheck.py "$repo" 32afd307 bbdde09c^1 bbdde09c^2 bbdde09c src/tui/approval.rs src/tui/input.rs src/tui/question.rs src/tui/shell.rs; echo "# exit $?"
@@ -56,6 +61,13 @@ SIDES=(base=$BASE history-notices=714f6283 question-resume=d0e08d8c approval-vs=
   sed -i '' "${n}s/Apply once, y /Apply twice, y /" "$scratch/neg/src/tui/shell.rs"
   echo "changed line $n: $(git -C "$scratch/neg" diff --stat | tail -1)"
   $P/filecheck.py "$scratch/neg" 32afd307 bbdde09c^1 bbdde09c^2 - src/tui/shell.rs; echo "# exit $? (1 expected)"
+  rm -rf "$scratch/neg"
+  echo "## round 2 (opus N2): the same control on input.rs, its other joined match: one line of ours' insertion there changed (\"let dropped = behind.saturating_add(owed);\" -> \"... saturating_sub(owed);\"), in a clone; False expected"
+  rm -rf "$scratch/neg" && git clone -q --no-local "$repo" "$scratch/neg" && git -C "$scratch/neg" checkout -q --detach bbdde09c
+  n=$(grep -n 'let dropped = behind.saturating_add(owed);' "$scratch/neg/src/tui/input.rs" | head -1 | cut -d: -f1)
+  sed -i '' "${n}s/saturating_add(owed)/saturating_sub(owed)/" "$scratch/neg/src/tui/input.rs"
+  echo "changed line $n: $(git -C "$scratch/neg" diff --stat | tail -1)"
+  $P/filecheck.py "$scratch/neg" 32afd307 bbdde09c^1 bbdde09c^2 - src/tui/input.rs; echo "# exit $? (1 expected)"
   rm -rf "$scratch/neg"
   echo "## every resolution redone by this folder's scripts in a clone (reproduce.sh)"
   bash "$here/reproduce.sh" "$repo" "$scratch"

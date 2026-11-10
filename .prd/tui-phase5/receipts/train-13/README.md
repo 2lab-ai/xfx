@@ -27,9 +27,9 @@ repeated: every figure here rests on a file of this folder, named where it
 is used; counts are checked against the lists they count (the screens'
 partition, the token control's cases, the rows); the path scans run over
 this folder with the brief's eight terms and shapes.py's (`pathcheck.sh`
-before every commit, `final-scan.sh` part 3); "no code after the code head"
-is `final-scan.txt` part 4, taken at the commit before the last, and
-`gates-files.txt`, at the commit before it.
+before every commit, `final-scan.sh` part 3); what changed after the code
+head is `final-head.txt` (round 2), and each scan names the revision it
+read (the table below).
 
 ## Units and merges
 
@@ -58,13 +58,21 @@ After the merges, in order:
 | `e1e15efd` | 24 references re-pointed, numbers only -- **the code head: the gate, the sweeps and every job ran here**. Its title says "the 24 references the merges moved": 22 were, 2 were wrong at the base already (its body and the section below give the split) |
 | `8a2dbd29`, `3e81637f`, `1df65ee0` | the merges' scripts and checks and the join jobs; the gate, the probe and the selection; the sweeps and their compares |
 | `3083bc8f`, then one more | the reruns and this README; then this README's last fixes, `new-scenarios.txt` and `final-scan.sh`'s per-unit counts |
-| the last two | `gates-files.txt` (`gates-files.sh` in a clone at the commit before it); then `final-scan.txt` alone (`final-scan.sh` at the commit before it, which it does not list) |
+| `11c8a5f7` | round 1's `gates-files.txt`, which **read `28639e0e`** (`gates-files.sh` in a clone there) |
+| `dd814d61` | round 1's `final-scan.txt` alone, which **read `11c8a5f7`** (`final-scan.sh` there; `git show --stat dd814d61` is that one file, `final-head.txt`) |
+| `caab9092` | **round 2: test code** -- the worker.rs join test's last assertion split in two (S5; inside `mod tests`, at its end) |
+| round 2's receipt commit | this README's round-2 text and the round's files (`blocks-m3.txt`, the S2 sweeps, `jobs-mutant-r2.txt`, `s5.txt`, ...) |
+| the next | `gates-files-r2.txt` alone, which read the commit before it (its first line names it) |
+| the last | `final-scan-r2.txt` and `final-head.txt` alone, which both read the commit before it (each names it); `git show --stat` of the last commit is not in a file of its own, and is in the dispatcher's report |
 
-**No code after the code head**: `final-scan.txt` part 4 lists every commit
-after `e1e15efd` through the one before it, each with the files it touches
-outside this folder: none; `gates-files.txt` says what `git diff --stat
-e1e15efd HEAD` holds outside this folder at its commit: nothing. The last
-commit adds `final-scan.txt` alone.
+**After the code head** (`final-head.txt`, `git show --stat` of every
+commit after `e1e15efd`, and `git diff --stat e1e15efd` outside this
+folder): every commit but `caab9092` touches only this folder; `caab9092`
+changes `src/tui/worker.rs` alone, +10 -5, every line inside its test
+module. So the gate and the sweeps, which ran at `e1e15efd`, ran the
+product code of the final head; the changed test ran on its own at
+`caab9092` (`s5.txt`), and the full gate is the dispatcher's, on the
+joined tree.
 
 ## The conflicts
 
@@ -84,7 +92,14 @@ clean; `filecheck.py` true both ways.
 (ours' 51 edits, the unit's 2) and the full-screen TUI row (ours' 104, the
 unit's 5); `rowcheck.py` true both ways for both.
 
-**Merge 3, the ledger, twelve diff3 blocks** (`blocks.py`, `remerge-3.txt`):
+**Merge 3, the ledger, twelve diff3 blocks** (`blocks-m3.txt`, which holds
+blocks.py's line for each, and `remerge-3.txt`). The count depends on git's
+conflict style: blocks.py reads the file written in `diff3` style, 12
+blocks; git's default `merge` style, which `remerge-3.txt` shows, writes 11
+(`blocks-m3.txt`, both counted on one redone merge), because it joins
+`amendment-card-after-stop`'s `xfx` line and its `why` line, one line apart,
+into one block, and diff3 keeps them as two (git's xdiff lowers its merge
+level for diff3 output; read there, not measured beyond the counts):
 - **eleven `numbers`** (train 11's rule): ours and theirs the same once
   every `:N` is masked, each side having moved one `src/tui/shell.rs`
   number by its own lines: ours kept, then re-pointed. They are
@@ -166,8 +181,10 @@ reference the content check, `refs_bare.py` and APPROVAL-VERTICAL-SPELLINGS'
 stands at exactly one place at the head, and the merges' moves in
 `smoke-tui.sh` and `shell.rs`:
 - **22 moved by the merges**: the ledger's 12 `src/tui/shell.rs` numbers
-  (ours', kept at merge 3: `:13866`, `:16840` twice, `:41113` six times,
-  `:10480` twice, `:4541`), moved by the units' lines above them;
+  -- 11 ours', kept at merge 3 (`:13866`, `:16840` twice, `:41113` six
+  times, `:10480` twice), and `:4541` (`activity-tokens-before-request`),
+  which merged clean (no block, `blocks-m3.txt`) -- moved by the units'
+  lines above them;
   `docs/parity.md`'s bare `:1364-1375` after `src/session/store.rs`
   (HISTORY-NOTICES-COPY-FX's deleted lines) and its two rows'
   `scripts/smoke-tui.sh:10462-10477` with their bare `:10514-10524`
@@ -231,14 +248,24 @@ on the Anthropic wire also called `ask_user_question`, answered. Resumed
 through `Resumption::open`, the launch's path: its hydration is the batch's
 resolution (`Answered`, one question) and no `Asked` row; its request
 history on the Gateway wire, and on the same wire under another model,
-holds the call and its answer document and **no notice** (the source of
-every `! session:` line); on the authority that sealed it the state goes
-too. **Its teeth** (`join_mutants.py`, `jobs-mutant.txt`, a clone, the join
-test alone under `timeout -k 10 900`): with HISTORY-NOTICES-COPY-FX's
-notice put back, it fails (`worker.rs:19882`, the notices); with
-QUESTION-RESUME's decoder made to decode nothing, it fails
-(`worker.rs:19860`: `[Asked, Text("DONE")]`, no `Answered`). Clean clone
-after.
+holds the call and its answer document and **no notice** in
+`ReplayedHistory::notices` (where `Conversation::unsaid` takes the TUI's
+`! session:` lines from); on the authority that sealed it the state goes
+too. **It reads `history.notices`, not the screen**: a notice another part
+of the resume or display path wrote would escape it. **Its mutants**
+(`join_mutants.py`, `jobs-mutant.txt`, a clone, the join test alone under
+`timeout -k 10 900`): with HISTORY-NOTICES-COPY-FX's notice put back, it
+fails (`worker.rs:19882`, the notices); with QUESTION-RESUME's decoder made
+to decode nothing, it fails (`worker.rs:19860`: `[Asked, Text("DONE")]`,
+no `Answered`). Clean clone after. **Round 2 (S5)**: its last assertion
+read `contains("SEALED") && contains("sig-1")` against whether the state
+goes, so a leak of one part passed; `caab9092` asserts each part on its
+own. The new mutant `j1-signature` (each block's `signature` appended to
+the step's text, the thinking left out) shows it (`jobs-mutant-r2.txt`):
+it **passes the round-1 test at `e1e15efd`** and **fails the fixed one at
+`caab9092`** (`worker.rs:19896`, `AnthropicMessages opus: sig-1 in ...`);
+the three round-1 mutants fail it too. The fixed test passes, with `cargo
+fmt --check` and both clippy runs (`s5.txt`).
 
 ### 2. QUESTION-RESUME x the question keys, and APPROVAL-VERTICAL-SPELLINGS' decoder
 
@@ -265,9 +292,13 @@ APPROVAL-VERTICAL-SPELLINGS' decoder test.
 (QUESTION-RESUME's `resumed_rows`), then a new batch asked -- Alt-b goes
 back a question at a choice; in the draft `ab cd`, Alt-b, Shift-Alt-b and
 Shift-Alt-f are the word moves (`ab zcd`, `ab yzcd`, `ab yzcdx`), as
-QUESTION-WORD-LEFT's own test reads them on a fresh screen. **Its teeth**:
-with the question panel reading Alt-b as the plain word left again, it
-fails (`shell.rs:53087`, `jobs-mutant.txt`).
+QUESTION-WORD-LEFT's own test reads them on a fresh screen. It asks a new
+batch after a resume; it does not restore a saved draft. **Its one
+mutant** (the question panel reading Alt-b
+as the plain word left again) fails its at-a-choice assertion only
+(`shell.rs:53087`, `jobs-mutant.txt`); no mutant reaches the draft's word
+moves or the QUESTION-RESUME half (`"  4) Q 4?"`), which rest on the
+units' own tests and mutants.
 
 ### 3. HISTORY-NOTICES-COPY-FX x the approval stack in `shell.rs` (`shared.py`, `shared.txt`)
 
@@ -333,9 +364,12 @@ run time, never written; no hit printed but its kind and file):
   (`git diff f53606d1..HEAD`): none of the three units' commits holds one
   (all 54 read; each unit's own range from `32afd307` 0 too), and none of
   this train's. So no hit to classify as a placeholder or a scratch root.
-- `final-scan.txt` part 2 has the counts at the receipt's last commit; part
-  1, each commit this train adds (the merges as their combined diffs and as
-  everything they bring), 0 each and the range 0.
+- Round 1's `final-scan.txt` read `11c8a5f7`: **65 commits of
+  `f53606d1..11c8a5f7`** (the units' 54 and this train's first 11), 0 lines
+  hit; part 1, each commit this train adds (the merges as their combined
+  diffs and as everything they bring), 0 each and the range 0.
+  `final-scan-r2.txt` reads round 2's head the same way and names its
+  revision and count in its own lines.
 
 ## Gate (`gates.sh`, `gates.txt`, `gate-counts.txt`)
 
@@ -401,6 +435,8 @@ head's (330 and 68), `v0.1.0-f53606d` on all of the base's (256 and 68;
 | base `f53606d1`, the same (`sweep-base.md`, rescored) | 64 | 296 | 175 (59.1%) | 0 | 0 |
 | head, the extra selection (`sweep-head-x.md`) | 18 | 110 | 42 (38.2%) | 0 | 0 |
 | base, the same (`sweep-base-x.md`, rescored) | 18 | 110 | 42 (38.2%) | 0 | 0 |
+| head, round 2's four (`sweep-head-s2.md`) | 4 | 14 | 11 (78.6%) | 0 | 0 |
+| base, the same (`sweep-base-s2.md`, rescored) | 4 | 14 | 11 (78.6%) | 0 | 0 |
 
 The head's five scenarios more are the units' new ones, 77 pairs
 (`new-scenarios.txt`): `p5-question-word-left` 16 of 16 and
@@ -444,23 +480,42 @@ two rows gone, the switch's own divergence (fx's sign-in line, its
 cancelled preparation; HISTORY-NOTICES-COPY-FX's README, "Not identical to
 fx, and not this unit's") now meets other rows. The extra pair gained none.
 
-### Against each unit's own sweep (`compare-units.txt`, the head's two sweeps read as one)
+### Against each unit's own sweep (`compare-units.txt`, the head's three sweeps read as one)
+
+Round 1 read the head's two sweeps; four scenarios the units swept were in
+neither (opus S2): `interrupt-question`, `interrupt-next-question`,
+`filepicker-keys`, `p5-input-approval`. **Round 2 swept them** at the head
+and the base (`selection-s2.txt`, `sweep-head-s2.md`, `sweep-base-s2.md`;
+40x120, `--jobs 2`, one lock slot each, fx's sha256 the pin before and
+after, `FX_AUTO_UPGRADE=0`, the base rescored with the head's ledger, 0
+moved; the banners name each build, 14 and 14; `sweep-runs.txt`). Pair by
+pair (`compare-base-s2.txt`): **14 shared, 11 -> 11, 0 moved, 0 rows left
+or gained, no screen moved on either side**. The 3 unresolved are
+`p5-input-approval`'s `cmd-ask`, `edit-ask` and `after`, on both trees, as
+APPROVAL-VERTICAL-SPELLINGS' README has them. `compare-units.txt` now
+reads all three head sweeps:
 
 | unit (its sweep, as its receipt commits it) | shared | pass, unit -> head | moved |
 |---|---|---|---|
 | HISTORY-NOTICES-COPY-FX (`sweep-head.md`) | 26 scenarios | 96 -> 95 | **1 down**: `resume-paging` 3 -> 2 of 8 |
-| QUESTION-RESUME (`sweep-diff.txt`, its head column) | 121 pairs | 87 -> 87 | 0 down; `p5-question-resume` `live` normalized-identical -> identical |
-| QUESTION-WORD-LEFT (`sweep-head.md`) | 11 scenarios | 63 -> 65 | 0 down; `p5-input-question20` 9 -> 11 of 11 |
-| APPROVAL-HORIZONTAL-KEYS (`sweep-head.md`) | 13 scenarios | 71 -> 73 | 0 down; `p5-input-question20` 9 -> 11 of 11 |
-| APPROVAL-VERTICAL-SPELLINGS (`sweep-head.md`) | 7 scenarios | 20 -> 20 | 0 |
+| QUESTION-RESUME (`sweep-diff.txt`, its head column) | 125 pairs | 91 -> 91 | 0 down; `p5-question-resume` `live` normalized-identical -> identical |
+| QUESTION-WORD-LEFT (`sweep-head.md`) | 15 scenarios | 74 -> 76 | 0 down; `p5-input-question20` 9 -> 11 of 11 |
+| APPROVAL-HORIZONTAL-KEYS (`sweep-head.md`) | 17 scenarios | 82 -> 84 | 0 down; `p5-input-question20` 9 -> 11 of 11 |
+| APPROVAL-VERTICAL-SPELLINGS (`sweep-head.md`) | 8 scenarios | 20 -> 20 | 0 |
+
+Every scenario each unit swept is now in a head sweep (`compare-units.txt`:
+no "not in this sweep's selection" line).
 
 - **`resume-paging` (down against HISTORY-NOTICES-COPY-FX's sweep)**: its
   `page1` passed on the unit's sweep and is unresolved at the head -- and
   on the base, the same one row under `session-age`, kind nondeterminism:
   the picker's age column, a clock read about a minute after the sessions
   were made (row 24: fx `now`, xfx ` 1m`, on both; `compare-base.txt` finds
-  no move there). The unit's own README says so of its
-  pass (its lines 190-193: "It is not this unit's"). Rerun 3 times on each
+  no move there). That `page1` is the pair the unit's sweep passed is its
+  `sweep-compare.txt:2` (`resume-paging/page1: base unresolved-defect ->
+  head normalized-identical`; `compare-units.txt` has scenario counts
+  only), and its README says so of that pass (its lines 190-193: "It is not
+  this unit's"). Rerun 3 times on each
   tree (`reruns.txt`): `page1` **0 of 3 at the head and 0 of 3 at the
   base**, and every other pair of the scenario the same on both (2 of 8
   pass). The unit's pass was the moment, not its code. Not a drop by the
@@ -481,6 +536,25 @@ RESUME's resolutions; HISTORY-NOTICES-COPY-FX's notice gone), or run-local
 text.
 
 ## Decisions, for the user's veto
+
+Each with its revert. First the two the brief carried from the units
+(round 2, gpt6 MUST 2, opus S4):
+
+- **Row 1: a hidden draft goes with its choice** (APPROVAL-HORIZONTAL-KEYS,
+  its README "Decisions (each reversible)"; in this train through merge 3).
+  fx's row 1 shows a choice's draft only while that choice's amendment is
+  open; moving the choice hides the draft, keeps it, Tab paints it again and
+  Enter sends it with its choice. xfx copies that whole. **Revert**: one
+  condition in `Drafts::blocks` (the unit's mutant M10), which brings back
+  the old rule, a draft shown while it holds text.
+- **APPROVAL-READINESS-SETTLED will be stricter than fx** (APPROVAL-VERTICAL-
+  SPELLINGS' README, round 3; **prospective**: that unit is closed and goes
+  in train 14, not this one). The dispatcher's decision for it: fx's "no
+  modal frame pending since the receipt" condition, which fx applies to
+  file approvals, applied to every approval. **Revert**: apply it to file
+  approvals only, as fx does.
+
+Then this train's own:
 
 - **The sweep's selection** (`selection.py`, `selection.txt`): the brief's
   globs, and the scenarios named by the ledger entries a merge changed
@@ -506,20 +580,28 @@ text.
   and printed in the scoreboard's cause table (`scripts/fxcap/sweep.py:
   890-893`) -- no verdict reads it. The head's sweeps loading the
   re-pointed ledger without an error is `_sources` passing on every
-  re-pointed ref. A sweep of every scenario is the fallback if this
-  reading is vetoed.
+  re-pointed ref. Round 2 swept four scenarios more (S2, above).
+  **Revert**: a sweep of every scenario at the head and the base.
 - `blocks.py`'s `ours` rule (merge 3's one block): `rewrite` with the sides
-  swapped.
-- `filecheck.py`'s joined-region allowance, with its negative control.
+  swapped. **Revert**: delete the rule; `reproduce.sh` then stops at that
+  block, to be read by hand (its two sides are in `remerge-3.txt`).
+- `filecheck.py`'s joined-region allowance, with its negative controls
+  (shell.rs and, round 2, input.rs: each reads False, exit 1,
+  `resolutions.txt`). **Revert**: delete it; `input.rs` and `shell.rs` then
+  read False on one end and are read by hand.
 - `check-merge.sh` without the suite lock: cargo check, fmt and clippy are
-  not heavy jobs by the P5 common brief.
+  not heavy jobs by the P5 common brief. **Revert**: run it under the lock,
+  as train 12 did.
 - Two join tests committed, each where no unit's tests meet; the decoder
-  half of join check 2 a probe (two commits), not a test.
+  half of join check 2 a probe (two commits), not a test. **Revert**:
+  `git revert` of `ea35d548` and `caab9092` (tests only); for the probe, a
+  committed test pinning `probe.txt`'s table at the head instead.
 - Two references wrong at the base re-pointed with the merges' (the
   content check over every ledger ref is the brief's); `:1747` from
-  `refs.py`'s table, not a frame.
+  `refs.py`'s table, not a frame. **Revert**: put back `d1/README.md:258`
+  and `:1747` (two numbers in `e1e15efd`'s diff).
 - `net.py` adds the `sessions` test binary, which HISTORY-NOTICES-COPY-FX
-  changed.
+  changed. **Revert**: drop that run (lib and `tui` only, as train 12).
 
 ## Found on the way, not changed here
 
@@ -532,12 +614,61 @@ text.
   (`term.rs:32-52` twice, `src/main.rs:44-49`, `src/tui/check.rs:1084`,
   `editor.rs:351`; `content-f53606d1.txt`, the same five at the head):
   older than this train; owner REF-LINT.
+- **Two more `scripts/smoke-tui.sh` references name the wrong line**
+  (opus S1, round 2; not edited -- smoke-tui.sh is code after the head):
+  - `:11213` cites `input.rs:1152` for `C-_` (`Action::Undo`). That line is
+    a doc comment on `ESC ]` strings (`src/tui/input.rs:1146-1154`); the
+    meant line is `0x1f => Action::Undo`, `:1347`. `e1e15efd` re-pointed it
+    from `:1063`, which was the same doc comment at its frame `6ae87955`.
+  - `:11212` cites `shell.rs:2705` for "one `editor.insert()` call". That
+    line holds `pending_cut: None,`.
+  - Both were wrong before `6ae87955` too: at `6ae87955^` they read
+    `input.rs:708` (a comment) and `shell.rs:2607` (`mode:
+    config.permission_mode,`); each re-point since carried the wrong line.
+    Owner REF-LINT.
 - **`refs_content.py` cannot see a ref whose frame already named the wrong
-  line** (it reads `SAME`): `:1747` was such a one, found only by
-  `refs.py`'s hand table. Both are run here.
+  line** (it reads `SAME`). There are three such refs: `:1747`, found only
+  by `refs.py`'s hand table, and the two above, found by opus's reading.
+  Both checks are run here; neither finds the two above.
 - **token_check.py masks the numbers of a `path:N` only**, so a bare `:N`
   both sides re-pointed reads "changed differently" (`ledger_numbers.py`
   reads it); as train 12 found for `.prd/` paths.
+
+## Round 2: the reviews of `dd814d61`
+
+gpt6 on the merges: no MUST. gpt6 on the receipt and opus: approve with
+fixes; the merges, the `ours` rule, the probe, the function hashes, the
+gate and the sweeps hold. One change is code (S5, test only); the rest is
+this folder. Main and train 12 are not merged here: the join is the
+dispatcher's, after PR #90.
+
+- **M1, "twelve diff3 blocks"** against `remerge-3.txt`'s eleven:
+  `blocks-m3.txt` (`blocks_m3.sh`) counts both styles on one redone merge,
+  12 diff3 and 11 merge, and keeps blocks.py's line for each of the 12;
+  `resolutions.txt`'s header now reads those counts from it (section "The
+  conflicts").
+- **The scans' revisions**: the commit table names what each read and
+  where it is stored; `final-head.txt` gives `git show --stat` of every
+  commit after the code head; "65 commits" with the SHA they end at
+  (sections "After the merges" and "Commits partway").
+- **The veto section**: the brief's two carried choices, and a revert for
+  every decision.
+- **S1**: two more wrong `smoke-tui.sh` refs, listed, not edited; the
+  class is three refs, not one ("Found on the way").
+- **S2**: the four scenarios swept at head and base, 11 -> 11, 0 moved;
+  every unit's scenario is now in a head sweep ("Against each unit's own
+  sweep").
+- **S5**: `caab9092` asserts the sealed state's two parts apart; the new
+  mutant `j1-signature` passes the old test and fails the new one (join
+  check 1).
+- **NITs**: `:4541` merged clean (N1); an input.rs negative control for the
+  joined-region allowance (N2, `resolutions.txt`); join test 2's mutant
+  reaches its at-a-choice assertion only (N3); `page1` cited from the unit's
+  `sweep-compare.txt:2` (N4); the HISTORY join reads `history.notices`, not
+  the screen (N5).
+- Not taken here: opus S3 (CI's sweep job needs train 12's socket fix,
+  `44bb45e6`, `ea772025`): the join is the dispatcher's, and so is the
+  PR's CI on the joined tree.
 
 ## Redaction
 
@@ -571,6 +702,11 @@ this folder. Each receipt commit also passed `check-no-local-paths.sh`.
 - `merge-checks.sh`: writes `resolutions.txt`, the token check and its
   control, the remerge-diffs, the reference scans, the content checks,
   `avs-refs.txt`, the re-points' check, the overlaps and `shared.txt`.
+- Round 2: `blocks_m3.sh` / `blocks-m3.txt`; `selection-s2.txt`,
+  `sweep-head-s2.md`, `sweep-base-s2.md`, `compare-base-s2.txt`;
+  `join_mutants.py`'s `j1-signature`, `jobs-mutant-r2.txt`; `s5.sh` /
+  `s5.txt`; `final-head.sh` / `final-head.txt`; `gates-files-r2.txt`,
+  `final-scan-r2.txt`.
 - `token_check.py` (train 7's, byte for byte), `token_control.py`,
   `ledger_numbers.py`, `token-check.txt`, `token-self-test.txt`.
 - References: `refs.py`, `refs_all.py`, `refs_short.py`, `refs_bare.py`,

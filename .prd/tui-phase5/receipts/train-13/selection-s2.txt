@@ -1,0 +1,7 @@
+# train 13 round 2 (opus S2): four scenarios the units swept and neither train 13 sweep took
+# (compare-units.txt: interrupt-question, interrupt-next-question -- QUESTION-RESUME, QWL, AHK;
+# filepicker-keys -- QWL, AHK; p5-input-approval -- QWL, AHK, AVS)
+interrupt-question
+interrupt-next-question
+filepicker-keys
+p5-input-approval

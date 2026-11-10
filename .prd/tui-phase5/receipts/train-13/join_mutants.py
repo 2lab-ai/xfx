@@ -11,6 +11,10 @@ clone after each). Each edit must apply exactly once, or nothing is written.
   j2-word-left  QUESTION-WORD-LEFT's Alt-b read as the plain word left by
                 the question panel, as before the unit (`Act::of`,
                 `src/tui/question.rs`)
+  j1-signature  (round 2, for S5) half the sealed state leaks: a step whose
+                state stays behind is sent with each block's `signature`
+                appended to its text, the thinking text itself still left
+                out -- the leak the round-1 test's `&&` could not see
 
     python3 -I -B join_mutants.py <clone> <mutant>
 """
@@ -27,6 +31,11 @@ EDITS = {
     "j1-resume": ("src/tools/question.rs",
                   "pub fn decode_answers(output: &str) -> Option<Vec<SavedAnswer>> {\n",
                   "pub fn decode_answers(output: &str) -> Option<Vec<SavedAnswer>> {\n    if !output.is_empty() {\n        return None;\n    }\n"),
+    "j1-signature": ("src/session/store.rs",
+                     "                pending.push(if state.is_empty() {\n                    Message::assistant(Some(text), calls)\n",
+                     "                let leak: String = on_wire.iter().filter_map(|b| b[\"signature\"].as_str()).collect();\n"
+                     "                let leaked = format!(\"{text}{leak}\");\n"
+                     "                pending.push(if state.is_empty() {\n                    Message::assistant(Some(leaked.as_str()), calls)\n"),
     "j2-word-left": ("src/tui/question.rs",
                      "            Action::AltB => Some(Self::AltB),\n",
                      "            Action::AltB => Some(Self::WordLeft),\n"),

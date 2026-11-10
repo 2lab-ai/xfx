@@ -10,7 +10,7 @@
 set -u
 repo=$1 T=$2
 here=$(cd "$(dirname "$0")" && pwd)
-rd() { python3 -I -B "$here/redacted.py" "$1" "$T/sw-head-x=<sweep-head-x>" "$T/ref-base-x=<sweep-base-x>" "$T/sw-head=<sweep-head>" "$T/ref-base=<sweep-base>" "$T=<scratch>"; }
+rd() { python3 -I -B "$here/redacted.py" "$1" "$T/sw-head-s2=<sweep-head-s2>" "$T/ref-base-s2=<sweep-base-s2>" "$T/sw-head-x=<sweep-head-x>" "$T/ref-base-x=<sweep-base-x>" "$T/sw-head=<sweep-head>" "$T/ref-base=<sweep-base>" "$T=<scratch>"; }
 P="python3 -I -B $here"
 rd "$here/sweep-head.md" < "$T/sw-head/scoreboard.md"
 rd "$here/sweep-base.md" < "$T/ref-base/scoreboard.md"
@@ -26,14 +26,15 @@ echo "compare-base-x: exit ${PIPESTATUS[0]}"
 $P/screen_moves.py "$T/ref-base-x" "$T/sw-head-x" | rd "$here/screen-moves-base-x.txt"
 $P/gained_rows.py "$T/ref-base-x" "$T/sw-head-x" | rd "$here/gained-rows-x.txt"
 # each unit's own sweep, as its receipt commits it, against the head's two sweeps taken together
-# (sw-head-all/pairs.json: the two pairs.json files, no pair in both)
+# (sw-head-all/pairs.json: the three head sweeps' pairs.json files -- round 2 adds
+# sw-head-s2 -- no pair in two of them)
 mkdir -p "$T/sw-head-all"
-python3 -I -B - "$T/sw-head/pairs.json" "$T/sw-head-x/pairs.json" "$T/sw-head-all/pairs.json" <<'PY'
+python3 -I -B - "$T/sw-head/pairs.json" "$T/sw-head-x/pairs.json" "$T/sw-head-s2/pairs.json" "$T/sw-head-all/pairs.json" <<'PY'
 import json, sys
-a, b = (json.load(open(f)) for f in sys.argv[1:3])
-keys = {(p["scenario"], p["label"]) for p in a}
-assert not keys & {(p["scenario"], p["label"]) for p in b}
-json.dump(a + b, open(sys.argv[3], "w"))
+parts = [json.load(open(f)) for f in sys.argv[1:4]]
+keys = [{(p["scenario"], p["label"]) for p in part} for part in parts]
+assert not (keys[0] & keys[1] or keys[0] & keys[2] or keys[1] & keys[2])
+json.dump(sum(parts, []), open(sys.argv[4], "w"))
 PY
 U=.prd/tui-phase5/receipts
 { for spec in "board 714f6283:$U/history-notices-copy-fx/sweep-head.md" "diff d0e08d8c:$U/question-resume/sweep-diff.txt" \
@@ -49,3 +50,8 @@ U=.prd/tui-phase5/receipts
 $P/screen_classes.py "$here/screen-moves-base-x.txt" | rd "$here/screen-classes-x.txt"
 # the units' new scenarios at the head: verdicts and causes (new_scenarios.py)
 $P/new_scenarios.py "$T/ref-base" "$T/sw-head" | rd "$here/new-scenarios.txt"
+# round 2: the four scenarios of selection-s2.txt (opus S2), head and base
+rd "$here/sweep-head-s2.md" < "$T/sw-head-s2/scoreboard.md"
+rd "$here/sweep-base-s2.md" < "$T/ref-base-s2/scoreboard.md"
+$P/compare.py "$T/ref-base-s2" "$T/sw-head-s2" | rd "$here/compare-base-s2.txt"
+echo "compare-base-s2: exit ${PIPESTATUS[0]}"

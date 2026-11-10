@@ -10,7 +10,9 @@
 #              j1-history (store.rs's N4 notice back, HISTORY-NOTICES-COPY-FX's
 #              deleted lines), j1-resume (a saved document never decodes:
 #              QUESTION-RESUME's decode_answers returns None), j2-word-left
-#              (QUESTION-WORD-LEFT's Alt-b read as the plain word left).
+#              (QUESTION-WORD-LEFT's Alt-b read as the plain word left),
+#              j1-signature (round 2: half the sealed state leaks); MUTANTS
+#              names a subset.
 # usage: suite-lock.sh jobs.sh <part> <repo> <head> <scratch> [<connect_logger.py>]
 set -u
 part=$1 repo=$2 head=$3 scratch=$4 logger=${5:-}
@@ -30,7 +32,7 @@ net)
 mutant)
   clone mutant-clone "$head"
   c="$scratch/mutant-clone"
-  for m in j1-history j1-resume j2-word-left; do
+  for m in ${MUTANTS:-j1-history j1-resume j2-word-left j1-signature}; do
     python3 -I -B "$here/join_mutants.py" "$c" "$m" || { echo "$m: not applied"; continue; }
     echo "$m: $(git -C "$c" diff --stat | tail -1)"
     case "$m" in

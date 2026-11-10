@@ -31,7 +31,7 @@ docs/parity.md '| `ask_user_question` |': base 5659, ours 9902, theirs 7964, mer
 # exit 0
 docs/parity.md '| full-screen TUI |': base 79783, ours 94336, theirs 88542, merged 103095 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (104 and 5 edits)
 # exit 0
-## merge 3: the ledger with every reference number masked (twelve blocks: eleven numbers, ours'; one ours, the new rule)
+## merge 3: the ledger with every reference number masked (blocks-m3.txt: diff3 style: 12 blocks, 11 numbers, ours'; 1 ours, the new rule; merge style: 11 blocks)
 scripts/fxcap/parity-ledger.toml: ours -> merged is theirs' hunks: True (0 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (28 hunks, 0 slid by blank lines)
 # exit 0
 ## merge 3: the code files both sides changed (all merged clean)
@@ -43,6 +43,10 @@ src/tui/shell.rs: ours -> merged is theirs' hunks: True (23 hunks, 0 slid by bla
 ## the joined-region allowance's negative control: merge 3's shell.rs with one line of the unit's joined insertion changed ("Apply once, y " -> "Apply twice, y "), in a clone; False expected on that end
 changed line 40550:  1 file changed, 1 insertion(+), 1 deletion(-)
 src/tui/shell.rs: ours -> merged is theirs' hunks: False (23 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: False (167 hunks, 0 slid by blank lines)
+# exit 1 (1 expected)
+## round 2 (opus N2): the same control on input.rs, its other joined match: one line of ours' insertion there changed ("let dropped = behind.saturating_add(owed);" -> "... saturating_sub(owed);"), in a clone; False expected
+changed line 798:  1 file changed, 1 insertion(+), 1 deletion(-)
+src/tui/input.rs: ours -> merged is theirs' hunks: False (40 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: False (28 hunks, 0 slid by blank lines)
 # exit 1 (1 expected)
 ## every resolution redone by this folder's scripts in a clone (reproduce.sh)
 e776a6b0 (714f6283): resolve exit 0; against the merge commit's tree: no difference
