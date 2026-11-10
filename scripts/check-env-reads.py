@@ -261,13 +261,7 @@ DROPPED = (
 
 def clippy(crate, extra, env_extra=None):
     """Clippy's JSON messages for `crate`, the lint forced on."""
-    env = {
-        name: value
-        for name, value in os.environ.items()
-        if name not in DROPPED
-        and not (name.startswith("CARGO_TARGET_") and name.endswith("_RUSTFLAGS"))
-    }
-    env.update(env_extra or {})
+    env = tool_environment(env_extra)
     command = (
         ["cargo", "clippy", "--all-targets", "--message-format=json"]
         + extra
@@ -462,6 +456,98 @@ def judge(invocations, plain, problems, exceptions, plain_listed):
 PASSES = ([], ["--all-features"], ["--release"], ["--release", "--all-features"])
 
 
+# Every test executable cargo builds, in each of these, is held to the rule
+# below (artifact_problems).
+TEST_BUILDS = ([], ["--all-features"], ["--release"])
+
+# The marker the probe starts each integration test binary with: not a name
+# a parent makes, so a binary that runs the constructor refuses itself.
+PROBE_MARKER = "not-a-marker"
+
+
+def artifact_problems(root):
+    """What cargo builds to run tests, and whether each runs its cases in a
+    clean copy of itself.
+
+    For each of TEST_BUILDS, `cargo test --no-run --all-targets` lists every
+    executable it built for a test profile. The library's unit-test binary
+    is the one that runs in the developer's process by design: every read
+    there goes through `process_env!` to the case's fake process
+    (src/test_env.rs). Every executable of kind `test` is started with
+    `--list` and a marker no parent makes: a binary whose constructor
+    (tests/support/isolated.rs) is linked and runs refuses itself before
+    main, exit 101; one without it lists its cases. Any other kind (a
+    binary's harness, a bench, an example) must list no case at all: `cargo
+    test --all-targets` builds the binary's harness even with `test = false`,
+    and a harness with nothing in it runs nothing.
+
+    A run, not a symbol table: `cargo test --release` builds with the
+    release profile's `strip = true`, so a release test binary has no
+    symbols to read, and a run shows the constructor runs, not only that it
+    is there. Also returns the names rustc's dep-info records as read at
+    compile time for each crate built."""
+    problems = []
+    compiled = collections.defaultdict(set)
+    manifest = os.path.realpath(os.path.join(root, "Cargo.toml"))
+    probed = 0
+    for build in TEST_BUILDS:
+        run = subprocess.run(
+            ["cargo", "test", "--locked", "--no-run", "--all-targets", "--message-format=json"] + build,
+            cwd=root, env=tool_environment(), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        label = " ".join(build) or "(dev, default features)"
+        if run.returncode != 0:
+            sys.stderr.write(run.stderr.decode()[-4000:])
+            problems.append(("Cargo.toml", 0, f"cargo test --no-run {label} exited {run.returncode}"))
+            continue
+        for line in run.stdout.decode().splitlines():
+            if not line.startswith("{"):
+                continue
+            record = json.loads(line)
+            if record.get("reason") != "compiler-artifact":
+                continue
+            if os.path.realpath(record.get("manifest_path", "")) != manifest:
+                continue
+            source = os.path.relpath(record["target"]["src_path"], root)
+            compiled[source] |= compile_time_names(record["filenames"])
+            if not record["profile"]["test"] or not record.get("executable"):
+                continue
+            kind = record["target"]["kind"]
+            if kind == ["lib"]:
+                continue
+            if kind != ["test"]:
+                listing = subprocess.run(
+                    [record["executable"], "--list"], cwd=root, env={"PATH": os.environ.get("PATH", "")},
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120,
+                )
+                if listing.returncode != 0 or not listing.stdout.rstrip().endswith(b"0 tests, 0 benchmarks"):
+                    problems.append((source, 0, f"a {'/'.join(kind)} built to run tests in {label} that holds cases, outside both isolations"))
+                continue
+            probe = subprocess.run(
+                [record["executable"], "--list"],
+                cwd=root,
+                env={"PATH": os.environ.get("PATH", ""), "XFX_TEST_ISOLATED_COPY": PROBE_MARKER},
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120,
+            )
+            probed += 1
+            if probe.returncode != 101 or b"no case runs" not in probe.stderr:
+                problems.append((source, 0, f"its test binary ({label}) runs its cases without making a clean copy of itself (exit {probe.returncode})"))
+    return problems, compiled, probed
+
+
+def tool_environment(extra=None):
+    """This process's environment less what changes which lints run, which
+    configuration clippy reads, or what wraps the compiler."""
+    env = {
+        name: value
+        for name, value in os.environ.items()
+        if name not in DROPPED
+        and not (name.startswith("CARGO_TARGET_") and name.endswith("_RUSTFLAGS"))
+    }
+    env.update(extra or {})
+    return env
+
+
 def config_problems(root):
     """clippy.toml is the configuration clippy reads, and it disallows every
     reader and every start this script knows of."""
@@ -520,6 +606,8 @@ def check_tree():
         process_env = max(process_env, arms)
         plain = plain | calls
         problems += [problem for problem in wrong if problem not in problems]
+    built, compiled, probed = artifact_problems(ROOT)
+    problems += built + compiled_problems(compiled)
     problems = judge(invocations, plain, problems, EXCEPTIONS, PLAIN)
     used = {name for _, names, _, _ in invocations for name in names}
     for name in sorted(set(ALLOWED_NAMES) - used):
@@ -528,7 +616,8 @@ def check_tree():
         f"check-env-reads: {len(invocations)} env_exception! invocations in "
         f"{len({file for file, _, _, _ in invocations})} files, {process_env} process_env! "
         f"build arms, {sum(plain.values())} listed plain calls, "
-        f"{sum(compile_time.values())} compile-time reads of {len(compile_time)} names"
+        f"{sum(compile_time.values())} compile-time reads of {len(compile_time)} names; "
+        f"{probed} test binaries started with a marker no parent makes"
     )
     for file, line, why in sorted(problems):
         print(f"  refused: {file}:{line}: {why}")

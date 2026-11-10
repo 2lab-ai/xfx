@@ -108,3 +108,51 @@ cache here (`time -p`, real).
 **Fixture:** `release_only_read` -- a read under
 `#[cfg(not(debug_assertions))]` -- refused; the self-test compiles its
 fixtures in both profiles.
+
+## Part 4: the built test binaries, not only clippy's compile (gpt6 isolation MUST 3)
+
+**The hole.** Round 4 inferred that a test binary was isolated from
+clippy's reports of `tests/support/isolated.rs`'s reads. A file with
+`#[cfg(clippy)] mod support;` reports them under clippy, while `cargo test`
+builds it without `support` and runs its cases in the developer's process.
+
+**The fix** (`artifact_problems`). For each of three builds -- dev, dev
+`--all-features`, `--release` -- `cargo test --no-run --all-targets
+--message-format=json` lists every executable cargo built for a test
+profile. Each is held to a rule by what it does when run:
+
+- **kind `test`** (an integration test binary): started with `--list` and
+  `XFX_TEST_ISOLATED_COPY=not-a-marker`, `PATH` its only other name. A
+  binary whose constructor is linked and runs refuses itself before `main`
+  (exit 101, "no case runs"); one without it lists its cases and is
+  refused. This proves on every run, in every build, that the constructor
+  is in the binary and runs.
+- **kind `lib`**: the unit-test binary, the one that runs in the
+  developer's process by design -- every read there goes through
+  `process_env!` to the case's fake process (`src/test_env.rs`).
+- **any other kind** (a binary's harness, a bench, an example): must list
+  no case at all. `[[bin]] test = false` keeps plain `cargo test` from
+  building the binary's harness, but `--all-targets` (CI's) still builds
+  it; it holds no test, and one added there would be refused.
+
+**Why a run and not `nm`.** `cargo test --release` builds with the release
+profile's `strip = true`: the release `parity` test binary's symbol table
+holds 150 entries, all imports, while the dev one has the constructor's
+(`r5-art` probe, `nm`). A symbol check would refuse every correct release
+binary, and a run shows the constructor runs, not only that it is there.
+
+The same builds' dep-info is held to `COMPILE_TIME_NAMES` too (part 2):
+these are the real test binaries, not clippy's check builds.
+
+**Doctests** (SHOULD): `[lib] doctest = false`. A doctest runs in the
+developer's process as rustdoc builds it, before any isolation, and
+rustdoc's `--list` does not say which are `compile_fail` (it printed the
+library's one as `src/agent/types.rs - agent::types::TurnJournal (line 70): test`),
+so refusing the other kinds would mean reading the source. The cost: that
+`compile_fail,E0046` example -- a journal wrapper that forwards only
+`record` does not build -- is no longer compiled; the trait still has no
+default method, which is what it showed.
+
+**Measured:** 39 test binaries started (13 per build), each refused itself;
+the whole check took 373 s here with two of the three test builds cold
+(`time -p`, real).
