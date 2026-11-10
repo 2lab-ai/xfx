@@ -2,18 +2,23 @@
 # `process::command` -- which gives a unit test's child the case's fake
 # process or nothing -- and started only by `process::spawn`, under the one
 # lock every start takes; a pipe is made only by `process::pipe`, under the
-# same lock; nothing replaces the process. Checked on the resolved call, so
-# an aliased `Command`, a `map(Command::new)`, a `<Command>::new`, a command
-# started in a later statement and a `Command::spawn(&mut c)` are each
-# caught. `scripts/check-env-reads.py` asserts every entry is here.
+# same lock; nothing replaces the process through a call named here, the
+# raw `syscall` included. Checked on the resolved call, so an aliased
+# `Command`, a `map(Command::new)`, a `<Command>::new`, a command started in
+# a later statement and a `Command::spawn(&mut c)` are each caught; inline
+# `asm!` and a dependency's own wrapper of these are not.
+# `scripts/check-env-reads.py` asserts every entry is here.
 #
 # The environment rule (`src/lib.rs`'s `process_env!`, `src/test_env.rs`): the
 # process environment is read through `process_env!`, so a unit test cannot
 # read the real one. Checked on the resolved call, so an imported `var`, an
 # aliased `std::env`, a closure over a reader and a reference to one are
-# caught as the plain path is -- for the readers named below; a C function
-# declared by hand, the `environ` static (a static, which no entry can
-# name) and a read of `/proc/self/environ` are not. A read of a named
+# caught as the plain path is -- for the readers named below, the user
+# database (`getpwuid` and the rest, which give the real home with no read of
+# HOME) among them; a C function declared by hand, the `environ` static (a
+# static, which no entry can name) and a read of `/proc/self/environ` are
+# not. Nor is code under a cfg that names `clippy`, which clippy never
+# compiles; the check refuses any such cfg. A read of a named
 # reader that stays outside `process_env!` is an `env_exception!`
 # (`src/env_exception.rs`), whose names are literals; but for the build
 # script, cargo's own process, nothing else lets one through.
@@ -24,7 +29,8 @@
 # `allow-invalid` marks a path that does not resolve in every build: tokio is
 # built without `process`, mio is not a dependency of xfx's own, `vfork`,
 # `clone`, `execvpe`, `fexecve` and the variadic `execl*` are not in libc on
-# every target, `_NSGetEnviron` is libc's on Apple targets only, and
+# every target, `_NSGetEnviron` and `execvP` are libc's on Apple targets
+# only, `execveat` on Linux with glibc only, and
 # `pipe_with` is rustix's only where the system has `pipe2`. Each bites as
 # soon as it resolves.
 disallowed-methods = [
@@ -45,6 +51,9 @@ disallowed-methods = [
   { path = "libc::execl", reason = "nothing replaces the process: a start is crate::process::spawn's", allow-invalid = true },
   { path = "libc::execle", reason = "nothing replaces the process: a start is crate::process::spawn's", allow-invalid = true },
   { path = "libc::execlp", reason = "nothing replaces the process: a start is crate::process::spawn's", allow-invalid = true },
+  { path = "libc::execvP", reason = "nothing replaces the process: a start is crate::process::spawn's", allow-invalid = true },
+  { path = "libc::execveat", reason = "nothing replaces the process: a start is crate::process::spawn's", allow-invalid = true },
+  { path = "libc::syscall", reason = "a raw system call can start, replace or fork the process past every rule here" },
   { path = "libc::clone", reason = "a child is started by crate::process::spawn, under the one lock every start takes", allow-invalid = true },
   { path = "libc::fork", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },
   { path = "libc::vfork", reason = "a child is started by crate::process::spawn, under the one lock every start takes", allow-invalid = true },
@@ -68,6 +77,10 @@ disallowed-methods = [
   { path = "std::env::home_dir", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one" },
   { path = "libc::getenv", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one" },
   { path = "libc::_NSGetEnviron", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one", allow-invalid = true },
+  { path = "libc::getpwuid", reason = "the user database gives the real home with no read of HOME, as std::env::home_dir falls back on it" },
+  { path = "libc::getpwuid_r", reason = "the user database gives the real home with no read of HOME, as std::env::home_dir falls back on it" },
+  { path = "libc::getpwnam", reason = "the user database gives the real home with no read of HOME, as std::env::home_dir falls back on it" },
+  { path = "libc::getpwnam_r", reason = "the user database gives the real home with no read of HOME, as std::env::home_dir falls back on it" },
   { path = "std::env::temp_dir", reason = "it reads TMPDIR: the process environment is read through process_env! (src/lib.rs) or an env_exception!" },
 ]
 

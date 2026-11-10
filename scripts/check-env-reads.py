@@ -59,6 +59,12 @@ ENV_READERS = {
     "std::env::temp_dir",
     "libc::getenv",
     "libc::_NSGetEnviron",
+    # The user database: the home a user is given, with no read of HOME --
+    # what `home_dir` falls back on.
+    "libc::getpwuid",
+    "libc::getpwuid_r",
+    "libc::getpwnam",
+    "libc::getpwnam_r",
 }
 
 # The start rule's entries: what makes or starts a child, replaces the
@@ -81,6 +87,9 @@ STARTS = {
     "libc::execl",
     "libc::execle",
     "libc::execlp",
+    "libc::execvP",
+    "libc::execveat",
+    "libc::syscall",
     "libc::clone",
     "libc::fork",
     "libc::vfork",
@@ -152,8 +161,12 @@ COMPILE_TIME_NAMES = {
 }
 
 # What clippy-driver itself records as read at compile time (its own
-# arguments and configuration directory): not the crate's.
+# arguments and configuration directory): not the crate's. Dropped from the
+# clippy passes' dep-info only; a `cargo test` build is rustc's alone.
 CLIPPY_OWN = {"CLIPPY_ARGS", "CLIPPY_CONF_DIR"}
+
+# What an artifact whose dep-info cannot be found is recorded as reading.
+NO_DEP_INFO = "\0no dep-info"
 
 # The compile-time readers clippy.toml disallows as macros.
 ENV_MACROS = {"std::env", "std::option_env", "core::env", "core::option_env"}
@@ -301,29 +314,92 @@ def clippy(crate, extra, env_extra=None):
             if record["target"]["kind"] == ["test"]:
                 tests.add(record["target"]["name"])
             if os.path.realpath(record.get("manifest_path", "")) == manifest:
-                source = os.path.relpath(record["target"]["src_path"], crate)
-                compiled[source] |= compile_time_names(record["filenames"])
+                record_compiled(compiled, record, crate)
         elif record.get("reason") == "build-finished":
             finished = record.get("success")
+    for source in compiled:
+        compiled[source] -= CLIPPY_OWN
     return run.returncode, finished, run.stderr.decode(), messages, tests, compiled
 
 
-def compile_time_names(filenames):
-    """The names rustc's dep-info for these artifacts says were read at
-    compile time (`# env-dep:NAME=value`): the names, never the values."""
-    names = set()
-    for filename in filenames:
-        directory, base = os.path.split(filename)
-        stem = base[3:] if base.startswith("lib") else base
-        stem = stem.split(".")[0]
-        info = os.path.join(directory, stem + ".d")
-        if not os.path.exists(info):
+HASHED = re.compile(r"^(?P<lib>lib)?(?P<stem>[A-Za-z0-9_]+-[0-9a-f]{16})(?P<ext>\.(?:rlib|rmeta|so|dylib|a))?$")
+
+
+def dep_info(filename):
+    """rustc's dep-info for one of an artifact's files, or None.
+
+    rustc writes `<crate>-<hash>.d` beside `lib<crate>-<hash>.rlib` or
+    `.rmeta` and beside an executable `<crate>-<hash>` (whose name may begin
+    with `lib`: only a library's file name has the prefix to strip). Cargo
+    uplifts an executable (`target/debug/xfx`, a build script's
+    `build-script-build`) by a hard link or, on macOS, a copy of such a
+    file, so an uplifted one is traced back to the original it is the same
+    bytes as: by inode, else by size and content."""
+    directory, base = os.path.split(filename)
+    hashed = HASHED.match(base)
+    if hashed and (hashed.group("ext") or not hashed.group("lib")):
+        return os.path.join(directory, hashed.group("stem") + ".d")
+    if hashed:
+        return os.path.join(directory, base + ".d")
+    try:
+        mine = os.stat(filename)
+    except OSError:
+        return None
+    crate = base.replace("-", "_")
+    for place in (directory, os.path.join(directory, "deps")):
+        try:
+            names = os.listdir(place)
+        except OSError:
             continue
+        for name in names:
+            found = HASHED.match(name)
+            if not name.startswith(crate + "-") or not found or found.group("ext") or found.group("lib"):
+                continue
+            original = os.path.join(place, name)
+            theirs = os.stat(original)
+            if theirs.st_ino == mine.st_ino or (theirs.st_size == mine.st_size and same_bytes(original, filename)):
+                return dep_info(original)
+    return None
+
+
+def same_bytes(one, other):
+    with open(one, "rb") as a, open(other, "rb") as b:
+        while True:
+            left, right = a.read(1 << 20), b.read(1 << 20)
+            if left != right:
+                return False
+            if not left:
+                return True
+
+
+def compile_time_names(filenames):
+    """The names rustc's dep-info for an artifact says were read at compile
+    time (`# env-dep:NAME=value`): the names, never the values. None when no
+    dep-info file is found for any of the artifact's files: missing evidence
+    is not an empty set of reads."""
+    names = set()
+    found = False
+    for filename in filenames:
+        info = dep_info(filename)
+        if not info or not os.path.exists(info):
+            continue
+        found = True
         with open(info, "rb") as lines:
             for line in lines:
                 if line.startswith(b"# env-dep:"):
                     names.add(line[len(b"# env-dep:") :].split(b"=", 1)[0].strip().decode(errors="replace"))
-    return names - CLIPPY_OWN
+    return names if found else None
+
+
+def record_compiled(compiled, record, root):
+    """Adds an artifact's compile-time reads to `compiled`, under its source;
+    an artifact with no dep-info is recorded as such."""
+    source = os.path.relpath(record["target"]["src_path"], root)
+    names = compile_time_names(record["filenames"])
+    if names is None:
+        compiled[source].add(NO_DEP_INFO)
+    else:
+        compiled[source] |= names
 
 
 def expansions(span):
@@ -430,7 +506,8 @@ def classify(crate, messages, exception_file, process_env_file):
         elif def_file == process_env_file and path in ENV_READERS and inner["macro_decl_name"].endswith("process_env!"):
             process_env += 1
         else:
-            problems.append((*at, f"{path} inside {inner['macro_decl_name']} (defined in {def_file})"))
+            shown = def_file if def_file and not os.path.isabs(def_file) else "a file outside this package"
+            problems.append((*at, f"{path} inside {inner['macro_decl_name']} (defined in {shown})"))
     for def_file, lines in def_sites.items():
         if def_file in (exception_file, process_env_file) and len(lines) != 1:
             problems.append((def_file, 0, f"{len(lines)} macros there let a read through, not one"))
@@ -438,10 +515,13 @@ def classify(crate, messages, exception_file, process_env_file):
 
 
 def compiled_problems(compiled):
-    """A crate rustc says read, at compile time, a name not listed."""
+    """A crate rustc says read, at compile time, a name not listed, and one
+    built without dep-info to say what it read."""
     problems = []
     for source, names in sorted(compiled.items()):
-        for name in sorted(names - set(COMPILE_TIME_NAMES)):
+        if NO_DEP_INFO in names:
+            problems.append((source, 0, "built with no dep-info to say what it read at compile time"))
+        for name in sorted(names - set(COMPILE_TIME_NAMES) - {NO_DEP_INFO}):
             problems.append((source, 0, f"compiled with {name} from the environment (rustc's dep-info), which is not a compile-time name"))
     return problems
 
@@ -468,15 +548,27 @@ def judge(invocations, plain, problems, exceptions, plain_listed):
     return problems
 
 
-# Every profile and feature set the tree is compiled in, each a pass of its
-# own and their reports one union: code under `cfg(not(debug_assertions))` is
-# seen only by the release pass, code under a feature only with it.
-PASSES = ([], ["--all-features"], ["--release"], ["--release", "--all-features"])
+# The supported matrix, the same for the clippy passes and the test builds:
+# the dev and release profiles, each with no feature and with every feature.
+# It is every feature set this manifest can be built with only while it has
+# one feature and no default (matrix_problems); a second feature would make
+# subsets this does not build.
+MATRIX = ([], ["--all-features"], ["--release"], ["--release", "--all-features"])
+PASSES = MATRIX
+TEST_BUILDS = MATRIX
 
 
-# Every test executable cargo builds, in each of these, is held to the rule
-# below (artifact_problems).
-TEST_BUILDS = ([], ["--all-features"], ["--release"])
+def matrix_problems(root):
+    """MATRIX is every feature set the manifest at `root` has."""
+    try:
+        import tomllib
+    except ImportError:
+        return [("Cargo.toml", 0, "no tomllib (Python 3.11 or later) to read it with")]
+    with open(os.path.join(root, "Cargo.toml"), "rb") as manifest:
+        features = tomllib.load(manifest).get("features", {})
+    if features.get("default") or len(set(features) - {"default"}) > 1:
+        return [("Cargo.toml", 0, "features the check's matrix (none, all) does not cover every set of")]
+    return []
 
 # The marker the probe starts each integration test binary with: not a name
 # a parent makes, so a binary that runs the constructor refuses itself.
@@ -527,7 +619,7 @@ def artifact_problems(root, cargo_flags=("--locked",), env_extra=None):
             if os.path.realpath(record.get("manifest_path", "")) != manifest:
                 continue
             source = os.path.relpath(record["target"]["src_path"], root)
-            compiled[source] |= compile_time_names(record["filenames"])
+            record_compiled(compiled, record, root)
             if not record["profile"]["test"] or not record.get("executable"):
                 continue
             kind = record["target"]["kind"]
@@ -566,6 +658,48 @@ def tool_environment(extra=None):
     return env
 
 
+CFG_CALL = re.compile(r"\bcfg(?P<attr>_attr)?\s*(?P<bang>!)?\s*\(")
+CLIPPY_WORD = re.compile(r"(?<![A-Za-z0-9_:])clippy(?![A-Za-z0-9_])")
+
+
+def cfg_problems(root):
+    """No cfg predicate names `clippy`, in `cfg(..)`, `cfg!(..)` or the
+    predicate of `cfg_attr(..)`, in src/, tests/ or build.rs.
+
+    Clippy compiles with `cfg(clippy)` set, so code under `not(clippy)` is
+    never linted, and the library's unit-test binary would run it in the
+    developer's process. A text check, narrow by design: the one token in
+    the one place, comment lines skipped. A cfg a macro builds from its
+    arguments is beyond it."""
+    problems = []
+    files = [os.path.join(root, "build.rs")] if os.path.exists(os.path.join(root, "build.rs")) else []
+    for top in ("src", "tests"):
+        for directory, _, names in os.walk(os.path.join(root, top)):
+            files += [os.path.join(directory, name) for name in names if name.endswith(".rs")]
+    for path in sorted(files):
+        with open(path, encoding="utf-8", errors="replace") as source:
+            lines = source.read().split("\n")
+        text = "\n".join("" if line.lstrip().startswith("//") else line for line in lines)
+        for call in CFG_CALL.finditer(text):
+            depth, at, end = 1, call.end(), None
+            predicate_end = None
+            while at < len(text) and depth:
+                char = text[at]
+                if char == "(":
+                    depth += 1
+                elif char == ")":
+                    depth -= 1
+                elif char == "," and depth == 1 and call.group("attr") and predicate_end is None:
+                    predicate_end = at
+                at += 1
+            end = at - 1
+            predicate = text[call.end() : predicate_end if predicate_end is not None else end]
+            if CLIPPY_WORD.search(predicate):
+                line = text.count("\n", 0, call.start()) + 1
+                problems.append((os.path.relpath(path, root), line, "a cfg predicate that names clippy, under which code is never linted"))
+    return problems
+
+
 def config_problems(root):
     """clippy.toml is the configuration clippy reads, and it disallows every
     reader and every start this script knows of."""
@@ -588,7 +722,8 @@ def config_problems(root):
 
 
 def check_tree():
-    invocations, process_env, plain, problems = [], 0, collections.Counter(), config_problems(ROOT)
+    invocations, process_env, plain = [], 0, collections.Counter()
+    problems = config_problems(ROOT) + matrix_problems(ROOT) + cfg_problems(ROOT)
     compile_time = collections.Counter()
     seen_invocations = set()
     for build in PASSES:
@@ -763,6 +898,42 @@ FIXTURES = {
         '#[cfg(target_vendor = "apple")]\npub unsafe fn f() -> bool { libc::_NSGetEnviron().is_null() }',
         ["libc::_NSGetEnviron outside"] if sys.platform == "darwin" else [],
     ),
+    "cfg_not_clippy": (
+        "#[cfg(all(test, not(clippy)))]\nmod t {\n    #[test]\n    fn f() {\n"
+        '        let _ = std::env::var_os("HOME");\n    }\n}',
+        ["a cfg predicate that names clippy"],
+    ),
+    "cfg_attr_not_clippy": (
+        "#[cfg_attr(\n    not(clippy),\n    allow(unused)\n)]\npub fn f() {}",
+        ["a cfg predicate that names clippy"],
+    ),
+    "cfg_macro_clippy": (
+        'pub fn f() -> bool { !cfg!(clippy) && std::env::var_os("HOME").is_some() }',
+        ["a cfg predicate that names clippy", "std::env::var_os outside"],
+    ),
+    "cfg_attr_naming_a_clippy_lint": (
+        "#[cfg_attr(test, allow(clippy::needless_return))]\npub fn f() {}",
+        [],
+    ),
+    "exec_v_capital_p": (
+        "/// # Safety\n/// The fixture is never called.\n"
+        '#[cfg(target_vendor = "apple")]\npub unsafe fn f() -> i32 {\n'
+        "    libc::execvP(std::ptr::null(), std::ptr::null(), std::ptr::null())\n}",
+        ["libc::execvP outside"] if sys.platform == "darwin" else [],
+    ),
+    "raw_syscall": (
+        "/// # Safety\n/// The fixture is never called.\npub unsafe fn f() {\n    let _ = libc::syscall(20);\n}",
+        ["libc::syscall outside"],
+    ),
+    "user_database": (
+        "/// # Safety\n/// The fixture is never called.\n"
+        "pub unsafe fn f() -> bool {\n    libc::getpwuid(libc::getuid()).is_null()\n}",
+        ["libc::getpwuid outside"],
+    ),
+    "dependency_macro": (
+        "pub fn f() -> std::process::Command {\n    macro_dep::start!()\n}",
+        ["std::process::Command::new inside"],
+    ),
     "release_only_read": (
         "#[cfg(not(debug_assertions))]\n" + 'pub fn f() -> bool { std::env::var_os("HOME").is_some() }',
         ["std::env::var_os outside"],
@@ -806,10 +977,18 @@ def self_test():
         crate = os.path.join(scratch, "env_fixtures")
         os.makedirs(os.path.join(crate, "src"))
         os.makedirs(os.path.join(crate, "tests"))
+        # A dependency whose exported macro starts a child: clippy must see
+        # into an external macro's expansion.
+        dependency = os.path.join(scratch, "macro_dep")
+        os.makedirs(os.path.join(dependency, "src"))
+        with open(os.path.join(dependency, "Cargo.toml"), "w") as manifest:
+            manifest.write('[package]\nname = "macro_dep"\nversion = "0.0.0"\nedition = "2021"\npublish = false\n')
+        with open(os.path.join(dependency, "src", "lib.rs"), "w") as lib:
+            lib.write('#[macro_export]\nmacro_rules! start {\n    () => {\n        ::std::process::Command::new("git")\n    };\n}\n')
         with open(os.path.join(crate, "Cargo.toml"), "w") as manifest:
             manifest.write(
                 '[package]\nname = "env_fixtures"\nversion = "0.0.0"\nedition = "2021"\npublish = false\n\n'
-                f'[dependencies]\nlibc = "={lock_version("libc")}"\n\n'
+                f'[dependencies]\nlibc = "={lock_version("libc")}"\nmacro_dep = {{ path = "../macro_dep" }}\n\n'
                 # As the tree has it: off in the ordinary run, so a fixture
                 # is refused only if the check forces the lint on.
                 '[lints.clippy]\ndisallowed_macros = "allow"\n'
@@ -832,7 +1011,7 @@ def self_test():
             for source, read in names.items():
                 compiled[source] |= read
         invocations, _, plain, problems, _, _ = classify(crate, messages, macro, None)
-        problems += compiled_problems(compiled)
+        problems += compiled_problems(compiled) + cfg_problems(crate)
         problems = judge(invocations, plain, problems, [("tests/accepted.rs", ("PATH",))], [])
         failures = 0
         for name, (_, reasons) in FIXTURES.items():
@@ -849,6 +1028,41 @@ def self_test():
         if not messages:
             sys.stderr.write(stderr[-4000:])
             failures += 1
+        # Where rustc's dep-info is, by artifact: an executable whose name
+        # begins with "lib" keeps it, a library's file loses it, and an
+        # uplifted executable is traced to its original, a hard link or a
+        # copy.
+        names_dir = os.path.join(scratch, "names", "deps")
+        os.makedirs(names_dir)
+        for name, body in (("library-0123456789abcdef", "a"), ("library-0123456789abcdef.d", ""),
+                           ("libxfx-0123456789abcdef.rlib", ""), ("xfx-0123456789abcdef.d", ""),
+                           ("xfx-fedcba9876543210", "the binary"), ("xfx-fedcba9876543210.d", ""),
+                           ("xfx-0011223344556677", "another one"), ("xfx-0011223344556677.d", "")):
+            with open(os.path.join(names_dir, name), "w") as made:
+                made.write(body)
+        linked = os.path.join(scratch, "names", "linked")
+        os.makedirs(linked)
+        os.link(os.path.join(names_dir, "xfx-fedcba9876543210"), os.path.join(linked, "xfx"))
+        os.makedirs(os.path.join(linked, "deps"))
+        os.link(os.path.join(names_dir, "xfx-fedcba9876543210"), os.path.join(linked, "deps", "xfx-fedcba9876543210"))
+        open(os.path.join(linked, "deps", "xfx-fedcba9876543210.d"), "w").close()
+        copied = os.path.join(scratch, "names", "xfx")
+        shutil.copyfile(os.path.join(names_dir, "xfx-fedcba9876543210"), copied)
+        resolved = {
+            "an executable named lib...": dep_info(os.path.join(names_dir, "library-0123456789abcdef")),
+            "a library's .rlib": dep_info(os.path.join(names_dir, "libxfx-0123456789abcdef.rlib")),
+            "an executable uplifted by a hard link": dep_info(os.path.join(linked, "xfx")),
+            "an executable uplifted by a copy": dep_info(copied),
+        }
+        expected = {
+            "an executable named lib...": os.path.join(names_dir, "library-0123456789abcdef.d"),
+            "a library's .rlib": os.path.join(names_dir, "xfx-0123456789abcdef.d"),
+            "an executable uplifted by a hard link": os.path.join(linked, "deps", "xfx-fedcba9876543210.d"),
+            "an executable uplifted by a copy": os.path.join(names_dir, "xfx-fedcba9876543210.d"),
+        }
+        wrong = [what for what in expected if resolved[what] != expected[what]]
+        failures += bool(wrong)
+        print(f"{'resolved' if not wrong else 'NOT RESOLVED for ' + str(wrong):9} dep-info by artifact kind")
         # The configuration: a .clippy.toml beside clippy.toml, and a
         # clippy.toml that lost a reader and a start.
         config = os.path.join(scratch, "config")
@@ -872,14 +1086,27 @@ def self_test():
         with open(os.path.join(built, "src", "main.rs"), "w") as main:
             main.write("fn main() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn runs() {}\n}\n")
         with open(os.path.join(built, "tests", "plain.rs"), "w") as plain:
-            plain.write("#[test]\nfn runs() {}\n")
-        artifacts, _, probed = artifact_problems(
-            built, ("--offline",), {"CARGO_TARGET_DIR": os.path.join(scratch, "built-target")}
-        )
+            # A compile-time read clippy never compiles: only the test
+            # builds' dep-info can show it.
+            plain.write('#[cfg(not(clippy))]\nconst _: &str = env!("CARGO_PKG_AUTHORS");\n\n#[test]\nfn runs() {}\n')
+        built_target = {"CARGO_TARGET_DIR": os.path.join(scratch, "built-target")}
+        artifacts, compiled, probed = artifact_problems(built, ("--offline",), built_target)
+        artifacts += compiled_problems(compiled)
+        # And again with every dep-info file gone: cargo calls the builds
+        # fresh and rebuilds nothing, so nothing says what they read.
+        for directory, _, names in os.walk(built_target["CARGO_TARGET_DIR"]):
+            for name in names:
+                if name.endswith(".d"):
+                    os.remove(os.path.join(directory, name))
+        _, compiled, _ = artifact_problems(built, ("--offline",), built_target)
+        artifacts += [(f, line, "after the dep-info is gone: " + why) for f, line, why in compiled_problems(compiled)]
         refusals = [why for _, _, why in artifacts]
         wanted_built = [
             ("tests/plain.rs", "without making a clean copy", len(TEST_BUILDS)),
             ("src/main.rs", "that holds cases", len(TEST_BUILDS)),
+            ("tests/plain.rs", "compiled with CARGO_PKG_AUTHORS", 1),
+            ("tests/plain.rs", "after the dep-info is gone: built with no dep-info", 1),
+            ("src/main.rs", "after the dep-info is gone: built with no dep-info", 1),
         ]
         missing_built = [
             (file, reason) for file, reason, count in wanted_built
@@ -893,7 +1120,7 @@ def self_test():
         failures += bool(missing)
         print(f"{'refused' if not missing else 'NOT REFUSED for ' + str(missing):9} clippy configuration"
               + "".join(f"\n            {why}" for why in found))
-        print(f"check-env-reads --self-test: {len(FIXTURES) + 2} fixtures, {failures} not as expected")
+        print(f"check-env-reads --self-test: {len(FIXTURES) + 3} fixtures, {failures} not as expected")
         return 1 if failures else 0
     finally:
         shutil.rmtree(scratch, ignore_errors=True)

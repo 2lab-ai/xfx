@@ -57,7 +57,12 @@ mod env_exception;
 /// macros' own arms -- this one's, whose names are computed, and
 /// `env_exception!`'s, each held to its file and its names. A C function
 /// declared by hand, the `environ` static and `/proc/self/environ` are
-/// outside what clippy can name.
+/// outside what clippy can name, and so is code under a cfg that names
+/// `clippy`, which clippy never compiles: the check refuses such a cfg in
+/// `src`, `tests` and `build.rs`. Every integration test binary also runs in
+/// a clean copy of itself; this crate's own unit-test binary does not -- it
+/// runs in the developer's process, held by these lints and the fake
+/// process alone.
 #[cfg(not(test))]
 macro_rules! process_env {
     ($who:literal, var($name:expr)) => {
