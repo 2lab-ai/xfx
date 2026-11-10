@@ -1,0 +1,39 @@
+fx: env FX_AUTO_UPGRADE=0
+env TZ=UTC
+gateway p5-question-resume-turns.json
+wait 4
+type ask one
+key Enter
+wait 3
+type 2
+wait 3
+type ask four
+key Enter
+wait 3
+type 1212
+wait 3
+type ask too many
+key Enter
+wait 3
+key C-o
+wait 1.5
+snap live-ctrlo
+key C-o
+wait 1
+keep
+type /quit
+wait 0.5
+key Enter
+wait 2
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 5
+key C-o
+wait 1.5
+snap resumed-ctrlo
+key C-o
+wait 1
+type /quit
+wait 0.5
+key Enter
+wait 2

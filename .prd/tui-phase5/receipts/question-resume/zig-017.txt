@@ -1,0 +1,176 @@
+# Zig's std.json at 0.17.0 and 0.17.1, the releases fx@481104fd builds with (minimum_zig_version 0.17.0, build.zig.zon:28), read from the Codeberg tags
+#   https://codeberg.org/ziglang/zig/raw/tag/0.17.0/lib/std/json/{static,dynamic,Scanner}.zig  (tag 0.17.0 -> 7647adab80dd)
+#   https://codeberg.org/ziglang/zig/raw/tag/0.17.1/lib/std/json/{static,dynamic,Scanner}.zig  (tag 0.17.1 -> be248cc1fdc3)
+# fetched as data into an empty directory; nothing in them was run
+
+static.zig: 0.16.0 vs 0.17.0 differs; 0.17.0 vs 0.17.1 identical; sha256 0.17.0 6a5ebd3c69f61535
+dynamic.zig: 0.16.0 vs 0.17.0 identical; 0.17.0 vs 0.17.1 identical; sha256 0.17.0 37b8c7e934cf2887
+Scanner.zig: 0.16.0 vs 0.17.0 differs; 0.17.0 vs 0.17.1 identical; sha256 0.17.0 6668cf992d2d3a0c
+
+## every difference between 0.16.0 and 0.17.0 in the two files that differ (none touches a cited rule)
+### static.zig
+34a35
+>     /// Ignored for values that don't need allocation or are not copied (see `allocate`).
+289,290c290,291
+<             inline for (unionInfo.fields) |u_field| {
+<                 if (std.mem.eql(u8, u_field.name, field_name)) {
+---
+>             inline for (unionInfo.field_names, unionInfo.field_types) |u_field_name, u_field_type| {
+>                 if (std.mem.eql(u8, u_field_name, field_name)) {
+295c296
+<                     if (u_field.type == void) {
+---
+>                     if (u_field_type == void) {
+299c300
+<                         result = @unionInit(T, u_field.name, {});
+---
+>                         result = @unionInit(T, u_field_name, {});
+302c303
+<                         result = @unionInit(T, u_field.name, try innerParse(u_field.type, allocator, source, options));
+---
+>                         result = @unionInit(T, u_field_name, try innerParse(u_field_type, allocator, source, options));
+321,322c322,323
+<                 inline for (0..structInfo.fields.len) |i| {
+<                     r[i] = try innerParse(structInfo.fields[i].type, allocator, source, options);
+---
+>                 inline for (structInfo.field_types, 0..) |field_type, i| {
+>                     r[i] = try innerParse(field_type, allocator, source, options);
+337c338
+<             var fields_seen = [_]bool{false} ** structInfo.fields.len;
+---
+>             var fields_seen: [structInfo.field_names.len]bool = @splat(false);
+351,353c352,359
+<                 inline for (structInfo.fields, 0..) |field, i| {
+<                     if (field.is_comptime) @compileError("comptime fields are not supported: " ++ @typeName(T) ++ "." ++ field.name);
+<                     if (std.mem.eql(u8, field.name, field_name)) {
+---
+>                 inline for (
+>                     structInfo.field_names,
+>                     structInfo.field_types,
+>                     structInfo.field_attrs,
+>                     0..,
+>                 ) |f_name, f_type, f_attrs, i| {
+>                     if (f_attrs.@"comptime") @compileError("comptime fields are not supported: " ++ @typeName(T) ++ "." ++ f_name);
+>                     if (std.mem.eql(u8, f_name, field_name)) {
+363c369
+<                                     _ = try innerParse(field.type, allocator, source, options);
+---
+>                                     _ = try innerParse(f_type, allocator, source, options);
+370c376
+<                         @field(r, field.name) = try innerParse(field.type, allocator, source, options);
+---
+>                         @field(r, f_name) = try innerParse(f_type, allocator, source, options);
+493c499
+<                                 _ = try source.allocNextIntoArrayList(&value_list, .alloc_always);
+---
+>                                 _ = try source.allocNextIntoArrayListMax(&value_list, .alloc_always, options.max_value_len.?);
+496c502
+<                             if (ptrInfo.is_const) {
+---
+>                             if (ptrInfo.attrs.@"const") {
+616,618c622,624
+<             inline for (unionInfo.fields) |u_field| {
+<                 if (std.mem.eql(u8, u_field.name, field_name)) {
+<                     if (u_field.type == void) {
+---
+>             inline for (unionInfo.field_names, unionInfo.field_types) |u_field_name, u_field_type| {
+>                 if (std.mem.eql(u8, u_field_name, field_name)) {
+>                     if (u_field_type == void) {
+622c628
+<                         return @unionInit(T, u_field.name, {});
+---
+>                         return @unionInit(T, u_field_name, {});
+625c631
+<                     return @unionInit(T, u_field.name, try innerParseFromValue(u_field.type, allocator, kv.value_ptr.*, options));
+---
+>                     return @unionInit(T, u_field_name, try innerParseFromValue(u_field_type, allocator, kv.value_ptr.*, options));
+635c641
+<                 if (source.array.items.len != structInfo.fields.len) return error.UnexpectedToken;
+---
+>                 if (source.array.items.len != structInfo.field_names.len) return error.UnexpectedToken;
+638,639c644,645
+<                 inline for (0..structInfo.fields.len, source.array.items) |i, item| {
+<                     r[i] = try innerParseFromValue(structInfo.fields[i].type, allocator, item, options);
+---
+>                 inline for (0..structInfo.field_names.len, source.array.items) |i, item| {
+>                     r[i] = try innerParseFromValue(structInfo.field_types[i], allocator, item, options);
+652c658
+<             var fields_seen = [_]bool{false} ** structInfo.fields.len;
+---
+>             var fields_seen: [structInfo.field_names.len]bool = @splat(false);
+658,660c664,671
+<                 inline for (structInfo.fields, 0..) |field, i| {
+<                     if (field.is_comptime) @compileError("comptime fields are not supported: " ++ @typeName(T) ++ "." ++ field.name);
+<                     if (std.mem.eql(u8, field.name, field_name)) {
+---
+>                 inline for (
+>                     structInfo.field_names,
+>                     structInfo.field_types,
+>                     structInfo.field_attrs,
+>                     0..,
+>                 ) |f_name, f_type, f_attrs, i| {
+>                     if (f_attrs.@"comptime") @compileError("comptime fields are not supported: " ++ @typeName(T) ++ "." ++ f_name);
+>                     if (std.mem.eql(u8, f_name, field_name)) {
+662c673
+<                         @field(r, field.name) = try innerParseFromValue(field.type, allocator, kv.value_ptr.*, options);
+---
+>                         @field(r, f_name) = try innerParseFromValue(f_type, allocator, kv.value_ptr.*, options);
+785,786c796,803
+< fn fillDefaultStructValues(comptime T: type, r: *T, fields_seen: *[@typeInfo(T).@"struct".fields.len]bool) !void {
+<     inline for (@typeInfo(T).@"struct".fields, 0..) |field, i| {
+---
+> fn fillDefaultStructValues(comptime T: type, r: *T, fields_seen: *[@typeInfo(T).@"struct".field_names.len]bool) !void {
+>     const info = @typeInfo(T).@"struct";
+>     inline for (
+>         info.field_names,
+>         info.field_types,
+>         info.field_attrs,
+>         0..,
+>     ) |field_name, field_type, field_attrs, i| {
+788,789c805,806
+<             if (field.defaultValue()) |default| {
+<                 @field(r, field.name) = default;
+---
+>             if (field_attrs.defaultValue(field_type)) |default| {
+>                 @field(r, field_name) = default;
+### Scanner.zig
+1404c1404
+<             error.OutOfMemory => return error.OutOfMemory,
+---
+>             error.OutOfMemory => |e| return e,
+1737c1737
+<             error.ReadFailed => return error.ReadFailed,
+---
+>             error.ReadFailed => |e| return e,
+
+## the cited rules at 0.17.0
+== std/json/static.zig:20-26
+    20	    /// Behaviour when a duplicate field is encountered.
+    21	    /// The default is to return `error.DuplicateField`.
+    22	    duplicate_field_behavior: enum {
+    23	        use_first,
+    24	        @"error",
+    25	        use_last,
+    26	    } = .@"error",
+== std/json/dynamic.zig:148-159
+   148	                const gop = try object.getOrPut(allocator, key);
+   149	                if (gop.found_existing) {
+   150	                    switch (options.duplicate_field_behavior) {
+   151	                        .use_first => {},
+   152	                        .@"error" => return error.DuplicateField,
+   153	                        .use_last => {
+   154	                            gop.value_ptr.* = value;
+   155	                        },
+   156	                    }
+   157	                } else {
+   158	                    gop.value_ptr.* = value;
+   159	                }
+== std/json/Scanner.zig:25-32
+    25	//! * RFC 8259 doesn't explicitly disallow unpaired surrogate halves in \u escape sequences,
+    26	//!   but vaguely implies that \u escapes are for encoding Unicode "characters" (i.e. Unicode scalar values?),
+    27	//!   which would mean that unpaired surrogate halves are forbidden.
+    28	//!   By contrast ECMA-404 (a competing(/compatible?) JSON standard, which JavaScript's JSON.parse() conforms to)
+    29	//!   explicitly allows unpaired surrogate halves.
+    30	//!   This implementation forbids unpaired surrogate halves in \u sequences.
+    31	//!   If a high surrogate half appears in a \u sequence,
+    32	//!   then a low surrogate half must immediately follow in \u notation.

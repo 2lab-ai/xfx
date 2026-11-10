@@ -1,0 +1,14 @@
+x𝒇x v0.1.0-32afd30 [debug] · Run /help for commands
+
+┃ ask twenty
+
+────────────────────────────────────────────────────────────────────────
+  Pick 1?
+
+    1) Keep 1                        Leave it as it is.
+    2) Change 1                      Apply the change.
+    3) Other
+
+────────────────────────────────────────────────────────────────────────
+↑↓ options · tab questions · enter answer · esc cancel  Question 1 of 20
+

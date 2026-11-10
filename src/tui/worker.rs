@@ -8778,6 +8778,34 @@ mod tests {
                 lines: None,
                 change: None,
             },
+            // An answered batch whose saved document carries it too: the
+            // resume decodes it into the batch's resolutions
+            // (`super::hydration::HydratedStep::Answered`).
+            SessionEvent::AssistantMessage {
+                text: String::new(),
+                tool_calls: vec![crate::session::RecordedToolCall {
+                    id: "q".to_string(),
+                    name: "ask_user_question".to_string(),
+                    input: serde_json::json!({ "questions": [] }),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            SessionEvent::ToolResult {
+                call_id: "q".to_string(),
+                tool: "ask_user_question".to_string(),
+                ok: true,
+                output: serde_json::json!([{
+                    "question": format!("q {HOSTILE}"),
+                    "answer": format!("a {HOSTILE}"),
+                }])
+                .to_string(),
+                ending: None,
+                lines: None,
+                change: None,
+            },
             SessionEvent::AssistantMessage {
                 text: format!("done {HOSTILE}"),
                 tool_calls: Vec::new(),
@@ -8815,6 +8843,13 @@ mod tests {
                         all.push_str(shown.target.as_deref().unwrap_or(""));
                     }
                     HydratedStep::ToolResult { id, .. } => all.push_str(id),
+                    HydratedStep::Answered(answers) => {
+                        for saved in answers {
+                            all.push_str(&saved.question);
+                            all.push_str(&saved.answer);
+                        }
+                    }
+                    HydratedStep::Asked => {}
                 }
             }
             for (id, detail) in &turn.details {
@@ -8847,6 +8882,9 @@ mod tests {
             .hydration();
         let text = replayed_text(&launch);
         assert!(text.contains("prompt x ]0;pwned y [2Jz 31m"), "{text:?}");
+        // The answered batch's question and answer, decoded and made inert.
+        assert!(text.contains("q x ]0;pwned y [2Jz 31m"), "{text:?}");
+        assert!(text.contains("a x ]0;pwned y [2Jz 31m"), "{text:?}");
         assert_eq!(obeyed(&text), Vec::<char>::new(), "{text:?}");
 
         // The picker's, across the channel as the runtime sends it.

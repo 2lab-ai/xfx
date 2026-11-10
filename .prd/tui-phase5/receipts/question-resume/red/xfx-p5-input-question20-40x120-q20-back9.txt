@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-32afd30 [debug] · Run /help for commands
+
+┃ ask twenty
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Pick 9?
+
+    1) Keep 9                        Leave it as it is.
+    2) Change 9                      Apply the change.
+    3) Other
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+1–3 choose now    ↑↓ options    tab questions    enter answer    esc cancel                             Question 9 of 20
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+
+  One done.
+
+  3s (↑2 ↓80)
+
+┃ ask four
+
+  Four done.
+
+  3s (↑2 ↓80)
+
+┃ ask too many
+
+  Too many.
+
+  0s (↑3 ↓80)
+
+┃ ask none
+
+  None asked.
+
+  0s (↑2 ↓80)
+
+┃ ask mixed
+
+● 2 tool calls · 2 read · 2 failed
+├ Failed gone.txt
+└ Failed lost.txt
+
+  Mixed done.
+
+  0s (↑3 ↓80)
+
+┃ ask stop
+
+▪ Cancelled · What can xfx do differently?
+
+┃
+
+auto · model-a

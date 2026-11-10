@@ -1,0 +1,7 @@
+# RED, round 4: the_twenty_first_element_is_refused_at_its_first_byte_unread as rewritten here (an unclosed 8 MiB string), run on a throwaway clone at 678a9552 with M16 applied (round 2's next_element::<IgnoredAny> back), cargo test --lib
+# every one of the four tails is read and gives a parse error, not the count's
+test tools::question::tests::the_twenty_first_element_is_refused_at_its_first_byte_unread ... FAILED
+thread 'tools::question::tests::the_twenty_first_element_is_refused_at_its_first_byte_unread' panicked at src/tools/question.rs:991:9:
+  left: [("truncated object", "Eof: EOF while parsing a value at line 1 column 975"), ("unclosed deep array", "Eof: EOF while parsing a list at line 1 column 100963"), ("unclosed 8 MiB string", "Eof: EOF while parsing a string at line 1 column 8389572"), ("control byte", "Syntax: expected value at line 1 column 964")]
+ right: []
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4636 filtered out; finished in 0.05s
