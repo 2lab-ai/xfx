@@ -12,7 +12,8 @@ an approval's draft alike. APPROVAL-DRAFT-KEYS found the gap. Base `afd891af`
 | `4140e1ae` | RED: the six decoder tests and the shell test, four strict shapes added to `a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one`, the scenario `p5-decoder-tilde-home-end`, `fx/`, `red/`, `fx_src.sh`, `fx-src.txt`, `pairs.sh`, `red-pairs.txt`, `red.txt` |
 | `e90b1bba` | **the code head**: the decoder (`csi`, `modified_tilde` in `src/tui/input.rs`), the two entries of `what_upstream_resolves_to_a_key_xfx_does_not_have_is_ignored` that named `1;5~` and `4;3~` out, `cargo fmt` of the shell test, `docs/parity.md`, the ledger's moved refs, `refs.py`, `refs.txt` |
 | `893999fb` | `xfx/`, `green-pairs.txt`, `mutants.py`; no `src/` change. **The gate ran here** |
-| the commit after | `gate.txt`, `green.txt`, `mutants.txt`, the sweeps, `fx_src.sh` given the meta prefix's and stage 6's lines (and `fx-src.txt` again), one word of the parity sentence, this file; no `src/` change |
+| `e7beb46f` | `gate.txt`, `green.txt`, `mutants.txt`, `fx_src.sh` given the meta prefix's and stage 6's lines (and `fx-src.txt` again), one word of the parity sentence, this file; no `src/` change |
+| the commit after | the sweeps (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`), this file's sweep section and table, and the post-gate scan line in `gate.txt`; no `src/` change |
 
 The source change outside the test modules is +19/-7 lines, four of them
 code (the rest its doc comments): `git diff afd891af e90b1bba -- src`.
@@ -162,7 +163,22 @@ suite lock. **8 of 8 killed**, the clone's tree clean after the run:
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
 
-Pending: the next commit adds it.
+`scripts/fxcap/sweep.sh --only composer-keys --only composer-wrap --only
+filepicker-keys --only question-field --only 'p5-approval-*' --only
+p5-decoder-tilde-home-end` at 40x120, `--jobs 4`, this branch's scenarios and
+ledger, once with the base's binary (`v0.1.0-afd891a`) and once with the code
+head's (`v0.1.0-e90b1bb`), both in one suite-lock slot: every scenario that
+sends Home, End, `C-a`/`C-e` or the approval's and question's edit keys
+through the decoder. APPROVAL-VERTICAL-SPELLINGS' `cmp_sweeps.py`
+(unchanged, run from its folder) compares them pair by pair:
+
+- **base 37 / 104, head 45 / 104, drops 0.**
+- The eight that change are this unit's scenario's eight key snaps, from
+  `unresolved-defect` with 2 uncaused rows each to `normalized-identical`
+  (`typed` passes at both).
+- No other pair changes class, causes or uncaused-row count; the head has 0
+  pairs with uncaused rows (the 59 unresolved are the ledger's causes:
+  `approval-grant-scope` on the approval scenarios, and composer-keys' 3).
 
 ## Gate (`gate.txt`)
 

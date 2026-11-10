@@ -1,0 +1,14 @@
+# python3 -I ../approval-vertical-spellings/cmp_sweeps.py <scratch>/sweep-base/pairs.json <scratch>/sweep-head/pairs.json
+# base: xfx v0.1.0-afd891a (sha256 8f236c03...), head: v0.1.0-e90b1bb (sha256 255c76c7...); fx v0.0.16 both; this branch's scenarios and ledger;
+# --only composer-keys composer-wrap filepicker-keys question-field 'p5-approval-*' p5-decoder-tilde-home-end, 40x120, --jobs 4, both in one suite-lock slot
+change p5-decoder-tilde-home-end/alt-end-4: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-decoder-tilde-home-end/alt-home-1: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-decoder-tilde-home-end/ctrl-end-8: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-decoder-tilde-home-end/ctrl-home-1: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-decoder-tilde-home-end/ctrl-super-end-4: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-decoder-tilde-home-end/end-8: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-decoder-tilde-home-end/home-7: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-decoder-tilde-home-end/super-home-7: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+base: 104 pairs, 37 pass, 8 with uncaused rows
+head: 104 pairs, 45 pass, 0 with uncaused rows
+drops: 0

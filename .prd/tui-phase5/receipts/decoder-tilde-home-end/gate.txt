@@ -55,3 +55,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 check-xfx-identity: ok (20044 tracked file(s) scanned)
 check-no-stubs: ok
 check-no-secrets: ok (20044 tracked file(s) scanned)
+
+# post-gate, at e7beb46f with this commit's files staged (both scripts read git ls-files; staged files count):
+check-no-secrets: ok (20051 tracked file(s) scanned)
+check-no-local-paths: ok (20051 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
