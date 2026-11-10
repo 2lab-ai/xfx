@@ -393,20 +393,28 @@ impl PermissionMode {
         }
     }
 
-    /// A mode as a person types it: upstream's grammar
-    /// (`PermissionMode.parse`, `vercel-labs/fx@c1db9191
-    /// src/core/shared/types.zig:2396-2403`) -- `ask`, `auto`, and `full-access`,
-    /// `full access` or `yolo` for the third, in any case.
+    /// A mode as a person writes it: fx's `PermissionMode.parse`
+    /// (`types.zig:2375-2382@481104fd`), word for word -- `ask`, `auto`, and
+    /// `full-access`, `full access` or `yolo` for the third, in any case, and
+    /// **not trimmed**. fx reads every mode a person gives it with that parse
+    /// (`parsePermissionMode`, `config_runtime.zig:1057-1059`): the settings
+    /// key, `FX_PERMISSION_MODE`, the status load and `/permissions`, whose
+    /// router trims spaces and tabs first (`command_router.zig:92-94`), as
+    /// [`crate::permission::slash::Request::parse`] does.
     ///
     /// The wire grammar is [`Self::parse`] and stays exact: a session log is
     /// something xfx wrote, and one that says `Full Access` is not one it
-    /// wrote. This is what an argument to `/permissions` is read with, and it
-    /// ends in that same table rather than in one of its own.
+    /// wrote.
     pub fn parse_choice(raw: &str) -> Option<Self> {
-        let word = raw.trim().to_ascii_lowercase();
-        match word.as_str() {
-            "full-access" | "full access" => Some(Self::Yolo),
-            other => Self::parse(other),
+        let is = |word: &str| raw.eq_ignore_ascii_case(word);
+        if is("ask") {
+            Some(Self::Ask)
+        } else if is("auto") {
+            Some(Self::Auto)
+        } else if is("full-access") || is("full access") || is("yolo") {
+            Some(Self::Yolo)
+        } else {
+            None
         }
     }
 
@@ -1716,8 +1724,10 @@ fn parse_layer(
                 )),
             }
         }
+        // fx's parse (`config_runtime.zig:1691`): `ASK` is ask, `Full Access`
+        // full access, and ` ask` a value fx refuses.
         if let Some(value) = object.get("permission_mode") {
-            match value.as_str().and_then(PermissionMode::parse) {
+            match value.as_str().and_then(PermissionMode::parse_choice) {
                 Some(mode) => settings.permission_mode = Some(mode),
                 None => diagnostics.push(Diagnostic::with_key(
                     layer,
@@ -2008,8 +2018,14 @@ fn parse_environment(env: &Environment, diagnostics: &mut Vec<Diagnostic>) -> Se
     if let Some(model) = env.nonblank(ENV_MODEL) {
         settings.model = Some(model.to_string());
     }
-    if let Some(raw) = env.nonblank(ENV_PERMISSION_MODE) {
-        match PermissionMode::parse(raw) {
+    // fx's `loadPermissionMode` (`app_lifecycle.zig:1556-1560`): the value as
+    // set, not trimmed, read with the settings key's parse; one that does not
+    // read leaves the configured mode. A blank one is ignored, as before.
+    if let Some(raw) = env
+        .var(ENV_PERMISSION_MODE)
+        .filter(|raw| !raw.trim().is_empty())
+    {
+        match PermissionMode::parse_choice(raw) {
             Some(mode) => settings.permission_mode = Some(mode),
             None => diagnostics.push(Diagnostic::with_key(
                 ConfigLayer::Process,
@@ -2356,7 +2372,7 @@ fn fx_first_error_refuses(layer: &Layer, global: bool, routing_fails: bool) -> O
             .all(|key| object.get(*key).is_none_or(Value::is_boolean))
     };
     let items = &["context", "session", "workspace"][..if global { 3 } else { 2 }];
-    let mode = |v: &Value| v.as_str().is_some_and(fx_permission_mode);
+    let mode = |v: &Value| v.as_str().and_then(PermissionMode::parse_choice).is_some();
     let authorities = |v: &Value| skill_symlink_authorities(v).is_ok();
     let history = |v: &Value| v.as_object().is_some_and(|o| bools(o, &["enabled"]));
     let effort = |v: &Value| v.is_null() || v.as_str().and_then(Effort::parse).is_some();
@@ -2471,13 +2487,6 @@ fn fx_valid_model(model: &str) -> bool {
         && model.len() <= FX_MAX_MODEL_BYTES
         && model.trim_matches([' ', '\t', '\r', '\n']) == model
         && !model.bytes().any(|byte| byte.is_ascii_control())
-}
-
-/// fx's `PermissionMode.parse` (`types.zig:2375-2382`): any case, no trim.
-fn fx_permission_mode(mode: &str) -> bool {
-    ["ask", "auto", "full-access", "full access", "yolo"]
-        .iter()
-        .any(|word| mode.eq_ignore_ascii_case(word))
 }
 
 /// fx's `context_limits` (`context_limits.zig:178-204`, names `:5-16`): an
@@ -2839,8 +2848,10 @@ mod tests {
 
     #[test]
     fn a_typed_mode_reads_upstreams_words_in_any_case() {
-        // `types.zig:2396-2403`: `full-access`, `full access` and `yolo` are
-        // the third mode, case-insensitively, and so are the other two.
+        // `types.zig:2375-2382@481104fd`, and fx's own table for it
+        // (`config_runtime.zig:3149-3162`): `full-access`, `full access` and
+        // `yolo` are the third mode, case-insensitively, and so are the other
+        // two; nothing is trimmed.
         for (typed, mode) in [
             ("ask", PermissionMode::Ask),
             ("ASK", PermissionMode::Ask),
@@ -2848,10 +2859,11 @@ mod tests {
             ("Auto", PermissionMode::Auto),
             ("full-access", PermissionMode::Yolo),
             ("Full-Access", PermissionMode::Yolo),
+            ("FULL-ACCESS", PermissionMode::Yolo),
             ("full access", PermissionMode::Yolo),
+            ("Full Access", PermissionMode::Yolo),
             ("yolo", PermissionMode::Yolo),
             ("YOLO", PermissionMode::Yolo),
-            ("  auto ", PermissionMode::Auto),
         ] {
             assert_eq!(PermissionMode::parse_choice(typed), Some(mode), "{typed:?}");
         }
@@ -2862,11 +2874,18 @@ mod tests {
             "fullaccess",
             "full  access",
             "remember",
+            "danger",
+            " full-access",
+            "full-access ",
+            " default",
+            "  auto ",
+            " ask",
+            "ask\n",
         ] {
             assert_eq!(PermissionMode::parse_choice(typed), None, "{typed:?}");
         }
-        // The wire grammar is not widened by it: a log or a settings file
-        // that says `Full Access` is not one xfx wrote.
+        // The wire grammar is not widened by it: a session log that says
+        // `Full Access` is not one xfx wrote.
         assert_eq!(PermissionMode::parse("full-access"), None);
         assert_eq!(PermissionMode::parse("YOLO"), None);
     }
@@ -2935,6 +2954,84 @@ mod tests {
             d.cause == DiagnosticCause::InvalidValue
                 && d.setting_key.as_deref() == Some("yolo_acknowledged")
         }));
+    }
+
+    #[test]
+    fn a_mode_is_read_with_fxs_parse_wherever_a_person_writes_one() {
+        // fx reads the settings key (`config_runtime.zig:1691@481104fd`), this
+        // workspace's entry, and `FX_PERMISSION_MODE`
+        // (`app_lifecycle.zig:1556-1560`) with one parse (`types.zig:2375-2382`):
+        // any case, three spellings of the third, nothing trimmed. A value it
+        // does not take leaves what was below it.
+        let root = tempfile::tempdir().expect("a root");
+        let home = root.path().join("home");
+        let workspace = root.path().join("workspace");
+        fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        let canonical = workspace.canonicalize().expect("canonical");
+        let key = serde_json::to_string(canonical.to_str().expect("utf-8")).expect("a key");
+        let settings = home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE);
+        let load = |profile: String, vars: &[(&str, &str)]| {
+            fs::write(&settings, profile).expect("a profile");
+            let vars = vars.iter().map(|(k, v)| (k.to_string(), v.to_string()));
+            let env = Environment::new(Some(home.clone()), vars.collect());
+            RuntimeConfig::load_with(&env, &workspace).expect("load")
+        };
+        let invalid = |config: &RuntimeConfig, key: &str| {
+            config.diagnostics.iter().any(|d| {
+                d.cause == DiagnosticCause::InvalidValue && d.setting_key.as_deref() == Some(key)
+            })
+        };
+        for (word, mode) in [
+            ("ASK", Some(PermissionMode::Ask)),
+            ("Auto", Some(PermissionMode::Auto)),
+            ("FULL-ACCESS", Some(PermissionMode::Yolo)),
+            ("Full Access", Some(PermissionMode::Yolo)),
+            ("YOLO", Some(PermissionMode::Yolo)),
+            ("sometimes", None),
+            (" ask", None),
+            ("full", None),
+        ] {
+            let quoted = serde_json::to_string(word).expect("a value");
+            // The profile's key: one fx's parse refuses leaves the default.
+            let global = load(format!(r#"{{"permission_mode": {quoted}}}"#), &[]);
+            let want = mode.unwrap_or(PermissionMode::Auto);
+            assert_eq!(global.permission_mode, want, "{word:?}");
+            assert_eq!(
+                invalid(&global, "permission_mode"),
+                mode.is_none(),
+                "{word:?}"
+            );
+            // Below the entry and the variable, a mode other than the word's.
+            let base = match mode {
+                Some(PermissionMode::Ask) => PermissionMode::Auto,
+                _ => PermissionMode::Ask,
+            };
+            let want = mode.unwrap_or(base);
+            let entry = load(
+                format!(
+                    r#"{{"permission_mode": "{}", "workspaces": {{{key}: {{"permission_mode": {quoted}}}}}}}"#,
+                    base.label()
+                ),
+                &[],
+            );
+            assert_eq!(entry.permission_mode, want, "entry {word:?}");
+            let profile = format!(r#"{{"permission_mode": "{}"}}"#, base.label());
+            let env = load(profile, &[(ENV_PERMISSION_MODE, word)]);
+            assert_eq!(env.permission_mode, want, "variable {word:?}");
+            assert_eq!(
+                invalid(&env, ENV_PERMISSION_MODE),
+                mode.is_none(),
+                "{word:?}"
+            );
+        }
+        // A blank variable is no override and no complaint.
+        let blank = load(
+            r#"{"permission_mode": "ask"}"#.to_string(),
+            &[(ENV_PERMISSION_MODE, " ")],
+        );
+        assert_eq!(blank.permission_mode, PermissionMode::Ask);
+        assert!(!invalid(&blank, ENV_PERMISSION_MODE));
     }
 
     #[test]

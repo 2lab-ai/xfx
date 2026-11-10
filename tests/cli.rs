@@ -820,6 +820,88 @@ fn an_invalid_permission_mode_override_is_a_diagnostic_not_a_crash() {
     assert!(warned, "doctor must warn about the rejected override");
 }
 
+#[test]
+fn a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs() {
+    // fx v0.0.16 reads a mode a person wrote with one parse
+    // (`PermissionMode.parse`, `types.zig:2375-2382@481104fd`): any case,
+    // `full-access`, `full access` or `yolo` for the third, nothing trimmed.
+    // The profile's key (`config_runtime.zig:1691`), this workspace's entry
+    // and the variable (`app_lifecycle.zig:1556-1560`), each read back from
+    // the status record; a word fx does not take leaves what was below it.
+    let mode = |run: Run| {
+        assert_eq!(run.code, Some(0), "{}", run.stderr);
+        run.json()["permission_mode"]
+            .as_str()
+            .expect("a mode")
+            .to_string()
+    };
+    for (word, wire) in [
+        ("ASK", Some("ask")),
+        ("Auto", Some("auto")),
+        ("FULL-ACCESS", Some("yolo")),
+        ("Full Access", Some("yolo")),
+        ("YOLO", Some("yolo")),
+        ("sometimes", None),
+        (" ask", None),
+    ] {
+        let sandbox = Sandbox::new();
+        let quoted = serde_json::to_string(word).expect("a value");
+        let status = &["status", "--json"][..];
+        sandbox.write_user_settings(&format!(r#"{{"permission_mode": {quoted}}}"#));
+        assert_eq!(
+            mode(sandbox.run(status)),
+            wire.unwrap_or("auto"),
+            "{word:?}"
+        );
+        let below = if wire == Some("ask") { "auto" } else { "ask" };
+        let key = serde_json::to_string(sandbox.workspace.to_str().expect("utf-8")).expect("a key");
+        sandbox.write_user_settings(&format!(
+            r#"{{"permission_mode": "{below}", "workspaces": {{{key}: {{"permission_mode": {quoted}}}}}}}"#
+        ));
+        assert_eq!(
+            mode(sandbox.run(status)),
+            wire.unwrap_or(below),
+            "entry {word:?}"
+        );
+        sandbox.write_user_settings(&format!(r#"{{"permission_mode": "{below}"}}"#));
+        assert_eq!(
+            mode(sandbox.run_with_env(status, &[("XFX_PERMISSION_MODE", word)])),
+            wire.unwrap_or(below),
+            "variable {word:?}"
+        );
+    }
+}
+
+#[test]
+fn ask_takes_fxs_two_spellings_of_full_access_exactly() {
+    // `--full-access` or `--yolo`, compared exactly, and one mode flag at most
+    // (`cli_ask.zig:3579-3584@481104fd`).
+    let sandbox = Sandbox::new();
+    for flag in ["--full-access", "--yolo"] {
+        let run = sandbox.run(&["ask", flag, "hi"]);
+        assert_eq!(run.code, Some(1), "{flag}: {}", run.stderr);
+        assert!(
+            run.stderr.starts_with("xfx: yolo mode is on"),
+            "{flag} must run in full access: {}",
+            run.stderr
+        );
+    }
+    for args in [
+        &["ask", "--FULL-ACCESS", "hi"][..],
+        &["ask", "--Yolo", "hi"],
+        &["ask", "--full-access", "--yolo", "hi"],
+        &["ask", "--full-access", "--auto", "hi"],
+    ] {
+        let run = sandbox.run(args);
+        assert_eq!(run.code, Some(1), "{args:?}: {}", run.stderr);
+        assert!(
+            run.stderr.starts_with("error: "),
+            "{args:?} must be refused by the parser: {}",
+            run.stderr
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // settings discovery through the binary
 // ---------------------------------------------------------------------------

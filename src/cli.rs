@@ -387,11 +387,13 @@ enum RawCommand {
         // option because that is the spelling upstream uses
         // (`cli_surface.zig:61`), and because `--yolo` should be a word a user
         // has to type deliberately rather than a value they could mistype into.
+        // fx v0.0.16 spells the third `--full-access` or `--yolo`, exactly
+        // (`cli_ask.zig:3582`): both are this flag, and either twice is refused.
         /// Run bounded reversible workspace changes and read-only commands without asking
         #[arg(long, conflicts_with = "yolo")]
         auto: bool,
         /// Skip every permission check for this run (prints a warning)
-        #[arg(long)]
+        #[arg(long, visible_alias = "full-access")]
         yolo: bool,
         /// The question. Everything after `--`, and everything after the first
         /// prompt word, is prompt text rather than a flag. A leading `-` before
@@ -705,12 +707,37 @@ mod tests {
         assert_eq!(mode(&["ask", "hi"]), None);
         assert_eq!(mode(&["ask", "--auto", "hi"]), Some(PermissionMode::Auto));
         assert_eq!(mode(&["ask", "--yolo", "hi"]), Some(PermissionMode::Yolo));
+        // fx's other spelling of it (`cli_ask.zig:3582@481104fd`).
+        assert_eq!(
+            mode(&["ask", "--full-access", "hi"]),
+            Some(PermissionMode::Yolo)
+        );
         // Two modes at once has no honest meaning, and picking one silently
         // would make `--yolo --auto` and `--auto --yolo` mean different things.
-        assert!(matches!(
-            parse(&["ask", "--auto", "--yolo", "hi"]),
-            Command::Rejected { .. }
-        ));
+        // fx refuses a second mode flag of any kind (`:3580`, `:3583`).
+        for args in [
+            ["ask", "--auto", "--yolo", "hi"],
+            ["ask", "--full-access", "--auto", "hi"],
+            ["ask", "--full-access", "--yolo", "hi"],
+            ["ask", "--yolo", "--yolo", "hi"],
+            ["ask", "--auto", "--auto", "hi"],
+        ] {
+            assert!(
+                matches!(parse(&args), Command::Rejected { .. }),
+                "{args:?} must be rejected"
+            );
+        }
+        // Exactly, as fx compares them (`std.mem.eql`): no other case.
+        for args in [
+            ["ask", "--YOLO", "hi"],
+            ["ask", "--Full-Access", "hi"],
+            ["ask", "--AUTO", "hi"],
+        ] {
+            assert!(
+                matches!(parse(&args), Command::Rejected { .. }),
+                "{args:?} must be rejected"
+            );
+        }
         // The mode flags belong to `ask`; `status` and `doctor` change nothing.
         for args in [vec!["status", "--auto"], vec!["doctor", "--yolo"]] {
             assert!(

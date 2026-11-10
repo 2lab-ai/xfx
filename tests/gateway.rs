@@ -2333,6 +2333,7 @@ fn ask_help_advertises_only_the_implemented_flags() {
         "--no-save",
         "--auto",
         "--yolo",
+        "--full-access",
         "--resume",
         "--resume-id",
     ] {
