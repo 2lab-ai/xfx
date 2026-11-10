@@ -115,7 +115,9 @@ The scenario `p5-at-rank` at 40x120, captured on fx v0.0.16, on the base
 The ledger's `at-ranking` snaps are `p5-input-at`'s `at-st`,
 `at-st-down12`, `at-st-up6` and `at-stat`, and `workspace-index`'s
 `at-plan`. On the head, 5 of 5 are identical, with the run directories
-masked. Run directories are written `<tmp>` on every side.
+masked. Run directories are written `<tmp>` on every side. (In this
+`at-plan` pair the two run names led to the same bold letters; §7 shows a
+pair where they did not.)
 
 ## 5. Performance (`bench-base.txt`, `bench-head.txt`, `gen_tree.py`)
 
