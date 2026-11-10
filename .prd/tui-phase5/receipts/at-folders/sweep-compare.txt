@@ -1,0 +1,24 @@
+# python3 -I compare.py <base sweep>/pairs.json <head sweep>/pairs.json -- base v0.1.0-af2b613, head v0.1.0-9a83cad; both scored with the ledger at 18492259 (unchanged at 9a83cad3)
+pairs: base 157, head 157
+base: pass 85/157  normalized-identical 85, unresolved-defect 72
+head: pass 99/157  normalized-identical 99, unresolved-defect 58
+
+moved to passing: 14
+  filepicker at-dir: unresolved-defect -> normalized-identical
+  filepicker at-dir-cj: unresolved-defect -> normalized-identical
+  filepicker at-dir-down: unresolved-defect -> normalized-identical
+  filepicker at-tab: unresolved-defect -> normalized-identical
+  p5-input-at at-src: unresolved-defect -> normalized-identical
+  p5-input-at at-src-enter: unresolved-defect -> normalized-identical
+  p5-input-at at-src-tab: unresolved-defect -> normalized-identical
+  p5-input-at-dir dir-enter: unresolved-defect -> normalized-identical
+  p5-input-at-folders space-enter: unresolved-defect -> normalized-identical
+  p5-input-at-folders space-open: unresolved-defect -> normalized-identical
+  p5-input-at-folders space-x: unresolved-defect -> normalized-identical
+  p5-input-at-folders src-enter-x: unresolved-defect -> normalized-identical
+  p5-input-at-folders src-open: unresolved-defect -> normalized-identical
+  p5-input-at-folders sto-x: unresolved-defect -> normalized-identical
+
+dropped from passing: 0
+
+other verdict changes: 0

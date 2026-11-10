@@ -1,0 +1,30 @@
+# cargo test --locked --lib -- --exact <the nine cases below>, TMPDIR a short scratch directory
+# RED run at 8509f872 (the base's code, the cases added), 2026-11-10T04:58:05Z
+running 9 tests
+test tui::shell::tests::tab_under_the_full_transcript_asks_for_no_read ... ok
+test tui::shell::tests::tab_under_the_full_transcript_over_files_unavailable_walks_nothing ... ok
+test tui::shell::tests::the_arrows_and_page_keys_under_the_full_transcript_are_its_own ... ok
+test tui::shell::tests::a_letter_under_the_full_transcript_is_typed_and_looked_up_once_it_closes ... ok
+test tui::shell::tests::escape_under_the_full_transcript_closes_it_and_keeps_the_list ... ok
+test tui::shell::tests::tab_under_the_full_transcript_chooses_nothing_and_keeps_the_list ... ok
+test tui::shell::tests::c_j_under_the_full_transcript_is_a_new_line_and_closes_the_list ... FAILED
+test tui::shell::tests::c_k_under_the_full_transcript_kills_to_the_lines_end_and_keeps_the_list ... FAILED
+test tui::shell::tests::enter_under_the_full_transcript_goes_on_to_the_composer ... ok
+failures:
+---- tui::shell::tests::c_j_under_the_full_transcript_is_a_new_line_and_closes_the_list stdout ----
+thread 'tui::shell::tests::c_j_under_the_full_transcript_is_a_new_line_and_closes_the_list'  panicked at src/tui/shell.rs:36899:9:
+assertion `left == right` failed: C-j did not reach the composer
+  left: "@src"
+ right: "@src\n"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+---- tui::shell::tests::c_k_under_the_full_transcript_kills_to_the_lines_end_and_keeps_the_list stdout ----
+thread 'tui::shell::tests::c_k_under_the_full_transcript_kills_to_the_lines_end_and_keeps_the_list'  panicked at src/tui/shell.rs:36923:9:
+assertion `left == right` failed: C-k did not kill to the line's end
+  left: "@src tail"
+ right: "@src"
+failures:
+    tui::shell::tests::c_j_under_the_full_transcript_is_a_new_line_and_closes_the_list
+    tui::shell::tests::c_k_under_the_full_transcript_kills_to_the_lines_end_and_keeps_the_list
+test result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 4626 filtered out; finished in 0.09s
+error: test failed, to rerun pass `--lib`
+# exit 101

@@ -1,0 +1,20 @@
+# The unit's tests at 7b842c2c (a --no-local clone), TMPDIR=<scratch>/abcdefghijklmnopqrstuvwxyz (every letter a-z in order),
+# cargo test --locked --lib -- tui::file_index tui::file_picker tui::shell tui::event_loop tui::check tui::frame, under the suite lock and bounded.py (1800 s).
+# This unit's cases, each as cargo printed it:
+test tui::file_index::tests::a_change_of_scope_keeps_the_index_and_is_unavailable_until_its_walk_is_whole ... ok
+test tui::file_index::tests::a_change_of_scope_lets_the_walk_run_on_and_its_prefix_answers_nothing ... ok
+test tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once ... ok
+test tui::shell::tests::a_change_of_roots_under_an_open_indexed_list_says_files_unavailable_until_its_walk_is_whole ... ok
+test tui::shell::tests::a_change_that_moves_no_root_says_files_unavailable_until_its_walk_is_whole ... ok
+test tui::shell::tests::a_path_list_in_the_interim_lists_its_folder ... ok
+test tui::shell::tests::a_workspace_change_that_keeps_the_rows_still_resets_the_bar_and_the_trust ... ok
+test tui::shell::tests::escape_in_the_interim_closes_the_list_and_keeps_the_word ... ok
+test tui::shell::tests::tab_in_the_interim_retries_and_still_says_files_unavailable ... ok
+test tui::shell::tests::the_first_at_after_the_old_roots_walk_failed_skips_its_refresh ... ok
+test tui::shell::tests::the_first_at_after_the_old_roots_walk_was_adopted_refreshes ... ok
+test tui::shell::tests::the_first_at_while_the_old_roots_walk_runs_skips_its_refresh ... ok
+test tui::shell::tests::the_first_episode_after_a_whole_index_refreshes_across_a_change_of_roots ... ok
+test tui::shell::tests::the_first_indexed_episode_skips_its_refresh_while_the_index_loads ... ok
+# The run's result:
+test result: ok. 1337 passed; 0 failed; 3 ignored; 0 measured; 3277 filtered out; finished in 5.85s
+# exit: 0

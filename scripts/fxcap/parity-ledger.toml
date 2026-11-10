@@ -661,23 +661,22 @@ fx_row = '^│  (?:questions: |\[\{"question"|1","description"|\(ask_user_questi
 xfx_row = '^$'
 why = "fx v0.0.16 hands each replayed `ask_user_question` call its saved detail (`attachHistoricalToolDetail`, `app_session_runtime.zig:4337`, `:4607@481104fd`), so its Ctrl-O shows the call's arguments and its result under the batch's resolutions (`│  questions: [...]`, `│  [{\"question\":...}]`) and under `● Asked`, which it heads `<ts> UTC · Tool`. xfx's replay writes both rows as blocks that carry no call (QUESTION-RESUME, .prd/tui-phase5/receipts/question-resume/), so its Ctrl-O shows the resolution and `● Asked` alone, and the rows after them stand higher. The rows themselves, on the screen and in Ctrl-O, match; the inline `resumed` pairs are identical."
 
-[[cause]]
-id = "at-ranking"
-kind = "unit"
-owner = "I-U2 @ fzf-style ranking (input cluster I3), not yet a branch"
-scenarios = ["p5-input-at", "workspace-index"]
-snaps = ["at-st", "at-st-down12", "at-st-up6", "at-stat", "at-plan"]
-rows = ["5-14"]
-why = "fx v0.0.16 ranks `@st` and `@stat` with its placement score (55e13fad; `scoreBetter`, `file_index.zig:1884-1899@481104fd`), names that start with the query first (`start.sh`, `store.rs`, `STATUS.md`, ...); xfx still ranks with c1db919's eight facts (`score_order`, src/tui/file_index.rs) and lists `spikes/s-01-trace.txt` first. So the list's rows hold other paths. Its highlights are rebuilt from the placement that set the rank (`file_index.zig:1783-1829`), so `workspace-index`'s `@plan` on an added directory's long path bolds `p`, `l`, `a`, `n` where xfx bolds `p`, `la`, `n`: the same text, other attributes. Its shape is the same since AT-HEIGHT: ten rows, the rules and the hint row where fx has them, the bar on the same row, and each side's window the edge-scrolled one over its own ranking (.prd/tui-phase5/receipts/at-height/band.txt)."
+# at-ranking (I-U2) was closed by AT-RANK: xfx ranked `@` queries with c1db919's eight facts where fx v0.0.16
+# ranks by its placement score (`scoreBetter`, `choosePlacement`, `file_index.zig@481104fd`); the copy made the
+# five snaps it covered (`p5-input-at` at-st, at-st-down12, at-st-up6, at-stat; `workspace-index` at-plan)
+# identical on the head (.prd/tui-phase5/receipts/at-rank/pairs.txt).
 
 [[cause]]
-id = "at-folder-row"
-kind = "unit"
-owner = "I-U3 @ folders: Enter selects a folder, a listed folder is row 1 (input cluster I4), not yet a branch"
-scenarios = ["p5-input-at", "p5-input-at-dir", "filepicker"]
-snaps = ["at-src", "at-src-enter", "at-src-tab", "dir-enter", "at-dir", "at-dir-down", "at-dir-cj", "at-tab"]
-rows = ["3-16"]
-why = "fx v0.0.16 lists a folder query's folder as its first row and Enter on a folder row mentions it and closes the picker (7c8ef4a3; `path_completion.zig:82,135-145`, `input_completion_runtime.zig:993-1004@481104fd`): `@src/` shows `src/` first, Enter leaves `@src/`, Tab on it lists it again; `filepicker`'s `see @src/` lists `src/` above `src/deep/`, so its Down and C-j land one row higher and its Tab chooses `src/lib.rs`; `p5-input-at-dir`'s Enter on `src/store/` closes the picker at `@src/store/`. xfx lists the folder's entries alone, so Enter and Tab choose a file or open the folder. The list is ten rows on both since AT-HEIGHT (.prd/tui-phase5/receipts/at-height/)."
+id = "at-plan-run-directory"
+kind = "scenario"
+owner = "SWEEP-TEMPNAME-STYLE (queued): capture.sh's run directory under a fixed name, the same for fx's run and xfx's, so a path through it is placed and bolded alike"
+scenarios = ["workspace-index"]
+snaps = ["at-plan"]
+rows = [13]
+fx_row = '^  /\S+/fxcap\.XXXXXX/extra/notes/$'
+xfx_row = '^  /\S+/fxcap\.XXXXXX/extra/notes/$'
+fix = "SWEEP-TEMPNAME-STYLE's fixed run directory name; or a query the folder row matches inside its own name, or not at all (`@plan.md`)"
+why = "`@plan` matches the added folder `<tmp>/fxcap.<run>/extra/notes` only through its whole path, so the letters fx v0.0.16's placement score bolds there (`choosePlacement`'s last search, `file_index.zig:1815-1818@481104fd`) depend on the run directory's six random characters, which differ between the two captures: in AT-RANK's head sweep fx's run `fxcap.qnVERa` gave its `n`, and xfx's `fxcap.YTZTDF`, with none, the `n` of `notes` (.prd/tui-phase5/receipts/at-rank/at-plan-sweep/). The text is the same and each side bolds the best placement in its own path; xfx's rule on both paths is pinned (`a_folder_row_that_only_the_whole_path_matches_is_bold_through_the_whole_path`, src/tui/file_index.rs). Until AT-RANK the row differed under the `at-ranking` cause (.prd/tui-phase5/receipts/at-rank/README.md)."
 
 [[cause]]
 id = "at-resize-band-at-the-bottom"

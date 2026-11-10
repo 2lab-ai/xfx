@@ -1,0 +1,17 @@
+# round 9 RED at <this commit> (the cases on round 8's code, 04ee6e58's src): cargo test --locked --lib -- --exact <the 3 cases>, TMPDIR=<scratch>
+# the_first_indexed_episode_skips_its_refresh_while_the_index_loads (round 8's cold-install case) and the Ctrl-O case pass here: they pin.
+running 3 tests
+test tui::shell::tests::under_the_full_transcript_a_folder_listing_holds_no_frame ... ok
+test tui::shell::tests::the_first_indexed_episode_skips_its_refresh_while_the_index_loads ... ok
+test tui::shell::tests::the_first_episode_after_a_whole_index_refreshes_even_where_the_roots_dropped_it ... FAILED
+thread 'tui::shell::tests::the_first_episode_after_a_whole_index_refreshes_even_where_the_roots_dropped_it' (417454521) panicked at src/tui/shell.rs:35645:9:
+assertion `left == right` failed: the first episode skipped its refresh after an index had been whole
+  left: 2
+ right: 3
+    tui::shell::tests::the_first_episode_after_a_whole_index_refreshes_even_where_the_roots_dropped_it
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4605 filtered out; finished in 0.06s
+error: test failed, to rerun pass `--lib`
+
+# the Ctrl-O case's sharper assertion (the driven listing's own stop flag still the one in flight), with its last folder typed as round 8 typed it -- in a --no-local clone at ef9a5ffb with this commit's test change applied and the paste turned back into typing:
+thread 'tui::shell::tests::under_the_full_transcript_a_folder_listing_holds_no_frame' (417470353) panicked at src/tui/shell.rs:34893:9:
+the driven listing was replaced

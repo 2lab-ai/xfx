@@ -1,0 +1,36 @@
+# round 7 RED at <this commit> (the cases on round 6's code, 08ef8070's src plus a test-only lookup counter in file_index.rs): cargo test --locked --lib -- --exact <the 6 cases>, TMPDIR=<scratch>
+# a_workspace_change_under_an_open_indexed_list_walks_the_new_roots is round 6's case, run beside them: it passes here, and round 7 re-points its count (fx walks twice for an open list with no walk running).
+running 6 tests
+test tui::shell::tests::a_workspace_change_that_moves_no_root_still_refreshes_the_index ... FAILED
+test tui::shell::tests::a_workspace_change_with_no_list_open_walks_the_new_roots_at_once ... FAILED
+test tui::shell::tests::a_workspace_change_resets_an_open_list_and_reads_its_folder_again ... FAILED
+test tui::shell::tests::a_workspace_change_behind_the_transcript_looks_nothing_up_until_it_closes ... FAILED
+test tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots ... ok
+test tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once ... FAILED
+thread 'tui::shell::tests::a_workspace_change_that_moves_no_root_still_refreshes_the_index' (406247561) panicked at src/tui/shell.rs:35409:9:
+assertion `left == right` failed: a change of the access that moved no root walked nothing
+  left: 0
+ right: 1
+thread 'tui::shell::tests::a_workspace_change_with_no_list_open_walks_the_new_roots_at_once' (406247563) panicked at src/tui/shell.rs:35368:9:
+assertion `left == right` failed: the workspace change walked nothing
+  left: 0
+ right: 1
+thread 'tui::shell::tests::a_workspace_change_resets_an_open_list_and_reads_its_folder_again' (406247560) panicked at src/tui/shell.rs:35448:9:
+assertion `left == right` failed: the list kept its trust across the change of scope
+  left: Some(Found { path: "src/deep", kind: Directory, spans: [] })
+ right: None
+thread 'tui::shell::tests::a_workspace_change_behind_the_transcript_looks_nothing_up_until_it_closes' (406247559) panicked at src/tui/shell.rs:35487:9:
+assertion `left == right` failed: the install's walk waited for the list
+  left: 1
+ right: 2
+thread 'tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once' (406247558) panicked at src/tui/shell.rs:35347:9:
+assertion `left == right` failed: not exactly one walk of the new roots
+  left: 3
+ right: 2
+    tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once
+    tui::shell::tests::a_workspace_change_behind_the_transcript_looks_nothing_up_until_it_closes
+    tui::shell::tests::a_workspace_change_resets_an_open_list_and_reads_its_folder_again
+    tui::shell::tests::a_workspace_change_that_moves_no_root_still_refreshes_the_index
+    tui::shell::tests::a_workspace_change_with_no_list_open_walks_the_new_roots_at_once
+test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 4596 filtered out; finished in 0.07s
+error: test failed, to rerun pass `--lib`

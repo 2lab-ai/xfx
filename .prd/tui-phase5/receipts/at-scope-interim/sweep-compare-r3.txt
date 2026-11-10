@@ -1,0 +1,18 @@
+# Round 3: python3 -I compare.py <base sweep>/pairs.json <head sweep>/pairs.json -- base v0.1.0-b4cc300, head v0.1.0-a0bc7d3; both under TMPDIR=<scratch>/abcdefghijklmnopqrstuvwxyz and one hold of the suite lock, scored with the ledger at a0bc7d33
+pairs: base 66, head 66
+base: pass 56/66  normalized-identical 56, unresolved-defect 10
+head: pass 56/66  normalized-identical 56, unresolved-defect 10
+
+moved to passing: 0
+
+dropped from passing: 0
+
+other verdict changes: 0
+# the pairs that do not pass, each side:
+base: p5-input-at at-st, p5-input-at at-st-down12, p5-input-at at-st-up6, p5-input-at at-stat, p5-input-at-resize short, p5-input-at-resize short-up1, p5-input-at-resize short-up7, p5-input-at-resize tall, p5-input-at-resize tall-down1, workspace-index at-plan
+head: p5-input-at at-st, p5-input-at at-st-down12, p5-input-at at-st-up6, p5-input-at at-stat, p5-input-at-resize short, p5-input-at-resize short-up1, p5-input-at-resize short-up7, p5-input-at-resize tall, p5-input-at-resize tall-down1, workspace-index at-plan
+# xfx's workspace-index snaps, base vs head (samepair.py):
+== xfx at-plan
+0 rows differ (row 1 not compared; the run's names masked, styles kept)
+== xfx at-all
+0 rows differ (row 1 not compared; the run's names masked, styles kept)

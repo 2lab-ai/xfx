@@ -1,0 +1,92 @@
+# AT-RANK (fx 55e13fad, v0.0.16): the @ list's order and bold letters are
+# fx's placement score (`choosePlacement`, `scoreBetter`,
+# `src/core/workspace/file_index.zig@481104fd`). Each query is one of fx's
+# own ranking cases over a workspace that holds them all: a name prefix and a
+# whole word over scattered letters (`scm`, `stat`, `index`), a name before
+# its extension (`file_index`, `main.rs`), a match through the name's own
+# folder (`vercle`, `abcd`), one that ends in a folder (`comp`), a segment
+# start (`ab`), a tie (`ta`), case (`MAIN`), the empty query, and last an
+# added directory's entries next to the workspace's (`road_map`: no folder
+# holds a `_`, so no row's score depends on the run directory's name).
+fx: env FX_AUTO_UPGRADE=0
+work p5-at-rank-ws
+dir extra p5-at-rank-extra
+wait 4
+type @scm
+wait 1.2
+snap scm
+key Escape
+wait 0.3
+key C-u
+type @stat
+wait 1.2
+snap stat
+key Escape
+wait 0.3
+key C-u
+type @index
+wait 1.2
+snap index
+key Escape
+wait 0.3
+key C-u
+type @file_index
+wait 1.2
+snap file-index
+key Escape
+wait 0.3
+key C-u
+type @main.rs
+wait 1.2
+snap main-rs
+key Escape
+wait 0.3
+key C-u
+type @vercle
+wait 1.2
+snap vercle
+key Escape
+wait 0.3
+key C-u
+type @abcd
+wait 1.2
+snap abcd
+key Escape
+wait 0.3
+key C-u
+type @comp
+wait 1.2
+snap comp
+key Escape
+wait 0.3
+key C-u
+type @ab
+wait 1.2
+snap ab
+key Escape
+wait 0.3
+key C-u
+type @ta
+wait 1.2
+snap ta
+key Escape
+wait 0.3
+key C-u
+type @MAIN
+wait 1.2
+snap main-case
+key Escape
+wait 0.3
+key C-u
+type @
+wait 1.2
+snap empty
+key Escape
+wait 0.3
+key C-u
+type /workspace add ../extra
+key Enter
+wait 1.5
+type @road_map
+wait 2
+snap road-map

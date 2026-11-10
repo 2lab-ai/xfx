@@ -1,0 +1,584 @@
+
+== src/core/app/app_workspace_runtime.zig:74-80@481104fd -- the list's source is the index's readable revision; the app's epoch
+   74          pub fn fileCompletionRevision(app: *const App) file_index.ReadableRevision {
+   75              return app.file_index.readableRevision();
+   76          }
+   77  
+   78          pub fn fileCompletionScopeEpoch(app: *const App) u64 {
+   79              return app.workspace.scope_epoch;
+   80          }
+
+== src/core/app/app_workspace_runtime.zig:98-110@481104fd -- invalidateScope: the epoch moves, the folder listing stops, the list is invalidated
+   98          fn invalidateScope(app: *App) void {
+   99              app.workspace.scope_epoch +%= 1;
+  100              requestStop(app);
+  101              if (comptime @hasField(App, "input_runtime")) {
+  102                  app.input_runtime.picker.file_completion.invalidate();
+  103              }
+  104          }
+  105  
+  106          pub fn adopt(app: *App, value: Access) void {
+  107              invalidateScope(app);
+  108              app.workspace.access.deinit(app.alloc);
+  109              app.workspace.access = value;
+  110          }
+
+== src/core/app/app_workspace_runtime.zig:127-152@481104fd -- install: any change of the access invalidates the scope and refreshes the index with the new epoch
+  127          pub fn install(app: *App, replacement: *Access) bool {
+  128              if (comptime !runtime_profile.allows(App, .file_index)) {
+  129                  app.workspace.access.deinit(app.alloc);
+  130                  app.workspace.access = replacement.*;
+  131                  replacement.* = .{};
+  132                  return true;
+  133              }
+  134              const runtime_changed = !app.workspace.access.eql(replacement);
+  135              app.workspace.access.deinit(app.alloc);
+  136              app.workspace.access = replacement.*;
+  137              replacement.* = .{};
+  138              if (runtime_changed) {
+  139                  invalidateScope(app);
+  140                  refreshFileIndex(app);
+  141              }
+  142              return runtime_changed;
+  143          }
+  144  
+  145          pub fn startFileIndex(app: *App) void {
+  146              if (app.workspace_root.len == 0) return;
+  147              app.file_index.ensureScopeEpoch(std.heap.c_allocator, scope(app), app.workspace.scope_epoch);
+  148          }
+  149  
+  150          pub fn refreshFileIndex(app: *App) void {
+  151              app.file_index.refreshScopeEpoch(std.heap.c_allocator, scope(app), app.workspace.scope_epoch);
+  152          }
+
+== src/core/workspace/file_index.zig:103-108@481104fd -- ReadableRevision carries a scope epoch
+  103  pub const ReadableRevision = struct {
+  104      scope_epoch: u64 = 0,
+  105      generation: usize = 0,
+  106      count: usize = 0,
+  107      state: State = .idle,
+  108  };
+
+== src/core/workspace/file_index.zig:276-296@481104fd -- the index's generations, roots, epoch and pending scope
+  276  pub const FileIndex = struct {
+  277      const PendingScope = struct { roots: [][]u8, epoch: u64 };
+  278  
+  279      /// The main thread is the sole owner allowed to replace or reclaim these
+  280      /// generation pointers. The loader writes only `loading_generation`.
+  281      active_generation: ?*Generation = null,
+  282      loading_generation: ?*Generation = null,
+  283      /// Owned roots for the current generation. The primary root is first;
+  284      /// active additional roots follow in configured order.
+  285      roots: [][]u8 = &.{},
+  286      scope_epoch: u64 = 0,
+  287      /// Roots and their installed-scope identity transfer together.
+  288      pending_scope: ?PendingScope = null,
+  289  
+  290      stop_requested: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+  291      thread: ?std.Thread = null,
+  292      generation: usize = 0,
+  293      initial_failed: bool = false,
+  294      /// Digest of the roots whose persisted cache this process already consumed.
+  295      /// A scope switch to different roots may load its own cache.
+  296      cache_attempted_digest: ?[sha256_digest_len]u8 = null,
+
+== src/core/workspace/file_index.zig:333-341@481104fd -- currentState: .ready once a generation is adopted
+  333      pub fn currentState(self: *const FileIndex) State {
+  334          if (self.active_generation != null) return .ready;
+  335          const loading = self.loading_generation orelse return if (self.initial_failed) .failed else .idle;
+  336          return switch (loading.currentState()) {
+  337              .loading => .loading,
+  338              .ready => .ready,
+  339              .failed, .canceled => .failed,
+  340          };
+  341      }
+
+== src/core/workspace/file_index.zig:352-406@481104fd -- ensureScopeEpoch and startLoad: a walk takes the epoch it starts with (386) and clears the failure (389)
+  352      pub fn ensureScope(self: *FileIndex, alloc: Allocator, scope: workspace_access.AccessScope) void {
+  353          self.ensureScopeEpoch(alloc, scope, 0);
+  354      }
+  355  
+  356      pub fn ensureScopeEpoch(self: *FileIndex, alloc: Allocator, scope: workspace_access.AccessScope, epoch: u64) void {
+  357          if (self.currentState() != .idle) return;
+  358          if (scope.primary_directory.len == 0) return;
+  359  
+  360          self.roots = activeRootsAlloc(alloc, scope) catch return;
+  361          self.scope_epoch = epoch;
+  362          _ = self.startLoad(alloc);
+  363      }
+  364  
+  365      fn startLoad(self: *FileIndex, alloc: Allocator) bool {
+  366          if (self.roots.len == 0 or
+  367              self.thread != null or
+  368              self.loading_generation != null or
+  369              self.stop_requested.load(.seq_cst)) return false;
+  370  
+  371          // The persisted cache is consumed at most once per scope: the first
+  372          // generation paints from disk, then a real scan replaces it.
+  373          const roots_digest = rootsDigest(self.roots);
+  374          const allow_cache = if (self.cache_attempted_digest) |attempted|
+  375              !std.mem.eql(u8, &attempted, &roots_digest)
+  376          else
+  377              true;
+  378          if (allow_cache) self.cache_attempted_digest = roots_digest;
+  379  
+  380          const generation_id = self.generation + 1;
+  381          const loading = Generation.create(alloc, generation_id) catch |err| {
+  382              if (self.active_generation == null) self.initial_failed = true;
+  383              debug_trace.logf("core", "file index generation allocation failed generation={d} err={s}", .{ generation_id, @errorName(err) });
+  384              return false;
+  385          };
+  386          loading.scope_epoch = self.scope_epoch;
+  387          self.loading_generation = loading;
+  388          self.generation = generation_id;
+  389          self.initial_failed = false;
+  390          self.thread = std.Thread.spawn(.{}, loaderThreadMain, .{
+  391              loading,
+  392              alloc,
+  393              self.roots,
+  394              &self.stop_requested,
+  395              allow_cache,
+  396          }) catch |err| {
+  397              self.loading_generation = null;
+  398              loading.destroy(alloc);
+  399              if (self.active_generation == null) self.initial_failed = true;
+  400              debug_trace.logf("core", "file index generation spawn failed generation={d} err={s}", .{ generation_id, @errorName(err) });
+  401              return false;
+  402          };
+  403          debug_trace.logf("core", "file index generation started generation={d} caller_thread={d} from_cache={}", .{ generation_id, std.Thread.getCurrentId(), allow_cache });
+  404          return true;
+  405      }
+  406  
+
+== src/core/workspace/file_index.zig:409-461@481104fd -- joinThreadIfDone: adopted only whole (425), the pending scope started after any end
+  409      pub fn joinThreadIfDone(self: *FileIndex, alloc: Allocator) bool {
+  410          const handle = self.thread orelse return false;
+  411          const loading = self.loading_generation orelse return false;
+  412          const terminal_state = loading.currentState();
+  413          if (terminal_state == .loading) return false;
+  414  
+  415          handle.join();
+  416          self.thread = null;
+  417          debug_trace.logf("core", "file index generation joined generation={d} state={s}", .{ loading.id, @tagName(terminal_state) });
+  418  
+  419          var visible_changed = false;
+  420          const adopted_from_cache = terminal_state == .ready and loading.from_cache;
+  421          switch (terminal_state) {
+  422              .loading => unreachable,
+  423              .ready => {
+  424                  const previous = self.active_generation;
+  425                  self.active_generation = loading;
+  426                  self.loading_generation = null;
+  427                  self.initial_failed = false;
+  428                  debug_trace.logf("core", "file index generation adopted generation={d} count={d} from_cache={}", .{ loading.id, loading.count(), loading.from_cache });
+  429                  if (previous) |generation| generation.destroy(alloc);
+  430                  visible_changed = true;
+  431              },
+  432              .failed, .canceled => {
+  433                  self.loading_generation = null;
+  434                  if (self.active_generation == null and terminal_state == .failed) {
+  435                      self.initial_failed = true;
+  436                      visible_changed = true;
+  437                  }
+  438                  debug_trace.logf("core", "file index generation discarded generation={d} state={s}", .{ loading.id, @tagName(terminal_state) });
+  439                  loading.destroy(alloc);
+  440              },
+  441          }
+  442  
+  443          if (!self.stop_requested.load(.seq_cst)) {
+  444              if (self.pending_scope) |pending| {
+  445                  self.pending_scope = null;
+  446                  freeRoots(alloc, self.roots);
+  447                  self.roots = pending.roots;
+  448                  self.scope_epoch = pending.epoch;
+  449                  _ = self.startLoad(alloc);
+  450              }
+  451          }
+  452          // A cache-painted generation is a preview only: one real scan follows
+  453          // it and replaces it, unless a pending scope already started that load.
+  454          if (adopted_from_cache and
+  455              !self.stop_requested.load(.seq_cst) and
+  456              self.thread == null)
+  457          {
+  458              _ = self.startLoad(alloc);
+  459          }
+  460          return visible_changed;
+  461      }
+
+== src/core/workspace/file_index.zig:462-524@481104fd -- refresh, refreshScopeEpoch, refreshOwnedRoots (no stop: a running thread gets a pending scope), replacePendingRoots
+  462  
+  463      /// Requests one replacement generation. A current loader retains its
+  464      /// immutable scope and coalesces only the latest owned replacement scope.
+  465      pub fn refresh(self: *FileIndex, alloc: Allocator) void {
+  466          const epoch = if (self.pending_scope) |pending| pending.epoch else self.scope_epoch;
+  467          const roots = cloneRoots(alloc, if (self.pending_scope) |pending| pending.roots else self.roots) catch |err| {
+  468              debug_trace.logf("core", "file index refresh snapshot failed generation={d} err={s}", .{ self.generation, @errorName(err) });
+  469              return;
+  470          };
+  471          self.refreshOwnedRoots(alloc, roots, epoch);
+  472      }
+  473  
+  474      /// Refreshes from the latest active scope. A loading generation keeps its
+  475      /// immutable roots and receives one owned, coalesced replacement snapshot.
+  476      pub fn refreshScope(self: *FileIndex, alloc: Allocator, scope: workspace_access.AccessScope) void {
+  477          self.refreshScopeEpoch(alloc, scope, 0);
+  478      }
+  479  
+  480      pub fn refreshScopeEpoch(self: *FileIndex, alloc: Allocator, scope: workspace_access.AccessScope, epoch: u64) void {
+  481          const roots = activeRootsAlloc(alloc, scope) catch |err| {
+  482              debug_trace.logf("core", "file index scope snapshot failed generation={d} err={s}", .{ self.generation, @errorName(err) });
+  483              return;
+  484          };
+  485          self.refreshOwnedRoots(alloc, roots, epoch);
+  486      }
+  487  
+  488      fn refreshOwnedRoots(self: *FileIndex, alloc: Allocator, roots: [][]u8, epoch: u64) void {
+  489          if (self.stop_requested.load(.seq_cst)) {
+  490              freeRoots(alloc, roots);
+  491              debug_trace.logf("core", "file index refresh discarded during shutdown generation={d}", .{self.generation});
+  492              return;
+  493          }
+  494          if (self.thread != null) {
+  495              self.replacePendingRoots(alloc, roots, epoch);
+  496              return;
+  497          }
+  498  
+  499          if (self.loading_generation != null) {
+  500              freeRoots(alloc, roots);
+  501              debug_trace.logf("core", "file index refresh discarded with unowned loading generation={d}", .{self.generation});
+  502              return;
+  503          }
+  504          freeRoots(alloc, self.roots);
+  505          self.roots = roots;
+  506          self.scope_epoch = epoch;
+  507          const started = self.startLoad(alloc);
+  508          if (!started) debug_trace.logf("core", "file index refresh not started generation={d}", .{self.generation});
+  509      }
+  510  
+  511      fn replacePendingRoots(self: *FileIndex, alloc: Allocator, roots: [][]u8, epoch: u64) void {
+  512          if (self.pending_scope) |pending| {
+  513              if (pending.epoch == epoch and rootsEqual(pending.roots, roots)) {
+  514                  freeRoots(alloc, roots);
+  515                  debug_trace.logf("core", "file index refresh coalesced generation={d} identical=true", .{self.generation});
+  516                  return;
+  517              }
+  518              freeRoots(alloc, pending.roots);
+  519              debug_trace.logf("core", "file index pending refresh superseded generation={d}", .{self.generation});
+  520          }
+  521          self.pending_scope = .{ .roots = roots, .epoch = epoch };
+  522          debug_trace.logf("core", "file index refresh coalesced generation={d} identical=false", .{self.generation});
+  523      }
+  524  
+
+== src/core/workspace/file_index.zig:572-583@481104fd -- readableRevision: the searchable generation's epoch
+  572      pub fn readableRevision(self: *const FileIndex) ReadableRevision {
+  573          const generation = self.searchableGeneration() orelse return .{
+  574              .scope_epoch = self.scope_epoch,
+  575              .state = self.currentState(),
+  576          };
+  577          return .{
+  578              .scope_epoch = generation.scope_epoch,
+  579              .generation = generation.id,
+  580              .count = generation.count(),
+  581              .state = self.currentState(),
+  582          };
+  583      }
+
+== src/core/workspace/file_index.zig:647-654@481104fd -- searchableGeneration: the adopted one first, else the first walk's prefix
+  647      fn searchableGeneration(self: *const FileIndex) ?*const Generation {
+  648          if (self.active_generation) |active| return active;
+  649          const loading = self.loading_generation orelse return null;
+  650          return switch (loading.currentState()) {
+  651              .loading, .ready => loading,
+  652              .failed, .canceled => null,
+  653          };
+  654      }
+
+== src/main.zig:2125-2131@481104fd -- isFileIndexLoading and isFileIndexFailed
+ 2125      pub fn isFileIndexLoading(self: *App) bool {
+ 2126          return self.file_index.currentState() == .loading;
+ 2127      }
+ 2128  
+ 2129      pub fn isFileIndexFailed(self: *App) bool {
+ 2130          return self.file_index.currentState() == .failed;
+ 2131      }
+
+== src/core/app/input_completion_runtime.zig:770-773@481104fd -- fileScopeEpoch
+  770          fn fileScopeEpoch(app: *const App) u64 {
+  771              if (comptime @hasDecl(App, "fileCompletionScopeEpoch")) return app.fileCompletionScopeEpoch();
+  772              return 0;
+  773          }
+
+== src/core/app/input_completion_runtime.zig:848-920@481104fd -- prepareFilePicker: the refresh, the source, the epoch check (887-888), the status
+  848          pub fn prepareFilePicker(app: *App) void {
+  849              if (comptime !runtime_profile.allows(App, .file_index)) return;
+  850              reconcileFilePicker(app);
+  851              const picker = &app.input_runtime.picker;
+  852              const state = &picker.file_completion;
+  853              if (!state.active or !filePickerEligible(app)) return;
+  854              if (state.refresh_requested) {
+  855                  state.refresh_requested = false;
+  856                  if (state.indexed) {
+  857                      var refresh = true;
+  858                      if (!picker.file_picker_episode_seen) {
+  859                          picker.file_picker_episode_seen = true;
+  860                          if (comptime @hasDecl(App, "isFileIndexLoading")) refresh = !app.isFileIndexLoading();
+  861                      }
+  862                      if (refresh) {
+  863                          if (comptime @hasDecl(App, "refreshFileIndex")) app.refreshFileIndex();
+  864                      }
+  865                  }
+  866              }
+  867              var source: file_index.ReadableRevision = .{ .scope_epoch = fileScopeEpoch(app), .state = .ready };
+  868              if (state.indexed) {
+  869                  if (comptime @hasDecl(App, "fileCompletionRevision")) {
+  870                      source = app.fileCompletionRevision();
+  871                  } else {
+  872                      if (comptime @hasDecl(App, "isFileIndexLoading")) {
+  873                          if (app.isFileIndexLoading()) source.state = .loading;
+  874                      }
+  875                      if (comptime @hasDecl(App, "isFileIndexFailed")) {
+  876                          if (app.isFileIndexFailed()) source.state = .failed;
+  877                      }
+  878                  }
+  879              }
+  880              if (!state.needsLookup(source)) return;
+  881              const query = picker.activeFilePickerQuery(&app.input_runtime.edit_state) orelse return;
+  882              var decoded_storage: [file_index.max_path_len]u8 = undefined;
+  883              const decoded = query.decoded_query(&decoded_storage) catch {
+  884                  state.stage(app.alloc, source, .unavailable, null);
+  885                  return;
+  886              };
+  887              if (decoded.len > file_index.max_path_len or source.scope_epoch != fileScopeEpoch(app)) {
+  888                  state.stage(app.alloc, source, .unavailable, null);
+  889                  return;
+  890              }
+  891              if (!state.indexed) {
+  892                  app.prepareDirectoryCompletion();
+  893                  return;
+  894              }
+  895              var results: [file_picker_completion_cap]file_index.SearchResult = undefined;
+  896              var spans: [file_picker_match_span_cap]file_index.MatchSpan = undefined;
+  897              var paths: [file_picker_path_storage_cap]u8 = undefined;
+  898              const lookup = if (comptime @hasDecl(App, "fileCompletionsAtRevision"))
+  899                  app.fileCompletionsAtRevision(source, decoded, &results, &spans, &paths)
+  900              else
+  901                  app.fileCompletions(decoded, &results, &spans, &paths);
+  902              const count = lookup catch |err| {
+  903                  debug_trace.logf("input", "file picker preparation failed err={s}", .{@errorName(err)});
+  904                  state.stage(app.alloc, source, .unavailable, null);
+  905                  return;
+  906              };
+  907              const status: file_completion_state.Status = if (count > 0) .ready else switch (source.state) {
+  908                  .loading => .loading,
+  909                  .failed => .unavailable,
+  910                  .idle, .ready => .empty,
+  911              };
+  912              const rows = file_completion_state.Rows.copy(app.alloc, results[0..count]) catch |err| {
+  913                  debug_trace.logf("input", "file picker result copy failed err={s}", .{@errorName(err)});
+  914                  state.stage(app.alloc, source, .unavailable, null);
+  915                  return;
+  916              };
+  917              state.stage(app.alloc, source, status, rows);
+  918              debug_trace.logf("input", "file picker prepared revision={d} count={d} indexed={}", .{ state.next_revision -% 1, count, state.indexed });
+  919              app.shell.render_requests.request(.footer);
+  920          }
+
+== src/core/app/input_completion_runtime.zig:946-958@481104fd -- autocompleteFilePickerSelection: Tab on unavailable retries
+  946          pub fn autocompleteFilePickerSelection(app: *App, max_input_len: usize) !edit_contract.InsertResult {
+  947              if (comptime !runtime_profile.allows(App, .file_index)) return .inactive;
+  948              reconcileFilePicker(app);
+  949              if (!filePickerEligible(app)) return .inactive;
+  950              const selection = resolveFilePickerSelection(app) orelse {
+  951                  const picker = &app.input_runtime.picker;
+  952                  const status = filePickerView(app).status;
+  953                  if (status != .loading and (status == .unavailable or status == .stale or picker.file_completion.selection_missing)) picker.file_completion.retry();
+  954                  app.shell.render_requests.request(.footer);
+  955                  return .inactive;
+  956              };
+  957              return applyFilePickerSelection(app, selection, max_input_len, .open);
+  958          }
+
+== src/core/input/file_completion_state.zig:130-139@481104fd -- invalidate
+  130      pub fn invalidate(self: *State) void {
+  131          self.episode +%= 1;
+  132          self.active = false;
+  133          self.trusted = false;
+  134          self.source = null;
+  135          self.lookup_dirty = true;
+  136          self.directory_request = null;
+  137          self.refresh_requested = false;
+  138          self.selection_missing = false;
+  139      }
+
+== src/core/input/file_completion_state.zig:147-200@481104fd -- reconcile (a changed epoch asks for the refresh, 164) and needsLookup (198-200)
+  147      pub fn reconcile(self: *State, query: ?file_picker_path.Query, scope_epoch: u64, indexed: bool) bool {
+  148          const q = query orelse {
+  149              if (!self.active) return false;
+  150              self.invalidate();
+  151              return true;
+  152          };
+  153          const kept = @min(q.query.len, self.raw_query.len);
+  154          if (self.active and self.scope_epoch == scope_epoch and self.indexed == indexed and
+  155              self.at_offset == q.at_offset and self.token_start == q.token_start and
+  156              self.replace_end == q.replace_end and self.quoted == q.quoted and
+  157              self.raw_len == q.query.len and std.mem.eql(u8, self.raw_query[0..kept], q.query[0..kept])) return false;
+  158          var decoded_storage: [file_index.max_path_len]u8 = undefined;
+  159          const decoded = q.decoded_query(&decoded_storage) catch null;
+  160          const lookup = if (decoded) |bytes| if (bytes.len <= self.lookup_query.len) bytes else null else null;
+  161          const same_lookup = self.active and self.directory_request == null and self.scope_epoch == scope_epoch and self.indexed == indexed and
+  162              self.lookup_len != null and lookup != null and std.mem.eql(u8, self.lookup_query[0..self.lookup_len.?], lookup.?);
+  163          self.directory_request = null;
+  164          self.refresh_requested = self.refresh_requested or !self.active or self.indexed != indexed or self.scope_epoch != scope_epoch;
+  165          self.episode +%= 1;
+  166          self.active = true;
+  167          self.indexed = indexed;
+  168          self.scope_epoch = scope_epoch;
+  169          @memcpy(self.raw_query[0..kept], q.query[0..kept]);
+  170          self.raw_len = q.query.len;
+  171          self.at_offset = q.at_offset;
+  172          self.token_start = q.token_start;
+  173          self.replace_end = q.replace_end;
+  174          self.quoted = q.quoted;
+  175          self.trusted = false;
+  176          self.selection_missing = false;
+  177          self.lookup_len = if (lookup) |bytes| bytes.len else null;
+  178          if (lookup) |bytes| @memcpy(self.lookup_query[0..bytes.len], bytes);
+  179          if (same_lookup and !self.lookup_dirty) {
+  180              // Reuse bytes for another occurrence, never its old presentation
+  181              // authority. Ownership moves into the unacknowledged slot.
+  182              if (self.prepared == null) {
+  183                  self.prepared = self.presented;
+  184                  self.presented = null;
+  185              }
+  186              if (self.prepared) |*value| {
+  187                  value.episode = self.episode;
+  188                  value.id = self.next_revision;
+  189                  self.next_revision +%= 1;
+  190              }
+  191          } else {
+  192              self.lookup_dirty = true;
+  193              self.source = null;
+  194          }
+  195          return true;
+  196      }
+  197  
+  198      pub fn needsLookup(self: *const State, source: file_index.ReadableRevision) bool {
+  199          return self.active and (self.lookup_dirty or self.source == null or !std.meta.eql(self.source.?, source));
+  200      }
+
+== src/core/input/file_completion_state.zig:204-210@481104fd -- stage
+  204      pub fn stage(self: *State, alloc: std.mem.Allocator, source: file_index.ReadableRevision, status: Status, rows: ?Rows) void {
+  205          if (self.prepared) |*old| old.deinit(alloc);
+  206          self.prepared = .{ .id = self.next_revision, .episode = self.episode, .status = status, .rows = rows };
+  207          self.next_revision +%= 1;
+  208          self.source = source;
+  209          self.lookup_dirty = false;
+  210      }
+
+== src/core/input/file_completion_state.zig:230-233@481104fd -- retry
+  230      pub fn retry(self: *State) void {
+  231          self.lookup_dirty = true;
+  232          self.refresh_requested = true;
+  233      }
+
+== src/core/app/app_render_runtime.zig:645-654@481104fd -- the status rows: Files unavailable for an indexed list
+  645              const file_anchor = if (file_query) |fq| fq.at_offset else 0;
+  646              const file_selection = if (file_view.receipt) |receipt| receipt.selected else null;
+  647              const file_status: ?[]const u8 = switch (file_view.status) {
+  648                  .unavailable => if (app.input_runtime.picker.file_completion.indexed)
+  649                      "Files unavailable. tab to retry; esc to dismiss."
+  650                  else
+  651                      "Directory unavailable. tab to retry; esc to dismiss.",
+  652                  .stale => "Selection unavailable. navigate to choose; tab to retry.",
+  653                  .loading, .ready, .empty => null,
+  654              };
+
+== src/core/app/app_input_runtime.zig:2724-2729@481104fd -- Escape dismisses the inline picker
+ 2724                  if (completion_rt.dismissVisibleInlinePicker(app)) {
+ 2725                      _ = disarmEscapeClear(app);
+ 2726                      _ = disarmEscapeInterrupt(app, "inline_picker");
+ 2727                      app.shell.render_requests.request(.footer);
+ 2728                      return;
+ 2729                  }
+
+== src/core/app/app_entry_runtime.zig:329-335@481104fd -- the launch starts the file index (round 2: AT-LAUNCH-WALK)
+  329      if (comptime !cooperative) {
+  330          if (resume_requested) app.startResumedSessionWarmup();
+  331          if (@hasDecl(App, "configureNotifications")) try app.configureNotifications();
+  332          if (@hasDecl(App, "playStartupSound")) app.playStartupSound();
+  333          if (@hasDecl(App, "startAutoUpgrade")) app.startAutoUpgrade();
+  334          if (@hasDecl(App, "startFileIndex")) app.startFileIndex();
+  335          startWorkerThread(App, app, deps) catch |err| {
+
+== src/ui/event_loop.zig:76-122@481104fd -- the loop: collect facts (the join) at the top, then the keys, then the frame (round 3)
+   76  pub fn run(terminal: anytype, should_exit: *bool, poll_timeout_ms: i32, callbacks: EventLoopCallbacks) !ExitCause {
+   77      var buf: [128]u8 = undefined;
+   78  
+   79      while (!should_exit.*) {
+   80          try callbacks.collect_facts(callbacks.ctx);
+   81          if (should_exit.*) return .requested_exit;
+   82  
+   83          while (callbacks.next_collected_byte(callbacks.ctx)) |byte| {
+   84              try callbacks.handle_byte(callbacks.ctx, byte);
+   85              if (should_exit.*) return .requested_exit;
+   86          }
+   87  
+   88          const timeout_ms = if (callbacks.poll_timeout_ms) |resolve|
+   89              resolve(callbacks.ctx, poll_timeout_ms)
+   90          else
+   91              poll_timeout_ms;
+   92          var poll_result = try terminal.pollInput(timeout_ms);
+   93          var input_reads: usize = 0;
+   94          while (poll_result.readable and input_reads < max_input_reads_per_fact_collection) : (input_reads += 1) {
+   95              const read_len = try terminal.read(&buf);
+   96              if (read_len == 0) {
+   97                  if (input_reads > 0) attemptFinalFrameCommit(callbacks, "eof");
+   98                  return .input_closed;
+   99              }
+  100  
+  101              record_tape.recordStdin(buf[0..read_len]);
+  102              for (buf[0..read_len]) |byte| {
+  103                  try callbacks.handle_byte(callbacks.ctx, byte);
+  104                  if (should_exit.*) return .requested_exit;
+  105              }
+  106              poll_result = try terminal.pollInput(0);
+  107          }
+  108  
+  109          if (poll_result.readable) {
+  110              try callbacks.commit_frame(callbacks.ctx);
+  111              continue;
+  112          }
+  113          if (poll_result.closed()) {
+  114              if (input_reads > 0) attemptFinalFrameCommit(callbacks, "hangup");
+  115              return .input_closed;
+  116          }
+  117  
+  118          try callbacks.settle_delivery_epoch(callbacks.ctx);
+  119          try callbacks.commit_frame(callbacks.ctx);
+  120      }
+  121      return .requested_exit;
+  122  }
+
+== src/main.zig:174-175@481104fd -- the loop's poll: 8 ms (round 3)
+  174  const active_poll_timeout_ms: i32 = 8;
+  175  const focused_ui_worker_poll_timeout_ms: i32 = 1;
+
+== src/main.zig:2846-2853@481104fd -- loopCollectFacts joins a finished loader (round 3)
+ 2846      pub fn loopCollectFacts(ctx: *anyopaque) !void {
+ 2847          const self: *App = @ptrCast(@alignCast(ctx));
+ 2848          if (!try WorkerAppRuntime.authorizeInteractiveAdmission(self)) return;
+ 2849  
+ 2850          if (comptime !host_target.is_wasm) {
+ 2851              if (self.file_index.joinThreadIfDone(std.heap.c_allocator)) {
+ 2852                  self.shell.render_requests.request(.footer);
+ 2853              }
+
+== src/main.zig:2992-2998@481104fd -- loopCommitFrame prepares the picker before the frame (round 3)
+ 2992      pub fn loopCommitFrame(ctx: *anyopaque) !void {
+ 2993          const self: *App = @ptrCast(@alignCast(ctx));
+ 2994          defer SessionAppRuntime.finishDeferredSessionInputReplay(self);
+ 2995          if (!try WorkerAppRuntime.authorizeInteractiveAdmission(self)) return;
+ 2996          if (self.terminal_input_runtime.native_clear_probe.active()) return;
+ 2997          _ = self.admitPendingResizeSignal("post_input");
+ 2998          InputAppRuntime.prepareFilePicker(self);
