@@ -1,0 +1,4 @@
+== gutter_check.py on xfx's approve-confirm capture of a trial sweep whose scenario directory was a 118-byte scratch copy (r4-proto1, not kept): the capture as capture.sh published it
+row 9 starts with U+21B3 and holds the root's first 116 of its 118 bytes
+row 10 starts with U+21B3 and holds the root's last 2 of its 118 bytes
+roots.py --check exit 0

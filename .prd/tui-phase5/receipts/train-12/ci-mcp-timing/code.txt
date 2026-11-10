@@ -1,0 +1,194 @@
+== xfx src/mcp/runtime.rs:1324-1355
+  1324	
+  1325	    /// Connects `server`: tried until it is up, it is stopped, or its tries
+  1326	    /// run out ([`Retry`]). Between tries it is `Retrying`, with why the last
+  1327	    /// one failed.
+  1328	    fn connect(&self, server: &Arc<Server>) {
+  1329	        let retry = self.retry();
+  1330	        let mut tries = 0u8;
+  1331	        loop {
+  1332	            if server.stopped.load(Ordering::Acquire) {
+  1333	                return;
+  1334	            }
+  1335	            tries = tries.saturating_add(1);
+  1336	            server.live().connection = Connection::Connecting;
+  1337	            let failed = match self.open(server) {
+  1338	                Ok(()) => return,
+  1339	                Err(_) if server.stopped.load(Ordering::Acquire) => return,
+  1340	                Err(failed) => failed,
+  1341	            };
+  1342	            let auth = failed.error == McpError::Named("McpAuthenticationRequired");
+  1343	            let mut live = server.live();
+  1344	            live.needs_auth = auth;
+  1345	            live.failure = Some(failed.words);
+  1346	            if !worth_retrying(&failed.error) || tries >= retry.attempts {
+  1347	                live.connection = Connection::Failed;
+  1348	                return;
+  1349	            }
+  1350	            live.connection = Connection::Retrying;
+  1351	            drop(live);
+  1352	            if !server.pause(retry.backoff(tries)) {
+  1353	                return;
+  1354	            }
+  1355	        }
+== xfx src/mcp/runtime.rs:88-106
+    88	    /// fx v0.0.16's: eight tries (`Config.max_attempts`,
+    89	    /// `vercel-labs/fx@481104fd src/mcp/core/engine.zig:24-28`), and
+    90	    /// `reconnectDelay` -- 1 s doubling up to 30 s
+    91	    /// (`src/mcp/core/request.zig:76-79`) -- after each failed one but the
+    92	    /// last (`engine.zig:193-211`): 1, 2, 4, 8, 16, 30 and 30 seconds.
+    93	    pub(crate) const FX: Self = Self {
+    94	        attempts: 8,
+    95	        first: Duration::from_secs(1),
+    96	        cap: Duration::from_secs(30),
+    97	    };
+    98	
+    99	    /// The wait after the `failed`th failure in a row (`reconnectDelay(
+   100	    /// attempts - 1)`).
+   101	    pub(crate) fn backoff(&self, failed: u8) -> Duration {
+   102	        let doublings = u32::from(failed.saturating_sub(1).min(5));
+   103	        (self.first * 2u32.pow(doublings)).min(self.cap)
+   104	    }
+   105	}
+   106	
+== xfx src/mcp/era.rs:60-68
+    60	impl Config {
+    61	    /// fx v0.0.16's: `2026-07-28`, then the three 2025 versions, and a 10 s
+    62	    /// probe (`era.zig:21-25`). `2024-11-05` is gone: "fx speaks 2025-03-26
+    63	    /// and newer" (`src/core/mcp_host/runtime.zig:2296@481104fd`).
+    64	    pub const FX: Self = Self {
+    65	        preferred: &["2026-07-28"],
+    66	        legacy: &["2025-11-25", "2025-06-18", "2025-03-26"],
+    67	        probe_timeout: Duration::from_secs(10),
+    68	    };
+== xfx src/mcp/runtime.rs:1586-1642
+  1586	    /// On stdio a line fx's decoder refuses that names the probe fails it,
+  1587	    /// which is a legacy answer (`onRefusedLine`, `src/mcp/server.zig:
+  1588	    /// 769-790`); an error without an id is one too (`:1159-1160`); any other
+  1589	    /// line answers nothing, so the probe waits on; and a process that is
+  1590	    /// gone ends the start. Over HTTP a body that holds no JSON-RPC answer
+  1591	    /// is a legacy answer whatever its status, a broken connection is sent
+  1592	    /// again once and then waits out the timer (`max_attempts = 2`,
+  1593	    /// `http_modern.zig:21-24`; `endAttempt`, `server.zig:1242-1257`), and an
+  1594	    /// answer over the size limit waits it out at once.
+  1595	    fn probe(
+  1596	        &self,
+  1597	        server: &Server,
+  1598	        transport: &Arc<dyn Transport>,
+  1599	        config: &era::Config,
+  1600	        index: u8,
+  1601	        (probe, deadline): (u32, Instant),
+  1602	        said: &mut Said,
+  1603	    ) -> Result<era::Event, (Step, McpError)> {
+  1604	        let http = server.config.transport != Kind::Stdio;
+  1605	        let version = config.preferred[usize::from(index)];
+  1606	        let mut attempts = 0u8;
+  1607	        loop {
+  1608	            let wait = deadline.saturating_duration_since(Instant::now());
+  1609	            if wait.is_zero() {
+  1610	                return Ok(era::Event::ProbeTimerFired(probe));
+  1611	            }
+  1612	            let reply = transport.detect(
+  1613	                "server/discover",
+  1614	                json!({}),
+  1615	                &Meta::Modern(version),
+  1616	                wait,
+  1617	                Some(&server.cancel),
+  1618	            );
+  1619	            let error = match reply {
+  1620	                Ok(reply) => return Ok(probe_event(config, &reply, http, said)),
+  1621	                Err(error) => error,
+  1622	            };
+  1623	            match error {
+  1624	                McpError::Named("McpRequestTimedOut") => {
+  1625	                    return Ok(era::Event::ProbeTimerFired(probe))
+  1626	                }
+  1627	                McpError::Named("Cancelled" | "McpAuthenticationRequired") => {
+  1628	                    return Err((Step::Discover, error))
+  1629	                }
+  1630	                error if !http => return Err((Step::Discover, error)),
+  1631	                McpError::Named("ResponseTooLarge") => {}
+  1632	                _ => {
+  1633	                    attempts += 1;
+  1634	                    if attempts < 2 {
+  1635	                        continue;
+  1636	                    }
+  1637	                }
+  1638	            }
+  1639	            wait_out(deadline, &server.cancel).map_err(|error| (Step::Discover, error))?;
+  1640	            return Ok(era::Event::ProbeTimerFired(probe));
+  1641	        }
+  1642	    }
+== fx src/mcp/core/era.zig:19-26@481104fd
+    19	pub const Config = struct {
+    20	    /// Modern versions, most preferred first.
+    21	    preferred: []const []const u8 = &.{"2026-07-28"},
+    22	    /// The 2025-era versions `initialize` may agree on, newest first. The
+    23	    /// first is the one offered.
+    24	    legacy: []const []const u8 = &.{ "2025-11-25", "2025-06-18", "2025-03-26" },
+    25	    probe_timeout_ms: u32 = 10_000,
+    26	};
+== fx src/mcp/core/request.zig:76-79@481104fd
+    76	/// Reconnect delays double from 1 s up to 30 s.
+    77	pub fn reconnectDelay(attempt: u32) u32 {
+    78	    return @min(@as(u32, 30_000), @as(u32, 1000) << @intCast(@min(attempt, 5)));
+    79	}
+== fx src/mcp/core/engine.zig:193-211@481104fd
+   193	            .down => {
+   194	                out.action = "down";
+   195	                if (s.phase != .connecting and s.phase != .ready) return ignore(out);
+   196	                const gave_up = s.attempts >= s.config.max_attempts;
+   197	                s.retry = !gave_up;
+   198	                // A call waits for one start: it fails with this one, and
+   199	                // later tries are for later calls.
+   200	                for (&s.calls) |*c| if (c.used) {
+   201	                    out.emit(.{ .end = .{ .call = c.handle, .end = if (c.sent) .lost else .failed } });
+   202	                    c.* = .{};
+   203	                };
+   204	                if (gave_up) {
+   205	                    s.phase = .failed;
+   206	                    if (s.need) out.emit(.refuse_need);
+   207	                    s.need = false;
+   208	                } else {
+   209	                    s.phase = .backoff;
+   210	                    out.emit(.{ .arm_backoff = request.reconnectDelay(s.attempts -| 1) });
+   211	                }
+== fx src/mcp/core/http_modern.zig:21-24@481104fd
+    21	pub const Config = struct {
+    22	    /// POSTs per request after broken streams, counting the first.
+    23	    max_attempts: u8 = 2,
+    24	};
+== xfx src/mcp/config.rs:453-461
+   453	    let startup_timeout_ms = policy(
+   454	        object,
+   455	        "startup_timeout_ms",
+   456	        DEFAULT_STARTUP_TIMEOUT_MS.into(),
+   457	        1,
+   458	        u32::MAX.into(),
+   459	    )
+   460	    .map_err(|()| ConfigError("McpConfigInvalidStartupTimeout"))?
+   461	        as u32;
+== fx src/core/mcp/project_config.zig:1050-1054@481104fd
+  1050	    if (transport != .stdio) {
+  1051	        const url_value = object.get("url") orelse return failServerConfig(error.McpConfigMissingUrl);
+  1052	        if (url_value != .string) return failServerConfig(error.McpConfigInvalidUrl);
+  1053	        http_config.validateEndpoint(url_value.string) catch return failServerConfig(error.McpConfigInvalidUrl);
+  1054	        const timeouts = try parseTimeouts(object);
+== fx src/core/mcp/project_config.zig:1130-1140@481104fd
+  1130	fn parseTimeouts(object: std.json.ObjectMap) error{
+  1131	    McpConfigInvalidStartupTimeout,
+  1132	    McpConfigInvalidOperationTimeout,
+  1133	}!ParsedTimeouts {
+  1134	    const startup_ms = parseUnsignedPolicy(
+  1135	        object,
+  1136	        "startup_timeout_ms",
+  1137	        mcp_contract.default_startup_timeout_ms,
+  1138	        1,
+  1139	        std.math.maxInt(u32),
+  1140	    ) catch return error.McpConfigInvalidStartupTimeout;
+== train 12 (df46777e..HEAD) and xfx's MCP code: git diff --stat -- src/mcp
+(empty above: no change)
+== train 12 and capture.sh: the per-snap publish LOCAL-PATHS added (55d993a7^1 has none)
+publish calls at 55d993a7^1: 0
+publish calls now: 14
+455:publish() {
