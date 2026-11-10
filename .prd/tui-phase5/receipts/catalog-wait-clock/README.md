@@ -165,7 +165,8 @@ own thread). It is a measured margin, not a guarantee:
   which is why its tail is long; neither `fsync` nor scheduling has a known
   upper bound, so a load past anything measured could breach it with the
   product right. The repeats since: `load-check3b.txt` (`9d2e7f3c`) max
-  725.9 ms; `load-check4.txt` (`6073cdc5`) below. Round 3 first committed
+  725.9 ms; `load-check4.txt` (`6073cdc5`, load 4.3-14.2) median 63.0 ms,
+  p99 291.0 ms, max 505.8 ms. Round 3 first committed
   5 s (`ce221384`), before the repeat measured; the 832 ms maximum put that
   under the rule, so `9d2e7f3c` raised it.
 - **Round 4: the watcher cannot hang an unwinding test.** `watched` stops the
@@ -229,6 +230,11 @@ of the suite lock (`round2.sh`, `round3.sh`, `round3b.sh`; their loads in
 | `turn,select,start=1200` | A B C D E FAILED | 5 ok | 5 ok | 5 ok |
 | `turn=5000` | A B C D E FAILED | 5 ok | 5 ok | 5 ok |
 | `turn=12000` | -- | -- | -- | 5 ok |
+
+At round 4's head `6073cdc5` (`green4-head.txt`, `stall-head4.patch`), the
+same specs over A to G: 7 ok at every one. These passes are one schedule's
+evidence, not a proof for every schedule (the segment's end is an
+observation; see above).
 
 The base column is round 3's rerun; round 2's (`red2-base.txt`) is the same
 but for `turn=5000`, which it did not run.
@@ -306,6 +312,22 @@ the delay, with no timer standing -- gpt6's case):
 | `retry-wait-stop-late-xthread-6000` | killed A B D E | killed A B E | SURVIVED |
 | `retry-wait-stop-late-xthread-12000` | killed A B D E | -- | killed A B E |
 
+Round 4, at `6073cdc5` over A to G (`mutants4-head.txt`): the watcher's
+guard and the bound itself, then round 3's lateness mutants again.
+
+| mutant | head `6073cdc5` |
+|---|---|
+| `watcher-guard-removed` (stopped on the normal path only, round 3's shape) | killed F: its 10 s wall bound fired (the run otherwise waits for ever) |
+| `bound-not-asserted` (`took < Duration::MAX`) | killed G: the run with the watcher 11 s late passed |
+| `first-load-late-turn-read-thread` (700 ms) | SURVIVED |
+| `first-load-late-turn-read-thread-12000` | killed B E |
+| `first-load-late-turn-read-xthread-700` | SURVIVED |
+| `first-load-late-turn-read-xthread-12000` | killed B E |
+| `retry-wait-stop-late-thread-500` | SURVIVED |
+| `retry-wait-stop-late-thread-12000` | killed A B E G |
+| `retry-wait-stop-late-xthread-500` | SURVIVED |
+| `retry-wait-stop-late-xthread-12000` | killed A B E G |
+
 - Over round 2's 19, the head kills every one the base kills but
   `first-load-late-turn-read-thread`, and kills five the base does not. Round
   3's 12: the head kills every hold past its 10 s bound, at both points and
@@ -321,6 +343,12 @@ the delay, with no timer standing -- gpt6's case):
   STOP-IN-CATALOG-WAIT's `mutants.txt`).
 
 ## Repeat check
+
+**Round 4** (`load-check4.txt`, the same script, A to E -- F and G test the
+watcher, not the stop, and run in the stall table, the mutants and the gate):
+base `afd891af` and head `6073cdc5` 50/50 on all five, at load 4.0-13.8
+(base, median 7.25) and 4.3-14.2 (head, median 6.96); the stop-to-end
+segment over 550 stopped runs: median 63.0 ms, p99 291.0 ms, max 505.8 ms.
 
 **Round 3** (`load_check.py`, here, now run with `--nocapture` to collect the
 harness's `stop-to-end-us` lines): the five tests 50 times on the base's lib
@@ -362,6 +390,8 @@ line counts five.)
 
 ## Gate
 
+TBD-GATE4
+
 `gates3.txt` (`gates.sh`), in a `git clone --no-local` at `bbf15d6d` -- the
 code head `9d2e7f3c` plus round 3's receipt but for the gate's own file --
 inside one hold of the suite lock: **22 steps, 0 failed**, the tree clean
@@ -387,6 +417,9 @@ one wide bound of its own, `STOP_TO_END`, listed at the end.
 
 ## Files
 
+- Round 4: `round4.sh`, `stall-head4.patch`, `stall4-loads.txt`,
+  `green4-head.txt`, `mutants4-head.txt`, `load-check4.txt`, `gates4.txt`.
+  `stall_runs.py` and `mutants.py` are round 4's versions (A to G).
 - Round 3: `stall-head3.patch` (at `ce221384`), `stall-head3b.patch` (at
   `9d2e7f3c`), `round3.sh`, `round3b.sh`, `stall3-loads.txt`, `red3-base.txt`,
   `green3-head.txt`, `green3b-head.txt`, `mutants3-head.txt`,
