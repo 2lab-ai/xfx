@@ -37314,10 +37314,18 @@ mod tests {
         // draft.
         shell.route_bytes(b"\x1b[1;5~");
         shell.route_bytes(b"<");
-        assert_eq!(shell.editor.text(), "<Xabc defY", "CSI 1 ; 5 ~ was not Home");
+        assert_eq!(
+            shell.editor.text(),
+            "<Xabc defY",
+            "CSI 1 ; 5 ~ was not Home"
+        );
         shell.route_bytes(b"\x1b[8;3~");
         shell.route_bytes(b">");
-        assert_eq!(shell.editor.text(), "<Xabc defY>", "CSI 8 ; 3 ~ was not End");
+        assert_eq!(
+            shell.editor.text(),
+            "<Xabc defY>",
+            "CSI 8 ; 3 ~ was not End"
+        );
     }
 
     #[test]

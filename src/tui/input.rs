@@ -1376,11 +1376,13 @@ fn control(byte: u8) -> Action {
 /// character: a keypad digit, or Shift+Space ([`replayed`]).
 fn csi(params: &[u8], final_byte: u8) -> Input {
     match final_byte {
-        // The tilde keys, each one exactly one spelling.
+        // The tilde keys, each code in exactly one spelling. Home is `1` and
+        // rxvt's `7`, End `4` and rxvt's `8`, as upstream reads them
+        // (`1, 7 => .home`, `4, 8 => .end`, `escape_parser.zig:628-635@481104fd`).
         b'~' => match params {
-            b"1" => Input::Action(Action::Home),
+            b"1" | b"7" => Input::Action(Action::Home),
             b"3" => Input::Action(Action::Delete),
-            b"4" => Input::Action(Action::End),
+            b"4" | b"8" => Input::Action(Action::End),
             // The page keys (`escape_parser.zig` at `c1db919`, :632-633).
             b"5" => Input::Action(Action::PageUp),
             b"6" => Input::Action(Action::PageDown),
@@ -1528,20 +1530,30 @@ fn tilde_report(params: &[u8]) -> Input {
 /// the end of the line, Alt or Ctrl deletes the word to the right, and Shift
 /// alone is nothing. The page keys are a page move with any modifier
 /// (`composerMove(.page_up, ...)`, :708-709) -- Shift's selection extension is
-/// dropped with the selection, as the arrows drop it ([`cursor`]). Home and End
-/// with a modifier are upstream's draft and line jumps, which this composer
-/// does not have, and stay [`Action::Ignore`].
+/// dropped with the selection, as the arrows drop it ([`cursor`]).
+///
+/// Home and End -- `1` or rxvt's `7`, `4` or rxvt's `8` -- with any modifier
+/// are upstream's move to the line's edge, the draft's under Ctrl, extending a
+/// selection under Shift (`escape_parser.zig:699-707@481104fd`). Here each is
+/// the key `CSI 1 ; <mod> H` or `F` is, through [`cursor`]: Home or End, the
+/// edge of the caret's line whatever is held. On a one-line draft that is
+/// upstream's place too; the draft's edge under Ctrl and the selection under
+/// Shift are the composer's to add (`docs/parity.md`, the full-screen TUI row).
 ///
 /// A modifier field of `1` -- no modifier at all -- is not a spelling any
 /// terminal sends for these keys, and is refused as the bare `CSI 1 ; 1 Z` is
-/// ([`csi`]): the bare key has its one spelling.
+/// ([`csi`]): the bare key has its one spelling. Upstream reads it as the bare
+/// key (`escape_parser.zig:698`, `:712-718@481104fd`), Home and End included;
+/// `docs/parity.md` records the difference.
 fn modified_tilde(key: &[u8], mask: u8) -> Input {
     let mods = mask & 0x3f;
     if mask == 0 {
         return Input::Action(Action::Ignore);
     }
     Input::Action(match key {
+        b"1" | b"7" => cursor(b'H', mods),
         b"3" => forward_delete(mods),
+        b"4" | b"8" => cursor(b'F', mods),
         b"5" => Action::PageUp,
         b"6" => Action::PageDown,
         _ => Action::Ignore,
@@ -2394,8 +2406,6 @@ mod tests {
             (b"\x1b[114;9u", "open_all_sessions :253"),
             (b"\x1b[57426;2u", "forward delete with Shift :179"),
             (b"\x1b[3;2~", "main-row Delete with Shift alone :179, :697"),
-            (b"\x1b[1;5~", "composerMove draft_start :699-702"),
-            (b"\x1b[4;3~", "composerMove line_end :703-706"),
             (b"\x1b[57352;17u", "kitty Up with Hyper alone :214"),
         ] {
             assert_eq!(
