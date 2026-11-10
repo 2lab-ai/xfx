@@ -8,8 +8,8 @@
 # 1/2/4/8 s backoff put a try's end near some snap (p5-mcp-menu-new says why).
 mcphttp hang
 work p5-mcp-ws
-fx: homefile .fx/mcp.json p5-mcp-profile.json
-xfx: homefile .xfx/mcp.json p5-mcp-profile.json
+fx: homefile .fx/mcp.json p5-mcp-menu-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-menu-profile.json
 wait 4
 snap startup
 key Escape

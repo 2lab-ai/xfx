@@ -1065,6 +1065,23 @@ xfx_row = 'work · (?: 1m|now) · 1 turn$'
 fix = "seed the saved sessions with fixed timestamps (homefile), or take the picker snaps well clear of a minute after the first prompts"
 why = "The picker's age column reads the run's clock; the snaps fall about a minute after the sessions were made, so one run says ` 1m` and the other `now`."
 
+# `scenario`, not `nondeterminism`, while every pair it reaches is unresolved
+# for other rows too (.prd/tui-phase5/receipts/train-12/ci-mcp-timing/
+# verbs-rows.txt): a nondeterminism cause buys each CI run up to three head
+# and three base retries of this 90 s scenario, about 18 minutes, for pairs
+# no retry can pass. Make it `nondeterminism`, or apply the fix, when MCP-V's
+# other rows match.
+[[cause]]
+id = "verbs-refused-port-word"
+kind = "scenario"
+owner = "MCP-V"
+scenarios = ["p5-mcp-verbs"]
+snaps = ["*"]
+fx_row = '^\W*(?:(?:remote|web2?)\b.*|status\s+)\b(?:connecting|retrying)\b'
+xfx_row = '^\W*(?:(?:remote|web2?)\b.*|status\s+)\b(?:connecting|retrying)\b'
+fix = "point remote, web and web2 at a server whose state holds through the run (mcphttp `hang` with a long startup_timeout_ms, as p5-mcp-menu-profile.json does), and give `/mcp login remote` its refused failure some other way"
+why = "remote, web and web2 sit at a refused loopback port. Each try is a 10 s discover probe and the backoffs 1, 2, 4, 8 s, on both binaries, so a row naming one with `connecting` or `retrying` turns about 10, 11, 21, 23, 33, 37, 47 and 55 s after it started, and a snap near a turn reads one word on fx and the other on xfx (.prd/tui-phase5/receipts/train-12/ci-mcp-timing/README.md). The menu scenarios hold the word with a server that never answers; here that would make `/mcp login remote` wait instead of failing, which these snaps capture."
+
 # No cause for the catalog outage's window. `modelsdown <ms>` counted from the
 # fake gateway's start, and each binary launches a different time after it
 # (its first catalog read 1 to 17 s after the gateway started in train 11's
