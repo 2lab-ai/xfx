@@ -8,7 +8,8 @@
 The frame is fx's: a line's checksum is CRC32C (Castagnoli) of the bytes before
 `,"crc":"` (vercel-labs/fx@481104fd src/core/session_manager/log.zig:26-34, :117-125); a
 blob is named by the lowercase hex SHA-256 of its bytes (schema.zig:599-612); an image in
-its blob is written with `blob` and no snapshot fields (session_adapter.zig, WireImage).
+its blob is written with `blob` and no snapshot fields, and the line lists it in `blobs` (session_adapter.zig,
+WireImage; schema.zig:145-146), as fx itself wrote a session with `shot.png` attached (round 2's control run).
 Every original line's checksum is reproduced first. The blob itself is not written: the
 scenario resumes a session its prompt image's blob is gone from.
 """
@@ -47,7 +48,7 @@ def main():
     old = '"data":{"text":"first prompt alpha","images":[],"work_id":null}'
     new = (
         '"data":{"text":"[Image #1] first prompt alpha","images":[{"id":1,"path":"shot.png",'
-        f'"media_type":"image/png","blob":"{digest}"}}],"work_id":null}}'
+        f'"media_type":"image/png","blob":"{digest}"}}],"work_id":null}},"blobs":["{digest}"]'
     )
     out = []
     changed = 0
