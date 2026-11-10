@@ -23640,32 +23640,139 @@ mod tests {
             ("kitty ctrl-w", false, b"\x1b[119;5u", "X"),
             ("alt-backspace", false, b"\x1b\x7f", "X"),
         ] {
-            let mut shell = drafting_ab_after_a_kill(false);
-            if start {
-                shell.route_bytes(&[0x01]);
+            kept_key(
+                drafting_ab_after_a_kill(false),
+                name,
+                start,
+                key,
+                sent,
+                &mut wrong,
+            );
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// One case of a key a draft keeps, at `shell`'s open draft: after C-a
+    /// when `start`, `key` read with an Enter must hold it; after the frame,
+    /// an `X` typed and an Enter must send `sent`. What is wrong is pushed to
+    /// `wrong`.
+    fn kept_key(
+        mut shell: Fixture,
+        name: &str,
+        start: bool,
+        key: &[u8],
+        sent: &str,
+        wrong: &mut Vec<String>,
+    ) {
+        if start {
+            shell.route_bytes(&[0x01]);
+            delivered(&mut shell);
+        }
+        shell.route_bytes(&[key, b"\r"].concat());
+        if let Some(answered) = shell.controlled() {
+            wrong.push(format!("{name} and Enter in one read: {answered:?}"));
+            return;
+        }
+        if !shell.drafting() {
+            wrong.push(format!("{name}: the draft lost the keys"));
+            return;
+        }
+        delivered(&mut shell);
+        shell.route_bytes(b"X");
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        let answered = shell.controlled();
+        let want = Some(TurnControl::Answer {
+            id: ApprovalId(1),
+            answer: ApprovalAnswer::Once,
+            feedback: Some(sent.to_string()),
+        });
+        if answered != want {
+            wrong.push(format!("{name}: {answered:?}, not {sent:?}"));
+        }
+    }
+
+    #[test]
+    fn the_word_deletes_and_moves_stop_where_fxs_draft_stops_them() {
+        // From `ab.cd` fx v0.0.16's three word deletes give three answers.
+        // C-w takes the run back to whitespace or the line's start
+        // (`deleteWhitespaceDelimitedWordLeft`, `approval_amendment.zig:117-126
+        // @481104fd`; `previousWhitespaceDelimitedTokenStart`,
+        // `text_boundaries.zig:149-167`), so all of `ab.cd`. Alt-Backspace takes
+        // the word characters before the caret (`deleteWordLeft`,
+        // `approval_amendment.zig:111-115`; `previousWordStart`,
+        // `text_boundaries.zig:34-47`; `isWordCharacter`, `:71-77`: `.` is
+        // none), so `cd`. Alt-d takes the word after the caret and the gap
+        // after it (`deleteWordRight`, `approval_amendment.zig:128-132`;
+        // `nextWordDeleteEnd`, `text_boundaries.zig:60-69`), so `ab.`. The word
+        // moves stop at the same word's edges (`approval_amendment.zig:94-102`;
+        // `nextWordEnd`, `text_boundaries.zig:49-58`), and C-k, unlike Alt-d,
+        // takes the rest of the line. From the end of `ab.cd`, or (`start`)
+        // after C-a.
+        let mut wrong = Vec::new();
+        for (name, start, key, sent) in [
+            ("ctrl-w", false, &[0x17][..], "X"),
+            ("kitty ctrl-w", false, b"\x1b[119;5u", "X"),
+            ("alt-backspace", false, b"\x1b\x7f", "ab.X"),
+            ("kitty alt-backspace", false, b"\x1b[127;3u", "ab.X"),
+            ("alt-b", false, b"\x1bb", "ab.Xcd"),
+            ("ctrl-left", false, b"\x1b[1;5D", "ab.Xcd"),
+            ("alt-d", true, b"\x1bd", "Xcd"),
+            ("kitty alt-d", true, b"\x1b[100;3u", "Xcd"),
+            ("ctrl-delete", true, b"\x1b[3;5~", "Xcd"),
+            ("alt-f", true, b"\x1bf", "abX.cd"),
+            ("ctrl-right", true, b"\x1b[1;5C", "abX.cd"),
+            ("ctrl-k", true, &[0x0b], "X"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell.route_bytes(b"\tab.cd");
+            delivered(&mut shell);
+            kept_key(shell, name, start, key, sent, &mut wrong);
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn an_edit_then_a_key_the_draft_does_not_take_and_enter_in_one_read_stay_held() {
+        // A swallowed key asks for no frame, and it does not settle the one an
+        // edit before it asked for: fx's draft edit leaves `.modal` pending
+        // (`input_approval_runtime.zig:59-61@481104fd`), and a key that is no
+        // approval action reaches nothing that commits a frame
+        // (`app_input_runtime.zig:1173-1184`, `input_approval_runtime.zig:128`).
+        // So a letter, each of the nine spellings and an Enter in one read
+        // send nothing, on the band and on the review plane, and the Enter
+        // after the frame sends the letter.
+        let mut wrong = Vec::new();
+        for review in [false, true] {
+            let plane = if review {
+                "the review plane"
+            } else {
+                "the band"
+            };
+            for (name, key) in DRAFT_KEYS_FX_DOES_NOT_TAKE {
+                let mut shell = drafting_ab_after_a_kill(review);
+                shell.route_bytes(&[&b"x"[..], key, b"\r"].concat());
+                if let Some(answered) = shell.controlled() {
+                    wrong.push(format!(
+                        "{plane}, x, {name} and Enter in one read: {answered:?}"
+                    ));
+                    continue;
+                }
                 delivered(&mut shell);
-            }
-            shell.route_bytes(&[key, b"\r"].concat());
-            if let Some(answered) = shell.controlled() {
-                wrong.push(format!("{name} and Enter in one read: {answered:?}"));
-                continue;
-            }
-            if !shell.drafting() {
-                wrong.push(format!("{name}: the draft lost the keys"));
-                continue;
-            }
-            delivered(&mut shell);
-            shell.route_bytes(b"X");
-            delivered(&mut shell);
-            shell.route_bytes(b"\r");
-            let answered = shell.controlled();
-            let want = Some(TurnControl::Answer {
-                id: ApprovalId(1),
-                answer: ApprovalAnswer::Once,
-                feedback: Some(sent.to_string()),
-            });
-            if answered != want {
-                wrong.push(format!("{name}: {answered:?}, not {sent:?}"));
+                shell.route_bytes(b"\r");
+                let answered = shell.controlled();
+                if answered
+                    != Some(TurnControl::Answer {
+                        id: ApprovalId(1),
+                        answer: ApprovalAnswer::Once,
+                        feedback: Some("ab x".to_string()),
+                    })
+                {
+                    wrong.push(format!(
+                        "{plane}, {name}, the Enter after the frame: {answered:?}"
+                    ));
+                }
             }
         }
         assert!(wrong.is_empty(), "{wrong:#?}");
