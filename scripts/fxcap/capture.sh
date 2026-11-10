@@ -419,8 +419,11 @@ for_this() {
 # three are set once fx's chime names are made, so a run that never launched fx
 # is not checked for what it could not have done.
 gateway='' sock='' mcphttp='' guard_run='' guard_bin='' guard_sha=''
-# The record of the pane's process (own_pane), for cleanup (main sets it).
-pane_rec=''
+# The record of the pane's process (pane_set): its kind -- `pid`, `gone`,
+# `unknown`, or empty, no pane made -- pid, start time and why. It lives in
+# this shell, out of the binary's reach, and cleanup decides from it alone;
+# $pane_rec (main sets it) is a copy for the tests, never read back.
+pane_kind='' pane_pid='' pane_start='' pane_why='' pane_rec=''
 # The paths `@SCENARIOS@` and `@BUN@` stand for (main sets them), what
 # `fill` and `fill_text` write for each, and the one line `fill_text` leaves
 # its text in.
@@ -522,23 +525,32 @@ guards() {
   echo "guards: $guard_bin sha256 ${guard_sha:0:12} unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories"
 }
 
+# Sets the record (kind, pid, start, why), and writes its copy: a new file
+# (`set -C`), never through a link the binary may have left at its name.
+pane_set() {
+  pane_kind=$1 pane_pid=$2 pane_start=$3 pane_why=$4
+  [[ -n $pane_rec ]] || return 0
+  rm -f "$pane_rec"
+  (set -C; printf '%s\n' "$@" > "$pane_rec") 2> /dev/null || true
+}
+
 # Records the process this script just started in its pane -- at launch and
-# at each `relaunch`, never later -- in $pane_rec, for `cleanup`: `pid`, the
-# pid and its start time (`ps lstart`, which an exec keeps: the pane runs
-# `sh`, `env`, then the binary in one process); `gone`, already; or
-# `unknown` and why, when a look failed -- which cleanup never reads as gone.
+# at each `relaunch`, never later: `pid`, the pid and its start time (`ps
+# lstart`, which an exec keeps: the pane runs `sh`, `env`, then the binary in
+# one process); `gone`, already; or `unknown` and why, when a look failed --
+# which cleanup never reads as gone.
 own_pane() {
   local sock=$1 pid start
   if ! pid=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_pid}' 2>/dev/null) || [[ ! $pid =~ ^[0-9]+$ ]]; then
-    printf 'unknown\nthe pane pid could not be read\n' > "$pane_rec"
+    pane_set unknown '' '' 'the pane pid could not be read'
   elif ! kill -0 "$pid" 2>/dev/null; then
-    printf 'gone\n' > "$pane_rec"
+    pane_set gone "$pid" '' ''
   elif start=$(start_of "$pid") && [[ -n $start ]]; then
-    printf 'pid\n%s\n%s\n' "$pid" "$start" > "$pane_rec"
+    pane_set pid "$pid" "$start" ''
   elif ! kill -0 "$pid" 2>/dev/null; then
-    printf 'gone\n' > "$pane_rec"
+    pane_set gone "$pid" '' ''
   else
-    printf 'unknown\npid %s: its start time could not be read\n' "$pid" > "$pane_rec"
+    pane_set unknown "$pid" '' "pid $pid: its start time could not be read"
   fi
 }
 
@@ -567,30 +579,29 @@ pane_state() {
 }
 
 # After its server is gone: waits, 3 s at most, while the recorded process is
-# there or a look cannot tell. Gone, or no pane was ever made, and it returns
-# 0. A record that could not be made, or anything but gone at the end, and it
-# says so and returns 1. The wait sends no signal: tmux's kill-server hung the
-# pane up, and ending that process is tmux's.
+# there or a look cannot tell. Gone, or no pane was ever made (no kind), and
+# it returns 0. A record that could not be made, or anything but gone at the
+# end, and it says so and returns 1. It reads the record in this shell only.
+# The wait sends no signal: tmux's kill-server hung the pane up, and ending
+# that process is tmux's.
 await_pane() {
-  local kind='' a='' b='' i state=unknown
-  [[ -e $pane_rec ]] || return 0
-  { read -r kind; read -r a; read -r b; } < "$pane_rec" || true
-  case $kind in
-    gone) return 0 ;;
+  local i state=unknown
+  case $pane_kind in
+    ''|gone) return 0 ;;
     pid) ;;
     *)
-      echo "LIVE-WRITER GUARD: the process this run started in its pane could not be recorded (${a:-no record}); this run fails, so the sweep does not run another binary in its directory" >&2
+      echo "LIVE-WRITER GUARD: the process this run started in its pane could not be recorded ($pane_why); this run fails, so the sweep does not run another binary in its directory" >&2
       return 1 ;;
   esac
   for (( i = 0; i < 60; i++ )); do
-    state=$(pane_state "$a" "$b")
+    state=$(pane_state "$pane_pid" "$pane_start")
     if [[ $state == gone ]]; then
       echo "pane: the process the run started is gone ($i looks)"
       return 0
     fi
     sleep 0.05
   done
-  echo "LIVE-WRITER GUARD: the process this run started in its pane, pid $a (started $b), is $([[ $state == there ]] && echo still running || echo 'in a state no look could read') 3 s after its tmux server went; this run fails, so the sweep does not run another binary in its directory" >&2
+  echo "LIVE-WRITER GUARD: the process this run started in its pane, pid $pane_pid (started $pane_start), is $([[ $state == there ]] && echo still running || echo 'in a state no look could read') 3 s after its tmux server went; this run fails, so the sweep does not run another binary in its directory" >&2
   return 1
 }
 
@@ -1117,7 +1128,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
   local hold=()
   [[ -z $keep ]] || hold=(set-option -gw remain-on-exit on ';')
   # Until own_pane reads it, the pane's process is unknown, never gone.
-  printf 'unknown\nthe pane was being made\n' > "$pane_rec"
+  pane_set unknown '' '' 'the pane was being made'
   tmux -f /dev/null -S "$sock" start-server \; \
     set-hook -g alert-bell "run-shell 'echo bell >> $run/bells'" \; \
     ${hold[@]+"${hold[@]}"} \
@@ -1307,6 +1318,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         ;;
       relaunch)
         fill_text "$port" "$run/home" "$mcpport" "$rest"
+        pane_set unknown '' '' 'the pane was being remade'
         tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $filled"
         own_pane "$sock"
         # A new binary on a cleared screen: what an `until` saw before says

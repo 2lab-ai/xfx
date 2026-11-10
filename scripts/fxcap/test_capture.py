@@ -413,14 +413,20 @@ class RunDirectory(unittest.TestCase):
     # Gone on its own half a second in, under `keep`: the pane dead long before
     # the run ends.
     GONE = STUB_HEAD + "on_hup() { :; }\necho up\nsleep 0.5\nexit 0\n"
-    # The pid it was recorded by is, by the run's end, another process's: the
-    # record's start time rewritten, as the pid's reuse would leave it. Deaf
-    # to the hangup, gone by itself about 5 s after it starts.
-    # Waits, a bounded time, for own_pane's record of this process.
-    WAIT_REC = "for i in $(seq 100); do [ \"$(head -1 \"$rec\" 2>/dev/null)\" = pid ] && break; sleep 0.02; done\nsleep 0.2\n"
-    REUSED = STUB_HEAD + ("on_hup() { :; }\nrec=\"$(dirname \"$HOME\")/pane\"\n" + WAIT_REC +
-                          "printf 'pid\\n%s\\nThu Jan  1 00:00:00 1970\\n' $$ > \"$rec\"\necho up\n"
-                          "for i in $(seq 100); do sleep 0.05; done\nexit 0\n")
+    # Waits, a bounded time, until $run/pane -- capture.sh's copy of its
+    # record, which cleanup never reads -- says this process is recorded.
+    WAIT_REC = ("rec=\"$(dirname \"$HOME\")/pane\"\n"
+                "for i in $(seq 100); do [ \"$(head -1 \"$rec\" 2>/dev/null)\" = pid ] && break; sleep 0.02; done\nsleep 0.2\n")
+    # STAYS, once recorded, doing `act` to the record's copy: the binary can
+    # write the run directory, so cleanup must not decide from that file.
+    def stays_and(self, act):
+        return self.STAYS.replace("echo up\n", self.WAIT_REC + act + "echo up\n")
+
+    # Once the stub is recorded (it leaves @D@/ps-on), `ps` reports `start` for
+    # every start-time look; before, the real `ps` answers.
+    def ps_says(self, start):
+        return ('[ -e "$(dirname "$0")/../ps-on" ] || exec "$REAL" "$@"\n'
+                'for a; do [ "$a" = lstart= ] && { %s; exit $?; }; done\nexec "$REAL" "$@"\n' % start)
 
     def stub_run(self, body, cap="wait 1\nsnap a\n", shims=None):
         """`shims`: name -> shell body of a PATH shim for capture.sh itself
@@ -469,6 +475,10 @@ class RunDirectory(unittest.TestCase):
         self.assertEqual(self.sigs(run, pid), ["HUP"], "tmux's hangup and no other signal")
 
     def test_a_binary_that_stays_fails_the_run_and_is_sent_nothing(self):
+        # Also the same-start-second case: a pid and a start second are
+        # conservative evidence, not an exact identity, and cleanup cannot tell
+        # another process that has both from the one it started. Either way
+        # the run waits, fails, and sends nothing.
         r, run, pid = self.stub_run(self.STAYS)
         self.assertEqual(r.code, 4, r.stdout + r.stderr)
         self.assertIn("LIVE-WRITER GUARD: the process this run started in its pane, pid %d (started " % pid, r.stderr)
@@ -483,7 +493,10 @@ class RunDirectory(unittest.TestCase):
         self.assertEqual(self.sigs(run, pid), [])
 
     def test_a_pid_that_is_another_process_now_is_not_waited_for_or_signalled(self):
-        r, run, pid = self.stub_run(self.REUSED)
+        # The recorded pid with another start time, as its reuse would show it
+        # (a `ps` shim): gone, at the first look, while the stub stays.
+        stub = self.stays_and("touch @D@/ps-on\n")
+        r, run, pid = self.stub_run(stub, shims={"ps": self.ps_says("echo 'Thu Jan  1 00:00:00 1970'")})
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         self.assertEqual(self.looks(r), 0)
         self.assertTrue(self.alive(pid), "capture.sh ended a process that was not the one it recorded")
@@ -498,35 +511,56 @@ class RunDirectory(unittest.TestCase):
         self.assertEqual(r.code, 4, r.stdout + r.stderr)
         self.assertIn("LIVE-WRITER GUARD: the process this run started in its pane could not be recorded "
                       "(the pane pid could not be read)", r.stderr)
-        self.assertEqual(slurp(os.path.join(run, "pane")), "unknown\nthe pane pid could not be read\n")
+        self.assertEqual(slurp(os.path.join(run, "pane")), "unknown\n\n\nthe pane pid could not be read\n")
         self.ends_by_itself(pid)
         self.assertEqual(self.sigs(run, pid), ["HUP"], "tmux's hangup and no other signal")
 
     def test_a_ps_that_fails_in_the_wait_fails_the_run(self):
         # `ps` answers until the stub, once recorded, leaves @D@/ps-off; then
         # every look at its start time fails, while the stub stays.
-        stays = self.STAYS.replace("echo up\n", "rec=\"$(dirname \"$HOME\")/pane\"\n" + self.WAIT_REC +
-                                   "touch @D@/ps-off\necho up\n")
-        shim = '[ -e "$(dirname "$0")/../ps-off" ] && exit 1\nexec "$REAL" "$@"\n'
-        r, run, pid = self.stub_run(stays, shims={"ps": shim})
+        stays = self.stays_and("touch @D@/ps-on\n")
+        r, run, pid = self.stub_run(stays, shims={"ps": self.ps_says("false")})
         self.assertEqual(r.code, 4, r.stdout + r.stderr)
         self.assertIn("LIVE-WRITER GUARD: the process this run started in its pane, pid %d (started " % pid, r.stderr)
         self.assertIn("is in a state no look could read 3 s after its tmux server went", r.stderr)
         self.ends_by_itself(pid)
         self.assertEqual(self.sigs(run, pid), ["HUP"], "tmux's hangup and no other signal")
 
-    def test_a_live_process_with_the_recorded_pid_and_start_is_waited_for(self):
-        # Conservative on purpose: a pid and a start second are evidence, not
-        # an exact identity. A live process the run did not start (this test's
-        # own), recorded with its pid and start time, reads as `there`: the run
-        # waits for it and fails rather than pass -- and sends it nothing.
-        me = os.getpid()
-        start = subprocess.run(["ps", "-o", "lstart=", "-p", str(me)], capture_output=True, text=True, check=True).stdout.strip()
-        stub = self.STUB_HEAD + ("on_hup() { exit 0; }\nrec=\"$(dirname \"$HOME\")/pane\"\n" + self.WAIT_REC +
-                                 "printf 'pid\\n%d\\n%s\\n' > \"$rec\"\necho up\nwhile :; do sleep 0.05; done\n" % (me, start))
-        r, run, pid = self.stub_run(stub)
+    def test_a_ps_that_fails_at_launch_fails_the_run(self):
+        shim = 'for a; do [ "$a" = lstart= ] && exit 1; done\nexec "$REAL" "$@"\n'
+        r, run, pid = self.stub_run(self.STAYS, shims={"ps": shim})
         self.assertEqual(r.code, 4, r.stdout + r.stderr)
-        self.assertIn("pid %d (started %s), is still running 3 s after its tmux server went" % (me, start), r.stderr)
+        self.assertIn("could not be recorded (pid %d: its start time could not be read)" % pid, r.stderr)
+        self.ends_by_itself(pid)
+
+    # The binary in the pane can write its run directory, $run/pane among it:
+    # deleted or forged there, the record cleanup decides from is the same.
+    # Each stub stays past the wait, so each run fails (exit 4).
+    def forged(self, act):
+        r, run, pid = self.stub_run(self.stays_and(act))
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("LIVE-WRITER GUARD: the process this run started in its pane, pid %d (started " % pid, r.stderr)
+        self.assertIn("is still running 3 s after its tmux server went", r.stderr)
+        self.ends_by_itself(pid)
+        self.assertEqual(self.sigs(run, pid), ["HUP"], "tmux's hangup and no other signal")
+
+    def test_a_record_copy_the_binary_deletes_changes_nothing(self):
+        self.forged('rm -f "$rec"\n')
+
+    def test_a_record_copy_the_binary_writes_gone_changes_nothing(self):
+        self.forged("printf 'gone\\n' > \"$rec\"\n")
+
+    def test_a_record_copy_the_binary_writes_without_a_start_changes_nothing(self):
+        self.forged("printf 'pid\\n%s\\n' $$ > \"$rec\"\n")
+
+    def test_a_relaunch_that_fails_after_respawning_says_the_pane_was_being_remade(self):
+        # The record is unknown from before `respawn-pane` until own_pane
+        # reads the new process: a tmux that respawns the pane and then
+        # fails leaves it unknown, never the old process's.
+        shim = '"$REAL" "$@"; rc=$?\nfor a; do [ "$a" = respawn-pane ] && exit 1; done\nexit $rc\n'
+        r, run, pid = self.stub_run(self.SLOW_EXIT, cap="wait 1\nrelaunch\nwait 1\nsnap a\n", shims={"tmux": shim})
+        self.assertNotEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("could not be recorded (the pane was being remade)", r.stderr)
 
     def test_a_relaunched_binary_is_the_one_waited_for(self):
         # `relaunch` replaces the pane's process: the record is the new one's.
