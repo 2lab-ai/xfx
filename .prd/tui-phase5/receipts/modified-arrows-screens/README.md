@@ -403,5 +403,9 @@ every citation falls inside a range of `fx-src.txt`.
 6. **Refs and citations**: the comment and test lines moved six of the
    ledger's refs into `src/tui/shell.rs`; `refs.py --fix` re-pointed them
    (`refs.txt`: 16 checked, 0 wrong). `fx-src-check.txt` is round 2's run.
-7. **Gate**: `gate.txt`, round 2's block first.
+7. **Gate**: the brief's gate on a `--no-local` clone at `72984456` (round
+   2's records commit; its non-test `src/` is the code head's but for
+   comments), under the suite lock: every step exits 0, test 5706 passed,
+   test-fi 5743 passed, 0 failed (round 2 adds no `#[test]`); `green.txt`
+   24 of 24 ok (`gate.txt` and `green.txt`, round 2's block first).
 
