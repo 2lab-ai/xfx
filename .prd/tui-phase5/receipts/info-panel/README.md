@@ -32,7 +32,7 @@ The xfx binary is `target/debug/xfx`, built from this branch's working tree
 before it was committed, so its banner and `build_revision` say the base,
 `e0d97bd5c59c`.
 
-Sanitized: `/private/tmp/claude-501` is written `<tmp>` in every file
+Sanitized: `/private/tmp/claude-<uid>` is written `<tmp>` in every file
 (`scripts/fxcap/redact.py`). Nothing else was edited.
 
 ## RED, and why no pty pair is GREEN yet

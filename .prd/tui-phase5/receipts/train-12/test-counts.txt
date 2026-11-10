@@ -1,0 +1,11 @@
+# lines holding #[test] under src and tests (git grep -c '#\[test\]'), and '    def test_' under scripts/fxcap, per commit
+df46777e Merge pull request #89 from 2lab-ai/train/p5-1109d           rust  5557  fxcap 176
+32afd307 Merge pull request #88 from 2lab-ai/train/p5-1109c           rust  5452  fxcap 176
+a1cbdcaf docs(receipt): GATE-ENV-MAINTLOCK-F r3 -- four README lines: rust  5452  fxcap 176
+3be49c15 docs(receipt): P5 train 11 round 2 -- the redaction check an rust  5557  fxcap 176
+4bc9ab13 docs(receipt): SWEEP-WALLCLOCK round 2 -- the column scenari rust  5557  fxcap 178
+ccced1f5 Merge pull request #86 from 2lab-ai/train/p5-1109a           rust  5374  fxcap 173
+5609108f docs(receipt): LOCAL-PATHS section 4 says 28 plants and the  rust  5374  fxcap 201
+3d3d56c8 docs(receipt,parity): INPUT-ROW-LIMIT round 2 -- refs.txt, / rust  5462  fxcap 176
+12b56ab8 merge: INPUT-ROW-LIMIT (fix/p5-input-row-limit @ 3d3d56c8) i rust  5567  fxcap 206
+03fb5436 fix(ledger): P5 train 12 -- the 13 references the merges mov rust  5567  fxcap 206

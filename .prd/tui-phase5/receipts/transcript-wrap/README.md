@@ -314,7 +314,7 @@ The result is in "Gates".
 
 Round 2 ran these on `4a19a15e`, whose code is `52b150c`'s. Round 3 ran the
 whole list again on `01981fc3`, with the same results (9817 files for the
-three checks). `TMPDIR=/private/tmp/claude-501/tw`; each full run came after
+three checks). `TMPDIR=<tmp>/tw`; each full run came after
 the idle wait:
 
 | gate | result |

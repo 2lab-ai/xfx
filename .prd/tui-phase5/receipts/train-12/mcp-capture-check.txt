@@ -1,0 +1,5 @@
+# check-no-local-paths.sh in a clone at 03fb5436, with fx-p5-mcp-menu-new-40x120-server-proj.txt staged under .prd/tui-phase5/receipts/mcp-check/
+check-no-local-paths: a path that belongs to one machine is in tracked content (write it as a placeholder such as <tmp>, <home> or <work>, derive it from $TMPDIR or $HOME at run time, or mark a fixture's line local-path-ok):
+.prd/tui-phase5/receipts/mcp-check/fx-p5-mcp-menu-new-40x120-server-proj.txt:6: a harness scratch root
+check-no-local-paths: 1 problem(s) found
+# exit 1

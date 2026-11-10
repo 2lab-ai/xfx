@@ -1,0 +1,14 @@
+# batch3.sh started 2026-11-09T16:56:43Z, git 2.56.0, bash 3.2.57(1)-release, suite lock: slot-2 since 2026-11-09T16:56:43Z
+old-m4-no-trace head=1990a4d7 exit=0 seconds=452 load={ 29.48 26.75 28.90 } last=test-gate-env: ok (64 cases)
+old-m5-lock-stays head=1990a4d7 exit=0 seconds=456 load={ 24.86 26.38 27.54 } last=test-gate-env: ok (64 cases)
+m1-no-guard head=2a9b1c22 exit=1 seconds=533 load={ 43.54 33.05 29.09 } last=test-gate-env: 3 problem(s), 62 case(s) passed
+m2-no-maintenance-auto head=2a9b1c22 exit=1 seconds=375 load={ 22.24 30.25 29.50 } last=test-gate-env: 1 problem(s), 63 case(s) passed
+m3-no-gc-auto head=2a9b1c22 exit=0 seconds=326 load={ 27.09 27.69 28.32 } last=test-gate-env: ok (64 cases)
+m4-no-trace head=2a9b1c22 exit=1 seconds=298 load={ 32.74 28.71 28.50 } last=test-gate-env: 1 problem(s), 63 case(s) passed
+m5-lock-stays head=2a9b1c22 exit=1 seconds=322 load={ 36.23 29.96 29.14 } last=test-gate-env: 2 problem(s), 62 case(s) passed
+setup-fails head=2a9b1c22 exit=1 seconds=120 load={ 54.46 38.61 32.63 } last=./scripts/cut-setup-fails.sh: line 339: <tmp>/xfx-gate-env.oB0SWt/decoy/no-such-dir/: No such file or directory
+# clone left clean: yes
+green-1 head=2a9b1c22 exit=0 seconds=572 load={ 44.65 44.18 39.01 } last=test-gate-env: ok (64 cases)
+green-2 head=2a9b1c22 exit=0 seconds=303 load={ 52.32 49.30 42.62 } last=test-gate-env: ok (64 cases)
+green-3 head=2a9b1c22 exit=0 seconds=367 load={ 36.70 43.42 42.18 } last=test-gate-env: ok (64 cases)
+# batch3.sh done 2026-11-09T18:05:28Z

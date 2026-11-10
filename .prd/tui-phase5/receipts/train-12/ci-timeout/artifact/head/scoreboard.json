@@ -1,0 +1,6104 @@
+{
+ "meta": {
+  "pin": "v0.0.16",
+  "pin_name": "v0.0.16",
+  "fx_version": "0.0.16",
+  "fx_sha256": "8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2",
+  "fx": "<fx-bin>",
+  "xfx": "<xfx-bin>",
+  "xfx_sha256": "b94a89566ce02c951e6827caf9b8127a07c086d1ebe15334e3f53af050c9aea6",
+  "repo_head": "1b15dad92c299dc628922dbbe0b7a155ed6d5d4a",
+  "size": "40x120",
+  "jobs": 2,
+  "only": [
+   "startup",
+   "composer-wrap",
+   "streaming",
+   "statusline-turn",
+   "question",
+   "allowlist-remember",
+   "model-column",
+   "settings-scrollback",
+   "h1-resize",
+   "quit",
+   "model-column-hold",
+   "model-column-idle",
+   "model-column-reask",
+   "model-floor",
+   "model-parked",
+   "model-reask",
+   "p5-effort-fork-effort-down",
+   "p5-input-model-fail",
+   "p5-input-row-limit-menus",
+   "p5-input-row-limit-short",
+   "p5-input-row-limit",
+   "p5-stop-in-catalog-wait",
+   "status-version-stats",
+   "alias",
+   "read-failures",
+   "rename",
+   "rename-midturn",
+   "resume",
+   "resume-empty",
+   "resume-launch",
+   "resume-paging",
+   "resume-tools",
+   "search-roots",
+   "timeout",
+   "statusline",
+   "approvals",
+   "approvals-big",
+   "fulltranscript",
+   "rules-read",
+   "skills",
+   "skills-ghost",
+   "skills-paste",
+   "skills-slash",
+   "image-paste",
+   "links",
+   "links-image",
+   "credits-busy",
+   "usage-billed",
+   "usage-deferred",
+   "approvals-amend-limit",
+   "image",
+   "image-composer",
+   "image-inline",
+   "image-nonnative",
+   "image-readfile",
+   "image-undo",
+   "image-unknown",
+   "image-withheld",
+   "paste-block-undo",
+   "paste-card",
+   "notice-wrap",
+   "trace",
+   "trace-nowhere",
+   "workspace",
+   "workspace-index",
+   "titles",
+   "titles-idle",
+   "titles-off",
+   "titles-rename",
+   "titles-steer",
+   "p5-input-paste",
+   "paste-suffix",
+   "p5-panels-keys",
+   "p5-cli-ledger-update-help",
+   "p5-effort-fork-effort-backtab",
+   "p5-effort-fork-effort-column",
+   "p5-effort-fork-effort-ctrlc",
+   "p5-effort-fork-effort-loading",
+   "p5-effort-fork-effort-menu",
+   "p5-effort-fork-effort-nolevels",
+   "p5-effort-fork-effort-short",
+   "p5-effort-fork-fork",
+   "p5-effort-fork-fork-continue",
+   "p5-effort-fork-fork-edge",
+   "p5-effort-fork-fork-empty",
+   "p5-effort-fork-oldread-src",
+   "p5-effort-fork-oldread-v1",
+   "p5-effort-fork-oldread-v2",
+   "p5-effort-fork-slash-rank",
+   "p5-input-mcp",
+   "p5-mcp-config",
+   "p5-mcp-config-ignored",
+   "p5-mcp-config-vars",
+   "p5-mcp-direct",
+   "p5-mcp-dismiss",
+   "p5-mcp-empty",
+   "p5-mcp-errdata",
+   "p5-mcp-fail",
+   "p5-mcp-failed",
+   "p5-mcp-known",
+   "p5-mcp-live",
+   "p5-mcp-menu-new",
+   "p5-mcp-menu-old",
+   "p5-mcp-notes",
+   "p5-mcp-rpcerror",
+   "p5-mcp-turn",
+   "p5-mcp-unavailable",
+   "p5-mcp-verbs",
+   "p5-mcp-wire-new",
+   "p5-mcp-wire-old",
+   "p5-panels-badsettings",
+   "p5-panels-help",
+   "p5-panels-noauth",
+   "p5-panels-permissions",
+   "p5-panels-permissions-saved",
+   "p5-panels-slash",
+   "p5-panels-status",
+   "p5-panels-status-badsettings",
+   "p5-panels-status-first",
+   "p5-panels-status-short",
+   "p5-panels-sweep-a",
+   "p5-panels-sweep-b",
+   "p5-permissions-early",
+   "p5-permissions-early-probe-ask-after",
+   "p5-session-early-prefs"
+  ],
+  "inventory_only": false,
+  "units": [
+   "alias",
+   "allowlist-remember",
+   "approvals",
+   "approvals-amend-limit",
+   "approvals-big",
+   "composer-wrap",
+   "credits-busy",
+   "fulltranscript",
+   "h1-resize",
+   "image",
+   "image-composer",
+   "image-inline",
+   "image-nonnative",
+   "image-paste",
+   "image-readfile",
+   "image-undo",
+   "image-unknown",
+   "image-withheld",
+   "links",
+   "links-image",
+   "model-column",
+   "model-column-hold",
+   "model-column-idle",
+   "model-column-reask",
+   "model-floor",
+   "model-parked",
+   "model-reask",
+   "notice-wrap",
+   "p5-cli-ledger-update-help",
+   "p5-effort-fork-effort-backtab",
+   "p5-effort-fork-effort-column",
+   "p5-effort-fork-effort-ctrlc",
+   "p5-effort-fork-effort-down",
+   "p5-effort-fork-effort-loading",
+   "p5-effort-fork-effort-menu",
+   "p5-effort-fork-effort-nolevels",
+   "p5-effort-fork-effort-short",
+   "p5-effort-fork-fork",
+   "p5-effort-fork-fork-continue",
+   "p5-effort-fork-fork-edge",
+   "p5-effort-fork-fork-empty",
+   "p5-effort-fork-oldread-src",
+   "p5-effort-fork-oldread-v1",
+   "p5-effort-fork-oldread-v2",
+   "p5-effort-fork-slash-rank",
+   "p5-input-mcp",
+   "p5-input-model-fail",
+   "p5-input-paste",
+   "p5-input-row-limit",
+   "p5-input-row-limit-menus",
+   "p5-input-row-limit-short",
+   "p5-mcp-config",
+   "p5-mcp-config-ignored",
+   "p5-mcp-config-vars",
+   "p5-mcp-direct",
+   "p5-mcp-dismiss",
+   "p5-mcp-empty",
+   "p5-mcp-errdata",
+   "p5-mcp-fail",
+   "p5-mcp-failed",
+   "p5-mcp-known",
+   "p5-mcp-live",
+   "p5-mcp-menu-new",
+   "p5-mcp-menu-old",
+   "p5-mcp-notes",
+   "p5-mcp-rpcerror",
+   "p5-mcp-turn",
+   "p5-mcp-unavailable",
+   "p5-mcp-verbs",
+   "p5-mcp-wire-new",
+   "p5-mcp-wire-old",
+   "p5-panels-badsettings",
+   "p5-panels-help",
+   "p5-panels-keys",
+   "p5-panels-noauth",
+   "p5-panels-permissions",
+   "p5-panels-permissions-saved",
+   "p5-panels-slash",
+   "p5-panels-status",
+   "p5-panels-status-badsettings",
+   "p5-panels-status-first",
+   "p5-panels-status-short",
+   "p5-panels-sweep-a",
+   "p5-panels-sweep-b",
+   "p5-permissions-early",
+   "p5-permissions-early-probe-ask-after",
+   "p5-session-early-prefs",
+   "p5-stop-in-catalog-wait",
+   "paste-block-undo",
+   "paste-card",
+   "paste-suffix",
+   "question",
+   "quit",
+   "read-failures",
+   "rename",
+   "rename-midturn",
+   "resume",
+   "resume-empty",
+   "resume-launch",
+   "resume-paging",
+   "resume-tools",
+   "rules-read",
+   "search-roots",
+   "settings-scrollback",
+   "skills",
+   "skills-ghost",
+   "skills-paste",
+   "skills-slash",
+   "startup",
+   "status-version-stats",
+   "statusline",
+   "statusline-turn",
+   "streaming",
+   "timeout",
+   "titles",
+   "titles-idle",
+   "titles-off",
+   "titles-rename",
+   "titles-steer",
+   "trace",
+   "trace-nowhere",
+   "usage-billed",
+   "usage-deferred",
+   "workspace",
+   "workspace-index"
+  ],
+  "scenarios_dir": "<out>/scenarios-used",
+  "scenarios_from": "<repo>/scripts/fxcap/scenarios",
+  "started": "2026-11-10T03:32:13+00:00",
+  "wall_seconds": 2795.5,
+  "wall": "46m35s",
+  "start_load": 13.24,
+  "peak_load": 13.73,
+  "ledger_sha256": "ec2649a71e91906eedbdd390476637813608a3dd7c7b959c03eecd9cadc468cf",
+  "normalizations": 14,
+  "divergences": 19,
+  "scenarios": 125,
+  "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands",
+  "leaked_tmux_servers": 0
+ },
+ "totals": {
+  "total": 816,
+  "ran": 814,
+  "identical": 19,
+  "normalized-identical": 557,
+  "approved-divergence": 4,
+  "approved-divergence-cascade": 26,
+  "replaced-in-next-pin": 0,
+  "unresolved-defect": 208,
+  "failed": 2,
+  "timeout": 0
+ },
+ "pass": 0.7058823529411765,
+ "scenario_status": {
+  "ran": 124,
+  "failed": 1,
+  "timeout": 0
+ },
+ "groups": {
+  "alias": {
+   "scenarios": 1,
+   "counts": {
+    "total": 11,
+    "ran": 11,
+    "identical": 0,
+    "normalized-identical": 9,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "allowlist": {
+   "scenarios": 1,
+   "counts": {
+    "total": 7,
+    "ran": 7,
+    "identical": 0,
+    "normalized-identical": 7,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "approvals": {
+   "scenarios": 3,
+   "counts": {
+    "total": 18,
+    "ran": 18,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 16,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "composer": {
+   "scenarios": 1,
+   "counts": {
+    "total": 11,
+    "ran": 11,
+    "identical": 0,
+    "normalized-identical": 11,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "credits": {
+   "scenarios": 1,
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "fulltranscript": {
+   "scenarios": 1,
+   "counts": {
+    "total": 15,
+    "ran": 15,
+    "identical": 0,
+    "normalized-identical": 6,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 9,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "h": {
+   "scenarios": 1,
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "image": {
+   "scenarios": 9,
+   "counts": {
+    "total": 52,
+    "ran": 52,
+    "identical": 3,
+    "normalized-identical": 47,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "links": {
+   "scenarios": 2,
+   "counts": {
+    "total": 9,
+    "ran": 9,
+    "identical": 2,
+    "normalized-identical": 6,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "model": {
+   "scenarios": 7,
+   "counts": {
+    "total": 31,
+    "ran": 31,
+    "identical": 0,
+    "normalized-identical": 30,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "notice": {
+   "scenarios": 1,
+   "counts": {
+    "total": 1,
+    "ran": 1,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "p": {
+   "scenarios": 60,
+   "counts": {
+    "total": 442,
+    "ran": 440,
+    "identical": 5,
+    "normalized-identical": 286,
+    "approved-divergence": 4,
+    "approved-divergence-cascade": 25,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 120,
+    "failed": 2,
+    "timeout": 0
+   }
+  },
+  "paste": {
+   "scenarios": 3,
+   "counts": {
+    "total": 17,
+    "ran": 17,
+    "identical": 1,
+    "normalized-identical": 16,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "question": {
+   "scenarios": 1,
+   "counts": {
+    "total": 9,
+    "ran": 9,
+    "identical": 0,
+    "normalized-identical": 9,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "quit": {
+   "scenarios": 1,
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "read": {
+   "scenarios": 1,
+   "counts": {
+    "total": 6,
+    "ran": 6,
+    "identical": 1,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "rename": {
+   "scenarios": 2,
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 7,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "resume": {
+   "scenarios": 5,
+   "counts": {
+    "total": 47,
+    "ran": 47,
+    "identical": 6,
+    "normalized-identical": 23,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 18,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "rules": {
+   "scenarios": 1,
+   "counts": {
+    "total": 7,
+    "ran": 7,
+    "identical": 1,
+    "normalized-identical": 3,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 3,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "search": {
+   "scenarios": 1,
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "settings": {
+   "scenarios": 1,
+   "counts": {
+    "total": 5,
+    "ran": 5,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "skills": {
+   "scenarios": 4,
+   "counts": {
+    "total": 44,
+    "ran": 44,
+    "identical": 0,
+    "normalized-identical": 23,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 21,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "startup": {
+   "scenarios": 1,
+   "counts": {
+    "total": 1,
+    "ran": 1,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "status": {
+   "scenarios": 1,
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 1,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 6,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "statusline": {
+   "scenarios": 2,
+   "counts": {
+    "total": 11,
+    "ran": 11,
+    "identical": 0,
+    "normalized-identical": 11,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "streaming": {
+   "scenarios": 1,
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "timeout": {
+   "scenarios": 1,
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "titles": {
+   "scenarios": 5,
+   "counts": {
+    "total": 11,
+    "ran": 11,
+    "identical": 0,
+    "normalized-identical": 9,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "trace": {
+   "scenarios": 2,
+   "counts": {
+    "total": 5,
+    "ran": 5,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "usage": {
+   "scenarios": 2,
+   "counts": {
+    "total": 12,
+    "ran": 12,
+    "identical": 0,
+    "normalized-identical": 12,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "workspace": {
+   "scenarios": 2,
+   "counts": {
+    "total": 13,
+    "ran": 13,
+    "identical": 0,
+    "normalized-identical": 12,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   }
+  }
+ },
+ "scenarios": [
+  {
+   "scenario": "alias",
+   "group": "alias",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 11,
+    "ran": 11,
+    "identical": 0,
+    "normalized-identical": 9,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 11,
+    "fx": "Commands 4  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  Product",
+    "xfx": "Commands 2  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  Product",
+    "attrs_only": false,
+    "matched": [],
+    "label": "help-query-command",
+    "unaligned": [
+     3,
+     3
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "allowlist-remember",
+   "group": "allowlist",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 7,
+    "ran": 7,
+    "identical": 0,
+    "normalized-identical": 7,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "approvals",
+   "group": "approvals",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 10,
+    "ran": 10,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 10,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 19,
+    "fx": "    2  Apply + allow workspace file access for this session",
+    "xfx": "    2  Apply + allow future edits to this file for this session",
+    "attrs_only": false,
+    "matched": [],
+    "label": "edit-ask",
+    "unaligned": [
+     3,
+     3
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "approvals-amend-limit",
+   "group": "approvals",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 5,
+    "ran": 5,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 4,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 19,
+    "fx": "    2  Apply + allow workspace file access for this session",
+    "xfx": "    2  Apply + allow future edits to this file for this session",
+    "attrs_only": false,
+    "matched": [],
+    "label": "asked",
+    "unaligned": [
+     3,
+     3
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "approvals-big",
+   "group": "approvals",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 1,
+    "fx": "     52 + generated line 52",
+    "xfx": "     54 + generated line 54",
+    "attrs_only": false,
+    "matched": [],
+    "label": "write-big",
+    "unaligned": [
+     4,
+     4
+    ]
+   },
+   "xfx_banner": "     54 + generated line 54"
+  },
+  {
+   "scenario": "composer-wrap",
+   "group": "composer",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 11,
+    "ran": 11,
+    "identical": 0,
+    "normalized-identical": 11,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "credits-busy",
+   "group": "credits",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "fulltranscript",
+   "group": "fulltranscript",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 15,
+    "ran": 15,
+    "identical": 0,
+    "normalized-identical": 6,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 9,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 16,
+    "fx": "  $ # shell.run profile=user shell=/bin/bash",
+    "xfx": "  $ # terminal.exec cwd=.",
+    "attrs_only": false,
+    "matched": [],
+    "label": "cmd-ask",
+    "unaligned": [
+     3,
+     3
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "h1-resize",
+   "group": "h",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 1,
+    "fx": "<banner>",
+    "xfx": "",
+    "attrs_only": false,
+    "matched": [],
+    "label": "small",
+    "unaligned": [
+     6,
+     6
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "image",
+   "group": "image",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 17,
+    "ran": 17,
+    "identical": 3,
+    "normalized-identical": 14,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "image-composer",
+   "group": "image",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 8,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "image-inline",
+   "group": "image",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 5,
+    "ran": 5,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "image-nonnative",
+   "group": "image",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 7,
+    "fx": "  It is a small red square.",
+    "xfx": "✗ system: request failed: SubscriptionNativeImageUnavailable",
+    "attrs_only": false,
+    "matched": [],
+    "label": "sent",
+    "unaligned": [
+     3,
+     3
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "image-paste",
+   "group": "image",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 7,
+    "ran": 7,
+    "identical": 0,
+    "normalized-identical": 7,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "image-readfile",
+   "group": "image",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "image-undo",
+   "group": "image",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 5,
+    "ran": 5,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "image-unknown",
+   "group": "image",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 3,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "image-withheld",
+   "group": "image",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "links",
+   "group": "links",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 6,
+    "ran": 6,
+    "identical": 1,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 1,
+    "fx": "  skills: loading",
+    "xfx": "  tools: 12 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,",
+    "attrs_only": false,
+    "matched": [],
+    "label": "full",
+    "unaligned": [
+     2,
+     2
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "links-image",
+   "group": "links",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 1,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "model-column",
+   "group": "model",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 8,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "model-column-hold",
+   "group": "model",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "model-column-idle",
+   "group": "model",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 3,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "model-column-reask",
+   "group": "model",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "model-floor",
+   "group": "model",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 3,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "model-parked",
+   "group": "model",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 5,
+    "ran": 5,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "~ Thinking (<s>)",
+    "xfx": "~ Thinking (<s>) (↑4 ↓0)",
+    "attrs_only": false,
+    "matched": [],
+    "label": "menu-loading",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "model-reask",
+   "group": "model",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "notice-wrap",
+   "group": "notice",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 1,
+    "ran": 1,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-cli-ledger-update-help",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 3,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 2,
+    "fx": "xfx upgrade",
+    "xfx": "error: unrecognized subcommand 'update'",
+    "attrs_only": false,
+    "matched": [],
+    "label": "h00-update-help.full",
+    "unaligned": [
+     9,
+     9
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-effort-backtab",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-effort-column",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 17,
+    "ran": 17,
+    "identical": 0,
+    "normalized-identical": 17,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-effort-ctrlc",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-effort-down",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-effort-loading",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-effort-menu",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 18,
+    "ran": 18,
+    "identical": 0,
+    "normalized-identical": 18,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-effort-nolevels",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 5,
+    "ran": 5,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-effort-short",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 3,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-fork",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 16,
+    "ran": 16,
+    "identical": 1,
+    "normalized-identical": 14,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 1,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-fork-continue",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "* session forked: only prompt omega (fork)"
+  },
+  {
+   "scenario": "p5-effort-fork-fork-edge",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 11,
+    "ran": 11,
+    "identical": 0,
+    "normalized-identical": 10,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 1,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-fork-empty",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-oldread-src",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 3,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "Sessions 2  Current workspace  [All workspaces]",
+    "xfx": "Sessions 0  Current workspace  [All workspaces]",
+    "attrs_only": false,
+    "matched": [],
+    "label": "picker-enter-fork",
+    "unaligned": [
+     4,
+     4
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-oldread-v1",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "Sessions 2  Current workspace  [All workspaces]",
+    "xfx": "Sessions 0  Current workspace  [All workspaces]",
+    "attrs_only": false,
+    "matched": [],
+    "label": "picker-all",
+    "unaligned": [
+     3,
+     3
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-oldread-v2",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 7,
+    "ran": 7,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 5,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "Sessions 2  Current workspace  [All workspaces]",
+    "xfx": "Sessions 0  Current workspace  [All workspaces]",
+    "attrs_only": false,
+    "matched": [],
+    "label": "picker-all",
+    "unaligned": [
+     3,
+     3
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-effort-fork-slash-rank",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 3,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "Commands 23                                                                                                         1–6",
+    "xfx": "Commands 21                                                                                                         1–6",
+    "attrs_only": false,
+    "matched": [],
+    "label": "e",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-input-mcp",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 9,
+    "ran": 9,
+    "identical": 0,
+    "normalized-identical": 9,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-input-model-fail",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-input-paste",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-input-row-limit",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 9,
+    "ran": 9,
+    "identical": 0,
+    "normalized-identical": 3,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 6,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "  items/f-01.txt",
+    "xfx": "  indexing files...",
+    "attrs_only": false,
+    "matched": [],
+    "label": "at",
+    "unaligned": [
+     10,
+     10
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-input-row-limit-menus",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-input-row-limit-short",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "Commands 38 · type to filter                                                                                        1–6",
+    "xfx": "Commands 34 · type to filter                                                                                        1–6",
+    "attrs_only": false,
+    "matched": [],
+    "label": "slash",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-config",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 11,
+    "fx": "* mcp: NAME   SOURCE          TRANSPORT  STATUS",
+    "xfx": "* mcp: NAME   SOURCE           TRANSPORT  STATUS",
+    "attrs_only": false,
+    "matched": [],
+    "label": "list",
+    "unaligned": [
+     3,
+     3
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-config-ignored",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 4,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "auto · model-a                                                                     MCP config has 2 problems · /mcp list",
+    "xfx": "auto · model-a",
+    "attrs_only": false,
+    "matched": [],
+    "label": "startup",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-config-vars",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 3,
+    "fx": "* mcp: NAME      SOURCE          TRANSPORT  STATUS",
+    "xfx": "* mcp: NAME      SOURCE           TRANSPORT  STATUS",
+    "attrs_only": false,
+    "matched": [],
+    "label": "list",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-direct",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-dismiss",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 24,
+    "ran": 24,
+    "identical": 0,
+    "normalized-identical": 24,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-errdata",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 1,
+    "ran": 1,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-fail",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 6,
+    "ran": 6,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 3,
+    "fx": "┃",
+    "xfx": "* mcp: bad",
+    "attrs_only": false,
+    "matched": [],
+    "label": "show-bad",
+    "unaligned": [
+     7,
+     7
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-failed",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-known",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 1,
+    "ran": 1,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-live",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 6,
+    "ran": 6,
+    "identical": 0,
+    "normalized-identical": 6,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-menu-new",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 34,
+    "ran": 34,
+    "identical": 0,
+    "normalized-identical": 34,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-menu-old",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 16,
+    "ran": 16,
+    "identical": 0,
+    "normalized-identical": 16,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-notes",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 3,
+    "fx": "* mcp: NAME     SOURCE          TRANSPORT  STATUS",
+    "xfx": "* mcp: NAME     SOURCE           TRANSPORT  STATUS",
+    "attrs_only": false,
+    "matched": [],
+    "label": "list",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-rpcerror",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 1,
+    "ran": 1,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-turn",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 3,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-unavailable",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 1,
+    "ran": 1,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-verbs",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 28,
+    "ran": 28,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 27,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 3,
+    "fx": "* mcp: NAME     SOURCE          TRANSPORT  STATUS",
+    "xfx": "* mcp: NAME     SOURCE           TRANSPORT  STATUS",
+    "attrs_only": false,
+    "matched": [],
+    "label": "list",
+    "unaligned": [
+     2,
+     2
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-wire-new",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 1,
+    "ran": 1,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-mcp-wire-old",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 1,
+    "ran": 1,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-panels-badsettings",
+   "group": "p",
+   "status": "failed",
+   "reasons": [
+    "fx: exit 1"
+   ],
+   "counts": {
+    "total": 2,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 2,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": null
+  },
+  {
+   "scenario": "p5-panels-help",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 17,
+    "ran": 17,
+    "identical": 0,
+    "normalized-identical": 10,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 7,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "Commands 38  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  …",
+    "xfx": "Commands 34  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  …",
+    "attrs_only": false,
+    "matched": [],
+    "label": "open",
+    "unaligned": [
+     4,
+     4
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-panels-keys",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 10,
+    "ran": 10,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 7,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 15,
+    "fx": "  $ # shell.run profile=user shell=/bin/bash",
+    "xfx": "  $ # terminal.exec cwd=.",
+    "attrs_only": false,
+    "matched": [],
+    "label": "approval-arrives",
+    "unaligned": [
+     3,
+     3
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-panels-noauth",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 1,
+    "approved-divergence-cascade": 1,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-panels-permissions",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 20,
+    "ran": 20,
+    "identical": 2,
+    "normalized-identical": 14,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 1,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 3,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 29,
+    "fx": "  $ # shell.run profile=user shell=/bin/bash",
+    "xfx": "  $ # terminal.exec cwd=.",
+    "attrs_only": false,
+    "matched": [],
+    "label": "approval",
+    "unaligned": [
+     3,
+     3
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-panels-permissions-saved",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 3,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 15,
+    "fx": "  $ # shell.run profile=user shell=/bin/bash",
+    "xfx": "  $ # terminal.exec cwd=.",
+    "attrs_only": false,
+    "matched": [],
+    "label": "approval",
+    "unaligned": [
+     3,
+     3
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-panels-slash",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 15,
+    "ran": 15,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 10,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "Commands 38 · type to filter                                                                                        1–6",
+    "xfx": "Commands 34 · type to filter                                                                                        1–6",
+    "attrs_only": false,
+    "matched": [],
+    "label": "slash",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-panels-status",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 11,
+    "ran": 11,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 6,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-panels-status-badsettings",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 2,
+    "approved-divergence-cascade": 1,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-panels-status-first",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 2,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-panels-status-short",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 6,
+    "ran": 6,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 5,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-panels-sweep-a",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 33,
+    "ran": 33,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 28,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "* stats: ansi_bytes=3506, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0",
+    "xfx": "* stats: ansi_bytes=2682, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0",
+    "attrs_only": false,
+    "matched": [],
+    "label": "stats",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-panels-sweep-b",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 11,
+    "ran": 11,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 7,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 17,
+    "fx": "* stats: ansi_bytes=5035, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0",
+    "xfx": "* stats: ansi_bytes=4072, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0",
+    "attrs_only": false,
+    "matched": [],
+    "label": "stats",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-permissions-early",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 11,
+    "ran": 11,
+    "identical": 0,
+    "normalized-identical": 11,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-permissions-early-probe-ask-after",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 1,
+    "ran": 1,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 1,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-session-early-prefs",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 5,
+    "ran": 5,
+    "identical": 2,
+    "normalized-identical": 3,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "p5-stop-in-catalog-wait",
+   "group": "p",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 3,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "paste-block-undo",
+   "group": "paste",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 8,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "paste-card",
+   "group": "paste",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 7,
+    "ran": 7,
+    "identical": 1,
+    "normalized-identical": 6,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "paste-suffix",
+   "group": "paste",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "question",
+   "group": "question",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 9,
+    "ran": 9,
+    "identical": 0,
+    "normalized-identical": 9,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "quit",
+   "group": "quit",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "read-failures",
+   "group": "read",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 6,
+    "ran": 6,
+    "identical": 1,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "  system prompt: ready · 6249 bytes",
+    "xfx": "  tools: 12 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,",
+    "attrs_only": false,
+    "matched": [],
+    "label": "live-ctrl-o-up1",
+    "unaligned": [
+     4,
+     4
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "rename",
+   "group": "rename",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 5,
+    "ran": 5,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 1,
+    "fx": "xfx: no saved sessions for this workspace.",
+    "xfx": "* session resumed: My Title",
+    "attrs_only": false,
+    "matched": [],
+    "label": "relaunched",
+    "unaligned": [
+     5,
+     5
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "rename-midturn",
+   "group": "rename",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 3,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "resume",
+   "group": "resume",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 13,
+    "ran": 13,
+    "identical": 4,
+    "normalized-identical": 9,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "resume-empty",
+   "group": "resume",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "resume-launch",
+   "group": "resume",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 2,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "* session resumed: first question alpha"
+  },
+  {
+   "scenario": "resume-paging",
+   "group": "resume",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 7,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 22,
+    "fx": "  question three        work ·  1m · 1 turn",
+    "xfx": "  question three        work · now · 1 turn",
+    "attrs_only": false,
+    "matched": [],
+    "label": "down14",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "resume-tools",
+   "group": "resume",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 18,
+    "ran": 18,
+    "identical": 0,
+    "normalized-identical": 7,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 11,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 19,
+    "fx": "  $ # shell.run profile=user shell=/bin/bash",
+    "xfx": "  $ # terminal.exec cwd=.",
+    "attrs_only": false,
+    "matched": [],
+    "label": "cmd-ask",
+    "unaligned": [
+     3,
+     3
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "rules-read",
+   "group": "rules",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 7,
+    "ran": 7,
+    "identical": 1,
+    "normalized-identical": 3,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 3,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 18,
+    "fx": "",
+    "xfx": "  2 = allow every future read_file of `secret.txt` for the rest of this session, and in every later `xfx ask --resume-id",
+    "attrs_only": false,
+    "matched": [],
+    "label": "ask",
+    "unaligned": [
+     2,
+     2
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "search-roots",
+   "group": "search",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "settings-scrollback",
+   "group": "settings",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 5,
+    "ran": 5,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "skills",
+   "group": "skills",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 18,
+    "ran": 18,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 16,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "Skills 2  [All]  xfx  Workspace  Claude  Codex  Agents  OpenCode  Claw",
+    "xfx": "Skills 2  [All]  xfx  Workspace",
+    "attrs_only": false,
+    "matched": [],
+    "label": "menu",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "skills-ghost",
+   "group": "skills",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 15,
+    "ran": 15,
+    "identical": 0,
+    "normalized-identical": 14,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "Skills 1  [All]  xfx  Workspace  Claude  Codex  Agents  OpenCode  Claw",
+    "xfx": "Skills 1  [All]  xfx  Workspace",
+    "attrs_only": false,
+    "matched": [],
+    "label": "dollar-menu",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "skills-paste",
+   "group": "skills",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "Skills 1  [All]  xfx  Workspace  Claude  Codex  Agents  OpenCode  Claw",
+    "xfx": "Skills 1  [All]  xfx  Workspace",
+    "attrs_only": false,
+    "matched": [],
+    "label": "paste",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "skills-slash",
+   "group": "skills",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 3,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 5,
+    "fx": "Results 40 · type to filter                                                                                         1–6",
+    "xfx": "Results 36 · type to filter                                                                                         1–6",
+    "attrs_only": false,
+    "matched": [],
+    "label": "slash-all",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "startup",
+   "group": "startup",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 1,
+    "ran": 1,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "status-version-stats",
+   "group": "status",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 1,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 6,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 3,
+    "fx": "* stats: ansi_bytes=5759, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0",
+    "xfx": "* stats: ansi_bytes=4566, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0",
+    "attrs_only": false,
+    "matched": [],
+    "label": "stats",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "statusline",
+   "group": "statusline",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 8,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "statusline-turn",
+   "group": "statusline",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 3,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "streaming",
+   "group": "streaming",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "timeout",
+   "group": "timeout",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 6,
+    "fx": "└ Timed out echo started; sleep 5",
+    "xfx": "└ Timed out echo started; sleep 130",
+    "attrs_only": false,
+    "matched": [],
+    "label": "live",
+    "unaligned": [
+     2,
+     2
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "titles",
+   "group": "titles",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 3,
+    "ran": 3,
+    "identical": 0,
+    "normalized-identical": 3,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "titles-idle",
+   "group": "titles",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 11,
+    "fx": "auto · model-a · fix the renderer loop, it redraw",
+    "xfx": "auto · model-a · Fix the renderer loop",
+    "attrs_only": false,
+    "matched": [],
+    "label": "answered",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "titles-off",
+   "group": "titles",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "titles-rename",
+   "group": "titles",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "titles-steer",
+   "group": "titles",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "trace",
+   "group": "trace",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "trace-nowhere",
+   "group": "trace",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 1,
+    "ran": 1,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "usage-billed",
+   "group": "usage",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 8,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "usage-deferred",
+   "group": "usage",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 4,
+    "ran": 4,
+    "identical": 0,
+    "normalized-identical": 4,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "workspace",
+   "group": "workspace",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 11,
+    "ran": 11,
+    "identical": 0,
+    "normalized-identical": 11,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": null,
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "workspace-index",
+   "group": "workspace",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 13,
+    "fx": "  <scratch______________________________________________>/extra/notes/",
+    "xfx": "",
+    "attrs_only": false,
+    "matched": [],
+    "label": "at-plan",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  }
+ ],
+ "surfaces": [
+  {
+   "surface": "/help",
+   "kind": "command",
+   "scenarios": [
+    "alias",
+    "composer-keys",
+    "help",
+    "interrupt-help",
+    "p5-input-row-limit",
+    "p5-panels-help",
+    "slash"
+   ],
+   "swept": 3,
+   "counts": {
+    "total": 37,
+    "ran": 37,
+    "identical": 0,
+    "normalized-identical": 22,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 15,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/clear",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "reset",
+    "reset-wire"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 33,
+    "ran": 33,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 28,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/status",
+   "kind": "command",
+   "scenarios": [
+    "h1-rehomefile",
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-edge",
+    "p5-lifecycle-relhome-unsaved",
+    "p5-panels-badsettings",
+    "p5-panels-keys",
+    "p5-panels-noauth",
+    "p5-panels-permissions",
+    "p5-panels-status",
+    "p5-panels-status-badsettings",
+    "p5-panels-status-first",
+    "p5-panels-status-short",
+    "status-version-stats"
+   ],
+   "swept": 11,
+   "counts": {
+    "total": 92,
+    "ran": 90,
+    "identical": 3,
+    "normalized-identical": 48,
+    "approved-divergence": 3,
+    "approved-divergence-cascade": 26,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 10,
+    "failed": 2,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/version",
+   "kind": "command",
+   "scenarios": [
+    "fulltranscript-notice",
+    "help",
+    "notice-midstream",
+    "notice-wire",
+    "notices",
+    "p5-panels-sweep-a",
+    "popup-full",
+    "status-version-stats"
+   ],
+   "swept": 2,
+   "counts": {
+    "total": 41,
+    "ran": 41,
+    "identical": 0,
+    "normalized-identical": 6,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 1,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 34,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/quit",
+   "kind": "command",
+   "scenarios": [
+    "compact",
+    "image",
+    "links",
+    "links-image",
+    "notices",
+    "p5-cli-ledger-update-help",
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-edge",
+    "p5-effort-fork-oldread-src",
+    "p5-effort-fork-oldread-v1",
+    "p5-effort-fork-oldread-v2",
+    "p5-input-question20",
+    "p5-lifecycle-osc",
+    "p5-lifecycle-osc-ask",
+    "p5-lifecycle-osc-hostile",
+    "p5-lifecycle-osc-interrupt",
+    "p5-lifecycle-osc-interruptnext",
+    "p5-lifecycle-osc-picker",
+    "p5-lifecycle-osc-states",
+    "p5-lifecycle-osc-stopnext",
+    "p5-lifecycle-relhome",
+    "p5-lifecycle-relhome-made",
+    "p5-lifecycle-relhome-resume",
+    "p5-lifecycle-relhome-unsaved",
+    "p5-lifecycle-retry",
+    "p5-lifecycle-update",
+    "p5-lifecycle-v1bad",
+    "p5-lifecycle-v1resume",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "p5-session-early-prefs",
+    "p5-usage-noledger",
+    "paste-card",
+    "provider-carry",
+    "provider-carry-back",
+    "provider-carry-back-stop",
+    "provider-resume",
+    "provider-resume-missing",
+    "quit",
+    "rename",
+    "rename-midturn",
+    "resume",
+    "resume-empty",
+    "resume-launch",
+    "undo-resume"
+   ],
+   "swept": 19,
+   "counts": {
+    "total": 159,
+    "ran": 159,
+    "identical": 15,
+    "normalized-identical": 92,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 2,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 50,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/new",
+   "kind": "command",
+   "scenarios": [
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-empty",
+    "p5-lifecycle-relhome-unsaved",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "p5-permissions-early",
+    "read-failures",
+    "reset",
+    "resume",
+    "resume-paging",
+    "resume-tools",
+    "resume-wire",
+    "titles",
+    "titles-off"
+   ],
+   "swept": 11,
+   "counts": {
+    "total": 125,
+    "ran": 125,
+    "identical": 6,
+    "normalized-identical": 64,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 1,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 54,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/reset",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "reset"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 33,
+    "ran": 33,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 28,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/resume",
+   "kind": "command",
+   "scenarios": [
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-edge",
+    "p5-effort-fork-fork-empty",
+    "p5-effort-fork-oldread-src",
+    "p5-effort-fork-oldread-v1",
+    "p5-effort-fork-oldread-v2",
+    "p5-lifecycle-osc-picker",
+    "p5-lifecycle-relhome-unsaved",
+    "p5-lifecycle-v1bad",
+    "p5-lifecycle-v1resume",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "read-failures",
+    "resume",
+    "resume-empty",
+    "resume-paging",
+    "resume-tools",
+    "resume-wire",
+    "titles",
+    "titles-off"
+   ],
+   "swept": 15,
+   "counts": {
+    "total": 143,
+    "ran": 143,
+    "identical": 6,
+    "normalized-identical": 71,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 2,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 64,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/rename",
+   "kind": "command",
+   "scenarios": [
+    "p5-lifecycle-relhome-unsaved",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "rename",
+    "rename-midturn",
+    "resume",
+    "titles-rename"
+   ],
+   "swept": 6,
+   "counts": {
+    "total": 67,
+    "ran": 67,
+    "identical": 4,
+    "normalized-identical": 27,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 36,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/fork",
+   "kind": "command",
+   "scenarios": [
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-continue",
+    "p5-effort-fork-fork-edge",
+    "p5-effort-fork-fork-empty",
+    "p5-lifecycle-relhome-unsaved"
+   ],
+   "swept": 4,
+   "counts": {
+    "total": 33,
+    "ran": 33,
+    "identical": 1,
+    "normalized-identical": 30,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 2,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/undo",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "undo",
+    "undo-empty",
+    "undo-resume"
+   ],
+   "swept": 2,
+   "counts": {
+    "total": 44,
+    "ran": 44,
+    "identical": 0,
+    "normalized-identical": 9,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 35,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/copy",
+   "kind": "command",
+   "scenarios": [
+    "copy",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "recall-edge"
+   ],
+   "swept": 2,
+   "counts": {
+    "total": 44,
+    "ran": 44,
+    "identical": 0,
+    "normalized-identical": 9,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 35,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/compact",
+   "kind": "command",
+   "scenarios": [
+    "compact",
+    "compact-cancel",
+    "compact-fail",
+    "compact-text",
+    "p5-lifecycle-compactfail",
+    "p5-lifecycle-compactok",
+    "p5-lifecycle-osc-compact",
+    "p5-lifecycle-osc-compactfail",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b"
+   ],
+   "swept": 2,
+   "counts": {
+    "total": 44,
+    "ran": 44,
+    "identical": 0,
+    "normalized-identical": 9,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 35,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/login",
+   "kind": "command",
+   "scenarios": [
+    "p5-lifecycle-login",
+    "p5-lifecycle-login2",
+    "p5-panels-sweep-a"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 33,
+    "ran": 33,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 28,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/logout",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 33,
+    "ran": 33,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 28,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/provider",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "provider",
+    "provider-carry",
+    "provider-carry-back",
+    "provider-carry-back-stop",
+    "provider-resume",
+    "provider-resume-missing",
+    "provider-switch"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 33,
+    "ran": 33,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 28,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/stats",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "p5-usage-turns",
+    "recall-edge",
+    "status-version-stats"
+   ],
+   "swept": 3,
+   "counts": {
+    "total": 52,
+    "ran": 52,
+    "identical": 0,
+    "normalized-identical": 10,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 1,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 41,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/usage",
+   "kind": "command",
+   "scenarios": [
+    "h1-usage",
+    "h1-usage-codex",
+    "h1-usage-grok",
+    "p5-usage-budget",
+    "p5-usage-cached",
+    "p5-usage-codex",
+    "p5-usage-many",
+    "p5-usage-nokey",
+    "p5-usage-noledger",
+    "p5-usage-oidc",
+    "p5-usage-turns",
+    "usage",
+    "usage-billed",
+    "usage-deferred",
+    "usage-session"
+   ],
+   "swept": 2,
+   "counts": {
+    "total": 12,
+    "ran": 12,
+    "identical": 0,
+    "normalized-identical": 12,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/credits",
+   "kind": "command",
+   "scenarios": [
+    "credits-404",
+    "credits-busy",
+    "credits-empty",
+    "credits-ok",
+    "credits-partial",
+    "p5-panels-sweep-a",
+    "p5-usage-turns"
+   ],
+   "swept": 2,
+   "counts": {
+    "total": 35,
+    "ran": 35,
+    "identical": 0,
+    "normalized-identical": 7,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 28,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/model",
+   "kind": "command",
+   "scenarios": [
+    "fast-astra",
+    "h1-models2",
+    "model",
+    "model-anchor",
+    "model-busy",
+    "model-busy-known",
+    "model-column",
+    "model-column-hold",
+    "model-column-idle",
+    "model-column-reask",
+    "model-effort",
+    "model-empty",
+    "model-floor",
+    "model-parked",
+    "model-reask",
+    "model-router",
+    "model-speed",
+    "p5-catalog-bounds-2mib",
+    "p5-catalog-bounds-at",
+    "p5-catalog-bounds-over",
+    "p5-catalog-bounds-stall",
+    "p5-input-model",
+    "p5-input-model-fail",
+    "p5-input-model-rank",
+    "p5-input-model-swap",
+    "p5-input-row-limit-menus",
+    "settings-effort"
+   ],
+   "swept": 9,
+   "counts": {
+    "total": 37,
+    "ran": 37,
+    "identical": 0,
+    "normalized-identical": 36,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 1,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/effort",
+   "kind": "command",
+   "scenarios": [
+    "p5-effort-fork-effort-backtab",
+    "p5-effort-fork-effort-column",
+    "p5-effort-fork-effort-ctrlc",
+    "p5-effort-fork-effort-down",
+    "p5-effort-fork-effort-loading",
+    "p5-effort-fork-effort-menu",
+    "p5-effort-fork-effort-nolevels",
+    "p5-effort-fork-effort-short",
+    "p5-input-row-limit-menus"
+   ],
+   "swept": 9,
+   "counts": {
+    "total": 55,
+    "ran": 55,
+    "identical": 0,
+    "normalized-identical": 55,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/fast",
+   "kind": "command",
+   "scenarios": [
+    "fast-astra",
+    "fast-opus",
+    "fast-override",
+    "fast-unsup",
+    "model-speed",
+    "p5-panels-sweep-a"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 33,
+    "ran": 33,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 28,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/ultrafast",
+   "kind": "command",
+   "scenarios": [
+    "fast-astra",
+    "fast-opus",
+    "fast-unconfirmed",
+    "fast-unsup",
+    "p5-panels-sweep-a"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 33,
+    "ran": 33,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 28,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/settings",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "settings",
+    "settings-cats",
+    "settings-collapse",
+    "settings-collapse-open",
+    "settings-effort",
+    "settings-history",
+    "settings-model",
+    "settings-model-list",
+    "settings-perm",
+    "settings-scrollback",
+    "settings-speed",
+    "settings2",
+    "titles-settings"
+   ],
+   "swept": 2,
+   "counts": {
+    "total": 38,
+    "ran": 38,
+    "identical": 0,
+    "normalized-identical": 10,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 28,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/statusline",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "p5-usage-turns",
+    "statusline",
+    "statusline-turn"
+   ],
+   "swept": 3,
+   "counts": {
+    "total": 44,
+    "ran": 44,
+    "identical": 0,
+    "normalized-identical": 16,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 28,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/sound",
+   "kind": "command",
+   "scenarios": [
+    "sound",
+    "sound-default"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/permissions",
+   "kind": "command",
+   "scenarios": [
+    "allowlist-remember",
+    "allowlist-turn",
+    "p5-panels-keys",
+    "p5-panels-permissions",
+    "p5-panels-permissions-saved",
+    "p5-permissions-early",
+    "p5-permissions-early-probe-ask-after",
+    "permissions",
+    "permissions-btab",
+    "rules-read",
+    "rules-read-auto"
+   ],
+   "swept": 7,
+   "counts": {
+    "total": 64,
+    "ran": 64,
+    "identical": 3,
+    "normalized-identical": 42,
+    "approved-divergence": 1,
+    "approved-divergence-cascade": 8,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 10,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/allowlist",
+   "kind": "command",
+   "scenarios": [
+    "allowlist",
+    "allowlist-turn",
+    "allowlist2",
+    "allowlist3",
+    "p5-panels-permissions",
+    "p5-panels-sweep-a",
+    "rules-hidden"
+   ],
+   "swept": 2,
+   "counts": {
+    "total": 53,
+    "ran": 53,
+    "identical": 2,
+    "normalized-identical": 19,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 1,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 31,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/workspace",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "workspace",
+    "workspace-index"
+   ],
+   "swept": 3,
+   "counts": {
+    "total": 46,
+    "ran": 46,
+    "identical": 0,
+    "normalized-identical": 17,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 29,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/shell",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 33,
+    "ran": 33,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 28,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/image",
+   "kind": "command",
+   "scenarios": [
+    "image",
+    "image-nonnative",
+    "image-unknown",
+    "image-withheld",
+    "links-image",
+    "p5-lifecycle-relhome-image",
+    "p5-panels-sweep-a",
+    "p5-submit-preview-full",
+    "p5-submit-preview-notice"
+   ],
+   "swept": 6,
+   "counts": {
+    "total": 61,
+    "ran": 61,
+    "identical": 4,
+    "normalized-identical": 27,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 30,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/images",
+   "kind": "command",
+   "scenarios": [
+    "image",
+    "p5-panels-sweep-a"
+   ],
+   "swept": 2,
+   "counts": {
+    "total": 50,
+    "ran": 50,
+    "identical": 3,
+    "normalized-identical": 19,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 28,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/paste",
+   "kind": "command",
+   "scenarios": [
+    "image-paste"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 7,
+    "ran": 7,
+    "identical": 0,
+    "normalized-identical": 7,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/mcp",
+   "kind": "command",
+   "scenarios": [
+    "h1-mcphttp",
+    "h1-mcphttp-fail",
+    "h1-mcphttp-methodnotfound",
+    "p5-input-mcp",
+    "p5-mcp-config",
+    "p5-mcp-config-ignored",
+    "p5-mcp-config-vars",
+    "p5-mcp-discover-http-hostile",
+    "p5-mcp-discover-http-malformed",
+    "p5-mcp-discover-http-modern",
+    "p5-mcp-discover-http-notimpl",
+    "p5-mcp-discover-http-old2024",
+    "p5-mcp-discover-http-ssefail",
+    "p5-mcp-discover-http-ssehold",
+    "p5-mcp-discover-http-sseidless",
+    "p5-mcp-discover-http-ssestrid",
+    "p5-mcp-discover-stdio-asks",
+    "p5-mcp-discover-stdio-banner",
+    "p5-mcp-discover-stdio-depth",
+    "p5-mcp-discover-stdio-escaped",
+    "p5-mcp-discover-stdio-hostile",
+    "p5-mcp-discover-stdio-malformed",
+    "p5-mcp-discover-stdio-modern",
+    "p5-mcp-discover-stdio-modern-tc",
+    "p5-mcp-discover-stdio-old2024",
+    "p5-mcp-discover-stdio-silent",
+    "p5-mcp-empty",
+    "p5-mcp-fail",
+    "p5-mcp-fail-held",
+    "p5-mcp-menu-new",
+    "p5-mcp-menu-old",
+    "p5-mcp-notes",
+    "p5-mcp-verbs"
+   ],
+   "swept": 10,
+   "counts": {
+    "total": 132,
+    "ran": 132,
+    "identical": 0,
+    "normalized-identical": 93,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 39,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/skills",
+   "kind": "command",
+   "scenarios": [
+    "skills"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 18,
+    "ran": 18,
+    "identical": 0,
+    "normalized-identical": 2,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 16,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/alias",
+   "kind": "command",
+   "scenarios": [
+    "alias",
+    "p5-panels-slash",
+    "p5-panels-sweep-a"
+   ],
+   "swept": 3,
+   "counts": {
+    "total": 59,
+    "ran": 59,
+    "identical": 0,
+    "normalized-identical": 19,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 40,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/feedback",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 33,
+    "ran": 33,
+    "identical": 0,
+    "normalized-identical": 5,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 28,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/trace",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "titles-idle",
+    "titles-rename",
+    "titles-steer",
+    "trace",
+    "trace-nowhere"
+   ],
+   "swept": 7,
+   "counts": {
+    "total": 55,
+    "ran": 55,
+    "identical": 0,
+    "normalized-identical": 18,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 37,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "help: ↑↓ navigate",
+   "kind": "key",
+   "scenarios": [
+    "help",
+    "slash"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "help: tab category",
+   "kind": "key",
+   "scenarios": [
+    "alias",
+    "help",
+    "p5-panels-help"
+   ],
+   "swept": 2,
+   "counts": {
+    "total": 28,
+    "ran": 28,
+    "identical": 0,
+    "normalized-identical": 19,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 9,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "help: enter open",
+   "kind": "key",
+   "scenarios": [
+    "alias",
+    "composer-keys",
+    "help",
+    "interrupt-help",
+    "p5-input-row-limit",
+    "p5-panels-help",
+    "slash"
+   ],
+   "swept": 3,
+   "counts": {
+    "total": 37,
+    "ran": 37,
+    "identical": 0,
+    "normalized-identical": 22,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 15,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "help: esc close",
+   "kind": "key",
+   "scenarios": [
+    "alias",
+    "composer-keys",
+    "help",
+    "p5-input-row-limit",
+    "p5-panels-help",
+    "slash"
+   ],
+   "swept": 3,
+   "counts": {
+    "total": 37,
+    "ran": 37,
+    "identical": 0,
+    "normalized-identical": 22,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 15,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "slash: ↑↓ navigate",
+   "kind": "key",
+   "scenarios": [
+    "alias",
+    "help",
+    "model",
+    "model-column",
+    "model-effort",
+    "model-speed",
+    "p5-effort-fork-effort-column",
+    "p5-effort-fork-effort-menu",
+    "p5-effort-fork-effort-short",
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-edge",
+    "p5-input-mcp",
+    "p5-input-model-rank",
+    "p5-input-model-swap",
+    "p5-lifecycle-login",
+    "p5-mcp-empty",
+    "p5-mcp-fail",
+    "p5-mcp-menu-new",
+    "p5-mcp-menu-old",
+    "p5-panels-permissions",
+    "p5-panels-slash",
+    "p5-panels-status",
+    "p5-panels-status-short",
+    "p5-usage-budget",
+    "p5-usage-cached",
+    "p5-usage-many",
+    "p5-usage-turns",
+    "permissions",
+    "provider",
+    "provider-carry",
+    "provider-carry-back",
+    "provider-carry-back-stop",
+    "provider-resume",
+    "provider-resume-missing",
+    "recall-edge",
+    "resume",
+    "resume-paging",
+    "settings",
+    "settings-cats",
+    "settings-collapse",
+    "settings-collapse-open",
+    "settings-effort",
+    "settings-history",
+    "settings-model",
+    "settings-model-list",
+    "settings-perm",
+    "settings-speed",
+    "settings2",
+    "skills",
+    "skills-slash",
+    "slash",
+    "statusline",
+    "usage",
+    "usage-billed",
+    "usage-session",
+    "workspace"
+   ],
+   "swept": 23,
+   "counts": {
+    "total": 299,
+    "ran": 299,
+    "identical": 7,
+    "normalized-identical": 235,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 14,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 43,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "slash: enter use",
+   "kind": "key",
+   "scenarios": [
+    "alias",
+    "allowlist",
+    "allowlist-remember",
+    "allowlist-turn",
+    "allowlist2",
+    "allowlist3",
+    "compact",
+    "compact-cancel",
+    "compact-fail",
+    "compact-text",
+    "composer-keys",
+    "copy",
+    "credits-404",
+    "credits-busy",
+    "credits-empty",
+    "credits-ok",
+    "credits-partial",
+    "fast-astra",
+    "fast-opus",
+    "fast-override",
+    "fast-unconfirmed",
+    "fast-unsup",
+    "fulltranscript-notice",
+    "h1-mcphttp",
+    "h1-mcphttp-fail",
+    "h1-mcphttp-methodnotfound",
+    "h1-models2",
+    "h1-rehomefile",
+    "h1-usage",
+    "h1-usage-codex",
+    "h1-usage-grok",
+    "help",
+    "image",
+    "image-nonnative",
+    "image-paste",
+    "image-unknown",
+    "image-withheld",
+    "interrupt-help",
+    "links",
+    "links-image",
+    "model",
+    "model-busy",
+    "model-busy-known",
+    "model-column",
+    "model-effort",
+    "model-empty",
+    "model-floor",
+    "model-parked",
+    "model-reask",
+    "model-router",
+    "model-speed",
+    "notice-midstream",
+    "notice-wire",
+    "notice-wrap",
+    "notices",
+    "p5-catalog-bounds-2mib",
+    "p5-catalog-bounds-at",
+    "p5-catalog-bounds-over",
+    "p5-catalog-bounds-stall",
+    "p5-cli-ledger-update-help",
+    "p5-effort-fork-effort-backtab",
+    "p5-effort-fork-effort-column",
+    "p5-effort-fork-effort-ctrlc",
+    "p5-effort-fork-effort-down",
+    "p5-effort-fork-effort-loading",
+    "p5-effort-fork-effort-menu",
+    "p5-effort-fork-effort-nolevels",
+    "p5-effort-fork-effort-short",
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-continue",
+    "p5-effort-fork-fork-edge",
+    "p5-effort-fork-fork-empty",
+    "p5-effort-fork-oldread-src",
+    "p5-effort-fork-oldread-v1",
+    "p5-effort-fork-oldread-v2",
+    "p5-input-mcp",
+    "p5-input-model",
+    "p5-input-model-fail",
+    "p5-input-model-rank",
+    "p5-input-model-swap",
+    "p5-input-question20",
+    "p5-input-row-limit",
+    "p5-input-row-limit-menus",
+    "p5-lifecycle-compactfail",
+    "p5-lifecycle-compactok",
+    "p5-lifecycle-login",
+    "p5-lifecycle-login2",
+    "p5-lifecycle-osc",
+    "p5-lifecycle-osc-ask",
+    "p5-lifecycle-osc-compact",
+    "p5-lifecycle-osc-compactfail",
+    "p5-lifecycle-osc-hostile",
+    "p5-lifecycle-osc-interrupt",
+    "p5-lifecycle-osc-interruptnext",
+    "p5-lifecycle-osc-picker",
+    "p5-lifecycle-osc-states",
+    "p5-lifecycle-osc-stopnext",
+    "p5-lifecycle-relhome",
+    "p5-lifecycle-relhome-image",
+    "p5-lifecycle-relhome-made",
+    "p5-lifecycle-relhome-resume",
+    "p5-lifecycle-relhome-unsaved",
+    "p5-lifecycle-retry",
+    "p5-lifecycle-update",
+    "p5-lifecycle-v1bad",
+    "p5-lifecycle-v1resume",
+    "p5-mcp-config",
+    "p5-mcp-config-ignored",
+    "p5-mcp-config-vars",
+    "p5-mcp-discover-http-hostile",
+    "p5-mcp-discover-http-malformed",
+    "p5-mcp-discover-http-modern",
+    "p5-mcp-discover-http-notimpl",
+    "p5-mcp-discover-http-old2024",
+    "p5-mcp-discover-http-ssefail",
+    "p5-mcp-discover-http-ssehold",
+    "p5-mcp-discover-http-sseidless",
+    "p5-mcp-discover-http-ssestrid",
+    "p5-mcp-discover-stdio-asks",
+    "p5-mcp-discover-stdio-banner",
+    "p5-mcp-discover-stdio-depth",
+    "p5-mcp-discover-stdio-escaped",
+    "p5-mcp-discover-stdio-hostile",
+    "p5-mcp-discover-stdio-malformed",
+    "p5-mcp-discover-stdio-modern",
+    "p5-mcp-discover-stdio-modern-tc",
+    "p5-mcp-discover-stdio-old2024",
+    "p5-mcp-discover-stdio-silent",
+    "p5-mcp-empty",
+    "p5-mcp-fail",
+    "p5-mcp-fail-held",
+    "p5-mcp-menu-new",
+    "p5-mcp-menu-old",
+    "p5-mcp-notes",
+    "p5-mcp-verbs",
+    "p5-panels-badsettings",
+    "p5-panels-help",
+    "p5-panels-keys",
+    "p5-panels-noauth",
+    "p5-panels-permissions",
+    "p5-panels-permissions-saved",
+    "p5-panels-slash",
+    "p5-panels-status",
+    "p5-panels-status-badsettings",
+    "p5-panels-status-first",
+    "p5-panels-status-short",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "p5-permissions-early",
+    "p5-permissions-early-probe-ask-after",
+    "p5-session-early-prefs",
+    "p5-submit-preview-full",
+    "p5-submit-preview-notice",
+    "p5-usage-budget",
+    "p5-usage-cached",
+    "p5-usage-codex",
+    "p5-usage-many",
+    "p5-usage-nokey",
+    "p5-usage-noledger",
+    "p5-usage-oidc",
+    "p5-usage-turns",
+    "paste-card",
+    "permissions",
+    "permissions-btab",
+    "popup-full",
+    "provider",
+    "provider-carry",
+    "provider-carry-back",
+    "provider-carry-back-stop",
+    "provider-resume",
+    "provider-resume-missing",
+    "provider-switch",
+    "quit",
+    "quit-pristine",
+    "read-failures",
+    "recall-edge",
+    "rename",
+    "rename-midturn",
+    "reset",
+    "reset-wire",
+    "resume",
+    "resume-empty",
+    "resume-launch",
+    "resume-paging",
+    "resume-tools",
+    "resume-wire",
+    "rules-hidden",
+    "rules-read",
+    "rules-read-auto",
+    "settings",
+    "settings-cats",
+    "settings-collapse",
+    "settings-collapse-open",
+    "settings-effort",
+    "settings-history",
+    "settings-model",
+    "settings-model-list",
+    "settings-perm",
+    "settings-scrollback",
+    "settings-speed",
+    "settings2",
+    "skills",
+    "skills-slash",
+    "slash",
+    "sound",
+    "sound-default",
+    "status-version-stats",
+    "statusline",
+    "statusline-turn",
+    "titles",
+    "titles-idle",
+    "titles-off",
+    "titles-rename",
+    "titles-settings",
+    "titles-steer",
+    "trace",
+    "trace-nowhere",
+    "undo",
+    "undo-empty",
+    "undo-resume",
+    "usage",
+    "usage-billed",
+    "usage-deferred",
+    "usage-session",
+    "workspace",
+    "workspace-index"
+   ],
+   "swept": 88,
+   "counts": {
+    "total": 658,
+    "ran": 656,
+    "identical": 19,
+    "normalized-identical": 433,
+    "approved-divergence": 4,
+    "approved-divergence-cascade": 26,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 174,
+    "failed": 2,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "slash: esc close",
+   "kind": "key",
+   "scenarios": [
+    "alias",
+    "allowlist-remember",
+    "compact-cancel",
+    "composer-keys",
+    "fast-astra",
+    "h1-mcphttp",
+    "h1-mcphttp-fail",
+    "h1-mcphttp-methodnotfound",
+    "h1-models2",
+    "h1-usage",
+    "h1-usage-codex",
+    "h1-usage-grok",
+    "help",
+    "model",
+    "model-busy",
+    "model-busy-known",
+    "model-column",
+    "model-empty",
+    "model-floor",
+    "model-reask",
+    "model-router",
+    "p5-effort-fork-effort-backtab",
+    "p5-effort-fork-effort-column",
+    "p5-effort-fork-effort-menu",
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-edge",
+    "p5-effort-fork-fork-empty",
+    "p5-effort-fork-oldread-v1",
+    "p5-effort-fork-oldread-v2",
+    "p5-input-mcp",
+    "p5-input-model",
+    "p5-input-model-fail",
+    "p5-input-model-swap",
+    "p5-input-row-limit",
+    "p5-input-row-limit-menus",
+    "p5-lifecycle-login",
+    "p5-lifecycle-login2",
+    "p5-lifecycle-osc-picker",
+    "p5-lifecycle-relhome-unsaved",
+    "p5-lifecycle-v1resume",
+    "p5-mcp-config",
+    "p5-mcp-config-ignored",
+    "p5-mcp-config-vars",
+    "p5-mcp-empty",
+    "p5-mcp-fail",
+    "p5-mcp-fail-held",
+    "p5-mcp-menu-new",
+    "p5-mcp-menu-old",
+    "p5-mcp-notes",
+    "p5-mcp-verbs",
+    "p5-panels-badsettings",
+    "p5-panels-help",
+    "p5-panels-keys",
+    "p5-panels-noauth",
+    "p5-panels-permissions",
+    "p5-panels-permissions-saved",
+    "p5-panels-slash",
+    "p5-panels-status",
+    "p5-panels-status-badsettings",
+    "p5-panels-status-first",
+    "p5-panels-status-short",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "p5-permissions-early",
+    "p5-usage-budget",
+    "p5-usage-cached",
+    "p5-usage-codex",
+    "p5-usage-many",
+    "p5-usage-nokey",
+    "p5-usage-noledger",
+    "p5-usage-oidc",
+    "p5-usage-turns",
+    "permissions",
+    "popup-full",
+    "provider",
+    "read-failures",
+    "resume",
+    "resume-empty",
+    "resume-paging",
+    "resume-tools",
+    "settings",
+    "settings-cats",
+    "settings-collapse",
+    "settings-collapse-open",
+    "settings-effort",
+    "settings-history",
+    "settings-model",
+    "settings-model-list",
+    "settings-perm",
+    "settings-scrollback",
+    "settings-speed",
+    "settings2",
+    "skills",
+    "slash",
+    "slash-filter",
+    "statusline",
+    "usage",
+    "usage-billed",
+    "usage-deferred",
+    "usage-session",
+    "workspace",
+    "workspace-index"
+   ],
+   "swept": 52,
+   "counts": {
+    "total": 516,
+    "ran": 514,
+    "identical": 8,
+    "normalized-identical": 329,
+    "approved-divergence": 3,
+    "approved-divergence-cascade": 25,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 149,
+    "failed": 2,
+    "timeout": 0
+   }
+  }
+ ],
+ "coverage": {
+  "pin": "v0.0.16",
+  "surfaces": 45,
+  "commands": 38,
+  "keys": 7,
+  "covered": 45,
+  "uncovered": [],
+  "unmapped": [
+   "/al",
+   "/balance",
+   "/co",
+   "/cost",
+   "/de",
+   "/e",
+   "/ef",
+   "/eff",
+   "/et",
+   "/ex",
+   "/exit",
+   "/f",
+   "/fo",
+   "/img",
+   "/mo",
+   "/nosuch",
+   "/notacommand",
+   "/q",
+   "/re",
+   "/se",
+   "/setup",
+   "/st",
+   "/vers"
+  ],
+  "unmapped_by_scenario": {
+   "alias": [
+    "/al"
+   ],
+   "credits-404": [
+    "/balance"
+   ],
+   "credits-ok": [
+    "/balance"
+   ],
+   "fulltranscript-notice": [
+    "/notacommand"
+   ],
+   "image": [
+    "/img"
+   ],
+   "notice-midstream": [
+    "/notacommand"
+   ],
+   "notice-wrap": [
+    "/nosuch"
+   ],
+   "notices": [
+    "/nosuch"
+   ],
+   "p5-effort-fork-effort-menu": [
+    "/ef",
+    "/eff"
+   ],
+   "p5-effort-fork-fork": [
+    "/fo"
+   ],
+   "p5-effort-fork-slash-rank": [
+    "/e",
+    "/et",
+    "/ex",
+    "/se"
+   ],
+   "p5-panels-slash": [
+    "/al",
+    "/co",
+    "/cost",
+    "/e",
+    "/f",
+    "/st"
+   ],
+   "p5-usage-turns": [
+    "/cost"
+   ],
+   "provider": [
+    "/setup"
+   ],
+   "quit": [
+    "/exit"
+   ],
+   "quit-pristine": [
+    "/exit"
+   ],
+   "skills-slash": [
+    "/de",
+    "/re"
+   ],
+   "slash-filter": [
+    "/ex",
+    "/mo",
+    "/q",
+    "/vers"
+   ],
+   "usage": [
+    "/cost"
+   ]
+  }
+ },
+ "ledger": {
+  "usage": {
+   "status-panel-sandbox": {
+    "rows": 53,
+    "snaps": 27
+   },
+   "status-panel-updates": {
+    "rows": 53,
+    "snaps": 27
+   },
+   "status-panel-step-limit": {
+    "rows": 105,
+    "snaps": 27
+   },
+   "saved-write-rule-applied": {
+    "rows": 10,
+    "snaps": 1
+   },
+   "status-panel-session-id-wrap": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "status-panel-sign-in": {
+    "rows": 8,
+    "snaps": 4
+   },
+   "usage-no-sign-in": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "ctrl-o-command-marks": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "call-row-raw-argument": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "call-row-source-cut": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "call-row-arabic-letter-mark": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "mcp-approval-wrap-led": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "review-diff-spelling": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "ctrl-o-arabic-letter-mark": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "filler-modifier-count": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "ctrl-o-drawn-wider-named": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "answer-drawn-wider-named": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "answer-label-and-modifier-named": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "inline-band-row-anchor": {
+    "rows": 0,
+    "snaps": 0
+   }
+  },
+  "unused": [
+   "answer-drawn-wider-named",
+   "answer-label-and-modifier-named",
+   "call-row-arabic-letter-mark",
+   "call-row-raw-argument",
+   "call-row-source-cut",
+   "ctrl-o-arabic-letter-mark",
+   "ctrl-o-command-marks",
+   "ctrl-o-drawn-wider-named",
+   "filler-modifier-count",
+   "inline-band-row-anchor",
+   "mcp-approval-wrap-led",
+   "review-diff-spelling",
+   "status-panel-session-id-wrap",
+   "usage-no-sign-in"
+  ]
+ },
+ "causes": {
+  "by_cause": [
+   {
+    "cause": "C8-shell",
+    "kind": [
+     "unit"
+    ],
+    "snaps": 4,
+    "sole": 0,
+    "owner": "C8 /shell reload feat/tui-phase4-shell-reload 76ede613"
+   },
+   {
+    "cause": "C7-help-entries",
+    "kind": [
+     "unit"
+    ],
+    "snaps": 9,
+    "sole": 1,
+    "owner": "C7 r2 feat/tui-phase4-alias 8d83f961"
+   },
+   {
+    "cause": "C7-help-search",
+    "kind": [
+     "unit"
+    ],
+    "snaps": 2,
+    "sole": 1,
+    "owner": "C7 r2 feat/tui-phase4-alias 8d83f961"
+   },
+   {
+    "cause": "at-ranking",
+    "kind": [
+     "unit"
+    ],
+    "snaps": 1,
+    "sole": 1,
+    "owner": "I-U2 @ fzf-style ranking (input cluster I3), not yet a branch"
+   },
+   {
+    "cause": "menu-count",
+    "kind": [
+     "decision",
+     "unit"
+    ],
+    "snaps": 25,
+    "sole": 7,
+    "owner": "user decision Codex/Grok sign-in (#88) for /login and /logout; user decision /feedback destination; C8 feat/tui-phase4-shell-reload 76ede613 for /shell"
+   },
+   {
+    "cause": "menu-shift",
+    "kind": [
+     "decision",
+     "unit"
+    ],
+    "snaps": 18,
+    "sole": 0,
+    "owner": "user decision Codex/Grok sign-in (#88); user decision /feedback destination; C8 feat/tui-phase4-shell-reload 76ede613"
+   },
+   {
+    "cause": "approval-grant-scope",
+    "kind": [
+     "decision"
+    ],
+    "snaps": 26,
+    "sole": 13,
+    "owner": "user decision approval grant scope (not yet on the program's decision list)"
+   },
+   {
+    "cause": "grant-scope-push",
+    "kind": [
+     "decision"
+    ],
+    "snaps": 2,
+    "sole": 1,
+    "owner": "user decision approval grant scope (not yet on the program's decision list)"
+   },
+   {
+    "cause": "vision-route",
+    "kind": [
+     "decision"
+    ],
+    "snaps": 2,
+    "sole": 2,
+    "owner": "user decision second-model image route (not yet on the program's decision list)"
+   },
+   {
+    "cause": "provider-label",
+    "kind": [
+     "defect"
+    ],
+    "snaps": 2,
+    "sole": 0,
+    "owner": "unowned (P1's picker)"
+   },
+   {
+    "cause": "tool-schema",
+    "kind": [
+     "defect"
+    ],
+    "snaps": 22,
+    "sole": 4,
+    "owner": "unowned (decision needed? C8 runs commands in the login shell but keeps the header)"
+   },
+   {
+    "cause": "session-record",
+    "kind": [
+     "defect"
+    ],
+    "snaps": 6,
+    "sole": 0,
+    "owner": "unowned (S1 item 2 owns the skill notices, not this record)"
+   },
+   {
+    "cause": "amendment-card-after-stop",
+    "kind": [
+     "unit",
+     "defect"
+    ],
+    "snaps": 2,
+    "sole": 2,
+    "owner": "AMEND-CARD-ROW the blank row xfx keeps under an approval's amendment card that ends the document"
+   },
+   {
+    "cause": "upgrade-update-alias",
+    "kind": [
+     "defect"
+    ],
+    "snaps": 3,
+    "sole": 3,
+    "owner": "unowned (the upgrade command, deferred: docs/parity.md `upgrade`)"
+   },
+   {
+    "cause": "full-transcript-shift",
+    "kind": [
+     "defect"
+    ],
+    "snaps": 15,
+    "sole": 1,
+    "owner": "unowned (follows session-record and tool-schema)"
+   },
+   {
+    "cause": "sound-max",
+    "kind": [
+     "defect"
+    ],
+    "snaps": 1,
+    "sole": 0,
+    "owner": "unowned"
+   },
+   {
+    "cause": "approval-scroll",
+    "kind": [
+     "defect"
+    ],
+    "snaps": 2,
+    "sole": 0,
+    "owner": "unowned"
+   },
+   {
+    "cause": "stats-bytes",
+    "kind": [
+     "defect"
+    ],
+    "snaps": 29,
+    "sole": 22,
+    "owner": "unowned"
+   },
+   {
+    "cause": "resize-document-repaint",
+    "kind": [
+     "defect"
+    ],
+    "snaps": 2,
+    "sole": 2,
+    "owner": "RESIZE-REPAINT"
+   },
+   {
+    "cause": "session-age",
+    "kind": [
+     "nondeterminism"
+    ],
+    "snaps": 7,
+    "sole": 7,
+    "owner": "scenario"
+   },
+   {
+    "cause": "activity-tokens-before-request",
+    "kind": [
+     "unit"
+    ],
+    "snaps": 1,
+    "sole": 1,
+    "owner": "ACTIVITY-TOKENS (a new queue unit): the activity row's token suffix appears with the turn's first request"
+   },
+   {
+    "cause": "idle-connection",
+    "kind": [
+     "nondeterminism"
+    ],
+    "snaps": 2,
+    "sole": 2,
+    "owner": "fakegw"
+   }
+  ],
+  "unattributed": [
+   [
+    "p5-effort-fork-oldread-src",
+    "picker-enter-fork"
+   ],
+   [
+    "p5-effort-fork-oldread-src",
+    "resume-source"
+   ],
+   [
+    "p5-effort-fork-oldread-src",
+    "doctor.full"
+   ],
+   [
+    "p5-effort-fork-oldread-v1",
+    "picker-all"
+   ],
+   [
+    "p5-effort-fork-oldread-v1",
+    "resume-id"
+   ],
+   [
+    "p5-effort-fork-oldread-v2",
+    "picker-all"
+   ],
+   [
+    "p5-effort-fork-oldread-v2",
+    "resume-id"
+   ],
+   [
+    "p5-effort-fork-oldread-v2",
+    "resume-id.full"
+   ],
+   [
+    "p5-effort-fork-oldread-v2",
+    "continued"
+   ],
+   [
+    "p5-effort-fork-oldread-v2",
+    "quit"
+   ],
+   [
+    "p5-input-row-limit",
+    "at"
+   ],
+   [
+    "p5-input-row-limit",
+    "at-pgdn"
+   ],
+   [
+    "p5-mcp-config",
+    "list"
+   ],
+   [
+    "p5-mcp-config",
+    "removed.full"
+   ],
+   [
+    "p5-mcp-config-ignored",
+    "startup"
+   ],
+   [
+    "p5-mcp-config-ignored",
+    "menu"
+   ],
+   [
+    "p5-mcp-config-ignored",
+    "list"
+   ],
+   [
+    "p5-mcp-config-ignored",
+    "end.full"
+   ],
+   [
+    "p5-mcp-config-vars",
+    "list"
+   ],
+   [
+    "p5-mcp-config-vars",
+    "end.full"
+   ],
+   [
+    "p5-mcp-fail",
+    "show-bad"
+   ],
+   [
+    "p5-mcp-fail",
+    "end.full"
+   ],
+   [
+    "p5-mcp-notes",
+    "list"
+   ],
+   [
+    "p5-mcp-notes",
+    "end.full"
+   ],
+   [
+    "p5-mcp-verbs",
+    "list"
+   ],
+   [
+    "p5-mcp-verbs",
+    "show-fixture"
+   ],
+   [
+    "p5-mcp-verbs",
+    "show-remote"
+   ],
+   [
+    "p5-mcp-verbs",
+    "show-proj"
+   ],
+   [
+    "p5-mcp-verbs",
+    "login-stdio"
+   ],
+   [
+    "p5-mcp-verbs",
+    "login-remote"
+   ],
+   [
+    "p5-mcp-verbs",
+    "auth-remote"
+   ],
+   [
+    "p5-mcp-verbs",
+    "logout-remote"
+   ],
+   [
+    "p5-mcp-verbs",
+    "add-new-syntax"
+   ],
+   [
+    "p5-mcp-verbs",
+    "add-old-syntax"
+   ],
+   [
+    "p5-mcp-verbs",
+    "add-old-http"
+   ],
+   [
+    "p5-mcp-verbs",
+    "add-new-http"
+   ],
+   [
+    "p5-mcp-verbs",
+    "add-badname"
+   ],
+   [
+    "p5-mcp-verbs",
+    "approve"
+   ],
+   [
+    "p5-mcp-verbs",
+    "trust-approve"
+   ],
+   [
+    "p5-mcp-verbs",
+    "list-after"
+   ],
+   [
+    "p5-mcp-verbs",
+    "reject"
+   ],
+   [
+    "p5-mcp-verbs",
+    "remove-two"
+   ],
+   [
+    "p5-mcp-verbs",
+    "remove-three"
+   ],
+   [
+    "p5-mcp-verbs",
+    "remove-web"
+   ],
+   [
+    "p5-mcp-verbs",
+    "remove-web2"
+   ],
+   [
+    "p5-mcp-verbs",
+    "resource-list"
+   ],
+   [
+    "p5-mcp-verbs",
+    "prompt-list"
+   ],
+   [
+    "p5-mcp-verbs",
+    "show-bare"
+   ],
+   [
+    "p5-mcp-verbs",
+    "complete-args"
+   ],
+   [
+    "p5-mcp-verbs",
+    "complete-show"
+   ],
+   [
+    "p5-mcp-verbs",
+    "end.full"
+   ],
+   [
+    "p5-panels-slash",
+    "filter-f"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "shell"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "rename"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "allowlist"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "compact-empty"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "trace"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "feedback"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "logout"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "settings"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "settings-closed"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "statusline"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "statusline-closed"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "workspace"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "workspace-closed"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "resume"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "resume-closed"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "login"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "login-closed"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "provider"
+   ],
+   [
+    "p5-panels-sweep-a",
+    "provider-closed"
+   ],
+   [
+    "rename",
+    "relaunched"
+   ],
+   [
+    "rules-read",
+    "ask"
+   ],
+   [
+    "rules-read",
+    "ask2"
+   ],
+   [
+    "rules-read",
+    "listed"
+   ],
+   [
+    "skills",
+    "menu"
+   ],
+   [
+    "skills",
+    "menu-down"
+   ],
+   [
+    "skills",
+    "list"
+   ],
+   [
+    "skills",
+    "show-demo"
+   ],
+   [
+    "skills",
+    "path"
+   ],
+   [
+    "skills",
+    "create"
+   ],
+   [
+    "skills",
+    "create-bad"
+   ],
+   [
+    "skills",
+    "add-local"
+   ],
+   [
+    "skills",
+    "remove-made"
+   ],
+   [
+    "skills",
+    "remove-workspace"
+   ],
+   [
+    "skills",
+    "bogus"
+   ],
+   [
+    "skills",
+    "dollar"
+   ],
+   [
+    "skills",
+    "dollar-dem"
+   ],
+   [
+    "skills",
+    "dollar-enter"
+   ],
+   [
+    "skills",
+    "sent"
+   ],
+   [
+    "skills",
+    "end.full"
+   ],
+   [
+    "skills-ghost",
+    "dollar-menu"
+   ],
+   [
+    "skills-paste",
+    "paste"
+   ],
+   [
+    "timeout",
+    "live"
+   ]
+  ]
+ }
+}

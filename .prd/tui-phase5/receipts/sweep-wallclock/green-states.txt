@@ -1,0 +1,12 @@
+# green: per snap, what it shows in run 1..5, fx then xfx (FAIL the failure's sentence, ROWS the catalog's rows)
+model-column-idle    col-down       FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL
+model-column-idle    col-idle       FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL
+model-column-idle    col-typed      ROWS/ROWS ROWS/ROWS ROWS/ROWS ROWS/ROWS ROWS/ROWS
+model-column-reask   col-down       FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL
+model-column-reask   col-back       ROWS/ROWS ROWS/ROWS ROWS/ROWS ROWS/ROWS ROWS/ROWS
+model-reask          menu-failed    FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL
+model-reask          reask-midturn  ROWS/ROWS ROWS/ROWS ROWS/ROWS ROWS/ROWS ROWS/ROWS
+p5-input-model-fail  fail-open      FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL
+p5-input-model-fail  after-outage   ROWS/ROWS ROWS/ROWS ROWS/ROWS ROWS/ROWS ROWS/ROWS
+# p5-stop-in-catalog-wait, from the gateway logs, run 1..5, fx then xfx: launch read's answer / later reads (asked:answered) / completions
+  503/1:0/0 503/1:0/0  |  503/1:0/0 503/1:0/0  |  503/1:0/0 503/1:0/0  |  503/1:0/0 503/1:0/0  |  503/1:0/0 503/1:0/0

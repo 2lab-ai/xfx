@@ -1,0 +1,97 @@
+# INPUT-ROW-LIMIT: a page is inputRowLimit(content_bottom), with
+# content_bottom = rows - 4 and no extra rows while it is 4 or less
+# (input_presentation.zig:252-255@481104fd; footer_rows = 4, main.zig:173,
+# terminal.zig:53). The composer is capped by the same number
+# (cappedInputRows, :257-267). At an odd height `rows - 3` gives one more
+# than `rows - 4`: at 41 rows fx's page and cap are 19 rows. PgDn in the @
+# list (thirty names, AT-HEIGHT's workspace), the /help catalog and the
+# slash menu; then a 25-line draft, its cap, and PgUp in it, with the caret.
+fx: env FX_AUTO_UPGRADE=0
+work p5-input-at-height-ws
+wait 4
+xfx: wait 3
+type @f-
+wait 1.5
+snap at
+key NPage
+wait 0.6
+snap at-pgdn
+key C-u
+wait 0.5
+type /help
+key Enter
+wait 1.2
+snap help
+key NPage
+wait 0.6
+snap help-pgdn
+key Escape
+wait 0.7
+type /
+wait 1
+snap slash
+key NPage
+wait 0.6
+snap slash-pgdn
+key C-u
+wait 0.5
+type line-01
+key C-j
+type line-02
+key C-j
+type line-03
+key C-j
+type line-04
+key C-j
+type line-05
+key C-j
+type line-06
+key C-j
+type line-07
+key C-j
+type line-08
+key C-j
+type line-09
+key C-j
+type line-10
+key C-j
+type line-11
+key C-j
+type line-12
+key C-j
+type line-13
+key C-j
+type line-14
+key C-j
+type line-15
+key C-j
+type line-16
+key C-j
+type line-17
+key C-j
+type line-18
+key C-j
+type line-19
+key C-j
+type line-20
+key C-j
+type line-21
+key C-j
+type line-22
+key C-j
+type line-23
+key C-j
+type line-24
+key C-j
+type line-25
+wait 1
+snap grown
+cursor grown
+key PPage
+wait 0.6
+snap grown-pgup
+cursor grown-pgup
+key PPage
+wait 0.6
+snap grown-pgup2
+cursor grown-pgup2

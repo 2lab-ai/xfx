@@ -1,0 +1,18 @@
+# nonprd-diff.txt: what changed between the full gate's code head and the round 2 receipt heads, recorded 2026-11-09T19:21:26Z
+
+$ git diff --stat 2a9b1c22 ad2493ab -- . ':!.prd'
+(lines printed: 0)
+
+$ git diff --name-status 2a9b1c22 ad2493ab | cut -f1 | sort | uniq -c
+  46 A
+   1 M
+
+$ git diff --name-status 2a9b1c22 ad2493ab | grep -v '^A'
+M	.prd/tui-phase5/receipts/gate-env-maintlock/README.md
+
+$ git ls-tree -r --name-only 2a9b1c22 | wc -l
+17192
+$ git ls-tree -r --name-only d115fb39 | wc -l
+17237
+$ git ls-tree -r --name-only ad2493ab | wc -l
+17238

@@ -1,0 +1,27 @@
+## 41x120 (pairs_of.py over the sweep's pairs.json)
+p5-input-row-limit           at             normalized-identical (0 rows differ)
+p5-input-row-limit           at-pgdn        normalized-identical (0 rows differ)
+p5-input-row-limit           help           unresolved-defect (8 rows differ)
+p5-input-row-limit           help-pgdn      unresolved-defect (8 rows differ)
+p5-input-row-limit           slash          unresolved-defect (1 rows differ)
+p5-input-row-limit           slash-pgdn     unresolved-defect (7 rows differ)
+p5-input-row-limit           grown          normalized-identical (0 rows differ)
+p5-input-row-limit           grown-pgup     normalized-identical (0 rows differ)
+p5-input-row-limit           grown-pgup2    normalized-identical (0 rows differ)
+p5-input-row-limit-menus     model          normalized-identical (0 rows differ)
+p5-input-row-limit-menus     model-pgdn     normalized-identical (0 rows differ)
+p5-input-row-limit-menus     effort         normalized-identical (0 rows differ)
+p5-input-row-limit-menus     effort-pgdn    normalized-identical (0 rows differ)
+p5-input-row-limit-short     slash          unresolved-defect (1 rows differ)
+p5-input-row-limit-short     slash-pgdn     unresolved-defect (7 rows differ)
+p5-input-row-limit-short     grown          normalized-identical (0 rows differ)
+p5-input-row-limit-short     grown-pgup     normalized-identical (0 rows differ)
+# 17 pairs, 11 pass
+## 8x120 (short8.py: the sweep stopped on its inventory, so cells.py over its two captures)
+p5-input-row-limit-short-8x120-grown-pgup    rows differing 0
+p5-input-row-limit-short-8x120-grown         rows differing 0
+p5-input-row-limit-short-8x120-slash-pgdn    rows differing 0
+p5-input-row-limit-short-8x120-slash         rows differing 0
+# 4 pairs, 4 with no differing row; xfx's banner: x𝒇x v0.1.0-03fb543 [debug]
+caret p5-input-row-limit-short-8x120-grown-pgup fx 6,2    xfx 6,2    same
+caret p5-input-row-limit-short-8x120-grown   fx 6,2    xfx 6,2    same

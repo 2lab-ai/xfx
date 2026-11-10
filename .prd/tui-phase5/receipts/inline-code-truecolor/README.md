@@ -85,8 +85,8 @@ notation, and a direct grey in a **256-colour** session is nobody's.
 ## Captures
 
 ```
-FX_BIN=<fx v0.0.16> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh fx  <scenario> 40x120 fx/
-XFX_BIN=<xfx>       TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh xfx <scenario> 40x120 red/ | xfx/
+FX_BIN=<fx v0.0.16> TMPDIR=<tmp> scripts/fxcap/capture.sh fx  <scenario> 40x120 fx/
+XFX_BIN=<xfx>       TMPDIR=<tmp> scripts/fxcap/capture.sh xfx <scenario> 40x120 red/ | xfx/
 ```
 
 `tmux` keeps a `38;2` through `capture-pane -e` (3.7b: a pane that printed
@@ -311,7 +311,7 @@ TC-NOTATION (above); the "user's call" wording is gone; the "Also covered"
 claim is narrowed to what the tests and captures hold.
 
 Gates at `3afa6fa0` (the receipt commit on top changes no compiled file),
-the suites one at a time after the idle wait, `TMPDIR=/private/tmp/claude-501/ict`:
+the suites one at a time after the idle wait, `TMPDIR=<tmp>/ict`:
 
 | gate | result |
 |---|---|
@@ -383,7 +383,7 @@ rows.
 Gates at `1e0327e8` -- `c7a3dd15` plus one commit inside `theme.rs`'s
 `#[cfg(test)] mod tests` (a one-element loop clippy refused), so the
 captured binary differs from one built there in its banner alone -- the
-suites one at a time after the idle wait, `TMPDIR=/private/tmp/claude-501/ict`:
+suites one at a time after the idle wait, `TMPDIR=<tmp>/ict`:
 
 | gate | result |
 |---|---|
@@ -435,7 +435,7 @@ was built and no capture taken. Results: `ledger-d.txt` (with
      `cancelled-marker` gone, the old patterns leave row 8 of those six
      pairs without a cause; the new ones leave none (`ledger-d.txt` 3).
 
-Gates, `TMPDIR=/private/tmp/claude-501/tcd`:
+Gates, `TMPDIR=<tmp>/tcd`:
 
 | gate | result |
 |---|---|
@@ -447,7 +447,7 @@ Gates, `TMPDIR=/private/tmp/claude-501/tcd`:
 
 At the code head `9461bf70`, one at a time, the test suites each after the
 idle wait (`until ! pgrep -x cargo … && ! pgrep -x 'xfx-[0-9a-f]+' …`),
-`TMPDIR=/private/tmp/claude-501/ict`:
+`TMPDIR=<tmp>/ict`:
 
 | gate | result |
 |---|---|

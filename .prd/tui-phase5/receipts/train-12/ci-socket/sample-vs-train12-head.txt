@@ -1,0 +1,12 @@
+p5-panels-status             sample  5/11  train-12 head 5/11   same
+p5-panels-status-short       sample  1/6   train-12 head 1/6    same
+p5-mcp-empty                 sample 24/24  train-12 head 24/24  same
+p5-lifecycle-relhome-image   sample  2/2   train-12 head 2/2    same
+model-reask                  sample  4/4   train-12 head 4/4    same
+model-parked                 sample  4/5   train-12 head 4/5    same
+p5-input-model-fail          sample  2/2   train-12 head 2/2    same
+model-column-idle            sample  3/3   train-12 head 3/3    same
+model-column-reask           sample  4/4   train-12 head 4/4    same
+p5-stop-in-catalog-wait      sample  3/3   train-12 head 3/3    same
+startup                      sample  1/1   train-12 head 1/1    same
+11 of 11 scenarios the same; sample 53/65

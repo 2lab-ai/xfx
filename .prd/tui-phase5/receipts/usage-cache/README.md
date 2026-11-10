@@ -256,7 +256,7 @@ scenarios + the oracle, 1107 checks / 0 failures. No pty test failed.
 
 Run once, green, on `f00e6a28` (the code is `85e18a25`; only this receipt
 changed after it), rustc 1.99.1 on macOS (aarch64), with
-`TMPDIR` a short directory in the harness temp folder (`claude-501/p5uc`)
+`TMPDIR` a short directory in the harness temp folder (`claude-<uid>/p5uc`)
 and `HOME` under it:
 
 | Gate | Result |

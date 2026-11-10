@@ -72,6 +72,9 @@
 # tree, and a submodule; the reason git gives when the root's `.git` cannot
 # be opened; and both remedies for an entry with both bits.
 #
+# GATE-ENV-MAINTLOCK-F adds: the decoy's own setup leaving git's
+# auto-maintenance running in the decoy, which a case then blamed on its gate.
+#
 # Requires git, ruby (check-preview-contract.sh) and rustc (build.rs), and a
 # user that cannot read a mode-000 file (not root).
 
@@ -91,9 +94,15 @@ for name in "${!GIT_@}"; do
 	esac
 done
 # Git for this test's own scratch repositories: no global or system config,
-# so no hook, template or fsmonitor of the caller's runs in them.
+# so no hook, template or fsmonitor of the caller's runs in them. And no
+# auto-maintenance, whatever a repository's own config says: `git commit`
+# starts it, detached, and it went on writing in the decoy after the commit
+# returned (decoy-setup-maintenance). `maintenance.auto=false` stops it;
+# `gc.auto=0` stops a `gc --auto` too, for a git from before `git
+# maintenance` (2.29).
 sg() {
-	GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c core.fsmonitor=false "$@"
+	GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+		git -c core.fsmonitor=false -c maintenance.auto=false -c gc.auto=0 "$@"
 }
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-gate-env.XXXXXX")"
@@ -301,14 +310,27 @@ printf '[core]\n\tfsmonitor = %s\n\thooksPath = %s\n' "$home/fsmonitor" "$home/h
 
 # A repository the gates must neither read nor write. Its tracked files are
 # "$decoy_tracks" (default d.txt), copied from "$decoy_from" when that is set.
+# With "$decoy_forced" set, its own config asks for auto-maintenance with work
+# to do (decoy-setup-maintenance, below).
 decoy="$work/decoy"
 decoy_tracks="d.txt"
 decoy_from=""
+decoy_forced=""
 new_decoy() {
 	local name
 	rm -rf "${decoy:?}"
 	mkdir -p "$decoy"
 	sg -C "$decoy" init -q
+	if [ -n "$decoy_forced" ]; then
+		rm -f "$work/maint-calls" "$work/maint-go"
+		sg -C "$decoy" config maintenance.auto true
+		sg -C "$decoy" config maintenance.strategy gc
+		sg -C "$decoy" config gc.auto 1
+		sg -C "$decoy" config core.hooksPath "$work/maint-hooks"
+		mkdir -p "$decoy/.git/objects/17"
+		: >"$decoy/.git/objects/17/$(printf '%038d' 1)"
+		: >"$decoy/.git/objects/17/$(printf '%038d' 2)"
+	fi
 	for name in $decoy_tracks; do
 		mkdir -p "$(dirname "$decoy/$name")"
 		if [ -n "$decoy_from" ]; then
@@ -393,6 +415,111 @@ key_found="possible OpenAI-style key:"
 readme_found="does not document the qualified install command"
 grep_failed="git grep could not search"
 listing_failed="git ls-files could not list"
+
+# --- the decoy's own setup -------------------------------------------------
+#
+# `git commit` starts auto-maintenance, a detached `git maintenance run
+# --auto`, and since git 2.55 that run holds objects/maintenance.lock in the
+# background after the commit returns. new_decoy commits, so the lock could
+# be in the decoy for the sums before a gate and gone for the sums after:
+# identity-own-miscased reported "the gate wrote into the decoy repository"
+# about a gate that was never given the decoy (2026-11-09). Here the decoy's
+# own config turns that on: the gc task (the default since 2.54 is the
+# geometric one), `gc.auto=1`, and two names in objects/17, which is all
+# git's estimate of the loose objects counts. Its `core.hooksPath` holds a
+# `pre-auto-gc` hook, outside the decoy, that leaves its name in "$ran". Its
+# first call, made before the run detaches, lets gc go on; the second, from
+# the background `git gc --auto`, holds the run and its lock until the sums
+# before are taken, then stops gc, so the names are never read as objects.
+# Both waits are bounded at 10 s.
+mkdir -p "$work/maint-hooks"
+cat >"$work/maint-hooks/pre-auto-gc" <<EOF
+#!/bin/sh
+: >>"$ran/pre-auto-gc"
+calls=\$((\$(cat "$work/maint-calls" 2>/dev/null || echo 0) + 1))
+echo "\$calls" >"$work/maint-calls"
+[ "\$calls" -ge 2 ] || exit 0
+i=0
+while [ ! -e "$work/maint-go" ] && [ "\$i" -lt 200 ]; do
+	sleep 0.05
+	i=\$((i + 1))
+done
+exit 1
+EOF
+chmod 755 "$work/maint-hooks/pre-auto-gc"
+# Runs a gate once the decoy's background maintenance, if there is any, has
+# let go of its lock: the sums before are taken, so a lock seen there is seen
+# to go. A lock still there after 10 s is a failure of its own, exit 3, and
+# the gate is not run: with the lock in both sums, the case would pass.
+after_maintenance() {
+	local i=0
+	: >"$work/maint-go"
+	while [ -e "$decoy/.git/objects/maintenance.lock" ]; do
+		if [ "$i" -ge 200 ]; then
+			printf "test-gate-env: the decoy's objects/maintenance.lock was still there after 10 s; the gate was not run\n" >&2
+			return 3
+		fi
+		sleep 0.05
+		i=$((i + 1))
+	done
+	"$@"
+}
+decoy_forced=1
+refuses decoy-setup-maintenance "$content_found" after_maintenance "$ilock/scripts/check-xfx-identity.sh"
+# The case above holds a run only through gc, which `-c gc.auto=0` alone
+# turns off; but with the decoy's own `maintenance.auto=true` that flag alone
+# still lets the commit start a run. So, timing aside: git's trace of the
+# same setup names no `git maintenance run` and no `git gc --auto`. The trace
+# must also hold the commit's own line, as git 2.56 writes it: a trace that
+# is missing, empty or in another format is a failure, not a pass. And the
+# hook must not have run.
+set +e
+(
+	set -e
+	export GIT_TRACE="$work/decoy-setup.trace"
+	new_decoy
+) </dev/null >"$work/decoy-setup.log" 2>&1
+setup_status=$?
+set -e
+if [ "$setup_status" -ne 0 ]; then
+	problem "decoy-setup-starts-nothing: new_decoy exited $setup_status under GIT_TRACE; its output:"
+	cat "$work/decoy-setup.log" >&2
+	exit 1
+fi
+setup_ok=1
+if ! after_maintenance true 2>"$work/decoy-setup.wait"; then
+	problem "decoy-setup-starts-nothing: $(sed 's/^test-gate-env: //' "$work/decoy-setup.wait")"
+	setup_ok=0
+fi
+commit_line="trace: built-in: git commit -q -m decoy"
+grep_status=0
+if [ ! -s "$work/decoy-setup.trace" ]; then
+	problem "decoy-setup-starts-nothing: git's trace recorded nothing (no trace file, or an empty one)"
+	setup_ok=0
+elif ! grep -q -F -e "$commit_line" "$work/decoy-setup.trace"; then
+	problem "decoy-setup-starts-nothing: git's trace recorded nothing this check can read: no '$commit_line' in it"
+	setup_ok=0
+else
+	started="$(grep -E -e 'run_command: git (maintenance run|gc --auto)' "$work/decoy-setup.trace")" ||
+		grep_status=$?
+	if [ "$grep_status" -eq 0 ]; then
+		problem "decoy-setup-starts-nothing: new_decoy's commit started git's maintenance:"
+		printf '%s\n' "$started" | sed 's/^.*trace: //' >&2
+		setup_ok=0
+	elif [ "$grep_status" -ne 1 ]; then
+		problem "decoy-setup-starts-nothing: grep could not read git's trace (status $grep_status)"
+		setup_ok=0
+	fi
+fi
+if ! nothing_ran decoy-setup-starts-nothing; then
+	setup_ok=0
+fi
+if [ "$setup_ok" -eq 1 ]; then
+	printf 'test-gate-env: ok %-30s %s\n' decoy-setup-starts-nothing "new_decoy's commit starts no maintenance or gc"
+	passed=$((passed + 1))
+fi
+rm -f "${ran:?}"/* "$work/decoy-setup.trace"
+decoy_forced=""
 
 refuses identity-git-dir "$path_found" \
 	env GIT_DIR="$decoy/.git" "$ipath/scripts/check-xfx-identity.sh"
@@ -694,13 +821,13 @@ ruby -ryaml -e '
 	reached = Hash.new { |h, k| h[k] = [] }
 	job["steps"].each do |step|
 		run = step["run"].to_s
-		%w[test-gate-env test-preview-contract test-check-no-secrets].each do |script|
+		%w[test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths].each do |script|
 			next unless run.include?("./scripts/#{script}.sh")
 			reached[script] |= runs_on.(step).map { |row| row["runner"] }
 			reached["test-check-no-secrets"] |= runs_on.(step).map { |row| row["runner"] } if script == "test-gate-env"
 		end
 	end
-	%w[test-gate-env test-preview-contract test-check-no-secrets].each do |script|
+	%w[test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths].each do |script|
 		runners = reached[script]
 		state = runners.any? { |r| r.start_with?("macos") } && runners.any? { |r| r.start_with?("ubuntu") } ? "covers" : "MISSING"
 		puts "#{state}\t#{script}: #{runners.sort.join(", ")}"

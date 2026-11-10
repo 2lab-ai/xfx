@@ -1,0 +1,815 @@
+{
+ "pin": "v0.0.16",
+ "fx_sha256": "8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2",
+ "base": "44bb45e621b09f151461360810373338a8737f75",
+ "head": "44bb45e621b09f151461360810373338a8737f75",
+ "selection": {
+  "p5-panels-status": [
+   "core"
+  ],
+  "p5-panels-status-short": [
+   "core"
+  ],
+  "p5-mcp-empty": [
+   "core"
+  ],
+  "p5-lifecycle-relhome-image": [
+   "core"
+  ],
+  "model-reask": [
+   "core"
+  ],
+  "model-parked": [
+   "core"
+  ],
+  "p5-input-model-fail": [
+   "core"
+  ],
+  "model-column-idle": [
+   "core"
+  ],
+  "model-column-reask": [
+   "core"
+  ],
+  "p5-stop-in-catalog-wait": [
+   "core"
+  ],
+  "startup": [
+   "core"
+  ]
+ },
+ "removed": [],
+ "removed_pairs": [],
+ "pairs": [
+  {
+   "scenario": "p5-panels-status",
+   "label": "after-turn",
+   "head": "approved-divergence-cascade",
+   "runs": 1,
+   "new": false,
+   "base": "approved-divergence-cascade",
+   "base_runs": 1,
+   "regression": false,
+   "first": {
+    "row": 18,
+    "fx": "  Workspace         <work________________________________________________________>",
+    "xfx": "  Sandbox           none"
+   }
+  },
+  {
+   "scenario": "p5-panels-status",
+   "label": "closed-final",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": "normalized-identical",
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-panels-status",
+   "label": "down",
+   "head": "approved-divergence-cascade",
+   "runs": 1,
+   "new": false,
+   "base": "approved-divergence-cascade",
+   "base_runs": 1,
+   "regression": false,
+   "first": {
+    "row": 10,
+    "fx": "  Workspace         <work________________________________________________________>",
+    "xfx": "  Sandbox           none"
+   }
+  },
+  {
+   "scenario": "p5-panels-status",
+   "label": "enter-closed",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": "normalized-identical",
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-panels-status",
+   "label": "esc-closed",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": "normalized-identical",
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-panels-status",
+   "label": "open",
+   "head": "approved-divergence-cascade",
+   "runs": 1,
+   "new": false,
+   "base": "approved-divergence-cascade",
+   "base_runs": 1,
+   "regression": false,
+   "first": {
+    "row": 10,
+    "fx": "  Workspace         <work________________________________________________________>",
+    "xfx": "  Sandbox           none"
+   }
+  },
+  {
+   "scenario": "p5-panels-status",
+   "label": "open-after-midturn",
+   "head": "approved-divergence-cascade",
+   "runs": 1,
+   "new": false,
+   "base": "approved-divergence-cascade",
+   "base_runs": 1,
+   "regression": false,
+   "first": {
+    "row": 24,
+    "fx": "  Workspace         <work________________________________________________________>",
+    "xfx": "  Sandbox           none"
+   }
+  },
+  {
+   "scenario": "p5-panels-status",
+   "label": "open-midturn",
+   "head": "approved-divergence-cascade",
+   "runs": 1,
+   "new": false,
+   "base": "approved-divergence-cascade",
+   "base_runs": 1,
+   "regression": false,
+   "first": {
+    "row": 22,
+    "fx": "  Workspace         <work________________________________________________________>",
+    "xfx": "  Sandbox           none"
+   }
+  },
+  {
+   "scenario": "p5-panels-status",
+   "label": "status-now",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": "normalized-identical",
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-panels-status",
+   "label": "turn",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": "normalized-identical",
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-panels-status",
+   "label": "typed",
+   "head": "approved-divergence-cascade",
+   "runs": 1,
+   "new": false,
+   "base": "approved-divergence-cascade",
+   "base_runs": 1,
+   "regression": false,
+   "first": {
+    "row": 10,
+    "fx": "  Workspace         <work________________________________________________________>",
+    "xfx": "  Sandbox           none"
+   }
+  },
+  {
+   "scenario": "p5-panels-status-short",
+   "label": "ctrl-k",
+   "head": "approved-divergence-cascade",
+   "runs": 1,
+   "new": false,
+   "base": "approved-divergence-cascade",
+   "base_runs": 1,
+   "regression": false,
+   "first": {
+    "row": 10,
+    "fx": "  Workspace         <work________________________________________________________>",
+    "xfx": "  Sandbox           none"
+   }
+  },
+  {
+   "scenario": "p5-panels-status-short",
+   "label": "down-end",
+   "head": "approved-divergence-cascade",
+   "runs": 1,
+   "new": false,
+   "base": "approved-divergence-cascade",
+   "base_runs": 1,
+   "regression": false,
+   "first": {
+    "row": 10,
+    "fx": "  Workspace         <work________________________________________________________>",
+    "xfx": "  Sandbox           none"
+   }
+  },
+  {
+   "scenario": "p5-panels-status-short",
+   "label": "down1",
+   "head": "approved-divergence-cascade",
+   "runs": 1,
+   "new": false,
+   "base": "approved-divergence-cascade",
+   "base_runs": 1,
+   "regression": false,
+   "first": {
+    "row": 10,
+    "fx": "  Workspace         <work________________________________________________________>",
+    "xfx": "  Sandbox           none"
+   }
+  },
+  {
+   "scenario": "p5-panels-status-short",
+   "label": "esc",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": "normalized-identical",
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-panels-status-short",
+   "label": "open",
+   "head": "approved-divergence-cascade",
+   "runs": 1,
+   "new": false,
+   "base": "approved-divergence-cascade",
+   "base_runs": 1,
+   "regression": false,
+   "first": {
+    "row": 10,
+    "fx": "  Workspace         <work________________________________________________________>",
+    "xfx": "  Sandbox           none"
+   }
+  },
+  {
+   "scenario": "p5-panels-status-short",
+   "label": "up1",
+   "head": "approved-divergence-cascade",
+   "runs": 1,
+   "new": false,
+   "base": "approved-divergence-cascade",
+   "base_runs": 1,
+   "regression": false,
+   "first": {
+    "row": 10,
+    "fx": "  Workspace         <work________________________________________________________>",
+    "xfx": "  Sandbox           none"
+   }
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "add-bare",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "add-help",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "approve-bare",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "auth-nope",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "bogus",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "complete",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "end.full",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "help",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "list",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "list-connect",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "login-nope",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "logout-nope",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "menu",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "menu-down",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "menu-esc",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "menu-right",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "path",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "prompt-bare",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "reject-nope",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "reload",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "remove-nope",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "resource-nope",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "show-nope",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-mcp-empty",
+   "label": "trust-bare",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-lifecycle-relhome-image",
+   "label": "again",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-lifecycle-relhome-image",
+   "label": "sent",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-reask",
+   "label": "menu-failed",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-reask",
+   "label": "reask-midturn",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-reask",
+   "label": "start",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-reask",
+   "label": "turn-running",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-parked",
+   "label": "answered",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": "normalized-identical",
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-parked",
+   "label": "menu-loading",
+   "head": "unresolved-defect",
+   "runs": 1,
+   "new": false,
+   "base": "unresolved-defect",
+   "base_runs": 1,
+   "regression": false,
+   "first": {
+    "row": 5,
+    "fx": "~ Thinking (<s>)",
+    "xfx": "~ Thinking (<s>) (↑4 ↓0)"
+   }
+  },
+  {
+   "scenario": "model-parked",
+   "label": "question-landed",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": "normalized-identical",
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-parked",
+   "label": "question-up",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": "normalized-identical",
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-parked",
+   "label": "start",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": "normalized-identical",
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-input-model-fail",
+   "label": "after-outage",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-input-model-fail",
+   "label": "fail-open",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-column-idle",
+   "label": "col-down",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-column-idle",
+   "label": "col-idle",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-column-idle",
+   "label": "col-typed",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-column-reask",
+   "label": "col-back",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-column-reask",
+   "label": "col-down",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-column-reask",
+   "label": "col-held",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "model-column-reask",
+   "label": "start",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-stop-in-catalog-wait",
+   "label": "before",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-stop-in-catalog-wait",
+   "label": "settled",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "p5-stop-in-catalog-wait",
+   "label": "stopped",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  },
+  {
+   "scenario": "startup",
+   "label": "startup",
+   "head": "normalized-identical",
+   "runs": 1,
+   "new": false,
+   "base": null,
+   "base_runs": 0,
+   "regression": false,
+   "first": null
+  }
+ ],
+ "regressions": 0,
+ "timing_seconds": {
+  "head": 226.2,
+  "retries": 0.0,
+  "base": 93.2,
+  "total": 320.2
+ }
+}

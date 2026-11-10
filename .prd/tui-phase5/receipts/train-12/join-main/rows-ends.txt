@@ -1,0 +1,7 @@
+ours ok `/effort`
+theirs ok `/version`
+ours ok `@` file picker
+theirs ok `status`
+ours ok full-screen TUI
+theirs ok version text
+# 157 keys; changed by ours 3, by theirs 3, by both 0; 0 not as the changed side left them

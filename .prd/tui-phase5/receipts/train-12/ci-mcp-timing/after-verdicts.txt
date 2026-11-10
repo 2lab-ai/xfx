@@ -1,0 +1,15 @@
+runs: base 5, head 5
+
+per scenario and build: pairs passed over all runs
+  p5-mcp-config              base     5 of   15
+  p5-mcp-config              head     5 of   15
+  p5-mcp-menu-new            base   170 of  170
+  p5-mcp-menu-new            head   170 of  170
+  p5-mcp-menu-old            base    80 of   80
+  p5-mcp-menu-old            head    80 of   80
+  p5-mcp-verbs               base     5 of  140
+  p5-mcp-verbs               head     5 of  140
+
+pairs whose verdict varies across one build's runs: 0
+
+pairs a (head run, base run) pairing would call a regression: 0

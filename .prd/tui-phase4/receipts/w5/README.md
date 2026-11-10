@@ -36,7 +36,7 @@ came in, and rows 2-40 did not move. One retake under load lost the first
 composer and the history file had no `/workspace` line); it was discarded and
 the scenario run again.
 
-Sanitized: the run directory `/private/tmp/claude-501/fxcap.XXXXXX` is
+Sanitized: the run directory `/private/tmp/claude-<uid>/fxcap.XXXXXX` is
 written `<scratch>` in every file. Where SGR runs split that path -- the
 `@plan` picker bolds the matched letters, some of them inside the run
 directory's name -- the six random characters alone are written `<id>`

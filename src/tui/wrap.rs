@@ -1302,13 +1302,13 @@ mod tests {
         // saved path after `fxtmp/` rather than moving it down whole, at 118
         // columns behind the glyph's two.
         let text = "Clipboard copy failed. Trace saved at \
-                    /private/tmp/claude-501/fxcap.oJd3Kr/fxtmp/\
+                    /scratch/workdir/claude/fxcap.oJd3Kr/fxtmp/\
                     fx-trace-2026-10-06-213606-c51761bbc7ce.md. \
                     Review and redact it before sharing.";
         assert_eq!(
             texts(text, &wrap_notice(text, 118)),
             [
-                "Clipboard copy failed. Trace saved at /private/tmp/claude-501/fxcap.oJd3Kr/fxtmp/",
+                "Clipboard copy failed. Trace saved at /scratch/workdir/claude/fxcap.oJd3Kr/fxtmp/",
                 "fx-trace-2026-10-06-213606-c51761bbc7ce.md. Review and redact it before sharing.",
             ]
         );

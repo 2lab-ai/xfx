@@ -1,0 +1,1227 @@
+pairs: reference 1854, train 1872, shared 1854; only the reference: 0
+reference: 1854 pairs, pass 1297; approved-divergence 24, approved-divergence-cascade 28, failed 2, identical 49, normalized-identical 1248, unresolved-defect 503
+train: 1854 pairs, pass 1298; approved-divergence 24, approved-divergence-cascade 28, failed 2, identical 52, normalized-identical 1246, unresolved-defect 502
+h1-refuse back: 1 differing rows left, 1 new
+    left: fx '  back after the refusal' / xfx 'y failed: error sending request for url (http://127.0.0.1:50418/v4/ai/'
+    NEW:  fx '  back after the refusal' / xfx 'y failed: error sending request for url (http://127.0.0.1:58319/v4/ai/'
+h1-refuse refused: 1 differing rows left, 1 new
+    left: fx '⚠ Connection lost · waiting for connection · 2s · esc to pause' / xfx 'y failed: error sending request for url (http://127.0.0.1:50418/v4/ai/'
+    NEW:  fx '⚠ Connection lost · waiting for connection · 2s · esc to pause' / xfx 'y failed: error sending request for url (http://127.0.0.1:58319/v4/ai/'
+h1-refuse-pause after-pause: 1 differing rows left, 1 new
+    left: fx "ecovery paused after 4 attempts · send a new message when you're ready" / xfx 'y failed: error sending request for url (http://127.0.0.1:64314/v4/ai/'
+    NEW:  fx "ecovery paused after 4 attempts · send a new message when you're ready" / xfx 'y failed: error sending request for url (http://127.0.0.1:53942/v4/ai/'
+h1-refuse-pause end: 1 differing rows left, 1 new
+    left: fx "ecovery paused after 4 attempts · send a new message when you're ready" / xfx 'y failed: error sending request for url (http://127.0.0.1:64314/v4/ai/'
+    NEW:  fx "ecovery paused after 4 attempts · send a new message when you're ready" / xfx 'y failed: error sending request for url (http://127.0.0.1:53942/v4/ai/'
+h1-refuse-pause paused: 1 differing rows left, 1 new
+    left: fx "ecovery paused after 4 attempts · send a new message when you're ready" / xfx 'y failed: error sending request for url (http://127.0.0.1:64314/v4/ai/'
+    NEW:  fx "ecovery paused after 4 attempts · send a new message when you're ready" / xfx 'y failed: error sending request for url (http://127.0.0.1:53942/v4/ai/'
+h1-refuse-pause refused: 1 differing rows left, 1 new
+    left: fx '⚠ Connection lost · waiting for connection · 2s · esc to pause' / xfx 'y failed: error sending request for url (http://127.0.0.1:64314/v4/ai/'
+    NEW:  fx '⚠ Connection lost · waiting for connection · 2s · esc to pause' / xfx 'y failed: error sending request for url (http://127.0.0.1:53942/v4/ai/'
+h1-rehomefile status: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+h1-signal terminated: 1 differing rows left, 1 new
+    left: fx 'Pane is dead (signal term, Tue Nov 10 07:31:48 2026)' / xfx 'Pane is dead (signal term, Tue Nov 10 07:32:16 2026)'
+    NEW:  fx 'Pane is dead (signal term, Tue Nov 10 07:54:11 2026)' / xfx 'Pane is dead (signal term, Tue Nov 10 07:54:25 2026)'
+h1-signal-hup hup: 1 differing rows left, 1 new
+    left: fx 'Pane is dead (signal hup, Tue Nov 10 07:56:27 2026)' / xfx 'Pane is dead (signal hup, Tue Nov 10 07:56:34 2026)'
+    NEW:  fx 'Pane is dead (signal hup, Tue Nov 10 08:23:16 2026)' / xfx 'Pane is dead (signal hup, Tue Nov 10 08:23:25 2026)'
+interrupt-recovery full: 2 differing rows left, 2 new
+    left: fx '' / xfx '! network: provider: gateway · model: fake/model-a · 0ms'
+    left: fx '! network: provider: gateway · model: fake/model-a · 15ms' / xfx ''
+    NEW:  fx '' / xfx '! network: provider: gateway · model: fake/model-a · 1ms'
+    NEW:  fx '! network: provider: gateway · model: fake/model-a · 14ms' / xfx ''
+model-parked menu-loading: 9 differing rows left, 1 new
+    left: fx '  anthropic/claude-opus-5  1M context · 64K output · Fast' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx '  fake/model-a' / xfx '↑↓ navigate     tab provider     enter use     esc close'
+    left: fx '  openai/gpt-6-astra       400K context · 128K output · Fast · Ultra' / xfx 'Loading models…'
+    left: fx '  xai/grok-4.7' / xfx ''
+    left: fx 'Models 4  [All]  Anthropic  OpenAI  xAI  Others' / xfx 'Models 0  [All]'
+    left: fx 'Note: Gateway catalog is authenticated with an API key' / xfx ''
+    left: fx '~ Generating (<s>) (↑4 ↓3)' / xfx '~ Thinking (<s>) (↑4 ↓0)'
+    left: fx '↑↓ navigate     tab provider     enter use     esc close' / xfx ''
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx ''
+    NEW:  fx '~ Thinking (<s>)' / xfx '~ Thinking (<s>) (↑4 ↓0)'
+p5-effort-fork-fork status: 2 differing rows left, 2 new
+    left: fx '  Turns             2' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             2' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-effort-fork-fork-edge status-empty: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-effort-fork-oldread-src doctor.full: 2 differing rows left, 2 new
+    left: fx '[doctor] mcp_servers=0 mcp_configuration_issues=0' / xfx '[ok] workspace: using workspace <local-path>'
+    left: fx '[ok] workspace: using workspace <local-path>' / xfx '[warn] config: no config files found; using defaults and env overrides'
+    NEW:  fx '[doctor] mcp_servers=0 mcp_configuration_issues=0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '[warn] config: no config files found; using defaults and env overrides'
+p5-lifecycle-relhome-unsaved u02-status: 2 differing rows left, 2 new
+    left: fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             1' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-lifecycle-retry r04a-esc-armed: 1 differing rows left, 1 new
+    left: fx 'navailable · HTTP 502 · Synthetic bad gateway · retrying request in 7s' / xfx 'teway returned HTTP 502: {"error":{"message":"Synthetic bad gateway"}}'
+    NEW:  fx 'navailable · HTTP 502 · Synthetic bad gateway · retrying request in 6s' / xfx 'teway returned HTTP 502: {"error":{"message":"Synthetic bad gateway"}}'
+p5-lifecycle-retryok k01-1.5s: 4 differing rows left, 0 new
+    left: fx '  <wall> (↑4 ↓40)' / xfx '┃'
+    left: fx '  RECOVERED-ANSWER.' / xfx '✓ recovered · attempt 3'
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '┃' / xfx 'auto · model-a'
+p5-mcp-menu-new approve-confirm: 2 differing rows left, 2 new
+    left: fx '    <local-path>' / xfx '  ↳ <local-path>'
+    left: fx '    <checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '  ↳ <checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    NEW:  fx '______________________________________________________________________' / xfx '  ↳ <local-path>'
+    NEW:  fx '    ________________________>/p5-mcp-stdio.ts' / xfx '  ↳ <checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+p5-mcp-menu-new list-remote: 0 differing rows left, 1 new
+    NEW:  fx '› remote                  retrying                profile' / xfx '› remote                  connecting              profile'
+p5-mcp-verbs add-badname: 2 differing rows left, 2 new
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '    status     retrying' / xfx '_____________________________________________________>/p5-mcp-stdio.ts'
+    NEW:  fx '* mcp: remote' / xfx '____________> <scenarios______________________________________________'
+p5-mcp-verbs add-new-http: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '____________> <scenarios______________________________________________' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '_____________________________________________________>/p5-mcp-stdio.ts'
+    NEW:  fx '_____________________________________________________>/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '____________> <scenarios______________________________________________'
+p5-mcp-verbs add-new-syntax: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '____________> <scenarios______________________________________________' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '_____________________________________________________>/p5-mcp-stdio.ts'
+    NEW:  fx '_____________________________________________________>/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '____________> <scenarios______________________________________________'
+p5-mcp-verbs add-old-http: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '____________> <scenarios______________________________________________' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '_____________________________________________________>/p5-mcp-stdio.ts'
+    NEW:  fx '_____________________________________________________>/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '____________> <scenarios______________________________________________'
+p5-mcp-verbs add-old-syntax: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '____________> <scenarios______________________________________________' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '_____________________________________________________>/p5-mcp-stdio.ts'
+    NEW:  fx '_____________________________________________________>/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '____________> <scenarios______________________________________________'
+p5-mcp-verbs auth-remote: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '____________> <scenarios______________________________________________' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '_____________________________________________________>/p5-mcp-stdio.ts'
+    NEW:  fx '_____________________________________________________>/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '____________> <scenarios______________________________________________'
+p5-mcp-verbs end.full: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '____________> <scenarios______________________________________________' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '_____________________________________________________>/p5-mcp-stdio.ts'
+    NEW:  fx '_____________________________________________________>/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '____________> <scenarios______________________________________________'
+p5-mcp-verbs login-remote: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '____________> <scenarios______________________________________________' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '_____________________________________________________>/p5-mcp-stdio.ts'
+    NEW:  fx '_____________________________________________________>/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '____________> <scenarios______________________________________________'
+p5-mcp-verbs login-stdio: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '____________> <scenarios______________________________________________' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '_____________________________________________________>/p5-mcp-stdio.ts'
+    NEW:  fx '_____________________________________________________>/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '____________> <scenarios______________________________________________'
+p5-mcp-verbs logout-remote: 4 differing rows left, 4 new
+    left: fx '    command    <local-path> <local-path>' / xfx '    url        http://127.0.0.1:9/mcp'
+    left: fx '    status     retrying' / xfx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts'
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    left: fx '* mcp: remote' / xfx '    command    <local-path> <local-path>'
+    NEW:  fx '____________> <scenarios______________________________________________' / xfx '    url        http://127.0.0.1:9/mcp'
+    NEW:  fx '    status     retrying' / xfx '_____________________________________________________>/p5-mcp-stdio.ts'
+    NEW:  fx '_____________________________________________________>/p5-mcp-stdio.ts' / xfx '    source     ~/.xfx/mcp.json'
+    NEW:  fx '* mcp: remote' / xfx '____________> <scenarios______________________________________________'
+p5-mcp-verbs show-proj: 2 differing rows left, 2 new
+    left: fx '    command    <local-path> <local-path>' / xfx ''
+    left: fx '<checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts' / xfx ''
+    NEW:  fx '____________> <scenarios______________________________________________' / xfx ''
+    NEW:  fx '_____________________________________________________>/p5-mcp-stdio.ts' / xfx ''
+p5-panels-keys approval-esc: 2 differing rows left, 2 new
+    left: fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             1' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-keys btab: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-keys ctrl-c: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-keys end: 2 differing rows left, 2 new
+    left: fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             1' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-keys open-before-approval: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-keys paste: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-keys tab-pgdn: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-permissions after-revoke: 1 differing rows left, 1 new
+    left: fx '                   • bash → @xfx-terminal-env:user:8:/bin/zsh::echo hi' / xfx '                      • terminal → echo hi in <local-path>'
+    NEW:  fx '                   • bash → @xfx-terminal-env:user:8:/bin/zsh::echo hi' / xfx 'work_________________________________________________________________>'
+p5-panels-permissions grants: 1 differing rows left, 1 new
+    left: fx '                   • bash → @xfx-terminal-env:user:8:/bin/zsh::echo hi' / xfx '                      • terminal → echo hi in <local-path>'
+    NEW:  fx '                   • bash → @xfx-terminal-env:user:8:/bin/zsh::echo hi' / xfx 'work_________________________________________________________________>'
+p5-panels-permissions status-grants: 2 differing rows left, 2 new
+    left: fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             1' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-permissions-saved after-revoke: 1 differing rows left, 1 new
+    left: fx '                   • bash → @xfx-terminal-env:user:8:/bin/zsh::echo hi' / xfx '                      • terminal → echo hi in <local-path>'
+    NEW:  fx '                   • bash → @xfx-terminal-env:user:8:/bin/zsh::echo hi' / xfx 'work_________________________________________________________________>'
+p5-panels-permissions-saved saved: 1 differing rows left, 1 new
+    left: fx '                   • bash → @xfx-terminal-env:user:8:/bin/zsh::echo hi' / xfx '                      • terminal → echo hi in <local-path>'
+    NEW:  fx '                   • bash → @xfx-terminal-env:user:8:/bin/zsh::echo hi' / xfx 'work_________________________________________________________________>'
+p5-panels-status after-turn: 2 differing rows left, 2 new
+    left: fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             1' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-status down: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-status open: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-status open-after-midturn: 2 differing rows left, 2 new
+    left: fx '  Turns             2' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             2' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-status open-midturn: 2 differing rows left, 2 new
+    left: fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             1' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-status typed: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-status-badsettings open: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-status-first after-first: 2 differing rows left, 2 new
+    left: fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             1' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-status-first open-first: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-status-short ctrl-k: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-status-short down-end: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-status-short down1: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-status-short open: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-status-short up1: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+p5-panels-sweep-b after-compact: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '367, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '391, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b compact: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '367, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '391, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b rename: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '367, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '391, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b resume: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '367, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '391, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b stats: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '367, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '391, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b trace: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '367, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '391, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-panels-sweep-b undo: 1 differing rows left, 1 new
+    left: fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '367, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '100, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '391, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-usage-turns credits: 1 differing rows left, 1 new
+    left: fx '518, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '146, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '652, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '316, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+p5-usage-turns stats: 1 differing rows left, 1 new
+    left: fx '518, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '146, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+    NEW:  fx '652, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0' / xfx '316, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0'
+read-failures live-ctrl-o-up1: 2 differing rows left, 2 new
+    left: fx '│  ls":{"field":"path","path":"<local-path>","error":"Not' / xfx ''
+    left: fx '├ Failed src' / xfx '│  ls":{"field":"path","path":"<local-path>","error":"Not'
+    NEW:  fx '___________________________________________________>/src","error":"Not' / xfx ''
+    NEW:  fx '├ Failed src' / xfx '___________________________________________________>/src","error":"Not'
+skills add-local: 2 differing rows left, 2 new
+    left: fx '' / xfx '* skills: Created <local-path>'
+    left: fx '* skills: Created <local-path>' / xfx ''
+    NEW:  fx '' / xfx '______________________________________><local-path>'
+    NEW:  fx '______________________________________><local-path>' / xfx ''
+skills bogus: 5 differing rows left, 5 new
+    left: fx '' / xfx '* skills: Created <local-path>'
+    left: fx '' / xfx '/skills, not the xfx managed install root. Remove it from <local-path>'
+    left: fx '<local-path>' / xfx ''
+    left: fx '* skills: Created <local-path>' / xfx ''
+    left: fx '/skills, not the xfx managed install root. Remove it from <local-path>' / xfx '<local-path>'
+    NEW:  fx '' / xfx '______________________________________><local-path>'
+    NEW:  fx '' / xfx 'skills, not the xfx managed install root. Remove it from <work________'
+    NEW:  fx '___________________________________________________>/.xfx/skills/demo.' / xfx ''
+    NEW:  fx '______________________________________><local-path>' / xfx ''
+    NEW:  fx 'skills, not the xfx managed install root. Remove it from <work________' / xfx '___________________________________________________>/.xfx/skills/demo.'
+skills create: 2 differing rows left, 2 new
+    left: fx '' / xfx '* skills: Created <local-path>'
+    left: fx '* skills: Created <local-path>' / xfx ''
+    NEW:  fx '' / xfx '______________________________________><local-path>'
+    NEW:  fx '______________________________________><local-path>' / xfx ''
+skills create-bad: 2 differing rows left, 2 new
+    left: fx '' / xfx '* skills: Created <local-path>'
+    left: fx '* skills: Created <local-path>' / xfx ''
+    NEW:  fx '' / xfx '______________________________________><local-path>'
+    NEW:  fx '______________________________________><local-path>' / xfx ''
+skills dollar: 5 differing rows left, 5 new
+    left: fx '' / xfx '* skills: Created <local-path>'
+    left: fx '' / xfx '/skills, not the xfx managed install root. Remove it from <local-path>'
+    left: fx '<local-path>' / xfx ''
+    left: fx '* skills: Created <local-path>' / xfx ''
+    left: fx '/skills, not the xfx managed install root. Remove it from <local-path>' / xfx '<local-path>'
+    NEW:  fx '' / xfx '______________________________________><local-path>'
+    NEW:  fx '' / xfx 'skills, not the xfx managed install root. Remove it from <work________'
+    NEW:  fx '___________________________________________________>/.xfx/skills/demo.' / xfx ''
+    NEW:  fx '______________________________________><local-path>' / xfx ''
+    NEW:  fx 'skills, not the xfx managed install root. Remove it from <work________' / xfx '___________________________________________________>/.xfx/skills/demo.'
+skills dollar-dem: 5 differing rows left, 5 new
+    left: fx '' / xfx '* skills: Created <local-path>'
+    left: fx '' / xfx '/skills, not the xfx managed install root. Remove it from <local-path>'
+    left: fx '<local-path>' / xfx ''
+    left: fx '* skills: Created <local-path>' / xfx ''
+    left: fx '/skills, not the xfx managed install root. Remove it from <local-path>' / xfx '<local-path>'
+    NEW:  fx '' / xfx '______________________________________><local-path>'
+    NEW:  fx '' / xfx 'skills, not the xfx managed install root. Remove it from <work________'
+    NEW:  fx '___________________________________________________>/.xfx/skills/demo.' / xfx ''
+    NEW:  fx '______________________________________><local-path>' / xfx ''
+    NEW:  fx 'skills, not the xfx managed install root. Remove it from <work________' / xfx '___________________________________________________>/.xfx/skills/demo.'
+skills dollar-enter: 5 differing rows left, 5 new
+    left: fx '' / xfx '* skills: Created <local-path>'
+    left: fx '' / xfx '/skills, not the xfx managed install root. Remove it from <local-path>'
+    left: fx '<local-path>' / xfx ''
+    left: fx '* skills: Created <local-path>' / xfx ''
+    left: fx '/skills, not the xfx managed install root. Remove it from <local-path>' / xfx '<local-path>'
+    NEW:  fx '' / xfx '______________________________________><local-path>'
+    NEW:  fx '' / xfx 'skills, not the xfx managed install root. Remove it from <work________'
+    NEW:  fx '___________________________________________________>/.xfx/skills/demo.' / xfx ''
+    NEW:  fx '______________________________________><local-path>' / xfx ''
+    NEW:  fx 'skills, not the xfx managed install root. Remove it from <work________' / xfx '___________________________________________________>/.xfx/skills/demo.'
+skills end.full: 5 differing rows left, 5 new
+    left: fx '' / xfx '* skills: Created <local-path>'
+    left: fx '' / xfx '/skills, not the xfx managed install root. Remove it from <local-path>'
+    left: fx '<local-path>' / xfx ''
+    left: fx '* skills: Created <local-path>' / xfx ''
+    left: fx '/skills, not the xfx managed install root. Remove it from <local-path>' / xfx '<local-path>'
+    NEW:  fx '' / xfx '______________________________________><local-path>'
+    NEW:  fx '' / xfx 'skills, not the xfx managed install root. Remove it from <work________'
+    NEW:  fx '___________________________________________________>/.xfx/skills/demo.' / xfx ''
+    NEW:  fx '______________________________________><local-path>' / xfx ''
+    NEW:  fx 'skills, not the xfx managed install root. Remove it from <work________' / xfx '___________________________________________________>/.xfx/skills/demo.'
+skills remove-made: 2 differing rows left, 2 new
+    left: fx '' / xfx '* skills: Created <local-path>'
+    left: fx '* skills: Created <local-path>' / xfx ''
+    NEW:  fx '' / xfx '______________________________________><local-path>'
+    NEW:  fx '______________________________________><local-path>' / xfx ''
+skills remove-workspace: 5 differing rows left, 5 new
+    left: fx '' / xfx '* skills: Created <local-path>'
+    left: fx '' / xfx '/skills, not the xfx managed install root. Remove it from <local-path>'
+    left: fx '<local-path>' / xfx ''
+    left: fx '* skills: Created <local-path>' / xfx ''
+    left: fx '/skills, not the xfx managed install root. Remove it from <local-path>' / xfx '<local-path>'
+    NEW:  fx '' / xfx '______________________________________><local-path>'
+    NEW:  fx '' / xfx 'skills, not the xfx managed install root. Remove it from <work________'
+    NEW:  fx '___________________________________________________>/.xfx/skills/demo.' / xfx ''
+    NEW:  fx '______________________________________><local-path>' / xfx ''
+    NEW:  fx 'skills, not the xfx managed install root. Remove it from <work________' / xfx '___________________________________________________>/.xfx/skills/demo.'
+skills sent: 5 differing rows left, 5 new
+    left: fx '' / xfx '* skills: Created <local-path>'
+    left: fx '' / xfx '/skills, not the xfx managed install root. Remove it from <local-path>'
+    left: fx '<local-path>' / xfx ''
+    left: fx '* skills: Created <local-path>' / xfx ''
+    left: fx '/skills, not the xfx managed install root. Remove it from <local-path>' / xfx '<local-path>'
+    NEW:  fx '' / xfx '______________________________________><local-path>'
+    NEW:  fx '' / xfx 'skills, not the xfx managed install root. Remove it from <work________'
+    NEW:  fx '___________________________________________________>/.xfx/skills/demo.' / xfx ''
+    NEW:  fx '______________________________________><local-path>' / xfx ''
+    NEW:  fx 'skills, not the xfx managed install root. Remove it from <work________' / xfx '___________________________________________________>/.xfx/skills/demo.'
+status-version-stats status: 2 differing rows left, 2 new
+    left: fx '  Turns             0' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             0' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+status-version-stats status-after-turn: 2 differing rows left, 2 new
+    left: fx '  Turns             1' / xfx '  Workspace         <local-path>'
+    left: fx '  Workspace         <local-path>' / xfx '  Sandbox           none'
+    NEW:  fx '  Turns             1' / xfx 'work_________________________________________________________________>'
+    NEW:  fx 'work_________________________________________________________________>' / xfx '  Sandbox           none'
+workspace-index at-plan: 1 differing rows left, 0 new
+    left: fx '  <local-path>' / xfx '  <local-path>'
+verdicts moved: 10
+    p5-lifecycle-retryok k01-1.5s: unresolved-defect -> normalized-identical
+    p5-mcp-menu-new list-remote: normalized-identical -> unresolved-defect
+    p5-submit-preview-full filled: normalized-identical -> identical
+    p5-submit-preview-full five: normalized-identical -> identical
+    p5-submit-preview-full image: normalized-identical -> identical
+    p5-submit-preview-full image-held: normalized-identical -> identical
+    p5-transcript-submit filled: identical -> normalized-identical
+    p5-transcript-submit second: identical -> normalized-identical
+    settings-collapse-open after-esc: normalized-identical -> identical
+    workspace-index at-plan: unresolved-defect -> normalized-identical
+fx screens not the same in the two sweeps: 345
+    compact-inturn answered
+    compact-inturn compacting
+    composer-wrap badge-111
+    composer-wrap badge-71
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    h1-rehomefile status
+    h1-signal terminated
+    h1-signal-hup hup
+    image again
+    image attached
+    image end.full
+    image images-listed
+    image resumed
+    image resumed-sent
+    image sent
+    image two-attached
+    image-composer lookalike
+    image-composer lookalike-sent
+    image-composer oversized
+    image-composer recalled
+    image-composer recalled-sent
+    image-composer recovered
+    image-composer yanked
+    image-composer yanked-sent
+    image-inline pasted
+    image-inline pasted-missing
+    image-inline pasted-sent
+    image-inline typed
+    image-inline typed-sent
+    image-nonnative attached
+    image-nonnative end.full
+    image-nonnative sent
+    image-paste ctrl-v
+    image-paste end.full
+    image-paste images
+    image-paste paste
+    image-paste sent
+    image-undo pasted
+    image-undo yank-undone
+    image-undo yanked
+    image-unknown attached
+    image-unknown end.full
+    image-unknown sent
+    image-withheld attached
+    image-withheld sent
+    interrupt mid2
+    interrupt-recovered rec-1.8
+    interrupt-recovered rec-3.2
+    interrupt-recovery full
+    interrupt-steer-retract steer-again
+    links full
+    links-image attached
+    links-image resumed
+    links-image sent
+    model-column-idle col-typed
+    model-column-reask col-back
+    model-column-reask col-down
+    model-parked menu-loading
+    model-parked question-landed
+    model-parked question-up
+    model-reask menu-failed
+    model-reask reask-midturn
+    p5-call-row-safe full
+    p5-cli-ledger-update-help h00-update-help.full
+    p5-cli-ledger-update-help h01-upgrade-help.full
+    p5-cli-ledger-update-help h02-help-update.full
+    p5-ctrlo-wider-diff full
+    p5-ctrlo-wider-diff-fam full
+    p5-ctrlo-wider-fence ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo-resized
+    p5-effort-fork-fork continued
+    p5-effort-fork-fork forked
+    p5-effort-fork-fork forked.full
+    p5-effort-fork-fork quit
+    p5-effort-fork-fork resume
+    p5-effort-fork-fork status
+    p5-effort-fork-fork-continue continued
+    p5-effort-fork-fork-continue forked
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-effort-fork-fork-empty forked
+    p5-effort-fork-oldread-src doctor.full
+    p5-effort-fork-oldread-src resume-source
+    p5-effort-fork-oldread-v1 resume-id
+    p5-effort-fork-oldread-v2 continued
+    p5-effort-fork-oldread-v2 quit
+    p5-effort-fork-oldread-v2 resume-id
+    p5-effort-fork-oldread-v2 resume-id.full
+    p5-input-question20 q20-answered
+    p5-input-question20 q20-answered.full
+    p5-input-question20 resumed
+    p5-input-question20 resumed.full
+    p5-lifecycle-login2 m04-codex-methods
+    p5-lifecycle-login2 m05-codex-signin
+    p5-lifecycle-login2 m06-grok-methods
+    p5-lifecycle-login2 m07-grok-signin
+    p5-lifecycle-osc s09-exit
+    p5-lifecycle-relhome h01-sessions.full
+    p5-lifecycle-relhome-image again
+    p5-lifecycle-relhome-image sent
+    p5-lifecycle-relhome-made h02-sessions.full
+    p5-lifecycle-relhome-resume r00-resume.full
+    p5-lifecycle-relhome-unsaved u02-status
+    p5-lifecycle-relhome-unsaved u08-quit.full
+    p5-lifecycle-retry r04a-esc-armed
+    p5-lifecycle-update u00-update
+    p5-lifecycle-update u01-update-dev
+    p5-lifecycle-update u02-upgrade-json
+    p5-lifecycle-update u03-help.full
+    p5-lifecycle-v1bad b02-launch-refused.full
+    p5-mcp-discover-http-hostile show
+    p5-mcp-discover-http-malformed show
+    p5-mcp-discover-http-modern show
+    p5-mcp-discover-http-modern turn
+    p5-mcp-discover-http-notimpl show
+    p5-mcp-discover-http-notimpl turn
+    p5-mcp-discover-http-old2024 show
+    p5-mcp-discover-http-ssefail show
+    p5-mcp-discover-http-ssehold show
+    p5-mcp-discover-http-sseidless show
+    p5-mcp-discover-http-ssestrid show
+    p5-mcp-discover-stdio-asks show
+    p5-mcp-discover-stdio-banner show
+    p5-mcp-discover-stdio-hostile show
+    p5-mcp-discover-stdio-malformed show
+    p5-mcp-discover-stdio-modern show
+    p5-mcp-discover-stdio-modern turn
+    p5-mcp-discover-stdio-modern-tc show
+    p5-mcp-discover-stdio-modern-tc turn
+    p5-mcp-discover-stdio-old2024 show
+    p5-mcp-discover-stdio-silent show
+    p5-mcp-fail server-2
+    p5-mcp-live full
+    p5-mcp-live live
+    p5-mcp-menu-new approve-confirm
+    p5-mcp-menu-new approve-esc
+    p5-mcp-menu-new approved
+    p5-mcp-menu-new reject-inplace
+    p5-mcp-menu-new reject-inplace-ready
+    p5-mcp-menu-new reject-typed-x
+    p5-mcp-menu-new rejected
+    p5-mcp-menu-new server-fixture
+    p5-mcp-menu-new server-fixture-nomatch
+    p5-mcp-menu-new server-fixture-tool
+    p5-mcp-menu-new server-proj
+    p5-mcp-menu-new server-proj-ready
+    p5-mcp-menu-new server-proj-reject
+    p5-mcp-menu-old details-2
+    p5-mcp-menu-old details-3
+    p5-mcp-verbs add-new-http
+    p5-mcp-verbs add-new-syntax
+    p5-mcp-verbs add-old-http
+    p5-mcp-verbs add-old-syntax
+    p5-mcp-verbs approve
+    p5-mcp-verbs auth-remote
+    p5-mcp-verbs complete-args
+    p5-mcp-verbs complete-show
+    p5-mcp-verbs end.full
+    p5-mcp-verbs list-after
+    p5-mcp-verbs login-remote
+    p5-mcp-verbs login-stdio
+    p5-mcp-verbs logout-remote
+    p5-mcp-verbs prompt-list
+    p5-mcp-verbs reject
+    p5-mcp-verbs remove-three
+    p5-mcp-verbs remove-two
+    p5-mcp-verbs remove-web
+    p5-mcp-verbs remove-web2
+    p5-mcp-verbs resource-list
+    p5-mcp-verbs show-bare
+    p5-mcp-verbs show-fixture
+    p5-mcp-verbs show-proj
+    p5-mcp-verbs show-remote
+    p5-mcp-verbs trust-approve
+    p5-panels-badsettings launch
+    p5-panels-badsettings open
+    p5-panels-keys approval-esc
+    p5-panels-keys btab
+    p5-panels-keys ctrl-c
+    p5-panels-keys end
+    p5-panels-keys open-before-approval
+    p5-panels-keys paste
+    p5-panels-keys tab-pgdn
+    p5-panels-noauth open
+    p5-panels-permissions status-grants
+    p5-panels-status after-turn
+    p5-panels-status down
+    p5-panels-status open
+    p5-panels-status open-after-midturn
+    p5-panels-status open-midturn
+    p5-panels-status typed
+    p5-panels-status-badsettings open
+    p5-panels-status-first after-first
+    p5-panels-status-first open-first
+    p5-panels-status-short ctrl-k
+    p5-panels-status-short down-end
+    p5-panels-status-short down1
+    p5-panels-status-short open
+    p5-panels-status-short up1
+    p5-panels-sweep-a quit
+    p5-panels-sweep-a workspace
+    p5-panels-sweep-b quit
+    p5-submit-preview-full block.full
+    p5-submit-preview-full image
+    p5-submit-preview-full image-held
+    p5-submit-preview-notice block.full
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-toolgroup-live running-light
+    p5-toolgroup-live-tc running-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel full
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    p5-usage-turns credits
+    p5-usage-turns stats
+    permissions-midturn after-refusal
+    permissions-midturn first-done
+    provider-carry quit
+    question answered
+    question answered.full
+    quit quit
+    quit-pristine quit
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    rename quit
+    rename relaunched
+    resume quit
+    resume-launch quit
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    search-roots live-ctrl-o
+    settings-collapse-open after-esc
+    settings-collapse-open collapse-on
+    skills add-local
+    skills bogus
+    skills create
+    skills create-bad
+    skills dollar
+    skills dollar-dem
+    skills dollar-enter
+    skills end.full
+    skills path
+    skills remove-made
+    skills remove-workspace
+    skills sent
+    status-version-stats status
+    status-version-stats status-after-turn
+    statusline bogus
+    statusline workspace
+    statusline-turn after-turn
+    statusline-turn all-on
+    timeout live-ctrl-o
+    toolgroup cmd-running
+    toolgroup long-running
+    toolgroup-wire end
+    toolgroup-wire end.full
+    trace copy-fail
+    undo undo1
+    undo undo2
+    undo undo3
+    workspace add
+    workspace add-row-enter
+    workspace bare
+    workspace clear-done
+    workspace clear-prefill
+    workspace clear-row
+    workspace dir-enter
+    workspace list
+    workspace picker-down1
+    workspace picker-one
+    workspace refusals
+    workspace-index at-all
+    workspace-index at-plan
+xfx screens not the same in the two sweeps: 429
+    approvals after-cc-cmd-ask
+    approvals cmd2-ask
+    approvals edit-amend-typed
+    approvals edit-ask
+    approvals edit-down1
+    approvals edit-down3-wrap
+    approvals edit-tab-amend
+    approvals write-ask
+    approvals-amend-limit asked
+    approvals-amend-limit refused
+    approvals-amend-limit refused-after-edit
+    approvals-amend-limit refused-again
+    approvals-big write-big
+    approvals-big write-big-walked
+    cmd-wrap cmd-a
+    cmd-wrap cmd-b
+    compact compacting-1.9s
+    compact-fail failed
+    compact-fail failed-3.5s
+    compact-fail next-turn
+    compact-inturn answered
+    compact-inturn compacting
+    composer-wrap badge-111
+    composer-wrap badge-71
+    fulltranscript cmd-ask
+    fulltranscript cmd-ask-ctrl-o
+    fulltranscript edit-ask
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    h1-refuse back
+    h1-refuse refused
+    h1-refuse-pause after-pause
+    h1-refuse-pause end
+    h1-refuse-pause paused
+    h1-refuse-pause refused
+    h1-rehomefile status
+    h1-signal terminated
+    h1-signal-hup hup
+    image again
+    image attached
+    image end.full
+    image images-listed
+    image resumed
+    image resumed-sent
+    image sent
+    image two-attached
+    image-composer lookalike
+    image-composer lookalike-sent
+    image-composer oversized
+    image-composer recalled
+    image-composer recalled-sent
+    image-composer recovered
+    image-composer yanked
+    image-composer yanked-sent
+    image-inline pasted
+    image-inline pasted-missing
+    image-inline pasted-sent
+    image-inline typed
+    image-inline typed-sent
+    image-nonnative attached
+    image-nonnative end.full
+    image-nonnative sent
+    image-paste ctrl-v
+    image-paste end.full
+    image-paste images
+    image-paste paste
+    image-paste sent
+    image-undo pasted
+    image-undo yank-undone
+    image-undo yanked
+    image-unknown attached
+    image-unknown end.full
+    image-unknown sent
+    image-withheld attached
+    image-withheld sent
+    interrupt-recovery full
+    interrupt2 draft
+    interrupt2 draft-cc
+    interrupt2 mid
+    links full
+    links-image attached
+    links-image resumed
+    links-image sent
+    model-column-idle col-typed
+    model-column-reask col-back
+    model-column-reask col-down
+    model-reask menu-failed
+    model-reask reask-midturn
+    p5-call-row-safe full
+    p5-cli-ledger-update-help h00-update-help.full
+    p5-cli-ledger-update-help h01-upgrade-help.full
+    p5-cli-ledger-update-help h02-help-update.full
+    p5-ctrlo-wider-diff full
+    p5-ctrlo-wider-diff-fam full
+    p5-ctrlo-wider-fence ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo-resized
+    p5-effort-fork-fork continued
+    p5-effort-fork-fork forked
+    p5-effort-fork-fork forked.full
+    p5-effort-fork-fork quit
+    p5-effort-fork-fork resume
+    p5-effort-fork-fork status
+    p5-effort-fork-fork-continue continued
+    p5-effort-fork-fork-continue forked
+    p5-effort-fork-fork-edge fork-of-empty
+    p5-effort-fork-fork-edge forked-first
+    p5-effort-fork-fork-edge forked-first.full
+    p5-effort-fork-fork-edge quit
+    p5-effort-fork-fork-edge resume
+    p5-effort-fork-fork-edge status-empty
+    p5-effort-fork-fork-empty forked
+    p5-effort-fork-oldread-src doctor.full
+    p5-effort-fork-oldread-src resume-source
+    p5-effort-fork-oldread-v1 resume-id
+    p5-effort-fork-oldread-v2 continued
+    p5-effort-fork-oldread-v2 quit
+    p5-effort-fork-oldread-v2 resume-id
+    p5-effort-fork-oldread-v2 resume-id.full
+    p5-input-paste-amend amend-keep
+    p5-input-paste-amend amend-paste-enter
+    p5-input-paste-amend answered
+    p5-input-paste-amend asked
+    p5-input-paste-amend choice-paste-enter
+    p5-input-question20 q20-answered
+    p5-input-question20 q20-answered.full
+    p5-input-question20 resumed
+    p5-input-question20 resumed.full
+    p5-lifecycle-relhome h01-sessions.full
+    p5-lifecycle-relhome-image again
+    p5-lifecycle-relhome-image sent
+    p5-lifecycle-relhome-made h02-sessions.full
+    p5-lifecycle-relhome-resume r00-resume.full
+    p5-lifecycle-relhome-unsaved u02-status
+    p5-lifecycle-relhome-unsaved u08-quit.full
+    p5-lifecycle-retryok k01-1.5s
+    p5-lifecycle-retryok k02-4.5s
+    p5-lifecycle-update u00-update
+    p5-lifecycle-update u01-update-dev
+    p5-lifecycle-update u02-upgrade-json
+    p5-lifecycle-update u03-help.full
+    p5-lifecycle-v1bad b02-launch-refused.full
+    p5-lifecycle-v1resume v01-resumed
+    p5-lifecycle-v1resume v01-resumed.full
+    p5-lifecycle-v1resume v02-continued
+    p5-mcp-discover-http-hostile show
+    p5-mcp-discover-http-malformed show
+    p5-mcp-discover-http-modern show
+    p5-mcp-discover-http-modern turn
+    p5-mcp-discover-http-notimpl show
+    p5-mcp-discover-http-notimpl turn
+    p5-mcp-discover-http-old2024 show
+    p5-mcp-discover-http-ssefail show
+    p5-mcp-discover-http-ssehold show
+    p5-mcp-discover-http-sseidless show
+    p5-mcp-discover-http-ssestrid show
+    p5-mcp-discover-stdio-asks show
+    p5-mcp-discover-stdio-banner show
+    p5-mcp-discover-stdio-hostile show
+    p5-mcp-discover-stdio-malformed show
+    p5-mcp-discover-stdio-modern show
+    p5-mcp-discover-stdio-modern turn
+    p5-mcp-discover-stdio-modern-tc show
+    p5-mcp-discover-stdio-modern-tc turn
+    p5-mcp-discover-stdio-old2024 show
+    p5-mcp-discover-stdio-silent show
+    p5-mcp-fail server-2
+    p5-mcp-live full
+    p5-mcp-menu-new approve-confirm
+    p5-mcp-menu-new approve-esc
+    p5-mcp-menu-new approved
+    p5-mcp-menu-new list-remote
+    p5-mcp-menu-new reject-inplace
+    p5-mcp-menu-new reject-inplace-ready
+    p5-mcp-menu-new reject-typed-x
+    p5-mcp-menu-new rejected
+    p5-mcp-menu-new server-fixture
+    p5-mcp-menu-new server-fixture-nomatch
+    p5-mcp-menu-new server-fixture-tool
+    p5-mcp-menu-new server-proj
+    p5-mcp-menu-new server-proj-ready
+    p5-mcp-menu-new server-proj-reject
+    p5-mcp-menu-old details-2
+    p5-mcp-menu-old details-3
+    p5-mcp-rpcerror failed
+    p5-mcp-verbs add-badname
+    p5-mcp-verbs add-new-http
+    p5-mcp-verbs add-new-syntax
+    p5-mcp-verbs add-old-http
+    p5-mcp-verbs add-old-syntax
+    p5-mcp-verbs approve
+    p5-mcp-verbs auth-remote
+    p5-mcp-verbs complete-args
+    p5-mcp-verbs complete-show
+    p5-mcp-verbs end.full
+    p5-mcp-verbs list-after
+    p5-mcp-verbs login-remote
+    p5-mcp-verbs login-stdio
+    p5-mcp-verbs logout-remote
+    p5-mcp-verbs prompt-list
+    p5-mcp-verbs reject
+    p5-mcp-verbs remove-three
+    p5-mcp-verbs remove-two
+    p5-mcp-verbs remove-web
+    p5-mcp-verbs remove-web2
+    p5-mcp-verbs resource-list
+    p5-mcp-verbs show-bare
+    p5-mcp-verbs show-fixture
+    p5-mcp-verbs show-proj
+    p5-mcp-verbs show-remote
+    p5-mcp-verbs trust-approve
+    p5-panels-badsettings open
+    p5-panels-keys approval-arrives
+    p5-panels-keys approval-esc
+    p5-panels-keys btab
+    p5-panels-keys ctrl-c
+    p5-panels-keys end
+    p5-panels-keys open-before-approval
+    p5-panels-keys paste
+    p5-panels-keys tab-pgdn
+    p5-panels-noauth open
+    p5-panels-permissions after-revoke
+    p5-panels-permissions approval
+    p5-panels-permissions grants
+    p5-panels-permissions status-grants
+    p5-panels-permissions-saved after-revoke
+    p5-panels-permissions-saved approval
+    p5-panels-permissions-saved saved
+    p5-panels-status after-turn
+    p5-panels-status down
+    p5-panels-status open
+    p5-panels-status open-after-midturn
+    p5-panels-status open-midturn
+    p5-panels-status typed
+    p5-panels-status-badsettings open
+    p5-panels-status-first after-first
+    p5-panels-status-first open-first
+    p5-panels-status-short ctrl-k
+    p5-panels-status-short down-end
+    p5-panels-status-short down1
+    p5-panels-status-short open
+    p5-panels-status-short up1
+    p5-panels-sweep-a quit
+    p5-panels-sweep-a workspace
+    p5-panels-sweep-b after-compact
+    p5-panels-sweep-b compact
+    p5-panels-sweep-b quit
+    p5-panels-sweep-b rename
+    p5-panels-sweep-b resume
+    p5-panels-sweep-b stats
+    p5-panels-sweep-b trace
+    p5-panels-sweep-b undo
+    p5-submit-preview-full block.full
+    p5-submit-preview-full filled
+    p5-submit-preview-full five
+    p5-submit-preview-full five-held
+    p5-submit-preview-full image
+    p5-submit-preview-full image-held
+    p5-submit-preview-notice block.full
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-anchormid running
+    p5-transcript-cancel full
+    p5-transcript-diffask ask
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-submit filled
+    p5-transcript-submit second
+    p5-transcript-submit submit-0.15
+    p5-transcript-submit tall.full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    p5-usage-noledger turns
+    p5-usage-noledger usage
+    p5-usage-turns credits
+    p5-usage-turns stats
+    permissions-midturn second-asks
+    provider-carry quit
+    provider-resume-missing turn2
+    question answered
+    question answered.full
+    quit quit
+    quit-pristine quit
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    rename quit
+    reset clear.full
+    reset new.full
+    reset reset.full
+    reset turn1
+    reset turn2
+    reset turn3.full
+    reset-wire clear.full
+    resume quit
+    resume-launch quit
+    resume-tools again-stopped
+    resume-tools cmd-ask
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools edit-ask
+    resume-tools end
+    resume-tools exit-ask
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    resume-tools live.full
+    resume-tools long-later
+    resume-tools resumed
+    resume-tools resumed.full
+    resume-tools write-ask
+    rules-read ask
+    rules-read ask2
+    rules-read-auto grep-amend
+    rules-read-auto grep-ask
+    rules-read-auto read-ask
+    search-roots live-ctrl-o
+    settings-collapse cmd-ask
+    settings-collapse running
+    skills add-local
+    skills bogus
+    skills create
+    skills create-bad
+    skills dollar
+    skills dollar-dem
+    skills dollar-enter
+    skills end.full
+    skills path
+    skills remove-made
+    skills remove-workspace
+    skills sent
+    sound ask
+    status-version-stats status
+    status-version-stats status-after-turn
+    statusline bogus
+    statusline workspace
+    statusline-turn after-turn
+    statusline-turn all-on
+    streaming end
+    streaming mid
+    timeout live-ctrl-o
+    toolgroup again-ask
+    toolgroup cmd-ask
+    toolgroup edit-ask
+    toolgroup exit-ask
+    toolgroup long-ask
+    toolgroup write-ask
+    toolgroup-noop ask
+    toolgroup-noop end
+    toolgroup-wire end
+    toolgroup-wire end.full
+    trace copy-fail
+    undo before-undo
+    undo undo1
+    undo undo2
+    undo undo3
+    workspace add
+    workspace add-row-enter
+    workspace bare
+    workspace clear-done
+    workspace clear-prefill
+    workspace clear-row
+    workspace dir-enter
+    workspace list
+    workspace picker-down1
+    workspace picker-one
+    workspace refusals
+    workspace-index at-all
+    workspace-index at-plan
+passed on the reference, not on the train: 1
+    p5-mcp-menu-new list-remote; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 78

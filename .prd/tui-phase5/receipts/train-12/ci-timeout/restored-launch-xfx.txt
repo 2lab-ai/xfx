@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-5651cf2 [debug] · Run /help for commands
+
+* config: 1 configuration issue (ctrl+o to view)
+
+! permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings); fix
+  it, then /allowlist reads it again
+
+┃
+
+run `xfx setup` · auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

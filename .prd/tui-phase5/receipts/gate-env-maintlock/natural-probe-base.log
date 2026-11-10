@@ -1,0 +1,3 @@
+# natural-probe.sh, git 2.56.0, 2026-11-09T14:39:30Z, load { 30.86 21.91 20.32 }
+natural-probe mode=base runs=300 differing=0
+# 2026-11-09T14:41:25Z, load { 12.33 18.12 19.04 }

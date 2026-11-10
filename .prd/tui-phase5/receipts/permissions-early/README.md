@@ -185,14 +185,14 @@ shape every reader since Phase 4 reads. The log is unchanged in kind.
 ## Captures
 
 ```
-FX_BIN=<fx v0.0.16> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh fx  <scenario> 40x120 <dir>
-XFX_BIN=<target/debug/xfx> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh xfx <scenario> 40x120 <dir>
+FX_BIN=<fx v0.0.16> TMPDIR=<tmp> scripts/fxcap/capture.sh fx  <scenario> 40x120 <dir>
+XFX_BIN=<target/debug/xfx> TMPDIR=<tmp> scripts/fxcap/capture.sh xfx <scenario> 40x120 <dir>
 python3 -I .prd/tui-phase5/receipts/status-panel/pairs.py .prd/tui-phase5/receipts/permissions-early
 ```
 
 xfx is `target/debug/xfx` at `699acf13` (banner `699acf1`); `red/` is
 `9c6f4a1d`'s. `compat.txt` was run on `11ea2120`'s session, whose files the
-seed's checks do not change. `/private/tmp/claude-501` is written `<tmp>`
+seed's checks do not change. `/private/tmp/claude-<uid>` is written `<tmp>`
 (`scripts/fxcap/redact.py`).
 
 `receipts/permissions-panel/` still holds the refusing xfx side of the nine

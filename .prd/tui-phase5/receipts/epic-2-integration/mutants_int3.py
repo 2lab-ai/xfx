@@ -21,7 +21,7 @@ M = [
   "        self.close_fork_menu();\n        self.close_usage();",
   ["the_usage_screen_and_the_mcp_menu_close_each_other"]),
 ]
-env = dict(os.environ, TMPDIR='/private/tmp/claude-501/ep2')
+env = dict(os.environ, TMPDIR=os.path.join(os.environ.get('TMPDIR') or '/tmp', 'ep2'))
 for name, rel, old, new, tests in M:
     path = os.path.join(clone, rel)
     orig = open(path).read()

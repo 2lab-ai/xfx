@@ -1,0 +1,33 @@
+== repeat.sh ... 1 p5-mcp-menu-old p5-mcp-verbs p5-mcp-config p5-mcp-config-vars, at 3943d667 (before any change)
+head-1 exit=0 fx-sha-same=yes pass = 20 / 51 = 39.2%; unresolved 31, failed 0, timeout 0
+base-1 exit=0 fx-sha-same=yes pass = 18 / 51 = 35.3%; unresolved 33, failed 0, timeout 0
+exit=0
+
+== scan.py over both builds' runs
+p5-mcp-verbs show-proj xfx: remote ~/.xfx/mcp.json http connecting
+p5-mcp-verbs show-remote xfx: remote ~/.xfx/mcp.json http connecting
+
+p5-mcp-config                   2 snap(s) show a status word; row names {('web', 'connecting'): 8}
+p5-mcp-menu-old                 7 snap(s) show a status word; row names {('status', 'connecting'): 4, ('remote', 'connecting'): 20, ('remote', 'retrying'): 4}
+p5-mcp-verbs                   25 snap(s) show a status word; row names {('status', 'retrying'): 36, ('remote', 'connecting'): 80, ('web2', 'connecting'): 48, ('show', 'connecting'): 4}
+
+== verdicts.py
+runs: base 1, head 1
+
+per scenario and build: pairs passed over all runs
+  p5-mcp-config              base     1 of    3
+  p5-mcp-config              head     1 of    3
+  p5-mcp-config-vars         base     2 of    4
+  p5-mcp-config-vars         head     2 of    4
+  p5-mcp-menu-old            base    14 of   16
+  p5-mcp-menu-old            head    16 of   16
+  p5-mcp-verbs               base     1 of   28
+  p5-mcp-verbs               head     1 of   28
+
+pairs whose verdict varies across one build's runs: 0
+
+pairs a (head run, base run) pairing would call a regression: 0
+
+== p5-mcp-menu-old's unresolved pairs on base-1, their differing rows (pairs.json)
+resources unresolved-defect row 7: fx '› remote                  connecting              profile' / xfx '› remote                  retrying                profile'
+prompts unresolved-defect row 7: fx '› remote                  retrying                profile' / xfx '› remote                  connecting              profile'

@@ -292,7 +292,7 @@ deleted.
 
 ## Gates
 
-Per merge, on the merge commit, with `TMPDIR=/private/tmp/claude-501/train2`:
+Per merge, on the merge commit, with `TMPDIR=<tmp>/train2`:
 
 | after | head | fmt | clippy | clippy, fault-injection | identity | stubs | secrets | ledger loads, sources checked |
 |---|---|---|---|---|---|---|---|---|

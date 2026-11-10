@@ -1,0 +1,10 @@
+--- capture.sh
++++ capture.sh
+@@ -851,6 +851,7 @@
+   else
+     await_up "$sock" "$run" "$keep"
+   fi
++  curl -s "http://127.0.0.1:$port/probe-up" > /dev/null || true
+ 
+   while IFS= read -r raw; do
+     line=$(for_this "$which" "$raw")

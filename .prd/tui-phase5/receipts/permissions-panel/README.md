@@ -74,7 +74,7 @@ python3 -I .prd/tui-phase5/receipts/status-panel/pairs.py .prd/tui-phase5/receip
   this unit are here. Their fx side is P-status's receipt's, unchanged. The
   xfx side was taken again here.
 
-The xfx binary is `target/debug/xfx` at `6d495f1b`, round P-permissions-b's code commit (its banner says `6d495f1`). Round 1's xfx sides, taken at `450c45ef`, gave the same verdicts; only the banner, the session ids and the run's tmp names differ between the two. `/private/tmp/claude-501`
+The xfx binary is `target/debug/xfx` at `6d495f1b`, round P-permissions-b's code commit (its banner says `6d495f1`). Round 1's xfx sides, taken at `450c45ef`, gave the same verdicts; only the banner, the session ids and the run's tmp names differ between the two. `/private/tmp/claude-<uid>`
 is written `<tmp>` (`scripts/fxcap/redact.py`). Nothing else was edited.
 
 **RED** on the base (`d3bc63d3`), `cells.py`, row 1 not compared:

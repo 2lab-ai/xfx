@@ -1,0 +1,16 @@
+# red7.sh on a clone at 15e37f4a (round 6)
+1 <scratch>/fxtmp,backup/a:                      normalized (RED)
+1 <scratch>/fxtmp backup/a:                      normalized (RED)
+1 <scratch>/fxtmp:x:                             normalized (RED)
+1 <scratch>/fxtmp):                              normalized (RED)
+1 <scratch>/fxtmp:                               normalized (RED)
+1 <scratch>/fxtmp":                              normalized (RED)
+1 <scratch>/fxtmp|:                              normalized (RED)
+1 <scratch>/fxtmp-old/a:                         compared
+1 <scratch>/fxtmpé/a:                            compared
+1 <scratch>/fxtmp/b.md:                          normalized
+2 `/tmp/fxt ` whole in 'x /tmp/fxt /notes':      refused (conservative)
+2 `/tmp/fxt ` whole in 'x /tmp/fxt y':           refused (conservative)
+3 dir fxtmp-old:                                 made beside the TMPDIRs, exit 0 (RED)
+4 (`claude-<digits>/p5uc`):                      passes (RED)
+4 models/claude-3/x:                             passes

@@ -7,7 +7,7 @@ FX_BIN=<fx c1db919 build, 0.0.13, sha256 7b76319a…> scripts/fxcap/capture.sh f
                                                     scripts/fxcap/capture.sh xfx alias 40x120 <dir>
 ```
 
-Both were run with `TMPDIR=/private/tmp/claude-501`. `capture.sh` is
+Both were run with `TMPDIR=<tmp>`. `capture.sh` is
 unchanged. It launches fx with `FX_AUTO_UPGRADE=0` last in its environment, and
 it checked that the reference binary's bytes did not change during the run.
 

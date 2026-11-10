@@ -1,0 +1,65 @@
+== r5-cargo-mcp-config: bash -c cd '<repo>' && cargo test --locked --lib mcp::config (at 6bfc6562)
+start 2026-11-10T09:55:51Z
+running 59 tests
+test mcp::config::tests::a_config_that_grows_after_it_is_looked_at_is_not_read_past_the_cap ... ok
+test mcp::config::tests::a_profile_written_by_add_is_upstreams_bytes ... ok
+test mcp::config::tests::a_config_swapped_after_it_is_looked_at_is_still_the_file_looked_at ... ok
+test mcp::config::tests::a_config_linked_to_a_device_is_refused_without_being_opened ... ok
+test mcp::config::tests::a_name_under_mcp_servers_beside_mcp_is_a_note ... ok
+test mcp::config::tests::a_profile_round_trips_through_its_own_parser ... ok
+test mcp::config::tests::a_project_file_is_edited_as_fx_edits_it ... ok
+test mcp::config::tests::a_fifo_where_a_config_should_be_is_refused_without_blocking ... ok
+test mcp::config::tests::a_rejection_wins_and_reset_forgets_everything ... ok
+test mcp::config::tests::a_name_in_a_note_is_spelled_for_a_terminal_and_cut_at_160_bytes ... ok
+test mcp::config::tests::a_profile_entry_xfx_cant_read_is_skipped_with_fxs_note ... ok
+test mcp::config::tests::a_server_left_without_a_value_is_dropped_with_fxs_sentence_for_its_field ... ok
+test mcp::config::tests::add_keeps_every_key_it_doesnt_know_in_order_with_numbers_as_written ... ok
+test mcp::config::tests::a_config_swapped_for_a_fifo_after_it_is_looked_at_does_not_block_the_read ... ok
+test mcp::config::tests::add_writes_a_stdio_server_into_a_new_file_under_mcp_servers ... ok
+test mcp::config::tests::a_profile_servers_variables_expand_where_fxs_do_and_nowhere_else ... ok
+test mcp::config::tests::a_name_a_terminal_cant_show_is_skipped_last_with_a_note_that_spells_it ... ok
+test mcp::config::tests::a_variable_is_its_value_even_empty_and_its_default_only_when_unset ... ok
+test mcp::config::tests::add_refuses_what_it_cant_edit_safely ... ok
+test mcp::config::tests::an_approval_saved_by_name_alone_or_for_every_server_asks_again ... ok
+test mcp::config::tests::a_read_that_panics_fails_its_test_at_once_with_its_own_panic ... ok
+test mcp::config::tests::a_reader_reads_no_more_than_the_cap_whatever_the_file_reports ... ok
+test mcp::config::tests::a_stage_name_already_there_is_never_removed ... ok
+test mcp::config::tests::an_older_profile_keeps_its_mcp_key_and_a_project_file_never_uses_it ... ok
+test mcp::config::tests::an_expanded_header_is_held_to_a_written_headers_rules ... ok
+test mcp::config::tests::an_old_profile_keeps_its_mcp_key_and_every_other_byte_fx_keeps ... ok
+test mcp::config::tests::an_approval_admits_only_the_entry_it_was_given_for ... ok
+test mcp::config::tests::a_workspace_file_is_read_under_the_choices_and_expanded_only_once_approved ... ok
+test mcp::config::tests::approve_all_approves_the_entries_there_now_and_not_later_ones ... ok
+test mcp::config::tests::each_reason_an_entry_is_skipped_is_fxs_sentence ... ok
+test mcp::config::tests::every_bad_field_is_named_as_upstream_names_it ... ok
+test mcp::config::tests::every_edit_error_says_why_in_fxs_words ... ok
+test mcp::config::tests::a_servers_debug_names_it_and_never_shows_a_value ... ok
+test mcp::config::tests::fxs_ignored_key_notes_are_not_given_since_xfx_acts_on_both_keys ... ok
+test mcp::config::tests::headers_are_held_to_upstreams_static_rules_and_header_env_to_plain_names ... ok
+test mcp::config::tests::a_linked_config_file_is_never_edited_whether_a_symlink_or_a_hard_link ... ok
+test mcp::config::tests::remove_drops_one_entry_keeps_the_rest_in_order_and_returns_its_url ... ok
+test mcp::config::tests::strings_are_written_back_in_std_jsons_spelling ... ok
+test mcp::config::tests::the_endpoint_rule_is_https_or_loopback_with_a_port ... ok
+test mcp::config::tests::only_a_profile_server_is_expanded_so_a_repository_never_reads_a_credential ... ok
+test mcp::config::tests::the_profile_on_disk_keeps_its_variables_as_written ... ok
+test mcp::config::tests::the_expansion_is_capped_as_fxs_is ... ok
+test mcp::config::tests::the_reader_and_the_writer_take_the_same_depth ... ok
+test mcp::config::tests::a_workspace_file_xfx_cant_read_is_one_note_in_fxs_words ... ok
+test mcp::config::tests::a_profile_is_owner_only_after_an_edit_whatever_mode_it_had ... ok
+test mcp::config::tests::the_vars_scenario_starts_what_fx_v0_0_16_starts_and_says_what_it_says ... ok
+test mcp::config::tests::the_verbs_scenario_leaves_fx_v0_0_16s_bytes ... ok
+test mcp::config::tests::a_project_edit_replaces_the_file_whole_and_keeps_its_mode ... ok
+test mcp::config::tests::the_runtime_starts_only_what_the_expansion_and_the_name_check_leave ... ok
+test mcp::config::tests::the_typed_add_never_drops_an_entry_it_cannot_read ... ok
+test mcp::config::tests::a_write_that_fails_after_its_stage_exists_leaves_no_stage_and_the_file_as_it_was ... ok
+test mcp::config::tests::the_choices_land_in_settings_as_upstreams_keys_and_leave_when_reset ... ok
+test mcp::config::tests::an_edit_that_fails_writes_nothing ... ok
+test mcp::config::tests::the_writer_reads_json_as_serde_json_does_and_writes_back_the_same_values ... ok
+test mcp::config::tests::profile_writes_keep_order_replace_by_name_and_say_when_nothing_was_removed ... ok
+test mcp::config::tests::the_profiles_first_write_creates_its_directory_readable_only_by_its_owner ... ok
+test mcp::config::tests::an_edit_that_would_leave_a_file_over_the_cap_is_refused_and_writes_nothing ... ok
+test mcp::config::tests::a_read_blocked_on_the_fifo_is_let_go_joined_and_reported ... ok
+test mcp::config::tests::a_slow_read_with_no_reader_on_the_fifo_does_not_block_the_release ... ok
+test result: ok. 59 passed; 0 failed; 0 ignored; 0 measured; 4678 filtered out; finished in 1.52s
+exit=0
+end 2026-11-10T09:56:05Z

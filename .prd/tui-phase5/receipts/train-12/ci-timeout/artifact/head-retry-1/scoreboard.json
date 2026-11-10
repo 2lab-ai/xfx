@@ -1,0 +1,1966 @@
+{
+ "meta": {
+  "pin": "v0.0.16",
+  "pin_name": "v0.0.16",
+  "fx_version": "0.0.16",
+  "fx_sha256": "8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2",
+  "fx": "<fx-bin>",
+  "xfx": "<xfx-bin>",
+  "xfx_sha256": "b94a89566ce02c951e6827caf9b8127a07c086d1ebe15334e3f53af050c9aea6",
+  "repo_head": "1b15dad92c299dc628922dbbe0b7a155ed6d5d4a",
+  "size": "40x120",
+  "jobs": 2,
+  "only": [
+   "resume-paging",
+   "titles-idle"
+  ],
+  "inventory_only": false,
+  "units": [
+   "resume-paging",
+   "titles-idle"
+  ],
+  "scenarios_dir": "<out>/scenarios-used",
+  "scenarios_from": "<repo>/scripts/fxcap/scenarios",
+  "started": "2026-11-10T04:18:53+00:00",
+  "wall_seconds": 171.6,
+  "wall": "2m52s",
+  "start_load": 1.36,
+  "peak_load": 2.18,
+  "ledger_sha256": "ec2649a71e91906eedbdd390476637813608a3dd7c7b959c03eecd9cadc468cf",
+  "normalizations": 14,
+  "divergences": 19,
+  "scenarios": 2,
+  "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands",
+  "leaked_tmux_servers": 0
+ },
+ "totals": {
+  "total": 10,
+  "ran": 10,
+  "identical": 0,
+  "normalized-identical": 1,
+  "approved-divergence": 0,
+  "approved-divergence-cascade": 0,
+  "replaced-in-next-pin": 0,
+  "unresolved-defect": 9,
+  "failed": 0,
+  "timeout": 0
+ },
+ "pass": 0.1,
+ "scenario_status": {
+  "ran": 2,
+  "failed": 0,
+  "timeout": 0
+ },
+ "groups": {
+  "resume": {
+   "scenarios": 1,
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 7,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  "titles": {
+   "scenarios": 1,
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   }
+  }
+ },
+ "scenarios": [
+  {
+   "scenario": "resume-paging",
+   "group": "resume",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 7,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 22,
+    "fx": "  question three        work ·  1m · 1 turn",
+    "xfx": "  question three        work · now · 1 turn",
+    "attrs_only": false,
+    "matched": [],
+    "label": "down14",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  },
+  {
+   "scenario": "titles-idle",
+   "group": "titles",
+   "status": "ran",
+   "reasons": [],
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   },
+   "first_unresolved": {
+    "row": 11,
+    "fx": "auto · model-a · fix the renderer loop, it redraw",
+    "xfx": "auto · model-a · Fix the renderer loop",
+    "attrs_only": false,
+    "matched": [],
+    "label": "answered",
+    "unaligned": [
+     1,
+     1
+    ]
+   },
+   "xfx_banner": "x𝒇x v0.1.0-1b15dad [debug] · Run /help for commands"
+  }
+ ],
+ "surfaces": [
+  {
+   "surface": "/help",
+   "kind": "command",
+   "scenarios": [
+    "alias",
+    "composer-keys",
+    "help",
+    "interrupt-help",
+    "p5-input-row-limit",
+    "p5-panels-help",
+    "slash"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/clear",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "reset",
+    "reset-wire"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/status",
+   "kind": "command",
+   "scenarios": [
+    "h1-rehomefile",
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-edge",
+    "p5-lifecycle-relhome-unsaved",
+    "p5-panels-badsettings",
+    "p5-panels-keys",
+    "p5-panels-noauth",
+    "p5-panels-permissions",
+    "p5-panels-status",
+    "p5-panels-status-badsettings",
+    "p5-panels-status-first",
+    "p5-panels-status-short",
+    "status-version-stats"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/version",
+   "kind": "command",
+   "scenarios": [
+    "fulltranscript-notice",
+    "help",
+    "notice-midstream",
+    "notice-wire",
+    "notices",
+    "p5-panels-sweep-a",
+    "popup-full",
+    "status-version-stats"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/quit",
+   "kind": "command",
+   "scenarios": [
+    "compact",
+    "image",
+    "links",
+    "links-image",
+    "notices",
+    "p5-cli-ledger-update-help",
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-edge",
+    "p5-effort-fork-oldread-src",
+    "p5-effort-fork-oldread-v1",
+    "p5-effort-fork-oldread-v2",
+    "p5-input-question20",
+    "p5-lifecycle-osc",
+    "p5-lifecycle-osc-ask",
+    "p5-lifecycle-osc-hostile",
+    "p5-lifecycle-osc-interrupt",
+    "p5-lifecycle-osc-interruptnext",
+    "p5-lifecycle-osc-picker",
+    "p5-lifecycle-osc-states",
+    "p5-lifecycle-osc-stopnext",
+    "p5-lifecycle-relhome",
+    "p5-lifecycle-relhome-made",
+    "p5-lifecycle-relhome-resume",
+    "p5-lifecycle-relhome-unsaved",
+    "p5-lifecycle-retry",
+    "p5-lifecycle-update",
+    "p5-lifecycle-v1bad",
+    "p5-lifecycle-v1resume",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "p5-session-early-prefs",
+    "p5-usage-noledger",
+    "paste-card",
+    "provider-carry",
+    "provider-carry-back",
+    "provider-carry-back-stop",
+    "provider-resume",
+    "provider-resume-missing",
+    "quit",
+    "rename",
+    "rename-midturn",
+    "resume",
+    "resume-empty",
+    "resume-launch",
+    "undo-resume"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/new",
+   "kind": "command",
+   "scenarios": [
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-empty",
+    "p5-lifecycle-relhome-unsaved",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "p5-permissions-early",
+    "read-failures",
+    "reset",
+    "resume",
+    "resume-paging",
+    "resume-tools",
+    "resume-wire",
+    "titles",
+    "titles-off"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 7,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/reset",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "reset"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/resume",
+   "kind": "command",
+   "scenarios": [
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-edge",
+    "p5-effort-fork-fork-empty",
+    "p5-effort-fork-oldread-src",
+    "p5-effort-fork-oldread-v1",
+    "p5-effort-fork-oldread-v2",
+    "p5-lifecycle-osc-picker",
+    "p5-lifecycle-relhome-unsaved",
+    "p5-lifecycle-v1bad",
+    "p5-lifecycle-v1resume",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "read-failures",
+    "resume",
+    "resume-empty",
+    "resume-paging",
+    "resume-tools",
+    "resume-wire",
+    "titles",
+    "titles-off"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 7,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/rename",
+   "kind": "command",
+   "scenarios": [
+    "p5-lifecycle-relhome-unsaved",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "rename",
+    "rename-midturn",
+    "resume",
+    "titles-rename"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/fork",
+   "kind": "command",
+   "scenarios": [
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-continue",
+    "p5-effort-fork-fork-edge",
+    "p5-effort-fork-fork-empty",
+    "p5-lifecycle-relhome-unsaved"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/undo",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "undo",
+    "undo-empty",
+    "undo-resume"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/copy",
+   "kind": "command",
+   "scenarios": [
+    "copy",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "recall-edge"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/compact",
+   "kind": "command",
+   "scenarios": [
+    "compact",
+    "compact-cancel",
+    "compact-fail",
+    "compact-text",
+    "p5-lifecycle-compactfail",
+    "p5-lifecycle-compactok",
+    "p5-lifecycle-osc-compact",
+    "p5-lifecycle-osc-compactfail",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/login",
+   "kind": "command",
+   "scenarios": [
+    "p5-lifecycle-login",
+    "p5-lifecycle-login2",
+    "p5-panels-sweep-a"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/logout",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/provider",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "provider",
+    "provider-carry",
+    "provider-carry-back",
+    "provider-carry-back-stop",
+    "provider-resume",
+    "provider-resume-missing",
+    "provider-switch"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/stats",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "p5-usage-turns",
+    "recall-edge",
+    "status-version-stats"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/usage",
+   "kind": "command",
+   "scenarios": [
+    "h1-usage",
+    "h1-usage-codex",
+    "h1-usage-grok",
+    "p5-usage-budget",
+    "p5-usage-cached",
+    "p5-usage-codex",
+    "p5-usage-many",
+    "p5-usage-nokey",
+    "p5-usage-noledger",
+    "p5-usage-oidc",
+    "p5-usage-turns",
+    "usage",
+    "usage-billed",
+    "usage-deferred",
+    "usage-session"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/credits",
+   "kind": "command",
+   "scenarios": [
+    "credits-404",
+    "credits-busy",
+    "credits-empty",
+    "credits-ok",
+    "credits-partial",
+    "p5-panels-sweep-a",
+    "p5-usage-turns"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/model",
+   "kind": "command",
+   "scenarios": [
+    "fast-astra",
+    "h1-models2",
+    "model",
+    "model-anchor",
+    "model-busy",
+    "model-busy-known",
+    "model-column",
+    "model-column-hold",
+    "model-column-idle",
+    "model-column-reask",
+    "model-effort",
+    "model-empty",
+    "model-floor",
+    "model-parked",
+    "model-reask",
+    "model-router",
+    "model-speed",
+    "p5-catalog-bounds-2mib",
+    "p5-catalog-bounds-at",
+    "p5-catalog-bounds-over",
+    "p5-catalog-bounds-stall",
+    "p5-input-model",
+    "p5-input-model-fail",
+    "p5-input-model-rank",
+    "p5-input-model-swap",
+    "p5-input-row-limit-menus",
+    "settings-effort"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/effort",
+   "kind": "command",
+   "scenarios": [
+    "p5-effort-fork-effort-backtab",
+    "p5-effort-fork-effort-column",
+    "p5-effort-fork-effort-ctrlc",
+    "p5-effort-fork-effort-down",
+    "p5-effort-fork-effort-loading",
+    "p5-effort-fork-effort-menu",
+    "p5-effort-fork-effort-nolevels",
+    "p5-effort-fork-effort-short",
+    "p5-input-row-limit-menus"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/fast",
+   "kind": "command",
+   "scenarios": [
+    "fast-astra",
+    "fast-opus",
+    "fast-override",
+    "fast-unsup",
+    "model-speed",
+    "p5-panels-sweep-a"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/ultrafast",
+   "kind": "command",
+   "scenarios": [
+    "fast-astra",
+    "fast-opus",
+    "fast-unconfirmed",
+    "fast-unsup",
+    "p5-panels-sweep-a"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/settings",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "settings",
+    "settings-cats",
+    "settings-collapse",
+    "settings-collapse-open",
+    "settings-effort",
+    "settings-history",
+    "settings-model",
+    "settings-model-list",
+    "settings-perm",
+    "settings-scrollback",
+    "settings-speed",
+    "settings2",
+    "titles-settings"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/statusline",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "p5-usage-turns",
+    "statusline",
+    "statusline-turn"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/sound",
+   "kind": "command",
+   "scenarios": [
+    "sound",
+    "sound-default"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/permissions",
+   "kind": "command",
+   "scenarios": [
+    "allowlist-remember",
+    "allowlist-turn",
+    "p5-panels-keys",
+    "p5-panels-permissions",
+    "p5-panels-permissions-saved",
+    "p5-permissions-early",
+    "p5-permissions-early-probe-ask-after",
+    "permissions",
+    "permissions-btab",
+    "rules-read",
+    "rules-read-auto"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/allowlist",
+   "kind": "command",
+   "scenarios": [
+    "allowlist",
+    "allowlist-turn",
+    "allowlist2",
+    "allowlist3",
+    "p5-panels-permissions",
+    "p5-panels-sweep-a",
+    "rules-hidden"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/workspace",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "workspace",
+    "workspace-index"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/shell",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/image",
+   "kind": "command",
+   "scenarios": [
+    "image",
+    "image-nonnative",
+    "image-unknown",
+    "image-withheld",
+    "links-image",
+    "p5-lifecycle-relhome-image",
+    "p5-panels-sweep-a",
+    "p5-submit-preview-full",
+    "p5-submit-preview-notice"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/images",
+   "kind": "command",
+   "scenarios": [
+    "image",
+    "p5-panels-sweep-a"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/paste",
+   "kind": "command",
+   "scenarios": [
+    "image-paste"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/mcp",
+   "kind": "command",
+   "scenarios": [
+    "h1-mcphttp",
+    "h1-mcphttp-fail",
+    "h1-mcphttp-methodnotfound",
+    "p5-input-mcp",
+    "p5-mcp-config",
+    "p5-mcp-config-ignored",
+    "p5-mcp-config-vars",
+    "p5-mcp-discover-http-hostile",
+    "p5-mcp-discover-http-malformed",
+    "p5-mcp-discover-http-modern",
+    "p5-mcp-discover-http-notimpl",
+    "p5-mcp-discover-http-old2024",
+    "p5-mcp-discover-http-ssefail",
+    "p5-mcp-discover-http-ssehold",
+    "p5-mcp-discover-http-sseidless",
+    "p5-mcp-discover-http-ssestrid",
+    "p5-mcp-discover-stdio-asks",
+    "p5-mcp-discover-stdio-banner",
+    "p5-mcp-discover-stdio-depth",
+    "p5-mcp-discover-stdio-escaped",
+    "p5-mcp-discover-stdio-hostile",
+    "p5-mcp-discover-stdio-malformed",
+    "p5-mcp-discover-stdio-modern",
+    "p5-mcp-discover-stdio-modern-tc",
+    "p5-mcp-discover-stdio-old2024",
+    "p5-mcp-discover-stdio-silent",
+    "p5-mcp-empty",
+    "p5-mcp-fail",
+    "p5-mcp-fail-held",
+    "p5-mcp-menu-new",
+    "p5-mcp-menu-old",
+    "p5-mcp-notes",
+    "p5-mcp-verbs"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/skills",
+   "kind": "command",
+   "scenarios": [
+    "skills"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/alias",
+   "kind": "command",
+   "scenarios": [
+    "alias",
+    "p5-panels-slash",
+    "p5-panels-sweep-a"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/feedback",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "/trace",
+   "kind": "command",
+   "scenarios": [
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "titles-idle",
+    "titles-rename",
+    "titles-steer",
+    "trace",
+    "trace-nowhere"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 2,
+    "ran": 2,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 2,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "help: ↑↓ navigate",
+   "kind": "key",
+   "scenarios": [
+    "help",
+    "slash"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "help: tab category",
+   "kind": "key",
+   "scenarios": [
+    "alias",
+    "help",
+    "p5-panels-help"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "help: enter open",
+   "kind": "key",
+   "scenarios": [
+    "alias",
+    "composer-keys",
+    "help",
+    "interrupt-help",
+    "p5-input-row-limit",
+    "p5-panels-help",
+    "slash"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "help: esc close",
+   "kind": "key",
+   "scenarios": [
+    "alias",
+    "composer-keys",
+    "help",
+    "p5-input-row-limit",
+    "p5-panels-help",
+    "slash"
+   ],
+   "swept": 0,
+   "counts": {
+    "total": 0,
+    "ran": 0,
+    "identical": 0,
+    "normalized-identical": 0,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 0,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "slash: ↑↓ navigate",
+   "kind": "key",
+   "scenarios": [
+    "alias",
+    "help",
+    "model",
+    "model-column",
+    "model-effort",
+    "model-speed",
+    "p5-effort-fork-effort-column",
+    "p5-effort-fork-effort-menu",
+    "p5-effort-fork-effort-short",
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-edge",
+    "p5-input-mcp",
+    "p5-input-model-rank",
+    "p5-input-model-swap",
+    "p5-lifecycle-login",
+    "p5-mcp-empty",
+    "p5-mcp-fail",
+    "p5-mcp-menu-new",
+    "p5-mcp-menu-old",
+    "p5-panels-permissions",
+    "p5-panels-slash",
+    "p5-panels-status",
+    "p5-panels-status-short",
+    "p5-usage-budget",
+    "p5-usage-cached",
+    "p5-usage-many",
+    "p5-usage-turns",
+    "permissions",
+    "provider",
+    "provider-carry",
+    "provider-carry-back",
+    "provider-carry-back-stop",
+    "provider-resume",
+    "provider-resume-missing",
+    "recall-edge",
+    "resume",
+    "resume-paging",
+    "settings",
+    "settings-cats",
+    "settings-collapse",
+    "settings-collapse-open",
+    "settings-effort",
+    "settings-history",
+    "settings-model",
+    "settings-model-list",
+    "settings-perm",
+    "settings-speed",
+    "settings2",
+    "skills",
+    "skills-slash",
+    "slash",
+    "statusline",
+    "usage",
+    "usage-billed",
+    "usage-session",
+    "workspace"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 7,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "slash: enter use",
+   "kind": "key",
+   "scenarios": [
+    "alias",
+    "allowlist",
+    "allowlist-remember",
+    "allowlist-turn",
+    "allowlist2",
+    "allowlist3",
+    "compact",
+    "compact-cancel",
+    "compact-fail",
+    "compact-text",
+    "composer-keys",
+    "copy",
+    "credits-404",
+    "credits-busy",
+    "credits-empty",
+    "credits-ok",
+    "credits-partial",
+    "fast-astra",
+    "fast-opus",
+    "fast-override",
+    "fast-unconfirmed",
+    "fast-unsup",
+    "fulltranscript-notice",
+    "h1-mcphttp",
+    "h1-mcphttp-fail",
+    "h1-mcphttp-methodnotfound",
+    "h1-models2",
+    "h1-rehomefile",
+    "h1-usage",
+    "h1-usage-codex",
+    "h1-usage-grok",
+    "help",
+    "image",
+    "image-nonnative",
+    "image-paste",
+    "image-unknown",
+    "image-withheld",
+    "interrupt-help",
+    "links",
+    "links-image",
+    "model",
+    "model-busy",
+    "model-busy-known",
+    "model-column",
+    "model-effort",
+    "model-empty",
+    "model-floor",
+    "model-parked",
+    "model-reask",
+    "model-router",
+    "model-speed",
+    "notice-midstream",
+    "notice-wire",
+    "notice-wrap",
+    "notices",
+    "p5-catalog-bounds-2mib",
+    "p5-catalog-bounds-at",
+    "p5-catalog-bounds-over",
+    "p5-catalog-bounds-stall",
+    "p5-cli-ledger-update-help",
+    "p5-effort-fork-effort-backtab",
+    "p5-effort-fork-effort-column",
+    "p5-effort-fork-effort-ctrlc",
+    "p5-effort-fork-effort-down",
+    "p5-effort-fork-effort-loading",
+    "p5-effort-fork-effort-menu",
+    "p5-effort-fork-effort-nolevels",
+    "p5-effort-fork-effort-short",
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-continue",
+    "p5-effort-fork-fork-edge",
+    "p5-effort-fork-fork-empty",
+    "p5-effort-fork-oldread-src",
+    "p5-effort-fork-oldread-v1",
+    "p5-effort-fork-oldread-v2",
+    "p5-input-mcp",
+    "p5-input-model",
+    "p5-input-model-fail",
+    "p5-input-model-rank",
+    "p5-input-model-swap",
+    "p5-input-question20",
+    "p5-input-row-limit",
+    "p5-input-row-limit-menus",
+    "p5-lifecycle-compactfail",
+    "p5-lifecycle-compactok",
+    "p5-lifecycle-login",
+    "p5-lifecycle-login2",
+    "p5-lifecycle-osc",
+    "p5-lifecycle-osc-ask",
+    "p5-lifecycle-osc-compact",
+    "p5-lifecycle-osc-compactfail",
+    "p5-lifecycle-osc-hostile",
+    "p5-lifecycle-osc-interrupt",
+    "p5-lifecycle-osc-interruptnext",
+    "p5-lifecycle-osc-picker",
+    "p5-lifecycle-osc-states",
+    "p5-lifecycle-osc-stopnext",
+    "p5-lifecycle-relhome",
+    "p5-lifecycle-relhome-image",
+    "p5-lifecycle-relhome-made",
+    "p5-lifecycle-relhome-resume",
+    "p5-lifecycle-relhome-unsaved",
+    "p5-lifecycle-retry",
+    "p5-lifecycle-update",
+    "p5-lifecycle-v1bad",
+    "p5-lifecycle-v1resume",
+    "p5-mcp-config",
+    "p5-mcp-config-ignored",
+    "p5-mcp-config-vars",
+    "p5-mcp-discover-http-hostile",
+    "p5-mcp-discover-http-malformed",
+    "p5-mcp-discover-http-modern",
+    "p5-mcp-discover-http-notimpl",
+    "p5-mcp-discover-http-old2024",
+    "p5-mcp-discover-http-ssefail",
+    "p5-mcp-discover-http-ssehold",
+    "p5-mcp-discover-http-sseidless",
+    "p5-mcp-discover-http-ssestrid",
+    "p5-mcp-discover-stdio-asks",
+    "p5-mcp-discover-stdio-banner",
+    "p5-mcp-discover-stdio-depth",
+    "p5-mcp-discover-stdio-escaped",
+    "p5-mcp-discover-stdio-hostile",
+    "p5-mcp-discover-stdio-malformed",
+    "p5-mcp-discover-stdio-modern",
+    "p5-mcp-discover-stdio-modern-tc",
+    "p5-mcp-discover-stdio-old2024",
+    "p5-mcp-discover-stdio-silent",
+    "p5-mcp-empty",
+    "p5-mcp-fail",
+    "p5-mcp-fail-held",
+    "p5-mcp-menu-new",
+    "p5-mcp-menu-old",
+    "p5-mcp-notes",
+    "p5-mcp-verbs",
+    "p5-panels-badsettings",
+    "p5-panels-help",
+    "p5-panels-keys",
+    "p5-panels-noauth",
+    "p5-panels-permissions",
+    "p5-panels-permissions-saved",
+    "p5-panels-slash",
+    "p5-panels-status",
+    "p5-panels-status-badsettings",
+    "p5-panels-status-first",
+    "p5-panels-status-short",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "p5-permissions-early",
+    "p5-permissions-early-probe-ask-after",
+    "p5-session-early-prefs",
+    "p5-submit-preview-full",
+    "p5-submit-preview-notice",
+    "p5-usage-budget",
+    "p5-usage-cached",
+    "p5-usage-codex",
+    "p5-usage-many",
+    "p5-usage-nokey",
+    "p5-usage-noledger",
+    "p5-usage-oidc",
+    "p5-usage-turns",
+    "paste-card",
+    "permissions",
+    "permissions-btab",
+    "popup-full",
+    "provider",
+    "provider-carry",
+    "provider-carry-back",
+    "provider-carry-back-stop",
+    "provider-resume",
+    "provider-resume-missing",
+    "provider-switch",
+    "quit",
+    "quit-pristine",
+    "read-failures",
+    "recall-edge",
+    "rename",
+    "rename-midturn",
+    "reset",
+    "reset-wire",
+    "resume",
+    "resume-empty",
+    "resume-launch",
+    "resume-paging",
+    "resume-tools",
+    "resume-wire",
+    "rules-hidden",
+    "rules-read",
+    "rules-read-auto",
+    "settings",
+    "settings-cats",
+    "settings-collapse",
+    "settings-collapse-open",
+    "settings-effort",
+    "settings-history",
+    "settings-model",
+    "settings-model-list",
+    "settings-perm",
+    "settings-scrollback",
+    "settings-speed",
+    "settings2",
+    "skills",
+    "skills-slash",
+    "slash",
+    "sound",
+    "sound-default",
+    "status-version-stats",
+    "statusline",
+    "statusline-turn",
+    "titles",
+    "titles-idle",
+    "titles-off",
+    "titles-rename",
+    "titles-settings",
+    "titles-steer",
+    "trace",
+    "trace-nowhere",
+    "undo",
+    "undo-empty",
+    "undo-resume",
+    "usage",
+    "usage-billed",
+    "usage-deferred",
+    "usage-session",
+    "workspace",
+    "workspace-index"
+   ],
+   "swept": 2,
+   "counts": {
+    "total": 10,
+    "ran": 10,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 9,
+    "failed": 0,
+    "timeout": 0
+   }
+  },
+  {
+   "surface": "slash: esc close",
+   "kind": "key",
+   "scenarios": [
+    "alias",
+    "allowlist-remember",
+    "compact-cancel",
+    "composer-keys",
+    "fast-astra",
+    "h1-mcphttp",
+    "h1-mcphttp-fail",
+    "h1-mcphttp-methodnotfound",
+    "h1-models2",
+    "h1-usage",
+    "h1-usage-codex",
+    "h1-usage-grok",
+    "help",
+    "model",
+    "model-busy",
+    "model-busy-known",
+    "model-column",
+    "model-empty",
+    "model-floor",
+    "model-reask",
+    "model-router",
+    "p5-effort-fork-effort-backtab",
+    "p5-effort-fork-effort-column",
+    "p5-effort-fork-effort-menu",
+    "p5-effort-fork-fork",
+    "p5-effort-fork-fork-edge",
+    "p5-effort-fork-fork-empty",
+    "p5-effort-fork-oldread-v1",
+    "p5-effort-fork-oldread-v2",
+    "p5-input-mcp",
+    "p5-input-model",
+    "p5-input-model-fail",
+    "p5-input-model-swap",
+    "p5-input-row-limit",
+    "p5-input-row-limit-menus",
+    "p5-lifecycle-login",
+    "p5-lifecycle-login2",
+    "p5-lifecycle-osc-picker",
+    "p5-lifecycle-relhome-unsaved",
+    "p5-lifecycle-v1resume",
+    "p5-mcp-config",
+    "p5-mcp-config-ignored",
+    "p5-mcp-config-vars",
+    "p5-mcp-empty",
+    "p5-mcp-fail",
+    "p5-mcp-fail-held",
+    "p5-mcp-menu-new",
+    "p5-mcp-menu-old",
+    "p5-mcp-notes",
+    "p5-mcp-verbs",
+    "p5-panels-badsettings",
+    "p5-panels-help",
+    "p5-panels-keys",
+    "p5-panels-noauth",
+    "p5-panels-permissions",
+    "p5-panels-permissions-saved",
+    "p5-panels-slash",
+    "p5-panels-status",
+    "p5-panels-status-badsettings",
+    "p5-panels-status-first",
+    "p5-panels-status-short",
+    "p5-panels-sweep-a",
+    "p5-panels-sweep-b",
+    "p5-permissions-early",
+    "p5-usage-budget",
+    "p5-usage-cached",
+    "p5-usage-codex",
+    "p5-usage-many",
+    "p5-usage-nokey",
+    "p5-usage-noledger",
+    "p5-usage-oidc",
+    "p5-usage-turns",
+    "permissions",
+    "popup-full",
+    "provider",
+    "read-failures",
+    "resume",
+    "resume-empty",
+    "resume-paging",
+    "resume-tools",
+    "settings",
+    "settings-cats",
+    "settings-collapse",
+    "settings-collapse-open",
+    "settings-effort",
+    "settings-history",
+    "settings-model",
+    "settings-model-list",
+    "settings-perm",
+    "settings-scrollback",
+    "settings-speed",
+    "settings2",
+    "skills",
+    "slash",
+    "slash-filter",
+    "statusline",
+    "usage",
+    "usage-billed",
+    "usage-deferred",
+    "usage-session",
+    "workspace",
+    "workspace-index"
+   ],
+   "swept": 1,
+   "counts": {
+    "total": 8,
+    "ran": 8,
+    "identical": 0,
+    "normalized-identical": 1,
+    "approved-divergence": 0,
+    "approved-divergence-cascade": 0,
+    "replaced-in-next-pin": 0,
+    "unresolved-defect": 7,
+    "failed": 0,
+    "timeout": 0
+   }
+  }
+ ],
+ "coverage": {
+  "pin": "v0.0.16",
+  "surfaces": 45,
+  "commands": 38,
+  "keys": 7,
+  "covered": 45,
+  "uncovered": [],
+  "unmapped": [
+   "/al",
+   "/balance",
+   "/co",
+   "/cost",
+   "/de",
+   "/e",
+   "/ef",
+   "/eff",
+   "/et",
+   "/ex",
+   "/exit",
+   "/f",
+   "/fo",
+   "/img",
+   "/mo",
+   "/nosuch",
+   "/notacommand",
+   "/q",
+   "/re",
+   "/se",
+   "/setup",
+   "/st",
+   "/vers"
+  ],
+  "unmapped_by_scenario": {
+   "alias": [
+    "/al"
+   ],
+   "credits-404": [
+    "/balance"
+   ],
+   "credits-ok": [
+    "/balance"
+   ],
+   "fulltranscript-notice": [
+    "/notacommand"
+   ],
+   "image": [
+    "/img"
+   ],
+   "notice-midstream": [
+    "/notacommand"
+   ],
+   "notice-wrap": [
+    "/nosuch"
+   ],
+   "notices": [
+    "/nosuch"
+   ],
+   "p5-effort-fork-effort-menu": [
+    "/ef",
+    "/eff"
+   ],
+   "p5-effort-fork-fork": [
+    "/fo"
+   ],
+   "p5-effort-fork-slash-rank": [
+    "/e",
+    "/et",
+    "/ex",
+    "/se"
+   ],
+   "p5-panels-slash": [
+    "/al",
+    "/co",
+    "/cost",
+    "/e",
+    "/f",
+    "/st"
+   ],
+   "p5-usage-turns": [
+    "/cost"
+   ],
+   "provider": [
+    "/setup"
+   ],
+   "quit": [
+    "/exit"
+   ],
+   "quit-pristine": [
+    "/exit"
+   ],
+   "skills-slash": [
+    "/de",
+    "/re"
+   ],
+   "slash-filter": [
+    "/ex",
+    "/mo",
+    "/q",
+    "/vers"
+   ],
+   "usage": [
+    "/cost"
+   ]
+  }
+ },
+ "ledger": {
+  "usage": {
+   "status-panel-sandbox": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "status-panel-updates": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "status-panel-step-limit": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "saved-write-rule-applied": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "status-panel-session-id-wrap": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "status-panel-sign-in": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "usage-no-sign-in": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "ctrl-o-command-marks": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "call-row-raw-argument": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "call-row-source-cut": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "call-row-arabic-letter-mark": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "mcp-approval-wrap-led": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "review-diff-spelling": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "ctrl-o-arabic-letter-mark": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "filler-modifier-count": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "ctrl-o-drawn-wider-named": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "answer-drawn-wider-named": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "answer-label-and-modifier-named": {
+    "rows": 0,
+    "snaps": 0
+   },
+   "inline-band-row-anchor": {
+    "rows": 0,
+    "snaps": 0
+   }
+  },
+  "unused": [
+   "answer-drawn-wider-named",
+   "answer-label-and-modifier-named",
+   "call-row-arabic-letter-mark",
+   "call-row-raw-argument",
+   "call-row-source-cut",
+   "ctrl-o-arabic-letter-mark",
+   "ctrl-o-command-marks",
+   "ctrl-o-drawn-wider-named",
+   "filler-modifier-count",
+   "inline-band-row-anchor",
+   "mcp-approval-wrap-led",
+   "review-diff-spelling",
+   "saved-write-rule-applied",
+   "status-panel-sandbox",
+   "status-panel-session-id-wrap",
+   "status-panel-sign-in",
+   "status-panel-step-limit",
+   "status-panel-updates",
+   "usage-no-sign-in"
+  ]
+ },
+ "causes": {
+  "by_cause": [
+   {
+    "cause": "session-age",
+    "kind": [
+     "nondeterminism"
+    ],
+    "snaps": 7,
+    "sole": 7,
+    "owner": "scenario"
+   },
+   {
+    "cause": "idle-connection",
+    "kind": [
+     "nondeterminism"
+    ],
+    "snaps": 2,
+    "sole": 2,
+    "owner": "fakegw"
+   }
+  ],
+  "unattributed": []
+ }
+}

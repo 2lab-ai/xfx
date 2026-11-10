@@ -1,0 +1,4 @@
+merge 0c39ce8c vs parent 71d3e02b: 1909 added lines, 0 path hits (grep found none)
+merge 0c39ce8c vs parent 8f921425: 44613 added lines, 21 path hits
+commit c7d30afc vs its parent: 28 added lines, 0 path hits
+commit 2e388ca8 vs its parent: 5 added lines, 0 path hits

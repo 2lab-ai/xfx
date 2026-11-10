@@ -1,0 +1,66 @@
+test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
+test-gate-env: ok no-stubs               GREP_OPTIONS='-q'   unfinished-work marker 'todo!' in production code
+test-gate-env: ok preview-contract       GREP_OPTIONS='-v'   does not document the qualified install command
+test-gate-env: ok test-preview-contract  GREP_OPTIONS='-v'   gate-removed failed the check, but not for its own break
+test-gate-env: ok tui-preflight-cost     GREP_OPTIONS='-v'   the filters did not run all 2 cost tests
+test-gate-env: ok usage-clock            GREP_OPTIONS='-v'   the filter did not run the one clock test
+test-gate-env: ok decoy-setup-maintenance        the retired product name is still in tracked content
+test-gate-env: ok decoy-setup-starts-nothing     new_decoy's commit starts no maintenance or gc
+test-gate-env: ok identity-git-dir               the retired product name is still in tracked path names
+test-gate-env: ok identity-git-dir-work-tree     the retired product name is still in tracked path names
+test-gate-env: ok identity-index-file            the retired product name is still in tracked path names
+test-gate-env: ok identity-object-dir            the retired product name is still in tracked path names
+test-gate-env: ok identity-common-dir            the retired product name is still in tracked path names
+test-gate-env: ok identity-trace                 the retired product name is still in tracked path names
+test-gate-env: ok no-secrets-index-file          possible OpenAI-style key:
+test-gate-env: ok no-secrets-object-dir          possible OpenAI-style key:
+test-gate-env: ok no-secrets-common-dir          possible OpenAI-style key:
+test-gate-env: ok no-secrets-git-dir             possible OpenAI-style key:
+test-gate-env: ok preview-git-dir                does not document the qualified install command
+test-gate-env: ok preview-git-dir-work-tree      does not document the qualified install command
+test-gate-env: ok preview-object-dir             does not document the qualified install command
+test-gate-env: ok preview-common-dir             does not document the qualified install command
+test-gate-env: ok attributes-config-global       the retired product name is still in tracked content
+test-gate-env: ok attributes-config-system       the retired product name is still in tracked content
+test-gate-env: ok attributes-config-count        the retired product name is still in tracked content
+test-gate-env: ok attributes-config-parameters   the retired product name is still in tracked content
+test-gate-env: ok attributes-attr-source         the retired product name is still in tracked content
+test-gate-env: ok attributes-info                the retired product name is still in tracked content
+test-gate-env: ok attributes-local-config        the retired product name is still in tracked content
+test-gate-env: ok attributes-untracked           the retired product name is still in tracked content
+test-gate-env: ok identity-color-grep            the retired product name is still in tracked content
+test-gate-env: ok identity-grep.patternType      git grep could not search
+test-gate-env: ok identity-grep.extendedRegexp   git grep could not search
+test-gate-env: ok identity-grep.threads          git grep could not search
+test-gate-env: ok identity-core.quotePath        git cannot open it
+test-gate-env: ok identity-index-corrupt         git ls-files could not list
+test-gate-env: ok identity-core.quotePath-home   the path scan could not run in its own control
+test-gate-env: ok identity-unreadable            git grep could not search
+test-gate-env: ok identity-core.worktree         the retired product name is still in tracked content
+test-gate-env: ok identity-skip-worktree         git sparse-checkout disable
+test-gate-env: ok identity-assume-unchanged      marked assume-unchanged
+test-gate-env: ok identity-both-bits             git sparse-checkout disable
+test-gate-env: ok identity-deleted-file          tracked files missing from the working tree
+test-gate-env: ok identity-file-became-dir       tracked files missing from the working tree
+test-gate-env: ok identity-file-became-symlink   tracked files missing from the working tree
+test-gate-env: ok identity-unsearchable-dir      could not list the tracked files missing
+test-gate-env: ok identity-vendored              the root's .git cannot be opened
+test-gate-env: ok identity-vendored-gitfile      tracked files missing from the working tree
+test-gate-env: ok identity-vendored-git-symlink  tracked files missing from the working tree
+test-gate-env: ok identity-vendored-symlink      the root's .git cannot be opened
+test-gate-env: ok identity-vendored-colon        the root's .git cannot be opened
+test-gate-env: ok identity-vendored-miscased     the root's .git cannot be opened
+test-gate-env: ok identity-linked-worktree       the retired product name is still in tracked content
+test-gate-env: ok identity-own-symlink           the retired product name is still in tracked content
+test-gate-env: ok identity-own-miscased          the retired product name is still in tracked content
+test-gate-env: ok identity-submodule             the retired product name is still in tracked content
+test-gate-env: ok identity-home-programs         the retired product name is still in tracked content
+test-gate-env: ok no-secrets-home-programs       possible OpenAI-style key:
+test-gate-env: ok preview-home-programs          does not document the qualified install command
+test-gate-env: ok workflow-steps                 all 10 steps that run git drop GIT_* first
+test-gate-env: ok ci-script-tests-per-os         test-gate-env test-preview-contract test-check-no-secrets on macOS and Linux rows
+test-gate-env: ok ci-checkout-assertion          checked out
+test-gate-env: ok build-script                   stamps the checkout's HEAD (fcddcf4e2d13)
+test-gate-env: ok build-script-linked-worktree   stamps the worktree's HEAD (6a97d95b2a06), watches its HEAD and ref
+test-gate-env: ok test-check-no-secrets          test-check-no-secrets: ok (13 cases; 3473 tracked names past
+test-gate-env: ok (64 cases)

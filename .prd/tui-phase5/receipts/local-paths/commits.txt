@@ -1,0 +1,71 @@
+# commits.sh <clone> ccced1f5 bfdb2703: every commit, its own check and bfdb2703's, on its own tree in a throwaway clone
+commit    its own check                                      the head's check
+ccced1f5  (the base)                                         exit 1, refused, 341 line(s) named
+5121c01e  (none)                                             exit 1, refused, 341 line(s) named, 0 beyond the base's
+afbb866d  (none)                                             exit 1, refused, 323 line(s) named, 0 beyond the base's
+41023d5f  (none)                                             exit 1, refused, 323 line(s) named, 0 beyond the base's
+c4925698  (none)                                             exit 1, refused, 323 line(s) named, 0 beyond the base's
+43024057  exit 1, refused, 252 line(s) named                 exit 1, refused, 310 line(s) named, 0 beyond the base's
+19a6b596  exit 0, ok, 15546 files, 7 marked, 62 placeholder  exit 1, refused, 58 line(s) named, 0 beyond the base's
+79561b2f  exit 0, ok, 15546 files, 8 marked, 62 placeholder  exit 1, refused, 58 line(s) named, 0 beyond the base's
+7abc5139  exit 0, ok, 15546 files, 7 marked, 63 placeholder  exit 1, refused, 58 line(s) named, 0 beyond the base's
+3955ef92  exit 0, ok, 15546 files, 7 marked, 63 placeholder  exit 1, refused, 58 line(s) named, 0 beyond the base's
+6b507197  exit 0, ok, 15559 files, 7 marked, 66 placeholder  exit 1, refused, 58 line(s) named, 0 beyond the base's
+3b674a60  exit 0, ok, 15560 files, 7 marked, 66 placeholder  exit 1, refused, 58 line(s) named, 0 beyond the base's
+26d6c639  exit 0, ok, 15560 files, 7 marked, 66 placeholder  exit 1, refused, 59 line(s) named, 1 beyond the base's
+8b92c861  exit 0, ok, 15560 files, 7 marked, 66 placeholder  exit 1, refused, 59 line(s) named, 1 beyond the base's
+1fe6ea37  exit 0, ok, 15560 files, 7 marked, 66 placeholder  exit 1, refused, 59 line(s) named, 1 beyond the base's
+56e51cb0  exit 0, ok, 15561 files, 8 marked, 66 placeholder  exit 1, refused, 59 line(s) named, 1 beyond the base's
+506febef  exit 1, refused, 56 line(s) named                  exit 1, refused, 58 line(s) named, 0 beyond the base's
+6cb5c4e7  exit 0, ok, 15563 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+7ff36c75  exit 0, ok, 15563 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+7d855291  exit 0, ok, 15563 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+8e7c1c32  exit 0, ok, 15563 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+4fc0a538  exit 0, ok, 15563 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+70b3b43e  exit 0, ok, 15563 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+6b4f72fd  exit 1, refused, 1 line(s) named                   exit 1, refused, 3 line(s) named, 1 beyond the base's
+f05f3bd7  exit 1, refused, 1 line(s) named                   exit 1, refused, 3 line(s) named, 1 beyond the base's
+4a74f098  exit 1, refused, 1 line(s) named                   exit 1, refused, 3 line(s) named, 1 beyond the base's
+c6e12e82  exit 1, refused, 1 line(s) named                   exit 1, refused, 3 line(s) named, 1 beyond the base's
+7f2298f7  exit 0, ok, 15569 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+00b8ed9e  exit 0, ok, 15569 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+21bb78b2  exit 0, ok, 15569 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+abb500a3  exit 0, ok, 15569 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+04736560  exit 0, ok, 15569 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+d3804683  exit 0, ok, 15569 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+db138d38  exit 0, ok, 15571 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+cd9e446d  exit 0, ok, 15571 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+730692c8  exit 0, ok, 15573 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+4c3f2e50  exit 0, ok, 15574 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+cfd582a7  exit 0, ok, 15574 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+08d12e6a  exit 0, ok, 15574 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+bb5f53ed  exit 0, ok, 15574 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+7f5cbf5d  exit 0, ok, 15576 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+d9e3440b  exit 0, ok, 15576 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+8eb8e1d5  exit 0, ok, 15577 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+4abe4feb  exit 0, ok, 15577 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+6492af5c  exit 0, ok, 15577 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+026a7c58  exit 0, ok, 15580 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+e1d34372  exit 0, ok, 15580 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+c57ffb77  exit 1, refused, 2 line(s) named                   exit 1, refused, 4 line(s) named, 2 beyond the base's
+e0b0e697  exit 1, refused, 2 line(s) named                   exit 1, refused, 4 line(s) named, 2 beyond the base's
+89a3fef1  exit 0, ok, 15580 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+064e1da5  exit 0, ok, 15582 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+3ed4a8c4  exit 0, ok, 15583 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+15e37f4a  exit 0, ok, 15583 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+8da59b67  exit 0, ok, 15583 files, 8 marked, 77 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+1a7cb6a1  exit 0, ok, 15583 files, 8 marked, 78 placeholder  exit 1, refused, 2 line(s) named, 0 beyond the base's
+1d707ba4  exit 0, ok, 15583 files, 8 marked, 78 placeholder  exit 0, ok, 15583 files, 8 marked, 78 placeholder
+797ebfa0  exit 0, ok, 15585 files, 8 marked, 79 placeholder  exit 0, ok, 15585 files, 8 marked, 79 placeholder
+2e90c292  exit 1, refused, 1 line(s) named                   exit 1, refused, 1 line(s) named, 1 beyond the base's
+5743e3c7  exit 0, ok, 15586 files, 8 marked, 80 placeholder  exit 0, ok, 15586 files, 8 marked, 80 placeholder
+98af91ed  exit 0, ok, 15586 files, 8 marked, 80 placeholder  exit 0, ok, 15586 files, 8 marked, 80 placeholder
+3e51e899  exit 0, ok, 15586 files, 8 marked, 80 placeholder  exit 0, ok, 15586 files, 8 marked, 80 placeholder
+5a7f95bc  exit 0, ok, 15586 files, 8 marked, 80 placeholder  exit 0, ok, 15586 files, 8 marked, 80 placeholder
+0ab7b6dd  exit 0, ok, 15587 files, 8 marked, 80 placeholder  exit 0, ok, 15587 files, 8 marked, 80 placeholder
+a2d5a921  exit 0, ok, 15593 files, 8 marked, 80 placeholder  exit 0, ok, 15593 files, 8 marked, 80 placeholder
+bfdb2703  exit 0, ok, 15593 files, 8 marked, 80 placeholder  exit 0, ok, 15593 files, 8 marked, 80 placeholder
+
+# names-scan.sh <repo> ccced1f5 bfdb2703:
+revisions 65 (ccced1f5 to bfdb2703), holding the user's name or home path: 0
+commit messages 64, holding either: 0

@@ -6,7 +6,7 @@ retaken at `575ea48` (this branch with `plan/tui-phase4` at `f0b1caa` merged in)
 `fulltranscript` are the ones taken at `26bc0df` (fx is the same build):
 
 ```
-export TMPDIR=/private/tmp/claude-501
+export TMPDIR=<tmp>
 FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  fulltranscript        40x120 <out>
 scripts/fxcap/capture.sh                            xfx fulltranscript        40x120 <out>
 FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  fulltranscript        24x80  <out>

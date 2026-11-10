@@ -1,0 +1,46 @@
+xfx smoke-tui
+  binary:   <work>/target/release/xfx
+  faulty:   <work>/target/faulty/release/xfx
+  evidence: <scratch>/p5-gate-env-maintlock/gate-smoke/smoke-tui
+
+  0-oracle-falsification                ok
+  1-launch-and-band-ownership           ok
+  2-cursor-probe-and-scrollback-push    ok
+  3-restore-matrix                      ok
+  3b-shutdown-drain                     ok
+  3c-partial-frame-containment          ok
+  3d-primary-band-recovery              ok
+  3e-alternate-repaint-recovery         ok
+  3f-job-control                        ok
+  3g-inherited-ignores                  ok
+  4-raw-mode-positively-entered         ok
+  5-editor-basics                       ok
+  6-soft-wrap-and-growth-cap            ok
+  7-multiline-and-paste-framing         ok
+  8-streaming-render                    ok
+  9-activity-row                        ok
+  10-approval-panel                     ok
+  10b-approval-mid-turn                 ok
+  11-ctrl-c-as-a-byte                   ok
+  12-theme-detection                    ok
+  13-cell-diff-correctness              ok
+  14-no-op-frame-skip                   ok
+  15-resize-reflow                      ok
+  16-slash-menu                         ok
+  17-history                            ok
+  17b-quit-and-resume                   ok
+  18-provider-switch                    ok
+  19-model-catalog-and-context-meter    ok
+  20-alternate-screen-approval          ok
+  21-paste-entities                     ok
+  22-edit-history                       ok
+  23-question-panel                     ok
+  23b-question-cancelled                ok
+  24-approval-readiness                 ok
+  25-amended-approval                   ok
+  26-layout-stabilization               ok
+  26b-composer-yield-to-panel           ok
+  27-live-theme-retint                  ok
+
+smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures
+evidence: <scratch>/p5-gate-env-maintlock/gate-smoke/smoke-tui

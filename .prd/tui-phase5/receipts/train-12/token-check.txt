@@ -1,0 +1,108 @@
+# token_check.py (train 7's, unchanged: byte for byte the same file) over the merges
+merge d43c8c92: ours df46777e, theirs a1cbdcaf, base 32afd307 -- OK
+  parity row '`/model`': changed by ours; 344 tokens added, 40 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 2202 tokens added, 29 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 2 tokens added, 2 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause activity-row-gap: changed by ours, kept so
+  ledger cause activity-tokens-before-request: changed by ours, kept so
+  ledger cause allowlist-band: changed by ours, kept so
+  ledger cause amendment-card-after-stop: changed by ours, kept so
+  ledger cause at-resize-band-at-the-bottom: changed by ours, kept so
+  ledger cause cancel-page-edge: changed by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause preview-frame-before-the-turn-start: added by ours, kept so
+  ledger cause provider-label: changed by ours, kept so
+  ledger cause resize-document-repaint: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause submit-multi-card-whole: deleted by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger divergence answer-drawn-wider-named: changed by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger comments: 2 added, 2 deleted, all as expected
+merge 2c640bac: ours d43c8c92, theirs 4bc9ab13, base 3be49c15 -- OK
+  parity order: every row in each side's order
+  ledger cause catalog-window: deleted by theirs, kept so
+  ledger comments: 9 added, 0 deleted, all as expected
+merge 55d993a7: ours 2c640bac, theirs 5609108f, base ccced1f5 -- 1 DIFFERENCES
+  parity row '`/model`': changed by ours; 1210 tokens added, 21 deleted, all as expected, in order
+  parity row '`/provider`': changed by ours; 226 tokens added, 0 deleted, all as expected, in order
+  parity row '`/compact`': changed by ours; 260 tokens added, 0 deleted, all as expected, in order
+  parity row '`/credits`': changed by ours; 61 tokens added, 0 deleted, all as expected, in order
+  parity row '`ask_user_question`': changed by ours; 303 tokens added, 1 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 2332 tokens added, 32 deleted, all as expected, in order
+  parity row '`@` file picker': changed by ours; 420 tokens added, 7 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 2 tokens added, 2 deleted, all as expected, in order
+  parity row "a question's line breaks in a program status message": changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause activity-row-gap: changed by ours, kept so
+  ledger cause activity-tokens-before-request: changed by ours, kept so
+  ledger cause allowlist-band: changed by ours, kept so
+  ledger cause amendment-card-after-stop: changed by ours, kept so
+  ledger cause at-folder-row: added by ours, kept so
+  ledger cause at-ranking: added by ours, kept so
+  ledger cause at-resize-band-at-the-bottom: added by ours, kept so
+  ledger cause cancel-page-edge: changed by ours, kept so
+  ledger cause catalog-window: deleted by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause preview-frame-before-the-turn-start: added by ours, kept so
+  ledger cause provider-label: changed by ours, kept so
+  ledger cause question-cap-four: deleted by ours, kept so
+  ledger cause question-resume-replay: added by ours, kept so
+  ledger cause resize-document-repaint: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause submit-multi-card-whole: deleted by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger divergence answer-drawn-wider-named: changed by ours, kept so
+  ledger normalization activity-pulse: changed by theirs, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by theirs, its path:line numbers alone by ours; theirs' entry, the numbers re-pointed (repointed.py)
+  ledger normalization run-directory: changed by theirs, its path:line numbers alone by ours; theirs' entry, the numbers re-pointed (repointed.py)
+  LEDGER ('normalization', 'tmux-dead-pane'): both sides changed it differently -- read by hand
+  ledger comments: 12 added, 2 deleted, all as expected
+merge 12b56ab8: ours 55d993a7, theirs 3d3d56c8, base 32afd307 -- OK
+  parity row '`/model`': changed by ours; 344 tokens added, 40 deleted, all as expected, in order
+  parity row '`/effort`': changed by theirs; 27 tokens added, 6 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours+theirs; 2361 tokens added, 35 deleted, all as expected; 43 clauses (each with its side's token either side) whole and contiguous; each side's tokens in its order
+  parity row '`@` file picker': changed by theirs; 9 tokens added, 6 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 2 tokens added, 2 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause activity-row-gap: changed by ours, kept so
+  ledger cause activity-tokens-before-request: changed by ours, kept so
+  ledger cause allowlist-band: changed by ours, kept so
+  ledger cause amendment-card-after-stop: changed by ours, kept so
+  ledger cause at-resize-band-at-the-bottom: changed by ours, kept so
+  ledger cause cancel-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause catalog-window: deleted by ours, kept so
+  ledger cause full-transcript-shift: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause preview-frame-before-the-turn-start: added by ours, kept so
+  ledger cause provider-label: changed by ours, kept so
+  ledger cause resize-document-repaint: changed by ours, kept so
+  ledger cause safe-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause session-record: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause submit-multi-card-whole: deleted by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause transcript-page-offset: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger divergence answer-drawn-wider-named: changed by ours, kept so
+  ledger normalization activity-pulse: changed by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger comments: 11 added, 2 deleted, all as expected
+# exit 1
+
+# ledger_numbers.py: the entry token_check.py hands back (its .prd/ reference is outside its pattern), every :N masked
+normalization tmux-dead-pane: the five the same once every :N is masked: True
+  base   ccced1f5: :145 :32 :973
+  ours   2c640bac: :145 :32 :987
+  theirs 5609108f: :151 :32 :1123
+  merge  55d993a7: :145 :32 :987
+  head   03fb5436: :151 :32 :1147
+# exit 0

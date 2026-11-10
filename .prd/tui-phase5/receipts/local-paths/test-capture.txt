@@ -1,0 +1,53 @@
+# scripts/fxcap/test-capture.sh under the suite lock, each from a throwaway clone
+== ccced1f5 (before)
+Ran 76 tests in 315.995s
+OK
+== 43024057 (round 1)
+Ran 78 tests in 296.073s
+OK
+== 6cb5c4e7 (round 2), once per TMPDIR length
+TMPDIR 23 bytes: exit 0, 306s, Ran 89 tests in 304.680s OK 
+TMPDIR 26 bytes: exit 0, 315s, Ran 89 tests in 315.244s OK 
+TMPDIR 52 bytes: exit 0, 325s, Ran 89 tests in 324.934s OK 
+== f05f3bd7 (round 3), once per TMPDIR (52 bytes is past test_capture.py's 50, so on /tmp, a link)
+TMPDIR 23 bytes: exit 0, 327s, Ran 97 tests in 326.903s OK 
+TMPDIR 26 bytes: exit 0, 341s, Ran 97 tests in 338.714s OK 
+TMPDIR 52 bytes: exit 0, 373s, Ran 97 tests in 373.157s OK 
+TMPDIR 27 bytes, trailing slash: exit 0, 333s, Ran 97 tests in 332.726s OK 
+== d3804683 (round 4), once per TMPDIR (52 bytes is past test_capture.py's 50, so on /tmp, a link)
+TMPDIR 23 bytes: exit 0, 361s, Ran 99 tests in 360.501s OK 
+TMPDIR 26 bytes: exit 0, 381s, Ran 99 tests in 370.348s OK 
+TMPDIR 52 bytes: exit 0, 491s, Ran 99 tests in 489.803s OK 
+TMPDIR 27 bytes, trailing slash: exit 0, 391s, Ran 99 tests in 390.985s OK 
+== bb5f53ed (round 5's first fix, every gutter character out at once), once per TMPDIR (52 bytes is past test_capture.py's 50, so on /tmp, a link)
+TMPDIR 23 bytes: exit 0, 643s, Ran 101 tests in 641.160s OK 
+TMPDIR 26 bytes: exit 0, 463s, Ran 101 tests in 463.344s OK 
+TMPDIR 52 bytes: exit 0, 766s, Ran 101 tests in 764.725s OK 
+TMPDIR 27 bytes, trailing slash: exit 0, 723s, Ran 101 tests in 722.584s OK 
+== 4abe4feb (round 5), once per TMPDIR (52 bytes is past test_capture.py's 50, so on /tmp, a link)
+TMPDIR 23 bytes: exit 0, 743s, Ran 101 tests in 740.327s OK 
+TMPDIR 26 bytes: exit 0, 426s, Ran 101 tests in 424.037s OK 
+TMPDIR 52 bytes: exit 0, 458s, Ran 101 tests in 457.533s OK 
+TMPDIR 27 bytes, trailing slash: exit 0, 445s, Ran 101 tests in 444.572s OK 
+== 89a3fef1 (round 6), once per TMPDIR (52 bytes is past test_capture.py's 50, so on /tmp, a link)
+TMPDIR 23 bytes: exit 0, 342s, Ran 101 tests in 341.440s OK 
+TMPDIR 26 bytes: exit 0, 340s, Ran 101 tests in 339.269s OK 
+TMPDIR 52 bytes: exit 0, 359s, Ran 101 tests in 358.682s OK 
+TMPDIR 27 bytes, trailing slash: exit 0, 416s, Ran 101 tests in 415.462s OK 
+== 797ebfa0 (round 7), once per TMPDIR (52 bytes is past test_capture.py's 50, so on /tmp, a link)
+TMPDIR 23 bytes: exit 0, 659s, Ran 102 tests in 657.740s OK 
+TMPDIR 26 bytes: exit 1, 684s, Ran 102 tests in 683.558s FAILED (failures=1) 
+TMPDIR 52 bytes: exit 0, 448s, Ran 102 tests in 447.450s OK 
+TMPDIR 27 bytes, trailing slash: exit 0, 544s, Ran 102 tests in 543.481s OK 
+   at 26 bytes, the one failure: RunRoots.test_both_sides_are_written_alike_and_keep_their_widths, where fx's
+   row read "it: child setpgid (<pid> to <pid>): Operation not permitted" (the stub bash's own job-control
+   error in its pane) for DONE; no harness log of rounds 1-6 holds the message. That test alone, five times:
+   run 1: exit 0, OK; setpgid lines 0
+   run 2: exit 0, OK; setpgid lines 0
+   run 3: exit 0, OK; setpgid lines 0
+   run 4: exit 0, OK; setpgid lines 0
+   run 5: exit 0, OK; setpgid lines 0
+   and the whole suite once more:
+   TMPDIR 26 bytes, again: exit 0, 374s, Ran 102 tests in 374.109s OK ; setpgid lines 0
+== a2d5a921 (round 8: a guard change; once, at one TMPDIR)
+TMPDIR 23 bytes: exit 0, 572s, Ran 102 tests in 571.478s OK 

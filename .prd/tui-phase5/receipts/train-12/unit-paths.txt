@@ -1,0 +1,9 @@
+# unit_paths.sh at 03fb5436, each unit's receipt folder (round 2: run-directory names counted, not named)
+.prd/tui-phase5/receipts/gate-env-maintlock: 83 files; the brief's pattern 0; a placeholder 10; run-directory names other than the template: 0
+.prd/tui-phase5/receipts/sweep-wallclock: 98 files; the brief's pattern 0; a placeholder 1; run-directory names other than the template: 0
+.prd/tui-phase5/receipts/local-paths: 50 files; the brief's pattern 4; a placeholder 22; run-directory names other than the template: 9
+    the pattern: .prd/tui-phase5/receipts/local-paths/README.md:5
+    the pattern: .prd/tui-phase5/receipts/local-paths/red7-r6.txt:1
+    the pattern: .prd/tui-phase5/receipts/local-paths/red7-r7.txt:1
+    the pattern: .prd/tui-phase5/receipts/local-paths/red7.sh:1
+.prd/tui-phase5/receipts/input-row-limit: 137 files; the brief's pattern 0; a placeholder 0; run-directory names other than the template: 0

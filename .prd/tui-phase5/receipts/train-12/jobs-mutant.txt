@@ -1,0 +1,23 @@
+# jobs.sh mutant at 2026-11-09T22:05:00Z, load 16.98
+# mutant-clone at 03fb5436
+# mutant m1 (GATE-ENV-MAINTLOCK-F's own, runs-r3/m1-no-guard.diff): sg without -c maintenance.auto=false -c gc.auto=0
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+mutant: exit 1, 218 s; test-gate-env: 3 problem(s), 62 case(s) passed
+    test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
+    test-gate-env: decoy-setup-maintenance: the gate wrote into the decoy repository:
+    test-gate-env: decoy-setup-starts-nothing: new_decoy's commit started git's maintenance:
+    test-gate-env: decoy-setup-starts-nothing: a program from config ran: pre-auto-gc
+    test-gate-env: 3 problem(s), 62 case(s) passed
+# the clone clean after: yes
+# jobs.sh mutant done at 2026-11-09T22:08:44Z
+# exit 0
+
+## the mutant's problem lines, from its log (every line from the first problem to the summary that is not an ok or skip line)
+test-gate-env: decoy-setup-maintenance: the gate wrote into the decoy repository:
+21d20
+< 4294967295 0 ./objects/maintenance.lock
+test-gate-env: decoy-setup-starts-nothing: new_decoy's commit started git's maintenance:
+run_command: git maintenance run --auto --quiet --detach
+run_command: git gc --auto --quiet --no-detach --skip-foreground-tasks
+test-gate-env: decoy-setup-starts-nothing: a program from config ran: pre-auto-gc
+test-gate-env: 3 problem(s), 62 case(s) passed

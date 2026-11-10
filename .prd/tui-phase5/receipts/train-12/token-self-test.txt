@@ -1,0 +1,68 @@
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (preview-frame-before-the-turn-start) dropped: found
+  self-test ledger, a deleted entry (submit-multi-card-whole) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row one side changed ('`/model`'), two tokens swapped: found
+self-test d43c8c92: 9 of 9 found
+# exit 0
+  self-test parity, a token of a row neither side changed, dropped: found
+  self-test parity, two tokens of a row neither side changed, swapped: found
+  self-test parity, two adjacent rows neither side changed, swapped: found
+  self-test ledger, an entry neither side changed (banner) dropped: found
+  self-test ledger, a comment line dropped: found
+self-test 2c640bac: 5 of 5 found
+# exit 0
+  self-test ledger, an entry one side changed and the other re-pointed (capture-tmpdir) with a word changed: found
+  self-test ledger, an entry one side changed and the other re-pointed (run-directory) with a word changed: found
+  self-test ledger, an entry one side changed and the other re-pointed (tmux-dead-pane) with a word changed: found
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (preview-frame-before-the-turn-start) dropped: found
+  self-test ledger, a deleted entry (submit-multi-card-whole) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/compact`') as the other side has it: found
+  self-test parity, a row a side changed ('`/credits`') as the other side has it: found
+  self-test parity, a row a side changed ('`ask_user_question`') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row a side changed ("a question's line breaks in a program st") as the other side has it: found
+  self-test parity, a row one side changed ('`/model`'), two tokens swapped: found
+self-test 55d993a7: 18 of 18 found
+# exit 0
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (preview-frame-before-the-turn-start) dropped: found
+  self-test ledger, a deleted entry (submit-multi-card-whole) back: found
+  self-test ledger, a comment line dropped: found
+  self-test ledger, a numbers-only entry (session-record) with a word changed: found
+  self-test ledger, a numbers-only entry (session-record) with a reference dropped: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/effort`') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as ours has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as theirs has it: found
+  self-test parity, a row both sides changed ('full-screen TUI'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('full-screen TUI'), a side's clause moved whole with its anchors: found
+  self-test parity, a row one side changed ('`/model`'), two tokens swapped: found
+self-test 12b56ab8: 16 of 16 found
+# exit 0
+
+# token_control.py: the two token cases planted on every merged row both sides changed
+merge d43c8c92: no docs/parity.md row both sides changed; nothing to plant
+merge 2c640bac: no docs/parity.md row both sides changed; nothing to plant
+merge 55d993a7: no docs/parity.md row both sides changed; nothing to plant
+merge 12b56ab8: row 'full-screen TUI', changed by both sides; self_test's plant on a side's text of it finds nothing to replace (the merged row is neither side text)
+  a token ours added ('"...') dropped from the merged row: found
+  a token ours deleted ('(`event_loop.zig:94-119@481104') put back in the merged row: found
+  a token theirs added ('(`fx-p5-input-row-limit-41x120') dropped from the merged row: found
+  a token theirs deleted ('(`routeHelpMenuMove`,') put back in the merged row: found
+# 4 of 4 found
+# exit 0

@@ -11,8 +11,10 @@ for lib in $(ls "$deps"/xfx-* | grep -E '/xfx-[0-9a-f]+$'); do
   "$lib" --list 2>/dev/null | grep -q '^output::tests::the_panels_session' && break
 done
 bin() { ls "$deps/$1"-* | grep -E "/$1-[0-9a-f]+$" | head -1; }
+# Each directory is under the caller's TMPDIR, which must hold none of the
+# literals itself (the receipt's runs used one that holds none).
 run() { # literal-suffix binary test...
-  local suffix=$1 binary=$2 dir="/private/tmp/claude-501/sw-$1"; shift 2
+  local suffix=$1 binary=$2 dir="${TMPDIR:-/tmp}/sw-$1"; shift 2
   mkdir -p "$dir"
   for t in "$@"; do
     r=$(TMPDIR="$dir" timeout 300 "$binary" --exact "$t" --test-threads=1 2>&1 |

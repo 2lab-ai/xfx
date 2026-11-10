@@ -1,0 +1,13 @@
+diff --git a/scripts/test-gate-env.sh b/scripts/test-gate-env.sh
+index c7a8de54..e4e51140 100755
+--- a/scripts/test-gate-env.sh
++++ b/scripts/test-gate-env.sh
+@@ -476,7 +476,7 @@ refuses decoy-setup-maintenance "$content_found" after_maintenance "$ilock/scrip
+ set +e
+ (
+ 	set -e
+-	export GIT_TRACE="$work/decoy-setup.trace"
++	unset GIT_TRACE
+ 	new_decoy
+ ) </dev/null >"$work/decoy-setup.log" 2>&1
+ setup_status=$?

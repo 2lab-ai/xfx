@@ -19,7 +19,7 @@ M = [
  ("sessions not a search", "            || self.sessions.is_some()\n" + SKL, SKL, "a_fork_that_lands_under_a_search"),
  ("skills not a search", "            || self.sessions.is_some()\n" + SKL + "\n                .as_ref()\n                .is_some_and(|menu| !menu.origin().is_mention())\n    }", "            || self.sessions.is_some()\n    }", "a_fork_that_lands_under_a_search"),
 ]
-env = dict(os.environ, TMPDIR='/private/tmp/claude-501/ep2')
+env = dict(os.environ, TMPDIR=os.path.join(os.environ.get('TMPDIR') or '/tmp', 'ep2'))
 for name, old, new, test in M:
     assert orig.count(old) == 1, (name, orig.count(old))
     open(P, 'w').write(orig.replace(old, new))

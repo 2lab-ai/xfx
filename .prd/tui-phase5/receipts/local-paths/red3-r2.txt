@@ -1,0 +1,8 @@
+# red3.sh on a clone at 8e7c1c32 (round 2)
+1 wrap at 9 vs 12:                 the same after the rewrite (RED)
+NTH literal in JSON:               not JSON after the escape (RED)
+3 a sibling of HOME:               refused (RED)
+NIT nF escape after a root:        <work> read as <scratch>/work (RED)
+2 a mark in a report capture:      passes (RED)
+4 a home cut at its first match:   passes (RED)
+5 trailing-slash TMPDIR:           refused, exit 3, 2 LOCAL-PATH GUARD line(s) (RED)

@@ -1,0 +1,28 @@
+pairs that gained a differing row: 78
+    main approved-divergence -> head approved-divergence: 1
+    main approved-divergence-cascade -> head approved-divergence-cascade: 27
+    main normalized-identical -> head unresolved-defect: 1
+    main unresolved-defect -> head unresolved-defect: 49
+  57  a placeholder where main's row held a path of the run (LOCAL-PATHS)
+  21  other
+    h1-refuse back (unresolved-defect -> unresolved-defect): fx '  back after the refusal' / xfx 'ing request for url (http://127.0.0.1:58319/v4/ai/'
+    h1-refuse refused (unresolved-defect -> unresolved-defect): fx ' lost · waiting for connection · 2s · esc to pause' / xfx 'ing request for url (http://127.0.0.1:58319/v4/ai/'
+    h1-refuse-pause after-pause (unresolved-defect -> unresolved-defect): fx " 4 attempts · send a new message when you're ready" / xfx 'ing request for url (http://127.0.0.1:53942/v4/ai/'
+    h1-refuse-pause end (unresolved-defect -> unresolved-defect): fx " 4 attempts · send a new message when you're ready" / xfx 'ing request for url (http://127.0.0.1:53942/v4/ai/'
+    h1-refuse-pause paused (unresolved-defect -> unresolved-defect): fx " 4 attempts · send a new message when you're ready" / xfx 'ing request for url (http://127.0.0.1:53942/v4/ai/'
+    h1-refuse-pause refused (unresolved-defect -> unresolved-defect): fx ' lost · waiting for connection · 2s · esc to pause' / xfx 'ing request for url (http://127.0.0.1:53942/v4/ai/'
+    h1-signal terminated (unresolved-defect -> unresolved-defect): fx 'ne is dead (signal term, Tue Nov 10 07:54:11 2026)' / xfx 'ne is dead (signal term, Tue Nov 10 07:54:25 2026)'
+    h1-signal-hup hup (unresolved-defect -> unresolved-defect): fx 'ane is dead (signal hup, Tue Nov 10 08:23:16 2026)' / xfx 'ane is dead (signal hup, Tue Nov 10 08:23:25 2026)'
+    interrupt-recovery full (unresolved-defect -> unresolved-defect): fx '' / xfx 'ork: provider: gateway · model: fake/model-a · 1ms'
+    model-parked menu-loading (unresolved-defect -> unresolved-defect): fx '~ Thinking (<s>)' / xfx '~ Thinking (<s>) (↑4 ↓0)'
+    p5-lifecycle-retry r04a-esc-armed (unresolved-defect -> unresolved-defect): fx '2 · Synthetic bad gateway · retrying request in 6s' / xfx '502: {"error":{"message":"Synthetic bad gateway"}}'
+    p5-mcp-menu-new list-remote (normalized-identical -> unresolved-defect): fx 'e                  retrying                profile' / xfx 'e                  connecting              profile'
+    p5-panels-sweep-b after-compact (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-panels-sweep-b compact (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-panels-sweep-b rename (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-panels-sweep-b resume (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-panels-sweep-b stats (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-panels-sweep-b trace (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-panels-sweep-b undo (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-usage-turns credits (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-usage-turns stats (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'

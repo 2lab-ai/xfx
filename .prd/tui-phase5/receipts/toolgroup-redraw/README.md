@@ -489,7 +489,7 @@ Pair by pair, base against `f482d340` (`sweep-compare.txt`,
 ## Gates
 
 Round 2: the suites one at a time, after the sweep and the measurements had
-finished, `TMPDIR=/private/tmp/claude-501/tgr-gate2`, at `f482d340` with
+finished, `TMPDIR=<tmp>/tgr-gate2`, at `f482d340` with
 this receipt, the ledger and `docs/parity.md` staged (no compiled file
 differs from `f482d340`):
 

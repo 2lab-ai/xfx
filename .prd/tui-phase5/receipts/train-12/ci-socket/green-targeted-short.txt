@@ -1,0 +1,11 @@
+== green-targeted-short: TMPDIR 23 bytes; ./scripts/fxcap/test-capture.sh -v RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir Refusals.test_a_tmpdir_too_long_for_the_socket
+start 2026-11-10T02:03:47Z
+test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir (__main__.RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir) ... ok
+test_a_tmpdir_too_long_for_the_socket (__main__.Refusals.test_a_tmpdir_too_long_for_the_socket) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 16.090s
+
+OK
+exit=0
+end 2026-11-10T02:04:04Z

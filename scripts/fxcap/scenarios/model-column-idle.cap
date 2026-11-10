@@ -1,23 +1,32 @@
-# The catalog cannot be read for the first nine seconds -- longer than either
-# binary takes to start and open the column under load -- and the inline
-# column is open over the failure with nothing running. fx paints a frame only
-# when something asks for one (`flushRequestedFrame`,
-# `app_render_runtime.zig:928-929`) and nothing animates while idle, so the
+# The catalog cannot be read from the launch until the `modelsup` line, and
+# the inline column is open over the failure with nothing running. A frame
+# reads a failed catalog again only past the failure's hold -- 5 s after the
+# first failure in a row, 10 s after the second (`failureBackoffMs`,
+# `beginLoad`, `model_cache_runtime.zig:40-54`, `:617@481104fd`) -- and fx
+# paints a frame only when something asks for one (`flushRequestedFrame`,
+# `app_render_runtime.zig:928-929`): nothing animates while idle, so the
 # column's render path -- the only thing that asks the cache again
-# (`footerContext`, `:561-563`) -- does not run: it says `unable to load
-# models` after the catalog is back, and the next keystroke's frame asks again
-# and lists the rows. `modelsdelay 0` stamps each read in the gateway log.
+# (`footerContext`, `:561-563`) -- does not run. The column opens past the
+# launch read's 5 s and reads again (503); once it is on the screen over the
+# failure, the catalog comes back; `col-idle`,
+# past that read's 10 s, still says `unable to load models`, and the next
+# keystroke's frame asks again and lists the rows. The outage ends at a line,
+# not at a moment on the gateway's clock, which each binary's launch reaches
+# at a different time (registry #19). `modelsdelay 0` stamps each read in the
+# gateway log.
 models models.json
-modelsdown 9000
+modelsdown
 modelsdelay 0
 wait 6
 type /model
 key Space
+until shown unable to load models
 wait 0.8
 snap col-down
-wait 6
+modelsup
+wait 11
 snap col-idle
 type o
-wait 1
+until shown gpt-6-astra
 snap col-typed
 gwlog

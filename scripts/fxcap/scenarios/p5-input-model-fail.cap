@@ -1,17 +1,21 @@
 # Phase 5 input cluster: a catalog that fails at launch (14a12fea's retry
-# sentence) and is back later (f4990675 refresh on activity).
+# sentence) and is back later (f4990675 refresh on activity): 503 until the
+# `modelsup` line, a point in the scenario rather than a moment on the
+# gateway's clock, which each binary's launch reaches at a different time
+# (registry #19).
 fx: env FX_AUTO_UPGRADE=0
 models p5-input-models.json
-modelsdown 15000
+modelsdown
 wait 4
 type /model
 key Enter
 wait 2
 snap fail-open
 key Escape
+modelsup
 wait 0.5
 wait 14
 type /model
 key Enter
-wait 3
+until shown gpt-6-astra
 snap after-outage

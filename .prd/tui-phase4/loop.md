@@ -9,7 +9,7 @@ Done ledger: [`loop.done.md`](loop.done.md).
 
 - Batch gate (one integration branch per batch, then `--ff-only` into plan): `cargo fmt --check`; `cargo clippy --all-targets -- -D warnings`, plain and `--features fault-injection`; `cargo test --no-fail-fast`, plain and fault-injection; `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh`, `check-preview-contract.sh`. Run in the foreground or a tool's background mode, never a shell `&`/`nohup` job (an inherited SIG_IGN breaks `process::tests`).
 - Last green: `9aa666c7` (batch 20) — lib 3490, tui 157; fault-injection lib 3497, tui 171; 0 failed; clippy 0. Toolchain rustc 1.99.1, MSRV 1.96 (`fetch_update` sites carry `#[allow(deprecated)]`).
-- Captures: `scripts/fxcap/capture.sh {fx,xfx} <scenario> 40x120 [out]` with `FX_BIN=<reference>` and `TMPDIR=/private/tmp/claude-501`; comparator `receipts/m1/cells.py`.
+- Captures: `scripts/fxcap/capture.sh {fx,xfx} <scenario> 40x120 [out]` with `FX_BIN=<reference>` and `TMPDIR=<tmp>`; comparator `receipts/m1/cells.py`.
 
 ## Open work
 
@@ -52,5 +52,5 @@ Program: [`../07-fx-parity-program.md`](../07-fx-parity-program.md) (trinity una
 
 ## Round log (current)
 
-- 2026-11-03: batches 14–22 landed (T8 r2, D2c r4–r6, W9 r5, M1, P1 r2, S1 r2, X1 r1, C7 r1, R1 r2, H1); fx self-upgrade guard d91a9968; program adopted. Public-suitability scan of plan's files and `origin/main..plan` history: no personal names, user paths or real keys (tests use `/Users/me`, `/Users/u`; the two `sk-` hits are fake test strings, shortened in 56f20fcc); harness scratch paths (`/private/tmp/claude-501/fxcap.*`) remain in some receipts, no personal data.
+- 2026-11-03: batches 14–22 landed (T8 r2, D2c r4–r6, W9 r5, M1, P1 r2, S1 r2, X1 r1, C7 r1, R1 r2, H1); fx self-upgrade guard d91a9968; program adopted. Public-suitability scan of plan's files and `origin/main..plan` history: no personal names, user paths or real keys (tests use `/Users/me`, `/Users/u`; the two `sk-` hits are fake test strings, shortened in 56f20fcc); harness scratch paths (`/private/tmp/claude-<uid>/fxcap.*`) remain in some receipts, no personal data.
 - 2026-11-03: P2 security review, four groups × two engines (gpt-6-astra, opus) at `de6618de`: A REJECT / APPROVE-WITH-FIXES, B APPROVE-WITH-FIXES ×2, C REJECT / APPROVE-WITH-FIXES, D REJECT / APPROVE-WITH-FIXES. The union of MUST-FIX items = 11 units (SEC-*), dispatched one per worker; plausible-tier items reproduce before they are fixed. The reports land in `receipts/p2-sec/` with the fixes. Sweep tooling ran once (`1a94cdff`, 161 scenarios, 11 min at 10 jobs): 624/861 pass. Program: the Phase 4 sweep is run and reported, not passed (§P2 Receipt).

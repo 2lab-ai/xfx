@@ -30,7 +30,7 @@ socket and the empty `HOME`:
 
 The xfx binary is `target/debug/xfx` built at `89690c0` (the banner says so).
 
-Sanitized: the run directory `/private/tmp/claude-501/fxcap.XXXXXX` is written
+Sanitized: the run directory `/private/tmp/claude-<uid>/fxcap.XXXXXX` is written
 `<scratch>` in every file, so the workspace segment reads `<scratch>/work` on
 both sides. Nothing else was edited.
 

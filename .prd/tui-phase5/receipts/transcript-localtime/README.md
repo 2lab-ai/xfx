@@ -110,8 +110,8 @@ banner-bearing snaps reads `x𝒇x v0.1.0-29bbc11 [debug]`, `banners.txt` -- a
 Ctrl-O snap has no banner row), against the same `fx/` snaps, 40x120:
 
 ```
-FX_BIN=<fx v0.0.16, sha256 8e6cda2e…> TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh fx  p5-transcript-tz|tzsys 40x120 <dir>
-XFX_BIN=<xfx at 29bbc118>             TMPDIR=/private/tmp/claude-501 scripts/fxcap/capture.sh xfx p5-transcript-tz|tzsys 40x120 <dir>
+FX_BIN=<fx v0.0.16, sha256 8e6cda2e…> TMPDIR=<tmp> scripts/fxcap/capture.sh fx  p5-transcript-tz|tzsys 40x120 <dir>
+XFX_BIN=<xfx at 29bbc118>             TMPDIR=<tmp> scripts/fxcap/capture.sh xfx p5-transcript-tz|tzsys 40x120 <dir>
 python3 -I -B pair.py <repo> fx/<snap>.ansi xfx/<snap>.ansi [--clock <IANA zone>]
 ```
 
@@ -182,7 +182,7 @@ xfx's own today, not a UTC clock).
 
 ## Gates
 
-At `29bbc118` (the code commit), `TMPDIR=/private/tmp/claude-501/tlt`, one
+At `29bbc118` (the code commit), `TMPDIR=<tmp>/tlt`, one
 at a time, each full suite and build after the idle wait (`until ! pgrep -x
 cargo … && ! pgrep -x 'xfx-[0-9a-f]+' …`), macOS:
 
@@ -244,7 +244,7 @@ reads `v0.1.0-f103c2a` in 39 of 39 (`tu5b/banners.txt`).
   `-03`/`+05` assertions fail under a filter that takes no `+`/`-` [추론].
 
 Gates at `c84392a3`, run one at a time, each full suite after the idle wait,
-with `TMPDIR=/private/tmp/claude-501/tlt`:
+with `TMPDIR=<tmp>/tlt`:
 - fmt and both clippy runs: ok.
 - Tests: 4925 passed, 0 failed (7 ignored); fault-injection: 4954 passed, 0
   failed (7 ignored).

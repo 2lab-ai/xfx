@@ -242,8 +242,9 @@ cargo build --locked --release
 ./target/release/xfx --version
 ```
 
-The full local gate, which is what CI runs (CI runs the two script tests,
-`test-gate-env.sh` and `test-preview-contract.sh`, on one row per OS; see
+The full local gate, which is what CI runs (CI runs the three script tests,
+`test-gate-env.sh`, `test-preview-contract.sh` and `test-check-no-local-paths.sh`,
+on one row per OS; see
 [`CONTRIBUTING.md`](CONTRIBUTING.md)):
 
 ```bash
@@ -253,7 +254,9 @@ cargo test --locked --all-targets
 cargo build --locked --release
 ./scripts/check-no-stubs.sh
 ./scripts/check-no-secrets.sh
+./scripts/check-no-local-paths.sh
 ./scripts/test-gate-env.sh   # runs ./scripts/test-check-no-secrets.sh too
+./scripts/test-check-no-local-paths.sh
 ./scripts/check-xfx-identity.sh
 ./scripts/check-preview-contract.sh
 ./scripts/test-preview-contract.sh

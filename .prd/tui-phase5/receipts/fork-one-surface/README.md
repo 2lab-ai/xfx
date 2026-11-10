@@ -170,11 +170,11 @@ every pair): `allowlist` 10/0/10, `allowlist-remember` 7/0/7,
 `interrupt-question` 1/0/3, `interrupt-next-question` 0/0/1.
 
 Every file here went through `scripts/fxcap/redact.py`:
-`/private/tmp/claude-501` is `<tmp>`.
+`/private/tmp/claude-<uid>` is `<tmp>`.
 
 ## Gates
 
-Run at `c591a6a7`, with `TMPDIR=/private/tmp/claude-501/fsg`. The commit on
+Run at `c591a6a7`, with `TMPDIR=<tmp>/fsg`. The commit on
 top of it changes doc comments in `fork_points` and this receipt only. On
 that commit, fmt, both clippy runs, the fork/effort/status/approval tests
 and the three tree checks were re-run (below the table).

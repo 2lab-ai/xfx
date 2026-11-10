@@ -1,0 +1,67 @@
+commit 55d993a7c8d2902759b90cb1154249e2929fbb6e
+Merge: 2c640bac 5609108f
+
+merge: LOCAL-PATHS (fix/p5-local-paths @ 5609108f) into train 12
+
+P5 train 12, merge 3 of 4. No path of one machine in the tracked tree:
+capture.sh and roots.py rewrite every file a run writes before anyone reads
+it, the tracked files already holding such paths are written out, and
+scripts/check-no-local-paths.sh refuses them by shape (its own test, and a
+CI step). Base ccced1f5.
+
+One conflict, as forecast: scripts/fxcap/parity-ledger.toml, three diff3
+blocks, each resolved by train 11's blocks.py (one rule a block):
+- `run-directory` and `capture-tmpdir`: main (SWEEP-WALLCLOCK-F) had moved
+  only their capture.sh numbers in text LOCAL-PATHS rewrote: LOCAL-PATHS's.
+- the tmux-clock `source`: both sides moved its numbers alone: ours (main's)
+  kept; the re-point commit after the last merge moves every reference the
+  merges moved to the head's lines.
+The merge tree passed cargo check (both feature sets), cargo fmt --check and
+clippy (both) before this commit.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+
+diff --git a/scripts/fxcap/parity-ledger.toml b/scripts/fxcap/parity-ledger.toml
+remerge CONFLICT (content): Merge conflict in scripts/fxcap/parity-ledger.toml
+index 43c93be7..7196375d 100644
+--- a/scripts/fxcap/parity-ledger.toml
++++ b/scripts/fxcap/parity-ledger.toml
+@@ -74,17 +74,6 @@ id = "run-directory"
+ fx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
+ xfx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
+ mask = "X"
+-<<<<<<< 2c640bac (merge: SWEEP-WALLCLOCK-F (fix/p5-sweep-wallclock @ 4bc9ab13) into train 12)
+-why = "capture.sh runs each binary in its own `mktemp -d .../fxcap.XXXXXX`, so a path on screen (/status's workspace, a picker's root) carries a different random suffix on each side. Masked to the same length, so nothing after it moves."
+-source = ["scripts/fxcap/capture.sh:546"]
+-
+-[[normalization]]
+-id = "capture-tmpdir"
+-fx = '(?<=fxcap\.XXXXXX/)fxtmp\b'
+-replace = "xfxtmp"
+-why = "capture.sh gives each binary a TMPDIR inside its run named for the binary, fx `$run/fxtmp`, xfx `$run/xfxtmp`, so where `/trace` says it wrote names the driver's directory, not the product's. After run-directory, on fx's side."
+-source = ["scripts/fxcap/capture.sh:325-327"]
+-=======
+ why = "capture.sh runs each binary in its own `mktemp -d .../fxcap.XXXXXX`, so a path on screen (/status's workspace, a picker's root) carries a different random suffix on each side. capture.sh writes the whole run directory as `<scratch>` (or `<work>`) since LOCAL-PATHS, wherever a frame wraps or colours it, and refuses a capture that keeps any of its name; this rule reads the captures taken before it (`--rescore`). Masked to the same length, so nothing after it moves."
+ source = ["scripts/fxcap/capture.sh:659"]
+ 
+@@ -94,7 +83,6 @@ fx = '(<scratch(?::real)?_*>/|fxcap\.XXXXXX/)fxtmp(?=/)'
+ replace = '\1xfxtmp'
+ why = "capture.sh gives each binary a TMPDIR inside its run named for the binary, fx `$run/fxtmp`, xfx `$run/xfxtmp`, so where `/trace` says it wrote names the driver's directory, not the product's. On fx's side, after run-directory, and only right after the run directory: as capture.sh writes it now, `<scratch___>` filled to its width (`<scratch:real___>` resolved), as units wrote it by hand before LOCAL-PATHS, `<scratch>`, or as a capture from before LOCAL-PATHS holds it, masked to `fxcap.XXXXXX`. The run directory, `$TMPDIR/fxcap.XXXXXX`, is 13 columns or more, never narrower than `<scratch>`, so its short form `<s__>` is not read (resolved, it is narrower than `<scratch:real>` only where the TMPDIR resolves to `/`, and `<S__>` is not read either); nor is an `fxtmp` under another placeholder (`<work___>/fxtmp` is a name in the workspace), an escaped literal (`<!scratch__>`) or other text. And only the name itself with a directory under it, `fxtmp/`: `/` is the one follower the tracked captures hold (w2's and w3's `/trace` reports and pasted images), and any other character can be part of a name, so `fxtmp-old`, `fxtmp,backup`, `fxtmp backup`, `fxtmp\u00e9` or the bare `fxtmp` before a quote is compared: the rule fails toward comparing. capture.sh's `dir` refuses a name that is or extends a binary's TMPDIR, so no scenario makes such a sibling beside them. This is not roots.py's EDGE: an over-wide rewrite there fails toward privacy (a sibling written as a placeholder), an over-wide normalization here toward false parity (a sibling read as the TMPDIR), so the ledger reads only the demonstrated form."
+ source = ["scripts/fxcap/capture.sh:314-316", "scripts/fxcap/capture.sh:367-373", "scripts/fxcap/capture.sh:947", "scripts/fxcap/capture.sh:954"]
+->>>>>>> 5609108f (docs(receipt): LOCAL-PATHS section 4 says 28 plants and the heuristic; two receipt scripts fixed)
+ 
+ # Each run's own clock and its own ids. The two binaries run one after the
+ # other, so what a clock or a random id reads is the run's, not the product's;
+@@ -156,11 +144,7 @@ fx = '^(Pane is dead \(status \d+, ).*(\))$'
+ xfx = '^(Pane is dead \(status \d+, ).*(\))$'
+ replace = '\1<tmux clock>\2'
+ why = "tmux's own line under a pane whose program has exited (capture.sh `keep`) ends with tmux's clock; the exit status before it is compared."
+-<<<<<<< 2c640bac (merge: SWEEP-WALLCLOCK-F (fix/p5-sweep-wallclock @ 4bc9ab13) into train 12)
+ source = [".prd/tui-phase4/receipts/d1/README.md:145", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:987"]
+-=======
+-source = [".prd/tui-phase4/receipts/d1/README.md:151", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:1123"]
+->>>>>>> 5609108f (docs(receipt): LOCAL-PATHS section 4 says 28 plants and the heuristic; two receipt scripts fixed)
+ 
+ [[normalization]]
+ id = "session-id"

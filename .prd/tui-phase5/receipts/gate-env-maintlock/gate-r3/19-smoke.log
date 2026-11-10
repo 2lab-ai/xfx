@@ -1,0 +1,67 @@
+xfx smoke
+  binary:   <work>/target/release/xfx
+  evidence: <scratch>/p5-gate-env-maintlock/gate-smoke/smoke
+
+0. test-only names in the shipped bytes
+  ok    the binary carries no test-only variable name: XFX_E2E_USAGE_CLOCK_FILE (11668096 bytes, XFX_GATEWAY_URL found)
+
+1. help, version, status, doctor
+  ok    --help exits 0
+  ok    --help shows usage
+  ok    --help does not advertise acp
+  ok    --help does not advertise login
+  ok    --help does not advertise upgrade
+  ok    --help does not advertise replay
+  ok    --version exits 0
+  ok    status --json exits 0
+  ok    status reports no sandbox
+  ok    status reports the permission mode
+  ok    status --json is exactly one document
+  ok    doctor --json exits 0
+  ok    doctor checks the session store
+  ok    doctor checks the permission mode
+  ok    a bare xfx without a terminal exits 1
+  ok    it says a terminal is required
+  ok    a hostile environment reaches nothing: no token, model, mode, or step limit
+
+2. a content-only turn
+  ok    ask exits 0
+  ok    the answer reached stdout
+  ok    the credential stayed out of stderr
+  ok    the request carried a bearer token
+  ok    a content-only turn is exactly one request
+
+3. a multi-step mutation turn
+  ok    a five-step turn exits 0
+  ok    the turn ended with one final event
+  ok    the edit ran
+  ok    the command ran
+  ok    the workspace file really changed
+  ok    the command output went back to the model
+  ok    the destructive command was refused
+  ok    the refused command did not delete the file
+  ok    five steps are five requests
+
+4. sessions, resume, rebind, and --no-save
+  ok    a recorded ask exits 0
+  ok    sessions --json exits 0
+  ok    the turn was recorded as session 1794249541228-6d4ff41ec5b79e7d
+  ok    session last --json exits 0
+  ok    the session kept the prompt
+  ok    resume exits 0
+  ok    the resumed turn carried the earlier one
+  ok    a rebinding resume exits 0
+  ok    the rebinding was recorded durably
+  ok    --no-save exits 0
+  ok    --no-save created nothing under the profile home
+
+5. the interactive shell
+  ok    the shell greeted, answered, refused an unknown command, and quit cleanly
+  ok    the shell listed its commands
+  ok    the shell streamed an answer
+
+6. what was sent, and what was written down
+  ok    every request carried exactly the provided credential, and nothing else leaked (scanned 52 file(s), 11 request(s))
+
+47 check(s), 0 failure(s)
+evidence: <scratch>/p5-gate-env-maintlock/gate-smoke/smoke

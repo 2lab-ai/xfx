@@ -18,8 +18,8 @@ socket and an empty `HOME`.
 The xfx binary is `target/debug/xfx`, built from the working tree of this
 commit. Its banner shows `ea484d5` because that commit is the base.
 
-Sanitized: the capture's scratch directory (`/private/var/folders/…/T/fxcap.XXXXXX`)
-is written `<scratch>` in every `.txt` and `.ansi`, so the `workspace=` row reads
+Sanitized: the capture's scratch directory (`$TMPDIR/fxcap.XXXXXX`, then under
+macOS's per-user temporary folder) is written `<scratch>` in every `.txt` and `.ansi`, so the `workspace=` row reads
 `<scratch>/work` on both sides. Nothing else was edited.
 
 `.ansi` files are tmux's re-serialization of cell attributes

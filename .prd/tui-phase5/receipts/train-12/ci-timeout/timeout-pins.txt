@@ -1,0 +1,16 @@
+# git grep -n timeout-minutes -- scripts .github docs CONTRIBUTING.md README.md '.prd/*.md' at 09bf63ab
+.github/workflows/ci.yml:30:    timeout-minutes: 60
+.github/workflows/preview.yml:64:    timeout-minutes: 20
+.github/workflows/preview.yml:223:    timeout-minutes: 45
+.github/workflows/preview.yml:393:    timeout-minutes: 20
+.github/workflows/release.yml:28:    timeout-minutes: 45
+.github/workflows/release.yml:129:    timeout-minutes: 15
+.github/workflows/sweep-full.yml:35:    timeout-minutes: 180
+.github/workflows/sweep.yml:50:    timeout-minutes: 120
+scripts/fxcap/test_ci_sweep.py:521:        self.assertGreaterEqual(w["jobs"]["sweep"]["timeout-minutes"], 94 * 5 // 4)
+scripts/test-preview-contract.sh:98:  once.("    timeout-minutes: 45\n",
+scripts/test-preview-contract.sh:99:        "    timeout-minutes: 45\n    env:\n      TAP_PUSH_KEY: ${{ secrets.TAP_PUSH_KEY }}\n")
+scripts/test-preview-contract.sh:101:  once.("    timeout-minutes: 45\n", "    timeout-minutes: 45\n    env:\n      ALL: ${{ toJSON(secrets) }}\n")
+scripts/test-preview-contract.sh:103:  once.("    timeout-minutes: 45\n", "    timeout-minutes: 45\n    env:\n      KEY: ${{ secrets['TAP_PUSH_KEY'] }}\n")
+scripts/test-preview-contract.sh:107:  once.("    timeout-minutes: 45\n",
+scripts/test-preview-contract.sh:108:        "    timeout-minutes: 45\n    env:\n      ALL: ${{ contains('}}', 'x') || toJSON(secrets) }}\n")

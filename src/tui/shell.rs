@@ -22142,9 +22142,9 @@ mod tests {
 
         let plan = MutationPlan::new(
             MutationKind::Edit,
-            // The long absolute path a real temporary workspace has.
+            // As long as the absolute path a macOS temporary workspace has.
             std::path::PathBuf::from(
-                "/private/var/folders/f4/mj8750512wdb85799rpkct880000gn/T/.tmpqwGs5r/workspace/notes.txt",
+                "/scratch/workdir/tmp/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/T/.tmpqwGs5r/workspace/notes.txt",
             ),
             "notes.txt".to_string(),
             TargetScope::PrimaryWorkspace,
@@ -23736,8 +23736,8 @@ mod tests {
             Ok(TurnControl::QuestionCancelled { .. })
         ));
         // `released`, not `document`: the notice is behind the pacer, which is
-        // how the existing too-small assertions read it (`shell.rs:6070`,
-        // `:6258`). Concatenated rather than compared row by row, because a
+        // how the existing too-small assertions read it (`shell.rs:6068`,
+        // `:6256`). Concatenated rather than compared row by row, because a
         // twenty-column screen is exactly the one that wraps this sentence --
         // and what the case is about is that the refusal was said, not where the
         // wrap fell.
@@ -26186,15 +26186,16 @@ mod tests {
 
     #[test]
     fn a_notice_naming_a_path_wraps_where_upstreams_does() {
-        // `fx-trace-40x120-copy-fail.txt` rows 15-16, the path as fx's run
-        // had it: the notice breaks after `fxtmp/` and drops nothing but the
+        // `fx-trace-40x120-copy-fail.txt` rows 15-16, the path as long as
+        // fx's run had it (its scratch root a stand-in of the same length):
+        // the notice breaks after `fxtmp/` and drops nothing but the
         // space it would otherwise have hung (`scanNoticeLine`,
         // `transcript_blocks.zig:1651-1702`).
         let mut shell = shell(40, 120);
         shell.announce(notice::Notice::error(
             "",
             crate::trace::Disposition::CopyFailed(std::path::PathBuf::from(
-                "/private/tmp/claude-501/fxcap.oJd3Kr/fxtmp/\
+                "/scratch/workdir/claude/fxcap.oJd3Kr/fxtmp/\
                  fx-trace-2026-10-06-213606-c51761bbc7ce.md",
             ))
             .sentence(),
@@ -26203,7 +26204,7 @@ mod tests {
             shell.document(),
             [
                 "\u{2717} Clipboard copy failed. Trace saved at \
-                 /private/tmp/claude-501/fxcap.oJd3Kr/fxtmp/",
+                 /scratch/workdir/claude/fxcap.oJd3Kr/fxtmp/",
                 "  fx-trace-2026-10-06-213606-c51761bbc7ce.md. Review and redact it before sharing.",
                 "",
             ]
@@ -36172,6 +36173,239 @@ mod tests {
         assert!(shell.help_menu.is_some(), "a page key closed the catalog");
     }
 
+    // --- INPUT-ROW-LIMIT: every page, and the composer's cap, at 41 rows ----
+
+    /// fx's page and composer cap on a 41-row screen, written out rather than
+    /// computed: `inputRowLimit(content_bottom)` is `content_bottom / 2 + 1`
+    /// while `content_bottom` is more than 4
+    /// (`input_presentation.zig:252-255@481104fd`), and `content_bottom` is the
+    /// screen less fx's four footer rows (`footer_rows = 4`,
+    /// `main.zig:173@481104fd`; `layoutFromSize`, `terminal.zig:47-59@481104fd`):
+    /// 37 / 2 + 1. A content area of `rows - 3` made it 20
+    /// (`fx-p5-input-row-limit-41x120-*`).
+    const FX_PAGE_AT_41: usize = 19;
+
+    /// A page on whatever has the keys moves the mark exactly as far as
+    /// [`FX_PAGE_AT_41`] single steps do, and the page back returns it --
+    /// whatever the list holds and in whatever order, which the case need not
+    /// know. `forward` pages down, else up; `marked` reads the mark.
+    fn pages_as_far_as_steps<T: PartialEq + std::fmt::Debug>(
+        shell: &mut Fixture,
+        forward: bool,
+        marked: impl Fn(&Fixture) -> T,
+    ) {
+        assert_eq!(shell.geometry.rows, 41, "the cases here are at 41 rows");
+        let (page, back, step): (&[u8], &[u8], &[u8]) = if forward {
+            (b"\x1b[6~", b"\x1b[5~", b"\x1b[B")
+        } else {
+            (b"\x1b[5~", b"\x1b[6~", b"\x1b[A")
+        };
+        let start = marked(shell);
+        shell.route_bytes(page);
+        let paged = marked(shell);
+        assert_ne!(paged, start, "the page did not move the mark");
+        shell.route_bytes(back);
+        assert_eq!(marked(shell), start, "the page back did not return it");
+        for _ in 0..FX_PAGE_AT_41 {
+            shell.route_bytes(step);
+        }
+        assert_eq!(marked(shell), paged, "a page is not {FX_PAGE_AT_41} steps");
+    }
+
+    #[test]
+    fn at_41_rows_the_composer_is_capped_at_19_rows_and_a_page_is_19_of_them() {
+        // `cappedInputRows` (`input_presentation.zig:257-267@481104fd`) and
+        // `routeComposerVertical`'s `row_count` (`input_completion_runtime.zig:
+        // 222-223@481104fd`), both `inputRowLimit` (`fx-p5-input-row-limit-
+        // 41x120-grown`, `-grown-pgup`).
+        let mut shell = shell(41, 120);
+        for line in 1..30 {
+            shell.route_bytes(format!("line-{line:02}").as_bytes());
+            shell.route_bytes(&[0x0a]);
+        }
+        shell.route_bytes(b"line-30");
+        assert_eq!(
+            usize::from(shell.geometry.input_rows()),
+            FX_PAGE_AT_41,
+            "the composer's cap"
+        );
+        pages_as_far_as_steps(&mut shell, false, |shell| {
+            shell.editor.point(shell.text_cols()).0
+        });
+    }
+
+    #[test]
+    fn at_41_rows_a_page_of_the_slash_menu_is_19_commands() {
+        let mut shell = shell(41, 120);
+        shell.route_bytes(b"/");
+        let (_, count) = shell.picker.as_ref().expect("a menu").marked();
+        assert!(count > FX_PAGE_AT_41 + 1, "{count} commands");
+        pages_as_far_as_steps(&mut shell, true, |shell| {
+            shell.picker.as_ref().expect("a menu").marked().0
+        });
+    }
+
+    #[test]
+    fn at_41_rows_a_page_of_the_help_catalog_is_19_commands() {
+        let mut shell = with_catalog(41, 120);
+        pages_as_far_as_steps(&mut shell, true, |shell| {
+            shell
+                .help_menu
+                .as_ref()
+                .and_then(HelpMenu::selected)
+                .map(|spec| spec.name)
+        });
+    }
+
+    #[test]
+    fn at_41_rows_a_page_of_the_at_list_is_19_paths() {
+        // AT-HEIGHT's thirty names (`p5-input-at-height-ws`).
+        let workspace = tempfile::tempdir().expect("a workspace");
+        std::fs::create_dir(workspace.path().join("items")).expect("items/");
+        for name in 1..=30 {
+            std::fs::write(workspace.path().join(format!("items/f-{name:02}.txt")), "")
+                .expect("a file");
+        }
+        let mut shell = shell_in(41, 120, workspace.path());
+        shell.route_bytes(b"@f-");
+        listed(&mut shell);
+        pages_as_far_as_steps(&mut shell, true, |shell| {
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(|files| files.marked())
+                .map(|found| found.path.clone())
+        });
+    }
+
+    #[test]
+    fn at_41_rows_a_page_of_the_resume_picker_is_19_sessions() {
+        use super::super::session_picker::{ListedSession, Listing};
+        let mut shell = shell(41, 120);
+        shell.route_bytes(b"/resume\r");
+        assert_eq!(shell.picks_up(), TurnWork::Sessions);
+        shell.work.give_back();
+        shell.apply(UiEvent::Sessions(Some(Listing {
+            current: (1..=30)
+                .map(|n| ListedSession {
+                    id: format!("s{n:02}"),
+                    title: Some(format!("question {n}")),
+                    workspace: "/x/work".to_string(),
+                    updated_at_ms: 0,
+                    turns: 1,
+                })
+                .collect(),
+            all: Vec::new(),
+            now_ms: 0,
+        })));
+        pages_as_far_as_steps(&mut shell, true, |shell| {
+            shell.sessions.as_ref().and_then(SessionPicker::selected)
+        });
+    }
+
+    #[test]
+    fn at_41_rows_a_page_of_the_fork_menu_is_19_prompts() {
+        // It opens on the newest, so the page is up.
+        let mut shell = shell(41, 120);
+        forked_menu(
+            &mut shell,
+            (1..=30)
+                .map(|turn| fork_point(turn, &format!("prompt {turn}")))
+                .collect(),
+        );
+        pages_as_far_as_steps(&mut shell, false, |shell| {
+            shell.fork_menu.as_ref().map(|menu| menu.selected().turn)
+        });
+    }
+
+    #[test]
+    fn at_41_rows_a_page_of_the_model_menu_is_19_models() {
+        let mut shell = shell(41, 120);
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
+            provider: ProviderId::Gateway,
+            entries: (1..=30)
+                .map(|n| entry(&format!("m{n:02}"), Some(400_000), &[]))
+                .collect(),
+        });
+        let _ = shell.document();
+        shell.route_bytes(b"/model\r");
+        assert!(shell.model_menu.is_some(), "/model opened no menu");
+        pages_as_far_as_steps(&mut shell, true, |shell| {
+            shell
+                .model_menu
+                .as_ref()
+                .and_then(ModelMenu::selected)
+                .map(str::to_string)
+        });
+    }
+
+    #[test]
+    fn at_41_rows_a_page_of_the_effort_menu_is_19_levels_round_its_five() {
+        // Five levels, wrapped by `@mod` (`effort_menu.zig:53-57@481104fd`):
+        // 19 is four on, where 20 would be where it started.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell_at(root.path(), 41, 120);
+        shell.route_bytes(b"/effort\r");
+        pages_as_far_as_steps(&mut shell, true, |shell| {
+            shell
+                .effort_menu
+                .as_ref()
+                .map(|menu| menu.selected().clone())
+        });
+    }
+
+    #[test]
+    fn at_41_rows_a_page_of_the_skills_menu_is_19_skills() {
+        let root = tempfile::tempdir().expect("a root");
+        let skills = root.path().join("work").join("skills");
+        for n in 1..=28 {
+            let name = format!("s{n:02}");
+            std::fs::create_dir_all(skills.join(&name)).expect("a skill");
+            std::fs::write(
+                skills.join(&name).join("SKILL.md"),
+                format!("---\nname: {name}\ndescription: skill {n}\n---\n\n# {name}\n"),
+            )
+            .expect("SKILL.md");
+        }
+        let mut skilled = skilled_over(root, 41, 120);
+        skilled.route_bytes(b"/skills\r");
+        skills_landed(&mut skilled);
+        pages_as_far_as_steps(&mut skilled.shell, true, |shell| {
+            shell
+                .skills_menu
+                .as_ref()
+                .and_then(SkillsMenu::selected)
+                .map(|skill| skill.name.clone())
+        });
+    }
+
+    #[test]
+    fn on_an_eight_row_screen_a_page_and_the_composers_cap_are_one_row() {
+        // `content_bottom` is 4 there, and `inputRowLimit` gives no extra rows
+        // until it is more than 4 (`input_presentation.zig:253@481104fd`).
+        // The provider column has two rows, so only a page of one tells a
+        // page from a wrap past its end.
+        let mut shell = shell(8, 80);
+        shell.route_bytes(b"/provider ");
+        let chosen = |shell: &Fixture| {
+            shell
+                .provider_picker
+                .as_ref()
+                .and_then(|column| column.chosen())
+        };
+        assert_eq!(chosen(&shell), Some(ProviderId::Gateway));
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(chosen(&shell), Some(ProviderId::Llmux), "a page of one row");
+        shell.route_bytes(b"\x1b[5~");
+        assert_eq!(chosen(&shell), Some(ProviderId::Gateway));
+        shell.route_bytes(b"\x1b");
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        shell.clear_composer();
+        shell.route_bytes(b"one\x0atwo\x0athree\x0afour");
+        assert_eq!(shell.geometry.input_rows(), 1, "the composer grew");
+    }
+
     #[test]
     fn ctrl_p_lends_the_draft_to_the_model_catalog_and_every_way_out_gives_it_back() {
         // `openModelPickerShortcut` and `restoreModelPickerDraft`
@@ -43879,7 +44113,12 @@ mod tests {
     /// A 40x120 shell at a home of its own, holding the harness's catalog,
     /// on `openai/gpt-6-astra` (`p5-effort-fork-seed-astra.json`).
     fn effort_shell(root: &std::path::Path) -> Fixture {
-        let mut shell = shell_at_home(root, 40, 120);
+        effort_shell_at(root, 40, 120)
+    }
+
+    /// [`effort_shell`] on a screen of `rows` x `cols`.
+    fn effort_shell_at(root: &std::path::Path, rows: u16, cols: u16) -> Fixture {
+        let mut shell = shell_at_home(root, rows, cols);
         shell.apply(UiEvent::CatalogLoaded {
             due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
             provider: ProviderId::Gateway,

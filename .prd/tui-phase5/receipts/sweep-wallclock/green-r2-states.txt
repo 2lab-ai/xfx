@@ -1,0 +1,7 @@
+# green-r2: per snap, what it shows in run 1..5, fx then xfx (FAIL the failure's sentence, ROWS the catalog's rows)
+model-column-idle    col-down       FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL
+model-column-idle    col-idle       FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL
+model-column-idle    col-typed      ROWS/ROWS ROWS/ROWS ROWS/ROWS ROWS/ROWS ROWS/ROWS
+model-column-reask   col-down       FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL
+model-column-reask   col-held       FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL FAIL/FAIL
+model-column-reask   col-back       ROWS/ROWS ROWS/ROWS ROWS/ROWS ROWS/ROWS ROWS/ROWS

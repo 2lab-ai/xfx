@@ -1,0 +1,13 @@
+diff --git a/scripts/test-gate-env.sh b/scripts/test-gate-env.sh
+index c7a8de54..8caa309b 100755
+--- a/scripts/test-gate-env.sh
++++ b/scripts/test-gate-env.sh
+@@ -102,7 +102,7 @@ done
+ # maintenance` (2.29).
+ sg() {
+ 	GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+-		git -c core.fsmonitor=false -c maintenance.auto=false -c gc.auto=0 "$@"
++		git -c core.fsmonitor=false -c gc.auto=0 "$@"
+ }
+ 
+ work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-gate-env.XXXXXX")"

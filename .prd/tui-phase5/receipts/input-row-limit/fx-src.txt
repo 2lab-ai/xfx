@@ -1,0 +1,389 @@
+== src/ui/footer/input_presentation.zig:252-267@481104fd
+  252  pub fn inputRowLimit(content_bottom: u16) usize {
+  253      const max_extra: usize = if (content_bottom > 4) content_bottom / 2 else 0;
+  254      return max_extra + 1;
+  255  }
+  256  
+  257  pub fn cappedInputRows(total_rows: usize, content_bottom: u16, input_visible: bool) CappedInputRows {
+  258      const row_limit = inputRowLimit(content_bottom);
+  259      const visible_rows = @min(total_rows, row_limit);
+  260      const total_lines: u16 = @intCast(@min(visible_rows, std.math.maxInt(u16)));
+  261      const input_extra: u16 = if (input_visible and total_lines > 1) total_lines - 1 else 0;
+  262      return .{
+  263          .row_limit = row_limit,
+  264          .total_lines = total_lines,
+  265          .input_extra = input_extra,
+  266      };
+  267  }
+== src/main.zig:173-173@481104fd
+  173  const footer_rows: u16 = 4;
+== src/ui/terminal/terminal.zig:36-59@481104fd
+   36  pub fn queryLayout(fd: std.posix.fd_t, footer_rows: u16) !types.Layout {
+   37      var ws: std.posix.winsize = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
+   38  
+   39      const req: c_int = @intCast(std.c.T.IOCGWINSZ);
+   40      const rc = std.c.ioctl(fd, req, &ws);
+   41      if (rc == -1 or ws.row == 0 or ws.col == 0) {
+   42          return error.UnableToReadTerminalSize;
+   43      }
+   44      return layoutFromSize(ws.row, ws.col, footer_rows);
+   45  }
+   46  
+   47  pub fn layoutFromSize(rows: u16, cols: u16, footer_rows: u16) !types.Layout {
+   48      if (rows <= footer_rows) return error.TerminalTooSmall;
+   49  
+   50      return .{
+   51          .rows = rows,
+   52          .cols = cols,
+   53          .content_bottom = rows - footer_rows,
+   54          .divider_top_row = rows - 3,
+   55          .input_row = rows - 2,
+   56          .divider_bottom_row = rows - 1,
+   57          .hint_row = rows,
+   58      };
+   59  }
+== src/core/app/app_lifecycle.zig:883-883@481104fd
+  883      cfg.shell.layout = try cfg.terminal.queryLayout(cfg.footer_rows);
+== src/main.zig:1036-1036@481104fd
+ 1036          self.shell.layout = self.terminal.queryLayout(footer_rows) catch self.shell.layout;
+== src/ui/resize_runtime.zig:271-279@481104fd
+  271      const next_layout = terminal.queryLayout(footer_rows) catch |err| {
+  272          try handleInvalidResize(shell, err);
+  273          return;
+  274      };
+  275      if (next_layout.rows == shell.layout.rows and next_layout.cols == shell.layout.cols and !shell.terminal_dimensions_invalid) {
+  276          return;
+  277      }
+  278  
+  279      shell.layout = next_layout;
+== src/core/app/app_session_runtime.zig:1598-1598@481104fd
+ 1598                  const actual = app.terminal.queryLayout(app.shell.layout.rows -| app.shell.layout.content_bottom) catch return false;
+== src/core/app/app_input_runtime.zig:310-327@481104fd
+  310                          .visual_up,
+  311                          .visual_down,
+  312                          .page_up,
+  313                          .page_down,
+  314                          => {
+  315                              const direction: visual_layout.Direction = switch (intent.kind) {
+  316                                  .visual_up, .page_up => .up,
+  317                                  .visual_down, .page_down => .down,
+  318                                  else => unreachable,
+  319                              };
+  320                              const delta: i32 = if (direction == .up) -1 else 1;
+  321                              try completion_rt.routeComposerVertical(
+  322                                  app,
+  323                                  direction,
+  324                                  delta,
+  325                                  intent.extend_selection,
+  326                                  intent.kind == .page_up or intent.kind == .page_down,
+  327                              );
+== src/core/app/input_completion_runtime.zig:215-263@481104fd
+  215          pub fn routeComposerVertical(
+  216              app: *App,
+  217              direction: visual_layout.Direction,
+  218              delta: i32,
+  219              extend_selection: bool,
+  220              page: bool,
+  221          ) !void {
+  222              const row_count = if (page)
+  223                  input_presentation.inputRowLimit(app.shell.layout.content_bottom)
+  224              else
+  225                  @as(usize, 1);
+  226              const picker_delta = if (page)
+  227                  delta * @as(i32, @intCast(@min(row_count, std.math.maxInt(i32))))
+  228              else
+  229                  delta;
+  230              if (try routeNonSlashPickerMove(app, picker_delta)) {
+  231                  app.input_runtime.vertical_navigation.reset();
+  232                  return;
+  233              }
+  234  
+  235              const scan = if (page)
+  236                  ui_input.scanInputCursorRows(
+  237                      &app.input_runtime,
+  238                      direction,
+  239                      row_count,
+  240                      app.shell.layout.cols,
+  241                      app.pending_images.items,
+  242                  )
+  243              else
+  244                  ui_input.scanInputCursorVertical(
+  245                      &app.input_runtime,
+  246                      direction,
+  247                      app.shell.layout.cols,
+  248                      app.pending_images.items,
+  249                  );
+  250              const capped = input_presentation.cappedInputRows(
+  251                  scan.total_rows,
+  252                  app.shell.layout.content_bottom,
+  253                  true,
+  254              );
+  255              const visible_slash_count = if (capped.input_extra == 0) visibleSlashCompletionCount(app) else 0;
+  256              if (visible_slash_count > 0) {
+  257                  app.input_runtime.vertical_navigation.reset();
+  258                  navigateSlashCompletion(app, picker_delta, visible_slash_count);
+  259                  return;
+  260              }
+  261  
+  262              if (app.input_runtime.vertical_navigation.applyTargetWithSelection(
+  263                  &app.input_runtime.edit_state,
+== src/core/app/input_completion_runtime.zig:395-463@481104fd
+  395          fn routeNonSlashPickerMove(app: *App, delta: i32) !bool {
+  396              if (try routeMcpHostMenuMove(app, delta)) return true;
+  397              if (try routeSettingsMenuMove(app, delta)) return true;
+  398              if (try routeHelpMenuMove(app, delta)) return true;
+  399              if (try routeModelMenuMove(app, delta)) return true;
+  400              if (try routeEffortMenuMove(app, delta)) return true;
+  401              if (routeAuthPickerMove(app, delta)) return true;
+  402              if (try routeSkillsMenuMove(app, delta)) return true;
+  403              if (comptime runtime_profile.allows(App, .durable_sessions)) {
+  404                  if (try routeSessionPickerMove(app, delta)) return true;
+  405                  if (try routeForkMenuMove(app, delta)) return true;
+  406              }
+  407              if (hasFileQuery(app)) {
+  408                  navigateFilePicker(app, delta);
+  409                  return true;
+  410              }
+  411              if (hasModelQuery(app)) {
+  412                  navigateModelPicker(app, delta);
+  413                  return true;
+  414              }
+  415              if (provider_picker_runtime.Runtime(App).hasQuery(app)) {
+  416                  if (!app.stream.active) provider_picker_runtime.Runtime(App).navigate(app, delta);
+  417                  return true;
+  418              }
+  419              // Mid-turn bare `/model`: consume arrows without slash/skill navigation.
+  420              if (app.stream.active and picker_state.isBareModelCommandAtCursor(&app.input_runtime.edit_state)) return true;
+  421              return false;
+  422          }
+  423  
+  424          fn routeMcpHostMenuMove(app: *App, delta: i32) !bool {
+  425              if (comptime !@hasDecl(App, "mcpHostMenuKey")) return false;
+  426              if (!app.mcp.hostMenuActive()) return false;
+  427              try app.mcpHostMenuKey(if (delta < 0) .up else .down);
+  428              return true;
+  429          }
+  430  
+  431          fn routeSettingsMenuMove(app: *App, delta: i32) !bool {
+  432              const menu = &app.input_runtime.settings_menu;
+  433              if (!menu.active) return false;
+  434              const snapshot = app_commands.settingsCatalogSnapshot(app);
+  435              var projection = render_input.settingsMenuProjection(
+  436                  menu,
+  437                  snapshot,
+  438                  app.input_runtime.edit_state.input.items,
+  439              );
+  440              if (comptime @hasField(App, "model_cache")) {
+  441                  if (app.model_cache.menu.active) {
+  442                      projection.models = render_input.modelMenuProjection(&app.model_cache);
+  443                      _ = app.model_cache.menu.moveVisibleItems(
+  444                          delta,
+  445                          @max(
+  446                              settings_menu_presentation.visibleModelItemsForBudget(
+  447                                  projection,
+  448                                  app.shell.layout.cols,
+  449                                  try inlineMenuRowBudget(app, settings_menu_presentation.max_inline_rows),
+  450                              ),
+  451                              1,
+  452                          ),
+  453                      );
+  454                      return true;
+  455                  }
+  456              }
+  457              const visible_items = settings_menu_presentation.visibleNavigationItemsForBudget(
+  458                  projection,
+  459                  app.shell.layout.cols,
+  460                  try inlineMenuRowBudget(app, settings_menu_presentation.max_inline_rows),
+  461              );
+  462              return menu.move(&snapshot, app.input_runtime.edit_state.input.items, delta, visible_items);
+  463          }
+== src/core/app/input_completion_runtime.zig:465-539@481104fd
+  465          fn routeHelpMenuMove(app: *App, delta: i32) !bool {
+  466              if (!app.input_runtime.help_menu.active) return false;
+  467              const projection = render_input.helpMenuProjection(
+  468                  &app.input_runtime.help_menu,
+  469                  app.slashRegistry(),
+  470                  app.input_runtime.edit_state.input.items,
+  471              );
+  472              const visible_items = help_menu_presentation.visibleNavigationItemsForBudget(
+  473                  projection,
+  474                  app.shell.layout.cols,
+  475                  try inlineMenuRowBudget(app, help_menu_presentation.max_inline_rows),
+  476              );
+  477              return app.input_runtime.help_menu.move(
+  478                  app.slashRegistry(),
+  479                  app.input_runtime.edit_state.input.items,
+  480                  delta,
+  481                  visible_items,
+  482              );
+  483          }
+  484  
+  485          fn routeModelMenuMove(app: *App, delta: i32) !bool {
+  486              if (comptime !@hasField(App, "model_cache")) return false;
+  487              if (!app.model_cache.menu.active) return false;
+  488              _ = app.model_cache.menu.moveVisibleItems(
+  489                  delta,
+  490                  model_menu_presentation.visibleNavigationItemsForBudget(
+  491                      render_input.modelMenuProjection(&app.model_cache),
+  492                      try inlineMenuRowBudget(app, model_menu_presentation.max_inline_rows),
+  493                  ),
+  494              );
+  495              return true;
+  496          }
+  497  
+  498          fn routeSessionPickerMove(app: *App, delta: i32) !bool {
+  499              if (comptime !@hasField(App, "session_persistence")) return false;
+  500              if (app.stream.active) return false;
+  501              if (!app.session_persistence.session_picker.active) return false;
+  502              _ = app_session_runtime.Runtime(App).moveSessionPicker(app, delta, try sessionPickerVisibleItems(app));
+  503              return true;
+  504          }
+  505  
+  506          fn routeForkMenuMove(app: *App, delta: i32) !bool {
+  507              if (comptime !@hasField(App, "session_persistence")) return false;
+  508              const menu = &app.session_persistence.fork_menu;
+  509              if (!menu.active()) return false;
+  510              menu.move(delta);
+  511              menu.window_start = fork_menu_presentation.windowStart(
+  512                  menu.projection(),
+  513                  app.shell.layout.cols,
+  514                  try inlineMenuRowBudget(app, fork_menu_presentation.max_inline_rows),
+  515              );
+  516              return true;
+  517          }
+  518  
+  519          fn routeEffortMenuMove(app: *App, delta: i32) !bool {
+  520              const menu = &app.input_runtime.effort_menu;
+  521              if (!menu.active) return false;
+  522              menu.move(delta);
+  523              menu.window_start = effort_menu_presentation.windowStart(
+  524                  render_input.effortMenuProjection(menu),
+  525                  try inlineMenuRowBudget(app, effort_menu_presentation.max_inline_rows),
+  526              );
+  527              return true;
+  528          }
+  529  
+  530          fn routeAuthPickerMove(app: *App, delta: i32) bool {
+  531              if (comptime !@hasField(App, "auth")) return false;
+  532              if (app.stream.active) return false;
+  533              return app.auth.movePicker(delta);
+  534          }
+  535  
+  536          fn routeSkillsMenuMove(app: *App, delta: i32) !bool {
+  537              if (comptime !@hasField(App, "skills")) return false;
+  538              return app.skills.moveMenuSelectionVisibleRows(delta, try skillsMenuVisibleRows(app));
+  539          }
+== src/core/app/input_completion_runtime.zig:560-575@481104fd
+  560              input_extra: u16,
+  561              banner_rows: u16,
+  562          };
+  563  
+  564          fn footerRowBudget(app: *App) !FooterRowBudget {
+  565              const scan = ui_input.scanInputCursorVertical(
+  566                  &app.input_runtime,
+  567                  .down,
+  568                  app.shell.layout.cols,
+  569                  app.pending_images.items,
+  570              );
+  571              const capped = input_presentation.cappedInputRows(
+  572                  scan.total_rows,
+  573                  app.shell.layout.content_bottom,
+  574                  true,
+  575              );
+== src/core/app/input_completion_runtime.zig:1072-1096@481104fd
+ 1072          pub fn navigateModelPicker(app: *App, delta: i32) void {
+ 1073              const query = app.input_runtime.picker.activeModelPickerQuery(&app.input_runtime.edit_state) orelse return;
+ 1074              switch (query.stage) {
+ 1075                  .model => navigateModelCompletion(app, query.query, delta),
+ 1076                  .effort => {
+ 1077                      var values: [types.ReasoningEffort.max_options + 1]types.ReasoningEffort = undefined;
+ 1078                      navigatePickerOptions(&app.input_runtime.picker.model_picker_effort_index, &app.input_runtime.picker.model_picker_effort_window_start, effortCompletionValues(app, effortPickerModel(app, query.command), query.query, &values), delta);
+ 1079                  },
+ 1080                  .fast => {
+ 1081                      var labels: [3][]const u8 = undefined;
+ 1082                      const count = speedPickerLabels(app, query.query, &labels);
+ 1083                      if (count == 0) return;
+ 1084                      var display_index = speedPickerIndex(app, labels[0..count]);
+ 1085                      navigatePickerOptions(
+ 1086                          &display_index,
+ 1087                          &app.input_runtime.picker.model_picker_fast_window_start,
+ 1088                          count,
+ 1089                          delta,
+ 1090                      );
+ 1091                      app.input_runtime.picker.model_picker_fast_index = speedOptionIndex(
+ 1092                          labels[display_index % count],
+ 1093                      );
+ 1094                  },
+ 1095              }
+ 1096          }
+== src/ui/footer/surface_frame.zig:437-441@481104fd
+  437      const geometry = input_presentation.measureRawInputGeometryPreparedWithProvider(
+  438          ctx,
+  439          shell.layout.cols,
+  440          shell.layout.content_bottom,
+  441          input_visible,
+== src/ui/input/visual_layout.zig:682-688@481104fd
+  682  pub fn visibleWindow(cursor_row: usize, total_rows: usize, row_limit: usize) VisibleWindow {
+  683      if (total_rows == 0) return .{ .first_row = 0, .row_count = 0 };
+  684      const count = @max(row_limit, 1);
+  685      const clamped_cursor = @min(cursor_row, total_rows - 1);
+  686      const first = (clamped_cursor + 1) -| count;
+  687      return .{ .first_row = first, .row_count = @min(count, total_rows - first) };
+  688  }
+== src/core/input/effort_menu.zig:53-57@481104fd
+   53      pub fn move(self: *State, delta: i32) void {
+   54          if (!self.active or self.option_count == 0) return;
+   55          const count: i64 = @intCast(self.option_count);
+   56          self.selected = @intCast(@mod(@as(i64, @intCast(self.selected)) + delta, count));
+   57      }
+== src/core/slash_commands/command_specs.zig:578-585@481104fd
+  578  pub fn slashCompletionCount(registry: SlashRegistry, prefix: []const u8) usize {
+  579      if (runtimeArgQuery(registry, prefix)) |query| {
+  580          var count: usize = 0;
+  581          for (registry.arguments) |entry| {
+  582              if (runtimeArgMatches(registry, entry.full, query)) count += 1;
+  583          }
+  584          return count;
+  585      }
+== src/core/slash_commands/command_specs.zig:876-889@481104fd
+  876  fn runtimeArgCommand(registry: SlashRegistry) []const u8 {
+  877      const first = registry.arguments[0].full;
+  878      return first[0 .. std.mem.findScalar(u8, first, ' ') orelse first.len];
+  879  }
+  880  
+  881  /// What follows the command the app's completions are for, untrimmed at
+  882  /// the end so a finished word moves on to the next one.
+  883  fn runtimeArgQuery(registry: SlashRegistry, prefix: []const u8) ?[]const u8 {
+  884      if (registry.arguments.len == 0) return null;
+  885      const command = runtimeArgCommand(registry);
+  886      if (!std.mem.startsWith(u8, prefix, command) or prefix.len == command.len) return null;
+  887      if (prefix[command.len] != ' ') return null;
+  888      return std.mem.trimStart(u8, prefix[command.len..], " ");
+  889  }
+== src/main.zig:441-445@481104fd
+  441      pub fn slashRegistry(self: *const Self) command_specs.SlashRegistry {
+  442          var registry = builtin_commands.slash_registry;
+  443          registry.arguments = self.mcp.host_completion;
+  444          return registry;
+  445      }
+== src/core/app/app_mcp_runtime.zig:459-468@481104fd
+  459      const verb_completions = [_]mod_registry.ArgumentCompletion{
+  460          .{ .full = "/mcp list", .description = "configured servers" },
+  461          .{ .full = "/mcp show", .description = "connect to a server and list its tools" },
+  462          .{ .full = "/mcp add", .description = "add a server" },
+  463          .{ .full = "/mcp remove", .description = "remove a server and its login" },
+  464          .{ .full = "/mcp login", .description = "sign in to an HTTP server" },
+  465          .{ .full = "/mcp logout", .description = "sign out of an HTTP server" },
+  466          .{ .full = "/mcp approve", .description = "approve a project server" },
+  467          .{ .full = "/mcp reject", .description = "reject a project server" },
+  468      };
+== callers of inputRowLimit / cappedInputRows at 481104fd
+src/core/app/input_completion_runtime.zig:223:                input_presentation.inputRowLimit(app.shell.layout.content_bottom)
+src/core/app/input_completion_runtime.zig:250:            const capped = input_presentation.cappedInputRows(
+src/core/app/input_completion_runtime.zig:571:            const capped = input_presentation.cappedInputRows(
+src/ui/footer/input_presentation.zig:252:pub fn inputRowLimit(content_bottom: u16) usize {
+src/ui/footer/input_presentation.zig:257:pub fn cappedInputRows(total_rows: usize, content_bottom: u16, input_visible: bool) CappedInputRows {
+src/ui/footer/input_presentation.zig:258:    const row_limit = inputRowLimit(content_bottom);
+src/ui/footer/input_presentation.zig:374:    const capped = cappedInputRows(summary.total_rows, content_bottom, input_visible);
+src/ui/footer/input_presentation.zig:1491:    const capped = cappedInputRows(3, 4, true);
+src/ui/footer/runtime.zig:32:pub const cappedInputRows = input_presentation.cappedInputRows;

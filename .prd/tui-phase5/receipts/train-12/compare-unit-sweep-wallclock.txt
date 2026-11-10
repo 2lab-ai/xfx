@@ -1,0 +1,4 @@
+pairs: unit 26, head 1872, shared 26; the unit's not in the head's sweep: 0
+unit: pass 25 / 26; normalized-identical 25, unresolved-defect 1
+head: pass 25 / 26; normalized-identical 25, unresolved-defect 1
+passed on the unit, not on the head: 0

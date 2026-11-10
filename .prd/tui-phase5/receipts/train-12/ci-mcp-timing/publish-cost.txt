@@ -1,0 +1,4 @@
+== publish_cost.sh <repo> <a head run's xfx list snap> <scratch>
+20 snaps x 2 files: 1.73 s; per snap 0.086 s
+26 snaps before reopened in p5-mcp-menu-new.cap
+30 snaps before list-rejected

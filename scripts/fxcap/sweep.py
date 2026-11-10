@@ -177,9 +177,10 @@ class Runner:
 
     def run_unit(self, jobs):
         """A unit's runs, one after the other in one TMPDIR: each binary sees
-        the same path to its run directory, so a path on screen differs only
-        in capture.sh's own `fxcap.XXXXXX` (the run-directory normalization),
-        and the one run in it is the one whose socket is there."""
+        a path to its run directory of the same length, which capture.sh
+        writes on both sides as the same placeholder of that width
+        (`<scratch___>`, `<work___>`, wherever a frame wraps or colours it:
+        roots.py), and the one run in it is the one whose socket is there."""
         jobtmp = os.path.join(self.root, "%03d" % jobs[0]["n"])
         out = []
         for job in jobs:

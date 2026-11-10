@@ -1,0 +1,20 @@
+## 1. xfx's /stats row, p5-panels-sweep-b stats
+main: ansi_bytes=4367
+head: ansi_bytes=4391
+
+## 2. workspace-index at-plan, the head's reruns, cells.py fx against xfx
+rerun 1:
+    0 rows differ in their cells (row 1 not compared)
+rerun 2:
+    row 13: fx [(44, '_', (('fg', 245),)), (45, '_', (('fg', 245),)), (46, '_', (('bold', True), ('fg', 245))), (47, '_', (('fg', 245),))]
+    row 13: xfx [(44, '_', (('bold', True), ('fg', 245))), (45, '_', (('fg', 245),)), (46, '_', (('fg', 245),)), (47, '_', (('fg', 245),))]
+    1 rows differ in their cells (row 1 not compared)
+rerun 3:
+    row 13: fx [(65, '_', (('bold', True), ('fg', 245))), (66, '_', (('fg', 245),)), (67, '>', (('fg', 245),)), (68, '/', (('fg', 245),))]
+    row 13: xfx [(65, '_', (('fg', 245),)), (66, '_', (('fg', 245),)), (67, '>', (('fg', 245),)), (68, '/', (('fg', 245),))]
+    1 rows differ in their cells (row 1 not compared)
+
+## 3. p5-mcp-menu-new, the head's sweep
+fx's roots: line: roots: <work>=71 <scratch>=66 <scenarios>=141 <bun>=21 <bun:real>=39 <tmp>=53 <home>=16 bytes
+fx: row 6 starts '  runs      ', 120 columns, `…` at column 120, ends with it: True
+xfx: row 6 starts '  runs      ', 120 columns, `…` at column 120, ends with it: True

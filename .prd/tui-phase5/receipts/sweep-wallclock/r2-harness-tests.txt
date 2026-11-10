@@ -1,0 +1,10 @@
+# head 476829ad; tree clean: yes (scripts, src, tests)
+## test-capture: exit 0, 650 s
+Ran 81 tests in 651.782s
+OK
+## test-sweep: exit 0, 15 s
+Ran 70 tests in 5.993s
+OK
+Ran 27 tests in 8.982s
+OK
+exit 0

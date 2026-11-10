@@ -1,0 +1,48 @@
+p5-input-row-limit-41x120-at-pgdn
+  fx    row  14          items/f-20.txt
+  base  row  14          items/f-21.txt
+  head  row  14          items/f-20.txt
+p5-input-row-limit-41x120-at
+  fx    row   5          items/f-01.txt
+  base  row   5          items/f-01.txt
+  head  row   5          items/f-01.txt
+p5-input-row-limit-41x120-help-pgdn
+  fx    row  26          /model          choose what model and reason
+  base  row  26          /ultrafast      request Ultra mode when supp
+  head  row  26          /fast           toggle Fast mode when suppor
+p5-input-row-limit-41x120-help
+  fx    row   7          /help           show available slash command
+  base  row   7          /help           show available slash command
+  head  row   7          /help           show available slash command
+p5-input-row-limit-41x120-slash-pgdn
+  fx    row  12  15–20   /undo          undo the latest tracked file 
+  base  row  12  16–21   /copy          copy the last assistant respo
+  head  row  12  15–20   /skills        browse and manage skills     
+p5-input-row-limit-41x120-slash
+  fx    row   7  1–6     /help     show available slash commands     
+  base  row   7  1–6     /help     show available slash commands     
+  head  row   7  1–6     /help     show available slash commands     
+p5-input-row-limit-menus-41x120-effort-pgdn
+  fx    row  11          xhigh
+  base  row   7          default  current
+  head  row  11          xhigh
+p5-input-row-limit-menus-41x120-effort
+  fx    row   7          default  current
+  base  row   7          default  current
+  head  row   7          default  current
+p5-input-row-limit-menus-41x120-model-pgdn
+  fx    row  26          fake/row-11
+  base  row  26          fake/row-10
+  head  row  26          fake/row-11
+p5-input-row-limit-menus-41x120-model
+  fx    row   7          openai/gpt-6-astra       400K context · 128K
+  base  row   7          openai/gpt-6-astra       400K context · 128K
+  head  row   7          openai/gpt-6-astra       400K context · 128K
+p5-input-row-limit-short-8x120-slash-pgdn
+  fx    row   5          /clear   start a fresh conversation while ke
+  base  row   5          /reset   reset the current session context  
+  head  row   5          /clear   start a fresh conversation while ke
+p5-input-row-limit-short-8x120-slash
+  fx    row   5          /help   show available slash commands       
+  base  row   5          /help   show available slash commands       
+  head  row   5          /help   show available slash commands       

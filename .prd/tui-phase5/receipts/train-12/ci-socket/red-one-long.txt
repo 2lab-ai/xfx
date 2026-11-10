@@ -1,0 +1,28 @@
+== red-one-long: TMPDIR 49 bytes; <scratch>/red-tree/scripts/fxcap/test-capture.sh -v RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir
+start 2026-11-10T01:53:33Z
+test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir (__main__.RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir) ... 
+  test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir (__main__.RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir) (extra=26) ... FAIL
+
+======================================================================
+FAIL: test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir (__main__.RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir) (extra=26)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red-tree/scripts/fxcap/test_capture.py", line 849, in test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir
+    self.assert_written_by_placeholder(r, d)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "<scratch>/red-tree/scripts/fxcap/test_capture.py", line 766, in assert_written_by_placeholder
+    self.assertEqual(r.code, 0, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 0 : roots: <work>=108 <work:real>=116 <scratch>=103 <scratch:real>=111 <scenarios>=108 <bun>=21 <bun:real>=39 <tmp>=90 <tmp:real>=98 <home>=16 bytes
+guards: <tmpdir>/fxcapt.8h_v_zht/ttttttttttttttttttttttttt/bin/it sha256 67e853b74060 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+error connecting to <tmpdir>/fxcapt.8h_v_zht/ttttttttttttttttttttttttt/fxcap.NkUnup/s (File name too long)
+<scratch>/red-tree/scripts/fxcap/capture.sh: line 1:  1239 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+<scratch>/red-tree/scripts/fxcap/capture.sh: line 1:  1296 Terminated: 15          bun "$here/mcphttp.ts" 0 "$run/mcphttp.mode" > "$run/mcphttp.log" 2>&1
+
+
+----------------------------------------------------------------------
+Ran 1 test in 24.659s
+
+FAILED (failures=1)
+exit=1
+end 2026-11-10T01:54:05Z

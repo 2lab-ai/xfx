@@ -290,6 +290,33 @@ class Normalize(unittest.TestCase):
         self.assertEqual(len(cells.differing(a, b)), 4)
         self.assertEqual(cells.unaligned(a, b), (0, 1))
 
+    def test_a_binarys_tmpdir_is_read_after_the_run_directory_only(self):
+        # fx's `fxtmp` is xfx's `xfxtmp` where it is the binary's own TMPDIR:
+        # under the run directory, as capture.sh writes it at any width,
+        # resolved or not, zero-filled as units wrote it by hand before
+        # LOCAL-PATHS, or masked by run-directory.
+        for run in ("<scratch______________>", "<scratch:real_________>", "<scratch>", "/t/fxcap.Lq26sv"):
+            self.assertEqual(compare("saved at %s/fxtmp/a.md" % run, "saved at %s/xfxtmp/a.md" % run, self.led), [], run)
+        # Anywhere else an `fxtmp` is a name the binary printed and is compared:
+        # under another root, an escaped literal, plain text ending `_>`, and
+        # the short form `<s__>`, which no run directory takes (it is never
+        # narrower than `<scratch>`: `$TMPDIR/fxcap.XXXXXX`, 13 columns or more).
+        for prefix in ("<work___>", "<work:real__>", "<tmp______>", "<!scratch__>", "a_>", "<s__>", "<S__>", "x/"):
+            self.assertEqual(len(compare("saved at %s/fxtmp/a.md" % prefix, "saved at %s/xfxtmp/a.md" % prefix, self.led)), 1, prefix)
+        # And only the name itself, with a directory under it: `/` is the one
+        # follower the tracked captures hold (w2's and w3's reports and
+        # images). Any other character can be part of a name, so a sibling
+        # that extends `fxtmp` by one -- or the name before anything but `/`
+        # -- is compared.
+        run = "<scratch______________>"
+        self.assertEqual(compare("a %s/fxtmp/b.md" % run, "a %s/xfxtmp/b.md" % run, self.led), [])
+        for name in ("fxtmp-old/a", "fxtmp.bak", "fxtmp_x", "fxtmpx", "fxtmp~", "fxtmp+1", "fxtmp\u00e9/a",
+                     "fxtmp%C3%A9/a", "fxtmp\u4e2d/a", "fxtmp@x", "fxtmp=x", "fxtmp#1", "fxtmp(1)", "fxtmp!", "fxtmp<x",
+                     "fxtmp,backup/a", "fxtmp backup/a", "fxtmp:x", "fxtmp)", "fxtmp", "fxtmp\tx", 'fxtmp"', "fxtmp'",
+                     "fxtmp]", "fxtmp}", "fxtmp>", "fxtmp;", "fxtmp|"):
+            with self.subTest(name=name):
+                self.assertEqual(len(compare("a %s/%s" % (run, name), "a %s/x%s" % (run, name), self.led)), 1)
+
     def test_capture_run_directories_are_masked_to_the_same_length(self):
         self.assertEqual(compare("ws=/t/fxcap.Kun3pm/work x", "ws=/t/fxcap.uqw49D/work x", self.led), [])
         self.assertEqual(compare("ws=/t/fxcap.Ku…", "ws=/t/fxcap.uq…", self.led), [])
@@ -556,13 +583,13 @@ class Ledger(unittest.TestCase):
 
 class Redaction(unittest.TestCase):
     def setUp(self):
-        self.red = redact.Redactor({"/Users/someone/repo": "<repo>", "/private/tmp/claude-501/out": "<out>"})
+        self.red = redact.Redactor({"/Users/someone/repo": "<repo>", "/private/tmp/claude-501/out": "<out>"})  # local-path-ok: the redactor's input
 
     def test_known_roots_and_every_other_local_path(self):
         text = (
-            "repo /Users/someone/repo/scripts/fxcap; out /private/tmp/claude-501/out/runs/x; "
-            "home /Users/someone/.xfx/settings.json; scratch /private/tmp/claude-501/fxcap.Kun3pm/home/.fx; "
-            "temp /var/folders/ab/T/x; tmp /tmp/fxcap.a/s; volume /Volumes/Disk/fx"
+            "repo /Users/someone/repo/scripts/fxcap; out /private/tmp/claude-501/out/runs/x; "  # local-path-ok: the redactor's input
+            "home /Users/someone/.xfx/settings.json; scratch /private/tmp/claude-501/fxcap.Kun3pm/home/.fx; "  # local-path-ok
+            "temp /var/folders/ab/T/x; tmp /tmp/fxcap.a/s; volume /Volumes/Disk/fx"  # local-path-ok
         )
         got = self.red.public(text)
         for leak in ("/Users/", "/private/", "/var/", "/tmp/", "/Volumes/", "someone"):
@@ -570,6 +597,13 @@ class Redaction(unittest.TestCase):
         self.assertIn("<repo>/scripts/fxcap", got)
         self.assertIn("<out>/runs/x", got)
         self.assertEqual(got.count("<local-path>"), 5, got)
+
+    def test_a_path_under_a_capture_placeholder_is_left_and_a_redirect_is_not(self):
+        # capture.sh writes a run's HOME as `<scratch>/home`: a summary row
+        # that names it keeps it whole. A `>` that is no placeholder is not
+        # one: a redirect into a home directory is still a local path.
+        text = "mcp <scratch>/home/.fx/mcp.json; ws <work>/home/a; log >" + "/ho" + "me/bob/x"
+        self.assertEqual(self.red.public(text), "mcp <scratch>/home/.fx/mcp.json; ws <work>/home/a; log ><local-path>")
 
     def test_screen_text_that_is_no_local_path_is_left(self):
         text = "  /help   show available slash commands   ~/.xfx/mcp.json"

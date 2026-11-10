@@ -1,0 +1,4 @@
+fx v0.0.16 oracle sha256, before the sweep sample: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+fx v0.0.16 oracle sha256, after the sweep sample:  8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+pinned (parity-ledger.toml [[pin]] v0.0.16):       8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+xfx under the sweep: built at 44bb45e6, --version: 0.1.0

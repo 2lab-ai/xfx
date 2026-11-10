@@ -1,14 +1,22 @@
-# The catalog cannot be read for the first nine seconds; a turn streams and
-# holds; `/model ` opens the inline column over the failure while it runs.
-# fx's column lists its models through `ensureModelCache` in every frame that
-# draws it (`footerContext`, `app_render_runtime.zig:561-563`), held to the
-# one-second floor (`beginLoad`, `model_cache_runtime.zig:441-442`), and while
+# The catalog cannot be read from the launch until the `modelsup` line; a turn
+# streams and holds; `/model ` opens the inline column over the failure while it
+# runs. fx's column lists its models through `ensureModelCache` in every frame
+# that draws it (`footerContext`, `app_render_runtime.zig:561-563`), and while
 # the turn streams its activity row animates every 50 ms
-# (`advanceVisibleAnimation`, `app_worker_runtime.zig:840-875`) -- so the
-# column asks again about once a second, and turns into the rows once the
-# catalog is back. `modelsdelay 0` stamps each read in the gateway log.
+# (`advanceVisibleAnimation`, `app_worker_runtime.zig:840-875`) -- so the column
+# reads again on its first frame past each failure's hold (5 s, then 10 s:
+# `failureBackoffMs`, `beginLoad`, `model_cache_runtime.zig:40-54`,
+# `:617@481104fd`), and turns into the rows once the catalog is back. Here its
+# first frame is past the launch read's 5 s and reads (503), and the catalog
+# comes back once the column is on the screen over the failure; `col-held`, 3 s
+# on and inside that read's 10 s hold, still says `unable to load models` -- an
+# animated frame reads nothing before the hold ends -- and `col-back` waits on
+# the screen for the rows the first frame past it reads. The outage ends at a
+# line, not at a moment on the gateway's clock, which each binary's launch
+# reaches at a different time (registry #19). `modelsdelay 0` stamps each read
+# in the gateway log.
 models models.json
-modelsdown 9000
+modelsdown
 modelsdelay 0
 gateway model-reask-turns.json
 wait 4.5
@@ -18,8 +26,12 @@ key Enter
 wait 1
 type /model
 key Space
+until shown unable to load models
 wait 0.7
 snap col-down
-wait 5
+modelsup
+wait 3
+snap col-held
+until shown gpt-6-astra
 snap col-back
 gwlog

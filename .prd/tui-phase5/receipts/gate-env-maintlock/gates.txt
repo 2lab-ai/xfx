@@ -1,0 +1,24 @@
+# gates.txt: the quick gates on the tree at 389e9c9b, 2026-11-09T15:58:19Z
+
+$ scripts/check-xfx-identity.sh
+check-xfx-identity: ok (17191 tracked file(s) scanned)
+exit=0
+
+$ scripts/check-no-secrets.sh
+check-no-secrets: ok (17191 tracked file(s) scanned)
+exit=0
+
+$ /bin/bash -n scripts/test-gate-env.sh   # GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+exit=0
+
+$ bash -n scripts/test-gate-env.sh   # GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+exit=0
+
+$ shellcheck -S warning scripts/test-gate-env.sh   # 0.11.0
+exit=0
+
+$ git diff 32afd307..HEAD | grep -E "^[+]" | grep -cE "<the local-path pattern of the unit brief>"
+0
+
+$ ls scripts/check-no-local-paths.sh
+scripts/check-no-local-paths.sh: No such file or directory

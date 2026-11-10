@@ -1,0 +1,269 @@
+# Train 12's reruns (reruns.sh, one hold of the suite lock per call, sweep-rerun.sh 3 times a scenario on each tree's own debug build)
+
+## call 1: model-column-idle, head and main (the brief's question: did SWEEP-WALLCLOCK-F end catalog-window)
+# head rerun 1 of model-column-idle at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 47.50
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 2 of model-column-idle at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 33.81
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 3 of model-column-idle at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 20.80
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 1 of model-column-idle at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 10.30
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 2 of model-column-idle at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 8.57
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 3 of model-column-idle at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 7.83
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+exit 0
+## head-model-column-idle: 3 reruns
+    col-down         NI NI NI  pass 3/3
+    col-idle         NI NI NI  pass 3/3
+    col-typed        NI NI NI  pass 3/3
+    rerun 1: col-down fx failure; col-down xfx failure; col-idle fx failure; col-idle xfx failure; col-typed fx rows; col-typed xfx rows
+    rerun 2: col-down fx failure; col-down xfx failure; col-idle fx failure; col-idle xfx failure; col-typed fx rows; col-typed xfx rows
+    rerun 3: col-down fx failure; col-down xfx failure; col-idle fx failure; col-idle xfx failure; col-typed fx rows; col-typed xfx rows
+## main-model-column-idle: 3 reruns
+    col-down         NI NI NI  pass 3/3
+    col-idle         NI NI NI  pass 3/3
+    col-typed        NI NI NI  pass 3/3
+    rerun 1: col-down fx rows; col-down xfx rows; col-idle fx rows; col-idle xfx rows; col-typed fx rows; col-typed xfx rows
+    rerun 2: col-down fx rows; col-down xfx rows; col-idle fx rows; col-idle xfx rows; col-typed fx rows; col-typed xfx rows
+    rerun 3: col-down fx rows; col-down xfx rows; col-idle fx rows; col-idle xfx rows; col-typed fx rows; col-typed xfx rows
+# and in the two sweeps, read as one run each
+## sweep-head-model-column-idle: 1 reruns
+    col-down         NI  pass 1/1
+    col-idle         NI  pass 1/1
+    col-typed        NI  pass 1/1
+    rerun 1: col-down fx failure; col-down xfx failure; col-idle fx failure; col-idle xfx failure; col-typed fx rows; col-typed xfx rows
+## sweep-main-model-column-idle: 1 reruns
+    col-down         NI  pass 1/1
+    col-idle         NI  pass 1/1
+    col-typed        NI  pass 1/1
+    rerun 1: col-down fx failure; col-down xfx failure; col-idle fx failure; col-idle xfx failure; col-typed fx failure; col-typed xfx failure
+asks, the head's sweep: fx 552 xfx 552 
+asks, main's sweep: fx 55 xfx 55 
+asks, head rerun 1: fx 552 xfx 552 
+asks, head rerun 2: fx 552 xfx 552 
+asks, head rerun 3: fx 552 xfx 552 
+asks, main rerun 1: fx 2 xfx 2 
+asks, main rerun 2: fx 2 xfx 2 
+asks, main rerun 3: fx 2 xfx 2 
+
+## call 2: the sweeps' movers against main (p5-mcp-menu-new, p5-lifecycle-retryok, workspace-index) and the scenario that failed on both (p5-panels-badsettings), head and main
+# head rerun 1 of p5-mcp-menu-new at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 25.87
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 33 / 34 = 97.1%; unresolved 0, failed 0, timeout 0
+# head rerun 2 of p5-mcp-menu-new at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 27.03
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 33 / 34 = 97.1%; unresolved 0, failed 0, timeout 0
+# head rerun 3 of p5-mcp-menu-new at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 41.82
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 33 / 34 = 97.1%; unresolved 0, failed 0, timeout 0
+# main rerun 1 of p5-mcp-menu-new at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 49.90
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 33 / 34 = 97.1%; unresolved 0, failed 0, timeout 0
+# main rerun 2 of p5-mcp-menu-new at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 49.07
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 33 / 34 = 97.1%; unresolved 0, failed 0, timeout 0
+# main rerun 3 of p5-mcp-menu-new at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 45.55
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 33 / 34 = 97.1%; unresolved 0, failed 0, timeout 0
+# head rerun 1 of p5-lifecycle-retryok at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 43.45
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 2 of p5-lifecycle-retryok at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 43.41
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 3 of p5-lifecycle-retryok at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 46.62
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 1 of p5-lifecycle-retryok at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 54.97
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 2 of p5-lifecycle-retryok at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 52.57
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 3 of p5-lifecycle-retryok at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 57.61
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 3 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 1 of workspace-index at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 53.71
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 2 of workspace-index at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 61.34
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 1 / 2 = 50.0%; unresolved 1, failed 0, timeout 0
+# head rerun 3 of workspace-index at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 59.70
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 1 / 2 = 50.0%; unresolved 1, failed 0, timeout 0
+# main rerun 1 of workspace-index at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 70.10
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 1 / 2 = 50.0%; unresolved 1, failed 0, timeout 0
+# main rerun 2 of workspace-index at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 66.04
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 3 of workspace-index at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 72.96
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 1 of p5-panels-badsettings at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 67.48
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 0 / 2 = 0.0%; unresolved 0, failed 2, timeout 0
+# head rerun 2 of p5-panels-badsettings at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 60.68
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 0 / 2 = 0.0%; unresolved 0, failed 2, timeout 0
+# head rerun 3 of p5-panels-badsettings at 03fb5436; xfx sha256 7e3a8677ad74664d176dcfee7cf4ca2ec68109e8e01097fc095ec94a3a664556; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 51.65
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 0 / 2 = 0.0%; unresolved 0, failed 2, timeout 0
+# main rerun 1 of p5-panels-badsettings at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 54.29
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 0 / 2 = 0.0%; unresolved 0, failed 2, timeout 0
+# main rerun 2 of p5-panels-badsettings at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 47.93
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 0 / 2 = 0.0%; unresolved 0, failed 2, timeout 0
+# main rerun 3 of p5-panels-badsettings at df46777e; xfx sha256 1b9c2cabbfcbfd5438cebfcc61fe85be7a107e3e8498d3a7abc8e50356625ee0; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 54.68
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 0 / 2 = 0.0%; unresolved 0, failed 2, timeout 0
+exit 0
+# p5-mcp-menu-new in the two sweeps, read as one run each
+## sweep-head-p5-mcp-menu-new: 1 reruns
+    startup          NI  pass 1/1
+    startup-settled  NI  pass 1/1
+    list             NI  pass 1/1
+    list-filter      NI  pass 1/1
+    list-unfilter    NI  pass 1/1
+    server-fixture   NI  pass 1/1
+    server-fixture-tool NI  pass 1/1
+    server-fixture-nomatch NI  pass 1/1
+    back-list        NI  pass 1/1
+    list-remote      UD  pass 0/1
+    server-remote    NI  pass 1/1
+    remove-inplace   NI  pass 1/1
+    remove-no        NI  pass 1/1
+    remove-cancel    NI  pass 1/1
+    left-back        NI  pass 1/1
+    list-proj        NI  pass 1/1
+    server-proj      NI  pass 1/1
+    approve-confirm  AD  pass 0/1
+    approve-esc      NI  pass 1/1
+    server-proj-reject NI  pass 1/1
+    reject-inplace   NI  pass 1/1
+    reject-typed-x   NI  pass 1/1
+    approved         NI  pass 1/1
+    list-after-approve NI  pass 1/1
+    closed           NI  pass 1/1
+    closed-status    NI  pass 1/1
+    reopened         NI  pass 1/1
+    server-proj-ready NI  pass 1/1
+    reject-inplace-ready NI  pass 1/1
+    rejected         NI  pass 1/1
+    list-rejected    NI  pass 1/1
+    removed-list     NI  pass 1/1
+    ctrl-c           NI  pass 1/1
+    end.full         NI  pass 1/1
+    rerun 1: list-remote's `remote` row: fx retrying; xfx connecting
+## sweep-main-p5-mcp-menu-new: 1 reruns
+    startup          NI  pass 1/1
+    startup-settled  NI  pass 1/1
+    list             NI  pass 1/1
+    list-filter      NI  pass 1/1
+    list-unfilter    NI  pass 1/1
+    server-fixture   NI  pass 1/1
+    server-fixture-tool NI  pass 1/1
+    server-fixture-nomatch NI  pass 1/1
+    back-list        NI  pass 1/1
+    list-remote      NI  pass 1/1
+    server-remote    NI  pass 1/1
+    remove-inplace   NI  pass 1/1
+    remove-no        NI  pass 1/1
+    remove-cancel    NI  pass 1/1
+    left-back        NI  pass 1/1
+    list-proj        NI  pass 1/1
+    server-proj      NI  pass 1/1
+    approve-confirm  AD  pass 0/1
+    approve-esc      NI  pass 1/1
+    server-proj-reject NI  pass 1/1
+    reject-inplace   NI  pass 1/1
+    reject-typed-x   NI  pass 1/1
+    approved         NI  pass 1/1
+    list-after-approve NI  pass 1/1
+    closed           NI  pass 1/1
+    closed-status    NI  pass 1/1
+    reopened         NI  pass 1/1
+    server-proj-ready NI  pass 1/1
+    reject-inplace-ready NI  pass 1/1
+    rejected         NI  pass 1/1
+    list-rejected    NI  pass 1/1
+    removed-list     NI  pass 1/1
+    ctrl-c           NI  pass 1/1
+    end.full         NI  pass 1/1
+    rerun 1: list-remote's `remote` row: fx retrying; xfx retrying
+## head-p5-mcp-menu-new: 3 reruns
+    startup          NI NI NI  pass 3/3
+    startup-settled  NI NI NI  pass 3/3
+    list             NI NI NI  pass 3/3
+    list-filter      NI NI NI  pass 3/3
+    list-unfilter    NI NI NI  pass 3/3
+    server-fixture   NI NI NI  pass 3/3
+    server-fixture-tool NI NI NI  pass 3/3
+    server-fixture-nomatch NI NI NI  pass 3/3
+    back-list        NI NI NI  pass 3/3
+    list-remote      NI NI NI  pass 3/3
+    server-remote    NI NI NI  pass 3/3
+    remove-inplace   NI NI NI  pass 3/3
+    remove-no        NI NI NI  pass 3/3
+    remove-cancel    NI NI NI  pass 3/3
+    left-back        NI NI NI  pass 3/3
+    list-proj        NI NI NI  pass 3/3
+    server-proj      NI NI NI  pass 3/3
+    approve-confirm  AD AD AD  pass 0/3
+    approve-esc      NI NI NI  pass 3/3
+    server-proj-reject NI NI NI  pass 3/3
+    reject-inplace   NI NI NI  pass 3/3
+    reject-typed-x   NI NI NI  pass 3/3
+    approved         NI NI NI  pass 3/3
+    list-after-approve NI NI NI  pass 3/3
+    closed           NI NI NI  pass 3/3
+    closed-status    NI NI NI  pass 3/3
+    reopened         NI NI NI  pass 3/3
+    server-proj-ready NI NI NI  pass 3/3
+    reject-inplace-ready NI NI NI  pass 3/3
+    rejected         NI NI NI  pass 3/3
+    list-rejected    NI NI NI  pass 3/3
+    removed-list     NI NI NI  pass 3/3
+    ctrl-c           NI NI NI  pass 3/3
+    end.full         NI NI NI  pass 3/3
+    rerun 1: list-remote's `remote` row: fx retrying; xfx retrying
+    rerun 2: list-remote's `remote` row: fx connecting; xfx connecting
+    rerun 3: list-remote's `remote` row: fx retrying; xfx retrying
+## main-p5-mcp-menu-new: 3 reruns
+    startup          NI NI NI  pass 3/3
+    startup-settled  NI NI NI  pass 3/3
+    list             NI NI NI  pass 3/3
+    list-filter      NI NI NI  pass 3/3
+    list-unfilter    NI NI NI  pass 3/3
+    server-fixture   NI NI NI  pass 3/3
+    server-fixture-tool NI NI NI  pass 3/3
+    server-fixture-nomatch NI NI NI  pass 3/3
+    back-list        NI NI NI  pass 3/3
+    list-remote      NI NI NI  pass 3/3
+    server-remote    NI NI NI  pass 3/3
+    remove-inplace   NI NI NI  pass 3/3
+    remove-no        NI NI NI  pass 3/3
+    remove-cancel    NI NI NI  pass 3/3
+    left-back        NI NI NI  pass 3/3
+    list-proj        NI NI NI  pass 3/3
+    server-proj      NI NI NI  pass 3/3
+    approve-confirm  AD AD AD  pass 0/3
+    approve-esc      NI NI NI  pass 3/3
+    server-proj-reject NI NI NI  pass 3/3
+    reject-inplace   NI NI NI  pass 3/3
+    reject-typed-x   NI NI NI  pass 3/3
+    approved         NI NI NI  pass 3/3
+    list-after-approve NI NI NI  pass 3/3
+    closed           NI NI NI  pass 3/3
+    closed-status    NI NI NI  pass 3/3
+    reopened         NI NI NI  pass 3/3
+    server-proj-ready NI NI NI  pass 3/3
+    reject-inplace-ready NI NI NI  pass 3/3
+    rejected         NI NI NI  pass 3/3
+    list-rejected    NI NI NI  pass 3/3
+    removed-list     NI NI NI  pass 3/3
+    ctrl-c           NI NI NI  pass 3/3
+    end.full         NI NI NI  pass 3/3
+    rerun 1: list-remote's `remote` row: fx retrying; xfx retrying
+    rerun 2: list-remote's `remote` row: fx retrying; xfx retrying
+    rerun 3: list-remote's `remote` row: fx retrying; xfx retrying
+## head-p5-lifecycle-retryok: 3 reruns
+    k00-0.5s         NI NI NI  pass 3/3
+    k01-1.5s         NI NI NI  pass 3/3
+    k02-4.5s         NI NI NI  pass 3/3
+## main-p5-lifecycle-retryok: 3 reruns
+    k00-0.5s         NI NI NI  pass 3/3
+    k01-1.5s         NI NI NI  pass 3/3
+    k02-4.5s         NI NI NI  pass 3/3
+## head-workspace-index: 3 reruns
+    at-plan          NI UD UD  pass 1/3
+    at-all           NI NI NI  pass 3/3
+## main-workspace-index: 3 reruns
+    at-plan          UD NI NI  pass 2/3
+    at-all           NI NI NI  pass 3/3
+## head-p5-panels-badsettings: 3 reruns
+    launch           F F F  pass 0/3
+    open             F F F  pass 0/3
+## main-p5-panels-badsettings: 3 reruns
+    launch           F F F  pass 0/3
+    open             F F F  pass 0/3

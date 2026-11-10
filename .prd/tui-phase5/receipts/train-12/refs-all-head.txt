@@ -1,0 +1,32 @@
+# head 03fb5436; sides: main df46777e, gate-env-maintlock a1cbdcaf, sweep-wallclock 4bc9ab13, local-paths 5609108f, input-row-limit 3d3d56c8
+docs/superpowers/plans/2026-08-24-provider-frame.md: src/llmux/setup.rs:355-380
+    local-paths MOVED -> 357-382
+docs/superpowers/plans/2026-08-24-provider-frame.md: tests/tool_loop.rs:1266
+    local-paths MOVED -> 1274
+docs/superpowers/plans/2026-08-26-tui-phase2.md: src/tui/worker.rs:122-158
+    gate-env-maintlock MOVED -> 123-159 | local-paths MOVED -> 123-159 | input-row-limit MOVED -> 123-159
+docs/superpowers/plans/2026-08-26-tui-phase2.md: src/tui/worker.rs:608-640
+    gate-env-maintlock MOVED -> 609-641 | local-paths MOVED -> 609-641 | input-row-limit MOVED -> 609-641
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
+    local-paths MOVED -> 545-578
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:3108
+    gate-env-maintlock MOVED -> 3221 | local-paths MOVED -> 3231 | input-row-limit MOVED -> 3221
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:433
+    gate-env-maintlock MOVED -> 435 | local-paths MOVED -> 435 | input-row-limit MOVED -> 435
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:2376
+    gate-env-maintlock MOVED -> 2377 | local-paths MOVED -> 2377 | input-row-limit MOVED -> 2377
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:444-446
+    gate-env-maintlock MOVED -> 445-447 | local-paths MOVED -> 445-447 | input-row-limit MOVED -> 445-447
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:593
+    gate-env-maintlock MOVED -> 594 | local-paths MOVED -> 594 | input-row-limit MOVED -> 594
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:499-522
+    local-paths MOVED -> 492-515
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:782
+    local-paths MOVED -> 775
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/shell.rs:1593
+    gate-env-maintlock MOVED -> 1682 | local-paths MOVED -> 1691 | input-row-limit MOVED -> 1682
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.rs:889-923
+    gate-env-maintlock MOVED -> 928-964 | local-paths MOVED -> 963-997 | input-row-limit MOVED -> 928-964
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/shell.rs:1117
+    gate-env-maintlock MOVED -> 1183 | local-paths MOVED -> 1183 | input-row-limit MOVED -> 1183
+# 195 references in 604 files; 15 moved or changed on some side that cites them

@@ -1,0 +1,15 @@
+runs: base 8, head 8
+
+per scenario and build: pairs passed over all runs
+  p5-mcp-menu-new            base   267 of  272
+  p5-mcp-menu-new            head   270 of  272
+
+pairs whose verdict varies across one build's runs: 4
+  p5-mcp-menu-new back-list on base: passes 5 of 8
+  p5-mcp-menu-new back-list on head: passes 7 of 8
+  p5-mcp-menu-new list-remote on base: passes 6 of 8
+  p5-mcp-menu-new list-remote on head: passes 7 of 8
+
+pairs a (head run, base run) pairing would call a regression: 2
+  p5-mcp-menu-new back-list: 5 of 64 pairings
+  p5-mcp-menu-new list-remote: 6 of 64 pairings

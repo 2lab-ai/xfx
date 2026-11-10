@@ -410,7 +410,7 @@ the menu`, `shell.rs:37939` on `1db520e1`). It is not load and not MCP-M:
   a two-state count over the six characters -- puts both skills on the menu.
   The product is right; the case's word was not one nothing matches.
 - Attribution. The full lib suite with fault-injection, ten times each, one
-  at a time, `TMPDIR=/private/tmp/claude-501/fi`: `6df717af` (the MCP-V base
+  at a time, `TMPDIR=<tmp>/fi`: `6df717af` (the MCP-V base
   MCP-M started from) 0 of 10, `1db520e1` 0 of 10. The case alone, 1500
   times each, no other load: `6df717af` 6 of 1500, `1db520e1` 6 of 1500
   (0.40 %, against 0.51 % predicted), every failing root holding `zz`:
@@ -572,7 +572,7 @@ On the head (`ce55177a` and the test and receipt commit after it):
 ## Reproduce
 
 ```
-FX_BIN=<fx v0.0.16> TMPDIR=/private/tmp/claude-501 python3 -I .prd/tui-phase5/receipts/mcp-verbs/bounded.py 2400 4096 -- \
+FX_BIN=<fx v0.0.16> TMPDIR=<tmp> python3 -I .prd/tui-phase5/receipts/mcp-verbs/bounded.py 2400 4096 -- \
   scripts/fxcap/sweep.sh --fx <fx v0.0.16> --pin-sha 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2 \
   --only p5-mcp-menu-new --only p5-mcp-empty --only p5-mcp-verbs --jobs 2 --out <dir outside the repo>
 # B15: the same with --only p5-mcp-menu-new --size 40x60

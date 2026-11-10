@@ -1,0 +1,18 @@
+# ci_rows.rb at 03fb5436 (the gate's clone): each step of ci.yml's gate job that runs LOCAL-PATHS's scripts, and its rows
+No path of one machine in tracked files: `./scripts/check-no-local-paths.sh` if "matrix.part != 'release'"
+    runs  ubuntu-24.04 x86_64-unknown-linux-gnu
+    runs  ubuntu-24.04-arm aarch64-unknown-linux-gnu
+    runs  macos-15 aarch64-apple-darwin
+    runs  macos-15-intel x86_64-apple-darwin checks
+    skips  macos-15-intel x86_64-apple-darwin release
+The local-path check refuses what it exists for: `./scripts/test-check-no-local-paths.sh` if "matrix.script_tests"
+    runs  ubuntu-24.04 x86_64-unknown-linux-gnu
+    skips  ubuntu-24.04-arm aarch64-unknown-linux-gnu
+    runs  macos-15 aarch64-apple-darwin
+    skips  macos-15-intel x86_64-apple-darwin checks
+    skips  macos-15-intel x86_64-apple-darwin release
+# 2 steps run LOCAL-PATHS's scripts, of 24 in the gate job; 5 rows
+# exit 0
+# and at main df46777e (the main sweep's clone)
+# 0 steps run LOCAL-PATHS's scripts, of 22 in the gate job; 5 rows
+# exit 1

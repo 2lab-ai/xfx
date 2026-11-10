@@ -1,4 +1,4 @@
-# The head's pairs that left the pass set or timed out in its full sweep, run again under /private/tmp/claude-501/bin/suite-lock.sh
+# The head's pairs that left the pass set or timed out in its full sweep, run again under <tmp__________________>/bin/suite-lock.sh
 # (sweep.sh --only <scenario>... --jobs 2, the same binaries and ledger): base verdict, the full sweep's, the rerun's.
 h1-usage-codex codex: base unresolved-defect; head full sweep timeout; rerun unresolved-defect
 h1-usage-grok grok: base unresolved-defect; head full sweep timeout; rerun unresolved-defect

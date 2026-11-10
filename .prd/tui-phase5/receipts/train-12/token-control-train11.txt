@@ -1,0 +1,6 @@
+# train 11's token_control.py (../train-11/), unchanged, over this train's merge 2 (2c640bac): no docs/parity.md row changed on either side there
+  File "<local-path>", line 36, in <module>
+    side = o[key] if o.get(key) != b[key] else t[key]
+                                   ~^^^^^
+KeyError: None
+# exit 1

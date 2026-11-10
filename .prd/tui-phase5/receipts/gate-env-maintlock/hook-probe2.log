@@ -1,0 +1,50 @@
+# hook-probe2.sh, git 2.56.0, 2026-11-09T14:50:19Z; times are epoch seconds
+## unguarded (sg as at 32afd307)
+commit start 1794235819.345
+commit returned 1794235821.202
+commit+0.5s 1794235821.720: lock=yes
+  new: ./COMMIT_EDITMSG
+  new: ./index
+  new: ./logs/HEAD
+  new: ./logs/refs/heads/master
+  new: ./objects/53/16dddb6f7014fa3f7e143548afae9863d7ee6b
+  new: ./objects/83/faf4103744af92c9968ef5bbe79198408f8002
+  new: ./objects/8f/96c5b92ad121cb2e17f48862e459f1781c0bc5
+  new: ./objects/maintenance.lock
+  new: ./refs/heads/master
+go 1794235821.731
+lock gone after 1 polls 1794235821.799
+call 1 start 1794235821.178 ppid-cmd: <git-core>/git maintenance run -
+call 2 start 1794235821.213 ppid-cmd: <git-core>/git gc --auto --quiet
+call 2 exit 1794235821.755
+  now: ./COMMIT_EDITMSG
+  now: ./index
+  now: ./logs/HEAD
+  now: ./logs/refs/heads/master
+  now: ./objects/53/16dddb6f7014fa3f7e143548afae9863d7ee6b
+  now: ./objects/83/faf4103744af92c9968ef5bbe79198408f8002
+  now: ./objects/8f/96c5b92ad121cb2e17f48862e459f1781c0bc5
+  now: ./refs/heads/master
+## guarded (-c maintenance.auto=false -c gc.auto=0)
+commit start 1794235822.067
+commit returned 1794235822.078
+commit+0.5s 1794235822.592: lock=no
+  new: ./COMMIT_EDITMSG
+  new: ./index
+  new: ./logs/HEAD
+  new: ./logs/refs/heads/master
+  new: ./objects/18/36c93b8c2e8f45f6984bfb4855b463492f8e24
+  new: ./objects/53/16dddb6f7014fa3f7e143548afae9863d7ee6b
+  new: ./objects/8f/96c5b92ad121cb2e17f48862e459f1781c0bc5
+  new: ./refs/heads/master
+go 1794235822.601
+lock gone after 0 polls 1794235822.606
+hook never ran
+  now: ./COMMIT_EDITMSG
+  now: ./index
+  now: ./logs/HEAD
+  now: ./logs/refs/heads/master
+  now: ./objects/18/36c93b8c2e8f45f6984bfb4855b463492f8e24
+  now: ./objects/53/16dddb6f7014fa3f7e143548afae9863d7ee6b
+  now: ./objects/8f/96c5b92ad121cb2e17f48862e459f1781c0bc5
+  now: ./refs/heads/master

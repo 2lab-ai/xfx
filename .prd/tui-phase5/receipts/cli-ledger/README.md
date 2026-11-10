@@ -98,7 +98,7 @@ which requires `update`, so the binary-run test cannot pass by checking nothing.
 ## GREEN
 
 The cargo gates ran on `3f251ef9` with a clean tree, one at a time after the
-idle wait, `TMPDIR=/private/tmp/claude-501/cli-ledger`. `c21212ba` changes no
+idle wait, `TMPDIR=<tmp>/cli-ledger`. `c21212ba` changes no
 Rust (`git diff 3f251ef9 c21212ba -- src tests build.rs Cargo.toml Cargo.lock`
 is empty), only the ledger's text and a script comment, so `tests/cli.rs` and
 `tests/parity.rs`, which read the ledger, ran again on it (`green-dev.txt`:
