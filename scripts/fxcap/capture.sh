@@ -424,6 +424,9 @@ gateway='' sock='' mcphttp='' guard_run='' guard_bin='' guard_sha=''
 # this shell, out of the binary's reach, and cleanup decides from it alone;
 # $pane_rec (main sets it) is a copy for the tests, never read back.
 pane_kind='' pane_pid='' pane_start='' pane_why='' pane_rec=''
+# The record of the process a relaunch replaced, until it is confirmed gone
+# (kind empty then): cleanup waits for it as well.
+old_kind='' old_pid='' old_start='' old_why=''
 # The paths `@SCENARIOS@` and `@BUN@` stand for (main sets them), what
 # `fill` and `fill_text` write for each, and the one line `fill_text` leaves
 # its text in.
@@ -525,13 +528,14 @@ guards() {
   echo "guards: $guard_bin sha256 ${guard_sha:0:12} unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories"
 }
 
-# Sets the record (kind, pid, start, why), and writes its copy: a new file
-# (`set -C`), never through a link the binary may have left at its name.
+# Sets the record (kind, pid, start, why), and writes its copy: into a file
+# of mktemp's, renamed over the name, so nothing the binary left there -- a
+# link, a FIFO -- is ever opened.
 pane_set() {
+  local t
   pane_kind=$1 pane_pid=$2 pane_start=$3 pane_why=$4
-  [[ -n $pane_rec ]] || return 0
-  rm -f "$pane_rec"
-  (set -C; printf '%s\n' "$@" > "$pane_rec") 2> /dev/null || true
+  [[ -n $pane_rec ]] && t=$(mktemp "$pane_rec.XXXXXX" 2> /dev/null) || return 0
+  { printf '%s\n' "$@" > "$t" && mv -f "$t" "$pane_rec"; } 2> /dev/null || rm -f "$t"
 }
 
 # Records the process this script just started in its pane -- at launch and
@@ -578,30 +582,31 @@ pane_state() {
   else echo gone; fi
 }
 
-# After its server is gone: waits, 3 s at most, while the recorded process is
-# there or a look cannot tell. Gone, or no pane was ever made (no kind), and
-# it returns 0. A record that could not be made, or anything but gone at the
-# end, and it says so and returns 1. It reads the record in this shell only.
-# The wait sends no signal: tmux's kill-server hung the pane up, and ending
-# that process is tmux's.
+# Once a pane's process is hung up -- by kill-server at the end, or by a
+# relaunch's respawn-pane -- waits, 3 s at most, while the process recorded as
+# kind $1, pid $2, start $3 (why $4) is there or a look cannot tell. Gone, or
+# no pane was ever made (no kind), and it returns 0. A record that could not
+# be made, or anything but gone at the end, and it says so -- $5 names the
+# process, $6 when it was hung up -- and returns 1. It reads the record in
+# this shell only, and sends no signal: ending that process is tmux's.
 await_pane() {
-  local i state=unknown
-  case $pane_kind in
+  local kind=$1 pid=$2 start=$3 why=$4 what=$5 when=$6 i state=unknown
+  case $kind in
     ''|gone) return 0 ;;
     pid) ;;
     *)
-      echo "LIVE-WRITER GUARD: the process this run started in its pane could not be recorded ($pane_why); this run fails, so the sweep does not run another binary in its directory" >&2
+      echo "LIVE-WRITER GUARD: $what could not be recorded ($why); this run fails, so the sweep does not run another binary in its directory" >&2
       return 1 ;;
   esac
   for (( i = 0; i < 60; i++ )); do
-    state=$(pane_state "$pane_pid" "$pane_start")
+    state=$(pane_state "$pid" "$start")
     if [[ $state == gone ]]; then
-      echo "pane: the process the run started is gone ($i looks)"
+      echo "pane: ${what/#the process this run started in its pane/the process the run started} is gone ($i looks)"
       return 0
     fi
     sleep 0.05
   done
-  echo "LIVE-WRITER GUARD: the process this run started in its pane, pid $pane_pid (started $pane_start), is $([[ $state == there ]] && echo still running || echo 'in a state no look could read') 3 s after its tmux server went; this run fails, so the sweep does not run another binary in its directory" >&2
+  echo "LIVE-WRITER GUARD: $what, pid $pid (started $start), is $([[ $state == there ]] && echo still running || echo 'in a state no look could read') 3 s after $when; this run fails, so the sweep does not run another binary in its directory" >&2
   return 1
 }
 
@@ -613,7 +618,11 @@ cleanup() {
   # keeps its HOME. So the run waits for it, and fails if it stays.
   if [[ -n $sock ]]; then
     tmux -f /dev/null -S "$sock" kill-server 2>/dev/null || true
-    if ! await_pane && (( code == 0 )); then code=4; fi
+    local gone=1
+    await_pane "$old_kind" "$old_pid" "$old_start" "$old_why" "the relaunched pane's process" 'the relaunch replaced it' || gone=0
+    await_pane "$pane_kind" "$pane_pid" "$pane_start" "$pane_why" \
+      'the process this run started in its pane' 'its tmux server went' || gone=0
+    if (( ! gone && code == 0 )); then code=4; fi
   fi
   [[ -z $gateway ]] || kill "$gateway" 2>/dev/null || true
   [[ -z $mcphttp ]] || kill "$mcphttp" 2>/dev/null || true
@@ -1318,9 +1327,16 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         ;;
       relaunch)
         fill_text "$port" "$run/home" "$mcpport" "$rest"
+        # The process it replaces is hung up and waited for as cleanup waits
+        # for the last: one that stays would write beside the new binary. Its
+        # record is kept until it is confirmed gone, so an exit on the way
+        # (a respawn that fails) leaves cleanup to wait for it.
+        old_kind=$pane_kind old_pid=$pane_pid old_start=$pane_start old_why=$pane_why
         pane_set unknown '' '' 'the pane was being remade'
         tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $filled"
         own_pane "$sock"
+        await_pane "$old_kind" "$old_pid" "$old_start" "$old_why" "the relaunched pane's process" 'the relaunch replaced it' || exit 4
+        old_kind=''
         # A new binary on a cleared screen: what an `until` saw before says
         # nothing of what this one showed.
         : > "$run/seen"

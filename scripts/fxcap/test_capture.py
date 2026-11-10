@@ -403,7 +403,7 @@ class RunDirectory(unittest.TestCase):
     # process stays or a look cannot tell (`unknown` is never gone). Each stub
     # writes its pid, logs every HUP and TERM it is sent, and ends by itself:
     # nothing here signals a process either.
-    STUB_HEAD = ("#!/bin/bash\necho $$ > \"$HOME/pid\"\n"
+    STUB_HEAD = ("#!/bin/bash\necho $$ > \"$HOME/pid\"\necho $$ >> \"$HOME/pids\"\n"
                  "trap 'echo HUP >> \"$HOME/sigs.$$\"; on_hup' HUP\ntrap 'echo TERM >> \"$HOME/sigs.$$\"' TERM\n")
     # On a hangup, a second's last writing, then gone: inside the wait.
     SLOW_EXIT = STUB_HEAD + ("on_hup() { sleep 1; mkdir \"$HOME/late.$$\"; exit 0; }\necho up\n"
@@ -553,6 +553,31 @@ class RunDirectory(unittest.TestCase):
     def test_a_record_copy_the_binary_writes_without_a_start_changes_nothing(self):
         self.forged("printf 'pid\\n%s\\n' $$ > \"$rec\"\n")
 
+    # A run that ends on the way through a relaunch still owes the wait for
+    # the process the relaunch was replacing: cleanup waits for it too.
+    def relaunch_ends(self, shim):
+        r, run, pid = self.stub_run(self.FIRST_STAYS, cap="wait 1\nrelaunch\nwait 1\nsnap a\n", shims={"tmux": shim})
+        first = int(slurp(os.path.join(run, "home", "pids")).split()[0])
+        self.assertNotEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("LIVE-WRITER GUARD: the relaunched pane's process, pid %d (started " % first, r.stderr)
+        self.assertIn("could not be recorded (the pane was being remade)", r.stderr)
+        self.ends_by_itself(first)
+        self.assertEqual(self.sigs(run, first), ["HUP"], "tmux's hangup and no other signal")
+
+    def test_a_respawn_that_fails_leaves_cleanup_the_first_binary_to_wait_for(self):
+        self.relaunch_ends('for a; do [ "$a" = respawn-pane ] && exit 1; done\nexec "$REAL" "$@"\n')
+
+    def test_an_exit_after_the_respawn_leaves_cleanup_the_first_binary_to_wait_for(self):
+        self.relaunch_ends('"$REAL" "$@"; rc=$?\nfor a; do [ "$a" = respawn-pane ] && exit 1; done\nexit $rc\n')
+
+    def test_a_record_copy_the_binary_made_a_fifo_never_blocks_the_run(self):
+        # The copy is a file of mktemp's renamed over the name, so a FIFO the
+        # binary leaves at $run/pane is never opened.
+        stub = self.STAYS.replace("on_hup() { :; }", "on_hup() { exit 0; }").replace(
+            "echo up\n", 'rec="$(dirname "$HOME")/pane"\nrm -f "$rec"; mkfifo "$rec"\necho up\n')
+        r, run, pid = self.stub_run(stub, cap="wait 1\nrelaunch\nwait 1\nsnap a\n")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+
     def test_a_relaunch_that_fails_after_respawning_says_the_pane_was_being_remade(self):
         # The record is unknown from before `respawn-pane` until own_pane
         # reads the new process: a tmux that respawns the pane and then
@@ -563,11 +588,36 @@ class RunDirectory(unittest.TestCase):
         self.assertIn("could not be recorded (the pane was being remade)", r.stderr)
 
     def test_a_relaunched_binary_is_the_one_waited_for(self):
-        # `relaunch` replaces the pane's process: the record is the new one's.
+        # `relaunch` replaces the pane's process: the one it replaced, hung up
+        # by respawn-pane, is waited for there (a second's last writing, then
+        # gone), and the record is the new one's, which cleanup waits for.
         r, run, pid = self.stub_run(self.SLOW_EXIT, cap="wait 1\nrelaunch\nwait 1\nsnap a\n")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
-        self.assertTrue(os.path.isdir(os.path.join(run, "home", "late.%d" % pid)), "the run ended before the relaunched binary's last write")
+        old, new = [int(p) for p in slurp(os.path.join(run, "home", "pids")).split()]
+        self.assertEqual(new, pid)
+        for p in (old, new):
+            self.assertTrue(os.path.isdir(os.path.join(run, "home", "late.%d" % p)), "the run went on before %d's last write" % p)
+        m = re.search(r"^pane: the relaunched pane's process is gone \((\d+) looks\)$", r.stdout, re.M)
+        self.assertTrue(m and int(m.group(1)) > 0, r.stdout)
         self.assertGreater(self.looks(r), 0)
+
+    # The first binary is deaf to the hangup and stays past both waits, the
+    # relaunch's and cleanup's (about 11 s); any one a relaunch starts goes on
+    # its own hangup.
+    FIRST_STAYS = STUB_HEAD.replace('echo $$ >> "$HOME/pids"\n', "") + (
+        'if [ -s "$HOME/pids" ]; then on_hup() { exit 0; }; else on_hup() { :; }; fi\n'
+        'echo $$ >> "$HOME/pids"\necho up\nfor i in $(seq 220); do sleep 0.05; done\nexit 0\n')
+
+    def test_a_relaunched_binary_whose_last_one_stays_fails_the_run(self):
+        # The run fails at the relaunch, naming the first, and sends it nothing.
+        r, run, pid = self.stub_run(self.FIRST_STAYS, cap="wait 1\nrelaunch\nwait 1\nsnap a\n")
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        old, new = [int(p) for p in slurp(os.path.join(run, "home", "pids")).split()]
+        self.assertIn("LIVE-WRITER GUARD: the relaunched pane's process, pid %d (started " % old, r.stderr)
+        self.assertIn("is still running 3 s after the relaunch replaced it", r.stderr)
+        self.assertTrue(self.alive(old), "capture.sh ended the process it waited for")
+        self.ends_by_itself(old)
+        self.assertEqual(self.sigs(run, old), ["HUP"], "the respawn's hangup and no other signal")
 
 
 class Placeholders(unittest.TestCase):
