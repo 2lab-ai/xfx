@@ -1,0 +1,15 @@
+# Phase 5 panels: launch with no credential and a malformed profile settings
+# file. fx v0.0.16 refuses it at launch -- `fx: InvalidProfileConfiguration`,
+# exit 1, before a first frame (a user-layer `malformed_settings` under the
+# default local auth mode, src/core/app/app_lifecycle.zig:690-701@481104fd)
+# -- and `keep` holds its dead pane as the snap. xfx starts and says
+# `config: 1 configuration issue` (src/config.rs:850-851,
+# src/tui/shell.rs:3820-3837): the ledger's `profile-refuse-at-launch`. The
+# panel's `Settings` row for a profile that goes bad after launch is
+# p5-panels-status-badsettings's; there is no TUI here to type `/status` into.
+keep
+fx: env FX_AUTO_UPGRADE=0
+env AI_GATEWAY_API_KEY=
+seed p5-panels-badsettings.json
+wait 3
+snap launch

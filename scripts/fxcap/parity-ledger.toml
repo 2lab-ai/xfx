@@ -542,6 +542,16 @@ source = ["src/tui/frame.rs:2757", "docs/parity.md:237"]
 # (b) units in flight, the specific rows first.
 
 [[cause]]
+id = "profile-refuse-at-launch"
+kind = "unit"
+owner = "PROFILE-REFUSE-AT-LAUNCH (a new queue unit): xfx refuses a malformed user profile at launch, as fx does"
+scenarios = ["p5-panels-badsettings"]
+snaps = ["launch"]
+whole_snap = true
+xfx = ["src/config.rs:850-851", "src/tui/shell.rs:3820-3837"]
+why = "fx v0.0.16 refuses a profile whose user layer is malformed, too large or names an invalid model id, under the default local auth mode (`src/core/auth/credentials.zig:29@481104fd`): `return error.InvalidProfileConfiguration` (`src/core/app/app_lifecycle.zig:690-701@481104fd`), so it exits 1 with `fx: InvalidProfileConfiguration` before a first frame, and the scenario's `keep` holds the dead pane as the snap. xfx never refuses (`ConfigError`: malformed content is never fatal, src/config.rs:850-851): it starts and announces `config: 1 configuration issue (ctrl+o to view)` (src/tui/shell.rs:3820-3837). Every row of the snap differs, so the cause is the whole snap (.prd/tui-phase5/receipts/train-12/ci-timeout/README.md)."
+
+[[cause]]
 id = "preview-frame-before-the-turn-start"
 kind = ["unit", "nondeterminism"]
 owner = "SUBMIT-PREVIEW-EDGES"

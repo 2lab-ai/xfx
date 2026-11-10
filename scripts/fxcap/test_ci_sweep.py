@@ -512,13 +512,14 @@ class Workflows(unittest.TestCase):
         self.assertIs(load_workflow(WORKFLOWS[1])["concurrency"]["cancel-in-progress"], False)
 
     def test_the_sweep_job_has_the_time_its_selection_needs(self):
-        # PR #90's 125 scenarios need at most 94 minutes, head to verdict
+        # PR #90's 125 scenarios need about 95 minutes, head to verdict, as
+        # estimated from that one run
         # (.prd/tui-phase5/receipts/train-12/ci-timeout/measure.txt); 60
         # cancelled the job before its base sweep, so no verdict at all.
-        # Lowering it needs a new measurement; `--jobs` stays 2 (3 cores, and
+        # Lowering it needs a new estimate; `--jobs` stays 2 (3 cores, and
         # the timing scenarios flake under load).
         w = load_workflow(WORKFLOWS[0])
-        self.assertGreaterEqual(w["jobs"]["sweep"]["timeout-minutes"], 94 * 5 // 4)
+        self.assertGreaterEqual(w["jobs"]["sweep"]["timeout-minutes"], 95 * 5 // 4)
         run = step(w, "sweep", "Sweep the changed scenarios and the core set")["run"]
         self.assertEqual(re.findall(r"--jobs (\S+)", run), ["2"])
 

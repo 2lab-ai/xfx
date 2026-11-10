@@ -2,7 +2,8 @@
 # settings were valid at launch and are malformed by the time it opens, so the
 # panel says `Settings  couldn't be read: <cause>` where Auth would stand
 # (openStatusSnapshot, session_commands.zig:283-296@481104fd). Uses H1's
-# `rehomefile`; both binaries refuse a malformed profile at launch.
+# `rehomefile`: fx refuses a malformed profile at launch, and xfx does not
+# (p5-panels-badsettings captures that launch).
 fx: env FX_AUTO_UPGRADE=0
 env AI_GATEWAY_API_KEY=
 fx: seed h1-settings-ok.json
