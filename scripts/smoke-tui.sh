@@ -11210,7 +11210,7 @@ def scenario_26(run):
     # the real newlines it carried -- not the whole draft, so it would leave
     # the first two rows standing. The paste that grew this draft went in
     # through one `editor.insert()` call (`shell.rs:2705`), which is one
-    # history entry, so `C-_` (`Action::Undo`, `input.rs:1063`) reverses the
+    # history entry, so `C-_` (`Action::Undo`, `input.rs:1152`) reverses the
     # whole paste in the one step a shrink is supposed to be -- and is what a
     # person who pasted the wrong thing would actually reach for.
     trial.send(b"\x1f")  # C-_: undo the paste as the one edit it was
