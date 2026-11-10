@@ -2842,6 +2842,32 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_folder_row_that_only_the_whole_path_matches_is_bold_through_the_whole_path() {
+        // `workspace-index`'s `at-plan`: `@plan` matches the added folder
+        // `<tmp>/fxcap.<run>/extra/notes` only through its whole path, the
+        // capture's random run directory included (`choosePlacement`'s last
+        // search, `file_index.zig:1815-1818@481104fd`). The head sweep's fx
+        // run was `fxcap.qnVERa` and its xfx run `fxcap.YTZTDF`: the first
+        // has an `n` close to the `a` before it, the second none. Here the
+        // scratch root is a short stand-in with the same choice: the run
+        // name's `n` wins for `qnVERa` (66 against 63), the `n` of `notes`
+        // for `YTZTDF`, each the best placement in its own path.
+        let bold = |run: &str| -> String {
+            let path = format!("/srv/pr/cl/at/x/039/fxcap.{run}/extra/notes/");
+            let found = search(&candidates(&[&path]), "plan");
+            let path = &found[0].path;
+            let around: Vec<&str> = found[0]
+                .spans
+                .iter()
+                .map(|span| &path[span.start - 3..span.end])
+                .collect();
+            around.join(" ")
+        };
+        assert_eq!(bold("qnVERa"), "rv/p r/cl cl/a p.qn");
+        assert_eq!(bold("YTZTDF"), "rv/p r/cl cl/a ra/n");
+    }
+
+    #[test]
     fn a_browsed_folder_ranks_its_names_by_the_same_score() {
         // The listing scores each name with `NameQuery` (`path_completion.zig:
         // 56`, `:93`, `:234@481104fd`): the name is the whole text, its
