@@ -10,7 +10,7 @@ folder; source lines are at `afd891af` unless marked `@5f55cfc8`.
 | `3c0a2ab3` | round 1: the stop placed by the loop; first loads held until the stop's end; the retry bound at 2 s on the wall clock |
 | `b5e234e1` | round 2: the retry runs on tokio's paused clock; `test-util` in `[dev-dependencies]` |
 | `5f55cfc8` | round 2: the stopped retry wait's end asserted at zero on that clock -- **the code head**; every head-side run below is this commit unless named |
-| the next commits | this receipt, then its gate and load check |
+| the next commits | this receipt, its gate (`64cfd5a1`) and its repeat check |
 
 ## The gap
 
@@ -142,15 +142,36 @@ at the end. Base in `mutants-base.txt` and `mutants-base-late.txt`, head in
   the load did not end the wait. The late-stop mutant above is caught by the
   retry cases that reach the same read.
 
-## Load check
+## Repeat check
 
-TBD
+`load-check.txt` (`load_check.py`, here): the three tests 50 times on the
+base's lib test binary (built at `afd891af`) and 50 on the head's (built at
+`5f55cfc8`), one after the other in each iteration, in **one normal slot**
+of the suite lock, with no burner -- the shared machine's own load, read at
+each run's start and written beside it.
+
+| binary | A | B | C | 1-min load at the runs' start (18 cores) |
+|---|---|---|---|---|
+| base `afd891af` | 50/50 | 50/50 | 50/50 | min 4.82, median 8.43, max 13.52 |
+| head `5f55cfc8` | 50/50 | 50/50 | 50/50 | min 4.46, median 8.50, max 13.31 |
+
+- At load 4 to 14 the base does not fail either: the gate's misses came at
+  load 65 to 106. These counts show the head passes at the machine's own
+  load; what tells the two apart is the held-thread table above. A head
+  iteration took about 4 s against the base's 26 s: the retry runs' waits
+  are on the paused clock (`load-check.txt`, each line's seconds).
+- The brief asked for this under an exclusive lock with a burner on every
+  core. That run was started (`SUITE_LOCK_EXCLUSIVE=1`, one process of 72
+  busy threads) and stopped before it began, at the dispatcher's word: it
+  held one slot from 14:54Z waiting for the other three, which other
+  workers' gates kept taking, and once running it would have held every
+  gate off for up to 90 minutes. Its burner never ran.
 
 ## Gate
 
 `gates.txt` (`gates.sh`, train 13's, unchanged but for its header), in a
 `git clone --no-local` at `64cfd5a1` -- the code head plus this receipt but
-for the gate's own file and the load check -- inside one hold of the suite
+for the gate's own file and the repeat check -- inside one hold of the suite
 lock: **22 steps, 0 failed**, the tree clean before and after. `test`: 5685
 passed, 0 failed; `test-fault`: 5722 passed, 0 failed; the three tests and
 the two other users of the harness `ok` in both; smoke-tui 37 scenarios and
@@ -173,6 +194,6 @@ a 300 ms stopper thread against the 2 s retry). None changed here.
   base's two late-stop mutants, in one hold of the lock); `mutants-base.txt`
   (the base's first eleven, run before the late-stop pair was added),
   `mutants-base-late.txt`, `mutants-head.txt`.
-- `burn.c`, `load_check.py`; `load-check.txt`.
+- `load_check.py`; `load-check.txt`.
 - `gates.sh`; `gates.txt`.
 - `wallclock-others.txt`.

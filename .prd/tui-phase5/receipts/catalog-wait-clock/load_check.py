@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""The load check: the three catalog-wait tests, N times each on two lib
-test binaries (the base's and the head's) side by side, while one burner
-process (burn.c: busy threads, no fork, no exec, its own time limit) keeps
-every core busy. Meant to run under `SUITE_LOCK_EXCLUSIVE=1 suite-lock.sh`.
+"""The repeat check: the three catalog-wait tests, N times each on two lib
+test binaries (the base's and the head's), one after the other in every
+iteration, at the shared machine's own load -- no burner. Meant to run in
+one normal slot of the suite lock (`suite-lock.sh python3 load_check.py ...`).
 
-    python3 -I -B load_check.py <burn> <threads> <burn-seconds> <runs> <out> \
+    python3 -I -B load_check.py <runs> <out> \
         <label>=<test-binary>@<cwd> <label>=<test-binary>@<cwd>
 
-Each iteration starts both binaries at once (each over the three names,
-`--exact`), bounded at LIMIT seconds (its process group killed past it), and
-records each test's verdict per binary, the run's time and the 1-minute load
-when it began. The burner is started once, by Popen (no shell), and killed by
-its own PID at the end, whatever happened. TMPDIR comes from the
-environment.
+Each run is one binary over the three names (`--exact`), bounded at LIMIT
+seconds (its process group killed past it); the 1-minute load average is
+read when it begins. Writes one line per iteration, then per binary the
+pass count of each test with the load range its runs began under, then
+every failure's assertion lines. TMPDIR comes from the environment.
 """
 import os
 import re
 import signal
+import statistics
 import subprocess
 import sys
 import time
@@ -37,85 +37,69 @@ def env():
     return out
 
 
-def verdicts(out):
+def run(binary, cwd):
+    proc = subprocess.Popen([binary, "--exact", *TESTS], cwd=cwd, env=env(),
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, start_new_session=True)
+    try:
+        out, _ = proc.communicate(timeout=LIMIT)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        out, _ = proc.communicate()
     found = []
     for test in TESTS:
         m = re.search(rf"^test {re.escape(test)} \.\.\. (\S+)$", out, re.M)
         found.append(m.group(1) if m else "missing")
-    return found
+    return found, out
 
 
 def main():
-    burn, threads, burn_seconds, runs, out_path = sys.argv[1:6]
+    runs, out_path = int(sys.argv[1]), sys.argv[2]
     sets = []
-    for spec in sys.argv[6:]:
+    for spec in sys.argv[3:]:
         label, rest = spec.split("=", 1)
         binary, cwd = rest.split("@", 1)
         sets.append((label, binary, cwd))
-    lines = [f"# load check: {runs} iterations; per iteration every binary runs the three tests "
-             f"(A, B, C) once, side by side; burner {threads} busy threads in one process, "
-             f"limit {burn_seconds} s; each run bounded at {LIMIT} s",
-             f"# cores {os.cpu_count()}; load before the burner {os.getloadavg()[0]:.2f}"]
+    lines = [f"# repeat check: {runs} iterations; in each, every binary runs the three tests "
+             f"(A, B, C) once, one binary after the other; no burner, the machine's own load; "
+             f"one normal slot of the suite lock; each run bounded at {LIMIT} s; "
+             f"cores {os.cpu_count()}"]
     counts = {label: [0, 0, 0] for label, _, _ in sets}
+    loads = {label: [] for label, _, _ in sets}
     fails = {label: [] for label, _, _ in sets}
-    burner = subprocess.Popen([burn, threads, burn_seconds], start_new_session=True)
-    try:
-        lines.append("# burner: " + subprocess.run(
-            ["ps", "-o", "pid=,command=", "-p", str(burner.pid)],
-            capture_output=True, text=True).stdout.strip().split(" ", 1)[0]
-            + " (pid) " + os.path.basename(burn) + f" {threads} {burn_seconds}")
-        time.sleep(30)
-        lines.append(f"# load 30 s into the burner {os.getloadavg()[0]:.2f}")
-        print("\n".join(lines), flush=True)
-        for i in range(1, int(runs) + 1):
-            if burner.poll() is not None:
-                lines.append(f"# the burner ended before iteration {i}: stopping")
-                break
+    print(lines[0], flush=True)
+    for i in range(1, runs + 1):
+        row = [f"run {i:>3}"]
+        for label, binary, cwd in sets:
             load = os.getloadavg()[0]
             began = time.monotonic()
-            procs = []
-            for label, binary, cwd in sets:
-                proc = subprocess.Popen([binary, "--exact", *TESTS], cwd=cwd, env=env(),
-                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                        text=True, start_new_session=True)
-                procs.append((label, proc))
-            row = [f"run {i:>3} load {load:6.2f}"]
-            for label, proc in procs:
-                try:
-                    out, _ = proc.communicate(timeout=max(1, LIMIT - (time.monotonic() - began)))
-                except subprocess.TimeoutExpired:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                    out, _ = proc.communicate()
-                found = verdicts(out)
-                for n, verdict in enumerate(found):
-                    if verdict == "ok":
-                        counts[label][n] += 1
-                    else:
-                        failed = [l for l in out.splitlines()
-                                  if l.startswith(("thread '", "  left:", " right:"))]
-                        fails[label].append((i, SHORT[n], verdict, failed))
-                row.append(f"{label} " + " ".join(f"{s}:{v}" for s, v in zip(SHORT, found)))
-            row.append(f"{time.monotonic() - began:5.1f} s")
-            lines.append("  ".join(row))
-            print(lines[-1], flush=True)
-    finally:
-        if burner.poll() is None:
-            burner.kill()
-        burner.wait()
-        lines.append(f"# burner {burner.pid} ended, exit {burner.returncode}; "
-                     f"load after {os.getloadavg()[0]:.2f}")
-    total = int(runs)
+            found, out = run(binary, cwd)
+            loads[label].append(load)
+            for n, verdict in enumerate(found):
+                if verdict == "ok":
+                    counts[label][n] += 1
+                else:
+                    failed = [l for l in out.splitlines()
+                              if l.startswith(("thread '", "  left:", " right:"))]
+                    fails[label].append((i, SHORT[n], verdict, load, failed))
+            row.append(f"{label} load {load:5.2f} " + " ".join(
+                f"{s}:{v}" for s, v in zip(SHORT, found)) + f" {time.monotonic() - began:5.1f} s")
+        lines.append("  ".join(row))
+        print(lines[-1], flush=True)
     lines.append("")
     for label, _, _ in sets:
+        ls = loads[label]
         lines.append(f"PASSED {label}: " + ", ".join(
-            f"{s} {c}/{total}" for s, c in zip(SHORT, counts[label])))
+            f"{s} {c}/{runs}" for s, c in zip(SHORT, counts[label]))
+            + f"  (1-min load at its runs' start: min {min(ls):.2f}, median "
+              f"{statistics.median(ls):.2f}, max {max(ls):.2f})")
     for label, _, _ in sets:
-        for i, short, verdict, failed in fails[label]:
-            lines.append(f"FAIL {label} run {i} {short} {verdict}")
+        for i, short, verdict, load, failed in fails[label]:
+            lines.append(f"FAIL {label} run {i} {short} {verdict} (load {load:.2f})")
             lines += ["    " + l for l in failed]
     with open(out_path, "w") as handle:
         handle.write("\n".join(lines) + "\n")
-    print("\n".join(lines[-(2 * len(sets) + 2):]))
+    print("\n".join(l for l in lines if l.startswith(("PASSED", "FAIL"))))
 
 
 main()
