@@ -1,0 +1,22 @@
+# The unit's seven tests, the two decoder tests it edits (a_sequence_is_..., what_upstream_resolves_...) and ctrl_o_and_the_page_keys_... (one of M7's killers), as the gate's cargo test (test) ran them at 893999fb (src/ = e90b1bba's):
+test tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one ... ok
+test tui::input::tests::end_with_a_modifier_csi_4_mod_tilde_is_end ... ok
+test tui::input::tests::ctrl_o_and_the_page_keys_are_the_full_transcripts_in_every_spelling_upstream_reads ... ok
+test tui::input::tests::home_with_a_modifier_csi_1_mod_tilde_is_home ... ok
+test tui::input::tests::rxvts_end_csi_8_tilde_is_end ... ok
+test tui::input::tests::rxvts_end_with_a_modifier_csi_8_mod_tilde_is_end ... ok
+test tui::input::tests::rxvts_home_csi_7_tilde_is_home ... ok
+test tui::input::tests::rxvts_home_with_a_modifier_csi_7_mod_tilde_is_home ... ok
+test tui::input::tests::what_upstream_resolves_to_a_key_xfx_does_not_have_is_ignored ... ok
+test tui::shell::tests::rxvts_csi_7_tilde_reaches_the_composer_as_home_and_csi_8_as_end ... ok
+# and in the fault-injection run:
+test tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one ... ok
+test tui::input::tests::ctrl_o_and_the_page_keys_are_the_full_transcripts_in_every_spelling_upstream_reads ... ok
+test tui::input::tests::end_with_a_modifier_csi_4_mod_tilde_is_end ... ok
+test tui::input::tests::home_with_a_modifier_csi_1_mod_tilde_is_home ... ok
+test tui::input::tests::rxvts_end_csi_8_tilde_is_end ... ok
+test tui::input::tests::rxvts_end_with_a_modifier_csi_8_mod_tilde_is_end ... ok
+test tui::input::tests::rxvts_home_csi_7_tilde_is_home ... ok
+test tui::input::tests::rxvts_home_with_a_modifier_csi_7_mod_tilde_is_home ... ok
+test tui::input::tests::what_upstream_resolves_to_a_key_xfx_does_not_have_is_ignored ... ok
+test tui::shell::tests::rxvts_csi_7_tilde_reaches_the_composer_as_home_and_csi_8_as_end ... ok

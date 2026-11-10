@@ -90,6 +90,14 @@
   166      return modifiedArrowAction(letter, modifiers, meta_prefixed) orelse plain;
   167  }
 
+## src/ui/input/escape_parser.zig:550-555
+  550                  return .delete_word_left;
+  551              }
+  552              if (byte == 0x1b) {
+  553                  stage.* = escape_meta_mask | 1;
+  554                  return null;
+  555              }
+
 ## src/ui/input/escape_parser.zig:561-636
   561          2 => {
   562              const meta_prefixed = hasMetaPrefix(stage.*);
@@ -168,7 +176,7 @@
   635              };
   636          },
 
-## src/ui/input/escape_parser.zig:662-737
+## src/ui/input/escape_parser.zig:662-755
   662          5 => {
   663              if (byte >= '0' and byte <= '9') {
   664                  appendCsiDigitSaturating(param, byte);
@@ -245,6 +253,24 @@
   735              };
   736              resetMouseEscapeDecode(stage, param, param2, mouse);
   737              return action;
+  738          },
+  739          // Stage 6: third parameter (e.g. modifyOtherKeys: ESC[27;modifier;keycode~)
+  740          6 => {
+  741              if (byte >= '0' and byte <= '9') {
+  742                  appendCsiDigitSaturating(param, byte);
+  743                  return null;
+  744              }
+  745  
+  746              if (byte == '~') {
+  747                  const meta_prefixed = hasMetaPrefix(stage.*);
+  748                  const keycode = param.*;
+  749                  const modifiers = if (param2.* > 0) param2.* - 1 else 0;
+  750                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  751                  return kittyUnicodeKeyAction(keycode, modifiers, meta_prefixed);
+  752              }
+  753  
+  754              return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
+  755          },
 
 ## src/ui/input/shortcuts.zig:43-65
    43  pub fn fromEscapeAction(action: InputEscapeAction) ?ShortcutAction {

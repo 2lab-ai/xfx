@@ -20,13 +20,15 @@ pin=481104fd
 ranges=(
   # The decoder: the bits and composerMove; the modified arrow table (its H
   # and F rows); the plain navigation table and the keypad's route to it;
-  # CSI's first stages (a digit starts the tilde stage, 3); and the stage
-  # after `;` (5), whose `~` branch is the modified tilde keys.
+  # `ESC ESC`, the meta prefix; CSI's first stages (a digit starts the tilde
+  # stage, 3); and the stage after `;` (5), whose `~` branch is the modified
+  # tilde keys.
   src/ui/input/escape_parser.zig:58-71
   src/ui/input/escape_parser.zig:73-108
   src/ui/input/escape_parser.zig:134-167
+  src/ui/input/escape_parser.zig:550-555
   src/ui/input/escape_parser.zig:561-636
-  src/ui/input/escape_parser.zig:662-737
+  src/ui/input/escape_parser.zig:662-755
   # What an action is to the composer, and the event that carries both.
   src/ui/input/shortcuts.zig:43-65
   src/ui/input/terminal_action_decoder.zig:214-224
