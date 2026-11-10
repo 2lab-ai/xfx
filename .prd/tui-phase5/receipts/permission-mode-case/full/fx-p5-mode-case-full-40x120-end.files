@@ -1,0 +1,11 @@
+=== ~/.fx/backups/settings.json.backup.1794346320122-0000000000000001-201f71df6d08e1e236dd83dd58b0cbb6 (27 bytes)
+{"permission_mode":"yolo"}
+
+=== ~/.fx/history.jsonl (145 bytes)
+{"schema_version":1,"timestamp_ms":1794346320009,"workspace_root":"<work___________________________________>","text":"/permissions full-access"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/settings.json (52 bytes)
+{"permission_mode":"yolo","yolo_acknowledged":true}
+
+=== ~/.fx/settings.lock (0 bytes)

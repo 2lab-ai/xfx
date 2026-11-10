@@ -320,7 +320,9 @@ bounded at 900 s, under the suite lock. One or more per class:
   limit), at the base too: **PROFILE-JSON-LIMITS**.
 - **`"permission_mode": "ASK"`** (round 2, opus SHOULD 4): fx runs in `ask`
   (`PermissionMode.parse`, any case, `types.zig:2375-2382`); xfx in its
-  default `auto`, with an `invalid_value` line: **PERMISSION-MODE-CASE**.
+  default `auto`, with an `invalid_value` line. [Closed by
+  PERMISSION-MODE-CASE, which reads the mode with fx's parse at every
+  surface: its receipt, `.prd/tui-phase5/receipts/permission-mode-case/`.]
 - **`setup`** (round 2, opus NIT 7): fx's reads no settings before the
   keychain check (`runPasteSetup`, `cli_surface.zig:1925-1940`; the probe
   stops there, `oneshot.txt`); xfx's stays open on a stopped profile,

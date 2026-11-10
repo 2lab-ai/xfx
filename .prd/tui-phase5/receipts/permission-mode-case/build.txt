@@ -1,0 +1,3 @@
+== the probed and captured xfx binaries: sha256 (first 12) and what their status says they were built from
+xfx-base sha256 6e30565a71f9 [status] build_revision=9c64ddd32199
+xfx-head sha256 aebd414e0d4e [status] build_revision=9b37d774b6f3
