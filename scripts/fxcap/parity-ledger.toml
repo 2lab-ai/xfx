@@ -666,17 +666,10 @@ why = "fx v0.0.16 hands each replayed `ask_user_question` call its saved detail 
 # five snaps it covered (`p5-input-at` at-st, at-st-down12, at-st-up6, at-stat; `workspace-index` at-plan)
 # identical on the head (.prd/tui-phase5/receipts/at-rank/pairs.txt).
 
-[[cause]]
-id = "at-plan-run-directory"
-kind = "scenario"
-owner = "SWEEP-TEMPNAME-STYLE (queued): capture.sh's run directory under a fixed name, the same for fx's run and xfx's, so a path through it is placed and bolded alike"
-scenarios = ["workspace-index"]
-snaps = ["at-plan"]
-rows = [13]
-fx_row = '^  /\S+/fxcap\.XXXXXX/extra/notes/$'
-xfx_row = '^  /\S+/fxcap\.XXXXXX/extra/notes/$'
-fix = "SWEEP-TEMPNAME-STYLE's fixed run directory name; or a query the folder row matches inside its own name, or not at all (`@plan.md`)"
-why = "`@plan` matches the added folder `<tmp>/fxcap.<run>/extra/notes` only through its whole path, so the letters fx v0.0.16's placement score bolds there (`choosePlacement`'s last search, `file_index.zig:1815-1818@481104fd`) depend on the run directory's six random characters, which differ between the two captures: in AT-RANK's head sweep fx's run `fxcap.qnVERa` gave its `n`, and xfx's `fxcap.YTZTDF`, with none, the `n` of `notes` (.prd/tui-phase5/receipts/at-rank/at-plan-sweep/). The text is the same and each side bolds the best placement in its own path; xfx's rule on both paths is pinned (`a_folder_row_that_only_the_whole_path_matches_is_bold_through_the_whole_path`, src/tui/file_index.rs). Until AT-RANK the row differed under the `at-ranking` cause (.prd/tui-phase5/receipts/at-rank/README.md)."
+# at-plan-run-directory (AT-RANK, e2cba14b) was deleted by train 14: its fx_row and xfx_row
+# (`^  /\S+/fxcap\.XXXXXX/extra/notes/$`) read the run directory as an absolute path, and since LOCAL-PATHS
+# (train 12, main) capture.sh writes it as a placeholder as wide as the path (`<scratch___>`, scripts/fxcap/roots.py),
+# which neither row can match: the cause covered nothing (.prd/tui-phase5/receipts/train-14/README.md, "The ledger").
 
 [[cause]]
 id = "at-ranking-anchor"
