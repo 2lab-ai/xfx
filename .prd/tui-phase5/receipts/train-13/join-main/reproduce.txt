@@ -1,0 +1,22 @@
+conflicted: scripts/fxcap/capfile.py scripts/fxcap/parity-ledger.toml scripts/smoke-tui.sh src/tui/shell.rs
+scripts/fxcap/capfile.py:180: 2 line(s); line 180: base :15057-15082 / ours :15194-15219 / theirs :15059-15084 -> :15194-15219 (both); line 181: base :15075-15077 / ours :15212-15214 / theirs :15077-15079 -> :15212-15214 (both)
+# scripts/fxcap/capfile.py: 1 blocks resolved
+scripts/fxcap/parity-ledger.toml:506: 1 line(s); line 506: base :13866 / ours :13962 / theirs :13864 -> :13962 (both)
+scripts/fxcap/parity-ledger.toml:689: 1 line(s); line 689: base :16840 / ours :16977 / theirs :16842 -> :16977 (both)
+scripts/fxcap/parity-ledger.toml:806: 1 line(s); line 806: base :41113 / ours :42431 / theirs :41165 -> :42431 (both)
+scripts/fxcap/parity-ledger.toml:817: 1 line(s); line 817: base :41113 / ours :42431 / theirs :41165 -> :42431 (both)
+scripts/fxcap/parity-ledger.toml:829: 1 line(s); line 829: base :41113 / ours :42431 / theirs :41165 -> :42431 (both)
+scripts/fxcap/parity-ledger.toml:840: 1 line(s); line 840: base :41113 / ours :42431 / theirs :41165 -> :42431 (both)
+scripts/fxcap/parity-ledger.toml:851: 1 line(s); line 851: base :41113 / ours :42431 / theirs :41165 -> :42431 (both)
+scripts/fxcap/parity-ledger.toml:863: 1 line(s); line 863: base :10480 / ours :10558 / theirs :10478 -> :10558 (both)
+scripts/fxcap/parity-ledger.toml:865: 1 line(s); line 865: base :10480 / ours :10558 / theirs :10478 -> :10558 (both); line 865: base :1747 / ours :1929 / theirs :1745 -> :1929 (both)
+scripts/fxcap/parity-ledger.toml:919: 1 line(s); line 919: base :41113 / ours :42431 / theirs :41165 -> :42431 (both)
+scripts/fxcap/parity-ledger.toml:989: 1 line(s); line 989: base :16840 / ours :16977 / theirs :16842 -> :16977 (both)
+scripts/fxcap/parity-ledger.toml:1083: 1 line(s); line 1083: base :4541 / ours :4557 / theirs :4539 -> :4557 (both)
+# scripts/fxcap/parity-ledger.toml: 12 blocks resolved
+scripts/smoke-tui.sh:11212: 2 line(s); line 11212: base :2705 / ours :2705 / theirs :2703 -> :2703 (theirs); line 11213: base :1063 / ours :1152 / theirs :1063 -> :1152 (ours)
+# scripts/smoke-tui.sh: 1 blocks resolved
+src/tui/shell.rs:24557: 2 line(s); line 24557: base :6070 / ours :6086 / theirs :6068 -> :6086 (both); line 24558: base :6258 / ours :6274 / theirs :6256 -> :6274 (both)
+# src/tui/shell.rs: 1 blocks resolved
+the redone merge's tree is 8adc57df's: no difference
+# exit 0

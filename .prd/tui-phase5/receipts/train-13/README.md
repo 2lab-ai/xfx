@@ -670,6 +670,26 @@ dispatcher's, after PR #90.
   `44bb45e6`, `ea772025`): the join is the dispatcher's, and so is the
   PR's CI on the joined tree.
 
+## The join of main: the code head moved (`join-main/`)
+
+After round 2, train 12 merged as PR #90 (`d2b2ca75`), and this train
+joined it: **the code head is now `0dbfaf39`, not `e1e15efd`.** Three
+commits on top of `afd891af`:
+
+| commit | what |
+|---|---|
+| `8adc57df` | `git merge --no-ff origin/main` (`d2b2ca75`, PR #90). Four files conflicted, 15 blocks, each a reference number both sides re-pointed |
+| `896a11c0` | the 19 references the merge moved, re-pointed; numbers only |
+| `0dbfaf39` | the ledger's `nondeterminism` cause for `p5-mcp-fail` / `list` (PR #90's CI sweep regression) |
+
+Every figure above this section is `e1e15efd`'s -- the gate, the sweeps,
+the jobs, the probe and the reference checks -- and stays that commit's.
+What was measured again at `0dbfaf39` is `join-main/README.md`'s: the
+merge from both ends, the reference checks, the join checks, the gate
+(22 steps, 0 failed; `cargo test` 5699 and 5736 passed, 14 more than
+here, main's) and `p5-mcp-fail`'s `list` re-run. The sweeps were not run
+again: this train's PR's CI sweep job runs on the joined tree.
+
 ## Redaction
 
 The repository is public. Every file here taken from a gate log, a job, the
@@ -733,3 +753,5 @@ this folder. Each receipt commit also passed `check-no-local-paths.sh`.
   `screen-classes*.txt`, `screen-partition.txt`, `gained-rows*.txt`;
   `sweep-rerun.sh`, `reruns.sh`, `rerun_verdicts.py`, `reruns_txt.sh`,
   `reruns.txt`.
+- `join-main/`: the join of main (PR #90) and its checks and gate at the
+  moved code head `0dbfaf39` (its own README).

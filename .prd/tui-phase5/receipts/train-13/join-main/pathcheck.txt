@@ -1,0 +1,25 @@
+# pathcheck.sh before each commit of the join, run behind set -o pipefail and an explicit if, beside the brief's own one-line count (which printed 0 each time); the folder count is over this folder as it stood then
+## before 8adc57df (the merge)
+staged lines: 16793 (a merge in progress: the index against HEAD)
+path check over the staged lines: 0
+shapes over the staged lines that are main's own added lines: brief 0; run-name 8; uid-tail 0
+    main's: +2026-11-10T01:35:55.5041670Z error connecting to <tmpdir><local-path> (File name too long)
+    main's: +error connecting to <tmpdir><local-path> (File name too long)
+    main's: +error connecting to <tmpdir><local-path> (File name too long)
+    main's: +error connecting to <tmpdir><local-path> (File name too long)
+    main's: +error connecting to <tmpdir><local-path> (File name too long)
+    main's: +error connecting to <tmpdir><local-path> (File name too long)
+    main's: +error connecting to <tmpdir><local-path> (File name too long)
+    main's: +roots=(--suffix <local-path> --root "$s<local-path>" work --root "$s/run" scratch --root "$s/scen" scenarios --root "$s/home" home)
+shapes over the staged lines that are not main's: brief 0; run-name 0; uid-tail 0
+shapes over this folder: brief 0; run-name 0; uid-tail 0 (over 2 files)
+## before 896a11c0 (the re-point)
+staged lines: 22
+path check over the staged lines: 0
+shapes over the staged lines: brief 0; run-name 0; uid-tail 0
+shapes over this folder: brief 0; run-name 0; uid-tail 0 (over 3 files)
+## before 0dbfaf39 (the ledger cause)
+staged lines: 15
+path check over the staged lines: 0
+shapes over the staged lines: brief 0; run-name 0; uid-tail 0
+shapes over this folder: brief 0; run-name 0; uid-tail 0 (over 3 files)

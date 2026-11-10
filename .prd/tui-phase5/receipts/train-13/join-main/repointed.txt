@@ -1,0 +1,42 @@
+# at the re-point 896a11c0, whose citing lines are the plan's (the cause after it inserts ledger lines above some)
+SAME  scripts/fxcap/parity-ledger.toml:506 src/tui/shell.rs: src/tui/shell.rs:13962@e1e15efd -> :13960@896a11c0 (+-2 lines the same as the frame's)
+    first: let event = full_transcript::shown_event(event);
+SAME  scripts/fxcap/parity-ledger.toml:689 src/tui/shell.rs: src/tui/shell.rs:16977@e1e15efd -> :16979@896a11c0 (+-2 lines the same as the frame's)
+    first: pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {
+SAME  scripts/fxcap/parity-ledger.toml:806 src/tui/shell.rs: src/tui/shell.rs:42431@e1e15efd -> :42483@896a11c0 (+-2 lines the same as the frame's)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:817 src/tui/shell.rs: src/tui/shell.rs:42431@e1e15efd -> :42483@896a11c0 (+-2 lines the same as the frame's)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:829 src/tui/shell.rs: src/tui/shell.rs:42431@e1e15efd -> :42483@896a11c0 (+-2 lines the same as the frame's)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:840 src/tui/shell.rs: src/tui/shell.rs:42431@e1e15efd -> :42483@896a11c0 (+-2 lines the same as the frame's)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:851 src/tui/shell.rs: src/tui/shell.rs:42431@e1e15efd -> :42483@896a11c0 (+-2 lines the same as the frame's)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:863 src/tui/shell.rs: src/tui/shell.rs:10558@e1e15efd -> :10556@896a11c0 (+-2 lines the same as the frame's)
+    first: fn trailer_rows(&self) -> Vec<String> {
+SAME  scripts/fxcap/parity-ledger.toml:865 src/tui/shell.rs: src/tui/shell.rs:10558@e1e15efd -> :10556@896a11c0 (+-2 lines the same as the frame's)
+    first: fn trailer_rows(&self) -> Vec<String> {
+SAME  scripts/fxcap/parity-ledger.toml:865 (bare): src/tui/shell.rs:1929@e1e15efd -> :1927@896a11c0 (+-2 lines the same as the frame's)
+    first: fn queue_card(transcript: &mut Transcript, text: &str) {
+SAME  scripts/fxcap/parity-ledger.toml:919 src/tui/shell.rs: src/tui/shell.rs:42431@e1e15efd -> :42483@896a11c0 (+-2 lines the same as the frame's)
+    first: "  tools: {} advertised ({},",
+SAME  scripts/fxcap/parity-ledger.toml:989 src/tui/shell.rs: src/tui/shell.rs:16977@e1e15efd -> :16979@896a11c0 (+-2 lines the same as the frame's)
+    first: pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {
+SAME  scripts/fxcap/parity-ledger.toml:1083 src/tui/shell.rs: src/tui/shell.rs:4557@e1e15efd -> :4555@896a11c0 (+-2 lines the same as the frame's)
+    first: self.tally.begin(Instant::now(), estimate);
+SAME  scripts/fxcap/capfile.py:180 src/tui/shell.rs: src/tui/shell.rs:15194-15219@e1e15efd -> :15196-15221@896a11c0 (+-2 lines the same as the frame's)
+    first: fn warning_shown(&self) -> Option<&'static str> {
+SAME  scripts/fxcap/capfile.py:181 (bare): src/tui/shell.rs:15212-15214@e1e15efd -> :15214-15216@896a11c0 (+-2 lines the same as the frame's)
+    first: if self.owner != ScreenOwner::Primary {
+SAME  src/tui/shell.rs:24557 shell.rs: src/tui/shell.rs:6086@e1e15efd -> :6084@896a11c0 (+-2 lines the same as the frame's)
+    first: true
+SAME  src/tui/shell.rs:24558 (bare): src/tui/shell.rs:6274@e1e15efd -> :6272@896a11c0 (+-2 lines the same as the frame's)
+    first: let mut repaint = false;
+SAME  tests/tui.rs:9331 src/tui/shell.rs: src/tui/shell.rs:16806@2e388ca8 -> :16943@896a11c0 (+-2 lines the same as the frame's)
+    first: pub(crate) fn blind(&self) -> bool {
+SAME  tests/tui.rs:9371 src/tui/shell.rs: src/tui/shell.rs:9667@2e388ca8 -> :9736@896a11c0 (+-2 lines the same as the frame's)
+    first: Input::Action(Action::Redraw) => {
+# 19 of 19 the same code
+# 896a11c0: 18 lines out, 18 in; each the same once its numbers are masked
+# exit 0

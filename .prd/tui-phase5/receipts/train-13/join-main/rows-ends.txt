@@ -1,0 +1,45 @@
+# merge 8adc57df: base f53606d1, ours afd891af, theirs d2b2ca75
+## docs/parity.md, rows by first cell
+ours   ok `/image`
+ours   ok `/provider`
+theirs ok `/version`
+ours   ok `ask_user_question`
+ours   ok `sessions`
+theirs ok `status`
+ours   ok full-screen TUI
+ours   ok session event log
+ours   ok session resume
+theirs ok terminal program status (OSC 7501)
+theirs ok version text
+# 157 keys; changed by ours 7, by theirs 4, by both 0; 0 not as the changed side left them (or DIFFER)
+## scripts/fxcap/parity-ledger.toml, entries by table and id
+ours   ok cause:P1-carry-notice
+BOTH cause:activity-tokens-before-request  numbers (base / ours / theirs -> merged: :4541 / :4557 / :4539 -> :4557)
+BOTH cause:amendment-card-after-stop  numbers (base / ours / theirs -> merged: :10480 / :10558 / :10478 -> :10558, :10480 / :10558 / :10478 -> :10558, :1747 / :1929 / :1745 -> :1929)
+BOTH cause:at-resize-band-at-the-bottom  numbers (base / ours / theirs -> merged: :16840 / :16977 / :16842 -> :16977)
+BOTH cause:cancel-page-edge  numbers (base / ours / theirs -> merged: :41113 / :42431 / :41165 -> :42431)
+BOTH cause:full-transcript-shift  numbers (base / ours / theirs -> merged: :41113 / :42431 / :41165 -> :42431)
+theirs ok cause:profile-refuse-at-launch
+ours   ok cause:question-resume-ctrlo-detail
+ours   ok cause:question-resume-replay
+BOTH cause:resize-document-repaint  numbers (base / ours / theirs -> merged: :16840 / :16977 / :16842 -> :16977)
+BOTH cause:safe-page-edge  numbers (base / ours / theirs -> merged: :41113 / :42431 / :41165 -> :42431)
+theirs ok cause:session-age
+BOTH cause:session-record  numbers (base / ours / theirs -> merged: :41113 / :42431 / :41165 -> :42431)
+theirs ok cause:stats-bytes
+BOTH cause:toolgroup-ctrlo-record-short  numbers (base / ours / theirs -> merged: :41113 / :42431 / :41165 -> :42431)
+BOTH cause:transcript-page-offset  numbers (base / ours / theirs -> merged: :41113 / :42431 / :41165 -> :42431)
+theirs ok cause:verbs-refused-port-word
+theirs ok cause:xfx-debug-banner-wrap
+BOTH divergence:answer-drawn-wider-named  numbers (base / ours / theirs -> merged: :13866 / :13962 / :13864 -> :13962)
+theirs ok divergence:status-panel-sandbox
+theirs ok divergence:status-panel-step-limit
+theirs ok divergence:status-panel-updates
+ours   ok normalization:activity-pulse
+theirs ok normalization:banner
+theirs ok normalization:capture-tmpdir
+theirs ok normalization:product-version
+theirs ok normalization:run-directory
+theirs ok normalization:tmux-dead-pane
+# 100 keys; changed by ours 4, by theirs 13, by both 11; 0 not as the changed side left them (or DIFFER)
+# exit 0
