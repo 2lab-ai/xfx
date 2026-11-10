@@ -6,8 +6,9 @@
   stopped with over the profile, or none: any error's name right after the
   program's name (`InvalidProfileConfiguration`, `UnknownConfiguredProvider`,
   `LimitExceeded`, `TooManyModelPreferences`, ...), but `NotDir`, a later
-  failure: fx's session store where `~/.fx` is a file (`profile-file`),
-  which xfx's says in words. The names must be equal. [Round 3: rounds 1
+  failure: fx's interactive launch where `~/.fx` is a file (`profile-file`),
+  past the profile check, which spares `durable_path_unsafe` there
+  (`app_lifecycle.zig:693-696`); xfx says its own in words. The names must be equal. [Round 3: rounds 1
   and 2 matched only `Invalid*`, `Unknown*` and `Retired*` names, so they
   did not compare `LimitExceeded` or `TooManyModelPreferences`.]
 - **Exit**: at the same entries, how the run ended: the exit status, and for

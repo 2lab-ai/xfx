@@ -311,8 +311,9 @@ bounded at 900 s, under the suite lock. One or more per class:
   `p21..p35`: fx refuses the launch (`InvalidProfileConfiguration`) and its
   `status` answers (exit 0, `malformed_settings`); xfx stops both with
   `TooManyModelPreferences`. The same with `"theme": 5` and a `model`.
-  Status only: the launch refuses in both. Part of the key-only-fx-reads
-  class (above); recorded, no unit.
+  Both refuse the launch, by different names; `status` answers in fx and
+  stops in xfx. Part of the key-only-fx-reads class (above); recorded, no
+  unit.
 - **The JSON limits** (round 2, opus SHOULD 1): fx starts on
   `{"zzz": 1e400}`, a 400-digit integer and a 129-deep array; xfx refuses
   every launch (`malformed_settings`: serde_json's f64 range and recursion
@@ -531,7 +532,10 @@ does not change.
   alias for the map. `model_preferences.zig` was cited one line late
   (`:26-34`, `:36-52`); now `:25-33`, `:35-51`, here and in section 9.
 - **outcomes.py** (opus SHOULD 2): any `x?fx: <Name>` counts, but fx's
-  `NotDir` (its session store, after the launch went on, `profile-file`).
+  `NotDir` (`profile-file`'s interactive launch, past the profile check,
+  which spares `durable_path_unsafe` there: `app_lifecycle.zig:693-696`).
+  With it counted, round 2 reads 100 (`profile-file`: fx `NotDir`, xfx its
+  own words), a failure after the check, not a refusal.
   Rerun (`outcomes-round3.txt`) over the same 108: the base **55** by
   refusal and **51** by how each entry ended, round 1 **93** and **90**,
   round 2 **101** and **98** (its fixture lines unchanged): 58 and 96 were
