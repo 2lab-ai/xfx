@@ -254,7 +254,14 @@ launch does not do.
 
 ## 8. Gate (`gates.sh` under the suite lock → `gate.txt`)
 
-GATE-RESULT
+At c782a6d8 (code a57ba760), the tree clean before and after, one hold of
+the lock: **22 steps, 0 failed** -- fmt, both clippys, `cargo test` (5664
+passed, 0 failed) and `--features fault-injection` (5701 passed, 0
+failed), the identity, stubs, secrets and local-path checks and their
+self-tests, the preview contract, the preflight cost, the usage clock,
+`test-gate-env`, the fxcap harness tests, both release builds, `smoke.sh`
+(47 checks) and `smoke-tui.sh` (37 scenarios and the oracle, 1167 checks,
+0 failures).
 
 ## Files
 
@@ -262,5 +269,5 @@ GATE-RESULT
 `xfx-base-fixtures.txt`, `xfx-head-fixtures.txt`, `xfx-head-entries.txt` ·
 `red.txt`, `green.txt`, `test-dev.txt` · `seed_scan.py` → `seed-scan.txt` ·
 `refs.py` → `refs.txt` · `fx/`, `xfx/`, `xfx-base/` · `sweep.sh`,
-`compare.py` → `sweep.txt` · `mutants.py` → `mutants.txt` · `gates.sh` →
-`gate.txt`
+`compare.py` → `sweep.txt` · `cells.sh` → `cells.txt` · `sweep-head/`, `sweep-base/` · `mutants.py` → `mutants.txt` ·
+`gates.sh` → `gate.txt`
