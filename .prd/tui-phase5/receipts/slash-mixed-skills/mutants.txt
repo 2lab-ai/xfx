@@ -1,0 +1,19 @@
+# python3 -I mutants.py <scratch>/sms-mut/clone under suite-lock.sh (slot 4, SUITE_LOCK_SLOTS=4, the dispatcher's one-time
+# exception), TMPDIR=<scratch>: a git clone --no-local at the code head 83dae68e, its source restored after each
+# mutant (porcelain 0 at the end). Each line: the mutant, what it takes out, the cases that failed.
+M1 KILLED (past a blank a name nobody has lists nothing (the base's rule)): a_slash_word_past_spaces_tabs_and_line_breaks_is_the_query, past_a_blank_the_query_goes_on_for_a_name_nobody_has_or_one_with_an_argument, escape_over_the_skills_past_a_blank_lasts_while_the_line_is_a_slash_line, past_the_blank_of_a_name_nobody_has_the_menu_lists_the_skills_the_line_finds, tab_and_enter_bind_the_skill_over_the_whole_line_but_a_names_blank_submits_it, tab_takes_a_slash_words_ghost_before_the_skills_listed_past_the_blank
+M2 KILLED (past a blank a name with an argument lists nothing): a_slash_word_past_spaces_tabs_and_line_breaks_is_the_query, enter_on_a_skill_row_binds_it_unless_the_line_is_a_commands_name, past_a_blank_the_query_goes_on_for_a_name_nobody_has_or_one_with_an_argument, a_name_with_no_argument_lists_nothing_past_its_blank_and_a_table_lists_its_own, tab_and_enter_bind_the_skill_over_the_whole_line_but_a_names_blank_submits_it
+M3 KILLED (past a blank a name with no argument lists the skills too): a_slash_word_past_spaces_tabs_and_line_breaks_is_the_query, past_a_blank_the_query_goes_on_for_a_name_nobody_has_or_one_with_an_argument, a_name_with_no_argument_lists_nothing_past_its_blank_and_a_table_lists_its_own
+M4 KILLED (an anchored line is the slash menu's query too): past_a_blank_the_query_goes_on_for_a_name_nobody_has_or_one_with_an_argument
+M5 KILLED (the name is looked up with case ignored): past_a_blank_the_query_goes_on_for_a_name_nobody_has_or_one_with_an_argument, past_the_blank_of_a_name_nobody_has_the_menu_lists_the_skills_the_line_finds
+M6 KILLED (an alias is not looked up): past_a_blank_the_query_goes_on_for_a_name_nobody_has_or_one_with_an_argument
+M7 KILLED (the commands are matched with the word before the blank, not the line): a_query_that_names_nothing_opens_no_picker, a_slash_word_past_spaces_tabs_and_line_breaks_is_the_query, enter_on_a_skill_row_binds_it_unless_the_line_is_a_commands_name, past_a_blank_the_query_goes_on_for_a_name_nobody_has_or_one_with_an_argument, a_name_with_no_argument_lists_nothing_past_its_blank_and_a_table_lists_its_own, past_the_blank_of_a_name_nobody_has_the_menu_lists_the_skills_the_line_finds, tab_and_enter_bind_the_skill_over_the_whole_line_but_a_names_blank_submits_it, tab_takes_a_slash_words_ghost_before_the_skills_listed_past_the_blank
+M8 KILLED (the skills' query keeps its blanks (the $ menu's trim)): past_the_blank_of_a_name_nobody_has_the_menu_lists_the_skills_the_line_finds
+M9 KILLED (a name and a blank is not a command's name to Enter): enter_on_a_skill_row_binds_it_unless_the_line_is_a_commands_name, tab_and_enter_bind_the_skill_over_the_whole_line_but_a_names_blank_submits_it
+M10 KILLED (Enter on a name and a blank is spent, the line not submitted): tab_and_enter_bind_the_skill_over_the_whole_line_but_a_names_blank_submits_it
+M11 KILLED (Enter on a skill row binds it on a command's name too): enter_on_a_skill_row_binds_it_unless_the_line_is_a_commands_name, tab_and_enter_bind_the_skill_over_the_whole_line_but_a_names_blank_submits_it
+M12 KILLED (the bind does not keep the blanks before the line): a_skill_row_binds_over_the_word_and_keeps_the_blanks_before_it, tab_and_enter_bind_the_skill_over_the_whole_line_but_a_names_blank_submits_it
+M13 KILLED (Tab takes the list's row before a ghost): tab_takes_a_slash_words_ghost_before_the_skills_listed_past_the_blank
+killed 13 of 13
+exit 0
+# the clone's porcelain lines after the run: 0

@@ -171,7 +171,25 @@ base and the head (`caps.sh`): `-git-log` and `-git-log-tab` now the same as
 fx at the head (`Results 1`, `release-notes`; bound), different at the base;
 `-skills-x`, `-help-x`, `-rename-notes` the same on all three.
 
-MUTANTS-SECTION
+## Mutants (`mutants.py`, `mutants.txt`)
+
+**13 of 13 killed** at the code head `83dae68e`, each on a throwaway
+`git clone --no-local` (its source restored after each, and clean at the
+end), against `tui::picker::`, `tui::arg_lists::`, `tui::skills_menu::`, the
+five new shell cases and `a_skill_row_binds_over_the_word_…`. One rule each:
+a name nobody has lists nothing past its blank (M1, the base's rule); a name
+with an argument lists nothing (M2); one with none lists the skills (M3); an
+anchored line is the slash menu's query (M4, caught by the picker case
+alone: the shell's order keeps a table line from the menu as well); the name
+looked up with case ignored (M5); an alias not looked up (M6); the commands
+matched with the word before the blank (M7); the skills' query not trimmed
+of blanks (M8, the `$` menu's own trim); a name and a blank not a command's
+name to Enter (M9); Enter on it spent rather than submitted (M10); Enter
+binding a skill row on a command's name (M11); the bind dropping the blanks
+before the line (M12); Tab taking the row before a ghost (M13).
+`mutants.txt` names the cases that caught each. The run waited about two
+hours for a worker slot and then ran in slot 4 (`SUITE_LOCK_SLOTS=4`), the
+dispatcher's one-time exception; same clone, same script.
 
 ## Sweep (`sweeps.sh`, `sweeps.txt`, `sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`, `cmp_sweeps.py`)
 
@@ -208,7 +226,9 @@ were 5708 passed (lib 4784) and, with fault injection, 5742 passed and the
 three catalog-wait cases that failed on timing there (lib 4804 and those
 three): seven cases more on each, picker.rs' two and the shell's five. The
 commits after it are `.prd/` only, after which the four check scripts ran
-again (`checks-final.txt`).
+again in the worktree at the receipt's head (`checks-final.txt`). The
+gate ran the copy of `gate.sh` made before its usage comment was changed to
+`<scratch>`; nothing else in it differs.
 
 ## References (`repoint.py`, `repoints.txt`, `refs.txt`)
 
