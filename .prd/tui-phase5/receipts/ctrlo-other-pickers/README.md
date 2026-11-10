@@ -698,9 +698,11 @@ only, and the burst C-k case the round added found no gap.
 
 ### 12.2 The cases (`bcb4e211`)
 
-Each passes on `ec0dfe00`'s code -- the head's source differs from it in
-comments and cases only -- so none has a RED: each pins what the head
-already did (`green-unit.txt`, its third part).
+Each passes on `ec0dfe00`'s code, run there: a `--no-local` clone at
+`ec0dfe00` with `bcb4e211`'s cases applied, the six by name under the lock,
+**6 passed** (`green-unit.txt`, its last part). So none has a RED: each
+pins what the head already did. GREEN at the gate commit is the third
+part.
 
 - **`keep` over a scrolled window** (gpt6 SHOULD 1, opus NIT 2):
   `c_j_in_ctrl_os_burst_inside_a_search_word_keeps_a_scrolled_catalogs_mark_and_window`
@@ -761,6 +763,12 @@ All pairs: **78; identical: base 11, round 1 39, head 42; the head's other
 36: 27 differ only in their scenario's first snap's rows, 9 more** --
 round 2's five (§11.5) and the catalog's and settings menu's bursts
 above.
+
+No sweep ran this round: the source changed in comments and cases only.
+The three scenarios fall under the sweep's `p5-ctrlo*`, so the next sweep
+has nine more pairs: `/model`'s three pass, and the catalog's and the
+settings menu's six fall where `help open` and the settings scenarios'
+Sound level row already are -- not a regression.
 
 ### 12.4 Mutants (`mutants.py`, `mutants-r3.txt`)
 

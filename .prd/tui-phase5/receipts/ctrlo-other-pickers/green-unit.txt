@@ -82,3 +82,18 @@ test tui::shell::tests::shift_up_and_down_under_the_full_transcript_scroll_nothi
 test tui::shell::tests::the_arrows_and_page_keys_under_the_full_transcript_are_its_own ... ok
 test tui::shell::tests::the_at_lists_column_hangs_from_the_carets_row_once_its_word_has_wrapped ... ok
 test result: ok. 4655 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 41.87s
+
+# Round 3, no RED: the round's six cases on ec0dfe00's code
+# at ec0dfe00 with bcb4e211's cases applied (git diff c2452375 bcb4e211 -- src/tui/shell.rs, git apply --3way) in a --no-local clone; cargo test --locked --lib -- <the round's cases by name>, TMPDIR a short scratch directory, under suite-lock.sh (one normal slot); the build line's path written as <work>
+   Compiling xfx v0.1.0 (<work>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.85s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+running 6 tests
+test tui::shell::tests::c_j_in_ctrl_os_burst_inside_a_search_word_keeps_a_scrolled_settings_mark_and_window ... ok
+test tui::shell::tests::c_j_in_ctrl_os_burst_inside_a_search_word_keeps_a_scrolled_catalogs_mark_and_window ... ok
+test tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_fork_close_the_menu_and_the_screen_stays ... ok
+test tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_effort_close_the_menu_and_the_screen_stays ... ok
+test tui::shell::tests::the_at_lists_column_hangs_from_the_carets_row_once_its_word_has_wrapped ... ok
+test tui::shell::tests::c_k_in_ctrl_os_burst_with_text_after_the_caret_kills_it_and_each_menus_search_follows ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 4656 filtered out; finished in 0.04s
+# exit 0
