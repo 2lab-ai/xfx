@@ -18734,11 +18734,12 @@ mod tests {
     /// stop to its end in [`first_of_two_and_a_stop`]. It bounds a
     /// **failure** -- a stop held up off tokio's timers, which the paused
     /// clock reads as no time -- not the scheduler: the segment holds the
-    /// stopped turn's own `fsync`ed record (`session::store`), so it is
-    /// sized well past both the crate's 2 s for "at once" and ten times the
-    /// most the receipt's repeat measured (CATALOG-WAIT-CLOCK,
-    /// `load-check3.txt`), for the load the gate meets.
-    const STOP_TO_END: Duration = Duration::from_secs(5);
+    /// stopped turn's own `fsync`ed record (`session::store`), whose tail
+    /// is long. Sized at the larger of the crate's 2 s for "at once" and ten
+    /// times the most the receipt's 50-run repeat measured, 832 ms at load
+    /// up to 23 (CATALOG-WAIT-CLOCK, `load-check3.txt`), rounded up to
+    /// [`TEST_DRAIN`]'s 10 s.
+    const STOP_TO_END: Duration = TEST_DRAIN;
 
     /// How long the band waits, on the wall clock, for a run that never ends:
     /// far past anything here, because it bounds a **failure**.
