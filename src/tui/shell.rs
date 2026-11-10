@@ -12115,7 +12115,6 @@ impl Shell {
                         || self.info_panel.is_some()
                         || self.mcp_menu.is_some()
                         || self.asking()
-                        || self.rule_confirm.is_some()
                         || self.help_menu.is_some()
                         || self.settings_menu.is_some()
                         || self.fork_menu.is_some()
@@ -28669,6 +28668,15 @@ mod tests {
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         assert!(shell.rule_confirm.is_none(), "Escape closes it");
         assert!(shell.document().is_empty(), "{:?}", shell.document());
+        // With no turn running it stops nothing (RULE-CONFIRM-KEYS: Escape
+        // stops a turn only over one).
+        while let Some(control) = shell.controlled() {
+            assert!(
+                !matches!(control, TurnControl::Cancel { .. }),
+                "an idle Escape sent a stop"
+            );
+        }
+        assert!(!shell.stop_requested, "an idle Escape asked for a stop");
         shell.route_bytes(b"/permissions remember deny create_folder {\"path\":\"d\"}\r");
         shell.route_bytes(b"2");
         assert_eq!(
