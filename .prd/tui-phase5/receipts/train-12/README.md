@@ -680,6 +680,23 @@ stays `03fb5436`, and the gate, the sweeps and the jobs stand.
   meet), which is rowmerge.py's rule; and the `/stats` byte count's cause
   stays *(not measured)*.
 
+## Join of main: PR #91 (`join-main/`)
+
+After CI's rounds (`ci-socket/`, `ci-timeout/`, `ci-mcp-timing/`), PR #91
+(the 0.2.0 preview) merged to main as `8f921425`, and the train joined it
+in `0c39ce8c` (`--no-ff`, no conflict). Both ends were checked file by file
+and row by row. Re-pointed: 23 references the merge moved (`c7d30afc`),
+and three test comments that named the wrong code (`2e388ca8`). The tree's
+local-path check passed, and the gates were rerun at the head. Details in
+`join-main/README.md`.
+
+`03fb5436` is no longer the code head. The sections above, and "No code
+after the code head", describe the train before CI. CI's rounds changed the
+harness and its scenarios (`ci-*/`). The join brings main's code, and
+`c7d30afc` and `2e388ca8` change numbers in src/tui/shell.rs, the ledger
+and tests/. Each round's gates ran at its own head, and the join's ran at
+`2e388ca8` (`join-main/gates.txt`).
+
 ## Files
 
 - Merges: `blocks.py` (train 11's), `rowsmerge.py` (new), `semantic.py`

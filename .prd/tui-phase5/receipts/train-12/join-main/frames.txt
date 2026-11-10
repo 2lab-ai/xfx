@@ -1,0 +1,25 @@
+scripts/fxcap/parity-ledger.toml:506  src/tui/shell.rs:13866  base df46777e -> (13864, 13864) | blamed 6ae87955 -> (13864, 13864)  same
+scripts/fxcap/parity-ledger.toml:552  src/tui/shell.rs:3820-3837  train 71d3e02b -> (3818, 3835) | blamed f0a9af5b -> (3818, 3835)  same
+scripts/fxcap/parity-ledger.toml:553  src/tui/shell.rs:3820-3837  train 71d3e02b -> (3818, 3835) | blamed f0a9af5b -> (3818, 3835)  same
+scripts/fxcap/parity-ledger.toml:690  src/tui/shell.rs:16840  base df46777e -> (16842, 16842) | blamed 6ae87955 -> (16842, 16842)  same
+scripts/fxcap/parity-ledger.toml:816  src/tui/shell.rs:41113  train 71d3e02b -> (41165, 41165) | blamed 03fb5436 -> (41165, 41165)  same
+scripts/fxcap/parity-ledger.toml:827  src/tui/shell.rs:41113  train 71d3e02b -> (41165, 41165) | blamed 03fb5436 -> (41165, 41165)  same
+scripts/fxcap/parity-ledger.toml:839  src/tui/shell.rs:41113  train 71d3e02b -> (41165, 41165) | blamed 03fb5436 -> (41165, 41165)  same
+scripts/fxcap/parity-ledger.toml:850  src/tui/shell.rs:41113  train 71d3e02b -> (41165, 41165) | blamed 03fb5436 -> (41165, 41165)  same
+scripts/fxcap/parity-ledger.toml:861  src/tui/shell.rs:41113  train 71d3e02b -> (41165, 41165) | blamed 03fb5436 -> (41165, 41165)  same
+scripts/fxcap/parity-ledger.toml:873  src/tui/shell.rs:10480  base df46777e -> (10478, 10478) | blamed 6ae87955 -> (10478, 10478)  same
+scripts/fxcap/parity-ledger.toml:875  src/tui/shell.rs:10480  base df46777e -> (10478, 10478) | blamed 6ae87955 -> (10478, 10478)  same
+scripts/fxcap/parity-ledger.toml:875  :1747  base df46777e -> (1745, 1745) | blamed 6ae87955 -> (1745, 1745)  same
+scripts/fxcap/parity-ledger.toml:929  src/tui/shell.rs:41113  train 71d3e02b -> (41165, 41165) | blamed 03fb5436 -> (41165, 41165)  same
+scripts/fxcap/parity-ledger.toml:965  src/tui/shell.rs:1854  base df46777e -> (1852, 1852) | blamed 6ae87955 -> (1852, 1852)  same
+scripts/fxcap/parity-ledger.toml:999  src/tui/shell.rs:16840  base df46777e -> (16842, 16842) | blamed 6ae87955 -> (16842, 16842)  same
+scripts/fxcap/parity-ledger.toml:1093  src/tui/shell.rs:4541  base df46777e -> (4539, 4539) | blamed 6ae87955 -> (4539, 4539)  same
+scripts/fxcap/capfile.py:180  src/tui/shell.rs:15057-15082  base df46777e -> (15059, 15084) | blamed 6ae87955 -> (15059, 15084)  same
+scripts/fxcap/capfile.py:181  :15075-15077  base df46777e -> (15077, 15079) | blamed 6ae87955 -> (15077, 15079)  same
+scripts/smoke-tui.sh:11212  shell.rs:2705  base df46777e -> (2703, 2703) | blamed 6ae87955 -> (2703, 2703)  same
+src/tui/event_loop.rs:14833  shell.rs:2817  base df46777e -> (2815, 2815) | blamed 6ae87955 -> (2815, 2815)  same
+src/tui/shell.rs:23739  shell.rs:6070  base df46777e -> (6068, 6068) | blamed 6ae87955 -> (6068, 6068)  same
+src/tui/shell.rs:23740  :6258  base df46777e -> (6256, 6256) | blamed 6ae87955 -> (6256, 6256)  same
+docs/parity.md:241  .prd/01-spec.md:56  base df46777e -> (58, 58) | blamed 6ae87955 -> (58, 58)  same
+tests/sessions.rs:3239  src/app.rs:242  base df46777e -> (245, 245) | blamed 7daab7f9 -> (280, 280)  DIFFER
+# 1 whose two readings differ

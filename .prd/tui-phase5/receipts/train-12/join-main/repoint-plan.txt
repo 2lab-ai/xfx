@@ -1,0 +1,24 @@
+scripts/fxcap/parity-ledger.toml:506  src/tui/shell.rs:13866 -> src/tui/shell.rs:13864  frame base (6ae87955)  code the same: True  | let event = full_transcript::shown_event(event);
+scripts/fxcap/parity-ledger.toml:552  src/tui/shell.rs:3820-3837 -> src/tui/shell.rs:3818-3835  frame train (f0a9af5b)  code the same: True  | pub(crate) fn config_issues(&mut self, config: &RuntimeConfig) {
+scripts/fxcap/parity-ledger.toml:553  src/tui/shell.rs:3820-3837 -> src/tui/shell.rs:3818-3835  frame train (f0a9af5b)  code the same: True  | pub(crate) fn config_issues(&mut self, config: &RuntimeConfig) {
+scripts/fxcap/parity-ledger.toml:690  src/tui/shell.rs:16840 -> src/tui/shell.rs:16842  frame base (6ae87955)  code the same: True  | pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {
+scripts/fxcap/parity-ledger.toml:816  src/tui/shell.rs:41113 -> src/tui/shell.rs:41165  frame train (03fb5436)  code the same: True  | "  tools: {} advertised ({},",
+scripts/fxcap/parity-ledger.toml:827  src/tui/shell.rs:41113 -> src/tui/shell.rs:41165  frame train (03fb5436)  code the same: True  | "  tools: {} advertised ({},",
+scripts/fxcap/parity-ledger.toml:839  src/tui/shell.rs:41113 -> src/tui/shell.rs:41165  frame train (03fb5436)  code the same: True  | "  tools: {} advertised ({},",
+scripts/fxcap/parity-ledger.toml:850  src/tui/shell.rs:41113 -> src/tui/shell.rs:41165  frame train (03fb5436)  code the same: True  | "  tools: {} advertised ({},",
+scripts/fxcap/parity-ledger.toml:861  src/tui/shell.rs:41113 -> src/tui/shell.rs:41165  frame train (03fb5436)  code the same: True  | "  tools: {} advertised ({},",
+scripts/fxcap/parity-ledger.toml:873  src/tui/shell.rs:10480 -> src/tui/shell.rs:10478  frame base (6ae87955)  code the same: True  | fn trailer_rows(&self) -> Vec<String> {
+scripts/fxcap/parity-ledger.toml:875  src/tui/shell.rs:10480 -> src/tui/shell.rs:10478  frame base (6ae87955)  code the same: True  | fn trailer_rows(&self) -> Vec<String> {
+scripts/fxcap/parity-ledger.toml:875  :1747 -> :1745  frame base (6ae87955)  code the same: True  | /// lands and never given back, so no two images in one process answer
+scripts/fxcap/parity-ledger.toml:929  src/tui/shell.rs:41113 -> src/tui/shell.rs:41165  frame train (03fb5436)  code the same: True  | "  tools: {} advertised ({},",
+scripts/fxcap/parity-ledger.toml:965  src/tui/shell.rs:1854 -> src/tui/shell.rs:1852  frame base (6ae87955)  code the same: True  | "ansi_bytes={}, redraws={}, debounced_resizes={}, footer_updates=0, st
+scripts/fxcap/parity-ledger.toml:999  src/tui/shell.rs:16840 -> src/tui/shell.rs:16842  frame base (6ae87955)  code the same: True  | pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {
+scripts/fxcap/parity-ledger.toml:1093  src/tui/shell.rs:4541 -> src/tui/shell.rs:4539  frame base (6ae87955)  code the same: True  | self.tally.begin(Instant::now(), estimate);
+scripts/fxcap/capfile.py:180  src/tui/shell.rs:15057-15082 -> src/tui/shell.rs:15059-15084  frame base (6ae87955)  code the same: True  | fn warning_shown(&self) -> Option<&'static str> {
+scripts/fxcap/capfile.py:181  :15075-15077 -> :15077-15079  frame base (6ae87955)  code the same: True  | if self.owner != ScreenOwner::Primary {
+scripts/smoke-tui.sh:11212  shell.rs:2705 -> shell.rs:2703  frame base (6ae87955)  code the same: True  | pending_cut: None,
+src/tui/event_loop.rs:14833  shell.rs:2817 -> shell.rs:2815  frame base (6ae87955)  code the same: True  | #[cfg(test)]
+src/tui/shell.rs:23739  shell.rs:6070 -> shell.rs:6068  frame base (6ae87955)  code the same: True  | true
+src/tui/shell.rs:23740  :6258 -> :6256  frame base (6ae87955)  code the same: True  | let mut repaint = false;
+docs/parity.md:241  .prd/01-spec.md:56 -> .prd/01-spec.md:58  frame base (6ae87955)  code the same: True  | 3. **A separate identity.** Binary `xfx`, profile home `~/.xfx`, proje
+# 23 references; 0 whose code is not the same

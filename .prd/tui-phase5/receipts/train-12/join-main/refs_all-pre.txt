@@ -1,0 +1,46 @@
+# head 0c39ce8c; sides: train 71d3e02b, main 8f921425
+docs/superpowers/plans/2026-08-24-provider-frame.md: tests/cli.rs:910
+    train MOVED -> 980
+docs/superpowers/plans/2026-08-24-tui-phase1.md: src/output.rs:968-972
+    train MOVED -> 976-980
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/app.rs:434-436
+    train MOVED -> 437-439
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/output.rs:1124
+    train MOVED -> 1132
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:3108
+    train MOVED -> 3106
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:433
+    train MOVED -> 431
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/output.rs:684
+    train MOVED -> 692
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/shell.rs:1593
+    train MOVED -> 1591
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/shell.rs:1117
+    train MOVED -> 1115
+scripts/fxcap/capfile.py: src/tui/shell.rs:15057-15082
+    train MOVED -> 15059-15084
+scripts/fxcap/parity-ledger.toml: scripts/fxcap/capture.sh:987
+    main MOVED -> 1157
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:10480
+    train MOVED -> 10478
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:13866
+    train MOVED -> 13864
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:16840
+    train MOVED -> 16842
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:1854
+    train MOVED -> 1852
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:3820-3837
+    train MOVED -> 3818-3835
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:41113
+    train MOVED -> 41165
+scripts/fxcap/parity-ledger.toml: src/tui/shell.rs:4541
+    train MOVED -> 4539
+scripts/fxcap/test_sweep.py: scripts/fxcap/cells.py:100000
+    train MOVED -> 100079
+tests/sessions.rs: src/app.rs:242
+    train MOVED -> 245
+tests/tui.rs: src/tui/shell.rs:2113
+    train MOVED -> 2111
+tests/tui.rs: src/tui/shell.rs:2814
+    train MOVED -> 2812
+# 198 references in 605 files; 22 moved or changed on some side that cites them
