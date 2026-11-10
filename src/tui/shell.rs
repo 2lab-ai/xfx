@@ -23717,10 +23717,10 @@ mod tests {
     }
 
     /// The byte a model question script writes where the key under test goes.
-    const KEY: u8 = 0;
+    const MODEL_QUESTION_KEY: u8 = 0;
 
     /// `script` on a fresh shell asked [`a_batch`], one write per entry, with
-    /// every [`KEY`] in it replaced by `key`: the step after each write.
+    /// every [`MODEL_QUESTION_KEY`] in it replaced by `key`: the step after each write.
     fn model_question_run(script: &[&[u8]], key: &[u8]) -> Vec<ModelQuestionStep> {
         let mut fixture = shell(24, 120);
         asking_question(&mut fixture, a_batch());
@@ -23730,7 +23730,7 @@ mod tests {
                 let bytes: Vec<u8> = write
                     .iter()
                     .flat_map(|byte| {
-                        if *byte == KEY {
+                        if *byte == MODEL_QUESTION_KEY {
                             key.to_vec()
                         } else {
                             vec![*byte]
@@ -23795,22 +23795,39 @@ mod tests {
         // `input_question_runtime.zig:47-50`). There is no review step.
         // `fx-p5-question-ctrl-j-40x120-*`.
         let cases: [ModelQuestionCase; 6] = [
-            ("at a choice", &[&[KEY], &[KEY]], &["Thorough", "Yes"]),
+            (
+                "at a choice",
+                &[&[MODEL_QUESTION_KEY], &[MODEL_QUESTION_KEY]],
+                &["Thorough", "Yes"],
+            ),
             (
                 "a move first",
-                &[b"\x1b[B", &[KEY], b"\x1b[B", &[KEY]],
+                &[
+                    b"\x1b[B",
+                    &[MODEL_QUESTION_KEY],
+                    b"\x1b[B",
+                    &[MODEL_QUESTION_KEY],
+                ],
                 &["Quick", "No"],
             ),
-            ("in the field", &[b"3", b"ab", &[KEY], b"1"], &["ab", "Yes"]),
-            ("an empty field", &[b"3", &[KEY], &[KEY]], &["", "Yes"]),
+            (
+                "in the field",
+                &[b"3", b"ab", &[MODEL_QUESTION_KEY], b"1"],
+                &["ab", "Yes"],
+            ),
+            (
+                "an empty field",
+                &[b"3", &[MODEL_QUESTION_KEY], &[MODEL_QUESTION_KEY]],
+                &["", "Yes"],
+            ),
             (
                 "out of order, cycling back",
-                &[b"\t", &[KEY], &[KEY]],
+                &[b"\t", &[MODEL_QUESTION_KEY], &[MODEL_QUESTION_KEY]],
                 &["Thorough", "Yes"],
             ),
             (
                 "the field sends the batch",
-                &[b"1", b"3", b"xy", &[KEY]],
+                &[b"1", b"3", b"xy", &[MODEL_QUESTION_KEY]],
                 &["Thorough", "xy"],
             ),
         ];
@@ -23831,17 +23848,22 @@ mod tests {
         let cases: [ModelQuestionCase; 3] = [
             (
                 "a move and two",
-                &[&[0x1b, b'[', b'B', KEY, KEY]],
+                &[&[0x1b, b'[', b'B', MODEL_QUESTION_KEY, MODEL_QUESTION_KEY]],
                 &["Quick", "Yes"],
             ),
             (
                 "the field opened, typed and sent",
-                &[&[b'3', b'a', b'b', KEY, b'2']],
+                &[&[b'3', b'a', b'b', MODEL_QUESTION_KEY, b'2']],
                 &["ab", "No"],
             ),
             (
                 "behind a paste's end marker",
-                &[b"3", b"\x1b[200~new\x1b[201~\x00", &[KEY], b"1"],
+                &[
+                    b"3",
+                    b"\x1b[200~new\x1b[201~\x00",
+                    &[MODEL_QUESTION_KEY],
+                    b"1",
+                ],
                 &["new", "Yes"],
             ),
         ];
