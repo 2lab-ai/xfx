@@ -1,0 +1,38 @@
+# The unit's tests (the 15 RED failures, the strict-shapes test it edits, the paste-marker test) in the gate's run at 71876daa.
+## test
+test tui::input::tests::a_modifier_field_of_1_is_the_bare_tilde_key ... ok
+test tui::input::tests::an_empty_modifier_field_is_the_bare_tilde_key ... ok
+test tui::input::tests::a_modifier_field_of_0_is_the_bare_tilde_key ... ok
+test tui::input::tests::a_leading_zero_in_a_tilde_field_is_the_number ... ok
+test tui::input::tests::a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits ... ok
+test tui::input::tests::delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it ... ok
+test tui::input::tests::a_third_tilde_field_is_a_key_report_whatever_the_first_holds ... ok
+test tui::input::tests::every_modifier_field_on_the_tilde_home_and_end_is_the_key ... ok
+test tui::input::tests::home_with_a_modifier_csi_1_mod_tilde_is_home ... ok
+test tui::input::tests::end_with_a_modifier_csi_4_mod_tilde_is_end ... ok
+test tui::input::tests::rxvts_home_with_a_modifier_csi_7_mod_tilde_is_home ... ok
+test tui::input::tests::rxvts_end_with_a_modifier_csi_8_mod_tilde_is_end ... ok
+test tui::input::tests::ctrl_o_and_the_page_keys_are_the_full_transcripts_in_every_spelling_upstream_reads ... ok
+test tui::input::tests::a_ctrl_letter_is_upstreams_table_in_a_strict_spelling ... ok
+test tui::input::tests::everything_else_under_the_two_families_is_ignored ... ok
+test tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one ... ok
+test tui::input::tests::the_paste_markers_are_matched_by_their_exact_spelling ... ok
+## test-fi
+test tui::input::tests::a_modifier_field_of_1_is_the_bare_tilde_key ... ok
+test tui::input::tests::an_empty_modifier_field_is_the_bare_tilde_key ... ok
+test tui::input::tests::a_modifier_field_of_0_is_the_bare_tilde_key ... ok
+test tui::input::tests::a_leading_zero_in_a_tilde_field_is_the_number ... ok
+test tui::input::tests::a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits ... ok
+test tui::input::tests::delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it ... ok
+test tui::input::tests::a_third_tilde_field_is_a_key_report_whatever_the_first_holds ... ok
+test tui::input::tests::every_modifier_field_on_the_tilde_home_and_end_is_the_key ... ok
+test tui::input::tests::home_with_a_modifier_csi_1_mod_tilde_is_home ... ok
+test tui::input::tests::end_with_a_modifier_csi_4_mod_tilde_is_end ... ok
+test tui::input::tests::rxvts_home_with_a_modifier_csi_7_mod_tilde_is_home ... ok
+test tui::input::tests::rxvts_end_with_a_modifier_csi_8_mod_tilde_is_end ... ok
+test tui::input::tests::ctrl_o_and_the_page_keys_are_the_full_transcripts_in_every_spelling_upstream_reads ... ok
+test tui::input::tests::a_ctrl_letter_is_upstreams_table_in_a_strict_spelling ... ok
+test tui::input::tests::everything_else_under_the_two_families_is_ignored ... ok
+test tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one ... ok
+test tui::input::tests::the_paste_markers_are_matched_by_their_exact_spelling ... ok
+34 of 34 lines ok

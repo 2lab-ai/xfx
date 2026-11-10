@@ -11,7 +11,10 @@ recorded the gap and named this unit its owner.
 |---|---|
 | `074f5113` | RED: one test per spelling class that changes, the lock-bit test renamed and flipped, the old pins of the strict reading flipped, the scenario `p5-tilde-empty-modifier` |
 | `ce4f9c6b` | **the code head**: `tilde_report`, `tilde_field`, `tilde_key` and `forward_delete` in `src/tui/input.rs`, and the docs of `csi` and the module; no test change |
-| the commits after | this folder, `docs/parity.md`, DECODER-TILDE-HOME-END's README (one word); no `src/` change |
+| `02101751` | two test comments (the lock-bit test's page-key loop, the Ctrl-letter test's name); no assertion changes |
+| `0ed9a69f` | this folder (but `mutants.txt`, `gate.txt`, `green.txt`), `docs/parity.md`, DECODER-TILDE-HOME-END's README (one word); no `src/` change |
+| `71876daa` | `mutants.txt`; no `src/` change. **The gate ran here** |
+| the commit after | `gate.txt`, `green.txt`, this file's mutant and gate sections; no `src/` change |
 
 The source change outside the test modules is +107/-88 lines
 (`git diff 074f5113 ce4f9c6b --stat -- src`); every hunk is above `mod tests`.
@@ -141,12 +144,46 @@ tests and to the probe below.
 
 On a `git clone --no-local` of the branch at `ce4f9c6b` (its remote removed)
 under `$TMPDIR/mut/`, one at a time, the file restored after each, under the
-suite lock: see `mutants.txt` for the verdicts and the clone's state after
-the run.
+suite lock, each run `cargo test --lib -- tui::input::tests`. **11 of 11
+killed**, the clone's tree clean after the run (`mutants.txt`, which names
+the first six failing tests of each):
+
+| mutant | killed by |
+|---|---|
+| M1 `; 1` is no key (the base's `mask == 0` guard) | the `; 1` test, the Home and End modified-tilde tests, the field walk, the page-keys test, the leading-zero test, and two more `mutants.txt` does not name |
+| M2 an empty field is no field | the empty-field test, the field walk, the third-field test |
+| M3 a field of `0` is no field | the `0` test, the field walk, the third-field test |
+| M4 a leading zero is no number (the base's canonical spelling) | the leading-zero test, the `0` test (`00`), the third-field test, the page-keys test, the Ctrl-letter test |
+| M5 a modifier past 256 is no key (the base's eight bits) | the past-256 test, the field walk, the third-field test |
+| M6 a field wraps past 65535 instead of saturating | the past-256 test alone |
+| M7 Delete reads its field with the lock bits masked off (the base's reading) | the lock-bit test, the past-256 test |
+| M8 Delete reads only the field's low byte | the past-256 test alone |
+| M9 a third field is a key report only under `27` (the base's family) | the third-field test, `everything_else_under_the_two_families_is_ignored` (`28;10;122~`) |
+| M10 an empty first field is read as `0` | the third-field test alone |
+| M11 the number 200 opens a paste (the markers on the numeric path) | the paste-marker test, the leading-zero test, the decoder's noise-bound test |
 
 ## Gate (`gate.txt`)
 
-See `gate.txt`.
+The brief's gate, once, under the suite lock with a short `TMPDIR`, at
+`71876daa`, whose `src/` is the code head's plus two test comments
+(`gate.txt` carries the `git diff --stat`). Every step exits 0 and the tree
+was the same at the end:
+
+| step | result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo clippy --locked --all-targets -- -D warnings` | clean |
+| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | clean |
+| `cargo test --locked --no-fail-fast` | 5700 passed, 0 failed, 7 ignored (15 result lines) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 5737 passed, 0 failed, 7 ignored (15 result lines) |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh`, `check-no-local-paths.sh` | exit 0 each |
+
+DECODER-TILDE-HOME-END's round-2 gate read 5694 and 5731; this unit adds six
+`#[test]`s (`git diff ebb04642 71876daa -- src` renames two and removes none).
+A first run, at the receipt commit before `captures.txt`'s placeholder was
+fixed, failed `tests/parity.rs`'s identity test on that placeholder; it was
+stopped, the fix folded into that commit (now `0ed9a69f`), and this run is the gate. `green.txt`: the
+unit's 17 tests from both suites of this run, 34 of 34 ok.
 
 ## The ledger's refs (`refs.py`, `refs.txt`)
 
