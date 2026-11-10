@@ -4,8 +4,8 @@ per-mutant timeout, and restores the files. A mutant is killed when a test
 fails. Never run against the worktree: the clone must sit under
 `$TMPDIR/mut/`, and its build and temp files go beside it there.
 APPROVAL-DRAFT-KEYS' mutants.py, with this unit's mutants (M1-M3 the brief's,
-M3 split by spelling; M4-M9 what the rule rests on) and a mutant made of
-one or more edits."""
+M3 split by spelling; M4-M7 where C-j answers; M8 the fix taken out) and a
+mutant made of one or more edits."""
 import os, subprocess, sys, time
 repo, out = sys.argv[1], sys.argv[2]
 mut = os.path.join(os.environ["TMPDIR"].rstrip("/"), "mut")

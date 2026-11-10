@@ -14,7 +14,8 @@ not yet on `main`).
 | `66ea82f3` | RED: five shell tests, the scenarios `p5-approval-ctrl-j` and `p5-approval-ctrl-j-panel`; tests only in `src/` |
 | `2cf89566` | **the fix**: `Shell::decide` reads `Action::ControlJ` as `approval::Action::Submit`; `ControlJ`'s and `approval::edits`' docs; `docs/parity.md`'s approval sentence; the ledger's moved refs |
 | `9dd02bc3` | **the code head**: two fx citations the unit's lines carry pointed at the pin (comments only: the RED test's `:103-108` read as `shortcuts.zig`'s, and `ControlJ`'s doc cited c1db919's `app_input_runtime.zig:1220-1235` with no pin); the ledger's moved refs |
-| the commit after | this receipt; no `src/` change |
+| `88530fb6`, `757245db` | this receipt, and the identity and stubs checks rerun with it tracked; no `src/` change |
+| the commit after | **round 2** (the reviews of `757245db`, no MUST): docs and comments only -- the newline habit's composer case and its revert, the readiness row's file-approval scope, the `/mcp` reasoning, the spelling table called representative, the receipt's commit list and mutant count; no code or test logic |
 
 Captures, both scenarios at 40x120: `fx/` is fx v0.0.16 (sha256 `8e6cda2e…`,
 `FX_AUTO_UPGRADE=0`; `capture.sh` checked its bytes after each run), `red/`
@@ -43,7 +44,7 @@ is the marked choice's decision whether or not a draft is open
 |---|---|---|---|
 | at a choice | answers the marked choice, as Enter (`src/ui/input/runtime.zig:64`; `approval_decision.zig:141`) | nothing | **answers, as Enter** |
 | in an open draft, on the band and on the review plane | answers the marked choice and sends the draft: the same `.submit` (the review plane is a surface, not another key route, `app_input_runtime.zig:1161-1185`) | nothing | **answers and sends the draft** |
-| with a move or a draft edit in the same read | refused while the modal frame they asked for is pending, spent silently (`input_approval_runtime.zig:191-218`) | nothing | **refused, as Enter** |
+| with a move or a draft edit in the same read | at a file approval, refused while the modal frame they asked for is pending, spent silently (`input_approval_runtime.zig:191-218`); at a command, answered at once (the check opens `decision != .deny and request.file != null`, `:191-192`) | nothing | **refused, as Enter, at every approval** (APPROVAL-READINESS-SETTLED's decision) |
 | at Deny (choice 3) | a refusal, never gated (`decision != .deny`, `input_approval_runtime.zig:191`), the deny draft sent | nothing | **a refusal at once, the draft sent** |
 | a menu open under the question | the question takes the byte: its branch runs before the MCP menu and the compact menus (`/status`'s panel among them, whose C-j is the next row; `app_input_runtime.zig:1186-1216`, `:1205`); the picker's C-j yields to it (`composerPickerSurfaceVisible`, `:1110-1116`), and so does the full transcript (`screenOwnsInput`, `input_full_transcript_runtime.zig:30-34`) | nothing to either | **answers the question; the panel does not move** |
 
@@ -99,10 +100,14 @@ open when the question arrives, C-j answers it and the panel is back
 
 - **The `/mcp` menu's held-Enter rule counts `Submit` only, not a C-j that
   answers a question** (`McpEnters`, `Shell::consume_inputs`). The rule is
-  about a held Enter repeating into an MCP confirmation; a held C-j repeats
-  as C-j, which fx's MCP menu does not take (`routeMcpHostMenuByte`,
-  `app_input_runtime.zig:1820`) and xfx's reads as Down, so it cannot confirm
-  one. fx has no such rule.
+  about a held Enter repeating into an MCP confirmation. A held C-j repeats
+  as C-j: fx's MCP menu does not take it (`routeMcpHostMenuByte`,
+  `app_input_runtime.zig:1820`), and xfx's reads it as `Key::Down`, which on
+  a confirmation does nothing at all (`src/tui/mcp_menu.rs`'s `Screen::Confirm`
+  arm ends `_ => {}`): a held C-j neither confirms nor moves the answer. The
+  other mixed case -- a C-j that answers a question, then an Enter at the
+  confirmation within 500 ms -- is two keys pressed on purpose, not a
+  repeat, and the rule is about repeats. fx has no such rule at all.
 - **Not taken here, recorded in `docs/parity.md` with a proposed owner**:
   - fx's model question takes C-j as Enter too (`questionActionFromByte`,
     `src/ui/input/runtime.zig:141`); xfx's does nothing with it
@@ -121,8 +126,12 @@ open when the question arrives, C-j answers it and the panel is back
 At `66ea82f3` (`git diff d7916178 66ea82f3 -- src` adds tests only), four
 tests fail and one passes:
 - `ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes`:
-  all eleven spellings, at choice 1, at choice 2 and in a draft, on the band
-  and on the review plane, answered nothing (66 cases).
+  all eleven spellings of its table, at choice 1, at choice 2 and in a draft,
+  on the band and on the review plane, answered nothing (66 cases). The
+  table is representative, not the whole modifier matrix: the byte, kitty
+  Ctrl+j and Ctrl+J, Ctrl with Shift, with Alt and with Super, Caps Lock, a
+  press and a repeat, and two xterm forms; no Num Lock and no three-modifier
+  case.
 - `ctrl_j_read_with_a_change_waits_for_the_frame_as_enter_does`: the C-j
   after the frame answered nothing -- after a move on both planes and at a
   command, and in a draft on both planes (55 cases). Its in-one-read
@@ -242,13 +251,10 @@ was made (`git diff --cached`).
 - The full-screen TUI row's approval sentence: "five differences" is now
   four, without C-j; the clause that left C-j to a unit of its own is
   replaced by what is copied (the byte, the spellings, the readiness check,
-  Deny, the menu under the question), **the newline habit, as in fx** -- a
-  user who types C-j for a new line in a draft, or whose terminal sends LF for
-  a modified Enter, answers the marked choice (`Apply once` at choice 1) with
-  the draft as it stands once a frame has shown it; the readiness check holds
-  it back only within one read -- and the two proposed units above.
+  Deny, the menu under the question), **the newline habit, as in fx** (below,
+  Safety), and the two proposed units above.
   `fx_src.sh` checks those citations with the unit's added lines and this
-  file (run as its header says; `fx-src-check.txt`): 90 checked, 0 outside
+  file (run as its header says; `fx-src-check.txt`): 93 checked, 0 outside
   `fx-src.txt`'s ranges.
 - The ledger's refs into `src/tui/shell.rs`, by content, with
   APPROVAL-VERTICAL-SPELLINGS' `refs.py` (`python3 -I refs.py d7916178`, from
@@ -265,5 +271,29 @@ was made (`git diff --cached`).
 No new string reaches the terminal; nothing writes a file, runs a process or
 reaches the network. The change adds an affirmative key, held to exactly
 Enter's gate: no C-j grants what a frame has not shown (the readiness check,
-at every approval), and a refusal stays answerable at every moment. The risk
-it brings is fx's own and is written down: the newline habit above.
+at every approval), and a refusal stays answerable at every moment.
+
+**The risk it brings is fx's own: the newline habit.** C-j is the composer's
+newline (`Action::ControlJ`, `src/tui/editor.rs`), and once a question's
+frame is up the question takes every key (`Shell::consume_inputs` hands each
+to `decide` while `asking()`, `src/tui/shell.rs:12152-12154`). So:
+- **the case users will hit most**: a user writing a multi-line prompt in the
+  composer while a turn runs presses C-j for a new line just after a
+  question has appeared, and answers it -- `Apply once` at choice 1. At the
+  base that C-j was swallowed (`decide`'s `Input::Action(_) | Input::PasteByte(_)
+  => return` at a choice, its draft arm's `_ => return` in a draft);
+- a C-j typed for a new line in a draft answers too, sending the draft as it
+  stands;
+- so does an LF a terminal sends for a modified Enter.
+
+The readiness check holds such a C-j back only while the question's frame
+has not landed (xfx says `APPROVAL_NOT_READY` then, APPROVAL-READINESS-SETTLED's
+"Not changed") or within the read of a change
+the frame has not shown. fx does the same: its raw byte reaches
+`approvalActionFromByte` whatever the user meant by it
+(`src/ui/input/runtime.zig:64`, `:103-108`). **The revert** is one arm:
+drop `Action::ControlJ` from `Input::Action(Action::Submit |
+Action::ControlJ) => approval::Action::Submit` in `Shell::decide`
+(`src/tui/shell.rs:9559` at the code head), and C-j is swallowed at a
+question again, as mutant M8 shows; that departs from fx, so it is the
+user's to make. `docs/parity.md`'s approval sentence says the same.

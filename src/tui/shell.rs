@@ -23792,11 +23792,11 @@ mod tests {
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
-    /// Every spelling of Ctrl+J that fx v0.0.16 turns back into the byte
-    /// `0x0a` (APPROVAL-CTRL-J): the byte itself, and a kitty or xterm key
-    /// report of `j` or `J` with Ctrl held, whatever else is held
-    /// (`kittyUnicodeKeyAction`, `escape_parser.zig:255-258@481104fd`, the
-    /// lock bits masked first, `:187`), a press or a repeat (`:774-777`),
+    /// A representative set, not the whole modifier matrix, of the Ctrl+J
+    /// spellings fx v0.0.16 turns back into `0x0a` (APPROVAL-CTRL-J): the
+    /// byte, and a kitty or xterm report of `j` or `J` with Ctrl and any
+    /// other modifier (`kittyUnicodeKeyAction`, `escape_parser.zig:255-258@481104fd`,
+    /// the lock bits masked first, `:187`), a press or a repeat (`:774-777`),
     /// xterm's `CSI 27;<m>;<k>~` read into the same function (`:740-752`).
     const CTRL_J: [(&str, &[u8]); 11] = [
         ("c-j", &[0x0a]),
