@@ -169,7 +169,11 @@ to `/` and dropped `type to filter` under `\n\n\n/`.
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
-MUTANTS-R2-PLACEHOLDER
+Round 2: 14 of 14 killed at `9af11724`, the same clone way, against
+`tui::picker::` and the eight shell cases: round 1's thirteen and M14, the
+`/mcp ` line forgetting a slash dismissal, which the new `/mcp` case kills.
+The new ghost case catches M2 (the base's rule back), the new mark case M6
+(the menu keyed by the word); `mutants.txt` names every catch.
 
 Round 1: 13 of 13 killed at `1ae99e6d`, on a throwaway `git clone --no-local` (the
 clone's source restored after each, and clean at the end), each against
