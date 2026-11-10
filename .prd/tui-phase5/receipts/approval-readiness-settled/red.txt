@@ -69,7 +69,33 @@ failures:
 test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 4639 filtered out; finished in 0.05s
 
 
-# The pair at the base: scope.py red (red/, the base's binary, row 1 x𝒇x v0.1.0-a37a969)
+
+# Round 2 RED: the round-2 test commit 9d4e4940 on round 1's code (67e40758; that commit adds tests only)
+# cargo test --locked --lib -- tui::shell::tests::a_move_and_enter tui::shell::tests::a_refusal_read tui::shell::tests::an_edit_and_enter tui::shell::tests::a_frame_that_writes_nothing tui::shell::tests::ctrl_l_at_a_question
+
+running 6 tests
+test tui::shell::tests::ctrl_l_at_a_question_does_nothing_as_fxs_does ... FAILED
+test tui::shell::tests::a_frame_that_writes_nothing_settles_a_change_it_already_shows ... ok
+test tui::shell::tests::an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft ... ok
+test tui::shell::tests::a_move_and_enter_in_one_read_at_a_command_answer_nothing_until_a_frame_shows_the_move ... ok
+test tui::shell::tests::a_move_and_enter_in_one_read_at_an_edit_answer_nothing_until_a_frame_shows_the_move ... ok
+test tui::shell::tests::a_refusal_read_with_a_move_still_refuses_at_once ... ok
+
+failures:
+
+---- tui::shell::tests::ctrl_l_at_a_question_does_nothing_as_fxs_does stdout ----
+
+thread 'tui::shell::tests::ctrl_l_at_a_question_does_nothing_as_fxs_does'  panicked at src/tui/shell.rs:23372:13:
+a choice: Ctrl-L marked the screen damaged
+
+
+failures:
+    tui::shell::tests::ctrl_l_at_a_question_does_nothing_as_fxs_does
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 4645 filtered out; finished in 0.03s
+
+
+# The pair at the base: scope.py red (red/, the base's binary, row 1 x𝒇x v0.1.0-a37a969; round 2's scenario)
 DIFF  cmd-ask       18 rows differ
       fx:  '● 4 tool calls · 1 read · 1 write · 1 edit · 1 command'
       xfx: '● 5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied'
@@ -77,20 +103,20 @@ DIFF  cmd-ask       18 rows differ
       xfx: '├ Denied file'
       fx:  '└ Running echo hi > out.txt && cat out.txt'
       xfx: '├ Ran echo hi > out.txt && cat out.txt'
-DIFF  cmd2-ask      16 rows differ
+DIFF  cmd2-ask      17 rows differ
       fx:  '├ Wrote c.txt +2'
       xfx: '├ Denied file'
       fx:  '├ Denied echo hi > out.txt && cat out.txt'
       xfx: '├ Ran echo hi > out.txt && cat out.txt'
       fx:  '└ Running echo again'
       xfx: '└ Ran echo again'
-DIFF  cmd2-down-enter 9 rows differ
+DIFF  cmd2-down-enter 11 rows differ
       fx:  '├ Wrote c.txt +2'
       xfx: '├ Denied file'
       fx:  '├ Denied echo hi > out.txt && cat out.txt'
       xfx: '├ Ran echo hi > out.txt && cat out.txt'
-      fx:  '  13s (↑4 ↓240)'
-      xfx: '  7s (↑4 ↓240)'
+      fx:  '┃ x'
+      xfx: '  Done with approvals.'
 SAME  edit-ask      (22 rows compared)
 DIFF  edit-down-enter 19 rows differ
       fx:  '● 1 tool call · 1 read'
@@ -99,6 +125,13 @@ DIFF  edit-down-enter 19 rows differ
       xfx: '├ Read a.txt'
       fx:  ''
       xfx: '└ Edited a.txt +1 / -1'
+DIFF  edit-down-up-enter 21 rows differ
+      fx:  '● 1 tool call · 1 read'
+      xfx: '● 5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied'
+      fx:  '└ Read a.txt'
+      xfx: '├ Read a.txt'
+      fx:  ''
+      xfx: '├ Edited a.txt +1 / -1'
 DIFF  edit-left-enter 19 rows differ
       fx:  '● 1 tool call · 1 read'
       xfx: '● 4 tool calls · 1 read · 1 write · 1 edit · 1 command · 1 denied'
@@ -106,14 +139,14 @@ DIFF  edit-left-enter 19 rows differ
       xfx: '├ Read a.txt'
       fx:  ''
       xfx: '├ Edited a.txt +1 / -1'
-DIFF  end           9 rows differ
+DIFF  end           11 rows differ
       fx:  '├ Wrote c.txt +2'
       xfx: '├ Denied file'
       fx:  '├ Denied echo hi > out.txt && cat out.txt'
       xfx: '├ Ran echo hi > out.txt && cat out.txt'
-      fx:  '  13s (↑4 ↓240)'
-      xfx: '  7s (↑4 ↓240)'
-DIFF  write-ask     18 rows differ
+      fx:  '┃ x'
+      xfx: '  Done with approvals.'
+DIFF  write-ask     17 rows differ
       fx:  '● 2 tool calls · 1 read · 1 edit'
       xfx: '● 5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied'
       fx:  '└ Edited a.txt +1 / -1'
@@ -134,4 +167,4 @@ DIFF  write-super-up-enter 19 rows differ
       xfx: '├ Edited a.txt +1 / -1'
       fx:  ''
       xfx: '├ Denied file'
-1 of 10 pairs identical once the grant scope's rows are set aside
+1 of 11 pairs identical once the grant scope's rows are set aside

@@ -2,8 +2,8 @@
 
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
 - xfx: `x𝒇x v0.1.0-a37a969 [debug] · Run /help for commands`, sha256 `3f992666d894e25d510f7e5548449f839264c43817f7bf6d74d4cdb8bbcaf519`
-- size 40x120, `--jobs 4`, 9 scenarios -- **PARTIAL**: `--only *approval* composer-keys question-field`, wall 2m06s, load 7.2 at the start and 7.6 at the peak (1-minute average, sampled every 5 s)
-- ledger sha256 `6f8e266ed8b9ad51924b8e7db3e514ffeaf1ab68b0c724de21a4c2022eb6f038`: 14 normalizations; 19 divergences approved for this pin
+- size 40x120, `--jobs 4`, 9 scenarios -- **PARTIAL**: `--only *approval* composer-keys question-field`, wall 2m07s, load 15.1 at the start and 19.9 at the peak (1-minute average, sampled every 5 s)
+- ledger sha256 `d21168051934a3f9f156ba8c777913d85a25728d276b1213ecf93c57c4bc3aa6`: 14 normalizations; 19 divergences approved for this pin
 
 ## Coverage
 
@@ -14,11 +14,11 @@ Tokens typed as commands that are no command of this inventory (aliases, partial
 
 Scenarios: 9 -- ran 9, failed 0, timeout 0.
 
-**pass = 20 / 108 = 18.5%**
+**pass = 20 / 109 = 18.3%**
 
 | total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout |
 |---|---|---|---|---|---|---|---|---|---|
-| 108 | 108 | 0 | 20 | 0 | 0 | 0 | 88 | 0 | 0 |
+| 109 | 109 | 0 | 20 | 0 | 0 | 0 | 89 | 0 | 0 |
 
 The unit is the snap pair: one `snap` or `snapfull` label of a scenario, read from its .cap file, so a scenario that failed or timed out counts every snap it would have taken. pass = (identical + normalized-identical) / total. approved-divergence-cascade is a pair that differs by position beyond its approved rows (a row they pushed down) and whose every row left without a match, the two sides aligned as sequences, is approved; the positional diff stays in the raw output.
 
@@ -30,7 +30,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | approvals | 3 | 18 | 18 | 0 | 2 | 0 | 0 | 0 | 16 | 0 | 0 | 11.1% |
 | composer | 1 | 11 | 11 | 0 | 8 | 0 | 0 | 0 | 3 | 0 | 0 | 72.7% |
-| p | 4 | 69 | 69 | 0 | 0 | 0 | 0 | 0 | 69 | 0 | 0 | 0.0% |
+| p | 4 | 70 | 70 | 0 | 0 | 0 | 0 | 0 | 70 | 0 | 0 | 0.0% |
 | question | 1 | 10 | 10 | 0 | 10 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |
 
 ## By surface
@@ -92,30 +92,31 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | approvals-big | ran | 3 | 3 | 0 | 1 | 0 | 0 | 0 | 2 | 0 | 0 | 33.3% | write-big row 1: `     52 + generated line 52` / `     54 + generated line 54` (aligned: 4/4 rows unmatched) |
 | composer-keys | ran | 11 | 11 | 0 | 8 | 0 | 0 | 0 | 3 | 0 | 0 | 72.7% | help row 5: `Commands 38  [All]  General  Session  Account  Mo…` / `Commands 34  [All]  General  Session  Account  Mo…` (aligned: 4/4 rows unmatched) |
 | p5-approval-horizontal-keys | ran | 29 | 29 | 0 | 0 | 0 | 0 | 0 | 29 | 0 | 0 | 0.0% | ask row 19: `    2  Apply + allow workspace file access for th…` / `    2  Apply + allow future edits to this file fo…` (aligned: 3/3 rows unmatched) |
-| p5-approval-readiness-settled | ran | 10 | 10 | 0 | 0 | 0 | 0 | 0 | 10 | 0 | 0 | 0.0% | edit-ask row 19: `    2  Apply + allow workspace file access for th…` / `    2  Apply + allow future edits to this file fo…` (aligned: 3/3 rows unmatched) |
+| p5-approval-readiness-settled | ran | 11 | 11 | 0 | 0 | 0 | 0 | 0 | 11 | 0 | 0 | 0.0% | edit-ask row 19: `    2  Apply + allow workspace file access for th…` / `    2  Apply + allow future edits to this file fo…` (aligned: 3/3 rows unmatched) |
 | p5-approval-vertical-keys | ran | 27 | 27 | 0 | 0 | 0 | 0 | 0 | 27 | 0 | 0 | 0.0% | ask row 19: `    2  Apply + allow workspace file access for th…` / `    2  Apply + allow future edits to this file fo…` (aligned: 3/3 rows unmatched) |
 | p5-input-approval | ran | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 3 | 0 | 0 | 0.0% | cmd-ask row 5: `● 1 tool call · 1 command` / `✗ system: the model asked to run the 'shell' tool…` (aligned: 15/15 rows unmatched) |
 | question-field | ran | 10 | 10 | 0 | 10 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
 
 ## Causes of the unresolved snaps
 
-88 unresolved snaps; a snap counts under every cause of one of its rows (`only`: that cause alone).
+89 unresolved snaps; a snap counts under every cause of one of its rows (`only`: that cause alone).
 Kinds: a = awaiting a user decision, b = a unit in flight, c = the capture (nondeterminism, or the scenario script), d = a defect.
 
 | cause | kind | snaps | only | what | owner |
 |---|---|---|---|---|---|
-| approval-grant-scope | a | 77 | 67 | `What an 'always' answer grants is a security choice: fx grants workspace file access for …` | `user decision approval grant scope (not yet on the program's decision list)` |
+| approval-grant-scope | a | 78 | 67 | `What an 'always' answer grants is a security choice: fx grants workspace file access for …` | `user decision approval grant scope (not yet on the program's decision list)` |
 | tool-schema | d | 7 | 0 | `fx's command tool is 'shell' ('action: run', per-call 'timeout_ms', run in the user's she…` | `unowned (decision needed? C8 runs commands in the login shell but keeps the header) -- xfx src/tui/approval_view.rs:685; src/permission/sla…` |
 | C7-help-entries | b | 3 | 0 | `xfx's /model summary is the line shell's; C7 r2 gives every registry row fx's help entry.` | `C7 r2 feat/tui-phase4-alias 8d83f961` |
 | menu-count | a+b | 3 | 0 | `The menus' count: fx 36, xfx 32 -- /login, /logout, /feedback awaiting decisions, /shell …` | `user decision Codex/Grok sign-in (#88) for /login and /logout; user decision /feedback destination; C8 feat/tui-phase4-shell-reload 76ede61…` |
 | menu-shift | a+b | 3 | 0 | `Command rows that only moved: a window without the four absent rows shows two others, and…` | `user decision Codex/Grok sign-in (#88); user decision /feedback destination; C8 feat/tui-phase4-shell-reload 76ede613` |
-| amendment-card-after-stop | b+d | 2 | 2 | `A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes…` | `AMEND-CARD-ROW the blank row xfx keeps under an approval's amendment card that ends the document -- xfx src/tui/shell.rs:10373 / fx src/cor…` |
+| amendment-card-after-stop | b+d | 2 | 2 | `A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes…` | `AMEND-CARD-ROW the blank row xfx keeps under an approval's amendment card that ends the document -- xfx src/tui/shell.rs:10384 / fx src/cor…` |
 | approval-scroll | d | 2 | 0 | `A long review scrolls with the mouse wheel in fx and Ctrl-P/Ctrl-N in xfx, which asks for…` | `unowned -- xfx src/tui/approval_view.rs:106 / fx src/ui/approval_screen.zig:564@c1db9191` |
 | approval-settled-every-approval | a | 1 | 1 | `fx v0.0.16 holds an affirmative back while a modal frame is pending only at a file approv…` | `user decision approval readiness scope (the dispatcher's interim choice, 2026-11-10)` |
 
-Rows no cause covers (11 snaps):
+Rows no cause covers (12 snaps):
 - `p5-approval-readiness-settled/edit-down-enter` fx row 5: `● 1 tool call · 1 read`
 - `p5-approval-readiness-settled/edit-left-enter` fx row 5: `● 1 tool call · 1 read`
+- `p5-approval-readiness-settled/edit-down-up-enter` fx row 5: `● 1 tool call · 1 read`
 - `p5-approval-readiness-settled/write-ask` fx row 5: `● 2 tool calls · 1 read · 1 edit`
 - `p5-approval-readiness-settled/write-letter-enter` fx row 5: `● 2 tool calls · 1 read · 1 edit`
 - `p5-approval-readiness-settled/write-super-up-enter` fx row 5: `● 2 tool calls · 1 read · 1 edit`

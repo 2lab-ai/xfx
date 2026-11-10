@@ -9,17 +9,17 @@
 [38;5;245m├ Ran [38;5;252mecho[38;5;245m hi [38;5;252m>[38;5;245m out.txt [38;5;252m&&[38;5;245m [38;5;252mcat[38;5;245m out.txt[39m
 [38;5;245m└ Ran [38;5;252mecho[38;5;245m again[39m
 
-[38;5;255m┃[39m [1mx[0m
-
   Done with approvals.
 
-[38;5;245m  7s (↑4 ↓240)[39m
+[38;5;245m  5s (↑4 ↓240)[39m
+
+[38;5;255m┃[39m [1mx[0m
+
+[38;5;252m⚠ Provider unavailable · HTTP 500: unexpected request · retrying request in 1s[39m
 
 [38;5;255m┃[39m
 
 [38;5;245mask · model-a[39m
-
-
 
 
 

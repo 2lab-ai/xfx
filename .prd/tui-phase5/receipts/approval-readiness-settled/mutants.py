@@ -3,7 +3,8 @@ Applies each mutant to the clone alone, runs the unit's tests there under a
 per-mutant timeout, and restores the file. A mutant is killed when a test
 fails. Never run against the worktree: the clone must sit under
 `$TMPDIR/mut/`, and its build and temp files go beside it there.
-APPROVAL-VERTICAL-SPELLINGS' mutants.py, with this unit's mutants."""
+APPROVAL-VERTICAL-SPELLINGS' mutants.py, with this unit's mutants (M11-M12
+and the filter's `writes_nothing` and `ctrl_l` added in round 2)."""
 import os, subprocess, sys, time
 repo, out = sys.argv[1], sys.argv[2]
 mut = os.path.join(os.environ["TMPDIR"].rstrip("/"), "mut")
@@ -17,6 +18,7 @@ GATE = ("        if matches!(answer, ApprovalAnswer::Once | ApprovalAnswer::Alwa
 SILENT = ("            if self.asked_id.is_some_and(|id| self.approval_unshown(id)) {\n"
           "                self.render.request(Reason::Modal);\n                return;\n            }\n")
 SWALLOW = "                | Action::HistoryNext,\n            ) => return,\n"
+REDRAW = "            Input::Action(Action::Redraw) => return,\n"
 WALK = "                if screen.scroll_by(delta, cols, rows) {\n                    self.approval_changed();\n                }\n"
 MUTANTS = [
     # The brief's five.
@@ -52,12 +54,17 @@ MUTANTS = [
      "            Outcome::Painted => self.provisional = pending,\n",
      "            Outcome::Painted => {\n                self.provisional = pending.map(|intent| Intent {\n"
      "                    revision: self.revision,\n                    ..intent\n                })\n            }\n"),
+    # Round 2: Ctrl-L at a question, both ways it could leave fx's nothing.
+    ("M11 Ctrl-L at a question marks the screen damaged again (the base)", S, REDRAW,
+     "            Input::Action(Action::Redraw) => {\n                self.external_damage();\n                return;\n            }\n"),
+    ("M12 Ctrl-L at a question holds the Enter back (marks a change)", S, REDRAW,
+     "            Input::Action(Action::Redraw) => {\n                self.approval_changed();\n                return;\n            }\n"),
 ]
 TESTS = [
     ["cargo", "test", "--locked", "--lib", "--", "approval", "amendment", "alt_b", "alt_f", "the_fold",
      "horizontal", "draft_left", "up_and_down_move", "the_arrows_leave", "leaving_a_filled_draft",
      "revokes", "vertical", "super_up_and_down", "one_read", "until_a_frame", "refusal_read",
-     "a_walk_of_the_review", "enter_takes_the_marked", "question::", "input::tests", "editor::tests"],
+     "a_walk_of_the_review", "enter_takes_the_marked", "writes_nothing", "ctrl_l", "question::", "input::tests", "editor::tests"],
 ]
 env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(mut, "target"), TMPDIR=os.path.join(mut, "tmp"))
 os.makedirs(env["TMPDIR"], exist_ok=True)

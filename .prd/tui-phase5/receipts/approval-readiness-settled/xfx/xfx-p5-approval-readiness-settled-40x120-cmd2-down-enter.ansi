@@ -1,4 +1,4 @@
-[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-67e4075 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-c0300f1 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
 
 [38;5;255m┃[39m [1medit the files[0m
 
@@ -23,7 +23,7 @@
   ❯ [1m[38;5;255m2. Yes, and don't ask again for this exact command[0m
     3. No
   [38;5;245m2 = allow every future run of exactly `echo again` in . for the rest of this session, and in every later `xfx ask[39m
-  [38;5;245m--resume-id 1794272224049-3672f24c18f4ffb7` of this saved session[39m
+  [38;5;245m--resume-id 1794277522306-5998d6d17031208e` of this saved session[39m
 
 [38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [38;5;245m1–3 choose now    ↑↓ or tab options    enter confirm    esc cancel[39m

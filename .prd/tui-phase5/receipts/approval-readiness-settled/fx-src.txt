@@ -499,6 +499,63 @@
    41      amendment_allowed: bool = true,
    42      confirmation_only: bool = false,
 
+## src/core/app/app_input_runtime.zig:840-894
+  840          fn handleRawTerminalInputWithLimits(
+  841              app: *App,
+  842              raw: input_action.RawTerminalInput,
+  843              input_limits: paste_framing.InputLimits,
+  844              max_prompt_history: usize,
+  845          ) !void {
+  846              const byte = raw.byte;
+  847              const max_input_len = input_limits.composer_bytes;
+  848              // Fire the max-level cue only when the slash menu becomes visible.
+  849              const slash_menu_was_visible = slashMenuVisibleForCue(app);
+  850              defer announceSlashMenuOpened(app, slash_menu_was_visible);
+  851              if (try routeActivePasteByte(app, byte)) return;
+  852  
+  853              if (byte != 3 and byte != 0x1b) disarmCtrlCExit(app, "raw_input");
+  854  
+  855              // Non-escape input disarms the pending double-Escape clear.
+  856              if (byte != 0x1b) {
+  857                  if (disarmEscapeClear(app)) {
+  858                      app.shell.render_requests.request(.footer);
+  859                  }
+  860                  _ = disarmEscapeInterrupt(app, "raw_input");
+  861              }
+  862  
+  863              // Ctrl-Z arrives as raw byte 26 (ISIG disabled); kitty remaps here too.
+  864              if (byte == 26) {
+  865                  try app.suspendToJobControl();
+  866                  return;
+  867              }
+  868  
+  869              if (comptime runtime_profile.allows(App, .native_auth)) {
+  870                  if (try app_auth_runtime.Runtime(App).routeAuthPickerByte(app, byte)) return;
+  871              }
+  872              if (try full_transcript_rt.routeByte(app, byte)) return;
+  873              if (try routeActiveModalInput(app, raw, input_limits.decision_bytes)) return;
+  874              if (byte >= 0x80) {
+  875                  try handleTextByte(app, .composer, byte, max_input_len);
+  876                  return;
+  877              }
+  878              if (try routeUpgradeShortcut(app, byte)) return;
+  879              if (try routePickerControlByte(app, byte)) return;
+  880  
+  881              if (isComposerEditingByte(byte, raw.composer_shortcut) and
+  882                  !activeCatalogMenuOwnsByte(app, byte) and
+  883                  dismissActiveMenusForComposerEdit(app))
+  884              {
+  885                  app.shell.render_requests.request(.footer);
+  886              }
+  887              try handleComposerByte(
+  888                  app,
+  889                  byte,
+  890                  raw.composer_shortcut,
+  891                  max_input_len,
+  892                  max_prompt_history,
+  893              );
+  894          }
+
 ## src/core/app/app_input_runtime.zig:1126-1185
  1126          fn routeActiveModalInput(
  1127              app: *App,
@@ -560,6 +617,120 @@
  1183                  }
  1184                  return true;
  1185              }
+
+## src/ui/input/runtime.zig:55-133
+   55  
+   56  const InputEscapeAction = input_action.Action;
+   57  const MouseInput = escape_parser.MouseInput;
+   58  
+   59  pub const shortcutFromControlByte = shortcuts.fromControlByte;
+   60  
+   61  pub fn approvalActionFromByte(byte: u8) ?approval_decision.Action {
+   62      return switch (byte) {
+   63          3 => .deny,
+   64          '\r', '\n' => .submit,
+   65          '\t' => .tab,
+   66          0x7F, 0x08 => .backspace,
+   67          '1'...'3' => .{ .number = byte - '1' },
+   68          else => if (byte >= 0x20 and byte <= 0x7E)
+   69              .{ .insert_ascii = byte }
+   70          else
+   71              null,
+   72      };
+   73  }
+   74  
+   75  fn approvalDraftActionFromShortcut(
+   76      action: input_action.ShortcutAction,
+   77  ) ?approval_decision.DraftAction {
+   78      return switch (action) {
+   79          .move => |intent| switch (intent.kind) {
+   80              .character_left => .cursor_left,
+   81              .character_right => .cursor_right,
+   82              .line_start, .draft_start => .cursor_home,
+   83              .line_end, .draft_end => .cursor_end,
+   84              .word_left => .cursor_word_left,
+   85              .word_right => .cursor_word_right,
+   86              else => null,
+   87          },
+   88          .delete_forward => .delete_next,
+   89          .delete_word_left => .delete_word_left,
+   90          .delete_whitespace_word_left => .delete_whitespace_word_left,
+   91          .delete_word_right => .delete_word_right,
+   92          .delete_to_line_start => .delete_to_line_start,
+   93          .delete_to_line_end => .delete_to_line_end,
+   94          else => null,
+   95      };
+   96  }
+   97  
+   98  fn approvalDraftActionFromControlByte(byte: u8) ?approval_decision.DraftAction {
+   99      const action = shortcuts.fromFocusedEditorControlByte(byte) orelse return null;
+  100      return approvalDraftActionFromShortcut(action);
+  101  }
+  102  
+  103  fn approvalActionFromRawByte(byte: u8) ?approval_decision.Action {
+  104      if (approvalDraftActionFromControlByte(byte)) |edit| {
+  105          return .{ .edit_draft = edit };
+  106      }
+  107      return approvalActionFromByte(byte);
+  108  }
+  109  
+  110  fn withApprovalInput(
+  111      ingress: input_action.TerminalInputIngress,
+  112  ) input_action.TerminalInputIngress {
+  113      var typed = ingress;
+  114      const event = typed.event orelse return typed;
+  115      typed.event = switch (event) {
+  116          .raw => |raw| input_action.TerminalInputEvent{ .raw = .{
+  117              .byte = raw.byte,
+  118              .composer_shortcut = raw.composer_shortcut,
+  119              .approval_action = approvalActionFromRawByte(raw.byte),
+  120          } },
+  121          .action => |decoded| input_action.TerminalInputEvent{ .action = .{
+  122              .action = decoded.action,
+  123              .composer_shortcut = decoded.composer_shortcut,
+  124              .approval_focused_edit = if (decoded.composer_shortcut) |shortcut|
+  125                  approvalDraftActionFromShortcut(shortcut)
+  126              else
+  127                  null,
+  128              .cancel_pending = decoded.cancel_pending,
+  129          } },
+  130          .paste_byte => event,
+  131      };
+  132      return typed;
+  133  }
+
+## src/ui/input/shortcuts.zig:11-41
+   11  pub fn fromControlByte(byte: u8) ?ShortcutAction {
+   12      return switch (byte) {
+   13          1 => move(.line_start),
+   14          5 => move(.line_end),
+   15          2 => move(.character_left),
+   16          6 => move(.character_right),
+   17          14 => .history_next,
+   18          4 => .delete_forward,
+   19          11 => .delete_to_line_end,
+   20          21 => .delete_to_line_start,
+   21          23 => .delete_whitespace_word_left,
+   22          25 => .yank,
+   23          31 => .undo,
+   24          12 => .redraw,
+   25          127, 8 => .delete_backward,
+   26          '\n' => .insert_newline,
+   27          else => null,
+   28      };
+   29  }
+   30  
+   31  pub fn fromFocusedEditorControlByte(byte: u8) ?ShortcutAction {
+   32      const action = fromControlByte(byte) orelse return null;
+   33      return switch (action) {
+   34          .move,
+   35          .delete_whitespace_word_left,
+   36          .delete_to_line_start,
+   37          .delete_to_line_end,
+   38          => action,
+   39          else => null,
+   40      };
+   41  }
 
 ## src/core/app/app_input_runtime.zig:1229-1258
  1229          fn handleTextByte(app: *App, owner: text_scalar.Owner, byte: u8, max_input_len: usize) !void {

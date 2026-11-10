@@ -9,17 +9,17 @@ x𝒇x v0.1.0-a37a969 [debug] · Run /help for commands
 ├ Ran echo hi > out.txt && cat out.txt
 └ Ran echo again
 
-┃ x
-
   Done with approvals.
 
-  7s (↑4 ↓240)
+  5s (↑4 ↓240)
+
+┃ x
+
+⚠ Provider unavailable · HTTP 500: unexpected request · retrying request in 1s
 
 ┃
 
 ask · model-a
-
-
 
 
 

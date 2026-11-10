@@ -7,24 +7,24 @@
 [38;5;245m├ Edited a.txt +1 / -1[39m
 [38;5;245m├ Denied file[39m
 [38;5;245m├ Ran [38;5;252mecho[38;5;245m hi [38;5;252m>[38;5;245m out.txt [38;5;252m&&[38;5;245m [38;5;252mcat[38;5;245m out.txt[39m
-[38;5;245m└ Running [38;5;252mecho[38;5;245m again[39m
+[38;5;245m└ Ran [38;5;252mecho[38;5;245m again[39m
 
-[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-[39m  [1mPermission needed · Choose one[0m                                                                               [38;5;245mCommand[39m
+  Done with approvals.
 
-  [1mWould you like to run the following command?[0m
+[38;5;245m  5s (↑4 ↓240)[39m
 
-[1m[38;5;255m  $ # terminal.exec cwd=.[0m
-[1m[38;5;255m    echo again[0m
+[38;5;255m┃[39m
 
-  ❯ [1m[38;5;255m1. Yes[0m
-    2. Yes, and don't ask again for this exact command
-    3. No
-  [38;5;245m2 = allow every future run of exactly `echo again` in . for the rest of this session, and in every later `xfx ask[39m
-  [38;5;245m--resume-id 1794272249833-5bfb863150b59257` of this saved session[39m
+[38;5;245mask · model-a[39m
 
-[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-[38;5;245m1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel[39m
+
+
+
+
+
+
+
+
 
 
 

@@ -36,7 +36,10 @@ ranges=(
   src/core/permissions/approval_decision.zig:196-225
   src/core/permissions/permission_request.zig:17-22
   src/core/permissions/permission_request.zig:29-42
+  src/core/app/app_input_runtime.zig:840-894
   src/core/app/app_input_runtime.zig:1126-1185
+  src/ui/input/runtime.zig:55-133
+  src/ui/input/shortcuts.zig:11-41
   src/core/app/app_input_runtime.zig:1229-1258
   src/core/app/app_render_runtime.zig:78-88
   src/core/app/app_render_runtime.zig:924-1032

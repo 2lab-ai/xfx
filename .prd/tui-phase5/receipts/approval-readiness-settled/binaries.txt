@@ -1,8 +1,12 @@
-# the binaries the captures ran (shasum -a 256), and row 1 of one snap each
+# the binaries the captures ran (shasum -a 256), and row 1 of one snap each (round 2: all four taken again for the scenario's Down Up Enter step)
 3f992666d894e25d510f7e5548449f839264c43817f7bf6d74d4cdb8bbcaf519  xfx-base
-2756d8a32cc1afe2502df737c129f89a186952f70dfd091a9c4fd74dc9ea7e8e  xfx-head
+59df6afa4d78ab6ab3852ffef80355397b139687d5889465379371402c6aa64a  xfx-head2
+33d97921c3df33bc1ca4d8cfd3b32d46b73c953a55fbb9888976db26fcbe04c6  xfx-probe-m6
 fx v0.0.16: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
 red/ row 1: x𝒇x v0.1.0-a37a969 [debug] · Run /help for commands
-xfx/ row 1: x𝒇x v0.1.0-67e4075 [debug] · Run /help for commands
+xfx/ row 1: x𝒇x v0.1.0-c0300f1 [debug] · Run /help for commands
+probe/ row 1: x𝒇x v0.1.0-c0300f1 [debug] · Run /help for commands
 fx/ row 1: 𝒇x v0.0.16 · Run /help for commands
 capture.sh's fx guard line: guards: <fx> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+xfx-probe-m6 is c0300f17 built from a throwaway clone with mutants.py's M6 applied (approval_readiness.rs: a repaint that wrote nothing keeps the receipt's old revision); its tree is dirty, so its banner names c0300f1 with that one change.
+the probe's one change: mutants.py's M6, applied to src/tui/approval_readiness.rs with the same old and new strings (`self.receipt = pending;` in the Unchanged arm taken out).
