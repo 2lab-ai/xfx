@@ -1818,6 +1818,16 @@ impl FullTranscript {
         self.view = None;
     }
 
+    /// The first row of the page the screen shows on a terminal `rows` tall,
+    /// as [`Self::key`] measures it; `None` while it is closed. For the
+    /// cases that assert a key scrolled it, or did not.
+    #[cfg(test)]
+    pub(crate) fn offset(&self, cols: u16, rows: u16, palette: Palette) -> Option<usize> {
+        let view = self.view.as_ref()?;
+        let page = Layout::of(rows).viewport.max(1);
+        Some(view.select(self, cols, page, palette).offset)
+    }
+
     /// What one keystroke does while the screen is up: upstream's key map
     /// (`keyForAction`/`routeKey`, `input_full_transcript_runtime.zig:147-198`)
     /// and nothing more -- Ctrl-O, Escape and Ctrl-C close, the page keys

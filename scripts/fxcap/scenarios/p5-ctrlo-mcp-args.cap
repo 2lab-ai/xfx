@@ -1,0 +1,42 @@
+# CTRLO-OTHER-PICKERS: /mcp 's argument completions under Ctrl-O, one key
+# at a time, with no server configured (the eight verbs). In fx they are
+# the slash completion's (verb_completions, app_mcp_runtime.zig:459-468
+# @481104fd; routeSlashCompletionMove, input_completion_runtime.zig:
+# 175-180): C-j and C-k reach the composer (routePickerControlByte,
+# app_input_runtime.zig:1093-1116; :881-893), C-k kills nothing (:479-488),
+# C-j is a new line after the argument (:513-521). Down and Escape are the
+# transcript's (input_full_transcript_runtime.zig:156-197). Down first, so a
+# move would show.
+fx: env FX_AUTO_UPGRADE=0
+wait 3
+type /mcp 
+wait 1.5
+key Down
+wait 0.4
+snap open
+key C-o
+wait 0.8
+key Down
+wait 0.4
+key C-o
+wait 0.8
+snap down
+key C-o
+wait 0.8
+key Escape
+wait 0.8
+snap esc
+key C-o
+wait 0.8
+key C-k
+wait 0.4
+key C-o
+wait 0.8
+snap ck
+key C-o
+wait 0.8
+key C-j
+wait 0.4
+key C-o
+wait 0.8
+snap cj

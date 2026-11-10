@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-cb7c9c1 [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 34  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  …
+
+  /stats          show token and turn statistics
+  /usage          show your provider's usage and spend
+  /credits        show gateway credits balance
+  /model          show the model, or `/model <id>` to use another one from now on
+  /effort         choose the reasoning effort for the current model
+  /fast           toggle Fast mode when supported
+  /ultrafast      request Ultra mode when supported
+  /settings       browse and update settings
+  /statusline     toggle status line segments
+  /sound          toggle sounds and terminal bells
+  /permissions    choose what xfx is allowed to do
+  /allowlist      manage trusted commands, tools, and URLs
+  /workspace      manage additional workspace directories
+  /image          attach an image by path
+  /images         manage pending image attachments
+  /paste          attach an image from the clipboard when supported
+  /mcp            manage MCP servers and their logins
+  /skills         browse and manage skills
+  /alias          show alias availability
+  /trace          copy a private diagnostic trace
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+

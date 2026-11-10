@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 38  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  …
+
+  /help           show available slash commands
+  /clear          start a fresh conversation while keeping managed processes
+  /status         show runtime configuration and the session ID
+  /version        show the fx version
+  /quit           exit the interactive shell
+  /new            start a fresh session
+  /reset          reset the current session context
+  /resume         resume a saved session
+  /rename         rename the current session
+  /fork           fork the session before a prompt
+  /undo           undo the latest tracked file operation
+  /copy           copy the last assistant response
+  /compact        summarize context into a fresh window
+  /login          choose the model provider and how it signs in
+  /logout         sign out of a provider session
+  /provider       choose the model provider and how it signs in
+  /stats          show token and turn statistics
+  /usage          show your provider's usage and spend
+  /credits        show gateway credits balance
+  /model          choose what model and reasoning effort to use
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+

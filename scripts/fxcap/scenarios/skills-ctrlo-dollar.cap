@@ -1,0 +1,49 @@
+# CTRLO-OTHER-PICKERS: Ctrl-O over the $ menu (the skills scenario's
+# workspace), then one key at a time between a Ctrl-O and its return. The
+# $ menu is the skills menu shown (menuVisible), so the rule holds for it.
+# Named skills-* so the skills scenarios' ledger rows (their tabs) apply.
+# fx closes the full transcript before every frame while this menu is up
+# (reconcileBeforeFrameRender, app_render_runtime.zig:1206-1215@481104fd), so
+# Ctrl-O over it shows nothing and every key below is the menu's own, as
+# without Ctrl-O: `held` is the composer's plane with the menu, C-j and C-k
+# move the mark (routePickerControlByte, app_input_runtime.zig:1093-1116),
+# Escape closes the menu (resolveEscape, :2765).
+fx: env FX_AUTO_UPGRADE=0
+gateway skills-turn.json
+fx: work skills-ws-fx
+xfx: work skills-ws-xfx
+wait 3
+type explain $
+wait 1
+snap open
+key C-o
+wait 0.8
+snap held
+key C-o
+wait 0.8
+key C-o
+wait 0.8
+key Down
+wait 0.4
+key C-o
+wait 0.8
+snap down
+key C-o
+wait 0.8
+key C-k
+wait 0.4
+key C-o
+wait 0.8
+snap ck
+key C-o
+wait 0.8
+key C-j
+wait 0.4
+key C-o
+wait 0.8
+snap cj
+key C-o
+wait 0.8
+key Escape
+wait 0.8
+snap esc
