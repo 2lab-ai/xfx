@@ -1065,10 +1065,12 @@ fn a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstrea
     // Upstream's launch reads the conversation, finds a prompt image's blob
     // gone -- `InvalidSessionFormat` (`decodeUser`,
     // `session_adapter.zig:2871-2893@481104fd`) -- and says
-    // `fx: saved session is unreadable. …` before the terminal is taken
-    // (`initFailure`, `app_entry_runtime.zig:278-285`). Nothing of the
-    // session changes: not its log, whose unpublished tail stays, nor its
-    // files.
+    // `fx: saved session is unreadable. …` once it has given the terminal
+    // back (`initFailure`, `app_entry_runtime.zig:278-285`; it takes it
+    // first, `wire.txt` of the receipt). xfx refuses before it takes the
+    // terminal, as every launch refusal of its own does. Nothing of the
+    // session changes: not its log, whose unpublished tail stays, nor any
+    // file under it, a nested one included, nor their modes.
     use xfx::session::{
         NewSession, RecordedImage, SessionEvent, SessionId, SessionStore, TurnConclusion,
     };
@@ -1120,25 +1122,39 @@ fn a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstrea
             .expect("the log");
         log.write_all(b"{\"seq\":99,\"torn\":").expect("a tail");
     }
-    let files = |dir: &std::path::Path| {
-        let mut out: Vec<(String, Vec<u8>)> = std::fs::read_dir(dir)
-            .expect("a listing")
-            .map(|entry| {
+    let nested = dir.join("images");
+    std::fs::create_dir(&nested).expect("a nested folder");
+    std::fs::write(nested.join("sentinel"), b"left alone").expect("a nested sentinel");
+    fn files(dir: &std::path::Path) -> Vec<(String, u32, Vec<u8>)> {
+        use std::os::unix::fs::PermissionsExt;
+        let mut out = Vec::new();
+        let mut pending = vec![dir.to_path_buf()];
+        while let Some(at) = pending.pop() {
+            for entry in std::fs::read_dir(&at).expect("a listing") {
                 let path = entry.expect("an entry").path();
-                let bytes = std::fs::read(&path).unwrap_or_default();
-                (
-                    path.file_name()
-                        .expect("a name")
-                        .to_string_lossy()
-                        .into_owned(),
-                    bytes,
-                )
-            })
-            .collect();
+                let meta = std::fs::symlink_metadata(&path).expect("metadata");
+                let name = path
+                    .strip_prefix(dir)
+                    .expect("inside")
+                    .display()
+                    .to_string();
+                let mode = meta.permissions().mode();
+                if meta.is_dir() {
+                    out.push((name, mode, Vec::new()));
+                    pending.push(path);
+                } else {
+                    out.push((name, mode, std::fs::read(&path).expect("bytes")));
+                }
+            }
+        }
         out.sort();
         out
-    };
+    }
     let before = files(&dir);
+    assert!(
+        before.iter().any(|(name, _, _)| name == "images/sentinel"),
+        "the snapshot misses the nested file: {before:?}"
+    );
 
     let pty = Pty::open();
     pty.resize(24, 80);

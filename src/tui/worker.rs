@@ -18879,39 +18879,145 @@ mod tests {
         (id, folder.join(image.snapshot_name()))
     }
 
+    /// The image parts of the first user message of `request`, and its text.
+    fn first_prompt(request: &crate::gateway::protocol::CompletionRequest) -> (usize, String) {
+        let message = request
+            .messages
+            .iter()
+            .find(|message| message.role == crate::gateway::protocol::Role::User)
+            .expect("a user message");
+        let images = message
+            .content
+            .iter()
+            .filter(|part| matches!(part, crate::gateway::protocol::ContentPart::Image { .. }))
+            .count();
+        (images, message.text())
+    }
+
     #[test]
-    fn a_resumed_prompt_image_whose_copy_changed_fails_the_turn_in_upstreams_words_and_asks_nothing(
-    ) {
-        // Upstream reads a history image's bytes when it builds the request
-        // and checks them against the image's digest; one that fails fails the
+    fn a_resumed_prompt_images_copy_is_read_at_each_request_and_one_changed_fails_its_turn() {
+        // Upstream reads a history image's blob whenever it builds a request
+        // and checks it against the image's digest; one that fails fails the
         // build, a `try` (`loadVerifiedSnapshot`,
         // `image_attachments.zig:1260-1320@481104fd`, from
         // `vercel_protocol.zig:873-890` and `orchestrator.zig:7712-7716`), and
-        // the turn ends `request failed: <error>` under `system`
-        // (`app_process_runtime.zig:62-74`, `:114-126`): other bytes are
-        // `ImageSnapshotCorrupt`, a file past the image limit `ImageTooLarge`.
-        // Nothing is asked of the model. The same session, its copy put back,
-        // goes on.
-        for (how, failure) in [
-            ("other bytes", "request failed: ImageSnapshotCorrupt"),
-            ("too large", "request failed: ImageTooLarge"),
+        // the turn ends `request failed: ImageSnapshotCorrupt` under `system`
+        // (`app_process_runtime.zig:62-74`, `:99-136`) -- after its prompt was
+        // recorded (`p5-image-loss-changed`: fx's log gains the turn, its
+        // prompt and its end). Nothing is asked of the model. So a copy changed
+        // before the resume fails the first turn and, put back, is sent by the
+        // next; changed again, the turn after fails; put back, it goes again.
+        let (_home, _workspace, mut state) = seeing_runtime();
+        let (id, copy) = a_session_with_a_prompt_image(&state);
+        let mut tampered = crate::image::fixture::SHOT_PNG.to_vec();
+        tampered[40] ^= 0xff;
+        std::fs::write(&copy, &tampered).expect("tamper");
+        let resumed = Resumption::open(&state.config, &crate::session::Selector::Id(id))
+            .expect("its copy is there, so the session reads");
+        state.resume(resumed, &CancelToken::new());
+        let requests = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut got = Vec::new();
+        for (prompt, bytes) in [
+            ("changed", None),
+            ("put back", Some(crate::image::fixture::SHOT_PNG.to_vec())),
+            ("changed again", Some(tampered.clone())),
+            (
+                "put back again",
+                Some(crate::image::fixture::SHOT_PNG.to_vec()),
+            ),
         ] {
+            if let Some(bytes) = bytes {
+                std::fs::write(&copy, bytes).expect("rewrite");
+            }
+            let asked = requests.borrow().len();
+            let told = one_turn_told(
+                &mut state,
+                prompt,
+                Box::new(Kept {
+                    script: ScriptedProvider::new(vec![answers("answered")]),
+                    requests: std::rc::Rc::clone(&requests),
+                }),
+            );
+            let requests = requests.borrow();
+            let sent = requests[asked..]
+                .iter()
+                .map(|request| first_prompt(request).0)
+                .collect::<Vec<_>>();
+            let recorded = state
+                .conversation
+                .as_ref()
+                .expect("a conversation")
+                .recorder
+                .state()
+                .turns
+                .last()
+                .map(|turn| turn.user.clone());
+            got.push((prompt, failure_of(&told), sent, recorded));
+        }
+        let corrupt = Some("request failed: ImageSnapshotCorrupt".to_string());
+        assert_eq!(
+            got,
+            [
+                (
+                    "changed",
+                    corrupt.clone(),
+                    vec![],
+                    Some("changed".to_string())
+                ),
+                ("put back", None, vec![1], Some("put back".to_string())),
+                (
+                    "changed again",
+                    corrupt,
+                    vec![],
+                    Some("changed again".to_string())
+                ),
+                (
+                    "put back again",
+                    None,
+                    vec![1],
+                    Some("put back again".to_string())
+                ),
+            ],
+            "each turn: its end, the images each request it sent carried, the prompt the log \
+             recorded last"
+        );
+    }
+
+    #[test]
+    fn a_copy_a_request_cannot_carry_is_held_back_with_upstreams_note_and_the_turn_goes_on() {
+        // Before it builds a request upstream leaves out every image it cannot
+        // vouch for by its file -- one it cannot open or whose header names no
+        // size, one past 5 MiB encoded by its `stat` -- with its note in front
+        // of the prompt, and the request goes (`withholdOversizedAttachments`,
+        // `attachmentDimensions`, `attachmentRawBytes`,
+        // `image_attachments.zig:1011-1045@481104fd`, `:814-850`; the native
+        // route, `orchestrator.zig:7612-7632`). So a copy past the 20 MiB
+        // limit never reaches the build's `ImageTooLarge`, nor one the open is
+        // refused or whose header is cut its `AccessDenied` or
+        // `ImageSnapshotCorrupt`.
+        let root_user = rustix::process::geteuid().as_raw() == 0;
+        let mut got = Vec::new();
+        let mut want = Vec::new();
+        for how in ["too large", "cut short", "unreadable"] {
+            if how == "unreadable" && root_user {
+                continue;
+            }
             let (_home, _workspace, mut state) = seeing_runtime();
             let (id, copy) = a_session_with_a_prompt_image(&state);
+            let file = || std::fs::File::options().write(true).open(&copy);
             match how {
-                "other bytes" => {
-                    let mut tampered = crate::image::fixture::SHOT_PNG.to_vec();
-                    tampered[40] ^= 0xff;
-                    std::fs::write(&copy, &tampered).expect("tamper");
-                }
-                _ => std::fs::File::options()
-                    .write(true)
-                    .open(&copy)
+                "too large" => file()
                     .and_then(|file| file.set_len(crate::image::MAX_IMAGE_BYTES + 1))
                     .expect("grow"),
+                "cut short" => file().and_then(|file| file.set_len(10)).expect("cut"),
+                _ => {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o000))
+                        .expect("chmod");
+                }
             }
             let resumed = Resumption::open(&state.config, &crate::session::Selector::Id(id))
-                .expect("its copy is there, so the session reads");
+                .expect("its copy is a file, so the session reads");
             state.resume(resumed, &CancelToken::new());
             let requests = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
             let told = one_turn_told(
@@ -18922,9 +19028,33 @@ mod tests {
                     requests: std::rc::Rc::clone(&requests),
                 }),
             );
-            assert_eq!(failure_of(&told).as_deref(), Some(failure), "{how}");
-            assert_eq!(requests.borrow().len(), 0, "{how}: the model was asked");
+            let requests = requests.borrow();
+            let (images, text) = requests.first().map(first_prompt).unwrap_or_default();
+            let saved = format!(
+                "The original is saved at {}. Use an available image tool",
+                copy.display()
+            );
+            let note = if how == "too large" {
+                "[Image #1 not sent: image/png is 4x4 pixels. This request permits at most 8000 per \
+                 side and 5 MiB encoded per image. "
+            } else {
+                "[Image #1 not sent: its dimensions could not be verified. "
+            };
+            got.push((
+                how,
+                failure_of(&told),
+                requests.len(),
+                images,
+                text.starts_with(note),
+                text.contains(&saved),
+            ));
+            want.push((how, None, 1, 0, true, true));
         }
+        assert_eq!(
+            got, want,
+            "each: the turn's end, the requests, the prompt's images, whether upstream's note is \
+             in front of it and names the copy"
+        );
     }
 
     #[test]
@@ -18963,11 +19093,12 @@ mod tests {
     }
 
     #[test]
-    fn a_prompt_image_never_read_back_fails_the_turn_as_upstreams_with_no_file() {
+    fn a_prompt_image_never_read_back_is_held_back_as_upstreams_with_no_file() {
         // An image the turn holds no bytes or file for is upstream's
-        // attachment with neither: `MissingImageSnapshot`
-        // (`imageFile`, `loadVerifiedSnapshot`,
-        // `image_attachments.zig:1213-1243@481104fd`, `:1260-1320`).
+        // attachment with neither: no size to vouch for, so it is left out
+        // with the note that names no file (`attachmentDimensions`,
+        // `writeWithheldAttachmentNotice`, `image_attachments.zig:814-828@481104fd`,
+        // `:960-988`), and the request goes.
         let (_home, _workspace, mut state) = seeing_runtime();
         let conversation = state.conversation.as_mut().expect("a conversation");
         for event in [
@@ -19001,11 +19132,18 @@ mod tests {
                 requests: std::rc::Rc::clone(&requests),
             }),
         );
+        assert_eq!(failure_of(&told), None);
+        let requests = requests.borrow();
+        assert_eq!(requests.len(), 1, "the model was not asked");
         assert_eq!(
-            failure_of(&told).as_deref(),
-            Some("request failed: MissingImageSnapshot")
+            first_prompt(&requests[0]),
+            (
+                0,
+                "[Image #1 not sent: its dimensions could not be verified. No local image file is \
+                 available; ask the user for a smaller copy.]\n[Image #1] look"
+                    .to_string()
+            )
         );
-        assert_eq!(requests.borrow().len(), 0, "the model was asked");
     }
 
     #[test]

@@ -5919,6 +5919,170 @@ mod tests {
     }
 
     #[test]
+    fn a_tool_results_image_is_saved_and_sent_again_with_its_result_after_a_resume() {
+        // Upstream retains a result's tool images for later requests
+        // (`retainToolImages`, `execution_memory.zig:672-688`).
+        let root = tempfile::TempDir::new().expect("a root");
+        let (store, mut recorder, id, workspace) = recorder_in(root.path());
+        recorder.commit(SessionEvent::UserMessage {
+            text: "look at the picture".to_string(),
+        });
+        recorder.commit(SessionEvent::AssistantMessage {
+            text: String::new(),
+            tool_calls: vec![RecordedToolCall {
+                id: "c1".to_string(),
+                name: "read_file".to_string(),
+                input: serde_json::json!({"path": "shot.png"}),
+            }],
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        });
+        recorder.commit(SessionEvent::ToolResult {
+            call_id: "c1".to_string(),
+            tool: "read_file".to_string(),
+            ok: true,
+            output: "image attached".to_string(),
+            ending: None,
+            lines: None,
+            change: None,
+        });
+        let image = crate::image::ToolImage {
+            media_type: crate::image::MediaType::Png,
+            data: Arc::from(crate::image::fixture::SHOT_PNG),
+            path: "shot.png".to_string(),
+        };
+        recorder.attach_tool_images("c1", std::slice::from_ref(&image));
+        recorder.commit(SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            },
+        });
+        assert_eq!(recorder.failure(), None);
+        let carried = |messages: &[Message]| -> Vec<crate::image::ToolImage> {
+            messages
+                .iter()
+                .flat_map(|message| message.content.iter())
+                .flat_map(|part| match part {
+                    crate::gateway::protocol::ContentPart::ToolResult { images, .. } => {
+                        images.clone()
+                    }
+                    _ => Vec::new(),
+                })
+                .collect()
+        };
+        let live = recorder
+            .state()
+            .history_messages(Wire::VercelGateway, &recorder.state().model);
+        assert_eq!(carried(&live.messages), std::slice::from_ref(&image));
+        let log = std::fs::read_to_string(store.session_dir(&id).join(EVENTS_FILE)).expect("log");
+        assert!(log.contains("\"kind\":\"tool_images_attached\""), "{log}");
+        assert!(
+            !log.contains(crate::image::fixture::SHOT_PNG_BASE64),
+            "{log}"
+        );
+        drop(recorder);
+        let resumed = store
+            .resume(&Selector::Id(id.clone()), &workspace)
+            .expect("resumed");
+        let replay = resumed
+            .session
+            .state()
+            .history_messages(Wire::AnthropicMessages, &resumed.session.state().model);
+        assert_eq!(carried(&replay.messages), [image]);
+    }
+
+    #[test]
+    fn a_tools_images_belong_right_behind_the_result_that_succeeded() {
+        let record = RecordedImage {
+            id: 1,
+            path: "shot.png".to_string(),
+            media_type: "image/png".to_string(),
+            sha256: crate::image::digest(crate::image::fixture::SHOT_PNG),
+            bytes: crate::image::fixture::SHOT_PNG.len() as u64,
+        };
+        let images = |call_id: &str| SessionEvent::ToolImagesAttached {
+            call_id: call_id.to_string(),
+            images: vec![record.clone()],
+        };
+        let result = |ok: bool| SessionEvent::ToolResult {
+            call_id: "c1".to_string(),
+            tool: "read_file".to_string(),
+            ok,
+            output: "x".to_string(),
+            ending: None,
+            lines: None,
+            change: None,
+        };
+        let opened = |extra: Vec<SessionEvent>| {
+            let mut events = vec![
+                started(),
+                SessionEvent::UserMessage {
+                    text: "look".to_string(),
+                },
+            ];
+            events.extend(extra);
+            reduce(events)
+        };
+        let state = opened(vec![result(true), images("c1")]).expect("reduced");
+        assert!(matches!(
+            &state.turns[0].steps[0],
+            TurnStep::ToolResult { images, .. } if images.len() == 1
+        ));
+        assert!(opened(vec![images("c1")]).is_err());
+        assert!(opened(vec![result(false), images("c1")]).is_err());
+        assert!(opened(vec![result(true), images("c2")]).is_err());
+        assert!(opened(vec![result(true), images("c1"), images("c1")]).is_err());
+    }
+
+    #[test]
+    fn a_prompt_images_copy_the_resume_cannot_stat_refuses_it_and_one_it_cannot_open_does_not() {
+        // Upstream's blob check opens the session's blob folder and `stat`s the
+        // blob: any failure but `NotFound` is `Io`, which `decodeUser` hands
+        // up, so the session does not open either (`blobExists`, `notFoundOr`,
+        // `session.zig:1666-1681@481104fd`; `imageBlobFailed`,
+        // `session_adapter.zig:2881-2893`). A blob it can `stat` but not open is
+        // the request's business (`api.zig:433-442`). Root opens anything, so
+        // this is asked of everyone else.
+        if rustix::process::geteuid().as_raw() == 0 {
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |path: &Path, bits: u32| {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(bits)).expect("chmod")
+        };
+        let root = tempfile::TempDir::new().expect("a root");
+        let (store, mut recorder, id, workspace) = recorder_in(root.path());
+        recorder.commit(SessionEvent::UserMessage {
+            text: "[Image #1] look".to_string(),
+        });
+        recorder.attach_images(&[shot(1)]);
+        drop(recorder);
+        let dir = store.session_dir(&id);
+        let folder = dir.join(IMAGES_DIR);
+        let before = every_file(&dir);
+        mode(&folder, 0o000);
+        let refused = store.resume(&Selector::Id(id.clone()), &workspace);
+        mode(&folder, 0o700);
+        match refused {
+            Err(err) => assert_eq!(err.to_string(), "saved session is unreadable."),
+            Ok(_) => panic!("a copy the resume cannot stat let it go on"),
+        }
+        assert_eq!(
+            every_file(&dir),
+            before,
+            "the refused resume changed the session"
+        );
+        let copy = folder.join(shot(1).snapshot_name());
+        mode(&copy, 0o000);
+        let resumed = store.resume(&Selector::Id(id.clone()), &workspace);
+        mode(&copy, 0o600);
+        resumed.expect("a copy the resume can stat is the request's to read");
+    }
+
+    #[test]
     fn images_belong_right_behind_the_message_that_names_them() {
         let record = |id: u32| RecordedImage {
             id,

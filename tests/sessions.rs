@@ -1936,9 +1936,15 @@ fn every_file(dir: &Path) -> Vec<(String, u32, Vec<u8>)> {
     out
 }
 
-/// An image's saved bytes. A resume checks a copy by its size and digest, so
-/// these need not draw anything.
-const SHOT: &[u8] = b"\x89PNG\r\n\x1a\n -- a saved copy, checked by its size and digest only";
+/// An image's saved bytes: the 4x4 red PNG upstream's capture attached
+/// (`shot.png`). A request reads its size from its header.
+const SHOT: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x08, 0x02, 0x00, 0x00, 0x00, 0x26, 0x93, 0x09,
+    0x29, 0x00, 0x00, 0x00, 0x10, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0x00,
+    0x47, 0x0c, 0xc4, 0x71, 0x00, 0xae, 0x93, 0x0f, 0xf1, 0xd0, 0x5f, 0x23, 0x9e, 0x00, 0x00, 0x00,
+    0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
 
 /// Records session `name`, whose one turn carried image #1 with `copy` saved
 /// beside its log (`None`: nothing saved), then a log tail past its published
@@ -2061,12 +2067,13 @@ fn ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams() 
     // The blob is there, so the session reads; its bytes are checked when the
     // request is built and fail it, `ImageSnapshotCorrupt`
     // (`loadVerifiedSnapshot`, `image_attachments.zig:1260-1320@481104fd`,
-    // from `orchestrator.zig:7712-7716`). `ask` has no notice for it and
+    // from `orchestrator.zig:7712-7716`), after the turn and its prompt were
+    // recorded (`p5-image-loss-changed`). `ask` has no notice for it and
     // prints the name (`cli_ask.zig:1802-1823`, `app_entry_runtime.zig:563-567`).
     let sandbox = Sandbox::new();
     let mut tampered = SHOT.to_vec();
     tampered[40] ^= 0xff;
-    a_session_with_a_prompt_image(&sandbox, "changed-image", Some(&tampered));
+    let dir = a_session_with_a_prompt_image(&sandbox, "changed-image", Some(&tampered));
     let gateway = FakeGateway::start(Vec::new());
     let url = gateway.chat_url();
     let run = sandbox.run(
@@ -2076,6 +2083,11 @@ fn ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams() 
     assert_eq!(run.code, Some(1), "stderr={:?}", run.stderr);
     assert_eq!(run.stderr, "xfx: ImageSnapshotCorrupt\n");
     assert_eq!(gateway.request_count(), 0, "a model was asked");
+    let log = fs::read_to_string(dir.join(EVENTS_FILE)).expect("the log");
+    assert!(
+        log.contains(r#""kind":"user_message","text":"and now?""#),
+        "the failed turn's prompt was not recorded: {log}"
+    );
 }
 
 #[test]
