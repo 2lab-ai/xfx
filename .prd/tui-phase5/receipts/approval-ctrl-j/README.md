@@ -232,8 +232,9 @@ two tests and this unit's five (`diffstat.txt`: `git diff 09077f5f d7916178` and
 `git diff d7916178 9dd02bc3` over `src tests` add two and five `#[test]`s
 and remove none); 5613 is its 5606 plus the same seven. No test here builds a
 `Runtime`. `check-no-secrets.sh` ran again with this receipt staged (it reads
-`git ls-files`, the index): exit 0, 18168 tracked files (`gate.txt`'s last
-line). Every commit's added lines were scanned for local paths before it
+`git ls-files`, the index): exit 0, 18168 tracked files; and
+`check-xfx-identity.sh` and `check-no-stubs.sh` once it was committed: exit
+0 each (`gate.txt`'s last two lines). Every commit's added lines were scanned for local paths before it
 was made (`git diff --cached`).
 
 ## Parity (`docs/parity.md`) and the ledger

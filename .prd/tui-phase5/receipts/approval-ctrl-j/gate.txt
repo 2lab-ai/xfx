@@ -47,3 +47,4 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 # total: 15 result lines; passed 5613, failed 0, ignored 7
 
 # after the receipt was staged (git ls-files lists the index): scripts/check-no-secrets.sh exit 0 (75s), "check-no-secrets: ok (18168 tracked file(s) scanned)"
+# at 88530fb6, the receipt committed: scripts/check-xfx-identity.sh exit 0 (1s), "check-xfx-identity: ok (18168 tracked file(s) scanned)"; scripts/check-no-stubs.sh exit 0 (11s), "check-no-stubs: ok"
