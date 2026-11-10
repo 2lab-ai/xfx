@@ -28885,12 +28885,19 @@ mod tests {
         // stopped and the prompt -- here the rule confirmation, asked while
         // the turn runs (a command runs at once, `input_submit_runtime.zig:
         // 721-724`) -- is cleared, saying nothing about the rule
-        // (`input_approval_runtime.zig:401-436`).
+        // (`input_approval_runtime.zig:401-436`) and nothing about the turn:
+        // that route writes no turn cancellation, where Ctrl-C's
+        // `cancelActiveOperation` does (`input_interrupt_runtime.zig:118-126`;
+        // `p5-rule-confirm-keys-turn`'s `esc`). While the confirmation is up
+        // the band has no activity row, as at any approval
+        // (`frameOwnedActivityProjection`; the same scenario's `prompt`).
         let (_home, _workspace, rules, mut shell) = remembering_shell();
-        turn_running(&mut shell, b"ask something\r");
+        let started = turn_running(&mut shell, b"ask something\r");
         while shell.controlled().is_some() {}
         shell.route_bytes(REMEMBER_A);
         assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        shell.settle_band(started);
+        assert_eq!(shell.geometry.activity, None, "an activity row under it");
         let _ = shell.document();
         escape(&mut shell);
         assert!(shell.rule_confirm.is_none(), "Escape closed it");
@@ -28908,8 +28915,8 @@ mod tests {
             !shell
                 .document()
                 .iter()
-                .any(|row| row.contains("permission")),
-            "nothing is said about the rule"
+                .any(|row| row.contains("permission") || row.contains("Cancelled")),
+            "nothing is said about the rule or the turn"
         );
         assert!(!rules.exists(), "nothing was kept");
     }
