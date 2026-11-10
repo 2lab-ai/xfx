@@ -134,5 +134,22 @@ for p in d["pairs"]:
      TMPDIR=$GATE_TMP python3 -I scripts/fxcap/test_sweep.py Sweep.test_a_run_that_failed_is_a_failed_unit_and_its_path_is_not_reused || true)
     git clone --no-local -q "$XFX" "$SCRATCH/mut3"; git -C "$SCRATCH/mut3" checkout -q -b mut3 edba4758
     SCRATCH=$SCRATCH MUT_TMP=$GATE_TMP/mut3 $LOCK "$(dirname "$0")/mutants3.sh" ;;
+  r4)
+    # Round 4: the pair with 2e85d15b's harness, eight units a leg, the new
+    # tests at a7dbc9d0 (RED), the mutants. The gate is gates.sh on a clone at 2e85d15b.
+    git clone --no-local -q "$XFX" "$SCRATCH/h4"; git -C "$SCRATCH/h4" checkout -q -b h4 2e85d15b
+    mkdir -p "$SCRATCH/scen-rep8"; cp -R "$SCRATCH/scen-rep/workspace-extra" "$SCRATCH/scen-rep8/"
+    for i in 01 02 03 04 05 06 07 08; do cp "$SCRATCH/scen-rep/workspace-index-01.cap" "$SCRATCH/scen-rep8/workspace-index-$i.cap"; done
+    H=$SCRATCH/h4
+    $LOCK bash -c "
+      $(declare -f sweep); FX=$FX SHA=$SHA
+      sweep $H $SCRATCH/scen-rep8 'workspace-index-*' $SCRATCH/xbin/xfx-2e85d15b $TMP24 $SCRATCH/sw/r4-2e85d15b-24
+      sweep $H $SCRATCH/scen-rep8 'workspace-index-*' $SCRATCH/xbin/xfx-2e85d15b $TMP49 $SCRATCH/sw/r4-2e85d15b-49"
+    git clone --no-local -q "$XFX" "$SCRATCH/red4"; git -C "$SCRATCH/red4" checkout -q -b red4 a7dbc9d0
+    git -C "$XFX" show 2e85d15b:scripts/fxcap/test_capture.py > "$SCRATCH/red4/scripts/fxcap/test_capture.py"
+    (cd "$SCRATCH/red4" && TMPDIR=$GATE_TMP python3 -I scripts/fxcap/test_capture.py \
+       RunDirectory.test_a_pane_pid_that_cannot_be_read_fails_the_run RunDirectory.test_a_ps_that_fails_in_the_wait_fails_the_run || true)
+    git clone --no-local -q "$XFX" "$SCRATCH/mut4"; git -C "$SCRATCH/mut4" checkout -q -b mut4 2e85d15b
+    SCRATCH=$SCRATCH MUT_TMP=$GATE_TMP/mut4 $LOCK "$(dirname "$0")/mutants4.sh" ;;
   *) echo "no step $1" >&2; exit 2 ;;
 esac

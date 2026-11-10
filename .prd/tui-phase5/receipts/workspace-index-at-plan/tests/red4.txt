@@ -1,0 +1,56 @@
+# Round 4 RED: 2e85d15b's test_capture.py in a clone at a7dbc9d0 (round 3's head).
+## the two fault-injection tests at a7dbc9d0's capture.sh
+FF
+======================================================================
+FAIL: test_a_pane_pid_that_cannot_be_read_fails_the_run (__main__.RunDirectory.test_a_pane_pid_that_cannot_be_read_fails_the_run)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red4/scripts/fxcap/test_capture.py", line 498, in test_a_pane_pid_that_cannot_be_read_fails_the_run
+    self.assertEqual(r.code, 4, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 4 : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: a first frame after 0.39 s (6 looks)
+<tmp>/wiap4/fxcapt.i84foikz/side.7ru4_upm/out/xfx-t-30x200-a.txt
+<scratch>/red4/scripts/fxcap/capture.sh: line 564: 27924 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+======================================================================
+FAIL: test_a_ps_that_fails_in_the_wait_fails_the_run (__main__.RunDirectory.test_a_ps_that_fails_in_the_wait_fails_the_run)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red4/scripts/fxcap/test_capture.py", line 512, in test_a_ps_that_fails_in_the_wait_fails_the_run
+    self.assertEqual(r.code, 4, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 4 : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: a first frame after 3.00 s (47 looks)
+<tmp>/wiap4/fxcapt.73506fn7/side.xguw6sst/out/xfx-t-30x200-a.txt
+pane: the process the run started is gone (0 looks)
+<scratch>/red4/scripts/fxcap/capture.sh: line 1: 28536 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+----------------------------------------------------------------------
+Ran 2 tests in 9.409s
+
+FAILED (failures=2)
+exit 1
+## the same-start test at a7dbc9d0: it writes round 4's record (`pid` first), which round 3 does not read, so this failure is the format, not the rule
+F
+======================================================================
+FAIL: test_a_live_process_with_the_recorded_pid_and_start_is_waited_for (__main__.RunDirectory.test_a_live_process_with_the_recorded_pid_and_start_is_waited_for)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red4/scripts/fxcap/test_capture.py", line 528, in test_a_live_process_with_the_recorded_pid_and_start_is_waited_for
+    self.assertEqual(r.code, 4, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 4 : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: a first frame after 3.61 s (55 looks)
+<tmp>/wiap4/fxcapt.7ztefbk_/side.cjvxcu2t/out/xfx-t-30x200-a.txt
+pane: the process the run started is gone (0 looks)
+<scratch>/red4/scripts/fxcap/capture.sh: line 1: 30406 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+----------------------------------------------------------------------
+Ran 1 test in 6.533s
+
+FAILED (failures=1)
+exit 1

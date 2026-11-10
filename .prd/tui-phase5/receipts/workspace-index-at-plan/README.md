@@ -237,8 +237,9 @@ check-no-local-paths, check-xfx-identity, and test_ci_sweep.py
 ## 8c. Round 3 (87219db1, edba4758; gpt6's MUST: no SIGKILL)
 
 Round 2's `reap` sent SIGKILL to a bare pid 0.05 s after its last check of an
-identity first read at cleanup. Now capture.sh signals nothing at a run's
-end:
+identity first read at cleanup. Now the pane wait sends no signal. tmux's
+own hangup of its pane (`kill-server`) and capture.sh's existing `kill`s of
+the fake gateway and mcphttp, servers it started, remain:
 
 - **Recorded at launch.** `own_pane` (`scripts/fxcap/capture.sh:525-534@edba4758`)
   writes the pane's pid and its start time to `$run/pane` right after
@@ -285,6 +286,63 @@ end:
   `r3/edba4758-49.txt`).
 - **Gate** at edba4758, on a clone, under the lock: 22 / 22; the capture
   harness ran 118 tests (`gate/gates-edba4758.txt`).
+
+## 8d. Round 4 (2e85d15b; gpt6's MUST: unknown is never gone)
+
+Round 3 turned a failed look into a pass: a failed `tmux display-message` or
+`ps` at launch left an empty record, which cleanup read as nothing to wait
+for, and a failed `ps` in the wait read as gone. A live binary plus one
+failed look ended the run 0, and the sweep reused its directory.
+
+- **Three states** (`scripts/fxcap/capture.sh:525-595@2e85d15b`):
+  - `there`: the pid runs with the recorded start time;
+  - `gone`: `kill -0` fails (it sends no signal; it fails only when no
+    process of ours has the pid), or the start time differs (the pid was
+    reused);
+  - `unknown`: any look that failed, among them a `ps` that fails on a pid
+    `kill -0` finds. `start_of` (`:547-552`) now fails when `ps` does.
+- **The record** (`$run/pane`):
+  - it reads `unknown` from just before the pane is made (`:1120`);
+  - `own_pane` (`:530-543`) then writes `pid` with the pid and start time,
+    `gone`, or `unknown` with a reason;
+  - no record at all means no pane was made, and nothing is waited for.
+- **The wait** (`await_pane`, `:574-595`):
+  - a `gone` record ends at once;
+  - an `unknown` record fails the run (exit 4) with a `LIVE-WRITER GUARD ...
+    could not be recorded` line;
+  - otherwise it keeps looking while the state is there or unknown, and
+    fails at 3 s if the state is not gone.
+- **Conservative, not exact.** A pid and a start second are evidence, not an
+  identity. Another process started in the same second under the same pid
+  reads as `there`: the run waits for it and fails, and sends it nothing.
+- **Tests** (`tests/red4.txt`; each stub stays past the wait and ends by
+  itself):
+  - the pane pid unreadable at launch (a `tmux` shim), exit 4;
+  - `ps` failing in the wait (a `ps` shim, turned on once the stub is
+    recorded), exit 4 with "in a state no look could read";
+  - a live process the run did not start (the test's own), recorded with its
+    pid and start time, waited for and the run failed (exit 4);
+  - the sweep: both TMPDIRs a failed unit used are gone at its end.
+  The two fault-injection tests fail at a7dbc9d0 (exit 0). The same-start
+  test fails there too, but only because it writes round 4's record format.
+- **Mutants:** 6 / 6 killed at 2e85d15b (`mutants4.sh`, `mutants4.txt`):
+  - unknown read as gone at launch;
+  - unknown read as gone in the wait;
+  - the unknown record ignored at cleanup;
+  - `kill -0` dropped (every gone pid then reads unknown, and runs fail);
+  - round 3's no-wait and no-fail, at their new line.
+- **The pair again,** with xfx 2e85d15b, eight units a leg: 24 bytes 16 /
+  16, 49 bytes 16 / 16. All 32 runs found their pane gone at the first
+  look, and none took the unknown path (`r4/2e85d15b-24.txt`,
+  `r4/2e85d15b-49.txt`).
+- **Gate** at 2e85d15b, on a clone, under the lock: 22 / 22; the capture
+  harness ran 121 tests (`gate/gates-2e85d15b.txt`).
+- **No real scenario takes the unknown path.** Every scenario that has a
+  `relaunch` also has `keep`, so a binary that exits at once leaves a dead
+  pane and a live server: own_pane reads its pid, and `kill -0` reads it
+  `gone`. A binary that exits at once without `keep` fails its run anyway:
+  `await_up` fails a pane gone before its first frame, and that exit status
+  is kept.
 
 ## 9. Open
 
