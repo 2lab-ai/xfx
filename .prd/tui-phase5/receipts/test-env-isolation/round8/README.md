@@ -75,7 +75,8 @@ fails the same ten cases:
   `a_reply_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else`,
   `compact_with_no_credential_is_not_started_and_asks_nobody`,
   `every_slash_command_is_answered_by_the_session_rather_than_by_the_model`
-  ("/trace wrote no report", `tests/tui.rs:5111`, a count of 2), and
+  ("/trace wrote no report", the same one-report assertion at
+  `tests/tui.rs:5111`), and
   `trace_records_a_failed_compaction_and_the_one_after_it`. That last one
   timed out: it counts the reports before `/trace` (`tests/tui.rs:12533`),
   the log among them, and waits for one notice more than that (`:12536`).
