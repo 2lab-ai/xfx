@@ -425,7 +425,7 @@
   1634	
   1635	    return settings;
   1636	}
-== src/core/config/config_runtime.zig:1638-1861@481104fd (4718 lines) -- parseProfileOnlyFields: each key's type and grammar; the first error fails the layer
+== src/core/config/config_runtime.zig:1638-1860@481104fd (4718 lines) -- parseProfileOnlyFields: each key's type and grammar; the first error fails the layer
   1638	fn parseProfileOnlyFields(
   1639	    settings: *Settings,
   1640	    alloc: Allocator,
@@ -649,7 +649,6 @@
   1858	        settings.has_permission_rules = true;
   1859	    }
   1860	}
-  1861	
 == src/core/config/config_runtime.zig:1898-1953@481104fd (4718 lines) -- parseProjectSafeFields: max_agent_steps an integer, not negative
   1898	fn parseProjectSafeFields(settings: *Settings, alloc: Allocator, root: std.json.Value) !void {
   1899	    if (root.object.get("provider_order")) |order_value| {

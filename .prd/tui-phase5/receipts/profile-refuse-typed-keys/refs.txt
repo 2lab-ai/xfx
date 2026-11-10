@@ -1,0 +1,4 @@
+== python3 -I refs.py 0a334851 WORKTREE (run at 92cbdde6; an --apply on the first draft of the code re-pointed 5 references, in .prd/02-architecture.md, .prd/03-tui-port.md, .prd/tui-phase3/loop.md, tests/sessions.rs, tests/tui.rs)
+== refs into changed files: 51 same text, 0 moved, 0 by hand
+BARE src/tui/worker.rs: interactive.rs:457-464 (2 tracked files so named; if tests/interactive.rs, its line moved)
+== bare refs to judge by hand: 1

@@ -44,7 +44,7 @@ show $P 290 299 "validate_id: at most 64 bytes, a letter first, letters, digits,
 
 echo "#### 4. The parse, key by key, in its order"
 show $C 1611 1636 "parseSettingsValueForLayer: providers (global only), the profile-only fields, then the project-safe ones"
-show $C 1638 1861 "parseProfileOnlyFields: each key's type and grammar; the first error fails the layer"
+show $C 1638 1860 "parseProfileOnlyFields: each key's type and grammar; the first error fails the layer"
 show $C 1898 1953 "parseProjectSafeFields: max_agent_steps an integer, not negative"
 show $C 265 265 "at most 32 skill authorities"
 show $C 1865 1896 "parseSkillSymlinkAuthorities"
