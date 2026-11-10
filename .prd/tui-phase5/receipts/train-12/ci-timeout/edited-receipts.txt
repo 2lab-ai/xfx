@@ -1,0 +1,20 @@
+receipts the change edits (not adds): 158
+by the set of commits that edited each:
+   77  19a6b596 6b4f72fd
+   36  19a6b596
+   28  19a6b596 6b4f72fd 6cb5c4e7
+    8  43024057
+    7  6b4f72fd 6cb5c4e7
+    2  1d707ba4
+those commits:
+  19a6b596 chore: write the harness scratch root out of every tracked file
+  1d707ba4 fix(gate): a scratch root broken after its tmp/ is found after any non-name character
+  43024057 feat(gate): check-no-local-paths, and the paths scripts must derive
+  6b4f72fd chore: every tracked capture's roots at their own width
+  6cb5c4e7 chore: write out the roots a frame broke across rows or a colour split
+of those, LOCAL-PATHS's (55d993a7^1..55d993a7^2): 19a6b596 1d707ba4 43024057 6b4f72fd 6cb5c4e7
+receipts edited by LOCAL-PATHS's commits and no other: 158 of 158
+
+/status, its scenarios at CI's head: 13: h1-rehomefile p5-effort-fork-fork p5-effort-fork-fork-edge p5-lifecycle-relhome-unsaved p5-panels-badsettings p5-panels-keys p5-panels-noauth p5-panels-permissions p5-panels-status p5-panels-status-badsettings p5-panels-status-first p5-panels-status-short status-version-stats
+without the deleted one: 12
+coverage at CI's head: covered 45 of 45 surfaces

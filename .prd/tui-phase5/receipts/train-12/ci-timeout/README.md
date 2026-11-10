@@ -43,9 +43,10 @@ retry's scoreboards). `ci-sweep2-step.log` is that step's log.
   - The change adds or edits 666 receipts: 508 new and 158 edited.
     `ci_sweep.select` reads every scenario name in the whole of each one
     (`scripts/fxcap/ci_sweep.py:240-247`, `names_in` at `:250-261`).
-  - Most of the 158 edited receipts are LOCAL-PATHS's path rewrites
-    (`19a6b596`, `6b4f72fd`). The largest folder is phase 4's `s1`, with 53
-    files.
+  - **All 158 edited receipts** were edited only by LOCAL-PATHS's own
+    commits: its path rewrites and its gate (`edited-receipts.txt`, the
+    commits on `55d993a7`'s second parent and not its first). The largest
+    folder is phase 4's `s1`, with 53 files (`receipts-rule.txt`).
   - Their added lines name 15 scenarios. Read whole, the receipts the change
     touches name 103. Only 23 of those are on lines the change adds, and
     they are the same 23 the new receipts name.
@@ -127,7 +128,12 @@ retry's scoreboards). `ci-sweep2-step.log` is that step's log.
 - **Fixed by deleting it** (`1a9121a4`): the `.cap` and the one seed file
   only it used.
   - A rewrite would duplicate `p5-panels-status-badsettings`.
-  - `select-after.txt` now lists it as `removed`.
+  - `select-after.txt` now lists it as `removed`. A run reaches its verdict
+    with a removed scenario: the report names it (`ci_sweep.py:543-544`),
+    and `test_ci_sweep.py`'s regression test (`:176`, whose head removes a
+    scenario, `:146`) and `--select` test (`:333`) cover it.
+  - `/status` keeps 12 scenarios without it, and CI's inventory covered 45
+    of 45 surfaces (`edited-receipts.txt`, from `artifact/head/scoreboard.json`).
   - `surface-sweep.txt`: the covering scenario and the `h1-rehomefile`
     scenario both ran on fx v0.0.16 and the head's xfx, with the oracle's
     sha256 the pin's before and after.
@@ -175,6 +181,7 @@ retry's scoreboards). `ci-sweep2-step.log` is that step's log.
 `runs.sh` (makes `select.txt`, `select-after.txt`, `measure.txt`,
 `receipts-rule.txt`, `lookahead.txt` from this folder's files and two
 checkouts) · `measure.py` · `receipts_rule.py` · `lookahead.py` ·
+`edited_receipts.py` → `edited-receipts.txt` ·
 `ci-sweep2-step.log` · `job-steps.txt` · `tmux-ci.txt` · `timeout-pins.txt` ·
 `badsettings-history.txt` · `artifact/head/`
 and `artifact/head-retry-1/` (`scoreboard.json`, `summary.md`) ·
