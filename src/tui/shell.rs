@@ -24048,12 +24048,11 @@ mod tests {
         // clear) and a resume's or a fork's replay -- come with the runtime
         // dropping the conversation that recorded it, ledger and all
         // (`worker::tests::the_history_notice_ledger_goes_with_its_conversation`).
-        const CARRY: &str =
-            "this session recorded reasoning on the anthropic_messages wire and is \
-                             continuing on vercel_gateway, so that reasoning was not carried over";
+        const CARRY: &str = "image #1 of this session could not be read back (its saved copy is \
+                             missing), so it was not sent again";
         let said = |rows: &[String]| {
             rows.iter()
-                .filter(|row| row.contains("not carried over"))
+                .filter(|row| row.contains("not sent again"))
                 .count()
         };
         let carry = || UiEvent::Notice(notice::Notice::warning("session", CARRY));

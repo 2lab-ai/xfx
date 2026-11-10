@@ -5,7 +5,8 @@
 # result and the answer, and none of the sealed reasoning. fx's Gateway row
 # opens its gated sign-in columns: Enter (method), Down + Enter (api-key),
 # Enter (the environment key); xfx's Gateway row commits. Two turns after the
-# switch, to show what is said about the reasoning, and how often.
+# switch, to show that neither says anything about the reasoning
+# (`projectProviderReplay`, `types.zig:1668-1682@481104fd`).
 fx: seed provider-carry-back-fx.json
 xfx: seed provider-carry-back-xfx.json
 fx: homefile .fx/chatgpt-auth.json provider-carry-chatgpt-auth.json

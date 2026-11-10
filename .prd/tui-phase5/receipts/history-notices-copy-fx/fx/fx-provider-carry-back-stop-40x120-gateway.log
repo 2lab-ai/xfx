@@ -1,0 +1,16 @@
+[fakegw] listening 63932
+[fakegw] GET /codex/models bearer=yes
+[fakegw] request GET /codex/models?client_version=0.167.0 at=1782ms -> 200 at=1799ms headers=authorization,chatgpt-account-id
+[fakegw] codex title
+[fakegw] request POST /codex/responses at=8016ms -> 200 at=8021ms headers=authorization,chatgpt-account-id
+[fakegw] codex /codex/responses -> tool read_file
+[fakegw] request POST /codex/responses at=8021ms -> 200 at=8022ms headers=authorization,chatgpt-account-id
+[fakegw] codex /codex/responses -> text
+[fakegw] request POST /codex/responses at=8039ms -> 200 at=8039ms headers=authorization,chatgpt-account-id
+[fakegw] GET /coding-agent/v1/models bearer=yes at=34144ms
+[fakegw] GET /coding-agent/v1/models -> 200 at=44146ms
+[fakegw] request GET /coding-agent/v1/models at=34144ms -> 200 at=44146ms headers=authorization
+[fakegw] GET /codex/models bearer=yes
+[fakegw] request GET /codex/models?client_version=0.167.0 at=48983ms -> 200 at=48983ms headers=authorization,chatgpt-account-id
+[fakegw] codex /codex/responses -> text
+[fakegw] request POST /codex/responses at=48998ms -> 200 at=48999ms headers=authorization,chatgpt-account-id

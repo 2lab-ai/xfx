@@ -1,0 +1,15 @@
+[fakegw] listening 51094
+[fakegw] GET /models (llmux catalog)
+[fakegw] request GET /models at=1360ms -> 200 at=1362ms headers=-
+[fakegw] llmux /v1/messages -> tool read_file
+[fakegw] request POST /v1/messages at=7581ms -> 200 at=7583ms headers=-
+[fakegw] llmux /v1/messages -> text
+[fakegw] request POST /v1/messages at=7612ms -> 200 at=7612ms headers=-
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] request GET /coding-agent/v1/models at=26593ms -> 200 at=26593ms headers=authorization
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] request POST /v4/ai/language-model at=39652ms -> 200 at=39653ms headers=authorization
+[fakegw] stream closed by client: TypeError [ERR_INVALID_STATE]: Invalid state: Controller is already closed
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] request POST /v4/ai/language-model at=54684ms -> 200 at=54685ms headers=authorization
+[fakegw] stream closed by client: TypeError [ERR_INVALID_STATE]: Invalid state: Controller is already closed

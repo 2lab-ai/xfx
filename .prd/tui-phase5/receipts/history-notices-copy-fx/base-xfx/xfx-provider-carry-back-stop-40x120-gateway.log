@@ -1,0 +1,12 @@
+[fakegw] listening 65021
+[fakegw] GET /models (llmux catalog)
+[fakegw] request GET /models at=1553ms -> 200 at=1558ms headers=-
+[fakegw] llmux /v1/messages -> tool read_file
+[fakegw] request POST /v1/messages at=7775ms -> 200 at=7777ms headers=-
+[fakegw] llmux /v1/messages -> text
+[fakegw] request POST /v1/messages at=7820ms -> 200 at=7821ms headers=-
+[fakegw] GET /coding-agent/v1/models bearer=yes at=27091ms
+[fakegw] GET /coding-agent/v1/models -> 200 at=37097ms
+[fakegw] request GET /coding-agent/v1/models at=27091ms -> 200 at=37105ms headers=authorization
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] request POST /v4/ai/language-model at=45024ms -> 200 at=45071ms headers=authorization

@@ -1,0 +1,48 @@
+# RED: the tests of aa36330c on the base code (aa36330c = 32afd307 + tests only), in a git clone --no-local; 2026-11-09T16:13:47Z
+## cargo test --locked --lib -- carry_tests:: history_notice the_line_shell_ a_stop_through_a_dropped_compaction
+test session::store::carry_tests::the_log_says_which_provider_the_conversation_went_on_with ... ok
+test session::store::carry_tests::a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed ... FAILED
+test session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls ... FAILED
+test session::store::carry_tests::a_compacted_conversation_carries_its_checkpoint_to_either_wire_as_a_user_message ... ok
+test session::store::carry_tests::a_switched_session_goes_to_llmux_with_its_own_blocks_and_the_gateways_turn_as_text_and_calls ... ok
+test session::store::carry_tests::every_kind_of_message_goes_to_the_gateway_in_its_own_shape ... ok
+test session::store::carry_tests::every_kind_of_message_goes_to_llmux_in_anthropics_shape ... ok
+test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... ok
+test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... ok
+test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... ok
+test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... ok
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+thread 'session::store::carry_tests::a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed' (422773361) panicked at src/session/store/carry_tests.rs:394:5:
+thread 'session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls' (422773359) panicked at src/session/store/carry_tests.rs:444:5:
+test result: FAILED. 26 passed; 2 failed; 0 ignored; 0 measured; 4596 filtered out; finished in 11.78s
+## cargo test --locked --test sessions -- ask_resume_never_adopts a_legacy_record responses_state_recorded_under_one_authority a_wire_this_version_does_not_know a_wire_less_responses_state
+test responses_state_recorded_under_one_authority_is_never_sent_to_another ... FAILED
+test a_legacy_record_is_dropped_without_a_word_on_any_other_wire ... FAILED
+test a_wire_this_version_does_not_know_drops_rather_than_guessing ... FAILED
+test a_wire_less_responses_state_record_drops_rather_than_replaying_under_active ... FAILED
+test a_legacy_record_with_blocks_and_no_wire_replays_on_the_messages_wire ... ok
+test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+thread 'responses_state_recorded_under_one_authority_is_never_sent_to_another' (422813408) panicked at tests/sessions.rs:2942:9:
+thread 'a_legacy_record_is_dropped_without_a_word_on_any_other_wire' (422813403) panicked at tests/sessions.rs:2916:5:
+thread 'a_wire_this_version_does_not_know_drops_rather_than_guessing' (422813406) panicked at tests/sessions.rs:2965:5:
+thread 'a_wire_less_responses_state_record_drops_rather_than_replaying_under_active' (422813405) panicked at tests/sessions.rs:2987:5:
+thread 'ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one' (422813407) panicked at tests/sessions.rs:1974:5:
+test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 59 filtered out; finished in 2.88s
+## cargo test --locked --test tui -- a_switch_off_llmux_sends_its_text after_a_model_change_on_llmux_no_block
+test after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent ... FAILED
+test a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind ... FAILED
+thread 'after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent' (422820515) panicked at tests/tui.rs:9811:5:
+thread 'a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind' (422820514) panicked at tests/tui.rs:9644:5:
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 184 filtered out; finished in 3.01s
+## the failing asserts' messages (the same runs again, the panic message lines)
+thread 'session::store::carry_tests::a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed' (422828302) panicked at src/session/store/carry_tests.rs:394:5:
+["xfx: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that reasoning was not carried over", "xfx: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that reasoning was not carried over"]
+thread 'session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls' (422828301) panicked at src/session/store/carry_tests.rs:444:5:
+["xfx: this session recorded reasoning from fable and is continuing with opus, so that reasoning was not carried over", "xfx: this session recorded reasoning from fable and is continuing with opus, so that reasoning was not carried over"]
+thread 'a_legacy_record_is_dropped_without_a_word_on_any_other_wire' (422828354) panicked at tests/sessions.rs:2916:5:
+["xfx: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that reasoning was not carried over"]
+thread 'ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one' (422828355) panicked at tests/sessions.rs:1974:5:
+a notice fx does not have was printed: "xfx: this session recorded reasoning on the w [2Jire 31m wire and is continuing on vercel_gateway, so that reasoning was not carried over\n"
+thread 'a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind' (422830228) panicked at tests/tui.rs:9644:5:
+xfx spoke of the reasoning it left behind, which fx does not: "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t\u{1b}]11;?\u{1b}\\\u{1b}[?996n\u{1b}[6n\u{1b}]2;xfx v0.1.0 | workspace\u{7}\u{1b}]7501;state=idle:app=xfx\u{1b}\\\u{1b}[?2026h\u{1b}[?25l\u{1b}[1;1H\u{1b}[1;38;5;255mx𝒇x\u{1b}[0m\u{1b}[38;5;245m v0.1.0-aa36330 \u{1b}[38;5;255m[debug]\u{1b}[38;5;245m · Run /help for commands\u{1b}[0m\u{1b}[K\u{1b}[2;1H\u{1b}[K\u{1b}[2;1H\u{1b}[K\u{1b}[3;1H\u{1b}[K\u{1b}[3;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[1mread the notes\u{1b}[0m\u{1b}[K\u{1b}[4;1H\u{1b}[K\u{1b}[4;1H\u{1b}[K\u

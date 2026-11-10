@@ -1,0 +1,229 @@
+# fx v0.0.16 (pin 481104fd), every line this unit's claims about fx rest on. Read with git show; never checked out.
+
+## H1: fx says nothing about reasoning it leaves behind. projectProviderReplay drops a step's replay state that does
+## not match the provider and the model; every encoder calls it, and the Gateway's writes a debug trace, not a notice.
+### git -C fx-upstream show 481104fd:src/core/shared/types.zig | sed -n 1609,1612p
+  1609      pub fn matches(self: ProviderReplay, source: @import("../config/model_provider.zig").ProviderSelection) bool {
+  1610          return self.source.provider.same_authority(source.provider) and std.mem.eql(u8, self.source.model, source.model);
+  1611      }
+  1612  };
+
+### git -C fx-upstream show 481104fd:src/core/shared/types.zig | sed -n 1667,1682p
+  1667  /// Returns a caller-owned shallow projection only when incompatible replay exists.
+  1668  pub fn projectProviderReplay(
+  1669      alloc: std.mem.Allocator,
+  1670      messages: []const ChatMessage,
+  1671      source: @import("../config/model_provider.zig").ProviderSelection,
+  1672  ) !?[]ChatMessage {
+  1673      var projected: ?[]ChatMessage = null;
+  1674      errdefer if (projected) |owned| alloc.free(owned);
+  1675      for (messages, 0..) |message, index| {
+  1676          const replay = message.provider_replay orelse continue;
+  1677          if (replay.matches(source)) continue;
+  1678          if (projected == null) projected = try alloc.dupe(ChatMessage, messages);
+  1679          projected.?[index].provider_replay = null;
+  1680      }
+  1681      return projected;
+  1682  }
+
+### git -C fx-upstream show 481104fd:src/builtins/gateway.zig | sed -n 178,180p
+   178      const projected = try shared_types.projectProviderReplay(alloc, request.messages, .{ .provider = .gateway, .model = request.model });
+   179      defer if (projected) |messages| alloc.free(messages);
+   180      if (projected != null) debug_trace.logf("gateway", "provider_replay_omitted provider=gateway reason=source_mismatch", .{});
+
+### git -C fx-upstream grep -n projectProviderReplay 481104fd -- src (callers, the definition and its tests left out)
+src/builtins/gateway.zig:178:    const projected = try shared_types.projectProviderReplay(alloc, request.messages, .{ .provider = .gateway, .model = request.model });
+src/gateway/chat_completions_protocol.zig:400:        projected = try types.projectProviderReplay(alloc, input.messages, .{ .provider = provider.*, .model = input.model });
+src/gateway/openai_codex.zig:61:    const projected = try types.projectProviderReplay(alloc, request.messages, .{ .provider = .codex, .model = request.model });
+src/gateway/xai_grok.zig:55:    const projected = try types.projectProviderReplay(alloc, request.messages, .{ .provider = .grok, .model = request.model });
+
+## H2: a prompt image's blob the log names that is gone or misnamed makes the session unreadable: no notice, no turn.
+### git -C fx-upstream show 481104fd:src/core/session/session_adapter.zig | sed -n 2871,2893p
+  2871      fn decodeUser(src: Source, pa: Allocator, data: []const u8) !session_event.ConversationUser {
+  2872          const wire = try std.json.parseFromSliceLeaky(WireUser, pa, data, .{ .allocate = .alloc_if_needed });
+  2873          const images = try wire.toImages(pa);
+  2874          for (wire.images, images) |image, *out| {
+  2875              const hash = image.blob orelse continue;
+  2876              out.blob_path = src.store.manager.blobPath(pa, src.id, hash) catch |err| return imageBlobFailed(src, image.id, err);
+  2877          }
+  2878          return .{ .text = wire.text, .images = images, .work_id = wire.work_id };
+  2879      }
+  2880  
+  2881      /// An image blob the log names that is gone or misnamed damages the
+  2882      /// session, as a piece's blob does (D39). One whose bytes were damaged is
+  2883      /// found by `verify`, and by any reader, which checks them against the
+  2884      /// image's digest (D89).
+  2885      fn imageBlobFailed(src: Source, image_id: usize, err: sm.BlobError) (sm.BlobError || error{InvalidSessionFormat}) {
+  2886          return switch (err) {
+  2887              error.NotFound, error.Corrupt, error.InvalidArgument => {
+  2888                  debug_trace.logf("session", "event=sessions_v2_prompt_image_unreadable session={s} image={d} err={s}", .{ src.id, image_id, @errorName(err) });
+  2889                  return error.InvalidSessionFormat;
+  2890              },
+  2891              else => |e| e,
+  2892          };
+  2893      }
+
+## H3: a prompt image's bytes are read and checked when a request is written; one that fails fails the request (try).
+## A message the verified override does not name takes the second branch (H3b). Code-traced, not captured.
+### git -C fx-upstream show 481104fd:src/gateway/vercel_protocol.zig | sed -n 873,890p
+   873              } else {
+   874                  for (message.images) |image| {
+   875                      if (wrote_part) try writer.writeByte(',');
+   876                      if (budget) |active| {
+   877                          try image_attachments.writeImageFilePartJsonWithBudget(
+   878                              scratch_alloc,
+   879                              writer,
+   880                              image,
+   881                              .{
+   882                                  .deadline = active.deadline,
+   883                                  .cancel_flag = active.cancel_flag,
+   884                              },
+   885                          );
+   886                      } else {
+   887                          try image_attachments.writeImageFilePartJson(scratch_alloc, writer, image);
+   888                      }
+   889                      wrote_part = true;
+   890                  }
+
+### git -C fx-upstream show 481104fd:src/core/images/image_attachments.zig | sed -n 1869,1877p
+  1869  pub fn writeImageFilePartJsonWithBudget(
+  1870      alloc: std.mem.Allocator,
+  1871      writer: *std.Io.Writer,
+  1872      attachment: types.ImageAttachment,
+  1873      budget: CaptureBudget,
+  1874  ) !void {
+  1875      var snapshot = try loadVerifiedSnapshot(alloc, attachment, budget);
+  1876      defer snapshot.deinit(alloc);
+  1877      try writeVerifiedImageFilePartJsonWithBudget(writer, snapshot, budget);
+
+## H4: a tool's stored image that cannot be loaded is told to the model, in front of the result: not the screen.
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/execution_memory.zig | sed -n 1001,1022p
+  1001  /// Loads stored tool images for a request without changing session history.
+  1002  pub fn materializeToolImages(arena: Allocator, config: Config, messages: []const ChatMessage) ![]const ChatMessage {
+  1003      if (!needsImageMaterialization(messages)) return messages;
+  1004      const materialized = try arena.dupe(ChatMessage, messages);
+  1005      for (materialized) |*message| {
+  1006          if (message.tool_result_memory) |*memory| {
+  1007              if (memory.tool_images.len == 0) {
+  1008                  const handle = memory.tool_image_handle orelse continue;
+  1009                  const capability = config.session_child_capability orelse {
+  1010                      message.content = try prependImageNotice(arena, "[Stored tool image is unavailable in this session.]\n", message.content orelse "", config.max_tool_result_bytes);
+  1011                      continue;
+  1012                  };
+  1013                  memory.tool_images = result_store.loadToolImages(arena, capability, handle) catch |err| {
+  1014                      if (err == error.OutOfMemory) return error.OutOfMemory;
+  1015                      const notice = try arena.print("[Stored tool image unavailable: {s}]\n", .{@errorName(err)});
+  1016                      message.content = try prependImageNotice(arena, notice, message.content orelse "", config.max_tool_result_bytes);
+  1017                      continue;
+  1018                  };
+  1019              }
+  1020          }
+  1021      }
+  1022      return materialized;
+
+## H5: the [context] lines a tool run pushes mid-turn, after a request; the push claims, then queues (fx's once-a-session
+## lines: HISTORY-NOTICE-STOP's fx-src.txt H3-H8 has the rest, unchanged at the pin).
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n 11344,11346p
+ 11344                          try runtime_tool_admission.recordRejectedToolCall(deps, arena, tool_call, prepared.model_output, null);
+ 11345                          for (execution.context_notices) |notice| try deps.pushContextNotice(notice);
+ 11346                          try runtime_tool_batch.appendToolResultContent(
+
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n 12354,12356p
+ 12354              for (execution.context_notices) |notice| {
+ 12355                  try deps.pushContextNotice(notice);
+ 12356              }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_callbacks.zig | sed -n 1294,1307p
+  1294          fn agentPushContextNotice(ctx: *anyopaque, text: []const u8) !void {
+  1295              const app: *App = @ptrCast(@alignCast(ctx));
+  1296              if (comptime @hasDecl(@TypeOf(app.session), "claimContextNotice")) {
+  1297                  if (!try app.session.claimContextNotice(std.heap.c_allocator, text)) return;
+  1298              }
+  1299              const body = try types.renderContextNoticeBody(std.heap.c_allocator, text);
+  1300              defer std.heap.c_allocator.free(body);
+  1301              try app_worker_runtime.Runtime(App).pushSemanticNotice(app, .{
+  1302                  .topic = "context",
+  1303                  .tone = .warning,
+  1304                  .body = body,
+  1305                  .visibility = .full_only,
+  1306              });
+  1307          }
+
+## H6: what those mid-turn lines are: a tool run's own [context] lines -- a skill call's notice and diagnostic
+## (skillPreparationFailure, below), what a tool's dispatch hands its sink (tool_runtime.zig:929), an MCP tool's changed
+## or retired definition (:1083, :1102); a test reads "[context] skill resource ... truncated" and "skill discovery
+## warning:" (:6903-6905). None is about the history. Every place context_notices is touched follows the function.
+### git -C fx-upstream show 481104fd:src/core/agent/runtime/orchestrator.zig | sed -n 2435,2451p
+  2435  fn skillPreparationFailure(arena: Allocator, output: skill_contract.ExecuteOutput) !ToolExecutionResult {
+  2436      var notices: [2][]const u8 = undefined;
+  2437      var count: usize = 0;
+  2438      if (output.notice) |notice| {
+  2439          notices[count] = notice;
+  2440          count += 1;
+  2441      }
+  2442      if (output.diagnostic_notice) |notice| {
+  2443          notices[count] = notice;
+  2444          count += 1;
+  2445      }
+  2446      return .{
+  2447          .status = .failure,
+  2448          .model_output = output.model_output,
+  2449          .context_notices = try arena.dupe([]const u8, notices[0..count]),
+  2450      };
+  2451  }
+
+### git -C fx-upstream grep -n context_notices 481104fd -- src (the for loops of H5 left out)
+src/core/agent/runtime/orchestrator.zig:2449:        .context_notices = try arena.dupe([]const u8, notices[0..count]),
+src/core/agent/runtime/parallel_execution.zig:422:    duplicated_execution.context_notices = try duplicateContextNotices(alloc, execution.context_notices);
+src/core/agent/runtime/parallel_execution.zig:492:    freeContextNotices(alloc, result.context_notices);
+src/core/agent/runtime/parallel_execution.zig:997:        .context_notices = &.{ "first context notice", "second context notice" },
+src/core/agent/runtime/parallel_execution.zig:1033:    try std.testing.expectEqual(@as(usize, 2), duplicated.execution.context_notices.len);
+src/core/agent/runtime/parallel_execution.zig:1034:    try std.testing.expectEqualStrings("first context notice", duplicated.execution.context_notices[0]);
+src/core/agent/runtime/parallel_execution.zig:1035:    try std.testing.expectEqualStrings("second context notice", duplicated.execution.context_notices[1]);
+src/core/agent/runtime/tests/support.zig:495:    context_notices: std.ArrayList([]u8) = .empty,
+src/core/agent/runtime/tests/support.zig:709:        freeStringList(self.alloc, &self.context_notices);
+src/core/agent/runtime/tests/support.zig:1835:        try self.context_notices.append(self.alloc, try self.alloc.dupe(u8, text));
+src/core/agent/runtime/tests/tool_flow.zig:822:        try std.testing.expectEqual(count, hooks.context_notices.items.len);
+src/core/agent/runtime/tests/tool_flow.zig:823:        for (hooks.context_notices.items) |notice| {
+src/core/agent/runtime/tests/tool_flow.zig:6768:        .context_notices = &.{"context notice"},
+src/core/agent/runtime/tests/tool_flow.zig:6778:    try std.testing.expectEqual(@as(usize, 1), deps.context_notices.items.len);
+src/core/agent/runtime/tests/tool_flow.zig:6779:    try std.testing.expectEqualStrings("context notice", deps.context_notices.items[0]);
+src/core/agent/runtime/tests/tool_flow.zig:6817:        .context_notices = &.{ "first context notice", "second context notice" },
+src/core/agent/runtime/tests/tool_flow.zig:6825:    try std.testing.expectEqual(@as(usize, 2), deps.context_notices.items.len);
+src/core/agent/runtime/tests/tool_flow.zig:6826:    try std.testing.expectEqualStrings("first context notice", deps.context_notices.items[0]);
+src/core/agent/runtime/tests/tool_flow.zig:6827:    try std.testing.expectEqualStrings("second context notice", deps.context_notices.items[1]);
+src/core/agent/runtime/tests/tool_flow.zig:6883:                .context_notices = &.{"first context notice"},
+src/core/agent/runtime/tests/tool_flow.zig:6891:                .context_notices = &.{"second context notice"},
+src/core/agent/runtime/tests/tool_flow.zig:6915:    try std.testing.expectEqual(@as(usize, 2), deps.context_notices.items.len);
+src/core/agent/runtime/tests/tool_flow.zig:6916:    try std.testing.expectEqualStrings("first context notice", deps.context_notices.items[0]);
+src/core/agent/runtime/tests/tool_flow.zig:6917:    try std.testing.expectEqualStrings("second context notice", deps.context_notices.items[1]);
+src/core/agent/runtime/tool_contracts.zig:105:    context_notices: []const []const u8 = &.{},
+src/core/app/app_agent_runtime.zig:976:            var preflight_context_notices: std.Io.Writer.Allocating = .init(std.heap.c_allocator);
+src/core/app/app_agent_runtime.zig:977:            defer preflight_context_notices.deinit();
+src/core/app/app_agent_runtime.zig:979:                try appendClaimedContextNotice(app, &preflight_context_notices.writer, notice);
+src/core/app/app_agent_runtime.zig:989:            if (preflight_context_notices.written().len > 0) {
+src/core/app/app_agent_runtime.zig:993:                    .body = preflight_context_notices.written(),
+src/core/app/app_agent_runtime.zig:1509:    context_notices: std.ArrayList(u8) = .empty,
+src/core/app/app_agent_runtime.zig:1525:        self.context_notices.deinit(self.alloc);
+src/core/app/app_agent_runtime.zig:1532:        try self.context_notices.appendSlice(self.alloc, notice.body);
+src/core/app/app_agent_runtime.zig:2465:    try std.testing.expectEqualStrings("fresh context notice", app.context_notices.items);
+src/core/tooling/tool_runtime.zig:929:    execution.context_notices = context_notice_sink.notices.items;
+src/core/tooling/tool_runtime.zig:1083:                    .context_notices = if (payload.notice) |value| notices: {
+src/core/tooling/tool_runtime.zig:1102:        .context_notices = if (notice) |value| notices: {
+src/core/tooling/tool_runtime.zig:6903:        try std.testing.expectEqual(@as(usize, 2), result.context_notices.len);
+src/core/tooling/tool_runtime.zig:6904:        try expectContains(result.context_notices[0], "[context] skill resource \"workflow/SKILL.md\" truncated");
+src/core/tooling/tool_runtime.zig:6905:        try expectContains(result.context_notices[1], "skill discovery warning:");
+
+## H3b (for H3): the verified override names one message (override.message_index); every other message's images are read
+## in H3's second branch.
+### git -C fx-upstream show 481104fd:src/gateway/vercel_protocol.zig | sed -n 385,394p
+   385          const verified_images = if (verified_image_override) |override|
+   386              if (override.message_index == i) override.images else null
+   387          else
+   388              null;
+   389          try writeChatMessageJsonInner(
+   390              std.heap.c_allocator,
+   391              &out.writer,
+   392              message,
+   393              budget,
+   394              verified_images,

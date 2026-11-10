@@ -1,0 +1,200 @@
+# mutants.py (6ef4e6f3's), all twelve, on the git clone --no-local checked out at 1cb8f920 (<tmp>/mclone), one suite-lock slot, start 2026-11-09T17:38:38Z -> rc=0 end 2026-11-09T18:56:28Z
+# clone after the run: 0 changed files
+r3 reasoning-notice-back [lib]: killed
+    test session::store::carry_tests::a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed ... FAILED
+    test session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls ... FAILED
+    thread 'session::store::carry_tests::a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed' (431584104) panicked at src/session/store/carry_tests.rs:394:5:
+      ["xfx: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that reasoning was not carried over", "xfx: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that reasoning was not carried over"]
+    thread 'session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls' (431584102) panicked at src/session/store/carry_tests.rs:444:5:
+      ["xfx: this session recorded reasoning from fable and is continuing with opus, so that reasoning was not carried over", "xfx: this session recorded reasoning from fable and is continuing with opus, so that reasoning was not carried over"]
+    test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 4617 filtered out; finished in 0.01s
+    error: test failed, to rerun pass `--lib`
+r3 reasoning-notice-back [sessions]: killed
+    test a_wire_this_version_does_not_know_drops_rather_than_guessing ... FAILED
+    test responses_state_recorded_under_one_authority_is_never_sent_to_another ... FAILED
+    test a_legacy_record_is_dropped_without_a_word_on_any_other_wire ... FAILED
+    test a_wire_less_responses_state_record_drops_rather_than_replaying_under_active ... FAILED
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+    thread 'a_wire_this_version_does_not_know_drops_rather_than_guessing' (431595067) panicked at tests/sessions.rs:3009:5:
+      ["xfx: this session recorded reasoning on the some_future_wire wire and is continuing on anthropic_messages, so that reasoning was not carried over"]
+    thread 'responses_state_recorded_under_one_authority_is_never_sent_to_another' (431595069) panicked at tests/sessions.rs:2986:9:
+      for GrokResponses: ["xfx: this session recorded reasoning on the codex_responses wire and is continuing on grok_responses, so that reasoning was not carried over"]
+    thread 'a_legacy_record_is_dropped_without_a_word_on_any_other_wire' (431595065) panicked at tests/sessions.rs:2960:5:
+      ["xfx: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that reasoning was not carried over"]
+    thread 'a_wire_less_responses_state_record_drops_rather_than_replaying_under_active' (431595066) panicked at tests/sessions.rs:3031:5:
+      ["xfx: this session recorded reasoning on the unknown_wire_with_responses_state wire and is continuing on codex_responses, so that reasoning was not carried over"]
+    thread 'ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one' (431595068) panicked at tests/sessions.rs:2018:5:
+      a notice fx does not have was printed: "xfx: this session recorded reasoning on the w [2Jire 31m wire and is continuing on vercel_gateway, so that reasoning was not carried over\nxfx: an image `read [2Jfile 31m ` returned could not be read back (its saved copy is missing), so it was not sent again\n"
+    test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 60 filtered out; finished in 1.33s
+    error: test failed, to rerun pass `--test sessions`
+r3 reasoning-notice-back [tui]: killed
+    test after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent ... FAILED
+    test a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind ... FAILED
+    thread 'after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent' (431600700) panicked at tests/tui.rs:9811:5:
+      xfx spoke of the reasoning m-1 sealed, which fx does not: "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t\u{1b}]11;?\u{1b}\\\u{1b}[?996n\u{1b}[6n\u{1b}]2;xfx v0.1.0 | workspace\u{7}\u{1b}]7501;state=idle:app=xfx\u{1b}\\\u{1b}[?2026h\u{1b}[?25l\u{1b}[1;1H\u{1b}[1;38;5;255mx𝒇x\u{1b}[0m\u{1b}[38;5;245m v0.1.0-1cb8f92 \u{1b}[38;5;255m[debug]\u{1b}[38;5;245m · Run /help for comm
+    thread 'a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind' (431600699) panicked at tests/tui.rs:9644:5:
+      xfx spoke of the reasoning it left behind, which fx does not: "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t\u{1b}]11;?\u{1b}\\\u{1b}[?996n\u{1b}[6n\u{1b}]2;xfx v0.1.0 | workspace\u{7}\u{1b}]7501;state=idle:app=xfx\u{1b}\\\u{1b}[?2026h\u{1b}[?25l\u{1b}[1;1H\u{1b}[1;38;5;255mx𝒇x\u{1b}[0m\u{1b}[38;5;245m v0.1.0-1cb8f92 \u{1b}[38;5;255m[debug]\u{1b}[38;5;245m · Run /help for 
+    test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 184 filtered out; finished in 2.10s
+    error: test failed, to rerun pass `--test tui`
+r3 reasoning-notice-back-wire-only [lib]: killed
+    test session::store::carry_tests::a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed ... FAILED
+    test session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls ... FAILED
+    thread 'session::store::carry_tests::a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed' (431615282) panicked at src/session/store/carry_tests.rs:394:5:
+      ["xfx: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that reasoning was not carried over", "xfx: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that reasoning was not carried over"]
+    thread 'session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls' (431615280) panicked at src/session/store/carry_tests.rs:444:5:
+      ["xfx: this session recorded reasoning on the anthropic_messages wire and is continuing on anthropic_messages, so that reasoning was not carried over", "xfx: this session recorded reasoning on the anthropic_messages wire and is continuing on anthropic_messages, so that reasoning was not carried over"]
+    test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 4617 filtered out; finished in 0.01s
+    error: test failed, to rerun pass `--lib`
+r3 reasoning-notice-back-wire-only [sessions]: killed
+    test a_wire_this_version_does_not_know_drops_rather_than_guessing ... FAILED
+    test a_legacy_record_is_dropped_without_a_word_on_any_other_wire ... FAILED
+    test responses_state_recorded_under_one_authority_is_never_sent_to_another ... FAILED
+    test a_wire_less_responses_state_record_drops_rather_than_replaying_under_active ... FAILED
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+    thread 'a_wire_this_version_does_not_know_drops_rather_than_guessing' (431624907) panicked at tests/sessions.rs:3009:5:
+      ["xfx: this session recorded reasoning on the some_future_wire wire and is continuing on anthropic_messages, so that reasoning was not carried over"]
+    thread 'a_legacy_record_is_dropped_without_a_word_on_any_other_wire' (431624905) panicked at tests/sessions.rs:2960:5:
+      ["xfx: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that reasoning was not carried over"]
+    thread 'responses_state_recorded_under_one_authority_is_never_sent_to_another' (431624909) panicked at tests/sessions.rs:2986:9:
+      for GrokResponses: ["xfx: this session recorded reasoning on the codex_responses wire and is continuing on grok_responses, so that reasoning was not carried over"]
+    thread 'a_wire_less_responses_state_record_drops_rather_than_replaying_under_active' (431624906) panicked at tests/sessions.rs:3031:5:
+      ["xfx: this session recorded reasoning on the unknown_wire_with_responses_state wire and is continuing on codex_responses, so that reasoning was not carried over"]
+    thread 'ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one' (431624908) panicked at tests/sessions.rs:2018:5:
+      a notice fx does not have was printed: "xfx: this session recorded reasoning on the w [2Jire 31m wire and is continuing on vercel_gateway, so that reasoning was not carried over\nxfx: an image `read [2Jfile 31m ` returned could not be read back (its saved copy is missing), so it was not sent again\n"
+    test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 60 filtered out; finished in 2.14s
+    error: test failed, to rerun pass `--test sessions`
+r3 reasoning-notice-back-wire-only [tui]: killed
+    test a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind ... FAILED
+    test after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent ... FAILED
+    thread 'a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind' (431634349) panicked at tests/tui.rs:9644:5:
+      xfx spoke of the reasoning it left behind, which fx does not: "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t\u{1b}]11;?\u{1b}\\\u{1b}[?996n\u{1b}[6n\u{1b}]2;xfx v0.1.0 | workspace\u{7}\u{1b}]7501;state=idle:app=xfx\u{1b}\\\u{1b}[?2026h\u{1b}[?25l\u{1b}[1;1H\u{1b}[1;38;5;255mx𝒇x\u{1b}[0m\u{1b}[38;5;245m v0.1.0-1cb8f92 \u{1b}[38;5;255m[debug]\u{1b}[38;5;245m · Run /help for 
+    thread 'after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent' (431634350) panicked at tests/tui.rs:9811:5:
+      xfx spoke of the reasoning m-1 sealed, which fx does not: "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t\u{1b}]11;?\u{1b}\\\u{1b}[?996n\u{1b}[6n\u{1b}]2;xfx v0.1.0 | workspace\u{7}\u{1b}]7501;state=idle:app=xfx\u{1b}\\\u{1b}[?2026h\u{1b}[?25l\u{1b}[1;1H\u{1b}[1;38;5;255mx𝒇x\u{1b}[0m\u{1b}[38;5;245m v0.1.0-1cb8f92 \u{1b}[38;5;255m[debug]\u{1b}[38;5;245m · Run /help for comm
+    test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 184 filtered out; finished in 2.36s
+    error: test failed, to rerun pass `--test tui`
+r3 reasoning-notice-back-model-only [lib]: killed
+    test session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls ... FAILED
+    thread 'session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls' (431653984) panicked at src/session/store/carry_tests.rs:444:5:
+      ["xfx: this session recorded reasoning from fable and is continuing with opus, so that reasoning was not carried over", "xfx: this session recorded reasoning from fable and is continuing with opus, so that reasoning was not carried over"]
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 4617 filtered out; finished in 0.01s
+    error: test failed, to rerun pass `--lib`
+r3 reasoning-notice-back-model-only [sessions]: SURVIVED
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 60 filtered out; finished in 0.94s
+r3 reasoning-notice-back-model-only [tui]: killed
+    test after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent ... FAILED
+    thread 'after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent' (431669383) panicked at tests/tui.rs:9811:5:
+      xfx spoke of the reasoning m-1 sealed, which fx does not: "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t\u{1b}]11;?\u{1b}\\\u{1b}[?996n\u{1b}[6n\u{1b}]2;xfx v0.1.0 | workspace\u{7}\u{1b}]7501;state=idle:app=xfx\u{1b}\\\u{1b}[?2026h\u{1b}[?25l\u{1b}[1;1H\u{1b}[1;38;5;255mx𝒇x\u{1b}[0m\u{1b}[38;5;245m v0.1.0-1cb8f92 \u{1b}[38;5;255m[debug]\u{1b}[38;5;245m · Run /help for comm
+    test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 184 filtered out; finished in 3.84s
+    error: test failed, to rerun pass `--test tui`
+r3 ask-notice-not-made-safe [sessions]: killed
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+    thread 'ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one' (431693670) panicked at tests/sessions.rs:2012:5:
+      assertion `left == right` failed: the notice is not on stderr as one inert line: "xfx: an image `read\u{1b}[2Jfile\u{9b}31m\u{7}` returned could not be read back (its saved copy is missing), so it was not sent again\n"
+        left: 0
+       right: 1
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 64 filtered out; finished in 1.19s
+    error: test failed, to rerun pass `--test sessions`
+r3 ask-notice-not-printed [sessions]: killed
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+    thread 'ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one' (431704330) panicked at tests/sessions.rs:2012:5:
+      assertion `left == right` failed: the notice is not on stderr as one inert line: ""
+        left: 0
+       right: 1
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 64 filtered out; finished in 1.43s
+    error: test failed, to rerun pass `--test sessions`
+r3 line-shell-marks-after-every-line [lib]: killed
+    test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... FAILED
+    thread 'interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write' (431738793) panicked at src/interactive.rs:4051:9:
+      assertion `left == right` failed
+        left: ["xfx: one", "xfx: two"]
+       right: ["xfx: two"]
+    test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.43s
+    error: test failed, to rerun pass `--lib`
+r3 tui-said-when-found [lib]: killed
+    test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs' (431766470) panicked at src/tui/worker.rs:19107:9:
+      assertion `left == right` failed: the two turns' ends; the history notice said per turn; each compaction word, with how many turns had started
+        left: ([Some("the turn was cancelled"), None], [0, 0], [(1, "Dropped")])
+       right: ([Some("the turn was cancelled"), None], [0, 1], [(1, "Dropped")])
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (431766471) panicked at src/tui/worker.rs:18895:9:
+      assertion `left == right` failed: each: both turns' ends, and how many times each turn said the history's notice
+        left: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 0]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 0]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+       right: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 1]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 1]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+    test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.46s
+    error: test failed, to rerun pass `--lib`
+r3 tui-said-even-if-refused [lib]: killed
+    test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs' (431826202) panicked at src/tui/worker.rs:19107:9:
+      assertion `left == right` failed: the two turns' ends; the history notice said per turn; each compaction word, with how many turns had started
+        left: ([Some("the turn was cancelled"), None], [0, 0], [(1, "Dropped")])
+       right: ([Some("the turn was cancelled"), None], [0, 1], [(1, "Dropped")])
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (431826203) panicked at src/tui/worker.rs:18895:9:
+      assertion `left == right` failed: each: both turns' ends, and how many times each turn said the history's notice
+        left: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 0]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 0]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+       right: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 1]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 1]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+    test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.53s
+    error: test failed, to rerun pass `--lib`
+r3 tui-never-said [lib]: killed
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation' (431876546) panicked at src/tui/worker.rs:19015:9:
+      assertion `left == right` failed: how many times each turn said the history's notice, the resumes, the reset
+        left: ([1, 1, 1, 0], 4, 1)
+       right: ([1, 0, 1, 0], 4, 1)
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (431876545) panicked at src/tui/worker.rs:18895:9:
+      assertion `left == right` failed: each: both turns' ends, and how many times each turn said the history's notice
+        left: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 1]), (WindowRetry, false, [None, None], [1, 1]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 1]), (PromptImageFirstLoad, false, [None, None], [1, 1])]
+       right: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 1]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 1]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+    test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.53s
+    error: test failed, to rerun pass `--lib`
+r3 no-dedup-in-one-rebuild [lib]: killed
+    test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... FAILED
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... FAILED
+    test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written' (431932161) panicked at src/interactive.rs:3985:9:
+      assertion `left == right` failed
+        left: ["xfx: one", "xfx: two", "xfx: one"]
+       right: ["xfx: one", "xfx: two"]
+    thread 'tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation' (431932165) panicked at src/tui/worker.rs:19019:9:
+      assertion `left == right` failed: how many times each turn said the history's notice, the resumes, the reset
+        left: ([2, 0, 2, 0], 4, 1)
+       right: ([1, 0, 1, 0], 4, 1)
+    thread 'tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs' (431932163) panicked at src/tui/worker.rs:19111:9:
+      assertion `left == right` failed: the two turns' ends; the history notice said per turn; each compaction word, with how many turns had started
+        left: ([Some("the turn was cancelled"), None], [0, 2], [(1, "Dropped")])
+       right: ([Some("the turn was cancelled"), None], [0, 1], [(1, "Dropped")])
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (431932164) panicked at src/tui/worker.rs:18899:9:
+      assertion `left == right` failed: each: both turns' ends, and how many times each turn said the history's notice
+        left: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 2]), (WindowRetry, false, [None, None], [2, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 2]), (PromptImageFirstLoad, false, [None, None], [2, 0])]
+       right: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 1]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 1]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+    test result: FAILED. 2 passed; 4 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.42s
+    error: test failed, to rerun pass `--lib`
+r3 ledger-outlives-its-conversation [lib]: killed
+    test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... FAILED
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write' (431970314) panicked at src/interactive.rs:4046:9:
+      assertion failed: say_unsaid(&mut conversation, rebuilt(), &mut stderr).is_err()
+    thread 'tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation' (431970319) panicked at src/tui/worker.rs:19019:9:
+      assertion `left == right` failed: how many times each turn said the history's notice, the resumes, the reset
+        left: ([1, 0, 0, 0], 4, 1)
+       right: ([1, 0, 1, 0], 4, 1)
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (431970318) panicked at src/tui/worker.rs:18899:9:
+      assertion `left == right` failed: each: both turns' ends, and how many times each turn said the history's notice
+        left: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 0]), (WindowRetry, false, [None, None], [0, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 0]), (PromptImageFirstLoad, false, [None, None], [0, 0])]
+       right: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 1]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 1]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+    test result: FAILED. 3 passed; 3 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.56s
+    error: test failed, to rerun pass `--lib`
+r3 screen-drops-notice-under-stop [lib]: killed
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... FAILED
+    thread 'tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation' (432017340) panicked at src/tui/shell.rs:23012:9:
+      assertion `left == right` failed: [
+          "┃ \u{1b}[1mand after the stop?",
+          "",
+          "▪ Cancelled · What can xfx do differently?",
+          "",
+    test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.55s
+    error: test failed, to rerun pass `--lib`

@@ -690,15 +690,6 @@ whole_snap = true
 xfx = ["src/tui/shell.rs:16840"]
 fx = ["src/ui/resize_runtime.zig:766-767@c1db9191"]
 why = "The resize answer `resize-document-repaint` names: fx clears the screen and writes the document again from the top, so its band stands under the banner; xfx keeps its rows and solves the band at the bottom of the screen. The band itself, from the composer row to the hint row, the @ list's rows and bar included, is the same cell for cell in every snap after the resize since AT-HEIGHT (.prd/tui-phase5/receipts/at-height/band.txt)."
-[[cause]]
-id = "P1-carry-notice"
-kind = "unit"
-owner = "P1 r3/r4 feat/tui-phase4-provider-session 8facfb6d"
-scenarios = ["provider*"]
-snaps = ["*"]
-xfx_row = '^! session: this session recorded reasoning on |^  (?:that )?reasoning was not carried over$'
-why = "After a switch back to the Gateway xfx says once that the llmux turn's reasoning was not carried (src/session/store.rs:1000); fx drops it silently (projectProviderReplay). xfx's own rule, P1's to settle."
-
 # (a) awaiting a user decision: what the approved rows push.
 
 [[cause]]
