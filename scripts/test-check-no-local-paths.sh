@@ -49,8 +49,9 @@
 # from the working tree are refused, and so is one that goes while the scan
 # runs. And a `git` that gives a line in which the check's own reading finds
 # no shape and no placeholder: the check refuses that line rather than
-# counting it as one that passed (a `git` on PATH in front of the real one
-# makes both happen on demand).
+# counting it as one that passed; a line with no number and a `git grep`
+# that fails without a word stop the scan (a `git` on PATH in front of the
+# real one makes each happen on demand).
 #
 # Its paths are assembled at run time: this file is tracked and scanned.
 
@@ -209,6 +210,16 @@ if [ "$status" -ne 1 ]; then
 elif [ "${#missing[@]}" -ne 0 ]; then
 	problem "shapes: not named: ${missing[*]}"
 	show
+	# Where each plant the check did not name was lost: not in the tree's
+	# index (`git add` left it out), not matched by `git grep` (git), or
+	# matched and then not named (the check's own reading).
+	for line in "${missing[@]}"; do
+		plant="${line%%:*}"
+		indexed="$(scratch_git -C "$t" ls-files -- ":(literal)$plant" | wc -l | tr -d ' ')"
+		bytes="$(wc -c <"$t/$plant" 2>/dev/null | tr -d ' ' || true)"
+		matched="$(scratch_git -C "$t" grep -a -c -E -e '/hom[e]/' -e '/User[s]/' -e 'claud[e]-[0-9]' -e '/var/folder[s]/' -- ":(literal)$plant" 2>&1 | tr '\n' ' ' || true)"
+		printf '    | lost: %s: in the index %s time(s); %s byte(s) on disk; git grep -c: %s\n' "$plant" "$indexed" "${bytes:-no file}" "${matched:-no line}" >&2
+	done
 elif [ "$(hits)" -ne "${#want[@]}" ]; then
 	problem "shapes: $(hits) hits named, ${#want[@]} planted:"
 	show
@@ -351,6 +362,18 @@ disagree:*' -C . '*' grep '*)
 vanish:*' -C . '*' grep '*)
 	rm -f vanish.md
 	;;
+# The tree's scan gives a line with no number.
+badnum:*' -C . '*' grep '*)
+	"$SHIM_REAL" "$@"
+	s=$?
+	if [ "$s" -gt 1 ]; then exit "$s"; fi
+	printf 'clean.md\000%s\000%s\n' x 'nothing here'
+	exit 0
+	;;
+# The tree's scan fails, saying nothing.
+gitfail:*' -C . '*' grep '*)
+	exit 2
+	;;
 esac
 exec "$SHIM_REAL" "$@"
 SH
@@ -379,6 +402,30 @@ if [ "$status" -ne 1 ] || [ -e "$t/vanish.md" ] || ! grep -q 'missing from the w
 	show
 else
 	ok vanished "refused by name"
+fi
+
+t="$work/badnum"
+new_tree "$t"
+printf 'nothing here\n' >"$t/clean.md"
+track "$t"
+run_check "$t" "${shim_env[@]}" SHIM_MODE=badnum
+if [ "$status" -ne 1 ] || ! grep -q 'gave a line of clean.md with no line number' "$work/out" || ! grep -q 'the scan could not finish' "$work/out"; then
+	problem "badnum: a line git gave with no line number did not stop the scan (exit $status):"
+	show
+else
+	ok badnum "the scan stops"
+fi
+
+t="$work/gitfail"
+new_tree "$t"
+printf '%s\n' "$mac" >"$t/plant.md"
+track "$t"
+run_check "$t" "${shim_env[@]}" SHIM_MODE=gitfail
+if [ "$status" -ne 1 ] || ! grep -q 'git grep could not search . (status 2)' "$work/out" || ! grep -q 'the scan could not finish' "$work/out"; then
+	problem "gitfail: a git grep that failed did not fail the check (exit $status):"
+	show
+else
+	ok gitfail "the check fails"
 fi
 
 if [ "$failed" -ne 0 ]; then

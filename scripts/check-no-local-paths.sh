@@ -87,15 +87,18 @@
 #
 # Every line git gives is accounted for, or the check fails: a shape is
 # refused, a mark excuses it, or a placeholder taken out of it was all it
-# held. A line git matched in which this shell then finds no shape and takes
-# no placeholder out is refused too, never counted as passing: git and this
-# shell read it differently (they match with two regex engines), and an
-# answer that depends on which of them is right is no answer. The check used
+# held, and the counts of those (and of lines in binary files) must add up
+# to the lines git gave. A line git matched in which this shell then finds no
+# shape and takes no placeholder out is refused too, never counted as
+# passing: git and this shell read it differently (they match with two regex
+# engines), and an answer that depends on which of them is right is no
+# answer. For the same reason a mark excuses a line only if bash's string
+# match finds the marker's letters in it as well as the regex. The check used
 # to grep the tree for the files and then each file for its lines, and a file
 # the first said held a shape and the second gave no line for was dropped
 # without a word, as was a line the shell read with no shape in it. On
-# 2026-11-10 its test's tree lost two planted files on one CI run (macOS 15,
-# git 2.56.0) somewhere on that path, and named them on every other run.
+# 2026-11-10 its test's tree lost planted files that way on two CI runs
+# (macOS 15, git 2.56.0), and named them on every other run.
 #
 # What it prints for a hit is the file, the line and the shape, never the
 # line's text: CI's log is public too.
@@ -224,12 +227,14 @@ for entry in "${patterns[@]}"; do
 done
 
 # Counts of the last scan's lines: every line git gave, those its exceptions
-# excused (for the line that says it passed), and those it refused.
+# excused (for the line that says it passed), those it refused and those in
+# binary files; the four add up to the first, or the scan fails.
 given=0
 marked=0
 placeheld=0
 refused=0
 binary_files=0
+binary_lines=0
 
 # Every hit in the tracked files of `root`, one `<path>:<line>: <shape>` per
 # line on standard output. Returns non-zero, having said why on standard
@@ -245,6 +250,7 @@ scan_tree() {
 	placeheld=0
 	refused=0
 	binary_files=0
+	binary_lines=0
 	status=0
 	# `-z`: `<path>NUL<number>NUL<text>LF` for every line, the path as it is.
 	scan_git "$root" grep -a --no-color -n -z -E "${grep_args[@]}" -- >"$given_lines" 2>"$errors" || status=$?
@@ -285,9 +291,13 @@ scan_tree() {
 			fi
 		fi
 		if [ "$binary" = yes ]; then
+			binary_lines=$((binary_lines + 1))
 			continue
 		fi
-		if [ "$markable" = yes ] && rematch "$text" "$marked_re"; then
+		# A mark excuses only a line that holds the marker's own letters,
+		# found by bash's string match as well as by the regex: a regex
+		# that answers wrongly cannot excuse a line that has no mark.
+		if [ "$markable" = yes ] && [[ $text == *"$marker"* ]] && rematch "$text" "$marked_re"; then
 			marked=$((marked + 1))
 			continue
 		fi
@@ -338,6 +348,12 @@ scan_tree() {
 	done <"$given_lines"
 	if [ -n "$uncompiled" ]; then
 		printf 'check-no-local-paths: this shell could not compile a pattern of its own (status 2 from [[ =~ ]])\n' >&2
+		return 1
+	fi
+	# Each line git gave went one way: refused, in a binary file, marked or
+	# placeholder. A line that went none of them is one this scan lost.
+	if [ "$given" -ne $((refused + binary_lines + marked + placeheld)) ]; then
+		printf 'check-no-local-paths: git gave %d line(s) and the scan accounted for %d\n' "$given" "$((refused + binary_lines + marked + placeheld))" >&2
 		return 1
 	fi
 }
@@ -486,7 +502,7 @@ elif [ -s "$work/found" ]; then
 	# What became of every line git gave: a log of a failure tells a line
 	# git never gave from one this check passed.
 	printf 'check-no-local-paths: git gave %d line(s): %d refused, %d in %d binary file(s), %d marked, %d placeholder\n' \
-		"$given" "$refused" "$((given - refused - marked - placeheld))" "$binary_files" "$marked" "$placeheld" >&2
+		"$given" "$refused" "$binary_lines" "$binary_files" "$marked" "$placeheld" >&2
 fi
 
 if [ "$failures" -ne 0 ]; then

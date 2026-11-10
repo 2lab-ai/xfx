@@ -39,6 +39,15 @@ MUTANTS = [
      "\t\t'' | *[!0-9]*)\n", "\t\t'' | *[!0-9]*x)\n", 1),
     ("a scan that did not finish passes",
      'if [ "$scan_status" -ne 0 ]; then', 'if false; then', 1),
+    # Round 2.
+    ("a mark by the regex alone",
+     '[[ $text == *"$marker"* ]] && rematch "$text" "$marked_re"', 'rematch "$text" "$marked_re"', 1),
+    ("a binary line not counted",
+     '\t\t\tbinary_lines=$((binary_lines + 1))\n', '', 1),
+    ("one file's lines dropped, the count kept",
+     '\t\tgiven=$((given + 1))\n', '\t\tgiven=$((given + 1))\n\t\tif [ "$path" = w3/trace-report.md ]; then continue; fi\n', 1),
+    ("the count not checked",
+     'if [ "$given" -ne $((refused + binary_lines + marked + placeheld)) ]; then', 'if false; then', 1),
 ]
 
 env = dict(os.environ)
