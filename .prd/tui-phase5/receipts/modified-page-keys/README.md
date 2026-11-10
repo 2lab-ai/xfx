@@ -124,8 +124,9 @@ On a `git clone --no-local` (its remote removed) under `$TMPDIR/mut/`, one
 at a time, the file restored after each, under the suite lock, each run the
 unit's tests (`tui::input::tests` and the shell tests above). Round 1, at
 `0c10d6ee`: **9 of 9 killed**. Round 2, at `f5e9ea72`, the nine again and
-three new: MUTANTS-R2 (`mutants.txt`, round 2's block first; each names the
-first six failing tests):
+three new: **12 of 12 killed**, the clone's tree clean after the run
+(`mutants.txt`, round 2's block first; each names the first six failing
+tests):
 
 | mutant | killed by |
 |---|---|
@@ -138,9 +139,9 @@ first six failing tests):
 | M7 the fold makes a held page key the arrow | the fold table and the `at_41_rows` tests, 11 failing in all |
 | M8 the fold runs before the full transcript reads the event | the fold table, the full-transcript test |
 | M9 the full transcript pages on the held key too | the full-transcript test |
-| M10 (round 2) a question's freeform field takes a held page key as Home | M10-KILL |
-| M11 (round 2) an approval's amendment takes a held page key as Home | M11-KILL |
-| M12 (round 2) a page behind the screen is one row short of the composer's cap | M12-KILL |
+| M10 (round 2) a question's freeform field takes a held page key as Home | the question and approval test alone (its freeform case) |
+| M11 (round 2) an approval's amendment takes a held page key as Home | the question and approval test alone (its amendment case) |
+| M12 (round 2) a page behind the screen is one row short of the composer's cap | the full-transcript test (its sixteen-row draft) and `at_41_rows_the_composer_is_capped_at_19_rows_and_a_page_is_19_of_them` |
 
 Not mutated: `act`'s two arms that take the held keys as the page keys. They
 are unreachable -- `act`'s one caller outside the tests reads the event after
@@ -176,9 +177,26 @@ this branch does not stack on. APPROVAL-VERTICAL-SPELLINGS' `cmp_sweeps.py`
   row); the ledger names no cause for it.
 - No other pair changes class, causes or uncaused-row count.
 
+**Round 2** (`sweep-r2-base.md`, `sweep-r2-head.md`, `sweep-r2-compare.txt`):
+round 2's scenario with `p5-transcript-md` and `-light`, the same two
+binaries' kind (base `v0.1.0-fab7a21`, head `v0.1.0-f5e9ea7`), round 2's
+ledger, one slot: **base 9 / 20, head 11 / 20, drops 0**. `typed` and
+`typed2` are identical at the head (4 uncaused rows each at the base), and
+`full-ctrl-pgup` drops the base's 21 uncaused rows. The head's three pairs
+left with uncaused rows are the `full-pgup` snaps, the document's head:
+xfx's page reaches one row further (`A list that starts at nine:`), under
+the `session-record` cause, not the `· Response` header.
+
 ## Gate (`gate.txt`)
 
-The brief's gate, once, under the suite lock with a short `TMPDIR`, at
+**Round 2**, at `ceab580d`, whose `src/` is round 2's code head
+`f5e9ea72`'s, in one normal slot (`gate.txt`'s first block): every step
+exits 0; test 5705 passed, 0 failed, 7 ignored; test-fi 5742 passed, 0
+failed, 7 ignored (round 2 extends tests and adds no `#[test]`). No
+catalog-wait failure in this run. `green.txt`'s first block: the unit's 18
+tests in both suites, 36 of 36 ok.
+
+Round 1: the brief's gate, once, under the suite lock with a short `TMPDIR`, at
 `60043e55`, whose `src/` is the code head's (`gate.txt` carries the empty
 `git diff --stat`). Every step exits 0 and the tree was the same at the end:
 
@@ -200,7 +218,8 @@ full-transcript test, the question and approval test) and removes none.
 
 `fx_src.sh` over this file and the unit's added lines (`src`, `tests`, the
 scenario, and `docs/parity.md`'s added words), the command in the file:
-every citation falls inside a range of `fx-src.txt`.
+every citation falls inside a range of `fx-src.txt`, in round 2 as in
+round 1 (round 2's block first).
 
 ## The ledger's refs (`refs.py`, `refs.txt`)
 
@@ -280,7 +299,14 @@ behaviour change.
    `fulltranscript-response-header`, kind `unit`, owner
    FULLTRANSCRIPT-RESPONSE-HEADER (queued), over the tail-page snaps of
    `p5-modified-page-keys` and `full` of `p5-transcript-md` and `-light`:
-   fx's second header row and xfx's blank first row. RESPONSE-CAUSE
+   fx's second header row and xfx's blank first row. Checked
+   (`response-cause-check.txt`): round 2's sweeps rescored with and without
+   it; it loads, and at the head it takes those two rows on the six
+   tail-page snaps (`p5-modified-page-keys` `full`, `full-ctrl-pgup`,
+   `full2`, `full2-kp-ctrl-pgdn`; `p5-transcript-md` and `-light` `full`)
+   and nothing else. At the base it also takes four blank fx rows of the
+   header's block on `full-ctrl-pgup`, which the base had paged: the
+   ledger gives a blank row its block's cause.
 3. **Tests** (gpt6 SHOULD; opus NITs 2, 4, 5): the question and approval
    test opens a two-line draft in the amendment and in the freeform field,
    asserts the caret (`cursor()`) after each key, and types `Z` after them

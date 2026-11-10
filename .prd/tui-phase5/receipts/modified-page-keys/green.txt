@@ -1,3 +1,47 @@
+# Round 2: the unit's 18 tests in round 2's gate run at ceab580d (src/ = f5e9ea72), both suites.
+## test
+test tui::input::tests::a_leading_zero_in_a_tilde_field_is_the_number ... ok
+test tui::input::tests::a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits ... ok
+test tui::input::tests::a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page ... ok
+test tui::input::tests::a_tilde_sequence_past_the_csi_bound_is_read_as_every_csi_is ... ok
+test tui::input::tests::delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it ... ok
+test tui::input::tests::the_forward_word_delete_and_the_page_keys_decode_in_every_spelling ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_at_list_is_19_paths ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_effort_menu_is_19_levels_round_its_five ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_fork_menu_is_19_prompts ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_help_catalog_is_19_commands ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_model_menu_is_19_models ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_resume_picker_is_19_sessions ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_skills_menu_is_19_skills ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_slash_menu_is_19_commands ... ok
+test tui::shell::tests::at_41_rows_the_composer_is_capped_at_19_rows_and_a_page_is_19_of_them ... ok
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+## test-fi
+test tui::input::tests::a_leading_zero_in_a_tilde_field_is_the_number ... ok
+test tui::input::tests::a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits ... ok
+test tui::input::tests::a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page ... ok
+test tui::input::tests::a_tilde_sequence_past_the_csi_bound_is_read_as_every_csi_is ... ok
+test tui::input::tests::delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it ... ok
+test tui::input::tests::the_forward_word_delete_and_the_page_keys_decode_in_every_spelling ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_at_list_is_19_paths ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_effort_menu_is_19_levels_round_its_five ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_fork_menu_is_19_prompts ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_help_catalog_is_19_commands ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_model_menu_is_19_models ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_resume_picker_is_19_sessions ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_skills_menu_is_19_skills ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_slash_menu_is_19_commands ... ok
+test tui::shell::tests::at_41_rows_the_composer_is_capped_at_19_rows_and_a_page_is_19_of_them ... ok
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+
+test: 18 ok of 18
+test-fi: 18 ok of 18
+
+# Round 1 below.
 # The unit's tests (6 in tui::input, 3 + the nine at_41_rows in tui::shell) in the gate's run at 60043e55, both suites.
 ## test
 test tui::input::tests::a_leading_zero_in_a_tilde_field_is_the_number ... ok

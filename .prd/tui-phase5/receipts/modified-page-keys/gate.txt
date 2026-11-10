@@ -1,3 +1,59 @@
+# Round 2: the brief's gate, once, under the suite lock in one normal slot, TMPDIR=<tmp>/gate (short), in the worktree at ceab580d.
+# ceab580d's src/ is round 2's code head f5e9ea72's (ceab580d changes docs/parity.md, the ledger and receipt files only):
+$ git diff --stat f5e9ea72 ceab580d -- src tests Cargo.toml Cargo.lock
+(empty: no change)
+
+head ceab580d
+tree before: 0 changed paths under src tests Cargo.*
+STEP fmt exit=0 8s
+STEP clippy exit=0 22s
+STEP clippy-fi exit=0 11s
+STEP test exit=0 143s
+  15 result lines: 5705 passed, 0 failed, 7 ignored
+STEP test-fi exit=0 124s
+  15 result lines: 5742 passed, 0 failed, 7 ignored
+STEP identity exit=0 3s
+STEP stubs exit=0 10s
+STEP secrets exit=0 64s
+STEP local-paths exit=0 3s
+tree after: 0 changed paths under src tests Cargo.*; head ceab580d
+(no catalog-wait failure in this run: the plain suite is 0 failed)
+
+## round 2, cargo test, its result lines
+test result: ok. 4781 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 62.36s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.89s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.59s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.60s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.75s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.17s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.07s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.51s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.34s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.84s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+## round 2, cargo test-fi, its result lines
+test result: ok. 4804 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 51.70s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.96s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.86s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.78s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.18s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.05s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.66s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.52s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.40s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.23s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+# Round 1 below.
 # The brief's gate, once, under the suite lock, TMPDIR=<tmp>/gate (short), in the worktree at 60043e55.
 # 60043e55's src/ is the code head 0c10d6ee's (60043e55 changes docs/parity.md, the ledger and receipt files only):
 $ git diff --stat 0c10d6ee 60043e55 -- src tests Cargo.toml Cargo.lock

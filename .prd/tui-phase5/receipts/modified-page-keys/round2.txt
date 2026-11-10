@@ -1,0 +1,26 @@
+# MODIFIED-PAGE-KEYS round 2: the reviews of 8b488ca4 (gpt6 no MUST; opus APPROVE), item by item. No behaviour change.
+1 the held arrows (opus SHOULD 1): recorded, not fixed, owner MODIFIED-ARROWS-SCREENS (queued), in docs/parity.md's full transcript row and ask_user_question row; fx_src.sh reads escape_parser.zig:73-108, input_full_transcript_runtime.zig:147-154 and app_input_runtime.zig:840-894.
+2 the Response header (opus SHOULD 2): the ledger's cause fulltranscript-response-header, kind unit, owner FULLTRANSCRIPT-RESPONSE-HEADER (queued); response-cause-check.txt shows what it takes.
+3 tests (gpt6 SHOULD; opus NITs 2, 4, 5): the modal drafts (a two-line amendment, a two-line freeform field; the caret asserted after each key, a Z typed after them), the page size behind the screen (a sixteen-row draft, a page of eleven at 24 rows), and the scenario pressing each held key on its own (round 2's captures replace round 1's).
+4 wording (opus NITs 1, 3): README's reason for act's arms; docs/parity.md's /mcp exception to "here as there".
+
+## round 2's tests over the base's code (4c3ab703's non-test src/tui/shell.rs, f5e9ea72's test module; a scratch clone)
+$ cargo test --locked --lib -- a_page_key_held_with_a_modifier
+test tui::input::tests::a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page ... FAILED
+test tui::shell::tests::a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen ... FAILED
+test tui::shell::tests::a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one ... ok
+thread 'tui::input::tests::a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page' panicked at src/tui/input.rs:3085:17:
+assertion `left == right` failed: CSI 5 ; 2 ~ (Shift)
+thread 'tui::shell::tests::a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen' panicked at src/tui/shell.rs:43063:13:
+assertion `left == right` failed: [27, 91, 53, 59, 53, 126] paged the screen
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4785 filtered out; finished in 0.06s
+
+## the same at f5e9ea72 (the worktree, src/ clean)
+test tui::input::tests::a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4785 filtered out; finished in 0.03s
+
+## checks at the receipt's last commit
+$ python3 -I refs.py fab7a217 | tail -1
+refs: 16 checked, 0 wrong, 0 without an expected text
