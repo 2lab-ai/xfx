@@ -3505,8 +3505,11 @@ impl Shell {
     }
 
     /// The cell under byte `start` of the composer, which a column hangs
-    /// under (`projectedAnchorColumn`): on the row that byte is on, past the
-    /// prompt.
+    /// under (`projectedAnchorColumn`, `visual_layout.zig:705-713@481104fd`):
+    /// past the prompt, under that byte while it is on the caret's row, and
+    /// at the start of the caret's row while it is not -- a new line after
+    /// `/provider ` puts the caret, and so the column, a row below the
+    /// argument (CTRLO-OTHER-PICKERS, `provider-ctrlo cj`).
     fn anchor_at(&self, start: usize) -> u16 {
         let text = self.editor.text();
         // A column is rebuilt on every edit, so its offset is into this very
@@ -3515,7 +3518,11 @@ impl Shell {
         if !text.is_char_boundary(start) {
             return PROMPT_CELLS;
         }
-        let (_, at) = self.editor.point_of(start, self.text_cols());
+        let cols = self.text_cols();
+        let (row, at) = self.editor.point_of(start, cols);
+        if row != self.editor.point(cols).0 {
+            return PROMPT_CELLS;
+        }
         PROMPT_CELLS.saturating_add(at)
     }
 
