@@ -679,6 +679,15 @@ fix = "SWEEP-TEMPNAME-STYLE's fixed run directory name; or a query the folder ro
 why = "`@plan` matches the added folder `<tmp>/fxcap.<run>/extra/notes` only through its whole path, so the letters fx v0.0.16's placement score bolds there (`choosePlacement`'s last search, `file_index.zig:1815-1818@481104fd`) depend on the run directory's six random characters, which differ between the two captures: in AT-RANK's head sweep fx's run `fxcap.qnVERa` gave its `n`, and xfx's `fxcap.YTZTDF`, with none, the `n` of `notes` (.prd/tui-phase5/receipts/at-rank/at-plan-sweep/). The text is the same and each side bolds the best placement in its own path; xfx's rule on both paths is pinned (`a_folder_row_that_only_the_whole_path_matches_is_bold_through_the_whole_path`, src/tui/file_index.rs). Until AT-RANK the row differed under the `at-ranking` cause (.prd/tui-phase5/receipts/at-rank/README.md)."
 
 [[cause]]
+id = "at-ranking-anchor"
+kind = "unit"
+owner = "I-U2 @ fzf-style ranking (input cluster I3), not yet a branch"
+scenarios = ["p5-page-keys-anchor"]
+snaps = ["file-one"]
+rows = ["7-10"]
+why = "`at-ranking` on PAGE-KEYS-SETTINGS-COLUMN round 3's anchor scenario, an entry of its own so neither entry's scenarios and snaps cross the other's: `@a-fi` over the skills' long names lists the same rows and text on both sides; both bold `a-fi`, fx's `a` and `-` later on the row than xfx's, and fx bolds the `I` of `SKILL.md` where xfx bolds nothing. fx rebuilds the highlight from the placement that set the rank (see `at-ranking`) (.prd/tui-phase5/receipts/page-keys-settings-column/README.md)."
+
+[[cause]]
 id = "at-resize-band-at-the-bottom"
 kind = "defect"
 owner = "RESIZE-REPAINT"
@@ -1084,6 +1093,16 @@ why = "The failing stdio server `bad` is `connecting` while a try runs and `retr
 # read before the line fails and every read after it is answered, on every
 # run (.prd/tui-phase5/receipts/sweep-wallclock/README.md). A pair of those
 # scenarios that differs is a difference, on its first run.
+
+[[cause]]
+id = "model-column-clip"
+kind = "unit"
+owner = "MODEL-COLUMN-CLIP (a new queue unit): the /model column cuts a row too long for its room at the screen's edge, as fx does, with no ellipsis"
+scenarios = ["p5-page-keys-anchor"]
+snaps = ["model-wrapped"]
+fx_row = '^\s+fake/a-model-id-long-enough-to-wrap-the-composer-row-at-\S*$'
+xfx_row = '^\s+fake/a-model-id-long-enough-to-wrap-the-composer-row-at-\S*…$'
+why = "fx v0.0.16 paints the column's rows -- the kinds it marks by brightness, `.model_stage`, `.provider_stage`, `.models` and `.effort` (`src/ui/footer/picker_presentation.zig:834-836@481104fd`) -- in the band's last list branch (`src/ui/footer/paint_plan.zig:943-953`) with `composePickerOptionRowAnnotated`, which writes the label with `row_text.appendClipped` (`picker_presentation.zig:849`): it stops at the screen's edge and adds nothing (`src/ui/footer/row_text.zig:23-53`). xfx's `/model` column (its model, effort and speed stages, and the `/effort ` column) cuts a row with `picker::ellipsized` (src/tui/model_column.rs, `Column::rows`), which ends it with `…`. So `model-wrapped`'s id, 69 cells in a room of 58 (from the third column of 60 to the edge), ends `-at-si` in fx and `-at-s…` in xfx. The column only: fx's slash menu (`paint_plan.zig:851-924`; `composeSlashMenuRow` cuts with `appendSingleLineEllipsized`, `picker_presentation.zig:1408`) and its `@` list (`paint_plan.zig:925-942`; `appendFilePickerLabel`, `picker_presentation.zig:988-990`) write `…` themselves -- this scenario's fx `file-wrapped` and `slash-wrapped-up` end rows with it -- so the fix leaves theirs alone. Found by PAGE-KEYS-SETTINGS-COLUMN round 3 (.prd/tui-phase5/receipts/page-keys-settings-column/README.md); the column's anchor is fx's in that pair."
 
 [[cause]]
 id = "activity-tokens-before-request"

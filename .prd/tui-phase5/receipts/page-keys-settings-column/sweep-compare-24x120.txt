@@ -1,0 +1,33 @@
+pairs: base 48, head 48
+base: pass 19/48  normalized-identical 19, unresolved-defect 29
+head: pass 43/48  normalized-identical 43, unresolved-defect 5
+
+moved to passing: 24
+  p5-page-keys-column effort-pgup: unresolved-defect -> normalized-identical
+  p5-page-keys-column levels-pgup: unresolved-defect -> normalized-identical
+  p5-page-keys-column model-cj: unresolved-defect -> normalized-identical
+  p5-page-keys-column model-ck: unresolved-defect -> normalized-identical
+  p5-page-keys-column model-pgdn: unresolved-defect -> normalized-identical
+  p5-page-keys-column model-pgdn2: unresolved-defect -> normalized-identical
+  p5-page-keys-column model-pgup: unresolved-defect -> normalized-identical
+  p5-page-keys-column speed-pgdn: unresolved-defect -> normalized-identical
+  p5-page-keys-column speed-pgup: unresolved-defect -> normalized-identical
+  p5-page-keys-mcp args-cj: unresolved-defect -> normalized-identical
+  p5-page-keys-mcp args-pgdn: unresolved-defect -> normalized-identical
+  p5-page-keys-mcp args-pgdn2: unresolved-defect -> normalized-identical
+  p5-page-keys-mcp args-pgup: unresolved-defect -> normalized-identical
+  p5-page-keys-mcp args-pgup2: unresolved-defect -> normalized-identical
+  p5-page-keys-mcp wrapped-cj: unresolved-defect -> normalized-identical
+  p5-page-keys-mcp wrapped-pgdn: unresolved-defect -> normalized-identical
+  p5-page-keys-mcp wrapped-pgup: unresolved-defect -> normalized-identical
+  p5-page-keys-mcp wrapped-up: unresolved-defect -> normalized-identical
+  p5-page-keys-settings empty: unresolved-defect -> normalized-identical
+  p5-page-keys-settings empty-down: unresolved-defect -> normalized-identical
+  p5-page-keys-settings empty-pgup: unresolved-defect -> normalized-identical
+  p5-page-keys-settings empty-up: unresolved-defect -> normalized-identical
+  p5-page-keys-settings menu-cj: unresolved-defect -> normalized-identical
+  p5-page-keys-settings menu-ck: unresolved-defect -> normalized-identical
+
+dropped from passing: 0
+
+other verdict changes: 0

@@ -3623,11 +3623,10 @@ impl Shell {
     /// (`fx-fast-astra-40x120-model-change-clears`) puts the caret, and so
     /// the column, a row below the argument.
     fn anchor_at(&self, start: usize) -> u16 {
-        let text = self.editor.text();
         // A column is rebuilt on every edit, so its offset is into this very
         // text and after an ASCII prefix; checked anyway, because
         // `cursor_point` panics on an offset that is not a `char` boundary.
-        if !text.is_char_boundary(start) {
+        if !self.editor.text().is_char_boundary(start) {
             return PROMPT_CELLS;
         }
         let cols = self.text_cols();
@@ -6323,9 +6322,14 @@ impl Shell {
     /// Offers one keystroke to the `/settings` menu, and says whether it was
     /// taken.
     ///
-    /// The eight keys [`SettingsAction::of`] names, and nothing else: a letter,
+    /// The keys [`SettingsAction::of`] names, and nothing else: a letter,
     /// a Backspace or a C-u edits the search and goes on to the composer with
-    /// the menu still up. Up and Down wrap; Tab and Shift-Tab change the tab,
+    /// the menu still up. Up and Down wrap, and so do `C-j` and `C-k`; PgDn and
+    /// PgUp move a page -- the composer's row cap -- and from past either end
+    /// land on the other (`routeSettingsMenuMove`,
+    /// `input_completion_runtime.zig:431-463@481104fd`, and `Menu.move`,
+    /// `settings_catalog.zig:225-241`); over an empty list none of them is
+    /// taken (`Menu.move` answers `false`, `:227`); Tab and Shift-Tab change the tab,
     /// and with it the menu's height, so the band is re-solved; Left and Right
     /// change the marked setting at once (`changeSettingsMenuSelection`,
     /// `app_input_runtime.zig:2489-2514`) -- on `Model`, Right opens the list
@@ -6334,8 +6338,9 @@ impl Shell {
     /// empties its search.
     ///
     /// **With the list open** the keys are its (`:2489-2552`;
-    /// `routeSettingsMenuMove`, `input_completion_runtime.zig:415-440`): Up
-    /// and Down move its mark, Left and Enter use the marked model and close
+    /// `routeSettingsMenuMove`, `input_completion_runtime.zig:440-455@481104fd`):
+    /// Up, Down, `C-j`, `C-k` and a page move its mark, Left and Enter use the
+    /// marked model and close
     /// it, Right does nothing, Tab and Shift-Tab close it with the tab change
     /// (`cycleSettingsMenuCategory`, `app_input_runtime.zig:3014-3018`).
     /// Escape closes the settings menu and only that
@@ -6356,6 +6361,18 @@ impl Shell {
         };
         let snapshot = self.settings_snapshot();
         let listing = snapshot.models.is_some();
+        // How far a move takes the mark: a row for the arrows, `C-j` and
+        // `C-k`, and the composer's row cap for a page -- whichever list has
+        // the keys (`routeComposerVertical` with `page`,
+        // `input_completion_runtime.zig:222-233@481104fd`, then
+        // `routeSettingsMenuMove`, `:431-463`).
+        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+        let delta = match request {
+            SettingsAction::Up | SettingsAction::Row(false) => Some(-1),
+            SettingsAction::Down | SettingsAction::Row(true) => Some(1),
+            SettingsAction::Page(down) => Some(if down { page } else { -page }),
+            _ => None,
+        };
         let mut change = None;
         let mut models = false;
         let mut use_model = false;
@@ -6364,13 +6381,16 @@ impl Shell {
         let mut refit = false;
         let mut repaint = false;
         match request {
-            SettingsAction::Up | SettingsAction::Down if listing => {
+            _ if listing && delta.is_some() => {
                 let visible = menu.visible_models(&snapshot, self.geometry.panel);
-                step_models = Some((request == SettingsAction::Down, visible));
+                step_models = delta.map(|delta| (delta, visible));
             }
-            SettingsAction::Up | SettingsAction::Down => {
+            SettingsAction::Up
+            | SettingsAction::Down
+            | SettingsAction::Row(_)
+            | SettingsAction::Page(_) => {
                 let visible = menu.visible_items(&snapshot, self.geometry.panel);
-                repaint = menu.step(request == SettingsAction::Down, visible, &snapshot);
+                repaint = menu.step_by(delta.unwrap_or_default(), visible, &snapshot);
             }
             SettingsAction::NextCategory | SettingsAction::PreviousCategory => {
                 menu.cycle(request == SettingsAction::NextCategory);
@@ -6397,13 +6417,21 @@ impl Shell {
             self.close_settings();
             return true;
         }
-        if let Some((down, visible)) = step_models {
+        if let Some((delta, visible)) = step_models {
+            // The list's move is spent whatever it did (`moveVisibleItems`'
+            // answer is dropped, `:441-455`).
             if let Some(list) = self.model_menu.as_mut() {
-                if list.step_by(if down { 1 } else { -1 }, visible.max(1)) {
+                if list.step_by(delta, visible.max(1)) {
                     self.render.request(Reason::Modal);
                 }
             }
             return true;
+        }
+        // Over an empty list a move goes on -- the arrows and a page to the
+        // caret, `C-j` and `C-k` to the composer -- as upstream's do when
+        // `Menu.move` answers `false` (`settings_catalog.zig:227`).
+        if delta.is_some() && !repaint {
+            return false;
         }
         if matches!(
             request,
@@ -7502,7 +7530,9 @@ impl Shell {
     ///
     /// Only while a column is open over a `/model ` line, and never while
     /// `/model`'s menu or the catalog has the composer as its search. Up and
-    /// Down walk the open column, wrapping; Tab writes the marked row into the
+    /// Down walk the open column, wrapping, and so do `C-j` and `C-k`; PgDn
+    /// and PgUp move a page -- the composer's row cap -- and from past either
+    /// end land on the other; Tab writes the marked row into the
     /// composer; Left steps back a column -- and is the caret's from the first;
     /// Escape puts the column away and leaves the text; Enter takes the marked
     /// row, or falls through to the composer's own submit when the column has
@@ -7530,6 +7560,10 @@ impl Shell {
                 | Input::Action(
                     Action::Up
                         | Action::Down
+                        | Action::ControlK
+                        | Action::ControlJ
+                        | Action::PageUp
+                        | Action::PageDown
                         | Action::Tab
                         | Action::Left
                         | Action::Escape
@@ -7583,11 +7617,30 @@ impl Shell {
             }
             // No column before an `/effort ` line's to step back into.
             Input::Action(Action::Left) if query.effort_command() => false,
-            Input::Action(Action::Up | Action::Down) => {
-                let down = matches!(event, Input::Action(Action::Down));
+            // The arrows, `C-j`/`C-k` and a page -- the composer's row cap --
+            // in whichever stage is open, spent whether or not there was a row
+            // to move to: `routeNonSlashPickerMove` answers `true` once
+            // `hasModelQuery` does (`input_completion_runtime.zig:411-414`,
+            // `:222-233@481104fd`; `routePickerControlByte`,
+            // `app_input_runtime.zig:1093-1108@481104fd`).
+            Input::Action(
+                action @ (Action::Up
+                | Action::Down
+                | Action::ControlK
+                | Action::ControlJ
+                | Action::PageUp
+                | Action::PageDown),
+            ) => {
+                let page = i64::from(layout::input_row_limit(self.geometry.rows));
+                let delta = match action {
+                    Action::Up | Action::ControlK => -1,
+                    Action::PageUp => -page,
+                    Action::PageDown => page,
+                    _ => 1,
+                };
                 if self
                     .column
-                    .step(&query, known(self.catalog_known, &self.catalog), down)
+                    .step_by(&query, known(self.catalog_known, &self.catalog), delta)
                 {
                     self.render.request(Reason::Modal);
                     self.render.request(Reason::Footer);
@@ -9072,6 +9125,18 @@ impl Shell {
         let Input::Action(action) = event else {
             return false;
         };
+        // The arrows and a page are a slash list's only while the composer is
+        // one row; on a taller one they are the caret's
+        // (`routeComposerVertical`, `input_completion_runtime.zig:255-260
+        // @481104fd`). `C-j` and `C-k` walk it at any height
+        // (`routeSlashCompletionMove`, `:175-180`).
+        if matches!(
+            action,
+            Action::Up | Action::Down | Action::PageUp | Action::PageDown
+        ) && self.composer_grown()
+        {
+            return false;
+        }
         // A page of the menu at a time (`routeComposerVertical` with `page`,
         // `input_completion_runtime.zig:209-262`): a page is the composer's
         // row cap, as it is for the caret.
@@ -9566,6 +9631,9 @@ impl Shell {
 
     /// Offers one keystroke to `/mcp `'s argument completions, and says
     /// whether it was taken: Up, Down, `C-k` and `C-j` move the mark and wrap;
+    /// PgUp and PgDn move it a page -- the composer's row cap -- and from past
+    /// either end land on the other; on a composer taller than one row the
+    /// arrows and the pages are the caret's;
     /// Tab writes the marked line; Escape closes them until the draft stops
     /// being a `/mcp ` line. Enter writes the marked line and is **not**
     /// taken, so the composer submits it in place of what was typed
@@ -9578,13 +9646,36 @@ impl Shell {
         if !matches!(self.slot(), Some(Slot::McpArgs(_))) {
             return false;
         }
+        // A slash list in fx: the arrows and a page only while the composer
+        // is one row, `C-j`/`C-k` at any height ([`Self::offer_to_picker`]).
+        if matches!(
+            action,
+            Action::Up | Action::Down | Action::PageUp | Action::PageDown
+        ) && self.composer_grown()
+        {
+            return false;
+        }
         let Some(args) = self.mcp_args.as_mut() else {
             return false;
         };
+        let page = i64::from(layout::input_row_limit(self.geometry.rows));
         match action {
-            Action::Up | Action::ControlK | Action::Down | Action::ControlJ => {
-                let down = matches!(action, Action::Down | Action::ControlJ);
-                if args.step_by(if down { 1 } else { -1 }) {
+            Action::Up
+            | Action::ControlK
+            | Action::Down
+            | Action::ControlJ
+            | Action::PageUp
+            | Action::PageDown => {
+                // A page is the composer's row cap, as for the slash list
+                // these are in fx (`navigateSlashCompletion(picker_delta)`,
+                // `input_completion_runtime.zig:222-233`, `:255-260@481104fd`).
+                let delta = match action {
+                    Action::Up | Action::ControlK => -1,
+                    Action::PageUp => -page,
+                    Action::PageDown => page,
+                    _ => 1,
+                };
+                if args.step_by(delta) {
                     self.render.request(Reason::Modal);
                 }
                 true
@@ -12732,6 +12823,21 @@ impl Shell {
             // The `/workspace` picker the same way.
             if self.workspace_menu.is_some() {
                 self.offer_to_workspace(event);
+                continue;
+            }
+            // `C-j` and `C-k` while the full transcript covers the composer:
+            // fx's `routePickerControlByte` refuses them
+            // (`composerPickerSurfaceVisible`, `app_input_runtime.zig:1094`,
+            // `:1110-1116@481104fd`), so no list behind the screen moves and
+            // they go on to the composer, a newline and a kill to the end --
+            // the `@` list's too, whose keys there are unit CTRLO-AT-KEYS's
+            // (`docs/parity.md`).
+            if self.full.is_open()
+                && matches!(event, Input::Action(Action::ControlJ | Action::ControlK))
+            {
+                if let Input::Action(action) = event {
+                    self.act(action, now);
+                }
                 continue;
             }
             // `/mcp`'s menu takes the keys it binds; the rest go to the
@@ -16975,6 +17081,26 @@ impl Shell {
         self.render.request(Reason::Resize);
     }
 
+    /// The composer's rows on a screen of `rows` x `cols`: the draft's wrapped
+    /// rows, at least one and at most the cap (`cappedInputRows`,
+    /// `input_presentation.zig:257-267@481104fd`).
+    fn composer_rows(&self, rows: u16, cols: u16) -> u16 {
+        let limit = layout::input_row_limit(rows);
+        let wrapped = self
+            .editor
+            .rows(cols.saturating_sub(PROMPT_CELLS).max(1))
+            .len();
+        u16::try_from(wrapped.clamp(1, usize::from(limit))).unwrap_or(limit)
+    }
+
+    /// Whether the composer is taller than one row on this screen -- fx's
+    /// `capped.input_extra != 0`, under which the arrows and a page are the
+    /// caret's and no slash list's (`routeComposerVertical`,
+    /// `input_completion_runtime.zig:250-260@481104fd`).
+    fn composer_grown(&self) -> bool {
+        self.composer_rows(self.geometry.rows, self.geometry.cols) > 1
+    }
+
     /// The band this shell wants on a screen of `rows` x `cols`, or `None` when
     /// no band fits on one.
     ///
@@ -16985,12 +17111,7 @@ impl Shell {
     /// so a re-solve that measured the draft against the old one would put the
     /// divider where the old wrap said it went.
     fn fit(&self, rows: u16, cols: u16) -> Option<Geometry> {
-        let limit = layout::input_row_limit(rows);
-        let wrapped = self
-            .editor
-            .rows(cols.saturating_sub(PROMPT_CELLS).max(1))
-            .len();
-        let wanted = u16::try_from(wrapped.clamp(1, usize::from(limit))).unwrap_or(limit);
+        let wanted = self.composer_rows(rows, cols);
         // The band's other height: whether the turn's row is above the divider.
         // Carried through every re-solve rather than defaulted, or a keystroke
         // typed while a turn ran would take that row away and the frame after
@@ -41164,6 +41285,605 @@ mod tests {
         assert_eq!(shell.geometry.input_rows(), 1, "the composer grew");
     }
 
+    // --- PAGE-KEYS-SETTINGS-COLUMN: the three lists fx pages that xfx did not --
+
+    /// fx's page on a 24-row screen, written out: `inputRowLimit(24 - 4)` is
+    /// `20 / 2 + 1` (`input_presentation.zig:252-255@481104fd`). Under it a
+    /// page lands inside `/settings`' fourteen settings and inside a thirty-row
+    /// list (`fx-p5-page-keys-*-24x120-*`).
+    const FX_PAGE_AT_24: usize = 11;
+
+    /// Where fx leaves a mark at `from` of `count` rows after a move of
+    /// `delta`, written out from its lists' own moves rather than read from
+    /// xfx's: past the last row it is the first, before the first it is the
+    /// last, however far past (`advanceSelectionWithin`,
+    /// `list_window.zig:45-53@481104fd`; `Menu.move`,
+    /// `settings_catalog.zig:229-233`; `moveVisibleItems`,
+    /// `model_cache_runtime.zig:233-237`). Not taken round: 22 of 14 rows is
+    /// the first, not the ninth.
+    fn fx_moved(from: usize, count: usize, delta: i64) -> usize {
+        let next = i64::try_from(from).expect("an index") + delta;
+        let count_signed = i64::try_from(count).expect("a count");
+        if next < 0 {
+            count - 1
+        } else if next >= count_signed {
+            0
+        } else {
+            usize::try_from(next).expect("an index")
+        }
+    }
+
+    /// The rows a list's mark walks under Down, from where it is until it is
+    /// back there -- the list in order when it starts on its first row.
+    fn rows_walked<T: PartialEq + Clone + std::fmt::Debug>(
+        shell: &mut Fixture,
+        marked: &impl Fn(&Fixture) -> T,
+    ) -> Vec<T> {
+        let start = marked(shell);
+        let mut order = vec![start.clone()];
+        for _ in 0..64 {
+            shell.route_bytes(b"\x1b[B");
+            let now = marked(shell);
+            if now == start {
+                return order;
+            }
+            order.push(now);
+        }
+        panic!("Down never came back to {start:?}: {order:?}");
+    }
+
+    /// From `order[start]`, three PgDn and two PgUp, each landing where fx's
+    /// would -- at least one of them past each end -- and then `C-j` and
+    /// `C-k`, a row each; none of them an edit of the draft. `order` is the
+    /// list top to bottom.
+    fn pages_as_fx_does<T: PartialEq + Clone + std::fmt::Debug>(
+        shell: &mut Fixture,
+        order: &[T],
+        start: usize,
+        marked: &impl Fn(&Fixture) -> T,
+    ) {
+        assert_eq!(shell.geometry.rows, 24, "the cases here are at 24 rows");
+        assert_eq!(
+            usize::from(crate::tui::layout::input_row_limit(24)),
+            FX_PAGE_AT_24
+        );
+        assert_eq!(marked(shell), order[start], "not on row {start}");
+        let draft = shell.editor.text().to_string();
+        let page = i64::try_from(FX_PAGE_AT_24).expect("a page");
+        let count = order.len();
+        let mut at = start;
+        let (mut past_end, mut past_start) = (false, false);
+        for (key, name, delta) in [
+            (&b"\x1b[6~"[..], "PgDn", page),
+            (b"\x1b[6~", "PgDn", page),
+            (b"\x1b[6~", "PgDn", page),
+            (b"\x1b[5~", "PgUp", -page),
+            (b"\x1b[5~", "PgUp", -page),
+            (&[0x0a], "C-j", 1),
+            (&[0x0b], "C-k", -1),
+        ] {
+            let signed = i64::try_from(at).expect("an index") + delta;
+            past_end |= signed >= i64::try_from(count).expect("a count");
+            past_start |= signed < 0;
+            let from = order[at].clone();
+            at = fx_moved(at, count, delta);
+            shell.route_bytes(key);
+            assert_eq!(
+                marked(shell),
+                order[at],
+                "{name} from {from:?} of {count} rows (page {FX_PAGE_AT_24})"
+            );
+            assert_eq!(shell.editor.text(), draft, "{name} edited the draft");
+        }
+        assert!(past_end && past_start, "no move ran past both ends");
+    }
+
+    /// The marked row of the band's list, colours off and trimmed: the one
+    /// row drawn in the bold hint grey.
+    fn marked_row(shell: &Fixture) -> Option<String> {
+        menu(shell)
+            .iter()
+            .find(|row| row.contains(PALETTE.subtitle()))
+            .map(|row| visible_text(row).trim().to_string())
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end() {
+        // `routeSettingsMenuMove` (`input_completion_runtime.zig:431-463
+        // @481104fd`) under `routeComposerVertical`'s page (`:222-233`), and
+        // `C-j`/`C-k` (`routePickerControlByte`, `app_input_runtime.zig:
+        // 1093-1108`): fourteen settings, so PgDn lands on the twelfth and
+        // the next runs past the end to the first (`fx-p5-page-keys-settings-
+        // 24x120-menu-pgdn`, `-pgdn2`, `-pgup`, `-pgup2`, `-cj`, `-ck`).
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 24, 120);
+        shell.route_bytes(b"/settings\r");
+        let marked = |shell: &Fixture| {
+            shell
+                .settings_menu
+                .as_ref()
+                .and_then(|menu| menu.selected(&shell.settings_snapshot()))
+        };
+        let order = rows_walked(&mut shell, &marked);
+        assert_eq!(order.len(), 14, "{order:?}");
+        assert_eq!(order[0], Some(Setting::Statusline(StatusLineItem::Context)));
+        assert_eq!(order[11], Some(Setting::SoundLevel));
+        assert_eq!(order[13], Some(Setting::PromptHistory));
+        pages_as_fx_does(&mut shell, &order, 0, &marked);
+        // Nothing listed: `Menu.move` answers `false` (`settings_catalog.zig:
+        // 227`), so every move goes on, with the menu still up
+        // (`activeCatalogMenuOwnsByte`, `app_input_runtime.zig:1609-1610`).
+        // Up and Down are then the caret's, to the start and the end of a
+        // one-row search (`routeComposerVertical`, `input_completion_runtime.
+        // zig:272-288@481104fd`; `fx-p5-page-keys-settings-24x120-empty-up`);
+        // a page leaves the text alone; `C-k` from the start kills the search
+        // and `C-j` is a newline in it.
+        shell.route_bytes(b"zzz");
+        assert_eq!(marked(&shell), None, "the search found a setting");
+        let caret = |shell: &Fixture| shell.editor.point(shell.text_cols()).1;
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(caret(&shell), 0, "Up was spent on an empty list");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(caret(&shell), 3, "Down was spent on an empty list");
+        shell.route_bytes(b"\x1b[6~\x1b[5~");
+        assert_eq!(shell.editor.text(), "zzz");
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.editor.text(), "", "C-k was spent on an empty list");
+        assert_eq!(marked(&shell), order.first().cloned().flatten());
+        shell.route_bytes(b"zzz");
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(shell.editor.text(), "zzz\n");
+        // And a page is the caret's too: on a one-row search fx's leaves it
+        // where it is (`fx-p5-page-keys-settings-24x120-empty-pgup`), on a
+        // two-row one it moves it a row.
+        shell.route_bytes(b"zzz");
+        assert_eq!(caret_at(&shell), (1, 3));
+        shell.route_bytes(b"\x1b[5~");
+        assert_eq!(caret_at(&shell).0, 0, "PgUp was spent on an empty list");
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(caret_at(&shell).0, 1, "PgDn was spent on an empty list");
+        assert!(shell.settings_menu.is_some(), "a key closed the menu");
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_settings_model_list_is_11_models() {
+        // With the Model row's list open the moves are its
+        // (`moveVisibleItems`, `input_completion_runtime.zig:440-455
+        // @481104fd`; `fx-p5-page-keys-settings-24x120-list-*`).
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 24, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
+            provider: ProviderId::Gateway,
+            entries: (1..=30)
+                .map(|n| entry(&format!("m{n:02}"), Some(400_000), &[]))
+                .collect(),
+        });
+        let _ = shell.document();
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 5);
+        shell.route_bytes(RIGHT);
+        assert!(shell.model_menu.is_some(), "Right opened no list");
+        // The marked model, and whether it is drawn: the window it scrolls
+        // is the rows the list has under the Model row
+        // (`visibleModelItemsForBudget`, `settings_menu_presentation.zig:
+        // 52-71@481104fd`), not `/model`'s menu's.
+        let marked = |shell: &Fixture| {
+            let id = shell
+                .model_menu
+                .as_ref()
+                .and_then(ModelMenu::selected)
+                .map(str::to_string);
+            let drawn = id.as_ref().is_some_and(|id| {
+                let bright = format!("{}{id}{}", PALETTE.subtitle(), PALETTE.reset());
+                menu(shell).iter().any(|row| row.contains(&bright))
+            });
+            (id, drawn)
+        };
+        let order = rows_walked(&mut shell, &marked);
+        assert_eq!(order.len(), 30, "{order:?}");
+        assert_eq!(order[0], (Some("vendor/m01".to_string()), true));
+        assert!(order.iter().all(|(_, drawn)| *drawn), "{order:?}");
+        pages_as_fx_does(&mut shell, &order, 0, &marked);
+        assert!(
+            shell.settings_menu.is_some(),
+            "a key closed the settings menu"
+        );
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_model_column_is_11_models() {
+        // `navigateModelPicker`'s model stage
+        // (`input_completion_runtime.zig:1072-1075`, `:1098-1106@481104fd`)
+        // under a page or `C-j`/`C-k` (`fx-p5-page-keys-column-24x120-model-*`).
+        let mut shell = shell(24, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
+            provider: ProviderId::Gateway,
+            entries: (1..=30)
+                .map(|n| entry(&format!("m{n:02}"), Some(400_000), &[]))
+                .collect(),
+        });
+        let _ = shell.document();
+        shell.route_bytes(b"/model ");
+        let order = rows_walked(&mut shell, &marked_row);
+        assert_eq!(order.len(), 30, "{order:?}");
+        assert_eq!(order[0].as_deref(), Some("vendor/m01"));
+        pages_as_fx_does(&mut shell, &order, 0, &marked_row);
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end() {
+        // The effort and speed stages (`navigateModelPicker`,
+        // `input_completion_runtime.zig:1076-1094@481104fd`) and an `/effort`
+        // line's levels: astra's five levels and its three speeds, fewer than
+        // a page, so every page runs past an end -- PgDn from the first stays
+        // on it and PgUp is the last (`fx-p5-page-keys-column-24x120-effort-*`,
+        // `-speed-*`, `-levels-*`).
+        let mut shell = shell(24, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
+            provider: ProviderId::Gateway,
+            entries: speed_rows(),
+        });
+        let _ = shell.document();
+        shell.shell.model = "openai/gpt-6-astra".to_string();
+        for (line, rows) in [
+            ("/model openai/gpt-6-astra ", 5),
+            ("/model openai/gpt-6-astra high ", 3),
+            ("/effort ", 5),
+        ] {
+            shell.clear_composer();
+            shell.route_bytes(line.as_bytes());
+            // Fewer rows than the column's six, so all of them are drawn, top
+            // to bottom; the mark starts where the line or the session puts it.
+            let order: Vec<Option<String>> = column(&shell)
+                .into_iter()
+                .filter(|row| !row.is_empty())
+                .map(|row| Some(row.trim().to_string()))
+                .collect();
+            assert_eq!(order.len(), rows, "{line:?}: {order:?}");
+            assert_eq!(rows_walked(&mut shell, &marked_row).len(), rows, "{line:?}");
+            let start = order
+                .iter()
+                .position(|row| *row == marked_row(&shell))
+                .expect("a marked row");
+            pages_as_fx_does(&mut shell, &order, start, &marked_row);
+        }
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_mcp_arguments_is_11_servers() {
+        // fx's slash list, which `/mcp `'s arguments are (`slashCompletionCount`,
+        // `command_specs.zig:578-585@481104fd`), paged by `picker_delta`
+        // (`input_completion_runtime.zig:255-260`): one row per server under
+        // `/mcp show `, twenty-four of them (`fx-p5-page-keys-mcp-24x120-*`).
+        let servers: Vec<String> = (1..=24)
+            .map(|n| {
+                format!(r#""s{n:02}":{{"type":"http","url":"http://127.0.0.1:9/s{n:02}","enabled":false}}"#)
+            })
+            .collect();
+        let profile = format!(r#"{{"mcpServers":{{{}}}}}"#, servers.join(","));
+        let (mut shell, runtime, _home) = mcp_args_shell_over(&profile, 24);
+        shell.route_bytes(b"/mcp show ");
+        let marked = |shell: &Fixture| {
+            shell
+                .mcp_args
+                .as_ref()
+                .and_then(|args| args.chosen())
+                .map(str::to_string)
+        };
+        let order = rows_walked(&mut shell, &marked);
+        assert_eq!(order.len(), 24, "{order:?}");
+        assert_eq!(order[0].as_deref(), Some("/mcp show s01"));
+        pages_as_fx_does(&mut shell, &order, 0, &marked);
+        runtime.shutdown();
+    }
+
+    /// The composer's caret, as (row, cell) at its width.
+    fn caret_at(shell: &Fixture) -> (usize, usize) {
+        let (row, cells) = shell.editor.point(shell.text_cols());
+        (row, usize::from(cells))
+    }
+
+    /// On a composer of more than one row the arrows and a page are the
+    /// caret's and the slash list's mark stays; `C-j` still walks it.
+    /// fx gives a slash list those keys only while `capped.input_extra` is 0
+    /// (`routeComposerVertical`, `input_completion_runtime.zig:255-260
+    /// @481104fd`; the caret otherwise, `:262-291`), and `C-j`/`C-k` reach it
+    /// by `routeSlashCompletionMove` (`:175-180`), which asks no height.
+    /// `marked` reads the mark; the caret starts on the composer's last row.
+    fn a_slash_list_leaves_a_taller_composer_its_arrows<T: PartialEq + std::fmt::Debug>(
+        shell: &mut Fixture,
+        marked: &impl Fn(&Fixture) -> T,
+    ) {
+        let rows = shell.geometry.input_rows();
+        assert!(
+            rows > 1,
+            "the composer is one row: {:?} at {} columns",
+            shell.editor.rows(shell.text_cols()),
+            shell.text_cols()
+        );
+        let mark = marked(shell);
+        let (row, _) = caret_at(shell);
+        assert_eq!(
+            row + 1,
+            usize::from(rows),
+            "the caret is not on the last row"
+        );
+        // In an order where each key moves the caret to another row, so a key
+        // the list swallowed leaves the caret where it was: a page is the
+        // composer's row cap, past either edge (`scanInputCursorRows`,
+        // `input_completion_runtime.zig:235-243@481104fd`).
+        for (key, name, to) in [
+            (&b"\x1b[A"[..], "Up", row - 1),
+            (b"\x1b[B", "Down", row),
+            (b"\x1b[5~", "PgUp", 0),
+            (b"\x1b[6~", "PgDn", row),
+        ] {
+            shell.route_bytes(key);
+            assert_eq!(caret_at(shell).0, to, "{name} did not move the caret");
+            assert_eq!(marked(shell), mark, "{name} walked the list");
+        }
+        shell.route_bytes(&[0x0a]);
+        assert_ne!(marked(shell), mark, "C-j did not walk the list");
+    }
+
+    #[test]
+    fn mcp_arguments_on_a_taller_composer_leave_the_arrows_and_pages_to_the_caret() {
+        // Two newlines first, with no list up, so they are newlines; then the
+        // line `slashCompletionPrefix` trims them off (`command_specs.zig:
+        // 568-576@481104fd`), three rows in all
+        // (`fx-p5-page-keys-mcp-24x120-wrapped-*`).
+        let servers: Vec<String> = (1..=24)
+            .map(|n| {
+                format!(r#""s{n:02}":{{"type":"http","url":"http://127.0.0.1:9/s{n:02}","enabled":false}}"#)
+            })
+            .collect();
+        let profile = format!(r#"{{"mcpServers":{{{}}}}}"#, servers.join(","));
+        let (mut shell, runtime, _home) = mcp_args_shell_over(&profile, 24);
+        shell.route_bytes(&[0x0a, 0x0a]);
+        shell.route_bytes(b"/mcp show ");
+        let marked = |shell: &Fixture| {
+            shell
+                .mcp_args
+                .as_ref()
+                .and_then(|args| args.chosen())
+                .map(str::to_string)
+        };
+        assert_eq!(marked(&shell).as_deref(), Some("/mcp show s01"));
+        assert_eq!(shell.geometry.input_rows(), 3);
+        // The list hangs under the argument while the caret is on its row,
+        // and at the start of the caret's row otherwise (`projectedAnchorColumn`,
+        // `visual_layout.zig:705-713@481104fd`; `-wrapped-up`).
+        let first = |shell: &Fixture| visible_text(&menu(shell)[0]);
+        assert!(
+            first(&shell).starts_with("       show s01"),
+            "{:?}",
+            first(&shell)
+        );
+        shell.route_bytes(b"\x1b[A");
+        assert!(
+            first(&shell).starts_with("  show s01"),
+            "{:?}",
+            first(&shell)
+        );
+        shell.route_bytes(b"\x1b[B");
+        assert!(
+            first(&shell).starts_with("       show s01"),
+            "{:?}",
+            first(&shell)
+        );
+        a_slash_list_leaves_a_taller_composer_its_arrows(&mut shell, &marked);
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn a_slash_menu_on_a_taller_composer_leaves_the_arrows_and_pages_to_the_caret() {
+        // Two skills whose names outrun a 40-column composer: the slash word
+        // that lists both wraps.
+        let root = tempfile::tempdir().expect("a root");
+        let skills = root.path().join("work").join("skills");
+        for name in [
+            "wrap-the-composer-past-its-first-row-and-on-one",
+            "wrap-the-composer-past-its-first-row-and-on-two",
+        ] {
+            std::fs::create_dir_all(skills.join(name)).expect("a skill");
+            std::fs::write(
+                skills.join(name).join("SKILL.md"),
+                format!("---\nname: {name}\ndescription: a long name\n---\n\n# {name}\n"),
+            )
+            .expect("SKILL.md");
+        }
+        let mut skilled = skilled_over(root, 24, 40);
+        skilled.route_bytes(b"/wrap-the-composer-past-its-first-row-and-on-");
+        skills_landed(&mut skilled);
+        let marked = |shell: &Fixture| shell.picker.as_ref().map(|picker| picker.marked());
+        let (_, count) = marked(&skilled.shell).expect("a menu");
+        assert_eq!(count, 2, "the menu lists both skills");
+        a_slash_list_leaves_a_taller_composer_its_arrows(&mut skilled.shell, &marked);
+    }
+
+    /// While the full transcript is up, `C-k` and `C-j` are the composer's
+    /// -- a kill to the end and a newline -- and no list behind the screen
+    /// moves: fx's `routePickerControlByte` refuses them once
+    /// `composerPickerSurfaceVisible` is false (`app_input_runtime.zig:1094`,
+    /// `:1110-1116@481104fd`). The caret is at the end of the draft, so the
+    /// kill takes nothing. A list that no edit of the draft leaves up --
+    /// `/effort`'s and `/fork`'s, which read no search -- is closed by the
+    /// kill instead, as fx's are (`dismissActiveMenusForComposerEdit`,
+    /// `:881-886`, `:1984-1990`): `closes`.
+    fn row_keys_reach_the_composer_under_the_full_transcript<T: PartialEq + std::fmt::Debug>(
+        shell: &mut Fixture,
+        marked: &impl Fn(&Fixture) -> Option<T>,
+        closes: bool,
+    ) {
+        let draft = shell.editor.text().to_string();
+        let mark = marked(shell);
+        assert!(mark.is_some(), "no list is up");
+        shell.route_bytes(b"\x0f");
+        assert!(shell.full.is_open(), "C-o opened no full transcript");
+        shell.route_bytes(&[0x0b]);
+        if closes {
+            assert_eq!(marked(shell), None, "C-k left the list up");
+        } else {
+            assert_eq!(marked(shell), mark, "C-k walked a list behind the screen");
+        }
+        assert_eq!(shell.editor.text(), draft);
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(
+            shell.editor.text(),
+            format!("{draft}\n"),
+            "C-j did not reach the composer"
+        );
+        assert!(shell.full.is_open(), "C-j closed the full transcript");
+    }
+
+    #[test]
+    fn under_the_full_transcript_the_settings_menu_takes_no_row_key() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 24, 120);
+        shell.route_bytes(b"/settings\r");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut shell,
+            &|shell: &Fixture| {
+                shell
+                    .settings_menu
+                    .as_ref()
+                    .and_then(|menu| menu.selected(&shell.settings_snapshot()))
+            },
+            false,
+        );
+        assert!(shell.settings_menu.is_some());
+    }
+
+    #[test]
+    fn under_the_full_transcript_the_model_column_takes_no_row_key() {
+        let mut shell = harness_shell();
+        shell.route_bytes(b"/model ");
+        assert_eq!(marked_row(&shell).as_deref(), Some("openai/gpt-6-astra"));
+        row_keys_reach_the_composer_under_the_full_transcript(&mut shell, &marked_row, false);
+    }
+
+    #[test]
+    fn under_the_full_transcript_the_model_menu_takes_no_row_key() {
+        let mut shell = harness_shell();
+        shell.route_bytes(b"/model\r");
+        assert!(shell.model_menu.is_some(), "/model opened no menu");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut shell,
+            &|shell: &Fixture| {
+                shell
+                    .model_menu
+                    .as_ref()
+                    .and_then(ModelMenu::selected)
+                    .map(str::to_string)
+            },
+            false,
+        );
+    }
+
+    #[test]
+    fn under_the_full_transcript_the_mcp_arguments_take_no_row_key() {
+        let (mut shell, runtime, _home) = mcp_args_shell();
+        shell.route_bytes(b"/mcp ");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut shell,
+            &|shell: &Fixture| {
+                shell
+                    .mcp_args
+                    .as_ref()
+                    .and_then(|args| args.chosen())
+                    .map(str::to_string)
+            },
+            false,
+        );
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn under_the_full_transcript_no_other_list_takes_a_row_key() {
+        // The same refusal for the other lists that walk on `C-j`/`C-k`
+        // (`routeVisiblePickerMove`, `input_completion_runtime.zig:390-422`),
+        // by the same one check: here `/mcp`'s menu, the slash menu, `/help`'s
+        // catalog, `/provider`'s column, `/effort`'s menu and `/fork`'s menu.
+        // The `@` list's keys there -- these two, Tab and Enter -- are unit
+        // CTRLO-AT-KEYS's.
+        let mut slash = shell(24, 120);
+        slash.route_bytes(b"/");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut slash,
+            &|shell: &Fixture| shell.picker.as_ref().map(|picker| picker.marked()),
+            false,
+        );
+        let mut catalog = with_catalog(24, 120);
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut catalog,
+            &|shell: &Fixture| {
+                shell
+                    .help_menu
+                    .as_ref()
+                    .and_then(HelpMenu::selected)
+                    .map(|spec| spec.name)
+            },
+            false,
+        );
+        let mut provider = shell(24, 120);
+        provider.route_bytes(b"/provider ");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut provider,
+            &|shell: &Fixture| {
+                shell
+                    .provider_picker
+                    .as_ref()
+                    .and_then(|column| column.chosen())
+            },
+            false,
+        );
+        let root = tempfile::tempdir().expect("a root");
+        let mut effort = effort_shell_at(root.path(), 24, 120);
+        effort.route_bytes(b"/effort\r");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut effort,
+            &|shell: &Fixture| {
+                shell
+                    .effort_menu
+                    .as_ref()
+                    .map(|menu| menu.selected().clone())
+            },
+            true,
+        );
+        // `/mcp`'s menu, the first list the check must come before: its own
+        // handler takes every key while the full transcript covers it
+        // (`offer_to_mcp`), so a check below it would leave `C-j` there and
+        // the draft -- the menu's filter -- without its newline.
+        let (mut mcp, runtime, _home) = mcp_args_shell_over(
+            r#"{"mcpServers":{"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","enabled":false}}}"#,
+            24,
+        );
+        mcp.route_bytes(b"/mcp\r");
+        assert!(mcp.mcp_menu.is_some(), "/mcp opened no menu");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut mcp,
+            &|shell: &Fixture| shell.mcp_menu.as_ref().map(|menu| menu.screen()),
+            false,
+        );
+        runtime.shutdown();
+        let mut fork = shell(24, 120);
+        forked_menu(
+            &mut fork,
+            (1..=5)
+                .map(|turn| fork_point(turn, &format!("prompt {turn}")))
+                .collect(),
+        );
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut fork,
+            &|shell: &Fixture| shell.fork_menu.as_ref().map(|menu| menu.selected().turn),
+            true,
+        );
+    }
+
     #[test]
     fn ctrl_p_lends_the_draft_to_the_model_catalog_and_every_way_out_gives_it_back() {
         // `openModelPickerShortcut` and `restoreModelPickerDraft`
@@ -41841,15 +42561,23 @@ mod tests {
     /// A shell over an MCP runtime whose profile has one server it never
     /// connects -- switched off -- so `/mcp `'s completions have a name.
     fn mcp_args_shell() -> (Fixture, Arc<crate::mcp::McpRuntime>, tempfile::TempDir) {
+        mcp_args_shell_over(
+            r#"{"mcpServers":{"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","enabled":false}}}"#,
+            40,
+        )
+    }
+
+    /// [`mcp_args_shell`] over the profile `profile`, on a screen `rows` tall
+    /// and 120 wide.
+    fn mcp_args_shell_over(
+        profile: &str,
+        rows: u16,
+    ) -> (Fixture, Arc<crate::mcp::McpRuntime>, tempfile::TempDir) {
         let home = tempfile::tempdir().expect("a home");
         let workspace = home.path().join("work");
         std::fs::create_dir_all(&workspace).expect("a workspace");
         crate::profile_home::made(&home.path().join(".xfx"));
-        std::fs::write(
-            home.path().join(".xfx").join("mcp.json"),
-            r#"{"mcpServers":{"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","enabled":false}}}"#,
-        )
-        .expect("a profile");
+        std::fs::write(home.path().join(".xfx").join("mcp.json"), profile).expect("a profile");
         let runtime = crate::mcp::McpRuntime::new(crate::mcp::runtime::Paths {
             profile: Some(home.path().join(".xfx").join("mcp.json")),
             settings: Some(home.path().join(".xfx").join("settings.json")),
@@ -41860,7 +42588,7 @@ mod tests {
         let (work, sent, control) = WorkHandle::detached();
         let shell = Shell::new(
             &config(home.path(), &workspace),
-            crate::tui::layout::solve(40, 120, 1).expect("a band"),
+            crate::tui::layout::solve(rows, 120, 1).expect("a band"),
             PALETTE,
             false,
             work.with_mcp(Arc::clone(&runtime)),
