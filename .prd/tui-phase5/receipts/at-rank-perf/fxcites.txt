@@ -1,0 +1,6 @@
+self-test: 10 cases, 0 wrong
+README.md: 29 citations, 0 failed
+docs/parity.md:239: 2 citations, 0 failed
+src: 53 citations, 0 failed
+scripts/fxcap/scenarios/p5-at-rank.cap: 0 citations, 0 failed
+all: 84 citations, 0 failed

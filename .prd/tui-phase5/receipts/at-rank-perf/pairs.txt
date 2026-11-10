@@ -1,0 +1,22 @@
+# ../at-rank/fx/ row 1: 𝒇x v0.0.16 · Run /help for commands
+# xfx/ row 1: x𝒇x v0.1.0-b47953e [debug] · Run /help for commands
+p5-at-rank scm              identical
+p5-at-rank stat             identical
+p5-at-rank index            identical
+p5-at-rank file-index       identical
+p5-at-rank main-rs          identical
+p5-at-rank vercle           identical
+p5-at-rank abcd             identical
+p5-at-rank comp             identical
+p5-at-rank ab               identical
+p5-at-rank ta               identical
+p5-at-rank main-case        identical
+p5-at-rank empty            identical
+p5-at-rank road-map         identical
+p5-at-rank pairs: 13; identical: 13
+p5-input-at at-st          identical
+p5-input-at at-st-down12   identical
+p5-input-at at-st-up6      identical
+p5-input-at at-stat        identical
+workspace-index at-plan        identical
+at-ranking pairs: 5; identical: 5
