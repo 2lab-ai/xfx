@@ -46,7 +46,7 @@ so lines 1-503 are round 1's and 1-512 round 2's.
 conditionally ready) changes no production code:
 - the interim is fx's only once xfx has walked once this session: fx walks
   at launch and xfx does not, a gap now named as unit AT-LAUNCH-WALK and
-  pinned (§3, §4, §8, §10);
+  pinned (§3, §4, §8, §10) -- since closed by that unit (`../at-launch-walk/README.md`);
 - the tick's one effect, named and pinned (§3, §4);
 - §6 lists both cells of fx's differing row; §7's table follows the runs.
 
@@ -105,7 +105,8 @@ the whole-walk case (§3); the failed tick case asserts the painted row
   is adopted, which a change of scope keeps.
 - **fx walks at launch** (`app_entry_runtime.zig:334`, fx-src.txt:511;
   `startFileIndex` -> `ensureScopeEpoch`, `app_workspace_runtime.zig:
-  145-148`, fx-src.txt:45-48). xfx does not (round 2; §3).
+  145-148`, fx-src.txt:45-48). xfx does not (round 2; §3). (It does since
+  AT-LAUNCH-WALK: `../at-launch-walk/README.md`.)
 - **fx's loop** (round 3): it joins a finished loader at the top of each
   pass (`loopCollectFacts`, `main.zig:2851`, fx-src.txt:573;
   `event_loop.zig:80`, fx-src.txt:519), then waits up to 8 ms for keys
@@ -134,7 +135,8 @@ fx does. Base gave 3 for both; for the first that is AT-FOLDERS' residual
 (b), and the failed case is residual (a). The trace's premise -- A, the
 first change's walk, is the session's first and nothing is adopted while
 it runs -- is xfx's: in fx the launch walk plays A's part (AT-LAUNCH-WALK,
-§3).
+§3). (AT-LAUNCH-WALK made it fx's: the launch walk is A in the trace now,
+with the same results; `../at-launch-walk/README.md`.)
 
 ## 3. The fix (`c445c1d7`)
 
@@ -221,6 +223,11 @@ every Shell a test builds, so it is its own unit. Pinned by
 `a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk`,
 which that unit flips.
 
+**Built by AT-LAUNCH-WALK** (`../at-launch-walk/README.md`): xfx walks the index at launch,
+with the launch's epoch, as fx does, and that case is flipped -- a change
+before the launch walk is whole says `Files unavailable` until the new
+scope's walk is.
+
 Of the rest of fx's model nothing was left out for its cost: the old
 roots' walk running to its end is the costly part, and it is copied,
 because when the new rows show depends on it.
@@ -251,7 +258,7 @@ because when the new rows show depends on it.
   - `a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk`
     (opus SHOULD): no walk at launch; a change, then `@plan` during its
     walk, says `indexing files...` and then the published row. Its comment
-    names AT-LAUNCH-WALK, which flips it.
+    names AT-LAUNCH-WALK, which flips it. (It did: `../at-launch-walk/README.md`.)
   - `a_first_at_before_the_poll_that_takes_a_finished_walks_end_skips_its_refresh`
     pinned the tick as xfx's (1 walk). Round 3 copies fx and replaces it
     with two cases on one helper, `first_at_before_the_poll` (the first
@@ -268,10 +275,11 @@ because when the new rows show depends on it.
   - Both the change-before-any-walk case and the helper assert no walk at
     launch first. That assert is AT-LAUNCH-WALK's tripwire, and their
     comments say so: that unit must drive the launch walk to its end
-    before the change, not only change the rows they expect.
+    before the change, not only change the rows they expect. (It drove
+    the launch walk in both and asserts fx's outcome: `../at-launch-walk/README.md`.)
   - The trace helper's doc and the second half of
     `a_change_of_scope_lets_the_walk_run_on_and_its_prefix_answers_nothing`
-    name the same gap.
+    name the same gap. (Both now say it has closed.)
 
 ## 5. GREEN
 
@@ -378,7 +386,8 @@ summary of the killers; each log lists them all.
 
 The change-before-any-walk case pins xfx's side of AT-LAUNCH-WALK, so the
 mutants that break the copy leave it passing; `walk-at-launch` is the
-change that moves it.
+change that moves it. (AT-LAUNCH-WALK flipped that case; its own mutants
+are in `../at-launch-walk/README.md`.)
 
 ## 8. The parity row, the ledger, AT-FOLDERS' receipts
 
@@ -394,7 +403,8 @@ change that moves it.
     there xfx says `indexing files...` and lists the first walk's prefix
     where fx says `Files unavailable` -- with the first-episode skip's
     reliance on it. `searchableGeneration` is cited at the pin's
-    `:647-654` in both places.
+    `:647-654` in both places. (The row now says the launch walks:
+    `../at-launch-walk/README.md`.)
   - `25ff67a6` (round 3): round 2's "not copied, a tick apart" sentence
     goes; the row says the first `@`'s decision reads a finished walk as
     fx's `currentState` does, and names the loop's frame order (§3).
@@ -439,6 +449,7 @@ this unit adds, less the 2 it removes).
   `a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk`;
   its launch walk would take A's part in the trace (§2) and the first
   walk's part in the round-3 tick cases, whose guard trips first.
+  (AT-LAUNCH-WALK has since closed, as said here: `../at-launch-walk/README.md`.)
 - **The sweep's `workspace-index at-plan`** (§6) is a pair a run name's
   letters decide: it passed on round 1's base sweep and on neither side of
   round 3's. It will pass or not from sweep to sweep until the ledger's
