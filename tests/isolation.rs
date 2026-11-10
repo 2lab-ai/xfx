@@ -3,8 +3,9 @@
 //!
 //! The copy does not trust its marker: started with one already set -- an
 //! old copy's, a developer's shell that kept it -- under a `HOME` that is not
-//! the empty one made for it, or beside a name it is not given, it runs no
-//! case at all.
+//! exactly the empty directory made for it, or beside a name it is not
+//! given, it runs no case at all. What it says when it refuses carries no
+//! value of the environment.
 
 mod support;
 
@@ -13,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use support::isolated::{HOME_PREFIX, MARKER};
 
-/// Leaves a mark in the directory it runs in. Run by the case below, in a
+/// Leaves a mark in the directory it runs in. Run by the cases below, in a
 /// copy whose working directory is the `HOME` it was handed; never in the
 /// ordinary run.
 #[test]
@@ -23,16 +24,21 @@ fn a_case_marks_where_it_runs() {
 }
 
 /// What this binary did, started with `home` as both its `HOME` and its
-/// working directory, `marker` as its marker (none: started as a developer
-/// starts it) and `extra` beside them, asked to run the marking case alone.
-fn started(home: &Path, marker: Option<&str>, extra: &[(&str, &str)]) -> (bool, String) {
+/// working directory, `tmpdir` as its `TMPDIR`, `marker` as its marker
+/// (none: started as a developer starts it) and `extra` beside them, asked
+/// to run the marking case alone.
+fn started(
+    home: &Path,
+    tmpdir: &Path,
+    marker: Option<&str>,
+    extra: &[(&str, &str)],
+) -> (bool, String) {
     let mut copy = support::command(std::env::current_exe().expect("this test binary"));
     support::sandbox::clear_env(&mut copy);
-    copy.current_dir(home).env("HOME", home).args([
-        "--ignored",
-        "--exact",
-        "a_case_marks_where_it_runs",
-    ]);
+    copy.current_dir(home)
+        .env("HOME", home)
+        .env("TMPDIR", tmpdir)
+        .args(["--ignored", "--exact", "a_case_marks_where_it_runs"]);
     if let Some(marker) = marker {
         copy.env(MARKER, marker);
     }
@@ -42,7 +48,11 @@ fn started(home: &Path, marker: Option<&str>, extra: &[(&str, &str)]) -> (bool, 
     let output = xfx::process::output(&mut copy).expect("this test binary");
     (
         output.status.success(),
-        String::from_utf8_lossy(&output.stderr).into_owned(),
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ),
     )
 }
 
@@ -57,26 +67,34 @@ fn a_private_dir(path: PathBuf) -> PathBuf {
 #[test]
 fn a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given() {
     let scratch = tempfile::TempDir::new().expect("a scratch directory");
+    let tmpdir = scratch.path();
     let marker = |n: u8| format!("{n:032x}");
-    let named = |n: u8| a_private_dir(scratch.path().join(format!("{HOME_PREFIX}{}", marker(n))));
+    let named = |n: u8| tmpdir.join(format!("{HOME_PREFIX}{}", marker(n)));
 
-    // The sentinel's home: named as the marker says, with a git
+    // The sentinel's home: the very path the marker names, with a git
     // configuration in it.
-    let sentinel = named(1);
+    let sentinel = a_private_dir(named(1));
     std::fs::write(sentinel.join(".gitconfig"), "[core]\n").expect("a configuration");
-    // An empty home the marker does not name.
-    let other = a_private_dir(scratch.path().join("home"));
+    // An empty home at a path the marker does not name.
+    let other = a_private_dir(tmpdir.join("home"));
     // An empty home the marker names, beside a variable the copy is not given.
-    let beside = named(3);
+    let beside = a_private_dir(named(3));
+    // The path the marker names, a link to an empty private directory: as
+    // it is, and with a trailing `/`, which makes `lstat` follow the link.
+    let target = a_private_dir(tmpdir.join("target"));
+    let link = named(4);
+    std::os::unix::fs::symlink(&target, &link).expect("a link");
+    std::os::unix::fs::symlink(&target, named(5)).expect("a link");
+    let trailing = PathBuf::from(format!("{}/", named(5).display()));
     // Each home, the marker beside it, any name more, and the refusal.
     type Case<'a> = (&'a Path, String, &'a [(&'a str, &'a str)], &'a str);
-    let cases: [Case; 3] = [
+    let cases: [Case; 5] = [
         (&sentinel, marker(1), &[], "HOME is not empty"),
         (
             &other,
             marker(2),
             &[],
-            "HOME is not the directory the marker names",
+            "HOME is not the path the parent makes for the marker",
         ),
         (
             &beside,
@@ -84,12 +102,19 @@ fn a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given() {
             &[("XFX_MODEL", "xfx-sentinel-model")],
             "1 name(s) the copy is not given",
         ),
+        (
+            &link,
+            marker(4),
+            &[],
+            "HOME is not a directory of this user's",
+        ),
+        (&trailing, marker(5), &[], "HOME ends in /"),
     ];
     for (home, marker, extra, refusal) in cases {
-        let (passed, stderr) = started(home, Some(&marker), extra);
+        let (passed, said) = started(home, tmpdir, Some(&marker), extra);
         assert!(
-            !passed && stderr.contains(refusal),
-            "started with a marker under {}, the binary did not refuse it for {refusal:?}:\n{stderr}",
+            !passed && said.contains(refusal),
+            "started with a marker under {}, the binary did not refuse it for {refusal:?}:\n{said}",
             home.display()
         );
         assert!(
@@ -98,14 +123,39 @@ fn a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given() {
             home.display()
         );
     }
+    assert!(
+        !target.join("ran").exists(),
+        "a case ran in a link's target"
+    );
 
     // The mark is what a case that ran leaves: started as a developer starts
     // it, the binary makes its copy, and the case marks the directory.
-    let control = a_private_dir(scratch.path().join("control"));
-    let (passed, stderr) = started(&control, None, &[]);
-    assert!(passed, "the marking case did not run in a copy:\n{stderr}");
+    let control = a_private_dir(tmpdir.join("control"));
+    let (passed, said) = started(&control, tmpdir, None, &[]);
+    assert!(passed, "the marking case did not run in a copy:\n{said}");
     assert!(
         control.join("ran").exists(),
         "the marking case left no mark"
     );
+}
+
+#[test]
+fn a_copy_that_cannot_be_made_says_so_without_a_value_of_the_environment() {
+    let scratch = tempfile::TempDir::new().expect("a scratch directory");
+    // A TMPDIR no home can be made under, whose value is a sentinel.
+    let tmpdir = scratch
+        .path()
+        .join("xfx-sentinel-tmpdir-value")
+        .join("gone");
+    let home = a_private_dir(scratch.path().join("home"));
+    let (passed, said) = started(&home, &tmpdir, None, &[]);
+    assert!(
+        !passed && said.contains("no case runs") && said.contains("under TMPDIR"),
+        "a parent whose TMPDIR takes no home did not refuse"
+    );
+    assert!(
+        !said.contains("xfx-sentinel-tmpdir-value"),
+        "the refusal printed TMPDIR's value"
+    );
+    assert!(!home.join("ran").exists(), "a case ran");
 }

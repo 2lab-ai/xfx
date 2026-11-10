@@ -13,16 +13,29 @@
 //! set, and [`MARKER`], which names that `HOME`.
 //!
 //! The copy does not trust the marker. Before any case runs it confirms its
-//! environment holds those names and no other, and that `HOME` is the empty
-//! directory the marker names, its own and private to it; anything else and
-//! it exits at once, 101 as a failed suite does, so no case runs. It removes
-//! that `HOME` when it exits.
+//! environment holds those names and no other, and that `HOME` is, byte for
+//! byte, the path its parent made for that marker -- `TMPDIR` (else `/tmp`)
+//! joined with [`HOME_PREFIX`] and the marker, no trailing `/` -- and there
+//! an empty directory, not a link, of its own and private to it; anything
+//! else and it exits at once, 101 as a failed suite does, so no case runs.
+//! It removes that `HOME` when it exits. What it prints names what it
+//! refused, never a value of the environment.
 //!
-//! Every `tests/*.rs` declares `mod support;`, which compiles this in:
-//! `scripts/check-env-reads.py` refuses a test binary that does not read its
-//! environment here.
+//! Not handed on: any variable a tool sets for the test process --
+//! `LLVM_PROFILE_FILE` under a coverage run, `NEXTEST_*` under
+//! cargo-nextest. Under such a tool this binary's cases run without them.
+//!
+//! The boundary: the copy confirms what its parent made, against a mistake
+//! or an inherited marker, not against someone who can already write as this
+//! user -- such a process can replace `TMPDIR`'s directories between the
+//! check and the cases, or the test binary itself.
+//!
+//! Every `tests/*.rs` declares `mod support;`, which compiles this in.
+//! `scripts/check-env-reads.py` starts every test binary cargo builds with a
+//! marker no parent makes, and refuses one that does not refuse itself.
 
 use std::ffi::{OsStr, OsString};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
@@ -71,7 +84,16 @@ extern "C" fn isolate() {
     }
 }
 
-/// Replaces this process with the copy. Returns only what went wrong.
+/// The `HOME` a parent makes for `marker`, and the only one a copy accepts.
+fn home_for(marker: &str) -> PathBuf {
+    xfx::env_exception!(var_os("TMPDIR"))
+        .filter(|dir| !dir.is_empty())
+        .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from)
+        .join(format!("{HOME_PREFIX}{marker}"))
+}
+
+/// Replaces this process with the copy. Returns only what went wrong, in
+/// words that carry no value of the environment.
 fn become_the_copy() -> String {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     if std::env::args_os().next().is_none() {
@@ -79,18 +101,15 @@ fn become_the_copy() -> String {
     }
     let nonce = match nonce() {
         Ok(nonce) => nonce,
-        Err(err) => return format!("no random name for the copy's home: {err}"),
+        Err(err) => return format!("no random name for the copy's home: {}", err.kind()),
     };
-    let temporary = xfx::env_exception!(var_os("TMPDIR"))
-        .filter(|dir| !dir.is_empty())
-        .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
-    let home = temporary.join(format!("{HOME_PREFIX}{nonce}"));
+    let home = home_for(&nonce);
     if let Err(err) = std::fs::DirBuilder::new().mode(0o700).create(&home) {
-        return format!("cannot make the copy's home {}: {err}", home.display());
+        return format!("cannot make the copy's home under TMPDIR: {}", err.kind());
     }
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
-        Err(err) => return format!("cannot find this test binary: {err}"),
+        Err(err) => return format!("cannot find this test binary: {}", err.kind()),
     };
     let mut copy = super::command(exe);
     super::sandbox::clear_env(&mut copy);
@@ -110,7 +129,7 @@ fn become_the_copy() -> String {
     )]
     let err = copy.exec();
     let _ = std::fs::remove_dir(&home);
-    format!("cannot start the copy: {err}")
+    format!("cannot start the copy: {}", err.kind())
 }
 
 /// The copy's own invariants, before any case runs.
@@ -129,18 +148,23 @@ fn confirm(marker: &OsStr) -> Result<(), String> {
         .filter(|marker| marker.len() == 32 && marker.bytes().all(|b| b.is_ascii_hexdigit()))
         .ok_or("the marker is not a name the copy's parent made")?;
     let home = PathBuf::from(xfx::env_exception!(var_os("HOME")).ok_or("no HOME")?);
-    if home.file_name() != Some(OsStr::new(&format!("{HOME_PREFIX}{marker}"))) {
-        return Err("HOME is not the directory the marker names".to_string());
+    // A trailing `/` makes `lstat` follow a link, and `remove_dir_all` then
+    // empty what it points at.
+    if home.as_os_str().as_bytes().ends_with(b"/") {
+        return Err("HOME ends in /, which would make a link read as a directory".to_string());
     }
-    let meta =
-        std::fs::symlink_metadata(&home).map_err(|err| format!("HOME cannot be read: {err}"))?;
+    if home.as_os_str() != home_for(marker).as_os_str() {
+        return Err("HOME is not the path the parent makes for the marker".to_string());
+    }
+    let meta = std::fs::symlink_metadata(&home)
+        .map_err(|err| format!("HOME cannot be read: {}", err.kind()))?;
     // SAFETY: `geteuid` reads the process's effective user and cannot fail.
     let me = unsafe { libc::geteuid() };
     if !meta.is_dir() || meta.uid() != me || meta.mode() & 0o777 != 0o700 {
         return Err("HOME is not a directory of this user's, private to it".to_string());
     }
     let mut entries =
-        std::fs::read_dir(&home).map_err(|err| format!("HOME cannot be listed: {err}"))?;
+        std::fs::read_dir(&home).map_err(|err| format!("HOME cannot be listed: {}", err.kind()))?;
     if entries.next().is_some() {
         return Err("HOME is not empty, so it is not the one made for the copy".to_string());
     }

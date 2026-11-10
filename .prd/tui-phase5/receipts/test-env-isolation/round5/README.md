@@ -156,3 +156,40 @@ default method, which is what it showed.
 **Measured:** 39 test binaries started (13 per build), each refused itself;
 the whole check took 373 s here with two of the three test builds cold
 (`time -p`, real).
+
+## Part 5: HOME, exactly (gpt6 isolation MUST 1 and 2, opus M3)
+
+**The holes.**
+
+- The copy compared only `HOME`'s last component with the marker. With
+  `HOME=<...>/xfx-test-home-<marker>/` -- a trailing slash -- on a link to
+  an empty private directory, `file_name()` still matched, `lstat` followed
+  the link, and the copy accepted it; at exit `remove_dir_all` would empty
+  the link's target.
+- The parent's creation error printed `home.display()`, which is `TMPDIR`'s
+  value.
+
+**The fix** (`tests/support/isolated.rs`).
+
+- One function, `home_for(marker)`, makes the path -- `TMPDIR` (else
+  `/tmp`) joined with `xfx-test-home-<marker>` -- for the parent and for
+  the copy. The copy refuses a `HOME` whose bytes end in `/`, then any
+  `HOME` whose bytes are not exactly `home_for(marker)` (the `OsStr`, not a
+  `Path` comparison, which would ignore a trailing slash), then a link, a
+  directory not its own or not 0700, and a non-empty one.
+- Every refusal names what it refused and, for an I/O error, only its kind
+  (`err.kind()`); none prints a path built from the environment.
+- The doc states the boundary -- the copy confirms what its parent made,
+  against a mistake or an inherited marker, not against a process that can
+  already write as this user -- and that tool variables (`LLVM_PROFILE_FILE`,
+  `NEXTEST_*`) are not handed on (NIT).
+
+**Regressions** (`tests/isolation.rs`, each case started with its own
+`TMPDIR`): the sentinel home at the exact path, non-empty; an empty home
+elsewhere; the right home beside `XFX_MODEL`; the exact path as a link to an
+empty private directory; and that path with a trailing `/` -- each refused
+for its reason, and no mark left in the home or in the link's target. And
+`a_copy_that_cannot_be_made_says_so_without_a_value_of_the_environment`:
+`TMPDIR=<scratch>/xfx-sentinel-tmpdir-value/gone`, where no home can be
+made -- the binary refuses ("under TMPDIR"), and the sentinel is not in
+anything it printed.
