@@ -1,0 +1,31 @@
+# python3 -I scope.py xfx   (the code head 071b26e0 against fx v0.0.16)
+SAME     p5-rule-confirm-keys alt-b                   (15 rows compared)
+SAME     p5-rule-confirm-keys alt-f                   (15 rows compared)
+SAME     p5-rule-confirm-keys ctrl-c                  (11 rows compared)
+SAME     p5-rule-confirm-keys ctrl-j-cancel           (7 rows compared)
+SAME     p5-rule-confirm-keys ctrl-j                  (9 rows compared)
+SAME     p5-rule-confirm-keys esc                     (11 rows compared)
+SAME     p5-rule-confirm-keys kitty-ctrl-j            (13 rows compared)
+SAME     p5-rule-confirm-keys left                    (15 rows compared)
+SAME     p5-rule-confirm-keys nothing-keys            (15 rows compared)
+SAME     p5-rule-confirm-keys prompt                  (15 rows compared)
+SAME     p5-rule-confirm-keys right                   (15 rows compared)
+SAME     p5-rule-confirm-keys tab                     (15 rows compared)
+SAME     p5-rule-confirm-keys turn                    (22 rows compared)
+DIFF     p5-rule-confirm-keys-turn end                4 rows differ
+         fx:  '┃'
+         xfx: ''
+         fx:  ''
+         xfx: '┃'
+         fx:  'auto · model-a'
+         xfx: ''
+DIFF     p5-rule-confirm-keys-turn esc                4 rows differ
+         fx:  '┃'
+         xfx: ''
+         fx:  ''
+         xfx: '┃'
+         fx:  'auto · model-a'
+         xfx: ''
+SAME     p5-rule-confirm-keys-turn prompt             (17 rows compared)
+14 of 16 pairs identical
+exit 1

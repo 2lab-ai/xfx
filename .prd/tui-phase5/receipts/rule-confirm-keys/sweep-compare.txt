@@ -1,0 +1,39 @@
+# python3 -I ../approval-readiness-settled/cmp_sweeps.py <base>/pairs.json <head>/pairs.json (unchanged); then, per side, the pairs with rows no cause covers and their counts (pairs.json's unattributed lists, counted)
+change p5-rule-confirm-keys/alt-b: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-rule-confirm-keys/alt-f: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-rule-confirm-keys/ctrl-c: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-rule-confirm-keys/ctrl-j: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-rule-confirm-keys/ctrl-j-cancel: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-rule-confirm-keys/esc: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-rule-confirm-keys/kitty-ctrl-j: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-rule-confirm-keys/left: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-rule-confirm-keys/nothing-keys: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-rule-confirm-keys/prompt: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-rule-confirm-keys/right: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-rule-confirm-keys/tab: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-rule-confirm-keys/turn: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-rule-confirm-keys-turn/end: unresolved-defect -> unresolved-defect; causes [] -> ['rule-confirm-card-after-stop']; uncaused 5 -> 0
+change p5-rule-confirm-keys-turn/esc: unresolved-defect -> unresolved-defect; causes [] -> ['rule-confirm-card-after-stop']; uncaused 3 -> 0
+change p5-rule-confirm-keys-turn/prompt: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+base: 234 pairs, 92 pass, 10 with uncaused rows
+head: 234 pairs, 106 pass, 7 with uncaused rows
+drops: 0
+base: 10 pairs with uncaused rows
+   p5-input-approval cmd-ask 15
+   p5-input-approval edit-ask 17
+   p5-input-approval after 13
+   p5-rule-confirm-keys-turn prompt 2
+   p5-rule-confirm-keys-turn esc 3
+   p5-rule-confirm-keys-turn end 5
+   rules-read ask 1
+   rules-read ask2 1
+   rules-read listed 10
+   rules-read-auto read-ask 1
+head: 7 pairs with uncaused rows
+   p5-input-approval cmd-ask 15
+   p5-input-approval edit-ask 17
+   p5-input-approval after 13
+   rules-read ask 1
+   rules-read ask2 1
+   rules-read listed 10
+   rules-read-auto read-ask 1

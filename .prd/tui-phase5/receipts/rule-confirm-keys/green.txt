@@ -1,0 +1,19 @@
+# at the code head 071b26e0, TMPDIR=<tmp>: the unit's tests and their neighbours
+## cargo test --locked --lib -- rule_confirm remember revoke escape approval ctrl_j_ keys_fx
+test tui::program_status::tests::a_rule_confirmation_is_reported_under_upstreams_label ... ok
+test tui::rule_confirm::tests::a_display_with_a_control_in_it_reaches_no_terminal ... ok
+test tui::rule_confirm::tests::the_keys_are_the_approvals_over_two_choices ... ok
+test tui::rule_confirm::tests::the_rows_are_upstreams_on_a_tall_screen ... ok
+test tui::rule_confirm::tests::a_display_is_named_as_a_grant_is_and_cannot_be_drawn_past_the_margin ... ok
+test tui::shell::tests::a_rule_confirmation_is_a_permission_question_outside_a_turn ... ok
+test tui::shell::tests::a_rule_confirmation_opening_drops_a_fork_on_its_way ... ok
+test tui::shell::tests::a_rule_confirmation_over_a_forks_plain_line_keeps_the_blank_row ... ok
+test tui::shell::tests::ctrl_c_at_a_rule_confirmation_cancels_it_and_arms_no_exit ... ok
+test tui::shell::tests::escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn ... ok
+test tui::shell::tests::escape_closes_the_confirmation_silently_and_two_says_cancelled ... ok
+test tui::shell::tests::tab_and_the_horizontal_keys_move_a_rule_confirmations_mark_wrapping ... ok
+test tui::shell::tests::keys_fx_reads_as_nothing_leave_a_rule_confirmation_as_it_was ... ok
+test tui::shell::tests::ctrl_j_at_a_rule_confirmation_answers_as_enter_does_on_either_choice ... ok
+test result: ok. 288 passed; 0 failed; 0 ignored; 0 measured; 4378 filtered out; finished in 0.40s
+## cargo test --locked --test parity
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.31s

@@ -882,6 +882,15 @@ xfx = ["src/tui/shell.rs:10428"]
 fx = ["src/core/app/app_worker_runtime.zig:1026@c1db9191"]
 why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`write_user_prompt`, the cited line), xfx rides it under the open group (`trailer_rows`, src/tui/shell.rs:10428, each card through `queue_card`, :1840, which ends it on a blank row). After Escape stops the turn the group's cancelled line is drawn above the card on both, and fx's document then ends on the card with the composer right under it -- `fx-approvals-40x120-after-esc` rows 14-15, `┃ use capitals` (bold) then the composer's `┃` -- where xfx's keeps the card's blank row (row 15) and its composer and hint row stand one row lower (rows 16, 18 against fx's 15, 17). fx's card carries no row under it: wherever fx's document ends on a cancelled line or an answer, one blank row stands before the composer (`p5-transcript-cancel` `esc` rows 5-7, `interrupt2` `esc2` rows 36-38), and the card here is the one entry after that blank, with none of its own. Already so at the base (e6cde019's sweep: xfx row 15 `(blank)` uncaused; the pair was counted under the deleted `cancelled-marker`). AMEND-CARD-ROW: end such a card as fx does when nothing follows it in the document (.prd/tui-phase5/receipts/cancel-marker/README.md)."
 
+
+[[cause]]
+id = "rule-confirm-card-after-stop"
+kind = "unit"
+owner = "AMEND-CARD-ROW the blank row xfx keeps under a card that ends the document"
+scenarios = ["p5-rule-confirm-keys-turn"]
+snaps = ["esc", "end"]
+rows = ["4-7"]
+why = "A user-visible row, `amendment-card-after-stop`'s class. Escape at a rule confirmation over a running turn stops the turn on both and writes nothing after the prompt's card (RULE-CONFIRM-KEYS: fx's `cancelApprovalOperation` writes no cancellation row). fx's document then ends on the card with the composer right under it (row 3 `┃ say something`, row 4 the composer's `┃`); xfx's card keeps the blank row `queue_card` ends it on (src/tui/shell.rs `queue_card`), so its composer and hint row stand one row lower (rows 5 and 7 against fx's 4 and 6). Already so wherever xfx's document ends on a card, and not this unit's to change: every card is queued that way. AMEND-CARD-ROW: end a card as fx does when nothing follows it (.prd/tui-phase5/receipts/rule-confirm-keys/README.md)."
 [[cause]]
 id = "call-row-page-edge"
 kind = "defect"

@@ -1,0 +1,1585 @@
+# fx v0.0.16 (481104fd), every line this receipt cites, as git show 481104fd:<path> prints it, numbered.
+
+## src/ui/input/runtime.zig:55-153
+   55  
+   56  const InputEscapeAction = input_action.Action;
+   57  const MouseInput = escape_parser.MouseInput;
+   58  
+   59  pub const shortcutFromControlByte = shortcuts.fromControlByte;
+   60  
+   61  pub fn approvalActionFromByte(byte: u8) ?approval_decision.Action {
+   62      return switch (byte) {
+   63          3 => .deny,
+   64          '\r', '\n' => .submit,
+   65          '\t' => .tab,
+   66          0x7F, 0x08 => .backspace,
+   67          '1'...'3' => .{ .number = byte - '1' },
+   68          else => if (byte >= 0x20 and byte <= 0x7E)
+   69              .{ .insert_ascii = byte }
+   70          else
+   71              null,
+   72      };
+   73  }
+   74  
+   75  fn approvalDraftActionFromShortcut(
+   76      action: input_action.ShortcutAction,
+   77  ) ?approval_decision.DraftAction {
+   78      return switch (action) {
+   79          .move => |intent| switch (intent.kind) {
+   80              .character_left => .cursor_left,
+   81              .character_right => .cursor_right,
+   82              .line_start, .draft_start => .cursor_home,
+   83              .line_end, .draft_end => .cursor_end,
+   84              .word_left => .cursor_word_left,
+   85              .word_right => .cursor_word_right,
+   86              else => null,
+   87          },
+   88          .delete_forward => .delete_next,
+   89          .delete_word_left => .delete_word_left,
+   90          .delete_whitespace_word_left => .delete_whitespace_word_left,
+   91          .delete_word_right => .delete_word_right,
+   92          .delete_to_line_start => .delete_to_line_start,
+   93          .delete_to_line_end => .delete_to_line_end,
+   94          else => null,
+   95      };
+   96  }
+   97  
+   98  fn approvalDraftActionFromControlByte(byte: u8) ?approval_decision.DraftAction {
+   99      const action = shortcuts.fromFocusedEditorControlByte(byte) orelse return null;
+  100      return approvalDraftActionFromShortcut(action);
+  101  }
+  102  
+  103  fn approvalActionFromRawByte(byte: u8) ?approval_decision.Action {
+  104      if (approvalDraftActionFromControlByte(byte)) |edit| {
+  105          return .{ .edit_draft = edit };
+  106      }
+  107      return approvalActionFromByte(byte);
+  108  }
+  109  
+  110  fn withApprovalInput(
+  111      ingress: input_action.TerminalInputIngress,
+  112  ) input_action.TerminalInputIngress {
+  113      var typed = ingress;
+  114      const event = typed.event orelse return typed;
+  115      typed.event = switch (event) {
+  116          .raw => |raw| input_action.TerminalInputEvent{ .raw = .{
+  117              .byte = raw.byte,
+  118              .composer_shortcut = raw.composer_shortcut,
+  119              .approval_action = approvalActionFromRawByte(raw.byte),
+  120          } },
+  121          .action => |decoded| input_action.TerminalInputEvent{ .action = .{
+  122              .action = decoded.action,
+  123              .composer_shortcut = decoded.composer_shortcut,
+  124              .approval_focused_edit = if (decoded.composer_shortcut) |shortcut|
+  125                  approvalDraftActionFromShortcut(shortcut)
+  126              else
+  127                  null,
+  128              .cancel_pending = decoded.cancel_pending,
+  129          } },
+  130          .paste_byte => event,
+  131      };
+  132      return typed;
+  133  }
+  134  
+  135  fn questionActionFromByte(
+  136      byte: u8,
+  137      freeform_selected: bool,
+  138  ) ?question_prompt.Action {
+  139      return switch (byte) {
+  140          3 => .cancel,
+  141          '\r', '\n' => .submit,
+  142          '\t' => .next_entry,
+  143          0x7F, 0x08 => if (freeform_selected) .backspace else null,
+  144          '1'...'9' => if (freeform_selected)
+  145              .{ .insert_ascii = byte }
+  146          else
+  147              .{ .select_ordinal = byte - '1' },
+  148          else => if (freeform_selected and byte >= 0x20 and byte <= 0x7E)
+  149              .{ .insert_ascii = byte }
+  150          else
+  151              null,
+  152      };
+  153  }
+
+## src/ui/input/shortcuts.zig:11-65
+   11  pub fn fromControlByte(byte: u8) ?ShortcutAction {
+   12      return switch (byte) {
+   13          1 => move(.line_start),
+   14          5 => move(.line_end),
+   15          2 => move(.character_left),
+   16          6 => move(.character_right),
+   17          14 => .history_next,
+   18          4 => .delete_forward,
+   19          11 => .delete_to_line_end,
+   20          21 => .delete_to_line_start,
+   21          23 => .delete_whitespace_word_left,
+   22          25 => .yank,
+   23          31 => .undo,
+   24          12 => .redraw,
+   25          127, 8 => .delete_backward,
+   26          '\n' => .insert_newline,
+   27          else => null,
+   28      };
+   29  }
+   30  
+   31  pub fn fromFocusedEditorControlByte(byte: u8) ?ShortcutAction {
+   32      const action = fromControlByte(byte) orelse return null;
+   33      return switch (action) {
+   34          .move,
+   35          .delete_whitespace_word_left,
+   36          .delete_to_line_start,
+   37          .delete_to_line_end,
+   38          => action,
+   39          else => null,
+   40      };
+   41  }
+   42  
+   43  pub fn fromEscapeAction(action: InputEscapeAction) ?ShortcutAction {
+   44      return switch (action) {
+   45          .cursor_up => move(.visual_up),
+   46          .cursor_down => move(.visual_down),
+   47          .cursor_left => move(.character_left),
+   48          .cursor_right => move(.character_right),
+   49          .word_left => move(.word_left),
+   50          .word_right => move(.word_right),
+   51          .home => move(.line_start),
+   52          .end => move(.line_end),
+   53          .page_up => move(.page_up),
+   54          .page_down => move(.page_down),
+   55          .delete_next => .delete_forward,
+   56          .delete_word_left => .delete_word_left,
+   57          .delete_word_right => .delete_word_right,
+   58          .delete_to_line_start => .delete_to_line_start,
+   59          .delete_to_line_end => .delete_to_line_end,
+   60          .insert_newline => .insert_newline,
+   61          .composer_shortcut => |shortcut| shortcut,
+   62          .remapped_byte => |byte| fromControlByte(byte),
+   63          else => null,
+   64      };
+   65  }
+
+## src/ui/input/escape_parser.zig:146-274
+  146  // The plain navigation mapping. Every encoding that reports navigation keys
+  147  // resolves through this one table: CSI finals, application-keypad SS3 bytes,
+  148  // and kitty keypad codes.
+  149  fn plainNavigationAction(letter: u8) InputEscapeAction {
+  150      return switch (letter) {
+  151          'A' => .cursor_up,
+  152          'B' => .cursor_down,
+  153          'C' => .cursor_right,
+  154          'D' => .cursor_left,
+  155          'H' => .home,
+  156          'F' => .end,
+  157          else => unreachable,
+  158      };
+  159  }
+  160  
+  161  // Reuse the main-row arrow mapping so Shift extends the selection and
+  162  // Ctrl/Alt/Super keep their word, paragraph, and draft jumps.
+  163  fn navigationKeyAction(letter: u8, modifiers: u16, meta_prefixed: bool) InputEscapeAction {
+  164      const plain = plainNavigationAction(letter);
+  165      if (!meta_prefixed and modifiers == 0) return plain;
+  166      return modifiedArrowAction(letter, modifiers, meta_prefixed) orelse plain;
+  167  }
+  168  
+  169  fn pageKeyAction(keycode: u16, modifiers: u16) InputEscapeAction {
+  170      const kind: input_action.MoveKind = if (keycode == kp_page_up) .page_up else .page_down;
+  171      if (modifiers != 0) return composerMove(kind, modifiers);
+  172      return if (keycode == kp_page_up) .page_up else .page_down;
+  173  }
+  174  
+  175  // Keypad Delete mirrors the main-row `ESC[3~` family.
+  176  fn forwardDeleteKeyAction(modifiers: u16) InputEscapeAction {
+  177      if ((modifiers & super_modifier) != 0) return .delete_to_line_end;
+  178      if ((modifiers & (alt_modifier | ctrl_modifier)) != 0) return .delete_word_right;
+  179      return if (modifiers == 0) .delete_next else .ignore;
+  180  }
+  181  
+  182  // Resolve a Kitty CSI u report (`ESC[<keycode>;<mod>u`). Shared by the
+  183  // single-parameter and modifier stages, and never returns null so the leading
+  184  // ESC's pending-cancel is always cleared.
+  185  fn kittyUnicodeKeyAction(keycode: u16, modifiers: u16, meta_prefixed: bool) InputEscapeAction {
+  186      // Strip Caps Lock (bit 6) and Num Lock (bit 7) — lock states, not modifiers.
+  187      const mods = modifiers & 0x3F;
+  188      if (keycode == 27 and mods == 0) return .escape;
+  189      // Hyper and Meta survive the lock-state mask, so a keypad key held with one
+  190      // of them keeps today's behavior instead of typing text or moving the caret.
+  191      if ((mods & ~keypad_supported_modifiers) == 0) {
+  192          if (keypadCharacterKey(keycode)) |byte| {
+  193              // Only a bare or Shift-modified keypad press types text, matching
+  194              // the main row where modified digits and operators are not text.
+  195              if (!meta_prefixed and (mods & ~shift_modifier) == 0) return .{ .remapped_byte = byte };
+  196          } else if (keypadNavigationKey(keycode)) |letter| {
+  197              return navigationKeyAction(letter, mods, meta_prefixed);
+  198          } else if (keycode == kp_page_up or keycode == kp_page_down) {
+  199              return pageKeyAction(keycode, mods);
+  200          } else if (keycode == kp_enter) {
+  201              // Reuse the main-row Enter branch: Ctrl submits, Shift and Alt
+  202              // insert a newline, and a bare press submits.
+  203              return kittyUnicodeKeyAction(13, modifiers, meta_prefixed);
+  204          } else if (keycode == kp_delete) {
+  205              return forwardDeleteKeyAction(mods);
+  206          }
+  207      }
+  208      if (keycode == kitty_up_key or keycode == kitty_down_key) {
+  209          if (meta_prefixed or mods != 0) {
+  210              return modifiedArrowAction(
+  211                  if (keycode == kitty_up_key) 'A' else 'B',
+  212                  mods,
+  213                  meta_prefixed,
+  214              ) orelse .ignore;
+  215          }
+  216          return if (keycode == kitty_up_key) .cursor_up else .cursor_down;
+  217      }
+  218      if (keycode == 13 and mods == ctrl_modifier and !meta_prefixed) return .{ .remapped_byte = '\r' };
+  219      if (keycode == 13 and (mods & (shift_modifier | alt_modifier)) != 0) {
+  220          return .insert_newline;
+  221      }
+  222      if (keycode == ' ' and mods == shift_modifier and !meta_prefixed) return .{ .remapped_byte = ' ' };
+  223      if ((keycode == 'a' or keycode == 'A') and (mods & super_modifier) != 0) {
+  224          return .{ .composer_shortcut = .select_all };
+  225      }
+  226      if ((keycode == 'c' or keycode == 'C') and (mods & super_modifier) != 0) {
+  227          return .{ .composer_shortcut = .copy_selection };
+  228      }
+  229      if ((keycode == 'x' or keycode == 'X') and (mods & super_modifier) != 0) {
+  230          return .{ .composer_shortcut = .cut_selection };
+  231      }
+  232      if ((keycode == 'z' or keycode == 'Z') and (mods & super_modifier) != 0) {
+  233          return .{ .composer_shortcut = if ((mods & shift_modifier) != 0) .redo else .undo };
+  234      }
+  235      if ((mods & (shift_modifier | ctrl_modifier)) ==
+  236          (shift_modifier | ctrl_modifier))
+  237      {
+  238          if (keycode == 'a' or keycode == 'A') return composerMove(.line_start, mods);
+  239          if (keycode == 'b' or keycode == 'B') return composerMove(.character_left, mods);
+  240          if (keycode == 'e' or keycode == 'E') return composerMove(.line_end, mods);
+  241          if (keycode == 'f' or keycode == 'F') return composerMove(.character_right, mods);
+  242      }
+  243      if (keycode == 'b' and (mods & alt_modifier) != 0) {
+  244          if ((mods & shift_modifier) != 0) return composerMove(.word_left, mods);
+  245          return .word_left;
+  246      }
+  247      if (keycode == 'f' and (mods & alt_modifier) != 0) {
+  248          if ((mods & shift_modifier) != 0) return composerMove(.word_right, mods);
+  249          return .word_right;
+  250      }
+  251      if ((keycode == 'd' or keycode == 'D') and (meta_prefixed or (mods & 0x02) != 0)) return .delete_word_right;
+  252      if (keycode == 'o' or keycode == 'O') return ctrlOKeyAction(meta_prefixed, mods);
+  253      if ((keycode == 'r' or keycode == 'R') and (mods & 0x08) != 0) return .open_all_sessions;
+  254      if (keycode == 9 and (mods & 0x01) != 0) return .toggle_permission_mode;
+  255      if ((mods & 0x04) != 0) {
+  256          if (keycode == '_') return .{ .remapped_byte = 31 };
+  257          if (keycode >= 'a' and keycode <= 'z') return .{ .remapped_byte = @intCast(keycode - 96) };
+  258          if (keycode >= 'A' and keycode <= 'Z') return .{ .remapped_byte = @intCast(keycode - 64) };
+  259      }
+  260      if (keycode == 127 and (mods & 0x08) != 0) return .delete_to_line_start;
+  261      if (keycode == 127 and (mods & 0x02) != 0) return .delete_word_left;
+  262      if (keycode == 13) return .{ .remapped_byte = '\r' };
+  263      if (keycode == 9) return .{ .remapped_byte = '\t' };
+  264      if (keycode == 127) return .{ .remapped_byte = 127 };
+  265      return .ignore;
+  266  }
+  267  
+  268  pub fn controlByteFeatureAction(byte: u8) ?InputEscapeAction {
+  269      return switch (byte) {
+  270          15 => .toggle_full_transcript,
+  271          16 => .open_model_catalog,
+  272          else => null,
+  273      };
+  274  }
+
+## src/ui/input/terminal_action_decoder.zig:29-45
+   29      pub fn feed(
+   30          self: *Decoder,
+   31          byte: u8,
+   32          context: input_action.TerminalDecodeContext,
+   33      ) input_action.TerminalInputIngress {
+   34          var ingress = input_action.TerminalInputIngress{
+   35              .interrupts_pending_text = byte < 0x80 and !context.paste_active,
+   36          };
+   37  
+   38          if (context.paste_active) {
+   39              return pasteByteIngress(byte);
+   40          }
+   41  
+   42          if (byte == 0x1b and self.stage == 0) {
+   43              self.beginEscape(context.now_ms, context.cancel_pending);
+   44              return ingress;
+   45          }
+
+## src/ui/input/terminal_action_decoder.zig:174-204
+  174          if (!escape_parser.isBareEscapeStage(self.stage)) {
+  175              debug_trace.logf("input", "discard pending control sequence reason=quiet_expiry", .{});
+  176              self.reset();
+  177              return ingress;
+  178          }
+  179  
+  180          const was_cancel_pending = self.cancel_pending;
+  181          self.reset();
+  182          appendAction(&ingress, .escape, was_cancel_pending);
+  183          return ingress;
+  184      }
+  185  
+  186      fn beginEscape(self: *Decoder, now_ms: i64, cancel_pending: bool) void {
+  187          self.stage = 1;
+  188          self.param = 0;
+  189          self.param2 = 0;
+  190          self.mouse.reset();
+  191          self.started_ms = now_ms;
+  192          self.cancel_pending = cancel_pending;
+  193      }
+  194  
+  195      fn finishEscape(self: *Decoder) void {
+  196          self.started_ms = 0;
+  197          self.cancel_pending = false;
+  198      }
+  199  
+  200      fn takeCancelPending(self: *Decoder) bool {
+  201          const pending = self.cancel_pending;
+  202          self.cancel_pending = false;
+  203          return pending;
+  204      }
+
+## src/core/app/app_input_runtime.zig:555-584
+  555              expireCtrlCExitArm(app, now);
+  556              expireEscClearArm(app, now);
+  557              expireEscapeInterruptArm(app, now);
+  558          }
+  559  
+  560          fn terminalDecodeContext(
+  561              app: *App,
+  562              paste_active: bool,
+  563          ) input_action.TerminalDecodeContext {
+  564              if (paste_active) {
+  565                  return .{
+  566                      .now_ms = 0,
+  567                      .paste_active = true,
+  568                      .cancel_pending = false,
+  569                      .question_freeform_selected = false,
+  570                  };
+  571              }
+  572              return .{
+  573                  .now_ms = io_mod.milliTimestamp(),
+  574                  .paste_active = false,
+  575                  .cancel_pending = interrupt_rt.hasActiveOperation(app),
+  576                  .question_freeform_selected = app.question_prompt.isFreeformSelected(),
+  577              };
+  578          }
+  579  
+  580          pub fn prepareTerminalDecode(app: *App) !?input_action.TerminalDecodeContext {
+  581              if (!try app_worker_runtime.Runtime(App).authorizeInteractiveAdmission(app)) return null;
+  582              const paste_active = terminalPasteActive(app);
+  583              return terminalDecodeContext(app, paste_active);
+  584          }
+
+## src/core/app/app_input_runtime.zig:896-971
+  896          fn routeResolvedEscapeAction(
+  897              app: *App,
+  898              resolved: input_action.Action,
+  899              composer_shortcut: ?input_action.ShortcutAction,
+  900              approval_focused_edit: ?approval_decision.DraftAction,
+  901              question_action: ?question_prompt.Action,
+  902              was_cancel_pending: bool,
+  903              max_input_len: usize,
+  904          ) !ResolvedEscapeRoute {
+  905              switch (resolved) {
+  906                  .remapped_byte, .paste_start, .paste_end, .ignore => {},
+  907                  else => disarmCtrlCExit(app, "semantic_action"),
+  908              }
+  909              // Any other semantic key stands down an armed interrupt.
+  910              switch (resolved) {
+  911                  .remapped_byte, .paste_start, .paste_end, .ignore, .escape => {},
+  912                  else => _ = disarmEscapeInterrupt(app, "semantic_action"),
+  913              }
+  914  
+  915              if (resolved == .escape) {
+  916                  if (try full_transcript_rt.routeAction(app, resolved)) {
+  917                      _ = disarmEscapeInterrupt(app, "full_transcript");
+  918                      return .done;
+  919                  }
+  920                  const now = io_mod.milliTimestamp();
+  921                  expireEscClearArm(app, now);
+  922                  try resolveEscape(app, was_cancel_pending, now);
+  923                  return .done;
+  924              }
+  925  
+  926              if (app_auth_runtime.Runtime(App).routeAuthPickerEscapeAction(app, resolved)) {
+  927                  return .done;
+  928              }
+  929  
+  930              if (try full_transcript_rt.routeAction(app, resolved)) return .done;
+  931  
+  932              if (resolved == .paste_start) {
+  933                  if (comptime runtime_profile.allows(App, .native_auth) and
+  934                      @hasDecl(@TypeOf(app.auth), "signInCodeEntryActive"))
+  935                  {
+  936                      if (app.auth.signInCodeEntryActive()) {
+  937                          paste_rt.beginPaste(app, max_input_len);
+  938                          return .done;
+  939                      }
+  940                  }
+  941                  dismissActiveMenusThenRedraw(app);
+  942                  paste_rt.beginPaste(app, max_input_len);
+  943                  return .done;
+  944              }
+  945  
+  946              if (resolved == .paste_end) {
+  947                  return .done;
+  948              }
+  949  
+  950              switch (resolved) {
+  951                  .remapped_byte => |byte| return .{ .remapped_byte = byte },
+  952                  else => {},
+  953              }
+  954  
+  955              if (app.question_prompt.isActive()) {
+  956                  try question_rt.routeQuestionEscapeAction(
+  957                      app,
+  958                      resolved,
+  959                      question_action,
+  960                  );
+  961                  return .done;
+  962              }
+  963  
+  964              if (app.approval_prompt.isActive()) {
+  965                  try approval_rt.routeApprovalEscapeAction(
+  966                      app,
+  967                      resolved,
+  968                      approval_focused_edit,
+  969                  );
+  970                  return .done;
+  971              }
+
+## src/core/app/app_input_runtime.zig:1126-1227
+ 1126          fn routeActiveModalInput(
+ 1127              app: *App,
+ 1128              raw: input_action.RawTerminalInput,
+ 1129              max_input_len: usize,
+ 1130          ) !bool {
+ 1131              const byte = raw.byte;
+ 1132              if ((app.question_prompt.isActive() or approvalOwnsCurrentSurface(app)) and byte == ctrl_g_upgrade_byte) {
+ 1133                  _ = try routeUpgradeShortcut(app, byte);
+ 1134                  return true;
+ 1135              }
+ 1136              if (app.question_prompt.isActive()) {
+ 1137                  if (byte >= 0x80) {
+ 1138                      if (app.question_prompt.isFreeformSelected()) {
+ 1139                          try handleTextByte(app, .question_freeform, byte, max_input_len);
+ 1140                      } else {
+ 1141                          input_reset.resetPendingTextScalarWithTrace(
+ 1142                              &app.input_runtime.text_scalar,
+ 1143                              "question_decision_active",
+ 1144                          );
+ 1145                      }
+ 1146                      return true;
+ 1147                  }
+ 1148                  if (raw.question_action) |action| {
+ 1149                      switch (try question_rt.handleQuestionActionBounded(
+ 1150                          app,
+ 1151                          action,
+ 1152                          max_input_len,
+ 1153                      )) {
+ 1154                          .consumed => app.input_runtime.input_limit_rejection = input_limit_rejection.clear(),
+ 1155                          .ignored => {},
+ 1156                          .limit_exceeded => try input_limit_feedback.report(App, app, .question_freeform, 1),
+ 1157                      }
+ 1158                  }
+ 1159                  return true;
+ 1160              }
+ 1161              if (approvalOwnsCurrentSurface(app)) {
+ 1162                  if (byte >= 0x80) {
+ 1163                      if (app.approval_prompt.isAmending()) {
+ 1164                          try handleTextByte(app, .approval_amendment, byte, max_input_len);
+ 1165                      } else {
+ 1166                          input_reset.resetPendingTextScalarWithTrace(
+ 1167                              &app.input_runtime.text_scalar,
+ 1168                              "approval_decision_active",
+ 1169                          );
+ 1170                      }
+ 1171                      return true;
+ 1172                  }
+ 1173                  if (raw.approval_action) |action| {
+ 1174                      switch (try approval_rt.handlePermissionActionBounded(
+ 1175                          app,
+ 1176                          action,
+ 1177                          max_input_len,
+ 1178                      )) {
+ 1179                          .consumed => app.input_runtime.input_limit_rejection = input_limit_rejection.clear(),
+ 1180                          .ignored => {},
+ 1181                          .limit_exceeded => try input_limit_feedback.report(App, app, .approval_amendment, 1),
+ 1182                      }
+ 1183                  }
+ 1184                  return true;
+ 1185              }
+ 1186              if (try routeMcpHostMenuByte(app, byte)) return true;
+ 1187              if (activeCompactCommandMenu(app)) |menu| {
+ 1188                  if (byte >= 0x80) {
+ 1189                      input_reset.resetPendingTextScalarWithTrace(
+ 1190                          &app.input_runtime.text_scalar,
+ 1191                          "compact_command_menu_active",
+ 1192                      );
+ 1193                      return true;
+ 1194                  }
+ 1195                  switch (byte) {
+ 1196                      '\t' => if (menu == .usage) {
+ 1197                          try refreshUsageMenu(app, app.input_runtime.usage_menu.period.next());
+ 1198                      },
+ 1199                      '\r' => try submitCompactCommandMenuSelection(app, menu, max_input_len),
+ 1200                      'r', 'R' => if (menu == .usage) {
+ 1201                          if (comptime runtime_profile.allows(App, .profile_usage)) {
+ 1202                              try reloadUsageMenu(app, app.input_runtime.usage_menu.period);
+ 1203                          }
+ 1204                      },
+ 1205                      10 => {
+ 1206                          _ = moveCompactCommandMenu(app, menu, 1);
+ 1207                          app.shell.render_requests.request(.footer);
+ 1208                      },
+ 1209                      11 => {
+ 1210                          _ = moveCompactCommandMenu(app, menu, -1);
+ 1211                          app.shell.render_requests.request(.footer);
+ 1212                      },
+ 1213                      else => {},
+ 1214                  }
+ 1215                  return true;
+ 1216              }
+ 1217              return false;
+ 1218          }
+ 1219  
+ 1220          fn presentedSubagentApproval(app: *const App) bool {
+ 1221              _ = app;
+ 1222              return false;
+ 1223          }
+ 1224  
+ 1225          fn approvalOwnsCurrentSurface(app: *const App) bool {
+ 1226              return app.approval_prompt.isActive();
+ 1227          }
+
+## src/core/app/app_input_runtime.zig:2687-2764
+ 2687          fn resolveEscape(app: *App, was_cancel_pending: bool, now: i64) !void {
+ 2688              if (try full_transcript_rt.routeAction(app, .escape)) return;
+ 2689              if (was_cancel_pending) {
+ 2690                  if (app.question_prompt.isActive()) {
+ 2691                      // Freeform answers mirror the composer's Esc contract:
+ 2692                      // Esc on a non-empty draft arms, a second press within
+ 2693                      // the window clears it, and only an empty field lets
+ 2694                      // Esc cancel the batch.
+ 2695                      _ = disarmEscapeInterrupt(app, "question_prompt");
+ 2696                      if (app.question_prompt.freeformDraftLen() > 0) {
+ 2697                          const transition = gesture_state.pressEscapeClear(
+ 2698                              app.input_runtime.gestures,
+ 2699                              now,
+ 2700                          );
+ 2701                          app.input_runtime.gestures = transition.next;
+ 2702                          if (transition.result == .activated) {
+ 2703                              app.question_prompt.clearFreeformDraft("escape_clear");
+ 2704                          }
+ 2705                          app.shell.render_requests.request(.modal);
+ 2706                          app.shell.render_requests.request(.footer);
+ 2707                          return;
+ 2708                      }
+ 2709                      try question_rt.cancelQuestionPrompt(app);
+ 2710                      return;
+ 2711                  }
+ 2712                  if (app.approval_prompt.isActive()) {
+ 2713                      try approval_rt.cancelApprovalOperation(app);
+ 2714                      _ = disarmEscapeClear(app);
+ 2715                      _ = disarmEscapeInterrupt(app, "approval_prompt");
+ 2716                      return;
+ 2717                  }
+ 2718                  if (cancelCompactCommandMenu(app) or (try cancelMcpHostMenu(app)) or cancelSettingsMenu(app) or cancelHelpMenu(app) or cancelModelMenu(app) or cancelSkillsMenu(app) or cancelSessionMenu(app) or cancelForkMenu(app) or cancelEffortMenu(app)) {
+ 2719                      _ = disarmEscapeClear(app);
+ 2720                      _ = disarmEscapeInterrupt(app, "menu");
+ 2721                      app.shell.render_requests.request(.footer);
+ 2722                      return;
+ 2723                  }
+ 2724                  if (completion_rt.dismissVisibleInlinePicker(app)) {
+ 2725                      _ = disarmEscapeClear(app);
+ 2726                      _ = disarmEscapeInterrupt(app, "inline_picker");
+ 2727                      app.shell.render_requests.request(.footer);
+ 2728                      return;
+ 2729                  }
+ 2730                  if (interrupt_rt.dismissCompactionFeedback(app)) {
+ 2731                      _ = disarmEscapeClear(app);
+ 2732                      _ = disarmEscapeInterrupt(app, "compaction_feedback");
+ 2733                      return;
+ 2734                  }
+ 2735                  if (interrupt_rt.pauseActiveRecovery(app)) {
+ 2736                      _ = disarmEscapeClear(app);
+ 2737                      _ = disarmEscapeInterrupt(app, "recovery_pause");
+ 2738                      return;
+ 2739                  }
+ 2740                  // Interrupting active work requires a confirming second Esc
+ 2741                  // within the gesture window. The first press only arms.
+ 2742                  const transition = gesture_state.pressEscapeInterrupt(
+ 2743                      app.input_runtime.gestures,
+ 2744                      now,
+ 2745                  );
+ 2746                  app.input_runtime.gestures = transition.next;
+ 2747                  if (transition.result == .activated) {
+ 2748                      try interrupt_rt.cancelActiveOperation(app);
+ 2749                  } else {
+ 2750                      debug_trace.logf(
+ 2751                          "input",
+ 2752                          "event=esc_interrupt_armed target=active_operation",
+ 2753                          .{},
+ 2754                      );
+ 2755                  }
+ 2756                  _ = disarmEscapeClear(app);
+ 2757                  app.shell.render_requests.request(.footer);
+ 2758                  return;
+ 2759              }
+ 2760  
+ 2761              if (app.approval_prompt.isActive()) {
+ 2762                  _ = disarmEscapeClear(app);
+ 2763                  return;
+ 2764              }
+
+## src/core/app/input_approval_runtime.zig:71-147
+   71          pub fn routeApprovalEscapeAction(
+   72              app: *App,
+   73              action: input_action.Action,
+   74              focused_edit: ?approval_decision.DraftAction,
+   75          ) !void {
+   76              app.input_runtime.vertical_navigation.reset();
+   77              app.input_runtime.input_limit_rejection = input_limit_rejection.clear();
+   78              const amending = app.approval_prompt.isAmending();
+   79              if (amending) {
+   80                  if (focused_edit) |edit| {
+   81                      _ = try applyDecisionAction(
+   82                          app,
+   83                          .{ .edit_draft = edit },
+   84                          null,
+   85                      );
+   86                      requestActiveSurfaceFrame(app);
+   87                      return;
+   88                  }
+   89              }
+   90              switch (action) {
+   91                  .cursor_left, .word_left => {
+   92                      if (!amending) {
+   93                          _ = try applyDecisionAction(
+   94                              app,
+   95                              .{ .move_choice = .previous },
+   96                              null,
+   97                          );
+   98                          requestActiveSurfaceFrame(app);
+   99                      }
+  100                  },
+  101                  .cursor_right, .word_right => {
+  102                      if (!amending) {
+  103                          _ = try applyDecisionAction(
+  104                              app,
+  105                              .{ .move_choice = .next },
+  106                              null,
+  107                          );
+  108                          requestActiveSurfaceFrame(app);
+  109                      }
+  110                  },
+  111                  .history_up, .cursor_up => {
+  112                      _ = try applyDecisionAction(
+  113                          app,
+  114                          .{ .move_choice = .previous },
+  115                          null,
+  116                      );
+  117                      requestActiveSurfaceFrame(app);
+  118                  },
+  119                  .history_down, .cursor_down => {
+  120                      _ = try applyDecisionAction(
+  121                          app,
+  122                          .{ .move_choice = .next },
+  123                          null,
+  124                      );
+  125                      requestActiveSurfaceFrame(app);
+  126                  },
+  127                  .mouse_wheel => |direction| try handleApprovalWheel(app, direction),
+  128                  else => {},
+  129              }
+  130          }
+  131  
+  132          fn applyDecisionAction(
+  133              app: *App,
+  134              action: approval_decision.Action,
+  135              max_len: ?usize,
+  136          ) !approval_decision.Event {
+  137              const amendment_allowed: ?bool = if (app.approval_prompt.request) |request|
+  138                  request.amendment_allowed
+  139              else
+  140                  null;
+  141              return app.approval_prompt.decision.apply(
+  142                  app.alloc,
+  143                  action,
+  144                  amendment_allowed,
+  145                  max_len,
+  146              );
+  147          }
+
+## src/core/app/input_approval_runtime.zig:179-237
+  179          fn submitPermissionChoice(app: *App, decision: ToolPermissionDecision) !void {
+  180              debug_trace.logf(
+  181                  "permission",
+  182                  "approval response submitted request_id={d} decision={s}",
+  183                  .{ app.approval_prompt.request.?.id, @tagName(decision) },
+  184              );
+  185              if (app.approval_prompt.rule_management != null) {
+  186                  try submitRuleManagementChoice(app, decision);
+  187                  return;
+  188              }
+  189              if (try submitSubagentPermissionChoice(app, decision)) return;
+  190              var affirmative_claimed = false;
+  191              if (decision != .deny and
+  192                  app.approval_prompt.request.?.file != null)
+  193              {
+  194                  admitPendingApprovalResize(app);
+  195                  const approval = app.approval_prompt.projection().?;
+  196                  const ready = if (comptime @hasField(App, "terminal"))
+  197                      approval_screen.fileApprovalAffirmativeReady(
+  198                          &app.shell,
+  199                          approval,
+  200                          &app.approval_screen,
+  201                      )
+  202                  else
+  203                      approval_ui.fileApprovalAffirmativeReady(
+  204                          &app.shell,
+  205                          approval,
+  206                      );
+  207                  if (!ready) {
+  208                      requestActiveSurfaceFrame(app);
+  209                      debug_trace.logf(
+  210                          "permission",
+  211                          "file_approval_confirmation_blocked request_id={d} decision={s}",
+  212                          .{
+  213                              app.approval_prompt.request.?.id,
+  214                              @tagName(decision),
+  215                          },
+  216                      );
+  217                      return;
+  218                  }
+  219                  if (comptime @hasDecl(App, "beforeApprovalAffirmativeClaim")) {
+  220                      app.beforeApprovalAffirmativeClaim();
+  221                  }
+  222                  if (!claimApprovalAffirmative(app)) {
+  223                      debug_trace.logf(
+  224                          "permission",
+  225                          "file_approval_confirmation_blocked request_id={d} decision={s} reason=resize_interlock",
+  226                          .{
+  227                              app.approval_prompt.request.?.id,
+  228                              @tagName(decision),
+  229                          },
+  230                      );
+  231                      return;
+  232                  }
+  233                  affirmative_claimed = true;
+  234              }
+  235              defer if (affirmative_claimed) {
+  236                  releaseApprovalAffirmative(app);
+  237              };
+
+## src/core/app/input_approval_runtime.zig:257-328
+  257          fn submitRuleManagementChoice(
+  258              app: *App,
+  259              decision: ToolPermissionDecision,
+  260          ) !void {
+  261              if (comptime !@hasField(App, "session") or
+  262                  !@hasField(App, "session_persistence") or
+  263                  !@hasDecl(App, "writeDomainNotice"))
+  264              {
+  265                  return error.RuleManagementUnavailable;
+  266              } else {
+  267                  if (decision == .deny) {
+  268                      clearApprovalPromptAfterSubmission(app);
+  269                      try app.writeDomainNotice(.{
+  270                          .topic = "permissions",
+  271                          .tone = .neutral,
+  272                          .body = "saved-session permission change cancelled",
+  273                      }, true);
+  274                      requestActiveSurfaceFrame(app);
+  275                      return;
+  276                  }
+  277                  const managed = app.approval_prompt.rule_management orelse return;
+  278                  var current = try app.session.snapshotPermissionState(app.alloc);
+  279                  defer current.deinit(app.alloc);
+  280                  const result = try session_permission_state.apply(
+  281                      app.alloc,
+  282                      current,
+  283                      managed.event,
+  284                  );
+  285                  switch (result) {
+  286                      .applied => |next_value| {
+  287                          var next = next_value;
+  288                          defer next.deinit(app.alloc);
+  289                          try app_session_runtime.Runtime(App).commitPermissionState(
+  290                              app,
+  291                              next,
+  292                          );
+  293                          app.session.replacePermissionStateOwned(app.alloc, &next);
+  294                          clearApprovalPromptAfterSubmission(app);
+  295                          try app.writeDomainNotice(.{
+  296                              .topic = "permissions",
+  297                              .tone = .neutral,
+  298                              .body = "saved-session permission rule updated",
+  299                          }, true);
+  300                      },
+  301                      .stale => {
+  302                          clearApprovalPrompt(app, "rule_management_stale");
+  303                          try app.writeDomainNotice(.{
+  304                              .topic = "permissions",
+  305                              .tone = .warning,
+  306                              .body = "saved-session permission rule changed before confirmation",
+  307                          }, true);
+  308                      },
+  309                      .full => {
+  310                          clearApprovalPrompt(app, "rule_management_full");
+  311                          try app.writeDomainNotice(.{
+  312                              .topic = "permissions",
+  313                              .tone = .warning,
+  314                              .body = "saved-session permission rule capacity reached",
+  315                          }, true);
+  316                      },
+  317                      .invalid => {
+  318                          clearApprovalPrompt(app, "rule_management_invalid");
+  319                          try app.writeDomainNotice(.{
+  320                              .topic = "permissions",
+  321                              .tone = .@"error",
+  322                              .body = "saved-session permission rule is invalid",
+  323                          }, true);
+  324                      },
+  325                  }
+  326                  requestActiveSurfaceFrame(app);
+  327              }
+  328          }
+
+## src/core/app/input_approval_runtime.zig:401-436
+  401          pub fn cancelApprovalOperation(app: *App) !void {
+  402              if (app_session_runtime.Runtime(App).subagentHost(app)) |host| {
+  403                  if (try host.pendingApprovalRequest(app.alloc)) |loaded| {
+  404                      var pending = loaded;
+  405                      defer pending.deinit(app.alloc);
+  406                      if (app.approval_prompt.request) |request| {
+  407                          if (pending.request.view().id == request.id) {
+  408                              _ = host.resolveApproval(.{
+  409                                  .request_id = pending.request_id,
+  410                                  .child_id = pending.child_id,
+  411                                  .decision = .deny,
+  412                                  .timestamp_ms = io_mod.milliTimestamp(),
+  413                              }) catch {};
+  414                              clearApprovalPrompt(app, "subagent_approval_dismissed");
+  415                              requestActiveSurfaceFrame(app);
+  416                              return;
+  417                          }
+  418                      }
+  419                  }
+  420              }
+  421              const already_cancelled = app.worker.isCancelRequested();
+  422              if (!already_cancelled) {
+  423                  debug_trace.logf("input", "cancel approval operation queued={d}", .{app.worker.queuedPromptCount()});
+  424                  interrupt.traceInterruptRequested(app, "input_approval");
+  425              }
+  426              app.worker.cancelApprovalTurn();
+  427  
+  428              clearApprovalPrompt(app, "cancelled");
+  429              app.input_runtime.input_limit_rejection = input_limit_rejection.clear();
+  430  
+  431              if (!already_cancelled and app.stream.active) {
+  432                  app.pacer.clear(app.alloc);
+  433                  app.stopStream();
+  434              }
+  435              requestActiveSurfaceFrame(app);
+  436          }
+
+## src/core/app/input_interrupt_runtime.zig:6-21
+    6  const CancellationTarget = enum {
+    7      none,
+    8      agent_turn,
+    9      context_compaction,
+   10  };
+   11  
+   12  fn cancellationTarget(
+   13      stream_active: bool,
+   14      compaction_status: worker_runtime.ContextCompactionStatus,
+   15  ) CancellationTarget {
+   16      if (stream_active) return .agent_turn;
+   17      return switch (compaction_status) {
+   18          .idle => .none,
+   19          .queued, .running => .context_compaction,
+   20      };
+   21  }
+
+## src/core/app/input_interrupt_runtime.zig:46-134
+   46  pub fn InterruptRuntime(comptime App: type) type {
+   47      return struct {
+   48          pub fn hasActiveOperation(app: *App) bool {
+   49              if (comptime @hasField(App, "auth")) {
+   50                  if (comptime @hasDecl(@TypeOf(app.auth), "providerPreparationPending")) {
+   51                      if (app.auth.providerPreparationPending()) return true;
+   52                  }
+   53              }
+   54              return activeCancellationTarget(app) != .none;
+   55          }
+   56  
+   57          pub fn dismissCompactionFeedback(app: *App) bool {
+   58              if (comptime !@hasDecl(@TypeOf(app.worker), "compactionActivitySnapshot")) return false;
+   59              const observed = app.worker.compactionActivitySnapshot();
+   60              const op = observed.operation orelse return false;
+   61              if (!op.visible(@import("../shared/io.zig").milliTimestamp())) return false;
+   62              if (!app.worker.dismissCompactionActivity(op.id, observed.revision)) return false;
+   63              app.shell.render_requests.request(.footer);
+   64              return true;
+   65          }
+   66  
+   67          pub fn cancelActiveOperation(app: *App) !void {
+   68              if (comptime @hasField(App, "auth")) {
+   69                  if (comptime @hasDecl(@TypeOf(app.auth), "cancelProviderPreparation")) {
+   70                      if (app.auth.cancelProviderPreparation()) {
+   71                          if (comptime @hasDecl(App, "cancelPendingSubmission")) _ = App.cancelPendingSubmission(app);
+   72                          app.shell.render_requests.request(.footer);
+   73                          return;
+   74                      }
+   75                  }
+   76              }
+   77              if (activeCancellationTarget(app) == .context_compaction) {
+   78                  if (comptime !@hasDecl(
+   79                      @TypeOf(app.worker),
+   80                      "cancelContextCompaction",
+   81                  )) return;
+   82                  const cancelled = app.worker.cancelContextCompaction(
+   83                      std.heap.c_allocator,
+   84                  );
+   85                  if (!cancelled) return;
+   86                  app.pacer.clear(app.alloc);
+   87                  if (comptime @hasDecl(App, "playCancelSound")) app.playCancelSound();
+   88                  app.shell.render_requests.request(.footer);
+   89                  return;
+   90              }
+   91              if (!app.stream.active) return;
+   92              // Pending approval keeps the stream active until resolution.
+   93              // Avoid duplicate cancellation notices once the worker is cancelled.
+   94              if (app.worker.isCancelRequested()) return;
+   95              const compacting = if (comptime @hasDecl(@TypeOf(app.worker), "compactionActivitySnapshot")) blk: {
+   96                  const observed = app.worker.compactionActivitySnapshot();
+   97                  break :blk if (observed.operation) |op| op.active() else false;
+   98              } else false;
+   99              const tool_active = activeToolStatusCount(app) > 0;
+  100              debug_trace.logf("input", "cancel active operation queued={d}", .{app.worker.queuedPromptCount()});
+  101              traceInterruptRequested(app, "input_active_stream");
+  102              if (comptime @hasDecl(@TypeOf(app.worker), "requestInteractiveCancel")) {
+  103                  app.worker.requestInteractiveCancel();
+  104              } else {
+  105                  app.worker.requestCancel();
+  106              }
+  107              app.pacer.clear(app.alloc);
+  108              if (comptime @hasDecl(App, "playCancelSound")) app.playCancelSound();
+  109              if (compacting) {
+  110                  app.shell.render_requests.request(.footer);
+  111                  return;
+  112              }
+  113              if (tool_active) {
+  114                  _ = try shell_runtime.presentActiveToolCancellation(
+  115                      app.alloc,
+  116                      &app.shell,
+  117                  );
+  118              } else {
+  119                  if (comptime @hasField(App, "metrics")) {
+  120                      try shell_runtime.writeTurnCancellation(
+  121                          app.alloc,
+  122                          &app.shell,
+  123                          &app.metrics,
+  124                          true,
+  125                      );
+  126                  }
+  127              }
+  128              if (tool_active) {
+  129                  app.shell.render_requests.request(.footer);
+  130                  return;
+  131              }
+  132              app.stream = .{};
+  133              app.shell.render_requests.request(.footer);
+  134          }
+
+## src/core/app/input_interrupt_runtime.zig:178-187
+  178          fn activeCancellationTarget(app: *App) CancellationTarget {
+  179              const status = if (comptime @hasDecl(
+  180                  @TypeOf(app.worker),
+  181                  "contextCompactionStatus",
+  182              ))
+  183                  app.worker.contextCompactionStatus()
+  184              else
+  185                  worker_runtime.ContextCompactionStatus.idle;
+  186              return cancellationTarget(app.stream.active, status);
+  187          }
+
+## src/core/app/input_submit_runtime.zig:715-729
+  715  
+  716              const expanded = try paste_blocks.expand(app.alloc, app.input_runtime.edit_state.input.items, app.input_runtime.entities.pasted_blocks.items);
+  717              defer if (expanded.owned) app.alloc.free(expanded.text);
+  718  
+  719              const left_trimmed = std.mem.trimStart(u8, expanded.text, " \t\r\n");
+  720              const resolved_slash_submission = resolvedSlashSubmission(app, left_trimmed);
+  721              if (knownSlashCommand(app, resolved_slash_submission)) |command| {
+  722                  if (requiresPromptCredential(command, resolved_slash_submission) and !try preflightPrompt(app)) return;
+  723                  try submitSlashCommand(app, left_trimmed, null, max_prompt_history);
+  724                  return;
+  725              }
+  726              if (shouldRouteUnknownSlashCommand(app, resolved_slash_submission)) {
+  727                  try submitSlashCommand(app, left_trimmed, null, max_prompt_history);
+  728                  return;
+  729              }
+
+## src/core/app/app_commands.zig:598-750
+  598          fn handlePermissionRuleManagement(app: *App, rest: []const u8) !bool {
+  599              if (comptime !@hasField(App, "approval_prompt") or
+  600                  !@hasField(App, "session_persistence") or
+  601                  !@hasDecl(App, "preparePermissionStateAction"))
+  602              {
+  603                  return false;
+  604              } else {
+  605                  const trimmed = std.mem.trim(u8, rest, " \t");
+  606                  const action = splitPermissionWord(trimmed) orelse return false;
+  607                  const remember = std.ascii.eqlIgnoreCase(action.word, "remember");
+  608                  const revoke = std.ascii.eqlIgnoreCase(action.word, "revoke");
+  609                  if (!remember and !revoke) return false;
+  610                  debug_trace.logf("permission", "event=rule_management_begin action={s}", .{action.word});
+  611                  if (app_session_runtime.Runtime(App).activeSessionId(app) == null) {
+  612                      try writePermissionManagementNotice(
+  613                          app,
+  614                          .@"error",
+  615                          "saved-session permission rules require an active saved session",
+  616                      );
+  617                      return true;
+  618                  }
+  619                  debug_trace.logf("permission", "event=rule_management_session_ready", .{});
+  620                  if (app.approval_prompt.isActive()) {
+  621                      try writePermissionManagementNotice(
+  622                          app,
+  623                          .warning,
+  624                          "finish the active permission prompt before managing saved-session rules",
+  625                      );
+  626                      return true;
+  627                  }
+  628  
+  629                  debug_trace.logf("permission", "event=rule_management_snapshot_start", .{});
+  630                  var snapshot = try app.session.snapshotPermissionState(app.alloc);
+  631                  defer snapshot.deinit(app.alloc);
+  632                  debug_trace.logf("permission", "event=rule_management_snapshot_done rules={d}", .{snapshot.rules.items.len});
+  633                  if (remember) {
+  634                      const decision_word = splitPermissionWord(action.rest) orelse {
+  635                          try writePermissionManagementUsage(app);
+  636                          return true;
+  637                      };
+  638                      const decision: session_permission_state.Decision =
+  639                          if (std.ascii.eqlIgnoreCase(decision_word.word, "allow"))
+  640                              .allow
+  641                          else if (std.ascii.eqlIgnoreCase(decision_word.word, "deny"))
+  642                              .deny
+  643                          else {
+  644                              try writePermissionManagementUsage(app);
+  645                              return true;
+  646                          };
+  647                      const tool_word = splitPermissionWord(decision_word.rest) orelse {
+  648                          try writePermissionManagementUsage(app);
+  649                          return true;
+  650                      };
+  651                      if (tool_word.rest.len == 0) {
+  652                          try writePermissionManagementUsage(app);
+  653                          return true;
+  654                      }
+  655                      var arena_state = std.heap.ArenaAllocator.init(app.alloc);
+  656                      defer arena_state.deinit();
+  657                      debug_trace.logf("permission", "event=rule_management_prepare_start tool={s}", .{tool_word.word});
+  658                      const prepared = app.preparePermissionStateAction(
+  659                          arena_state.allocator(),
+  660                          .{
+  661                              .id = "permission-rule-management",
+  662                              .name = tool_word.word,
+  663                              .arguments_json = tool_word.rest,
+  664                          },
+  665                      ) catch {
+  666                          try writePermissionManagementNotice(
+  667                              app,
+  668                              .@"error",
+  669                              "could not prepare that exact permission action without executing it",
+  670                          );
+  671                          return true;
+  672                      };
+  673                      debug_trace.logf("permission", "event=rule_management_prepare_done kind={s}", .{@tagName(prepared.key.kind)});
+  674                      const existing = session_permission_state.ruleForKey(
+  675                          snapshot,
+  676                          prepared.key,
+  677                      );
+  678                      try app.approval_prompt.syncRuleManagement(
+  679                          app.alloc,
+  680                          .{
+  681                              .id = debug_trace.nextStepId(),
+  682                              .label = if (decision == .allow)
+  683                                  "Remember allow for this saved session"
+  684                              else
+  685                                  "Remember deny for this saved session",
+  686                              .explanation = if (existing == null)
+  687                                  "Confirm this exact saved-session permission rule. The action will not run."
+  688                              else
+  689                                  "Confirm replacement of the existing exact saved-session rule. The action will not run.",
+  690                              .command = prepared.display_identity,
+  691                              .amendment_allowed = false,
+  692                              .confirmation_only = true,
+  693                          },
+  694                          .{ .set = .{
+  695                              .key = prepared.key,
+  696                              .display_identity = prepared.display_identity,
+  697                              .decision = decision,
+  698                              .expected_generation = if (existing) |rule|
+  699                                  rule.generation
+  700                              else
+  701                                  null,
+  702                          } },
+  703                      );
+  704                      debug_trace.logf("permission", "event=rule_management_prompt_published", .{});
+  705                      app.shell.render_requests.request(.footer);
+  706                      return true;
+  707                  }
+  708  
+  709                  const id_word = splitPermissionWord(action.rest) orelse {
+  710                      try writePermissionManagementUsage(app);
+  711                      return true;
+  712                  };
+  713                  if (id_word.rest.len != 0) {
+  714                      try writePermissionManagementUsage(app);
+  715                      return true;
+  716                  }
+  717                  const raw_id = std.fmt.parseUnsigned(u64, id_word.word, 10) catch {
+  718                      try writePermissionManagementUsage(app);
+  719                      return true;
+  720                  };
+  721                  const rule = session_permission_state.ruleForId(
+  722                      snapshot,
+  723                      .{ .value = raw_id },
+  724                  ) orelse {
+  725                      try writePermissionManagementNotice(
+  726                          app,
+  727                          .warning,
+  728                          "saved-session permission rule not found",
+  729                      );
+  730                      return true;
+  731                  };
+  732                  try app.approval_prompt.syncRuleManagement(
+  733                      app.alloc,
+  734                      .{
+  735                          .id = debug_trace.nextStepId(),
+  736                          .label = "Revoke saved-session permission rule",
+  737                          .explanation = "Confirm revocation of this stored rule. No current action will be prepared or run.",
+  738                          .command = rule.display_identity,
+  739                          .amendment_allowed = false,
+  740                          .confirmation_only = true,
+  741                      },
+  742                      .{ .revoke = .{
+  743                          .id = rule.id,
+  744                          .expected_generation = rule.generation,
+  745                      } },
+  746                  );
+  747                  app.shell.render_requests.request(.footer);
+  748                  return true;
+  749              }
+  750          }
+
+## src/core/app/app_worker_runtime.zig:680-690
+  680              const management_active = if (comptime @hasField(
+  681                  @TypeOf(app.approval_prompt),
+  682                  "rule_management",
+  683              ))
+  684                  app.approval_prompt.rule_management != null
+  685              else
+  686                  false;
+  687              const approval_changed = if (management_active and pending_request == null)
+  688                  false
+  689              else
+  690                  app.approval_prompt.syncRequest(app.alloc, pending_request) catch false;
+
+## src/core/app/app_worker_runtime.zig:728-760
+  728  
+  729              const modal_active = app.approval_prompt.isActive() or app.question_prompt.isActive();
+  730              const worker_events_pending = if (comptime @hasField(@TypeOf(snapshot), "pending_event_count"))
+  731                  snapshot.pending_event_count > 0
+  732              else
+  733                  false;
+  734              const cancellation_stops_turn = snapshot.cancel_requested and
+  735                  !snapshot.cancel_continues_turn;
+  736              const visible_worker_active = app.stream.active and
+  737                  !cancellation_stops_turn and
+  738                  (snapshot.processing or
+  739                      worker_events_pending or
+  740                      snapshot.queued_count > 0);
+  741              const awaiting_tool_terminal = snapshot.cancel_requested and
+  742                  activeToolStatusCount(presenter) > 0;
+  743              if (!modal_active and
+  744                  !visible_worker_active and
+  745                  !awaiting_tool_terminal and
+  746                  app.stream.active)
+  747              {
+  748                  // The worker can become idle before its final UI events reach
+  749                  // this thread. Keep any open command block until the queued
+  750                  // turn boundary finalizes it instead of discarding output.
+  751                  app.stream = .{};
+  752                  app.shell.render_requests.request(.footer);
+  753              } else if (modal_active and !app.stream.active) {
+  754                  app.stream.active = true;
+  755                  app.stream.turn_started_ms = io_mod.milliTimestamp();
+  756                  app.shell.render_requests.request(.footer);
+  757              }
+  758              // Waiting on an approval or question is not thinking: freeze the
+  759              // elapsed clock for the duration of the wait.
+  760              activity_status.syncWaitingClock(&app.stream, modal_active, io_mod.milliTimestamp());
+
+## src/core/permissions/approval_prompt.zig:50-56
+   50  pub const ApprovalPrompt = struct {
+   51      request: ?permission_request.OwnedPermissionRequest = null,
+   52      decision: approval_decision.State = .{},
+   53      review: ?*const diff_mod.FileReview = null,
+   54      review_request_id: u64 = 0,
+   55      rule_management: ?session_permission_state.OwnedConfirmedRuleEvent = null,
+   56  
+
+## src/core/permissions/approval_prompt.zig:94-146
+   94      pub fn syncRequest(
+   95          self: *ApprovalPrompt,
+   96          alloc: Allocator,
+   97          request: ?permission_request.PermissionRequest,
+   98      ) permission_request.RequestCloneError!bool {
+   99          if (request) |value| {
+  100              if (self.request) |*current| {
+  101                  if (permission_request.PermissionRequest.eql(current.view(), value)) return false;
+  102              }
+  103  
+  104              const owned = try permission_request.OwnedPermissionRequest.dupe(alloc, value);
+  105              self.clearWithReason(
+  106                  alloc,
+  107                  if (self.request != null) "request_replaced" else "request_started",
+  108              );
+  109              self.request = owned;
+  110              self.decision.setConfirmationOnly(value.confirmation_only);
+  111              return true;
+  112          }
+  113  
+  114          if (self.request == null) return false;
+  115          self.clearWithReason(alloc, "request_cleared");
+  116          return true;
+  117      }
+  118  
+  119      pub fn syncRuleManagement(
+  120          self: *ApprovalPrompt,
+  121          alloc: Allocator,
+  122          request: permission_request.PermissionRequest,
+  123          event: session_permission_state.ConfirmedRuleEvent,
+  124      ) !void {
+  125          if (!request.confirmation_only or request.file != null) {
+  126              return error.InvalidRuleManagementRequest;
+  127          }
+  128          const owned_request = try permission_request.OwnedPermissionRequest.dupe(
+  129              alloc,
+  130              request,
+  131          );
+  132          var request_owned = true;
+  133          errdefer if (request_owned) {
+  134              var value = owned_request;
+  135              value.deinit(alloc);
+  136          };
+  137          const owned_event = try session_permission_state.OwnedConfirmedRuleEvent.dupe(
+  138              alloc,
+  139              event,
+  140          );
+  141          self.clearWithReason(alloc, "rule_management_started");
+  142          self.request = owned_request;
+  143          request_owned = false;
+  144          self.rule_management = owned_event;
+  145          self.decision.setConfirmationOnly(true);
+  146      }
+
+## src/core/permissions/approval_decision.zig:53-247
+   53  pub const State = struct {
+   54      choice_index: u8 = 0,
+   55      confirmation_only: bool = false,
+   56      amendment: approval_amendment.State = .{},
+   57  
+   58      pub fn deinit(self: *State, alloc: Allocator) void {
+   59          self.reset(alloc, "deinit");
+   60      }
+   61  
+   62      pub fn reset(self: *State, alloc: Allocator, reason: []const u8) void {
+   63          self.choice_index = 0;
+   64          self.confirmation_only = false;
+   65          self.amendment.discard(alloc, reason);
+   66      }
+   67  
+   68      pub fn resetAfterSubmission(self: *State, alloc: Allocator) void {
+   69          const selected_choice = self.choice_index;
+   70          self.choice_index = 0;
+   71          self.confirmation_only = false;
+   72          self.amendment.discardAfterSubmission(alloc, selected_choice);
+   73      }
+   74  
+   75      fn selectedDecision(self: State) ToolPermissionDecision {
+   76          if (self.confirmation_only) {
+   77              return if (self.choice_index == 0) .once else .deny;
+   78          }
+   79          return permissions.permissionDecisionFromIndex(self.choice_index);
+   80      }
+   81  
+   82      pub fn setConfirmationOnly(self: *State, enabled: bool) void {
+   83          self.confirmation_only = enabled;
+   84          if (enabled and self.choice_index >= 2) self.choice_index = 0;
+   85      }
+   86  
+   87      pub fn isAmending(self: State) bool {
+   88          return self.amendment.isActive();
+   89      }
+   90  
+   91      pub fn canAmend(self: State, amendment_allowed: bool) bool {
+   92          return amendment_allowed and
+   93              (self.choice_index == 0 or self.choice_index == 2);
+   94      }
+   95  
+   96      pub fn amendmentChoice(self: State) ?u8 {
+   97          return self.amendment.activeChoice();
+   98      }
+   99  
+  100      pub fn draftForChoice(self: State, choice: u8) []const u8 {
+  101          return self.amendment.draftForChoice(choice);
+  102      }
+  103  
+  104      pub fn draftCursorForChoice(self: State, choice: u8) usize {
+  105          return self.amendment.cursorForChoice(choice);
+  106      }
+  107  
+  108      pub fn selectedDraft(self: State) []const u8 {
+  109          return self.draftForChoice(self.choice_index);
+  110      }
+  111  
+  112      pub fn materializeResponse(
+  113          self: *const State,
+  114          alloc: Allocator,
+  115          decision: ToolPermissionDecision,
+  116      ) !permission_request.OwnedPermissionResponse {
+  117          const draft = self.selectedDraft();
+  118          const feedback = if (draft.len > 0)
+  119              try alloc.dupe(u8, draft)
+  120          else
+  121              null;
+  122          return permission_request.OwnedPermissionResponse.init(
+  123              alloc,
+  124              decision,
+  125              feedback,
+  126          );
+  127      }
+  128  
+  129      pub fn apply(
+  130          self: *State,
+  131          alloc: Allocator,
+  132          action: Action,
+  133          amendment_allowed: ?bool,
+  134          max_len: ?usize,
+  135      ) !Event {
+  136          return switch (action) {
+  137              .deny => blk: {
+  138                  self.amendment.discard(alloc, "ctrl_c");
+  139                  break :blk .{ .decision = .deny };
+  140              },
+  141              .submit => .{ .decision = self.selectedDecision() },
+  142              .tab => blk: {
+  143                  if (self.isAmending()) break :blk .redraw;
+  144                  const allowed = amendment_allowed orelse break :blk .none;
+  145                  if (self.canAmend(allowed)) {
+  146                      self.amendment.begin(self.choice_index);
+  147                  } else {
+  148                      self.moveChoice(.next);
+  149                  }
+  150                  break :blk .redraw;
+  151              },
+  152              .backspace => blk: {
+  153                  if (!self.isAmending()) break :blk .none;
+  154                  self.amendment.backspace();
+  155                  break :blk .redraw;
+  156              },
+  157              .number => |choice| blk: {
+  158                  if (choice >= self.optionCount()) break :blk .none;
+  159                  if (self.isAmending()) {
+  160                      break :blk try self.insertAscii(alloc, '1' + choice, max_len);
+  161                  }
+  162                  self.choice_index = choice;
+  163                  break :blk .{ .decision = self.selectedDecision() };
+  164              },
+  165              .insert_ascii => |byte| self.insertAscii(alloc, byte, max_len),
+  166              .move_choice => |direction| blk: {
+  167                  self.moveChoice(direction);
+  168                  break :blk .redraw;
+  169              },
+  170              .edit_draft => |edit| blk: {
+  171                  if (!self.isAmending()) break :blk .none;
+  172                  self.applyDraftAction(edit);
+  173                  break :blk .redraw;
+  174              },
+  175          };
+  176      }
+  177  
+  178      pub fn insertAmendmentSlice(
+  179          self: *State,
+  180          alloc: Allocator,
+  181          bytes: []const u8,
+  182          max_len: usize,
+  183      ) !InsertResult {
+  184          if (!self.isAmending()) return .inactive;
+  185          if (bytes.len == 0) return .inserted;
+  186          const choice = self.amendmentChoice().?;
+  187          if (!edit_contract.canInsert(
+  188              self.draftForChoice(choice).len,
+  189              bytes.len,
+  190              max_len,
+  191          )) return .limit_exceeded;
+  192          try self.amendment.insertSlice(alloc, bytes);
+  193          return .inserted;
+  194      }
+  195  
+  196      fn insertAscii(
+  197          self: *State,
+  198          alloc: Allocator,
+  199          byte: u8,
+  200          max_len: ?usize,
+  201      ) !Event {
+  202          if (!self.isAmending() or byte < 0x20 or byte > 0x7E) return .none;
+  203          if (max_len) |limit| {
+  204              return switch (try self.insertAmendmentSlice(alloc, &.{byte}, limit)) {
+  205                  .inserted => .redraw,
+  206                  .inactive => .none,
+  207                  .limit_exceeded => .limit_exceeded,
+  208              };
+  209          }
+  210          try self.amendment.insert(alloc, byte);
+  211          return .redraw;
+  212      }
+  213  
+  214      fn moveChoice(self: *State, direction: Move) void {
+  215          const count = self.optionCount();
+  216          const delta: i32 = switch (direction) {
+  217              .previous => -1,
+  218              .next => 1,
+  219          };
+  220          var next = @as(i32, self.choice_index) + delta;
+  221          if (next < 0) next = @as(i32, count) - 1;
+  222          if (next >= @as(i32, count)) next = 0;
+  223          self.choice_index = @intCast(next);
+  224          self.amendment.clearActive();
+  225      }
+  226  
+  227      fn optionCount(self: State) u8 {
+  228          return if (self.confirmation_only) 2 else option_count;
+  229      }
+  230  
+  231      fn applyDraftAction(self: *State, action: DraftAction) void {
+  232          switch (action) {
+  233              .cursor_left => self.amendment.cursorLeft(),
+  234              .cursor_right => self.amendment.cursorRight(),
+  235              .cursor_home => self.amendment.cursorHome(),
+  236              .cursor_end => self.amendment.cursorEnd(),
+  237              .cursor_word_left => self.amendment.cursorWordLeft(),
+  238              .cursor_word_right => self.amendment.cursorWordRight(),
+  239              .delete_next => self.amendment.deleteNext(),
+  240              .delete_word_left => self.amendment.deleteWordLeft(),
+  241              .delete_whitespace_word_left => self.amendment.deleteWhitespaceDelimitedWordLeft(),
+  242              .delete_word_right => self.amendment.deleteWordRight(),
+  243              .delete_to_line_start => self.amendment.deleteToLineStart(),
+  244              .delete_to_line_end => self.amendment.deleteToLineEnd(),
+  245          }
+  246      }
+  247  };
+
+## src/ui/approval_screen.zig:208-223
+  208  pub fn needsScreen(
+  209      alloc: Allocator,
+  210      request: permission_request.PermissionRequest,
+  211      layout: Layout,
+  212      queued_rows: usize,
+  213  ) !bool {
+  214      if (request.file != null) return true;
+  215      const command = approvalCommand(request) orelse return false;
+  216      return !(try surface_frame.commandApprovalFitsInline(
+  217          alloc,
+  218          request.label,
+  219          command,
+  220          layout,
+  221          queued_rows,
+  222      ));
+  223  }
+
+## src/ui/footer/approval_ui.zig:1688-1748
+ 1688  fn approvalChoiceLabel(approval: ApprovalProjection, choice: u8) []const u8 {
+ 1689      if (approval.request.confirmation_only) return switch (choice) {
+ 1690          0 => "1. Confirm",
+ 1691          1 => "2. Cancel",
+ 1692          else => "",
+ 1693      };
+ 1694      if (approval.amendmentChoice() == choice) return approvalAmendmentLabel(choice);
+ 1695      if (approval.request.tool_arguments_preview != null) {
+ 1696          return switch (choice) {
+ 1697              0 => "1. Allow once",
+ 1698              1 => approvalAlwaysChoice(approval, approval.request.label),
+ 1699              2 => "3. Deny",
+ 1700              else => "",
+ 1701          };
+ 1702      }
+ 1703      return switch (choice) {
+ 1704          0 => interaction_state.approval_once_label,
+ 1705          1 => approvalAlwaysChoice(approval, approval.request.label),
+ 1706          2 => interaction_state.approval_deny_label,
+ 1707          else => "",
+ 1708      };
+ 1709  }
+ 1710  
+ 1711  fn approvalAmendmentLabel(choice: u8) []const u8 {
+ 1712      return switch (choice) {
+ 1713          0 => "1. Yes, and tell fx what to do next",
+ 1714          2 => "3. No, and tell fx what to do differently",
+ 1715          else => "",
+ 1716      };
+ 1717  }
+ 1718  
+ 1719  fn approvalAmendmentPlaceholder(choice: u8) []const u8 {
+ 1720      return switch (choice) {
+ 1721          0 => "and tell fx what to do next",
+ 1722          2 => "and tell fx what to do differently",
+ 1723          else => "",
+ 1724      };
+ 1725  }
+ 1726  
+ 1727  fn approvalChoicePrefix(choice: u8) []const u8 {
+ 1728      return switch (choice) {
+ 1729          0 => "1. Yes, ",
+ 1730          2 => "3. No, ",
+ 1731          else => "",
+ 1732      };
+ 1733  }
+ 1734  
+ 1735  fn approvalHint(approval: ApprovalProjection, width: u16) []const u8 {
+ 1736      if (approval.request.confirmation_only) {
+ 1737          const confirmation_variants = [_][]const u8{
+ 1738              "1–2 choose    enter confirm    esc cancel",
+ 1739              "enter confirm    esc cancel",
+ 1740          };
+ 1741          return display_width.widestFitting(&confirmation_variants, width);
+ 1742      }
+ 1743      const variants: []const []const u8 = if (approval.can_amend_selected_choice())
+ 1744          &interaction_state.approval_amendment_hint_variants
+ 1745      else
+ 1746          &interaction_state.approval_hint_variants;
+ 1747      return display_width.widestFitting(variants, width);
+ 1748  }
+
+## src/ui/footer/approval_ui.zig:1841-1852
+ 1841  fn approvalKind(label: []const u8, dynamic_mcp: bool) []const u8 {
+ 1842      if (std.mem.startsWith(u8, label, "Remember ") or
+ 1843          std.mem.startsWith(u8, label, "Revoke saved-session")) return "Permission rule";
+ 1844      if (dynamic_mcp) return "MCP tool";
+ 1845      if (commandLabelPrefix(label) != null) return "Command";
+ 1846      if (std.mem.startsWith(u8, label, "write_file ")) return "Write file";
+ 1847      if (std.mem.startsWith(u8, label, "edit_file ")) return "Edit file";
+ 1848      if (std.mem.startsWith(u8, label, "task ")) return "Subagent";
+ 1849      if (std.mem.startsWith(u8, label, "skill ")) return "Skill";
+ 1850      return "Tool";
+ 1851  }
+ 1852  

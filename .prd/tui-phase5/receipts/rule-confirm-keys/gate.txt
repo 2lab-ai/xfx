@@ -1,0 +1,12 @@
+# the brief's gate at the code head 071b26e0 under the suite lock, TMPDIR=<tmp>/gate (the receipt untracked in the working tree; docs/parity.md and the ledger edited, uncommitted, outside src/ and tests/)
+fmt: exit 0
+clippy: exit 0
+clippy-fi: exit 0
+test: exit 0
+  15 result lines: 5581 passed, 0 failed, 7 ignored
+test-fi: exit 0
+  15 result lines: 5618 passed, 0 failed, 7 ignored
+identity: exit 0
+stubs: exit 0
+secrets: exit 0
+src/tests unchanged after: 0 dirty paths; HEAD 071b26e0
