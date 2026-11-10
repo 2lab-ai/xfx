@@ -456,6 +456,12 @@ def judge(invocations, plain, problems, exceptions, plain_listed):
     return problems
 
 
+# Every profile and feature set the tree is compiled in, each a pass of its
+# own and their reports one union: code under `cfg(not(debug_assertions))` is
+# seen only by the release pass, code under a feature only with it.
+PASSES = ([], ["--all-features"], ["--release"], ["--release", "--all-features"])
+
+
 def config_problems(root):
     """clippy.toml is the configuration clippy reads, and it disallows every
     reader and every start this script knows of."""
@@ -481,11 +487,11 @@ def check_tree():
     invocations, process_env, plain, problems = [], 0, collections.Counter(), config_problems(ROOT)
     compile_time = collections.Counter()
     seen_invocations = set()
-    for features in ([], ["--features", "fault-injection"]):
-        status, finished, stderr, messages, tests, compiled = clippy(ROOT, ["--locked"] + features)
+    for build in PASSES:
+        status, finished, stderr, messages, tests, compiled = clippy(ROOT, ["--locked"] + build)
         if status != 0 or finished is not True:
             sys.stderr.write(stderr[-4000:])
-            print(f"check-env-reads: clippy {' '.join(features) or '(default features)'} exited {status}")
+            print(f"check-env-reads: clippy {' '.join(build) or '(dev, default features)'} exited {status}")
             return 1
         found, arms, calls, wrong, plain_targets, uses = classify(ROOT, messages, ENV_EXCEPTION_FILE, PROCESS_ENV_FILE)
         compile_time = compile_time | uses
@@ -641,6 +647,10 @@ FIXTURES = {
         'pub const BY: &str = concat!("by ", env!("CARGO_PKG_AUTHORS"));',
         ["compiled with CARGO_PKG_AUTHORS"],
     ),
+    "release_only_read": (
+        "#[cfg(not(debug_assertions))]\n" + 'pub fn f() -> bool { std::env::var_os("HOME").is_some() }',
+        ["std::env::var_os outside"],
+    ),
     "a_start_under_an_env_allow": (
         "pub fn f() -> bool {\n    " + ALLOW + '\n    let started = std::process::Command::new("true").status();\n    started.is_ok()\n}',
         ["std::process::Command::status outside"],
@@ -693,9 +703,15 @@ def self_test():
         for name, (source, _) in FIXTURES.items():
             with open(os.path.join(crate, "tests", name + ".rs"), "w") as fixture:
                 fixture.write(source + "\n")
-        _, _, stderr, messages, _, compiled = clippy(
-            crate, ["--offline", "--keep-going"], {"CARGO_TARGET_DIR": os.path.join(scratch, "target")}
-        )
+        messages, compiled, stderr = [], collections.defaultdict(set), ""
+        for build in ([], ["--release"]):
+            _, _, err, found, _, names = clippy(
+                crate, ["--offline", "--keep-going"] + build, {"CARGO_TARGET_DIR": os.path.join(scratch, "target")}
+            )
+            messages += found
+            stderr += err
+            for source, read in names.items():
+                compiled[source] |= read
         invocations, _, plain, problems, _, _ = classify(crate, messages, macro, None)
         problems += compiled_problems(compiled)
         problems = judge(invocations, plain, problems, [("tests/accepted.rs", ("PATH",))], [])

@@ -88,3 +88,23 @@ are such nestings -- while dep-info records every one.
 test module: refused by both records) and `env_inside_concat`
 (`concat!("by ", env!("CARGO_PKG_AUTHORS"))`: clippy is silent, dep-info
 refuses it). The configuration fixture also holds `disallowed-macros`.
+
+## Part 3: every profile and feature set (gpt6 check MUST 2, opus M2d)
+
+**The hole.** Round 4 ran clippy in the dev profile only, with the default
+features and with `fault-injection` named by hand. A
+`#[cfg(all(test, not(debug_assertions)))]` test that reads `HOME` was never
+seen, though `cargo test --release` runs it; the tree has such code
+(`usage/clock.rs`).
+
+**The fix.** Four passes, their reports one union: dev and `--release`,
+each with the default features and with `--all-features` (which replaces
+the hand-named feature, so a new one is covered too). The check runs on
+every CI row that lints; it includes the release pass, so the release part
+of a split row needs no run of its own (`ci.yml`'s comment says so). Both
+CI steps now run `python3 -I` (NIT). The four passes take 89 s on a warm
+cache here (`time -p`, real).
+
+**Fixture:** `release_only_read` -- a read under
+`#[cfg(not(debug_assertions))]` -- refused; the self-test compiles its
+fixtures in both profiles.
