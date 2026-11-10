@@ -148,7 +148,13 @@ TBD
 
 ## Gate
 
-TBD
+`gates.txt` (`gates.sh`, train 13's, unchanged but for its header), in a
+`git clone --no-local` at `64cfd5a1` -- the code head plus this receipt but
+for the gate's own file and the load check -- inside one hold of the suite
+lock: **22 steps, 0 failed**, the tree clean before and after. `test`: 5685
+passed, 0 failed; `test-fault`: 5722 passed, 0 failed; the three tests and
+the two other users of the harness `ok` in both; smoke-tui 37 scenarios and
+the oracle, 1167 checks, 0 failures.
 
 ## Other wall-clock bounds in the crate
 
