@@ -1,0 +1,50 @@
+## fx against red, cell by cell (cells.py, row 1 left out)
+SAME answered           rows: none
+       fx:  ┃ show me the list
+       red: ┃ show me the list
+SAME draft              rows: none
+       fx:  ┃ one
+       red: ┃ one
+DIFF full               rows: 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 35 
+       fx:  ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+       red: ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+DIFF full-ctrl-pgup     rows: 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 35 36 
+       fx:  ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+       red: ┃ show me the list
+DIFF full-kp-ctrl-pgup  rows: 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 35 36 
+       fx:  ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+       red: ┃ show me the list
+DIFF full-pgup          rows: 3 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 22 23 24 25 26 27 28 29 30 31 32 33 34 35 
+       fx:  ┃ show me the list
+       red: ┃ show me the list
+SAME closed             rows: none
+       fx:  ┃ one
+       red: ┃ one
+DIFF typed              rows: 35 38 
+       fx:  ┃ oneX
+       red: ┃ one
+3 of 8 pairs identical
+
+## each side against itself: rows 2-40 of each snap, sha256
+fx   answered           dae5545e0490
+fx   draft              f28e0e969e18
+fx   full               faeb6baf5d4d
+fx   full-ctrl-pgup     faeb6baf5d4d
+fx   full-kp-ctrl-pgup  faeb6baf5d4d
+fx   full-pgup          8f45e741fb45
+fx   closed             f28e0e969e18
+fx   typed              83d15326bf0b
+red  answered           dae5545e0490
+red  draft              f28e0e969e18
+red  full               4a831f73f7e9
+red  full-ctrl-pgup     970a75798e5b
+red  full-kp-ctrl-pgup  970a75798e5b
+red  full-pgup          970a75798e5b
+red  closed             f28e0e969e18
+red  typed              b9a0fbb67edd
+
+## the composer rows of typed, each side (X is where the caret was)
+fx   ┃ oneX|┃ two|┃ three|┃ four|
+red  ┃ one|┃ two|┃ three|┃ fourX|
+
+banners (full-pgup row 1): fx 𝒇x v0.0.16 · Run /help for commands / red x𝒇x v0.1.0-fab7a21 [debug] · Run /help for commands

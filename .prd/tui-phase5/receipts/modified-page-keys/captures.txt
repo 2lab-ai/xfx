@@ -1,0 +1,14 @@
+# The three capture runs (scripts/fxcap/capture.sh <side> p5-modified-page-keys 40x120), their log lines but the per-snap file list and the gateway's exit; paths written as placeholders.
+
+## fx/  (FX_BIN=<oracle>/fx-v0.0.16/bin/fx)
+roots: <work>=41 <scratch>=36 <scenarios>=89 <bun>=21 <bun:real>=39 <tmp>=23 <home>=16 bytes
+up: a first frame after 0.10 s (2 looks)
+guards: <oracle>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+
+## red/ (XFX_BIN = the base's binary, built at fab7a217 in a clean --no-local clone; sha256 1376a67c5fa2...)
+roots: <work>=41 <scratch>=36 <scenarios>=89 <bun>=21 <bun:real>=39 <tmp>=23 <home>=16 bytes
+up: a first frame after 2.38 s (36 looks)
+
+## xfx/ (XFX_BIN = the code head's binary, built at 0c10d6ee with src/ clean; sha256 2c784c3e9f28...)
+roots: <work>=41 <scratch>=36 <scenarios>=89 <bun>=21 <bun:real>=39 <tmp>=23 <home>=16 bytes
+up: a first frame after 1.63 s (25 looks)
