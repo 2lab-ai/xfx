@@ -1,3 +1,4 @@
+# mutants at 55b88784 (header added in round 8; the revision is the one round7/README.md names)
 KILLED lib-strip-everywhere: lib is stripped from an executable's name too :: exit 1; NOT RESOLVED for ['an executable named lib...'] dep-info by artifact kind
 KILLED any-d-is-evidence: an empty or cut .d counts again :: exit 1; NOT REFUSED for [('tests/plain.rs', 'with every dep-info cut after its first rule: built with no dep-info')] test binaries cargo built
 KILLED uplift-first-match: an uplifted file traced to the first byte-identical candidate :: exit 1; NOT RESOLVED for ['a copy with two byte-identical originals'] dep-info by artifact kind

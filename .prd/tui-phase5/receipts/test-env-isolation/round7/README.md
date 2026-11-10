@@ -9,7 +9,9 @@ tags: [xfx, phase5, tests, security, environment, receipt]
 The round-6 reviews' MUSTs and SHOULDs, in the same design. Every figure
 below is from a file in this folder.
 
-- **Round-6 head:** `9a4d5ef2` (code `3b6cac51`). **Code:** `8fd9d62c`.
+- **Round-6 head:** `9a4d5ef2` (code `3b6cac51`). **Code:** `8fd9d62c`, and
+  `3de3d2dd` (the self-test's two cases for the first mutant run's
+  survivors).
 - **Toolchain:** rustc 1.99.1, clippy 0.1.99, aarch64-apple-darwin.
 - **Linux: not yet run.** The ubuntu CI rows are its first run, and must be
   green before merge.
@@ -132,7 +134,10 @@ compiles the code they hide, which is the hole.
 On the clone at `c405fb7d`, under `../sentinel-run.sh`: `green-lib.txt`,
 the lib suite, 4638 passed, 0 failed, no sentinel value in the output;
 `integration-green.txt`, all 13 integration suites, 0 failed (isolation 4
-and its ignored marking case; the rest as in round 6);
+and its ignored marking case; the rest as in round 6). *(Round 8: the
+instrumented run in `integration-reads.txt` failed three suites -- interactive
+1, isolation 1, tui 8 -- which this paragraph did not say; round 8's README
+names each and its cause.)*
 `integration-reads.txt`, 17,259 reads -- 15,352 by the `xfx` binary the
 suites start, 1,829 in clean copies, 78 in the processes the developer
 started (the constructor's own), **0 of them through `process_env!`**.
