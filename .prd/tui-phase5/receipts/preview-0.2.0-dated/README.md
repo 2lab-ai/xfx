@@ -102,12 +102,33 @@ makes four per binary:
 
 `scripts/fxcap/parity-ledger.toml`'s `banner` normalization says
 `wrapped = true`. `ledger.py` loads it, `rules_for` passes it on, and
-`cells.normalize` joins such lines first. A join needs two or three non-blank
-consecutive rows that together make a whole match, read with the space a word
-wrap removes or with none. Rows that only begin like a banner, rows that make
-more than one, and rows with a blank between them are left alone
-(`test_sweep.py`, `test_a_banner_the_screen_wrapped_is_read_as_the_banner`,
-`test_only_a_whole_banner_is_joined`). The cause `xfx-debug-banner-wrap` is
+`cells.normalize` joins such lines first, given the snap's screen width:
+`sweep.score` passes each side's width at that snap (`capfile.Reading.cols_at`,
+the run's size and every `resize` before the snap). Without a width it joins
+nothing. A join needs two or three non-blank consecutive rows, read with the
+space a word wrap removes or with none, that
+- together are a whole match (`fullmatch`, so the contract is the helper's,
+  not the pattern's anchors),
+- are wider than the screen -- a line that fits is never wrapped -- with no
+  row wider than it,
+- and break where a wrap breaks: at a word wrap the row, a space and the next
+  row's first word are wider than the screen; inside a word, the row is full.
+
+The same banner on two rows of a 120-column screen (a hard line break), rows
+broken where the next word would still have fit, rows that only begin like a
+banner, rows that make more than one and rows with a blank between them are
+left alone (`test_sweep.py`, `test_a_banner_the_screen_wrapped_is_read_as_the_banner`
+at 50, 60 and 32 columns, `test_a_banner_broken_where_the_screen_would_not_wrap_it_stays_broken`,
+`test_only_a_whole_banner_is_joined`). Taking the break rule or `fullmatch` out
+fails a test (`reader-mutants.txt`). Taking out the width bound alone does not,
+because the break rule implies it; it stays written out as the contract. With
+the bounds, every verdict in `narrow-pairs.txt` and `retake-pairs.txt` is the
+same as with round 2's unbounded reader.
+
+A git checkout with no id is refused on purpose (`tests/cli.rs`,
+`built_from_a_checkout`): build.rs must name a checkout's build, and CI and
+every gate build from a checkout with git, so a checkout without an id is a
+broken stamp, not the supported no-git build of `cli-nogit.txt`. The cause `xfx-debug-banner-wrap` is
 retired. With the reader on, no pair attributes to it (`narrow-pairs.txt`;
 the cause appears only in the `no-reader` column), and its own `fix` said to
 read a wrapped banner as the banner. No cause's or divergence's `scenarios`
@@ -123,9 +144,9 @@ was widened.
 | `narrow_pairs.py`, `narrow-pairs.txt` | every pair in the three readings, the counts, the drops |
 | `retake_words.py`, `retake-words.txt` | the remote server's word on each side, each take |
 | `retake-pairs.txt` | takes 1-3 scored base against head: `list-remote` and each take's counts |
-| `retake-pairs.txt` | takes 1-3 scored base against head: `list-remote` and each take's counts |
 | `captures/` | the 24x50 `esc` and 40x60 `list-remote` captures, base and head, both sides |
 | `cli-nogit.txt` | `tests/cli.rs`'s version and status tests in a `git archive` tree with no `XFX_BUILD_ID` (MUST 1) |
+| `reader_mutants.py`, `reader-mutants.txt` | each bound of `join_wrapped` taken out in turn, and which reader test fails |
 
 The sweep outputs themselves (captures, `pairs.json`, `diffs/`) stay on the
 machine that ran them, as every sweep's raw output does. The files here carry

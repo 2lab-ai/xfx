@@ -11,9 +11,11 @@ The ledger has three bins:
                  it, so a padded or right-aligned column stays where it
                  stood; a row equal in any of the three readings is the same.
                  `wrapped = true` reads a line the screen wrapped onto the
-                 rows under it as that line (`cells.join_wrapped`): the rows
-                 that make a whole match are one row, and the rows under
-                 them move up into the place they would hold had it fit
+                 rows under it as that line (`cells.join_wrapped`): rows
+                 that make a whole match wider than the snap's screen, broken
+                 where a wrap breaks, are one row, and the rows under them
+                 move up into the place they would hold had it fit. A line
+                 that fits the screen is never joined
   divergence     an approved difference, allowed only for a reason outside
                  xfx (`.prd/07-fx-parity-program.md`, Measurement: Ledger),
                  one per `class`:

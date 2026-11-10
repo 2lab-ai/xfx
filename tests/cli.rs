@@ -160,6 +160,10 @@ fn manifest_dir() -> PathBuf {
 /// directory, or the file a linked worktree has). build.rs names a build from
 /// git there; a tree with none -- a `git archive`, a source tarball -- builds
 /// a binary with no id, which says its channel alone and is supported.
+///
+/// A git checkout with no id is refused on purpose: build.rs must name a
+/// checkout's build, and CI and every gate build from a checkout with git, so
+/// a checkout without an id is a broken stamp, not the supported no-git build.
 fn built_from_a_checkout() -> bool {
     manifest_dir().join(".git").exists()
 }
@@ -202,8 +206,9 @@ fn version_aliases_print_the_version_line_status_reports() {
             );
         }
         // A build with none -- no git, no `XFX_BUILD_ID` -- says its channel
-        // alone, with no placeholder. A checkout always names its build, so a
-        // missing id there is a broken stamp, not this case.
+        // alone, with no placeholder. A checkout always names its build
+        // (`built_from_a_checkout` says why), so a missing id there is a
+        // broken stamp, not this case.
         None => {
             assert!(
                 !built_from_a_checkout(),

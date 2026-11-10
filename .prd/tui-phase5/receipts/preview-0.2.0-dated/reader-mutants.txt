@@ -1,0 +1,6 @@
+# cd scripts/fxcap && python3 -I -B reader_mutants.py
+none (as committed)      all pass
+no width bound           all pass
+no break rule            test_a_banner_broken_where_the_screen_would_not_wrap_it_stays_broken
+neither                  test_a_banner_broken_where_the_screen_would_not_wrap_it_stays_broken
+search, not fullmatch    test_only_a_whole_banner_is_joined

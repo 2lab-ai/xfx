@@ -34,8 +34,9 @@ A rule is a dict: `pattern` (a compiled regex), `replace` (a string, or None
 to mask), `mask` (the character a masked match is written with) and `attrs`
 (`"keep"`: each written cell takes the attributes of the cell it replaces, the
 match's last cell for any past its end; `"none"`: no attributes, so a banner's
-colours are not compared either). With `wrapped`, `normalize` first joins the
-rows a screen wrapped one such line onto (`join_wrapped`).
+colours are not compared either). With `wrapped`, `normalize` given the
+screen's width first joins the rows a screen that narrow wrapped one such line
+onto (`join_wrapped`); without a width it joins nothing.
 """
 
 import re
@@ -202,21 +203,48 @@ def _take_padding(pairs, after, extra, direction):
         del pairs[found[0] : found[0] + extra]
 
 
-def join_wrapped(all_rows, pattern, most=3):
-    """The rows with every line the screen wrapped onto two or three rows --
-    the rows joined make a whole match of `pattern` and the first alone does
-    not -- read back as one row, and the rows under it moved up into the
+def row_width(cells):
+    """The columns a row's printed cells take, its trimmed blanks aside."""
+    return cells[-1][0] + width(cells[-1][1]) if cells else 0
+
+
+def _wraps_to(part, gap, cols):
+    """Whether a screen `cols` wide, wrapping one line, leaves exactly these
+    rows: no row wider than the screen, and at each break the row could not
+    have held more. A word wrap (`gap` a space) breaks where the next word
+    would not fit: the row, the space and the next row's first word are wider
+    than the screen. A word longer than a row (`gap` empty) breaks inside it,
+    so the row it breaks is full."""
+    if any(row_width(row) > cols for row in part):
+        return False
+    for row, after in zip(part, part[1:]):
+        if gap:
+            word = text_of(after).split(" ", 1)[0]
+            if row_width(row) + 1 + sum(width(ch) for ch in word) <= cols:
+                return False
+        elif row_width(row) != cols:
+            return False
+    return True
+
+
+def join_wrapped(all_rows, pattern, cols, most=3):
+    """The rows with every line a screen `cols` wide wrapped onto two or
+    three rows read back as one row, and the rows under it moved up into the
     places they would hold had the line fit.
 
-    A word wrap takes away the space it breaks on, so the rows are joined with
-    one; a word too long for the row breaks inside it, with nothing taken, so
-    the rows are tried with none too. Only a whole match joins: a row that
-    merely starts like the line, or two rows that make a longer one, are left
-    as they are."""
+    Rows join only when the screen wrapped them: the joined line is wider
+    than the screen, it is a whole match of `pattern` (`fullmatch`) where the
+    first row alone is not, and each break is where the wrap puts one
+    (`_wraps_to`). A word wrap takes away the space it breaks on, so the rows
+    are joined with one; a word too long for the row breaks inside it, with
+    nothing taken, so the rows are tried with none too. A line that fits the
+    screen is never wrapped, so the same text on two rows of a wide screen --
+    a hard line break -- stays two rows, as does a row that merely starts like
+    the line or two rows that make a longer one."""
     out, i = [], 0
     while i < len(all_rows):
         row, joined = all_rows[i], None
-        if row and not pattern.search(text_of(row)):
+        if row and not pattern.fullmatch(text_of(row)):
             for k in range(2, most + 1):
                 part = all_rows[i : i + k]
                 if len(part) < k or not all(part):
@@ -227,8 +255,13 @@ def join_wrapped(all_rows, pattern, most=3):
                         if n and gap:
                             pairs.append((gap, ()))
                         pairs.extend((ch, shown) for _, ch, shown in cells)
-                    if pattern.search("".join(ch for ch, _ in pairs)):
-                        joined = (k, _recount(pairs))
+                    line = _recount(pairs)
+                    if (
+                        row_width(line) > cols
+                        and pattern.fullmatch(text_of(line))
+                        and _wraps_to(part, gap, cols)
+                    ):
+                        joined = (k, line)
                         break
                 if joined:
                     break
@@ -241,10 +274,13 @@ def join_wrapped(all_rows, pattern, most=3):
     return out
 
 
-def normalize(all_rows, rules, absorb=None):
-    for rule in rules:
-        if rule.get("wrapped"):
-            all_rows = join_wrapped(all_rows, rule["pattern"])
+def normalize(all_rows, rules, absorb=None, cols=None):
+    """`normalize_row` over every row; with `cols`, the screen's width, a
+    `wrapped` rule's line wrapped onto several rows is first read as one."""
+    if cols:
+        for rule in rules:
+            if rule.get("wrapped"):
+                all_rows = join_wrapped(all_rows, rule["pattern"], cols)
     return [normalize_row(cells, rules, absorb) for cells in all_rows]
 
 

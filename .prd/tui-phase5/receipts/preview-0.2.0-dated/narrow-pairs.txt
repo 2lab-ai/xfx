@@ -1,4 +1,4 @@
-# python3 -I -B narrow_pairs.py scripts/fxcap <run-dir>/sw-base <run-dir>/sw-head 120 50 60 u50   (tree at 6e683724)
+# python3 -I -B narrow_pairs.py scripts/fxcap <run-dir>/sw-base <run-dir>/sw-head 120 50 60 u50   (tree at the round-3 reader)
 ## group 120, 40x120: base xfx 5357330e9179, head xfx f2fea8a66fe9, fx 8e6cda2efddb
 h1-resize                start                  base: normalized-identical             no-reader: normalized-identical             head: normalized-identical
 h1-resize                small                  base: unresolved (resize-document-repaint) no-reader: unresolved (resize-document-repaint) head: unresolved (resize-document-repaint)
