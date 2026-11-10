@@ -1030,7 +1030,7 @@ fn choose_placement<T: Copy + PartialEq + From<u8>>(
     let mut best = align_best(text, path, offsets, base, base, query, s)
         .map(|(quality, first)| (place(quality + NAME_BONUS, first), base, base));
     // With no placement in the name, a path that does not hold the letters
-    // in order has none anywhere: one scan settles it (`:1802-1804`).
+    // in order has none anywhere: one scan settles it (`file_index.zig:1802-1804`).
     if best.is_none() && query.len() > 1 && !is_subsequence(text, query) {
         return None;
     }
@@ -1065,7 +1065,7 @@ fn is_subsequence<T: PartialEq>(text: &[T], query: &[T]) -> bool {
         .any(|item| wanted.next_if_eq(&item).is_some() && wanted.peek().is_none())
 }
 
-/// A query, case-folded once (`prepareQuery`, `file_index.zig:1197-1204`):
+/// A query, case-folded once (`prepareQuery`, `file_index.zig:1208-1215`):
 /// its scalars; its bytes, when every one is ASCII; and their [`letters`].
 struct Folded {
     chars: Vec<char>,
@@ -1267,7 +1267,7 @@ fn rank_top(entries: &[Candidate], query: &Folded, s: &mut Scratch) -> Vec<(Scor
     };
     let m = query.chars.len() as i32;
     let max_crossing = max_crossing_quality(&query.chars);
-    // `maxNameQuality` (`:1745-1751`): the query as a run from the name's
+    // `maxNameQuality` (`file_index.zig:1745-1751`): the query as a run from the name's
     // first letter, after its `/`.
     let max_name = SCORE_MATCH * m + BONUS_BOUNDARY_DELIMITER * (m + 1) + NAME_BONUS;
     let mut kept: Vec<(Score, usize)> = Vec::with_capacity(MOST_RESULTS);
@@ -3230,7 +3230,7 @@ pub(crate) mod tests {
     }
 
     /// fx's benchmark inventory (`generateInventory`,
-    /// `benchmarks/file_index_bench.zig:84-125@481104fd`): entry `i` a file
+    /// `benchmarks/file_index_bench.zig:82-135@481104fd`): entry `i` a file
     /// when `i` is even and a directory when it is odd, the first four fixed.
     fn fx_inventory(count: usize) -> Vec<Candidate> {
         const SUBSYSTEMS: [&str; 14] = [
@@ -3575,7 +3575,7 @@ pub(crate) mod tests {
     #[test]
     fn a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame() {
         // fx's own gate, over its own inventory and queries
-        // (`benchmarks/file_index_bench.zig:16-31`, `:84-125@481104fd`):
+        // (`benchmarks/file_index_bench.zig:16-31`, `:82-135@481104fd`):
         // 100,000 entries, p95 under 16 ms a search. Here every prefix of
         // each query is timed, as every keystroke looks the query up again
         // ([`Files::lookup`]), and the p95 is held to xfx's frame: the lookup
