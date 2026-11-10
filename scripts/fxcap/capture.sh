@@ -523,41 +523,74 @@ guards() {
 }
 
 # Records the process this script just started in its pane -- at launch and
-# at each `relaunch`, never later -- as its pid and its start time (`ps
-# lstart`, which an exec keeps: the pane runs `sh`, `env`, then the binary in
-# one process), in $pane_rec: what `cleanup` waits for.
+# at each `relaunch`, never later -- in $pane_rec, for `cleanup`: `pid`, the
+# pid and its start time (`ps lstart`, which an exec keeps: the pane runs
+# `sh`, `env`, then the binary in one process); `gone`, already; or
+# `unknown` and why, when a look failed -- which cleanup never reads as gone.
 own_pane() {
-  local sock=$1 pid start=''
-  pid=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_pid}' 2>/dev/null) || pid=''
-  [[ ! $pid =~ ^[0-9]+$ ]] || start=$(start_of "$pid")
-  if [[ -n $start ]]; then printf '%s\n%s\n' "$pid" "$start" > "$pane_rec"; else : > "$pane_rec"; fi
+  local sock=$1 pid start
+  if ! pid=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_pid}' 2>/dev/null) || [[ ! $pid =~ ^[0-9]+$ ]]; then
+    printf 'unknown\nthe pane pid could not be read\n' > "$pane_rec"
+  elif ! kill -0 "$pid" 2>/dev/null; then
+    printf 'gone\n' > "$pane_rec"
+  elif start=$(start_of "$pid") && [[ -n $start ]]; then
+    printf 'pid\n%s\n%s\n' "$pid" "$start" > "$pane_rec"
+  elif ! kill -0 "$pid" 2>/dev/null; then
+    printf 'gone\n' > "$pane_rec"
+  else
+    printf 'unknown\npid %s: its start time could not be read\n' "$pid" > "$pane_rec"
+  fi
 }
 
-# A pid's start time as `ps` prints it, without the padding around it;
-# nothing for a pid that is not running.
+# A pid's start time as `ps` prints it, without the padding around it; a
+# failure when `ps` fails.
 start_of() {
-  local start=''
-  read -r start < <(ps -o lstart= -p "$1" 2>/dev/null) || true
+  local out start=''
+  out=$(ps -o lstart= -p "$1" 2>/dev/null) || return 1
+  read -r start <<< "$out" || true
   printf '%s' "$start"
 }
 
-# After its server is gone: waits, 3 s at most, while the process `own_pane`
-# recorded is still that process (the pid, with the start time recorded).
-# Gone, or the pid now another process's, and it returns 0 at once. Still
-# there at the end, and it says so and returns 1. It signals nothing: tmux's
-# kill-server hung the pane up, and ending that process is tmux's.
+# The recorded process now: `there` (the pid runs with the recorded start
+# time), `gone` (no process of ours has the pid, or its start time is
+# another: the pid was reused), or `unknown` (a look failed). `kill -0` sends
+# no signal; it fails only when no process has the pid or another user's
+# does, and either way ours is gone. A pid and a start second are
+# conservative evidence, not an exact identity: another process started in
+# the same second under the same pid reads as `there`, and is waited for.
+pane_state() {
+  local pid=$1 start=$2 now
+  kill -0 "$pid" 2>/dev/null || { echo gone; return 0; }
+  if ! now=$(start_of "$pid") || [[ -z $now ]]; then echo unknown
+  elif [[ $now == "$start" ]]; then echo there
+  else echo gone; fi
+}
+
+# After its server is gone: waits, 3 s at most, while the recorded process is
+# there or a look cannot tell. Gone, or no pane was ever made, and it returns
+# 0. A record that could not be made, or anything but gone at the end, and it
+# says so and returns 1. The wait sends no signal: tmux's kill-server hung the
+# pane up, and ending that process is tmux's.
 await_pane() {
-  local pid start i
-  [[ -s $pane_rec ]] || return 0
-  { read -r pid; read -r start; } < "$pane_rec"
+  local kind='' a='' b='' i state=unknown
+  [[ -e $pane_rec ]] || return 0
+  { read -r kind; read -r a; read -r b; } < "$pane_rec" || true
+  case $kind in
+    gone) return 0 ;;
+    pid) ;;
+    *)
+      echo "LIVE-WRITER GUARD: the process this run started in its pane could not be recorded (${a:-no record}); this run fails, so the sweep does not run another binary in its directory" >&2
+      return 1 ;;
+  esac
   for (( i = 0; i < 60; i++ )); do
-    if [[ $(start_of "$pid") != "$start" ]]; then
+    state=$(pane_state "$a" "$b")
+    if [[ $state == gone ]]; then
       echo "pane: the process the run started is gone ($i looks)"
       return 0
     fi
     sleep 0.05
   done
-  echo "LIVE-WRITER GUARD: the process this run started in its pane, pid $pid (started $start), is still running 3 s after its tmux server went; this run fails, so the sweep does not run another binary in its directory" >&2
+  echo "LIVE-WRITER GUARD: the process this run started in its pane, pid $a (started $b), is $([[ $state == there ]] && echo still running || echo 'in a state no look could read') 3 s after its tmux server went; this run fails, so the sweep does not run another binary in its directory" >&2
   return 1
 }
 
@@ -1083,6 +1116,8 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
   # with it.
   local hold=()
   [[ -z $keep ]] || hold=(set-option -gw remain-on-exit on ';')
+  # Until own_pane reads it, the pane's process is unknown, never gone.
+  printf 'unknown\nthe pane was being made\n' > "$pane_rec"
   tmux -f /dev/null -S "$sock" start-server \; \
     set-hook -g alert-bell "run-shell 'echo bell >> $run/bells'" \; \
     ${hold[@]+"${hold[@]}"} \

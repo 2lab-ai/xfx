@@ -1296,6 +1296,8 @@ class Sweep(unittest.TestCase):
         self.assertEqual(seen["xfx"][1], "", "xfx ran where fx's writer left its file")
         self.assertNotEqual(seen["fx"][0][0], seen["xfx"][0][0], "the same TMPDIR")
         self.assertEqual(os.path.dirname(seen["fx"][0][0]), os.path.dirname(seen["xfx"][0][0]))
+        # Both TMPDIRs the unit used are gone once the sweep ends.
+        self.assertEqual([p for p in (seen["fx"][0][0], seen["xfx"][0][0]) if os.path.exists(p)], [])
 
     def test_the_out_directory_is_outside_the_repository(self):
         r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, out=os.path.join(REPO, "target", "sweep-out"))
