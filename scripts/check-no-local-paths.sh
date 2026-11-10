@@ -445,6 +445,15 @@ scan_tree() {
 		done
 		[ -z "$hit" ] || printf '%s: (a symlink, whose target is published): %s\n' "$path" "$hit"
 	done <"$work/staged"
+	# A listing that ends inside an entry is one git did not finish.
+	if [ -n "$entry" ]; then
+		printf 'check-no-local-paths: git ls-files ended inside an entry of %s\n' "${entry#*$'\t'}" >&2
+		return 1
+	fi
+	if [ -n "$uncompiled" ]; then
+		printf 'check-no-local-paths: this shell could not compile a pattern of its own (status 2 from [[ =~ ]])\n' >&2
+		return 1
+	fi
 }
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-local-paths.XXXXXX")"
@@ -563,6 +572,10 @@ while IFS= read -r -d '' entry; do
 	S\ * | [[:lower:]]\ *) flagged+=("${entry#??}") ;;
 	esac
 done <"$work/tracked"
+if [ -n "$entry" ]; then
+	fail "git ls-files ended inside an entry of ${entry#??}; this check can only speak about a listing git finished"
+	exit 1
+fi
 if [ "${#flagged[@]}" -ne 0 ]; then
 	fail 'tracked files marked skip-worktree or assume-unchanged, which git grep does not read from the working tree; clear the bit (git update-index --no-skip-worktree --no-assume-unchanged -- <file>, or git sparse-checkout disable):'
 	printf '%s\n' "${flagged[@]}" >&2
@@ -606,6 +619,6 @@ if [ "$failures" -ne 0 ]; then
 	exit 1
 fi
 
-printf 'check-no-local-paths: ok (%d tracked file(s) scanned; %d marked fixture line(s), %d placeholder line(s))\n' \
-	"$tracked_count" "$marked" "$placeheld"
+printf 'check-no-local-paths: ok (%d tracked file(s) scanned; %d marked fixture line(s), %d placeholder line(s); %d symlink(s))\n' \
+	"$tracked_count" "$marked" "$placeheld" "$links"
 finished=1

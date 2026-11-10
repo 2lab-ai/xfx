@@ -35,13 +35,16 @@
 #     (`trace-report.md`, an unmarked line: refused as any authored file's)
 #     and an authored file named into them (`fx-guide-40x120-notes.md`, a
 #     marked line: a capture, which no mark excuses);
-#   - a tracked symlink whose target is a home (git grep does not read one).
+#   - tracked symlinks whose targets are homes, one under a directory and
+#     pointing at one (git grep does not read a symlink).
 # And the check must print the accounting this tree gives (pinned from its
 # plants and the `self` case's counts). When `shapes` fails it says, for
 # each plant not named, what the failing run's own git pass gave of it (the
 # check's trace: line numbers and classes, never text) and what the tree
 # holds after it, and runs the check again on the same tree: per tree or per
-# run.
+# run. It prints versions and config keys by scope, never a path: the
+# `diagnosis` case runs it under a global config whose origin and value are
+# paths.
 # Required to pass: the placeholders captures use, a relative path, the
 # documentation's `<name>` and `<digits>` forms, `$TMPDIR` and `~`, a model
 # path with `claude-<digits>/` inside a name or after a `/`, each
@@ -57,9 +60,11 @@
 # runs. And a `git` that gives a line in which the check's own reading finds
 # no shape and no placeholder: the check refuses that line rather than
 # counting it as one that passed; a line with no number, a stream that ends
-# inside a record, a `git grep` that fails without a word, and a line pass
-# that leaves out a file the count pass has stop the scan (a `git` on PATH in
-# front of the real one makes each happen on demand).
+# inside a record, an index listing cut inside its last entry (the symlink
+# listing and the tracked one), a `git grep` that fails without a word, and a
+# line pass that leaves out a file the count pass has stop the scan (a `git`
+# on PATH in front of the real one makes each happen on demand). And a check
+# stopped by an error of its own (a BASH_ENV function under `set -u`) fails.
 #
 # Its paths are assembled at run time: this file is tracked and scanned.
 
@@ -144,7 +149,7 @@ t="$work/self"
 new_tree "$t"
 track "$t"
 run_check "$t"
-counts='^check-no-local-paths: ok \(([0-9]+) tracked file\(s\) scanned; ([0-9]+) marked fixture line\(s\), ([0-9]+) placeholder line\(s\)\)$'
+counts='^check-no-local-paths: ok \(([0-9]+) tracked file\(s\) scanned; ([0-9]+) marked fixture line\(s\), ([0-9]+) placeholder line\(s\); ([0-9]+) symlink\(s\)\)$'
 self_marked=''
 if [ "$status" -ne 0 ] || ! grep -q -E "$counts" "$work/out"; then
 	problem "self: the check does not pass on a tree holding only itself (exit $status):"
@@ -163,9 +168,23 @@ fi
 # own git pass left out. A second run over the same tree then says whether
 # that happens per tree or per run.
 diagnose_shapes() {
-	local line plant gave class number path indexed bytes probe again=0
-	printf '    | ran: bash %s (%s); %s (%s)\n' "$BASH_VERSION" "$(command -v bash)" "$(git --version)" "$(command -v git)" >&2
-	(cd "$t" && git config --show-origin --get-regexp '^(grep|core\.fsmonitor|index|feature)\.' || true) 2>/dev/null | sed 's/^/    | config: /' >&2
+	local line plant gave class number path indexed listed ls_status bytes probe probe_status scope key value again=0 refused_only=0
+	# Versions only, and only the config keys that change a scan, each with
+	# its scope and a value only when it is a boolean or a number: this log
+	# is public, and a path (a tool's, a config file's, a value's) names a
+	# machine.
+	printf '    | ran: bash %s; %s\n' "$BASH_VERSION" "$(git --version 2>/dev/null || echo 'git: no version')" >&2
+	(cd "$t" && git config --show-scope --get-regexp '^(grep\.|core\.fsmonitor|index\.|feature\.)' 2>/dev/null || true) |
+		while IFS= read -r line; do
+			scope="${line%%$'\t'*}" key="${line#*$'\t'}"
+			value="${key#* }" key="${key%% *}"
+			[ "$value" != "$key" ] || value=""
+			case "$value" in
+			'' | true | false | yes | no | on | off) ;;
+			*[!0-9]*) value='<set>' ;;
+			esac
+			printf '    | config: %s %s %s\n' "$scope" "$key" "$value"
+		done >&2
 	printf '    | expected: %s\n    | actual:   %s\n' "$accounting" "$(grep -E '^check-no-local-paths: git gave ' "$work/out" || echo none)" >&2
 	for line in ${missing[@]+"${missing[@]}"}; do
 		plant="${line%%: *}"
@@ -179,20 +198,36 @@ diagnose_shapes() {
 					gave="${gave:+$gave, }line $number $class"
 				fi
 			done <"$work/trace" || true
+			# Refused in the failing pass and not printed: the scan failed
+			# after it (its own message says why), so this plant says nothing
+			# more.
+			case "$gave" in
+			'' | *marked* | *placeholder*) ;;
+			*)
+				refused_only=$((refused_only + 1))
+				continue
+				;;
+			esac
 		fi
-		indexed="$(scratch_git -C "$t" ls-files -- ":(literal)$plant" 2>&1 | wc -l | tr -d ' ' || true)"
+		ls_status=0
+		listed="$(scratch_git -C "$t" ls-files -- ":(literal)$plant" 2>/dev/null)" || ls_status=$?
+		indexed=0
+		[ -z "$listed" ] || indexed="$(printf '%s\n' "$listed" | wc -l | tr -d ' ')"
 		if [ -L "$t/$plant" ]; then
 			bytes="a symlink"
 		else
 			bytes="$({ wc -c <"$t/$plant"; } 2>/dev/null | tr -d ' ' || true)"
 			bytes="${bytes:+$bytes byte(s)}"
 		fi
+		probe_status=0
 		probe="$(cd "$t" && git -c core.fsmonitor=false -c grep.column=false -c grep.fullName=false -c color.grep=never \
 			-c submodule.recurse=false --work-tree=. grep -a --no-color -c -E -e '/hom[e]/' -e '/User[s]/' \
-			-e 'claud[e]-[0-9]' -e '/var/folder[s]/' -- ":(literal)$plant" 2>&1 | tr '\n' ' ' || true)"
-		printf '    | lost: %s: in the failing pass: %s; after it: in the index %s time(s), %s on disk, a later git grep -c: %s\n' \
-			"$plant" "${gave:-no line of it}" "$indexed" "${bytes:-no file}" "${probe:-no line}" >&2
+			-e 'claud[e]-[0-9]' -e '/var/folder[s]/' -- ":(literal)$plant" 2>/dev/null)" || probe_status=$?
+		printf '    | lost: %s: in the failing pass: %s; after it: in the index %s time(s) (ls-files exit %s), %s on disk, a later git grep -c: %s (exit %s)\n' \
+			"$plant" "${gave:-no line of it}" "$indexed" "$ls_status" "${bytes:-no file}" "$(printf '%s' "${probe:-no line}" | tr '\n' ' ')" "$probe_status" >&2
 	done
+	[ "$refused_only" -eq 0 ] ||
+		printf '    | %s more not named were refused in the failing pass (its trace), before the scan failed\n' "$refused_only" >&2
 	cp "$work/out" "$work/out.first"
 	run_check "$t"
 	for line in ${missing[@]+"${missing[@]}"}; do
@@ -251,6 +286,8 @@ printf 'Workspace: %swork\n' "$linux" >"$t/w3/trace-report.md"
 mkdir -p "$t/docs"
 printf 'cd %swork  # local-path-ok: an example\n' "$linux" >"$t/docs/fx-guide-40x120-notes.md"
 ln -s "${linux}x" "$t/home-link"
+mkdir -p "$t/sub"
+ln -s "$mac" "$t/sub/dir-link"
 track "$t"
 rm -f "$work/trace"
 run_check "$t" "CHECK_NO_LOCAL_PATHS_TRACE=$work/trace"
@@ -285,12 +322,13 @@ want=(
 	"w3/trace-report.md:1: $linux_shape"
 	"docs/fx-guide-40x120-notes.md:1: $linux_shape"
 	"home-link: (a symlink, whose target is published): $linux_shape"
+	"sub/dir-link: (a symlink, whose target is published): $home_shape"
 )
 # What the check's git pass gives for this tree: a line for each plant above
-# but the symlink (git grep does not read one), two of them in the binary
-# files; marked.rs:1, a mark in authored text; and the check's own marked
-# and placeholder lines (`self`).
-lines_planted=$((${#want[@]} - 1))
+# but the two symlinks (git grep does not read one), two of them in the
+# binary files; marked.rs:1, a mark in authored text; and the check's own
+# marked and placeholder lines (`self`).
+lines_planted=$((${#want[@]} - 2))
 accounting="check-no-local-paths: git gave $((lines_planted + 1 + ${self_marked:-0} + ${self_placeheld:-0})) line(s): $((lines_planted - 2)) refused, 2 in 2 binary file(s), $((1 + ${self_marked:-0})) marked, ${self_placeheld:-0} placeholder"
 missing=()
 for line in "${want[@]}"; do
@@ -328,7 +366,7 @@ run_check "$t"
 if [ "$status" -ne 0 ]; then
 	problem "passes: the check exited $status on a tree with no local path:"
 	show
-elif [ -z "$self_marked" ] || ! grep -q -x -F "check-no-local-paths: ok (3 tracked file(s) scanned; $((self_marked + 2)) marked fixture line(s), $((self_placeheld + 2)) placeholder line(s))" "$work/out"; then
+elif [ -z "$self_marked" ] || ! grep -q -x -F "check-no-local-paths: ok (3 tracked file(s) scanned; $((self_marked + 2)) marked fixture line(s), $((self_placeheld + 2)) placeholder line(s); 0 symlink(s))" "$work/out"; then
 	problem "passes: the check passed without counting the two marked lines and the two placeholder lines:"
 	show
 else
@@ -449,6 +487,15 @@ truncated:*' -C . '*' grep '*' -n '*)
 	printf 'clean.md'
 	exit 0
 	;;
+# A listing of the tree's index that loses its last byte, the NUL that ends
+# its last entry: the symlink listing (`-s`) or the tracked one (`-v`).
+cutlinks:*' -C . '*' ls-files -s '* | cuttracked:*' -C . '*' ls-files -v '*)
+	"$SHIM_REAL" "$@" >"$SHIM_TMP/listing"
+	s=$?
+	n="$(wc -c <"$SHIM_TMP/listing")"
+	head -c "$((n - 1))" "$SHIM_TMP/listing"
+	exit "$s"
+	;;
 # The tree's scan fails, saying nothing.
 gitfail:*' -C . '*' grep '*' -n '*)
 	exit 2
@@ -457,7 +504,7 @@ esac
 exec "$SHIM_REAL" "$@"
 SH
 chmod 700 "$shim/git"
-shim_env=("PATH=$shim:$PATH" "SHIM_REAL=$(command -v git)")
+shim_env=("PATH=$shim:$PATH" "SHIM_REAL=$(command -v git)" "SHIM_TMP=$work")
 
 t="$work/disagree"
 new_tree "$t"
@@ -529,6 +576,65 @@ if [ "$status" -ne 1 ] || ! grep -q 'git grep ended inside a record of clean.md'
 	show
 else
 	ok truncated "the scan stops"
+fi
+
+# A symlink to a home, the index's last entry, in a listing cut before its
+# last NUL; and a skip-worktree entry, last, in the tracked listing cut so.
+t="$work/cutlinks"
+new_tree "$t"
+ln -s "${mac}x" "$t/zz-link"
+track "$t"
+run_check "$t" "${shim_env[@]}" SHIM_MODE=cutlinks
+if [ "$status" -ne 1 ] || ! grep -q 'git ls-files ended inside an entry of zz-link' "$work/out" || grep -q '^check-no-local-paths: ok' "$work/out"; then
+	problem "cutlinks: a symlink listing cut inside its last entry did not stop the scan (exit $status):"
+	show
+else
+	ok cutlinks "the scan stops"
+fi
+t="$work/cuttracked"
+new_tree "$t"
+printf '%s\n' "$mac" >"$t/zz-hidden.md"
+track "$t"
+scratch_git -C "$t" update-index --skip-worktree zz-hidden.md
+run_check "$t" "${shim_env[@]}" SHIM_MODE=cuttracked
+if [ "$status" -ne 1 ] || ! grep -q 'git ls-files ended inside an entry of zz-hidden.md' "$work/out" || grep -q '^check-no-local-paths: ok' "$work/out"; then
+	problem "cuttracked: a tracked listing cut inside its last entry did not stop the check (exit $status):"
+	show
+else
+	ok cuttracked "the check stops"
+fi
+
+# The check stopped by an error of its own: a `cmp` from BASH_ENV that reads
+# an unset variable, under the check's `set -u`. Under bash 3.2 that exit
+# goes through the EXIT trap with status 0 unless the trap fails it.
+t="$work/stopped"
+new_tree "$t"
+track "$t"
+printf 'cmp() { : "$%s"; }\n' no_such_var >"$work/stop.env"
+run_check "$t" "BASH_ENV=$work/stop.env"
+if [ "$status" -ne 1 ] || grep -q '^check-no-local-paths: ok' "$work/out"; then
+	problem "stopped: a check stopped by its own error did not fail (exit $status):"
+	show
+else
+	ok stopped "the check fails"
+fi
+
+# The diagnosis under a global config whose origin and value are paths: it
+# names the keys and their scope, and neither path.
+home="$work/diag-home"
+mkdir -p "$home"
+printf '[grep]\n\tthreads = 2\n[core]\n\tfsmonitor = %shook\n[feature]\n\tmanyFiles = false\n' "$mac" >"$home/.gitconfig"
+t="$work/shapes"
+missing=("w3/trace-report.md:1: $linux_shape")
+(HOME="$home" && export HOME && unset XDG_CONFIG_HOME && diagnose_shapes) 2>"$work/diag" || true
+if ! grep -q -x -F '    | config: global grep.threads 2' "$work/diag" ||
+	! grep -q -x -F '    | config: global core.fsmonitor <set>' "$work/diag" ||
+	! grep -q -x -F '    | config: global feature.manyfiles false' "$work/diag" ||
+	grep -q -F -e "$home" -e "$mac" "$work/diag" || grep -q -E '^    \| ran: .*/' "$work/diag"; then
+	problem "diagnosis: it does not name the config keys by scope, or it prints a path:"
+	sed 's/^/    | /' "$work/diag" >&2
+else
+	ok diagnosis "keys by scope, no path"
 fi
 
 if [ "$failed" -ne 0 ]; then
