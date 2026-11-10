@@ -1,0 +1,170 @@
+# head bbdde09c; sides: base f53606d1, history-notices 714f6283, question-resume d0e08d8c, approval-vs a37a969e
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:908]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:196]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:307]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:432]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:123]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:933]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:349]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:70, scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:236, scripts/fxcap/parity-ledger.toml:267, scripts/fxcap/parity-ledger.toml:280, scripts/fxcap/parity-ledger.toml:294, scripts/fxcap/parity-ledger.toml:321, scripts/fxcap/parity-ledger.toml:335, scripts/fxcap/parity-ledger.toml:418]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:61]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:182, scripts/fxcap/parity-ledger.toml:335]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:563, scripts/fxcap/parity-ledger.toml:574]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:796]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:162	[scripts/fxcap/parity-ledger.toml:656]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:897]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:760]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:155, scripts/fxcap/parity-ledger.toml:321]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:732]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:450, scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519, scripts/fxcap/parity-ledger.toml:533]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:139, scripts/fxcap/parity-ledger.toml:363, scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:387, scripts/fxcap/parity-ledger.toml:391, scripts/fxcap/parity-ledger.toml:405, scripts/fxcap/parity-ledger.toml:463, scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:808]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+docs/parity.md:243	[scripts/fxcap/parity-ledger.toml:250]
+    base* = row | history-notices* = row | question-resume* = row | approval-vs* = row
+scripts/check-xfx-identity.sh:5	[docs/parity.md:241]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+scripts/fxcap/capture.sh:326-328	[scripts/fxcap/parity-ledger.toml:85]
+    base* = | history-notices -> 327-329 | question-resume -> 327-329 | approval-vs -> 327-329
+scripts/fxcap/capture.sh:379-385	[scripts/fxcap/parity-ledger.toml:85]
+    base* = | history-notices -> 490-506 | question-resume -> 490-506 | approval-vs -> 490-506
+scripts/fxcap/capture.sh:671	[scripts/fxcap/parity-ledger.toml:78]
+    base* = | history-notices -> 824 | question-resume -> 824 | approval-vs -> 824
+scripts/fxcap/capture.sh:970	[scripts/fxcap/parity-ledger.toml:85]
+    base* = | history-notices -> 1127 | question-resume -> 1127 | approval-vs -> 1127
+scripts/fxcap/capture.sh:977	[scripts/fxcap/parity-ledger.toml:85]
+    base* = | history-notices -> 1135 | question-resume -> 1135 | approval-vs -> 1135
+scripts/fxcap/capture.sh:1147	[scripts/fxcap/parity-ledger.toml:147]
+    base* = | history-notices -> 1313 | question-resume -> 1313 | approval-vs -> 1313
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:53]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+scripts/smoke-tui.sh:10462-10477	[docs/parity.md:162, docs/parity.md:237]
+    base = | history-notices -> 10483-10498 | question-resume* -> 10483-10498 MOVED | approval-vs -> 10483-10498
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:641, scripts/fxcap/parity-ledger.toml:651, docs/parity.md:237]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/gateway/mod.rs:994-995	[docs/parity.md:237]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:760]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:250]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:250]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/mcp/runtime.rs:90	[scripts/fxcap/parity-ledger.toml:1144]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/mcp/transport.rs:1318-1320	[docs/parity.md:221]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:886]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:450]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:886]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:794]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/provider/mod.rs:117	[scripts/fxcap/parity-ledger.toml:782]
+    base* = | history-notices -> 118 | question-resume -> 118 | approval-vs -> 118
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/session/store.rs:74	[docs/parity.md:48]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:931]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:1097, docs/parity.md:176]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:572, docs/parity.md:158]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tools/question.rs:60-76	[docs/parity.md:242]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:572, docs/parity.md:158]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:888]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:943]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:794, scripts/fxcap/parity-ledger.toml:817, scripts/fxcap/parity-ledger.toml:829, scripts/fxcap/parity-ledger.toml:840, scripts/fxcap/parity-ledger.toml:851, scripts/fxcap/parity-ledger.toml:874, scripts/fxcap/parity-ledger.toml:919]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:463]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/approval_view.rs:1224	[scripts/fxcap/parity-ledger.toml:1001]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/frame.rs:2757	[scripts/fxcap/parity-ledger.toml:533]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/full_transcript.rs:495	[scripts/fxcap/parity-ledger.toml:363]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/full_transcript.rs:3010	[scripts/fxcap/parity-ledger.toml:491, scripts/fxcap/parity-ledger.toml:1001]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/full_transcript.rs:3061	[scripts/fxcap/parity-ledger.toml:505, scripts/fxcap/parity-ledger.toml:519]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/gesture.rs:162-164	[scripts/fxcap/parity-ledger.toml:1131]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/gesture.rs:176-188	[scripts/fxcap/parity-ledger.toml:1119, scripts/fxcap/parity-ledger.toml:1131]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/grid.rs:1088	[scripts/fxcap/parity-ledger.toml:978]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/layout.rs:98	[scripts/fxcap/parity-ledger.toml:966, scripts/fxcap/parity-ledger.toml:1014]
+    base* = | history-notices -> 125 | question-resume -> 125 | approval-vs -> 125
+src/tui/mcp_menu.rs:786-791	[scripts/fxcap/parity-ledger.toml:1143]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:432]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:1106]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:931]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/settings.rs:539-551	[docs/parity.md:237]
+    base* = | history-notices = | question-resume = | approval-vs =
+src/tui/shell.rs:189	[scripts/fxcap/parity-ledger.toml:44, scripts/fxcap/parity-ledger.toml:45]
+    base* = | history-notices -> 191 | question-resume -> 191 | approval-vs -> 191
+src/tui/shell.rs:1854	[scripts/fxcap/parity-ledger.toml:955]
+    base* = | history-notices -> 1943 | question-resume -> 1943 | approval-vs -> 1943
+src/tui/shell.rs:4541	[scripts/fxcap/parity-ledger.toml:1066]
+    base* -> 4557 MOVED | history-notices -> 4755 | question-resume -> 4739 | approval-vs -> 4755
+src/tui/shell.rs:10480	[scripts/fxcap/parity-ledger.toml:863, scripts/fxcap/parity-ledger.toml:865]
+    base* -> 10558 MOVED | history-notices -> 10828 | question-resume changed | approval-vs -> 10699
+src/tui/shell.rs:13866	[scripts/fxcap/parity-ledger.toml:505]
+    base* -> 13962 MOVED | history-notices -> 14371 | question-resume -> 14355 | approval-vs -> 14250
+src/tui/shell.rs:16840	[scripts/fxcap/parity-ledger.toml:689, scripts/fxcap/parity-ledger.toml:989]
+    base* -> 16977 MOVED | history-notices -> 17409 | question-resume -> 17393 | approval-vs -> 17288
+src/tui/shell.rs:41113	[scripts/fxcap/parity-ledger.toml:806, scripts/fxcap/parity-ledger.toml:817, scripts/fxcap/parity-ledger.toml:829, scripts/fxcap/parity-ledger.toml:840, scripts/fxcap/parity-ledger.toml:851, scripts/fxcap/parity-ledger.toml:919]
+    base* -> 42431 MOVED | history-notices -> 44499 | question-resume -> 44029 | approval-vs -> 43648
+src/tui/toolgroup.rs:940	[scripts/fxcap/parity-ledger.toml:377, scripts/fxcap/parity-ledger.toml:874]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/toolgroup.rs:1017	[scripts/fxcap/parity-ledger.toml:391]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/toolgroup.rs:1131	[scripts/fxcap/parity-ledger.toml:405]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:349]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/wrap.rs:673-693	[scripts/fxcap/parity-ledger.toml:978]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+src/tui/wrap.rs:726	[scripts/fxcap/parity-ledger.toml:477]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+# 84 references; 6 (side, reference) pairs MOVED; * = the side's own text cites it

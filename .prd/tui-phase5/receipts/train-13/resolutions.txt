@@ -1,0 +1,50 @@
+# Each merge's both-changed files, checked from both ends against its first parent (ours), second (theirs) and merge base 32afd307.
+## e776a6b0: base 32afd307; the files both sides changed: docs/parity.md scripts/fxcap/parity-ledger.toml src/interactive.rs src/provider/mod.rs src/tui/shell.rs src/tui/worker.rs tests/tui.rs 
+## 9acb47a0: base 32afd307; the files both sides changed: docs/parity.md scripts/fxcap/parity-ledger.toml src/tui/bridge.rs src/tui/shell.rs src/tui/worker.rs 
+## bbdde09c: base 32afd307; the files both sides changed: docs/parity.md scripts/fxcap/parity-ledger.toml src/tui/approval.rs src/tui/input.rs src/tui/question.rs src/tui/shell.rs 
+## merge 1, e776a6b0 (HISTORY-NOTICES-COPY-FX): docs/parity.md's three rows in its one block
+docs/parity.md '| `/model` |': base 25120, ours 27185, theirs 25120, merged 27185 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (46 and 0 edits)
+# exit 0
+docs/parity.md '| `/effort` |': base 6008, ours 6179, theirs 6008, merged 6179 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (6 and 0 edits)
+# exit 0
+docs/parity.md '| `/provider` |': base 8710, ours 8710, theirs 6941, merged 6941 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (0 and 7 edits)
+# exit 0
+## merge 1: the files both sides changed that merged clean
+src/interactive.rs: ours -> merged is theirs' hunks: True (4 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (1 hunks, 0 slid by blank lines)
+src/provider/mod.rs: ours -> merged is theirs' hunks: True (1 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (1 hunks, 0 slid by blank lines)
+src/tui/shell.rs: ours -> merged is theirs' hunks: True (2 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (162 hunks, 0 slid by blank lines)
+src/tui/worker.rs: ours -> merged is theirs' hunks: True (25 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (47 hunks, 0 slid by blank lines)
+tests/tui.rs: ours -> merged is theirs' hunks: True (7 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (4 hunks, 0 slid by blank lines)
+scripts/fxcap/parity-ledger.toml: ours -> merged is theirs' hunks: True (1 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (25 hunks, 0 slid by blank lines)
+# exit 0
+## merge 2, 9acb47a0 (QUESTION-RESUME): docs/parity.md's full-screen TUI row, its one block
+docs/parity.md '| full-screen TUI |': base 79783, ours 93857, theirs 80262, merged 94336 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (96 and 8 edits)
+# exit 0
+## merge 2: the files both sides changed that merged clean
+src/tui/bridge.rs: ours -> merged is theirs' hunks: True (1 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (19 hunks, 0 slid by blank lines)
+src/tui/shell.rs: ours -> merged is theirs' hunks: True (2 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (164 hunks, 0 slid by blank lines)
+src/tui/worker.rs: ours -> merged is theirs' hunks: True (3 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (72 hunks, 0 slid by blank lines)
+scripts/fxcap/parity-ledger.toml: ours -> merged is theirs' hunks: True (2 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (26 hunks, 0 slid by blank lines)
+# exit 0
+## merge 3, bbdde09c (APPROVAL-VERTICAL-SPELLINGS and the two under it): docs/parity.md's two rows, two blocks
+docs/parity.md '| `ask_user_question` |': base 5659, ours 9902, theirs 7964, merged 12207 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (51 and 2 edits)
+# exit 0
+docs/parity.md '| full-screen TUI |': base 79783, ours 94336, theirs 88542, merged 103095 chars; ours -> merged is theirs' edits: True; theirs -> merged is ours' edits: True (104 and 5 edits)
+# exit 0
+## merge 3: the ledger with every reference number masked (twelve blocks: eleven numbers, ours'; one ours, the new rule)
+scripts/fxcap/parity-ledger.toml: ours -> merged is theirs' hunks: True (0 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (28 hunks, 0 slid by blank lines)
+# exit 0
+## merge 3: the code files both sides changed (all merged clean)
+src/tui/approval.rs: ours -> merged is theirs' hunks: True (8 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (2 hunks, 0 slid by blank lines)
+src/tui/input.rs: ours -> merged is theirs' hunks: True (39 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (28 hunks, 0 slid by blank lines, read as joined regions)
+src/tui/question.rs: ours -> merged is theirs' hunks: True (7 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: True (3 hunks, 0 slid by blank lines)
+src/tui/shell.rs: ours -> merged is theirs' hunks: True (23 hunks, 0 slid by blank lines, read as joined regions); theirs -> merged is ours' hunks: True (166 hunks, 0 slid by blank lines)
+# exit 0
+## the joined-region allowance's negative control: merge 3's shell.rs with one line of the unit's joined insertion changed ("Apply once, y " -> "Apply twice, y "), in a clone; False expected on that end
+changed line 40550:  1 file changed, 1 insertion(+), 1 deletion(-)
+src/tui/shell.rs: ours -> merged is theirs' hunks: False (23 hunks, 0 slid by blank lines); theirs -> merged is ours' hunks: False (167 hunks, 0 slid by blank lines)
+# exit 1 (1 expected)
+## every resolution redone by this folder's scripts in a clone (reproduce.sh)
+e776a6b0 (714f6283): resolve exit 0; against the merge commit's tree: no difference
+9acb47a0 (d0e08d8c): resolve exit 0; against the merge commit's tree: no difference
+bbdde09c (a37a969e): resolve exit 0; against the merge commit's tree: no difference

@@ -1,0 +1,20 @@
+# jobs.sh mutant at 2026-11-10T02:20:50Z, load 15.91
+# mutant-clone at e1e15efd
+j1-history: src/session/store.rs edited
+j1-history:  1 file changed, 3 insertions(+)
+j1-history: exit 101, 44 s; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4767 filtered out; finished in 0.08s
+    thread 'tui::worker::tests::a_resumed_sealed_step_that_asked_replays_its_batch_and_says_nothing_of_its_reasoning' (462250125) panicked at src/tui/worker.rs:19882:13:
+j1-resume: src/tools/question.rs edited
+j1-resume:  1 file changed, 3 insertions(+)
+j1-resume: exit 101, 10 s; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4767 filtered out; finished in 0.09s
+    thread 'tui::worker::tests::a_resumed_sealed_step_that_asked_replays_its_batch_and_says_nothing_of_its_reasoning' (462260344) panicked at src/tui/worker.rs:19860:9:
+    assertion `left == right` failed: [Asked, Text("DONE")]
+      left: []
+     right: [[SavedAnswer { question: "Which depth?", answer: "Deep" }]]
+j2-word-left: src/tui/question.rs edited
+j2-word-left:  1 file changed, 1 insertion(+), 1 deletion(-)
+j2-word-left: exit 101, 10 s; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4767 filtered out; finished in 0.01s
+    thread 'tui::shell::tests::a_question_after_a_resume_that_replayed_a_batch_takes_alt_b_as_before' (462271013) panicked at src/tui/shell.rs:53087:9:
+# the clone clean after: yes
+# jobs.sh mutant done at 2026-11-10T02:22:04Z
+lock exit 0

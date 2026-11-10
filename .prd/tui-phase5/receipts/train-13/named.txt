@@ -1,0 +1,51 @@
+# named tests at e1e15efd, load 21.86
+## HISTORY-NOTICES-COPY-FX, lib (carry_tests)
+exit 0
+    test session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls ... ok
+    test session::store::carry_tests::a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed ... ok
+    test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4766 filtered out; finished in 0.01s
+## HISTORY-NOTICES-COPY-FX, tests/sessions.rs
+exit 0
+    test responses_state_recorded_under_one_authority_is_never_sent_to_another ... ok
+    test a_wire_this_version_does_not_know_drops_rather_than_guessing ... ok
+    test a_legacy_record_is_dropped_without_a_word_on_any_other_wire ... ok
+    test a_wire_less_responses_state_record_drops_rather_than_replaying_under_active ... ok
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... ok
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 60 filtered out; finished in 1.44s
+## HISTORY-NOTICES-COPY-FX, tests/tui.rs (pty)
+exit 0
+    test after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent ... ok
+    test a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind ... ok
+    test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 1.30s
+## QUESTION-RESUME, lib
+exit 0
+    test tools::question::tests::a_saved_document_of_one_to_twenty_questions_decodes_and_no_other_count_does ... ok
+    test tools::question::tests::a_saved_answer_document_reads_back_in_order_with_its_escapes ... ok
+    test tools::question::tests::a_skipped_value_is_not_checked_as_upstreams_parse_checks_it ... ok
+    test tui::hydration::tests::a_step_that_asked_starts_each_of_its_calls_just_before_its_result ... ok
+    test tui::hydration::tests::an_ask_replays_its_decoded_batch_or_one_asked_row_and_never_a_tool_row ... ok
+    test tools::question::tests::the_twenty_first_element_is_refused_at_its_first_byte_unread ... ok
+    test tools::question::tests::anything_but_an_answer_document_is_none_and_never_a_panic ... ok
+    test tui::shell::tests::a_hostile_answer_document_paints_no_sequence_of_its_own ... ok
+    test tui::shell::tests::a_resumed_step_that_asked_between_two_calls_settles_each_in_a_group_of_its_own ... ok
+    test tui::shell::tests::a_resumed_batch_the_stop_cut_off_is_the_turns_cancellation_line_alone ... ok
+    test tui::shell::tests::a_resumed_step_with_its_ask_last_or_first_keeps_the_reads_beside_it_in_one_group ... ok
+    test tui::shell::tests::a_resumed_answered_batch_of_one_four_or_twenty_replays_its_resolutions ... ok
+    test tui::shell::tests::a_resumed_batch_that_left_no_answered_document_is_one_asked_row ... ok
+    test tui::worker::tests::a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker ... ok
+    test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 4754 filtered out; finished in 0.14s
+## QUESTION-WORD-LEFT and APPROVAL-VERTICAL-SPELLINGS, lib
+exit 0
+    test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+    test tui::input::tests::every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow ... ok
+    test tui::input::tests::alt_b_is_its_own_action_and_the_modified_left_arrows_are_word_left ... ok
+    test tui::question::tests::alt_b_goes_back_a_question_at_a_choice_and_a_word_in_a_draft ... ok
+    test tui::shell::tests::alt_b_in_an_approval_amendment_is_the_word_move ... ok
+    test tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not ... ok
+    test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 4762 filtered out; finished in 0.02s
+## train 13's join tests, lib
+exit 0
+    test tui::shell::tests::a_question_after_a_resume_that_replayed_a_batch_takes_alt_b_as_before ... ok
+    test tui::worker::tests::a_resumed_sealed_step_that_asked_replays_its_batch_and_says_nothing_of_its_reasoning ... ok
+    test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4766 filtered out; finished in 0.08s
+# the clone clean after: yes

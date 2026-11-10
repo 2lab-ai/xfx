@@ -1,0 +1,38 @@
+# train 13's sweep selection: the brief's globs, then the scenarios named by the ledger entries the merges (e776a6b0, 9acb47a0, bbdde09c) touched
+approvals*
+p5-approval*
+question*
+p5-question*
+p5-input-question*
+composer-keys
+question-field
+resume*
+undo-resume
+image*
+p5-lifecycle*
+provider-carry-back*
+# e776a6b0 (a merge): 2 entries
+#   cause P1-carry-notice (removed): provider*
+#   cause at-resize-band-at-the-bottom (changed): p5-input-at-resize
+# 9acb47a0 (a merge): 2 entries
+#   cause question-resume-ctrlo-detail (added): p5-question-resume-ctrlo
+#   cause question-resume-replay (removed): p5-input-question20
+# bbdde09c (a merge): 0 entries
+# e1e15efd (the re-point: listed, not selected): 12 entries
+#   cause activity-tokens-before-request (changed): model-parked
+#   cause amendment-card-after-stop (changed): approvals
+#   cause at-resize-band-at-the-bottom (changed): p5-input-at-resize
+#   cause cancel-page-edge (changed): p5-transcript-cancel
+#   cause full-transcript-shift (changed): fulltranscript*, links, read-failures, resume-tools, timeout
+#   cause resize-document-repaint (changed): p5-ctrlo-wider-inline-fam, h1-resize
+#   cause safe-page-edge (changed): p5-transcript-safe, p5-transcript-safetab
+#   cause session-record (changed): *
+#   cause toolgroup-ctrlo-record-short (changed): p5-toolgroup-ctrlo, p5-toolgroup-ctrlo-tc
+#   cause transcript-page-offset (changed): p5-transcript-anchor, p5-transcript-anchormid, p5-transcript-resize, p5-transcript-records, p5-transcript-question
+#   divergence answer-drawn-wider-named (changed): p5-ctrlo-wider-inline-fam
+#   normalization activity-pulse (changed): names no scenario
+p5-input-at-resize
+# p5-input-question20: in the brief's globs already
+# p5-question-resume-ctrlo: in the brief's globs already
+# provider*: a glob, 7 scenarios at the head
+provider*
