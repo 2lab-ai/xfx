@@ -16,7 +16,7 @@ import subprocess
 import sys
 
 LEDGER = "scripts/fxcap/parity-ledger.toml"
-MOVED = {"src/tui/shell.rs", "src/tui/mcp_args.rs", "src/tui/mod.rs"}
+MOVED = {"src/tui/shell.rs", "src/tui/mcp_args.rs", "src/tui/mod.rs", "src/tui/picker.rs", "src/tui/arg_lists.rs"}
 LINE = re.compile(
     r"^WRONG scripts/fxcap/parity-ledger\.toml:(\d+) (\S*?):(\d+) \((path|bare); "
     r".* -- its text is at :(\d+)$"
