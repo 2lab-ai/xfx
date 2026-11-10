@@ -1,0 +1,155 @@
+# cargo test --locked --lib -- <the filters>, TMPDIR a short scratch directory; the build line's path written as <work>
+# 1. RED run at 67c8d0d1 (the base's code, the sixteen cases added); filters: tui::shell::tests::ctrl_o_over tui::shell::tests::a_menu_that_opens_under tui::shell::tests::c_k_under_the_full_transcript_over tui::shell::tests::c_j_under_the_full_transcript_over tui::shell::tests::the_arrows_and_page_keys_under_the_full_transcript_are_its_own tui::shell::tests::shift_up_and_down_under
+   Compiling xfx v0.1.0 (<work>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.28s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 16 tests
+test tui::shell::tests::ctrl_o_over_the_settings_menu_holds_no_frame ... FAILED
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_slash_menu_is_a_new_line ... FAILED
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_provider_column_moves_no_mark ... FAILED
+test tui::shell::tests::ctrl_o_over_the_fork_menu_holds_no_frame_and_its_keys_stay_its ... FAILED
+test tui::shell::tests::a_menu_that_opens_under_the_full_transcript_takes_the_plane_back ... FAILED
+test tui::shell::tests::ctrl_o_over_the_help_catalog_holds_no_frame_and_its_keys_stay_its ... FAILED
+test tui::shell::tests::ctrl_o_over_the_model_menu_holds_no_frame_and_its_keys_stay_its ... FAILED
+test tui::shell::tests::ctrl_o_over_the_session_picker_holds_no_frame_and_its_keys_stay_its ... FAILED
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_slash_menu_moves_no_mark ... FAILED
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_provider_column_is_a_new_line ... FAILED
+test tui::shell::tests::ctrl_o_over_the_effort_menu_holds_no_frame_and_its_keys_stay_its ... FAILED
+test tui::shell::tests::ctrl_o_over_the_skills_menu_holds_no_frame_and_its_keys_stay_its ... FAILED
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_mcp_arguments_moves_no_mark ... FAILED
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_mcp_arguments_is_a_new_line ... FAILED
+test tui::shell::tests::the_arrows_and_page_keys_under_the_full_transcript_are_its_own ... ok
+test tui::shell::tests::shift_up_and_down_under_the_full_transcript_scroll_nothing_and_move_no_bar ... ok
+
+failures:
+
+---- tui::shell::tests::ctrl_o_over_the_settings_menu_holds_no_frame stdout ----
+
+thread 'tui::shell::tests::ctrl_o_over_the_settings_menu_holds_no_frame' (487917978) panicked at src/tui/shell.rs:37298:9:
+the transcript held
+
+---- tui::shell::tests::c_j_under_the_full_transcript_over_the_slash_menu_is_a_new_line stdout ----
+
+thread 'tui::shell::tests::c_j_under_the_full_transcript_over_the_slash_menu_is_a_new_line' (487917969) panicked at src/tui/shell.rs:37390:9:
+assertion `left == right` failed: C-j did not reach the composer
+  left: "/"
+ right: "/\n"
+
+---- tui::shell::tests::c_k_under_the_full_transcript_over_the_provider_column_moves_no_mark stdout ----
+
+thread 'tui::shell::tests::c_k_under_the_full_transcript_over_the_provider_column_moves_no_mark' (487917971) panicked at src/tui/shell.rs:37426:9:
+assertion `left == right` failed: C-k moved the mark
+  left: Some(Gateway)
+ right: Some(Llmux)
+
+---- tui::shell::tests::ctrl_o_over_the_fork_menu_holds_no_frame_and_its_keys_stay_its stdout ----
+
+thread 'tui::shell::tests::ctrl_o_over_the_fork_menu_holds_no_frame_and_its_keys_stay_its' (487917974) panicked at src/tui/shell.rs:37104:9:
+the transcript held over the menu for a frame
+
+---- tui::shell::tests::a_menu_that_opens_under_the_full_transcript_takes_the_plane_back stdout ----
+
+thread 'tui::shell::tests::a_menu_that_opens_under_the_full_transcript_takes_the_plane_back' (487917966) panicked at src/tui/shell.rs:37314:9:
+the transcript held over /help
+
+---- tui::shell::tests::ctrl_o_over_the_help_catalog_holds_no_frame_and_its_keys_stay_its stdout ----
+
+thread 'tui::shell::tests::ctrl_o_over_the_help_catalog_holds_no_frame_and_its_keys_stay_its' (487917975) panicked at src/tui/shell.rs:37104:9:
+the transcript held over the menu for a frame
+
+---- tui::shell::tests::ctrl_o_over_the_model_menu_holds_no_frame_and_its_keys_stay_its stdout ----
+
+thread 'tui::shell::tests::ctrl_o_over_the_model_menu_holds_no_frame_and_its_keys_stay_its' (487917976) panicked at src/tui/shell.rs:37104:9:
+the transcript held over the menu for a frame
+
+---- tui::shell::tests::ctrl_o_over_the_session_picker_holds_no_frame_and_its_keys_stay_its stdout ----
+
+thread 'tui::shell::tests::ctrl_o_over_the_session_picker_holds_no_frame_and_its_keys_stay_its' (487917977) panicked at src/tui/shell.rs:37104:9:
+the transcript held over the menu for a frame
+
+---- tui::shell::tests::c_k_under_the_full_transcript_over_the_slash_menu_moves_no_mark stdout ----
+
+thread 'tui::shell::tests::c_k_under_the_full_transcript_over_the_slash_menu_moves_no_mark' (487917972) panicked at src/tui/shell.rs:37376:9:
+assertion `left == right` failed: C-k moved the mark
+  left: Some(0)
+ right: Some(1)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::shell::tests::c_j_under_the_full_transcript_over_the_provider_column_is_a_new_line stdout ----
+
+thread 'tui::shell::tests::c_j_under_the_full_transcript_over_the_provider_column_is_a_new_line' (487917968) panicked at src/tui/shell.rs:37444:9:
+assertion `left == right` failed: C-j did not reach the composer
+  left: "/provider "
+ right: "/provider \n"
+
+---- tui::shell::tests::ctrl_o_over_the_effort_menu_holds_no_frame_and_its_keys_stay_its stdout ----
+
+thread 'tui::shell::tests::ctrl_o_over_the_effort_menu_holds_no_frame_and_its_keys_stay_its' (487917973) panicked at src/tui/shell.rs:37104:9:
+the transcript held over the menu for a frame
+
+---- tui::shell::tests::ctrl_o_over_the_skills_menu_holds_no_frame_and_its_keys_stay_its stdout ----
+
+thread 'tui::shell::tests::ctrl_o_over_the_skills_menu_holds_no_frame_and_its_keys_stay_its' (487917979) panicked at src/tui/shell.rs:37104:9:
+the transcript held over the menu for a frame
+
+---- tui::shell::tests::c_k_under_the_full_transcript_over_the_mcp_arguments_moves_no_mark stdout ----
+
+thread 'tui::shell::tests::c_k_under_the_full_transcript_over_the_mcp_arguments_moves_no_mark' (487917970) panicked at src/tui/shell.rs:37493:9:
+assertion `left == right` failed: C-k moved the mark
+  left: Some("/mcp list")
+ right: Some("/mcp show")
+
+---- tui::shell::tests::c_j_under_the_full_transcript_over_the_mcp_arguments_is_a_new_line stdout ----
+
+thread 'tui::shell::tests::c_j_under_the_full_transcript_over_the_mcp_arguments_is_a_new_line' (487917967) panicked at src/tui/shell.rs:37509:9:
+assertion `left == right` failed: C-j did not reach the composer
+  left: "/mcp "
+ right: "/mcp \n"
+
+
+failures:
+    tui::shell::tests::a_menu_that_opens_under_the_full_transcript_takes_the_plane_back
+    tui::shell::tests::c_j_under_the_full_transcript_over_the_mcp_arguments_is_a_new_line
+    tui::shell::tests::c_j_under_the_full_transcript_over_the_provider_column_is_a_new_line
+    tui::shell::tests::c_j_under_the_full_transcript_over_the_slash_menu_is_a_new_line
+    tui::shell::tests::c_k_under_the_full_transcript_over_the_mcp_arguments_moves_no_mark
+    tui::shell::tests::c_k_under_the_full_transcript_over_the_provider_column_moves_no_mark
+    tui::shell::tests::c_k_under_the_full_transcript_over_the_slash_menu_moves_no_mark
+    tui::shell::tests::ctrl_o_over_the_effort_menu_holds_no_frame_and_its_keys_stay_its
+    tui::shell::tests::ctrl_o_over_the_fork_menu_holds_no_frame_and_its_keys_stay_its
+    tui::shell::tests::ctrl_o_over_the_help_catalog_holds_no_frame_and_its_keys_stay_its
+    tui::shell::tests::ctrl_o_over_the_model_menu_holds_no_frame_and_its_keys_stay_its
+    tui::shell::tests::ctrl_o_over_the_session_picker_holds_no_frame_and_its_keys_stay_its
+    tui::shell::tests::ctrl_o_over_the_settings_menu_holds_no_frame
+    tui::shell::tests::ctrl_o_over_the_skills_menu_holds_no_frame_and_its_keys_stay_its
+
+test result: FAILED. 2 passed; 14 failed; 0 ignored; 0 measured; 4634 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--lib`
+
+# 2. RED run at 9545abe4 (bab45335's code, the anchor case added); filter: tui::shell::tests::a_column_hangs_under
+   Compiling xfx v0.1.0 (<work>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.44s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 1 test
+test tui::shell::tests::a_column_hangs_under_its_argument_only_on_the_carets_row ... FAILED
+
+failures:
+
+---- tui::shell::tests::a_column_hangs_under_its_argument_only_on_the_carets_row stdout ----
+
+thread 'tui::shell::tests::a_column_hangs_under_its_argument_only_on_the_carets_row' (488613443) panicked at src/tui/shell.rs:37529:9:
+assertion `left == right` failed: not at the caret's row's start
+  left: 12
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::shell::tests::a_column_hangs_under_its_argument_only_on_the_carets_row
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4650 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--lib`

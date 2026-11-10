@@ -1,0 +1,985 @@
+
+== src/core/app/app_render_runtime.zig:1132-1142@481104fd -- reconcileBeforeFrameRender: what the frame settles first
+ 1132          fn reconcileBeforeFrameRender(app: *App, queued_rows: usize) !RenderReconciliation {
+ 1133              if (comptime !@hasField(App, "terminal")) return .{ .inline_render = .{} };
+ 1134  
+ 1135              if (try app_lifecycle.recoverFullTranscriptDriftBeforeRender(
+ 1136                  app.alloc,
+ 1137                  &app.terminal,
+ 1138                  &app.shell,
+ 1139                  &app.metrics,
+ 1140              )) {
+ 1141                  try requestNormalViewportRecovery(app);
+ 1142              }
+
+== src/core/app/app_render_runtime.zig:1206-1215@481104fd -- while the settings, help, skills, model, session, fork or effort menu is up, the full transcript is closed
+ 1206              if (!question_active and approval == null and (settingsMenuActive(app) or helpMenuActive(app) or skillsMenuActive(app) or modelMenuActive(app) or sessionMenuActive(app) or forkMenuActive(app) or effortMenuActive(app))) {
+ 1207                  if (try app_lifecycle.closeFullTranscriptIfActive(
+ 1208                      app.alloc,
+ 1209                      &app.terminal,
+ 1210                      &app.shell,
+ 1211                      &app.metrics,
+ 1212                  )) {
+ 1213                      try requestNormalViewportRecovery(app);
+ 1214                  }
+ 1215              }
+
+== src/core/app/app_render_runtime.zig:1252-1258@481104fd -- the frame calls it (1254) before it renders anything
+ 1252              const file_picker_receipt = input_completion_runtime.CompletionRuntime(App).filePickerView(app).receipt;
+ 1253              var footer_ctx = main_footer_ctx;
+ 1254              const render_reconciliation = switch (try reconcileBeforeFrameRender(app, render_input.steeringBannerRows(footer_ctx, app.shell.layout.cols))) {
+ 1255                  .inline_render => |inline_render| inline_render,
+ 1256                  .file_approval_screen => return renderApprovalScreen(app),
+ 1257                  .frame_result => |result| return result,
+ 1258              };
+
+== src/core/app/app_render_runtime.zig:2001-2035@481104fd -- the seven tests: skills menuVisible (2002), model (2007), session (2012), fork (2017), help (2022), effort (2027), settings (2032)
+ 2001          fn skillsMenuActive(app: *const App) bool {
+ 2002              if (comptime @hasField(App, "skills")) return app.skills.menuVisible();
+ 2003              return false;
+ 2004          }
+ 2005  
+ 2006          fn modelMenuActive(app: *const App) bool {
+ 2007              if (comptime @hasField(App, "model_cache")) return app.model_cache.menu.active;
+ 2008              return false;
+ 2009          }
+ 2010  
+ 2011          fn sessionMenuActive(app: *const App) bool {
+ 2012              if (comptime @hasField(App, "session_persistence")) return app.session_persistence.session_picker.active;
+ 2013              return false;
+ 2014          }
+ 2015  
+ 2016          fn forkMenuActive(app: *const App) bool {
+ 2017              if (comptime @hasField(App, "session_persistence")) return app.session_persistence.fork_menu.active();
+ 2018              return false;
+ 2019          }
+ 2020  
+ 2021          fn helpMenuActive(app: *const App) bool {
+ 2022              if (comptime @hasField(App, "input_runtime")) return app.input_runtime.help_menu.active;
+ 2023              return false;
+ 2024          }
+ 2025  
+ 2026          fn effortMenuActive(app: *const App) bool {
+ 2027              if (comptime @hasField(App, "input_runtime")) return app.input_runtime.effort_menu.active;
+ 2028              return false;
+ 2029          }
+ 2030  
+ 2031          fn settingsMenuActive(app: *const App) bool {
+ 2032              if (comptime @hasField(App, "input_runtime")) return app.input_runtime.settings_menu.active;
+ 2033              return false;
+ 2034          }
+ 2035  
+
+== src/core/app/app_lifecycle.zig:1277-1286@481104fd -- closeFullTranscriptIfActive
+ 1277  pub fn closeFullTranscriptIfActive(
+ 1278      alloc: Allocator,
+ 1279      terminal: *TerminalState,
+ 1280      shell: *TranscriptRuntime,
+ 1281      metrics: *Metrics,
+ 1282  ) !bool {
+ 1283      if (!fullTranscriptActive(terminal, shell)) return false;
+ 1284      try closeFullTranscript(alloc, terminal, shell, metrics);
+ 1285      return true;
+ 1286  }
+
+== src/core/app/app_lifecycle.zig:1387-1400@481104fd -- closeFullTranscript: the trace line close_full_transcript restore=...
+ 1387  pub fn closeFullTranscript(
+ 1388      alloc: Allocator,
+ 1389      terminal: *TerminalState,
+ 1390      shell: *TranscriptRuntime,
+ 1391      metrics: *Metrics,
+ 1392  ) !void {
+ 1393      const primary_restore = shell.fullTranscriptPrimaryRestore();
+ 1394      debug_trace.logf(
+ 1395          "full_transcript",
+ 1396          "close_full_transcript restore={s}",
+ 1397          .{@tagName(primary_restore)},
+ 1398      );
+ 1399      if (terminal.fullTranscriptScreenActive()) {
+ 1400          try leaveFullTranscriptScreen(terminal, shell, metrics);
+
+== src/ui/input/escape_parser.zig:268-274@481104fd -- Ctrl-O (15) is toggle_full_transcript
+  268  pub fn controlByteFeatureAction(byte: u8) ?InputEscapeAction {
+  269      return switch (byte) {
+  270          15 => .toggle_full_transcript,
+  271          16 => .open_model_catalog,
+  272          else => null,
+  273      };
+  274  }
+
+== src/core/app/app_input_runtime.zig:896-1002@481104fd -- a decoded key: Escape to the transcript first (915-919), the keys it binds (930), Ctrl-O through routeComposerAction (997); the composer shortcut after (999-1002)
+  896          fn routeResolvedEscapeAction(
+  897              app: *App,
+  898              resolved: input_action.Action,
+  899              composer_shortcut: ?input_action.ShortcutAction,
+  900              approval_focused_edit: ?approval_decision.DraftAction,
+  901              question_action: ?question_prompt.Action,
+  902              was_cancel_pending: bool,
+  903              max_input_len: usize,
+  904          ) !ResolvedEscapeRoute {
+  905              switch (resolved) {
+  906                  .remapped_byte, .paste_start, .paste_end, .ignore => {},
+  907                  else => disarmCtrlCExit(app, "semantic_action"),
+  908              }
+  909              // Any other semantic key stands down an armed interrupt.
+  910              switch (resolved) {
+  911                  .remapped_byte, .paste_start, .paste_end, .ignore, .escape => {},
+  912                  else => _ = disarmEscapeInterrupt(app, "semantic_action"),
+  913              }
+  914  
+  915              if (resolved == .escape) {
+  916                  if (try full_transcript_rt.routeAction(app, resolved)) {
+  917                      _ = disarmEscapeInterrupt(app, "full_transcript");
+  918                      return .done;
+  919                  }
+  920                  const now = io_mod.milliTimestamp();
+  921                  expireEscClearArm(app, now);
+  922                  try resolveEscape(app, was_cancel_pending, now);
+  923                  return .done;
+  924              }
+  925  
+  926              if (app_auth_runtime.Runtime(App).routeAuthPickerEscapeAction(app, resolved)) {
+  927                  return .done;
+  928              }
+  929  
+  930              if (try full_transcript_rt.routeAction(app, resolved)) return .done;
+  931  
+  932              if (resolved == .paste_start) {
+  933                  if (comptime runtime_profile.allows(App, .native_auth) and
+  934                      @hasDecl(@TypeOf(app.auth), "signInCodeEntryActive"))
+  935                  {
+  936                      if (app.auth.signInCodeEntryActive()) {
+  937                          paste_rt.beginPaste(app, max_input_len);
+  938                          return .done;
+  939                      }
+  940                  }
+  941                  dismissActiveMenusThenRedraw(app);
+  942                  paste_rt.beginPaste(app, max_input_len);
+  943                  return .done;
+  944              }
+  945  
+  946              if (resolved == .paste_end) {
+  947                  return .done;
+  948              }
+  949  
+  950              switch (resolved) {
+  951                  .remapped_byte => |byte| return .{ .remapped_byte = byte },
+  952                  else => {},
+  953              }
+  954  
+  955              if (app.question_prompt.isActive()) {
+  956                  try question_rt.routeQuestionEscapeAction(
+  957                      app,
+  958                      resolved,
+  959                      question_action,
+  960                  );
+  961                  return .done;
+  962              }
+  963  
+  964              if (app.approval_prompt.isActive()) {
+  965                  try approval_rt.routeApprovalEscapeAction(
+  966                      app,
+  967                      resolved,
+  968                      approval_focused_edit,
+  969                  );
+  970                  return .done;
+  971              }
+  972  
+  973              if (resolved == .mouse_pointer and
+  974                  routePrimaryComposerPointerAction(app, resolved.mouse_pointer))
+  975              {
+  976                  return .done;
+  977              }
+  978  
+  979              if (activeCompactCommandMenu(app)) |menu| {
+  980                  try routeCompactCommandMenuEscapeAction(app, menu, resolved);
+  981                  return .done;
+  982              }
+  983  
+  984              if (settingsMenuActive(app) and
+  985                  (resolved == .cursor_left or resolved == .cursor_right))
+  986              {
+  987                  try changeSettingsMenuSelection(
+  988                      app,
+  989                      if (resolved == .cursor_left) -1 else 1,
+  990                  );
+  991                  return .done;
+  992              }
+  993  
+  994              if (resolved == .cursor_left and try backMcpHostMenuScreen(app)) return .done;
+  995              if (resolved == .cursor_right and try enterMcpHostMenuItem(app)) return .done;
+  996  
+  997              if (try full_transcript_rt.routeComposerAction(app, resolved)) return .done;
+  998  
+  999              if (composer_shortcut) |action| {
+ 1000                  try routeComposerShortcutAction(app, action, max_input_len);
+ 1001                  return .done;
+ 1002              }
+
+== src/core/app/input_full_transcript_runtime.zig:26-197@481104fd -- screenOwnsInput, routeByte, routeAction, routeComposerAction (54-71); transitionScreen opens (95-111) and traces depth_transition (121-126); closeScreen traces close_screen (129-145); keyForByte (147-154); keyForAction (156-178); routeKey (181-197)
+   26          fn requestActiveSurfaceFrame(app: *App) void {
+   27              app_render_runtime.Runtime(App).requestActiveSurfaceFrame(app, .modal);
+   28          }
+   29  
+   30          fn screenOwnsInput(app: *App) bool {
+   31              if (comptime !@hasField(App, "terminal")) return false;
+   32              if (approvalOwnsCurrentSurface(app)) return false;
+   33              return app.terminal.fullTranscriptScreenActive();
+   34          }
+   35  
+   36          fn approvalOwnsCurrentSurface(app: *const App) bool {
+   37              return app.approval_prompt.isActive();
+   38          }
+   39  
+   40          pub fn routeByte(app: *App, byte: u8) !bool {
+   41              const key = keyForByte(byte) orelse return false;
+   42              if (!screenOwnsInput(app)) return false;
+   43              try routeKey(app, key);
+   44              return true;
+   45          }
+   46  
+   47          pub fn routeAction(app: *App, resolved: input_action.Action) !bool {
+   48              const key = keyForAction(resolved) orelse return false;
+   49              if (!screenOwnsInput(app)) return false;
+   50              try routeKey(app, key);
+   51              return true;
+   52          }
+   53  
+   54          pub fn routeComposerAction(app: *App, resolved: input_action.Action) !bool {
+   55              return switch (keyForAction(resolved) orelse return false) {
+   56                  .toggle => {
+   57                      try transitionScreen(app, .toggle);
+   58                      return true;
+   59                  },
+   60                  .close => {
+   61                      if (comptime @hasDecl(
+   62                          @TypeOf(app.shell),
+   63                          "cancelPendingFullTranscriptOpen",
+   64                      )) {
+   65                          if (app.shell.cancelPendingFullTranscriptOpen()) return true;
+   66                      }
+   67                      return false;
+   68                  },
+   69                  else => false,
+   70              };
+   71          }
+   72  
+   73          pub fn cancelPendingOpenForInput(app: *App) bool {
+   74              if (comptime @hasDecl(
+   75                  @TypeOf(app.shell),
+   76                  "cancelPendingFullTranscriptOpen",
+   77              )) {
+   78                  return app.shell.cancelPendingFullTranscriptOpen();
+   79              }
+   80              return false;
+   81          }
+   82  
+   83          fn transitionScreen(
+   84              app: *App,
+   85              event: transcript_presentation.Event,
+   86          ) !void {
+   87              if (comptime !@hasField(App, "terminal")) {
+   88                  _ = try app.transitionFullTranscriptProjection(event);
+   89                  return;
+   90              }
+   91  
+   92              const from = app.shell.transcriptPresentationDepth();
+   93              const to = from.transition(event);
+   94              if (from == to) return;
+   95              if (from == .inline_mode) {
+   96                  std.debug.assert(to == .full);
+   97                  if (app.terminal.alternate_screen_owner != .none) return;
+   98                  if (app.approval_prompt.isActive()) return;
+   99                  if (comptime @hasDecl(
+  100                      @TypeOf(app.shell),
+  101                      "requestFullTranscriptOpen",
+  102                  )) {
+  103                      if (!app.shell.requestFullTranscriptOpen()) return;
+  104                  }
+  105                  try app_lifecycle.openFullTranscript(
+  106                      app.alloc,
+  107                      &app.terminal,
+  108                      &app.shell,
+  109                      &app.metrics,
+  110                  );
+  111                  requestActiveSurfaceFrame(app);
+  112              } else {
+  113                  std.debug.assert(to == .inline_mode);
+  114                  try app_lifecycle.closeFullTranscript(
+  115                      app.alloc,
+  116                      &app.terminal,
+  117                      &app.shell,
+  118                      &app.metrics,
+  119                  );
+  120              }
+  121              logDepthTransition(
+  122                  from,
+  123                  app.shell.transcriptPresentationDepth(),
+  124                  .root,
+  125                  triggerForEvent(event),
+  126              );
+  127          }
+  128  
+  129          fn closeScreen(app: *App, trigger: TransitionTrigger) !void {
+  130              debug_trace.logf(
+  131                  "full_transcript",
+  132                  "close_screen trigger={s}",
+  133                  .{@tagName(trigger)},
+  134              );
+  135              if (comptime !@hasField(App, "terminal")) return;
+  136              const from = app.shell.transcriptPresentationDepth();
+  137              if (!from.active()) return;
+  138              try app_lifecycle.closeFullTranscript(
+  139                  app.alloc,
+  140                  &app.terminal,
+  141                  &app.shell,
+  142                  &app.metrics,
+  143              );
+  144              logDepthTransition(from, .inline_mode, .root, trigger);
+  145          }
+  146  
+  147          fn keyForByte(byte: u8) ?FullTranscriptKey {
+  148              return switch (byte) {
+  149                  3 => .interrupt,
+  150                  12 => .redraw,
+  151                  24 => null,
+  152                  else => null,
+  153              };
+  154          }
+  155  
+  156          fn keyForAction(resolved: input_action.Action) ?FullTranscriptKey {
+  157              return switch (resolved) {
+  158                  .toggle_full_transcript => .toggle,
+  159                  .cursor_left => .{ .navigate = .left },
+  160                  .cursor_right => .{ .navigate = .right },
+  161                  .cursor_up => .{ .wheel_scroll = .up },
+  162                  .cursor_down => .{ .wheel_scroll = .down },
+  163                  .escape => .close,
+  164                  .mouse_wheel => |direction| .{ .wheel_scroll = direction },
+  165                  .page_up => .{ .page_scroll = .up },
+  166                  .page_down => .{ .page_scroll = .down },
+  167                  .composer_shortcut => |shortcut| switch (shortcut) {
+  168                      .redraw => .redraw,
+  169                      else => null,
+  170                  },
+  171                  .remapped_byte => |byte| switch (byte) {
+  172                      3 => .interrupt,
+  173                      12 => .redraw,
+  174                      24 => null,
+  175                      else => null,
+  176                  },
+  177                  else => null,
+  178              };
+  179          }
+  180  
+  181          fn routeKey(app: *App, key: FullTranscriptKey) !void {
+  182              switch (key) {
+  183                  .toggle => try transitionScreen(app, .toggle),
+  184                  .navigate => |event| try transitionScreen(app, event),
+  185                  .close => try closeScreen(app, .escape),
+  186                  .interrupt => try closeScreen(app, .ctrl_c),
+  187                  .redraw => {},
+  188                  .wheel_scroll => |direction| {
+  189                      app.shell.scrollFullTranscript(direction, .wheel);
+  190                      requestActiveSurfaceFrame(app);
+  191                  },
+  192                  .page_scroll => |direction| {
+  193                      app.shell.scrollFullTranscript(direction, .page);
+  194                      requestActiveSurfaceFrame(app);
+  195                  },
+  196              }
+  197          }
+
+== src/core/shared/debug_trace.zig:413-434@481104fd -- FX_TRACE_LOG and FX_TRACE_SCOPES: the trace the help scenario keeps
+  413  fn loadOptionsFromEnv(alloc: Allocator, workspace_root: []const u8) !Options {
+  414      const trace_log = loadOptionalEnv("FX_TRACE_LOG");
+  415      const trace_flag = loadOptionalEnv("FX_TRACE");
+  416      const trace_stderr = loadOptionalEnv("FX_TRACE_STDERR");
+  417      const trace_scopes = loadOptionalEnv("FX_TRACE_SCOPES");
+  418      const stderr_enabled = isTruthy(trace_stderr);
+  419  
+  420      if (trace_log) |raw_path| {
+  421          const resolved = try resolveLogPath(alloc, workspace_root, raw_path);
+  422          return .{ .file_path = resolved, .stderr_enabled = stderr_enabled, .scope_filter = trace_scopes };
+  423      }
+  424  
+  425      if (isTruthy(trace_flag)) {
+  426          return .{
+  427              .file_path = try defaultLogPath(alloc),
+  428              .stderr_enabled = stderr_enabled,
+  429              .scope_filter = trace_scopes,
+  430          };
+  431      }
+  432  
+  433      return .{ .stderr_enabled = stderr_enabled, .scope_filter = trace_scopes };
+  434  }
+
+== src/core/app/app_input_runtime.zig:658-677@481104fd -- flushPendingEscape: a lone Escape goes to resolveEscape
+  658          pub fn flushPendingEscape(app: *App, input_escape_timeout_ms: i64) !void {
+  659              const now = io_mod.milliTimestamp();
+  660              expireTerminalInputGestures(app, now);
+  661              const ingress = app.terminal_input_runtime.flushTerminalAction(
+  662                  now,
+  663                  input_escape_timeout_ms,
+  664                  terminalPasteActive(app),
+  665              );
+  666              if (ingress.event) |event| {
+  667                  switch (event) {
+  668                      .action => |decoded| {
+  669                          std.debug.assert(decoded.action == .escape);
+  670                          disarmCtrlCExit(app, "semantic_action");
+  671                          defer settleModelPickerDraft(app);
+  672                          try resolveEscape(app, decoded.cancel_pending, now);
+  673                      },
+  674                      .paste_byte, .raw => unreachable,
+  675                  }
+  676              }
+  677          }
+
+== src/core/app/app_input_runtime.zig:2687-2688@481104fd -- resolveEscape: the full transcript first
+ 2687          fn resolveEscape(app: *App, was_cancel_pending: bool, now: i64) !void {
+ 2688              if (try full_transcript_rt.routeAction(app, .escape)) return;
+
+== src/core/app/app_input_runtime.zig:2761-2769@481104fd -- then a menu's Escape closes it (2765)
+ 2761              if (app.approval_prompt.isActive()) {
+ 2762                  _ = disarmEscapeClear(app);
+ 2763                  return;
+ 2764              }
+ 2765              if (cancelCompactCommandMenu(app) or (try cancelMcpHostMenu(app)) or cancelSettingsMenu(app) or cancelHelpMenu(app) or cancelModelMenu(app) or cancelSkillsMenu(app) or cancelSessionMenu(app) or cancelForkMenu(app) or cancelEffortMenu(app)) {
+ 2766                  _ = disarmEscapeClear(app);
+ 2767                  app.shell.render_requests.request(.footer);
+ 2768                  return;
+ 2769              }
+
+== src/ui/input/terminal_action_decoder.zig:207-212@481104fd -- appendRaw: a plain byte carries its composer shortcut
+  207  fn appendRaw(ingress: *input_action.TerminalInputIngress, byte: u8) void {
+  208      ingress.setEvent(.{ .raw = .{
+  209          .byte = byte,
+  210          .composer_shortcut = shortcuts.fromControlByte(byte),
+  211      } });
+  212  }
+
+== src/ui/input/shortcuts.zig:11-29@481104fd -- fromControlByte: C-k (11) delete_to_line_end (19), C-j insert_newline (26)
+   11  pub fn fromControlByte(byte: u8) ?ShortcutAction {
+   12      return switch (byte) {
+   13          1 => move(.line_start),
+   14          5 => move(.line_end),
+   15          2 => move(.character_left),
+   16          6 => move(.character_right),
+   17          14 => .history_next,
+   18          4 => .delete_forward,
+   19          11 => .delete_to_line_end,
+   20          21 => .delete_to_line_start,
+   21          23 => .delete_whitespace_word_left,
+   22          25 => .yank,
+   23          31 => .undo,
+   24          12 => .redraw,
+   25          127, 8 => .delete_backward,
+   26          '\n' => .insert_newline,
+   27          else => null,
+   28      };
+   29  }
+
+== src/core/app/app_input_runtime.zig:840-894@481104fd -- a raw byte: the transcript's bytes (872), a modal (873), the picker control bytes (879), then the composer (881-893)
+  840          fn handleRawTerminalInputWithLimits(
+  841              app: *App,
+  842              raw: input_action.RawTerminalInput,
+  843              input_limits: paste_framing.InputLimits,
+  844              max_prompt_history: usize,
+  845          ) !void {
+  846              const byte = raw.byte;
+  847              const max_input_len = input_limits.composer_bytes;
+  848              // Fire the max-level cue only when the slash menu becomes visible.
+  849              const slash_menu_was_visible = slashMenuVisibleForCue(app);
+  850              defer announceSlashMenuOpened(app, slash_menu_was_visible);
+  851              if (try routeActivePasteByte(app, byte)) return;
+  852  
+  853              if (byte != 3 and byte != 0x1b) disarmCtrlCExit(app, "raw_input");
+  854  
+  855              // Non-escape input disarms the pending double-Escape clear.
+  856              if (byte != 0x1b) {
+  857                  if (disarmEscapeClear(app)) {
+  858                      app.shell.render_requests.request(.footer);
+  859                  }
+  860                  _ = disarmEscapeInterrupt(app, "raw_input");
+  861              }
+  862  
+  863              // Ctrl-Z arrives as raw byte 26 (ISIG disabled); kitty remaps here too.
+  864              if (byte == 26) {
+  865                  try app.suspendToJobControl();
+  866                  return;
+  867              }
+  868  
+  869              if (comptime runtime_profile.allows(App, .native_auth)) {
+  870                  if (try app_auth_runtime.Runtime(App).routeAuthPickerByte(app, byte)) return;
+  871              }
+  872              if (try full_transcript_rt.routeByte(app, byte)) return;
+  873              if (try routeActiveModalInput(app, raw, input_limits.decision_bytes)) return;
+  874              if (byte >= 0x80) {
+  875                  try handleTextByte(app, .composer, byte, max_input_len);
+  876                  return;
+  877              }
+  878              if (try routeUpgradeShortcut(app, byte)) return;
+  879              if (try routePickerControlByte(app, byte)) return;
+  880  
+  881              if (isComposerEditingByte(byte, raw.composer_shortcut) and
+  882                  !activeCatalogMenuOwnsByte(app, byte) and
+  883                  dismissActiveMenusForComposerEdit(app))
+  884              {
+  885                  app.shell.render_requests.request(.footer);
+  886              }
+  887              try handleComposerByte(
+  888                  app,
+  889                  byte,
+  890                  raw.composer_shortcut,
+  891                  max_input_len,
+  892                  max_prompt_history,
+  893              );
+  894          }
+
+== src/core/app/app_input_runtime.zig:1093-1116@481104fd -- routePickerControlByte: no picker takes C-j/C-k while the transcript is up (composerPickerSurfaceVisible, 1110-1116)
+ 1093          fn routePickerControlByte(app: *App, byte: u8) !bool {
+ 1094              if (!composerPickerSurfaceVisible(app)) return false;
+ 1095              const delta = pickerControlDelta(byte) orelse return false;
+ 1096              if (!try routeVisiblePickerMove(app, delta)) return false;
+ 1097              app.input_runtime.vertical_navigation.reset();
+ 1098              app.shell.render_requests.request(.footer);
+ 1099              return true;
+ 1100          }
+ 1101  
+ 1102          fn pickerControlDelta(byte: u8) ?i32 {
+ 1103              return switch (byte) {
+ 1104                  10 => 1,
+ 1105                  11 => -1,
+ 1106                  else => null,
+ 1107              };
+ 1108          }
+ 1109  
+ 1110          fn composerPickerSurfaceVisible(app: *App) bool {
+ 1111              if (app.question_prompt.isActive() or approvalOwnsCurrentSurface(app)) return false;
+ 1112              if (comptime @hasField(App, "terminal")) {
+ 1113                  if (app.terminal.fullTranscriptScreenActive()) return false;
+ 1114              }
+ 1115              return true;
+ 1116          }
+
+== src/core/app/app_input_runtime.zig:1593-1619@481104fd -- isComposerEditingByte; activeCatalogMenuOwnsByte
+ 1593          fn isComposerEditingByte(
+ 1594              byte: u8,
+ 1595              composer_shortcut: ?input_action.ShortcutAction,
+ 1596          ) bool {
+ 1597              if (composer_shortcut) |shortcut| {
+ 1598                  return switch (shortcut) {
+ 1599                      .redraw => false,
+ 1600                      else => true,
+ 1601                  };
+ 1602              }
+ 1603              return switch (byte) {
+ 1604                  ' ', 22 => true,
+ 1605                  else => byte >= 32 and byte != 127,
+ 1606              };
+ 1607          }
+ 1608  
+ 1609          fn activeCatalogMenuOwnsByte(app: *App, byte: u8) bool {
+ 1610              if (settingsMenuActive(app)) return true;
+ 1611              // Typing filters its list.
+ 1612              if (mcpHostMenuActive(app)) return true;
+ 1613              if (helpMenuActive(app)) return true;
+ 1614              if (modelMenuActive(app)) return true;
+ 1615              if (sessionMenuActive(app)) return true;
+ 1616              if (comptime !@hasField(App, "skills")) return false;
+ 1617              if (!app.skills.menu.active) return false;
+ 1618              return byte == ' ' or commandSkillsMenuActive(app);
+ 1619          }
+
+== src/core/app/app_input_runtime.zig:1984-1996@481104fd -- dismissActiveMenusForComposerEdit: the fork and effort menus closed by an edit
+ 1984          fn dismissActiveMenusForComposerEdit(app: *App) bool {
+ 1985              // The fork and effort menus read no query from the composer, so
+ 1986              // an edit closes them.
+ 1987              const fork_menu_closed = cancelForkMenu(app);
+ 1988              const effort_menu_closed = cancelEffortMenu(app);
+ 1989              return dismissAuthPickerForComposerEdit(app) or fork_menu_closed or effort_menu_closed;
+ 1990          }
+ 1991  
+ 1992          fn dismissActiveMenusThenRedraw(app: *App) void {
+ 1993              if (dismissActiveMenusForComposerEdit(app)) {
+ 1994                  app.shell.render_requests.request(.footer);
+ 1995              }
+ 1996          }
+
+== src/core/app/app_input_runtime.zig:244-246@481104fd -- routeComposerShortcutAction
+  244          fn routeComposerShortcutAction(app: *App, action: input_action.ShortcutAction, max_input_len: usize) !void {
+  245              switch (action) {
+  246                  .move => |intent| {
+
+== src/core/app/app_input_runtime.zig:479-488@481104fd -- delete_to_line_end: a kill to the line's end
+  479                  .delete_to_line_end => {
+  480                      dismissActiveMenusThenRedraw(app);
+  481                      if (try app.input_runtime.killRingState(&app.pending_images).delete(
+  482                          app.alloc,
+  483                          .line_end,
+  484                      )) {
+  485                          syncCatalogMenus(app);
+  486                          app.shell.render_requests.request(.footer);
+  487                      }
+  488                  },
+
+== src/core/app/app_input_runtime.zig:513-523@481104fd -- insert_newline: a new line (nothing while the /skills, /model or session menu is up, 514)
+  513                  .insert_newline => {
+  514                      if (commandSkillsMenuActive(app) or modelMenuActive(app) or sessionMenuActive(app)) return;
+  515                      dismissActiveMenusThenRedraw(app);
+  516                      switch (try insertComposerSliceBounded(app, "\n", max_input_len, false)) {
+  517                          .inserted => app.shell.render_requests.request(.footer),
+  518                          .inactive => unreachable,
+  519                          .limit_exceeded => try input_limit_feedback.report(App, app, .composer, 1),
+  520                      }
+  521                  },
+  522              }
+  523          }
+
+== src/core/app/app_input_runtime.zig:1290-1354@481104fd -- handleComposerByte: Tab, the same with the screen up or not (1304-1353)
+ 1290          fn handleComposerByte(
+ 1291              app: *App,
+ 1292              byte: u8,
+ 1293              composer_shortcut: ?input_action.ShortcutAction,
+ 1294              max_input_len: usize,
+ 1295              max_prompt_history: usize,
+ 1296          ) !void {
+ 1297              switch (byte) {
+ 1298                  3 => {
+ 1299                      try handleSemanticCtrlC(app);
+ 1300                  },
+ 1301                  4 => {
+ 1302                      try handleSemanticCtrlD(app, max_input_len);
+ 1303                  },
+ 1304                  '\t' => {
+ 1305                      if (cycleHelpMenuCategory(app, 1) or cycleSettingsMenuCategory(app, 1)) {
+ 1306                          app.shell.render_requests.request(.footer);
+ 1307                      } else if (moveAuthPickerIfActive(app, 1)) {
+ 1308                          app.shell.render_requests.request(.footer);
+ 1309                      } else if (try toggleSessionPickerScopeIfActive(app)) {
+ 1310                          app.shell.render_requests.request(.footer);
+ 1311                      } else if (cycleModelMenuProvider(app, 1) or cycleSkillsMenuSource(app, 1)) {
+ 1312                          app.shell.render_requests.request(.footer);
+ 1313                      } else if (picker_state.isBareModelCommandAtCursor(&app.input_runtime.edit_state)) {
+ 1314                          try completion_rt.openCurrentModelPicker(app);
+ 1315                      } else if (picker_state.isBareEffortCommandAtCursor(&app.input_runtime.edit_state)) {
+ 1316                          try completion_rt.openCurrentEffortPicker(app);
+ 1317                      } else if (completion_rt.hasFileQuery(app)) {
+ 1318                          if ((try completion_rt.autocompleteFilePickerSelection(app, max_input_len)) == .limit_exceeded) {
+ 1319                              try input_limit_feedback.report(App, app, .composer, 1);
+ 1320                          }
+ 1321                          app.shell.render_requests.request(.footer);
+ 1322                      } else if (!commandSkillsMenuActive(app) and provider_picker_rt.hasQuery(app)) {
+ 1323                          if (!app.stream.active) try provider_picker_rt.autocomplete(app);
+ 1324                      } else if (!commandSkillsMenuActive(app) and completion_rt.hasModelQuery(app)) {
+ 1325                          try completion_rt.autocompleteModelPickerSelection(app);
+ 1326                      } else if (completion_rt.visibleInlineCompletion(app) != null) {
+ 1327                          if ((try completion_rt.autocompleteInlineCompletion(app, max_input_len)) == .limit_exceeded) {
+ 1328                              try input_limit_feedback.report(App, app, .composer, 1);
+ 1329                          }
+ 1330                          app.shell.render_requests.request(.footer);
+ 1331                      } else if (!(app.stream.active and app.input_runtime.picker.isModelShapedInput(&app.input_runtime.edit_state))) {
+ 1332                          const count = completion_rt.visibleSlashCompletionCount(app);
+ 1333                          if (count > 0) {
+ 1334                              const items = app.input_runtime.edit_state.input.items;
+ 1335                              const prefix = command_specs.slashCompletionPrefix(
+ 1336                                  app.slashRegistry(),
+ 1337                                  items,
+ 1338                              ) orelse return;
+ 1339                              const idx = app.input_runtime.picker.slash_completion_index % count;
+ 1340                              if (try bindSelectedSlashSkill(app, idx)) {
+ 1341                                  app.shell.render_requests.request(.footer);
+ 1342                              } else if (command_specs.nthSlashCompletion(app.slashRegistry(), prefix, idx)) |completion| {
+ 1343                                  if (command_specs.slashCompletionHasArgs(app.slashRegistry(), completion)) {
+ 1344                                      var buf: [128]u8 = undefined;
+ 1345                                      const with_space = std.mem.print(&buf, "{s} ", .{completion}) catch completion;
+ 1346                                      try app.input_runtime.textReplacementState().replace(app.alloc, with_space);
+ 1347                                  } else {
+ 1348                                      try app.input_runtime.textReplacementState().replace(app.alloc, completion);
+ 1349                                  }
+ 1350                                  app.shell.render_requests.request(.footer);
+ 1351                              }
+ 1352                          }
+ 1353                      }
+ 1354                  },
+
+== src/core/app/app_input_runtime.zig:1392-1446@481104fd -- Enter (1392-1441), the same with the screen up or not; a byte with a composer shortcut (1442-1446)
+ 1392                  '\r' => {
+ 1393                      if (try submitEffortMenuSelection(app)) return;
+ 1394                      if (try submitSettingsMenuSelection(app)) return;
+ 1395                      if (try submitHelpMenuSelection(app, max_input_len, max_prompt_history)) return;
+ 1396                      if (try submitMcpHostMenu(app)) return;
+ 1397                      if (try submitAuthPickerSelection(app)) return;
+ 1398                      if (try submitModelMenuSelection(app)) return;
+ 1399                      if (try submitSkillsMenuSelection(app, max_input_len)) return;
+ 1400                      if (try submitSlashPickerSelection(app)) return;
+ 1401                      if (comptime runtime_profile.allows(App, .durable_sessions)) {
+ 1402                          if (try submitSessionPickerSelection(app)) return;
+ 1403                          if (try submitForkMenuSelection(app, max_input_len)) return;
+ 1404                      }
+ 1405                      if (try completion_rt.submitFilePickerOnEnter(app, max_input_len)) |result| {
+ 1406                          if (result == .limit_exceeded) {
+ 1407                              try input_limit_feedback.report(App, app, .composer, 1);
+ 1408                          }
+ 1409                          app.shell.render_requests.request(.footer);
+ 1410                          return;
+ 1411                      }
+ 1412                      if (picker_state.isBareModelCommandAtCursor(&app.input_runtime.edit_state)) {
+ 1413                          try openModelBrowseCatalog(app);
+ 1414                          return;
+ 1415                      }
+ 1416                      if (provider_picker_rt.hasQuery(app)) {
+ 1417                          if (try app_auth_runtime.Runtime(App).reject_provider_picker_if_busy(app)) return;
+ 1418                          if (try provider_picker_rt.submit(app)) return;
+ 1419                      }
+ 1420                      if (completion_rt.hasModelQuery(app)) {
+ 1421                          if (try completion_rt.submitModelPicker(app)) return;
+ 1422                      }
+ 1423                      if (try submitExplicitModelSelection(
+ 1424                          app,
+ 1425                          resolveExplicitModelSelection(app, app.input_runtime.edit_state.input.items),
+ 1426                      )) return;
+ 1427                      // A Ctrl+P flow's borrowed composer holds only a picker
+ 1428                      // query. Submitting it as a prompt or command would act
+ 1429                      // on the stashed draft's pending images.
+ 1430                      if (app.input_runtime.model_picker_draft != null) {
+ 1431                          debug_trace.logf("input", "submit skipped reason=model_picker_borrows_composer", .{});
+ 1432                          app.shell.render_requests.request(.footer);
+ 1433                          return;
+ 1434                      }
+ 1435                      if (app.input_runtime.lineContinuationState().replaceBackslashBeforeCursorWithNewline(app.alloc)) {
+ 1436                          app.shell.render_requests.request(.footer);
+ 1437                          return;
+ 1438                      }
+ 1439                      debug_trace.logf("input", "submit requested stream_active={s} queued={d} input_bytes={d}", .{ if (app.stream.active) "true" else "false", app.worker.queuedPromptCount(), app.input_runtime.edit_state.input.items.len });
+ 1440                      try submit_rt.submit(app, max_prompt_history);
+ 1441                  },
+ 1442                  else => {
+ 1443                      if (composer_shortcut) |action| {
+ 1444                          try routeComposerShortcutAction(app, action, max_input_len);
+ 1445                          return;
+ 1446                      }
+
+== src/core/app/app_input_runtime.zig:1713-1744@481104fd -- the menus' tests on the input side
+ 1713          fn commandSkillsMenuActive(app: *App) bool {
+ 1714              if (comptime !@hasField(App, "skills")) return false;
+ 1715              return app.skills.menu.active and !app.skills.menu.origin.isMention();
+ 1716          }
+ 1717  
+ 1718          fn skillsMenuActive(app: *App) bool {
+ 1719              if (comptime !@hasField(App, "skills")) return false;
+ 1720              return app.skills.menuVisible();
+ 1721          }
+ 1722  
+ 1723          fn modelMenuActive(app: *App) bool {
+ 1724              if (comptime !@hasField(App, "model_cache")) return false;
+ 1725              return app.model_cache.menu.active;
+ 1726          }
+ 1727  
+ 1728          fn sessionMenuActive(app: *App) bool {
+ 1729              if (comptime !@hasField(App, "session_persistence")) return false;
+ 1730              return app.session_persistence.session_picker.active;
+ 1731          }
+ 1732  
+ 1733          fn forkMenuActive(app: *App) bool {
+ 1734              if (comptime !@hasField(App, "session_persistence")) return false;
+ 1735              return app.session_persistence.fork_menu.active();
+ 1736          }
+ 1737  
+ 1738          fn helpMenuActive(app: *App) bool {
+ 1739              return app.input_runtime.help_menu.active;
+ 1740          }
+ 1741  
+ 1742          fn settingsMenuActive(app: *App) bool {
+ 1743              return app.input_runtime.settings_menu.active;
+ 1744          }
+
+== src/core/app/app_mcp_runtime.zig:459-485@481104fd -- /mcp 's argument completions: the slash completion's verb_completions (459-468), refreshCompletion
+  459      const verb_completions = [_]mod_registry.ArgumentCompletion{
+  460          .{ .full = "/mcp list", .description = "configured servers" },
+  461          .{ .full = "/mcp show", .description = "connect to a server and list its tools" },
+  462          .{ .full = "/mcp add", .description = "add a server" },
+  463          .{ .full = "/mcp remove", .description = "remove a server and its login" },
+  464          .{ .full = "/mcp login", .description = "sign in to an HTTP server" },
+  465          .{ .full = "/mcp logout", .description = "sign out of an HTTP server" },
+  466          .{ .full = "/mcp approve", .description = "approve a project server" },
+  467          .{ .full = "/mcp reject", .description = "reject a project server" },
+  468      };
+  469  
+  470      /// On the UI thread: what `/mcp` completes, from the host's current
+  471      /// status. Rebuilt at most twice a second.
+  472      pub fn refreshCompletion(self: *State) void {
+  473          if (self.host_sink == null) return;
+  474          const now = io_mod.milliTimestamp();
+  475          if (self.host_completion.len > 0 and now - self.host_completion_at_ms < 500) return;
+  476          self.host_completion_at_ms = now;
+  477          var next: std.heap.ArenaAllocator = .init(std.heap.c_allocator);
+  478          const entries = self.buildCompletion(next.allocator()) catch {
+  479              next.deinit();
+  480              return;
+  481          };
+  482          if (self.host_completion_arena) |*old| old.deinit();
+  483          self.host_completion_arena = next;
+  484          self.host_completion = entries;
+  485      }
+
+== src/core/app/input_completion_runtime.zig:175-180@481104fd -- routeSlashCompletionMove
+  175          pub fn routeSlashCompletionMove(app: *App, delta: i32) bool {
+  176              const count = visibleSlashCompletionCount(app);
+  177              if (count == 0) return false;
+  178              navigateSlashCompletion(app, delta, count);
+  179              return true;
+  180          }
+
+== src/core/app/input_completion_runtime.zig:390-422@481104fd -- routeVisiblePickerMove, routeNonSlashPickerMove: each menu's move, the file query's (407-410), the provider column's (415-418)
+  390          pub fn routeVisiblePickerMove(app: *App, delta: i32) !bool {
+  391              if (try routeNonSlashPickerMove(app, delta)) return true;
+  392              return routeSlashCompletionMove(app, delta);
+  393          }
+  394  
+  395          fn routeNonSlashPickerMove(app: *App, delta: i32) !bool {
+  396              if (try routeMcpHostMenuMove(app, delta)) return true;
+  397              if (try routeSettingsMenuMove(app, delta)) return true;
+  398              if (try routeHelpMenuMove(app, delta)) return true;
+  399              if (try routeModelMenuMove(app, delta)) return true;
+  400              if (try routeEffortMenuMove(app, delta)) return true;
+  401              if (routeAuthPickerMove(app, delta)) return true;
+  402              if (try routeSkillsMenuMove(app, delta)) return true;
+  403              if (comptime runtime_profile.allows(App, .durable_sessions)) {
+  404                  if (try routeSessionPickerMove(app, delta)) return true;
+  405                  if (try routeForkMenuMove(app, delta)) return true;
+  406              }
+  407              if (hasFileQuery(app)) {
+  408                  navigateFilePicker(app, delta);
+  409                  return true;
+  410              }
+  411              if (hasModelQuery(app)) {
+  412                  navigateModelPicker(app, delta);
+  413                  return true;
+  414              }
+  415              if (provider_picker_runtime.Runtime(App).hasQuery(app)) {
+  416                  if (!app.stream.active) provider_picker_runtime.Runtime(App).navigate(app, delta);
+  417                  return true;
+  418              }
+  419              // Mid-turn bare `/model`: consume arrows without slash/skill navigation.
+  420              if (app.stream.active and picker_state.isBareModelCommandAtCursor(&app.input_runtime.edit_state)) return true;
+  421              return false;
+  422          }
+
+== src/core/app/input_completion_runtime.zig:775-786@481104fd -- filePickerEligible: the one picker that asks about the transcript itself (783)
+  775          fn filePickerEligible(app: *App) bool {
+  776              if (comptime !runtime_profile.allows(App, .file_index)) return false;
+  777              if (comptime @hasField(App, "question_prompt")) if (app.question_prompt.isActive()) return false;
+  778              if (comptime @hasField(App, "approval_prompt")) if (app.approval_prompt.isActive()) return false;
+  779              if (comptime @hasField(App, "auth")) {
+  780                  if (comptime @hasDecl(@TypeOf(app.auth), "pickerView")) if (app.auth.pickerView().active) return false;
+  781              }
+  782              if (comptime @hasField(App, "shell")) {
+  783                  if (comptime @hasDecl(@TypeOf(app.shell), "fullTranscriptActive")) if (app.shell.fullTranscriptActive()) return false;
+  784              }
+  785              return !catalogMenuOwnsSurface(app);
+  786          }
+
+== src/ui/input/escape_parser.zig:66-71@481104fd -- composerMove: a modified arrow is a composer move, extend_selection on Shift
+   66  fn composerMove(kind: input_action.MoveKind, modifiers: u16) InputEscapeAction {
+   67      return .{ .composer_shortcut = .{ .move = .{
+   68          .kind = kind,
+   69          .extend_selection = (modifiers & shift_modifier) != 0,
+   70      } } };
+   71  }
+
+== src/ui/input/escape_parser.zig:99-107@481104fd -- Shift-Up/Down: visual_up/visual_down
+   99      if ((modifiers & shift_modifier) != 0) return switch (byte) {
+  100          'A' => composerMove(.visual_up, modifiers),
+  101          'B' => composerMove(.visual_down, modifiers),
+  102          'C' => composerMove(.character_right, modifiers),
+  103          'D' => composerMove(.character_left, modifiers),
+  104          'H' => composerMove(.line_start, modifiers),
+  105          'F' => composerMove(.line_end, modifiers),
+  106          else => null,
+  107      };
+
+== src/ui/input/shortcuts.zig:43-65@481104fd -- fromEscapeAction: a composer_shortcut action carries its shortcut (61)
+   43  pub fn fromEscapeAction(action: InputEscapeAction) ?ShortcutAction {
+   44      return switch (action) {
+   45          .cursor_up => move(.visual_up),
+   46          .cursor_down => move(.visual_down),
+   47          .cursor_left => move(.character_left),
+   48          .cursor_right => move(.character_right),
+   49          .word_left => move(.word_left),
+   50          .word_right => move(.word_right),
+   51          .home => move(.line_start),
+   52          .end => move(.line_end),
+   53          .page_up => move(.page_up),
+   54          .page_down => move(.page_down),
+   55          .delete_next => .delete_forward,
+   56          .delete_word_left => .delete_word_left,
+   57          .delete_word_right => .delete_word_right,
+   58          .delete_to_line_start => .delete_to_line_start,
+   59          .delete_to_line_end => .delete_to_line_end,
+   60          .insert_newline => .insert_newline,
+   61          .composer_shortcut => |shortcut| shortcut,
+   62          .remapped_byte => |byte| fromControlByte(byte),
+   63          else => null,
+   64      };
+   65  }
+
+== src/core/app/app_input_runtime.zig:310-330@481104fd -- the .move arm: visual_up/visual_down -> routeComposerVertical
+  310                          .visual_up,
+  311                          .visual_down,
+  312                          .page_up,
+  313                          .page_down,
+  314                          => {
+  315                              const direction: visual_layout.Direction = switch (intent.kind) {
+  316                                  .visual_up, .page_up => .up,
+  317                                  .visual_down, .page_down => .down,
+  318                                  else => unreachable,
+  319                              };
+  320                              const delta: i32 = if (direction == .up) -1 else 1;
+  321                              try completion_rt.routeComposerVertical(
+  322                                  app,
+  323                                  direction,
+  324                                  delta,
+  325                                  intent.extend_selection,
+  326                                  intent.kind == .page_up or intent.kind == .page_down,
+  327                              );
+  328                          },
+  329                      }
+  330                      app.shell.render_requests.request(.footer);
+
+== src/core/app/input_completion_runtime.zig:211-233@481104fd -- routeComposerVertical: routeNonSlashPickerMove first (230)
+  211          pub fn routePlainVertical(app: *App, direction: visual_layout.Direction, delta: i32) !void {
+  212              try routeComposerVertical(app, direction, delta, false, false);
+  213          }
+  214  
+  215          pub fn routeComposerVertical(
+  216              app: *App,
+  217              direction: visual_layout.Direction,
+  218              delta: i32,
+  219              extend_selection: bool,
+  220              page: bool,
+  221          ) !void {
+  222              const row_count = if (page)
+  223                  input_presentation.inputRowLimit(app.shell.layout.content_bottom)
+  224              else
+  225                  @as(usize, 1);
+  226              const picker_delta = if (page)
+  227                  delta * @as(i32, @intCast(@min(row_count, std.math.maxInt(i32))))
+  228              else
+  229                  delta;
+  230              if (try routeNonSlashPickerMove(app, picker_delta)) {
+  231                  app.input_runtime.vertical_navigation.reset();
+  232                  return;
+  233              }
+
+== src/ui/input/visual_layout.zig:705-713@481104fd -- projectedAnchorColumn: the anchor's column on the caret's row, the caret's row's start otherwise
+  705  pub fn projectedAnchorColumn(summary: Summary, terminal_cols: u16) u16 {
+  706      const anchor = summary.anchor orelse return 1;
+  707      if (anchor.row_index == summary.cursor.row_index) return terminalColumn(anchor, terminal_cols);
+  708      return terminalColumn(.{
+  709          .raw_offset = summary.cursor.raw_offset,
+  710          .row_index = summary.cursor.row_index,
+  711          .content_column = 0,
+  712      }, terminal_cols);
+  713  }

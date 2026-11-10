@@ -1,0 +1,39 @@
+=== ~/.fx/history.jsonl (126 bytes)
+{"schema_version":1,"timestamp_ms":1794313663706,"workspace_root":"<scratch>/work","text":"/help"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/trace.txt (2420 bytes)
+1794313664726 [full_transcript] open_request state=ready
+1794313664726 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794313664726 [full_transcript] close_full_transcript restore=exact
+1794313665548 [full_transcript] open_request state=ready
+1794313665548 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794313665548 [full_transcript] close_full_transcript restore=exact
+1794313666364 [full_transcript] open_request state=ready
+1794313666364 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794313666365 [full_transcript] close_full_transcript restore=exact
+1794313667596 [full_transcript] open_request state=ready
+1794313667597 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794313667597 [full_transcript] close_full_transcript restore=exact
+1794313668416 [full_transcript] open_request state=ready
+1794313668416 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794313668416 [full_transcript] close_full_transcript restore=exact
+1794313669634 [full_transcript] open_request state=ready
+1794313669635 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794313669635 [full_transcript] close_full_transcript restore=exact
+1794313670459 [full_transcript] open_request state=ready
+1794313670459 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794313670459 [full_transcript] close_full_transcript restore=exact
+1794313671689 [full_transcript] open_request state=ready
+1794313671689 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794313671689 [full_transcript] close_full_transcript restore=exact
+1794313672514 [full_transcript] open_request state=ready
+1794313672514 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794313672514 [full_transcript] close_full_transcript restore=exact
+1794313673746 [full_transcript] open_request state=ready
+1794313673746 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794313673746 [full_transcript] close_full_transcript restore=exact
+1794313674569 [full_transcript] open_request state=ready
+1794313674569 [full_transcript] depth_transition from=inline to=full route=root trigger=ctrl_o
+1794313674569 [full_transcript] close_full_transcript restore=exact
+

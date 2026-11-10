@@ -1,0 +1,76 @@
+# python3 -I pairs.py (this folder's), in the repo at the receipt
+# fx/ row 1: 𝒇x v0.0.16 · Run /help for commands
+# xfx/ row 1: x𝒇x v0.1.0-91c4673 [debug] · Run /help for commands
+# xfx-base/ row 1: x𝒇x v0.1.0-cb7c9c1 [debug] · Run /help for commands
+scenario               snap               base             head
+p5-ctrlo-help          open      9 rows differ    9 rows differ  same-as-open
+p5-ctrlo-help          held     28 rows differ    9 rows differ  same-as-open
+p5-ctrlo-help          down     11 rows differ    9 rows differ  same-as-open
+p5-ctrlo-help          ck       21 rows differ    9 rows differ  same-as-open
+p5-ctrlo-help          cj       11 rows differ    9 rows differ  same-as-open
+p5-ctrlo-help          tab       1 rows differ    1 rows differ
+    row 10: fx '  /version    show the fx version'
+    row 10: xfx '  /version    show the xfx version'
+p5-ctrlo-help          esc       9 rows differ        identical
+p5-ctrlo-model         open          identical        identical
+p5-ctrlo-model         held     13 rows differ        identical
+p5-ctrlo-model         down      2 rows differ        identical
+p5-ctrlo-model         ck        2 rows differ        identical
+p5-ctrlo-model         cj        2 rows differ        identical
+p5-ctrlo-model         tab           identical        identical
+p5-ctrlo-model         esc       6 rows differ        identical
+p5-ctrlo-sessions      open          identical        identical
+p5-ctrlo-sessions      held      9 rows differ        identical
+p5-ctrlo-sessions      down      2 rows differ        identical
+p5-ctrlo-sessions      ck            identical        identical
+p5-ctrlo-sessions      cj            identical        identical
+p5-ctrlo-sessions      tab           identical        identical
+p5-ctrlo-sessions      esc       6 rows differ        identical
+p5-ctrlo-fork          open          identical        identical
+p5-ctrlo-fork          held     32 rows differ        identical
+p5-ctrlo-fork          up        2 rows differ        identical
+p5-ctrlo-fork          ck        2 rows differ        identical
+p5-ctrlo-fork          cj        2 rows differ        identical
+p5-ctrlo-fork          tab       2 rows differ        identical
+p5-ctrlo-fork          esc       6 rows differ        identical
+p5-ctrlo-effort        open          identical        identical
+p5-ctrlo-effort        held     13 rows differ        identical
+p5-ctrlo-effort        down      2 rows differ        identical
+p5-ctrlo-effort        ck        2 rows differ        identical
+p5-ctrlo-effort        cj        2 rows differ        identical
+p5-ctrlo-effort        tab       2 rows differ        identical
+p5-ctrlo-effort        esc       9 rows differ        identical
+skills-ctrlo           open      3 rows differ    3 rows differ  same-as-open
+skills-ctrlo           held     10 rows differ    3 rows differ  same-as-open
+skills-ctrlo           down      3 rows differ    3 rows differ  same-as-open
+skills-ctrlo           ck        3 rows differ    3 rows differ  same-as-open
+skills-ctrlo           cj        3 rows differ    3 rows differ  same-as-open
+skills-ctrlo           tab       2 rows differ    2 rows differ
+    row 5: fx 'Skills 1  All  [fx]  Workspace  Claude  Codex  Agents  OpenCode  Claw'
+    row 5: xfx 'Skills 1  All  [xfx]  Workspace'
+    row 7: fx '  demo    fx · Workspace'
+    row 7: xfx '  demo    xfx · Workspace'
+skills-ctrlo           esc       5 rows differ        identical
+skills-ctrlo-dollar    open      3 rows differ    3 rows differ  same-as-open
+skills-ctrlo-dollar    held     10 rows differ    3 rows differ  same-as-open
+skills-ctrlo-dollar    down      3 rows differ    3 rows differ  same-as-open
+skills-ctrlo-dollar    ck        3 rows differ    3 rows differ  same-as-open
+skills-ctrlo-dollar    cj        3 rows differ    3 rows differ  same-as-open
+skills-ctrlo-dollar    esc       6 rows differ        identical
+p5-ctrlo-slash         open      1 rows differ    1 rows differ  same-as-open
+p5-ctrlo-slash         down      1 rows differ    1 rows differ  same-as-open
+p5-ctrlo-slash         esc       1 rows differ    1 rows differ  same-as-open
+p5-ctrlo-slash         ck        3 rows differ    1 rows differ  same-as-open
+p5-ctrlo-slash         cj       11 rows differ        identical
+provider-ctrlo         open      3 rows differ    3 rows differ  same-as-open
+provider-ctrlo         down      3 rows differ    3 rows differ  same-as-open
+provider-ctrlo         esc       3 rows differ    3 rows differ  same-as-open
+provider-ctrlo         ck        3 rows differ    3 rows differ  same-as-open
+provider-ctrlo         cj        6 rows differ        identical
+p5-ctrlo-mcp-args      open          identical        identical
+p5-ctrlo-mcp-args      down          identical        identical
+p5-ctrlo-mcp-args      esc           identical        identical
+p5-ctrlo-mcp-args      ck        2 rows differ        identical
+p5-ctrlo-mcp-args      cj        9 rows differ        identical
+pairs: 63; identical: base 11, head 38; head same-as-open: 23; other: 2
+# exit 0
