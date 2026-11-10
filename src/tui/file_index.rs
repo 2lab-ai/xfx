@@ -1060,13 +1060,13 @@ impl Files {
     }
 
     /// The launch's walk (`startFileIndex` -> `ensureScopeEpoch`,
-    /// `app_workspace_runtime.zig:145-148@481104fd`, `file_index.zig:
-    /// 356-363`): the scope as it stands, with its epoch now, which the walk
-    /// keeps whatever changes after it (`startLoad`, `:386`) -- so a change
-    /// of the access before it is whole finds it of the old epoch
-    /// ([`Self::lookup`]). None for an empty root (`:146`, `:358`), and none
-    /// unless nothing has been walked: no index, no walk, no failure
-    /// (`currentState() != .idle`, `:357`, `:333-341`).
+    /// `app_workspace_runtime.zig:145-148@481104fd`): none for an empty root
+    /// (`:146`; `file_index.zig:358`), and none unless nothing has been
+    /// walked -- no index, no walk, no failure (`currentState() != .idle`,
+    /// `:357`, `:333-341`). Otherwise the scope as it stands, with its epoch
+    /// now (`:361`), which the walk keeps whatever changes after it
+    /// (`startLoad`, `:386`): a change of the access before it is whole
+    /// finds it of the old epoch ([`Self::lookup`]).
     pub(crate) fn start_index(&mut self) {
         if self.index.is_some() || self.walk.is_some() || self.failed {
             return;
