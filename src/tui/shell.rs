@@ -7623,35 +7623,38 @@ impl Shell {
         self.edited(None);
     }
 
-    /// One keystroke, while the `/statusline` picker has the focus.
-    ///
-    /// One keystroke to a rule change waiting to be confirmed: `1` or Enter
-    /// on `Confirm` makes it and says how it went, `2` or Enter on `Cancel`
-    /// says it was cancelled, Escape closes it saying nothing
-    /// (`submitRuleManagementChoice`, `input_approval_runtime.zig:255-327`;
-    /// `cap/fx-permissions3-40x120-remember-esc`), and the arrows move the
-    /// mark. Everything else is swallowed, as the approval band swallows it.
-    fn offer_to_rule_confirm(&mut self, event: Input) {
-        use super::rule_confirm::{Key, Reply};
-        let key = match event {
-            Input::Text(character) => Key::Digit(character),
-            Input::Action(Action::Up | Action::ControlP) => Key::Up,
-            Input::Action(Action::Down | Action::HistoryNext) => Key::Down,
-            Input::Action(Action::Submit) => Key::Enter,
-            Input::Action(Action::Escape) => Key::Escape,
-            Input::Action(Action::Redraw) => {
-                self.external_damage();
-                return;
-            }
-            _ => return,
+    /// One keystroke to a rule change waiting to be confirmed, read as a
+    /// permission question with no draft reads it ([`Self::approval_action`]):
+    /// upstream asks the change in its approval prompt, confirmation-only
+    /// (`syncRuleManagement`, `approval_prompt.zig:119-146@481104fd`). `1`,
+    /// or Enter or C-j on `Confirm`, makes it and says how it went; `2`,
+    /// Enter or C-j on `Cancel`, and Ctrl-C say it was cancelled
+    /// (`submitRuleManagementChoice`, `input_approval_runtime.zig:257-328`);
+    /// the arrows, Tab, Left, Right, Alt-b and Alt-f move the mark
+    /// ([`RuleConfirm::apply`]). Escape closes it saying nothing
+    /// (`cancelApprovalOperation`, `:401-436`, which `resolveEscape` reached
+    /// at every Escape the receipt traced, `app_input_runtime.zig:2689`,
+    /// `:2712-2716`), and over a running turn or compaction stops that too,
+    /// read as the composer's Escape reads one. Everything else, Ctrl-L
+    /// included, is swallowed, as the approval swallows it.
+    fn offer_to_rule_confirm(&mut self, event: Input, now: Instant) {
+        use super::rule_confirm::Reply;
+        let Some(action) = Self::approval_action(event, false) else {
+            return;
         };
         let Some(confirm) = self.rule_confirm.as_mut() else {
             return;
         };
-        match confirm.apply(key) {
+        match confirm.apply(action) {
             Reply::Ignored => {}
             Reply::Moved => self.render.request(Reason::Modal),
-            Reply::Dismiss => self.close_rule_confirm(),
+            Reply::Dismiss => {
+                self.close_rule_confirm();
+                if self.activity.working() || self.compacting() {
+                    self.cancel_turn();
+                    self.settle_band(now);
+                }
+            }
             Reply::Cancel => {
                 self.close_rule_confirm();
                 self.announce(notice::Notice::neutral(
@@ -9400,70 +9403,18 @@ impl Shell {
         ));
     }
 
-    /// One keystroke, while a question has the focus.
+    /// What one keystroke means to a permission question with the focus, or
+    /// `None` for a key it swallows; `drafting` is whether an amendment has the
+    /// keys ([`Self::drafting`]).
     ///
-    /// **Everything the panel does not bind is swallowed**, and that is the
-    /// difference between a panel and a hint: a `1` typed at a question is an
-    /// answer, not a character in a composer whose caret is somewhere else, and
-    /// a Ctrl-D at one does not end a session that is holding a turn open
-    /// waiting to be told what to do.
-    ///
-    /// **The two bail-out keys are upstream's** (`vercel-labs/fx@c1db919`,
-    /// pinned by its e2e `tests/e2e/tui-permissions.test.ts:1099`):
-    ///
-    /// * **Ctrl-C refuses this call and nothing else** (`src/ui/input/runtime.zig:61`,
-    ///   `3 => .deny`). The turn goes on, told no, exactly as if `3` had been
-    ///   pressed -- minus whatever the deny draft held, because a key that says
-    ///   nothing sends nothing (`approval_decision.zig:132-135`).
-    /// * **Escape cancels the turn** (`app_input_runtime.zig:3139-3143`,
-    ///   `cancelApprovalOperation`), and it is the whole of why this takes a
-    ///   clock: the question is refused *with* the interrupt rather than
-    ///   instead of it ([`Self::interrupt`]), because the prompter is the thing
-    ///   parked on that channel and it turns a cancellation into a `Deny` and
-    ///   hands the cancellation on to the loop that can act on it
-    ///   (`super::approval::TuiPrompter`). Answering `Deny` and stopping there
-    ///   would leave the user watching the turn they cancelled carry on, with
-    ///   the prompt they had queued behind it running next.
-    ///
-    /// Both are the reverse of what xfx's panel did before (Escape refused the
-    /// call, Ctrl-C stopped the turn): divergence 7 of `.prd/tui-phase4/ssot.md`.
-    fn decide(&mut self, event: Input, now: Instant) {
-        // A notice on the hint row is about the keystroke before this one; the
-        // question's own hint takes the row back unless this one earns another
-        // ([`Self::notice_at_the_question`]).
-        if self.notice.take().is_some() {
-            self.render.request(Reason::Footer);
-        }
-        // The two keys that walk a change too long for one screen, and they are
-        // bound **only** where there is one to walk: a bounded diff is up to
-        // 128 KiB (`crate::permission::ApprovalDiff`) and a screen is a few
-        // dozen rows, so a review surface with no way past its first screenful
-        // would be showing the head of a change and calling it the change. They
-        // are `C-p` and `C-n` -- "the line before this one" and "the line after
-        // it" everywhere else on this surface, and bound to nothing at all at a
-        // question until now. The arrows are deliberately not reused: they walk
-        // the choices, and a key that scrolled *and* chose would be a key that
-        // answers by accident.
-        if let Input::Action(Action::ControlP | Action::HistoryNext) = event {
-            let (cols, rows) = (self.geometry.cols, self.geometry.rows);
-            if let Some(screen) = self.alternate.as_mut() {
-                let delta = if matches!(event, Input::Action(Action::ControlP)) {
-                    -1
-                } else {
-                    1
-                };
-                if screen.scroll_by(delta, cols, rows) {
-                    self.approval_changed();
-                }
-                self.render.request(Reason::Modal);
-                return;
-            }
-        }
-        // Whether an amendment has the keys, taken before anything is
-        // translated: it is what turns a `1` from an answer into a character
-        // and an editing key from nothing into an edit
-        // ([`super::approval_amendment`]).
-        let drafting = self.drafting();
+    /// **A rule confirmation reads its keys here too, as no draft**
+    /// ([`Self::offer_to_rule_confirm`]): upstream asks a `/permissions` rule
+    /// change in its approval prompt, confirmation-only
+    /// (`syncRuleManagement`, `approval_prompt.zig:119-146@481104fd`), so the
+    /// keys are the approval's (`routeActiveModalInput`,
+    /// `app_input_runtime.zig:1161-1185`; `routeResolvedEscapeAction`,
+    /// `:964-971`), and one translation keeps the two from drifting apart.
+    fn approval_action(event: Input, drafting: bool) -> Option<approval::Action> {
         let action = match event {
             Input::Text(character) => approval::Action::Text(character),
             // **The plain arrows move the choice, whether or not a draft is
@@ -9540,7 +9491,7 @@ impl Shell {
                 | Action::DraftEnd { .. }
                 | Action::ControlP
                 | Action::HistoryNext,
-            ) => return,
+            ) => return None,
             Input::Action(Action::Tab) => approval::Action::Tab,
             // **C-j answers as Enter does**, at a choice and in a draft, on
             // either plane: fx v0.0.16 makes `'\r', '\n'` an approval's
@@ -9570,7 +9521,7 @@ impl Shell {
             // `.external_damage`, and the composer's redraw is never reached
             // (`:873`). Swallowed, so the screen the receipt is about is not
             // declared damaged under an Enter read with it.
-            Input::Action(Action::Redraw) => return,
+            Input::Action(Action::Redraw) => return None,
             // The draft's own keys, and **only while a draft has them**: with
             // no amendment open these stay what they have always been at a
             // question, which is swallowed. `Up` and `Down` are deliberately
@@ -9587,7 +9538,7 @@ impl Shell {
             // the composer does.
             Input::Action(editing) if drafting => match folded(Input::Action(editing)) {
                 Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),
-                _ => return,
+                _ => return None,
             },
             // Content, to the **draft's** assembler and never the composer's:
             // a modal surface that leaked paste bytes into the composer would
@@ -9595,10 +9546,80 @@ impl Shell {
             // delete. With no draft open they fall through to the swallow
             // below, exactly as they did before amendments existed.
             Input::PasteByte(byte) if drafting => approval::Action::PasteByte(byte),
-            Input::Action(_) | Input::PasteByte(_) => return,
+            Input::Action(_) | Input::PasteByte(_) => return None,
             // Answered before the focus is consulted ([`Self::consume`]), for
             // the reason the same arm in [`Self::answer`] gives.
-            Input::Report(_) => return,
+            Input::Report(_) => return None,
+        };
+        Some(action)
+    }
+
+    /// One keystroke, while a question has the focus.
+    ///
+    /// **Everything the panel does not bind is swallowed**, and that is the
+    /// difference between a panel and a hint: a `1` typed at a question is an
+    /// answer, not a character in a composer whose caret is somewhere else, and
+    /// a Ctrl-D at one does not end a session that is holding a turn open
+    /// waiting to be told what to do.
+    ///
+    /// **The two bail-out keys are upstream's** (`vercel-labs/fx@c1db919`,
+    /// pinned by its e2e `tests/e2e/tui-permissions.test.ts:1099`):
+    ///
+    /// * **Ctrl-C refuses this call and nothing else** (`src/ui/input/runtime.zig:61`,
+    ///   `3 => .deny`). The turn goes on, told no, exactly as if `3` had been
+    ///   pressed -- minus whatever the deny draft held, because a key that says
+    ///   nothing sends nothing (`approval_decision.zig:132-135`).
+    /// * **Escape cancels the turn** (`app_input_runtime.zig:3139-3143`,
+    ///   `cancelApprovalOperation`), and it is the whole of why this takes a
+    ///   clock: the question is refused *with* the interrupt rather than
+    ///   instead of it ([`Self::interrupt`]), because the prompter is the thing
+    ///   parked on that channel and it turns a cancellation into a `Deny` and
+    ///   hands the cancellation on to the loop that can act on it
+    ///   (`super::approval::TuiPrompter`). Answering `Deny` and stopping there
+    ///   would leave the user watching the turn they cancelled carry on, with
+    ///   the prompt they had queued behind it running next.
+    ///
+    /// Both are the reverse of what xfx's panel did before (Escape refused the
+    /// call, Ctrl-C stopped the turn): divergence 7 of `.prd/tui-phase4/ssot.md`.
+    fn decide(&mut self, event: Input, now: Instant) {
+        // A notice on the hint row is about the keystroke before this one; the
+        // question's own hint takes the row back unless this one earns another
+        // ([`Self::notice_at_the_question`]).
+        if self.notice.take().is_some() {
+            self.render.request(Reason::Footer);
+        }
+        // The two keys that walk a change too long for one screen, and they are
+        // bound **only** where there is one to walk: a bounded diff is up to
+        // 128 KiB (`crate::permission::ApprovalDiff`) and a screen is a few
+        // dozen rows, so a review surface with no way past its first screenful
+        // would be showing the head of a change and calling it the change. They
+        // are `C-p` and `C-n` -- "the line before this one" and "the line after
+        // it" everywhere else on this surface, and bound to nothing at all at a
+        // question until now. The arrows are deliberately not reused: they walk
+        // the choices, and a key that scrolled *and* chose would be a key that
+        // answers by accident.
+        if let Input::Action(Action::ControlP | Action::HistoryNext) = event {
+            let (cols, rows) = (self.geometry.cols, self.geometry.rows);
+            if let Some(screen) = self.alternate.as_mut() {
+                let delta = if matches!(event, Input::Action(Action::ControlP)) {
+                    -1
+                } else {
+                    1
+                };
+                if screen.scroll_by(delta, cols, rows) {
+                    self.approval_changed();
+                }
+                self.render.request(Reason::Modal);
+                return;
+            }
+        }
+        // Whether an amendment has the keys, taken before anything is
+        // translated: it is what turns a `1` from an answer into a character
+        // and an editing key from nothing into an edit
+        // ([`super::approval_amendment`]).
+        let drafting = self.drafting();
+        let Some(action) = Self::approval_action(event, drafting) else {
+            return;
         };
         // Whichever surface is holding the question, and there is never more
         // than one ([`Self::ask`]). Both answer with the same function
@@ -12094,6 +12115,7 @@ impl Shell {
                         || self.info_panel.is_some()
                         || self.mcp_menu.is_some()
                         || self.asking()
+                        || self.rule_confirm.is_some()
                         || self.help_menu.is_some()
                         || self.settings_menu.is_some()
                         || self.fork_menu.is_some()
@@ -12153,6 +12175,14 @@ impl Shell {
                 self.decide(spelled, now);
                 continue;
             }
+            // A rule change waiting to be confirmed is asked in upstream's
+            // approval prompt, so it reads the event the approval reads and
+            // swallows what the approval does not bind
+            // ([`Self::offer_to_rule_confirm`]).
+            if self.rule_confirm.is_some() {
+                self.offer_to_rule_confirm(spelled, now);
+                continue;
+            }
             // Shift on Up and Down means something only to a question's
             // field, and Alt-b apart from the word arrows only to a question's
             // choice and an approval's; to every surface below they are the
@@ -12163,12 +12193,6 @@ impl Shell {
             // -- a letter, a Ctrl-C, a Ctrl-D -- as upstream's compact menus
             // do (`routeActiveModalInput`, `app_input_runtime.zig:1366-1395`).
             // Escape is the way out, and then the keys mean what they mean.
-            // A rule change waiting to be confirmed has the focus the same
-            // way, and swallows what it does not bind.
-            if self.rule_confirm.is_some() {
-                self.offer_to_rule_confirm(event);
-                continue;
-            }
             if self.statusline_menu.is_some() {
                 self.offer_to_statusline(event);
                 continue;
