@@ -2775,7 +2775,9 @@ mod tests {
 
     #[test]
     fn a_leading_zero_in_a_tilde_field_is_the_number() {
-        // Every digit is appended to a number (`appendCsiDigitSaturating`,
+        // The key's first digit is its number (`escape_parser.zig:584
+        // @481104fd`) and every digit after it is appended to the number
+        // (`appendCsiDigitSaturating`,
         // `escape_parser.zig:19-23`; `:600-602` for the key, `:663-665` for
         // the modifier, `@481104fd`), so a zero in front changes nothing.
         for (key, want) in TILDE_KEYS {
@@ -2850,6 +2852,57 @@ mod tests {
                 "CSI {key} ; {modifier} ~"
             );
         }
+    }
+
+    #[test]
+    fn the_key_and_the_keycode_saturate_rather_than_wrap() {
+        // Every field stops at 65535 rather than wrapping
+        // (`appendCsiDigitSaturating`, `escape_parser.zig:19-23@481104fd`),
+        // the key and a key report's keycode as much as the modifier
+        // (`a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits`).
+        // Wrapped to sixteen bits, 65537 would be 1, Home; saturated it is
+        // 65535, no key (`:628-635`).
+        assert_eq!(
+            decode(b"\x1b[65537~"),
+            vec![Input::Action(Action::Ignore)],
+            "CSI 65537 ~"
+        );
+        // Wrapped, 65635 would be 99, Ctrl-C under Ctrl; saturated it is
+        // 65535, which no branch of the key report names (`:185-266`).
+        assert_eq!(
+            decode(b"\x1b[27;5;65635~"),
+            vec![Input::Action(Action::Ignore)],
+            "CSI 27 ; 5 ; 65635 ~"
+        );
+    }
+
+    #[test]
+    fn a_tilde_sequence_past_the_csi_bound_is_read_as_every_csi_is() {
+        // Not upstream's: its accumulators read any number of leading zeros
+        // (`escape_parser.zig:600-603@481104fd`), and this decoder keeps a
+        // sequence's parameters up to `MOST_BYTES` only (`Decoder::in_csi`),
+        // the same bound for every `CSI`, recorded in `docs/parity.md`.
+        let delete = |zeros: usize| {
+            let mut bytes = b"\x1b[".to_vec();
+            bytes.extend(std::iter::repeat_n(b'0', zeros));
+            bytes.extend(b"3~");
+            decode(&bytes)
+        };
+        // Up to 31 parameter bytes, the number: Delete.
+        assert_eq!(delete(30), vec![Input::Action(Action::Delete)]);
+        // From 32, the sequence is discarded to its final byte: nothing.
+        assert_eq!(delete(31), vec![Input::Action(Action::Ignore)]);
+        assert_eq!(delete(61), vec![Input::Action(Action::Ignore)]);
+        // From 64 bytes before the final, the discard gives up at the 64th
+        // (`Decoder::discarding`), and every byte after it is typed.
+        assert_eq!(
+            delete(64),
+            vec![
+                Input::Action(Action::Ignore),
+                Input::Text('3'),
+                Input::Text('~')
+            ]
+        );
     }
 
     #[test]
@@ -3233,8 +3286,9 @@ mod tests {
             // beside it), and these are no key there either: a third field
             // whose keycode no key has, a code no key has (Insert's `2`
             // among them), a parameter that is no digit, and no field at
-            // all (`escape_parser.zig:583-589`, `:620`, `:634`, `:676-684`,
-            // `:746-754@481104fd`).
+            // all (`escape_parser.zig:583-589`, `:620`, `:634`, `:746-754`;
+            // a colon moves the report to the event-type stage, `:676-684`,
+            // whose `~` is discarded, `:779`, `:349-351@481104fd`).
             &b"\x1b[7;5;1~"[..],
             &b"\x1b[3;5;1~"[..],
             &b"\x1b[30~"[..],
