@@ -1,0 +1,55 @@
+# The brief's gate, once, under the suite lock (one slot), TMPDIR=<tmp>/gate, in the worktree at 87daec96:
+# src/, tests/, Cargo.* and docs/ as committed; this receipt was in the working tree, untracked (tests/gateway.rs reads docs/parity.md from the tree,
+# and docs/parity.md matched HEAD). Each step's exit, then its result lines; `Compiling`/`Finished` lines left out, the worktree written <work>.
+head: 87daec96d033c197a97ada8c390f64cca159d57e
+src/tests/Cargo vs HEAD before: 0 changed
+== cargo fmt --check: exit 0
+== cargo clippy --locked --all-targets -- -D warnings: exit 0
+== cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0
+== cargo test --locked --no-fail-fast: exit 0
+test result: ok. 4769 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+== cargo test --locked --features fault-injection --no-fail-fast: exit 0
+test result: ok. 4792 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished
+== scripts/check-xfx-identity.sh: exit 0
+check-xfx-identity: ok (19984 tracked file(s) scanned)
+== scripts/check-no-stubs.sh: exit 0
+check-no-stubs: ok
+== scripts/check-no-secrets.sh: exit 0
+check-no-secrets: ok (19984 tracked file(s) scanned)
+src/tests/Cargo vs HEAD after: 0 changed
+
+# sum, cargo test --locked --no-fail-fast: 5693 passed, 0 failed, 7 ignored (15 result lines)
+# sum, cargo test --locked --features fault-injection --no-fail-fast: 5730 passed, 0 failed, 7 ignored (15 result lines)
+
+# The same gate ran first at b7861e54 (before the rename 6d8dc766 and the held-rule commits ae121e4b, e66c5490), every step exit 0:
+#   cargo test --locked --no-fail-fast: 5691 passed, 0 failed, 7 ignored (15 result lines)
+#   cargo test --locked --features fault-injection --no-fail-fast: 5728 passed, 0 failed, 7 ignored (15 result lines)
+#   steps: cargo fmt --check: exit 0; cargo clippy --locked --all-targets -- -D warnings: exit 0; cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0; cargo test --locked --no-fail-fast: exit 0; cargo test --locked --features fault-injection --no-fail-fast: exit 0; scripts/check-xfx-identity.sh: exit 0; scripts/check-no-stubs.sh: exit 0; scripts/check-no-secrets.sh: exit 0

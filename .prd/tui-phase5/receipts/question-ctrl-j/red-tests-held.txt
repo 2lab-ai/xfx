@@ -1,0 +1,16 @@
+# cargo test --locked --lib -- held_rule at ae121e4b (the held-rule RED commit: e66c5490's parent, its tests and no fix), TMPDIR=<tmp>
+running 3 tests
+test tui::shell::tests::a_ctrl_j_the_menu_took_does_not_count_for_the_held_rule ... ok
+test tui::shell::tests::a_ctrl_j_the_model_question_took_counts_for_the_held_rule_as_enter_does ... FAILED
+test tui::shell::tests::an_enter_another_surface_took_counts_for_the_held_rule ... ok
+failures:
+---- tui::shell::tests::a_ctrl_j_the_model_question_took_counts_for_the_held_rule_as_enter_does stdout ----
+thread 'tui::shell::tests::a_ctrl_j_the_model_question_took_counts_for_the_held_rule_as_enter_does' panicked at src/tui/shell.rs:18656:9:
+assertion `left == right` failed: C-j then Enter answered Remove
+  left: [<home>/.xfx/mcp.json holding `{\n  "mcpServers": {}\n}\n` -- keep removed --, <home>/.xfx/settings.json absent, <home>/work/.mcp.json `{"mcpServers":{}}`]  (the bytes and the run's paths cut here)
+ right: [<home>/.xfx/mcp.json holding `{"mcpServers":{"keep":{...}}}` -- keep still there --, the other two the same]  (the bytes and the run's paths cut here)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+failures:
+    tui::shell::tests::a_ctrl_j_the_model_question_took_counts_for_the_held_rule_as_enter_does
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4773 filtered out; finished in 0.06s
+error: test failed, to rerun pass `--lib`

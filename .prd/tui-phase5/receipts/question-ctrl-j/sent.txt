@@ -1,0 +1,10 @@
+# python3 -I sent.py from the capture root (<scratch>/cap; xfx2/ is the head's): the ask_user_question results each run sent, each once
+## fx/fx-p5-question-ctrl-j-40x120-bodies
+003-completion.json: text [{"question":"Which depth?","answer":"Thorough"},{"question":"Ship it?","answer":"No"},{"question":"Anything else?","answer":"ab"}]
+005-completion.json: text [{"question":"Kitty?","answer":"Keep"},{"question":"Xterm?","answer":"Keep"}]
+007-completion.json: text [{"question":"First?","answer":"xy"},{"question":"Second?","answer":"Three"}]
+## red/xfx-p5-question-ctrl-j-40x120-bodies
+## xfx2/xfx-p5-question-ctrl-j-40x120-bodies
+003-completion.json: text [{"question":"Which depth?","answer":"Thorough"},{"question":"Ship it?","answer":"No"},{"question":"Anything else?","answer":"ab"}]
+005-completion.json: text [{"question":"Kitty?","answer":"Keep"},{"question":"Xterm?","answer":"Keep"}]
+007-completion.json: text [{"question":"First?","answer":"xy"},{"question":"Second?","answer":"Three"}]

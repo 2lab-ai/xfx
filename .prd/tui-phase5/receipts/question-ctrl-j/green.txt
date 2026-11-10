@@ -1,0 +1,84 @@
+# The pairs at the code head: fx/ (fx v0.0.16) against xfx/ (xfx built at 87daec96, row 1 v0.1.0-87daec9)
+
+## python3 -I pairs.py xfx (every ledger normalization; the three /status divergences' rows set aside)
+SAME  p5-question-ctrl-j ctrl-j                        (13 rows compared)
+SAME  p5-question-ctrl-j down-ctrl-j                   (13 rows compared)
+SAME  p5-question-ctrl-j end                           (40 rows compared)
+SAME  p5-question-ctrl-j field-ctrl-j                  (18 rows compared)
+SAME  p5-question-ctrl-j field                         (13 rows compared)
+SAME  p5-question-ctrl-j kitty-ctrl-j                  (26 rows compared)
+SAME  p5-question-ctrl-j not-ctrl-j                    (26 rows compared)
+SAME  p5-question-ctrl-j tab-ctrl-j                    (37 rows compared)
+SAME  p5-question-ctrl-j three                         (13 rows compared)
+SAME  p5-question-ctrl-j xterm-ctrl-j                  (29 rows compared)
+SAME  p5-question-ctrl-j-panel end                     (27 rows compared)
+SAME  p5-question-ctrl-j-panel open-before-question    (20 rows compared)
+SAME  p5-question-ctrl-j-panel question-arrives        (15 rows compared)
+SAME  p5-question-ctrl-j-panel question-ctrl-j         (27 rows compared)
+14 of 14 pairs identical once the entries' rows are set aside
+
+## .prd/tui-phase4/receipts/m1/cells.py, raw
+SAME  p5-question-ctrl-j-40x120-ctrl-j
+SAME  p5-question-ctrl-j-40x120-down-ctrl-j
+SAME  p5-question-ctrl-j-40x120-end
+SAME  p5-question-ctrl-j-40x120-field-ctrl-j
+SAME  p5-question-ctrl-j-40x120-field
+SAME  p5-question-ctrl-j-40x120-kitty-ctrl-j
+SAME  p5-question-ctrl-j-40x120-not-ctrl-j
+SAME  p5-question-ctrl-j-40x120-tab-ctrl-j
+SAME  p5-question-ctrl-j-40x120-three
+SAME  p5-question-ctrl-j-40x120-xterm-ctrl-j
+DIFF  p5-question-ctrl-j-panel-40x120-end
+DIFF  p5-question-ctrl-j-panel-40x120-open-before-question
+SAME  p5-question-ctrl-j-panel-40x120-question-arrives
+DIFF  p5-question-ctrl-j-panel-40x120-question-ctrl-j
+11 of 14 identical by m1 cells.py (row 1 left out, no ledger normalization)
+
+## the rows the raw comparison differs on, the panel's three pairs (diff of the .txt captures, row 1 left out), each with the ledger entry that covers it
+# open-before-question
+<   Generating (1s) (↑2 ↓3)
+> • Generating (1s) (↑2 ↓3)
+<   Session           WRaFzQv2hqzf · saved    [normalization session-id]
+>   Session           1794301997232-268b4f1e7f286d49 · saved    [normalization session-id]
+>   Sandbox           none    [divergence status-panel-sandbox]
+<   Step limit        unlimited    [divergence status-panel-step-limit]
+>   Step limit        25    [divergence status-panel-step-limit]
+<   Updates           stable    [divergence status-panel-updates]
+<   Build             stable · 481104fdbc24    [normalization panel-build]
+>   Build             debug · 87daec96d033    [normalization panel-build]
+# question-ctrl-j
+<   Session           WRaFzQv2hqzf · saved    [normalization session-id]
+>   Session           1794301997232-268b4f1e7f286d49 · saved    [normalization session-id]
+>   Sandbox           none    [divergence status-panel-sandbox]
+<   Step limit        unlimited    [divergence status-panel-step-limit]
+>   Step limit        25    [divergence status-panel-step-limit]
+<   Updates           stable    [divergence status-panel-updates]
+<   Build             stable · 481104fdbc24    [normalization panel-build]
+>   Build             debug · 87daec96d033    [normalization panel-build]
+# end
+<   Session           WRaFzQv2hqzf · saved    [normalization session-id]
+>   Session           1794301997232-268b4f1e7f286d49 · saved    [normalization session-id]
+>   Sandbox           none    [divergence status-panel-sandbox]
+<   Step limit        unlimited    [divergence status-panel-step-limit]
+>   Step limit        25    [divergence status-panel-step-limit]
+<   Updates           stable    [divergence status-panel-updates]
+<   Build             stable · 481104fdbc24    [normalization panel-build]
+>   Build             debug · 87daec96d033    [normalization panel-build]
+
+## the unit's tests at 87daec96: cargo test --locked --lib -- model_question held_rule (the eight, and their neighbours the filter also matches)
+test tui::question::tests::ctrl_j_is_enter_to_a_model_question_and_the_newline_keys_are_not ... ok
+test tui::shell::tests::the_hint_row_under_a_model_question_is_the_questions_own ... ok
+test tui::shell::tests::the_turns_clock_stops_while_a_model_question_is_up_too ... ok
+test tui::shell::tests::a_model_question_takes_the_composers_rows_and_gives_them_back ... ok
+test tui::shell::tests::a_model_question_under_the_panel_takes_the_keys_and_the_screen_and_gives_them_back ... ok
+test tui::shell::tests::escape_and_ctrl_c_at_a_model_question_leave_cancelled_in_the_document ... ok
+test tui::shell::tests::a_ctrl_j_the_menu_took_does_not_count_for_the_held_rule ... ok
+test tui::shell::tests::a_model_question_over_the_menu_leaves_its_question_unpainted_until_a_frame ... ok
+test tui::shell::tests::a_ctrl_j_the_model_question_took_counts_for_the_held_rule_as_enter_does ... ok
+test tui::shell::tests::an_enter_another_surface_took_counts_for_the_held_rule ... ok
+test tui::shell::tests::keys_fx_does_not_read_as_ctrl_j_do_nothing_at_a_model_question ... ok
+test tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question ... ok
+test tui::shell::tests::ctrl_j_at_a_model_question_over_the_status_panel_answers_the_question_not_the_panel ... ok
+test tui::shell::tests::ctrl_j_in_one_read_answers_a_model_question_as_enter_does_in_that_read ... ok
+test tui::shell::tests::ctrl_j_answers_a_model_question_as_enter_does_at_a_choice_and_in_the_field ... ok
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 4761 filtered out; finished

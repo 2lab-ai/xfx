@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-87daec9 [debug] · Run /help for commands
+
+┃ ask three
+
+  1) Which depth?
+     Thorough
+  2) Ship it?
+     No
+  3) Anything else?
+     ab
+
+  Three done.
+
+  5s (↑3 ↓80)
+
+┃ ask two
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Xterm?
+
+    1) Keep
+    2) Change
+    3) Other
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+1–3 choose now    ↑↓ options    tab questions    enter answer    esc cancel                              Question 2 of 2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
