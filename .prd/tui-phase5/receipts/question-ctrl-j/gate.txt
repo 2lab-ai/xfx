@@ -70,3 +70,8 @@ head: 998a434ba1127d0ab9aac5c19f660daa807d8fcf
 == cargo fmt --check: exit 0
 == cargo clippy --locked --all-targets -- -D warnings: exit 0
 == cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0
+
+# at 17e18981 (round 2's last content commit; the commit after adds only these lines): scripts/check-no-secrets.sh exit 0 -- check-no-secrets: ok (20090 tracked file(s) scanned)
+# at 17e18981 (round 2's last content commit; the commit after adds only these lines): scripts/check-xfx-identity.sh exit 0 -- check-xfx-identity: ok (20090 tracked file(s) scanned)
+# at 17e18981 (round 2's last content commit; the commit after adds only these lines): scripts/check-no-stubs.sh exit 0 -- check-no-stubs: ok
+# at 17e18981 (round 2's last content commit; the commit after adds only these lines): scripts/check-no-local-paths.sh exit 0 -- check-no-local-paths: ok (20090 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
