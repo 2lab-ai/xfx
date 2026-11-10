@@ -16,10 +16,10 @@
 //!   descend a symlink. Hidden names are in either way, `.git` never is, a
 //!   tracked file that no longer exists is dropped, and so is any path that
 //!   could not be painted as it stands ([`is_terminal_safe`]).
-//! * **How much** (`file_index.zig:23-24`): at most [`MOST_INDEXED`] entries,
-//!   none longer than [`MOST_PATH_BYTES`], files and directories merged in byte
-//!   order. A query shows at most [`MOST_RESULTS`] of them
-//!   (`file_completion_state.zig:5`).
+//! * **How much** (`file_index.zig:25-26@481104fd`): at most [`MOST_INDEXED`]
+//!   entries, none longer than [`MOST_PATH_BYTES`], files and directories merged
+//!   in byte order. A query shows at most [`MOST_RESULTS`] of them
+//!   (`file_completion_state.zig:7@481104fd`).
 //! * **How a query ranks them** (`choosePlacement` and `scoreBetter`,
 //!   `file_index.zig:1776-1819`, `:1884-1890@481104fd`): a case-blind
 //!   subsequence, placed where fzf's v2 path score is highest -- inside the
@@ -59,13 +59,13 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::workspace::path::is_ignored_directory;
 
-/// The most entries an index holds (`max_indexed_files`, `file_index.zig:23`).
+/// The most entries an index holds (`max_indexed_files`, `file_index.zig:25@481104fd`).
 pub(crate) const MOST_INDEXED: usize = 100_000;
 
-/// The longest path an index holds (`max_path_len`, `file_index.zig:24`).
+/// The longest path an index holds (`max_path_len`, `file_index.zig:26@481104fd`).
 pub(crate) const MOST_PATH_BYTES: usize = 2048;
 
-/// The most rows one query yields (`file_completion_state.zig:5`, `capacity`).
+/// The most rows one query yields (`capacity`, `file_completion_state.zig:7@481104fd`).
 pub(crate) const MOST_RESULTS: usize = 32;
 
 /// The most a `git ls-files` may print before it is not believed
@@ -530,7 +530,10 @@ fn list_entries(
 struct Score {
     /// The query is the path, the name, or the name up to a dot (`exactFit`).
     exact: bool,
-    /// The placement ends in the name, not in a folder above it.
+    /// The name tier: the placement is inside the name or runs from the
+    /// folder holding it into the name. Off for the last search over the
+    /// whole path, which ranks below every name match even where that
+    /// placement happens to end in the name (`ab/x/cd.ts` for `abcd`).
     name: bool,
     /// The placement's score, [`NAME_BONUS`] in it for one inside the name.
     quality: i32,
@@ -931,7 +934,8 @@ fn max_crossing_quality(query: &[char]) -> i32 {
 /// The placement a path is ranked by, and the search that found it
 /// (`choosePlacement`, `file_index.zig:1776-1819`): the best inside the name
 /// plus [`NAME_BONUS`], or a better one from the folder holding the name into
-/// it; failing both, the best anywhere, which ends in a folder.
+/// it; failing both, the best anywhere, ranked in the folder tier below every
+/// name match whether or not it ends in the name.
 fn choose_placement(
     path: &str,
     base: usize,
@@ -947,9 +951,6 @@ fn choose_placement(
     };
     let mut best = align_best(text, bytes, offsets, base, base, query, &mut s.align)
         .map(|(quality, first)| (place(quality + NAME_BONUS, first), base, base));
-    if best.is_none() && query.len() > 1 && !is_subsequence(text, query) {
-        return None;
-    }
     let can_win = best.is_none_or(|(inside, ..)| inside.quality < max_crossing_quality(query));
     if base > 0 && query.len() > 1 && can_win {
         let folder = text[..base - 1]
@@ -978,16 +979,6 @@ fn choose_placement(
     })
 }
 
-fn is_subsequence(text: &[char], query: &[char]) -> bool {
-    let mut wanted = query.iter().peekable();
-    for scalar in text {
-        if wanted.next_if_eq(&scalar).is_some() && wanted.peek().is_none() {
-            return true;
-        }
-    }
-    false
-}
-
 /// A query, case-folded once.
 struct Folded(Vec<char>);
 
@@ -998,7 +989,9 @@ impl Folded {
 }
 
 /// One scalar's case fold: its lower case when that is one scalar, itself
-/// otherwise (upstream's `unicode_simple_fold`, which is a one-to-one map).
+/// otherwise. Not upstream's `unicode_simple_fold`: that maps `ς` to `σ`,
+/// which lower-casing leaves apart, so `σigma` finds `ςigma` in fx and not
+/// here (`file_index.zig:2909-2944@481104fd`). Unit CASE-FOLD-SIMPLE, queued.
 fn fold(scalar: char) -> char {
     if scalar.is_ascii() {
         return scalar.to_ascii_lowercase();
@@ -1011,7 +1004,10 @@ fn fold(scalar: char) -> char {
 }
 
 /// Whether `path` holds `query`'s scalars in order at all: one pass, which
-/// most paths fail, before any is scored.
+/// most paths fail, before any is scored. fx checks the same in
+/// `choosePlacement` once the name has no placement (`isSubsequence`,
+/// `file_index.zig:1804@481104fd`); here it comes first, so
+/// [`choose_placement`] needs no second check.
 fn holds(path: &str, query: &[char]) -> bool {
     let mut wanted = query.iter().peekable();
     path.chars()
@@ -1104,7 +1100,7 @@ fn spans(path: &str, query: &Folded, s: &mut Scratch) -> Vec<Range<usize>> {
 }
 
 /// The [`MOST_RESULTS`] best of `entries` for `query`, best first
-/// (`searchAtRevision`, `file_index.zig:585-649`).
+/// (`searchAtRevision`, `file_index.zig:585-645@481104fd`).
 ///
 /// An empty query is the first entries in the index's own order and matches
 /// nothing in particular, so no row has a bold run.
@@ -1122,7 +1118,9 @@ pub(crate) fn search(entries: &[Candidate], query: &str) -> Vec<Found> {
     }
     let folded = Folded::new(query);
     let mut scratch = Scratch::default();
-    let mut ranked: Vec<(Score, usize)> = Vec::new();
+    // Room for every entry, so a query that matches most of a large index
+    // never grows it; fx keeps a bounded top set instead (AT-RANK-PERF).
+    let mut ranked: Vec<(Score, usize)> = Vec::with_capacity(entries.len());
     for (index, candidate) in entries.iter().enumerate() {
         if let Some(score) = score(&candidate.path, &folded, &mut scratch) {
             ranked.push((score, index));
@@ -2452,6 +2450,46 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn the_first_letters_bonus_counts_twice() {
+        // `bonus_first_char_multiplier` (`file_index.zig:1420@481104fd`) in
+        // `scoreAlignment` (`:1498-1521`). For `ab`, `aab` places `a` at its
+        // start (9 after the implied `/`, twice: 34) and `b` a gap later
+        // (13): 47; `xaB` runs `aB` from no word start (16, then 16 and the
+        // camel bonus 7): 39. Counted once, `aab` makes 38 and goes second.
+        assert_eq!(rows(&candidates(&["xaB", "aab"]), "ab"), ["aab", "xaB"]);
+    }
+
+    #[test]
+    fn the_bold_letters_are_the_names_placement_when_the_folders_loses() {
+        // `reconstructMatchSpans` searches the chosen range again
+        // (`file_index.zig:1933-1935@481104fd`): the search through the
+        // folder ran last and left its own letters. For `abcd`, the name of
+        // `ab/c-d-ab-cd.ts` holds one placement, `ab` and `cd` after their
+        // `-` (101, and 4: 105), under `max_crossing_quality` (106), so the
+        // folder's search runs: `ab` at the start and `c`, `d` after the `/`
+        // and the `-` (102). The name's wins, and its letters are bold.
+        let found = search(&candidates(&["ab/c-d-ab-cd.ts"]), "abcd");
+        assert_eq!(found[0].spans, [7..9, 10..12]);
+    }
+
+    #[test]
+    fn of_two_placements_as_good_and_as_early_the_dynamic_programs_order_picks_the_bold_letters() {
+        // `alignBest` (`file_index.zig:1527-1720@481104fd`) keeps the first
+        // of equal candidates it is offered (`betterCandidate`, strict):
+        // a cell takes the run from the diagonal before the gap (`:1658-1686`),
+        // and the last row's cells are read first to last (`:1689-1704`).
+        // `BAbaab` for `abab`: `A b . a b` and `A b a . b` both score 69 from
+        // the same `A`; the diagonal into the last `b` comes first, so the
+        // bold letters are `Ab`, `ab`.
+        let found = search(&candidates(&["BAbaab"]), "abab");
+        assert_eq!(found[0].spans, [1..3, 4..6]);
+        // `xab-b` for `ab`: `ab` as a run and `a`, then `b` after the `-`,
+        // both 36 from the same `a`; the earlier last letter is read first.
+        let found = search(&candidates(&["xab-b"]), "ab");
+        assert_eq!(found[0].spans, one(1..3));
+    }
+
+    #[test]
     fn a_camel_start_and_a_matched_punctuation_earn_their_bonuses() {
         // `bonusFor` (`file_index.zig:1459-1475@481104fd`): an upper-case
         // letter after a lower-case one earns 7, so `axB` (54) ranks above
@@ -3018,9 +3056,11 @@ pub(crate) mod tests {
         // as every keystroke looks the query up again ([`Files::lookup`]), and
         // the p95 is held to xfx's frame: the lookup runs on the thread that
         // paints, which comes round every `TICK` (8 ms, `event_loop.rs`).
-        let Some(tree) = std::env::var_os("XFX_AT_BENCH_TREE") else {
-            return;
-        };
+        // Run by hand only (`#[ignore]`): without its tree it has nothing to
+        // measure, and says so rather than passing.
+        let tree = std::env::var_os("XFX_AT_BENCH_TREE").expect(
+            "XFX_AT_BENCH_TREE names the tree to walk (gen_tree.py in the AT-RANK receipt)",
+        );
         let entries = discover(Path::new(&tree), None, &AtomicBool::new(false)).expect("a walk");
         eprintln!("entries: {}", entries.len());
         let queries = [

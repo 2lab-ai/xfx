@@ -669,13 +669,14 @@ why = "fx v0.0.16 asks up to 20 questions in a batch (`max_questions = 20`, `que
 [[cause]]
 id = "at-plan-run-directory"
 kind = "scenario"
-owner = "scenario"
+owner = "SWEEP-TEMPNAME-STYLE (queued): capture.sh's run directory under a fixed name, the same for fx's run and xfx's, so a path through it is placed and bolded alike"
 scenarios = ["workspace-index"]
 snaps = ["at-plan"]
-fx_row = '/extra/notes/$'
-xfx_row = '/extra/notes/$'
-fix = "a query the folder row matches inside its own name, or none of it (`@plan.md`), or capture.sh making the run directory's name fixed"
-why = "`@plan` matches the added folder `<tmp>/fxcap.<run>/extra/notes` only through its whole path, so the letters fx v0.0.16's placement score bolds there (`choosePlacement`'s last search, `file_index.zig:1815-1818@481104fd`) depend on the run directory's six random characters, which differ between the two captures: in AT-RANK's head sweep fx's run `fxcap.qnVERa` gave its `n`, and xfx's `fxcap.YTZTDF`, with none, the `n` of `notes`. The text is the same and each side bolds the best placement in its own path; xfx's rule on both paths is pinned (`a_folder_row_that_only_the_whole_path_matches_is_bold_through_the_whole_path`, src/tui/file_index.rs). Until AT-RANK the row differed under the `at-ranking` cause (.prd/tui-phase5/receipts/at-rank/README.md)."
+rows = [13]
+fx_row = '^  /\S+/fxcap\.XXXXXX/extra/notes/$'
+xfx_row = '^  /\S+/fxcap\.XXXXXX/extra/notes/$'
+fix = "SWEEP-TEMPNAME-STYLE's fixed run directory name; or a query the folder row matches inside its own name, or not at all (`@plan.md`)"
+why = "`@plan` matches the added folder `<tmp>/fxcap.<run>/extra/notes` only through its whole path, so the letters fx v0.0.16's placement score bolds there (`choosePlacement`'s last search, `file_index.zig:1815-1818@481104fd`) depend on the run directory's six random characters, which differ between the two captures: in AT-RANK's head sweep fx's run `fxcap.qnVERa` gave its `n`, and xfx's `fxcap.YTZTDF`, with none, the `n` of `notes` (.prd/tui-phase5/receipts/at-rank/at-plan-sweep/). The text is the same and each side bolds the best placement in its own path; xfx's rule on both paths is pinned (`a_folder_row_that_only_the_whole_path_matches_is_bold_through_the_whole_path`, src/tui/file_index.rs). Until AT-RANK the row differed under the `at-ranking` cause (.prd/tui-phase5/receipts/at-rank/README.md)."
 
 [[cause]]
 id = "at-resize-band-at-the-bottom"
