@@ -1,0 +1,77 @@
+# base 3c4b519d (round 2), release lib test binary, run 2
+# XFX_AT_BENCH_TREE=<scratch>/tree100k
+# before: load averages: 9.04 11.22 14.18 (18 cores)
+running 1 test
+test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... entries: 100000
+exact            33 keys  1 rows p50 182.916µs p95 3.960375ms max 4.637291ms
+boundary          5 keys 32 rows p50 539.333µs p95 810.333µs max 945µs
+low-selectivity   2 keys 32 rows p50 512.75µs p95 3.73425ms max 3.735792ms
+long-gap          4 keys 32 rows p50 1.573542ms p95 3.630709ms max 3.77575ms
+no-match         14 keys  0 rows p50 187.792µs p95 254µs max 264.25µs
+punctuation       9 keys  1 rows p50 576.375µs p95 1.799208ms max 1.859833ms
+unicode           3 keys  1 rows p50 164.584µs p95 167.458µs max 168.917µs
+unicode-fold      3 keys 32 rows p50 369.125µs p95 560.291µs max 610.708µs
+every keystroke: 1460 searches p50 252.708µs p95 3.604583ms p99 4.472958ms max 4.637291ms
+whole queries (fx's gate): 160 searches p50 352.875µs p95 3.702625ms
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4661 filtered out; finished in 3.89s
+# after: load averages: 8.63 11.10 14.12
+
+# head f8daa194 (round 3), release lib test binary, run 2
+# XFX_AT_BENCH_TREE=<scratch>/tree100k
+# before: load averages: 8.63 11.10 14.12 (18 cores)
+running 1 test
+test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... entries: 100000
+exact            33 keys  1 rows p50 173.417µs p95 2.270625ms max 3.437292ms
+boundary          5 keys 32 rows p50 269.334µs p95 315.792µs max 506.917µs
+low-selectivity   2 keys 32 rows p50 391.25µs p95 1.994ms max 2.005958ms
+long-gap          4 keys 32 rows p50 634.166µs p95 2.085417ms max 2.19275ms
+no-match         14 keys  0 rows p50 170.75µs p95 231.375µs max 255.5µs
+punctuation       9 keys  1 rows p50 354µs p95 839.542µs max 1.288625ms
+unicode           3 keys  1 rows p50 166.833µs p95 173.208µs max 174.416µs
+unicode-fold      3 keys 32 rows p50 247.709µs p95 359.584µs max 393.959µs
+every keystroke: 1460 searches p50 203.375µs p95 1.958667ms p99 3.228833ms max 3.437292ms
+whole queries (fx's gate): 160 searches p50 264.042µs p95 1.975333ms
+slowest: 3.437292ms at "src/", pass 8 of 23
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4661 filtered out; finished in 2.73s
+# after: load averages: 8.63 11.10 14.12
+
+# base 3c4b519d (round 2), release lib test binary, run 2
+# XFX_AT_BENCH_TREE unset (fx's inventory, in memory)
+# before: load averages: 8.63 11.10 14.12 (18 cores)
+running 1 test
+test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... entries: 100000
+exact            33 keys  1 rows p50 178.041µs p95 4.292042ms max 5.685459ms
+boundary          5 keys 32 rows p50 481.667µs p95 793.291µs max 809.417µs
+low-selectivity   2 keys 32 rows p50 410.291µs p95 4.445375ms max 4.875542ms
+long-gap          4 keys 32 rows p50 1.581541ms p95 3.627041ms max 3.844666ms
+no-match         14 keys  0 rows p50 207.959µs p95 252.542µs max 305.292µs
+punctuation       9 keys  1 rows p50 573.375µs p95 1.769709ms max 1.900542ms
+unicode           3 keys  1 rows p50 163.625µs p95 167.75µs max 174.167µs
+unicode-fold      3 keys 32 rows p50 437.75µs p95 762.417µs max 832.792µs
+every keystroke: 1460 searches p50 252.291µs p95 3.4855ms p99 4.859917ms max 5.685459ms
+whole queries (fx's gate): 160 searches p50 373.666µs p95 3.7805ms
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4661 filtered out; finished in 1.31s
+# after: load averages: 8.50 11.03 14.08
+
+# head f8daa194 (round 3), release lib test binary, run 2
+# XFX_AT_BENCH_TREE unset (fx's inventory, in memory)
+# before: load averages: 8.50 11.03 14.08 (18 cores)
+running 1 test
+test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... entries: 100000
+exact            33 keys  1 rows p50 173.667µs p95 1.800583ms max 3.638625ms
+boundary          5 keys 32 rows p50 286.917µs p95 313.25µs max 357.917µs
+low-selectivity   2 keys 32 rows p50 284.375µs p95 1.809042ms max 1.835791ms
+long-gap          4 keys 32 rows p50 526µs p95 1.610125ms max 1.775708ms
+no-match         14 keys  0 rows p50 171.542µs p95 222.709µs max 239.792µs
+punctuation       9 keys  1 rows p50 302.75µs p95 663.708µs max 829.125µs
+unicode           3 keys  1 rows p50 164.25µs p95 167.375µs max 171.625µs
+unicode-fold      3 keys 32 rows p50 286.625µs p95 320.042µs max 364.958µs
+every keystroke: 1460 searches p50 204.708µs p95 1.563958ms p99 3.214292ms max 3.638625ms
+whole queries (fx's gate): 160 searches p50 273.875µs p95 1.720875ms
+slowest: 3.638625ms at "src/", pass 21 of 23
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4661 filtered out; finished in 0.73s
+# after: load averages: 8.50 11.03 14.08

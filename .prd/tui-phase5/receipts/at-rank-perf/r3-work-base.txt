@@ -1,0 +1,56 @@
+# work counters at 3c4b519d (round 2's head), a release build of the profiling harness with temporary counters (r3-counters.py, never committed), each query searched for 1 s over fx's 100,000-entry inventory; figures per search
+== sr
+PC align_best runs                              per search    137522
+PC align_best greedy scan, bytes from its start per search   2097709
+PC align_best, no placement in its range        per search     99098
+PC align_best dynamic programs                  per search     10726
+PC align_best dynamic-program entries           per search     34150
+PC isSubsequence runs                           per search     66677
+PC isSubsequence, bytes in its path             per search   2268716
+PC entries with the folder cut on               per search     99619
+PC entries with the crossing cut on             per search         0
+PC isSubsequence runs with the folder cut on    per search     66442
+== src/
+PC align_best runs                              per search     85761
+PC align_best greedy scan, bytes from its start per search   1560824
+PC align_best, no placement in its range        per search     63917
+PC align_best dynamic programs                  per search     15934
+PC align_best dynamic-program entries           per search    106002
+PC isSubsequence runs                           per search     50465
+PC isSubsequence, bytes in its path             per search   1754988
+PC entries with the folder cut on               per search         0
+PC entries with the crossing cut on             per search         0
+PC isSubsequence runs with the folder cut on    per search         0
+== ae
+PC align_best runs                              per search    123855
+PC align_best greedy scan, bytes from its start per search   1858044
+PC align_best, no placement in its range        per search     83229
+PC align_best dynamic programs                  per search      4811
+PC align_best dynamic-program entries           per search     14560
+PC isSubsequence runs                           per search     57088
+PC isSubsequence, bytes in its path             per search   1918476
+PC entries with the folder cut on               per search     99675
+PC entries with the crossing cut on             per search         0
+PC isSubsequence runs with the folder cut on    per search     56844
+== as
+PC align_best runs                              per search    124124
+PC align_best greedy scan, bytes from its start per search   1867617
+PC align_best, no placement in its range        per search     86317
+PC align_best dynamic programs                  per search      3415
+PC align_best dynamic-program entries           per search     10519
+PC isSubsequence runs                           per search     60223
+PC isSubsequence, bytes in its path             per search   2012900
+PC entries with the folder cut on               per search     99815
+PC entries with the crossing cut on             per search         0
+PC isSubsequence runs with the folder cut on    per search     60095
+== ashr
+PC align_best runs                              per search     38183
+PC align_best greedy scan, bytes from its start per search    534517
+PC align_best, no placement in its range        per search     36822
+PC align_best dynamic programs                  per search       239
+PC align_best dynamic-program entries           per search      1378
+PC isSubsequence runs                           per search     29058
+PC isSubsequence, bytes in its path             per search   1035027
+PC entries with the folder cut on               per search     97610
+PC entries with the crossing cut on             per search         0
+PC isSubsequence runs with the folder cut on    per search     28334

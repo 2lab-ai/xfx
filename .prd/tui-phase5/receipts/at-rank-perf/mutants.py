@@ -4,7 +4,7 @@ time in a throwaway clone (`git clone --no-local`), and the modules that read
 the `@` list run against it with a time limit, in their own process group.
 A mutant the tests fail is KILLED; one that does not build is NO-BUILD and
 not counted as killed. (AT-RANK's runner, `../at-rank/mutants.py`, with this
-unit's mutants; round 3 adds four.)
+unit's mutants; round 3 adds four, round 4 seven.)
 
 usage: python3 -I mutants.py <clone> [<mutant id>...]
 The clone must be at the unit's head with no change; each mutant is restored
@@ -75,7 +75,8 @@ MUTANTS = [
         "                        }\n"
         "                    }\n"))),
     ("stale-facts-on-an-added-directory", edits((ADDED, "            entries.push(Candidate { path, ..candidate });\n"))),
-    ("name-start-not-kept", edits(("            name: basename_start(&path),\n", "            name: 0,\n"))),
+    # (round 4: `Candidate::new` binds the start first, for the two masks)
+    ("name-start-not-kept", edits(("        let name = basename_start(&path);\n", "        let name = 0usize;\n"))),
     # the narrowed scratch
     ("cell-reset-gone", edits((RESET, ""))),
     ("cell-reset-after-the-first-row", edits((RESET + ROW0, ROW0 + RESET))),
@@ -89,6 +90,27 @@ MUTANTS = [
     ("ascii-guard-at-2048", edits((
         "    if lower.is_empty() || lower.len() > MOST_PATH_BYTES {\n",
         "    if lower.is_empty() || lower.len() >= MOST_PATH_BYTES {\n"))),
+    # round 4 (AT-RANK-PERF r3): each speed-up broken the way that would
+    # move a row
+    ("byte-find-loses-its-offset", edits((
+        "        memchr::memchr(wanted, text.get(from..)?).map(|at| from + at)\n",
+        "        memchr::memchr(wanted, text.get(from..)?)\n"))),
+    ("scalar-find-loses-its-offset", edits(("        Some(from + at)\n", "        Some(at)\n"))),
+    ("backward-from-the-end-each-row", edits((
+        "        to = T::rfind(text, to, query[row])?;\n",
+        "        to = T::rfind(text, text.len(), query[row])?;\n"))),
+    ("subsequence-skip-drops-crossings", edits((
+        "needed.folder && !is_subsequence(text, query) {\n",
+        "(!needed.folder || !is_subsequence(text, query)) {\n"))),
+    ("folder-mask-of-the-name-only", edits((
+        "            folder_mask: letters(&lower[folder..]),\n",
+        "            folder_mask: letters(&lower[name..]),\n"))),
+    ("name-mask-without-its-first-letter", edits((
+        "            name_mask: letters(&lower[name..]),\n",
+        "            name_mask: letters(&lower[(name + 1).min(lower.len())..]),\n"))),
+    ("exact-without-the-prefix", edits((
+        "            && name[query.len()] == T::from(b'.')\n            && name.starts_with(query))\n",
+        "            && name[query.len()] == T::from(b'.'))\n"))),
 ]
 
 
