@@ -105,9 +105,19 @@ The suite has 108 tests: the 107 from before plus the refusal test.
     (what retired `catalog-window`), and `startup`.
   - Result (`ci-sweep-sample-long.txt`, `sweep-report.md`,
     `sweep-result.json`): every run ran (23 at the head, 7 at the base),
-    `failed 0, timeout 0` in both, 65 pairs, 53 pass, 0 regressions, exit 0.
-  - `sample-vs-train12-head.txt`: every scenario's pass count matches train
-    12's own head sweep (`../sweep-head.md`), 11 of 11.
+    `failed 0, timeout 0` in both, 65 pairs, 53 pass, exit 0. That shows the
+    sweep step runs at the long TMPDIR, and nothing more. It ran with
+    `--base HEAD` and one binary as both `--xfx` and `--base-xfx`, so it
+    compared the head with itself. Its "0 regression(s)" is no evidence,
+    and this receipt does not rest on it.
+  - The log calls the head sweep's binary `<base-xfx-bin>`
+    (`ci-sweep-sample-long.txt:4`). The two paths were the same, and the
+    redactor's map keeps the last name given for a path
+    (`scripts/fxcap/ci_sweep.py:595-598`).
+  - **What the look-ahead rests on** (`sample-vs-train12-head.txt`):
+    each scenario's pass count matches train 12's own head sweep
+    (`../sweep-head.md`), 11 of 11, so the sample read the same at the long
+    TMPDIR as train 12's sweep did.
   - The fx oracle's sha256 was `8e6cda2e...` before and after the sweep,
     which is the pin (`oracle-sha.txt`). `FX_AUTO_UPGRADE=0` was set.
 - **What else breaks only at the longer TMPDIR: nothing found.** In the
