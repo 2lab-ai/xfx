@@ -473,8 +473,12 @@ session's id, 55 **LOCAL-PATHS's placeholder** where main's row held a path
 of the run, 7 xfx's `/stats` row (`ansi_bytes` 4367 on main, 4391 at the
 head, in `p5-panels-sweep-b`; *(cause not measured)*, the pairs' verdicts
 unmoved), 6 the build id, 2 a turn's retry at a fixed moment, 1
-SWEEP-WALLCLOCK-F's `model-column-idle` `col-typed` (the rows, after the
-release), 1 the MCP state above. **Rows gained** (`gained-rows.txt`): 78
+SWEEP-WALLCLOCK-F's `model-parked` `menu-loading` (fx's screen: `Thinking`,
+`Models 0` while the turn waits on the failed catalog's retry, as the unit
+registered under `activity-tokens-before-request`), 1 the MCP state above.
+(`model-column-idle` `col-typed` is among the snaps where fx's screen moved
+at the same rows as xfx's: the rows on both at the head, the failure on both
+in main's sweep; `screen-moves-main.txt`.) **Rows gained** (`gained-rows.txt`): 78
 pairs, 77 unresolved or approved on both sides; 57 hold a placeholder where
 main's row held a path, 21 run-local text (ports, clocks, a retry's moment,
 the `/stats` bytes) -- and `list-remote`, above.
@@ -548,8 +552,10 @@ each side (`workspace-index` `at-plan`, `p5-lifecycle-retryok` `k01-1.5s`).
   section 1: "a fragment of a root above it ... holds no run name, and in a
   tracked file the check's shapes are what refuse it"), met by a long
   checkout path, not by this train's merge: the pairs read the same on both
-  sides, and a capture holding such a fragment cannot be committed past
-  `check-no-local-paths.sh`. Main's sweep, with no rewrite, has them in 950
+  sides, and a capture holding such a fragment would be refused by
+  `check-no-local-paths.sh`'s shapes if committed [read from the code: its
+  home-directory shape, LOCAL-PATHS's README section 4; not run on these
+  files]. Main's sweep, with no rewrite, has them in 950
   of its 9474 capture files (`capture-scan-main.txt`); the head's in 62 of
   9556.
 - **`p5-panels-badsettings` fails on both sweeps**: fx ends before its first
@@ -596,11 +602,11 @@ receipt's last commit (`final-scan.txt`).
   `ledger_numbers.py`, `token-check.txt`, `token-self-test.txt`,
   `token-control-train11.txt`.
 - `refs.py`, `refs_all.py`, `refs_short.py`, `refs_bare.py` (trains 7's and
-  9's), `refs_prd.py` (new); `refs-*-pre.txt` (at `12b56ab8`),
-  `refs-*-head.txt` (at `03fb5436`); `repoint.py`, `repoint-plan.txt`,
+  9's), `refs_prd.py` (new); `refs-pre.txt`, `refs-*-pre.txt` (at
+  `12b56ab8`), `refs-head.txt`, `refs-*-head.txt` (at `03fb5436`); `repoint.py`, `repoint-plan.txt`,
   `repointed.py`, `repointed.txt`; `prd_refs.sh`, `prd-refs.txt`.
-- Join checks: `harness_names.sh`, `asks.py`, `capture_scan.py` /
-  `capture-scan.txt`; `jobs.sh` (parts `named`, `mutant`, `net`),
+- Join checks: `harness_names.sh`, `asks.py`, `asks-head.txt`,
+  `capture_scan.py` / `capture-scan.txt`, `capture-scan-main.txt`; `jobs.sh` (parts `named`, `mutant`, `net`),
   `jobs-*.txt`, `net.py`, `connect.log`; `unit_paths.sh` / `unit-paths.txt`,
   `ci_rows.rb` / `ci-rows.txt`, `shell_hunks.sh` / `shell-hunks.txt`,
   `pairs_of.py`, `short8.py`, `irl-pairs.txt`; `midbranch_scan.py`.
@@ -609,6 +615,7 @@ receipt's last commit (`final-scan.txt`).
   `gates-files.txt`; `final-scan.sh`, `final-scan.txt`; `redacted.py`.
 - Sweeps: `sweep.sh`, `irl41-selection.txt`, `irl8-selection.txt`,
   `sweep-runs.sh` / `sweep-runs.txt`, `sweep-*.md`; `sweep-compare.sh`,
-  `compare.py`, `screen_moves.py`, `unit_compare.py`, `banners.py`,
-  `compare-*.txt`, `screen-moves-main.txt`; `sweep-rerun.sh`, `reruns.sh`,
-  `reruns.txt`.
+  `compare.py`, `screen_moves.py`, `screen_classes.py`, `gained_rows.py`,
+  `unit_compare.py`, `banners.py`, `compare-*.txt`, `screen-moves-main.txt`,
+  `screen-classes.txt`, `gained-rows.txt`; `sweep-rerun.sh`, `reruns.sh`,
+  `rerun_verdicts.py`, `reruns_txt.sh`, `reruns.txt`.
