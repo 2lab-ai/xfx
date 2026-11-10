@@ -290,6 +290,9 @@ pair-listing appended).
   87daec96 -- scripts/fxcap/parity-ledger.toml`: 9 lines out, 9 in, the
   same lines once those numbers are masked), so no normalization, divergence or
   cause pattern differs and the classification is the same on both sides.
+- Both sweeps ran before round 2 added `gwlog` to `p5-question-ctrl-j-panel`;
+  that line copies the request bodies and takes no snap, so the 81 pairs are
+  the same set.
 - No other pair changed class, cause or count. The four pairs that do not pass
   at the head are the panel's three cascades and `p5-question-resume-ctrlo`
   `resumed-ctrlo`, unresolved at both under its own cause,
