@@ -64,3 +64,16 @@ disallowed-methods = [
   { path = "std::env::home_dir", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one" },
   { path = "libc::getenv", reason = "the process environment is read through process_env! (src/lib.rs), so a unit test cannot read the real one" },
 ]
+
+# Compile-time reads: `env!` and `option_env!` bake the compiling shell's
+# environment into the binary, a test binary's too. Off in the ordinary run
+# (Cargo.toml's `[lints.clippy]`: 76 uses read what cargo and build.rs set);
+# `scripts/check-env-reads.py` forces the lint on and lets through only the
+# names it lists, and checks rustc's own record of every compile-time read
+# (dep-info `# env-dep:`), which also sees one nested in `concat!`.
+disallowed-macros = [
+  { path = "std::env", reason = "a compile-time read of the environment: scripts/check-env-reads.py lists the names that may be read" },
+  { path = "std::option_env", reason = "a compile-time read of the environment: scripts/check-env-reads.py lists the names that may be read" },
+  { path = "core::env", reason = "a compile-time read of the environment: scripts/check-env-reads.py lists the names that may be read" },
+  { path = "core::option_env", reason = "a compile-time read of the environment: scripts/check-env-reads.py lists the names that may be read" },
+]

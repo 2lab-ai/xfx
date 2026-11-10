@@ -129,6 +129,24 @@ ALLOWED_NAMES = {
 # `env_exception!(names())`: the names alone, never a value.
 NAMES = "names()"
 
+# Every name `env!` or `option_env!` may read at compile time, and why: what
+# cargo and build.rs set for the crate, never the person's environment.
+COMPILE_TIME_NAMES = {
+    "CARGO_MANIFEST_DIR": "cargo's: where a test finds the repository's own files",
+    "CARGO_PKG_NAME": "Cargo.toml's name",
+    "CARGO_PKG_VERSION": "Cargo.toml's version",
+    "CARGO_BIN_EXE_xfx": "cargo's: the xfx binary an integration test starts",
+    "XFX_BUILD_REVISION": "build.rs's: the revision the binary is built from",
+    "XFX_BUILD_CHANNEL": "build.rs's: the channel the build claims",
+}
+
+# What clippy-driver itself records as read at compile time (its own
+# arguments and configuration directory): not the crate's.
+CLIPPY_OWN = {"CLIPPY_ARGS", "CLIPPY_CONF_DIR"}
+
+# The compile-time readers clippy.toml disallows as macros.
+ENV_MACROS = {"std::env", "std::option_env", "core::env", "core::option_env"}
+
 # Every `env_exception!` invocation: its file and the names it reads, one
 # entry per invocation.
 EXCEPTIONS = [
@@ -221,7 +239,10 @@ LIST = re.compile(
     r"^(?:[a-z_][a-z0-9_]*::)?env_exception!\s*\(\s*first_set_os\s*\(\s*\[\s*"
     r'((?:"[A-Z][A-Z0-9_]*"\s*,\s*)*"[A-Z][A-Z0-9_]*")\s*,?\s*\]\s*\)\s*\)$'
 )
-DISALLOWED = re.compile(r"^use of a disallowed method `([^`]+)`")
+DISALLOWED = re.compile(r"^use of a disallowed (?:method|macro) `([^`]+)`")
+COMPILE_TIME = re.compile(
+    r'^(?:(?:std|core)::)?(?:option_env|env)!\s*\(\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*(?:,\s*"[^"\\]*"\s*)?,?\s*\)$'
+)
 
 # What the clippy run is not to take from the caller's environment: anything
 # that changes which lints run or which configuration clippy reads.
@@ -250,25 +271,49 @@ def clippy(crate, extra, env_extra=None):
     command = (
         ["cargo", "clippy", "--all-targets", "--message-format=json"]
         + extra
-        + ["--", "--force-warn", "clippy::disallowed_methods"]
+        + ["--", "--force-warn", "clippy::disallowed_methods", "--force-warn", "clippy::disallowed_macros"]
     )
     run = subprocess.run(
         command, cwd=crate, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
     messages = []
     tests = set()
+    compiled = collections.defaultdict(set)
     finished = None
+    manifest = os.path.realpath(os.path.join(crate, "Cargo.toml"))
     for line in run.stdout.decode().splitlines():
         if not line.startswith("{"):
             continue
         record = json.loads(line)
         if record.get("reason") == "compiler-message":
             messages.append(record)
-        elif record.get("reason") == "compiler-artifact" and record["target"]["kind"] == ["test"]:
-            tests.add(record["target"]["name"])
+        elif record.get("reason") == "compiler-artifact":
+            if record["target"]["kind"] == ["test"]:
+                tests.add(record["target"]["name"])
+            if os.path.realpath(record.get("manifest_path", "")) == manifest:
+                source = os.path.relpath(record["target"]["src_path"], crate)
+                compiled[source] |= compile_time_names(record["filenames"])
         elif record.get("reason") == "build-finished":
             finished = record.get("success")
-    return run.returncode, finished, run.stderr.decode(), messages, tests
+    return run.returncode, finished, run.stderr.decode(), messages, tests, compiled
+
+
+def compile_time_names(filenames):
+    """The names rustc's dep-info for these artifacts says were read at
+    compile time (`# env-dep:NAME=value`): the names, never the values."""
+    names = set()
+    for filename in filenames:
+        directory, base = os.path.split(filename)
+        stem = base[3:] if base.startswith("lib") else base
+        stem = stem.split(".")[0]
+        info = os.path.join(directory, stem + ".d")
+        if not os.path.exists(info):
+            continue
+        with open(info, "rb") as lines:
+            for line in lines:
+                if line.startswith(b"# env-dep:"):
+                    names.add(line[len(b"# env-dep:") :].split(b"=", 1)[0].strip().decode(errors="replace"))
+    return names - CLIPPY_OWN
 
 
 def expansions(span):
@@ -306,6 +351,7 @@ def classify(crate, messages, exception_file, process_env_file):
     process_env = 0
     plain = collections.Counter()
     plain_targets = collections.defaultdict(set)
+    compile_time = collections.Counter()
     problems = []
     def_sites = collections.defaultdict(set)
     for record in messages:
@@ -319,10 +365,29 @@ def classify(crate, messages, exception_file, process_env_file):
                 problems.append((where["file_name"], where["line_start"], "does not compile: " + message["message"].splitlines()[0]))
             continue
         code = (message.get("code") or {}).get("code")
-        if code != "clippy::disallowed_methods":
+        if code not in ("clippy::disallowed_methods", "clippy::disallowed_macros"):
             continue
         found = DISALLOWED.match(message["message"])
         path = found.group(1) if found else message["message"]
+        if code == "clippy::disallowed_macros":
+            key = ("macro-use", where["file_name"], where["byte_start"])
+            if key in seen:
+                continue
+            seen.add(key)
+            at = (where["file_name"], where["line_start"])
+            if path not in ENV_MACROS:
+                problems.append((*at, f"a use of {path}"))
+                continue
+            with open(os.path.join(crate, where["file_name"]), "rb") as source:
+                text = source.read()[where["byte_start"] : where["byte_end"]].decode()
+            literal = COMPILE_TIME.match(text)
+            if not literal:
+                problems.append((*at, f"a {path}! whose name is not a literal"))
+            elif literal.group(1) not in COMPILE_TIME_NAMES:
+                problems.append((*at, f"a {path}! of {literal.group(1)}, which is not a compile-time name"))
+            else:
+                compile_time[literal.group(1)] += 1
+            continue
         chain = expansions(where)
         if not chain:
             plain_targets[where["file_name"]].add(record["target"]["name"])
@@ -357,7 +422,16 @@ def classify(crate, messages, exception_file, process_env_file):
     for def_file, lines in def_sites.items():
         if def_file in (exception_file, process_env_file) and len(lines) != 1:
             problems.append((def_file, 0, f"{len(lines)} macros there let a read through, not one"))
-    return invocations, process_env, plain, problems, plain_targets
+    return invocations, process_env, plain, problems, plain_targets, compile_time
+
+
+def compiled_problems(compiled):
+    """A crate rustc says read, at compile time, a name not listed."""
+    problems = []
+    for source, names in sorted(compiled.items()):
+        for name in sorted(names - set(COMPILE_TIME_NAMES)):
+            problems.append((source, 0, f"compiled with {name} from the environment (rustc's dep-info), which is not a compile-time name"))
+    return problems
 
 
 def judge(invocations, plain, problems, exceptions, plain_listed):
@@ -397,19 +471,25 @@ def config_problems(root):
     methods = {entry["path"] for entry in rules.get("disallowed-methods", []) if isinstance(entry, dict)}
     for path in sorted((ENV_READERS | STARTS) - methods):
         problems.append(("clippy.toml", 0, f"disallowed-methods no longer holds {path}"))
+    macros = {entry["path"] for entry in rules.get("disallowed-macros", []) if isinstance(entry, dict)}
+    for path in sorted(ENV_MACROS - macros):
+        problems.append(("clippy.toml", 0, f"disallowed-macros no longer holds {path}"))
     return problems
 
 
 def check_tree():
     invocations, process_env, plain, problems = [], 0, collections.Counter(), config_problems(ROOT)
+    compile_time = collections.Counter()
     seen_invocations = set()
     for features in ([], ["--features", "fault-injection"]):
-        status, finished, stderr, messages, tests = clippy(ROOT, ["--locked"] + features)
+        status, finished, stderr, messages, tests, compiled = clippy(ROOT, ["--locked"] + features)
         if status != 0 or finished is not True:
             sys.stderr.write(stderr[-4000:])
             print(f"check-env-reads: clippy {' '.join(features) or '(default features)'} exited {status}")
             return 1
-        found, arms, calls, wrong, plain_targets = classify(ROOT, messages, ENV_EXCEPTION_FILE, PROCESS_ENV_FILE)
+        found, arms, calls, wrong, plain_targets, uses = classify(ROOT, messages, ENV_EXCEPTION_FILE, PROCESS_ENV_FILE)
+        compile_time = compile_time | uses
+        wrong += compiled_problems(compiled)
         # Every integration test binary reads its environment in
         # support::isolated, before main: one that does not has escaped it.
         isolating = {
@@ -441,7 +521,8 @@ def check_tree():
     print(
         f"check-env-reads: {len(invocations)} env_exception! invocations in "
         f"{len({file for file, _, _, _ in invocations})} files, {process_env} process_env! "
-        f"build arms, {sum(plain.values())} listed plain calls"
+        f"build arms, {sum(plain.values())} listed plain calls, "
+        f"{sum(compile_time.values())} compile-time reads of {len(compile_time)} names"
     )
     for file, line, why in sorted(problems):
         print(f"  refused: {file}:{line}: {why}")
@@ -551,6 +632,15 @@ FIXTURES = {
         "pub unsafe fn g() -> i32 { libc::execv(std::ptr::null(), std::ptr::null()) }",
         ["std::os::unix::process::CommandExt::exec outside", "libc::execv outside"],
     ),
+    "option_env_of_a_key": (
+        "#[cfg(test)]\nmod tests {\n    #[test]\n    fn reads() {\n"
+        '        assert!(option_env!("XFX_GATEWAY_KEY").is_none() || true);\n    }\n}',
+        ["core::option_env! of XFX_GATEWAY_KEY", "compiled with XFX_GATEWAY_KEY"],
+    ),
+    "env_inside_concat": (
+        'pub const BY: &str = concat!("by ", env!("CARGO_PKG_AUTHORS"));',
+        ["compiled with CARGO_PKG_AUTHORS"],
+    ),
     "a_start_under_an_env_allow": (
         "pub fn f() -> bool {\n    " + ALLOW + '\n    let started = std::process::Command::new("true").status();\n    started.is_ok()\n}',
         ["std::process::Command::status outside"],
@@ -603,10 +693,11 @@ def self_test():
         for name, (source, _) in FIXTURES.items():
             with open(os.path.join(crate, "tests", name + ".rs"), "w") as fixture:
                 fixture.write(source + "\n")
-        _, _, stderr, messages, _ = clippy(
+        _, _, stderr, messages, _, compiled = clippy(
             crate, ["--offline", "--keep-going"], {"CARGO_TARGET_DIR": os.path.join(scratch, "target")}
         )
-        invocations, _, plain, problems, _ = classify(crate, messages, macro, None)
+        invocations, _, plain, problems, _, _ = classify(crate, messages, macro, None)
+        problems += compiled_problems(compiled)
         problems = judge(invocations, plain, problems, [("tests/accepted.rs", ("PATH",))], [])
         failures = 0
         for name, (_, reasons) in FIXTURES.items():

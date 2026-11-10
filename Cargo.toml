@@ -94,3 +94,9 @@ rustix = { version = "1", features = ["fs", "process", "pty", "termios"] }
 
 [profile.release]
 strip = true
+
+# `env!` and `option_env!` are disallowed macros (clippy.toml), held by
+# scripts/check-env-reads.py, which forces the lint on and allows only the
+# names it lists. Off here, where the 76 uses of those names would fail it.
+[lints.clippy]
+disallowed_macros = "allow"
