@@ -21,3 +21,4 @@ wait 1.5
 snap question-ctrl-j
 wait 1
 snap end
+gwlog

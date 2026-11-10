@@ -9,4 +9,5 @@ xfx/  xfx    eb1cdcd3254c7578e21b8510e844dd08df77e181342f4a851463b461187485c5  r
 # capture.sh's guard lines, one per fx run (the oracle's path written <fx-bin>)
 guards: <fx-bin> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 guards: <fx-bin> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
-
+guards: <fx-bin> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+# (the third: round 2's recapture of p5-question-ctrl-j-panel with gwlog added, the same three binaries; red/ and xfx/ of that scenario recaptured with them)

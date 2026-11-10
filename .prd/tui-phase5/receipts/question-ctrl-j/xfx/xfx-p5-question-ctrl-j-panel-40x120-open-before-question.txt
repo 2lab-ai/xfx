@@ -2,12 +2,12 @@ x𝒇x v0.1.0-87daec9 [debug] · Run /help for commands
 
 ┃ ask me
 
-• Generating (1s) (↑2 ↓3)
+  Generating (1s) (↑2 ↓3)
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Status
 
-  Session           1794301997232-268b4f1e7f286d49 · saved
+  Session           1794305275214-7dd936da5a30e66b · saved
   Model             fake/model-a
   Auth              AI_GATEWAY_API_KEY
   Permissions       auto

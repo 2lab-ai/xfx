@@ -1,0 +1,46 @@
+# fx's meta-prefixed Ctrl+J, ESC ESC [106;5u, at a model question on xfx: a probe, not a committed test.
+# fx reads it as the byte 0x0a (ESC ESC sets the prefix, escape_parser.zig:552-555@481104fd; the report carries it, :686-691; the
+# Ctrl-letter rule ignores it, :255-258), so fx takes choice 1 at a choice and the field's text in the field. xfx's decoder has no
+# meta prefix (kitty_key's doc, src/tui/input.rs) and reads ESC, then the report. Owner: META-PREFIX-DECODE (queued).
+# The probe was pasted into src/tui/shell.rs's mod tests at 998a434b, run as cargo test --locked --lib -- zz_probe --nocapture,
+# and the file restored (git diff empty after). Its source, then its output:
+
+    #[test]
+    fn zz_probe_meta_prefixed_ctrl_j_at_a_model_question() {
+        // A probe, not committed: `ESC ESC [106;5u` (fx's meta-prefixed
+        // Ctrl+J) at a choice and in the field, on xfx's decoder.
+        for field in [false, true] {
+            let mut fixture = shell(24, 120);
+            let started = asking_question(&mut fixture, a_batch());
+            if field {
+                fixture.route_bytes(b"3");
+                fixture.route_bytes(b"ab");
+            }
+            fixture.route_bytes(b"\x1b\x1b[106;5u");
+            fixture.settle_input(started + Decoder::ESC_TIMEOUT * 4);
+            let rows = fixture.band_rows();
+            let shown = ["Which depth?", "Ship it?"]
+                .into_iter()
+                .find(|title| rows.iter().any(|row| row.contains(title)));
+            let sent = fixture.controlled();
+            let hint = fixture.hint();
+            let composer = fixture.editor.text().to_string();
+            println!(
+                "PROBE field {field}: control channel {:?}; question up {}; shown {:?}; composer {:?}; hint {:?}",
+                sent,
+                fixture.ask.is_some(),
+                shown,
+                composer,
+                hint
+            );
+        }
+    }
+
+
+PROBE field false: control channel Some(Cancel { through: 1 }); question up false; shown None; composer "\n"; hint "run `xfx setup` · auto · glm-5.2"
+PROBE field true: control channel None; question up true; shown Some("Ship it?"); composer ""; hint "1–3 choose now    ↑↓ options    tab questions    enter answer    esc cancel                          \u{1b}[0m \u{1b}[38;5;245mesc again to clear"
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4776 filtered out; finished in 0.01s
+
+# Read: at a choice the Escape cancels the batch and its turn (Cancel { through: 1 }) and the C-j is then a newline in the composer;
+# in the field with text the Escape arms the clear ('esc again to clear' on the hint row) and the C-j takes the text and moves to
+# the second question (Ship it?), as fx's C-j does.

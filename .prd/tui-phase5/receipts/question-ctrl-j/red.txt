@@ -1,4 +1,4 @@
-# The pairs at the base: fx/ (fx v0.0.16) against red/ (xfx built at afd891af, row 1 v0.1.0-afd891a)
+# The pairs at the base: fx/ (fx v0.0.16) against red/ (xfx built at afd891af, row 1 v0.1.0-afd891a); the panel scenario recaptured in round 2 with gwlog added, the same binaries
 
 ## python3 -I pairs.py red (every ledger normalization; the three /status divergences' rows set aside)
 DIFF  p5-question-ctrl-j ctrl-j                        4 rows differ

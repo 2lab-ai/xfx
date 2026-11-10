@@ -5,7 +5,9 @@ fails. Never run against the worktree: the clone must sit under
 `$TMPDIR/mut/`, and its build and temp files go beside it there.
 APPROVAL-CTRL-J's mutants.py, with this unit's mutants: M1-M3 the brief's
 three (M3 split by spelling), M4-M6 where and how C-j answers, M7 the fix
-taken out, M8-M9 /mcp's held-Enter rule."""
+taken out, M8-M9 /mcp's held-Enter rule; round 2's M10-M12 the guard side
+(a key fx does not read as C-j made C-j) and M13 the picker under the
+question."""
 import os, subprocess, sys, time
 repo, out = sys.argv[1], sys.argv[2]
 mut = os.path.join(os.environ["TMPDIR"].rstrip("/"), "mut")
@@ -30,6 +32,7 @@ XTERM = "                (Some(mask), Some(code)) => kitty_key(code, mask),\n"
 CTRL_LETTER = "    if mods & CTRL != 0 {\n        if let Some(byte @ (b'a'..=b'z' | b'A'..=b'Z' | b'_')) = ascii {\n"
 FOCUS = "            if self.ask.is_some() {\n                self.answer(event, now);\n"
 COUNTS = "                Input::Action(Action::ControlJ) => self.ask.is_some(),\n"
+ESC_NEWLINE = "            b'\\r' | b'\\n' => {\n                self.stage = Stage::Ground;\n                out.push(Input::Action(Action::InsertNewline));\n"
 MUTANTS = [
     # The brief's three.
     ("M1 C-j dropped at a choice", [(S, ANSWER, AT_A_CHOICE + ANSWER)]),
@@ -68,6 +71,24 @@ MUTANTS = [
     ]),
     ("M9 a C-j the menu takes counted for the held rule too", [
         (S, COUNTS, "                Input::Action(Action::ControlJ) => true,\n"),
+    ]),
+    # Round 2: the guard side -- a key fx does not read as C-j made C-j -- and
+    # the picker under the question.
+    ("M10 a kitty key release acts, as a press does", [
+        (I, KITTY, '        None | Some(b"1" | b"2" | b"3") => kitty_key(code, mask),\n'),
+    ]),
+    ("M11 ESC LF read as C-j", [
+        (I, ESC_NEWLINE, "            b'\\n' => {\n                self.stage = Stage::Ground;\n                out.push(Input::Action(Action::ControlJ));\n"
+                         "            }\n" + ESC_NEWLINE.replace("b'\\r' | b'\\n'", "b'\\r'")),
+    ]),
+    ("M12 kitty Alt-j read as C-j (Alt taken for Ctrl on a letter)", [
+        (I, "    if mods & CTRL != 0 {\n", "    if mods & (CTRL | ALT) != 0 {\n"),
+    ]),
+    ("M13 C-j goes to the /model picker under the question", [
+        (S, FOCUS, "            if matches!(event, Input::Action(Action::ControlJ))\n"
+                   "                && self.model_menu.is_some()\n"
+                   "                && self.offer_to_models(&event)\n"
+                   "            {\n                continue;\n            }\n" + FOCUS),
     ]),
 ]
 TESTS = [

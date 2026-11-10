@@ -64,3 +64,9 @@ src/tests/Cargo vs HEAD after: 0 changed
 # after aafbd7de (receipt tracked): scripts/check-xfx-identity.sh exit 0 -- check-xfx-identity: ok (20089 tracked file(s) scanned)
 # after aafbd7de (receipt tracked): scripts/check-no-stubs.sh exit 0 -- check-no-stubs: ok
 # after aafbd7de (receipt tracked): scripts/check-no-local-paths.sh exit 0 -- check-no-local-paths: ok (20089 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+
+# Round 2, at 998a434b (tests and docs only; product code 87daec96's): fmt and both clippy runs, then the unit's tests (green.txt's last section)
+head: 998a434ba1127d0ab9aac5c19f660daa807d8fcf
+== cargo fmt --check: exit 0
+== cargo clippy --locked --all-targets -- -D warnings: exit 0
+== cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0
