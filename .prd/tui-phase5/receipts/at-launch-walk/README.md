@@ -22,6 +22,10 @@ as this unit's tripwire (its README §3, §4, §10).
 | `7b16be2b` | the ledger's 12 `shell.rs` refs re-pointed (`refs.txt`) -- **the mutants' clone and the sweep's build** (`v0.1.0-7b16be2`) |
 | `286e1153` | this folder's runners, fx quotes, RED run, mutants and refs -- **the checks' and the gate's commit** |
 | (receipt) | this README, `checks.txt`, `gate.txt`, `fxcites.txt` and the sweep's files |
+| `91519dbe` | round 2: the loop-order case, the scoped launch case, one comment (§12) |
+| `27b6d873` | round 2: the ledger's 6 refs past them (`refs.txt`) -- **round 2's mutant clone** |
+| `889c6fc9` | round 2: four mutants in `mutants.py`, `round2-checks.sh` -- **round 2's checks** |
+| (round 2 receipt) | this README's §12, `round2-checks.txt`, `mutants-r2.txt`, `refs.txt`, `fxcites.txt` |
 
 Every fx line cited here is printed in `fx-src.txt` (`fx_src.sh`, at
 `481104fd`); "fx-src.txt:N" is its line. `fxcites.py` checks every fx
@@ -292,9 +296,12 @@ killed: each of them fails at `held` (no walk in flight) or on its rows.
   §1, §2's trace premise, §3, §4 (three places), §7, §8, §10 -- says it has
   ended, past tense, and points here; what each round said of its own code
   is left as it was.
-- Source comments that said xfx starts no index at launch
-  (`Files::refresh_index_for_list`, `Files::new`, the run-on case's second
-  half, the trace helper) say what it does now.
+- Source comments that said xfx starts no index at launch say what it
+  does now: four in round 1 (`Files::refresh_index_for_list`, `Files::new`,
+  the run-on case's second half, the trace helper) and a fifth in round 2,
+  which round 1 missed
+  (`the_first_indexed_episode_skips_its_refresh_while_the_index_loads`,
+  §12).
 
 ## 9. Gate (`gate.txt`)
 
@@ -346,3 +353,61 @@ launch-walk forms).
 
 None that needs a user decision. The loop-order instance (§10) extends a
 decision AT-SCOPE-INTERIM already recorded for the user's veto.
+
+## 12. Round 2
+
+Reviews of `f059cefa`: gpt6 (code, receipt) no MUST; opus APPROVE-WITH-FIXES,
+no MUST, two SHOULDs; a gpt6 NTH. Tests and comments only; no product code.
+
+- **The loop-order case, tested** (opus S1): the tick helper's fourth
+  combination, `first_at_before_the_poll(Ready, true)`, as
+  `a_first_at_after_a_change_whose_walk_ended_whole_before_the_poll_lists_its_rows`.
+  The launch walk adopted, a change, the change's walk whole but not
+  polled, then the first `@plan`: xfx lists the added directory's
+  `plan.md` at the `@` and after the next pass, never `Files unavailable`,
+  in three walks (the launch's, the change's, the list's refresh) -- the
+  side of the recorded decision (§10, the row's loop-order sentence) that
+  fx does not paint for one frame. Mutant `take-end-only-without-an-index`
+  -- the first `@`'s decision takes the walk's end only while no index is
+  adopted, which gives fx's frame -- dies on it and on the failed-change
+  case's walk count, and on nothing else (`mutants-r2.txt`).
+- **The stale comment** (opus S2):
+  `the_first_indexed_episode_skips_its_refresh_while_the_index_loads` said
+  a change before any `@` starts the install's walk, so the first `@` can
+  meet a loading index. It now says that in a session the first `@` meets
+  the launch's walk, and in this shell, never launched, the change's walk
+  stands in for it. §8 counts it.
+- **A launch with real scope** (gpt6 NTH):
+  `the_launch_walk_covers_the_saved_directories_with_the_launch_epoch_fresh_or_resumed`.
+  The profile, in the case's temp home, saves a directory holding
+  `plan.md` for the workspace (`workspaces[<workspace>].additional_directories`,
+  xfx's launch directories: interactive xfx has no `--add-dir`, `src/cli.rs`
+  `Command::Ask` only). `tui::open` runs fresh and resumed with a titled
+  replay of one concluded turn. Each time: one walk, the scope's epoch 1 --
+  the one change before it, the constructor's, which applied the
+  directories -- and the walk's epoch 1 (`Files::epochs_for_test`, new);
+  once the walk is whole, `lookup("plan")` answers that directory's
+  `plan.md` and no second walk starts. fx's order: `applyLaunch`
+  (`main.zig:682-686`, epoch moved by `app_workspace_runtime.zig:112-124`),
+  the resume (`main.zig:696-713`), then the walk (`app_entry_runtime.zig:334`).
+  Mutants `launch-walk-stale-epoch` (the walk tagged with the epoch before
+  the launch's change) and `launch-scope-without-the-saved-directories`
+  (the constructor's scope built without them) die on it.
+- **Mutants** (`mutants-r2.txt`): the four new ones, on a `--no-local`
+  clone at `27b6d873`, one at a time, the seven modules, the a-z TMPDIR,
+  one hold of the suite lock: **4 run, 4 killed**, none on a failed build;
+  the clone clean after. `decision-before-the-walks-end`
+  is AT-SCOPE-INTERIM round 3's tick mutant, run here against the cases
+  that moved to the launch walk: it dies on both launch-walk tick cases
+  and both change cases. `launch-walk-stale-epoch` also dies on three
+  older launch-walk cases; `launch-scope-without-the-saved-directories`
+  only on the new launch case.
+- **Checks** (`round2-checks.txt`, `round2-checks.sh`, at `889c6fc9`, the
+  a-z TMPDIR, one hold of the suite lock): fmt and both clippy runs exit 0;
+  the seven modules **1359 passed, 0 failed** (round 1's 1357 and the two
+  new cases); parity 26 passed, 0 failed; the two cases pass. The full
+  gate is the dispatcher's.
+- **Ledger:** 6 `shell.rs` refs re-pointed past the new case (`27b6d873`);
+  `refs.txt`: 17 checked, 0 wrong. No sweep: no product code changed
+  (`git diff f059cefa..HEAD -- src`: test modules, one comment, and a
+  `#[cfg(test)]` accessor on `Files`).

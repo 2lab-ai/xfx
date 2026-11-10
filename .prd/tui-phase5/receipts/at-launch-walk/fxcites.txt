@@ -1,8 +1,8 @@
-# python3 -I fxcites.py f4aa7dcc at the receipt commit (this folder's fxcites.py), then --self-test
-README.md: 34 citations, 0 failed
+# python3 -I fxcites.py f4aa7dcc at the round 2 receipt commit (this folder's fxcites.py), then --self-test
+README.md: 38 citations, 0 failed
 docs/parity.md:239: 9 citations, 0 failed
-src: 47 citations, 0 failed
-all: 90 citations, 0 failed
+src: 59 citations, 0 failed
+all: 106 citations, 0 failed
 ok   a quoted citation passes: 0 failed, planted 0
 ok   a quoted bare :N after its .zig passes: 0 failed, planted 0
 ok   an unquoted citation fails: 1 failed, planted 1
