@@ -73,5 +73,10 @@ cite src/ui/footer/picker_presentation.zig 754 771 "inlinePickerRowBudget(termin
 cite src/ui/footer/picker_presentation.zig 793 803 "const fixed_rows: u16 = 5 +| input_extra +| banner_rows"
 cite src/ui/footer/surface_frame.zig 543 551 "geometry.input_extra"
 
+section "F9 what xfx does not copy: past a blank the prefix goes on, for argument completion (/mcp's among it, under the same .slash latch) and for the skills its words find"
+cite src/core/slash_commands/command_specs.zig 636 644 "pub fn argCompletionAnchor"
+cite src/ui/footer/picker_presentation.zig 1170 1175 "skillMenuFilterQueryCount(skills, .all, prefix[1..])"
+cite src/core/app/input_completion_runtime.zig 142 169 "fn visibleInlinePickerKind"
+
 if (( fail )); then echo "fx_src.sh: a citation failed its range check" >&2; exit 1; fi
 echo "# every range above is inside its file and holds its needle"

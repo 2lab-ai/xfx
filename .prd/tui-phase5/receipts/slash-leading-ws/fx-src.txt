@@ -385,4 +385,55 @@
    550              banner_rows,
    551          )
 
+
+## F9 what xfx does not copy: past a blank the prefix goes on, for argument completion (/mcp's among it, under the same .slash latch) and for the skills its words find
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 636,644p
+   636  pub fn argCompletionAnchor(prefix: []const u8) usize {
+   637      if (mcpVerbsOn() and argCompletionPrefix(prefix, "/mcp") != null) return "/mcp ".len;
+   638      if (statuslineArgCompletionPrefix(prefix) != null) return "/statusline ".len;
+   639      if (notificationsArgCompletionPrefix(prefix) != null) return "/sound ".len;
+   640      if (permissionsArgCompletionPrefix(prefix) != null) return "/permissions ".len;
+   641      if (workspaceArgCompletionPrefix(prefix) != null) return "/workspace ".len;
+   642      if (allowlistArgCompletionAnchor(prefix)) |anchor| return anchor;
+   643      return 0;
+   644  }
+
+### git -C fx-upstream show 481104fd:src/ui/footer/picker_presentation.zig | sed -n 1170,1175p
+  1170  pub fn mixedSlashCompletionCount(registry: command_specs.SlashRegistry, prefix: []const u8, skills: []const skill_runtime.Skill) usize {
+  1171      const command_count = command_specs.slashCompletionCount(registry, prefix);
+  1172      if (command_specs.argCompletionAnchor(prefix) != 0) return command_count;
+  1173      if (prefix.len == 0 or prefix[0] != '/') return command_count;
+  1174      return command_count + skill_runtime.skillMenuFilterQueryCount(skills, .all, prefix[1..]);
+  1175  }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_completion_runtime.zig | sed -n 142,169p
+   142          fn visibleInlinePickerKind(app: *App) ?picker_state.InlinePickerKind {
+   143              if (comptime @hasField(App, "question_prompt")) {
+   144                  if (app.question_prompt.isActive()) return null;
+   145              }
+   146              if (comptime @hasField(App, "approval_prompt")) {
+   147                  if (app.approval_prompt.isActive()) return null;
+   148              }
+   149              if (comptime @hasField(App, "stream")) {
+   150                  if (app.stream.active) {
+   151                      if (hasModelQuery(app)) return .model;
+   152                      if (hasFileQuery(app)) return .file;
+   153                      if (visibleInlineSlashCompletion(app) != null) return .slash;
+   154                      if (visibleSlashCompletionCount(app) > 0) return .slash;
+   155                      return null;
+   156                  }
+   157              }
+   158              if (hasModelQuery(app)) return .model;
+   159              if (provider_picker_runtime.Runtime(App).hasQuery(app)) return .provider;
+   160              if (hasFileQuery(app)) return .file;
+   161              if (visibleInlineCompletion(app)) |completion| {
+   162                  return switch (completion) {
+   163                      .skill => .skill,
+   164                      .slash => .slash,
+   165                  };
+   166              }
+   167              if (visibleSlashCompletionCount(app) > 0) return .slash;
+   168              return null;
+   169          }
+
 # every range above is inside its file and holds its needle
