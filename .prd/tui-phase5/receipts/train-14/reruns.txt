@@ -1,0 +1,57 @@
+# Train 14's reruns (reruns.sh, one hold of the suite lock a batch, sweep-rerun.sh 3 times a scenario on each tree's own debug build; "main" in a name is the base dcfa5146, main itself)
+
+## batch 1: workspace-index, settings-collapse-open, head and base
+# head rerun 1 of workspace-index (40x120) at b3dffdad; xfx sha256 8b230e83d95cb184958251a8033cdd8adfcc643e339306cb855a9e8e24715705; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 4.74
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 2 of workspace-index (40x120) at b3dffdad; xfx sha256 8b230e83d95cb184958251a8033cdd8adfcc643e339306cb855a9e8e24715705; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 4.77
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 3 of workspace-index (40x120) at b3dffdad; xfx sha256 8b230e83d95cb184958251a8033cdd8adfcc643e339306cb855a9e8e24715705; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 9.42
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 1 of workspace-index (40x120) at dcfa5146; xfx sha256 344a72b06f9fae5d7999003453a8273b751267ddd33095f94beb5f44c8e40845; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 10.18
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 2 of workspace-index (40x120) at dcfa5146; xfx sha256 344a72b06f9fae5d7999003453a8273b751267ddd33095f94beb5f44c8e40845; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 10.54
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 3 of workspace-index (40x120) at dcfa5146; xfx sha256 344a72b06f9fae5d7999003453a8273b751267ddd33095f94beb5f44c8e40845; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 12.53
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 1 of settings-collapse-open (40x120) at b3dffdad; xfx sha256 8b230e83d95cb184958251a8033cdd8adfcc643e339306cb855a9e8e24715705; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 10.33
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 1 / 3 = 33.3%; unresolved 2, failed 0, timeout 0
+# head rerun 2 of settings-collapse-open (40x120) at b3dffdad; xfx sha256 8b230e83d95cb184958251a8033cdd8adfcc643e339306cb855a9e8e24715705; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 15.26
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 1 / 3 = 33.3%; unresolved 2, failed 0, timeout 0
+# head rerun 3 of settings-collapse-open (40x120) at b3dffdad; xfx sha256 8b230e83d95cb184958251a8033cdd8adfcc643e339306cb855a9e8e24715705; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 14.81
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 1 / 3 = 33.3%; unresolved 2, failed 0, timeout 0
+# main rerun 1 of settings-collapse-open (40x120) at dcfa5146; xfx sha256 344a72b06f9fae5d7999003453a8273b751267ddd33095f94beb5f44c8e40845; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 7.56
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 1 / 3 = 33.3%; unresolved 2, failed 0, timeout 0
+# main rerun 2 of settings-collapse-open (40x120) at dcfa5146; xfx sha256 344a72b06f9fae5d7999003453a8273b751267ddd33095f94beb5f44c8e40845; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 8.21
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 1 / 3 = 33.3%; unresolved 2, failed 0, timeout 0
+# main rerun 3 of settings-collapse-open (40x120) at dcfa5146; xfx sha256 344a72b06f9fae5d7999003453a8273b751267ddd33095f94beb5f44c8e40845; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 13.08
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 1 / 3 = 33.3%; unresolved 2, failed 0, timeout 0
+exit 0
+## head-workspace-index: 3 reruns
+    at-plan          NI NI NI  pass 3/3
+    at-all           NI NI NI  pass 3/3
+## main-workspace-index: 3 reruns
+    at-plan          NI NI NI  pass 3/3
+    at-all           NI NI NI  pass 3/3
+## head-settings-collapse-open: 3 reruns
+    running          UD UD UD  pass 0/3
+    collapse-on      UD UD UD  pass 0/3
+    after-esc        NI ID NI  pass 3/3
+## main-settings-collapse-open: 3 reruns
+    running          UD UD UD  pass 0/3
+    collapse-on      UD UD UD  pass 0/3
+    after-esc        ID ID ID  pass 3/3
+# and in the two main sweeps, read as one run each
+## sweep-head-workspace-index: 1 reruns
+    at-plan          UD  pass 0/1
+    at-all           NI  pass 1/1
+## sweep-base-workspace-index: 1 reruns
+    at-plan          NI  pass 1/1
+    at-all           NI  pass 1/1
+## sweep-head-settings-collapse-open: 1 reruns
+    running          UD  pass 0/1
+    collapse-on      UD  pass 0/1
+    after-esc        ID  pass 1/1
+## sweep-base-settings-collapse-open: 1 reruns
+    running          UD  pass 0/1
+    collapse-on      UD  pass 0/1
+    after-esc        NI  pass 1/1

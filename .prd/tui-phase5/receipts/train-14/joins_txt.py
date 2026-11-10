@@ -36,18 +36,18 @@ def pairs(out):
 
 PASS = ("identical", "normalized-identical")
 hp = pairs(head)
-print("## join check 1: the three globs at a 24-byte and a 49-byte TMPDIR, against the head's main sweep (its own TMPDIR)")
+print("## join check 1: the three globs at a 24-byte and a 49-byte TMPDIR, against the same tree's main sweep (its own TMPDIR)")
 for size, tmp in (("24", tmp24), ("49", tmp49)):
     out = os.path.join(joins, f"j1-{size}")
     jp = pairs(out)
     shared = sorted(set(jp) & set(hp))
     moved = [k for k in shared if jp[k] != hp[k]]
     npass = sum(jp[k] in PASS for k in jp)
-    print(f"### TMPDIR of {size} bytes: {len(jp)} pairs, {npass} pass; {len(shared)} also in the head's sweep, "
+    print(f"### TMPDIR of {size} bytes: {len(jp)} pairs, {npass} pass; {len(shared)} also in that sweep, "
           f"{sum(hp[k] in PASS for k in shared)} of them pass there; verdicts that differ: {len(moved)}; "
-          f"pairs not in the head's sweep: {len(set(jp) - set(hp))}")
+          f"pairs not in that sweep: {len(set(jp) - set(hp))}")
     for k in sorted(jp):
-        mark = "" if k not in hp else ("" if jp[k] == hp[k] else f"   (head sweep: {hp[k]})")
+        mark = "" if k not in hp else ("" if jp[k] == hp[k] else f"   (that sweep: {hp[k]})")
         print(f"  {k[0]} {k[1]}: {jp[k]}{mark}")
     held = brief = holders = 0
     files = glob.glob(os.path.join(out, "runs", "*", "*", "*.txt")) + glob.glob(os.path.join(out, "runs", "*", "*", "*.ansi"))
