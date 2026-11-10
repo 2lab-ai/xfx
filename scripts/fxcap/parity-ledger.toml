@@ -38,11 +38,11 @@ note = "the `fx` entry of the v0.0.16 release asset fx-macos-aarch64.tar.gz, who
 [[normalization]]
 id = "banner"
 fx = '^𝒇x v\d+\.\d+\.\d+ · Run /help for commands$'
-xfx = '^x𝒇x v\S+(?: \[[a-z]+\])? · Run /help for commands$'
+xfx = '^x𝒇x v\S+(?: \[[a-z]+\]| \([a-z]+(?: \S+)?\))? · Run /help for commands$'
 replace = "<banner>"
 attrs = "none"
-why = "Each product's first transcript row names the product and its version: fx `𝒇x v0.0.13`, xfx `x𝒇x v0.1.0-<rev> [debug]` (src/tui/shell.rs:189). The whole row, colours included, is the product's identity, not a screen to match; every receipt leaves it out (the M1 receipt's cells.py, row 1). Matched by its whole text wherever it stands, so a row 1 that is not the banner is compared."
-source = [".prd/tui-phase4/ssot.md:26", "src/tui/shell.rs:189", ".prd/tui-phase4/receipts/m1/README.md:49-50"]
+why = "Each product's first transcript row names the product and its version: fx `𝒇x v0.0.13`, xfx `x𝒇x v0.2.0 (debug 2026-11-10-0019-<rev>)` since the user's llmux format of 2026-11-10, `x𝒇x v0.1.0-<rev> [debug]` before it, which a base build still says (src/tui/shell.rs:183-191). The whole row, colours included, is the product's identity, not a screen to match; every receipt leaves it out (the M1 receipt's cells.py, row 1). Matched by its whole text wherever it stands, so a row 1 that is not the banner is compared."
+source = [".prd/tui-phase4/ssot.md:26", "src/tui/shell.rs:183-191", ".prd/tui-phase4/receipts/m1/README.md:49-50"]
 
 [[normalization]]
 id = "product-name"
@@ -55,9 +55,9 @@ source = [".prd/tui-phase4/receipts/m1/README.md:78-79", "scripts/fxcap/cells.py
 [[normalization]]
 id = "product-version"
 fx = '^(\* version: )\d+\.\d+\.\d+$|^(  build_(?:channel|revision)=)\S+$'
-xfx = '^(\* version: )\d+\.\d+\.\d+(?:-\S+)?$|^(  build_(?:channel|revision)=)\S+$'
+xfx = '^(\* version: )\d+\.\d+\.\d+(?:-\S+| \([a-z]+(?: \S+)?\))?$|^(  build_(?:channel|revision)=)\S+$'
 replace = '\1\2<build>'
-why = "The product's own version, build channel and revision, as `/version` and `/status` print them: upstream's shape (`* version: <semver>`, `build_channel=`, `build_revision=`), each product's values (fx 0.0.13 stable c1db919112c5, xfx 0.1.0 debug <rev>). The banner's version is the banner rule's."
+why = "The product's own version, build channel and revision, as `/version` and `/status` print them: upstream's shape (`* version: <semver>`, `build_channel=`, `build_revision=`), each product's values (fx 0.0.13 stable c1db919112c5, xfx `0.2.0 (debug 2026-11-10-0019-<rev>)` since the user's llmux format of 2026-11-10, bare `0.1.0` before it). The banner's version is the banner rule's."
 source = ["docs/parity.md:118"]
 
 [[normalization]]
@@ -589,9 +589,9 @@ owner = "P-status receipt"
 scenarios = ["p5-panels-status-short"]
 snaps = ["*"]
 fx_row = '^<banner>$'
-xfx_row = '^x𝒇x v\S+ \[debug\] · Run /help for$|^commands$'
-why = "At 50 columns a debug build's banner (`x𝒇x v0.1.0-<rev> [debug] · Run /help for commands`, 52 cells) wraps onto row 2, which the banner rule does not read, so every row under it stands one lower than fx's."
-fix = "capture xfx's side of the 24x50 run with a release build, whose banner has no `[debug]` and fits, or read a banner wrapped onto row 2 as the banner"
+xfx_row = '^x𝒇x v\S+ \[debug\] · Run /help for$|^commands$|^x𝒇x v\S+ \([a-z]+ \S+\)(?: ·)?$|^(?:· )?Run /help for commands$'
+why = "At 50 columns xfx's banner wraps onto row 2, which the banner rule does not read, so every row under it stands one lower than fx's: a debug build's `x𝒇x v0.1.0-<rev> [debug] · Run /help for commands` (52 cells) before the user's llmux format of 2026-11-10, and since it any build that knows its id, `x𝒇x v0.2.0 (debug 2026-11-10-0019-<rev>) · Run /help for commands` (57 cells; 59 for `release`)."
+fix = "read a banner wrapped onto row 2 as the banner"
 
 [[cause]]
 id = "R1-amendment-card"

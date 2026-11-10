@@ -166,7 +166,10 @@ export CONTRACT_CHANNEL='preview'
 # the filter let through by exception.
 export CONTRACT_EPOCH='.github/preview-epoch'
 export CONTRACT_CHANNEL_VARIABLE='XFX_BUILD_CHANNEL'
-export CONTRACT_REVISION_VARIABLE='XFX_BUILD_REVISION'
+export CONTRACT_ID_VARIABLE='XFX_BUILD_ID'
+# YYYY-MM-DD-HHMM-<sha12>: what a preview's version line names it, the tag's
+# minute and the commit (`xfx 0.2.0 (preview 2026-11-10-0019-ec40c7ad2e50)`).
+export CONTRACT_ID_GRAMMAR='^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[0-9a-f]{12}$'
 
 # --- presence ----------------------------------------------------------------
 
@@ -499,7 +502,7 @@ end
 
 if preflight
   outputs = preflight["outputs"] || {}
-  %w[tag version commit sha12].each do |name|
+  %w[tag version commit sha12 build_id].each do |name|
     value = outputs[name].to_s
     check.(value.include?("steps.") && value.include?("outputs.#{name}"),
            "preflight does not output #{name} from a step")
@@ -541,6 +544,8 @@ if preflight
          "preflight does not validate the tag against the exact preview grammar the tap parses")
   check.(text.include?(ENV.fetch("CONTRACT_VERSION_GRAMMAR")),
          "preflight does not validate the Homebrew version against its exact grammar")
+  check.(text.include?(ENV.fetch("CONTRACT_ID_GRAMMAR")),
+         "preflight does not validate the build id against its exact grammar")
   check.(text.include?("GITHUB_RUN_ID"),
          "the tag does not carry the numeric run id, so two runs in the same second collide")
   check.(text.include?("GITHUB_RUN_ATTEMPT"),
@@ -617,8 +622,8 @@ if build
     env = stamp["env"] || {}
     check.(env[ENV.fetch("CONTRACT_CHANNEL_VARIABLE")] == ENV.fetch("CONTRACT_CHANNEL"),
            "the release build is not stamped #{ENV.fetch('CONTRACT_CHANNEL_VARIABLE')}=#{ENV.fetch('CONTRACT_CHANNEL')}, so the binary would claim a channel it is not")
-    check.(env[ENV.fetch("CONTRACT_REVISION_VARIABLE")] == "${{ needs.preflight.outputs.commit }}",
-           "the release build is not stamped with the exact source commit through #{ENV.fetch('CONTRACT_REVISION_VARIABLE')}")
+    check.(env[ENV.fetch("CONTRACT_ID_VARIABLE")] == "${{ needs.preflight.outputs.build_id }}",
+           "the release build is not stamped with the id preflight named it through #{ENV.fetch('CONTRACT_ID_VARIABLE')}")
 
     status_step = step_index(build, "status --json")
     smoke_step = step_index(build, "./scripts/smoke.sh target/release/xfx")
@@ -635,6 +640,8 @@ if build
              "the built binary is never asserted to report a build revision")
       check.(status_run.include?("needs.preflight.outputs.sha12"),
              "the reported revision is not compared against the commit being published")
+      check.(status_run.include?("needs.preflight.outputs.build_id"),
+             "the reported version line is not compared against the id the build was stamped with")
     end
 
     check.(!smoke_step.nil? && smoke_step > build_step,

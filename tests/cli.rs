@@ -161,15 +161,42 @@ fn manifest_dir() -> PathBuf {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn version_aliases_print_the_bare_package_version() {
+fn version_aliases_print_the_version_line_status_reports() {
+    // llmux's line in this product's name, at the user's word of 2026-11-10:
+    // `xfx 0.2.0 (preview 2026-11-10-0019-ec40c7ad2e50)`. The same text as
+    // `status`'s `version`, so the two cannot disagree about the build.
     let sandbox = Sandbox::new();
+    let status = sandbox.run(&["status", "--json"]);
+    let json: serde_json::Value = serde_json::from_str(&status.stdout).expect("status json");
+    let version = json["version"].as_str().expect("version");
+    let channel = json["build_channel"].as_str().expect("build_channel");
+    let revision = json["build_revision"].as_str().expect("build_revision");
+    let prefix = format!("{} ({channel} ", env!("CARGO_PKG_VERSION"));
+    let id = version
+        .strip_prefix(&prefix)
+        .and_then(|rest| rest.strip_suffix(')'))
+        .unwrap_or_else(|| panic!("{version:?} is not `<version> ({channel} <id>)`"));
+    let (stamp, tail) = id.split_at(id.len() - revision.len());
+    assert_eq!(tail, revision, "the id ends with the revision: {id}");
+    assert!(
+        stamp.len() == 16
+            && stamp.ends_with('-')
+            && stamp[..15]
+                .char_indices()
+                .all(|(at, c)| if matches!(at, 4 | 7 | 10) {
+                    c == '-'
+                } else {
+                    c.is_ascii_digit()
+                }),
+        "the id starts with YYYY-MM-DD-HHMM-: {id}"
+    );
     for alias in ["--version", "-v"] {
         let run = sandbox.run(&[alias]);
         assert_eq!(run.code, Some(0), "{alias} must exit 0");
         assert_eq!(
             run.stdout,
-            format!("{}\n", env!("CARGO_PKG_VERSION")),
-            "{alias} must print only the version"
+            format!("xfx {version}\n"),
+            "{alias} must print the version line"
         );
         assert_eq!(run.stderr, "", "{alias} must not write diagnostics");
     }

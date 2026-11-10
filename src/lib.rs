@@ -63,7 +63,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Facts about how this binary was built.
 ///
 /// These are recorded at compile time by `build.rs` so a receipt can be tied back
-/// to an exact commit. An unknown revision is absent, never a placeholder value.
+/// to an exact commit. An unknown id is absent, never a placeholder value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuildInfo {
     /// The channel this build claims: the compile profile, `debug` or
@@ -71,16 +71,39 @@ pub struct BuildInfo {
     /// channel records where a binary came from and never promises that
     /// anything will be delivered to it.
     pub channel: &'static str,
-    /// The abbreviated source revision, when it could be determined.
-    pub revision: Option<&'static str>,
+    /// The build's id, `YYYY-MM-DD-HHMM-<12 hex>`, when it could be determined:
+    /// the UTC minute a preview's run named it, or a local build's commit was
+    /// made, then the source revision it was compiled from.
+    pub id: Option<&'static str>,
+}
+
+impl BuildInfo {
+    /// The abbreviated source revision: the id's last part.
+    pub fn revision(&self) -> Option<&'static str> {
+        let id = self.id?;
+        id.rsplit_once('-').map(|(_, revision)| revision)
+    }
+
+    /// `<version> (<channel> <id>)`, or `<version> (<channel>)` when the id is
+    /// not known: what every surface that says which build this is says --
+    /// `--version`, `/version`, the welcome line, `status` and `/trace`.
+    ///
+    /// llmux's line (`version_with_build`), at the user's word of 2026-11-10:
+    /// a local build has to say when it is from.
+    pub fn version(&self) -> String {
+        match self.id {
+            Some(id) => format!("{VERSION} ({} {id})", self.channel),
+            None => format!("{VERSION} ({})", self.channel),
+        }
+    }
 }
 
 /// Reads the compile-time build metadata.
 pub fn build_info() -> BuildInfo {
-    let revision = env!("XFX_BUILD_REVISION");
+    let id = env!("XFX_BUILD_ID");
     BuildInfo {
         channel: env!("XFX_BUILD_CHANNEL"),
-        revision: (!revision.is_empty()).then_some(revision),
+        id: (!id.is_empty()).then_some(id),
     }
 }
 
@@ -111,7 +134,7 @@ mod tests {
 
     #[test]
     fn a_reported_revision_is_lowercase_hex_of_fixed_width() {
-        if let Some(revision) = build_info().revision {
+        if let Some(revision) = build_info().revision() {
             assert_eq!(revision.len(), 12, "got {revision}");
             assert!(
                 revision
@@ -120,6 +143,36 @@ mod tests {
                 "got {revision}"
             );
         }
+    }
+
+    #[test]
+    fn a_reported_id_is_a_real_minute_and_the_revision_is_its_last_part() {
+        let build = build_info();
+        if let Some(id) = build.id {
+            assert!(build_meta::is_build_id(id), "got {id}");
+            assert_eq!(build.revision(), Some(&id[id.len() - 12..]));
+        } else {
+            assert_eq!(build.revision(), None);
+        }
+    }
+
+    #[test]
+    fn the_version_line_is_the_version_then_the_channel_and_the_id() {
+        let preview = BuildInfo {
+            channel: "preview",
+            id: Some("2026-11-10-0019-ec40c7ad2e50"),
+        };
+        assert_eq!(
+            preview.version(),
+            format!("{VERSION} (preview 2026-11-10-0019-ec40c7ad2e50)")
+        );
+        assert_eq!(preview.revision(), Some("ec40c7ad2e50"));
+        let unnamed = BuildInfo {
+            channel: "debug",
+            id: None,
+        };
+        assert_eq!(unnamed.version(), format!("{VERSION} (debug)"));
+        assert_eq!(unnamed.revision(), None);
     }
 
     #[test]

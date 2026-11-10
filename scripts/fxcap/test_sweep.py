@@ -123,9 +123,18 @@ class Normalize(unittest.TestCase):
 
     def test_the_two_banners_are_one(self):
         fx = "\x1b[1;38;5;255m𝒇x\x1b[0m\x1b[38;5;245m v0.0.13 · Run /help for commands\x1b[0m\nrest"
-        xfx = "\x1b[38;5;240mx\x1b[1;38;5;255m𝒇x\x1b[0m\x1b[38;5;245m v0.1.0-1a94cdf [debug] · Run /help for commands\x1b[0m\nrest"
-        self.assertEqual(compare(fx, xfx, self.led), [])
-        self.assertEqual(len(compare(fx, xfx)), 1, "and they differ before")
+        for build in (
+            # The user's llmux format of 2026-11-10, with an id and without.
+            "v0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50)",
+            "v0.2.0 (preview 2026-11-10-0019-ec40c7ad2e50)",
+            "v0.2.0 (debug)",
+            # A base build from before it.
+            "v0.1.0-1a94cdf [debug]",
+            "v0.1.0",
+        ):
+            xfx = "\x1b[38;5;240mx\x1b[1;38;5;255m𝒇x\x1b[0m\x1b[38;5;245m %s · Run /help for commands\x1b[0m\nrest" % build
+            self.assertEqual(compare(fx, xfx, self.led), [], build)
+            self.assertEqual(len(compare(fx, xfx)), 1, "and they differ before")
 
     def test_a_banner_is_its_whole_row(self):
         fx = "𝒇x v0.0.13 · Run /help for commands"
@@ -176,6 +185,8 @@ class Normalize(unittest.TestCase):
             ("  xfx-trace-2026-11-03-125130-d316652f96c0.md.", "  xfx-trace-2026-11-03-125146-dad28a490c1e.md."),
             ("saved at /t/fxcap.Lq26sv/fxtmp/", "saved at /t/fxcap.uozlti/xfxtmp/"),
             ("* version: 0.0.13", "* version: 0.1.0"),
+            ("* version: 0.0.16", "* version: 0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50)"),
+            ("* version: 0.0.16", "* version: 0.2.0 (release)"),
             ("  build_revision=c1db919112c5", "  build_revision=1a94cdff75a8"),
         ]
         for fx, xfx in pairs:
