@@ -416,7 +416,7 @@ class RunDirectory(unittest.TestCase):
     # record's start time rewritten, as the pid's reuse would leave it. Deaf
     # to the hangup, gone by itself about 5 s after it starts.
     REUSED = STUB_HEAD + ("on_hup() { :; }\nrec=\"$(dirname \"$HOME\")/pane\"\n"
-                          "until [ -s \"$rec\" ]; do sleep 0.02; done\nsleep 0.2\n"
+                          "for i in $(seq 100); do [ -s \"$rec\" ] && break; sleep 0.02; done\nsleep 0.2\n"
                           "printf '%s\\nThu Jan  1 00:00:00 1970\\n' $$ > \"$rec\"\necho up\n"
                           "for i in $(seq 100); do sleep 0.05; done\nexit 0\n")
 
