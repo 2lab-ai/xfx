@@ -357,8 +357,9 @@ pub(crate) enum Action {
     /// above in a menu while one is up -- the other half of `ControlJ`, for the
     /// same reason (Super-Delete kills to the end and walks no menu).
     ControlK,
-    /// Page Up: `CSI 5 ~`, kitty's keypad Page Up, and either with a modifier
-    /// (`escape_parser.zig` at `c1db919`, :169-173, :632, :708).
+    /// Page Up: `CSI 5 ~` and kitty's keypad Page Up, with no modifier held
+    /// (`.page_up`, `escape_parser.zig:172`, `:632`, `:715@481104fd`); held
+    /// with one it is [`Action::ComposerPageUp`].
     ///
     /// One key, routed by the surface it lands on: the full transcript pages
     /// itself (`keyForAction`, `input_full_transcript_runtime.zig:156-179`),
@@ -1590,16 +1591,22 @@ fn tilde_field(field: &[u8]) -> Option<u16> {
 /// the draft's edge under Ctrl and the selection under Shift are the composer's
 /// to add (`docs/parity.md`, the full-screen TUI row).
 ///
-/// The page keys are a page move with any modifier (`composerMove(.page_up,
-/// ...)`, `:708-709`) and the page key with none (`:715-716`) -- a page either
-/// way here, Shift's selection extension dropped with the selection, as the
-/// arrows drop it ([`cursor`]).
+/// The page keys are the composer's move to a page with any bit held, a lock
+/// bit and a bit past eight included (`composerMove(.page_up, ...)`,
+/// `escape_parser.zig:708-709`): [`Action::ComposerPageUp`], which the full
+/// transcript does not take. With none they are the page key
+/// (`escape_parser.zig:715-716`). Shift's selection
+/// extension is dropped with the selection, as the arrows drop it
+/// ([`cursor`]).
 fn tilde_key(key: u16, modifiers: u16) -> Input {
     let [low, _] = modifiers.to_le_bytes();
+    let held = modifiers != 0;
     Input::Action(match key {
         1 | 7 => cursor(b'H', low),
         3 => forward_delete(modifiers),
         4 | 8 => cursor(b'F', low),
+        5 if held => Action::ComposerPageUp,
+        6 if held => Action::ComposerPageDown,
         5 => Action::PageUp,
         6 => Action::PageDown,
         _ => Action::Ignore,
@@ -1718,14 +1725,17 @@ fn keypad_navigation(code: u32) -> Option<u8> {
 ///   behaves as its main-row key (:116-118), read against xfx's main row;
 /// * `escape`, `insert_newline`, `undo`/`redo`, `word_left`/`word_right`,
 ///   `delete_word_left`, `delete_word_right`,
-///   `delete_to_line_start`/`delete_to_line_end`, `delete_next` and the page
-///   keys are [`Action::Escape`], [`Action::InsertNewline`],
+///   `delete_to_line_start`/`delete_to_line_end`, `delete_next` and the bare
+///   page keys are [`Action::Escape`], [`Action::InsertNewline`],
 ///   [`Action::Undo`]/[`Action::Redo`], [`Action::AltB`]/[`Action::AltF`],
 ///   [`Action::DeleteWordBackward`], [`Action::DeleteWordRight`],
 ///   [`Action::KillToStart`]/[`Action::KillToEnd`], [`Action::Delete`] and
-///   [`Action::PageUp`]/[`Action::PageDown`], a page key with a modifier
-///   included -- upstream's `composerMove` to a page (:171), whose selection
-///   extension this composer does not have;
+///   [`Action::PageUp`]/[`Action::PageDown`];
+/// * a keypad page key with Shift, Alt, Ctrl or Super held is upstream's
+///   `composerMove` to a page (`escape_parser.zig:171@481104fd`),
+///   [`Action::ComposerPageUp`]/
+///   [`Action::ComposerPageDown`], whose selection extension this composer
+///   does not have;
 /// * `toggle_full_transcript` -- Ctrl+O and nothing else held (:111-114,
 ///   :252) -- is [`Action::ToggleTranscript`], and `select_all`,
 ///   `copy_selection` and `cut_selection` (:223-231) are
@@ -1759,13 +1769,16 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
         } else if let Some(letter) = keypad_navigation(code) {
             return Input::Action(cursor(letter, mods));
         } else if code == KP_PAGE_UP || code == KP_PAGE_DOWN {
-            // `page_up`/`page_down`, or a `composerMove` to them with a
-            // modifier (:169-173): a page either way here, because the
-            // modifier's selection is one this composer does not have.
-            return Input::Action(if code == KP_PAGE_UP {
-                Action::PageUp
-            } else {
-                Action::PageDown
+            // `page_up`/`page_down` with nothing held once the lock bits are
+            // off, and a `composerMove` to them with a modifier
+            // (`pageKeyAction`, `escape_parser.zig:169-173@481104fd`), which
+            // the full transcript does not take.
+            let up = code == KP_PAGE_UP;
+            return Input::Action(match (up, mods != 0) {
+                (true, false) => Action::PageUp,
+                (false, false) => Action::PageDown,
+                (true, true) => Action::ComposerPageUp,
+                (false, true) => Action::ComposerPageDown,
             });
         } else if code == KP_ENTER {
             return kitty_key(13, modifiers);
@@ -2584,7 +2597,7 @@ mod tests {
             (
                 b"\x1b[5;5~",
                 Action::ComposerPageUp,
-                "composerMove page_up :708",
+                "composerMove page_up escape_parser.zig:708@481104fd",
             ),
             (
                 b"\x1b[6;2~",
@@ -3071,10 +3084,10 @@ mod tests {
     #[test]
     fn a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page() {
         // The tilde page keys with any bit in the modifier field are
-        // `composerMove(.page_up/.page_down, modifiers)` (`escape_parser.zig:
-        // 699`, `:708-709@481104fd`), every bit counted, the lock bits and the
-        // bits past eight too; `0`, `1` and an empty field are the bare key
-        // (`:696`, `:715-716`).
+        // `composerMove(.page_up/.page_down, modifiers)`
+        // (`escape_parser.zig:699`, `:708-709@481104fd`), every bit counted,
+        // the lock bits and the bits past eight too; `0`, `1` and an empty
+        // field are the bare key (`:696`, `:715-716`).
         for (key, up) in [("5", true), ("6", false), ("05", true)] {
             let (moved, bare) = if up {
                 (Action::ComposerPageUp, Action::PageUp)

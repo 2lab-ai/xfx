@@ -14207,7 +14207,16 @@ fn unspelled(event: Input) -> Input {
 
 /// `event` with every spelling the decoder keeps for a question or an
 /// approval made the key it is to every other surface: [`unspelled`], Shift
-/// taken off Up and Down, and Alt-b the word move.
+/// taken off Up and Down, Alt-b the word move, and a page key held with a
+/// modifier the page key.
+///
+/// The held page key is kept apart for the full transcript, which pages on
+/// the bare key alone and leaves the held one to the composer behind it
+/// (`keyForAction`, `input_full_transcript_runtime.zig:156-178@481104fd`;
+/// `super::input::Action::ComposerPageUp`). The question and the approval
+/// bind neither; every surface below takes the two as one move, as upstream's
+/// composer move to a page is the bare key's own (`shortcuts.zig:53-54`,
+/// `routeComposerVertical`, `input_completion_runtime.zig:215-233`).
 ///
 /// The decoder keeps Shift on the vertical arrows because a question's
 /// freeform field binds it -- the plain arrows walk the field's rows and the
@@ -14225,6 +14234,8 @@ fn folded(event: Input) -> Input {
         Input::Action(Action::SelectUp) => Input::Action(Action::Up),
         Input::Action(Action::SelectDown) => Input::Action(Action::Down),
         Input::Action(Action::AltB) => Input::Action(Action::WordLeft),
+        Input::Action(Action::ComposerPageUp) => Input::Action(Action::PageUp),
+        Input::Action(Action::ComposerPageDown) => Input::Action(Action::PageDown),
         other => other,
     }
 }
@@ -43024,7 +43035,8 @@ mod tests {
         // (`keyForAction`, `input_full_transcript_runtime.zig:156-178
         // @481104fd`). Held with a modifier, the key is a composer move to a
         // page (`escape_parser.zig:169-173`, `:708-709`), which the screen
-        // does not take (`routeAction`, `:47-52`; `app_input_runtime.zig:930`),
+        // does not take (`routeAction`, `input_full_transcript_runtime.zig:47-52`;
+        // `app_input_runtime.zig:930`),
         // and it goes on to the composer behind it (`:997-1001`, `:310-327`),
         // which moves its caret a page. Each spelling up, then down, from the
         // draft's last row: the screen stays at its tail, and the caret goes
