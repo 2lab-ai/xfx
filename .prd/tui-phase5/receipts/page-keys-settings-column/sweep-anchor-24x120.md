@@ -3,7 +3,7 @@
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
 - xfx: `x𝒇x v0.1.0-8e809d4 [debug] · Run /help for commands`, sha256 `db95eda12c9d51098c89f510bbb1fc51dfa0649c4d167f468d80026568b40682`
 - size 24x120, `--jobs 1`, 1 scenarios -- **PARTIAL**: `--only p5-page-keys-anchor`, wall 1m20s, load 61.7 at the start and 61.7 at the peak (1-minute average, sampled every 5 s)
-- ledger sha256 `7c96bd3905a3ea62fd289cad663dc681ddffd6b4e56c3999eaafe006b9367c62`: 14 normalizations; 19 divergences approved for this pin
+- ledger sha256 `7423b07a3acd415a5c979ef2855751bf2421c50d38e200180f433fe9d3ac29f1`: 14 normalizations; 19 divergences approved for this pin
 
 ## Coverage
 
@@ -93,7 +93,7 @@ Kinds: a = awaiting a user decision, b = a unit in flight, c = the capture (nond
 
 | cause | kind | snaps | only | what | owner |
 |---|---|---|---|---|---|
-| at-ranking | b | 1 | 1 | `fx v0.0.16 ranks '@st' and '@stat' with its placement score (55e13fad; 'scoreBetter', 'fi…` | `I-U2 @ fzf-style ranking (input cluster I3), not yet a branch` |
+| at-ranking-anchor | b | 1 | 1 | `'at-ranking' on PAGE-KEYS-SETTINGS-COLUMN round 3's anchor scenario, an entry of its own …` | `I-U2 @ fzf-style ranking (input cluster I3), not yet a branch` |
 
 ## Ledger
 

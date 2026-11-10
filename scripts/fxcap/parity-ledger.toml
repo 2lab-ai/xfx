@@ -665,11 +665,19 @@ why = "fx v0.0.16 replays a resumed session's answered `ask_user_question` batch
 id = "at-ranking"
 kind = "unit"
 owner = "I-U2 @ fzf-style ranking (input cluster I3), not yet a branch"
-scenarios = ["p5-input-at", "workspace-index", "p5-page-keys-anchor"]
-snaps = ["at-st", "at-st-down12", "at-st-up6", "at-stat", "at-plan", "file-one"]
+scenarios = ["p5-input-at", "workspace-index"]
+snaps = ["at-st", "at-st-down12", "at-st-up6", "at-stat", "at-plan"]
 rows = ["5-14"]
-why = "fx v0.0.16 ranks `@st` and `@stat` with its placement score (55e13fad; `scoreBetter`, `file_index.zig:1884-1899@481104fd`), names that start with the query first (`start.sh`, `store.rs`, `STATUS.md`, ...); xfx still ranks with c1db919's eight facts (`score_order`, src/tui/file_index.rs) and lists `spikes/s-01-trace.txt` first. So the list's rows hold other paths. Its highlights are rebuilt from the placement that set the rank (`file_index.zig:1783-1829`), so `workspace-index`'s `@plan` on an added directory's long path bolds `p`, `l`, `a`, `n` where xfx bolds `p`, `la`, `n`: the same text, other attributes. Its shape is the same since AT-HEIGHT: ten rows, the rules and the hint row where fx has them, the bar on the same row, and each side's window the edge-scrolled one over its own ranking (.prd/tui-phase5/receipts/at-height/band.txt). `p5-page-keys-anchor`'s `file-one` (`@a-fi` over the skills' long names, PAGE-KEYS-SETTINGS-COLUMN round 3) is the same: the same rows and text; both bold `a-fi`, fx's `a` and `-` later on the row than xfx's, and fx bolds the `I` of `SKILL.md` where xfx bolds nothing."
+why = "fx v0.0.16 ranks `@st` and `@stat` with its placement score (55e13fad; `scoreBetter`, `file_index.zig:1884-1899@481104fd`), names that start with the query first (`start.sh`, `store.rs`, `STATUS.md`, ...); xfx still ranks with c1db919's eight facts (`score_order`, src/tui/file_index.rs) and lists `spikes/s-01-trace.txt` first. So the list's rows hold other paths. Its highlights are rebuilt from the placement that set the rank (`file_index.zig:1783-1829`), so `workspace-index`'s `@plan` on an added directory's long path bolds `p`, `l`, `a`, `n` where xfx bolds `p`, `la`, `n`: the same text, other attributes. Its shape is the same since AT-HEIGHT: ten rows, the rules and the hint row where fx has them, the bar on the same row, and each side's window the edge-scrolled one over its own ranking (.prd/tui-phase5/receipts/at-height/band.txt)."
 
+[[cause]]
+id = "at-ranking-anchor"
+kind = "unit"
+owner = "I-U2 @ fzf-style ranking (input cluster I3), not yet a branch"
+scenarios = ["p5-page-keys-anchor"]
+snaps = ["file-one"]
+rows = ["7-10"]
+why = "`at-ranking` on PAGE-KEYS-SETTINGS-COLUMN round 3's anchor scenario, an entry of its own so neither entry's scenarios and snaps cross the other's: `@a-fi` over the skills' long names lists the same rows and text on both sides; both bold `a-fi`, fx's `a` and `-` later on the row than xfx's, and fx bolds the `I` of `SKILL.md` where xfx bolds nothing. fx rebuilds the highlight from the placement that set the rank (see `at-ranking`) (.prd/tui-phase5/receipts/page-keys-settings-column/README.md)."
 [[cause]]
 id = "at-folder-row"
 kind = "unit"
@@ -1072,7 +1080,7 @@ scenarios = ["p5-page-keys-anchor"]
 snaps = ["model-wrapped"]
 fx_row = '^\s+fake/a-model-id-long-enough-to-wrap-the-composer-row-at-\S*$'
 xfx_row = '^\s+fake/a-model-id-long-enough-to-wrap-the-composer-row-at-\S*…$'
-why = "fx paints every inline list's row with `composePickerOptionRowAnnotated` (`src/ui/footer/paint_plan.zig:950@481104fd`), which writes the label with `row_text.appendClipped` (`src/ui/footer/picker_presentation.zig:849`): it stops at the screen's edge and adds nothing (`src/ui/footer/row_text.zig:23-53`). xfx's `/model` column cuts its rows, a model's, an effort's or a speed's and its status row, with `picker::ellipsized` (src/tui/model_column.rs, `Column::rows`), which ends a cut row with `…`. So `model-wrapped`'s id, 59 cells hung at the third column of 60, ends `-at-si` in fx and `-at-s…` in xfx. Found by PAGE-KEYS-SETTINGS-COLUMN round 3 (.prd/tui-phase5/receipts/page-keys-settings-column/README.md); the column's anchor is fx's in that pair."
+why = "fx v0.0.16 paints the column's rows -- the kinds it marks by brightness, `.model_stage`, `.provider_stage`, `.models` and `.effort` (`src/ui/footer/picker_presentation.zig:834-836@481104fd`) -- in the band's last list branch (`src/ui/footer/paint_plan.zig:943-953`) with `composePickerOptionRowAnnotated`, which writes the label with `row_text.appendClipped` (`picker_presentation.zig:849`): it stops at the screen's edge and adds nothing (`src/ui/footer/row_text.zig:23-53`). xfx's `/model` column (its model, effort and speed stages, and the `/effort ` column) cuts a row with `picker::ellipsized` (src/tui/model_column.rs, `Column::rows`), which ends it with `…`. So `model-wrapped`'s id, 69 cells in a room of 58 (from the third column of 60 to the edge), ends `-at-si` in fx and `-at-s…` in xfx. The column only: fx's slash menu (`paint_plan.zig:851-924`; `composeSlashMenuRow` cuts with `appendSingleLineEllipsized`, `picker_presentation.zig:1408`) and its `@` list (`paint_plan.zig:925-942`; `appendFilePickerLabel`, `picker_presentation.zig:988-990`) write `…` themselves -- this scenario's fx `file-wrapped` and `slash-wrapped-up` end rows with it -- so the fix leaves theirs alone. Found by PAGE-KEYS-SETTINGS-COLUMN round 3 (.prd/tui-phase5/receipts/page-keys-settings-column/README.md); the column's anchor is fx's in that pair."
 
 [[cause]]
 id = "activity-tokens-before-request"

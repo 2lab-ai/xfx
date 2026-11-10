@@ -1,4 +1,60 @@
-# python3 -I fxcites.py 3d3d56c8 --at f35430dc  (round 2's head)
+# fxcites.py, round 4 (strict: a bare :N with no .zig before it fails; exit 1 on any failure).
+
+## python3 -I fxcites.py --self-test   (exit 0)
+ok   a quoted citation passes: 0 failed, planted 0
+ok   a quoted bare :N after its .zig passes: 0 failed, planted 0
+ok   an unquoted citation fails: 1 failed, planted 1
+ok   a bare :N with no .zig before it fails: 1 failed, planted 1
+ok   a bare :N after an .rs fails: 1 failed, planted 1
+ok   another pin's citation is skipped: 0 failed, planted 0
+ok   a number changed inside an older citation fails: 1 failed, planted 1
+ok   an older citation left alone is not this unit's: 0 failed, planted 0
+self-test: 8 cases, 0 wrong
+
+## the same --self-test on copies of fxcites.py with one test taken out (each must exit 1)
+the bare check taken out: --self-test exit 1
+    WRONG a bare :N with no .zig before it fails: 0 failed, planted 1
+    WRONG a bare :N after an .rs fails: 0 failed, planted 1
+the overlap test back to start-inside-an-inserted-span: --self-test exit 1
+    WRONG a number changed inside an older citation fails: 0 failed, planted 1
+the range test taken out: --self-test exit 1
+    WRONG an unquoted citation fails: 0 failed, planted 1
+    WRONG a number changed inside an older citation fails: 0 failed, planted 1
+
+## python3 -I fxcites.py 3d3d56c8   (this commit's tree; exit 0)
+README.md: 77 citations, 0 failed
+docs/parity.md:93: 3 citations, 0 failed
+docs/parity.md:94: 0 citations, 0 failed
+docs/parity.md:99: 1 citations, 0 failed
+docs/parity.md:109: 1 citations, 0 failed
+docs/parity.md:237: 20 citations, 0 failed
+all: 102 citations, 0 failed
+
+## python3 -I fxcites.py 3d3d56c8 --at f35430dc   (round 2's head, strict; exit 1)
+README.md: src/ui/footer/input_presentation.zig:431-463  NOT QUOTED
+README.md: settings_catalog.zig:629-631  NOT QUOTED
+README.md: settings_catalog.zig:1072-1096  NOT QUOTED
+README.md: settings_catalog.zig:1098-1106  NOT QUOTED
+README.md: settings_catalog.zig:1158-1158  NOT QUOTED
+README.md: src/core/shared/list_window.zig:411-414  NOT QUOTED
+README.md: :230-230  BARE (no .zig before it)
+README.md: :250-260  BARE (no .zig before it)
+README.md: :262-291  BARE (no .zig before it)
+README.md: :175-180  BARE (no .zig before it)
+README.md: visual_layout.zig:705-713  NOT QUOTED
+README.md: input_presentation.zig:383-386  NOT QUOTED
+README.md: 51 citations, 12 failed
+docs/parity.md:93: 1 citations, 0 failed
+docs/parity.md:94: 0 citations, 0 failed
+docs/parity.md:99: 1 citations, 0 failed
+docs/parity.md:109: 1 citations, 0 failed
+docs/parity.md:237: command_specs.zig:255-260  NOT QUOTED
+docs/parity.md:237: input_presentation.zig:383-386  NOT QUOTED
+docs/parity.md:237: visual_layout.zig:705-713  NOT QUOTED
+docs/parity.md:237: 18 citations, 3 failed
+all: 72 citations, 15 failed
+
+## round 3's fxcites.py (a6a090fe) at round 2's head, as recorded in round 3
 README.md: src/ui/footer/input_presentation.zig:431-463  NOT QUOTED
 README.md: settings_catalog.zig:629-631  NOT QUOTED
 README.md: settings_catalog.zig:1072-1096  NOT QUOTED
@@ -17,12 +73,3 @@ docs/parity.md:237: input_presentation.zig:383-386  NOT QUOTED
 docs/parity.md:237: visual_layout.zig:705-713  NOT QUOTED
 docs/parity.md:237: 16 citations, 3 not quoted
 all: 66 citations, 11 not quoted
-
-# python3 -I fxcites.py 3d3d56c8  (this commit's tree)
-README.md: 68 citations, 0 not quoted
-docs/parity.md:93: 3 citations, 0 not quoted
-docs/parity.md:94: 0 citations, 0 not quoted
-docs/parity.md:99: 1 citations, 0 not quoted
-docs/parity.md:109: 1 citations, 0 not quoted
-docs/parity.md:237: 19 citations, 0 not quoted
-all: 92 citations, 0 not quoted

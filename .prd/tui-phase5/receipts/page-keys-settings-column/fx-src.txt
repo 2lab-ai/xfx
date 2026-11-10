@@ -732,7 +732,99 @@
   294          if (trimmed.len > 0 and trimmed[0] == '/') return .slash;
   295          return null;
   296      }
-== src/ui/footer/paint_plan.zig:943-953@481104fd
+== src/ui/footer/paint_plan.zig:851-953@481104fd
+  851          } else if (input.picker_kind == .slash) {
+  852              const slash_prefix = input_presentation.slashInputPrefix(ctx.slash_registry, ctx.input.edit_state.input.items);
+  853              const count = if (input.prepared_slash_menu) |prepared|
+  854                  prepared.resultCount()
+  855              else
+  856                  picker_presentation.mixedSlashCompletionCount(ctx.slash_registry, slash_prefix, ctx.skills_menu.items);
+  857              if (count > 0) {
+  858                  if (input.slash_menu_layout) |layout| {
+  859                      var row = rows.picker_start;
+  860                      if (layout.show_header) {
+  861                          var header = try picker_presentation.composeSlashMenuHeaderRow(alloc, slash_prefix, layout, shell.layout.cols);
+  862                          try pushFooterBandRow(alloc, &frame, plan, row, &header);
+  863                          row += 1;
+  864  
+  865                          var gap: std.ArrayList(u8) = .empty;
+  866                          try pushFooterBandRow(alloc, &frame, plan, row, &gap);
+  867                          row += 1;
+  868                      }
+  869  
+  870                      const column_widths = if (input.prepared_slash_menu) |prepared|
+  871                          picker_presentation.preparedSlashMenuColumnWidths(
+  872                              prepared,
+  873                              layout.window,
+  874                              ctx.input.slash_menu_categories,
+  875                          )
+  876                      else
+  877                          picker_presentation.mixedSlashMenuColumnWidths(
+  878                              ctx.slash_registry,
+  879                              slash_prefix,
+  880                              ctx.skills_menu.items,
+  881                              layout.window,
+  882                              ctx.input.slash_menu_categories,
+  883                          );
+  884                      var match_idx = layout.window.start;
+  885                      while (match_idx < layout.window.end) : (match_idx += 1) {
+  886                          var slash_row = if (input.prepared_slash_menu) |prepared|
+  887                              try picker_presentation.composePreparedSlashMenuOptionRow(
+  888                                  alloc,
+  889                                  prepared,
+  890                                  match_idx,
+  891                                  match_idx == layout.selected,
+  892                                  column_widths,
+  893                                  shell.layout.cols,
+  894                                  ctx.input.slash_menu_categories,
+  895                              )
+  896                          else
+  897                              try picker_presentation.composeSlashMenuOptionRow(
+  898                                  alloc,
+  899                                  ctx.slash_registry,
+  900                                  slash_prefix,
+  901                                  ctx.skills_menu.items,
+  902                                  match_idx,
+  903                                  match_idx == layout.selected,
+  904                                  column_widths,
+  905                                  shell.layout.cols,
+  906                                  ctx.input.slash_menu_categories,
+  907                              );
+  908                          try pushFooterBandRow(alloc, &frame, plan, row, &slash_row);
+  909                          row += 1;
+  910                      }
+  911                  } else {
+  912                      const selected = input.picker_selection_index % count;
+  913                      const window_start = picker_presentation.updateEdgeScrollPickerWindowStart(input.picker_window_start, count, selected, input.picker_rows);
+  914                      const window = picker_presentation.edgeScrollPickerWindowFromStart(count, window_start, input.picker_rows);
+  915                      const command_width = picker_presentation.mixedSlashCompletionCommandColumnWidth(ctx.slash_registry, slash_prefix, ctx.skills_menu.items, window);
+  916                      var row = rows.picker_start;
+  917                      var match_idx = window.start;
+  918                      while (match_idx < window.end) : (match_idx += 1) {
+  919                          var slash_row = try picker_presentation.composeMixedSlashCompletionOptionRow(alloc, ctx.slash_registry, slash_prefix, ctx.skills_menu.items, match_idx, match_idx == selected, input.picker_start_col, command_width, shell.layout.cols);
+  920                          try pushFooterBandRow(alloc, &frame, plan, row, &slash_row);
+  921                          row += 1;
+  922                      }
+  923                  }
+  924              }
+  925          } else if (input.picker_kind == .file and input.file_picker_items.len > 0) {
+  926              const selected = input.picker_selection_index % input.file_picker_items.len;
+  927              var row = rows.picker_start;
+  928              const visible_rows = picker_presentation.filePickerItemRows(input.picker_rows, ctx.file_completion_status != null);
+  929              const status_rows = input.picker_rows - visible_rows;
+  930              if (status_rows > 0) {
+  931                  const status = ctx.file_completion_status.?;
+  932                  var status_row = try picker_presentation.composePickerOptionRow(alloc, .file, input.picker_start_col, status, false, shell.layout.cols);
+  933                  try pushFooterBandRow(alloc, &frame, plan, row, &status_row);
+  934                  row += 1;
+  935              }
+  936              const window_start = picker_presentation.updateEdgeScrollPickerWindowStart(input.picker_window_start, input.file_picker_items.len, selected, visible_rows);
+  937              const window = picker_presentation.edgeScrollPickerWindowFromStart(input.file_picker_items.len, window_start, visible_rows);
+  938              for (input.file_picker_items[window.start..window.end], window.start..) |item, i| {
+  939                  var picker_row = try picker_presentation.composeFilePickerOptionRow(alloc, input.picker_start_col, item, ctx.file_completion_has_selection and i == selected, shell.layout.cols);
+  940                  try pushFooterBandRow(alloc, &frame, plan, row, &picker_row);
+  941                  row += 1;
+  942              }
   943          } else if (input.picker_items.len > 0) {
   944              const selected = input.picker_selection_index % input.picker_items.len;
   945              const window_start = picker_presentation.updateEdgeScrollPickerWindowStart(input.picker_window_start, input.picker_items.len, selected, input.picker_rows);
@@ -818,3 +910,68 @@
    51          i += unit.byte_len;
    52      }
    53  }
+== src/ui/footer/picker_presentation.zig:955-992@481104fd
+  955  fn appendFilePickerLabel(
+  956      alloc: Allocator,
+  957      row: *std.ArrayList(u8),
+  958      item: file_index.SearchResult,
+  959      width: u16,
+  960      base_style: []const u8,
+  961  ) !void {
+  962      const path = item.path;
+  963      const width_usize: usize = width;
+  964      const slash_width: usize = @intFromBool(item.kind == .directory);
+  965      if (display_width.visibleWidth(path) + slash_width <= width_usize) {
+  966          try appendStyledPathRange(alloc, row, item, 0, path.len, base_style);
+  967          if (item.kind == .directory) try row.append(alloc, '/');
+  968          return;
+  969      }
+  970  
+  971      const basename = std.Io.Dir.path.basename(path);
+  972      const basename_start = @intFromPtr(basename.ptr) - @intFromPtr(path.ptr);
+  973      const dirname = std.Io.Dir.path.dirname(path) orelse {
+  974          try appendBasenameProjection(alloc, row, item, basename_start, width_usize, base_style);
+  975          return;
+  976      };
+  977      const separator = "/";
+  978      const separator_width = display_width.visibleWidth(separator);
+  979      const minimum_segmented_width = 8;
+  980      if (width_usize < minimum_segmented_width) {
+  981          try appendBasenameProjection(alloc, row, item, basename_start, width_usize, base_style);
+  982          return;
+  983      }
+  984  
+  985      const directory_budget = @min(display_width.visibleWidth(dirname), @min(@max(width_usize / 3, 3), 12));
+  986      const basename_budget = width_usize - directory_budget - separator_width - slash_width;
+  987  
+  988      try appendStyledEllipsizedRange(alloc, row, item, 0, dirname.len, directory_budget, .middle, base_style);
+  989      try appendStyledPathRange(alloc, row, item, dirname.len, basename_start, base_style);
+  990      try appendStyledEllipsizedRange(alloc, row, item, basename_start, path.len, basename_budget, .prefix_biased, base_style);
+  991      if (item.kind == .directory) try row.append(alloc, '/');
+  992  }
+== src/ui/footer/picker_presentation.zig:1386-1410@481104fd
+ 1386  fn composeSlashMenuRow(
+ 1387      alloc: Allocator,
+ 1388      content: SlashMenuRowContent,
+ 1389      selected: bool,
+ 1390      column_widths: SlashMenuColumnWidths,
+ 1391      width: u16,
+ 1392  ) !std.ArrayList(u8) {
+ 1393      var row: std.ArrayList(u8) = .empty;
+ 1394      errdefer row.deinit(alloc);
+ 1395      if (width == 0) return row;
+ 1396  
+ 1397      // Selection is signaled by brightness alone (like the model picker); no
+ 1398      // caret marker. The two-column indent stays fixed so rows stay aligned.
+ 1399      try row.appendSlice(alloc, if (selected) ui_render.selected_completion_style else ui_render.dim_style);
+ 1400      try row.appendSlice(alloc, "  ");
+ 1401  
+ 1402      const content_width: usize = @as(usize, width) -| 1;
+ 1403      const marker_width: usize = 2;
+ 1404      if (content_width <= marker_width) {
+ 1405          try row.appendSlice(alloc, ui_render.reset_style);
+ 1406          return row;
+ 1407      }
+ 1408      try row_text.appendSingleLineEllipsized(alloc, &row, content.label, content_width - marker_width);
+ 1409  
+ 1410      const label_width = display_width.visibleWidth(content.label);

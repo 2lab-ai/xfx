@@ -52,8 +52,13 @@ q src/ui/footer/input_presentation.zig 287 292
 q src/ui/footer/input_presentation.zig 340 386
 q src/core/slash_commands/command_specs.zig 636 644
 q src/core/input/picker_state.zig 287 296
-# Round 3: how fx cuts a list's row too long for the screen (the cause
-# model-column-clip): every inline list's row, its label cut at the edge.
-q src/ui/footer/paint_plan.zig 943 953
+# Rounds 3 and 4: how fx cuts a list's row too long for the screen (the
+# cause model-column-clip). The band's list painter has a branch for the
+# slash menu, one for the `@` list, and a last one for every other inline
+# list -- the column's kinds among them -- whose label is cut at the edge
+# with nothing added; the slash menu's and the `@` list's rows write `…`.
+q src/ui/footer/paint_plan.zig 851 953
 q src/ui/footer/picker_presentation.zig 818 858
 q src/ui/footer/row_text.zig 23 53
+q src/ui/footer/picker_presentation.zig 955 992
+q src/ui/footer/picker_presentation.zig 1386 1410
