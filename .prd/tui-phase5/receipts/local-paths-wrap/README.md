@@ -32,14 +32,18 @@ open residual, not read here.
 ## 2. The fix (`scripts/fxcap/roots.py`, `37a9dca2`; the tail rule as round 2 left it, `a74a293b`)
 
 - **Read through.** The view drops a mark among a row's leading gutter
-  characters (`MARKS`, `View._trim`), so a root a binary wrapped behind one
+  characters (`MARKS`, `View._trim`), read in the row's visible bytes
+  across a colour change inside it (round 3), so a root a binary wrapped behind one
   is one root, rewritten whole over its own columns, the mark where it was.
   A mark in a root counts as a gutter run (`GUTTER_RUN`), as the view drops
   it. Only a whole root is written: a head whose row goes on behind a mark
   with other text is left (`test_text_that_only_starts_like_a_root_behind_a_mark_is_no_root`).
 - **Fail closed, behind a mark, on a path-shaped end.** A row behind a mark
   that starts with a root's end -- its last byte or more, short of the
-  whole, ending whole -- **with a `/` in it or right after it** refuses the
+  whole, ending whole -- **with a `/` in it or right after it**, or right
+  after it the JSON-escaped `\/` every root is also spelled as (round 3;
+  the percent-encoded spelling keeps `/` as `/`, so there is no `%2F`
+  rule) -- refuses the
   file, in the rewrite's survivor reading and in `--check`
   (`View.tail_behind_mark`, `survivors`), whether or not the head was
   rewritten: a head written as a shorter root's placeholder (the TMPDIR a
@@ -62,13 +66,14 @@ open residual, not read here.
 ## 3. RED -> GREEN
 
 **Unit** (`mutants.txt`, first row; the tests in
-`scripts/fxcap/test_capture.py` RootsRewrite): at the base, 419
-subtests fail in 7 of the 26 tests -- a root wrapped behind a mark at every
-byte (behind `  ↳ `, `┃↑`, a coloured `┃↑`, `│ ↳ `, `↳` and three spaces),
-every spelling over three rows, a root holding a mark, the tail after a
-partial rewrite (through the CLI's `--check` too), the path-shaped end both
-ways, the placeholder, the mark alone and the bare arrow. At the head the
-26 pass. (Round 1's figures: 233 in 3 of 22 tests.)
+`scripts/fxcap/test_capture.py` RootsRewrite): at the base, 429
+subtests fail (`mutants.txt`, round 3's 28 tests) -- a root wrapped behind
+a mark at every byte (behind `  ↳ `, `┃↑`, a coloured `┃↑`, `│ ↳ `, `↳` and
+three spaces), every spelling over three rows, a root holding a mark, the
+tail after a partial rewrite (through the CLI's `--check` too), the
+path-shaped end both ways, the escaped separator, the split mark, the
+placeholder, the mark alone and the bare arrow. At the head the 28 pass.
+(Round 1's figures: 233 in 3 of 22 tests; round 2's: 419 of 26.)
 
 **End to end** (`e2e-red.txt`, `e2e-green.txt`; `e2e.sh`), round 2's run,
 with the head's roots.py: train 12's trial again, `p5-mcp-menu-new` swept
@@ -129,8 +134,9 @@ or host).
   `remote_only.py`'s verdicts for those 34 snaps read as before: 22
   identical, 11 `remote`'s status only, 1 other. mcp-menu's README now says
   so where it describes those rows.
-- **After** (`scan.txt`, round 2's head, every tracked file): machine
-  roots over the 17814 captures and receipts, **0 refused**;
+- **After** (`scan.txt`, round 3's head, every tracked file): machine
+  roots over the 17815 captures and receipts, **0 refused** (round 2's:
+  0 of 17814, the same files refused elsewhere);
   `scripts/check-no-local-paths.sh` ok. Over the rest, 3 files, each a test
   or source fixture whose line ends in a `local-path-ok` comment, which
   roots.py does not read (check-no-local-paths does). Public roots: 13
@@ -150,24 +156,26 @@ or host).
 
 ## 5. Mutants (`mutants.txt`)
 
-`mutants.py` on a `git clone --no-local` of `a74a293b`, under the suite
-lock: RootsRewrite (`Ran 26 tests`, printed by each run) against roots.py
-at the base, then each mutant of the head's, then unmutated. Every mutant
-fails it:
+`mutants.py` on a `git clone --no-local` of `f5fed4b4` (round 3), under the
+suite lock: RootsRewrite (`Ran 28 tests`, printed by each run) against
+roots.py at the base, then each mutant of the head's, then unmutated. Every
+mutant fails it:
 
 | roots.py | failed (sub)tests | first failed assertion |
 |---|---|---|
-| at the base, `635e7242` (the unit RED) | 419, in 7 tests | `test_capture.py:537` |
-| `↳` dropped from `MARKS` | 254 | `:527` |
-| `┃↑` dropped from `MARKS` | 164 | `:464` |
-| a bare `↑` a mark again (round 1) | 1, the bare arrow | `:540` |
-| the fail-closed tail check dropped (`survivors`) | 137 | `:464` |
-| any end, no path shape (round 1) | 6, the words that must pass | `:508` |
-| path shape: a `/` in the end only | 54 | `:464` |
-| path shape: a `/` after the end only | 2 | `:508` |
+| at the base, `635e7242` (the unit RED) | 429 | `test_capture.py:569` |
+| `↳` dropped from `MARKS` | 258 | `:536` |
+| `┃↑` dropped from `MARKS` | 169 | `:536` |
+| a bare `↑` a mark again (round 1) | 2, the bare arrow and the styled hint | `:572` |
+| the fail-closed tail check dropped (`survivors`) | 144 | `:537` |
+| any end, no path shape (round 1) | 12, the words that must pass | `:525` |
+| path shape: a separator in the end only | 61 | `:537` |
+| path shape: a separator after the end only | 2 | `:508` |
+| no `\/` after the end (round 2) | 4, `someone\/x` and `one\/x` behind each mark | `:525` |
 | the tail check from two bytes up | 12 (a one-byte end before a `/`) | `:464` |
-| no skip inside a written placeholder | 4, k = 1..4 | `:528` |
-| a mark alone on its row leads the next | 2 | `:537` |
+| no skip inside a written placeholder | 4, k = 1..4 | `:560` |
+| a mark read in one run only (round 2) | 2, the two split marks | `:536` |
+| a mark alone on its row leads the next | 2 | `:569` |
 | the marks out of `GUTTER_RUN` | 2 (the rewrite does not refuse a root holding one) | `:486` |
 | unmutated | 0: `OK` | -- |
 
@@ -228,6 +236,34 @@ receipt staged, **0** captures or receipts refused and **ok** (section 4).
 `cargo test` was not run again: round 2 changes no `src/` and no file it
 reads (`rerun.txt` holds both suites green at `1e023110`).
 
+## 9. Round 3: gpt6's review of `ff59f0f7`
+
+Both findings reproduced at `ff59f0f7` by the dispatcher and by this
+round's tests (6 subtests fail with `ff59f0f7`'s roots.py, 0 with
+`f5fed4b4`'s):
+
+- **MUST, a JSON-escaped separator.** Behind a mark `someone/x` was refused
+  and `someone\/x` passed. Every root is also spelled JSON-escaped
+  (`spellings`), so `\/` right after a root's end now counts as `/`; in the
+  end itself `\/` holds a `/` already. Refused behind `  ↳ ` and `┃↑`:
+  `someone\/x`, `one\/x`, the escaped root over three rows; still passed:
+  `bun x.ts`, `work on it`, `scenarios`.
+- **SHOULD, a mark split by a colour change.** `ESC[2m┃ESC[0mESC[1m↑` was no
+  mark: `_trim` matched a mark within one run's bytes. Both renderers draw
+  `┃↑` in one run (xfx `src/tui/shell.rs:2924-2932`, fx
+  `input_presentation.zig:1020-1022@481104fd`), so no known capture had
+  one; the reader now matches the row's visible bytes across runs. A
+  styled `┃`, a space, then `↑↓` is still a key hint, and
+  `ESC[2m  ESC[0m↳` stays a mark.
+
+Reruns (`rerun3.txt`, `TMPDIR` the harness scratch root): `test-capture.sh`
+at `f5fed4b4`, under the suite lock, **118 tests OK**; every mutant, old and
+new (section 5), **13 of 13** fail RootsRewrite (`Ran 28 tests` each) and it
+passes unmutated; `scan.sh` over the 18913-odd tracked files with this
+receipt staged, **0 of the 17815 captures and receipts refused** on the
+machine roots and the same files elsewhere as round 2 -- **no new
+refusal**; `check-no-local-paths.sh` **ok**.
+
 ## Decisions
 
 - **`┃↑` is a mark.** It is a scroll mark, not a wrap, but the row it leads
@@ -262,4 +298,4 @@ reads (`rerun.txt` holds both suites green at `1e023110`).
 -> `e2e-red.txt`, `e2e-green.txt` · `fix_tails.py`, `fix-tails.sh` ->
 `fix-tails.txt` · `scan.sh` -> `scan-before.txt`, `scan.txt` ·
 `gutter_tails.py` -> `gutter-tails.txt` · `gate.sh` -> `gate.txt`,
-`gate-head-diff.txt` · `rerun.sh` -> `rerun.txt`, `rerun2.txt`
+`gate-head-diff.txt` · `rerun.sh` -> `rerun.txt`, `rerun2.txt`, `rerun3.txt`

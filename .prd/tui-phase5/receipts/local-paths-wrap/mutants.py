@@ -8,7 +8,9 @@ first failed assertion -- never a path.
 usage: python3 -I mutants.py <clone> <base rev>     (under the suite lock)
 
 Round 2 (the reviews of 4851ba05): the path-shape tail, `┃↑` for a bare `↑`,
-the skip inside a written placeholder, a mark alone on its row.
+the skip inside a written placeholder, a mark alone on its row. Round 3
+(gpt6's of ff59f0f7): the JSON-escaped `\\/` after an end, a mark split by a
+colour change.
 """
 import os
 import re
@@ -29,13 +31,19 @@ M = [
     ("drop the fail-closed tail check", "if in_control or broken or view.tail_behind_mark(needle) or _find(view, needle, []):",
      "if in_control or broken or _find(view, needle, []):"),
     ("any tail, no path shape (round 1)",
-     '                   and (b"/" in needle[-n:] or self.text[a + n : a + n + 1] == b"/")\n', ""),
-    ("path shape: a `/` in it only", ' or self.text[a + n : a + n + 1] == b"/")', ")"),
-    ("path shape: a `/` after it only", '(b"/" in needle[-n:] or ', "("),
+     '                   and (b"/" in needle[-n:]\n                        or self.text[a + n : a + n + 1] == b"/"\n'
+     '                        or self.text[a + n : a + n + 2] == b"\\\\/")\n', ""),
+    ("path shape: a separator in it only",
+     '\n                        or self.text[a + n : a + n + 1] == b"/"\n                        or self.text[a + n : a + n + 2] == b"\\\\/")', ")"),
+    ("path shape: a separator after it only", '(b"/" in needle[-n:]\n                        or ', "("),
+    ("no `\\/` after the end (round 2)", '\n                        or self.text[a + n : a + n + 2] == b"\\\\/"', ""),
     ("tail check: two bytes or more", "for a in self.marked for n in range(1, len(needle)))",
      "for a in self.marked for n in range(2, len(needle)))"),
     ("no skip inside a written placeholder",
      "        self.marked = [a for a in self.marked if not any(s < a < e for s, e in written)]\n", ""),
+    ("a mark read in one run only (round 2)",
+     "            lead = bytearray()\n            for start, end in row:\n                lead += data[start : min(end, start + 6 - len(lead))]\n"
+     "                if len(lead) >= 6:\n                    break\n", "            lead = data[row[0][0] : row[0][1]]\n"),
     ("a mark alone on its row leads the next", "            if marked and row:\n", "            if marked:\n"),
     ("the marks no gutter run in a root", "|\\x96[\\x80-\\x9f]|\\x86[\\xb3\\x91]))+\")", "|\\x96[\\x80-\\x9f]))+\")"),
 ]
