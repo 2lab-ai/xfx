@@ -2271,7 +2271,7 @@ const FX_MAX_PREFERENCES: usize = 35;
 /// `providers` ([`fx_providers_error`]); the global object, then this
 /// workspace's entry, each parsed whole and dropped at its first error, its
 /// routing salvaged or the load failed ([`fx_stop`]); their model preferences
-/// merged, at most 35 (`model_preferences.zig:36-52`); then the provider bound
+/// merged, at most 35 (`model_preferences.zig:35-51`); then the provider bound
 /// to the global `providers` (`:350-355`; `model_provider.zig:53-63`), a name
 /// it lacks stopping all but xfx's `llmux`.
 fn fx_profile_refusal(object: &Layer, workspace_root: &Path) -> Option<ProfileRefusal> {
@@ -2345,7 +2345,7 @@ fn fx_first_error_refuses(layer: &Layer, global: bool, routing_fails: bool) -> O
         return Some(false);
     }
     // The whole parse's routing can fail where the salvage's did not: the
-    // `model`'s preference counts in it (`model_preferences.zig:26-34`).
+    // `model`'s preference counts in it (`model_preferences.zig:25-33`).
     if fx_model_error(layer).is_some() || routing_fails {
         return Some(true);
     }
@@ -2405,7 +2405,7 @@ fn fx_model_error(layer: &Layer) -> Option<&'static str> {
 /// `provider` a name [`fx_provider`] reads; `models` such names to models
 /// `validateModel` takes, one preference per provider (a built-in in any
 /// case), at most 35 with what a whole parse names first: the `model`'s
-/// Gateway, fx's `codex_model` and `grok_model` (`model_preferences.zig:26-34`).
+/// Gateway, fx's `codex_model` and `grok_model` (`model_preferences.zig:25-33`).
 fn fx_routing(layer: &Layer, whole: bool) -> Result<Vec<String>, &'static str> {
     match layer.get(PROVIDER_KEY) {
         Some(Value::String(name)) if fx_provider(name).is_none() => {
