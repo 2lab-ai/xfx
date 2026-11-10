@@ -5249,6 +5249,43 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
+    /// Closes it while a menu that takes the composer's keys is up, once a
+    /// tick and before the frame ([`Self::settle_band`]), as fx does before
+    /// every frame (`reconcileBeforeFrameRender`,
+    /// `app_render_runtime.zig:1206-1215@481104fd`): the settings menu, the
+    /// help catalog, the skills menu while it shows, `/model`'s menu, the
+    /// session picker, `/fork`'s and `/effort`'s (`:2001-2033`). So Ctrl-O
+    /// over one opens the screen and the frame shuts it -- the menu keeps the
+    /// plane and every key, `C-j` and `C-k` its moves and Escape its close --
+    /// and one that opens under the screen (`$` or `/help` typed there, a
+    /// session list arriving) takes the plane back the same way. The slash
+    /// menu, the `/provider` column, `/mcp `'s argument completions and the
+    /// `@` list are not on the list: the screen holds over them.
+    fn reconcile_full_transcript(&mut self) {
+        let menu = self.settings_menu.is_some()
+            || self.help_menu.is_some()
+            || self.skills_menu.as_ref().is_some_and(SkillsMenu::visible)
+            || self.model_menu.is_some()
+            || self.sessions.is_some()
+            || self.fork_menu.is_some()
+            || self.effort_menu.is_some();
+        if menu {
+            self.close_full_transcript();
+        }
+    }
+
+    /// `C-j` or `C-k` while the full transcript is up, which no picker takes:
+    /// fx's pickers move on them only while the composer's surface shows
+    /// (`routePickerControlByte`, `composerPickerSurfaceVisible`,
+    /// `app_input_runtime.zig:1093-1116@481104fd`), so they reach the
+    /// composer (`:881-893`) -- `C-j` a new line (`:513-521`), `C-k` a kill
+    /// to the line's end (`:479-488`) -- with the slash menu, the `/provider`
+    /// column or `/mcp `'s argument completions up under the screen, as with
+    /// the `@` list ([`Self::offer_to_files`]).
+    fn composer_control(&self, action: Action) -> bool {
+        self.full.is_open() && matches!(action, Action::ControlJ | Action::ControlK)
+    }
+
     /// One keystroke while the full transcript is up
     /// (`input_full_transcript_runtime.zig:147-198`), and whether the screen
     /// took it.
@@ -8796,6 +8833,9 @@ impl Shell {
         let Input::Action(action) = event else {
             return false;
         };
+        if self.composer_control(*action) {
+            return false;
+        }
         // A page of the menu at a time (`routeComposerVertical` with `page`,
         // `input_completion_runtime.zig:209-262`): a page is the composer's
         // row cap, as it is for the caret.
@@ -9299,6 +9339,9 @@ impl Shell {
         let Input::Action(action) = event else {
             return false;
         };
+        if self.composer_control(*action) {
+            return false;
+        }
         if !matches!(self.slot(), Some(Slot::McpArgs(_))) {
             return false;
         }
@@ -9397,6 +9440,9 @@ impl Shell {
         let Input::Action(action) = event else {
             return false;
         };
+        if self.composer_control(*action) {
+            return false;
+        }
         let Some(column) = self.provider_picker.as_mut() else {
             return false;
         };
@@ -10826,6 +10872,10 @@ impl Shell {
             self.interrupt_armed = interrupt;
             self.render.request(Reason::Footer);
         }
+        // Which plane the frame paints, once the input, the events and the
+        // answers above have opened what they open, and before the rows below
+        // are measured against the band.
+        self.reconcile_full_transcript();
         // After the Escape: an armed one takes the slot the warning is in, and
         // the warning's clock must not run on a row that is not showing it.
         self.tick_warning(now);
@@ -37503,7 +37553,8 @@ mod tests {
 
     #[test]
     fn c_j_under_the_full_transcript_over_the_mcp_arguments_is_a_new_line() {
-        // `p5-ctrlo-mcp-args cj`: the completions close.
+        // `p5-ctrlo-mcp-args cj`: no completion answers a new line, so none
+        // is shown.
         let (mut shell, _runtime, _home) = mcp_args_second_row();
         shell.route_bytes(&[0x0a]);
         assert_eq!(
@@ -37511,7 +37562,10 @@ mod tests {
             "/mcp \n",
             "C-j did not reach the composer"
         );
-        assert!(shell.mcp_args.is_none(), "the completions are still up");
+        assert!(
+            !shell.mcp_args.as_ref().is_some_and(McpArgs::visible),
+            "the completions are still shown"
+        );
         assert!(shell.full.is_open(), "C-j closed the transcript");
         assert!(shell.sent.try_recv().is_err(), "C-j sent the line");
     }
