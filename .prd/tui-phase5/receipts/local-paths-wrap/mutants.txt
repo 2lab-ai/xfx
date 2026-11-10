@@ -1,0 +1,9 @@
+python3 -I mutants.py <clone of 6c71502f> 635e7242, under the suite lock; RootsRewrite has 22 tests
+roots.py at the base (635e7242)      exit 1, 233 failed (sub)tests, first at test_capture.py:462: test_a_root_s_tail_behind_a_continuation_mark_refuses_the_file, test_a_root_with_a_mark_in_it_broken_before_the_mark_is_refused, test_a_root_wrapped_behind_a_continuation_mark_is_rewritten_whole
+drop the `↳` mark                    exit 1,  78 failed (sub)tests, first at test_capture.py:462: test_a_root_s_tail_behind_a_continuation_mark_refuses_the_file, test_a_root_with_a_mark_in_it_broken_before_the_mark_is_refused, test_a_root_wrapped_behind_a_continuation_mark_is_rewritten_whole
+drop the `↑` mark                    exit 1, 155 failed (sub)tests, first at test_capture.py:462: test_a_root_s_tail_behind_a_continuation_mark_refuses_the_file, test_a_root_with_a_mark_in_it_broken_before_the_mark_is_refused, test_a_root_wrapped_behind_a_continuation_mark_is_rewritten_whole
+drop the fail-closed tail check      exit 1,  78 failed (sub)tests, first at test_capture.py:462: test_a_root_s_tail_behind_a_continuation_mark_refuses_the_file
+tail check: two bytes or more        exit 1,   6 failed (sub)tests, first at test_capture.py:462: test_a_root_s_tail_behind_a_continuation_mark_refuses_the_file
+the marks no gutter run in a root    exit 1,   2 failed (sub)tests, first at test_capture.py:484: test_a_root_with_a_mark_in_it_broken_before_the_mark_is_refused
+unmutated                            exit 0,   0 failed (sub)tests, first at -: none
+                                     OK

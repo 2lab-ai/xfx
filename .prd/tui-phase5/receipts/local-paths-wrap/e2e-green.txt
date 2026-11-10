@@ -1,0 +1,20 @@
+== e2e.sh <tree> <fx v0.0.16> <xfx release build of 635e7242's source> <work> <other>, under the suite lock, TMPDIR under the harness scratch root. GREEN: <tree> = a clone at the head, <other> = a clone at the base
+head of <tree> 6c71502f; roots.py there: sha256 743ef274695a
+the scenario directory: 118 bytes, outside the run's TMPDIR and HOME
+sweep exit 0; fx oracle sha256 the pin, before and after; pass = 33 / 34 = 97.1%; unresolved 0, failed 0, timeout 0
+== fx: run exit 0; approve-confirm
+rows holding 4 bytes or more of the root in one piece: 0
+-- gutter_check.py, <tree>'s roots.py:
+roots.py --check exit 0
+-- gutter_check.py, <other>'s roots.py (635e7242; sha256 e1880b06db2b):
+roots.py --check exit 0
+== xfx: run exit 0; approve-confirm
+rows holding 4 bytes or more of the root in one piece: 0
+-- gutter_check.py, <tree>'s roots.py:
+row 9 starts with U+21B3 and holds the root's first 0 of its 118 bytes
+row 10 starts with U+21B3 and holds the root's first 0 of its 118 bytes
+roots.py --check exit 0
+-- gutter_check.py, <other>'s roots.py (635e7242; sha256 e1880b06db2b):
+roots.py --check exit 0
+== cuts.py on the out directory
+140 published files; 48 hold the directory's first 24 bytes or more, 48 of them cut by an ellipsis, 48 holding a shape check-no-local-paths.sh refuses (2 shapes read)
