@@ -91,7 +91,13 @@ rewritten or not: a partial rewrite (the head written as a shorter root's
 placeholder) leaves nothing else that tells such a tail from text. Behind a
 mark only: the same end behind a plain gutter passes, as does an end with no
 `/` at it (`↳ bun x.ts`, `┃↑work on it`), which reads as a word, and a
-position inside a placeholder the rewrite wrote, which is not text. So does the run directory's own name (`--suffix`, mktemp's random
+position inside a placeholder the rewrite wrote, which is not text. The
+byte after the end is read in the joined view, across the row's end: `↳
+scenarios` closing its row is refused when the next row opens with `/`
+or `\\/`, the shape of a name broken at the margin. What passes by design:
+a root's end with nothing path-like after it -- HOME's last bytes closing a
+`┃↑` row, ending the file, or before a space or a quote; round 1 refused
+those, and neither check refuses them now. So does the run directory's own name (`--suffix`, mktemp's random
 tail) anywhere at all: it names no other path, and a root a binary cut
 short (`.../fxcap.Ab12Cd/wo...`) or whose head scrolled off a frame keeps
 it. The file is named on standard error with what survived or why it was
@@ -251,6 +257,11 @@ class View:
         self.text = bytes(text)
         self.runs = runs
         self.row_ends = ends
+        # A second guard: a marked row that starts inside a placeholder the
+        # rewrite wrote starts in no text. Under the path-shape rule no such
+        # start can be a root's path-shaped end (a placeholder holds no `/`
+        # and is followed by `>`), so this changes no result today; it keeps
+        # the rewrite's own output from reading as a tail if the rule widens.
         written = [m.span() for m in LITERAL.finditer(self.text) if not m.group(1)]
         self.marked = [a for a in self.marked if not any(s < a < e for s, e in written)]
 

@@ -539,6 +539,34 @@ class RootsRewrite(unittest.TestCase):
         self.assertEqual(roots.View(hint).marked, [])
         self.assertEqual(roots.survivors(hint, rules, None), [])
 
+    def test_the_edges_of_the_path_shaped_end(self):
+        # The byte after an end is read across the row's end (opus round 3);
+        # a percent-form end is an end; and gpt6's four boundaries: `\/` and
+        # a lone `\` at the end of the file, a split mark with nothing after
+        # it, a rail and an arrow a cursor move parts (two rows, no mark).
+        home, spaced = "/Us" + "ers/someone", "/Us" + "ers/some one"
+        rules = roots.rules_for([(home, "home"), (spaced, "home"), ("/tmp/fxt/x/scripts/fxcap/scenarios", "scenarios")])
+        arrow = b"\xe2\x86\xb3 "
+        cases = (
+            (b"head\n  " + arrow + b"scenarios\n/x\n", True),
+            (b"head\n  " + arrow + b"scenarios\n  " + arrow + b"\\/x\n", True),
+            (b"head\n  " + arrow + b"scenarios\nx\n", False),
+            (b"head\n  " + arrow + b"e%20one/x\n", True),
+            (b"head\n  " + arrow + b"e%20one more\n", False),
+            (b"head\n  " + arrow + b"someone\\/", True),
+            (b"head\n  " + arrow + b"someone\\", False),
+            (b"head\n\x1b[2m\xe2\x94\x83\x1b[0m\x1b[1m\xe2\x86\x91\x1b[0m", False),
+            (b"head\n\x1b[2m\xe2\x94\x83\x1b[0m\x1b[1m\xe2\x86\x91\x1b[0m\n", False),
+            (b"head\n\x1b[2m\xe2\x94\x83\x1b[0m\x1b[5G\xe2\x86\x91someone/x\n", False),
+        )
+        for data, refused in cases:
+            with self.subTest(data=data):
+                left = {name.split(":")[0] for name in roots.survivors(data, rules, None)}
+                self.assertEqual(bool(left), refused, left)
+        for data in (cases[7][0], cases[8][0], cases[9][0]):
+            with self.subTest(marked=data):
+                self.assertEqual(roots.View(data).marked, [])
+
     def test_a_placeholder_wrapped_behind_a_mark_is_no_root_s_end(self):
         # A resolved root's placeholder broken in its name, `<wor` then
         # `↳ k:real___>`: the row behind the mark starts inside what the
