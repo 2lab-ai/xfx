@@ -1,0 +1,28 @@
+# python3 -I fxcites.py 3d3d56c8 --at f35430dc  (round 2's head)
+README.md: src/ui/footer/input_presentation.zig:431-463  NOT QUOTED
+README.md: settings_catalog.zig:629-631  NOT QUOTED
+README.md: settings_catalog.zig:1072-1096  NOT QUOTED
+README.md: settings_catalog.zig:1098-1106  NOT QUOTED
+README.md: settings_catalog.zig:1158-1158  NOT QUOTED
+README.md: src/core/shared/list_window.zig:411-414  NOT QUOTED
+README.md: visual_layout.zig:705-713  NOT QUOTED
+README.md: input_presentation.zig:383-386  NOT QUOTED
+README.md: 47 citations, 8 not quoted
+docs/parity.md:93: 1 citations, 0 not quoted
+docs/parity.md:94: 0 citations, 0 not quoted
+docs/parity.md:99: 1 citations, 0 not quoted
+docs/parity.md:109: 1 citations, 0 not quoted
+docs/parity.md:237: command_specs.zig:255-260  NOT QUOTED
+docs/parity.md:237: input_presentation.zig:383-386  NOT QUOTED
+docs/parity.md:237: visual_layout.zig:705-713  NOT QUOTED
+docs/parity.md:237: 16 citations, 3 not quoted
+all: 66 citations, 11 not quoted
+
+# python3 -I fxcites.py 3d3d56c8  (this commit's tree)
+README.md: 68 citations, 0 not quoted
+docs/parity.md:93: 3 citations, 0 not quoted
+docs/parity.md:94: 0 citations, 0 not quoted
+docs/parity.md:99: 1 citations, 0 not quoted
+docs/parity.md:109: 1 citations, 0 not quoted
+docs/parity.md:237: 19 citations, 0 not quoted
+all: 92 citations, 0 not quoted

@@ -45,3 +45,15 @@ q src/core/slash_commands/command_specs.zig 876 897
 q src/core/app/app_mcp_runtime.zig 459 468
 q src/core/mcp_host/config.zig 14 18
 q src/core/mcp_host/config.zig 186 192
+# Round 3: where fx hangs its lists under the composer, and when it opens
+# the slash menu.
+q src/ui/input/visual_layout.zig 697 713
+q src/ui/footer/input_presentation.zig 287 292
+q src/ui/footer/input_presentation.zig 340 386
+q src/core/slash_commands/command_specs.zig 636 644
+q src/core/input/picker_state.zig 287 296
+# Round 3: how fx cuts a list's row too long for the screen (the cause
+# model-column-clip): every inline list's row, its label cut at the edge.
+q src/ui/footer/paint_plan.zig 943 953
+q src/ui/footer/picker_presentation.zig 818 858
+q src/ui/footer/row_text.zig 23 53

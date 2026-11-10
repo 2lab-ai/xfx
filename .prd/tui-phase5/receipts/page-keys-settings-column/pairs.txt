@@ -1,8 +1,17 @@
 banners fx: 𝒇x v0.0.16
 banners xfx-base: x𝒇x v0.1.0-3d3d56c [debug]
 banners xfx-r1: x𝒇x v0.1.0-c4bfa8b [debug]
-banners xfx: x𝒇x v0.1.0-0312cf4 [debug]
+banners xfx: x𝒇x v0.1.0-8e809d4 [debug]
 pair                                                  base    r1  head
+p5-page-keys-anchor-24x60-file-one                       4     4     4
+p5-page-keys-anchor-24x60-file-wrapped                   0     0     0
+p5-page-keys-anchor-24x60-model-one                      0     0     0
+p5-page-keys-anchor-24x60-model-wrapped                  1     1     1
+p5-page-keys-anchor-24x60-provider-one                   0     0     0
+p5-page-keys-anchor-24x60-provider-wrapped               1     1     0
+p5-page-keys-anchor-24x60-slash-one                      0     0     0
+p5-page-keys-anchor-24x60-slash-wrapped-up               2     2     0
+p5-page-keys-anchor-24x60-slash-wrapped                  0     0     0
 p5-page-keys-column-24x120-effort-pgdn                   0     0     0
 p5-page-keys-column-24x120-effort-pgdn2                  0     0     0
 p5-page-keys-column-24x120-effort-pgup                   3     0     0
@@ -51,9 +60,14 @@ p5-page-keys-settings-24x120-menu-pgup                  12     1     1
 p5-page-keys-settings-24x120-menu-pgup2                 12     1     1
 p5-page-keys-settings-24x120-menu                        1     1     1
 p5-page-keys-settings-24x120-tab                         0     0     0
-pairs: 48; identical on the head (0 rows differ): 43; differing on xfx-base: 29; differing on xfx-r1: 9; differing on xfx: 5
+pairs: 57; identical on the head (0 rows differ): 50; differing on xfx-base: 33; differing on xfx-r1: 13; differing on xfx: 7
 
 caret                                                     fx    base      r1    head
+p5-page-keys-anchor-24x60-file-wrapped                   8,3     8,3     8,3     8,3  same
+p5-page-keys-anchor-24x60-model-wrapped                 14,3    14,3    14,3    14,3  same
+p5-page-keys-anchor-24x60-provider-wrapped              16,3    16,3    16,3    16,3  same
+p5-page-keys-anchor-24x60-slash-wrapped-up               5,2     5,3     5,3     5,2  same
+p5-page-keys-anchor-24x60-slash-wrapped                  5,3     5,3     5,3     5,3  same
 p5-page-keys-mcp-24x120-wrapped-cj                      12,4    12,4    12,4    12,4  same
 p5-page-keys-mcp-24x120-wrapped-pgdn                    12,4    12,4    12,4    12,4  same
 p5-page-keys-mcp-24x120-wrapped-pgup                     2,2     2,2    12,4     2,2  same

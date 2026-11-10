@@ -638,3 +638,183 @@
   190      if (!c.enabled) return .disabled;
   191      if (c.source == .workspace) if (c.workspace_admission) |admission| switch (admission) {
   192          .pending => return .waiting_for_approval,
+== src/ui/input/visual_layout.zig:697-713@481104fd
+  697  pub fn terminalColumn(point: CursorPoint, terminal_cols: u16) u16 {
+  698      if (terminal_cols == 0) return 1;
+  699      return @intCast(@min(
+  700          @as(usize, terminal_cols),
+  701          inputPrefix(point.row_index).cell_width +| point.content_column +| 1,
+  702      ));
+  703  }
+  704  
+  705  pub fn projectedAnchorColumn(summary: Summary, terminal_cols: u16) u16 {
+  706      const anchor = summary.anchor orelse return 1;
+  707      if (anchor.row_index == summary.cursor.row_index) return terminalColumn(anchor, terminal_cols);
+  708      return terminalColumn(.{
+  709          .raw_offset = summary.cursor.raw_offset,
+  710          .row_index = summary.cursor.row_index,
+  711          .content_column = 0,
+  712      }, terminal_cols);
+  713  }
+== src/ui/footer/input_presentation.zig:287-292@481104fd
+  287  fn slashRawAnchor(input_items: []const u8, prefix: []const u8) ?usize {
+  288      const slash_anchor = command_specs.argCompletionAnchor(prefix);
+  289      if (slash_anchor == 0 or prefix.len > input_items.len or slash_anchor > prefix.len) return null;
+  290      const leading_ws = input_items.len - prefix.len;
+  291      return leading_ws + slash_anchor;
+  292  }
+== src/ui/footer/input_presentation.zig:340-386@481104fd
+  340      terminal_cols: u16,
+  341      content_bottom: u16,
+  342      input_visible: bool,
+  343      modal_active: bool,
+  344      show_model_query: bool,
+  345      show_provider_query: bool,
+  346      show_file_query: bool,
+  347      prepared_slash_completion_count: ?usize,
+  348  ) RawInputGeometry {
+  349      const display_input = ctx.input.edit_state.input.items;
+  350      const display_cursor = ctx.input.edit_state.cursor;
+  351      const display_images = ctx.pending_images;
+  352      const display_pasted_blocks = ctx.input.entities.pasted_blocks.items;
+  353      const display_image_tokens = ctx.input.entities.image_tokens.items;
+  354      const display_skill_tokens = ctx.input.entities.skill_tokens.items;
+  355      const slash_prefix = slashInputPrefix(ctx.slash_registry, ctx.input.edit_state.input.items);
+  356      const raw_anchor: ?usize = if (show_model_query)
+  357          ctx.model_completion_anchor
+  358      else if (show_provider_query)
+  359          ctx.provider_picker_completion_anchor
+  360      else if (show_file_query)
+  361          ctx.file_completion_anchor
+  362      else
+  363          slashRawAnchor(ctx.input.edit_state.input.items, slash_prefix);
+  364  
+  365      const summary = visual_layout.summarize(.{
+  366          .input = display_input,
+  367          .cursor = display_cursor,
+  368          .terminal_cols = terminal_cols,
+  369          .images = display_images,
+  370          .pasted_blocks = display_pasted_blocks,
+  371          .image_tokens = display_image_tokens,
+  372          .skill_tokens = display_skill_tokens,
+  373      }, raw_anchor);
+  374      const capped = cappedInputRows(summary.total_rows, content_bottom, input_visible);
+  375      const window = visual_layout.visibleWindow(summary.cursor.row_index, summary.total_rows, capped.row_limit);
+  376      const slash_query_active = slashCompletionPickerActive(ctx, modal_active, show_model_query, show_provider_query or show_file_query);
+  377      const slash_completion_count = if (slash_query_active)
+  378          prepared_slash_completion_count orelse
+  379              slashCompletionPickerCount(ctx, modal_active, show_model_query, show_provider_query or show_file_query)
+  380      else
+  381          0;
+  382      const show_slash_query = slash_query_active and slash_completion_count > 0;
+  383      const picker_start_col = if (show_model_query or show_provider_query or show_file_query or show_slash_query)
+  384          visual_layout.projectedAnchorColumn(summary, terminal_cols)
+  385      else
+  386          @as(u16, 1);
+== src/core/slash_commands/command_specs.zig:636-644@481104fd
+  636  pub fn argCompletionAnchor(prefix: []const u8) usize {
+  637      if (mcpVerbsOn() and argCompletionPrefix(prefix, "/mcp") != null) return "/mcp ".len;
+  638      if (statuslineArgCompletionPrefix(prefix) != null) return "/statusline ".len;
+  639      if (notificationsArgCompletionPrefix(prefix) != null) return "/sound ".len;
+  640      if (permissionsArgCompletionPrefix(prefix) != null) return "/permissions ".len;
+  641      if (workspaceArgCompletionPrefix(prefix) != null) return "/workspace ".len;
+  642      if (allowlistArgCompletionAnchor(prefix)) |anchor| return anchor;
+  643      return 0;
+  644  }
+== src/core/input/picker_state.zig:287-296@481104fd
+  287      pub fn inlinePickerTriggerKind(self: *const State, editor: *const editor_state.State) ?InlinePickerKind {
+  288          if (self.rawModelPickerQuery(editor) != null) return .model;
+  289          if (self.rawProviderPickerQuery(editor) != null) return .provider;
+  290          if (self.rawFilePickerQuery(editor) != null) return .file;
+  291          if (findInlineSkillQuery(editor.input.items, editor.cursor) != null) return .skill;
+  292          if (findInlineSlashQuery(editor.input.items, editor.cursor) != null) return .slash;
+  293          const trimmed = std.mem.trimStart(u8, editor.input.items, " \t\r\n");
+  294          if (trimmed.len > 0 and trimmed[0] == '/') return .slash;
+  295          return null;
+  296      }
+== src/ui/footer/paint_plan.zig:943-953@481104fd
+  943          } else if (input.picker_items.len > 0) {
+  944              const selected = input.picker_selection_index % input.picker_items.len;
+  945              const window_start = picker_presentation.updateEdgeScrollPickerWindowStart(input.picker_window_start, input.picker_items.len, selected, input.picker_rows);
+  946              const window = picker_presentation.edgeScrollPickerWindowFromStart(input.picker_items.len, window_start, input.picker_rows);
+  947              var row = rows.picker_start;
+  948              for (input.picker_items[window.start..window.end], window.start..) |item, i| {
+  949                  const annotation = if (i < input.picker_annotations.len) input.picker_annotations[i] else "";
+  950                  var picker_row = try picker_presentation.composePickerOptionRowAnnotated(alloc, input.picker_kind, input.picker_start_col, item, annotation, i == selected, shell.layout.cols);
+  951                  try pushFooterBandRow(alloc, &frame, plan, row, &picker_row);
+  952                  row += 1;
+  953              }
+== src/ui/footer/picker_presentation.zig:818-858@481104fd
+  818  pub noinline fn composePickerOptionRowAnnotated(
+  819      alloc: Allocator,
+  820      kind: input_presentation.PickerKind,
+  821      start_col: u16,
+  822      item: []const u8,
+  823      annotation: []const u8,
+  824      selected: bool,
+  825      width: u16,
+  826  ) !std.ArrayList(u8) {
+  827      var row: std.ArrayList(u8) = .empty;
+  828      const width_usize: usize = width;
+  829      if (width_usize == 0 or start_col == 0 or start_col > width) return row;
+  830  
+  831      if (start_col > 1) try row_text.appendAbsoluteColumn(alloc, &row, start_col);
+  832      // Model, provider, model-catalog, and effort pickers signal selection by
+  833      // brightness alone, like the question panel; other pickers keep the filled row.
+  834      const selected_style = switch (kind) {
+  835          .model_stage, .provider_stage, .models, .effort => ui_render.selected_completion_style,
+  836          .file, .slash, .skills, .help, .settings, .sessions, .fork, .mcp, .auth => ui_render.approval_button_inactive_style,
+  837      };
+  838      const base_style = if (selected) selected_style else ui_render.dim_style;
+  839      const available = width_usize - @as(usize, start_col - 1);
+  840      const annotation_width = if (annotation.len == 0)
+  841          0
+  842      else
+  843          display_width.visibleWidth(picker_annotation_separator) + display_width.visibleWidth(annotation);
+  844      const show_annotation = annotation_width > 0 and
+  845          available >= display_width.visibleWidth(item) + annotation_width;
+  846      const label_width = if (show_annotation) available - annotation_width else available;
+  847  
+  848      try row.appendSlice(alloc, base_style);
+  849      try row_text.appendClipped(alloc, &row, item, @intCast(label_width));
+  850      if (show_annotation) {
+  851          try row.appendSlice(alloc, ui_render.reset_style);
+  852          try row.appendSlice(alloc, ui_render.dim_style);
+  853          try row.appendSlice(alloc, picker_annotation_separator);
+  854          try row.appendSlice(alloc, annotation);
+  855      }
+  856      try row.appendSlice(alloc, ui_render.reset_style);
+  857      return row;
+  858  }
+== src/ui/footer/row_text.zig:23-53@481104fd
+   23  pub fn appendClipped(alloc: Allocator, out: *std.ArrayList(u8), bytes: []const u8, width: u16) !void {
+   24      const width_usize: usize = width;
+   25      if (width_usize == 0) return;
+   26  
+   27      var visible: usize = 0;
+   28      var i: usize = 0;
+   29      while (i < bytes.len) {
+   30          if (bytes[i] == 0x1b) {
+   31              const end = display_width.ansiSequenceEnd(bytes, i);
+   32              try out.appendSlice(alloc, bytes[i..end]);
+   33              i = end;
+   34              continue;
+   35          }
+   36          if (bytes[i] == '\n' or bytes[i] == '\r') {
+   37              if (visible + 1 > width_usize) break;
+   38              try out.append(alloc, ' ');
+   39              visible += 1;
+   40              i += 1;
+   41              continue;
+   42          }
+   43  
+   44          const unit = display_width.displayUnitAt(bytes, i);
+   45          if (unit.byte_len == 0) break;
+   46          const cell_width = unit.cell_width;
+   47          if (visible + cell_width > width_usize) break;
+   48  
+   49          try out.appendSlice(alloc, bytes[i .. i + unit.byte_len]);
+   50          visible += cell_width;
+   51          i += unit.byte_len;
+   52      }
+   53  }

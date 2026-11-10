@@ -24,17 +24,22 @@ this folder that backs it.
 | `79e882fd` | round 2 RED: the slash lists on a taller composer, `C-j`/`C-k` under the full transcript, Up/Down over an empty settings list |
 | `2cbf4d41` | round 2's fix (`src/tui/shell.rs`) |
 | `8e85d9b5` | a pin: a page over an empty settings list, on a two-row search |
-| `0312cf42` | `anchor_at` through `column_anchor` (found by round 2's wrapped capture) -- **the head's build** |
+| `0312cf42` | `anchor_at` through `column_anchor` (found by round 2's wrapped capture) |
 | `ab2cfb94` | `docs/parity.md`, the scenarios' round 2 steps, the ledger's and `capfile.py`'s refs |
-| (this commit) | this folder, round 2 |
+| `cd00f8b8`, `f35430dc` | this folder, round 2 |
+| `8e809d40` | round 3: the anchor citations corrected and pinned (comments), the taller-composer asserts, `/mcp`'s menu under Ctrl-O, SLASH-LEADING-WS in `docs/parity.md` -- **the head's build** |
+| (this commit) | this folder, round 3; the scenario `p5-page-keys-anchor` with its workspace and catalog; the ledger's new cause `model-column-clip` and `at-ranking` widened to one snap; the ledger's and `capfile.py`'s `shell.rs` refs re-pointed past `8e809d40`'s lines; MODEL-COLUMN-CLIP in `docs/parity.md` |
 
 **Builds.** Three debug builds, each built after the commit it names, row 1
 of every capture naming its build (`pairs.txt`, first lines): the base's
 (`v0.1.0-3d3d56c`, sha256 `af8761fd…`) in `xfx-base/`, round 1's head
 (`v0.1.0-c4bfa8b`, `2f9161d8…`; its code is `101c6f84`'s) in `xfx-r1/`, and
-the head's (`v0.1.0-0312cf4`, `0bd74fd1…`) in `xfx/`. The commits after
-`0312cf42` change docs, refs, scenarios and this folder -- no code -- so that
-build stands for every later commit. `xfx-2cbf4d4/` holds the two `/mcp`
+the head's (`v0.1.0-8e809d4`, `db95eda1…`) in `xfx/`: every scenario was
+captured again on it in round 3. Round 3's source change is comments and
+tests, so its build behaves as round 2's (`0312cf4`, `0bd74fd1…`), on which
+the round 2 sweeps ran. The commit after `8e809d40` changes this folder,
+a scenario, the ledger, `capfile.py`'s comment and `docs/parity.md` -- no
+code -- so that build stands for it. `xfx-2cbf4d4/` holds the two `/mcp`
 wrapped snaps of the build at `2cbf4d41` (`anchor-2cbf4d4.txt`). The non-test
 source change is about +195/-57 lines against the base, +71/-18 of them in
 round 2 (`git diff <rev> 0312cf42 -- src`, less the hunks inside each file's
@@ -55,7 +60,7 @@ takes them they go on to the composer as a newline and a kill
 (`app_input_runtime.zig:879-893`). The page is 11 at 24 rows (`20 / 2 + 1`,
 `src/ui/footer/input_presentation.zig:252-255`).
 
-1. **`/settings`' menu** (`routeSettingsMenuMove`, `:431-463`). `Menu.move`
+1. **`/settings`' menu** (`routeSettingsMenuMove`, `input_completion_runtime.zig:431-463`). `Menu.move`
    (`src/core/config/settings_catalog.zig:225-241`): `next = current + delta`;
    below 0 it is the **last** setting, at or past the count the **first** --
    not taken round -- and the window moves only as far as keeps the mark in
@@ -66,15 +71,16 @@ takes them they go on to the composer as a newline and a kill
    `visibleModelItemsForBudget`, `input_completion_runtime.zig:440-455`), and
    is always spent. Fourteen
    settings (`settings_catalog.zig:261-276`).
-2. **The `/model ` column** (`hasModelQuery`, `:629-631`;
+2. **The `/model ` column** (`hasModelQuery`, `input_completion_runtime.zig:629-631`;
    `navigateModelPicker`, `:1072-1096`). Each stage -- the models
    (`navigateModelCompletion`, `:1098-1106`), the effort levels and the speed
    rows, and an `/effort ` line's levels -- goes to `navigatePickerOptions`,
-   which is `list_window.advanceSelection` (`:1158`; `src/core/shared/list_window.zig:40-53`):
+   which is `list_window.advanceSelection` (`input_completion_runtime.zig:1158`;
+   `src/core/shared/list_window.zig:40-53`):
    the same far-end rule, a six-row window (`default_max_picker_rows`, `:3`)
    kept at its edge (`updateEdgeStart`, `:55-68`). Always spent
    (`routeNonSlashPickerMove` answers `true` once `hasModelQuery` does,
-   `:411-414`).
+   `input_completion_runtime.zig:411-414`).
 3. **`/mcp `'s argument completions** are a slash list: `slashCompletionCount`
    counts the registry's `arguments` (`src/core/slash_commands/command_specs.zig:578-585`,
    `runtimeArgQuery` `:883-889`), which are `/mcp`'s verbs and its servers'
@@ -154,7 +160,9 @@ are the round 2 files' (the numbers did not change).
   draft's leading blanks and newlines (`command_specs.zig:568-576`), so the
   list shows over a three-row composer. `/settings` and the column are asked
   first, so they take every move at any height.
-- **No list takes `C-j`/`C-k` while the full transcript is up.**
+- **No list takes `C-j`/`C-k` while the full transcript is up** -- in xfx,
+  no list but the `@` list, whose keys under Ctrl-O (these two, Tab and
+  Enter) are unit CTRLO-AT-KEYS's and are left as they were.
   `routePickerControlByte` returns `false` unless
   `composerPickerSurfaceVisible` (`app_input_runtime.zig:1094`, `:1110-1116`),
   so the byte goes on to the composer (`:879-893`): a newline, a kill to the
@@ -172,13 +180,19 @@ are the round 2 files' (the numbers did not change).
 - `composer_rows` (factored out of `fit`) and `composer_grown`;
   `offer_to_picker` and `offer_to_mcp_args` pass Up, Down, PgUp and PgDn on
   when the composer is taller than one row.
-- One check in `consume_inputs`, before the first list: with the full
-  transcript up, `C-j`/`C-k` go to `act` (the composer) -- one check, as fx
-  has one, so it covers every list after it. Tested: the four the reviews
-  named, and the slash menu, `/help`, `/provider`, `/effort` and `/fork`;
-  by position only: `/resume`, the skills menu and `/mcp`'s menu. The `@`
-  list still sees them first: its keys there are unit CTRLO-AT-KEYS's
-  (`docs/parity.md`).
+- One check in `consume_inputs`, after the surfaces that take every key
+  first -- a question, an approval, then the rule confirmation,
+  `/statusline`'s picker, the info panel, `/usage` and `/workspace`, as fx's
+  modal input (`app_input_runtime.zig:873`) comes before
+  `routePickerControlByte` (`:879`) -- and before the first list, `/mcp`'s
+  menu: with the full transcript up, `C-j`/`C-k` go to `act` (the composer)
+  -- one check, as fx has one, so it covers every list after it. Tested: the
+  four the reviews named, and the slash menu, `/help`, `/provider`, `/effort`
+  and `/fork`, and since round 3 `/mcp`'s menu (whose own handler takes
+  every key under Ctrl-O, so a check below it fails the case); by position
+  only: `/resume` and the skills menu. The `@` list still sees them first:
+  its keys there -- these two, Tab and Enter -- are unit CTRLO-AT-KEYS's
+  (`docs/parity.md`), a carve-out kept on purpose.
 - `offer_to_settings`: a move that moved nothing is not taken.
 - `anchor_at` (`/mcp `'s arguments, `/provider`'s column) goes through
   `column_anchor`, which the `/model` column already used.
@@ -202,11 +216,125 @@ are the round 2 files' (the numbers did not change).
   in round 1; the case's page step (`8e85d9b5`) and `C-k` step are pins,
   killed by their mutants below.
 
+## Round 3 (the reviews' MUST, the four anchors, SHOULDs and NITs)
+
+**The anchor's fx lines are quoted now** (`fx_src.sh`, `fx-src.txt`):
+`projectedAnchorColumn` (`src/ui/input/visual_layout.zig:705-713`, with
+`terminalColumn` above it), the four anchors and `picker_start_col`
+(`src/ui/footer/input_presentation.zig:340-386`), `slashRawAnchor`
+(`:287-292`), `argCompletionAnchor` (`command_specs.zig:636-644`) and
+`inlinePickerTriggerKind` (`src/core/input/picker_state.zig:287-296`).
+`shell.rs`'s `column_anchor` and `file_picker_column` cited
+`visual_layout.zig:704-712`, which is `c1db9191`'s place for the same
+function; they cite `705-713@481104fd` now, and `provider_anchor`'s stale
+`input_presentation.zig:368-370` is `input_presentation.zig:356-363`,
+`:383-386@481104fd` (`8e809d40`, comments only).
+
+**So this does not come back** (`fxcites.txt`, made by `fxcites.py`): every
+fx `file:line` this README cites, and every one in the spans this unit put
+into `docs/parity.md`, must fall inside one of `fx_src.sh`'s ranges for that
+file; a bare `:N` belongs to the last `.zig` named before it. At round 2's
+head it found 11 not quoted: four are the anchor's two ranges, cited in the
+README and in `docs/parity.md`; seven are bare citations whose nearest file
+was not the one meant (`:431-463` after `input_presentation.zig`, and so
+on), each of which now names its file. Now: **92 citations, 0 not quoted**
+(`fxcites.txt`; round 3's own citations, the clip's three ranges among them,
+included).
+
+**The four anchors** (`input_presentation.zig:356-363`: model, provider and
+file queries anchor at their argument; a slash query at
+`slashRawAnchor`, which is an argument completion's argument and nothing
+for a command or skill; `:383-386` sends all four through
+`projectedAnchorColumn`):
+
+Scenario `p5-page-keys-anchor` at 24x60 (a row holds 58 cells past the
+prompt): each list on a one-row composer (`-one`), then under a token longer
+than a row, which starts on the first row and breaks onto the second, where
+the caret is (`-wrapped`); the slash word then with the caret moved up a row
+(`slash-wrapped-up`). `anchors.txt` (made by `anchors.py`) gives the first
+column of each list's first row and the caret on fx and the three builds;
+`pairs.txt` the rows that differ.
+
+| list | fx's anchor | xfx | one row | caret off the argument's row | pairs on the head |
+|---|---|---|---|---|---|
+| model | `model_completion_anchor` | `column_anchor` (`src/tui/shell.rs`) | column 10, under `xai/gr` (all four sides) | column 3, the caret's row's start (caret `14,3`; all four sides) | `model-one` identical; `model-wrapped` 1 row: the clip, not the anchor (below) |
+| provider | `provider_picker_completion_anchor` | `provider_anchor` → `anchor_at` → `column_anchor` | column 13, under `q` (all four) | column 3 (caret `16,3`); **13 on the base and round 1**, under the argument's first byte a row up -- round 2's `0312cf42` | both identical |
+| file (`@`) | `file_completion_anchor` | `file_picker_column` (its own code, the same rule) | column 7, under `@` (all four) | column 3 (caret `8,3`; all four) | `file-wrapped` identical; `file-one` 4 rows, attributes only (below) |
+| slash (command, skill) | `slashRawAnchor` is null (`argCompletionAnchor` answers 0, `command_specs.zig:643`), so `projectedAnchorColumn` answers 1 (`visual_layout.zig:706`) | no anchor: the menu's rows start at column 1 | rows at column 1 (text at 3) | the same, caret `5,3`; after Up `5,2` (**`5,3` on the base and round 1**: the list took the Up -- round 2's one-row rule) | all three identical |
+| `/mcp ` arguments (a slash query that has an anchor, `command_specs.zig:637`) | `slashRawAnchor`: past `/mcp ` | `anchor_at(token_start)` | column 8 (`p5-page-keys-mcp` `wrapped`, `-pgdn`, `-cj`: caret on the argument's row) | column 3 after Up and PgUp (`wrapped-up`, `-pgup`; **8 on the base and round 1**) | all five identical (round 2's pairs) |
+
+fx's other argument completions (`/statusline `, `/sound `, `/permissions `,
+`/workspace `, `/allowlist`, `command_specs.zig:638-642`) have no list in
+xfx ("its argument completion are absent", `docs/parity.md`, the full-screen
+TUI row), so there is nothing to anchor. **All 14 snaps' list columns and
+all their carets are fx's on the head** (`anchors.txt`, `pairs.txt`'s caret
+table).
+
+Two pairs still differ, neither in where a list hangs:
+
+- **`model-wrapped`, row 6: the column's cut.** fx paints every inline
+  list's row with `composePickerOptionRowAnnotated`
+  (`src/ui/footer/paint_plan.zig:950`), which writes the label with
+  `row_text.appendClipped` (`src/ui/footer/picker_presentation.zig:849`):
+  it stops at the screen's edge and adds nothing
+  (`src/ui/footer/row_text.zig:23-53`). xfx's `/model` column ends a cut
+  row with `…` (`picker::ellipsized` in `Column::rows`,
+  `src/tui/model_column.rs`): `-at-si` against `-at-s…`. Not this unit's
+  keys and not an anchor; it touches every stage of the column and the
+  `/effort ` column, so it gets an owner rather than a change here:
+  **MODEL-COLUMN-CLIP**, a new queue unit -- the ledger's cause
+  `model-column-clip` (`kind = "unit"`) and `docs/parity.md`'s `/model` row.
+  `marks.txt` lists the pair as `DIFFERS` for the same reason: the mark is on
+  the same row (6) on every side; only its text's last cell differs.
+- **`file-one`, rows 7-10: which letters are bold.** The same rows and
+  text. On rows 7-8 both bold `a-fi`, fx's `a` and `-` at columns 33 and 40,
+  xfx's at 16 and 18, the first ones it meets; on rows 9-10 fx bolds the `I`
+  of `SKILL.md` and xfx nothing. fx rebuilds the highlight from the
+  placement that set the rank; that is the ledger's `at-ranking` cause
+  (owner I-U2, which cites fx's lines), and it now names this snap too.
+
+`provider-one` types `/provider q`, which no provider matches, so both
+sides show the status row: the two products' provider sets (the ledger's
+`sign-in-providers`) stay out of a pair about the anchor.
+
+**The sweep of the scenario** (`sweep-anchor-24x60.md`,
+`sweep-anchor-24x120.md`; head build, `--jobs 1`, one hold of the suite
+lock, the ledger as committed here): at 24x60 **7 of 9 pass**, the two
+left each under one cause alone (`model-column-clip`, `at-ranking`), no row
+unattributed; at 24x120 8 of 9 (every token fits its row there, so the
+`-wrapped` snaps are one-row ones; `file-one` under `at-ranking`). A first
+try opened the scenario with `resize 24x60`, so it would mean the same at
+any size: from a wider launch fx clears the screen and writes its document
+again at the top and xfx keeps its band at the bottom (the ledger's
+`resize-document-repaint`), so every row differed; the scenario says to run
+it at 24x60 instead.
+
+**SHOULDs and NITs:**
+
+- The `@` list's `C-j`/`C-k` under Ctrl-O stay unit CTRLO-AT-KEYS's, with
+  its Tab and Enter there; said where the rule is stated above.
+- The taller-composer helper asserts the caret's row after each of Up, Down,
+  PgUp and PgDn, in that order, so each key moves it to another row and a
+  key the list swallowed fails the case (the `/mcp` case: 2, 1, 2, 0, 2; the
+  slash case: 1, 0, 1, 0, 1).
+- The other-lists full-transcript case adds `/mcp`'s menu: its handler takes
+  every key under Ctrl-O, so the check below it fails the case (mutant
+  `full-transcript:check-below-mcp-menu`, killed).
+- **SLASH-LEADING-WS** (`docs/parity.md`, the full-screen TUI row, after the
+  completion menu): fx opens the slash menu for a draft whose first
+  character past any leading spaces, tabs or line breaks is `/`
+  (`picker_state.zig:293-294`), and xfx's `Trigger::of`
+  (`src/tui/picker.rs:165-167`) needs the `/` first and no blank anywhere.
+  Read at the pin; uncaptured; not fixed here.
+
 ## GREEN (`pairs.txt` column `head`, `marks.txt`, `green-unit.txt`)
 
-- **43 of 48 pairs are identical** (0 rows differ, row 1 left out; round 2's
-  nine steps included), every pair of the column and of `/mcp ` among them,
-  and all nine carets are fx's (`pairs.txt`, the caret table).
+- **50 of 57 pairs are identical** (0 rows differ, row 1 left out; round 2's
+  nine steps and round 3's nine anchor snaps included), every pair of the
+  column and of `/mcp ` among them, and all 14 carets are fx's (`pairs.txt`,
+  the caret table).
+- Two of the other seven are round 3's `model-wrapped` (the clip,
+  MODEL-COLUMN-CLIP) and `file-one` (the bold letters, `at-ranking`), above.
 - **The other five are the settings menu's** `menu`, `menu-pgdn`, `-pgdn2`,
   `-pgup`, `-pgup2`, one row each: fx's `Sound level  off  on  max` against
   xfx's `off  on` -- row 18 in `menu`, `-pgdn` and `-pgdn2`, row 16 in `-pgup`
@@ -220,15 +348,23 @@ are the round 2 files' (the numbers did not change).
   approval, so those five stay `unresolved-defect` until xfx has the level;
   no capture at this height leaves the Sound level row out of the menu's
   window while a page lands inside the list.
-- Every mark in `marks.txt` is the same on the head as on fx (48 `same`).
+- Every mark in `marks.txt` is on the same row on the head as on fx (56
+  `same`, and `model-wrapped`'s `DIFFERS` by its last cell, the clip).
 - **Unit** (`green-unit.txt`): the unit's 12 cases pass on the head (the
   filter also runs three older cases whose names it matches; they pass).
+  Round 3, on `8e809d40`'s code (`checks-r3.txt`): `cargo test --locked
+  --lib -- at_24_rows taller_composer under_the_full_transcript` 17 passed,
+  0 failed; `cargo test --locked --test parity` 26 passed, 0 failed (with
+  this commit's `docs/parity.md`); `cargo fmt --check` and both clippy runs
+  (`--all-targets`, with and without `--features fault-injection`, `-D
+  warnings`) clean; `scripts/fxcap/test_sweep.py Ledger Normalize Capfile`
+  (the ledger with its new cause, the new scenario) 44 OK.
 
 ## Mutants (`mutants.txt`, made by `mutants.py`)
 
-**All 20 were killed** (round 1's 12 and round 2's 8). Each ran on a `git
-clone --no-local` of `0312cf42` in the scratch directory, never on the
-worktree: the clone's tree reset, one edit (exactly one match in the named
+**All 21 were killed** (round 1's 12, round 2's 8 and round 3's 1), run
+again in round 3 on a `git clone --no-local` of `8e809d40` in the scratch
+directory, never on the worktree: the clone's tree reset, one edit (exactly one match in the named
 fn, or the run stops), and the unit's cases run (`cargo test --locked --lib
 -- at_24_rows taller_composer under_the_full_transcript_the
 under_the_full_transcript_no_other`, under the suite lock).
@@ -239,7 +375,7 @@ under_the_full_transcript_no_other`, under the suite lock).
 | the column | killed (model and effort/speed cases) | killed (both) | killed (both) | `C-j`/`C-k` out of its key set: killed (both) |
 | `/mcp ` | killed | killed | killed | -- |
 
-Round 2's, each killed:
+Round 2's and round 3's, each killed:
 
 | mutant | killed by |
 |---|---|
@@ -251,6 +387,7 @@ Round 2's, each killed:
 | ... for a page only | the settings case (its two-row page step) |
 | ... for `C-j`/`C-k` only | the settings case (its `C-k` step) |
 | `anchor_at` back on the argument's row (`2cbf4d41`'s) | the `/mcp` taller-composer case's anchor asserts |
+| round 3: the full-transcript check moved below `/mcp`'s menu (`full-transcript:check-below-mcp-menu`) | the other-lists case, its new `/mcp` menu step |
 
 There is one full-transcript check for every list, so one mutant removes it
 for all of them; each list's case fails on its own.
@@ -319,14 +456,23 @@ committed were in this folder.
   (the menu, its Model row's list, and in round 2 the empty list) rows: their
   page keys and `C-j`/`C-k`, each with its captures.
 - **The ledger retires no cause**: none names this unit or these keys, and the
-  captures end none (the settings menu pairs stay under `sound-max`). Its
+  captures end none (the settings menu pairs stay under `sound-max`). Round
+  3 adds one, `model-column-clip` (owner MODEL-COLUMN-CLIP), and widens
+  `at-ranking` to `p5-page-keys-anchor`'s `file-one`; `docs/parity.md` names
+  MODEL-COLUMN-CLIP in the `/model` row and SLASH-LEADING-WS in the
+  full-screen TUI row. Its
   `src/tui/shell.rs` refs that this unit's lines moved, and
   `scripts/fxcap/capfile.py`'s two `warning_shown` ranges, are re-pointed,
   checked by text (`refs.txt`, made by `refs.py`: 21 refs, 0 wrong; the one
   `docs/parity.md` ref, `settings.rs:539`, went with the sentence it was in).
+  Round 3's lines in `shell.rs` (`8e809d40`: two doc lines, and the test
+  lines under them) moved 17 of them; re-pointed and checked again against
+  the base (`refs.txt`, made at `8e809d40`: 21 refs, 0 wrong).
 
 ## Open
 
-None of round 1's two remains. Questions and approvals take every key before
+None of round 1's two remains. Round 3 names two owners and fixes neither
+here: MODEL-COLUMN-CLIP (the column's `…`) and SLASH-LEADING-WS (a slash
+menu over leading blanks). Questions and approvals take every key before
 any list here (`Shell::answer`, `Shell::decide`), so fx's other two
 `composerPickerSurfaceVisible` conditions have nothing to refuse.

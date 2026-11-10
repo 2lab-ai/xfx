@@ -1,6 +1,6 @@
-"""PAGE-KEYS-SETTINGS-COLUMN's mutants (round 1, and round 2's at the end of
-the list), each on a `git clone --no-local` throwaway of the head and never
-on the worktree. Per list (the /settings
+"""PAGE-KEYS-SETTINGS-COLUMN's mutants (round 1, then round 2's and round
+3's), each on a `git clone --no-local` throwaway of the head and never on
+the worktree. Per list (the /settings
 menu, the /model column, /mcp's argument completions): the page key back to
 nothing, a page of one row, and a page taken round the list where fx sends it
 to the far end; and for the two lists this unit gave them, `C-j`/`C-k` back
@@ -32,6 +32,25 @@ ROUND_INDEX = (
 )
 PAGE_ARMS = "Action::PageUp => -page,\n                    Action::PageDown => page,"
 ONE_ARMS = "Action::PageUp => -1,\n                    Action::PageDown => 1,"
+
+CHECK_BLOCK = """            if self.full.is_open()
+                && matches!(event, Input::Action(Action::ControlJ | Action::ControlK))
+            {
+                if !self.offer_to_files(&event) {
+                    if let Input::Action(action) = event {
+                        self.act(action, now);
+                    }
+                }
+                continue;
+            }
+"""
+MCP_COMMENT = """            // `/mcp`'s menu takes the keys it binds; the rest go to the
+            // composer, which holds its filter, as fx v0.0.16's does.
+"""
+MCP_BLOCK = """            if self.offer_to_mcp(&event, held) {
+                continue;
+            }
+"""
 
 # (name, file, anchor or None, old, new): `old` is replaced at its first match
 # after `anchor`, which must be the only match in that fn (or the file).
@@ -129,6 +148,15 @@ MUTANTS = [
         "fn consume_inputs(",
         "            if self.full.is_open()\n                && matches!(event, Input::Action(Action::ControlJ | Action::ControlK))",
         "            if false",
+    ),
+    # Round 3: the check moved below `/mcp`'s menu, which takes every key while
+    # the full transcript covers it.
+    (
+        "full-transcript:check-below-mcp-menu",
+        "src/tui/shell.rs",
+        "fn consume_inputs(",
+        CHECK_BLOCK + MCP_COMMENT + MCP_BLOCK,
+        MCP_COMMENT + MCP_BLOCK + CHECK_BLOCK,
     ),
     (
         "settings:empty-list-spends-every-move",
