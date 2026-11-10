@@ -12338,7 +12338,11 @@ impl Shell {
             // Every Enter while `/mcp`'s menu is up, whichever surface takes
             // it, is one the menu's held rule counts (opus-Y): an Enter the
             // model's panel took, then a second tap once the question is
-            // painted again, is a double tap, not an answer.
+            // painted again, is a double tap, not an answer. A C-j that
+            // answers the model's panel is not counted (QUESTION-CTRL-J): the
+            // rule is about a held Enter's repeats, and a held C-j repeats as
+            // C-j, which the menu reads as Down -- nothing at a confirmation
+            // ([`Self::offer_to_mcp`]) -- so it cannot answer one.
             let held = matches!(event, Input::Action(Action::Submit))
                 && self.mcp_menu.is_some()
                 && self.mcp_enter.enter(now);

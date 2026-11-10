@@ -172,7 +172,10 @@ pub(crate) enum Act {
     /// The next **question**, wrapping. Not the next choice: the batch is what
     /// Tab walks (`question_prompt.zig:603-634`).
     Tab,
-    /// Take the marked choice, or the draft when the freeform slot is marked.
+    /// Take the marked choice, or the draft when the freeform slot is marked:
+    /// Enter, and `C-j`, the other byte upstream reads as `.submit`
+    /// (`'\r', '\n'`, `questionActionFromByte`,
+    /// `src/ui/input/runtime.zig:141@481104fd`).
     Submit,
     /// Cancel the batch.
     Escape,
@@ -246,7 +249,15 @@ impl Act {
             Action::PasteStart => Some(Self::PasteStart),
             Action::PasteEnd => Some(Self::PasteEnd),
             Action::Tab => Some(Self::Tab),
-            Action::Submit => Some(Self::Submit),
+            // Enter, and `C-j`: upstream maps both bytes to a question's
+            // `.submit` (`questionActionFromByte`,
+            // `src/ui/input/runtime.zig:141@481104fd`), at a choice and in the
+            // field alike -- the field's own route keeps no newline
+            // (`:199-209`; `shortcuts.zig:26`, `:31-41`) -- so C-j is Enter
+            // wherever a question has the keys (QUESTION-CTRL-J). The
+            // composer's newline habit comes with it, as in fx: a C-j typed
+            // for a new line once a question is up answers it.
+            Action::Submit | Action::ControlJ => Some(Self::Submit),
             Action::Escape => Some(Self::Escape),
             Action::Cancel => Some(Self::Cancel),
             Action::Backspace => Some(Self::Backspace),
