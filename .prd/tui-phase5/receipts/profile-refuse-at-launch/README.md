@@ -405,14 +405,15 @@ launch does not do.
 
 ## 8. Gate (`gates.sh` under the suite lock → `gate.txt`)
 
-At 41ac3864 (code b209c786), the tree clean before and after, one hold of
-the lock: **22 steps, 0 failed** -- fmt, both clippys, `cargo test` (5665
-passed, 0 failed) and `--features fault-injection` (5702 passed, 0
+At 7b72e92b (code 02c32c3f), the tree clean before and after, one hold of
+the lock: **22 steps, 0 failed** -- fmt, both clippys, `cargo test` (5667
+passed, 0 failed) and `--features fault-injection` (5704 passed, 0
 failed), the identity, stubs, secrets and local-path checks and their
 self-tests, the preview contract, the preflight cost, the usage clock,
 `test-gate-env`, the fxcap harness tests, both release builds, `smoke.sh`
 (47 checks) and `smoke-tui.sh` (37 scenarios and the oracle, 1167 checks,
-0 failures). Round 1's gate (c782a6d8, 22/22) is in this file's history.
+0 failures). Rounds 1 and 2 (c782a6d8, 41ac3864; 22/22 each) are in this
+file's history.
 
 ## Files
 

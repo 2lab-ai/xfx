@@ -1,4 +1,4 @@
-== GREEN, round 2: the unit's tests in the gate's cargo test at 41ac3864 (code b209c786), from its log
+== GREEN, round 3: the unit's tests in the gate's cargo test at 7b72e92b (code 02c32c3f), from its log
 test a_profile_fx_refuses_is_refused_before_the_terminal_is_taken ... ok
 test a_profile_only_ask_refuses_starts_the_tui ... ok
 test a_profile_that_goes_bad_after_the_launch_is_a_panel_row_not_a_refusal ... ok
@@ -7,7 +7,9 @@ test ask_refuses_a_profile_fx_refuses ... ok
 test ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused ... ok
 test ask_with_a_permission_table_that_does_not_read_runs_no_tool ... ok
 test config::tests::a_launch_refuses_the_models_fx_refuses_and_no_other ... ok
+test config::tests::the_open_checks_what_it_opened_not_what_was_looked_at ... ok
 test config::tests::the_profile_is_opened_in_fxs_order_before_what_it_holds_counts ... ok
+test config::tests::the_profile_layer_is_read_from_the_descriptor_that_was_checked ... ok
 test config::tests::the_refusal_is_read_from_the_profile_and_this_workspaces_entry_only ... ok
 test the_commands_fx_answers_without_a_launch_answer_with_a_profile_it_refuses ... ok
 test the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything ... ok
