@@ -39,8 +39,10 @@
 //! keystroke: the draft's first character past any spaces, tabs and line
 //! breaks is `/` ([`Trigger::of`]; upstream's `inlinePickerTriggerKind`,
 //! `src/core/input/picker_state.zig:293-294@481104fd`). The menu's query is
-//! that slash word, while it is the rest of the draft ([`query_of`];
-//! `slashCompletionPrefix`, `command_specs.zig:568-576@481104fd`): the shape
+//! the draft past those blanks ([`query_of`]; `slashCompletionPrefix`,
+//! `command_specs.zig:568-576@481104fd`): a slash word, or past its blank a
+//! line whose word names no command or one that takes an argument, which
+//! lists the skills the line finds -- the shape
 //! `crate::interactive::classify` calls a command, which is what keeps the menu
 //! from offering a completion for a line that would not be run as one.
 //! (`classify` skips every Unicode blank before the slash, these four and
@@ -168,7 +170,7 @@ impl Trigger {
     /// The **whole** draft, not the word under the caret: a slash command is a
     /// line whose first character past spaces, tabs, CR and LF is `/`, so
     /// `say /help` is a prompt here exactly as it is to
-    /// `crate::interactive::classify`. `/model acme` is still the kind --
+    /// `crate::interactive::classify`. `/help me` is still the kind --
     /// upstream's `.slash` covers a slash line with an argument -- though no
     /// menu opens for it ([`query_of`]).
     pub(crate) fn of(text: &str) -> Option<Self> {
@@ -183,20 +185,56 @@ impl Trigger {
 /// `findAny(u8, prefix, " \t\r\n")`, `command_specs.zig:569-572`).
 pub(crate) const BLANKS: [char; 4] = [' ', '\t', '\r', '\n'];
 
-/// The slash word the menu completes: the draft past its leading blanks, while
-/// that is one word (`slashCompletionPrefix`,
-/// `command_specs.zig:568-576@481104fd`).
+/// What the menu completes: the draft past its leading blanks, the line
+/// whole (`slashCompletionPrefix`, `command_specs.zig:568-576@481104fd`).
 ///
-/// Upstream's prefix goes on past a blank for a name it does not know or one
-/// that takes an argument. Past the blank after `/mcp`, `/statusline`, `/sound`,
-/// `/permissions`, `/workspace` and `/allowlist` that is its argument
-/// completion, which xfx's own lists answer (`super::mcp_args`,
-/// `super::arg_lists`); for the others it is the skills the words find, which
-/// xfx has not copied yet, so this query ends at the first blank
-/// ([`Trigger::of`] does not).
+/// While it is one word, always. Past a blank, while that word names no
+/// command, or names one -- exactly, case kept, its own name or an alias
+/// (`matchExact`, `src/core/mods/registry.zig:42-55`) -- that takes an
+/// argument; past the blank of one that takes none, never. No command matches
+/// past a blank, as no name has one, so the menu there is the skills the line
+/// finds (`mixedSlashCompletionCount`, `picker_presentation.zig:1170-1175`):
+/// `/git log` lists a skill whose description holds `git log`. Never past the
+/// blank after `/mcp`, `/statusline`, `/sound`, `/permissions`, `/workspace`
+/// or `/allowlist` (`super::arg_lists::anchored`): those lines are their
+/// argument lists' (`super::mcp_args`, `super::arg_lists`), and list no
+/// skill. A `/model`, `/effort`, `/provider` or `/setup` line is its column's,
+/// which the shell asks for first (its `completion_kind`).
 pub(crate) fn query_of(text: &str) -> Option<&str> {
-    let word = text.trim_start_matches(BLANKS);
-    (word.starts_with('/') && !word.contains(BLANKS)).then_some(word)
+    prefix_in(SLASH_REGISTRY, text)
+}
+
+/// [`query_of`] over a registry named by the caller ([`Picker::over`]'s seam).
+fn prefix_in<'t>(registry: &[SlashSpec], text: &'t str) -> Option<&'t str> {
+    let prefix = text.trim_start_matches(BLANKS);
+    if !prefix.starts_with('/') {
+        return None;
+    }
+    let Some(end) = prefix.find(BLANKS) else {
+        return Some(prefix);
+    };
+    let name = &prefix[..end];
+    match registry
+        .iter()
+        .find(|spec| spec.name == name || spec.aliases.contains(&name))
+    {
+        None => Some(prefix),
+        Some(spec) => (spec.has_args && !super::arg_lists::anchored(prefix)).then_some(prefix),
+    }
+}
+
+/// Whether Enter on `prefix` runs a command whichever row is marked: the line
+/// is a name or an alias, exactly or with spaces and tabs after it
+/// (`matchExact` and its `matchesCommandToken`,
+/// `src/core/mods/registry.zig:47-55`, `:69-78`, asked by
+/// `submitSlashPickerSelection`, `app_input_runtime.zig:2366-2374`).
+fn names_exactly(registry: &[SlashSpec], prefix: &str) -> bool {
+    let names = |token: &str| {
+        registry
+            .iter()
+            .any(|spec| spec.name == token || spec.aliases.contains(&token))
+    };
+    names(prefix) || (prefix.ends_with([' ', '\t']) && names(prefix.trim_end_matches([' ', '\t'])))
 }
 
 /// The trigger whose menu the user closed, while it is still the trigger.
@@ -351,6 +389,13 @@ pub(crate) enum PickerOutcome {
     /// `app_input_runtime.zig:2895-2919`, from Tab at `:1519-1521` and Enter
     /// at `:2820-2839`; `fx-skills-slash-40x120-slash-dem-tab`, `-rel-enter`).
     Bind(Skill),
+    /// Enter on a skill row of a line that is a command's name with a blank
+    /// after it, which no command row answers (`/rename `): the keystroke goes
+    /// on and submits what was typed (`submitSlashPickerSelection`'s
+    /// `matchExact`, `app_input_runtime.zig:2366-2374@481104fd`, then
+    /// `resolveSlashSubmission` with no command to resolve to,
+    /// `input_submit_runtime.zig:1818-1823`).
+    Typed,
     /// The menu is gone and the draft is untouched. Escape.
     Dismiss,
 }
@@ -406,6 +451,9 @@ pub(crate) struct Picker {
     /// How many of [`Self::matches`] are commands: the header says
     /// `Commands` while that is all of them and `Results` otherwise.
     commands: usize,
+    /// Whether the line is a command's name ([`names_exactly`]): Enter then
+    /// runs a command, not a skill.
+    exact: bool,
     /// An index into [`Self::matches`].
     selected: usize,
     /// The first match in view, as the last move left it.
@@ -430,7 +478,7 @@ impl Picker {
     /// command whose name begins with an alias's first letters, so the whole
     /// three-tier order cannot be produced from it.
     fn over(registry: &'static [SlashSpec], query: &str, skills: &[Skill]) -> Option<Self> {
-        let word = query_of(query)?;
+        let word = prefix_in(registry, query)?;
         let mut commands: Vec<Match> = registry
             .iter()
             .filter_map(|spec| found(spec, word))
@@ -452,6 +500,7 @@ impl Picker {
             trigger: Trigger::Slash,
             matches,
             commands: count,
+            exact: names_exactly(registry, word),
             selected: 0,
             window_start: 0,
         })
@@ -478,7 +527,6 @@ impl Picker {
     pub(crate) fn marked(&self) -> (usize, usize) {
         (self.selected, self.matches.len())
     }
-
     /// The menu's shape on a screen `terminal_rows` tall, under a composer
     /// `input_extra` rows taller than one (`slashMenuLayoutForCounts`,
     /// `picker_presentation.zig:754-771@481104fd`, handed
@@ -582,31 +630,26 @@ impl Picker {
                 Entry::Command(found) => PickerOutcome::Complete(found.label),
             },
             PickerAction::Submit => match &self.matches[self.selected] {
-                // A query that **is** a command's name runs a command on
+                // A line that **is** a command's name runs a command on
                 // Enter, whichever row is marked: upstream binds a skill row
                 // only when no command matches exactly
                 // (`submitSlashPickerSelection`'s `matchExact`,
-                // `app_input_runtime.zig:2810-2818`), and its submit takes the
-                // mark modulo the commands (`resolveSlashSubmission`,
-                // `input_submit_runtime.zig:1806-1811`).
-                Entry::Skill(_) if self.names_a_command() => {
-                    match &self.matches[self.selected % self.commands] {
+                // `app_input_runtime.zig:2366-2374@481104fd`), and its submit
+                // takes the mark modulo the commands -- or, with none listed,
+                // the line as typed (`resolveSlashSubmission`,
+                // `input_submit_runtime.zig:1818-1823`).
+                Entry::Skill(_) if self.exact => match self.commands {
+                    0 => PickerOutcome::Typed,
+                    commands => match &self.matches[self.selected % commands] {
                         Entry::Command(found) => PickerOutcome::Run(found.label),
                         Entry::Skill(skill) => PickerOutcome::Bind(skill.clone()),
-                    }
-                }
+                    },
+                },
                 Entry::Skill(skill) => PickerOutcome::Bind(skill.clone()),
                 Entry::Command(found) => PickerOutcome::Run(found.label),
             },
             PickerAction::Escape => PickerOutcome::Dismiss,
         }
-    }
-
-    /// Whether the query is a command's name or an alias, exactly.
-    fn names_a_command(&self) -> bool {
-        self.matches[..self.commands]
-            .iter()
-            .any(|entry| matches!(entry, Entry::Command(found) if found.rank == Rank::Exact))
     }
 
     /// Reads the skills again -- a list that landed after the menu opened --
@@ -1180,13 +1223,123 @@ mod tests {
         // (`super::inline_completion::slash_word`), never the menu's.
         assert_eq!(Trigger::of("say /he"), None);
         assert_eq!(query_of("say /he"), None);
-        // The kind outlives a blank after the word; the query does not: no
-        // argument completion here, so nothing to list for one.
-        for draft in ["/he ", "/help me", "  /model acme", "\n/he\nx", "/he\t"] {
+        // The kind outlives a blank after the word. The query goes on past it
+        // for a name no command has, and for one that takes an argument
+        // (`slashCompletionPrefix`, `command_specs.zig:568-576@481104fd`) --
+        // and no command matches there, so with no skill no menu opens.
+        for draft in ["/he ", "  /model acme", "\n/he\nx", "/he\t"] {
             assert_eq!(Trigger::of(draft), Some(Trigger::Slash), "{draft:?}");
-            assert_eq!(query_of(draft), None, "{draft:?}");
+            assert_eq!(
+                query_of(draft),
+                Some(draft.trim_start_matches(BLANKS)),
+                "{draft:?}"
+            );
             assert!(Picker::open(draft, &[]).is_none(), "{draft:?}");
         }
+        // `/help` takes none: its line is nobody's past the blank.
+        assert_eq!(Trigger::of("/help me"), Some(Trigger::Slash));
+        assert_eq!(query_of("/help me"), None);
+    }
+
+    #[test]
+    fn past_a_blank_the_query_goes_on_for_a_name_nobody_has_or_one_with_an_argument() {
+        // `slashCompletionPrefix` (`command_specs.zig:568-576@481104fd`) over
+        // `registry.lookup` (`src/core/mods/registry.zig:42-55`): the word
+        // before the blank looked up exactly, case kept, its name or an alias.
+        for (draft, query) in [
+            ("/git log", Some("/git log")),
+            ("  /git  log ", Some("/git  log ")),
+            ("/rename notes", Some("/rename notes")),
+            ("/rename ", Some("/rename ")),
+            ("/img x", Some("/img x")),
+            ("/Help x", Some("/Help x")),
+            ("/ ", Some("/ ")),
+            // No argument: the alias's command's, too.
+            ("/help x", None),
+            ("/clear the notes", None),
+            ("/exit now", None),
+            ("/balance x", None),
+            // Anchored: the argument lists', never the skills'
+            // (`argCompletionAnchor`, `:636-644`).
+            ("/statusline bell", None),
+            ("/sound the", None),
+            ("/permissions x", None),
+            ("/workspace\tx", None),
+            ("/allowlist bogus words", None),
+            ("/mcp x", None),
+            ("/mcp\tx", None),
+            // The command, then a blank: `/statuslinex` is no command.
+            ("/statuslinex bell", Some("/statuslinex bell")),
+        ] {
+            assert_eq!(query_of(draft), query, "{draft:?}");
+        }
+        // A word nothing names is matched whole, the blank and all: no command
+        // answers it.
+        let skills = [skill(
+            "release-notes",
+            "Write release notes from the git log",
+            crate::skills::Source::WorkspaceShared,
+        )];
+        let picker = Picker::open("/git log", &skills).expect("the skill");
+        assert_eq!((picker.commands, picker.marked()), (0, (0, 1)));
+        assert_eq!(
+            plain(&picker.rows(120, 40, 0, PALETTE, true)[0]).trim_end(),
+            "Results 1"
+        );
+        assert!(Picker::open("/statusline git log", &skills).is_none());
+        // A slash and a blank searches for nothing, which every skill
+        // answers, and is not the bare slash's `type to filter`.
+        let all = Picker::open("/ ", &skills).expect("every skill");
+        assert_eq!(
+            plain(&all.rows(120, 40, 0, PALETTE, true)[0]).trim_end(),
+            "Results 1"
+        );
+    }
+
+    #[test]
+    fn enter_on_a_skill_row_binds_it_unless_the_line_is_a_commands_name() {
+        // `submitSlashPickerSelection` (`app_input_runtime.zig:2366-2396@481104fd`):
+        // `matchExact` on the line, a blank or a tab after the name included
+        // (`matchesCommandToken`, `src/core/mods/registry.zig:69-78`).
+        for (prefix, exact) in [
+            ("/rename", true),
+            ("/rename ", true),
+            ("/rename \t ", true),
+            ("/img ", true),
+            ("/rename x", false),
+            ("/rename\n", false),
+            ("/ren", false),
+            ("/Rename ", false),
+        ] {
+            assert_eq!(names_exactly(SLASH_REGISTRY, prefix), exact, "{prefix:?}");
+        }
+        let tidy = skill(
+            "tidy",
+            "Clear the notes and rename the help",
+            crate::skills::Source::WorkspaceShared,
+        );
+        let skills = [tidy.clone()];
+        // A name and a blank: no command row, so the line as typed.
+        let mut spaced = Picker::open("/rename ", &skills).expect("the skill");
+        assert_eq!(spaced.commands, 0);
+        assert_eq!(spaced.apply(PickerAction::Submit), PickerOutcome::Typed);
+        assert_eq!(
+            spaced.apply(PickerAction::Complete),
+            PickerOutcome::Bind(tidy.clone())
+        );
+        // A line that is no name binds.
+        let mut words = Picker::open("/rename the help", &skills).expect("the skill");
+        assert_eq!(
+            words.apply(PickerAction::Submit),
+            PickerOutcome::Bind(tidy.clone())
+        );
+        // The name alone: the marked skill row runs the command.
+        let mut name = Picker::open("/rename", &skills).expect("the command and the skill");
+        assert_eq!(name.apply(PickerAction::Down), PickerOutcome::Changed);
+        assert_eq!(
+            name.apply(PickerAction::Submit),
+            PickerOutcome::Run("/rename")
+        );
     }
 
     #[test]

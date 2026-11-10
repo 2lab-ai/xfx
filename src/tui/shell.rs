@@ -1523,9 +1523,10 @@ pub(crate) struct Shell {
     /// catalog and the completion menu: it opens when the text begins
     /// `/provider ` or `/setup ` and closes when it stops doing so, both in
     /// [`Self::reconcile_picker`].
-    /// It cannot be up beside the completion menu -- a draft with a space
-    /// after its slash word is not the menu's query ([`picker::query_of`]) --
-    /// nor beside the catalog, whose search the draft is while it is up.
+    /// It cannot be up beside the completion menu -- a draft that is its
+    /// argument is the `.provider` kind, which opens no slash menu
+    /// ([`Self::completion_kind`]) -- nor beside the catalog, whose search the
+    /// draft is while it is up.
     provider_picker: Option<ProviderPicker>,
     /// Whether Escape closed the `/provider` picker over the text the draft
     /// still begins with.
@@ -8818,6 +8819,13 @@ impl Shell {
         let Some(request) = PickerAction::of(*action) else {
             return false;
         };
+        // Tab takes the dim rest of a slash word before the menu's row
+        // (`'\t'`, `app_input_runtime.zig:1326-1332@481104fd`): past a blank
+        // the menu's skills and a mid-line slash word's ghost can show
+        // together (`/x /he`).
+        if request == PickerAction::Complete && self.picker.is_some() && self.ghost().is_some() {
+            return false;
+        }
         let Some(picker) = self.picker.as_mut() else {
             return false;
         };
@@ -8840,11 +8848,14 @@ impl Shell {
                 self.replace_word(name);
                 false
             }
+            // The draft as typed is the line Enter submits.
+            PickerOutcome::Typed => false,
             PickerOutcome::Bind(skill) => {
-                // The draft past its leading blanks is the slash word
-                // ([`picker::query_of`]); it becomes the token, the blanks
-                // stay where they are, and the keystroke -- Tab or Enter -- is
-                // spent on that (`bindSelectedSlashSkill`'s `leading_ws`,
+                // The draft past its leading blanks is the menu's query
+                // ([`picker::query_of`]), past a blank too (`/git log`); it
+                // becomes the token, the blanks stay where they are, and the
+                // keystroke -- Tab or Enter -- is spent on that
+                // (`bindSelectedSlashSkill`'s `leading_ws`,
                 // `app_input_runtime.zig:2464-2468@481104fd`).
                 let start = self.picker.take().map_or(0, |picker| picker.word_start());
                 let end = self.editor.text().len();
@@ -9131,9 +9142,9 @@ impl Shell {
             self.file_picker = None;
             return;
         }
-        // The `/provider` column next: a draft that is its argument has a
-        // space after the name, so it is never the menu's query
-        // ([`picker::query_of`]) as well.
+        // The `/provider` column next: a draft that is its argument is its
+        // kind, and never the slash menu's as well
+        // ([`Self::completion_kind`]).
         if self.reconcile_provider_picker() {
             self.picker = None;
             // Before the `@` word, as upstream asks (`rawFilePickerQuery`,
@@ -48717,6 +48728,200 @@ mod tests {
             assert_eq!(skills.len(), 1, "{keys:?}");
             assert!(shell.picker.is_none());
         }
+    }
+
+    /// [`skilled`] with the four skills the capture's `slash-mixed-ws` holds
+    /// beside `release-notes` in `skills/`: what a line past its blank finds
+    /// by name and description (`skillMatchRank`). Their words -- `notes`,
+    /// `help`, `rename`, `statusline` -- are not in a path the fixture draws.
+    fn mixed() -> Skilled {
+        let mut shell = skilled();
+        for (name, description) in [
+            ("notes-index", "List the notes by title"),
+            ("tidy", "Clear the notes and rename the help"),
+            ("chime", "Sound the statusline bell"),
+            ("pointer", "Run x /help for the usage"),
+        ] {
+            let dir = shell.work.join("skills").join(name);
+            std::fs::create_dir_all(&dir).expect("a skill");
+            std::fs::write(
+                dir.join("SKILL.md"),
+                format!("---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n"),
+            )
+            .expect("SKILL.md");
+        }
+        let (work, home) = (shell.work.clone(), shell.home.clone());
+        shell.skills = HeldSkills::new(&work, Some(&home));
+        shell.skills.settle_now();
+        shell
+    }
+
+    /// The names the slash menu shows, top first, past its header and blank
+    /// row; none while it is closed.
+    fn slash_rows(shell: &Skilled) -> Vec<String> {
+        if shell.picker.is_none() {
+            return Vec::new();
+        }
+        menu(shell)
+            .iter()
+            .skip(2)
+            .filter_map(|row| {
+                uncoloured(row)
+                    .split_whitespace()
+                    .next()
+                    .map(str::to_string)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn past_the_blank_of_a_name_nobody_has_the_menu_lists_the_skills_the_line_finds() {
+        // `mixedSlashCompletionCount` (`picker_presentation.zig:1170-1175@481104fd`)
+        // over `slashCompletionPrefix` (`command_specs.zig:568-576`), the line
+        // matched whole (`skillMatchRank`, `skill_runtime.zig:1380-1392`):
+        // `fx-p5-slash-mixed-skills-40x120-git-log`, `-notes`, `-slash-space`,
+        // `-cap-help`.
+        let mut shell = mixed();
+        shell.route_bytes(b"/git log");
+        assert_eq!(slash_rows(&shell), ["release-notes"]);
+        assert_eq!(
+            uncoloured(&menu(&shell)[0]).trim_end(),
+            "Results 1",
+            "{:#?}",
+            menu(&shell)
+        );
+        // By name first, then within it, then elsewhere; the blank after the
+        // word trimmed.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/notes ");
+        assert_eq!(slash_rows(&shell), ["notes-index", "release-notes", "tidy"]);
+        // A slash and a blank finds every skill, and no command.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/ ");
+        assert_eq!(slash_rows(&shell).len(), 6, "{:?}", slash_rows(&shell));
+        assert_eq!(uncoloured(&menu(&shell)[0]).trim_end(), "Results 6");
+        // The name is looked up as typed: `/Help` is nobody's.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/Help ");
+        assert_eq!(slash_rows(&shell), ["pointer", "tidy"]);
+        // And a line nothing finds opens nothing.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/git blame");
+        assert!(shell.picker.is_none());
+    }
+
+    #[test]
+    fn a_name_with_no_argument_lists_nothing_past_its_blank_and_a_table_lists_its_own() {
+        // `slashCompletionPrefix` returns nothing for a name that takes no
+        // argument (`command_specs.zig:568-576@481104fd`), and an anchored
+        // line lists its argument and no skill (`mixedSlashCompletionCount`,
+        // `picker_presentation.zig:1170-1175`): `-help`, `-clear-the-notes`,
+        // `-statusline`, `-statusline-bell`.
+        let mut shell = mixed();
+        for line in [&b"/help "[..], b"/clear the notes", b"/exit the help"] {
+            shell.route_bytes(&[0x15]);
+            shell.route_bytes(line);
+            assert!(
+                shell.picker.is_none(),
+                "{:?}",
+                String::from_utf8_lossy(line)
+            );
+            assert!(
+                menu(&shell).is_empty(),
+                "{:?}",
+                String::from_utf8_lossy(line)
+            );
+        }
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/statusline ");
+        assert!(shell.picker.is_none());
+        assert_eq!(menu(&shell).len(), 6, "{:#?}", menu(&shell));
+        assert!(
+            !menu(&shell).iter().any(|row| row.contains("chime")),
+            "{:#?}",
+            menu(&shell)
+        );
+        shell.route_bytes(b"bell");
+        assert!(shell.picker.is_none());
+        assert!(menu(&shell).is_empty(), "{:#?}", menu(&shell));
+        // A name that takes one, with no table of its own, lists the skills.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/rename the help");
+        assert_eq!(slash_rows(&shell), ["tidy"]);
+    }
+
+    #[test]
+    fn tab_and_enter_bind_the_skill_over_the_whole_line_but_a_names_blank_submits_it() {
+        // `bindSelectedSlashSkill` (`app_input_runtime.zig:2451-2476@481104fd`)
+        // from Tab (`:1331-1353`) and from Enter (`submitSlashPickerSelection`,
+        // `:2366-2396`), which a line that is a command's name and a blank
+        // leaves to the submit, as typed (`matchExact`; `resolveSlashSubmission`,
+        // `input_submit_runtime.zig:1818-1823`): `-git-log-tab`,
+        // `-git-log-enter`, `-lead-tab`, `-notes-down-tab`,
+        // `-rename-the-help-enter`, `-rename-enter`.
+        for (keys, bound) in [
+            (&b"/git log\t"[..], "release-notes "),
+            (b"/git log\r", "release-notes "),
+            (b"  /git log\t", "  release-notes "),
+            (b"/notes \x1b[B\t", "release-notes "),
+            (b"/rename the help\r", "tidy "),
+        ] {
+            let mut shell = mixed();
+            let before = shell.document().len();
+            shell.route_bytes(keys);
+            assert_eq!(shell.editor.text(), bound, "{keys:?}");
+            assert_eq!(shell.editor.entities().skills().len(), 1, "{keys:?}");
+            assert!(shell.picker.is_none(), "{keys:?}");
+            assert_eq!(shell.document().len(), before, "{keys:?} sent something");
+        }
+        let mut shell = mixed();
+        shell.route_bytes(b"/rename ");
+        assert_eq!(slash_rows(&shell), ["tidy"]);
+        shell.route_bytes(b"\r");
+        assert!(shell.editor.entities().skills().is_empty());
+        assert_eq!(shell.editor.text(), "");
+        assert!(
+            joined(&shell.document()).contains("usage: /rename <title>"),
+            "{:#?}",
+            shell.document()
+        );
+    }
+
+    #[test]
+    fn tab_takes_a_slash_words_ghost_before_the_skills_listed_past_the_blank() {
+        // Tab asks the ghost before the slash list (`'\t'`,
+        // `app_input_runtime.zig:1326-1332@481104fd`), and Enter binds:
+        // `-ghost-list`, `-ghost-list-tab`, `-ghost-list-enter`.
+        let mut shell = mixed();
+        shell.route_bytes(b"/x /he");
+        assert_eq!(slash_rows(&shell), ["pointer"]);
+        assert_eq!(shell.band_rows()[0], ghosted("/x /he", "lp"));
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "/x /help");
+        assert_eq!(slash_rows(&shell), ["pointer"]);
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "pointer ");
+        assert_eq!(shell.editor.entities().skills().len(), 1);
+    }
+
+    #[test]
+    fn escape_over_the_skills_past_a_blank_lasts_while_the_line_is_a_slash_line() {
+        // One `.slash` kind (`visibleInlinePickerKind`,
+        // `input_completion_runtime.zig:133-169@481104fd`): `-git-log-esc`,
+        // `-git-log-esc-x`.
+        let mut shell = mixed();
+        shell.route_bytes(b"/git log");
+        assert!(shell.picker.is_some());
+        escape(&mut shell);
+        assert!(shell.picker.is_none());
+        shell.route_bytes(b" x");
+        assert!(shell.picker.is_none(), "the menu came back");
+        shell.route_bytes(&[0x7f, 0x7f]);
+        assert_eq!(shell.editor.text(), "/git log");
+        assert!(shell.picker.is_none(), "the menu came back");
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/git log");
+        assert_eq!(slash_rows(&shell), ["release-notes"]);
     }
 
     // -----------------------------------------------------------------------

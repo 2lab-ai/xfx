@@ -111,6 +111,16 @@ pub(crate) fn of(prefix: &str) -> Option<List<'_>> {
     })
 }
 
+/// Whether fx hangs an argument list under `prefix` -- `/mcp`, or one of the
+/// five tables' commands, then a space or a tab (`argCompletionAnchor` not
+/// zero, `command_specs.zig:636-644@481104fd`): such a line lists its
+/// argument and never the skills (`mixedSlashCompletionCount`,
+/// `src/ui/footer/picker_presentation.zig:1170-1175`), and so opens no slash
+/// menu ([`super::picker::query_of`]).
+pub(crate) fn anchored(prefix: &str) -> bool {
+    argument(prefix, "/mcp").is_some() || of(prefix).is_some()
+}
+
 /// What follows `command` in `prefix` past a space or a tab, its leading
 /// blanks trimmed (`rawArgCompletionPrefix`, `command_specs.zig:917-923`).
 fn argument<'a>(prefix: &'a str, command: &str) -> Option<&'a str> {
