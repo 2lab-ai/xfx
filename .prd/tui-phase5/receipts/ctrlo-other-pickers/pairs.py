@@ -1,11 +1,12 @@
-"""CTRLO-OTHER-PICKERS' pairs (round 2): every snap of the unit's ten
+"""CTRLO-OTHER-PICKERS' pairs (round 3): every snap of the unit's thirteen
 scenarios at 40x120, fx v0.0.16 (`fx/`) against the head's xfx (`xfx/`),
-round 1's (`xfx-r1/`) and the base's (`xfx-base/`, `-` for a snap round 2
-added), cell for cell with `scripts/fxcap/cells.py` (row 1, the
-banner, not compared). Row 1 of each side's first capture is printed, so
-the builds the captures came from are on record. A pair is `same-as-open`
-when the rows that differ are, row for row, the rows the scenario's `open`
-snap differs in -- taken before any Ctrl-O, so a difference outside this
+round 1's (`xfx-r1/`) and the base's (`xfx-base/`), `-` where a build has no
+capture of a snap (one round 2 or round 3 added), cell for cell with
+`scripts/fxcap/cells.py` (row 1, the banner, not compared). Row 1 of each
+side's first capture is printed, so the builds the captures came from are
+on record. A pair is `same-as-open` when the rows that differ are, row for
+row, the rows the scenario's first snap (`open`, or round 3's `typed`)
+differs in -- taken before any Ctrl-O, so a difference outside this
 unit (the help catalog's command count, the skills tabs, the provider
 rows); any other head pair that differs has its rows printed under it. The
 sweep's ledger classifies them all (`sweep-compare.txt`).
@@ -31,6 +32,9 @@ SCENARIOS = {
     "p5-ctrlo-slash": ["open", "down", "esc", "ck", "cj"],
     "provider-ctrlo": ["open", "down", "esc", "ck", "cj", "bspace", "alt-enter"],
     "p5-ctrlo-mcp-args": ["open", "down", "esc", "ck", "cj"],
+    "p5-ctrlo-burst-help": ["typed", "burst-cj", "burst-ck"],
+    "p5-ctrlo-burst-settings": ["typed", "burst-cj", "burst-ck"],
+    "p5-ctrlo-burst-model": ["typed", "burst-cj", "burst-ck"],
 }
 
 
@@ -65,12 +69,13 @@ def main():
     total = base_same = r1_same = head_same = head_open = 0
     print(f"{'scenario':22} {'snap':9} {'base':>14} {'round 1':>14} {'head':>14}")
     for scenario, snaps in SCENARIOS.items():
-        open_rows = text_rows(capture("fx", "fx", scenario, "open", "txt"), capture("xfx", "xfx", scenario, "open", "txt"))
+        open_rows = text_rows(capture("fx", "fx", scenario, snaps[0], "txt"), capture("xfx", "xfx", scenario, snaps[0], "txt"))
         for snap in snaps:
             fx = capture("fx", "fx", scenario, snap, "ansi")
             base_path = capture("xfx-base", "xfx", scenario, snap, "ansi")
             base = differ(fx, base_path) if os.path.exists(base_path) else None
-            r1 = differ(fx, capture("xfx-r1", "xfx", scenario, snap, "ansi"))
+            r1_path = capture("xfx-r1", "xfx", scenario, snap, "ansi")
+            r1 = differ(fx, r1_path) if os.path.exists(r1_path) else None
             head = differ(fx, capture("xfx", "xfx", scenario, snap, "ansi"))
             head_rows = text_rows(capture("fx", "fx", scenario, snap, "txt"), capture("xfx", "xfx", scenario, snap, "txt"))
             total += 1

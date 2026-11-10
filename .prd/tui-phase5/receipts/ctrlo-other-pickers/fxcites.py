@@ -44,6 +44,7 @@ RECEIPT = ".prd/tui-phase5/receipts/ctrlo-other-pickers"
 SCENARIOS = ["scripts/fxcap/scenarios/" + name + ".cap" for name in [
     "p5-ctrlo-help", "p5-ctrlo-model", "p5-ctrlo-sessions", "p5-ctrlo-fork", "p5-ctrlo-effort",
     "skills-ctrlo", "skills-ctrlo-dollar", "p5-ctrlo-slash", "provider-ctrlo", "p5-ctrlo-mcp-args",
+    "p5-ctrlo-burst-help", "p5-ctrlo-burst-settings", "p5-ctrlo-burst-model",
 ]]
 WRAP = re.compile(r"\.zig:\s*\n[ \t]*(?:///?|#)?[ \t]*(?=\d)")
 MARK = re.compile(r"^\s*(?:///?!?|#)\s?")

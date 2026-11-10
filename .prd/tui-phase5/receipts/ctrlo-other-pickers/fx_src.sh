@@ -55,3 +55,11 @@ q src/ui/input/visual_layout.zig 705 713 "projectedAnchorColumn: the anchor's co
 q src/ui/event_loop.zig 88 122 "the loop reads up to max_input_reads_per_fact_collection reads (94) before one frame (110, 119)"
 q src/core/slash_commands/command_specs.zig 457 470 "helpCatalogSpecMatches: the search's words, split at spaces, tabs and line breaks (460)"
 q src/ui/footer/input_presentation.zig 383 386 "picker_start_col: projectedAnchorColumn for the model, provider, file and slash columns"
+# 6. Round 3: what a kill syncs (C-k in the burst with text after the caret)
+q src/core/app/app_input_runtime.zig 2478 2544 "syncCatalogMenus: settings (2492-2495), help (2497-2500), skills (2502-2521), model (2523-2527), sessions (2529-2544)"
+q src/core/slash_commands/command_specs.zig 209 212 "HelpMenu.resetForQuery: the mark and the window back to the top"
+q src/core/config/settings_catalog.zig 208 211 "Menu.resetForQuery: the same for the settings menu"
+q src/core/app/model_cache_runtime.zig 209 215 "ModelMenu.setQuery: the mark and the window back to the top"
+q src/core/app/app_session_runtime.zig 496 503 "SessionPicker.setQuery: the same for the session picker"
+q src/core/app/app_session_runtime.zig 2271 2283 "searchSessionPicker: a durable picker's search lists again (setQuery first)"
+q src/core/skills/skill_runtime.zig 2603 2623 "setMenuQuery: the skills menu's mark stays, held to what is listed"

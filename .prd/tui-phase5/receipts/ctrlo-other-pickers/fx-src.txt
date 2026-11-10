@@ -1042,3 +1042,141 @@
   384          visual_layout.projectedAnchorColumn(summary, terminal_cols)
   385      else
   386          @as(u16, 1);
+
+== src/core/app/app_input_runtime.zig:2478-2544@481104fd -- syncCatalogMenus: settings (2492-2495), help (2497-2500), skills (2502-2521), model (2523-2527), sessions (2529-2544)
+ 2478          fn syncCatalogMenus(app: *App) void {
+ 2479              syncSettingsMenu(app);
+ 2480              syncHelpMenu(app);
+ 2481              syncSkillsMenu(app);
+ 2482              syncModelMenu(app);
+ 2483              syncSessionMenu(app);
+ 2484              syncMcpHostMenu(app);
+ 2485          }
+ 2486  
+ 2487          fn syncMcpHostMenu(app: *App) void {
+ 2488              if (comptime !@hasDecl(App, "mcpHostMenuKey")) return;
+ 2489              app.mcp.hostMenuFilterChanged(app.input_runtime.edit_state.input.items);
+ 2490          }
+ 2491  
+ 2492          fn syncSettingsMenu(app: *App) void {
+ 2493              if (!app.input_runtime.settings_menu.active) return;
+ 2494              app.input_runtime.settings_menu.resetForQuery();
+ 2495          }
+ 2496  
+ 2497          fn syncHelpMenu(app: *App) void {
+ 2498              if (!app.input_runtime.help_menu.active) return;
+ 2499              app.input_runtime.help_menu.resetForQuery();
+ 2500          }
+ 2501  
+ 2502          fn syncSkillsMenu(app: *App) void {
+ 2503              if (comptime !@hasField(App, "skills")) return;
+ 2504              if (!app.skills.menu.active) return;
+ 2505              if (!app.skills.menu.origin.isMention()) {
+ 2506                  app.skills.setMenuQuery(
+ 2507                      app.alloc,
+ 2508                      app.input_runtime.edit_state.input.items,
+ 2509                  );
+ 2510                  return;
+ 2511              }
+ 2512              const target = app.skills.menu.target orelse return;
+ 2513              const items = app.input_runtime.edit_state.input.items;
+ 2514              if (target.start >= items.len or items[target.start] != '$') {
+ 2515                  app.skills.closeMenu();
+ 2516                  return;
+ 2517              }
+ 2518              const end = skillTokenEnd(items, target.start + 1);
+ 2519              app.skills.menu.target = .{ .start = target.start, .end = end };
+ 2520              app.skills.setMenuQuery(app.alloc, items[target.start + 1 .. end]);
+ 2521          }
+ 2522  
+ 2523          fn syncModelMenu(app: *App) void {
+ 2524              if (comptime !@hasField(App, "model_cache")) return;
+ 2525              if (!app.model_cache.menu.active) return;
+ 2526              app.model_cache.setMenuQuery(app.input_runtime.edit_state.input.items);
+ 2527          }
+ 2528  
+ 2529          fn syncSessionMenu(app: *App) void {
+ 2530              if (comptime !@hasField(App, "session_persistence")) return;
+ 2531              const picker = &app.session_persistence.session_picker;
+ 2532              if (!picker.active) return;
+ 2533              if (comptime !runtime_profile.allows(App, .durable_sessions)) {
+ 2534                  picker.setQuery(app.input_runtime.edit_state.input.items);
+ 2535                  return;
+ 2536              }
+ 2537              app_session_runtime.Runtime(App).searchSessionPicker(app) catch |err| {
+ 2538                  debug_trace.logf(
+ 2539                      "session",
+ 2540                      "session picker search dropped the listed sessions err={s}",
+ 2541                      .{@errorName(err)},
+ 2542                  );
+ 2543              };
+ 2544          }
+
+== src/core/slash_commands/command_specs.zig:209-212@481104fd -- HelpMenu.resetForQuery: the mark and the window back to the top
+  209      pub fn resetForQuery(self: *HelpMenu) void {
+  210          self.selected_index = 0;
+  211          self.window_start = 0;
+  212      }
+
+== src/core/config/settings_catalog.zig:208-211@481104fd -- Menu.resetForQuery: the same for the settings menu
+  208      pub fn resetForQuery(self: *Menu) void {
+  209          self.selected_index = 0;
+  210          self.window_start = 0;
+  211      }
+
+== src/core/app/model_cache_runtime.zig:209-215@481104fd -- ModelMenu.setQuery: the mark and the window back to the top
+  209      pub fn setQuery(self: *ModelMenu, query_text: []const u8) void {
+  210          const len = @min(query_text.len, self.query_buf.len);
+  211          if (len > 0) @memmove(self.query_buf[0..len], query_text[0..len]);
+  212          self.query_len = len;
+  213          self.selected_index = 0;
+  214          self.window_start = 0;
+  215      }
+
+== src/core/app/app_session_runtime.zig:496-503@481104fd -- SessionPicker.setQuery: the same for the session picker
+  496      pub fn setQuery(self: *SessionPicker, query_text: []const u8) void {
+  497          const len = @min(query_text.len, self.query_buf.len);
+  498          if (len > 0) @memmove(self.query_buf[0..len], query_text[0..len]);
+  499          self.query_len = len;
+  500          self.selected = 0;
+  501          self.window_start = 0;
+  502          self.selection_failure = null;
+  503      }
+
+== src/core/app/app_session_runtime.zig:2271-2283@481104fd -- searchSessionPicker: a durable picker's search lists again (setQuery first)
+ 2271          pub fn searchSessionPicker(app: *App) !void {
+ 2272              const picker = &app.session_persistence.session_picker;
+ 2273              if (!picker.active) return;
+ 2274              // A listing still in flight applies the query when it lands.
+ 2275              if (picker.load_state != .ready) {
+ 2276                  picker.setQuery(app.input_runtime.edit_state.input.items);
+ 2277                  return;
+ 2278              }
+ 2279              listSessionPicker(app, picker.scope) catch |err| {
+ 2280                  picker.load_state = .failed;
+ 2281                  return err;
+ 2282              };
+ 2283          }
+
+== src/core/skills/skill_runtime.zig:2603-2623@481104fd -- setMenuQuery: the skills menu's mark stays, held to what is listed
+ 2603      pub fn setMenuQuery(
+ 2604          self: *Runtime,
+ 2605          _: Allocator,
+ 2606          query: []const u8,
+ 2607      ) void {
+ 2608          self.menu.setQuery(query);
+ 2609          self.rebuildPreparedMenuIndex();
+ 2610          const item_count = self.menuItemCount();
+ 2611          if (item_count == 0) {
+ 2612              self.menu.selected_index = 0;
+ 2613              self.menu.window_start = 0;
+ 2614              return;
+ 2615          }
+ 2616          if (self.menu.selected_index >= item_count) {
+ 2617              self.menu.selected_index = item_count - 1;
+ 2618          }
+ 2619          self.menu.window_start = list_window.updateEdgeStart(
+ 2620              self.menu.window_start,
+ 2621              item_count,
+ 2622              self.menu.selected_index,
+ 2623              skill_menu_max_visible_rows,

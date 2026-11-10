@@ -1,4 +1,4 @@
-"""CTRLO-OTHER-PICKERS' mutants (round 2): each picker's rule under Ctrl-O
+"""CTRLO-OTHER-PICKERS' mutants (round 3): each picker's rule under Ctrl-O
 broken one at a time in a throwaway clone (`git clone --no-local`), and the unit's modules
 run against it with a time limit, in their own process group. A mutant the
 tests fail is KILLED; one that does not build is NO-BUILD and not counted as
@@ -7,7 +7,11 @@ unit's mutants; its runner is AT-LAUNCH-WALK's.) Round 2 put the three
 per-picker guards and the `@` list's inline copy into one check in
 `consume_inputs`, so their mutants are one (`b-check-gone`), and
 CTRLO-AT-KEYS' equivalent survivor has no line left to mutate; the
-same-burst composer's `C-j` and the merged anchor have their own.
+same-burst composer's `C-j` and the merged anchor have their own. Round 3
+adds the four its reviews asked for (opus NIT 2): the `$` exclusion from
+`:514`'s held set, the question's close of the screen, `keep` restoring the
+mark without the window (one for each menu), and `/effort`'s menu alone left
+up by an edit.
 
 usage: python3 -I mutants.py <clone> [<mutant id>...]
 The clone must be at the unit's head with no change; each mutant is restored
@@ -57,6 +61,11 @@ HELD = (
 KEEP_CATALOG = "        if let (Some(menu), Some(mark)) = (self.help_menu.as_mut(), catalog) {\n            menu.keep(mark);\n        }\n"
 KEEP_SETTINGS = "        if let (Some(menu), Some(mark)) = (self.settings_menu.as_mut(), settings) {\n            menu.keep(mark);\n        }\n"
 ANCHOR_ROW = "        if row != self.editor.point(cols).0 {\n            return PROMPT_CELLS;\n        }\n"
+HM = "src/tui/help_menu.rs"
+ST = "src/tui/settings.rs"
+SEES = "        if matches!(event, UiEvent::Approval(_) | UiEvent::Question(_)) {\n            self.close_full_transcript();\n        }\n"
+KEEP_WINDOW = "        self.selected = selected;\n        self.window_start = window_start;\n"
+EFFORT_EDIT = "        let effort = self.effort_menu.take().is_some();\n"
 
 
 def once(old, new):
@@ -70,13 +79,6 @@ def once(old, new):
 def term_dropped(term):
     """The list without one menu: `false` in its place."""
     return once(MENUS, MENUS.replace(term, "false", 1))
-
-
-def unguarded(name):
-    """The picker's C-j/C-k guard taken out: it moves on them under the
-    transcript again."""
-    head = f"    fn {name}(&mut self, event: &Input) -> bool {{\n" + OPEN
-    return once(head + GUARD, head)
 
 
 MUTANTS = [
@@ -114,6 +116,15 @@ MUTANTS = [
     ("burst-settings-mark-reset", SH, once(KEEP_SETTINGS, "")),
     # the anchor as the base had it, now under every column that hangs from it
     ("anchor-row-check-gone", SH, once(ANCHOR_ROW, "")),
+    # Round 3 (opus NIT 2): a `$` menu held by `:514` as `/skills`' is
+    ("burst-held-mention-too", SH, once(HELD, HELD.replace(".is_some_and(|menu| !menu.origin().is_mention())", ".is_some()"))),
+    # a question or an approval leaves the screen up
+    ("sees-close-gone", SH, once(SEES, "")),
+    # `keep` puts the mark back and leaves the window where the line break reset it
+    ("keep-help-selected-only", HM, once(KEEP_WINDOW, "        self.selected = selected;\n        let _ = window_start;\n")),
+    ("keep-settings-selected-only", ST, once(KEEP_WINDOW, "        self.selected = selected;\n        let _ = window_start;\n")),
+    # `/effort`'s menu, and only it, stays up through an edit
+    ("edit-leaves-effort-up", SH, once(EFFORT_EDIT, "        let effort = false;\n")),
 ]
 
 

@@ -145,5 +145,54 @@ p5-ctrlo-mcp-args      down           identical      identical      identical
 p5-ctrlo-mcp-args      esc            identical      identical      identical
 p5-ctrlo-mcp-args      ck         2 rows differ      identical      identical
 p5-ctrlo-mcp-args      cj         9 rows differ      identical      identical
-pairs: 69; identical: base 11, round 1 39, head 39; head same-as-open: 25; other: 5
+p5-ctrlo-burst-help    typed                  -              - 13 rows differ  same-as-open
+p5-ctrlo-burst-help    burst-cj               -              -  9 rows differ
+    row 6: fx 'Commands 36  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  …'
+    row 6: xfx 'Commands 33  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  …'
+    row 11: fx '  /version        show the fx version'
+    row 11: xfx '  /version        show the xfx version'
+    row 21: fx '  /login          choose the model provider and how it signs in'
+    row 21: xfx '  /provider       choose the model provider and how it signs in'
+    row 22: fx '  /logout         sign out of a provider session'
+    row 22: xfx '  /stats          show token and turn statistics'
+    row 23: fx '  /provider       choose the model provider and how it signs in'
+    row 23: xfx "  /usage          show your provider's usage and spend"
+    row 24: fx '  /stats          show token and turn statistics'
+    row 24: xfx '  /credits        show gateway credits balance'
+    row 25: fx "  /usage          show your provider's usage and spend"
+    row 25: xfx '  /model          show the model, or `/model <id>` to use another one from now on'
+    row 26: fx '  /credits        show gateway credits balance'
+    row 26: xfx '  /effort         choose the reasoning effort for the current model'
+    row 27: fx '  /model          choose what model and reasoning effort to use'
+    row 27: xfx '  /fast           toggle Fast mode when supported'
+p5-ctrlo-burst-help    burst-ck               -              -  9 rows differ
+    row 6: fx 'Commands 36  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  …'
+    row 6: xfx 'Commands 33  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  …'
+    row 11: fx '  /version        show the fx version'
+    row 11: xfx '  /version        show the xfx version'
+    row 21: fx '  /login          choose the model provider and how it signs in'
+    row 21: xfx '  /provider       choose the model provider and how it signs in'
+    row 22: fx '  /logout         sign out of a provider session'
+    row 22: xfx '  /stats          show token and turn statistics'
+    row 23: fx '  /provider       choose the model provider and how it signs in'
+    row 23: xfx "  /usage          show your provider's usage and spend"
+    row 24: fx '  /stats          show token and turn statistics'
+    row 24: xfx '  /credits        show gateway credits balance'
+    row 25: fx "  /usage          show your provider's usage and spend"
+    row 25: xfx '  /model          show the model, or `/model <id>` to use another one from now on'
+    row 26: fx '  /credits        show gateway credits balance'
+    row 26: xfx '  /effort         choose the reasoning effort for the current model'
+    row 27: fx '  /model          choose what model and reasoning effort to use'
+    row 27: xfx '  /fast           toggle Fast mode when supported'
+p5-ctrlo-burst-settings typed                  -              -  1 rows differ  same-as-open
+p5-ctrlo-burst-settings burst-cj               -              -  1 rows differ
+    row 19: fx '  Sound level              off  on  max'
+    row 19: xfx '  Sound level              off  on'
+p5-ctrlo-burst-settings burst-ck               -              -  1 rows differ
+    row 19: fx '  Sound level              off  on  max'
+    row 19: xfx '  Sound level              off  on'
+p5-ctrlo-burst-model   typed                  -              -      identical
+p5-ctrlo-burst-model   burst-cj               -              -      identical
+p5-ctrlo-burst-model   burst-ck               -              -      identical
+pairs: 78; identical: base 11, round 1 39, head 42; head same-as-open: 27; other: 9
 # exit 0
