@@ -661,14 +661,10 @@ xfx_row = '^  Six done\.$|^  <wall> \(|^┃$|^auto · model-a$|^$'
 why = "fx v0.0.16 asks up to 20 questions in a batch (`max_questions = 20`, `question_answer.zig:9@481104fd`), xfx still 4 (`MAX_QUESTIONS`, src/tools/question.rs:25): the scenario's six-question batch opens fx's panel (`Q1 colour? … Question 1 of 6`) and Escape leaves fx's `▪ Cancelled`, where xfx's tool refuses the batch and the turn goes on to `Six done.`. The first batch's `▪ Cancelled` row (row 5) is the same on both since T-U4. Named by T-U4: these rows were uncaused at the base (.prd/tui-phase5/receipts/cancel-marker/README.md)."
 
 
-[[cause]]
-id = "at-ranking"
-kind = "unit"
-owner = "I-U2 @ fzf-style ranking (input cluster I3), not yet a branch"
-scenarios = ["p5-input-at", "workspace-index"]
-snaps = ["at-st", "at-st-down12", "at-st-up6", "at-stat", "at-plan"]
-rows = ["5-14"]
-why = "fx v0.0.16 ranks `@st` and `@stat` with its placement score (55e13fad; `scoreBetter`, `file_index.zig:1884-1899@481104fd`), names that start with the query first (`start.sh`, `store.rs`, `STATUS.md`, ...); xfx still ranks with c1db919's eight facts (`score_order`, src/tui/file_index.rs) and lists `spikes/s-01-trace.txt` first. So the list's rows hold other paths. Its highlights are rebuilt from the placement that set the rank (`file_index.zig:1783-1829`), so `workspace-index`'s `@plan` on an added directory's long path bolds `p`, `l`, `a`, `n` where xfx bolds `p`, `la`, `n`: the same text, other attributes. Its shape is the same since AT-HEIGHT: ten rows, the rules and the hint row where fx has them, the bar on the same row, and each side's window the edge-scrolled one over its own ranking (.prd/tui-phase5/receipts/at-height/band.txt)."
+# at-ranking (I-U2) was closed by AT-RANK: xfx ranked `@` queries with c1db919's eight facts where fx v0.0.16
+# ranks by its placement score (`scoreBetter`, `choosePlacement`, `file_index.zig@481104fd`); the copy made the
+# five snaps it covered (`p5-input-at` at-st, at-st-down12, at-st-up6, at-stat; `workspace-index` at-plan)
+# identical on the head (.prd/tui-phase5/receipts/at-rank/pairs.txt).
 
 [[cause]]
 id = "at-resize-band-at-the-bottom"
