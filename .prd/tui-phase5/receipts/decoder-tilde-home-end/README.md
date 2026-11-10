@@ -105,8 +105,8 @@ everywhere; Ctrl's is `.draft_start`, and Shift's extends a selection.
    Delete and the page keys, where fx reads the bare key (`:696`, `:698`,
    `:712-718`). The refusal is xfx's own, not borrowed from fx (fx refuses
    `CSI 1 ; 1 Z`, `:723`, but not the tilde keys), and the same decoder reads
-   `CSI 1 ; 1 H` as Home; it is kept so the six tilde codes follow one rule
-   until TILDE-EMPTY-MODIFIER. It is pinned by
+   `CSI 1 ; 1 H` as Home; it is kept so the seven tilde codes (1, 3, 4, 5, 6,
+   7, 8) follow one rule until TILDE-EMPTY-MODIFIER. It is pinned by
    `a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one`
    (`CSI 1 ; 1 ~`) and by every modified test's `; 1` case, and mutant M7
    (fx's reading of `; 1`) is killed by them.

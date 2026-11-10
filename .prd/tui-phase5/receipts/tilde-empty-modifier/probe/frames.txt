@@ -1,0 +1,10 @@
+fx   full            rows 2-40 sha256 d5bcbe9e3d03
+fx   full-ctrl-pgup  rows 2-40 sha256 d5bcbe9e3d03
+fx   full-caps-pgup  rows 2-40 sha256 d5bcbe9e3d03
+fx   full-pgup-1     rows 2-40 sha256 d42404b2b414
+fx   full-pgup       rows 2-40 sha256 e613105c4b2f
+xfx  full            rows 2-40 sha256 7e0fece93f44
+xfx  full-ctrl-pgup  rows 2-40 sha256 b051ac3f9492
+xfx  full-caps-pgup  rows 2-40 sha256 b051ac3f9492
+xfx  full-pgup-1     rows 2-40 sha256 b051ac3f9492
+xfx  full-pgup       rows 2-40 sha256 b051ac3f9492

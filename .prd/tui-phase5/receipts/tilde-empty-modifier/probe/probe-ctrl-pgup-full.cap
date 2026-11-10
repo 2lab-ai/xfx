@@ -1,0 +1,32 @@
+# Probe (not committed): does a page key with a modifier page the full
+# transcript? fulltranscript.cap up to its `full` snap, then Ctrl-PageUp
+# (`CSI 5 ; 5 ~`), Caps-Lock-PageUp (`CSI 5 ; 65 ~`), and the bare PageUp.
+fx: gateway fulltranscript-fx.json
+xfx: gateway fulltranscript-xfx.json
+work toolgroup-ws
+fx: seed toolgroup-ask-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 2
+type run the checks
+key Enter
+wait 2.5
+key 1
+wait 2.5
+key 1
+wait 3
+key C-o
+wait 1
+snap full
+key -H 1b 5b 35 3b 35 7e
+wait 0.8
+snap full-ctrl-pgup
+key -H 1b 5b 35 3b 36 35 7e
+wait 0.8
+snap full-caps-pgup
+key -H 1b 5b 35 3b 31 7e
+wait 0.8
+snap full-pgup-1
+key -H 1b 5b 35 7e
+wait 0.8
+snap full-pgup

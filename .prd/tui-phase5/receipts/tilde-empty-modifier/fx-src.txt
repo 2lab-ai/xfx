@@ -1,0 +1,754 @@
+# fx v0.0.16 (481104fd), every line this receipt cites, as git show 481104fd:<path> prints it, numbered.
+
+## src/ui/input/escape_parser.zig:19-23
+   19  fn appendCsiDigitSaturating(param: *u16, byte: u8) void {
+   20      const digit: u16 = byte - '0';
+   21      const multiplied = std.math.mul(u16, param.*, 10) catch std.math.maxInt(u16);
+   22      param.* = std.math.add(u16, multiplied, digit) catch std.math.maxInt(u16);
+   23  }
+
+## src/ui/input/escape_parser.zig:58-71
+   58  const kp_home: u16 = 57423;
+   59  const kp_end: u16 = 57424;
+   60  const kp_delete: u16 = 57426;
+   61  const shift_modifier: u16 = 0x01;
+   62  const alt_modifier: u16 = 0x02;
+   63  const ctrl_modifier: u16 = 0x04;
+   64  const super_modifier: u16 = 0x08;
+   65  
+   66  fn composerMove(kind: input_action.MoveKind, modifiers: u16) InputEscapeAction {
+   67      return .{ .composer_shortcut = .{ .move = .{
+   68          .kind = kind,
+   69          .extend_selection = (modifiers & shift_modifier) != 0,
+   70      } } };
+   71  }
+
+## src/ui/input/escape_parser.zig:73-108
+   73  fn modifiedArrowAction(byte: u8, modifiers: u16, meta_prefixed: bool) ?InputEscapeAction {
+   74      if ((modifiers & super_modifier) != 0) return switch (byte) {
+   75          'A' => composerMove(.draft_start, modifiers),
+   76          'B' => composerMove(.draft_end, modifiers),
+   77          'C' => composerMove(.line_end, modifiers),
+   78          'D' => composerMove(.line_start, modifiers),
+   79          'H' => composerMove(.draft_start, modifiers),
+   80          'F' => composerMove(.draft_end, modifiers),
+   81          else => null,
+   82      };
+   83      if (meta_prefixed or (modifiers & alt_modifier) != 0) return switch (byte) {
+   84          'A' => composerMove(.paragraph_up, modifiers),
+   85          'B' => composerMove(.paragraph_down, modifiers),
+   86          'C' => composerMove(.word_right, modifiers),
+   87          'D' => composerMove(.word_left, modifiers),
+   88          else => null,
+   89      };
+   90      if ((modifiers & ctrl_modifier) != 0) return switch (byte) {
+   91          'C' => composerMove(.word_right, modifiers),
+   92          'D' => composerMove(.word_left, modifiers),
+   93          'A' => composerMove(.visual_up, modifiers),
+   94          'B' => composerMove(.visual_down, modifiers),
+   95          'H' => composerMove(.draft_start, modifiers),
+   96          'F' => composerMove(.draft_end, modifiers),
+   97          else => null,
+   98      };
+   99      if ((modifiers & shift_modifier) != 0) return switch (byte) {
+  100          'A' => composerMove(.visual_up, modifiers),
+  101          'B' => composerMove(.visual_down, modifiers),
+  102          'C' => composerMove(.character_right, modifiers),
+  103          'D' => composerMove(.character_left, modifiers),
+  104          'H' => composerMove(.line_start, modifiers),
+  105          'F' => composerMove(.line_end, modifiers),
+  106          else => null,
+  107      };
+  108      return null;
+
+## src/ui/input/escape_parser.zig:169-173
+  169  fn pageKeyAction(keycode: u16, modifiers: u16) InputEscapeAction {
+  170      const kind: input_action.MoveKind = if (keycode == kp_page_up) .page_up else .page_down;
+  171      if (modifiers != 0) return composerMove(kind, modifiers);
+  172      return if (keycode == kp_page_up) .page_up else .page_down;
+  173  }
+
+## src/ui/input/escape_parser.zig:175-180
+  175  // Keypad Delete mirrors the main-row `ESC[3~` family.
+  176  fn forwardDeleteKeyAction(modifiers: u16) InputEscapeAction {
+  177      if ((modifiers & super_modifier) != 0) return .delete_to_line_end;
+  178      if ((modifiers & (alt_modifier | ctrl_modifier)) != 0) return .delete_word_right;
+  179      return if (modifiers == 0) .delete_next else .ignore;
+  180  }
+
+## src/ui/input/escape_parser.zig:185-266
+  185  fn kittyUnicodeKeyAction(keycode: u16, modifiers: u16, meta_prefixed: bool) InputEscapeAction {
+  186      // Strip Caps Lock (bit 6) and Num Lock (bit 7) — lock states, not modifiers.
+  187      const mods = modifiers & 0x3F;
+  188      if (keycode == 27 and mods == 0) return .escape;
+  189      // Hyper and Meta survive the lock-state mask, so a keypad key held with one
+  190      // of them keeps today's behavior instead of typing text or moving the caret.
+  191      if ((mods & ~keypad_supported_modifiers) == 0) {
+  192          if (keypadCharacterKey(keycode)) |byte| {
+  193              // Only a bare or Shift-modified keypad press types text, matching
+  194              // the main row where modified digits and operators are not text.
+  195              if (!meta_prefixed and (mods & ~shift_modifier) == 0) return .{ .remapped_byte = byte };
+  196          } else if (keypadNavigationKey(keycode)) |letter| {
+  197              return navigationKeyAction(letter, mods, meta_prefixed);
+  198          } else if (keycode == kp_page_up or keycode == kp_page_down) {
+  199              return pageKeyAction(keycode, mods);
+  200          } else if (keycode == kp_enter) {
+  201              // Reuse the main-row Enter branch: Ctrl submits, Shift and Alt
+  202              // insert a newline, and a bare press submits.
+  203              return kittyUnicodeKeyAction(13, modifiers, meta_prefixed);
+  204          } else if (keycode == kp_delete) {
+  205              return forwardDeleteKeyAction(mods);
+  206          }
+  207      }
+  208      if (keycode == kitty_up_key or keycode == kitty_down_key) {
+  209          if (meta_prefixed or mods != 0) {
+  210              return modifiedArrowAction(
+  211                  if (keycode == kitty_up_key) 'A' else 'B',
+  212                  mods,
+  213                  meta_prefixed,
+  214              ) orelse .ignore;
+  215          }
+  216          return if (keycode == kitty_up_key) .cursor_up else .cursor_down;
+  217      }
+  218      if (keycode == 13 and mods == ctrl_modifier and !meta_prefixed) return .{ .remapped_byte = '\r' };
+  219      if (keycode == 13 and (mods & (shift_modifier | alt_modifier)) != 0) {
+  220          return .insert_newline;
+  221      }
+  222      if (keycode == ' ' and mods == shift_modifier and !meta_prefixed) return .{ .remapped_byte = ' ' };
+  223      if ((keycode == 'a' or keycode == 'A') and (mods & super_modifier) != 0) {
+  224          return .{ .composer_shortcut = .select_all };
+  225      }
+  226      if ((keycode == 'c' or keycode == 'C') and (mods & super_modifier) != 0) {
+  227          return .{ .composer_shortcut = .copy_selection };
+  228      }
+  229      if ((keycode == 'x' or keycode == 'X') and (mods & super_modifier) != 0) {
+  230          return .{ .composer_shortcut = .cut_selection };
+  231      }
+  232      if ((keycode == 'z' or keycode == 'Z') and (mods & super_modifier) != 0) {
+  233          return .{ .composer_shortcut = if ((mods & shift_modifier) != 0) .redo else .undo };
+  234      }
+  235      if ((mods & (shift_modifier | ctrl_modifier)) ==
+  236          (shift_modifier | ctrl_modifier))
+  237      {
+  238          if (keycode == 'a' or keycode == 'A') return composerMove(.line_start, mods);
+  239          if (keycode == 'b' or keycode == 'B') return composerMove(.character_left, mods);
+  240          if (keycode == 'e' or keycode == 'E') return composerMove(.line_end, mods);
+  241          if (keycode == 'f' or keycode == 'F') return composerMove(.character_right, mods);
+  242      }
+  243      if (keycode == 'b' and (mods & alt_modifier) != 0) {
+  244          if ((mods & shift_modifier) != 0) return composerMove(.word_left, mods);
+  245          return .word_left;
+  246      }
+  247      if (keycode == 'f' and (mods & alt_modifier) != 0) {
+  248          if ((mods & shift_modifier) != 0) return composerMove(.word_right, mods);
+  249          return .word_right;
+  250      }
+  251      if ((keycode == 'd' or keycode == 'D') and (meta_prefixed or (mods & 0x02) != 0)) return .delete_word_right;
+  252      if (keycode == 'o' or keycode == 'O') return ctrlOKeyAction(meta_prefixed, mods);
+  253      if ((keycode == 'r' or keycode == 'R') and (mods & 0x08) != 0) return .open_all_sessions;
+  254      if (keycode == 9 and (mods & 0x01) != 0) return .toggle_permission_mode;
+  255      if ((mods & 0x04) != 0) {
+  256          if (keycode == '_') return .{ .remapped_byte = 31 };
+  257          if (keycode >= 'a' and keycode <= 'z') return .{ .remapped_byte = @intCast(keycode - 96) };
+  258          if (keycode >= 'A' and keycode <= 'Z') return .{ .remapped_byte = @intCast(keycode - 64) };
+  259      }
+  260      if (keycode == 127 and (mods & 0x08) != 0) return .delete_to_line_start;
+  261      if (keycode == 127 and (mods & 0x02) != 0) return .delete_word_left;
+  262      if (keycode == 13) return .{ .remapped_byte = '\r' };
+  263      if (keycode == 9) return .{ .remapped_byte = '\t' };
+  264      if (keycode == 127) return .{ .remapped_byte = 127 };
+  265      return .ignore;
+  266  }
+
+## src/ui/input/escape_parser.zig:561-636
+  561          2 => {
+  562              const meta_prefixed = hasMetaPrefix(stage.*);
+  563              const action: ?InputEscapeAction = switch (byte) {
+  564                  'A', 'B', 'C', 'D' => if (meta_prefixed)
+  565                      modifiedArrowAction(byte, 0, true)
+  566                  else
+  567                      plainNavigationAction(byte),
+  568                  'H', 'F' => plainNavigationAction(byte),
+  569                  'Z' => .toggle_permission_mode,
+  570                  '<' => {
+  571                      mouse.reset();
+  572                      setBaseEscapeStage(stage, sgr_mouse_stage);
+  573                      return null;
+  574                  },
+  575                  'M' => {
+  576                      mouse.reset();
+  577                      setBaseEscapeStage(stage, legacy_x10_button_stage);
+  578                      return null;
+  579                  },
+  580                  '?' => {
+  581                      return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
+  582                  },
+  583                  '0'...'9' => {
+  584                      param.* = byte - '0';
+  585                      param2.* = 1;
+  586                      setBaseEscapeStage(stage, 3);
+  587                      return null;
+  588                  },
+  589                  else => return beginControlSequenceDiscard(stage, param, param2, mouse, byte),
+  590              };
+  591              stage.* = 0;
+  592              param.* = 0;
+  593              param2.* = 0;
+  594              return action;
+  595          },
+  596          control_sequence_discard_stage => {
+  597              return consumeControlSequenceDiscardByte(stage, param, param2, mouse, byte);
+  598          },
+  599          3 => {
+  600              if (byte >= '0' and byte <= '9') {
+  601                  appendCsiDigitSaturating(param, byte);
+  602                  if (param2.* < std.math.maxInt(u16)) param2.* += 1;
+  603                  return null;
+  604              }
+  605  
+  606              if (byte == ';') {
+  607                  param2.* = param.*;
+  608                  param.* = 0;
+  609                  setBaseEscapeStage(stage, 5);
+  610                  return null;
+  611              }
+  612  
+  613              if (byte == 'u') {
+  614                  const meta_prefixed = hasMetaPrefix(stage.*);
+  615                  const value = param.*;
+  616                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  617                  // Single-parameter CSI u: no `;`, so modifiers == 0.
+  618                  return kittyUnicodeKeyAction(value, 0, meta_prefixed);
+  619              }
+  620              if (byte != '~') return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
+  621  
+  622              const value = param.*;
+  623              const digit_count = param2.*;
+  624              resetMouseEscapeDecode(stage, param, param2, mouse);
+  625              if (digit_count == 3 and value == 200) return .paste_start;
+  626              if (digit_count == 3 and value == 201) return .paste_end;
+  627  
+  628              return switch (value) {
+  629                  1, 7 => .home,
+  630                  3 => .delete_next,
+  631                  4, 8 => .end,
+  632                  5 => .page_up,
+  633                  6 => .page_down,
+  634                  else => .ignore,
+  635              };
+  636          },
+
+## src/ui/input/escape_parser.zig:662-755
+  662          5 => {
+  663              if (byte >= '0' and byte <= '9') {
+  664                  appendCsiDigitSaturating(param, byte);
+  665                  return null;
+  666              }
+  667  
+  668              if (byte == ';') {
+  669                  // Reuse the two accumulators for `ESC[27;modifier;keycode~`.
+  670                  param2.* = param.*;
+  671                  param.* = 0;
+  672                  setBaseEscapeStage(stage, 6);
+  673                  return null;
+  674              }
+  675  
+  676              // Kitty reports key event types as a colon-qualified modifier, e.g.
+  677              // `ESC[27;1:1u` for an Escape key press. The keycode stays in
+  678              // param2 and the modifiers move into param with the event type.
+  679              if (byte == ':') {
+  680                  const raw_modifiers = if (param.* > 0) param.* - 1 else 0;
+  681                  param.* = raw_modifiers << 4;
+  682                  setBaseEscapeStage(stage, kitty_escape_event_type_stage);
+  683                  return null;
+  684              }
+  685  
+  686              if (byte == 'u') {
+  687                  const meta_prefixed = hasMetaPrefix(stage.*);
+  688                  const keycode = param2.*;
+  689                  const modifiers = if (param.* > 0) param.* - 1 else 0;
+  690                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  691                  return kittyUnicodeKeyAction(keycode, modifiers, meta_prefixed);
+  692              }
+  693  
+  694              if (byte == '~') {
+  695                  const keycode = param2.*;
+  696                  const modifiers = if (param.* > 0) param.* - 1 else 0;
+  697                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  698                  if (keycode == 3) return forwardDeleteKeyAction(modifiers);
+  699                  if (modifiers != 0) return switch (keycode) {
+  700                      1, 7 => composerMove(
+  701                          if ((modifiers & ctrl_modifier) != 0) .draft_start else .line_start,
+  702                          modifiers,
+  703                      ),
+  704                      4, 8 => composerMove(
+  705                          if ((modifiers & ctrl_modifier) != 0) .draft_end else .line_end,
+  706                          modifiers,
+  707                      ),
+  708                      5 => composerMove(.page_up, modifiers),
+  709                      6 => composerMove(.page_down, modifiers),
+  710                      else => .ignore,
+  711                  };
+  712                  return switch (keycode) {
+  713                      1, 7 => .home,
+  714                      4, 8 => .end,
+  715                      5 => .page_up,
+  716                      6 => .page_down,
+  717                      else => .ignore,
+  718                  };
+  719              }
+  720  
+  721              const meta_prefixed = hasMetaPrefix(stage.*);
+  722              const modifiers = if (param.* > 0) param.* - 1 else 0;
+  723              if (byte == 'Z' and modifiers != 0) {
+  724                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  725                  return .toggle_permission_mode;
+  726              }
+  727              if (modifiedArrowAction(byte, modifiers, meta_prefixed)) |action| {
+  728                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  729                  return action;
+  730              }
+  731  
+  732              const action: InputEscapeAction = switch (byte) {
+  733                  'A', 'B', 'C', 'D', 'H', 'F' => plainNavigationAction(byte),
+  734                  else => return beginControlSequenceDiscard(stage, param, param2, mouse, byte),
+  735              };
+  736              resetMouseEscapeDecode(stage, param, param2, mouse);
+  737              return action;
+  738          },
+  739          // Stage 6: third parameter (e.g. modifyOtherKeys: ESC[27;modifier;keycode~)
+  740          6 => {
+  741              if (byte >= '0' and byte <= '9') {
+  742                  appendCsiDigitSaturating(param, byte);
+  743                  return null;
+  744              }
+  745  
+  746              if (byte == '~') {
+  747                  const meta_prefixed = hasMetaPrefix(stage.*);
+  748                  const keycode = param.*;
+  749                  const modifiers = if (param2.* > 0) param2.* - 1 else 0;
+  750                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  751                  return kittyUnicodeKeyAction(keycode, modifiers, meta_prefixed);
+  752              }
+  753  
+  754              return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
+  755          },
+
+## src/ui/input/shortcuts.zig:43-65
+   43  pub fn fromEscapeAction(action: InputEscapeAction) ?ShortcutAction {
+   44      return switch (action) {
+   45          .cursor_up => move(.visual_up),
+   46          .cursor_down => move(.visual_down),
+   47          .cursor_left => move(.character_left),
+   48          .cursor_right => move(.character_right),
+   49          .word_left => move(.word_left),
+   50          .word_right => move(.word_right),
+   51          .home => move(.line_start),
+   52          .end => move(.line_end),
+   53          .page_up => move(.page_up),
+   54          .page_down => move(.page_down),
+   55          .delete_next => .delete_forward,
+   56          .delete_word_left => .delete_word_left,
+   57          .delete_word_right => .delete_word_right,
+   58          .delete_to_line_start => .delete_to_line_start,
+   59          .delete_to_line_end => .delete_to_line_end,
+   60          .insert_newline => .insert_newline,
+   61          .composer_shortcut => |shortcut| shortcut,
+   62          .remapped_byte => |byte| fromControlByte(byte),
+   63          else => null,
+   64      };
+   65  }
+
+## src/ui/input/terminal_action_decoder.zig:214-224
+  214  fn appendAction(
+  215      ingress: *input_action.TerminalInputIngress,
+  216      action: input_action.Action,
+  217      cancel_pending: bool,
+  218  ) void {
+  219      ingress.setEvent(.{ .action = .{
+  220          .action = action,
+  221          .composer_shortcut = shortcuts.fromEscapeAction(action),
+  222          .cancel_pending = cancel_pending,
+  223      } });
+  224  }
+
+## src/ui/input/runtime.zig:75-133
+   75  fn approvalDraftActionFromShortcut(
+   76      action: input_action.ShortcutAction,
+   77  ) ?approval_decision.DraftAction {
+   78      return switch (action) {
+   79          .move => |intent| switch (intent.kind) {
+   80              .character_left => .cursor_left,
+   81              .character_right => .cursor_right,
+   82              .line_start, .draft_start => .cursor_home,
+   83              .line_end, .draft_end => .cursor_end,
+   84              .word_left => .cursor_word_left,
+   85              .word_right => .cursor_word_right,
+   86              else => null,
+   87          },
+   88          .delete_forward => .delete_next,
+   89          .delete_word_left => .delete_word_left,
+   90          .delete_whitespace_word_left => .delete_whitespace_word_left,
+   91          .delete_word_right => .delete_word_right,
+   92          .delete_to_line_start => .delete_to_line_start,
+   93          .delete_to_line_end => .delete_to_line_end,
+   94          else => null,
+   95      };
+   96  }
+   97  
+   98  fn approvalDraftActionFromControlByte(byte: u8) ?approval_decision.DraftAction {
+   99      const action = shortcuts.fromFocusedEditorControlByte(byte) orelse return null;
+  100      return approvalDraftActionFromShortcut(action);
+  101  }
+  102  
+  103  fn approvalActionFromRawByte(byte: u8) ?approval_decision.Action {
+  104      if (approvalDraftActionFromControlByte(byte)) |edit| {
+  105          return .{ .edit_draft = edit };
+  106      }
+  107      return approvalActionFromByte(byte);
+  108  }
+  109  
+  110  fn withApprovalInput(
+  111      ingress: input_action.TerminalInputIngress,
+  112  ) input_action.TerminalInputIngress {
+  113      var typed = ingress;
+  114      const event = typed.event orelse return typed;
+  115      typed.event = switch (event) {
+  116          .raw => |raw| input_action.TerminalInputEvent{ .raw = .{
+  117              .byte = raw.byte,
+  118              .composer_shortcut = raw.composer_shortcut,
+  119              .approval_action = approvalActionFromRawByte(raw.byte),
+  120          } },
+  121          .action => |decoded| input_action.TerminalInputEvent{ .action = .{
+  122              .action = decoded.action,
+  123              .composer_shortcut = decoded.composer_shortcut,
+  124              .approval_focused_edit = if (decoded.composer_shortcut) |shortcut|
+  125                  approvalDraftActionFromShortcut(shortcut)
+  126              else
+  127                  null,
+  128              .cancel_pending = decoded.cancel_pending,
+  129          } },
+  130          .paste_byte => event,
+  131      };
+  132      return typed;
+  133  }
+
+## src/ui/input/runtime.zig:155-197
+  155  fn questionFreeformActionFromShortcut(
+  156      action: input_action.ShortcutAction,
+  157  ) ?question_prompt.FreeformAction {
+  158      return switch (action) {
+  159          .move => |intent| switch (intent.kind) {
+  160              .character_left => .cursor_left,
+  161              .character_right => .cursor_right,
+  162              .line_start, .draft_start => .cursor_home,
+  163              .line_end, .draft_end => .cursor_end,
+  164              .word_left => .cursor_word_left,
+  165              .word_right => .cursor_word_right,
+  166              else => null,
+  167          },
+  168          .delete_forward => .delete_next,
+  169          .delete_word_left => .delete_word_left,
+  170          .delete_whitespace_word_left => .delete_whitespace_word_left,
+  171          .delete_word_right => .delete_word_right,
+  172          .delete_to_line_start => .delete_to_line_start,
+  173          .delete_to_line_end => .delete_to_line_end,
+  174          else => null,
+  175      };
+  176  }
+  177  
+  178  fn questionActionFromShortcut(
+  179      action: input_action.ShortcutAction,
+  180      freeform_selected: bool,
+  181  ) ?question_prompt.Action {
+  182      switch (action) {
+  183          .move => |intent| {
+  184              if (intent.extend_selection) {
+  185                  switch (intent.kind) {
+  186                      .visual_up => return .{ .move_choice = .previous },
+  187                      .visual_down => return .{ .move_choice = .next },
+  188                      else => {},
+  189                  }
+  190              }
+  191          },
+  192          else => {},
+  193      }
+  194      if (!freeform_selected) return null;
+  195      const edit = questionFreeformActionFromShortcut(action) orelse return null;
+  196      return .{ .edit_freeform = edit };
+  197  }
+
+## src/ui/input/runtime.zig:4774-4795
+ 4774      const cases = [_]struct { code: []const u8, action: InputEscapeAction }{
+ 4775          .{ .code = "1", .action = .home },
+ 4776          .{ .code = "3", .action = .delete_next },
+ 4777          .{ .code = "4", .action = .end },
+ 4778          .{ .code = "7", .action = .home },
+ 4779          .{ .code = "8", .action = .end },
+ 4780      };
+ 4781  
+ 4782      for (cases) |case| {
+ 4783          var stage: u8 = 1;
+ 4784          var param: u16 = 0;
+ 4785          var param2: u16 = 0;
+ 4786          try std.testing.expectEqual(@as(?InputEscapeAction, null), consumeInputEscapeByte(&stage, &param, &param2, '['));
+ 4787          for (case.code) |b| {
+ 4788              try std.testing.expectEqual(@as(?InputEscapeAction, null), consumeInputEscapeByte(&stage, &param, &param2, b));
+ 4789          }
+ 4790          try std.testing.expectEqual(@as(?InputEscapeAction, case.action), consumeInputEscapeByte(&stage, &param, &param2, '~'));
+ 4791          try std.testing.expectEqual(@as(u8, 0), stage);
+ 4792      }
+ 4793  }
+ 4794  
+ 4795  test "composer insertion inserts at cursor and advances" {
+
+## src/core/app/input_full_transcript_runtime.zig:40-71
+   40          pub fn routeByte(app: *App, byte: u8) !bool {
+   41              const key = keyForByte(byte) orelse return false;
+   42              if (!screenOwnsInput(app)) return false;
+   43              try routeKey(app, key);
+   44              return true;
+   45          }
+   46  
+   47          pub fn routeAction(app: *App, resolved: input_action.Action) !bool {
+   48              const key = keyForAction(resolved) orelse return false;
+   49              if (!screenOwnsInput(app)) return false;
+   50              try routeKey(app, key);
+   51              return true;
+   52          }
+   53  
+   54          pub fn routeComposerAction(app: *App, resolved: input_action.Action) !bool {
+   55              return switch (keyForAction(resolved) orelse return false) {
+   56                  .toggle => {
+   57                      try transitionScreen(app, .toggle);
+   58                      return true;
+   59                  },
+   60                  .close => {
+   61                      if (comptime @hasDecl(
+   62                          @TypeOf(app.shell),
+   63                          "cancelPendingFullTranscriptOpen",
+   64                      )) {
+   65                          if (app.shell.cancelPendingFullTranscriptOpen()) return true;
+   66                      }
+   67                      return false;
+   68                  },
+   69                  else => false,
+   70              };
+   71          }
+
+## src/core/app/input_full_transcript_runtime.zig:156-178
+  156          fn keyForAction(resolved: input_action.Action) ?FullTranscriptKey {
+  157              return switch (resolved) {
+  158                  .toggle_full_transcript => .toggle,
+  159                  .cursor_left => .{ .navigate = .left },
+  160                  .cursor_right => .{ .navigate = .right },
+  161                  .cursor_up => .{ .wheel_scroll = .up },
+  162                  .cursor_down => .{ .wheel_scroll = .down },
+  163                  .escape => .close,
+  164                  .mouse_wheel => |direction| .{ .wheel_scroll = direction },
+  165                  .page_up => .{ .page_scroll = .up },
+  166                  .page_down => .{ .page_scroll = .down },
+  167                  .composer_shortcut => |shortcut| switch (shortcut) {
+  168                      .redraw => .redraw,
+  169                      else => null,
+  170                  },
+  171                  .remapped_byte => |byte| switch (byte) {
+  172                      3 => .interrupt,
+  173                      12 => .redraw,
+  174                      24 => null,
+  175                      else => null,
+  176                  },
+  177                  else => null,
+  178              };
+
+## src/core/app/app_input_runtime.zig:296-330
+  296                              _ = app.input_runtime.moveInputCursor(intent);
+  297                          },
+  298                          .word_left,
+  299                          .word_right,
+  300                          .line_start,
+  301                          .line_end,
+  302                          .draft_start,
+  303                          .draft_end,
+  304                          .paragraph_up,
+  305                          .paragraph_down,
+  306                          => {
+  307                              completion_rt.abandonModelPickerOptions(app);
+  308                              _ = app.input_runtime.moveInputCursor(intent);
+  309                          },
+  310                          .visual_up,
+  311                          .visual_down,
+  312                          .page_up,
+  313                          .page_down,
+  314                          => {
+  315                              const direction: visual_layout.Direction = switch (intent.kind) {
+  316                                  .visual_up, .page_up => .up,
+  317                                  .visual_down, .page_down => .down,
+  318                                  else => unreachable,
+  319                              };
+  320                              const delta: i32 = if (direction == .up) -1 else 1;
+  321                              try completion_rt.routeComposerVertical(
+  322                                  app,
+  323                                  direction,
+  324                                  delta,
+  325                                  intent.extend_selection,
+  326                                  intent.kind == .page_up or intent.kind == .page_down,
+  327                              );
+  328                          },
+  329                      }
+  330                      app.shell.render_requests.request(.footer);
+
+## src/core/app/app_input_runtime.zig:895-1047
+  895  
+  896          fn routeResolvedEscapeAction(
+  897              app: *App,
+  898              resolved: input_action.Action,
+  899              composer_shortcut: ?input_action.ShortcutAction,
+  900              approval_focused_edit: ?approval_decision.DraftAction,
+  901              question_action: ?question_prompt.Action,
+  902              was_cancel_pending: bool,
+  903              max_input_len: usize,
+  904          ) !ResolvedEscapeRoute {
+  905              switch (resolved) {
+  906                  .remapped_byte, .paste_start, .paste_end, .ignore => {},
+  907                  else => disarmCtrlCExit(app, "semantic_action"),
+  908              }
+  909              // Any other semantic key stands down an armed interrupt.
+  910              switch (resolved) {
+  911                  .remapped_byte, .paste_start, .paste_end, .ignore, .escape => {},
+  912                  else => _ = disarmEscapeInterrupt(app, "semantic_action"),
+  913              }
+  914  
+  915              if (resolved == .escape) {
+  916                  if (try full_transcript_rt.routeAction(app, resolved)) {
+  917                      _ = disarmEscapeInterrupt(app, "full_transcript");
+  918                      return .done;
+  919                  }
+  920                  const now = io_mod.milliTimestamp();
+  921                  expireEscClearArm(app, now);
+  922                  try resolveEscape(app, was_cancel_pending, now);
+  923                  return .done;
+  924              }
+  925  
+  926              if (app_auth_runtime.Runtime(App).routeAuthPickerEscapeAction(app, resolved)) {
+  927                  return .done;
+  928              }
+  929  
+  930              if (try full_transcript_rt.routeAction(app, resolved)) return .done;
+  931  
+  932              if (resolved == .paste_start) {
+  933                  if (comptime runtime_profile.allows(App, .native_auth) and
+  934                      @hasDecl(@TypeOf(app.auth), "signInCodeEntryActive"))
+  935                  {
+  936                      if (app.auth.signInCodeEntryActive()) {
+  937                          paste_rt.beginPaste(app, max_input_len);
+  938                          return .done;
+  939                      }
+  940                  }
+  941                  dismissActiveMenusThenRedraw(app);
+  942                  paste_rt.beginPaste(app, max_input_len);
+  943                  return .done;
+  944              }
+  945  
+  946              if (resolved == .paste_end) {
+  947                  return .done;
+  948              }
+  949  
+  950              switch (resolved) {
+  951                  .remapped_byte => |byte| return .{ .remapped_byte = byte },
+  952                  else => {},
+  953              }
+  954  
+  955              if (app.question_prompt.isActive()) {
+  956                  try question_rt.routeQuestionEscapeAction(
+  957                      app,
+  958                      resolved,
+  959                      question_action,
+  960                  );
+  961                  return .done;
+  962              }
+  963  
+  964              if (app.approval_prompt.isActive()) {
+  965                  try approval_rt.routeApprovalEscapeAction(
+  966                      app,
+  967                      resolved,
+  968                      approval_focused_edit,
+  969                  );
+  970                  return .done;
+  971              }
+  972  
+  973              if (resolved == .mouse_pointer and
+  974                  routePrimaryComposerPointerAction(app, resolved.mouse_pointer))
+  975              {
+  976                  return .done;
+  977              }
+  978  
+  979              if (activeCompactCommandMenu(app)) |menu| {
+  980                  try routeCompactCommandMenuEscapeAction(app, menu, resolved);
+  981                  return .done;
+  982              }
+  983  
+  984              if (settingsMenuActive(app) and
+  985                  (resolved == .cursor_left or resolved == .cursor_right))
+  986              {
+  987                  try changeSettingsMenuSelection(
+  988                      app,
+  989                      if (resolved == .cursor_left) -1 else 1,
+  990                  );
+  991                  return .done;
+  992              }
+  993  
+  994              if (resolved == .cursor_left and try backMcpHostMenuScreen(app)) return .done;
+  995              if (resolved == .cursor_right and try enterMcpHostMenuItem(app)) return .done;
+  996  
+  997              if (try full_transcript_rt.routeComposerAction(app, resolved)) return .done;
+  998  
+  999              if (composer_shortcut) |action| {
+ 1000                  try routeComposerShortcutAction(app, action, max_input_len);
+ 1001                  return .done;
+ 1002              }
+ 1003  
+ 1004              switch (resolved) {
+ 1005                  .history_up => {
+ 1006                      try completion_rt.routeModifiedHistory(app, .up, -1);
+ 1007                      app.shell.render_requests.request(.footer);
+ 1008                  },
+ 1009                  .history_down => {
+ 1010                      try completion_rt.routeModifiedHistory(app, .down, 1);
+ 1011                      app.shell.render_requests.request(.footer);
+ 1012                  },
+ 1013                  .cursor_up => {
+ 1014                      try completion_rt.routePlainVertical(app, .up, -1);
+ 1015                      app.shell.render_requests.request(.footer);
+ 1016                  },
+ 1017                  .cursor_down => {
+ 1018                      try completion_rt.routePlainVertical(app, .down, 1);
+ 1019                      app.shell.render_requests.request(.footer);
+ 1020                  },
+ 1021                  .cursor_left,
+ 1022                  .cursor_right,
+ 1023                  .word_left,
+ 1024                  .word_right,
+ 1025                  .home,
+ 1026                  .end,
+ 1027                  .delete_next,
+ 1028                  .delete_word_left,
+ 1029                  .delete_word_right,
+ 1030                  .delete_to_line_start,
+ 1031                  .delete_to_line_end,
+ 1032                  .insert_newline,
+ 1033                  .composer_shortcut,
+ 1034                  .toggle_full_transcript,
+ 1035                  => unreachable,
+ 1036                  .page_up,
+ 1037                  .page_down,
+ 1038                  .mouse_wheel,
+ 1039                  .mouse_pointer,
+ 1040                  => {},
+ 1041                  .clear_line => {
+ 1042                      dismissActiveMenusThenRedraw(app);
+ 1043                      if (draftHasState(app)) {
+ 1044                          clearDraftState(app, "clear_line");
+ 1045                          app.shell.render_requests.request(.footer);
+ 1046                      }
+ 1047                  },
