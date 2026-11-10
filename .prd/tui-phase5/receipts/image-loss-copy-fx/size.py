@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Lines added and removed under src/ outside tests, 714f6283..<rev>: a file's lines from its
+"""Lines added and removed under src/ outside tests, <base>..<rev> (<base> 714f6283 by default): a file's lines from its
 top-level `mod tests` on (src/session/store.rs, src/tui/worker.rs, ...) and every *tests.rs are
-tests. Positions are the new file's.  usage: python3 -I -B size.py <rev>"""
+tests. Positions are the new file's.  usage: python3 -I -B size.py <rev> [<base>]"""
 import re, subprocess, sys
-base, rev = "714f6283", sys.argv[1]
+rev = sys.argv[1]
+base = sys.argv[2] if len(sys.argv) > 2 else "714f6283"
 files = subprocess.check_output(["git", "diff", "--name-only", base, rev, "--", "src"], text=True).split()
 ta = td = 0
 for f in files:

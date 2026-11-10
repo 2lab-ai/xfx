@@ -1,8 +1,8 @@
 # fx parity sweep
 
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
-- xfx: `x𝒇x v0.1.0-0f0b678 [debug] · Run /help for commands`, sha256 `e052deb0806a863185c452c9eee4a6dbfb7bbd6f64931f53a294570633cb3dc5`
-- size 40x120, `--jobs 4`, 19 scenarios -- **PARTIAL**: `--only resume* image* undo-resume p5-lifecycle-relhome-image p5-lifecycle-relhome-resume p5-lifecycle-v1resume`, wall 4m56s, load 11.6 at the start and 49.4 at the peak (1-minute average, sampled every 5 s)
+- xfx: `x𝒇x v0.1.0-f290f69 [debug] · Run /help for commands`, sha256 `51e8fe77ac6acc572b0411a1867d0ef04be5a1bb26d02fdda3d6ad2abe20be54`
+- size 40x120, `--jobs 4`, 19 scenarios -- **PARTIAL**: `--only resume* image* undo-resume p5-lifecycle-relhome-image p5-lifecycle-relhome-resume p5-lifecycle-v1resume`, wall 5m20s, load 10.4 at the start and 60.6 at the peak (1-minute average, sampled every 5 s)
 - ledger sha256 `e590f76fc8f8608420419df1e2ab9317344d002d943c63cca38fcf7043444d75`: 14 normalizations; 19 divergences approved for this pin
 
 ## Coverage

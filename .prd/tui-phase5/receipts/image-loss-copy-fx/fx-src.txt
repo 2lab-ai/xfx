@@ -400,7 +400,22 @@
    73                          .body = body,
    74                      } });
 
-== src/core/app/app_process_runtime.zig:114-126@481104fd -- formatErrorBody: <context>: <ErrorName>
+== src/core/app/app_process_runtime.zig:99-136@481104fd -- detailedErrorSummary and formatErrorBody: <context>: <detail> (<Name>), or <context>: <Name>
+   99          fn detailedErrorSummary(err: anyerror) ?[]const u8 {
+  100              return switch (err) {
+  101                  error.StreamInterrupted => "provider response ended before completion",
+  102                  error.UnexpectedEndOfInput => "incomplete JSON or internal response while parsing data",
+  103                  error.SyntaxError => "invalid JSON syntax while parsing data",
+  104                  error.MissingField => "required field missing while parsing data",
+  105                  error.InvalidEnumTag => "invalid enum value while parsing data",
+  106                  error.UnknownField => "unexpected field while parsing data",
+  107                  error.ImageTooLarge => image_attachments.image_too_large_notice,
+  108                  error.McpInputTimedOut => tool_result_errors.executionErrorMessage(err),
+  109                  else => null,
+  110              };
+  111          }
+  112  
+  113          fn suggestionForError(err: anyerror) ?[]const u8 {
   114              return switch (err) {
   115                  error.UnexpectedEndOfInput, error.SyntaxError => "Check that the tool arguments are valid JSON and retry with corrected input.",
   116                  error.MissingField => "Add the required input field named by the tool schema, then retry.",
@@ -414,6 +429,16 @@
   124          fn formatErrorBody(alloc: std.mem.Allocator, context: []const u8, err: anyerror) ![]u8 {
   125              switch (err) {
   126                  error.ConnectionSetupTimedOut => return alloc.dupe(u8, "Connection setup timed out after 30 seconds."),
+  127                  error.TlsInitializationFailed => return alloc.dupe(u8, "Connection setup failed: TLS could not be initialized."),
+  128                  error.ModelImageCapabilityUnavailable => return alloc.dupe(u8, image_attachments.model_image_capability_unavailable_notice),
+  129                  else => {},
+  130              }
+  131              if (detailedErrorSummary(err)) |detail| {
+  132                  return alloc.print("{s}: {s} ({s})", .{ context, detail, @errorName(err) });
+  133              }
+  134  
+  135              return alloc.print("{s}: {s}", .{ context, @errorName(err) });
+  136          }
 
 == src/core/cli/cli_ask.zig:1802-1823@481104fd -- ask: a turn's error goes up; --json keeps its name
  1802      }, job) catch |err| switch (err) {
@@ -457,7 +482,167 @@
  1681      return projected;
  1682  }
 
-== src/core/agent/runtime/orchestrator.zig:7612-7622@481104fd -- only the native route materializes stored tool images
+== src/core/images/image_attachments.zig:24-24@481104fd -- image_too_large_notice
+   24  pub const image_too_large_notice = "image exceeds the 20 MiB limit";
+
+== src/core/images/image_attachments.zig:814-850@481104fd -- attachmentDimensions, probeSnapshotDimensions, attachmentRawBytes, attachmentFitsEncodedLimit: an open or a header that fails is no size
+  814  fn attachmentDimensions(
+  815      cache_alloc: std.mem.Allocator,
+  816      cache: *AttachmentDimensionCache,
+  817      attachment: types.ImageAttachment,
+  818  ) std.mem.Allocator.Error!?image_data.Dimensions {
+  819      if (attachment.inline_data) |bytes| return image_data.imageDimensions(bytes);
+  820      const source = imageFile(attachment) orelse return null;
+  821      const digest = attachment.snapshot_sha256 orelse return probeSnapshotDimensions(source);
+  822      if (cache.get(digest)) |cached| return cached;
+  823      const dimensions = probeSnapshotDimensions(source);
+  824      const key = try cache_alloc.dupe(u8, digest);
+  825      errdefer cache_alloc.free(key);
+  826      try cache.put(cache_alloc, key, dimensions);
+  827      return dimensions;
+  828  }
+  829  
+  830  fn probeSnapshotDimensions(source: ImageFile) ?image_data.Dimensions {
+  831      var file = source.open() catch return null;
+  832      defer file.close(io_mod.getIo());
+  833      const reader: SnapshotFileReader = .{ .file = file };
+  834      return reader.dimensions();
+  835  }
+  836  
+  837  fn attachmentRawBytes(attachment: types.ImageAttachment) ?usize {
+  838      if (attachment.inline_data) |bytes| return bytes.len;
+  839      const source = imageFile(attachment) orelse return null;
+  840      var file = source.open() catch return null;
+  841      defer file.close(io_mod.getIo());
+  842      const stat = file.stat(io_mod.getIo()) catch return null;
+  843      if (!source.accepts(stat)) return null;
+  844      return std.math.cast(usize, stat.size);
+  845  }
+  846  
+  847  fn attachmentFitsEncodedLimit(attachment: types.ImageAttachment) bool {
+  848      const size = attachmentRawBytes(attachment) orelse return false;
+  849      return image_data.fitsEncodedImageLimit(size);
+  850  }
+
+== src/core/images/image_attachments.zig:960-988@481104fd -- writeWithheldAttachmentNotice
+  960  fn writeWithheldAttachmentNotice(
+  961      writer: *std.Io.Writer,
+  962      attachment: types.ImageAttachment,
+  963      dimensions: ?image_data.Dimensions,
+  964      max_dimension: u32,
+  965  ) std.Io.Writer.Error!void {
+  966      if (dimensions) |size| {
+  967          try writer.print("[Image #{d} not sent: {s} is {d}x{d} pixels. This request permits at most {d} per side and 5 MiB encoded per image. ", .{ attachment.id, attachment.media_type, size.width, size.height, max_dimension });
+  968      } else if (attachment.source_ref != null and attachment.inline_data == null and imageFile(attachment) == null) {
+  969          try writer.print("[Image #{d} not sent: only a host source reference was supplied. This request permits at most {d} per side and 5 MiB encoded per image. ", .{ attachment.id, max_dimension });
+  970      } else {
+  971          try writer.print("[Image #{d} not sent: its dimensions could not be verified. ", .{attachment.id});
+  972      }
+  973      if (attachment.source_ref) |source_ref| {
+  974          try image_data.writeHostImageRecoveryNotice(writer, source_ref, max_dimension);
+  975          return;
+  976      }
+  977      if (savedImagePath(attachment)) |path| {
+  978          try writer.print("The original is saved at {s}. Use an available image tool to save a smaller copy to a new file", .{path});
+  979          // Saved files are named .bin or by their hash, which hides the type
+  980          // from tools that choose a decoder by file name.
+  981          if (mediaTypeExtension(attachment.media_type)) |extension| {
+  982              try writer.print(" ending in {s}", .{extension});
+  983          }
+  984          try writer.writeAll(", then read_file the copy. If no image tool is available, ask the user before installing one.]\n");
+  985          return;
+  986      }
+  987      try writer.writeAll("No local image file is available; ask the user for a smaller copy.]\n");
+  988  }
+
+== src/core/images/image_attachments.zig:1011-1045@481104fd -- withholdOversizedAttachments: held back unless its size is known, within the limit, and 5 MiB encoded
+ 1011  pub fn withholdOversizedAttachments(
+ 1012      arena: std.mem.Allocator,
+ 1013      cache_alloc: std.mem.Allocator,
+ 1014      cache: *AttachmentDimensionCache,
+ 1015      messages: []const types.ChatMessage,
+ 1016      max_dimension: u32,
+ 1017  ) !AttachmentProjection {
+ 1018      var result: ?[]types.ChatMessage = null;
+ 1019      for (messages, 0..) |message, index| {
+ 1020          if (message.images.len == 0) continue;
+ 1021          var kept: ?std.ArrayList(types.ImageAttachment) = null;
+ 1022          var notice: std.Io.Writer.Allocating = .init(arena);
+ 1023          for (message.images, 0..) |image, image_index| {
+ 1024              const dimensions = try attachmentDimensions(cache_alloc, cache, image);
+ 1025              if (dimensions != null and !dimensions.?.exceeds(max_dimension) and attachmentFitsEncodedLimit(image)) {
+ 1026                  if (kept) |*list| list.appendAssumeCapacity(image);
+ 1027                  continue;
+ 1028              }
+ 1029              if (kept == null) {
+ 1030                  kept = try .initCapacity(arena, message.images.len);
+ 1031                  kept.?.appendSliceAssumeCapacity(message.images[0..image_index]);
+ 1032              }
+ 1033              debug_trace.logf("images", "event=attachment_withheld image_id={d} max_dimension={d} dimensions_known={s}", .{ image.id, max_dimension, if (dimensions != null) "true" else "false" });
+ 1034              writeWithheldAttachmentNotice(&notice.writer, image, dimensions, max_dimension) catch return error.OutOfMemory;
+ 1035          }
+ 1036          const kept_images = kept orelse continue;
+ 1037  
+ 1038          const projected = result orelse try arena.dupe(types.ChatMessage, messages);
+ 1039          result = projected;
+ 1040          projected[index].images = kept_images.items;
+ 1041          projected[index].content = try std.mem.concat(arena, u8, &.{ notice.written(), message.content orelse "" });
+ 1042      }
+ 1043      return .{ .messages = result orelse messages };
+ 1044  }
+ 1045  
+
+== src/core/images/image_attachments.zig:1050-1054@481104fd -- savedImagePath: the blob
+ 1050  pub fn savedImagePath(image: types.ImageAttachment) ?[]const u8 {
+ 1051      if (image.blob_path) |path| return path;
+ 1052      if (image.inline_data != null) return null;
+ 1053      return image.snapshot_path;
+ 1054  }
+
+== src/core/agent/runtime/request_image_budget.zig:1-22@481104fd -- the request budget: 30 MiB, so a 20 MiB image (28 MiB encoded) is not held back by it alone
+    1  //! Keeps the images re-sent with every request under the provider's request
+    2  //! size limit. Each request carries every earlier image, so its body grows
+    3  //! with every screenshot while its token estimate barely moves. The oldest
+    4  //! images leave the request first, each with a note for loading it again.
+    5  //! History is never changed.
+    6  const std = @import("std");
+    7  const types = @import("../../shared/types.zig");
+    8  const image_attachments = @import("../../images/image_attachments.zig");
+    9  const image_data = @import("../../images/image_data.zig");
+   10  const utf8PrefixLength = @import("../../config/context_limits.zig").utf8PrefixLength;
+   11  
+   12  const Allocator = std.mem.Allocator;
+   13  const ChatMessage = types.ChatMessage;
+   14  
+   15  /// Claude routes reject request bodies over 32 MiB, the strictest limit
+   16  /// measured through AI Gateway. Gemini and OpenAI routes accept larger ones.
+   17  pub const default_max_request_bytes: usize = 30 * 1024 * 1024;
+   18  /// Anthropic accepts at most 100 images in one request.
+   19  pub const default_max_request_images: usize = 100;
+   20  /// Planning allowance for the note that replaces each withheld image.
+   21  const notice_reserve_bytes: usize = 320;
+   22  
+
+== src/core/agent/runtime/request_image_budget.zig:76-92@481104fd -- withholdImagesPastLimit
+   76  /// can't carry by their serialized size alone, before the request is built.
+   77  /// A request re-sends every image the session keeps, so building it whole
+   78  /// would hold all of them, encoded, at once. A body is never smaller than
+   79  /// its images, so this withholds no image `withholdOldestImages` would keep
+   80  /// for a limit of at most `max_request_bytes`.
+   81  pub fn withholdImagesPastLimit(
+   82      arena: Allocator,
+   83      messages: []const ChatMessage,
+   84      max_request_bytes: usize,
+   85      tool_text_limit: usize,
+   86  ) Allocator.Error!Projection {
+   87      const sizes = try imageSizes(arena, messages);
+   88      var images_bytes: usize = 0;
+   89      for (sizes) |size| images_bytes +|= size;
+   90      const withheld = oldestImagesToWithhold(sizes, images_bytes, .{ .max_request_bytes = max_request_bytes });
+   91      return withhold(arena, messages, withheld, tool_text_limit);
+   92  }
+
+== src/core/agent/runtime/orchestrator.zig:7612-7632@481104fd -- the native route: stored tool images loaded, then unsafe attachments held back, before the build
  7612                  });
  7613              }
  7614              // Images the session dropped leave every request as notes.
@@ -469,6 +654,46 @@
  7620              const materialized_messages = if (image_choice.route == .native) native: {
  7621                  const loaded_messages = try runtime_execution_memory.materializeToolImages(overlay_arena, config, result_request_messages);
  7622                  const max_dimension = image_data.requestMaxDimension(image_data.countRequestImages(loaded_messages));
+ 7623                  const safe_tool_messages = try runtime_execution_memory.withholdRequestToolImages(overlay_arena, loaded_messages, max_dimension, config.max_tool_result_bytes);
+ 7624                  const projection = try image_attachments.withholdOversizedAttachments(
+ 7625                      overlay_arena,
+ 7626                      arena,
+ 7627                      &attachment_dimensions,
+ 7628                      safe_tool_messages,
+ 7629                      max_dimension,
+ 7630                  );
+ 7631                  break :native projection.messages;
+ 7632              } else result_request_messages;
+
+== src/core/agent/runtime/gateway_step.zig:256-283@481104fd -- projectToolImageMessages: the non-native routes' retained-images note
+  256  
+  257  pub const VisionToolMode = agent_stream_provider.VisionMode;
+  258  
+  259  pub const ToolImageProjection = struct {
+  260      messages: []const types.ChatMessage,
+  261      /// True when at least one stored tool image was withheld from the request.
+  262      stripped: bool,
+  263  };
+  264  
+  265  /// Projects stored tool images into the request as `disposition` says, which
+  266  /// the image route core decided (`src/core/images/image_route.zig`). Withheld
+  267  /// images stay in the session image store, and each tool message that held
+  268  /// one says why and what the model can do instead, so the next step is never
+  269  /// a dead end.
+  270  pub fn projectToolImageMessages(
+  271      alloc: Allocator,
+  272      messages: []const types.ChatMessage,
+  273      disposition: image_route.ToolImages,
+  274      text_limit: usize,
+  275  ) !ToolImageProjection {
+  276      const notice: []const u8 = switch (disposition) {
+  277          .none, .attached => return .{ .messages = messages, .stripped = false },
+  278          .withheld_fallback => "[Tool images were retained but not sent: this model receives image input through the vision tool, not inline. Call vision with the image file's local path to inspect it.]\n",
+  279          .withheld_dead_end => "[Tool images were retained but not sent: this model does not accept inline images and no vision fallback is available. Ask the user to attach the image directly or switch to a vision-capable model.]\n",
+  280          .withheld_unknown => "[Tool images were retained but not sent: fx could not confirm image input support for this model (the model is not listed in the model catalog, or the catalog is unavailable). This can recover later in the session, so a retry may succeed; otherwise ask the user to attach the image directly.]\n",
+  281      };
+  282      var projected: ?[]types.ChatMessage = null;
+  283      for (messages, 0..) |message, index| {
 
 == src/core/agent/runtime/execution_memory.zig:975-991@481104fd -- retainToolImages: one handle for every image of a result
   975  /// Retains the original tool images so later requests can project a safe view.

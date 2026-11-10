@@ -1,0 +1,39 @@
+=== ~/.fx/diagnostics/last-shutdown.json (511 bytes)
+{"version":1,"recorded_at_ms":1794270598669,"total_ms":0,"stages":[{"name":"terminal_released","step_ms":0,"total_ms":0},{"name":"background_stops_requested","step_ms":0,"total_ms":0},{"name":"terminals_ended","step_ms":0,"total_ms":0},{"name":"worker_thread_joined","step_ms":0,"total_ms":0},{"name":"persistence_finalized","step_ms":0,"total_ms":0},{"name":"credentials_saved","step_ms":0,"total_ms":0},{"name":"mcp_children_terminated","step_ms":0,"total_ms":0},{"name":"complete","step_ms":0,"total_ms":0}]}
+=== ~/.fx/history.jsonl (134 bytes)
+{"schema_version":1,"timestamp_ms":1794270598669,"workspace_root":"<scratch>/work","text":"/quit"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/v2/index.jsonl (1977 bytes)
+{"op":"put","id":"kH1xJ5Cm-oRk","role":"root","host":"app","workspace":"/tmp/fx-v2-fixtures/work","language":"und","created":1793702399167,"updated":1793702399167,"turns":0,"opened":[1793702399167,0,0,0,0],"crc":"9d6c4945"}
+{"op":"put","id":"kH1xJ5Cm-oRk","role":"root","host":"app","workspace":"/tmp/fx-v2-fixtures/work","title":"first prompt alpha","language":"und-Latn","created":1793702399167,"updated":1793702399279,"turns":1,"opened":[0,0,0,0,0],"crc":"5973df84"}
+{"op":"put","id":"HU7p6L-En72Q","role":"root","host":"app","workspace":"/tmp/fx-v2-fixtures/work","language":"und","created":1793702413337,"updated":1793702413337,"turns":1,"opened":[1793702413337,0,0,0,0],"crc":"d0a2333f"}
+{"op":"put","id":"HU7p6L-En72Q","role":"root","host":"app","workspace":"/tmp/fx-v2-fixtures/work","title":"first prompt alpha (fork)","language":"und","created":1793702413337,"updated":1793702413338,"turns":1,"opened":[0,0,0,0,0],"crc":"68f5e920"}
+{"op":"put","id":"kH1xJ5Cm-oRk","role":"root","host":"app","workspace":"/tmp/fx-v2-fixtures/work","title":"first prompt alpha","language":"und-Latn","created":1793702399167,"updated":1793702413338,"turns":3,"opened":[0,0,0,0,0],"crc":"eb3c7a89"}
+{"op":"put","id":"HU7p6L-En72Q","role":"root","host":"app","workspace":"/tmp/fx-v2-fixtures/work","title":"first prompt alpha (fork)","language":"und-Latn","created":1793702413337,"updated":1793702416575,"turns":2,"opened":[0,0,0,0,0],"crc":"ff366edc"}
+{"op":"put","id":"HU7p6L-En72Q","role":"root","host":"app","workspace":"/tmp/fx-v2-fixtures/work","title":"first prompt alpha (fork)","language":"und-Latn","created":1793702413337,"updated":1793702423887,"turns":2,"opened":[0,0,0,0,0],"crc":"56fac978"}
+{"op":"put","id":"kH1xJ5Cm-oRk","role":"root","host":"app","workspace":"<scratch>/work","title":"first prompt alpha","language":"und-Latn","created":1793702399167,"updated":1794270600691,"turns":3,"opened":[1794270600691,0,0,0,0],"crc":"a9c805a1"}
+
+=== ~/.fx/sessions/v2/index.lock (0 bytes)
+=== ~/.fx/sessions/v2/kH1xJ5Cm-oRk/blobs/3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0 (73 bytes)
+(binary)
+=== ~/.fx/sessions/v2/kH1xJ5Cm-oRk/lock (0 bytes)
+
+=== ~/.fx/sessions/v2/kH1xJ5Cm-oRk/log.jsonl (5970 bytes)
+{"v":1,"seq":1,"ts":1793702399167,"kind":"session_created","id":"kH1xJ5Cm-oRk","workspace":"/tmp/fx-v2-fixtures/work","role":"root","host":"app","crc":"e4c3ba6b"}
+{"v":1,"seq":2,"ts":1793702396142,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false},"crc":"fb86bade"}
+{"v":1,"seq":3,"ts":1793702396142,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":1,"rules":[]},"crc":"7260d67b"}
+{"v":1,"seq":4,"ts":1793702396142,"kind":"set","key":"language","value":"und","crc":"cc49c599"}
+{"v":1,"seq":5,"ts":1793702399167,"kind":"turn_started","turn":1,"crc":"ef659429"}
+{"v":1,"seq":6,"ts":1793702399167,"kind":"item","turn":1,"type":"user","data":{"text":"[Image #1] first prompt alpha","images":[{"id":1,"path":"shot.png","media_type":"image/png","blob":"3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"}],"work_id":null},"blobs":["3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"],"crc":"1687c729"}
+{"v":1,"seq":7,"ts":1793702399167,"kind":"item","turn":1,"type":"runtime_context","data":{"messages":["<fx-turn-context>\nworkspace_root: /tmp/fx-v2-fixtures/work\ncurrent_directory: /tmp/fx-v2-fixtures/work\noperating_system: Darwin 25.6.0\nshell_path: /bin/zsh\ndate_utc: 2026-11-03\nhome_directory: /tmp/fx-v2-fixtures/home\ngit_worktree: unknown\n</fx-turn-context>","Runtime context: permission mode is auto. After configured rules, session grants, and deterministic safe-tool authority, fx sends each unresolved action to a narrow safety reviewer. A clear result authorizes only that exact action. A caution or unavailable result holds only that action and returns advice without opening a permission screen, disabling tools, or ending the turn. Exact cautions are reused for this turn; choose a materially different safe action or explain why no safe path remains. Tool admission and exact live revalidation remain authoritative.","Runtime context: if this turn changes files, choose focused verification from the touched areas first. Use changed paths in tool calls and results to select checks; avoid generic or expensive verification unless those paths justify it or the user requested it. Tests under tests/evals can be deterministic; do not assume they require live models. Preserve exact verification evidence in the final summary."]},"crc":"696980ee"}
+{"v":1,"seq":8,"ts":1793702399274,"kind":"set","key":"usage","value":{"input_tokens":1200,"output_tokens":40,"cache_read_tokens":null,"cache_write_tokens":null,"reasoning_tokens":null},"crc":"d382a5be"}
+{"v":1,"seq":9,"ts":1793702399279,"kind":"item","turn":1,"type":"assistant","data":{"text":"ALPHA answer.","provider_replay":null,"standalone_response":false},"crc":"3e6cff1b"}
+{"v":1,"seq":10,"ts":1793702399279,"kind":"item","turn":1,"type":"turn_end","data":{"files":[],"turn_summary":{"started_at_ms":1793702399165,"completed_at_ms":1793702399274,"thinking_duration_ms":1,"turn_duration_ms":109,"token_progress":{"input_tokens":6,"output_tokens":40,"input_exact":false,"output_exact":true}}},"crc":"5e8c0288"}
+{"v":1,"seq":11,"ts":1793702399279,"kind":"turn_committed","turn":1,"crc":"259f74d7"}
+{"v":1,"seq":12,"ts":1793702399279,"kind":"set","key":"language","value":"und-Latn","crc":"4e0ce20a"}
+{"v":1,"seq":13,"ts":1793702399279,"kind":"set","key":"title","value":"first prompt alpha","crc":"d408ca96"}
+{"v":1,"seq":14,"ts":1793702402186,"kind":"turn_started","turn":2,"crc":"6e1b79bc"}
+{"v":1,"seq":15,"ts":1793702402186,"kind":"item","turn":2,"type":"user","data":{"text":"second prompt beta","images":[],"work_id":null},"crc":"b62af124"}
+{"v":1,"seq":16,"ts":1793702402304,"kind":"set","key":"usage","value":{"input_tokens":2400,"output_tokens":80,"cache_read_tokens":null,"cache_write_tokens":null,"reasoning_tokens":null},"crc":"4858e799"}
+{"v":1,"seq":17,"ts":1793702402309,"kind":"item","turn":2,"type":"assistant","data":{"text":"BETA answer.","provider_replay":null,"standalone_response":fa

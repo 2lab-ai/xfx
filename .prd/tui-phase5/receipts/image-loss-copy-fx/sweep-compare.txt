@@ -1,7 +1,19 @@
+# round 2: head = the binary built at f290f697 (f42a68ab after it changes tests only), base = 714f6283
 # python3 -I -B cmp_sweeps.py <base>/pairs.json <head>/pairs.json
 base: 86 / 110 pass; head: 86 / 110 pass; dropped: 0
+exit=0
 
 # python3 -I -B pair_rows.py <base>/pairs.json <head>/pairs.json
 pairs compared: 110; pairs whose rows or causes moved: 0
-base: captures with an image-loss line or note: 0
-head: captures with an image-loss line or note: 0
+exit=0
+
+# grep -rl 'ImageSnapshotCorrupt|Stored tool image|saved session is unreadable|InvalidSessionFormat|The original is saved at' <sweep>/runs
+base: files searched 608; captures with an image-loss line or note: 2
+  <sweep>/runs/image-withheld/fx/fx-image-withheld-40x120-bodies/002-completion.json
+  <sweep>/runs/image-withheld/xfx/xfx-image-withheld-40x120-bodies/002-completion.json
+head: files searched 608; captures with an image-loss line or note: 2
+  <sweep>/runs/image-withheld/fx/fx-image-withheld-40x120-bodies/002-completion.json
+  <sweep>/runs/image-withheld/xfx/xfx-image-withheld-40x120-bodies/002-completion.json
+(both: image-withheld's request bodies, upstream's note for an image held back before the build -- the same on base and head)
+positive control: the same pattern in this receipt's pair captures: 9 files, e.g. fx/fx-p5-image-loss-changed-40x120-failed.ansi
+ledger: base a02bb66d…, head e590f76f… -- the unit's only ledger change is round 1's six `src/tui/shell.rs:39046` -> `:39041` (the line moved; src/tui/shell.rs is unchanged since 0f0b6789, and `:39041` is the `  tools: {} advertised ({},` row both refs name)

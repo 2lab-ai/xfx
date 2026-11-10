@@ -1,11 +1,11 @@
 # python3 -I .prd/tui-phase4/receipts/m1/cells.py fx/fx-p5-image-loss-gone-40x120-quit.full.ansi xfx/xfx-p5-image-loss-gone-40x120-quit.full.ansi
-row 41: fx [(41, '1', ()), (42, '7', ()), (43, ' ', ()), (44, '2', ())]
-row 41: xfx [(41, '2', ()), (42, '7', ()), (43, ' ', ()), (44, '2', ())]
+row 41: fx [(41, '1', ()), (42, '1', ()), (43, ' ', ()), (44, '2', ())]
+row 41: xfx [(41, '3', ()), (42, '1', ()), (43, ' ', ()), (44, '2', ())]
 1 rows differ in their cells (row 1 not compared)
 
 # python3 -I .prd/tui-phase4/receipts/m1/cells.py fx/fx-p5-image-loss-gone-40x120-quit.full.ansi base-xfx/xfx-p5-image-loss-gone-40x120-quit.full.ansi
-row 41: fx [(41, '1', ()), (42, '7', ()), (43, ' ', ()), (44, '2', ())]
-row 41: xfx [(41, '3', ()), (42, '8', ()), (43, ' ', ()), (44, '2', ())]
+row 41: fx [(41, '1', ()), (42, '1', ()), (43, ' ', ()), (44, '2', ())]
+row 41: xfx [(41, '4', ()), (42, '9', ()), (43, ' ', ()), (44, '2', ())]
 1 rows differ in their cells (row 1 not compared)
 
 # python3 -I .prd/tui-phase4/receipts/m1/cells.py fx/fx-p5-image-loss-gone-40x120-refused.full.ansi xfx/xfx-p5-image-loss-gone-40x120-refused.full.ansi
@@ -13,8 +13,8 @@ row 2: fx []
 row 2: xfx [(0, 'x', ()), (1, 'f', ()), (2, 'x', ()), (3, ':', ())]
 row 3: fx [(0, 'f', ()), (1, 'x', ()), (2, ':', ()), (3, ' ', ())]
 row 3: xfx []
-row 42: fx [(41, '1', ()), (42, '9', ()), (43, ' ', ()), (44, '2', ())]
-row 42: xfx [(41, '2', ()), (42, '9', ()), (43, ' ', ()), (44, '2', ())]
+row 42: fx [(41, '1', ()), (42, '3', ()), (43, ' ', ()), (44, '2', ())]
+row 42: xfx [(41, '3', ()), (42, '3', ()), (43, ' ', ()), (44, '2', ())]
 3 rows differ in their cells (row 1 not compared)
 
 # python3 -I .prd/tui-phase4/receipts/m1/cells.py fx/fx-p5-image-loss-gone-40x120-refused.full.ansi base-xfx/xfx-p5-image-loss-gone-40x120-refused.full.ansi
@@ -36,21 +36,187 @@ row 42: fx [(0, 'P', ()), (1, 'a', ()), (2, 'n', ()), (3, 'e', ())]
 row 42: xfx []
 8 rows differ in their cells (row 1 not compared)
 
-# fx: the last refused frame's text rows, then the session's files after the run
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py fx/fx-p5-image-loss-whole-40x120-resumed.ansi xfx/xfx-p5-image-loss-whole-40x120-resumed.ansi
+row 7: fx [(7, '6', (('fg', 245),)), (8, ' ', ()), (9, '↓', (('fg', 245),)), (10, '4', (('fg', 245),))]
+row 7: xfx [(7, '9', (('fg', 245),)), (8, ' ', ()), (9, '↓', (('fg', 245),)), (10, '4', (('fg', 245),))]
+row 9: fx [(1, ' ', ()), (2, 's', (('bold', True),)), (3, 'e', (('bold', True),)), (4, 'c', (('bold', True),))]
+row 9: xfx []
+row 11: fx [(0, ' ', ()), (1, ' ', ()), (2, 'B', ()), (3, 'E', ())]
+row 11: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+row 13: fx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 13: xfx []
+row 15: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 't', (('bold', True),)), (3, 'h', (('bold', True),))]
+row 15: xfx []
+row 16: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'c', (('bold', True),)), (3, 'u', (('bold', True),))]
+row 16: xfx []
+row 17: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'e', (('bold', True),)), (3, 'i', (('bold', True),))]
+row 17: xfx []
+row 19: fx [(0, ' ', ()), (1, ' ', ()), (2, 'G', ()), (3, 'A', ())]
+row 19: xfx []
+row 21: fx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 21: xfx []
+row 23: fx [(0, '┃', (('fg', 255),))]
+row 23: xfx []
+row 25: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+row 25: xfx []
+11 rows differ in their cells (row 1 not compared)
+
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py fx/fx-p5-image-loss-whole-40x120-resumed.ansi base-xfx/xfx-p5-image-loss-whole-40x120-resumed.ansi
+row 7: fx [(7, '6', (('fg', 245),)), (8, ' ', ()), (9, '↓', (('fg', 245),)), (10, '4', (('fg', 245),))]
+row 7: xfx [(7, '9', (('fg', 245),)), (8, ' ', ()), (9, '↓', (('fg', 245),)), (10, '4', (('fg', 245),))]
+row 9: fx [(1, ' ', ()), (2, 's', (('bold', True),)), (3, 'e', (('bold', True),)), (4, 'c', (('bold', True),))]
+row 9: xfx []
+row 11: fx [(0, ' ', ()), (1, ' ', ()), (2, 'B', ()), (3, 'E', ())]
+row 11: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+row 13: fx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 13: xfx []
+row 15: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 't', (('bold', True),)), (3, 'h', (('bold', True),))]
+row 15: xfx []
+row 16: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'c', (('bold', True),)), (3, 'u', (('bold', True),))]
+row 16: xfx []
+row 17: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'e', (('bold', True),)), (3, 'i', (('bold', True),))]
+row 17: xfx []
+row 19: fx [(0, ' ', ()), (1, ' ', ()), (2, 'G', ()), (3, 'A', ())]
+row 19: xfx []
+row 21: fx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 21: xfx []
+row 23: fx [(0, '┃', (('fg', 255),))]
+row 23: xfx []
+row 25: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+row 25: xfx []
+11 rows differ in their cells (row 1 not compared)
+
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py fx/fx-p5-image-loss-changed-40x120-resumed.ansi xfx/xfx-p5-image-loss-changed-40x120-resumed.ansi
+row 7: fx [(7, '6', (('fg', 245),)), (8, ' ', ()), (9, '↓', (('fg', 245),)), (10, '4', (('fg', 245),))]
+row 7: xfx [(7, '9', (('fg', 245),)), (8, ' ', ()), (9, '↓', (('fg', 245),)), (10, '4', (('fg', 245),))]
+row 9: fx [(1, ' ', ()), (2, 's', (('bold', True),)), (3, 'e', (('bold', True),)), (4, 'c', (('bold', True),))]
+row 9: xfx []
+row 11: fx [(0, ' ', ()), (1, ' ', ()), (2, 'B', ()), (3, 'E', ())]
+row 11: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+row 13: fx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 13: xfx []
+row 15: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 't', (('bold', True),)), (3, 'h', (('bold', True),))]
+row 15: xfx []
+row 16: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'c', (('bold', True),)), (3, 'u', (('bold', True),))]
+row 16: xfx []
+row 17: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'e', (('bold', True),)), (3, 'i', (('bold', True),))]
+row 17: xfx []
+row 19: fx [(0, ' ', ()), (1, ' ', ()), (2, 'G', ()), (3, 'A', ())]
+row 19: xfx []
+row 21: fx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 21: xfx []
+row 23: fx [(0, '┃', (('fg', 255),))]
+row 23: xfx []
+row 25: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+row 25: xfx []
+11 rows differ in their cells (row 1 not compared)
+
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py fx/fx-p5-image-loss-changed-40x120-resumed.ansi base-xfx/xfx-p5-image-loss-changed-40x120-resumed.ansi
+row 7: fx [(7, '6', (('fg', 245),)), (8, ' ', ()), (9, '↓', (('fg', 245),)), (10, '4', (('fg', 245),))]
+row 7: xfx [(7, '9', (('fg', 245),)), (8, ' ', ()), (9, '↓', (('fg', 245),)), (10, '4', (('fg', 245),))]
+row 9: fx [(1, ' ', ()), (2, 's', (('bold', True),)), (3, 'e', (('bold', True),)), (4, 'c', (('bold', True),))]
+row 9: xfx []
+row 11: fx [(0, ' ', ()), (1, ' ', ()), (2, 'B', ()), (3, 'E', ())]
+row 11: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+row 13: fx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 13: xfx []
+row 15: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 't', (('bold', True),)), (3, 'h', (('bold', True),))]
+row 15: xfx []
+row 16: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'c', (('bold', True),)), (3, 'u', (('bold', True),))]
+row 16: xfx []
+row 17: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'e', (('bold', True),)), (3, 'i', (('bold', True),))]
+row 17: xfx []
+row 19: fx [(0, ' ', ()), (1, ' ', ()), (2, 'G', ()), (3, 'A', ())]
+row 19: xfx []
+row 21: fx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 21: xfx []
+row 23: fx [(0, '┃', (('fg', 255),))]
+row 23: xfx []
+row 25: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+row 25: xfx []
+11 rows differ in their cells (row 1 not compared)
+
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py fx/fx-p5-image-loss-changed-40x120-failed.ansi xfx/xfx-p5-image-loss-changed-40x120-failed.ansi
+row 7: fx [(7, '6', (('fg', 245),)), (8, ' ', ()), (9, '↓', (('fg', 245),)), (10, '4', (('fg', 245),))]
+row 7: xfx [(7, '9', (('fg', 245),)), (8, ' ', ()), (9, '↓', (('fg', 245),)), (10, '4', (('fg', 245),))]
+row 9: fx [(2, 's', (('bold', True),)), (3, 'e', (('bold', True),)), (4, 'c', (('bold', True),)), (5, 'o', (('bold', True),))]
+row 9: xfx [(2, 'w', (('bold', True),)), (3, 'h', (('bold', True),)), (4, 'a', (('bold', True),)), (5, 't', (('bold', True),))]
+row 11: fx [(0, ' ', ()), (1, ' ', ()), (2, 'B', ()), (3, 'E', ())]
+row 11: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+row 13: fx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 13: xfx [(0, '┃', (('fg', 255),))]
+row 15: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 't', (('bold', True),)), (3, 'h', (('bold', True),))]
+row 15: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+row 16: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'c', (('bold', True),)), (3, 'u', (('bold', True),))]
+row 16: xfx []
+row 17: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'e', (('bold', True),)), (3, 'i', (('bold', True),))]
+row 17: xfx []
+row 19: fx [(0, ' ', ()), (1, ' ', ()), (2, 'G', ()), (3, 'A', ())]
+row 19: xfx []
+row 21: fx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 21: xfx []
+row 23: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'w', (('bold', True),)), (3, 'h', (('bold', True),))]
+row 23: xfx []
+row 25: fx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 25: xfx []
+row 27: fx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+row 27: xfx []
+row 29: fx [(0, '┃', (('fg', 255),))]
+row 29: xfx []
+row 31: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+row 31: xfx []
+14 rows differ in their cells (row 1 not compared)
+
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py fx/fx-p5-image-loss-changed-40x120-failed.ansi base-xfx/xfx-p5-image-loss-changed-40x120-failed.ansi
+row 7: fx [(7, '6', (('fg', 245),)), (8, ' ', ()), (9, '↓', (('fg', 245),)), (10, '4', (('fg', 245),))]
+row 7: xfx [(7, '9', (('fg', 245),)), (8, ' ', ()), (9, '↓', (('fg', 245),)), (10, '4', (('fg', 245),))]
+row 9: fx [(2, 's', (('bold', True),)), (3, 'e', (('bold', True),)), (4, 'c', (('bold', True),)), (5, 'o', (('bold', True),))]
+row 9: xfx [(2, 'w', (('bold', True),)), (3, 'h', (('bold', True),)), (4, 'a', (('bold', True),)), (5, 't', (('bold', True),))]
+row 11: fx [(0, ' ', ()), (1, ' ', ()), (2, 'B', ()), (3, 'E', ())]
+row 11: xfx [(0, '!', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'e', (('fg', 252),))]
+row 12: fx []
+row 12: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'n', (('fg', 250),)), (3, 'o', (('fg', 250),))]
+row 13: fx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 13: xfx []
+row 14: fx []
+row 14: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'I', ()), (3, 't', ())]
+row 15: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 't', (('bold', True),)), (3, 'h', (('bold', True),))]
+row 15: xfx []
+row 16: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'c', (('bold', True),)), (3, 'u', (('bold', True),))]
+row 16: xfx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 17: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'e', (('bold', True),)), (3, 'i', (('bold', True),))]
+row 17: xfx []
+row 18: fx []
+row 18: xfx [(0, '┃', (('fg', 255),))]
+row 19: fx [(0, ' ', ()), (1, ' ', ()), (2, 'G', ()), (3, 'A', ())]
+row 19: xfx []
+row 20: fx []
+row 20: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+row 21: fx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 21: xfx []
+row 23: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'w', (('bold', True),)), (3, 'h', (('bold', True),))]
+row 23: xfx []
+row 25: fx [(0, ' ', ()), (1, ' ', ()), (2, '0', (('fg', 245),)), (3, 's', (('fg', 245),))]
+row 25: xfx []
+row 27: fx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+row 27: xfx []
+row 29: fx [(0, '┃', (('fg', 255),))]
+row 29: xfx []
+row 31: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+row 31: xfx []
+18 rows differ in their cells (row 1 not compared)
+
+# fx, gone-40x120-refused.full: the frame's text rows, the last 7
 𝒇x v0.0.16 · Run /help for commands
 fx: saved session is unreadable. Run `fx doctor`; if it is recoverable, use `fx session recover <id>`.
-Pane is dead (status 1, Tue Nov 10 07:20:19 2026)
-=== ~/.fx/sessions/v2/index.jsonl (1694 bytes)
-=== ~/.fx/sessions/v2/kH1xJ5Cm-oRk/log.jsonl (5749 bytes)
+Pane is dead (status 1, Tue Nov 10 09:27:13 2026)
 
-# xfx: the last refused frame's text rows, then the session's files after the run
-x𝒇x v0.1.0-0f0b678 [debug] · Run /help for commands
+# xfx, gone-40x120-refused.full: the frame's text rows, the last 7
+x𝒇x v0.1.0-f290f69 [debug] · Run /help for commands
 xfx: saved session is unreadable.
-Pane is dead (status 1, Tue Nov 10 07:20:29 2026)
-=== ~/.xfx/sessions/kH1xJ5Cm-oRk/events.jsonl (1430 bytes)
-=== ~/.xfx/sessions/kH1xJ5Cm-oRk/session.json (588 bytes)
+Pane is dead (status 1, Tue Nov 10 09:27:33 2026)
 
-# base-xfx: the last refused frame's text rows, then the session's files after the run
+# base-xfx, gone-40x120-refused.full: the frame's text rows, the last 7
 x𝒇x v0.1.0-714f628 [debug] · Run /help for commands
 * session resumed: [Image #1] first prompt alpha
 ┃ [Image 1] first prompt alpha
@@ -58,10 +224,109 @@ x𝒇x v0.1.0-714f628 [debug] · Run /help for commands
   0s (↑9 ↓4)
 ┃
 auto · model-a
-=== ~/.xfx/sessions/kH1xJ5Cm-oRk/events.jsonl (1737 bytes)
-=== ~/.xfx/sessions/kH1xJ5Cm-oRk/session.json (605 bytes)
+
+# fx, whole-40x120-resumed: the frame's text rows, the last 7
+┃ third prompt gamma that runs long enough to wrap past three lines of the fork menu at this width so the menu has to
+┃ cut it and end the third line with an ellipsis rather than show every word of it, one two three four five six seven
+┃ eight nine ten eleven twelve thirteen fourteen fifteen
+  GAMMA answer.
+  0s (↑75 ↓40)
+┃
+auto · model-a
+
+# xfx, whole-40x120-resumed: the frame's text rows, the last 7
+* session resumed: [Image #1] first prompt alpha
+┃ [Image 1] first prompt alpha
+  ALPHA answer.
+  0s (↑9 ↓4)
+┃
+auto · model-a
+
+# base-xfx, whole-40x120-resumed: the frame's text rows, the last 7
+* session resumed: [Image #1] first prompt alpha
+┃ [Image 1] first prompt alpha
+  ALPHA answer.
+  0s (↑9 ↓4)
+┃
+auto · model-a
+
+# fx, changed-40x120-failed: the frame's text rows, the last 7
+  GAMMA answer.
+  0s (↑75 ↓40)
+┃ what is it now?
+  0s (↑4 ↓0)
+✗ system: request failed: ImageSnapshotCorrupt
+┃
+auto · model-a
+
+# xfx, changed-40x120-failed: the frame's text rows, the last 7
+┃ [Image 1] first prompt alpha
+  ALPHA answer.
+  0s (↑9 ↓4)
+┃ what is it now?
+✗ system: request failed: ImageSnapshotCorrupt
+┃
+auto · model-a
+
+# base-xfx, changed-40x120-failed: the frame's text rows, the last 7
+┃ what is it now?
+! session: image #1 of this session could not be read back (its saved copy is not the file that was saved), so it was
+  not sent again
+  It is a small red square.
+  0s (↑4 ↓40)
+┃
+auto · model-a
+
+# fx, gone-40x120-after: the session's files
+=== ~/.fx/sessions/v2/index.jsonl (2248 bytes)
+=== ~/.fx/sessions/v2/index.lock (0 bytes)
+=== ~/.fx/sessions/v2/kH1xJ5Cm-oRk/lock (0 bytes)
+=== ~/.fx/sessions/v2/kH1xJ5Cm-oRk/log.jsonl (6039 bytes)
+
+# fx, changed-40x120-resumed: the session's files
+=== ~/.fx/sessions/v2/index.jsonl (1977 bytes)
+=== ~/.fx/sessions/v2/index.lock (0 bytes)
+=== ~/.fx/sessions/v2/kH1xJ5Cm-oRk/blobs/3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0 (73 bytes)
+=== ~/.fx/sessions/v2/kH1xJ5Cm-oRk/lock (0 bytes)
+=== ~/.fx/sessions/v2/kH1xJ5Cm-oRk/log.jsonl (5970 bytes)
+
+# fx, changed-40x120-failed: the session's files
+=== ~/.fx/sessions/v2/index.jsonl (1977 bytes)
+=== ~/.fx/sessions/v2/index.lock (0 bytes)
+=== ~/.fx/sessions/v2/kH1xJ5Cm-oRk/blobs/3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0 (73 bytes)
+=== ~/.fx/sessions/v2/kH1xJ5Cm-oRk/lock (0 bytes)
+=== ~/.fx/sessions/v2/kH1xJ5Cm-oRk/log.jsonl (8274 bytes)
+
+# xfx, gone-40x120-after: the session's files
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/events.jsonl (1430 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/session.json (588 bytes)
+
+# xfx, changed-40x120-resumed: the session's files
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/events.jsonl (1745 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/images/image-1-3fd6e6be528c182d.bin (73 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/session.json (613 bytes)
+
+# xfx, changed-40x120-failed: the session's files
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/events.jsonl (2721 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/images/image-1-3fd6e6be528c182d.bin (73 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/session.json (609 bytes)
+
+# base-xfx, gone-40x120-after: the session's files
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/events.jsonl (1745 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/session.json (613 bytes)
+
+# base-xfx, changed-40x120-resumed: the session's files
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/events.jsonl (1745 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/images/image-1-3fd6e6be528c182d.bin (73 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/session.json (613 bytes)
+
+# base-xfx, changed-40x120-failed: the session's files
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/events.jsonl (3172 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/images/image-1-3fd6e6be528c182d.bin (73 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/session.json (613 bytes)
 
 # the seeds' sizes (bytes)
-p5-image-loss-gone-fx.jsonl 5749
+p5-image-loss-gone-fx.jsonl 5826
 p5-image-loss-gone-xfx-events.jsonl 1430
 p5-image-loss-gone-xfx-session.json 588
+p5-image-loss-changed.bin 73

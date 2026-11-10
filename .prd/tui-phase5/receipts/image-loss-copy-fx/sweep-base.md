@@ -2,7 +2,7 @@
 
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
 - xfx: `x𝒇x v0.1.0-714f628 [debug] · Run /help for commands`, sha256 `daf40ec4b932a658a113a991c763d301e024d4054842e8be43a06a3e7c6f2b0a`
-- size 40x120, `--jobs 4`, 19 scenarios -- **PARTIAL**: `--only resume* image* undo-resume p5-lifecycle-relhome-image p5-lifecycle-relhome-resume p5-lifecycle-v1resume`, wall 5m27s, load 45.2 at the start and 45.2 at the peak (1-minute average, sampled every 5 s)
+- size 40x120, `--jobs 4`, 19 scenarios -- **PARTIAL**: `--only resume* image* undo-resume p5-lifecycle-relhome-image p5-lifecycle-relhome-resume p5-lifecycle-v1resume`, wall 5m52s, load 48.5 at the start and 48.5 at the peak (1-minute average, sampled every 5 s)
 - ledger sha256 `a02bb66d778309b7ecc537d5cde36af8199e4f690f6db9df8a0f6d5bf3200405`: 14 normalizations; 19 divergences approved for this pin
 
 ## Coverage

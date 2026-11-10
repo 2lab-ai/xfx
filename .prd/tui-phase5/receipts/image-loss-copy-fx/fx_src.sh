@@ -48,14 +48,24 @@ show src/core/agent/runtime/request_image_budget.zig 94 107 "the budget before t
 show src/core/agent/runtime/orchestrator.zig 7520 7525 "the image route refuses a non-native model first"
 show src/core/agent/runtime/orchestrator.zig 7712 7716 "try buildRequest"
 show src/core/app/app_process_runtime.zig 62 74 "processQueuedWork: request failed, topic system, tone error"
-show src/core/app/app_process_runtime.zig 114 126 "formatErrorBody: <context>: <ErrorName>"
+show src/core/app/app_process_runtime.zig 99 136 "detailedErrorSummary and formatErrorBody: <context>: <detail> (<Name>), or <context>: <Name>"
 show src/core/cli/cli_ask.zig 1802 1823 "ask: a turn's error goes up; --json keeps its name"
 
 # --- H1, carried over (HISTORY-NOTICES-COPY-FX): ReplayedHistory's doc still cites the silent drop
 show src/core/shared/types.zig 1667 1682 "projectProviderReplay: a replay state dropped without a word"
 
+# --- W: before the build, an image whose file the request cannot vouch for is held back with a note
+show src/core/images/image_attachments.zig 24 24 "image_too_large_notice"
+show src/core/images/image_attachments.zig 814 850 "attachmentDimensions, probeSnapshotDimensions, attachmentRawBytes, attachmentFitsEncodedLimit: an open or a header that fails is no size"
+show src/core/images/image_attachments.zig 960 988 "writeWithheldAttachmentNotice"
+show src/core/images/image_attachments.zig 1011 1045 "withholdOversizedAttachments: held back unless its size is known, within the limit, and 5 MiB encoded"
+show src/core/images/image_attachments.zig 1050 1054 "savedImagePath: the blob"
+show src/core/agent/runtime/request_image_budget.zig 1 22 "the request budget: 30 MiB, so a 20 MiB image (28 MiB encoded) is not held back by it alone"
+show src/core/agent/runtime/request_image_budget.zig 76 92 "withholdImagesPastLimit"
+
 # --- T: a tool's stored image that cannot be loaded is told to the model, in front of its result
-show src/core/agent/runtime/orchestrator.zig 7612 7622 "only the native route materializes stored tool images"
+show src/core/agent/runtime/orchestrator.zig 7612 7632 "the native route: stored tool images loaded, then unsafe attachments held back, before the build"
+show src/core/agent/runtime/gateway_step.zig 256 283 "projectToolImageMessages: the non-native routes' retained-images note"
 show src/core/agent/runtime/execution_memory.zig 975 991 "retainToolImages: one handle for every image of a result"
 show src/core/agent/runtime/execution_memory.zig 993 1022 "materializeToolImages: the two notes"
 show src/core/agent/runtime/execution_memory.zig 1071 1076 "prependImageNotice: the note, then the result cut to fit"

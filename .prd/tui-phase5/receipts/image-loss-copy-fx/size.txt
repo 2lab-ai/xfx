@@ -1,10 +1,27 @@
+# python3 -I -B size.py f42a68ab (the unit, from 714f6283)
 src/agent/compact.rs: tests from line 3272: +4 -3
-src/app.rs: tests from line 1302: +32 -27
-src/interactive.rs: tests from line 2816: +5 -62
-src/session/store.rs: tests from line 3968: +260 -83
+src/agent/machine.rs: tests from line 1777: +2 -1
+src/app.rs: tests from line 1356: +97 -38
+src/gateway/mod.rs: tests from line 1076: +7 -0
+src/interactive.rs: tests from line 2814: +3 -62
+src/session/store.rs: tests from line 4035: +352 -108
 src/session/store/carry_tests.rs: tests from line 0: +0 -0
 src/session/store/fork.rs: tests from line 605: +6 -2
+src/session/store/fork/tests.rs: tests from line 0: +0 -0
 src/tui/full_transcript.rs: tests from line 3252: +2 -2
 src/tui/shell.rs: tests from line 16507: +0 -0
-src/tui/worker.rs: tests from line 6569: +14 -25
-outside tests: +323 -204 (527 lines changed, net +119)
+src/tui/titles.rs: tests from line 934: +3 -1
+src/tui/worker.rs: tests from line 6565: +10 -25
+outside tests: +486 -242 (728 lines changed, net +244)
+
+# python3 -I -B size.py f42a68ab dba6007b (round 2)
+src/agent/compact.rs: tests from line 3272: +2 -2
+src/agent/machine.rs: tests from line 1777: +2 -1
+src/app.rs: tests from line 1356: +75 -21
+src/gateway/mod.rs: tests from line 1076: +7 -0
+src/interactive.rs: tests from line 2814: +3 -5
+src/session/store.rs: tests from line 4035: +234 -167
+src/session/store/fork/tests.rs: tests from line 0: +0 -0
+src/tui/titles.rs: tests from line 934: +3 -1
+src/tui/worker.rs: tests from line 6565: +8 -12
+outside tests: +334 -209 (543 lines changed, net +125)

@@ -25,6 +25,7 @@ W = "src/tui/worker.rs"
 RESUME = {
     "lib": [
         "session::store::tests::a_prompt_images_copy_gone_or_not_a_file",
+        "session::store::tests::a_prompt_images_copy_the_resume_cannot_stat",
         "tui::worker::tests::the_picker_cannot_resume",
     ],
     "sessions": ["ask_resume_of_a_session_a_prompt_images_copy_is_gone"],
@@ -32,10 +33,11 @@ RESUME = {
 }
 REQUEST = {
     "lib": [
-        "session::store::tests::a_prompt_images_copy_that_cannot_go",
-        "session::store::tests::a_prompt_image_never_read_back",
-        "tui::worker::tests::a_resumed_prompt_image_whose_copy_changed",
-        "tui::worker::tests::a_prompt_image_never_read_back_fails",
+        "session::store::tests::a_resumed_prompt_images_copy_is_read_when_the_history_is_built",
+        "session::store::tests::a_prompt_image_never_read_back_goes_without",
+        "tui::worker::tests::a_resumed_prompt_images_copy_is_read_at_each_request",
+        "tui::worker::tests::a_copy_a_request_cannot_carry",
+        "tui::worker::tests::a_prompt_image_never_read_back_is_held_back",
     ],
     "sessions": ["ask_resume_whose_prompt_images_copy_changed"],
 }
@@ -126,15 +128,70 @@ MUTANTS = {
         ],
         RESUME,
     ),
-    # The request going on past a prompt image it cannot send (the store says nothing).
-    "request-goes-on": (
-        [(STORE, "            .find_map(prompt_image_failure)\n", "            .find_map(prompt_image_failure)\n            .filter(|_| false)\n")],
+    # Round 2: a stat that fails resumes the session; only a copy not there, or not a file, refuses it.
+    "stat-failure-resumed": (
+        [
+            (
+                STORE,
+                "            unreadable |= !folder_whole\n"
+                "                || !fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file());\n",
+                "            let _ = folder_whole;\n"
+                "            unreadable |= match fs::symlink_metadata(&path) {\n"
+                "                Ok(metadata) => !metadata.is_file(),\n"
+                "                Err(err) => err.kind() == io::ErrorKind::NotFound,\n"
+                "            };\n",
+            )
+        ],
+        {"lib": ["session::store::tests::a_prompt_images_copy_the_resume_cannot_stat"]},
+    ),
+    # Round 2: the read moved back to the resume -- a copy whole then is held in memory, never read again.
+    "read-at-resume": (
+        [
+            (
+                STORE,
+                "            image.snapshot = Snapshot::Saved(Arc::from(path));\n        }\n        for step in &mut turn.steps {\n",
+                "            image.snapshot = match read_snapshot(&path, &image.recorded.sha256, image.recorded.bytes) {\n"
+                "                Ok(bytes) => Snapshot::Loaded { bytes, path: Some(Arc::from(path)) },\n"
+                "                Err(_) => Snapshot::Saved(Arc::from(path)),\n"
+                "            };\n        }\n        for step in &mut turn.steps {\n",
+            )
+        ],
         REQUEST,
     ),
-    # The TUI's check gone, the store's kept.
+    # Round 2: a copy past the limit reaches the check and fails the request, where upstream holds it back
+    # (round 1's ImageTooLarge): the history read stops at the header.
+    "oversized-fails": (
+        [(STORE, "read_copy(path, crate::image::MAX_IMAGE_BYTES + 1)", "read_copy(path, 64)")],
+        {"lib": ["tui::worker::tests::a_copy_a_request_cannot_carry"]},
+    ),
+    # Round 2: a copy past the limit held back without its detail (the brief's "ImageTooLarge without
+    # its detail"; upstream's build never reaches ImageTooLarge, its note carries the detail): the read
+    # past the limit dropped, so the note says the dimensions could not be verified, not the type,
+    # the pixels and the limits.
+    "oversized-without-detail": (
+        [
+            (
+                STORE,
+                ".map_or_else(|_| Vec::new(), |(bytes, _)| bytes);",
+                ".map_or_else(|_| Vec::new(), |(bytes, _)| if bytes.len() as u64 > crate::image::MAX_IMAGE_BYTES { Vec::new() } else { bytes });",
+            )
+        ],
+        {"lib": ["tui::worker::tests::a_copy_a_request_cannot_carry"]},
+    ),
+    # The request going on past a changed copy.
+    "request-goes-on": (
+        [(STORE, "                    Err(Loss::Changed | Loss::TooLarge) => {\n", "                    Err(Loss::Changed | Loss::TooLarge) if false => {\n")],
+        REQUEST,
+    ),
+    # The TUI's check gone: the turn's provider sees no copies.
     "request-goes-on-tui": (
-        [(W, "        if let Some(error) = unsendable {\n", "        if let Some(error) = unsendable.filter(|_| false) {\n")],
+        [(W, "        copies: replay_copies,\n", "        copies: {\n            let _ = replay_copies;\n            Vec::new()\n        },\n")],
         {"lib": REQUEST["lib"]},
+    ),
+    # `ask` saying the TUI's words in place of upstream's `ask`'s.
+    "ask-name-not-copied": (
+        [(APP, "            Event::Error { message } if *message == failed.to_string() => {\n", "            Event::Error { message } if *message == failed.to_string() && false => {\n")],
+        {"sessions": ["ask_resume_whose_prompt_images_copy_changed"]},
     ),
     # The tool-image text missing: the note not put in front.
     "tool-note-missing": (
@@ -148,7 +205,7 @@ MUTANTS = {
     ),
     # The note said, and the result's other images still sent.
     "tool-images-kept": (
-        [(STORE, "                        Vec::new(),\n                    ),\n", "                        carried,\n                    ),\n")],
+        [(STORE, "                        prepend_note(&note, output),\n                        Vec::new(),\n", "                        prepend_note(&note, output),\n                        carried,\n")],
         TOOL,
     ),
 }
