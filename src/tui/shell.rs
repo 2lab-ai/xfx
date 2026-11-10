@@ -237,20 +237,24 @@ const MCP_ENTER_TOO_SOON: &str =
 
 /// Every Enter while `/mcp`'s menu is up, whatever takes it -- the menu, the
 /// model's question panel, a permission question, the composer -- and the
-/// last one ([`MCP_ENTER_HELD`]). A swallowed Enter counts too: timing
-/// cannot tell a slow key repeat from a second tap, and on a question that
-/// removes, rejects or approves the safe reading wins (opus-Md R2).
+/// last one ([`MCP_ENTER_HELD`]). A C-j the model's question panel takes is
+/// one too: it answers the panel as Enter does (QUESTION-CTRL-J), so the
+/// Enter typed after it is as soon after an answering key; a C-j the menu
+/// takes is its Down and is not counted ([`Shell::consume_inputs`]). A
+/// swallowed Enter counts too: timing cannot tell a slow key repeat from a
+/// second tap, and on a question that removes, rejects or approves the safe
+/// reading wins (opus-Md R2).
 #[derive(Debug, Clone, Copy, Default)]
 struct McpEnters {
-    /// The last Enter.
+    /// The last Enter, or C-j that answered the model's question.
     last: Option<Instant>,
     /// The swallow since an Enter that was not held has been said.
     said: bool,
 }
 
 impl McpEnters {
-    /// An Enter at `now`: whether it comes within [`MCP_ENTER_HELD`] of the
-    /// one before it.
+    /// An Enter at `now`, or a C-j the model's question took: whether it
+    /// comes within [`MCP_ENTER_HELD`] of the one before it.
     fn enter(&mut self, now: Instant) -> bool {
         let held = self
             .last
@@ -18599,78 +18603,42 @@ mod tests {
     fn an_enter_another_surface_took_counts_for_the_held_rule() {
         // opus-Y: the model's panel took an Enter and the menu's question was
         // painted again; a second tap 200 ms later is a double tap, not an
-        // answer -- and it is said, once.
-        let (mut case, before) = asked_to_remove_keep();
-        case.shell.ask_question(one_question());
-        let _ = case.written();
-        one_read(
-            &mut case,
-            Duration::from_secs(1),
-            vec![Input::Action(Action::Submit)],
-        );
-        assert!(case.shell.ask.is_none());
-        let _ = case.screen();
-        one_read(
-            &mut case,
-            Duration::from_millis(200),
-            vec![Input::Action(Action::Submit)],
-        );
-        assert!(case.drained().is_empty());
-        assert_eq!(case.files(), before, "a double tap answered Remove");
-        assert!(case.written().contains(MCP_ENTER_TOO_SOON));
-        let _ = case.screen();
-        // A moment after the swallowed one, which counts too (opus-Md R2).
-        one_read(
-            &mut case,
-            Duration::from_millis(600),
-            vec![Input::Action(Action::Submit)],
-        );
-        assert!(case.drained().is_empty());
-        assert_ne!(
-            case.files(),
-            before,
-            "an Enter past the window took no answer"
-        );
-    }
-
-    #[test]
-    fn a_ctrl_j_the_model_question_took_counts_for_the_held_rule_as_enter_does() {
-        // QUESTION-CTRL-J: C-j answers the model's panel as Enter does, so it
-        // is the Enter the rule above counts -- the window is about how soon
+        // answer -- and it is said, once. And a C-j the panel took, which
+        // answers it as Enter does (QUESTION-CTRL-J): the window is how soon
         // after the last answering key a person can have read the question
         // painted again, whichever key that was. The newline habit is the way
         // in: a C-j meant as a new line answers the panel, and the Enter the
-        // user was already typing lands on Remove.
-        let (mut case, before) = asked_to_remove_keep();
-        case.shell.ask_question(one_question());
-        let _ = case.written();
-        one_read(
-            &mut case,
-            Duration::from_secs(1),
-            vec![Input::Action(Action::ControlJ)],
-        );
-        assert!(case.shell.ask.is_none(), "C-j did not answer the panel");
-        let _ = case.screen();
-        one_read(
-            &mut case,
-            Duration::from_millis(200),
-            vec![Input::Action(Action::Submit)],
-        );
-        assert!(case.drained().is_empty());
-        assert_eq!(case.files(), before, "C-j then Enter answered Remove");
-        assert!(case.written().contains(MCP_ENTER_TOO_SOON));
-        let _ = case.screen();
-        one_read(
-            &mut case,
-            Duration::from_millis(600),
-            vec![Input::Action(Action::Submit)],
-        );
-        assert!(case.drained().is_empty());
-        assert_ne!(
-            case.files(),
-            before,
-            "an Enter past the window took no answer"
-        );
+        // user was already typing lands on Remove. (The name predates the C-j
+        // case; another receipt's script runs it by this name.)
+        for key in [Action::Submit, Action::ControlJ] {
+            let (mut case, before) = asked_to_remove_keep();
+            case.shell.ask_question(one_question());
+            let _ = case.written();
+            one_read(&mut case, Duration::from_secs(1), vec![Input::Action(key)]);
+            assert!(case.shell.ask.is_none(), "{key:?} did not answer the panel");
+            let _ = case.screen();
+            one_read(
+                &mut case,
+                Duration::from_millis(200),
+                vec![Input::Action(Action::Submit)],
+            );
+            assert!(case.drained().is_empty());
+            assert_eq!(case.files(), before, "{key:?} then Enter answered Remove");
+            assert!(case.written().contains(MCP_ENTER_TOO_SOON), "{key:?}");
+            let _ = case.screen();
+            // A moment after the swallowed one, which counts too (opus-Md R2).
+            one_read(
+                &mut case,
+                Duration::from_millis(600),
+                vec![Input::Action(Action::Submit)],
+            );
+            assert!(case.drained().is_empty());
+            assert_ne!(
+                case.files(),
+                before,
+                "{key:?}: an Enter past the window took no answer"
+            );
+        }
     }
 
     #[test]
@@ -23719,13 +23687,21 @@ mod tests {
         ("xterm ctrl+shift+J", b"\x1b[27;6;74~"),
     ];
 
-    /// Every Ctrl+J spelling fx reads as `0x0a`: the byte, and `j` (106) and
-    /// `J` (74) with Ctrl and each subset of Shift, Alt, Super, Hyper and Meta,
-    /// in each lock state (none, Caps, Num, both), as a kitty `CSI <k>;<m>u`
-    /// with no event type, as a press and as a repeat, and as an xterm
-    /// `CSI 27;<m>;<k>~` -- 1025 in all. fx masks only the two locks
-    /// (`escape_parser.zig:187`), and no branch ahead of its Ctrl+letter rule
-    /// takes a `j` (`:208-254`).
+    /// Every Ctrl+J spelling without a meta prefix that fx reads as `0x0a`:
+    /// the byte, and `j` (106) and `J` (74) with Ctrl and each subset of
+    /// Shift, Alt, Super, Hyper and Meta, in each lock state (none, Caps, Num,
+    /// both), as a kitty `CSI <k>;<m>u` with no event type, as a press and as
+    /// a repeat, and as an xterm `CSI 27;<m>;<k>~` -- 1025 in all. fx masks
+    /// only the two locks (`escape_parser.zig:187`), and no branch ahead of
+    /// its Ctrl+letter rule takes a `j` (`:208-254`).
+    ///
+    /// Not here: the meta-prefixed spellings, `ESC` before any of the reports
+    /// above (`ESC ESC [106;5u`). fx reads them as the byte too -- `ESC ESC`
+    /// sets the prefix (`:552-555`), the report carries it (`:686-691`), and
+    /// the Ctrl+letter rule ignores it (`:255-258`) -- but xfx's decoder has
+    /// no meta prefix and reads `ESC` and then the report (`kitty_key`'s doc,
+    /// `super::input`). `docs/parity.md`'s `ask_user_question` row says what
+    /// that does at a question; owner META-PREFIX-DECODE (queued).
     fn ctrl_j_matrix() -> Vec<(String, Vec<u8>)> {
         let mut out = vec![("c-j".to_string(), vec![0x0a])];
         let others = [0x01u16, 0x02, 0x08, 0x10, 0x20];
@@ -23939,9 +23915,9 @@ mod tests {
 
     #[test]
     fn every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question() {
-        // [`ctrl_j_matrix`], each spelling at a fresh one-question batch on one
-        // shell: at a choice it takes the marked choice, and in the field it
-        // sends the draft.
+        // [`ctrl_j_matrix`] -- every spelling without a meta prefix -- each at a
+        // fresh one-question batch on one shell: at a choice it takes the
+        // marked choice, and in the field it sends the draft.
         let mut fixture = shell(24, 120);
         let started = turn_running(&mut fixture, b"ask me\r");
         let spellings = ctrl_j_matrix();
@@ -24065,6 +24041,84 @@ mod tests {
             fixture.settle_band(started);
             if from_the_rule(&fixture.band_rows()) != before {
                 wrong.push(format!("{name}: the panel moved"));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_j_at_a_model_question_over_the_model_picker_answers_the_question_not_the_picker() {
+        // The same rule over a picker: fx's picker C-j is its next row
+        // (`pickerControlDelta`, `app_input_runtime.zig:1102-1108@481104fd`),
+        // and it yields to a question (`composerPickerSurfaceVisible`,
+        // `:1110-1116`; the question's branch first, `:873`, `:1136-1160`).
+        // So with `/model`'s picker open under the question, C-j answers the
+        // question, the picker's mark stays where it was and nothing is taken
+        // from it; once the question is gone, C-j walks the picker as before.
+        let mut wrong = Vec::new();
+        for (name, key) in MODEL_QUESTION_CTRL_J {
+            let mut fixture = shell(40, 120);
+            let started = turn_running(&mut fixture, b"ask me\r");
+            fixture.route_bytes(b"/model\r");
+            let _ = fixture.controlled_past_reask();
+            fixture.apply(UiEvent::CatalogLoaded {
+                due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
+                provider: ProviderId::Gateway,
+                entries: vec![
+                    entry("one", None, &[]),
+                    entry("two", None, &[]),
+                    entry("three", None, &[]),
+                ],
+            });
+            fixture.settle_band(started);
+            let _ = fixture.controlled_past_reask();
+            let marked = |fixture: &Fixture| {
+                fixture
+                    .model_menu
+                    .as_ref()
+                    .and_then(|menu| menu.selected().map(str::to_string))
+            };
+            let first = marked(&fixture);
+            // The picker's own C-j while no question is up: the next row.
+            fixture.route_bytes(key);
+            let before = marked(&fixture);
+            if before.is_none() || before == first {
+                wrong.push(format!(
+                    "{name}: the picker's C-j moved nothing: {before:?}"
+                ));
+                continue;
+            }
+            fixture.apply(UiEvent::Question(one_model_question(1)));
+            fixture.settle_band(started);
+            // What the setup handed the runtime -- the prompt's turn -- is
+            // not this case's.
+            let setup: Vec<_> = std::iter::from_fn(|| fixture.sent.try_recv().ok()).collect();
+            if setup.len() != 1 {
+                wrong.push(format!("{name}: the setup sent {} works", setup.len()));
+            }
+            fixture.route_bytes(key);
+            let sent = fixture.controlled_past_reask();
+            if sent != model_answers(&["Thorough"]) {
+                wrong.push(format!("{name}: {sent:?}"));
+                continue;
+            }
+            if let Some(more) = fixture.controlled_past_reask() {
+                wrong.push(format!("{name}: the picker gave {more:?} too"));
+            }
+            if fixture.sent.try_recv().is_ok() {
+                wrong.push(format!("{name}: the picker's row was used"));
+            }
+            if marked(&fixture) != before {
+                wrong.push(format!("{name}: the picker moved: {:?}", marked(&fixture)));
+            }
+            // The question gone, C-j is the picker's next row again.
+            fixture.settle_band(started);
+            fixture.route_bytes(key);
+            let after = marked(&fixture);
+            if after.is_none() || after == before {
+                wrong.push(format!(
+                    "{name}: then the picker's C-j moved nothing: {after:?}"
+                ));
             }
         }
         assert!(wrong.is_empty(), "{wrong:#?}");
