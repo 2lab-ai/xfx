@@ -27,7 +27,7 @@ DIFF p5-slash-leading-ws-he-40x120-spaces (base)
 DIFF p5-slash-leading-ws-he-40x120-spaces (head)
 DIFF p5-slash-leading-ws-short-18x80-four-all (base)
 DIFF p5-slash-leading-ws-short-18x80-four-all (head)
-(at the head the /he probes differ only in fx's /shell row and the name column it widens -- the ledger's C8 cause, scripts/fxcap/parity-ledger.toml:609-613 --
+(at the head the /he probes differ only in fx's /shell row and the name column it widens -- the ledger's C8 cause, scripts/fxcap/parity-ledger.toml:606-613 --
  and four-all only in the registry's size, 38 against 34; the range 1–3, the hint and the three rows are fx's)
 
 ## The tests at the head: cargo test --locked --lib -- tui::picker:: tui::entity::tests::a_snapshot_moves tui::inline_completion:: and eight shell cases
