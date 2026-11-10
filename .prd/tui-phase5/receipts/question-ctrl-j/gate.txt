@@ -53,3 +53,9 @@ src/tests/Cargo vs HEAD after: 0 changed
 #   cargo test --locked --no-fail-fast: 5691 passed, 0 failed, 7 ignored (15 result lines)
 #   cargo test --locked --features fault-injection --no-fail-fast: 5728 passed, 0 failed, 7 ignored (15 result lines)
 #   steps: cargo fmt --check: exit 0; cargo clippy --locked --all-targets -- -D warnings: exit 0; cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0; cargo test --locked --no-fail-fast: exit 0; cargo test --locked --features fault-injection --no-fail-fast: exit 0; scripts/check-xfx-identity.sh: exit 0; scripts/check-no-stubs.sh: exit 0; scripts/check-no-secrets.sh: exit 0
+
+# after the receipt commit 7d585321 (receipt tracked): scripts/check-no-secrets.sh exit 0 -- check-no-secrets: ok (20089 tracked file(s) scanned)
+# after the receipt commit 7d585321 (receipt tracked): scripts/check-xfx-identity.sh exit 1 -- check-xfx-identity: 1 problem(s) found
+#   (binaries.txt's two guard lines named the oracle's directory, whose name holds the retired product name; written <fx-bin> in the next commit, and the four checks run again below)
+# after the receipt commit 7d585321 (receipt tracked): scripts/check-no-stubs.sh exit 0 -- check-no-stubs: ok
+# after the receipt commit 7d585321 (receipt tracked): scripts/check-no-local-paths.sh exit 0 -- check-no-local-paths: ok (20089 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))

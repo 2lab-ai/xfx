@@ -6,7 +6,7 @@ xfx/  xfx    eb1cdcd3254c7578e21b8510e844dd08df77e181342f4a851463b461187485c5  r
 # every xfx/ capture's row 1 (all must name 87daec9):
   14 x𝒇x v0.1.0-87daec9 [debug] · Run /help for commands
 
-# capture.sh's guard lines, one per fx run
-guards: <xfx>/.worktrees/.fxref/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
-guards: <xfx>/.worktrees/.fxref/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+# capture.sh's guard lines, one per fx run (the oracle's path written <fx-bin>)
+guards: <fx-bin> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <fx-bin> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 
