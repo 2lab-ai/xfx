@@ -23507,7 +23507,11 @@ mod tests {
         // on the band and on the review plane.
         let mut wrong = Vec::new();
         for review in [false, true] {
-            let plane = if review { "the review plane" } else { "the band" };
+            let plane = if review {
+                "the review plane"
+            } else {
+                "the band"
+            };
             for (name, key) in DRAFT_KEYS_FX_DOES_NOT_TAKE {
                 let sent = |shell: &mut Fixture| shell.controlled();
                 let want = Some(TurnControl::Answer {
@@ -23535,7 +23539,9 @@ mod tests {
                 shell.route_bytes(&[key, b"\r"].concat());
                 let answered = sent(&mut shell);
                 if answered != want {
-                    wrong.push(format!("{plane}, {name} and Enter in one read: {answered:?}"));
+                    wrong.push(format!(
+                        "{plane}, {name} and Enter in one read: {answered:?}"
+                    ));
                 }
             }
         }
@@ -23551,7 +23557,11 @@ mod tests {
         // (`:191-218`): the rule a draft edit that changes nothing follows.
         // The Enter after the frame sends the draft as it was.
         for review in [false, true] {
-            let plane = if review { "the review plane" } else { "the band" };
+            let plane = if review {
+                "the review plane"
+            } else {
+                "the band"
+            };
             let mut shell = drafting_ab_after_a_kill(review);
             shell.route_bytes(b"\t\r");
             assert_eq!(

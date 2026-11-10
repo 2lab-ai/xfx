@@ -674,8 +674,12 @@ fn keyed(
         }
         // Tab **enters** a draft; it never leaves one. A second meaning for the
         // key that opened the editor would be the only way out being the key
-        // that got in, which is a surface the user has to guess at.
-        Action::Tab if drafts.editing() => Reply::Ignored,
+        // that got in, which is a surface the user has to guess at. Inside
+        // one it changes nothing and is `Moved` all the same: fx answers it
+        // `.redraw` (`approval_decision.zig:142-143@481104fd`), which asks
+        // for the frame (`input_approval_runtime.zig:59-61`), so an Enter read
+        // with it waits for that frame as after any draft key.
+        Action::Tab if drafts.editing() => Reply::Moved,
         Action::Tab => {
             if drafts.enter(*selected).is_none() {
                 // Not draft-eligible -- choice 1, `Always` -- so Tab is the
@@ -735,6 +739,17 @@ fn keyed(
 /// key, so `DraftStart` and `DraftEnd` -- Super-Up and -Down, the draft's
 /// edges -- never reach it: `super::shell::Shell::decide` hands them to the
 /// draft unfolded, ahead of it.
+///
+/// **`Undo`, `Redo` and `Yank` are absent because fx's draft has none of
+/// them** (APPROVAL-DRAFT-KEYS). C-y and C-_ are no focused-editor key
+/// (`fromFocusedEditorControlByte`, `src/ui/input/shortcuts.zig:31-41`) and
+/// no approval byte (`approvalActionFromByte`, `src/ui/input/runtime.zig:61-73`),
+/// a kitty Ctrl+Y or Ctrl+_ is that byte replayed (`escape_parser.zig:255-259`),
+/// and Super+Z and Super+Shift+Z are a composer undo and redo that no draft
+/// action is made of (`:232-234`; `approvalDraftActionFromShortcut`,
+/// `src/ui/input/runtime.zig:75-96`), so the question takes them and does
+/// nothing (`app_input_runtime.zig:1173-1184`, `input_approval_runtime.zig:128`).
+/// Swallowed before the panel, they hold no Enter back, as fx's ask for no frame.
 pub(crate) fn edits(action: super::input::Action) -> bool {
     use super::input::Action as Key;
     matches!(
@@ -753,9 +768,6 @@ pub(crate) fn edits(action: super::input::Action) -> bool {
             | Key::KillToEnd
             | Key::ControlK
             | Key::KillToStart
-            | Key::Undo
-            | Key::Redo
-            | Key::Yank
             | Key::PasteStart
             | Key::PasteEnd
     )
