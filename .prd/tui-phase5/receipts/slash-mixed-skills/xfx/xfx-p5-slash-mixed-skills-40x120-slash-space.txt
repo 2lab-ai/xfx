@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-83dae68 [debug] · Run /help for commands
+
+┃ /
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Results 5
+
+  chime           Sound the statusline bell                                                           workspace skills/
+  notes-index     List the notes by title                                                             workspace skills/
+  pointer         Run x /help for the usage                                                           workspace skills/
+  release-notes   Write release notes from the git log                                                workspace skills/
+  tidy            Clear the notes and rename the help                                                 workspace skills/
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

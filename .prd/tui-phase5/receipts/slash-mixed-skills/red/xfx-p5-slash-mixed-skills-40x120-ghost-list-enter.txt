@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-b9b1159 [debug] · Run /help for commands
+
+┃ /git log
+
+✗ system: the Gateway returned HTTP 500: unexpected request
+
+* session: renamed to "the help"
+
+┃ /x /he
+
+⚠ Provider unavailable · HTTP 500: unexpected request · retrying request in 1s
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
