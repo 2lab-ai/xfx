@@ -38991,7 +38991,8 @@ mod tests {
         assert!(shell.picker.is_none(), "the slash menu came back");
         shell.route_bytes(b"d ");
         assert!(menu(&shell).is_empty(), "the list came back");
-        // A dismissal of the slash menu holds over the list the name grows into.
+        // A dismissal of the slash menu holds over the list the name grows into,
+        // `/mcp `'s servers included.
         shell.route_bytes(&[0x15]);
         shell.route_bytes(b"/stat");
         assert!(shell.picker.is_some());
@@ -39000,6 +39001,15 @@ mod tests {
         assert!(
             menu(&shell).is_empty(),
             "the list opened under the dismissal"
+        );
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/mc");
+        assert!(shell.picker.is_some());
+        escape(&mut shell);
+        shell.route_bytes(b"p ");
+        assert!(
+            menu(&shell).is_empty(),
+            "/mcp's list opened under the dismissal"
         );
         // An empty draft ends the line, and the dismissal with it.
         shell.route_bytes(&[0x15]);
