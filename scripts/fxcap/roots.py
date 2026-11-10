@@ -97,8 +97,10 @@ scenarios` closing its row is refused when the next row opens with `/`
 or `\\/`, the shape of a name broken at the margin. What passes by design:
 a root's end with nothing path-like after it -- HOME's last bytes closing a
 `┃↑` row, ending the file, or before a space or a quote; round 1 refused
-those, and neither check refuses them now. So does the run directory's own name (`--suffix`, mktemp's random
-tail) anywhere at all: it names no other path, and a root a binary cut
+those, and neither check refuses them now.
+
+The run directory's own name (`--suffix`, mktemp's random tail) refuses
+the file too, anywhere at all: it names no other path, and a root a binary cut
 short (`.../fxcap.Ab12Cd/wo...`) or whose head scrolled off a frame keeps
 it. The file is named on standard error with what survived or why it was
 refused, by placeholder, never the root's path, and the exit status is 3. A fragment of a root above the run
