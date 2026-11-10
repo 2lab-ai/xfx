@@ -1,0 +1,13 @@
+== the hang tried on p5-mcp-verbs too (one sweep per build, not kept): content_diff.py against its first head run before
+p5-mcp-verbs auth-remote fx: 35 row(s) differ, first row 1: ' remote ~/.fx/mcp.json http <state>' -> '𝒇x v0.0.16 · Run /help for commands'
+p5-mcp-verbs login-remote fx: 33 row(s) differ, first row 1: ' remote ~/.fx/mcp.json http <state>' -> '𝒇x v0.0.16 · Run /help for commands'
+p5-mcp-verbs auth-remote xfx: 32 row(s) differ, first row 1: ' remote ~/.xfx/mcp.json http <state>' -> 'x𝒇x v0.1.0-5651cf2 [debug] · Run /help for commands'
+p5-mcp-verbs login-remote xfx: 31 row(s) differ, first row 1: ' remote ~/.xfx/mcp.json http <state>' -> 'x𝒇x v0.1.0-5651cf2 [debug] · Run /help for commands'
+== p5-mcp-verbs: 43 capture(s) differ beyond the status word and the port
+
+== fx's login-remote: its sign-in lines (grep -c 'sign in\|authentication'), before and in the trial
+r4-others-before: 1  ! mcp: Couldn't sign in to remote: fx couldn't find how to sign in to it.
+r4-trial-with-verbs: 0  
+== xfx's login-remote: its sign-in lines (grep -c 'sign in\|authentication'), before and in the trial
+r4-others-before: 1  ! mcp: Interactive MCP authentication is unavailable here.
+r4-trial-with-verbs: 0  

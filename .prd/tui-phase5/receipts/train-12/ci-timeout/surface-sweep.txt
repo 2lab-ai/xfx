@@ -1,0 +1,16 @@
+== surface-sweep.sh: sweep.sh --only p5-panels-status-badsettings --only h1-rehomefile, fx v0.0.16 and the head's xfx (src as at 44bb45e6), TMPDIR 49 bytes
+fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+[1/5] fx p5-panels-status-badsettings: ran (7s)
+[2/5] fx h1-rehomefile: ran (8s)
+[3/5] xfx p5-panels-status-badsettings: ran (8s)
+[4/5] xfx h1-rehomefile: ran (9s)
+[5/5] fx (inventory): ran (35s)
+pass = 1 / 5 = 20.0%; unresolved 0, failed 0, timeout 0
+wrote <out>/scoreboard.md
+exit=0
+fx sha256 after:  8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+
+== its scoreboard's scenario rows
+| scenario | status | total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout | pass | first unresolved row (fx / xfx) |
+| h1-rehomefile | ran | 2 | 2 | 0 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 50.0% |  |
+| p5-panels-status-badsettings | ran | 3 | 3 | 0 | 0 | 2 | 1 | 0 | 0 | 0 | 0 | 0.0% |  |

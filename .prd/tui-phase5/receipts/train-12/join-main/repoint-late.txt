@@ -1,0 +1,4 @@
+tests/sessions.rs:3239  src/app.rs:242 -> src/app.rs:280  frame base (7daab7f9)  code the same: True  | SessionDetailSnapshot::new(&detail).render(OutputFormat::from_json_fla
+tests/tui.rs:9331  src/tui/shell.rs:2814 -> src/tui/shell.rs:16806  frame named (-)  code the same: True  | pub(crate) fn blind(&self) -> bool {
+tests/tui.rs:9371  src/tui/shell.rs:2113 -> src/tui/shell.rs:9667  frame named (-)  code the same: True  | Input::Action(Action::Redraw) => {
+# 3 references; 0 whose code is not the same

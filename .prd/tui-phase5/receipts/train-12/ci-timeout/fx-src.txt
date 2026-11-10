@@ -1,0 +1,43 @@
+== fx_src.sh over an fx source checkout
+== src/core/auth/credentials.zig:28-31@481104fd
+    28	pub fn parseAuthMode(value: ?[]const u8) AuthModeError!AuthMode {
+    29	    const raw = value orelse return .local;
+    30	    if (std.mem.eql(u8, raw, "local")) return .local;
+    31	    if (std.mem.eql(u8, raw, "host-managed")) return .host_managed;
+== src/core/app/app_lifecycle.zig:688-701@481104fd
+   688	    }
+   689	    // A rejected local profile cannot safely identify the destination of model data.
+   690	    if (auth_mode == .local) for (detailed.diagnostics) |diagnostic| {
+   691	        if (diagnostic.layer != .user) continue;
+   692	        switch (diagnostic.cause) {
+   693	            .durable_path_unsafe => {
+   694	                if (credential_mode != .stored) return error.InvalidProfileConfiguration;
+   695	                state.model_requests_blocked = true;
+   696	            },
+   697	            .malformed_settings,
+   698	            .settings_too_large,
+   699	            .invalid_model_id,
+   700	            => return error.InvalidProfileConfiguration,
+   701	            else => {},
+== src/core/session/session_commands.zig:280-296@481104fd
+   280	        /// The rows the `/status` panel opens with. The profile settings are
+   281	        /// read here, once, for the credential they select; a panel whose
+   282	        /// settings cannot be read says so in a row instead of showing auth.
+   283	        pub fn openStatusSnapshot(app: *App) !info_panel.Snapshot {
+   284	            var preferred: ?types.CredentialSource = null;
+   285	            var settings_error: ?[]const u8 = null;
+   286	            if (provider_runtime.provider(app) == .gateway and app.auth.credentialSource() == null) {
+   287	                if (config_runtime.loadMergedSettings(app.alloc, app.workspace_root)) |loaded| {
+   288	                    var settings = loaded;
+   289	                    defer settings.deinit(app.alloc);
+   290	                    preferred = settings.credential_source;
+   291	                } else |err| {
+   292	                    settings_error = @errorName(err);
+   293	                }
+   294	            }
+   295	            return statusSnapshot(app, preferred, settings_error);
+   296	        }
+== 8a964aca (the commit p5-panels-badsettings cites), in the pin's history?
+yes: 8a964aca is an ancestor of 481104fd
+8a964aca 2026-10-23 Show the session ID in a /status panel
+- When profile settings can't be read, the panel shows a Settings line and leaves out auth, instead of printing an error with no status.

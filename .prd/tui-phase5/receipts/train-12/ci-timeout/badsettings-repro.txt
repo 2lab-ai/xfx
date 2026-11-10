@@ -1,0 +1,12 @@
+== badsettings-repro.sh, at the runner-length TMPDIR (49 bytes)
+fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+== 1. capture.sh fx p5-panels-badsettings 40x120
+roots: <work>=66 <work:real>=74 <scratch>=61 <scratch:real>=69 <scenarios>=115 <bun>=21 <bun:real>=39 <tmp>=48 <tmp:real>=56 <home>=16 bytes
+up: the pane is gone after 0.01 s (1 looks): the binary ended before its first frame, and no `keep` held the pane
+guards: <fx> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=1
+== 2. fx alone: the seeded profile, AI_GATEWAY_API_KEY empty, FX_AUTO_UPGRADE=0
+fx exit status: 1
+fx standard error: fx: InvalidProfileConfiguration
+the seeded settings file, whole: {"permission_mode": "auto", "sandbox": 
+fx sha256 after:  8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2

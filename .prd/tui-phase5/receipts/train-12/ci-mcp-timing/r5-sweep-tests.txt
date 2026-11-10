@@ -1,0 +1,8 @@
+== r5-sweep-tests: bash -c cd '<repo>' && TMPDIR='<tmpdir>/' ./scripts/fxcap/test-sweep.sh (at 6bfc6562)
+start 2026-11-10T10:18:09Z
+Ran 72 tests in 5.678s
+OK
+Ran 28 tests in 8.872s
+OK
+exit=0
+end 2026-11-10T10:18:24Z

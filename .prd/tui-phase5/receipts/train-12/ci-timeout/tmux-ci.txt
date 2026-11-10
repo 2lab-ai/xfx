@@ -1,0 +1,4 @@
+# PR #90's second sweep run (42748982362), step "Install tmux": the versions it printed (gh run view --log, these lines only)
+2026-11-10T03:23:03.3445210Z tmux 3.8
+2026-11-10T03:23:18.8891720Z tmux 3.8
+2026-11-10T03:23:18.9692660Z python 3.15.2

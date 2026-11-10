@@ -1,0 +1,8 @@
+# PR #90's sweep job, step "The capture harness's own tests": its failure lines, the runner's paths as placeholders
+2026-11-10T01:29:25.1909390Z ##[group]Run ./scripts/fxcap/test-capture.sh
+2026-11-10T01:35:55.4995940Z FAIL: test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir (__main__.RunRoots.test_every_file_a_run_writes_names_its_roots_by_placeholder_at_any_tmpdir) (extra=26)
+2026-11-10T01:35:55.5039110Z AssertionError: 1 != 0 : roots: <work>=108 <work:real>=116 <scratch>=103 <scratch:real>=111 <scenarios>=108 <bun>=38 <tmp>=90 <tmp:real>=98 <home>=13 bytes
+2026-11-10T01:35:55.5041670Z error connecting to <tmpdir>/fxcapt.svjmqz5c/ttttttttttttttttttttttttt/fxcap.KjDZfg/s (File name too long)
+2026-11-10T01:35:55.5054560Z Ran 107 tests in 389.816s
+2026-11-10T01:35:55.5055420Z FAILED (failures=1)
+2026-11-10T01:35:56.0750340Z ##[error]Process completed with exit code 1.

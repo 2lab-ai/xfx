@@ -1,0 +1,126 @@
+== ci-sweep.sh --select --base df46777e at 2ee33f58
+startup	core
+composer-wrap	core, receipt
+streaming	core
+statusline-turn	core, receipt
+question	core
+allowlist-remember	core
+model-column	core
+settings-scrollback	core
+h1-resize	core
+quit	core
+model-column-hold	changed, receipt
+model-column-idle	changed, receipt
+model-column-reask	changed, receipt
+model-floor	changed, receipt
+model-parked	changed, receipt
+model-reask	changed, receipt
+p5-effort-fork-effort-down	changed, receipt
+p5-input-model-fail	changed, receipt
+p5-input-row-limit-menus	changed, uses p5-input-row-limit-models.json, receipt
+p5-input-row-limit-short	changed, receipt
+p5-input-row-limit	changed, receipt
+p5-mcp-config	changed, receipt
+p5-mcp-menu-new	changed, uses p5-mcp-profile.json, receipt
+p5-mcp-menu-old	changed, uses p5-mcp-profile.json, receipt
+p5-mcp-verbs	uses p5-mcp-verbs-profile.json, changed, receipt
+p5-panels-badsettings	changed, receipt
+p5-panels-status-badsettings	changed, receipt
+p5-stop-in-catalog-wait	changed, receipt
+status-version-stats	receipt
+alias	receipt
+read-failures	receipt
+rename	receipt
+rename-midturn	receipt
+resume	receipt
+resume-empty	receipt
+resume-launch	receipt
+resume-paging	receipt
+resume-tools	receipt
+search-roots	receipt
+timeout	receipt
+statusline	receipt
+approvals	receipt
+approvals-big	receipt
+fulltranscript	receipt
+rules-read	receipt
+skills	receipt
+skills-ghost	receipt
+skills-paste	receipt
+skills-slash	receipt
+image-paste	receipt
+links	receipt
+links-image	receipt
+credits-busy	receipt
+usage-billed	receipt
+usage-deferred	receipt
+approvals-amend-limit	receipt
+image	receipt
+image-composer	receipt
+image-inline	receipt
+image-nonnative	receipt
+image-readfile	receipt
+image-undo	receipt
+image-unknown	receipt
+image-withheld	receipt
+paste-block-undo	receipt
+paste-card	receipt
+notice-wrap	receipt
+trace	receipt
+trace-nowhere	receipt
+workspace	receipt
+workspace-index	receipt
+titles	receipt
+titles-idle	receipt
+titles-off	receipt
+titles-rename	receipt
+titles-steer	receipt
+p5-input-paste	receipt
+paste-suffix	receipt
+p5-panels-keys	receipt
+p5-cli-ledger-update-help	receipt
+p5-effort-fork-effort-backtab	receipt
+p5-effort-fork-effort-column	receipt
+p5-effort-fork-effort-ctrlc	receipt
+p5-effort-fork-effort-loading	receipt
+p5-effort-fork-effort-menu	receipt
+p5-effort-fork-effort-nolevels	receipt
+p5-effort-fork-effort-short	receipt
+p5-effort-fork-fork	receipt
+p5-effort-fork-fork-continue	receipt
+p5-effort-fork-fork-edge	receipt
+p5-effort-fork-fork-empty	receipt
+p5-effort-fork-oldread-src	receipt
+p5-effort-fork-oldread-v1	receipt
+p5-effort-fork-oldread-v2	receipt
+p5-effort-fork-slash-rank	receipt
+p5-input-mcp	receipt
+p5-mcp-config-ignored	receipt
+p5-mcp-config-vars	receipt
+p5-mcp-direct	receipt
+p5-mcp-dismiss	receipt
+p5-mcp-empty	receipt
+p5-mcp-errdata	receipt
+p5-mcp-fail	receipt
+p5-mcp-failed	receipt
+p5-mcp-known	receipt
+p5-mcp-live	receipt
+p5-mcp-notes	receipt
+p5-mcp-rpcerror	receipt
+p5-mcp-turn	receipt
+p5-mcp-unavailable	receipt
+p5-mcp-wire-new	receipt
+p5-mcp-wire-old	receipt
+p5-panels-help	receipt
+p5-panels-noauth	receipt
+p5-panels-permissions	receipt
+p5-panels-permissions-saved	receipt
+p5-panels-slash	receipt
+p5-panels-status	receipt
+p5-panels-status-first	receipt
+p5-panels-status-short	receipt
+p5-panels-sweep-a	receipt
+p5-panels-sweep-b	receipt
+p5-permissions-early	receipt
+p5-permissions-early-probe-ask-after	receipt
+p5-session-early-prefs	receipt

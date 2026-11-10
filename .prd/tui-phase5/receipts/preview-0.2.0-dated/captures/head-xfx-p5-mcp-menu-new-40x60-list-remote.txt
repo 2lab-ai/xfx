@@ -1,0 +1,40 @@
+x𝒇x v0.2.0 (debug 2026-11-10-0812-31ce432026a2) · Run /help
+for commands
+
+┃
+────────────────────────────────────────────────────────────
+  MCP servers  3
+  fixture          ready, 1 tool
+› remote           retrying
+
+  Needs attention  1
+  proj             waiting for approval
+────────────────────────────────────────────────────────────
+↑↓ navigate     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

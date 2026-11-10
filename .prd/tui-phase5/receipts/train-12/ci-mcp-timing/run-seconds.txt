@@ -1,0 +1,7 @@
+# p5-mcp-menu-new's run seconds: PR #90's third CI run (its step log's lines) and the 16 local runs before the fix (each run's status.json)
+2026-11-10T05:46:57.5367570Z [9/251] fx p5-mcp-menu-new: ran (64s)
+2026-11-10T05:48:00.5674420Z [11/251] xfx p5-mcp-menu-new: ran (63s)
+2026-11-10T06:39:40.5036690Z [6/99] fx p5-mcp-menu-new: ran (63s)
+2026-11-10T06:40:42.8771500Z [7/99] xfx p5-mcp-menu-new: ran (62s)
+local fx: 16 runs, 59.2-64.3 s, median 61.4 s
+local xfx: 16 runs, 58.4-62.6 s, median 60.8 s

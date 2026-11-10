@@ -10,6 +10,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -51,11 +52,11 @@ def slurp(path, mode="r"):
         return f.read()
 
 
-def compare(fx_text, xfx_text, led=None):
+def compare(fx_text, xfx_text, led=None, cols=None):
     a, b = cells.parse(fx_text), cells.parse(xfx_text)
     if led is not None:
-        a = cells.normalize(a, ledgermod.rules_for(led, "fx"))
-        b = cells.normalize(b, ledgermod.rules_for(led, "xfx"))
+        a = cells.normalize(a, ledgermod.rules_for(led, "fx"), cols=cols)
+        b = cells.normalize(b, ledgermod.rules_for(led, "xfx"), cols=cols)
     return cells.differing(a, b)
 
 
@@ -123,9 +124,96 @@ class Normalize(unittest.TestCase):
 
     def test_the_two_banners_are_one(self):
         fx = "\x1b[1;38;5;255m𝒇x\x1b[0m\x1b[38;5;245m v0.0.13 · Run /help for commands\x1b[0m\nrest"
-        xfx = "\x1b[38;5;240mx\x1b[1;38;5;255m𝒇x\x1b[0m\x1b[38;5;245m v0.1.0-1a94cdf [debug] · Run /help for commands\x1b[0m\nrest"
-        self.assertEqual(compare(fx, xfx, self.led), [])
-        self.assertEqual(len(compare(fx, xfx)), 1, "and they differ before")
+        for build in (
+            # The user's llmux format of 2026-11-10, with an id and without.
+            "v0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50)",
+            "v0.2.0 (preview 2026-11-10-0019-ec40c7ad2e50)",
+            "v0.2.0 (debug)",
+            # A base build from before it.
+            "v0.1.0-1a94cdf [debug]",
+            "v0.1.0",
+        ):
+            xfx = "\x1b[38;5;240mx\x1b[1;38;5;255m𝒇x\x1b[0m\x1b[38;5;245m %s · Run /help for commands\x1b[0m\nrest" % build
+            self.assertEqual(compare(fx, xfx, self.led), [], build)
+            self.assertEqual(len(compare(fx, xfx)), 1, "and they differ before")
+
+    # A wrapped banner as the screen leaves it, at the width it was taken
+    # at: at 50 and 60 columns xfx's banner takes two rows (72 cells for a
+    # debug build, 74 for release and preview; 52 before 0.2.0). The 50- and
+    # 60-column debug ones are the narrow sweep's captures
+    # (`.prd/tui-phase5/receipts/preview-0.2.0-dated/captures/`).
+    WRAPPED = (
+        (50, ["x𝒇x v0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50) ·", "Run /help for commands"]),
+        (50, ["x𝒇x v0.2.0 (release 2026-11-10-0019-ec40c7ad2e50)", "· Run /help for commands"]),
+        (50, ["x𝒇x v0.1.0-1a94cdf [debug] · Run /help for", "commands"]),
+        (60, ["x𝒇x v0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50) · Run /help", "for commands"]),
+        (60, ["x𝒇x v0.2.0 (release 2026-11-10-0019-ec40c7ad2e50) · Run", "/help for commands"]),
+        # Narrower still, three rows.
+        (32, ["x𝒇x v0.2.0 (preview", "2026-11-10-0019-ec40c7ad2e50) ·", "Run /help for commands"]),
+    )
+    FX_BANNER = "\x1b[1;38;5;255m𝒇x\x1b[0m\x1b[38;5;245m v0.0.16 · Run /help for commands\x1b[0m\n\n  rest\nlast"
+
+    @staticmethod
+    def xfx_rows(rows):
+        return "\x1b[38;5;245m" + "\n".join(rows) + "\x1b[0m\n\n  rest\nlast"
+
+    def test_a_banner_the_screen_wrapped_is_read_as_the_banner(self):
+        # Read back as one, and the rows under it stand where fx's do.
+        for cols, rows in self.WRAPPED:
+            xfx = self.xfx_rows(rows)
+            self.assertEqual(compare(self.FX_BANNER, xfx, self.led, cols), [], (cols, rows))
+            self.assertGreater(len(compare(self.FX_BANNER, xfx)), 1, "and they differ before")
+
+    def test_a_banner_broken_where_the_screen_would_not_wrap_it_stays_broken(self):
+        # A line that fits is never wrapped: the same rows on a 120-column
+        # screen are a hard line break, a layout change the comparison must
+        # see -- as on a screen of no known width.
+        for cols, rows in self.WRAPPED:
+            xfx = self.xfx_rows(rows)
+            for wide in (120, 74, None):
+                self.assertGreater(len(compare(self.FX_BANNER, xfx, self.led, wide)), 1, (wide, rows))
+        # Narrow enough to wrap, broken where the wrap would not break it:
+        # the first row could still have taken the next word.
+        for cols, rows in (
+            (50, ["x𝒇x v0.2.0 (debug", "2026-11-10-0019-ec40c7ad2e50) · Run /help for", "commands"]),
+            (60, ["x𝒇x v0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50) ·", "Run /help for commands"]),
+            # A row wider than the screen is no row of it.
+            (40, ["x𝒇x v0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50) ·", "Run /help for commands"]),
+            # A word broken inside it fills its row.
+            (50, ["x𝒇x v0.2.0 (debug 2026-11-10-00", "19-ec40c7ad2e50) · Run /help for commands"]),
+        ):
+            self.assertGreater(len(compare(self.FX_BANNER, self.xfx_rows(rows), self.led, cols)), 1, (cols, rows))
+
+    def test_only_a_whole_banner_is_joined(self):
+        fx = "𝒇x v0.0.16 · Run /help for commands\nrest"
+        for xfx in (
+            # The next row is not the rest of the banner.
+            "x𝒇x v0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50) ·\nrest",
+            # Rows that make more than a banner.
+            "x𝒇x v0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50) ·\nRun /help for commands now\nrest",
+            # A blank row between is not a wrap.
+            "x𝒇x v0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50) ·\n\nRun /help for commands\nrest",
+        ):
+            self.assertNotEqual(compare(fx, xfx, self.led, 50), [], xfx)
+        rule = next(r for r in ledgermod.rules_for(self.led, "xfx") if r["id"] == "banner")
+        self.assertTrue(rule["wrapped"])
+        rows = cells.join_wrapped(cells.parse("a\nb\nc"), rule["pattern"], 50)
+        self.assertEqual([cells.text_of(r) for r in rows], ["a", "b", "c"], "nothing to join")
+        # The whole match is the helper's own (`fullmatch`): an unanchored
+        # pattern still joins only rows that are all of it.
+        loose = re.compile(r"x𝒇x v\S+ \(debug \S+\) · Run /help for commands")
+        rows = cells.join_wrapped(
+            cells.parse("x𝒇x v0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50) ·\nRun /help for commands now"), loose, 50
+        )
+        self.assertEqual(len(rows), 2, "a longer line is not the banner")
+
+    def test_each_snap_is_read_at_its_own_width(self):
+        # capfile's `cols_at`: the run's width, then each `resize` before the
+        # snap (`h1-resize`: `small` at 20x60).
+        u = next(u for u in capfile.units(os.path.join(HERE, "scenarios")) if u.name == "h1-resize")
+        self.assertEqual(
+            [u.xfx.cols_at(label, "40x120") for label in ("start", "small", "large", "nosuch")], [120, 60, 120, None]
+        )
 
     def test_a_banner_is_its_whole_row(self):
         fx = "𝒇x v0.0.13 · Run /help for commands"
@@ -176,6 +264,8 @@ class Normalize(unittest.TestCase):
             ("  xfx-trace-2026-11-03-125130-d316652f96c0.md.", "  xfx-trace-2026-11-03-125146-dad28a490c1e.md."),
             ("saved at /t/fxcap.Lq26sv/fxtmp/", "saved at /t/fxcap.uozlti/xfxtmp/"),
             ("* version: 0.0.13", "* version: 0.1.0"),
+            ("* version: 0.0.16", "* version: 0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50)"),
+            ("* version: 0.0.16", "* version: 0.2.0 (release)"),
             ("  build_revision=c1db919112c5", "  build_revision=1a94cdff75a8"),
         ]
         for fx, xfx in pairs:

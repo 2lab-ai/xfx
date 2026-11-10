@@ -38,7 +38,18 @@ jobs:
     # One fixed capture runner: every pair is compared on the same machine
     # type, and `macos-15` is aarch64 (ci.yml's matrix asserts it).
     runs-on: macos-15
-    timeout-minutes: 60
+    # What a large change's selection needs, estimated from one run: PR #90
+    # (train 12) selected 125 scenarios. Its head sweep took 2800 s at
+    # `--jobs 2`, and 60 minutes cancelled it in the head's retries, before
+    # the base sweep. That selection's job comes to about 95 minutes: the
+    # steps before the sweep (591 s) and the head, as measured; three head
+    # retries and three base retries at the one measured retry's 172 s each;
+    # and the base sweep of the 49 scenarios holding a pair the head does not
+    # pass, extrapolated from the head's rate. 120 is that plus about a
+    # quarter (.prd/tui-phase5/receipts/train-12/ci-timeout/measure.txt).
+    # `--jobs` stays 2: the runner has 3 cores, and the timing scenarios flake
+    # under load.
+    timeout-minutes: 120
     env:
       # The commit this run is a receipt for: on `pull_request` the head, not
       # GitHub's synthetic merge commit (ci.yml says why).

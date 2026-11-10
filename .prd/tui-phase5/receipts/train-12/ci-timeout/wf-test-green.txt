@@ -1,0 +1,8 @@
+== test_ci_sweep.py Workflows.test_the_sweep_job_has_the_time_its_selection_needs, sweep.yml at timeout-minutes 120
+test_the_sweep_job_has_the_time_its_selection_needs (__main__.Workflows.test_the_sweep_job_has_the_time_its_selection_needs) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.201s
+
+OK
+exit=0

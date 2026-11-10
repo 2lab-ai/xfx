@@ -3,9 +3,13 @@
 # project-trust confirmation, each left with Esc.
 # The stdio server is p5-mcp-stdio.ts, which the profile names by `@BUN@` and
 # `@SCENARIOS@` (capture.sh writes both in), and xfx is given the same profile.
+# `remote` is mcphttp in `hang` with a 600 s `startup_timeout_ms`: `connecting`
+# the whole run on both binaries, where a refused port's 10 s probe and
+# 1/2/4/8 s backoff put a try's end near some snap (p5-mcp-menu-new says why).
+mcphttp hang
 work p5-mcp-ws
-fx: homefile .fx/mcp.json p5-mcp-profile.json
-xfx: homefile .xfx/mcp.json p5-mcp-profile.json
+fx: homefile .fx/mcp.json p5-mcp-menu-profile.json
+xfx: homefile .xfx/mcp.json p5-mcp-menu-profile.json
 wait 4
 snap startup
 key Escape

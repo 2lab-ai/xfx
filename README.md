@@ -173,16 +173,20 @@ brew upgrade xfx-preview
 The formula is named `xfx-preview`; **the executable it installs is `xfx`.** The
 name of the formula is the channel, not the command.
 
-Ask the binary which build it is, and it answers with the channel and the commit
-rather than with the version number, which is `0.1.0` on every channel:
+Ask the binary which build it is, and it answers with the version, the channel
+and the build's id -- the UTC minute the preview was published, then its commit:
 
 ```bash
-xfx status --json
+xfx --version
 ```
 
-```json
-{"build_channel":"preview","build_revision":"52ece6cd8184"}
 ```
+xfx 0.2.0 (preview 2026-11-10-0019-52ece6cd8184)
+```
+
+`xfx status --json` carries the same line as `version`, and the channel and the
+commit on their own as `build_channel` and `build_revision`. A build of your own
+names itself the same way, after the minute its commit was made.
 
 macOS and Linux, arm64 and x86_64. Homebrew verifies the SHA-256 of the file it
 downloads against the one recorded in the formula, which was taken from the
@@ -351,7 +355,7 @@ The shell:
 
 ```bash
 $ xfx
-xfx 0.1.0 (release, revision 52ece6cd8184) -- unofficial, experimental Rust port of fx
+xfx 0.2.0 (release 2026-11-10-0019-52ece6cd8184) -- unofficial, experimental Rust port of fx
 [shell] model=zai/glm-5.2 permission_mode=auto sandbox=none
 [shell] workspace=/home/you/project
 [shell] type a prompt, or /help for the 7 commands; Ctrl-D leaves

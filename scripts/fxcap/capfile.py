@@ -18,6 +18,7 @@ import re
 MAX_BYTES = 1 << 20
 
 SNAP = re.compile(r"^(snap|snapfull) (.+)$")
+RESIZE = re.compile(r"^resize (\d+)x(\d+)$")
 COMMAND_TOKEN = re.compile(r"^(/[A-Za-z][A-Za-z0-9_-]*)(?:\s|$)")
 
 
@@ -60,6 +61,20 @@ class Reading:
                     self.waits += float(line[5:].strip())
                 except ValueError:
                     pass
+
+    def cols_at(self, label, size):
+        """The screen's width when this binary takes snap `label`, a run
+        started at `size` (`<rows>x<cols>`): the last `resize` before the
+        snap, else the run's. None for a label it does not snap."""
+        cols = int(size.split("x")[1])
+        for line in self.lines:
+            m = RESIZE.match(line)
+            if m:
+                cols = int(m.group(2))
+            m = SNAP.match(line)
+            if m and m.group(2) + (".full" if m.group(1) == "snapfull" else "") == label:
+                return cols
+        return None
 
     def verbs(self, verb):
         """The rest of every line with this verb, in order."""

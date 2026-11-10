@@ -1,0 +1,12 @@
+# PR #90's third CI run (42762620303): ci_sweep.py's report, its regression lines and the scenario's row
+## fx parity sweep, per pull request (v0.0.16)
+
+- fx v0.0.16, sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`
+- head `3943d66712d5`, base `df46777ea10a` (both xfx builds against the same fx)
+- 125 scenarios, 815 snap pairs: 576 pass at the head, 18 new, **2 regression(s)**
+- wall: head 2813 s, retries 520 s, base 1852 s, total 5188 s
+
+### Regressions: the base passes these, the head does not
+| p5-mcp-menu-new | list-rejected | normalized-identical | unresolved-defect | 1 / 1 | row 8: `  remote                  connecting              profile` / `  remote                  retrying                profile` |
+| p5-mcp-menu-new | reopened | normalized-identical | unresolved-defect | 1 / 1 | row 8: `  remote                  retrying                profile` / `  remote                  connecting              profile` |
+| p5-mcp-menu-new | receipt | 34 | 32 | 0 | list-rejected (unresolved-defect, base normalized-identical), reopened (unresolved-defect, base normalized-identical) |

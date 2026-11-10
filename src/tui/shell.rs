@@ -168,28 +168,26 @@ pub(crate) fn cancelled_line(palette: Palette) -> String {
 /// Upstream's welcome line, for this binary (`render.zig:160-193`, `c1db919`).
 ///
 /// The brand in the subtitle style, then the build and where the commands are
-/// listed in the dim one. A release build says its version; any other build
-/// says the revision it was built from and its channel, the channel in the
-/// hint colour -- upstream's `[dev]` tag, because a preview ships on every
-/// merge and the version alone does not identify it.
+/// listed in the dim one. The build is `v`, then the version line every
+/// surface says ([`crate::BuildInfo::version`]),
+/// `v0.2.0 (preview 2026-11-10-0019-ec40c7ad2e50)`: the version, the channel,
+/// then the UTC minute the build was named and its revision. Not
+/// upstream's `v0.0.16` or `v<version>-<rev> [dev]`: the user asked on
+/// 2026-11-10 for llmux's line, because a local build that does not say when
+/// it is from cannot be told from another (`docs/parity.md`, `version text`).
 pub(crate) fn welcome_line(palette: Palette) -> String {
-    let build = crate::build_info();
-    let version = crate::VERSION;
-    let label = match (build.channel, build.revision) {
-        ("release", _) => format!("v{version}"),
-        (channel, Some(revision)) => format!(
-            "v{version}-{} {}[{channel}]{}",
-            revision.get(..7).unwrap_or(revision),
-            palette.hint(),
-            palette.dim()
-        ),
-        (channel, None) => format!("v{version} {}[{channel}]{}", palette.hint(), palette.dim()),
-    };
+    welcome_line_of(crate::build_info(), palette)
+}
+
+/// [`welcome_line`] for `build`, so each shape a build can take is testable
+/// in a binary that is only one of them.
+fn welcome_line_of(build: crate::BuildInfo, palette: Palette) -> String {
     format!(
-        "{}x\u{1d487}x{}{} {label} \u{b7} Run /help for commands{}",
+        "{}x\u{1d487}x{}{} v{} \u{b7} Run /help for commands{}",
         palette.subtitle(),
         palette.reset(),
         palette.dim(),
+        build.version(),
         palette.reset()
     )
 }
@@ -14528,11 +14526,15 @@ impl CommandHandlers for Shell {
         self.open_info_panel(info_panel::Panel::status(&snapshot, self.status_settings));
     }
 
-    /// Upstream's `* version: 0.0.13` (`app_commands.zig:2153-2160`): the
-    /// bare version, no `v` and no build. The build is the welcome line's to
-    /// say, and the channel and revision are `xfx status`'s.
+    /// Upstream's `* version: <semver>` notice (`app_commands.zig:2153-2160`),
+    /// whose body is the version line every surface says,
+    /// `* version: 0.2.0 (preview 2026-11-10-0019-ec40c7ad2e50)`: the user's
+    /// llmux format of 2026-11-10 in place of upstream's bare version.
     fn version(&mut self) {
-        self.announce(notice::Notice::neutral("version", crate::VERSION));
+        self.announce(notice::Notice::neutral(
+            "version",
+            crate::build_info().version(),
+        ));
     }
 
     /// Upstream's `commandQuit` (`app_commands.zig:662-665`): the session
@@ -26694,11 +26696,14 @@ mod tests {
         shell.route_bytes(b"/version\r");
         assert_eq!(
             shell.document(),
-            said(notice::Notice::neutral("version", crate::VERSION))
+            said(notice::Notice::neutral(
+                "version",
+                crate::build_info().version()
+            ))
         );
         assert!(
-            !crate::VERSION.starts_with('v'),
-            "upstream's body is the bare version"
+            !crate::build_info().version().starts_with('v'),
+            "upstream's body has no `v` before the version"
         );
     }
 
@@ -27383,7 +27388,10 @@ mod tests {
             [
                 said(unknown.clone()),
                 said(unknown),
-                said(notice::Notice::neutral("version", crate::VERSION)),
+                said(notice::Notice::neutral(
+                    "version",
+                    crate::build_info().version()
+                )),
             ]
             .concat()
         );
@@ -27411,6 +27419,7 @@ mod tests {
         snapshot.provider = "gateway".to_string();
         snapshot.provider_url = None;
         snapshot.provider_rejected = None;
+        snapshot.version = format!("{} (debug 2026-11-10-0019-0123456789ab)", crate::VERSION);
         snapshot.build_channel = "debug".to_string();
         snapshot.build_revision = Some("0123456789ab".to_string());
         snapshot.auth = "AI_GATEWAY_API_KEY".to_string();
@@ -29781,6 +29790,46 @@ mod tests {
             );
             assert!(shell.editor.is_empty(), "{line:?} stayed in the composer");
         }
+    }
+
+    #[test]
+    fn the_welcome_line_says_the_build_as_every_version_line_does() {
+        // 2026-11-10, the user: testing xfx locally, `x𝒇x v0.1.0-f096c16
+        // [preview]` did not say when the build was from; llmux's
+        // `0.2.26 (preview 2026-11-10-0019-ec40c7ad2e50)` does.
+        let v = crate::VERSION;
+        let preview = crate::BuildInfo {
+            channel: "preview",
+            id: Some("2026-11-10-0019-ec40c7ad2e50"),
+        };
+        assert_eq!(
+            welcome_line_of(preview, PALETTE),
+            format!(
+                "{}x\u{1d487}x{}{} v{v} (preview 2026-11-10-0019-ec40c7ad2e50) \u{b7} Run /help for commands{}",
+                PALETTE.subtitle(),
+                PALETTE.reset(),
+                PALETTE.dim(),
+                PALETTE.reset()
+            )
+        );
+        // A build with no id -- no git, nothing given -- says its channel
+        // alone, and a release says the same as any other channel.
+        for (channel, label) in [("debug", "(debug)"), ("release", "(release)")] {
+            assert_eq!(
+                welcome_line_of(crate::BuildInfo { channel, id: None }, PALETTE),
+                format!(
+                    "{}x\u{1d487}x{}{} v{v} {label} \u{b7} Run /help for commands{}",
+                    PALETTE.subtitle(),
+                    PALETTE.reset(),
+                    PALETTE.dim(),
+                    PALETTE.reset()
+                )
+            );
+        }
+        assert_eq!(
+            welcome_line(PALETTE),
+            welcome_line_of(crate::build_info(), PALETTE)
+        );
     }
 
     #[test]
@@ -36277,7 +36326,10 @@ mod tests {
         let document = exact.document();
         assert_eq!(
             document,
-            said(notice::Notice::neutral("version", crate::VERSION)),
+            said(notice::Notice::neutral(
+                "version",
+                crate::build_info().version()
+            )),
             "the completed command did not run, or was echoed: {document:?}"
         );
     }
@@ -42305,7 +42357,7 @@ mod tests {
                 format!(
                     "{NOTICE_DARK}* {ENDED}{NOTICE_DARK}version:{ENDED}\
                      {NOTICE_DARK} {}{ENDED}",
-                    crate::VERSION
+                    crate::build_info().version()
                 ),
                 String::new(),
                 format!("{full} "),

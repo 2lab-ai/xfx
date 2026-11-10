@@ -1,0 +1,15 @@
+# Every pair of p5-mcp-menu-new that failed in the 16 runs before the fix, and every row of it left without a match (pairs.json, as the sweep scored it from the .ansi captures)
+base-3 back-list unresolved-defect: 1 row(s) unmatched
+    row 7: fx 'remote                  retrying                profile' / xfx 'remote                  connecting              profile'
+base-4 back-list unresolved-defect: 1 row(s) unmatched
+    row 7: fx 'remote                  connecting              profile' / xfx 'remote                  retrying                profile'
+base-5 back-list unresolved-defect: 1 row(s) unmatched
+    row 7: fx 'remote                  retrying                profile' / xfx 'remote                  connecting              profile'
+base-5 list-remote unresolved-defect: 1 row(s) unmatched
+    row 7: fx '› remote                  retrying                profile' / xfx '› remote                  connecting              profile'
+base-6 list-remote unresolved-defect: 1 row(s) unmatched
+    row 7: fx '› remote                  connecting              profile' / xfx '› remote                  retrying                profile'
+head-2 back-list unresolved-defect: 1 row(s) unmatched
+    row 7: fx 'remote                  retrying                profile' / xfx 'remote                  connecting              profile'
+head-8 list-remote unresolved-defect: 1 row(s) unmatched
+    row 7: fx '› remote                  retrying                profile' / xfx '› remote                  connecting              profile'

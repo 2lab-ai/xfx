@@ -511,6 +511,18 @@ class Workflows(unittest.TestCase):
         )
         self.assertIs(load_workflow(WORKFLOWS[1])["concurrency"]["cancel-in-progress"], False)
 
+    def test_the_sweep_job_has_the_time_its_selection_needs(self):
+        # PR #90's 125 scenarios need about 95 minutes, head to verdict, as
+        # estimated from that one run
+        # (.prd/tui-phase5/receipts/train-12/ci-timeout/measure.txt); 60
+        # cancelled the job before its base sweep, so no verdict at all.
+        # Lowering it needs a new estimate; `--jobs` stays 2 (3 cores, and
+        # the timing scenarios flake under load).
+        w = load_workflow(WORKFLOWS[0])
+        self.assertGreaterEqual(w["jobs"]["sweep"]["timeout-minutes"], 95 * 5 // 4)
+        run = step(w, "sweep", "Sweep the changed scenarios and the core set")["run"]
+        self.assertEqual(re.findall(r"--jobs (\S+)", run), ["2"])
+
     def test_a_pull_requests_base_and_a_pushs_before_are_two_variables(self):
         # One `pull_request && base.sha || before` expression gives a pull
         # request with no base.sha its synchronize event's `before`: the

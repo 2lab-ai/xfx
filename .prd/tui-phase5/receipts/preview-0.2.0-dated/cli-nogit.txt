@@ -1,0 +1,6 @@
+   Compiling xfx v0.2.0 (<archive of 5700fdaa>)
+test status_json_is_a_single_newline_terminated_document ... ok
+test status_text_reports_the_same_facts_as_status_json ... ok
+test version_aliases_print_the_version_line_status_reports ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 79 filtered out; finished in 2.13s
+xfx 0.2.0 (debug)

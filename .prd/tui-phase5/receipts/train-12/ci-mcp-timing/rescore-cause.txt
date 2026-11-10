@@ -1,0 +1,6 @@
+== sweep.sh --rescore over a copy of the first head run after the fix (r4-after/head-1), the ledger with verbs-refused-port-word
+wrote <out>/scoreboard.md
+exit=0
+verdicts changed by the rescore: 0 of 81
+pairs the cause now names: 10, all p5-mcp-verbs: add-badname add-new-http add-new-syntax add-old-http add-old-syntax auth-remote end.full login-remote login-stdio logout-remote
+pairs of other scenarios it names: 0

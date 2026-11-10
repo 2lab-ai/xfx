@@ -3284,7 +3284,7 @@ fn amended_batch_events(sentence: &str) -> Vec<SessionEvent> {
 }
 
 /// Writes one amended session and returns it as `xfx session` renders it: the
-/// same snapshot `src/app.rs:242` prints, in both output shapes.
+/// same snapshot `src/app.rs:280` prints, in both output shapes.
 fn amended_session_view(name: &str, sentence: &str) -> (String, Value) {
     let (profile, workspace) = (Profile::new(), Workspace::new());
     let store = profile.store();

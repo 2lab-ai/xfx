@@ -1,0 +1,116 @@
+== join-fmt: bash -c cd '<repo>' && cargo fmt --check (at 2e388ca8)
+start 2026-11-10T12:54:49Z
+exit=0
+end 2026-11-10T12:54:51Z
+
+== join-clippy: bash -c cd '<repo>' && cargo clippy --locked --all-targets -- -D warnings (at 2e388ca8)
+start 2026-11-10T12:54:51Z
+exit=0
+end 2026-11-10T12:55:14Z
+
+== join-clippy-faults: bash -c cd '<repo>' && cargo clippy --locked --all-targets --features fault-injection -- -D warnings (at 2e388ca8)
+start 2026-11-10T12:55:14Z
+exit=0
+end 2026-11-10T12:55:34Z
+
+== join-test: bash -c cd '<repo>' && cargo test --locked (at 2e388ca8)
+start 2026-11-10T12:55:34Z
+test result: ok. 4744 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 54.11s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.66s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.99s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.71s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.12s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.07s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.56s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.58s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.84s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.93s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.39s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+exit=0
+end 2026-11-10T12:58:18Z
+
+== join-test-faults: bash -c cd '<repo>' && cargo test --locked --features fault-injection (at 2e388ca8)
+start 2026-11-10T12:58:18Z
+test result: ok. 4767 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 51.89s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.82s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.74s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.17s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.07s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.45s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.14s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.41s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+exit=0
+end 2026-11-10T13:01:03Z
+
+== join-test-sweep: bash -c cd '<repo>' && ./scripts/fxcap/test-sweep.sh (at 2e388ca8)
+start 2026-11-10T13:01:03Z
+Ran 76 tests in 5.509s
+OK
+Ran 28 tests in 12.400s
+OK
+exit=0
+end 2026-11-10T13:01:21Z
+
+== join-test-capture: bash -c cd '<repo>' && ./scripts/fxcap/test-capture.sh (at 2e388ca8)
+start 2026-11-10T13:01:21Z
+Ran 108 tests in 360.952s
+OK
+exit=0
+end 2026-11-10T13:07:23Z
+
+== join-test-preview-contract: bash -c cd '<repo>' && ./scripts/test-preview-contract.sh (at 2e388ca8)
+start 2026-11-10T13:07:23Z
+test-preview-contract: caught paths-dropped                the push trigger's paths are nil
+test-preview-contract: caught paths-everything             the push trigger's paths are ["**"]
+test-preview-contract: caught paths-renamed                the push trigger's paths are [".github/epoch"]
+test-preview-contract: caught tags-added                   the push trigger filters on ["branches", "paths", "tags"]
+test-preview-contract: caught dispatch-added               the workflow triggers on ["push", "workflow_dispatch"]
+test-preview-contract: caught gate-removed                 preflight has no epoch gate
+test-preview-contract: caught gate-always-publishes        expected skip
+test-preview-contract: caught build-unconditional          build runs on nil
+test-preview-contract: caught publish-unconditional        publish runs on nil
+test-preview-contract: caught id-unstamped                 the release build is not stamped with the id preflight named it through XFX_BUILD_ID
+test-preview-contract: caught id-from-sha                  the release build is not stamped with the id preflight named it through XFX_BUILD_ID
+test-preview-contract: caught id-unchecked                 preflight does not validate the build id against its exact grammar
+test-preview-contract: caught version-unasserted           the built binary's version line is never asserted to end with the id the build was stamped with
+test-preview-contract: caught environment-dropped          publish reads TAP_PUSH_KEY under environment nil
+test-preview-contract: caught environment-renamed          publish reads TAP_PUSH_KEY under environment "production"
+test-preview-contract: caught environment-on-preflight     preflight names environment "preview" but reads no secret
+test-preview-contract: caught key-without-environment      build reads TAP_PUSH_KEY under environment nil
+test-preview-contract: caught build-whole-context          the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught build-bracket-key            the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught build-brace-literal          the jobs reading secrets are ["build", "publish"]
+test-preview-contract: caught publish-action-whole-context hands a secret to the action actions/github-script@v7
+test-preview-contract: caught second-workflow              tap.yml mentions TAP_PUSH_KEY
+test-preview-contract: caught other-workflow-environment   dispatch.yml: job leak names environment "preview"
+test-preview-contract: caught other-workflow-whole-context report.yml: job report reads a secret
+test-preview-contract: caught secrets-inherit              call.yml: job call passes secrets
+test-preview-contract: caught epoch-absent                 there is no .github/preview-epoch
+test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
+test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
+test-preview-contract: ok (28 mutants caught; the unbroken copy passes)
+exit=0
+end 2026-11-10T13:09:18Z
+
+== join-build-release: bash -c cd '<repo>' && cargo build --locked --release && cargo build --locked --release --features fault-injection --target-dir target/faulty (at 2e388ca8)
+start 2026-11-10T13:09:18Z
+exit=0
+end 2026-11-10T13:10:35Z
+
+== join-smoke-tui: bash -c cd '<repo>' && ./scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx '<scratch>/join-smoke-tui' (at 2e388ca8)
+start 2026-11-10T13:10:36Z
+smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures
+exit=0
+end 2026-11-10T13:11:48Z
+

@@ -482,8 +482,11 @@ def score(units, out, size, led, pin):  # noqa: C901
                         banner = cells.text_of(b[0])
                     fx_rules = run_rules(out, u, "fx", size, rules["fx"])
                     xfx_rules = run_rules(out, u, "xfx", size, rules["xfx"])
-                    na, nb = cells.normalize(a, fx_rules), cells.normalize(b, xfx_rules)
-                    readings = [cells.normalize(a, fx_rules, absorb=way) for way in ("after", "before")]
+                    # Each side's screen width at this snap, for a rule that
+                    # reads a line the screen wrapped (cells.join_wrapped).
+                    fx_cols, xfx_cols = (u.reading(s).cols_at(label, size) for s in ("fx", "xfx"))
+                    na, nb = cells.normalize(a, fx_rules, cols=fx_cols), cells.normalize(b, xfx_rules, cols=xfx_cols)
+                    readings = [cells.normalize(a, fx_rules, absorb=way, cols=fx_cols) for way in ("after", "before")]
                     diff = cells.differing(na, nb, readings)
                     verdict, matched = ledgermod.classify(a == b, diff, u.name, label, divs)
                     left = None

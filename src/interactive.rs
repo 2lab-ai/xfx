@@ -2832,21 +2832,14 @@ fn apply_sound(
     Ok(next)
 }
 
-/// The version line `/version` prints.
+/// The version line `/version` and `xfx --version` print:
+/// `xfx 0.2.0 (preview 2026-11-10-0019-ec40c7ad2e50)`, llmux's `version_string`
+/// in this product's name ([`crate::BuildInfo::version`]).
 ///
-/// Visible to the crate because the TUI answers the same commands from the
-/// same declarations rather than growing a second `/version` that could drift
-/// from this one (`crate::tui::shell`).
+/// Visible to the crate because `--version` (`crate::app`) prints the same line
+/// rather than a second one that could drift from this one.
 pub(crate) fn version_line() -> String {
-    let build = crate::build_info();
-    match build.revision {
-        Some(revision) => format!(
-            "xfx {} ({}, revision {revision})",
-            crate::VERSION,
-            build.channel
-        ),
-        None => format!("xfx {} ({})", crate::VERSION, build.channel),
-    }
+    format!("xfx {}", crate::build_info().version())
 }
 
 /// What the shell says about itself before its first prompt.
@@ -2872,6 +2865,16 @@ fn banner(config: &RuntimeConfig, model: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_version_line_is_the_product_name_and_the_builds_version_line() {
+        let line = version_line();
+        assert_eq!(line, format!("xfx {}", crate::build_info().version()));
+        assert!(
+            line.starts_with(&format!("xfx {} (", crate::VERSION)) && line.ends_with(')'),
+            "{line}"
+        );
+    }
 
     #[test]
     fn every_advertised_slash_command_parses_back_to_itself() {

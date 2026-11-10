@@ -1,0 +1,11 @@
+== content_diff.py: the first head run before against the first head run after
+== p5-mcp-menu-new: 0 capture(s) differ beyond the status word and the port
+== p5-mcp-menu-old: 0 capture(s) differ beyond the status word and the port
+== p5-mcp-config: 0 capture(s) differ beyond the status word and the port
+== p5-mcp-verbs: 0 capture(s) differ beyond the status word and the port
+
+== and base
+== p5-mcp-menu-new: 0 capture(s) differ beyond the status word and the port
+== p5-mcp-menu-old: 0 capture(s) differ beyond the status word and the port
+== p5-mcp-config: 0 capture(s) differ beyond the status word and the port
+== p5-mcp-verbs: 0 capture(s) differ beyond the status word and the port

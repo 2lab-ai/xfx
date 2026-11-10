@@ -38,11 +38,12 @@ note = "the `fx` entry of the v0.0.16 release asset fx-macos-aarch64.tar.gz, who
 [[normalization]]
 id = "banner"
 fx = '^𝒇x v\d+\.\d+\.\d+ · Run /help for commands$'
-xfx = '^x𝒇x v\S+(?: \[[a-z]+\])? · Run /help for commands$'
+xfx = '^x𝒇x v\S+(?: \[[a-z]+\]| \([a-z]+(?: \S+)?\))? · Run /help for commands$'
 replace = "<banner>"
 attrs = "none"
-why = "Each product's first transcript row names the product and its version: fx `𝒇x v0.0.13`, xfx `x𝒇x v0.1.0-<rev> [debug]` (src/tui/shell.rs:189). The whole row, colours included, is the product's identity, not a screen to match; every receipt leaves it out (the M1 receipt's cells.py, row 1). Matched by its whole text wherever it stands, so a row 1 that is not the banner is compared."
-source = [".prd/tui-phase4/ssot.md:26", "src/tui/shell.rs:189", ".prd/tui-phase4/receipts/m1/README.md:49-50"]
+wrapped = true
+why = "Each product's first transcript row names the product and its version: fx `𝒇x v0.0.13`, xfx `x𝒇x v0.2.0 (debug 2026-11-10-0019-<rev>)` since the user's llmux format of 2026-11-10, `x𝒇x v0.1.0-<rev> [debug]` before it, which a base build still says (src/tui/shell.rs:183-191). The whole row, colours included, is the product's identity, not a screen to match; every receipt leaves it out (the M1 receipt's cells.py, row 1). Matched by its whole text wherever it stands, so a row 1 that is not the banner is compared. Read whole when the screen wrapped it (`wrapped`): xfx's banner is 72 cells for a debug build and 74 for release and preview since 0.2.0 (52 before), so it takes two rows at 50 and 60 columns, where fx's 35 take one; joined -- only where the snap's screen is narrower than the line and the rows break where a wrap breaks -- the rows under it stand where fx's do."
+source = [".prd/tui-phase4/ssot.md:26", "src/tui/shell.rs:183-191", ".prd/tui-phase4/receipts/m1/README.md:49-50"]
 
 [[normalization]]
 id = "product-name"
@@ -55,9 +56,9 @@ source = [".prd/tui-phase4/receipts/m1/README.md:78-79", "scripts/fxcap/cells.py
 [[normalization]]
 id = "product-version"
 fx = '^(\* version: )\d+\.\d+\.\d+$|^(  build_(?:channel|revision)=)\S+$'
-xfx = '^(\* version: )\d+\.\d+\.\d+(?:-\S+)?$|^(  build_(?:channel|revision)=)\S+$'
+xfx = '^(\* version: )\d+\.\d+\.\d+(?:-\S+| \([a-z]+(?: \S+)?\))?$|^(  build_(?:channel|revision)=)\S+$'
 replace = '\1\2<build>'
-why = "The product's own version, build channel and revision, as `/version` and `/status` print them: upstream's shape (`* version: <semver>`, `build_channel=`, `build_revision=`), each product's values (fx 0.0.13 stable c1db919112c5, xfx 0.1.0 debug <rev>). The banner's version is the banner rule's."
+why = "The product's own version, build channel and revision, as `/version` and `/status` print them: upstream's shape (`* version: <semver>`, `build_channel=`, `build_revision=`), each product's values (fx 0.0.13 stable c1db919112c5, xfx `0.2.0 (debug 2026-11-10-0019-<rev>)` since the user's llmux format of 2026-11-10, bare `0.1.0` before it). The banner's version is the banner rule's."
 source = ["docs/parity.md:118"]
 
 [[normalization]]
@@ -75,14 +76,14 @@ fx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 xfx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 mask = "X"
 why = "capture.sh runs each binary in its own `mktemp -d .../fxcap.XXXXXX`, so a path on screen (/status's workspace, a picker's root) carries a different random suffix on each side. capture.sh writes the whole run directory as `<scratch>` (or `<work>`) since LOCAL-PATHS, wherever a frame wraps or colours it, and refuses a capture that keeps any of its name; this rule reads the captures taken before it (`--rescore`). Masked to the same length, so nothing after it moves."
-source = ["scripts/fxcap/capture.sh:671"]
+source = ["scripts/fxcap/capture.sh:681"]
 
 [[normalization]]
 id = "capture-tmpdir"
 fx = '(<scratch(?::real)?_*>/|fxcap\.XXXXXX/)fxtmp(?=/)'
 replace = '\1xfxtmp'
 why = "capture.sh gives each binary a TMPDIR inside its run named for the binary, fx `$run/fxtmp`, xfx `$run/xfxtmp`, so where `/trace` says it wrote names the driver's directory, not the product's. On fx's side, after run-directory, and only right after the run directory: as capture.sh writes it now, `<scratch___>` filled to its width (`<scratch:real___>` resolved), as units wrote it by hand before LOCAL-PATHS, `<scratch>`, or as a capture from before LOCAL-PATHS holds it, masked to `fxcap.XXXXXX`. The run directory, `$TMPDIR/fxcap.XXXXXX`, is 13 columns or more, never narrower than `<scratch>`, so its short form `<s__>` is not read (resolved, it is narrower than `<scratch:real>` only where the TMPDIR resolves to `/`, and `<S__>` is not read either); nor is an `fxtmp` under another placeholder (`<work___>/fxtmp` is a name in the workspace), an escaped literal (`<!scratch__>`) or other text. And only the name itself with a directory under it, `fxtmp/`: `/` is the one follower the tracked captures hold (w2's and w3's `/trace` reports and pasted images), and any other character can be part of a name, so `fxtmp-old`, `fxtmp,backup`, `fxtmp backup`, `fxtmp\u00e9` or the bare `fxtmp` before a quote is compared: the rule fails toward comparing. capture.sh's `dir` refuses a name that is or extends a binary's TMPDIR, so no scenario makes such a sibling beside them. This is not roots.py's EDGE: an over-wide rewrite there fails toward privacy (a sibling written as a placeholder), an over-wide normalization here toward false parity (a sibling read as the TMPDIR), so the ledger reads only the demonstrated form."
-source = ["scripts/fxcap/capture.sh:326-328", "scripts/fxcap/capture.sh:379-385", "scripts/fxcap/capture.sh:970", "scripts/fxcap/capture.sh:977"]
+source = ["scripts/fxcap/capture.sh:326-328", "scripts/fxcap/capture.sh:379-385", "scripts/fxcap/capture.sh:980", "scripts/fxcap/capture.sh:987"]
 
 # Each run's own clock and its own ids. The two binaries run one after the
 # other, so what a clock or a random id reads is the run's, not the product's;
@@ -144,7 +145,7 @@ fx = '^(Pane is dead \(status \d+, ).*(\))$'
 xfx = '^(Pane is dead \(status \d+, ).*(\))$'
 replace = '\1<tmux clock>\2'
 why = "tmux's own line under a pane whose program has exited (capture.sh `keep`) ends with tmux's clock; the exit status before it is compared."
-source = [".prd/tui-phase4/receipts/d1/README.md:151", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:1147"]
+source = [".prd/tui-phase4/receipts/d1/README.md:151", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:1157"]
 
 [[normalization]]
 id = "session-id"
@@ -264,7 +265,7 @@ reason = "xfx's /status panel keeps a Sandbox row after Permissions, which fx's 
 owner = "user decision /status Sandbox row"
 resolution = "the user keeps the row (written as a lasting difference) or drops it"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:115", "UPSTREAM.md:96-99"]
+source = ["docs/parity.md:115", "UPSTREAM.md:95-98"]
 
 [[divergence]]
 id = "status-panel-updates"
@@ -277,7 +278,7 @@ reason = "fx's /status panel says its update channel; xfx has no updater, so the
 owner = "user decision updater (sign-in and updater epic)"
 resolution = "the updater lands and the row with it, or the omission is written as lasting"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:115", "UPSTREAM.md:100-102"]
+source = ["docs/parity.md:115", "UPSTREAM.md:99-101"]
 
 [[divergence]]
 id = "status-panel-step-limit"
@@ -291,7 +292,7 @@ reason = "xfx compiles in a bound of 25 steps a turn where fx compiles in unboun
 owner = "user decision default step limit"
 resolution = "the bounded default is written as lasting, or the user takes fx's"
 expires = "date:2026-12-04"
-source = ["UPSTREAM.md:91-95", "docs/parity.md:115"]
+source = ["UPSTREAM.md:90-94", "docs/parity.md:115"]
 
 [[divergence]]
 id = "saved-write-rule-applied"
@@ -542,6 +543,16 @@ source = ["src/tui/frame.rs:2757", "docs/parity.md:237"]
 # (b) units in flight, the specific rows first.
 
 [[cause]]
+id = "profile-refuse-at-launch"
+kind = "unit"
+owner = "PROFILE-REFUSE-AT-LAUNCH (a new queue unit): xfx refuses a malformed user profile at launch, as fx does"
+scenarios = ["p5-panels-badsettings"]
+snaps = ["launch"]
+whole_snap = true
+xfx = ["src/config.rs:850-851", "src/tui/shell.rs:3818-3835"]
+why = "fx v0.0.16 refuses a profile whose user layer is malformed, too large or names an invalid model id, under the default local auth mode (`src/core/auth/credentials.zig:29@481104fd`): `return error.InvalidProfileConfiguration` (`src/core/app/app_lifecycle.zig:690-701@481104fd`), so it exits 1 with `fx: InvalidProfileConfiguration` before a first frame, and the scenario's `keep` holds the dead pane as the snap. xfx never refuses (`ConfigError`: malformed content is never fatal, src/config.rs:850-851): it starts and announces `config: 1 configuration issue (ctrl+o to view)` (src/tui/shell.rs:3818-3835). Every row of the snap differs, so the cause is the whole snap (.prd/tui-phase5/receipts/train-12/ci-timeout/README.md)."
+
+[[cause]]
 id = "preview-frame-before-the-turn-start"
 kind = ["unit", "nondeterminism"]
 owner = "SUBMIT-PREVIEW-EDGES"
@@ -581,17 +592,6 @@ scenarios = ["p5-panels-status-short"]
 snaps = ["up1", "ctrl-k", "down-end"]
 whole_snap = true
 why = "A scrolled 14x120 window shows two lines; xfx's Sandbox row stands four lines above where fx's Updates row stood, so a window between them shows the line before fx's. The windows that see neither differ in nothing (open, down1)."
-
-[[cause]]
-id = "xfx-debug-banner-wrap"
-kind = "scenario"
-owner = "P-status receipt"
-scenarios = ["p5-panels-status-short"]
-snaps = ["*"]
-fx_row = '^<banner>$'
-xfx_row = '^x𝒇x v\S+ \[debug\] · Run /help for$|^commands$'
-why = "At 50 columns a debug build's banner (`x𝒇x v0.1.0-<rev> [debug] · Run /help for commands`, 52 cells) wraps onto row 2, which the banner rule does not read, so every row under it stands one lower than fx's."
-fix = "capture xfx's side of the 24x50 run with a release build, whose banner has no `[debug]` and fits, or read a banner wrapped onto row 2 as the banner"
 
 [[cause]]
 id = "R1-amendment-card"
@@ -952,7 +952,7 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^\* stats: ansi_bytes=\d+,'
 xfx_row = '^\* stats: ansi_bytes=\d+,'
-xfx = ["src/tui/shell.rs:1854"]
+xfx = ["src/tui/shell.rs:1852"]
 fx = ["src/core/app/app_commands.zig:1014@c1db9191"]
 why = "`/stats` counts each product's own bytes to the terminal (fx 3499, xfx 2675 for the same screen): equal only if the two wrote the same bytes."
 
@@ -1044,6 +1044,23 @@ fx_row = 'work · (?: 1m|now) · 1 turn$'
 xfx_row = 'work · (?: 1m|now) · 1 turn$'
 fix = "seed the saved sessions with fixed timestamps (homefile), or take the picker snaps well clear of a minute after the first prompts"
 why = "The picker's age column reads the run's clock; the snaps fall about a minute after the sessions were made, so one run says ` 1m` and the other `now`."
+
+# `scenario`, not `nondeterminism`, while every pair it reaches is unresolved
+# for other rows too (.prd/tui-phase5/receipts/train-12/ci-mcp-timing/
+# verbs-rows.txt): a nondeterminism cause buys each CI run up to three head
+# and three base retries of this 90 s scenario, about 18 minutes, for pairs
+# no retry can pass. Make it `nondeterminism`, or apply the fix, when MCP-V's
+# other rows match.
+[[cause]]
+id = "verbs-refused-port-word"
+kind = "scenario"
+owner = "MCP-V"
+scenarios = ["p5-mcp-verbs"]
+snaps = ["*"]
+fx_row = '^\W*(?:(?:remote|web2?)\b.*|status\s+)\b(?:connecting|retrying)\b'
+xfx_row = '^\W*(?:(?:remote|web2?)\b.*|status\s+)\b(?:connecting|retrying)\b'
+fix = "point remote, web and web2 at a server whose state holds through the run (mcphttp `hang` with a long startup_timeout_ms, as p5-mcp-menu-profile.json does), and give `/mcp login remote` its refused failure some other way"
+why = "remote, web and web2 sit at a refused loopback port. Each try is a 10 s discover probe and the backoffs 1, 2, 4, 8 s, on both binaries, so a row naming one with `connecting` or `retrying` turns about 10, 11, 21, 23, 33, 37, 47 and 55 s after it started, and a snap near a turn reads one word on fx and the other on xfx (.prd/tui-phase5/receipts/train-12/ci-mcp-timing/README.md). The menu scenarios hold the word with a server that never answers; here that would make `/mcp login remote` wait instead of failing, which these snaps capture."
 
 # No cause for the catalog outage's window. `modelsdown <ms>` counted from the
 # fake gateway's start, and each binary launches a different time after it

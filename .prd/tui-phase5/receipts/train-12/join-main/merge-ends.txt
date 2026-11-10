@@ -1,0 +1,9 @@
+ok   both  CHANGELOG.md (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  README.md (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  docs/parity.md (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  scripts/fxcap/parity-ledger.toml (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  scripts/fxcap/sweep.py (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  scripts/fxcap/test_sweep.py (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  scripts/test-gate-env.sh (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/tui/shell.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+files both sides changed: 8; one side only: 820 (ours 779, theirs 41); disagreeing: 0
