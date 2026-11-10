@@ -3493,23 +3493,24 @@ impl Shell {
         self.picker.as_ref().map(Slot::Menu)
     }
 
-    /// The cell the `/provider` column is anchored at: under the first byte of
-    /// its argument, on the composer row that byte is on
-    /// (`projectedAnchorColumn`, `input_presentation.zig:368-370`).
-    ///
-    /// Measured by the composer's own wrap, so an argument that a wrapped
-    /// draft put at the start of its second row anchors at that row's start
-    /// rather than past the edge of the screen.
+    /// The cell the `/provider` column is anchored at: its argument's first
+    /// byte, as [`Self::anchor_at`] places a column (`picker_start_col`,
+    /// `input_presentation.zig:383-386@481104fd`).
     fn provider_anchor(&self, column: &ProviderPicker) -> u16 {
         self.anchor_at(column.token_start())
     }
 
     /// The cell under byte `start` of the composer, which a column hangs
     /// under (`projectedAnchorColumn`, `visual_layout.zig:705-713@481104fd`):
-    /// past the prompt, under that byte while it is on the caret's row, and
-    /// at the start of the caret's row while it is not -- a new line after
-    /// `/provider ` puts the caret, and so the column, a row below the
-    /// argument (CTRLO-OTHER-PICKERS, `provider-ctrlo cj`).
+    /// past the prompt, under that byte -- measured by the composer's own
+    /// wrap -- while it is on the caret's row, and at the start of the
+    /// caret's row while it is not, so a column hangs under the row the eye
+    /// is on. The `/provider` and `/model` columns, `/mcp `'s argument
+    /// completions and the `@` list ([`Self::file_picker_column`]) all hang
+    /// from it: a line break after `/provider ` (`provider-ctrlo cj`,
+    /// `alt-enter`) or after a `/model` line
+    /// (`fx-fast-astra-40x120-model-change-clears`) puts the caret, and so
+    /// the column, a row below the argument.
     fn anchor_at(&self, start: usize) -> u16 {
         let text = self.editor.text();
         // A column is rebuilt on every edit, so its offset is into this very
@@ -3626,17 +3627,9 @@ impl Shell {
 
     /// The one-based column the file picker's rows start in: the `@`'s, when
     /// it is on the caret's row, and the composer's left edge otherwise
-    /// (`projectedAnchorColumn`, `visual_layout.zig:704-712`).
+    /// ([`Self::anchor_at`]).
     fn file_picker_column(&self, files: &FilePicker) -> u16 {
-        let cols = self.text_cols();
-        let (at_row, at_column) = self.editor.point_of(files.query().at, cols);
-        let column = if at_row == self.editor.point(cols).0 {
-            at_column
-        } else {
-            0
-        };
-        PROMPT_CELLS
-            .saturating_add(column)
+        self.anchor_at(files.query().at)
             .saturating_add(1)
             .min(self.geometry.cols)
     }
@@ -5268,6 +5261,13 @@ impl Shell {
     /// session list arriving) takes the plane back the same way. The slash
     /// menu, the `/provider` column, `/mcp `'s argument completions and the
     /// `@` list are not on the list: the screen holds over them.
+    ///
+    /// fx's test also asks for no question and no approval up
+    /// (`!question_active and approval == null`, `:1206`); neither term is
+    /// needed here, because the screen is never up with one: a question or an
+    /// approval closes it as it arrives ([`Self::full_transcript_sees`]), and
+    /// Ctrl-O opens none while one is up ([`Self::open_full_transcript`]
+    /// refuses while [`Self::modal`]).
     fn reconcile_full_transcript(&mut self) {
         let menu = self.settings_menu.is_some()
             || self.help_menu.is_some()
@@ -5285,12 +5285,48 @@ impl Shell {
     /// fx's pickers move on them only while the composer's surface shows
     /// (`routePickerControlByte`, `composerPickerSurfaceVisible`,
     /// `app_input_runtime.zig:1093-1116@481104fd`), so they reach the
-    /// composer (`:881-893`) -- `C-j` a new line (`:513-521`), `C-k` a kill
-    /// to the line's end (`:479-488`) -- with the slash menu, the `/provider`
-    /// column or `/mcp `'s argument completions up under the screen, as with
-    /// the `@` list ([`Self::offer_to_files`]).
+    /// composer (`:881-893`) -- `C-j` its `insert_newline` (`:513-521`),
+    /// `C-k` a kill to the line's end (`:479-488`) -- past whatever is up
+    /// under the screen ([`Self::consume_inputs`], [`Self::act`]). The slash
+    /// menu, the `/provider` column, `/mcp `'s argument completions and the
+    /// `@` list hold the screen over them; the seven menus the frame shuts it
+    /// for ([`Self::reconcile_full_transcript`]) see one only in the burst
+    /// the Ctrl-O came in, before that frame, as fx's do (its loop reads up
+    /// to `max_input_reads_per_fact_collection` reads before a frame,
+    /// `src/ui/event_loop.zig:90-120@481104fd`).
     fn composer_control(&self, action: Action) -> bool {
         self.full.is_open() && matches!(action, Action::ControlJ | Action::ControlK)
+    }
+
+    /// `C-j` the composer takes: fx's `insert_newline`
+    /// (`app_input_runtime.zig:513-521@481104fd`). Nothing while `/skills`'
+    /// menu, `/model`'s menu or the session picker is up (`:514`); otherwise
+    /// a line break, which closes `/fork`'s and `/effort`'s menus as any edit
+    /// does ([`Self::amended`]). It syncs no catalog menu, so the catalog and
+    /// the settings menu keep their marks over the search it changed; a line
+    /// break is no word of a search. A picker takes `C-j` everywhere but
+    /// under the full transcript ([`Self::composer_control`]), so only there
+    /// does it reach here with one up -- Alt-Enter's `InsertNewline` is still
+    /// `type_character('\n')` over them (INSERT-NEWLINE-MENUS).
+    fn composer_newline(&mut self) {
+        let held = self
+            .skills_menu
+            .as_ref()
+            .is_some_and(|menu| !menu.origin().is_mention())
+            || self.model_menu.is_some()
+            || self.sessions.is_some();
+        if held {
+            return;
+        }
+        let catalog = self.help_menu.as_ref().map(HelpMenu::mark);
+        let settings = self.settings_menu.as_ref().map(SettingsMenu::mark);
+        self.type_character('\n');
+        if let (Some(menu), Some(mark)) = (self.help_menu.as_mut(), catalog) {
+            menu.keep(mark);
+        }
+        if let (Some(menu), Some(mark)) = (self.settings_menu.as_mut(), settings) {
+            menu.keep(mark);
+        }
     }
 
     /// One keystroke while the full transcript is up
@@ -6228,7 +6264,6 @@ impl Shell {
             return false;
         };
         let eligible = self.file_picker_eligible();
-        let transcript = self.full.is_open();
         let Some(files) = self.file_picker.as_mut() else {
             return false;
         };
@@ -6252,20 +6287,13 @@ impl Shell {
             files.distrust();
             self.render.request(Reason::Modal);
         }
-        // Under the full transcript no picker of fx's takes `C-j` or `C-k`:
-        // `routePickerControlByte` returns before any move while it is up
-        // (`composerPickerSurfaceVisible`, `app_input_runtime.zig:1093-1116
-        // @481104fd`), so the bytes reach the composer's shortcuts
-        // (`:1442-1445`; `shortcuts.zig:19`, `:26`): `C-k` kills to the
-        // line's end (`app_input_runtime.zig:479-488`), and `C-j` is a new
-        // line (`:513-521`), which ends the `@` word and so closes the list.
-        // A list not eligible for another reason keeps them: a catalog
+        // `C-j` and `C-k` under the full transcript never get here
+        // ([`Self::composer_control`]): `C-k` kills to the line's end, and
+        // `C-j` is a new line, which ends the `@` word and so closes the
+        // list. A list not eligible for another reason keeps them: a catalog
         // menu's move comes first, and with none the file query takes them
         // and moves nothing (`routeNonSlashPickerMove`,
-        // `input_completion_runtime.zig:395-410`).
-        if transcript && matches!(action, Action::ControlJ | Action::ControlK) {
-            return false;
-        }
+        // `input_completion_runtime.zig:395-410@481104fd`).
         let page = i64::from(layout::input_row_limit(self.geometry.rows));
         let delta = match action {
             Action::Up | Action::ControlK => -1,
@@ -7237,7 +7265,7 @@ impl Shell {
         let Some(query) = self.column.active(text, &self.model) else {
             return Vec::new();
         };
-        let anchor = self.column_anchor(query.token_start);
+        let anchor = self.anchor_at(query.token_start);
         self.column.rows(
             &query,
             known(self.catalog_known, &self.catalog),
@@ -7246,23 +7274,6 @@ impl Shell {
             self.geometry.panel,
             self.palette,
         )
-    }
-
-    /// The screen column under the composer's byte `offset`: past the prompt,
-    /// the cells to its left on the composer row it is on -- **when that is the
-    /// caret's row**, and the start of the caret's row otherwise, so a column
-    /// over a composer the caret has left the argument's row of hangs under the
-    /// row the eye is on (`projectedAnchorColumn`, `visual_layout.zig:704-712`;
-    /// `fx-fast-astra-40x120-model-change-clears`, a `/model` line with a line
-    /// break after it).
-    fn column_anchor(&self, offset: usize) -> u16 {
-        let cols = self.text_cols();
-        let (row, cells) = self.editor.point_of(offset, cols);
-        let (caret_row, _) = self.editor.point(cols);
-        if row != caret_row {
-            return PROMPT_CELLS;
-        }
-        PROMPT_CELLS.saturating_add(cells)
     }
 
     /// Offers one keystroke to `/model`'s inline column, and says whether it
@@ -8840,9 +8851,6 @@ impl Shell {
         let Input::Action(action) = event else {
             return false;
         };
-        if self.composer_control(*action) {
-            return false;
-        }
         // A page of the menu at a time (`routeComposerVertical` with `page`,
         // `input_completion_runtime.zig:209-262`): a page is the composer's
         // row cap, as it is for the caret.
@@ -9346,9 +9354,6 @@ impl Shell {
         let Input::Action(action) = event else {
             return false;
         };
-        if self.composer_control(*action) {
-            return false;
-        }
         if !matches!(self.slot(), Some(Slot::McpArgs(_))) {
             return false;
         }
@@ -9447,9 +9452,6 @@ impl Shell {
         let Input::Action(action) = event else {
             return false;
         };
-        if self.composer_control(*action) {
-            return false;
-        }
         let Some(column) = self.provider_picker.as_mut() else {
             return false;
         };
@@ -12215,6 +12217,25 @@ impl Shell {
         }
     }
 
+    /// The catalog or the completion menu -- never both -- takes the keys it
+    /// binds, before the editor and before the gestures see them, and says
+    /// so. Everything else falls through with it still up, because each is a
+    /// view of the draft and typing is what the draft is made of.
+    fn offer_to_pickers(&mut self, event: &Input) -> bool {
+        self.offer_to_settings(event)
+            || self.offer_to_sessions(event)
+            || self.offer_to_fork(event)
+            || self.offer_to_catalog(event)
+            || self.offer_to_models(event)
+            || self.offer_to_effort(event)
+            || self.offer_to_skills(event)
+            || self.offer_to_column(event)
+            || self.offer_to_files(event)
+            || self.offer_to_picker(event)
+            || self.offer_to_provider_picker(event)
+            || self.offer_to_mcp_args(event)
+    }
+
     /// [`Self::consume`]'s inputs, one by one.
     fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {
         for event in events {
@@ -12343,45 +12364,12 @@ impl Shell {
             if self.offer_to_mcp(&event, held) {
                 continue;
             }
-            // And the catalog or the completion menu -- never both -- takes
-            // the keys it binds, before the editor and before the gestures see
-            // them. Everything else falls through with it still up, because
-            // each is a view of the draft and typing is what the draft is made
-            // of.
-            if self.offer_to_settings(&event) {
-                continue;
-            }
-            if self.offer_to_sessions(&event) {
-                continue;
-            }
-            if self.offer_to_fork(&event) {
-                continue;
-            }
-            if self.offer_to_catalog(&event) {
-                continue;
-            }
-            if self.offer_to_models(&event) {
-                continue;
-            }
-            if self.offer_to_effort(&event) {
-                continue;
-            }
-            if self.offer_to_skills(&event) {
-                continue;
-            }
-            if self.offer_to_column(&event) {
-                continue;
-            }
-            if self.offer_to_files(&event) {
-                continue;
-            }
-            if self.offer_to_picker(&event) {
-                continue;
-            }
-            if self.offer_to_provider_picker(&event) {
-                continue;
-            }
-            if self.offer_to_mcp_args(&event) {
+            // `C-j` and `C-k` with the full transcript up go past every picker
+            // to the composer ([`Self::composer_control`]); every other key is
+            // offered to them first.
+            let to_the_composer =
+                matches!(event, Input::Action(action) if self.composer_control(action));
+            if !to_the_composer && self.offer_to_pickers(&event) {
                 continue;
             }
             match event {
@@ -12750,7 +12738,8 @@ impl Shell {
             // deletes do: through the budget. `C-j` inserts a newline and
             // nothing else (`super::editor::Editor::apply`), so routing it
             // here is the same edit with the same question asked first.
-            Action::InsertNewline | Action::ControlJ => self.type_character('\n'),
+            Action::InsertNewline => self.type_character('\n'),
+            Action::ControlJ => self.composer_newline(),
             // A backslash right before the caret is a line that goes on, not a
             // line to send (`app_input_runtime.zig:1612`): the Return turns it
             // into the line break, as one edit.
@@ -37462,10 +37451,11 @@ mod tests {
     #[test]
     fn c_j_and_c_k_in_ctrl_os_burst_over_the_catalog_edit_its_search_and_keep_its_mark() {
         // `p5-ctrlo-help burst-ck`, `burst-cj`: C-k a kill of nothing
-        // (`:479-488`), C-j a line break in the search (`:513-521`), which
-        // syncs no catalog menu, so the mark stays on `/clear`; a line break
-        // is no word of the search (`command_specs.zig`'s tokenizer), so the
-        // list is the same.
+        // (`app_input_runtime.zig:479-488@481104fd`), C-j a line break in the
+        // search (`:513-521`), which syncs no catalog menu, so the mark stays
+        // on `/clear`; a line break is no word of the search
+        // (`helpCatalogSpecMatches`, `command_specs.zig:460`), so the list is
+        // the same.
         let marked = |shell: &Fixture| {
             shell
                 .help_menu
@@ -37481,6 +37471,30 @@ mod tests {
             assert_eq!(shell.editor.text(), text, "{key:#x}: the composer");
             assert_eq!(marked(&shell), Some("/clear"), "{key:#x} moved the mark");
             assert!(!shell.full.is_open(), "{key:#x}: the frame left it up");
+        }
+        // The settings menu the same way: a catalog menu fx's line break
+        // leaves unsynced (it owns the byte, `app_input_runtime.zig:1610`,
+        // and is not one `:514` holds), so its mark stays where Down put it.
+        for (key, text) in [(0x0b, ""), (0x0a, "\n")] {
+            let mut shell = shell(40, 120);
+            shell.route_bytes(b"/settings\r\x1b[B\x1b[B");
+            let mark = shell.settings_menu.as_ref().map(SettingsMenu::mark);
+            assert_ne!(mark, Some((0, 0)), "Down did not move the mark");
+            one_burst_with_ctrl_o(&mut shell, key);
+            assert_eq!(
+                shell.editor.text(),
+                text,
+                "settings, {key:#x}: the composer"
+            );
+            assert_eq!(
+                shell.settings_menu.as_ref().map(SettingsMenu::mark),
+                mark,
+                "settings, {key:#x} moved the mark"
+            );
+            assert!(
+                !shell.full.is_open(),
+                "settings, {key:#x}: the frame left it up"
+            );
         }
     }
 

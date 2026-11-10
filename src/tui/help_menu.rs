@@ -218,6 +218,21 @@ impl HelpMenu {
         }
     }
 
+    /// Where the mark and the window are, for [`Self::keep`].
+    pub(crate) fn mark(&self) -> (usize, usize) {
+        (self.selected, self.window_start)
+    }
+
+    /// Puts the mark and the window back where [`Self::mark`] read them,
+    /// over whatever the search is now: fx's `insert_newline` syncs no
+    /// catalog menu (`app_input_runtime.zig:513-521@481104fd`), so its
+    /// catalog keeps both across a line break; the mark is read modulo what
+    /// is listed ([`Self::selected`]), as fx's is.
+    pub(crate) fn keep(&mut self, (selected, window_start): (usize, usize)) {
+        self.selected = selected;
+        self.window_start = window_start;
+    }
+
     /// The mark on the first command and the window at the top.
     fn reset(&mut self) {
         self.selected = 0;

@@ -621,6 +621,20 @@ impl SettingsMenu {
         }
     }
 
+    /// Where the mark and the window are, for [`Self::keep`].
+    pub(crate) fn mark(&self) -> (usize, usize) {
+        (self.selected, self.window_start)
+    }
+
+    /// Puts them back where [`Self::mark`] read them: a line break
+    /// fx's `insert_newline` puts in the search syncs no catalog menu
+    /// (`app_input_runtime.zig:513-521@481104fd`). The mark is read modulo
+    /// what is listed, as fx's is.
+    pub(crate) fn keep(&mut self, (selected, window_start): (usize, usize)) {
+        self.selected = selected;
+        self.window_start = window_start;
+    }
+
     fn reset(&mut self) {
         self.selected = 0;
         self.window_start = 0;
