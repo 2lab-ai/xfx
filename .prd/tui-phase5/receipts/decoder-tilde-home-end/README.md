@@ -13,7 +13,9 @@ an approval's draft alike. APPROVAL-DRAFT-KEYS found the gap. Base `afd891af`
 | `e90b1bba` | **the code head**: the decoder (`csi`, `modified_tilde` in `src/tui/input.rs`), the two entries of `what_upstream_resolves_to_a_key_xfx_does_not_have_is_ignored` that named `1;5~` and `4;3~` out, `cargo fmt` of the shell test, `docs/parity.md`, the ledger's moved refs, `refs.py`, `refs.txt` |
 | `893999fb` | `xfx/`, `green-pairs.txt`, `mutants.py`; no `src/` change. **The gate ran here** |
 | `e7beb46f` | `gate.txt`, `green.txt`, `mutants.txt`, `fx_src.sh` given the meta prefix's and stage 6's lines (and `fx-src.txt` again), one word of the parity sentence, this file; no `src/` change |
-| the commit after | the sweeps (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`), this file's sweep section and table, and the post-gate scan line in `gate.txt`; no `src/` change |
+| `56a69778` | the sweeps (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`), this file's sweep section and table, and the post-gate scan line in `gate.txt`; no `src/` change |
+| `cd18efdf` | **round 2** (the reviews of `56a69778`, no MUST): `modified_tilde`'s doc made true (below), the lock-bit Delete divergence recorded and pinned by a test, a test over every modifier field `2..=256`, `docs/parity.md`, `fx_src.sh`'s ranges (Delete's lines, `input_full_transcript_runtime.zig` to `:177`), `mutants.py` M9-M11; no behaviour change |
+| the commit after | round 2's receipt: `round2.txt`, `mutants.txt`, `gate.txt`, `green.txt` (each with round 2 first), this file |
 
 The source change outside the test modules is +19/-7 lines, four of them
 code (the rest its doc comments): `git diff afd891af e90b1bba -- src`.
@@ -63,7 +65,7 @@ everywhere; Ctrl's is `.draft_start`, and Shift's extends a selection.
   taken while the amendment is open (`input_approval_runtime.zig:79-88`); at a
   choice neither `.home` nor a move is a case (`:128`).
 - **The full transcript** names neither (`keyForAction`,
-  `input_full_transcript_runtime.zig:156-176`), so both reach the composer;
+  `input_full_transcript_runtime.zig:156-177`), so both reach the composer;
   **the compact menus** return on both (`app_input_runtime.zig:2259-2263`).
 - No other reader: the `git grep` at the end of `fx-src.txt` finds `.home`
   and `.end` read only by the decoder, `fromEscapeAction`, the composer's
@@ -73,10 +75,14 @@ everywhere; Ctrl's is `.draft_start`, and Shift's extends a selection.
 ## What xfx does now (`git diff afd891af e90b1bba -- src`)
 
 - `csi`'s tilde arm reads `7` as Home and `8` as End beside `1` and `4`.
-- `modified_tilde` reads `1`/`7` with any modifier as `cursor(b'H', mods)`
-  and `4`/`8` as `cursor(b'F', mods)`: the key `CSI 1 ; <mod> H`/`F` already
-  is, which is Home or End whatever is held. Going through `cursor` keeps the
-  two spellings one reading: a later change to the `H`/`F` rows moves both.
+- `modified_tilde` reads `1`/`7` with any modifier field from `2` to `256` as
+  `cursor(b'H', mods)` and `4`/`8` as `cursor(b'F', mods)`: Home or End
+  whatever is held, as `cursor`'s `H` and `F` rows read it. (Round 2: this is
+  not "the key `CSI 1 ; <mod> H` is" -- `CSI 1 ; 1 H` is Home and `CSI 1 ; 1 ~`
+  nothing, `CSI 1 ; 17 H` nothing and `CSI 1 ; 17 ~` Home, `modifier` taking
+  `1..=16` and `key_modifiers` `1..=256` -- and the two spellings are not one
+  reading in fx either: under Super its `H`/`F` go to the draft's edge,
+  `escape_parser.zig:79-80`, and its tilde to the line's, `:701`.)
 - No new action, and no surface changes: the decoder now emits the
   `Action::Home`/`Action::End` every surface already handles (the composer's
   `act`, a question's field, the approval's draft, the menus' bound keys in
@@ -96,11 +102,21 @@ everywhere; Ctrl's is `.draft_start`, and Shift's extends a selection.
    (COMPOSER-SELECTION-EXTEND); the cursor-table sentence now names the tilde
    spellings.
 3. **The modifier field `1` (also empty or `0`) is no key here**, as for
-   Delete and the page keys, where fx reads the bare key (`:698`, `:712-718`).
-   The decoder's one-spelling rule (`modified_tilde`'s doc) is kept; it is
-   pinned by `a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one`
+   Delete and the page keys, where fx reads the bare key (`:696`, `:698`,
+   `:712-718`). The refusal is xfx's own, not borrowed from fx (fx refuses
+   `CSI 1 ; 1 Z`, `:723`, but not the tilde keys), and the same decoder reads
+   `CSI 1 ; 1 H` as Home; it is kept so the six tilde codes follow one rule
+   until TILDE-EMPTY-MODIFIER. It is pinned by
+   `a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one`
    (`CSI 1 ; 1 ~`) and by every modified test's `; 1` case, and mutant M7
-   (fx's reading) is killed by them.
+   (fx's reading of `; 1`) is killed by them.
+4. **Delete with Caps Lock or Num Lock alone** (`CSI 3 ; 65 ~`, `; 129 ~`,
+   `; 193 ~`) is Delete here and nothing in fx, which hands
+   `forwardDeleteKeyAction` the raw modifiers (`:694-698`, `:176-180`).
+   Older than this unit (round 2 found it; the parity row said "not looser
+   anywhere"); recorded, pinned by
+   `delete_with_a_lock_bit_alone_is_delete_here_and_nothing_upstream`, owner
+   TILDE-EMPTY-MODIFIER. No behaviour change here.
 
 ## Other tilde spellings fx accepts that xfx's decoder lacks
 
@@ -109,9 +125,10 @@ fx's `~` finals are the three stages above (`:620-635`, `:694-719`) and
 
 | spelling | fx | xfx | scope |
 |---|---|---|---|
-| `CSI 3`/`5`/`6 ; 1 ~` (and `; ~`, `; 0 ~`) | Delete, Page Up, Page Down (`:698`, `:715-716`) | nothing | not Home/End: the `; 1` rule above; a queue unit only if fx's reading is wanted (drop `modified_tilde`'s `mask == 0` guard, which is mutant M7) -- proposed TILDE-EMPTY-MODIFIER |
+| `CSI 3`/`5`/`6 ; 1 ~` (and `; ~`, `; 0 ~`) | Delete, Page Up, Page Down (`:698`, `:715-716`) | nothing | not Home/End: the `; 1` rule above; TILDE-EMPTY-MODIFIER (proposed), if fx's reading is wanted. Taking out `modified_tilde`'s `mask == 0` guard (mutant M7) gives fx's reading for `; 1` only: an empty field and `0` stop at `key_modifiers`/`decimal` first, which that unit would change too |
 | a code with a leading zero (`CSI 07 ~`, `CSI 03 ; 5 ~`) | the number (`:600-602`) | nothing | recorded already ("one canonical decimal spelling per field"); this unit adds `07~`, `08~`, `8;05~` to the pinned shapes |
-| a modifier past 256 (`CSI 1 ; 300 ~`) | a move (the field is a `u16`, `:696`, `:699`) | nothing (`key_modifiers`, `1..=256`) | the same grammar rule; no terminal sends one |
+| a modifier past 256 (`CSI 1 ; 300 ~`) | a move (the field is a `u16`, `:696`, `:699`) | nothing (`key_modifiers`, `1..=256`) | the same grammar rule, now in `docs/parity.md` too (round 2); no terminal sends one |
+| Delete with a lock bit alone (`CSI 3 ; 65 ~`) | nothing (`:694-698`, `:176-180`) | Delete | the one place xfx is looser; kept 4 above |
 | `CSI <a> ; <m> ; <k> ~` with `a` not `27` | the key `k` (`:746-752`; the first field is overwritten) | nothing | recorded in `tilde_report`'s doc already |
 | behind a meta prefix (`ESC ESC [ 7 ~`) | the same key: `ESC ESC` sets the meta bit (`:552-553`) and neither tilde stage reads it (`:620-635`, `:694-719`) | Escape, then Home | META-PREFIX-DECODE's (proposed by APPROVAL-HORIZONTAL-KEYS) |
 | `CSI 2 ~` (Insert) | nothing (`:634`) | nothing | -- |
@@ -158,8 +175,13 @@ suite lock. **8 of 8 killed**, the clone's tree clean after the run:
 | M4 `CSI 4 ; <m> ~` is not End | `end_with_a_modifier_csi_4_mod_tilde_is_end` |
 | M5 `CSI 7 ; <m> ~` is not Home | `rxvts_home_with_a_modifier_csi_7_mod_tilde_is_home` |
 | M6 `CSI 8 ; <m> ~` is not End | `rxvts_end_with_a_modifier_csi_8_mod_tilde_is_end`, the shell test |
-| M7 the modifier field `1` is the bare key (fx's reading) | the strict-shapes test, `ctrl_o_and_the_page_keys_…`, the modified tests' `; 1` cases |
+| M7 the modifier field `1` is the bare key (fx's reading of `; 1`; empty and `0` stay refused) | the strict-shapes test, `ctrl_o_and_the_page_keys_…`, the modified tests' `; 1` cases |
 | M8 Home and End swapped under a modifier | the four modified tests |
+| M9 (round 2) Home and End only for the fields `2..=16`, the `H`/`F` table's range | the new loop and three modified tests (the sample's 17 and 65); the list is cut at four |
+| M10 (round 2) Home and End only for the fields `2..=255` (256 dropped) | `every_modifier_field_from_2_to_256_on_the_tilde_home_and_end_is_the_key` alone: no sample names 256 |
+| M11 (round 2) Delete with a lock bit alone is nothing (fx's reading) | `delete_with_a_lock_bit_alone_is_delete_here_and_nothing_upstream` |
+
+**Round 2, at `cd18efdf`: 11 of 11 killed** on a fresh clone, the clone's tree clean after the run (`mutants.txt`'s first block); M1-M8 again, with the new loop among the killers of M3-M6. M10 is the range mutant only the loop kills.
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
 
@@ -194,6 +216,11 @@ The brief's gate, once, under the suite lock with a short `TMPDIR`, at
 | `cargo test --locked --no-fail-fast` | 5692 passed, 0 failed, 7 ignored (15 result lines) |
 | `cargo test --locked --features fault-injection --no-fail-fast` | 5729 passed, 0 failed, 7 ignored (15 result lines) |
 | `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | exit 0 each |
+
+**Round 2, at `cd18efdf`** (`gate.txt`'s first block): every step exits 0
+again: test 5694 passed, 0 failed, and test-fi 5731 passed, 0 failed, 7
+ignored each -- round 1's 5692 and 5729 plus the two new tests
+(`git diff 56a69778 cd18efdf -- src` adds two `#[test]`s and removes none).
 
 `git diff afd891af e90b1bba -- src` adds seven `#[test]`s and removes none
 (the six decoder tests and the shell test). `green.txt` lists the unit's

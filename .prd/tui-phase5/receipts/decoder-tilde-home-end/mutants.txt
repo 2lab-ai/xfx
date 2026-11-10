@@ -1,3 +1,20 @@
+# Round 2: mutants.py (M1-M11) on a fresh git clone --no-local of the branch at cd18efdf (its remote removed), under <tmp>/mut/,
+# one at a time, the file restored after each, under the suite lock; per mutant: cargo test --locked --lib -- tui::input::tests rxvts (900 s cap).
+# Kill lists name at most four tests (mutants.py keeps failed[:4]).
+M1 CSI 7 ~ is not Home (the base's reading): KILLED (37s) tui::input::tests::rxvts_home_csi_7_tilde_is_home, tui::shell::tests::rxvts_csi_7_tilde_reaches_the_composer_as_home_and_csi_8_as_end
+M2 CSI 8 ~ is not End: KILLED (6s) tui::input::tests::rxvts_end_csi_8_tilde_is_end, tui::shell::tests::rxvts_csi_7_tilde_reaches_the_composer_as_home_and_csi_8_as_end
+M3 CSI 1 ; <mod> ~ is not Home: KILLED (6s) tui::input::tests::every_modifier_field_from_2_to_256_on_the_tilde_home_and_end_is_the_key, tui::input::tests::home_with_a_modifier_csi_1_mod_tilde_is_home, tui::shell::tests::rxvts_csi_7_tilde_reaches_the_composer_as_home_and_csi_8_as_end
+M4 CSI 4 ; <mod> ~ is not End: KILLED (6s) tui::input::tests::end_with_a_modifier_csi_4_mod_tilde_is_end, tui::input::tests::every_modifier_field_from_2_to_256_on_the_tilde_home_and_end_is_the_key
+M5 CSI 7 ; <mod> ~ is not Home: KILLED (6s) tui::input::tests::rxvts_home_with_a_modifier_csi_7_mod_tilde_is_home, tui::input::tests::every_modifier_field_from_2_to_256_on_the_tilde_home_and_end_is_the_key
+M6 CSI 8 ; <mod> ~ is not End: KILLED (8s) tui::input::tests::rxvts_end_with_a_modifier_csi_8_mod_tilde_is_end, tui::input::tests::every_modifier_field_from_2_to_256_on_the_tilde_home_and_end_is_the_key, tui::shell::tests::rxvts_csi_7_tilde_reaches_the_composer_as_home_and_csi_8_as_end
+M7 a modifier field of 1 is the bare key (fx's reading): KILLED (10s) tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one, tui::input::tests::ctrl_o_and_the_page_keys_are_the_full_transcripts_in_every_spelling_upstream_reads, tui::input::tests::end_with_a_modifier_csi_4_mod_tilde_is_end, tui::input::tests::every_modifier_field_from_2_to_256_on_the_tilde_home_and_end_is_the_key
+M8 Home and End swapped under a modifier: KILLED (8s) tui::input::tests::rxvts_home_with_a_modifier_csi_7_mod_tilde_is_home, tui::input::tests::rxvts_end_with_a_modifier_csi_8_mod_tilde_is_end, tui::input::tests::home_with_a_modifier_csi_1_mod_tilde_is_home, tui::input::tests::every_modifier_field_from_2_to_256_on_the_tilde_home_and_end_is_the_key
+M9 Home and End only for the fields 2..=16 (the H/F table's range): KILLED (6s) tui::input::tests::end_with_a_modifier_csi_4_mod_tilde_is_end, tui::input::tests::rxvts_home_with_a_modifier_csi_7_mod_tilde_is_home, tui::input::tests::rxvts_end_with_a_modifier_csi_8_mod_tilde_is_end, tui::input::tests::every_modifier_field_from_2_to_256_on_the_tilde_home_and_end_is_the_key
+M10 Home and End only for the fields 2..=255 (256 dropped): KILLED (6s) tui::input::tests::every_modifier_field_from_2_to_256_on_the_tilde_home_and_end_is_the_key
+M11 Delete with a lock bit alone is nothing (fx's reading): KILLED (10s) tui::input::tests::delete_with_a_lock_bit_alone_is_delete_here_and_nothing_upstream
+11 of 11 killed; the clone's tree after the run: clean
+
+# Round 1, below, unchanged.
 # mutants.py on a git clone --no-local of fix/p5-decoder-tilde-home-end at e90b1bba (its remote removed), under <tmp>/mut/,
 # one at a time, the file restored after each, under the suite lock; per mutant: cargo test --locked --lib -- tui::input::tests rxvts (900 s cap).
 # Kill lists name at most four tests (mutants.py keeps failed[:4]).

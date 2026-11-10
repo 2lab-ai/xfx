@@ -1,0 +1,14 @@
+# DECODER-TILDE-HOME-END round 2: the reviews of 56a69778 (gpt6 no MUST; opus APPROVE-WITH-FIXES, no MUST), item by item. No behaviour change.
+1 the H/F equality claim (opus SHOULD 1): modified_tilde's doc, docs/parity.md and README.md now say Home or End whatever is held (fields 2..=256), as cursor's H and F rows read it; the coupling claim is gone (fx's Super-H is the draft's edge, its Super-tilde the line's).
+2 the ; 1 refusal's reason (opus SHOULD 2): stated as xfx's own choice, kept so the six tilde codes share one rule until TILDE-EMPTY-MODIFIER; the borrowed CSI 1 ; 1 Z reason is gone; CSI 1 ; 1 H being Home is said.
+3 the follow-up recipe (opus SHOULD 3): taking out the mask == 0 guard gives fx's reading for ; 1 only; an empty field and 0 stop at key_modifiers/decimal first (modified_tilde's doc, README's table, M7's label in README).
+4 lock bits on Delete: CSI 3 ; 65/129/193 ~ is Delete here, nothing in fx; recorded in docs/parity.md (the grammar sentence now says looser in one place), pinned by delete_with_a_lock_bit_alone_is_delete_here_and_nothing_upstream, owner TILDE-EMPTY-MODIFIER; M11 (fx's reading) is killed by that test alone.
+5 NITs: fx_src.sh reads input_full_transcript_runtime.zig to :177 and Delete's escape_parser.zig:175-180; the test helper says a shape, not the one shape. docs/parity.md also names a field past 256 (opus section 1).
+6 the exhaustive loop (gpt6 SHOULD 1): every_modifier_field_from_2_to_256_on_the_tilde_home_and_end_is_the_key walks 2..=256 on 1, 4, 7 and 8; 1 and 257 are Ignore on either side (257 refused by key_modifiers); the named sample table is kept. M9 (2..=16) and M10 (2..=255) are killed by it, M10 by it alone.
+
+## checks at cd18efdf
+$ { git diff afd891af -- src tests scripts/fxcap/scenarios | grep '^+'; git diff --word-diff=porcelain afd891af -- docs/parity.md | grep '^+'; } | fx_src.sh <fx checkout>
+84 citations checked, 0 outside fx-src.txt's ranges
+$ python3 -I refs.py afd891af | tail -1
+refs: 16 checked, 0 wrong, 0 without an expected text
+gate: gate.txt's first block (every step exit 0; test 5694/0, test-fi 5731/0); mutants: mutants.txt's first block (11 of 11).
