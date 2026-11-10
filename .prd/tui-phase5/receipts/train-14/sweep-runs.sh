@@ -8,7 +8,7 @@
 # xfx snaps show (banners.py), and each base sweep rescored with the head's
 # ledger (rescore.sh: sweep.sh --rescore on a copy, ref-base and ref-base-u):
 # the pass line before and after, and the verdicts the rescore moved, pair by
-# pair.
+# pair; then the product version each tree builds (its Cargo.toml).
 # usage: sweep-runs.sh <scratch> <head-rev7> <base-rev7> <head-clone>
 set -u
 T=$1 head=$2 base=$3 hclone=$4
@@ -38,5 +38,9 @@ a, b = ({(p["scenario"], p["label"]): p["verdict"] for p in json.load(open(f))} 
 moved = sorted(k for k in a if a[k] != b.get(k))
 print(f"pair by pair: {len(a)} pairs before, {len(b)} after; verdicts moved by the rescore: {len(moved)}" + "".join(f"\n    {k[0]} {k[1]}: {a[k]} -> {b.get(k)}" for k in moved))
 PY2
+  done
+  echo; echo "## the product version each tree builds (Cargo.toml), the units' tips with the two swept"
+  for c in "$base" "$head" 4130f4ac e7e1bcf6 3ea16930 bde1ddfa; do
+    echo "$c $(git -C "$hclone" show "$c:Cargo.toml" | grep -m1 '^version')"
   done
 } | python3 -I -B "$here/redacted.py" "$here/sweep-runs.txt" "$T=<scratch>"
