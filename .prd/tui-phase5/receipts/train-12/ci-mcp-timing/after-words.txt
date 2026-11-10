@@ -1,4 +1,4 @@
-list                   runs 10  fx {'-': 10}                          xfx {'connecting': 10}                 same word  0  pass 10
+list                   runs 10  fx {'connecting': 10}                 xfx {'connecting': 10}                 same word 10  pass 10
 list-filter            runs 10  fx {'connecting': 10}                 xfx {'connecting': 10}                 same word 10  pass 10
 list-unfilter          runs 10  fx {'connecting': 10}                 xfx {'connecting': 10}                 same word 10  pass 10
 back-list              runs 10  fx {'connecting': 10}                 xfx {'connecting': 10}                 same word 10  pass 10
@@ -7,10 +7,9 @@ left-back              runs 10  fx {'connecting': 10}                 xfx {'conn
 list-proj              runs 10  fx {'connecting': 10}                 xfx {'connecting': 10}                 same word 10  pass 10
 list-after-approve     runs 10  fx {'connecting': 10}                 xfx {'connecting': 10}                 same word 10  pass 10
 reopened               runs 10  fx {'connecting': 10}                 xfx {'connecting': 10}                 same word 10  pass 10
-rejected               runs 10  fx {'-': 10}                          xfx {'connecting': 10}                 same word  0  pass 10
 list-rejected          runs 10  fx {'connecting': 10}                 xfx {'connecting': 10}                 same word 10  pass 10
 
-list                   base-1:-/conn  base-2:-/conn  base-3:-/conn  base-4:-/conn  base-5:-/conn  head-1:-/conn  head-2:-/conn  head-3:-/conn  head-4:-/conn  head-5:-/conn
+list                   base-1:conn/conn  base-2:conn/conn  base-3:conn/conn  base-4:conn/conn  base-5:conn/conn  head-1:conn/conn  head-2:conn/conn  head-3:conn/conn  head-4:conn/conn  head-5:conn/conn
 list-filter            base-1:conn/conn  base-2:conn/conn  base-3:conn/conn  base-4:conn/conn  base-5:conn/conn  head-1:conn/conn  head-2:conn/conn  head-3:conn/conn  head-4:conn/conn  head-5:conn/conn
 list-unfilter          base-1:conn/conn  base-2:conn/conn  base-3:conn/conn  base-4:conn/conn  base-5:conn/conn  head-1:conn/conn  head-2:conn/conn  head-3:conn/conn  head-4:conn/conn  head-5:conn/conn
 back-list              base-1:conn/conn  base-2:conn/conn  base-3:conn/conn  base-4:conn/conn  base-5:conn/conn  head-1:conn/conn  head-2:conn/conn  head-3:conn/conn  head-4:conn/conn  head-5:conn/conn
@@ -19,5 +18,6 @@ left-back              base-1:conn/conn  base-2:conn/conn  base-3:conn/conn  bas
 list-proj              base-1:conn/conn  base-2:conn/conn  base-3:conn/conn  base-4:conn/conn  base-5:conn/conn  head-1:conn/conn  head-2:conn/conn  head-3:conn/conn  head-4:conn/conn  head-5:conn/conn
 list-after-approve     base-1:conn/conn  base-2:conn/conn  base-3:conn/conn  base-4:conn/conn  base-5:conn/conn  head-1:conn/conn  head-2:conn/conn  head-3:conn/conn  head-4:conn/conn  head-5:conn/conn
 reopened               base-1:conn/conn  base-2:conn/conn  base-3:conn/conn  base-4:conn/conn  base-5:conn/conn  head-1:conn/conn  head-2:conn/conn  head-3:conn/conn  head-4:conn/conn  head-5:conn/conn
-rejected               base-1:-/conn  base-2:-/conn  base-3:-/conn  base-4:-/conn  base-5:-/conn  head-1:-/conn  head-2:-/conn  head-3:-/conn  head-4:-/conn  head-5:-/conn
 list-rejected          base-1:conn/conn  base-2:conn/conn  base-3:conn/conn  base-4:conn/conn  base-5:conn/conn  head-1:conn/conn  head-2:conn/conn  head-3:conn/conn  head-4:conn/conn  head-5:conn/conn
+
+snaps whose .txt and .ansi hold different words: 0

@@ -2,7 +2,8 @@
 # One scenario swept N times on each of two xfx builds, with this checkout's
 # harness, scenarios and ledger (as ci-sweep runs both builds), fx v0.0.16,
 # `--jobs 2`, at the TMPDIR it is given. The oracle's sha256 is read before
-# and after every sweep. Each sweep's out directory is kept for rows.py.
+# and after every sweep. Each sweep's out directory is kept for the readers:
+# verdicts.py, words.py, timeline.py, scan.py, content_diff.py, verbs_rows.py.
 # usage: repeat.sh <repo> <fx v0.0.16> <head xfx> <base xfx> <tmpdir> <--tmp dir> <out> <runs> <scenario>...
 # SCENARIOS_DIR, when set, is the scenario directory instead of the repo's
 # (a scratch copy with a change under trial); the ledger is the repo's.

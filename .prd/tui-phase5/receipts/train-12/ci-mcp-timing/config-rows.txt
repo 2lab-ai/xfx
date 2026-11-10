@@ -1,0 +1,20 @@
+== head-1
+added.full      normalized-identical unmatched  0: with the word 0, without  0; first row -:
+    fx  ''
+    xfx ''
+list            unresolved-defect  unmatched  3: with the word 0, without  3; first row 11:
+    fx  '* mcp: NAME   SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME   SOURCE           TRANSPORT  STATUS'
+removed.full    unresolved-defect  unmatched  3: with the word 0, without  3; first row 11:
+    fx  '* mcp: NAME   SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME   SOURCE           TRANSPORT  STATUS'
+== base-1
+added.full      normalized-identical unmatched  0: with the word 0, without  0; first row -:
+    fx  ''
+    xfx ''
+list            unresolved-defect  unmatched  3: with the word 0, without  3; first row 11:
+    fx  '* mcp: NAME   SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME   SOURCE           TRANSPORT  STATUS'
+removed.full    unresolved-defect  unmatched  3: with the word 0, without  3; first row 11:
+    fx  '* mcp: NAME   SOURCE          TRANSPORT  STATUS'
+    xfx '* mcp: NAME   SOURCE           TRANSPORT  STATUS'
