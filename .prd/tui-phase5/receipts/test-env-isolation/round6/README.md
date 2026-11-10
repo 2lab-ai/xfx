@@ -125,3 +125,75 @@ builds fresh and writes none again), refused as built with no dep-info,
 moving the `TurnJournal` `compile_fail` example into the fixture crate would
 need xfx as the fixture's dependency, a full extra build of xfx per
 self-test -- not cheap, so not done.
+
+## RED: each hole, at `0877f461` and at `3b6cac51`
+
+`red.txt` (`red.py`, on the clone; each hole planted, then that revision's
+own gates):
+
+| hole | at `0877f461` | at `3b6cac51` |
+|---|---|---|
+| MUST 1: a `HOME` read and a `git` command under `cfg(all(test, not(clippy)))` in a unit test | clippy passes, check passes | check refuses: "a cfg predicate that names clippy" (clippy still passes: it never compiles the code) |
+| MUST 2: `libc::syscall` in a unit test | passes, passes | both refuse: `libc::syscall` |
+| MUST 2: `libc::execvP` in a unit test (macOS) | passes, passes | both refuse: `libc::execvP` |
+| MUST 3: an `env!` nested in `concat!`, its dep-info then removed (32-34 `.d` files) | refused with its dep-info; with it gone, **passes** | refused with it; with it gone, refused: "built with no dep-info" (lib, bin) |
+| SHOULD: the home from `getpwuid` in a unit test | passes, passes | both refuse: `libc::getpwuid` |
+| SHOULD: a relative `TMPDIR` | the copy made its home under it and **ran the case** | refused: "TMPDIR is not an absolute path"; no case, nothing made |
+
+Not a hole at `0877f461`: `mod support;` compiled in every build but
+release with all features was already refused there, by the clippy
+release pass's isolation inference; round 6 adds the same refusal from
+the `--release --all-features` test binary itself (its row in `red.txt`).
+
+## GREEN under the sentinel environment, and the enumeration
+
+On the `--no-local` clone at `3b6cac51`, under `../sentinel-run.sh`:
+
+- `green-lib.txt`: the lib suite, 4638 passed, 0 failed, 7 ignored; no
+  sentinel value in the output.
+- `integration-green.txt`: all 13 integration suites, 0 failed -- cli 82,
+  gateway 93, interactive 79, isolation 3 (and its ignored marking case),
+  ledger_compat 5, llmux 103, mcp 5, parity 26, permissions 159,
+  session_compat 9, sessions 65, tool_loop 109, tui 186.
+- `integration-reads.txt` (round 4's script): 17,261 reads -- 15,354 by the
+  `xfx` binary the suites start, 1,829 in clean copies, 78 in the
+  processes the developer started (the constructor's six per binary), **0
+  of them through `process_env!`**. As before, the instrumented run alone
+  shows one interactive and eight tui failures that the uninstrumented runs
+  above do not.
+
+## Mutants
+
+`mutants.txt` (`mutants-r6.py`, on the clone at `3b6cac51`): **58, 58
+killed, 0 runs with a sentinel value in their output**; each of the four
+narrowings of the check passes on the unmutated head first.
+
+- Round 5's 47, at round 6's text (`exact-path-gone` re-anchored to
+  `home_for(marker)?`, `no-dep-info` to the `# env-dep:` line).
+- Round 6's: `cfg-not-clippy` and `cfg-attr-clippy` (plants, refused by the
+  cfg check), `cfg-check-gone` (the self-test's cfg fixtures no longer
+  refused); `syscall-plant`, `config-loses-syscall`; `missing-dep-info-passes`
+  (a missing `.d` is an empty set again: the `built` crate's runs after
+  the dep-info is gone are no longer refused) and `lib-strip-everywhere`
+  (`lib` stripped from an executable's name: killed by the self-test's
+  dep-info resolution, whose verdict line "NOT RESOLVED" the harness does
+  not quote -- resolved by hand: the mutant maps `library-<hash>` to
+  `rary-<hash>.d`); `user-database`; `second-feature` (a second feature
+  in `Cargo.toml`: refused by the matrix check);
+  `release-all-features-escape` (refused by the `--release --all-features`
+  test binary, the check narrowed to that build); `relative-tmpdir` (the
+  isolation suite fails).
+- `inherits` (`mutants.txt:47` in round 5) is now recorded with what
+  refused it: "no result; refused: the environment holds 7 name(s) the copy
+  is not given".
+
+## Gate
+
+`gates.txt` (`../gates.sh` under the lock, on the clone at `3b6cac51`):
+fmt, both clippy runs, both test runs (lib 4638; every integration suite),
+identity, stubs, secrets, `check-env-reads.py` (39 invocations in 26
+files, 12 `process_env!` call sites, 14 plain calls, 70 compile-time reads
+of 6 names, 52 test binaries started) and its self-test (44 fixtures, 0
+not as expected): every step exit 0. No release build was compared this
+round: nothing outside `tests/`, the script and comments changed in code
+a build compiles (`src/lib.rs`'s change is a doc comment).
