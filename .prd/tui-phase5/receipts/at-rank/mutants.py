@@ -26,6 +26,8 @@ FI = "src/tui/file_index.rs"
 GAP_LINE = "            total += SCORE_MATCH + bonus + GAP_START + (gap - 1) * GAP_EXTENSION;\n"
 SHIFT = "                    let shifted = value + s.columns[next_gap] as i32;\n"
 DP_GAP = "                let score = gap - j as i32 - 1 + SCORE_MATCH + bonus;\n"
+DIAG = '            if diag < prev.end && s.columns[diag] + 1 == j {\n                for (from, run) in RUN_BONUS.into_iter().enumerate() {\n                    let (value, start) = (s.scores[diag * 4 + from], s.starts[diag * 4 + from]);\n                    if value != INVALID {\n                        let (step, run) = consecutive_bonus(bonus, run);\n                        s.offer(\n                            cell + run_slot(run),\n                            value + SCORE_MATCH + step,\n                            start,\n                            diag,\n                            from,\n                        );\n                    }\n                }\n            }\n'
+GAP = '            if gap != INVALID {\n                // A gap of `j - p - 1`: `GAP_START`, then `GAP_EXTENSION`\n                // for each position past its first (`:1676-1685`).\n                let score = gap - j as i32 - 1 + SCORE_MATCH + bonus;\n                s.offer(\n                    cell + run_slot(bonus),\n                    score,\n                    gap_start,\n                    gap_entry,\n                    gap_slot,\n                );\n            }\n'
 
 
 def edits(*pairs):
@@ -87,6 +89,15 @@ MUTANTS = [
     ("cells-4095", edits(("const MOST_ALIGN_CELLS: usize = 4096;\n", "const MOST_ALIGN_CELLS: usize = 4095;\n"))),
     ("cells-4097", edits(("const MOST_ALIGN_CELLS: usize = 4096;\n", "const MOST_ALIGN_CELLS: usize = 4097;\n"))),
     ("greedy-fallback-gone", edits(("const MOST_ALIGN_CELLS: usize = 4096;\n", "const MOST_ALIGN_CELLS: usize = usize::MAX;\n"))),
+    # round 3 (AT-RANK r2): the repeated search for the bold letters, and the
+    # order the dynamic program keeps among equal candidates
+    ("spans-no-rerun", edits(
+        ("    if align_best(\n        &s.text,\n        path.as_bytes(),\n        &s.offsets,\n        range_start,\n",
+         "    if false && align_best(\n        &s.text,\n        path.as_bytes(),\n        &s.offsets,\n        range_start,\n"))),
+    ("dp-gap-before-diagonal", edits((DIAG + GAP, GAP + DIAG))),
+    ("final-pick-ge", edits(
+        ("        if value != INVALID && better_candidate(value, start, best, best_start) {\n",
+         "        if value != INVALID && (value > best || (value == best && start <= best_start)) {\n"))),
 ]
 
 

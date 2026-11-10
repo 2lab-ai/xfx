@@ -19,10 +19,13 @@ unit, AT-RANK-PERF (§5).
 | `bdee36f2`, `ab13a5df` | receipt files; fx citations in `src/tui/file_index.rs` corrected (comments only) |
 | `a5b1cb59` | `docs/parity.md` (the `@` row); the ledger's `at-ranking` cause closed; refs (§8) |
 | `dad8caa1` | tests that pin what fx's own cases leave free: the camel and punctuation bonuses, the 4096-cell budget, 32 rows written as a number (§6). **The build the sweep (§7) and the first gate run come from.** |
-| `e2cba14b` | a test for `workspace-index` `at-plan`'s folder row, and its ledger cause (§7). **The last commit that changes code, a test or the ledger, and the second gate run's head (§9).** |
-| (receipt) | this README, `gate.txt`, the mutant and sweep files; in `src/`, one comment of `e2cba14b`'s test (two model-only scores taken out) |
+| `e2cba14b` | a test for `workspace-index` `at-plan`'s folder row, and its ledger cause (§7). **The second gate run's head (§9).** |
+| `3958fb03`, `1f1962ad` | round 1's receipt; in `src/`, one test comment (two model-only scores taken out) |
+| `e7661322` | **round 2** (the reviews): pins for the bold letters' repeated search, for ties, for the first letter; `is_subsequence` deleted; comments; the benchmark fails without its tree; `at-plan-run-directory` narrowed (§6-§8). **The mutants' clone (§6).** |
+| (receipt r2) | this README, `at-plan-sweep/`, the re-scored sweep files, round 3's mutants, the third gate run (§9) |
 
-**Size** (`size.sh`, `size.txt`): +518 −145 outside the tests, net +373.
+**Size** (`size.sh`, `size.txt`, at `e7661322`): +525 −154 outside the tests,
+net +371.
 That is past the brief's "about 300". The dispatcher decided to keep it as
 one unit: the score, the placement, the order and the bold letters are one
 fx rule.
@@ -53,12 +56,15 @@ scenario header (`fxcites.txt`).
 - **Which placement ranks the path** (`choosePlacement`, `:1776-1819`): the
   best one inside the name, plus 4 (`name_bonus`, `:1722-1727`), against a
   better one that starts in the name's own folder and runs into the name.
-  Failing both, the best one anywhere, which ends in a folder.
+  Failing both, the best one anywhere, ranked in the folder tier below
+  every name match -- whether or not it happens to end in the name, as
+  `abcd` does in `ab/x/cd.ts` (`file_index.zig:2586-2597`).
 - **Order** (`scoreBetter`, `:1884-1890`; `rankedCandidateBetter`,
   `:1892-1899`):
   1. an exact match: the path, the name, or the name before a dot
      (`exactFit`, `:1753-1758`);
-  2. a placement that ends in the name;
+  2. the name tier: a placement inside the name, or from its own folder
+     into it;
   3. the higher score;
   4. the earlier start;
   5. the shorter path;
@@ -79,11 +85,19 @@ scenario header (`fxcites.txt`).
 
 `Score` holds fx's four tiers. `score_alignment`, `align_best`,
 `choose_placement`, the exact rule and `spans` are fx's functions.
-`align_best` keeps fx's transition order, so ties of equal score land on
-the same letters.
+`align_best` keeps fx's transition order -- the diagonal before the gap,
+the last row read first to last, each strict -- so placements equal in
+score and start are bold on the same letters, and two cases pin it
+(`of_two_placements_as_good_and_as_early_the_dynamic_programs_order_picks_the_bold_letters`, §6).
 
-Each search uses one `Scratch`, so nothing is allocated per path. A
-one-pass subsequence check runs before any scoring.
+Each search reuses one `Scratch`, a grow-on-demand workspace: its vectors
+grow to the longest path and the largest table seen and are not freed
+between paths. It is not allocation-free: each row found allocates its
+bold letters' offsets, and the list of matches reserves room for every
+entry (fx keeps a bounded top 64). A one-pass subsequence check (`holds`)
+runs before any scoring and stands for fx's `isSubsequence` in
+`choosePlacement` (`file_index.zig:1804`), which is why xfx has no second
+check there.
 
 Not copied: fx's pruning (`Needed`, `length_limit`) and its a–z bitmap
 (`rankTopN`, `file_index.zig:1344-1373`). fx's tests show that they change
@@ -100,7 +114,7 @@ no result (`file_index.zig:2775-2827`). They are AT-RANK-PERF's (§5).
   equivalence check (over 600,000 placements), the cell-budget case, the
   score tiers and fx's many-row cases.
 - **Later commits:** `dad8caa1` and `e2cba14b` add three more cases, 48 in
-  all (§6, §7).
+  all (§6, §7); round 2's `e7661322` three more, 51.
 - One base test pinned c1db919's order for `main.rs`. It now pins fx's
   order (`main-rs` in §4).
 
@@ -141,11 +155,29 @@ Release build, run alone under the suite lock, on a shared 18-core machine.
   the tail: run 2's p50 is 1.7 times run 1's.
 - **The slow keys** are the low-selectivity ones (`ae`, `ashr`, `scwfi`).
   fx's pruning cuts exactly those.
-- **The benchmark is `#[ignore]`d**, so no gate runs it today. AT-RANK-PERF
-  copies fx's pruning (`rankTopN`, `file_index.zig:1344-1373`) and makes
-  the benchmark a gate. It is that unit's RED (`bench-head.txt`).
+- **The benchmark is `#[ignore]`d**, so no gate runs it today, and since
+  `e7661322` it fails rather than passes when `XFX_AT_BENCH_TREE` is unset.
+  AT-RANK-PERF makes it a gate. It is that unit's RED (`bench-head.txt`).
+- **AT-RANK-PERF's scope** (`src/tui/file_index.rs` at `e7661322`):
+  - **(a) fx's pruning:** `Needed`, `length_limit` and the a–z bitmap
+    (`rankTopN`, `file_index.zig:1344-1373`), with a bounded top set.
+  - **(b) work fx does once, at index time:** fx stores each path's
+    lower-cased bytes, name start and a–z mask as the index is built
+    (`fillProgressive`, `file_index.zig:209`, `:216-220`, `:222`). xfx
+    redoes it for every path on every keystroke: `holds` folds every
+    scalar (`file_index.rs:1011-1015`), `Scratch::load` folds again into
+    two vectors (`file_index.rs:715-723`), and `loaded` finds the name's start
+    (`file_index.rs:1023-1030`). The no-match query's floor, 2.9-5.0 ms
+    (`bench-head.txt`), is about this cost alone.
+  - **(c) a narrower scratch:** `Align`'s tables are `usize`
+    (`file_index.rs:700-712`) where fx's are u16 and u8
+    (`AlignScratch`, `file_index.zig:1427-1438`); and every table call
+    clears and refills `starts`, `pred_entries` and `pred_slots`
+    (`file_index.rs:834-839`), which are written before they are read,
+    where fx resets only the score slots of a cell it visits
+    (`file_index.zig:1634`).
 
-## 6. Mutants (`mutants.py`, `mutants-r1.txt`, `mutants-r2.txt`, `equivalent-mutants.txt`)
+## 6. Mutants (`mutants.py`, `mutants-r1.txt`, `mutants-r2.txt`, `mutants-r3.txt`, `equivalent-mutants.txt`)
 
 Each mutant runs on a `git clone --no-local` throwaway with `cargo test
 --locked --lib -- tui::file_index tui::file_picker tui::shell`, a short
@@ -153,40 +185,42 @@ TMPDIR, each round in one hold of the suite lock, 900 s each. None failed
 to build; the clone was clean after.
 
 - **Round 1** (`ab13a5df`, the fix's tests): 24 run, 17 killed.
-- **Round 2** (`dad8caa1`, its seven survivors, after `dad8caa1` added
-  cases for what fx's own tests leave free): 6 killed.
-- **Total: 24 mutants, 23 killed, 1 equivalent.**
+- **Round 2** (`dad8caa1`, round 1's seven survivors): 6 killed.
+- **Round 3** (`e7661322`, every mutant, round 2's review adding three):
+  **27 run, 26 killed, 1 equivalent** (`mutants-r3.txt`). This is the
+  head's result; rounds 1 and 2 are kept as the history of the pins.
 
-"Killed by" summarises; the logs list every killer.
+"Killed by" is round 3's, summarised; the log lists every killer.
 
-| mutant | killed by |
+| mutant | killed by (round 3) |
 |---|---|
 | `per-letter-dropped` (16 → 0) | **survives, equivalent**: every placement of a query has the same number of letters, so the score drops by 16·m everywhere (`equivalent-mutants.txt`) |
-| `first-letter-not-doubled` | `the_p5_at_rank_workspace_ranks_as_fx_shows_it` |
-| `after-slash-bonus-dropped` (9) | name prefix and whole word, a browsed folder, own folder, `main.rs`, `p5-at-rank` |
-| `word-start-bonus-dropped` (8 after space and punctuation) | own folder, name prefix, a browsed folder, the bold letters, word starts, `p5-at-rank` |
-| `camel-digit-bonus-dropped` (7) | r2: `a_camel_start_and_a_matched_punctuation_earn_their_bonuses` (survived r1) |
-| `punctuation-bonus-dropped` (8) | r2: the same case (survived r1) |
-| `run-floor-dropped` (4) | the brute-force equivalence |
-| `gap-cost-dropped`, `gap-extension-dropped` | name prefix, a browsed folder, `p5-at-rank` (and the brute force for the first) |
-| `name-bonus-off` (+4) | own folder, `p5-at-rank` |
+| `first-letter-not-doubled` | `the_first_letters_bonus_counts_twice`, and `p5-at-rank` |
+| `after-slash-bonus-dropped` (9) | own folder, a browsed folder, name prefix and whole word, and more |
+| `word-start-bonus-dropped` (8 after space and punctuation) | a browsed folder, own folder, name prefix and whole word, and more |
+| `camel-digit-bonus-dropped` (7), `punctuation-bonus-dropped` (8) | `a_camel_start_and_a_matched_punctuation_earn_their_bonuses` |
+| `run-floor-dropped` (4) | the brute-force equivalence, and one `tui::shell` case |
+| `gap-cost-dropped`, `gap-extension-dropped` | the folder row bold through the whole path, a browsed folder, name prefix, and more |
+| `name-bonus-off` (+4) | own folder, the bold letters of the name's placement, `p5-at-rank` |
 | `folder-placement-off` | own folder, `main.rs`, `p5-at-rank` |
 | `exact-dot-rule-dropped` | name prefix and whole word, `p5-at-rank` |
 | `exact-reversed`, `name-reversed`, `quality-reversed`, `first-reversed` | the score tiers, the ranking table, `p5-at-rank`, and more |
-| `shorter-path-reversed`, `bytes-reversed` | the ties cases, the ranking table, the listing cases, `p5-at-rank` |
+| `shorter-path-reversed`, `bytes-reversed` | the ties cases, the ranking table, the listing cases, and more |
 | `earlier-start-tie-reversed` (inside the DP) | the brute-force equivalence |
-| `cap-31` | `only_the_best_thirty_two_are_kept` |
-| `cap-33` | r2: the same case, with 32 now written as a number (survived r1) |
-| `cells-4095`, `cells-4097`, `greedy-fallback-gone` | r2: `the_cell_budget_is_four_thousand_and_ninety_six_cells` (survived r1) |
+| `cap-31`, `cap-33` | `only_the_best_thirty_two_are_kept` |
+| `cells-4095`, `cells-4097`, `greedy-fallback-gone` | `the_cell_budget_is_four_thousand_and_ninety_six_cells` |
+| `spans-no-rerun` (the bold letters from whichever search ran last) | `the_bold_letters_are_the_names_placement_when_the_folders_loses` |
+| `dp-gap-before-diagonal` (the gap offered first) | `of_two_placements_as_good_and_as_early_the_dynamic_programs_order_picks_the_bold_letters` |
+| `final-pick-ge` (the last tying cell of the last row) | the same case, and one `tui::shell` case |
 
-## 7. Sweep (`sweeps.sh`; `sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
+## 7. Sweep (`sweeps.sh`; `sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`, `at-plan-sweep/`)
 
 `sweep.sh` compares fx v0.0.16 (sha checked before and after each run)
 against the base (`v0.1.0-cb7c9c1`) and the head (`v0.1.0-dad8caa`).
 Settings: 40x120, `--jobs 2`, `--only 'at*' 'p5-input-at*' 'filepicker*'
 'p5-ctrlo*' 'p5-at-rank' 'workspace-index'` (20 scenarios, 99 pairs).
 Both sweeps ran in one hold of the suite lock. Each was then re-scored
-(`--rescore`) with the ledger as committed. No other scenario types an `@`
+(`--rescore`) with the ledger at `e7661322`. No other scenario types an `@`
 query; `p5-mcp-*` type `@BUN@` and `@SCENARIOS@` as words.
 
 - **Base 64/99 → head 78/99: 14 moved to passing, 0 dropped, 0 other
@@ -200,12 +234,19 @@ query; `p5-mcp-*` type `@BUN@` and `@SCENARIOS@` as words.
     added folder `<tmp>/fxcap.<run>/extra/notes`, which `@plan` matches only
     through its whole path. Its bold letters therefore depend on the run
     directory's random name. fx's run `fxcap.qnVERa` bolded the run name's
-    `n`; xfx's `fxcap.YTZTDF`, which has no `n`, bolded the `n` of `notes`.
-    Each is the best placement in its own path. `e2cba14b` pins xfx's rule
-    on both shapes and adds the ledger cause `at-plan-run-directory` (kind
-    scenario, with a fix).
-- With that cause, the head has **no row that no cause covers**. On the
-  unscored run the row was the only one listed.
+    `n`; xfx's `fxcap.YTZTDF`, which has no `n`, bolded the `n` of `notes`
+    (`at-plan-sweep/bold.txt`, from the two captures there, redacted by
+    `at-plan-sweep/redact.py`; the sweep's own diff line is
+    `at-plan-sweep/at-plan.diff`). Each is the best placement in its own
+    path. `e2cba14b` pins xfx's rule on both shapes and adds the ledger
+    cause `at-plan-run-directory`; `e7661322` narrows it (§8).
+- With that cause, the head has **no row that no cause covers**
+  (`sweep-head.md`). It covers 1 row of 1 snap there and nothing else. On
+  the base sweep it covers the same row (`sweep-base.md`), whose
+  difference there is the old ranking's: a selector of row and text cannot
+  tell the two apart, since both differ only in attributes. The base's
+  other ranking rows are listed as uncaused, as they should be once
+  `at-ranking` is closed.
 
 ## 8. The parity row, the ledger, refs
 
@@ -216,8 +257,11 @@ query; `p5-mcp-*` type `@BUN@` and `@SCENARIOS@` as words.
   difference as unit **CASE-FOLD-SIMPLE, queued**. The receipt list points
   here.
 - **The ledger:** `at-ranking` is closed. A comment in its place says that
-  AT-RANK made its five snaps identical. `at-plan-run-directory` is added
-  (§7).
+  AT-RANK made its five snaps identical. `at-plan-run-directory` (§7)
+  covers row 13 only (`rows = [13]`), both regexes anchored to the whole
+  normalized row (`^  /\S+/fxcap\.XXXXXX/extra/notes/$`), and is owned by
+  **SWEEP-TEMPNAME-STYLE** (queued): capture.sh's run directory under a
+  fixed name, the same for fx's run and xfx's.
 - **Refs:** `refs.py` (CTRLO-AT-KEYS' version, base `cb7c9c18`) checked 17,
   0 wrong (`refs.txt`). No ref names `file_index.rs`.
 
@@ -239,12 +283,12 @@ clippys and the touched modules' 1147 tests at `bdee36f2`.
 
 ## 10. Queue items and open questions
 
-- **AT-RANK-PERF** (§5): fx's pruning, and the 8 ms bar as a gate.
+- **AT-RANK-PERF** (§5): fx's pruning and a bounded top set; the per-path
+  work fx does at index time; a narrower scratch; the 8 ms bar as a gate.
 - **CASE-FOLD-SIMPLE:** xfx folds case with `to_lowercase`; fx uses Unicode
   simple case folding. So `σ` and `ς` match each other in fx and not in
   xfx (`file_index.zig:2909-2944`). fx's test of it is not transcribed
-  here. Not fixed here.
-- **`workspace-index`'s query** (§7): `@plan` reaches the run directory.
-  The cause's fix (`@plan.md`, or a fixed run directory name in capture.sh)
-  belongs to the scenario's owner.
+  here. Not fixed here; `fold`'s comment says so.
+- **SWEEP-TEMPNAME-STYLE** (§7, §8): the run directory's name fixed, so a
+  path through it is placed alike on both sides.
 - No user decision is needed.

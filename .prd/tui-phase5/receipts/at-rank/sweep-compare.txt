@@ -1,4 +1,4 @@
-# python3 -I compare.py <base>/pairs.json <head>/pairs.json, the two sweeps of sweeps.sh (one hold of the suite lock: base 245 s, head 239 s), each re-scored (sweep.sh --rescore) with the ledger at the receipt's head, which adds the cause at-plan-run-directory
+# python3 -I compare.py <base>/pairs.json <head>/pairs.json, the two sweeps of sweeps.sh (one hold of the suite lock: base 245 s, head 239 s), each re-scored (sweep.sh --rescore) with the ledger at e7661322, whose at-plan-run-directory covers row 13 of workspace-index at-plan only
 pairs: base 99, head 99
 base: pass 64/99  approved-divergence 11, normalized-identical 64, unresolved-defect 24
 head: pass 78/99  approved-divergence 11, normalized-identical 78, unresolved-defect 10

@@ -14,9 +14,10 @@ q() { # path first last what
 }
 # What the list holds and how many rows a query keeps
 q src/core/workspace/file_index.zig 1 9 "the module: ranked by its best query placement (alignBest), highlights from the same placement"
-q src/core/workspace/file_index.zig 23 24 "max_indexed_files (100,000), max_path_len"
+q src/core/workspace/file_index.zig 25 26 "max_indexed_files (100,000), max_path_len (2048)"
 q src/core/workspace/file_index.zig 585 645 "searchAtRevision: an empty query is the index's order (601-611); rankTopN keeps min(out, 64) (617); the spans from the ranked placement (621-643)"
 q src/core/workspace/file_index.zig 1086 1105 "appendDiscoveredCandidate: an added root's entries by their absolute paths"
+q src/core/workspace/file_index.zig 177 235 "fillProgressive: each path's lower-cased bytes (209), name start (216-220) and a-z mask (222) stored once, as the index is built"
 q src/core/workspace/file_index.zig 1176 1176 "max_search_results = 64"
 q src/core/input/file_completion_state.zig 7 7 "capacity = 32: the picker's out buffer"
 q src/core/app/input_completion_runtime.zig 895 899 "the lookup's results[file_picker_completion_cap]"

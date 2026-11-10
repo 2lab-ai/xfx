@@ -3,7 +3,7 @@
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
 - xfx: `x𝒇x v0.1.0-cb7c9c1 [debug] · Run /help for commands`, sha256 `27cc514e95fef142517c286763f11a8fbb9728182282154e8d3650117099f1a3`
 - size 40x120, `--jobs 2`, 20 scenarios -- **PARTIAL**: `--only at* p5-input-at* filepicker* p5-ctrlo* p5-at-rank workspace-index`, wall 4m02s, load 21.9 at the start and 23.5 at the peak (1-minute average, sampled every 5 s)
-- ledger sha256 `afc23206f6116a17bbc8bd806d8f7b5500ee4b1a9b9aecccf87cad540b6facf3`: 14 normalizations; 19 divergences approved for this pin
+- ledger sha256 `9d3fbfc318b4c48ecf5c0d62ceefe23357bf79c8e48a1f5449749e539aae7851`: 14 normalizations; 19 divergences approved for this pin
 
 ## Coverage
 
@@ -116,7 +116,7 @@ Kinds: a = awaiting a user decision, b = a unit in flight, c = the capture (nond
 |---|---|---|---|---|---|
 | at-resize-band-at-the-bottom | d | 5 | 5 | `The resize answer 'resize-document-repaint' names: fx clears the screen and writes the do…` | `RESIZE-REPAINT -- xfx src/tui/shell.rs:16648 / fx src/ui/resize_runtime.zig:766-767@c1db9191` |
 | ri-run-pairing | d | 3 | 3 | `Every regional indicator is counted otherwise than the terminals draw it, and the painter…` | `RI-COUNT -- xfx src/tui/wrap.rs:673-693; src/tui/grid.rs:933 / fx src/core/shared/display_width.zig:234-263@c1db9191` |
-| at-plan-run-directory | c | 1 | 1 | `'@plan' matches the added folder '<tmp>/fxcap.<run>/extra/notes' only through its whole p…` | `scenario -- fix: a query the folder row matches inside its own name, or none of it ('@plan.md'), or capture.sh making the run directory's n…` |
+| at-plan-run-directory | c | 1 | 1 | `'@plan' matches the added folder '<tmp>/fxcap.<run>/extra/notes' only through its whole p…` | `SWEEP-TEMPNAME-STYLE (queued): capture.sh's run directory under a fixed name, the same for fx's run and xfx's, so a path through it is plac…` |
 | resize-document-repaint | d | 1 | 1 | `fx v0.0.16 answers a resize that changes the screen's size by clearing the screen and its…` | `RESIZE-REPAINT -- xfx src/tui/shell.rs:16648 / fx src/ui/resize_runtime.zig:766-767@c1db9191` |
 
 Rows no cause covers (14 snaps):

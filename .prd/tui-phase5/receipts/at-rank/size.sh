@@ -3,7 +3,7 @@
 # ... about 300 lines"): src/ lines added and removed against the base,
 # split at the line `#[cfg(test)]` that opens src/tui/file_index.rs's tests
 # (the only file changed), and the ranking section's length on each side.
-# usage: size.sh <base> <rev>   (run in the repo; size.txt is its output for cb7c9c18 and e2cba14b, the last commit that changes src/)
+# usage: size.sh <base> <rev>   (run in the repo; size.txt is its output for cb7c9c18 and e7661322, the last commit that changes src/)
 set -euo pipefail
 base=$1 rev=$2
 f=src/tui/file_index.rs

@@ -10,9 +10,9 @@
     8  //! ranked by its best query placement (`alignBest`), and highlights show that
     9  //! same placement.
 
-== src/core/workspace/file_index.zig:23-24@481104fd -- max_indexed_files (100,000), max_path_len
-   23  const Allocator = std.mem.Allocator;
-   24  
+== src/core/workspace/file_index.zig:25-26@481104fd -- max_indexed_files (100,000), max_path_len (2048)
+   25  pub const max_indexed_files: usize = 100_000;
+   26  pub const max_path_len: u32 = 2048;
 
 == src/core/workspace/file_index.zig:585-645@481104fd -- searchAtRevision: an empty query is the index's order (601-611); rankTopN keeps min(out, 64) (617); the spans from the ranked placement (621-643)
   585      /// Main-thread-only search of the captured prefix. Results retain the same
@@ -98,6 +98,67 @@
  1103      try candidates.append(alloc, .{ .path = display, .kind = kind });
  1104      return true;
  1105  }
+
+== src/core/workspace/file_index.zig:177-235@481104fd -- fillProgressive: each path's lower-cased bytes (209), name start (216-220) and a-z mask (222) stored once, as the index is built
+  177      fn fillProgressive(
+  178          self: *Generation,
+  179          alloc: Allocator,
+  180          source: CandidateSource,
+  181          stop_requested: ?*std.atomic.Value(bool),
+  182      ) !void {
+  183          if (isStopRequested(stop_requested)) return error.Canceled;
+  184  
+  185          const totals = countAndSize(source);
+  186  
+  187          try self.allocateBuffers(alloc, totals);
+  188          if (totals.n == 0) return;
+  189  
+  190          self.offsets[0] = 0;
+  191  
+  192          var iterator = source.iterator();
+  193          var candidate_index: u32 = 0;
+  194          var buffer_position: u32 = 0;
+  195          while (iterator.next()) |candidate| {
+  196              if (isStopRequested(stop_requested)) return error.Canceled;
+  197              if (candidate_index >= totals.n) break;
+  198              const accepted = acceptedCandidate(candidate) orelse continue;
+  199              const path = accepted.path;
+  200  
+  201              const start = buffer_position;
+  202              const len: u32 = @intCast(path.len);
+  203              @memcpy(self.paths_buf[start .. start + len], path);
+  204  
+  205              var mask: u32 = 0;
+  206              var contains_non_ascii = false;
+  207              for (path, 0..) |byte, byte_index| {
+  208                  const lower = asciiToLower(byte);
+  209                  self.lower_buf[start + @as(u32, @intCast(byte_index))] = lower;
+  210                  if (byte >= 0x80) contains_non_ascii = true;
+  211                  if (lower >= 'a' and lower <= 'z') {
+  212                      mask |= @as(u32, 1) << @intCast(lower - 'a');
+  213                  }
+  214              }
+  215  
+  216              const slash = std.mem.findScalarLast(u8, path, '/');
+  217              self.basename_starts[candidate_index] = if (slash) |index|
+  218                  start + @as(u32, @intCast(index + 1))
+  219              else
+  220                  start;
+  221              if (contains_non_ascii) mask |= non_ascii_mask;
+  222              self.char_masks[candidate_index] = mask;
+  223              self.kinds[candidate_index] = accepted.kind;
+  224              buffer_position += len;
+  225              self.offsets[candidate_index + 1] = buffer_position;
+  226  
+  227              self.ready_count.store(candidate_index + 1, .release);
+  228              candidate_index += 1;
+  229          }
+  230  
+  231          if (isStopRequested(stop_requested)) return error.Canceled;
+  232      }
+  233  
+  234      /// Transfers complete parallel-buffer ownership only after every
+  235      /// allocation succeeds. Later population failure leaves cleanup with the
 
 == src/core/workspace/file_index.zig:1176-1176@481104fd -- max_search_results = 64
  1176  pub const max_search_results: usize = 64;
