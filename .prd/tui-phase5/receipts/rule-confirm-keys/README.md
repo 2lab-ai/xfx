@@ -16,15 +16,18 @@ on `main`).
 | `c5f989db` | **the fix**: `Shell::decide`'s key translation becomes `Shell::approval_action`, which the rule confirmation reads with the spelled event and no draft; `RuleConfirm::apply` takes an `approval::Action`; `rule_confirm::Key` and the band's own map are deleted; the two parity sentences; the ledger's moved refs |
 | `4b3dc4af` | the idle Escape test asserts no stop; an Escape-disarm line `c5f989db` added is taken back out (no key reaches it: typing the command disarms both gestures first); the scenario `p5-rule-confirm-keys-turn`; moved refs |
 | `91706a67` | RED 2, from that scenario's fx captures: the in-turn Escape test asserts no activity row under the confirmation and no cancellation row; tests only |
-| `071b26e0` | **the code head**: `Shell::modal` counts a rule confirmation; its Escape over a running turn stops it with no cancellation row; the parity sentence; moved refs |
+| `071b26e0` | round 1's code head: `Shell::modal` counts a rule confirmation; its Escape over a running turn stops it with no cancellation row; the parity sentence; moved refs |
 | `bfa9ceec`, `18f5dd91` | this receipt; `docs/parity.md`'s reason for fx's Escape, the card's row as still apart, a citation named with its file; the ledger cause `rule-confirm-card-after-stop`; the quick checks rerun with it tracked; no `src/` change |
-| the commit after | round 1's own review: the scenario `p5-rule-confirm-keys-cmd` (Escape over a running command), both sweeps rerun over the same 30 scenarios and one ledger, the parity sentence's running-command clause; no `src/` change |
+| `d1ebdd45`, `aa40d1f1` | round 1's own review: the scenario `p5-rule-confirm-keys-cmd` (Escape over a running command), both sweeps rerun over the same 30 scenarios and one ledger, the parity sentence's running-command clause; no `src/` change |
+| `e13010e6` | **round 2, the code head**: `rule-confirm-card-after-stop` narrowed to its rows (patterns, `kind`, refs, spacing); `Shell::stop_owed`, the stop guard named and shared, `written = true` commented; four tests (Escape over a manual compaction, no second stop, work typed since a stop stopped, the clock held under a confirmation); the readiness decision's scope names the rule confirmation; the Escape wording; RULE-CONFIRM-SCREEN's citation; moved refs |
+| `7e2e177d` | `permissions-btab.cap`: an `until shown <mode> · model-a` before each Shift-Tab snap |
+| the commit after | this receipt, round 2 |
 
 Captures, all three scenarios at 40x120: `fx/` is fx v0.0.16 (sha256 `8e6cda2e…`,
 `FX_AUTO_UPGRADE=0`; `capture.sh` checked its bytes after each run), `red/`
 the base's binary (row 1 `x𝒇x v0.1.0-1a0adae [debug]`, built at `1a0adaec`),
-`xfx/` the code head's (row 1 `x𝒇x v0.1.0-071b26e [debug]`, built after
-the commit). Hashes, banners and guard lines: `binaries.txt`.
+`xfx/` the code head's (row 1 `x𝒇x v0.1.0-e13010e [debug]`, built after
+the commit; round 1's were `071b26e`'s). Hashes, banners and guard lines: `binaries.txt`.
 
 ## fx's rule (`fx-src.txt`, written by `fx_src.sh`: every line read with `git show 481104fd:<path>`)
 
@@ -70,14 +73,19 @@ the right (`approvalKind`, `approval_ui.zig:1841-1843`), `1. Confirm` /
 (`input_approval_runtime.zig:401-436`), and no turn cancellation is written,
 where Ctrl-C's `cancelActiveOperation` writes one
 (`input_interrupt_runtime.zig:118-126`). With none in hand the code reads as
-leaving the prompt up (`app_input_runtime.zig:2761-2764`). **But fx took the
-first branch at every Escape traced, idle ones included**: `probe/trace.txt`
+leaving the prompt up (`app_input_runtime.zig:2761-2764`). **But fx takes the
+first branch at every Escape after the prompt's first frame, idle ones
+included**: `probe/trace.txt`
 (fx's own `FX_TRACE_LOG` of `probe/probe.cap`, eight scopes) shows `[input] cancel
 approval operation queued=0` -- that function's own line
 (`input_approval_runtime.zig:421-424`) -- at an idle Escape after a
 `/permissions remember` and again after a finished turn; that function
 clears the prompt (`:428`), and `fx/fx-p5-rule-confirm-keys-40x120-esc`
-shows an idle one closing it. **Why**: while an approval prompt is up fx's `syncState` marks its stream active (`modal_active and !app.stream.active` -> `app.stream.active = true`, `app_worker_runtime.zig:729`, `:753-757`), so `hasActiveOperation` holds at every rule confirmation and the decoder latches it with the Escape byte (`terminal_action_decoder.zig:42-45`, `:180-182`). `probe/esc-all-trace.txt` (every scope, `probe/esc-all.cap`) shows it: the Escape's `cancel_requested` line reads `stream_active=true` with no turn ever started. At an idle confirmation that route only clears the prompt: there is no turn to stop. So xfx's band keeps closing on an idle
+shows an idle one closing it. **Why**: while an approval prompt is up fx's `syncState` marks its stream active (`modal_active and !app.stream.active` -> `app.stream.active = true`, `app_worker_runtime.zig:729`, `:753-757`), so `hasActiveOperation` holds at every rule confirmation and the decoder latches it with the Escape byte (`terminal_action_decoder.zig:42-45`, `:180-182`). `probe/esc-all-trace.txt` (every scope, `probe/esc-all.cap`) shows it: the Escape's `cancel_requested` line reads `stream_active=true` with no turn ever started. At an idle confirmation that route only clears the prompt: there is no turn to stop. `syncState` has no return before that line but one for a pending model
+question (`app_worker_runtime.zig:691-727`, `:721`), so an Escape read
+before the first sync after the prompt is published would latch `false`
+and leave it up; no typist is that fast, and both traced Escapes took the
+first branch. So xfx's band keeps closing on an idle
 Escape, as it did, and over a running turn now stops the turn without a row
 (`fx/fx-p5-rule-confirm-keys-turn-40x120-esc`: the turn's partial answer
 and its activity row gone, no `▪ Cancelled`; `-end`: nothing after the
@@ -99,17 +107,24 @@ which had turned Shift-Up into Up -- through it with `drafting = false`.
 the rule confirmation with it.
 
 **Not copied** (`docs/parity.md`'s `/permissions` row): a rule display too
-long for the band takes fx's review screen (`needsScreen`), where xfx's band
-wraps it whole; proposed owner RULE-CONFIRM-SCREEN.
+long for the band takes fx's review screen, where xfx's band wraps it whole;
+proposed owner RULE-CONFIRM-SCREEN. fx's frame asks `needsScreen` of every
+approval prompt (`app_render_runtime.zig:1160-1167`), and a rule prompt's
+`command` is its display (`.command = prepared.display_identity`,
+`app_commands.zig:690`; `approvalCommand`, `approval_screen.zig:447-449`),
+so a display that does not fit inline takes the screen (`:208-223`). Read
+from the code; no capture of a long display is taken here.
 
 ## The change (`diffstat.txt`)
 
-2 files, +412 / -132; outside the `mod tests` blocks `src/tui/shell.rs` +130 / -99 and `src/tui/rule_confirm.rs` +26 / -24 -- most of `shell.rs`'s being `Shell::decide`'s head moved below `Shell::approval_action`: 80 of its added lines (non-blank) are a removed line again, by `added.py`'s reading. Five `#[test]`s added, none removed; `rule_confirm.rs`'s key test is rewritten in place.
+At the code head `e13010e6`: 2 files, +547 / -133; outside the `mod tests` blocks `src/tui/shell.rs` +146 / -100 and `src/tui/rule_confirm.rs` +26 / -24 -- most of `shell.rs`'s being `Shell::decide`'s head moved below `Shell::approval_action` (80 of round 1's added lines, non-blank, were a removed line again, by `added.py`'s reading). Eight `#[test]`s added (five in round 1, three in round 2, one of which pins two rules), none removed; `rule_confirm.rs`'s key test is rewritten in place.
 
 - `Shell::approval_action`, moved out of `Shell::decide`, whose head moves
   below it (most of the removed and added lines outside the tests are that
   move); `Shell::offer_to_rule_confirm` reads it, and Escape's stop is
-  there; `Shell::modal` counts `rule_confirm` (`src/tui/shell.rs`).
+  there, behind `Shell::stop_owed` (round 2: `Shell::cancel_turn`'s
+  guard, named and shared); `Shell::modal` counts `rule_confirm`
+  (`src/tui/shell.rs`).
 - `consume_inputs` hands the rule confirmation the spelled event, ahead of
   `folded`.
 - `RuleConfirm::apply(approval::Action)` (`src/tui/rule_confirm.rs`).
@@ -119,15 +134,29 @@ wraps it whole; proposed owner RULE-CONFIRM-SCREEN.
 - **Escape stops a running turn or compaction only**, read as xfx's composer
   Escape reads fx's operation in hand (`self.activity.working() ||
   self.compacting()`), not fx's `hasActiveOperation`, which counts a
-  provider preparation too. A stop already requested is not asked again
-  (`Shell::cancel_turn`'s rule).
+  provider preparation too. The compaction half is fx's: its
+  `cancelApprovalTurn` stops the worker's compaction as well as its turn
+  (`stopCompactionActivityLocked`, `worker_runtime.zig:777-791`). A stop
+  already requested is not asked again, and work typed since it is stopped
+  (`Shell::stop_owed`, the composer's rule; fx asks again only what is not
+  already cancelled, `input_approval_runtime.zig:421-434`). The stop is
+  `cancel_turn_with(true)`: no `▪ Cancelled` row of its own and no group
+  settled by the key, as fx's route presents no tool cancellation; a
+  running command's report says it (`-cmd`).
 - **An idle Escape closes the band**, copying the captures and the trace,
   not the branch the code reads as taken (above).
 - **`Shell::modal` counts the rule confirmation**, not a narrower check at
-  the activity row: every reader of `modal` is about an approval being up
-  (the clock freeze, the activity row, the MCP status and full-access
-  warning slots, `C-o`), and fx's rule confirmation is its approval prompt.
-  The sweep is the check that nothing else moved.
+  the activity row: each of its six readers is about an approval being up,
+  and fx's rule confirmation is its approval prompt. `open_full_transcript`
+  (refused; C-o never reaches it there, the confirmation swallows it); the
+  clock freeze (now held under a confirmation, fx's `syncWaitingClock`,
+  `app_worker_runtime.zig:760`; pinned by
+  `the_turns_clock_stops_while_a_rule_confirmation_is_up_over_it`); the
+  activity row (pinned by the in-turn Escape test); the repaint reason
+  after a paste the band ignores (Modal for Footer, which no frame reads
+  differently); the MCP status and the full-access warning slots (the
+  confirmation's own hint has the row, and the warning already read the
+  slot as taken).
 
 ## RED (`red.txt`, `red-pairs.txt`)
 
@@ -147,6 +176,10 @@ Two RED commits, each tests only in `src/` against the code of its parent
 - at `91706a67` (the code of `4b3dc4af`) the in-turn Escape test fails on
   the activity row under the confirmation (`Some(26)`); its no-row half is
   pinned by mutant M11.
+- Round 2's three tests pin behaviour already at round 1's head (Escape
+  over a manual compaction, no second stop and work typed since a stop,
+  the clock under a confirmation); they are pinned by mutants M12-M14 and
+  M10 instead of a RED commit.
 
 The pairs at the base (`red-pairs.txt`, `scope.py red`): **3 of 20**
 identical (`prompt`, `right`, `alt-f`: the moves that land where fx's
@@ -161,10 +194,10 @@ command still running, then finished.
 
 ## GREEN (`green.txt`, `pairs.txt`)
 
-- At the code head `071b26e0` (`green.txt`): the unit's tests and their
+- At the code head `e13010e6` (`green.txt`): the unit's tests and their
   neighbours (`rule_confirm remember revoke escape approval ctrl_j_
-  keys_fx`) **288 passed, 0 failed**; `cargo test --locked --test parity`
-  26 passed.
+  keys_fx clock`) **320 passed, 0 failed**; `cargo test --locked --test
+  parity` 26 passed.
 - **The pairs** (`pairs.txt`, `scope.py xfx`: every ledger normalization,
   no entry set aside, styles compared): **18 of 20 identical** -- all 13 of
   `p5-rule-confirm-keys` (`prompt`, `tab`, `right`, `left`, `alt-f`,
@@ -178,7 +211,9 @@ command still running, then finished.
   blank row (`queue_card`), fx's does not when nothing follows it. That is
   `amendment-card-after-stop`'s class, not a key; recorded as the ledger
   cause `rule-confirm-card-after-stop` (owner AMEND-CARD-ROW) and in
-  `docs/parity.md`. The turn is stopped on both, and neither keystroke
+  `docs/parity.md`. Round 2 narrows that cause to those rows: rows 4-7
+  whose text is the composer's `┃`, the status row or blank, on either
+  side, so a row of a turn left running stays uncaused (the sweep below). The turn is stopped on both, and neither keystroke
   writes a cancellation row.
 - **Not pinned by a shell test**: the running-command case. Its `Cancelled`
   rows come from the runtime's report of the killed command, which the
@@ -186,11 +221,11 @@ command still running, then finished.
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
-At the code head `071b26e0`, on a fresh `git clone --no-local` throwaway of
-the branch (remote removed) under `$TMPDIR/mut/`, one at a time, the files
-restored after each, under the suite lock; the clone's tree was clean after
-the run. **11 of 11 killed**, one per key the unit changes and one per
-Escape rule:
+At `7e2e177d` (the code as at `e13010e6`), on a fresh `git clone
+--no-local` throwaway of the branch (remote removed) under `$TMPDIR/mut/`,
+one at a time, the files restored after each, under the suite lock; the
+clone's tree was clean after the run. **14 of 14 killed**, one per key the
+unit changes and one per Escape rule:
 
 | mutant | killed by |
 |---|---|
@@ -201,10 +236,13 @@ Escape rule:
 | M5 C-p and C-n move the mark again | the do-nothing test |
 | M6 the folded event again (Shift-, Ctrl-, Alt-, Super-Up and -Down move) | the do-nothing test, the move test |
 | M7 Ctrl-L repaints again | the do-nothing test |
-| M8 Escape stops nothing over a running turn | the in-turn Escape test |
+| M8 Escape stops nothing over a running turn | the in-turn, compaction and stop-guard Escape tests |
 | M9 Escape stops a turn whether or not one runs | the idle Escape test |
-| M10 an activity row under a rule confirmation again | the in-turn Escape test |
+| M10 an activity row under a rule confirmation again | the in-turn Escape test, the clock test |
 | M11 Escape's stop writes the turn's cancellation row | the in-turn Escape test |
+| M12 Escape stops a running turn only, not a compaction | the compaction test, the stop-guard test |
+| M13 Escape asks a second stop while one is requested | the stop-guard test |
+| M14 Escape stops no work typed since an earlier stop | the stop-guard test |
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
 
@@ -212,62 +250,58 @@ Escape rule:
 'p5-input-approval*' --only 'permissions*' --only 'p5-permissions*' --only
 'p5-panels-perm*' --only 'allowlist*' --only 'rules-*' --only
 settings-perm --only 'p5-rule-confirm*'` at 40x120, `--jobs 4`: every
-`/permissions` and approval scenario, 30, this branch's scenarios and
-ledger as committed with this receipt (one ledger sha256, `a81acdd9…`, on
-both sides), once with the base's binary (`v0.1.0-1a0adae`) and once with
-the code head's (`v0.1.0-071b26e`), each in a suite-lock slot; compared
-pair by pair with APPROVAL-READINESS-SETTLED's `cmp_sweeps.py`, unchanged.
-A first pair of sweeps is not the receipt: the base's had loaded the ledger
-before the cause was added, while its scoreboard hashed the file after, and
-neither had the `-cmd` scenario; both were run again.
+`/permissions` and approval scenario, 30, this branch's scenarios as at
+`7e2e177d`, once with the base's binary (`v0.1.0-1a0adae`) and once with
+round 2's code head's (`v0.1.0-e13010e`), each in a suite-lock slot. The
+ledger's first narrowing left the blank row out of its patterns, which
+left one blank row of each head `-turn` pair uncaused, so both sweeps were
+then classified again with the ledger as committed (`sweep.sh --rescore`,
+the same captures; one ledger sha256, `1669c283…`, in both scoreboards).
+Compared pair by pair with APPROVAL-READINESS-SETTLED's `cmp_sweeps.py`,
+unchanged.
 
-- **base 92 / 238, head 108 / 238**; pairs with rows no cause covers: 12 at
-  the base, 9 at the head.
-- This unit's changes, all to normalized-identical but two:
+- **base 92 / 238, head 110 / 238, drops 0**; pairs with rows no cause
+  covers: 14 at the base, 7 at the head.
+- **`p5-rule-confirm-keys-turn` now shows the bug at the base**: its `esc`
+  keeps the activity row (`~ Generating …`, row 5) uncaused and its `end`
+  the answer's rows (`  Working on it.`, `  <wall> (↑4 ↓40)`); its
+  `prompt` the activity row too. At the head `prompt` is
+  normalized-identical, and `esc` and `end` are unresolved with every row
+  under `rule-confirm-card-after-stop`, none uncaused.
+- The rest of this unit's changes, all to normalized-identical:
   `p5-rule-confirm-keys`' 13 pairs (failed at the base, its run stopped,
   above); `p5-rule-confirm-keys-cmd`'s 4 (unresolved, 2-8 uncaused rows
-  each); `p5-rule-confirm-keys-turn`'s `prompt` (2). Its `esc` and `end`
-  are unresolved on both sides with every row under
-  `rule-confirm-card-after-stop`.
-- **Two drops, both fx's side, not reproduced**: `permissions-btab`'s
-  `btab-auto` and `btab-full-again`, where fx's status row stayed `ask ·
-  model-a` after two more Shift-Tabs and xfx's read `auto` and `full
-  access`, as it should (`sweep-compare.txt`'s last lines). The scenario
-  has no rule confirmation and the key reaches no code this unit changed;
-  run alone three times under the lock with the head's binary it passed 7
-  of 7 each time (`sweep-compare.txt`'s end), as both its pairs did in the
-  first pair of sweeps.
-- No other pair changed class, cause or count. The 7 other pairs with
-  uncaused rows at the head are the same 7 as at the base, with the same
-  counts (`p5-input-approval` `cmd-ask` 15, `edit-ask` 17, `after` 13, as
-  at APPROVAL-CTRL-J; `rules-read` `ask` 1, `ask2` 1, `listed` 10;
+  each).
+- `permissions-btab` holds all 7 pairs on both sides with its new `until`
+  lines (`sweep-compare.txt`); round 1's two fx-side drops are gone.
+- No other pair changed class, cause or count. The 7 pairs with uncaused
+  rows at the head are the same 7 as at the base, with the same counts
+  (`p5-input-approval` `cmd-ask` 15, `edit-ask` 17, `after` 13, as at
+  APPROVAL-CTRL-J; `rules-read` `ask` 1, `ask2` 1, `listed` 10;
   `rules-read-auto` `read-ask` 1); this unit touches no row of them.
 
 ## Gate (`gate.txt`)
 
-The brief's gate, once, under the suite lock with a short `TMPDIR`, at the
-code head `071b26e0` (`src/` and `tests/` as committed; this receipt
-untracked; `docs/parity.md` with one later edit, a citation named with
-its file; the ledger as committed). Every step exits 0, and `src/` and `tests/` were unchanged at
-the end:
+Round 2's gate, once, under the suite lock with a short `TMPDIR`, at
+`7e2e177d` (the code as at the code head `e13010e6`; `src/` and `tests/` as
+committed; this receipt edited, uncommitted). Every step exits 0, and
+`src/` and `tests/` were unchanged at the end. Each test step's 15 raw
+`test result:` lines are kept in `gate.txt`, then their sum:
 
 | step | result |
 |---|---|
 | `cargo fmt --check` | clean |
 | `cargo clippy --locked --all-targets -- -D warnings` | clean |
 | `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | clean |
-| `cargo test --locked --no-fail-fast` | 5581 passed, 0 failed, 7 ignored (15 result lines) |
-| `cargo test --locked --features fault-injection --no-fail-fast` | 5618 passed, 0 failed, 7 ignored (15 result lines) |
+| `cargo test --locked --no-fail-fast` | 5584 passed, 0 failed, 7 ignored (15 result lines) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 5621 passed, 0 failed, 7 ignored (15 result lines) |
 | `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh` | exit 0 each |
 
-5581 is APPROVAL-CTRL-J's 5576 plus this unit's five (`diffstat.txt`);
-5618 its 5613 plus the same five. No test here builds a `Runtime`. After the
-gate, `docs/parity.md` gained the trace's reason and the card's row, and
-the ledger the cause, and in round 1's review the running-command clause:
-`cargo test --locked --test parity` passed on each (`green.txt`;
-`gate.txt`'s last lines), and the three checks ran again with this
-receipt committed (`gate.txt`'s last lines). Every commit's added lines were scanned for
-local paths before it was made (`git diff --cached`).
+5584 is round 1's 5581 (APPROVAL-CTRL-J's 5576 and round 1's five) plus
+round 2's three (`diffstat.txt`); 5621 is round 1's 5618 plus the same
+three. No test here builds a `Runtime`. The three checks ran again with
+this receipt committed (`gate.txt`'s last lines). Every commit's added
+lines were scanned for local paths before it was made (`git diff --cached`).
 
 ## Parity (`docs/parity.md`) and the ledger
 
@@ -283,12 +317,18 @@ local paths before it was made (`git diff --cached`).
   approval's keys.
 - `fx_src.sh` checks those citations with the unit's added lines that are
   not moves (`added.py`) and this file (`fx-src-check.txt`).
-- The ledger's refs into `src/tui/shell.rs`, by content, with
-  APPROVAL-VERTICAL-SPELLINGS' `refs.py`, unchanged (`python3 -I
-  ../approval-vertical-spellings/refs.py 1a0adaec`):
-  `refs.txt`, 17 checked, 0 wrong. `--fix` re-pointed the ones each code
-  commit moved. One new entry, the cause `rule-confirm-card-after-stop`
-  (above); it approves nothing.
+- The ledger's refs into `src/tui/shell.rs`, by content, with this
+  receipt's `refs.py` (APPROVAL-VERTICAL-SPELLINGS' with the new cause's
+  `queue_card` refs added; `python3 -I refs.py 1a0adaec`): `refs.txt`, 19
+  checked, 0 wrong.
+  `--fix` re-pointed the ones each code commit moved. One new entry, the
+  cause `rule-confirm-card-after-stop` (above, `kind = ["unit",
+  "defect"]`, its `xfx`/`fx` refs, its row patterns); it approves nothing.
+- The readiness decision's scope (round 2): the ledger's
+  `approval-settled-every-approval` and the `/permissions` row each gain a
+  sentence naming the rule confirmation, a persisted grant reachable by a
+  move and C-j or Enter in one write with no readiness check, as in fx;
+  the behaviour is unchanged and the decision stays the user's.
 
 ## Safety
 

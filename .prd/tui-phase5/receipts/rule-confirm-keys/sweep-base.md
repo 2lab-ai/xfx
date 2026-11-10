@@ -2,8 +2,8 @@
 
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
 - xfx: `x𝒇x v0.1.0-1a0adae [debug] · Run /help for commands`, sha256 `6756fc63249072a9c991197df21d8529102d88efa6bd3508b489b296269654c9`
-- size 40x120, `--jobs 4`, 30 scenarios -- **PARTIAL**: `--only approvals* p5-approval* p5-input-approval* permissions* p5-permissions* p5-panels-perm* allowlist* rules-* settings-perm p5-rule-confirm*`, wall 5m08s, load 16.5 at the start and 29.7 at the peak (1-minute average, sampled every 5 s)
-- ledger sha256 `a81acdd9520235df283707245a3e9ef38d553dacdffc6e8a86f35f8a7bddbdce`: 14 normalizations; 19 divergences approved for this pin
+- size 40x120, `--jobs 4`, 30 scenarios -- **PARTIAL**: `--only approvals* p5-approval* p5-input-approval* permissions* p5-permissions* p5-panels-perm* allowlist* rules-* settings-perm p5-rule-confirm*`, wall 5m04s, load 46.4 at the start and 59.9 at the peak (1-minute average, sampled every 5 s)
+- ledger sha256 `1669c2831070c5941b6e44953764d0f2be3a6d7e9506da75a52e31419fee32cc`: 14 normalizations; 19 divergences approved for this pin
 
 ## Coverage
 
@@ -130,13 +130,13 @@ Kinds: a = awaiting a user decision, b = a unit in flight, c = the capture (nond
 | approval-grant-scope | a | 106 | 91 | `What an 'always' answer grants is a security choice: fx grants workspace file access for …` | `user decision approval grant scope (not yet on the program's decision list)` |
 | tool-schema | d | 14 | 4 | `fx's command tool is 'shell' ('action: run', per-call 'timeout_ms', run in the user's she…` | `unowned (decision needed? C8 runs commands in the login shell but keeps the header) -- xfx src/tui/approval_view.rs:685; src/permission/sla…` |
 | sound-max | d | 3 | 3 | `fx's sound has a third level, 'max'; xfx's (the terminal bell) has none: Sound level is '…` | `unowned -- xfx src/sound.rs:37; src/tui/settings.rs:361 / fx src/core/config/settings_catalog.zig:280@c1db9191; src/core/app/app_commands.z…` |
-| amendment-card-after-stop | b+d | 2 | 2 | `A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes…` | `AMEND-CARD-ROW the blank row xfx keeps under an approval's amendment card that ends the document -- xfx src/tui/shell.rs:10428 / fx src/cor…` |
-| rule-confirm-card-after-stop | b | 2 | 2 | `A user-visible row, 'amendment-card-after-stop''s class. Escape at a rule confirmation ov…` | `AMEND-CARD-ROW the blank row xfx keeps under a card that ends the document` |
+| amendment-card-after-stop | b+d | 2 | 2 | `A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes…` | `AMEND-CARD-ROW the blank row xfx keeps under an approval's amendment card that ends the document -- xfx src/tui/shell.rs:10435 / fx src/cor…` |
+| rule-confirm-card-after-stop | b+d | 2 | 0 | `A user-visible row, 'amendment-card-after-stop''s class. Escape at a rule confirmation ov…` | `AMEND-CARD-ROW the blank row xfx keeps under a card that ends the document -- xfx src/tui/shell.rs:1840 / fx src/core/app/app_worker_runtim…` |
 | approval-scroll | d | 2 | 0 | `A long review scrolls with the mouse wheel in fx and Ctrl-P/Ctrl-N in xfx, which asks for…` | `unowned -- xfx src/tui/approval_view.rs:106 / fx src/ui/approval_screen.zig:564@c1db9191` |
 | allowlist-band | d | 2 | 2 | `Once /allowlist's notices fill the screen fx's band stands three rows above the bottom an…` | `unowned (not traced to the line) -- xfx src/tui/layout.rs:91 / fx src/ui/render_engine/footer_layout.zig:39-60@c1db9191` |
 | approval-settled-every-approval | a | 1 | 1 | `fx v0.0.16 holds an affirmative back while a modal frame is pending only at a file approv…` | `user decision approval readiness scope (the dispatcher's interim choice, 2026-11-10)` |
 
-Rows no cause covers (12 snaps):
+Rows no cause covers (14 snaps):
 - `p5-input-approval/cmd-ask` fx row 5: `● 1 tool call · 1 command`
 - `p5-input-approval/edit-ask` fx row 5: `● 1 tool call · 1 command`
 - `p5-input-approval/after` fx row 5: `● 2 tool calls · 1 edit · 1 command`
@@ -145,6 +145,8 @@ Rows no cause covers (12 snaps):
 - `p5-rule-confirm-keys-cmd/esc-2` fx row 5: `● 1 tool call · 1 command · 1 cancelled`
 - `p5-rule-confirm-keys-cmd/done` fx row 5: `● 1 tool call · 1 command · 1 cancelled`
 - `p5-rule-confirm-keys-turn/prompt` xfx row 5: `~ Generating (<s>) (↑4 ↓3)`
+- `p5-rule-confirm-keys-turn/esc` xfx row 5: `~ Generating (<s>) (↑4 ↓3)`
+- `p5-rule-confirm-keys-turn/end` xfx row 5: `  Working on it.`
 - `rules-read/ask` xfx row 19: `  <session-id>' of this saved session`
 - `rules-read/ask2` xfx row 28: `  <session-id>' of this saved session`
 - `rules-read/listed` xfx row 1: `└ Read secret.txt`

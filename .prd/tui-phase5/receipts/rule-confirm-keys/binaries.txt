@@ -1,7 +1,8 @@
 # the binaries the captures and sweeps ran: sha256, and row 1 of their prompt snap
 fx    8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2  fx v0.0.16 (481104fd), FX_AUTO_UPGRADE=0; row 1: 𝒇x v0.0.16 · Run /help for commands
 red   6756fc63249072a9c991197df21d8529102d88efa6bd3508b489b296269654c9  built at 1a0adaec; row 1: x𝒇x v0.1.0-1a0adae [debug] · Run /help for commands
-xfx   165d54530fb4b8541d6e913d815e5ec3497226ba0bf446c07fb1c5e6e521f1ea  built at 071b26e0 (the code head, committed first); row 1: x𝒇x v0.1.0-071b26e [debug] · Run /help for commands
+xfx   9fba49c4cfc27decdec0b09ad4beeadb302b0597280b67a2b72d42c8de17209c  built at e13010e6 (round 2's code head, committed first); row 1: x𝒇x v0.1.0-e13010e [debug] · Run /help for commands
+      round 1's head was 165d5453... built at 071b26e0; xfx/ now holds round 2's head sweep's captures of the three scenarios
 
 # capture.sh's guard line after each fx run (the oracle's path written <fx-bin>)
 p5-rule-confirm-keys: guards: <fx-bin> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories

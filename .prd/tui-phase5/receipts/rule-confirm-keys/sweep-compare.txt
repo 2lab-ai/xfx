@@ -1,4 +1,4 @@
-# python3 -I ../approval-readiness-settled/cmp_sweeps.py <base>/pairs.json <head>/pairs.json (unchanged); then, per side, the pairs with rows no cause covers and their counts (pairs.json's unattributed lists, counted)
+# round 2: python3 -I ../approval-readiness-settled/cmp_sweeps.py <base>/pairs.json <head>/pairs.json (unchanged), both sweeps rescored (sweep.sh --rescore) with the ledger as committed; then, per side, the pairs with rows no cause covers and their counts, and p5-rule-confirm-keys-turn's three pairs in full
 change p5-rule-confirm-keys/alt-b: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
 change p5-rule-confirm-keys/alt-f: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
 change p5-rule-confirm-keys/ctrl-c: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
@@ -16,13 +16,13 @@ change p5-rule-confirm-keys-cmd/done: unresolved-defect -> normalized-identical;
 change p5-rule-confirm-keys-cmd/esc: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
 change p5-rule-confirm-keys-cmd/esc-2: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
 change p5-rule-confirm-keys-cmd/prompt: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-rule-confirm-keys-turn/end: unresolved-defect -> unresolved-defect; causes ['rule-confirm-card-after-stop'] -> ['rule-confirm-card-after-stop']; uncaused 3 -> 0
+change p5-rule-confirm-keys-turn/esc: unresolved-defect -> unresolved-defect; causes ['rule-confirm-card-after-stop'] -> ['rule-confirm-card-after-stop']; uncaused 1 -> 0
 change p5-rule-confirm-keys-turn/prompt: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
-DROP permissions-btab/btab-auto: normalized-identical -> unresolved-defect; causes [] -> []; uncaused 0 -> 2
-DROP permissions-btab/btab-full-again: normalized-identical -> unresolved-defect; causes [] -> []; uncaused 0 -> 2
-base: 238 pairs, 92 pass, 12 with uncaused rows
-head: 238 pairs, 108 pass, 9 with uncaused rows
-drops: 2
-base: 12 pairs with uncaused rows
+base: 238 pairs, 92 pass, 14 with uncaused rows
+head: 238 pairs, 110 pass, 7 with uncaused rows
+drops: 0
+base: 14 pairs with uncaused rows
    p5-input-approval cmd-ask 15
    p5-input-approval edit-ask 17
    p5-input-approval after 13
@@ -31,25 +31,27 @@ base: 12 pairs with uncaused rows
    p5-rule-confirm-keys-cmd esc-2 6
    p5-rule-confirm-keys-cmd done 8
    p5-rule-confirm-keys-turn prompt 2
+   p5-rule-confirm-keys-turn esc 1
+   p5-rule-confirm-keys-turn end 3
    rules-read ask 1
    rules-read ask2 1
    rules-read listed 10
    rules-read-auto read-ask 1
-head: 9 pairs with uncaused rows
+   turn prompt: unresolved-defect, causes [], uncaused [['xfx', 5, '~ Generating (<s>) (↑4 ↓3)'], ['xfx', 4, '(blank)']]
+   turn esc: unresolved-defect, causes ['rule-confirm-card-after-stop'], uncaused [['xfx', 5, '~ Generating (<s>) (↑4 ↓3)']]
+   turn end: unresolved-defect, causes ['rule-confirm-card-after-stop'], uncaused [['xfx', 5, '  Working on it.'], ['xfx', 7, '  <wall> (↑4 ↓40)'], ['xfx', 8, '(blank)']]
+   permissions-btab: start normalized-identical, btab-full normalized-identical, btab-full-later normalized-identical, btab-ask normalized-identical, btab-auto normalized-identical, btab-full-again normalized-identical, bare normalized-identical
+head: 7 pairs with uncaused rows
    p5-input-approval cmd-ask 15
    p5-input-approval edit-ask 17
    p5-input-approval after 13
-   permissions-btab btab-auto 2
-   permissions-btab btab-full-again 2
    rules-read ask 1
    rules-read ask2 1
    rules-read listed 10
    rules-read-auto read-ask 1
-# the two head drops, their uncaused rows (side, row, text): the status row fx and xfx each showed
-   btab-auto [['fx', 5, 'ask · model-a'], ['xfx', 5, 'auto · model-a']]
-   btab-full-again [['fx', 5, 'ask · model-a'], ['xfx', 5, 'full access · model-a']]
+   turn prompt: normalized-identical, causes [], uncaused []
+   turn esc: unresolved-defect, causes ['rule-confirm-card-after-stop'], uncaused []
+   turn end: unresolved-defect, causes ['rule-confirm-card-after-stop'], uncaused []
+   permissions-btab: start normalized-identical, btab-full normalized-identical, btab-full-later normalized-identical, btab-ask normalized-identical, btab-auto normalized-identical, btab-full-again normalized-identical, bare normalized-identical
 
-# permissions-btab alone, three times, under the suite lock, --jobs 1, the code head's binary (scripts/fxcap/sweep.sh --only permissions-btab), each run's pass line
-run 1 exit 0 pass = 7 / 7 = 100.0%
-run 2 exit 0 pass = 7 / 7 = 100.0%
-run 3 exit 0 pass = 7 / 7 = 100.0%
+# the same sweeps as run, before the rescore (the ledger's first narrowing, whose patterns left the blank row out): head p5-rule-confirm-keys-turn esc and end each had one uncaused blank row (xfx row 4); every other figure the same

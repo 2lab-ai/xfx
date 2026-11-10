@@ -1193,7 +1193,44 @@
   689              else
   690                  app.approval_prompt.syncRequest(app.alloc, pending_request) catch false;
 
-## src/core/app/app_worker_runtime.zig:728-760
+## src/core/app/app_worker_runtime.zig:691-760
+  691              const review_changed = if (comptime @hasDecl(@TypeOf(app.approval_prompt), "syncReview")) blk: {
+  692                  const review = if (comptime @hasField(@TypeOf(snapshot), "pending_permission_review"))
+  693                      if (snapshot.pending_permission_review) |pending|
+  694                          if (pending_request) |request|
+  695                              if (pending.request_id == request.id) pending.review else null
+  696                          else
+  697                              null
+  698                      else
+  699                          null
+  700                  else
+  701                      null;
+  702                  break :blk app.approval_prompt.syncReview(review);
+  703              } else false;
+  704              if (comptime @hasField(App, "approval_screen")) {
+  705                  const file_review_changed = review_changed and
+  706                      (pending_request == null or pending_request.?.file != null);
+  707                  if (approval_changed or file_review_changed) {
+  708                      app.approval_screen.clear();
+  709                  }
+  710              }
+  711              if (approval_changed or review_changed) {
+  712                  app.shell.render_requests.request(.modal);
+  713              }
+  714              if (!was_approval_active and app.approval_prompt.isActive()) {
+  715                  if (comptime @hasDecl(App, "dispatchAttentionRequired")) {
+  716                      app.dispatchAttentionRequired(snapshot.active_turn_id, .permission);
+  717                  }
+  718              }
+  719  
+  720              if (app.question_prompt.isActive()) {
+  721                  if (app.worker.snapshotPendingQuestionBatch(app.alloc) catch return) |question_snapshot| {
+  722                      question_snapshot.deinit(app.alloc);
+  723                  } else {
+  724                      app.question_prompt.discard(app.alloc, "worker_cleared");
+  725                      app.shell.render_requests.request(.modal);
+  726                  }
+  727              }
   728  
   729              const modal_active = app.approval_prompt.isActive() or app.question_prompt.isActive();
   730              const worker_events_pending = if (comptime @hasField(@TypeOf(snapshot), "pending_event_count"))
@@ -1506,6 +1543,51 @@
   221          queued_rows,
   222      ));
   223  }
+
+## src/ui/approval_screen.zig:447-449
+  447  fn approvalCommand(request: anytype) ?[]const u8 {
+  448      return approval_ui.commandTargetForApproval(request.label, request.command);
+  449  }
+
+## src/core/app/app_render_runtime.zig:1160-1180
+ 1160              const approval = app.approval_prompt.projection();
+ 1161              if (approval) |projection| {
+ 1162                  const approval_screen_active = try approval_screen.needsScreen(
+ 1163                      app.alloc,
+ 1164                      projection.request,
+ 1165                      app.shell.layout,
+ 1166                      queued_rows,
+ 1167                  );
+ 1168                  if (app.terminal.catalogMenuScreenActive()) {
+ 1169                      try app_lifecycle.leaveCatalogMenuScreen(&app.terminal, &app.shell, &app.metrics);
+ 1170                      if (!approval_screen_active) try requestNormalViewportRecovery(app);
+ 1171                  }
+ 1172                  switch (try app_lifecycle.transitionFullTranscriptForApproval(
+ 1173                      app.alloc,
+ 1174                      &app.terminal,
+ 1175                      &app.shell,
+ 1176                      &app.metrics,
+ 1177                      approval_screen_active,
+ 1178                  )) {
+ 1179                      .inactive, .handed_off => {},
+ 1180                      .closed => {
+
+## src/core/agent/worker_runtime.zig:777-791
+  777      pub fn cancelApprovalTurn(self: *WorkerRuntime) void {
+  778          self.worker_mutex.lockUncancelable(io_mod.getIo());
+  779          defer self.worker_mutex.unlock(io_mod.getIo());
+  780  
+  781          self.steering_cancel_turn_id = null;
+  782          self.worker_cancel_requested.store(true, .seq_cst);
+  783          self.stopCompactionActivityLocked();
+  784          _ = self.resolvePendingPermissionLocked(
+  785              permission_request.OwnedPermissionResponse.init(
+  786                  std.heap.c_allocator,
+  787                  .deny,
+  788                  null,
+  789              ),
+  790          );
+  791      }
 
 ## src/ui/footer/approval_ui.zig:1688-1748
  1688  fn approvalChoiceLabel(approval: ApprovalProjection, choice: u8) []const u8 {

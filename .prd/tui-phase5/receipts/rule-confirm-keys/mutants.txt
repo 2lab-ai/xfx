@@ -1,13 +1,16 @@
-# TMPDIR=<tmp> suite-lock.sh python3 -I mutants.py <tmp>/mut/repo mutants.txt -- at 071b26e0, a fresh git clone --no-local of the branch (remote removed) under <tmp>/mut/, one mutant at a time, its files restored after each, under the suite lock
-M1 C-j swallowed at a rule confirmation: KILLED (46s) 1 failed: tui::shell::tests::ctrl_j_at_a_rule_confirmation_answers_as_enter_does_on_either_choice
-M2 Ctrl-C swallowed at a rule confirmation: KILLED (11s) 2 failed: tui::rule_confirm::tests::the_keys_are_the_approvals_over_two_choices, tui::shell::tests::ctrl_c_at_a_rule_confirmation_cancels_it_and_arms_no_exit
-M3 Tab moves nothing: KILLED (6s) 2 failed: tui::rule_confirm::tests::the_keys_are_the_approvals_over_two_choices, tui::shell::tests::tab_and_the_horizontal_keys_move_a_rule_confirmations_mark_wrapping
-M4 Left, Right, Alt-b and Alt-f move nothing: KILLED (16s) 1 failed: tui::shell::tests::tab_and_the_horizontal_keys_move_a_rule_confirmations_mark_wrapping
-M5 C-p and C-n move the mark again: KILLED (11s) 1 failed: tui::shell::tests::keys_fx_reads_as_nothing_leave_a_rule_confirmation_as_it_was
-M6 the folded event again (Shift-, Ctrl-, Alt-, Super-Up and -Down move): KILLED (9s) 2 failed: tui::shell::tests::tab_and_the_horizontal_keys_move_a_rule_confirmations_mark_wrapping, tui::shell::tests::keys_fx_reads_as_nothing_leave_a_rule_confirmation_as_it_was
-M7 Ctrl-L repaints again: KILLED (9s) 1 failed: tui::shell::tests::keys_fx_reads_as_nothing_leave_a_rule_confirmation_as_it_was
-M8 Escape stops nothing over a running turn: KILLED (9s) 1 failed: tui::shell::tests::escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn
-M9 Escape stops a turn whether or not one runs: KILLED (6s) 1 failed: tui::shell::tests::escape_closes_the_confirmation_silently_and_two_says_cancelled
-M10 an activity row under a rule confirmation again: KILLED (6s) 1 failed: tui::shell::tests::escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn
-M11 Escape's stop writes the turn's cancellation row: KILLED (6s) 1 failed: tui::shell::tests::escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn
-11 of 11 killed; the clone's tree after the run: clean
+# TMPDIR=<tmp> suite-lock.sh python3 -I mutants.py <tmp>/mut/repo mutants.txt -- at 7e2e177d (code as at e13010e6), a fresh git clone --no-local of the branch (remote removed) under <tmp>/mut/, one mutant at a time, its files restored after each, under the suite lock
+M1 C-j swallowed at a rule confirmation: KILLED (45s) 1 failed: tui::shell::tests::ctrl_j_at_a_rule_confirmation_answers_as_enter_does_on_either_choice
+M2 Ctrl-C swallowed at a rule confirmation: KILLED (12s) 2 failed: tui::rule_confirm::tests::the_keys_are_the_approvals_over_two_choices, tui::shell::tests::ctrl_c_at_a_rule_confirmation_cancels_it_and_arms_no_exit
+M3 Tab moves nothing: KILLED (8s) 2 failed: tui::rule_confirm::tests::the_keys_are_the_approvals_over_two_choices, tui::shell::tests::tab_and_the_horizontal_keys_move_a_rule_confirmations_mark_wrapping
+M4 Left, Right, Alt-b and Alt-f move nothing: KILLED (12s) 1 failed: tui::shell::tests::tab_and_the_horizontal_keys_move_a_rule_confirmations_mark_wrapping
+M5 C-p and C-n move the mark again: KILLED (12s) 1 failed: tui::shell::tests::keys_fx_reads_as_nothing_leave_a_rule_confirmation_as_it_was
+M6 the folded event again (Shift-, Ctrl-, Alt-, Super-Up and -Down move): KILLED (11s) 2 failed: tui::shell::tests::tab_and_the_horizontal_keys_move_a_rule_confirmations_mark_wrapping, tui::shell::tests::keys_fx_reads_as_nothing_leave_a_rule_confirmation_as_it_was
+M7 Ctrl-L repaints again: KILLED (12s) 1 failed: tui::shell::tests::keys_fx_reads_as_nothing_leave_a_rule_confirmation_as_it_was
+M8 Escape stops nothing over a running turn: KILLED (13s) 3 failed: tui::shell::tests::escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn, tui::shell::tests::escape_at_a_rule_confirmation_over_a_manual_compaction_stops_it, tui::shell::tests::escape_at_a_rule_confirmation_asks_no_second_stop_and_stops_work_typed_since
+M9 Escape stops a turn whether or not one runs: KILLED (7s) 1 failed: tui::shell::tests::escape_closes_the_confirmation_silently_and_two_says_cancelled
+M10 an activity row under a rule confirmation again: KILLED (9s) 2 failed: tui::shell::tests::escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn, tui::shell::tests::the_turns_clock_stops_while_a_rule_confirmation_is_up_over_it
+M11 Escape's stop writes the turn's cancellation row: KILLED (8s) 1 failed: tui::shell::tests::escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn
+M12 Escape stops a running turn only, not a compaction: KILLED (9s) 2 failed: tui::shell::tests::escape_at_a_rule_confirmation_over_a_manual_compaction_stops_it, tui::shell::tests::escape_at_a_rule_confirmation_asks_no_second_stop_and_stops_work_typed_since
+M13 Escape asks a second stop while one is requested: KILLED (11s) 1 failed: tui::shell::tests::escape_at_a_rule_confirmation_asks_no_second_stop_and_stops_work_typed_since
+M14 Escape stops no work typed since an earlier stop: KILLED (15s) 1 failed: tui::shell::tests::escape_at_a_rule_confirmation_asks_no_second_stop_and_stops_work_typed_since
+14 of 14 killed; the clone's tree after the run: clean

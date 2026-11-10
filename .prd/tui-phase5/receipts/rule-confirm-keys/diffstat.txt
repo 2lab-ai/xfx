@@ -1,7 +1,7 @@
-# git diff --stat 1a0adaec 071b26e0 -- src tests; then, per file, the added and removed lines in hunks that start above its `mod tests {` (git diff -U0)
- src/tui/rule_confirm.rs |  74 ++++----
- src/tui/shell.rs        | 470 ++++++++++++++++++++++++++++++++++++++----------
- 2 files changed, 412 insertions(+), 132 deletions(-)
-src/tui/shell.rs (mod tests at 16719): outside tests +130/-99
+# git diff --stat 1a0adaec e13010e6 -- src tests; then, per file, the added and removed lines in hunks that start above its `mod tests {` (git diff -U0)
+ src/tui/rule_confirm.rs |  74 +++---
+ src/tui/shell.rs        | 606 ++++++++++++++++++++++++++++++++++++++++--------
+ 2 files changed, 547 insertions(+), 133 deletions(-)
+src/tui/shell.rs (mod tests at 16734): outside tests +146/-100
 src/tui/rule_confirm.rs (mod tests at 214): outside tests +26/-24
-# #[test] added / removed: 5 / 0 (rule_confirm.rs's key test renamed in place)
+# #[test] added / removed: 8 / 0 (rule_confirm.rs's key test renamed in place)

@@ -1,4 +1,4 @@
-# python3 -I scope.py xfx   (the code head 071b26e0 against fx v0.0.16)
+# python3 -I scope.py xfx   (the code head e13010e6 against fx v0.0.16; xfx/ is the round-2 head sweep's own captures of the three scenarios)
 SAME     p5-rule-confirm-keys alt-b                   (15 rows compared)
 SAME     p5-rule-confirm-keys alt-f                   (15 rows compared)
 SAME     p5-rule-confirm-keys ctrl-c                  (11 rows compared)

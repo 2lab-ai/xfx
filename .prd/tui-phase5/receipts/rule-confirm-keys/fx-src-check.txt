@@ -1,2 +1,2 @@
 # { git diff 1a0adaec -- src tests scripts/fxcap/scenarios | python3 -I added.py; grep -o (the two parity sentences, as fx_src.sh's header says) docs/parity.md; } | fx_src.sh <fx-upstream>   (from the repo root, at the receipt's commit; README.md is read too)
-107 citations checked, 0 outside fx-src.txt's ranges
+129 citations checked, 0 outside fx-src.txt's ranges

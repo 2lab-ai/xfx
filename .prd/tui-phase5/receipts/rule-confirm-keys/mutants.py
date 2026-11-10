@@ -5,8 +5,9 @@ fails. Never run against the worktree: the clone must sit under
 `$TMPDIR/mut/`, and its build and temp files go beside it there.
 APPROVAL-CTRL-J's mutants.py, with this unit's mutants: one per key the unit
 changes at a rule confirmation (M1-M7), Escape's stop over a running turn
-and only over one (M8, M9), the activity row under the confirmation (M10)
-and the stop's silence (M11)."""
+and only over one (M8, M9), the activity row under the confirmation (M10),
+the stop's silence (M11), and round 2's: the compaction half (M12), the
+guard against a second stop (M13), work typed since a stop (M14)."""
 import os, subprocess, sys, time
 repo, out = sys.argv[1], sys.argv[2]
 mut = os.path.join(os.environ["TMPDIR"].rstrip("/"), "mut")
@@ -22,7 +23,8 @@ def before(guard):
 MOVE = "            Action::Up | Action::Down | Action::Tab => {\n"
 CANCEL = "            Action::Submit | Action::Cancel => Reply::Cancel,\n"
 STOP = ("                if self.activity.working() || self.compacting() {\n"
-        "                    if !self.stop_requested || self.work_typed_since_the_stop() {\n")
+        "                    if self.stop_owed() {\n")
+OWED = "        !self.stop_requested || self.work_typed_since_the_stop()\n"
 MODAL = "        self.asking() || self.ask.is_some() || self.rule_confirm.is_some()\n"
 SILENT = "                        self.cancel_turn_with(true);\n"
 ROUTE = ("            if self.rule_confirm.is_some() {\n"
@@ -65,6 +67,15 @@ MUTANTS = [
     ]),
     ("M11 Escape's stop writes the turn's cancellation row", [
         (S, SILENT, SILENT.replace("true", "false")),
+    ]),
+    ("M12 Escape stops a running turn only, not a compaction", [
+        (S, STOP, STOP.replace("self.activity.working() || self.compacting()", "self.activity.working()")),
+    ]),
+    ("M13 Escape asks a second stop while one is requested", [
+        (S, STOP, STOP.replace("if self.stop_owed() {", "if true {")),
+    ]),
+    ("M14 Escape stops no work typed since an earlier stop", [
+        (S, STOP, STOP.replace("if self.stop_owed() {", "if !self.stop_requested {")),
     ]),
 ]
 TESTS = [

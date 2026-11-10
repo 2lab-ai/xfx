@@ -1,9 +1,9 @@
 # fx parity sweep
 
 - fx: pin `v0.0.16` (fx 0.0.16), sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked before and after the run
-- xfx: `x𝒇x v0.1.0-071b26e [debug] · Run /help for commands`, sha256 `165d54530fb4b8541d6e913d815e5ec3497226ba0bf446c07fb1c5e6e521f1ea`
-- size 40x120, `--jobs 4`, 30 scenarios -- **PARTIAL**: `--only approvals* p5-approval* p5-input-approval* permissions* p5-permissions* p5-panels-perm* allowlist* rules-* settings-perm p5-rule-confirm*`, wall 5m10s, load 16.9 at the start and 37.3 at the peak (1-minute average, sampled every 5 s)
-- ledger sha256 `a81acdd9520235df283707245a3e9ef38d553dacdffc6e8a86f35f8a7bddbdce`: 14 normalizations; 19 divergences approved for this pin
+- xfx: `x𝒇x v0.1.0-e13010e [debug] · Run /help for commands`, sha256 `9fba49c4cfc27decdec0b09ad4beeadb302b0597280b67a2b72d42c8de17209c`
+- size 40x120, `--jobs 4`, 30 scenarios -- **PARTIAL**: `--only approvals* p5-approval* p5-input-approval* permissions* p5-permissions* p5-panels-perm* allowlist* rules-* settings-perm p5-rule-confirm*`, wall 5m06s, load 52.4 at the start and 55.9 at the peak (1-minute average, sampled every 5 s)
+- ledger sha256 `1669c2831070c5941b6e44953764d0f2be3a6d7e9506da75a52e31419fee32cc`: 14 normalizations; 19 divergences approved for this pin
 
 ## Coverage
 
@@ -14,11 +14,11 @@ Tokens typed as commands that are no command of this inventory (aliases, partial
 
 Scenarios: 30 -- ran 30, failed 0, timeout 0.
 
-**pass = 108 / 238 = 45.4%**
+**pass = 110 / 238 = 46.2%**
 
 | total | ran | identical | normalized-identical | approved-divergence | approved-divergence-cascade | replaced-in-next-pin | unresolved-defect | failed | timeout |
 |---|---|---|---|---|---|---|---|---|---|
-| 238 | 238 | 3 | 105 | 1 | 4 | 0 | 125 | 0 | 0 |
+| 238 | 238 | 3 | 107 | 1 | 4 | 0 | 123 | 0 | 0 |
 
 The unit is the snap pair: one `snap` or `snapfull` label of a scenario, read from its .cap file, so a scenario that failed or timed out counts every snap it would have taken. pass = (identical + normalized-identical) / total. approved-divergence-cascade is a pair that differs by position beyond its approved rows (a row they pushed down) and whose every row left without a match, the two sides aligned as sequences, is approved; the positional diff stays in the raw output.
 
@@ -31,7 +31,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | allowlist | 5 | 25 | 25 | 0 | 23 | 0 | 0 | 0 | 2 | 0 | 0 | 92.0% |
 | approvals | 3 | 18 | 18 | 0 | 2 | 0 | 0 | 0 | 16 | 0 | 0 | 11.1% |
 | p | 14 | 152 | 152 | 2 | 50 | 1 | 4 | 0 | 95 | 0 | 0 | 34.2% |
-| permissions | 3 | 20 | 20 | 0 | 17 | 0 | 0 | 0 | 3 | 0 | 0 | 85.0% |
+| permissions | 3 | 20 | 20 | 0 | 19 | 0 | 0 | 0 | 1 | 0 | 0 | 95.0% |
 | rules | 4 | 19 | 19 | 1 | 12 | 0 | 0 | 0 | 6 | 0 | 0 | 68.4% |
 | settings | 1 | 4 | 4 | 0 | 1 | 0 | 0 | 0 | 3 | 0 | 0 | 25.0% |
 
@@ -65,7 +65,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | `/settings` | 1 | 4 | 4 | 0 | 1 | 0 | 0 | 0 | 3 | 0 | 0 | 25.0% |
 | `/statusline` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `/sound` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
-| `/permissions` | 13 | 102 | 102 | 3 | 81 | 1 | 1 | 0 | 16 | 0 | 0 | 82.4% |
+| `/permissions` | 13 | 102 | 102 | 3 | 83 | 1 | 1 | 0 | 14 | 0 | 0 | 84.3% |
 | `/allowlist` | 6 | 40 | 40 | 2 | 32 | 0 | 1 | 0 | 5 | 0 | 0 | 85.0% |
 | `/workspace` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `/shell` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
@@ -82,7 +82,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | `help: enter open` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `help: esc close` | **none** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% |
 | `slash: ↑↓ navigate` | 3 | 33 | 33 | 2 | 24 | 0 | 1 | 0 | 6 | 0 | 0 | 78.8% |
-| `slash: enter use` | 19 | 127 | 127 | 3 | 97 | 1 | 4 | 0 | 22 | 0 | 0 | 78.7% |
+| `slash: enter use` | 19 | 127 | 127 | 3 | 99 | 1 | 4 | 0 | 20 | 0 | 0 | 80.3% |
 | `slash: esc close` | 9 | 79 | 79 | 2 | 65 | 0 | 1 | 0 | 11 | 0 | 0 | 84.8% |
 
 ## By scenario
@@ -112,7 +112,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | p5-rule-confirm-keys-cmd | ran | 4 | 4 | 0 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
 | p5-rule-confirm-keys-turn | ran | 3 | 3 | 0 | 1 | 0 | 0 | 0 | 2 | 0 | 0 | 33.3% | esc row 4: `┃` / (blank) (aligned: 1/1 rows unmatched) |
 | permissions | ran | 9 | 9 | 0 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
-| permissions-btab | ran | 7 | 7 | 0 | 5 | 0 | 0 | 0 | 2 | 0 | 0 | 71.4% | btab-auto row 5: `ask · model-a` / `auto · model-a` (aligned: 1/1 rows unmatched) |
+| permissions-btab | ran | 7 | 7 | 0 | 7 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
 | permissions-midturn | ran | 4 | 4 | 0 | 3 | 0 | 0 | 0 | 1 | 0 | 0 | 75.0% | second-asks row 16: `    2  Apply + allow workspace file access for th…` / `    2  Apply + allow future writes to this file f…` (aligned: 3/3 rows unmatched) |
 | rules-hidden | ran | 2 | 2 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
 | rules-hidden-all | ran | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
@@ -122,7 +122,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 
 ## Causes of the unresolved snaps
 
-125 unresolved snaps; a snap counts under every cause of one of its rows (`only`: that cause alone).
+123 unresolved snaps; a snap counts under every cause of one of its rows (`only`: that cause alone).
 Kinds: a = awaiting a user decision, b = a unit in flight, c = the capture (nondeterminism, or the scenario script), d = a defect.
 
 | cause | kind | snaps | only | what | owner |
@@ -130,18 +130,16 @@ Kinds: a = awaiting a user decision, b = a unit in flight, c = the capture (nond
 | approval-grant-scope | a | 106 | 91 | `What an 'always' answer grants is a security choice: fx grants workspace file access for …` | `user decision approval grant scope (not yet on the program's decision list)` |
 | tool-schema | d | 14 | 4 | `fx's command tool is 'shell' ('action: run', per-call 'timeout_ms', run in the user's she…` | `unowned (decision needed? C8 runs commands in the login shell but keeps the header) -- xfx src/tui/approval_view.rs:685; src/permission/sla…` |
 | sound-max | d | 3 | 3 | `fx's sound has a third level, 'max'; xfx's (the terminal bell) has none: Sound level is '…` | `unowned -- xfx src/sound.rs:37; src/tui/settings.rs:361 / fx src/core/config/settings_catalog.zig:280@c1db9191; src/core/app/app_commands.z…` |
-| amendment-card-after-stop | b+d | 2 | 2 | `A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes…` | `AMEND-CARD-ROW the blank row xfx keeps under an approval's amendment card that ends the document -- xfx src/tui/shell.rs:10428 / fx src/cor…` |
-| rule-confirm-card-after-stop | b | 2 | 2 | `A user-visible row, 'amendment-card-after-stop''s class. Escape at a rule confirmation ov…` | `AMEND-CARD-ROW the blank row xfx keeps under a card that ends the document` |
+| amendment-card-after-stop | b+d | 2 | 2 | `A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes…` | `AMEND-CARD-ROW the blank row xfx keeps under an approval's amendment card that ends the document -- xfx src/tui/shell.rs:10435 / fx src/cor…` |
+| rule-confirm-card-after-stop | b+d | 2 | 2 | `A user-visible row, 'amendment-card-after-stop''s class. Escape at a rule confirmation ov…` | `AMEND-CARD-ROW the blank row xfx keeps under a card that ends the document -- xfx src/tui/shell.rs:1840 / fx src/core/app/app_worker_runtim…` |
 | approval-scroll | d | 2 | 0 | `A long review scrolls with the mouse wheel in fx and Ctrl-P/Ctrl-N in xfx, which asks for…` | `unowned -- xfx src/tui/approval_view.rs:106 / fx src/ui/approval_screen.zig:564@c1db9191` |
 | allowlist-band | d | 2 | 2 | `Once /allowlist's notices fill the screen fx's band stands three rows above the bottom an…` | `unowned (not traced to the line) -- xfx src/tui/layout.rs:91 / fx src/ui/render_engine/footer_layout.zig:39-60@c1db9191` |
 | approval-settled-every-approval | a | 1 | 1 | `fx v0.0.16 holds an affirmative back while a modal frame is pending only at a file approv…` | `user decision approval readiness scope (the dispatcher's interim choice, 2026-11-10)` |
 
-Rows no cause covers (9 snaps):
+Rows no cause covers (7 snaps):
 - `p5-input-approval/cmd-ask` fx row 5: `● 1 tool call · 1 command`
 - `p5-input-approval/edit-ask` fx row 5: `● 1 tool call · 1 command`
 - `p5-input-approval/after` fx row 5: `● 2 tool calls · 1 edit · 1 command`
-- `permissions-btab/btab-auto` fx row 5: `ask · model-a`
-- `permissions-btab/btab-full-again` fx row 5: `ask · model-a`
 - `rules-read/ask` xfx row 19: `  <session-id>' of this saved session`
 - `rules-read/ask2` xfx row 28: `  <session-id>' of this saved session`
 - `rules-read/listed` xfx row 1: `└ Read secret.txt`

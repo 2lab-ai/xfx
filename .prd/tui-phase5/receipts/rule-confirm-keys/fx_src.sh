@@ -48,11 +48,14 @@ ranges=(
   src/core/app/input_submit_runtime.zig:715-729
   src/core/app/app_commands.zig:598-750
   src/core/app/app_worker_runtime.zig:680-690
-  src/core/app/app_worker_runtime.zig:728-760
+  src/core/app/app_worker_runtime.zig:691-760
   src/core/permissions/approval_prompt.zig:50-56
   src/core/permissions/approval_prompt.zig:94-146
   src/core/permissions/approval_decision.zig:53-247
   src/ui/approval_screen.zig:208-223
+  src/ui/approval_screen.zig:447-449
+  src/core/app/app_render_runtime.zig:1160-1180
+  src/core/agent/worker_runtime.zig:777-791
   src/ui/footer/approval_ui.zig:1688-1748
   src/ui/footer/approval_ui.zig:1841-1852
 )

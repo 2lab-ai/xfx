@@ -1,4 +1,47 @@
-# the brief's gate at the code head 071b26e0 under the suite lock, TMPDIR=<tmp>/gate (the receipt untracked in the working tree; docs/parity.md and the ledger edited, uncommitted, outside src/ and tests/)
+# round 2: the brief's gate at 7e2e177d (code as at the code head e13010e6) under the suite lock, TMPDIR=<tmp>/gate, the receipt edited and uncommitted outside src/ and tests/; each test step's 15 raw result lines, then their sum
+fmt: exit 0
+clippy: exit 0
+clippy-fi: exit 0
+test: exit 0
+  test result: ok. 4662 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 63.54s
+  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+  test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+  test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.95s
+  test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.79s
+  test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.14s
+  test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.10s
+  test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.48s
+  test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.32s
+  test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.00s
+  test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.88s
+  test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+  test result: ok. 186 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.66s
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+  15 result lines: 5584 passed, 0 failed, 7 ignored
+test-fi: exit 0
+  test result: ok. 4685 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 57.49s
+  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+  test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.05s
+  test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.04s
+  test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.08s
+  test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.79s
+  test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.11s
+  test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.68s
+  test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.51s
+  test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+  test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.81s
+  test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.80s
+  test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+  test result: ok. 200 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.31s
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+  15 result lines: 5621 passed, 0 failed, 7 ignored
+identity: exit 0
+stubs: exit 0
+secrets: exit 0
+src/tests unchanged after: 0 dirty paths; HEAD 7e2e177d
+
+# round 1, at 071b26e0 (kept for the record; its totals only)
 fmt: exit 0
 clippy: exit 0
 clippy-fi: exit 0
@@ -11,14 +54,3 @@ stubs: exit 0
 secrets: exit 0
 src/tests unchanged after: 0 dirty paths; HEAD 071b26e0
 
-# with this receipt committed (bfa9ceec); check-no-secrets.sh had also run with it staged, exit 0, 18280 tracked files
-identity: exit 0
-stubs: exit 0
-secrets: exit 0 (18280 tracked files)
-cargo test --locked --test parity: exit 0 test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured;
-
-# with the running-command round committed (d1ebdd45)
-identity: exit 0
-stubs: exit 0
-secrets: exit 0 (18305 tracked files)
-cargo test --locked --test parity: exit 0 test result: ok. 26 passed; 0 failed
