@@ -671,14 +671,9 @@ why = "fx v0.0.16 hands each replayed `ask_user_question` call its saved detail 
 # (train 12, main) capture.sh writes it as a placeholder as wide as the path (`<scratch___>`, scripts/fxcap/roots.py),
 # which neither row can match: the cause covered nothing (.prd/tui-phase5/receipts/train-14/README.md, "The ledger").
 
-[[cause]]
-id = "at-ranking-anchor"
-kind = "unit"
-owner = "I-U2 @ fzf-style ranking (input cluster I3), not yet a branch"
-scenarios = ["p5-page-keys-anchor"]
-snaps = ["file-one"]
-rows = ["7-10"]
-why = "`at-ranking` on PAGE-KEYS-SETTINGS-COLUMN round 3's anchor scenario, an entry of its own so neither entry's scenarios and snaps cross the other's: `@a-fi` over the skills' long names lists the same rows and text on both sides; both bold `a-fi`, fx's `a` and `-` later on the row than xfx's, and fx bolds the `I` of `SKILL.md` where xfx bolds nothing. fx rebuilds the highlight from the placement that set the rank (see `at-ranking`) (.prd/tui-phase5/receipts/page-keys-settings-column/README.md)."
+# at-ranking-anchor (PAGE-KEYS-SETTINGS-COLUMN's `at-ranking` on `p5-page-keys-anchor` / file-one) was deleted by
+# train 14: AT-RANK closed its owner, I-U2, and the snap is normalized-identical at train 14's head at 24x60 and
+# 40x120 with no cause (.prd/tui-phase5/receipts/train-14/README.md, "The ledger").
 
 [[cause]]
 id = "at-resize-band-at-the-bottom"
