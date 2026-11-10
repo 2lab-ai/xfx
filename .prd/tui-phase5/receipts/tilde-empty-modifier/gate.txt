@@ -57,4 +57,4 @@ check-no-stubs: ok
 check-no-secrets: ok (20178 tracked file(s) scanned)
 check-no-local-paths: ok (20178 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
 
-# A first run at ba6529b4 failed one test (tests/parity.rs, the identity check): captures.txt named the reference binary's folder with a placeholder holding the retired product name. Fixed in the receipt commit (now 0ed9a69f); that run was stopped and this one is the gate.
+# A first run, at the receipt commit before captures.txt's placeholder was fixed (that commit is not on the branch; the fix is folded into 0ed9a69f), failed one test (tests/parity.rs, the identity check): captures.txt named the reference binary's folder with a placeholder holding the retired product name. That run was stopped; this one is the gate.
