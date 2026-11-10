@@ -26,6 +26,9 @@ ranges=(
   # third field).
   src/ui/input/escape_parser.zig:19-23
   src/ui/input/escape_parser.zig:56-71
+  # Round 2: the modified arrows, every one a composer move (the held-arrow
+  # gap recorded for MODIFIED-ARROWS-SCREENS).
+  src/ui/input/escape_parser.zig:73-108
   src/ui/input/escape_parser.zig:116-119
   src/ui/input/escape_parser.zig:169-173
   src/ui/input/escape_parser.zig:175-180
@@ -43,16 +46,20 @@ ranges=(
   # auth entry, the question, the approval, the compact menus, the composer's
   # move (the lists it pages first, then the caret).
   src/core/app/input_full_transcript_runtime.zig:40-71
-  src/core/app/input_full_transcript_runtime.zig:156-198
+  src/core/app/input_full_transcript_runtime.zig:147-198
   src/core/app/app_auth_runtime.zig:730-743
   src/core/app/input_question_runtime.zig:139-201
   src/core/app/input_approval_runtime.zig:71-130
   src/core/app/app_input_runtime.zig:244-330
+  # Round 2: a raw byte's route, past the full transcript's byte keys.
+  src/core/app/app_input_runtime.zig:840-894
   src/core/app/app_input_runtime.zig:895-1091
   src/core/app/app_input_runtime.zig:2223-2266
   src/core/app/input_completion_runtime.zig:211-292
   src/core/app/input_completion_runtime.zig:395-422
   src/core/app/input_completion_runtime.zig:465-483
+  # Round 2: the composer's row cap, a page's size.
+  src/ui/footer/input_presentation.zig:252-255
 )
 {
   echo "# fx v0.0.16 ($pin), every line this receipt cites, as git show $pin:<path> prints it, numbered."

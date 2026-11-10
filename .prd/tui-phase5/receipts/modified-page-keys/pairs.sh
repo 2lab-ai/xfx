@@ -10,7 +10,7 @@
 #    and a session record fx draws taller (the ledger's full-transcript-shift),
 #    so across the sides they differ before any key: for them the claim is
 #    that a held page key adds no row to that difference, which the hashes and
-#    the differing-row lists of `full` and `full-*-ctrl-pgup` say together.
+#    the differing-row lists of `full` and of each held-key snap say together.
 #
 # usage: pairs.sh <red|xfx>
 set -euo pipefail
@@ -18,7 +18,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 side=${1:?usage: pairs.sh <red|xfx>}
 cells=$here/../../../tui-phase4/receipts/m1/cells.py
 name=p5-modified-page-keys-40x120
-labels=(answered draft full full-ctrl-pgup full-kp-ctrl-pgup full-pgup closed typed)
+labels=(answered draft full full-ctrl-pgup full-pgup closed typed full2 full2-kp-ctrl-pgdn typed2)
 same=0 total=0
 echo "## fx against $side, cell by cell (cells.py, row 1 left out)"
 for label in "${labels[@]}"; do
@@ -43,11 +43,13 @@ for s in fx "$side"; do
   done
 done
 echo
-echo "## the composer rows of typed, each side (X is where the caret was)"
+echo "## the composer rows of typed and typed2, each side (X and Y are where the caret was)"
 for s in fx "$side"; do
   prefix=$s
   [[ $s == red ]] && prefix=xfx
-  printf '%-4s %s\n' "$s" "$(grep '┃' "$here/$s/$prefix-$name-typed.txt" | tr '\n' '|')"
+  for label in typed typed2; do
+    printf '%-4s %-7s %s\n' "$s" "$label" "$(grep '┃' "$here/$s/$prefix-$name-$label.txt" | tr '\n' '|')"
+  done
 done
 echo
 # The banner is on screen only once the bare PgUp has paged to the head.

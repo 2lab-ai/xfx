@@ -25,6 +25,44 @@
    70      } } };
    71  }
 
+## src/ui/input/escape_parser.zig:73-108
+   73  fn modifiedArrowAction(byte: u8, modifiers: u16, meta_prefixed: bool) ?InputEscapeAction {
+   74      if ((modifiers & super_modifier) != 0) return switch (byte) {
+   75          'A' => composerMove(.draft_start, modifiers),
+   76          'B' => composerMove(.draft_end, modifiers),
+   77          'C' => composerMove(.line_end, modifiers),
+   78          'D' => composerMove(.line_start, modifiers),
+   79          'H' => composerMove(.draft_start, modifiers),
+   80          'F' => composerMove(.draft_end, modifiers),
+   81          else => null,
+   82      };
+   83      if (meta_prefixed or (modifiers & alt_modifier) != 0) return switch (byte) {
+   84          'A' => composerMove(.paragraph_up, modifiers),
+   85          'B' => composerMove(.paragraph_down, modifiers),
+   86          'C' => composerMove(.word_right, modifiers),
+   87          'D' => composerMove(.word_left, modifiers),
+   88          else => null,
+   89      };
+   90      if ((modifiers & ctrl_modifier) != 0) return switch (byte) {
+   91          'C' => composerMove(.word_right, modifiers),
+   92          'D' => composerMove(.word_left, modifiers),
+   93          'A' => composerMove(.visual_up, modifiers),
+   94          'B' => composerMove(.visual_down, modifiers),
+   95          'H' => composerMove(.draft_start, modifiers),
+   96          'F' => composerMove(.draft_end, modifiers),
+   97          else => null,
+   98      };
+   99      if ((modifiers & shift_modifier) != 0) return switch (byte) {
+  100          'A' => composerMove(.visual_up, modifiers),
+  101          'B' => composerMove(.visual_down, modifiers),
+  102          'C' => composerMove(.character_right, modifiers),
+  103          'D' => composerMove(.character_left, modifiers),
+  104          'H' => composerMove(.line_start, modifiers),
+  105          'F' => composerMove(.line_end, modifiers),
+  106          else => null,
+  107      };
+  108      return null;
+
 ## src/ui/input/escape_parser.zig:116-119
   116  // A keypad key must behave as its non-keypad equivalent, so each keypad code is
   117  // translated to the main-row character or navigation letter and resolved with
@@ -517,7 +555,16 @@
    70              };
    71          }
 
-## src/core/app/input_full_transcript_runtime.zig:156-198
+## src/core/app/input_full_transcript_runtime.zig:147-198
+  147          fn keyForByte(byte: u8) ?FullTranscriptKey {
+  148              return switch (byte) {
+  149                  3 => .interrupt,
+  150                  12 => .redraw,
+  151                  24 => null,
+  152                  else => null,
+  153              };
+  154          }
+  155  
   156          fn keyForAction(resolved: input_action.Action) ?FullTranscriptKey {
   157              return switch (resolved) {
   158                  .toggle_full_transcript => .toggle,
@@ -793,6 +840,63 @@
   328                          },
   329                      }
   330                      app.shell.render_requests.request(.footer);
+
+## src/core/app/app_input_runtime.zig:840-894
+  840          fn handleRawTerminalInputWithLimits(
+  841              app: *App,
+  842              raw: input_action.RawTerminalInput,
+  843              input_limits: paste_framing.InputLimits,
+  844              max_prompt_history: usize,
+  845          ) !void {
+  846              const byte = raw.byte;
+  847              const max_input_len = input_limits.composer_bytes;
+  848              // Fire the max-level cue only when the slash menu becomes visible.
+  849              const slash_menu_was_visible = slashMenuVisibleForCue(app);
+  850              defer announceSlashMenuOpened(app, slash_menu_was_visible);
+  851              if (try routeActivePasteByte(app, byte)) return;
+  852  
+  853              if (byte != 3 and byte != 0x1b) disarmCtrlCExit(app, "raw_input");
+  854  
+  855              // Non-escape input disarms the pending double-Escape clear.
+  856              if (byte != 0x1b) {
+  857                  if (disarmEscapeClear(app)) {
+  858                      app.shell.render_requests.request(.footer);
+  859                  }
+  860                  _ = disarmEscapeInterrupt(app, "raw_input");
+  861              }
+  862  
+  863              // Ctrl-Z arrives as raw byte 26 (ISIG disabled); kitty remaps here too.
+  864              if (byte == 26) {
+  865                  try app.suspendToJobControl();
+  866                  return;
+  867              }
+  868  
+  869              if (comptime runtime_profile.allows(App, .native_auth)) {
+  870                  if (try app_auth_runtime.Runtime(App).routeAuthPickerByte(app, byte)) return;
+  871              }
+  872              if (try full_transcript_rt.routeByte(app, byte)) return;
+  873              if (try routeActiveModalInput(app, raw, input_limits.decision_bytes)) return;
+  874              if (byte >= 0x80) {
+  875                  try handleTextByte(app, .composer, byte, max_input_len);
+  876                  return;
+  877              }
+  878              if (try routeUpgradeShortcut(app, byte)) return;
+  879              if (try routePickerControlByte(app, byte)) return;
+  880  
+  881              if (isComposerEditingByte(byte, raw.composer_shortcut) and
+  882                  !activeCatalogMenuOwnsByte(app, byte) and
+  883                  dismissActiveMenusForComposerEdit(app))
+  884              {
+  885                  app.shell.render_requests.request(.footer);
+  886              }
+  887              try handleComposerByte(
+  888                  app,
+  889                  byte,
+  890                  raw.composer_shortcut,
+  891                  max_input_len,
+  892                  max_prompt_history,
+  893              );
+  894          }
 
 ## src/core/app/app_input_runtime.zig:895-1091
   895  
@@ -1173,3 +1277,9 @@
   481                  visible_items,
   482              );
   483          }
+
+## src/ui/footer/input_presentation.zig:252-255
+  252  pub fn inputRowLimit(content_bottom: u16) usize {
+  253      const max_extra: usize = if (content_bottom > 4) content_bottom / 2 else 0;
+  254      return max_extra + 1;
+  255  }

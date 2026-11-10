@@ -1,4 +1,4 @@
-  2026-11-10 16:55:38.566 UTC · Response
+  2026-11-10 18:21:30.977 UTC · Response
   Run zig build test before you push, and read src/ui/render.zig first.
 
   Steps:
@@ -29,10 +29,10 @@
   zig build test
   ──────────────
 
-  2026-11-10 16:55:39.677 UTC · Response
+  2026-11-10 18:21:32.081 UTC · Response
   Done with everything.
 
-  2026-11-10 16:55:39.887 UTC · Usage
+  2026-11-10 18:21:32.270 UTC · Usage
   1s (↑4 ↓40)
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close

@@ -13,7 +13,9 @@ unit the owner (its README, "Left apart" 2; its `probe/frames.txt`).
 | `4c3ab703` | RED: the two variants `Action::ComposerPageUp`/`ComposerPageDown` with the arms the exhaustive matches need and **no producer and no fold**; the decoder pins of a held page key flipped; the per-surface tests; `delete(62)`/`delete(63)`; the scenario `p5-modified-page-keys` |
 | `0c10d6ee` | **the code head**: `tilde_key` and `kitty_key` make the two, `folded` folds them back, the docs of `Action::PageUp`, `tilde_key` and `kitty_key`; three test comments name the file of a bare citation (no assertion change) |
 | `60043e55` | `docs/parity.md`, the ledger's refs, this folder but its mutant, gate and citation-check records; no `src/` change. **The gate ran here** |
-| the commit after | `mutants.txt`, `gate.txt`, `green.txt`, `fx-src-check.txt`, this file's mutant and gate sections; no `src/` change |
+| `8b488ca4` | `mutants.txt`, `gate.txt`, `green.txt`, `fx-src-check.txt`, this file's mutant and gate sections; no `src/` change. Round 1's head |
+| `f5e9ea72` | **round 2's code head**: tests only (the modal drafts, the page size behind the screen) and the scenario pressing each held key on its own; no non-test change |
+| the commits after | round 2's record: `docs/parity.md` (the held-arrow gap, the `/mcp` exception), the ledger's `fulltranscript-response-header` cause, this folder (`round2.txt`); then its mutants and gate |
 
 The source change outside the test modules is +63/-19 lines over the three
 files (`git diff -U0 fab7a217 0c10d6ee -- src`, lines above each file's
@@ -49,11 +51,13 @@ only in the decoded action, and in Shift's `extend_selection`.
 | the lists (`/mcp`, `/settings`, `/help`, the model, effort, skills, resume and fork menus, the sign-in picker, the file, model and provider columns, the slash menu) | a page of the composer's row cap (`routeComposerVertical`, `input_completion_runtime.zig:215-233`, `:255-260`; `routeNonSlashPickerMove`, `:395-422`) | the same move (`app_input_runtime.zig:310-327`) |
 | the composer's caret | a page of rows, never a history step (`input_completion_runtime.zig:235-270`) | the same, and with Shift held the selection extends (`applyTargetWithSelection`, `input_completion_runtime.zig:262-268`) |
 
-**The oracle** (`fx/`, the scenario below): in fx's full transcript
-`full == full-ctrl-pgup == full-kp-ctrl-pgup` (`CSI 5;5~`, then
-`CSI 57421;5u`), the bare `CSI 5~` pages it, and after Escape an `X` typed
-lands on the draft's first row (`┃ oneX`): the two held keys moved the
-caret behind the screen up a page.
+**The oracle** (`fx/`, the scenario below), each held key on its own: in
+fx's full transcript `full == full-ctrl-pgup` (`CSI 5;5~`), the bare
+`CSI 5~` pages it, and after Escape an `X` typed lands on the draft's first
+row (`typed`, `┃ oneX`): the tilde key moved the caret behind the screen up
+a page. Then `full2 == full2-kp-ctrl-pgdn` (`CSI 57422;5u`), and a `Y`
+typed after Escape lands on the last row (`typed2`, `┃ fourY`): the keypad
+key moved it down a page.
 
 ## What xfx does now (`git diff 4c3ab703 0c10d6ee -- src`)
 
@@ -85,35 +89,43 @@ caret behind the screen up a page.
   the unit's guards: the question and approval test, the nine `at_41_rows`
   page tests with their held spellings, and the CSI-bound test with
   `delete(62)` and `delete(63)` (`red.txt`'s last block).
-- The scenario on the base's binary (`v0.1.0-fab7a21`, `red/`): `full` and
-  `full-ctrl-pgup` differ (the held key paged the screen), and `typed` is
-  `┃ fourX` where fx's is `┃ oneX`: **3 of 8** pairs identical
+- The scenario on the base's binary (`v0.1.0-fab7a21`, `red/`, round 2's
+  scenario): `full` and `full-ctrl-pgup` differ (the tilde key paged the
+  screen), `typed` is `┃ fourX` where fx's is `┃ oneX`, and `typed2` is
+  `┃ fourXY` where fx's is `┃ fourY` (the keypad key moved neither the
+  screen, already at its tail, nor the caret): **3 of 10** pairs identical
   (`red-pairs.txt`).
+- Round 2's tests over the base's code (`round2.txt`): the full-transcript
+  test, now on a sixteen-row draft, fails at its first held key, as it did;
+  the modal-draft cases pass there (each pins what the base already did).
 
 ## GREEN (`green-pairs.txt`, `green.txt`)
 
-- The scenario on the code head's binary (`v0.1.0-0c10d6e`, `xfx/`):
-  - **the four inline snaps identical**, `answered`, `draft`, `closed` and
-    `typed` (`┃ oneX` on both), cell by cell (`cells.py`, row 1 left out);
+- The scenario on round 2's code head's binary (`v0.1.0-f5e9ea7`, `xfx/`;
+  its non-test code is `0c10d6ee`'s):
+  - **the five inline snaps identical**, `answered`, `draft`, `closed`,
+    `typed` (`┃ oneX`) and `typed2` (`┃ fourY`), cell by cell (`cells.py`,
+    row 1 left out);
   - the full-transcript snaps differ across the sides before any key: each
     side's own record times, which `cells.py` does not mask, and a
     `· Response` header fx's tail page has and xfx's document does not, so
     the page stands one row apart (the sweep's 2 uncaused rows, Sweep
     below); at the head, `full-pgup` differs as the ledger's
     `session-record` cause says. So they are read within each side: on
-    both, `full == full-ctrl-pgup == full-kp-ctrl-pgup` and `full-pgup`
-    moved, and the differing-row list of each held-key snap is `full`'s
-    (rows 2-32 and 35). On the base side the held key moved the page, and
-    the list gained rows 33 and 36.
+    both, `full == full-ctrl-pgup == full2 == full2-kp-ctrl-pgdn` and
+    `full-pgup` moved, and the differing-row list of each held-key snap is
+    `full`'s (rows 2-32 and 35). On the base side the tilde key moved the
+    page, and the list gained rows 33 and 36.
 - `green.txt`: the unit's tests in the gate's run.
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
-On a `git clone --no-local` at `0c10d6ee` (its remote removed) under
-`$TMPDIR/mut/`, one at a time, the file restored after each, under the suite
-lock, each run the unit's tests (`tui::input::tests` and the shell tests
-above). **9 of 9 killed**, the clone's tree clean after the run
-(`mutants.txt`, which names the first six failing tests of each):
+On a `git clone --no-local` (its remote removed) under `$TMPDIR/mut/`, one
+at a time, the file restored after each, under the suite lock, each run the
+unit's tests (`tui::input::tests` and the shell tests above). Round 1, at
+`0c10d6ee`: **9 of 9 killed**. Round 2, at `f5e9ea72`, the nine again and
+three new: MUTANTS-R2 (`mutants.txt`, round 2's block first; each names the
+first six failing tests):
 
 | mutant | killed by |
 |---|---|
@@ -126,11 +138,16 @@ above). **9 of 9 killed**, the clone's tree clean after the run
 | M7 the fold makes a held page key the arrow | the fold table and the `at_41_rows` tests, 11 failing in all |
 | M8 the fold runs before the full transcript reads the event | the fold table, the full-transcript test |
 | M9 the full transcript pages on the held key too | the full-transcript test |
+| M10 (round 2) a question's freeform field takes a held page key as Home | M10-KILL |
+| M11 (round 2) an approval's amendment takes a held page key as Home | M11-KILL |
+| M12 (round 2) a page behind the screen is one row short of the composer's cap | M12-KILL |
 
-Not mutated: `act`'s two arms that take the held keys as the page keys. The
-fold runs before every route to `act`, so no input reaches them, as none
-reaches the arms beside them for the other kept-apart spellings; a test for
-them would have to call `act` with an event no route delivers.
+Not mutated: `act`'s two arms that take the held keys as the page keys. They
+are unreachable -- `act`'s one caller outside the tests reads the event after
+`folded` -- and they are there because `act`'s match is exhaustive and names
+every action on purpose, delegating each kept-apart spelling to the key it
+folds to, the convention its other such arms follow (`src/tui/shell.rs`,
+the comment over `Action::SelectUp | Action::ComposerUp | ...` in `act`).
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
 
@@ -209,6 +226,26 @@ ledger's `source` cites them.
   no longer named as an owner.
 - The full transcript row: the page keys are the bare ones, and a held page
   key is among the keys that go to the composer behind the screen.
+- Round 2 (opus NIT 3): the full-screen TUI row's "here as there" names
+  `/mcp`'s menu as the exception: under the full transcript it takes no key
+  here (`offer_to_mcp`, xfx's recorded choice), where fx's pages its list
+  behind the screen (`routeMcpHostMenuMove`, `input_completion_runtime.zig:396`).
+- Round 2 (opus SHOULD 1): the held-arrow gap, recorded and not fixed, owner
+  MODIFIED-ARROWS-SCREENS (queued). fx's full transcript binds the plain
+  arrows only (`keyForAction`, `input_full_transcript_runtime.zig:156-176`);
+  every Super, Alt, Ctrl and Shift arrow is a composer move
+  (`modifiedArrowAction`, `escape_parser.zig:73-108`), and Ctrl-B and Ctrl-F
+  are bytes its screen does not bind (`keyForByte`,
+  `input_full_transcript_runtime.zig:147-154`; `app_input_runtime.zig:872`),
+  so all of them move the caret behind the screen. xfx's screen reads the
+  event `unspelled`, so Ctrl-, Alt- and Super-Up and -Down scroll it, and
+  Shift- and Super-Left and -Right, Ctrl-B and Ctrl-F are held (the full
+  transcript row). xfx's question reads it `unspelled` too: at a choice
+  Ctrl-, Alt- and Super-Up and -Down move the choice and Shift- and
+  Super-Left go back a question, where fx's question binds a composer move
+  at a choice only with Shift on Up and Down (`src/ui/input/runtime.zig:178-197`)
+  and leaves the rest to its switch's `else`
+  (`input_question_runtime.zig:181-200`) (the `ask_user_question` row).
 
 ## Carried from TILDE-EMPTY-MODIFIER's review (gpt6 r2 NIT)
 
@@ -220,9 +257,37 @@ at the base too (`red.txt`): coverage, not a behaviour change.
 ## The scenario `p5-modified-page-keys` (`scripts/fxcap/scenarios/`)
 
 p5-transcript-md's answer (a document taller than the screen) under
-`TZ=UTC`; a four-row draft typed with `C-j`; Ctrl-O; `key -H 1b 5b 35 3b 35
-7e` (Ctrl-PgUp, tilde); `key -H 1b 5b 35 37 34 32 31 3b 35 75` (Ctrl-PgUp,
-keypad); the bare PgUp; Escape; `X`. Shift is left out: fx's would leave a
-selection on screen that xfx's composer does not extend (above). The three
+`TZ=UTC`; a four-row draft typed with `C-j`. Round 2 presses each held key
+on its own (opus NIT 2): Ctrl-O; `key -H 1b 5b 35 3b 35 7e` (Ctrl-PgUp,
+tilde); the bare PgUp; Escape; `X`; Ctrl-O; `key -H 1b 5b 35 37 34 32 32 3b
+35 75` (Ctrl-PgDn, keypad); Escape; `Y`. Shift is left out: fx's would leave
+a selection on screen that xfx's composer does not extend (above). The three
 capture runs (`captures.txt`): fx v0.0.16 by its sha guard, the base's
-binary and the code head's, each built with a clean `src/` at its commit.
+binary and round 2's code head's, each built with a clean `src/` at its
+commit. Round 1's captures, of the scenario before round 2, are replaced.
+
+## Round 2 (`round2.txt`)
+
+The reviews of `8b488ca4` (gpt6 no MUST; opus APPROVE), item by item; no
+behaviour change.
+
+1. **The held arrows** (opus SHOULD 1): recorded in `docs/parity.md`'s full
+   transcript row and the `ask_user_question` row, owner
+   MODIFIED-ARROWS-SCREENS (above); `fx_src.sh` reads
+   `escape_parser.zig:73-108`, `input_full_transcript_runtime.zig:147-154`
+   and `app_input_runtime.zig:840-894` for it.
+2. **The `· Response` header** (opus SHOULD 2): the ledger's cause
+   `fulltranscript-response-header`, kind `unit`, owner
+   FULLTRANSCRIPT-RESPONSE-HEADER (queued), over the tail-page snaps of
+   `p5-modified-page-keys` and `full` of `p5-transcript-md` and `-light`:
+   fx's second header row and xfx's blank first row. RESPONSE-CAUSE
+3. **Tests** (gpt6 SHOULD; opus NITs 2, 4, 5): the question and approval
+   test opens a two-line draft in the amendment and in the freeform field,
+   asserts the caret (`cursor()`) after each key, and types `Z` after them
+   all: the `Z` ends the draft each answer carries. The full-transcript test
+   pages a sixteen-row draft at 24 rows, so the page is pinned at eleven
+   rows (`inputRowLimit`, `input_presentation.zig:252-255`). The scenario
+   presses each held key on its own.
+4. **Wording** (opus NITs 1, 3): `act`'s arms (Mutants), and `/mcp` as the
+   exception to "here as there" (`docs/parity.md`).
+

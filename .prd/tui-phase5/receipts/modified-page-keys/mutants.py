@@ -5,7 +5,10 @@ fails. Never run against the worktree: the clone must sit under
 `$TMPDIR/mut/`, and its build and temp files go beside it there.
 TILDE-EMPTY-MODIFIER's runner, with this unit's mutants: the decoder's two
 readings put back one spelling at a time (M1-M5), the fold's three ways to be
-wrong (M6-M8), and the full transcript taking the held key (M9)."""
+wrong (M6-M8), and the full transcript taking the held key (M9). Round 2 adds
+the modal drafts taking the held key as a caret move (M10 the question's
+field, M11 the approval's amendment) and a page behind the screen one row
+short (M12), each for the test round 2 added."""
 import os, subprocess, sys, time
 repo, out = sys.argv[1], sys.argv[2]
 mut = os.path.join(os.environ["TMPDIR"].rstrip("/"), "mut")
@@ -21,6 +24,10 @@ FOLD = ("        Input::Action(Action::ComposerPageUp) => Input::Action(Action::
         "        Input::Action(Action::ComposerPageDown) => Input::Action(Action::PageDown),\n")
 UNSPELLED = "        Input::Action(Action::AltF) => Input::Action(Action::WordRight),\n"
 SCREEN = "            Action::PageUp => moved(true, None),\n"
+Q = "src/tui/question.rs"
+QUESTION_UP = "            Action::Up => Some(Self::Up),\n"
+DRAFT_EDGE = "            Input::Action(edge @ (Action::DraftStart { .. } | Action::DraftEnd { .. }))\n"
+PAGE = "                let page = usize::from(layout::input_row_limit(self.geometry.rows));\n"
 MUTANTS = [
     ("M1 a held tilde page key is the page key (the base's reading)", I, TILDE_PAGES, ""),
     ("M2 a held keypad page key is the page key (the base's reading)", I, KEYPAD,
@@ -38,6 +45,15 @@ MUTANTS = [
      UNSPELLED + FOLD),
     ("M9 the full transcript pages on the held key too", F, SCREEN,
      "            Action::PageUp | Action::ComposerPageUp => moved(true, None),\n"),
+    # Round 2.
+    ("M10 a question's freeform field takes a held page key as Home", Q, QUESTION_UP,
+     "            Action::ComposerPageUp | Action::ComposerPageDown => Some(Self::Home),\n" + QUESTION_UP),
+    ("M11 an approval's amendment takes a held page key as Home", S, DRAFT_EDGE,
+     "            Input::Action(Action::ComposerPageUp | Action::ComposerPageDown) if drafting => {\n"
+     "                approval::Action::Edit(Action::Home)\n"
+     "            }\n" + DRAFT_EDGE),
+    ("M12 a page behind the screen is one row short of the composer's cap", S, PAGE,
+     PAGE.replace("self.geometry.rows));", "self.geometry.rows)).saturating_sub(1);")),
 ]
 TESTS = [
     ["cargo", "test", "--locked", "--lib", "--", "tui::input::tests",
