@@ -1,0 +1,388 @@
+# fx v0.0.16 (pin 481104fd): every line SLASH-LEADING-WS's claims about fx rest on.
+
+## F1 the trigger kind: a slash word at the caret, else a draft whose first byte past spaces, tabs, CR and LF is /
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 287,296p
+   287      pub fn inlinePickerTriggerKind(self: *const State, editor: *const editor_state.State) ?InlinePickerKind {
+   288          if (self.rawModelPickerQuery(editor) != null) return .model;
+   289          if (self.rawProviderPickerQuery(editor) != null) return .provider;
+   290          if (self.rawFilePickerQuery(editor) != null) return .file;
+   291          if (findInlineSkillQuery(editor.input.items, editor.cursor) != null) return .skill;
+   292          if (findInlineSlashQuery(editor.input.items, editor.cursor) != null) return .slash;
+   293          const trimmed = std.mem.trimStart(u8, editor.input.items, " \t\r\n");
+   294          if (trimmed.len > 0 and trimmed[0] == '/') return .slash;
+   295          return null;
+   296      }
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 279,285p
+   279      fn rawFilePickerQuery(self: *const State, editor: *const editor_state.State) ?FilePickerQuery {
+   280          if (self.rawModelPickerQuery(editor) != null) return null;
+   281          if (self.rawProviderPickerQuery(editor) != null) return null;
+   282          const command_text = std.mem.trimStart(u8, editor.input.items, " \t\r\n");
+   283          if (tokenMatchesAt(command_text, 0, "/mcp")) return null;
+   284          return findFilePickerQuery(editor.input.items, editor.cursor);
+   285      }
+
+
+## F2 findInlineSlashQuery: the last word, / and one byte more, with non-blank text before it (a ghost, not the popup)
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 580,582p
+   580  pub fn isFilePickerTerminator(byte: u8) bool {
+   581      return byte == ' ' or byte == '\t' or byte == '\n' or byte == '\r';
+   582  }
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 613,624p
+   613  fn findInlineSlashQuery(items: []const u8, cursor: usize) ?InlineSlashQuery {
+   614      if (cursor != items.len) return null;
+   615  
+   616      var token_start = cursor;
+   617      while (token_start > 0 and !isFilePickerTerminator(items[token_start - 1])) {
+   618          token_start -= 1;
+   619      }
+   620      if (token_start == 0 or token_start + 1 >= cursor or items[token_start] != '/') return null;
+   621      if (std.mem.trim(u8, items[0..token_start], " \t\r\n").len == 0) return null;
+   622  
+   623      return .{ .prefix = items[token_start..cursor] };
+   624  }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_completion_runtime.zig | sed -n 653,661p
+   653          pub fn visibleInlineSlashCompletion(app: *App) ?InlineSlashCompletion {
+   654              if (!inlineCompletionSurfaceAvailable(app)) return null;
+   655              if (app.input_runtime.picker.inlinePickerTriggerKind(&app.input_runtime.edit_state) != .slash) return null;
+   656              const query = app.input_runtime.picker.activeInlineSlashQuery(&app.input_runtime.edit_state) orelse return null;
+   657              const command = command_specs.firstSlashCompletion(app.slashRegistry(), query.prefix) orelse return null;
+   658              const suffix = command[query.prefix.len..];
+   659              if (!inlineSuffixCanRender(app, suffix)) return null;
+   660              return .{ .suffix = suffix };
+   661          }
+
+
+## F3 the popup's query is the trimmed draft; a space after a no-args name ends it; the popup asks for the .slash kind
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 568,576p
+   568  pub fn slashCompletionPrefix(registry: SlashRegistry, input: []const u8) ?[]const u8 {
+   569      const prefix = std.mem.trimStart(u8, input, " \t\r\n");
+   570      if (prefix.len == 0 or prefix[0] != '/') return null;
+   571  
+   572      const command_end = std.mem.findAny(u8, prefix, " \t\r\n") orelse return prefix;
+   573      const spec = registry.lookup(prefix[0..command_end]) orelse return prefix;
+   574      if (!spec.has_args) return null;
+   575      return prefix;
+   576  }
+
+### git -C fx-upstream show 481104fd:src/ui/footer/input_presentation.zig | sed -n 269,276p
+   269  pub fn slashCompletionPickerPrefix(ctx: RenderContext, modal_active: bool, show_model_query: bool, show_file_query: bool) ?[]const u8 {
+   270      if (ctx.input.picker.isInlinePickerSuppressed(.slash) or modal_active or show_model_query or show_file_query) return null;
+   271      if (ctx.input.picker.inlinePickerTriggerKind(&ctx.input.edit_state) != .slash) return null;
+   272      // Mid-turn bare `/model` owns the footer slot before the staged picker opens.
+   273      if (ctx.stream.active and ctx.input.picker.isModelShapedInput(&ctx.input.edit_state)) return null;
+   274      const prefix = slashInputPrefix(ctx.slash_registry, ctx.input.edit_state.input.items);
+   275      return if (prefix.len > 0) prefix else null;
+   276  }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_completion_runtime.zig | sed -n 97,109p
+    97          fn slashCompletionQueryActive(app: *App) bool {
+    98              if (app.input_runtime.picker.isInlinePickerSuppressed(.slash)) return false;
+    99              if (app.input_runtime.picker.inlinePickerTriggerKind(&app.input_runtime.edit_state) != .slash) return false;
+   100              // Model query always owns this slot. Mid-turn bare `/model` does too;
+   101              // idle bare `/model` still surfaces slash rows.
+   102              if (comptime @hasField(App, "stream")) {
+   103                  if (app.stream.active and picker_state.isBareModelCommandAtCursor(&app.input_runtime.edit_state)) return false;
+   104              }
+   105              return command_specs.slashCompletionPrefix(
+   106                  app.slashRegistry(),
+   107                  app.input_runtime.edit_state.input.items,
+   108              ) != null;
+   109          }
+
+
+## F4 the /model and /provider kinds skip spaces and tabs only
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 584,588p
+   584  fn leadingWhitespaceLen(bytes: []const u8) usize {
+   585      var index: usize = 0;
+   586      while (index < bytes.len and (bytes[index] == ' ' or bytes[index] == '\t')) : (index += 1) {}
+   587      return index;
+   588  }
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 298,309p
+   298      fn rawModelPickerQuery(self: *const State, editor: *const editor_state.State) ?ModelPickerQuery {
+   299          const items = editor.input.items;
+   300          const trim_start = leadingWhitespaceLen(items);
+   301          const trimmed = items[trim_start..];
+   302          if (trimmed.len >= effort_prefix.len and std.ascii.eqlIgnoreCase(trimmed[0..effort_prefix.len], effort_prefix)) return .{
+   303              .stage = .effort,
+   304              .command = .effort,
+   305              .query = trimmed[effort_prefix.len..],
+   306              .token_start = trim_start + effort_prefix.len,
+   307          };
+   308          const prefix = "/model ";
+   309          if (trimmed.len < prefix.len or !std.ascii.eqlIgnoreCase(trimmed[0..prefix.len], prefix)) return null;
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 336,340p
+   336      fn rawProviderPickerQuery(self: *const State, editor: *const editor_state.State) ?ProviderPickerQuery {
+   337          const items = editor.input.items;
+   338          const trim_start = leadingWhitespaceLen(items);
+   339          const trimmed = items[trim_start..];
+   340          const prefix_len = providerPickerPrefixLen(trimmed) orelse return null;
+
+
+## F5 Escape's latch lasts while the kind is the same; every edit zeroes the mark; a recalled slash line is closed until edited
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 203,213p
+   203      pub fn resetInlinePickerForHistoryRecall(self: *State, editor: *const editor_state.State) void {
+   204          self.resetInlinePickerEpisode();
+   205          self.inline_picker_suppression = suppressionForHistoryRecall(
+   206              self.inlinePickerTriggerKind(editor),
+   207          );
+   208      }
+   209  
+   210      pub fn dismissInlinePicker(self: *State, kind: InlinePickerKind) void {
+   211          if (kind == .file) self.file_completion.invalidate();
+   212          self.inline_picker_suppression = .{ .dismissed_until_trigger_change = kind };
+   213      }
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 228,236p
+   228      pub fn reconcileInlinePickerAfterEdit(self: *State, editor: *const editor_state.State) void {
+   229          self.slash_completion_index = 0;
+   230          self.slash_completion_window_start = 0;
+   231          self.reconcileProviderPickerAfterEdit(editor);
+   232          self.inline_picker_suppression = suppressionAfterEdit(
+   233              self.inline_picker_suppression,
+   234              self.inlinePickerTriggerKind(editor),
+   235          );
+   236      }
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 515,532p
+   515  fn suppressionForHistoryRecall(trigger: ?InlinePickerKind) ?InlinePickerSuppression {
+   516      if (trigger != .slash) return null;
+   517      return .history_slash_recall_until_edit;
+   518  }
+   519  
+   520  fn suppressionAfterEdit(
+   521      current: ?InlinePickerSuppression,
+   522      trigger: ?InlinePickerKind,
+   523  ) ?InlinePickerSuppression {
+   524      const suppression = current orelse return null;
+   525      return switch (suppression) {
+   526          .dismissed_until_trigger_change => |dismissed| if (trigger == dismissed)
+   527              suppression
+   528          else
+   529              null,
+   530          .history_slash_recall_until_edit => null,
+   531      };
+   532  }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_completion_runtime.zig | sed -n 133,140p
+   133          pub fn dismissVisibleInlinePicker(app: *App) bool {
+   134              const kind = visibleInlinePickerKind(app) orelse return false;
+   135              // Escaping the picker abandons the columns it had opened, so the
+   136              // next `/provider` starts from the provider column again.
+   137              if (kind == .provider) provider_picker_runtime.Runtime(App).abandon(app);
+   138              app.input_runtime.picker.dismissInlinePicker(kind);
+   139              return true;
+   140          }
+
+
+## F6 Tab: a command row replaces the whole composer; a skill row binds over the slash word and keeps the blanks before it
+### git -C fx-upstream show 481104fd:src/core/app/app_input_runtime.zig | sed -n 1331,1353p
+  1331                      } else if (!(app.stream.active and app.input_runtime.picker.isModelShapedInput(&app.input_runtime.edit_state))) {
+  1332                          const count = completion_rt.visibleSlashCompletionCount(app);
+  1333                          if (count > 0) {
+  1334                              const items = app.input_runtime.edit_state.input.items;
+  1335                              const prefix = command_specs.slashCompletionPrefix(
+  1336                                  app.slashRegistry(),
+  1337                                  items,
+  1338                              ) orelse return;
+  1339                              const idx = app.input_runtime.picker.slash_completion_index % count;
+  1340                              if (try bindSelectedSlashSkill(app, idx)) {
+  1341                                  app.shell.render_requests.request(.footer);
+  1342                              } else if (command_specs.nthSlashCompletion(app.slashRegistry(), prefix, idx)) |completion| {
+  1343                                  if (command_specs.slashCompletionHasArgs(app.slashRegistry(), completion)) {
+  1344                                      var buf: [128]u8 = undefined;
+  1345                                      const with_space = std.mem.print(&buf, "{s} ", .{completion}) catch completion;
+  1346                                      try app.input_runtime.textReplacementState().replace(app.alloc, with_space);
+  1347                                  } else {
+  1348                                      try app.input_runtime.textReplacementState().replace(app.alloc, completion);
+  1349                                  }
+  1350                                  app.shell.render_requests.request(.footer);
+  1351                              }
+  1352                          }
+  1353                      }
+
+### git -C fx-upstream show 481104fd:src/core/input/composer_text_replacement.zig | sed -n 63,94p
+    63      pub fn replace(
+    64          self: State,
+    65          alloc: Allocator,
+    66          text: []const u8,
+    67      ) Allocator.Error!void {
+    68          var prepared_replacement = try self.prepare(alloc, text);
+    69          defer prepared_replacement.deinit(alloc);
+    70          self.commit(alloc, &prepared_replacement);
+    71      }
+    72  
+    73      /// Swaps in staged text and resets metadata without further allocation.
+    74      /// On return, `prepared_replacement` owns the displaced editor buffer.
+    75      pub fn commit(
+    76          self: State,
+    77          alloc: Allocator,
+    78          prepared_replacement: *Prepared,
+    79      ) void {
+    80          self.vertical_navigation.reset();
+    81          input_reset.discardSelectionWithTrace(self.edit, "input_replaced");
+    82          self.picker.clearModelPickerFlow();
+    83          self.picker.clearProviderPickerFlow();
+    84          traceDroppedEntities(prepared_replacement.dropped_entities);
+    85          pasted_blocks.clearBlocks(alloc, &self.entities.pasted_blocks);
+    86          self.entities.clearImageAndSkillTokens(alloc);
+    87          self.edit.swapInput(&prepared_replacement.input);
+    88          self.history.reset(alloc);
+    89          self.picker.resetInlinePickerEpisode();
+    90          self.picker.model_completion_index = 0;
+    91          self.picker.model_completion_window_start = 0;
+    92          self.picker.resetFilePickerIndex();
+    93          self.input_limit_rejection.* = input_limit_rejection.clear();
+    94      }
+
+### git -C fx-upstream show 481104fd:src/core/app/app_input_runtime.zig | sed -n 2451,2476p
+  2451          fn bindSelectedSlashSkill(app: *App, selected_index: usize) !bool {
+  2452              if (comptime !@hasField(App, "skills")) return false;
+  2453              const items = app.input_runtime.edit_state.input.items;
+  2454              const prefix = command_specs.slashCompletionPrefix(
+  2455                  app.slashRegistry(),
+  2456                  items,
+  2457              ) orelse return false;
+  2458              const skill = picker_presentation.nthMixedSlashCompletionSkill(
+  2459                  app.slashRegistry(),
+  2460                  prefix,
+  2461                  app.skills.items,
+  2462                  selected_index,
+  2463              ) orelse return false;
+  2464              const leading_ws = items.len - prefix.len;
+  2465              try app.input_runtime.skillBindingState().bindSkillToken(
+  2466                  app.alloc,
+  2467                  leading_ws,
+  2468                  leading_ws + prefix.len,
+  2469                  skill.name,
+  2470                  skill.path,
+  2471                  skill_runtime.skillDisplaySource(app.skills.items, skill),
+  2472              );
+  2473              app.input_runtime.picker.resetInlinePickerEpisode();
+  2474              app.shell.render_requests.request(.footer);
+  2475              return true;
+  2476          }
+
+
+## F7 Enter: a skill row binds; a command line is left-trimmed, resolved to the marked row, run, and recorded as resolved
+### git -C fx-upstream show 481104fd:src/core/app/app_input_runtime.zig | sed -n 2366,2396p
+  2366          fn submitSlashPickerSelection(app: *App) !bool {
+  2367              if (comptime !@hasField(App, "skills")) return false;
+  2368              if (nonSlashPickerOwnsEnter(app)) return false;
+  2369              const items = app.input_runtime.edit_state.input.items;
+  2370              const prefix = command_specs.slashCompletionPrefix(
+  2371                  app.slashRegistry(),
+  2372                  items,
+  2373              ) orelse return false;
+  2374              if (app.slashRegistry().matchExact(prefix) != null) return false;
+  2375              const count = completion_rt.visibleSlashCompletionCount(app);
+  2376              if (count == 0) return false;
+  2377              const idx = app.input_runtime.picker.slash_completion_index % count;
+  2378              if (!picker_presentation.mixedSlashCompletionIsSkill(
+  2379                  app.slashRegistry(),
+  2380                  prefix,
+  2381                  app.skills.items,
+  2382                  idx,
+  2383              )) {
+  2384                  const selected = picker_presentation.nthMixedSlashCompletionText(
+  2385                      app.slashRegistry(),
+  2386                      prefix,
+  2387                      app.skills.items,
+  2388                      idx,
+  2389                  ) orelse return false;
+  2390                  const spec = app.slashRegistry().matchExact(selected) orelse return false;
+  2391                  if (spec.command.kind != .model) return false;
+  2392                  try openModelBrowseCatalog(app);
+  2393                  return true;
+  2394              }
+  2395              return try bindSelectedSlashSkill(app, idx);
+  2396          }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n 719,729p
+   719              const left_trimmed = std.mem.trimStart(u8, expanded.text, " \t\r\n");
+   720              const resolved_slash_submission = resolvedSlashSubmission(app, left_trimmed);
+   721              if (knownSlashCommand(app, resolved_slash_submission)) |command| {
+   722                  if (requiresPromptCredential(command, resolved_slash_submission) and !try preflightPrompt(app)) return;
+   723                  try submitSlashCommand(app, left_trimmed, null, max_prompt_history);
+   724                  return;
+   725              }
+   726              if (shouldRouteUnknownSlashCommand(app, resolved_slash_submission)) {
+   727                  try submitSlashCommand(app, left_trimmed, null, max_prompt_history);
+   728                  return;
+   729              }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n 1009,1016p
+  1009          fn submitSlashCommand(
+  1010              app: *App,
+  1011              text: []const u8,
+  1012              retained_prefix: ?[]const u8,
+  1013              max_prompt_history: usize,
+  1014          ) !void {
+  1015              const command_text = resolvedSlashSubmission(app, text);
+  1016              const command_copy = try app.alloc.dupe(u8, command_text);
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n 1059,1064p
+  1059              recordAcceptedSlashCommandHistory(
+  1060                  app,
+  1061                  max_prompt_history,
+  1062                  command_copy,
+  1063              );
+  1064              try App.handleCommand(app, command_copy);
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n 1098,1101p
+  1098          fn resolvedSlashSubmission(app: *App, text: []const u8) []const u8 {
+  1099              if (completion_rt.visibleSlashCompletionCount(app) == 0) return text;
+  1100              return resolveSlashSubmission(app.slashRegistry(), text, app.input_runtime.picker.slash_completion_index);
+  1101          }
+
+
+## F8 the popup's row budget leaves the composer's rows past its first to it
+### git -C fx-upstream show 481104fd:src/ui/footer/picker_presentation.zig | sed -n 754,771p
+   754  fn slashMenuLayoutForCounts(
+   755      command_count: usize,
+   756      result_count: usize,
+   757      selection_index: usize,
+   758      current_window_start: usize,
+   759      terminal_rows: u16,
+   760      input_extra: u16,
+   761      banner_rows: u16,
+   762  ) ?SlashMenuLayout {
+   763      if (result_count == 0) return null;
+   764  
+   765      const row_budget = inlinePickerRowBudget(terminal_rows, input_extra, banner_rows);
+   766      const show_header = row_budget > 2;
+   767      const header_rows: u16 = if (show_header) 2 else 0;
+   768      const selectable_rows = row_budget - header_rows;
+   769      const selected = selection_index % result_count;
+   770      const window_start = updateEdgeScrollPickerWindowStart(current_window_start, result_count, selected, selectable_rows);
+   771      const window = edgeScrollPickerWindowFromStart(result_count, window_start, selectable_rows);
+
+### git -C fx-upstream show 481104fd:src/ui/footer/picker_presentation.zig | sed -n 793,803p
+   793  pub fn inlinePickerRowBudgetCapped(
+   794      terminal_rows: u16,
+   795      input_extra: u16,
+   796      banner_rows: u16,
+   797      max_picker_rows: u16,
+   798  ) u16 {
+   799      const fixed_rows: u16 = 5 +| input_extra +| banner_rows;
+   800      const minimum_transcript_rows: u16 = 5;
+   801      const available_picker_rows = (terminal_rows -| fixed_rows) -| minimum_transcript_rows;
+   802      return @min(max_picker_rows, @max(available_picker_rows, 1));
+   803  }
+
+### git -C fx-upstream show 481104fd:src/ui/footer/surface_frame.zig | sed -n 543,551p
+   543      const slash_menu_layout = if (show_slash_query)
+   544          picker_presentation.preparedSlashMenuLayout(
+   545              &prepared_slash_menu,
+   546              picker_selection_index,
+   547              picker_window_start,
+   548              shell.layout.rows,
+   549              geometry.input_extra,
+   550              banner_rows,
+   551          )
+
+# every range above is inside its file and holds its needle
