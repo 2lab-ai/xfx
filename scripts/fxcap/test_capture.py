@@ -420,6 +420,85 @@ class RootsRewrite(unittest.TestCase):
         boxed = self.rw(b"\xe2\x94\x82 " + run[:20] + b" \xe2\x94\x82\n\xe2\x94\x82 " + run[20:] + b"/x \xe2\x94\x82\n")
         self.assertEqual(boxed, b"\xe2\x94\x82 " + S[:20] + b" \xe2\x94\x82\n\xe2\x94\x82 " + S[20:] + b"/x \xe2\x94\x82\n")
 
+    # Each mark a renderer leads a continued row with, as it draws it, spelled
+    # here and not read from roots.py, so a mark dropped there fails here
+    # (receipts/local-paths-wrap/marks.md): xfx's approval goes on behind `↳ `
+    # two columns in (src/tui/mcp_menu.rs `ConfirmLine::Continued`); the
+    # composer's first shown row, with the rows above it scrolled out, opens
+    # with `┃↑` (src/tui/shell.rs RAIL_HIDDEN_ABOVE, fx's
+    # input_presentation.zig:1021@481104fd), in its .txt and in its .ansi.
+    MARKED = (b"  \xe2\x86\xb3 ", b"\xe2\x94\x83\xe2\x86\x91", b"\x1b[38;5;245m\xe2\x94\x83\xe2\x86\x91\x1b[0m")
+
+    def test_a_root_wrapped_behind_a_continuation_mark_is_rewritten_whole(self):
+        # train-12/ci-mcp-timing: a 118-byte scenario directory went on behind
+        # `↳ ` on the approval's next row, and neither the rewrite nor --check
+        # read it. Unwritten, it now refuses the file; written, it is one
+        # placeholder over its own columns, the mark where it was.
+        run, S = self.RUN.encode(), P("scratch", self.RUN).encode()
+        for lead in self.MARKED:
+            for k in range(1, len(run)):
+                with self.subTest(lead=lead, k=k):
+                    data = b"    bun " + run[:k] + b"\n" + lead + run[k:] + b"/fxtmp/a.ts\n"
+                    self.assertIn("scratch", roots.survivors(data, self.rules(), None))
+                    got = self.rw(data)
+                    self.assertEqual(got, b"    bun " + S[:k] + b"\n" + lead + S[k:] + b"/fxtmp/a.ts\n")
+                    self.assertEqual(roots.survivors(got, self.rules(), "fxcap.JTbdal"), [])
+
+    def test_a_root_s_tail_behind_a_continuation_mark_refuses_the_file(self):
+        # A partial rewrite: the head written as a shorter root's placeholder
+        # (the harness's TMPDIR, which a scenario copy is under), the rest
+        # left behind the mark. The scenario directory is nowhere whole, and
+        # its tail, ending whole, refuses the file -- through --check too.
+        tmp, scen = "/tmp/fxt", "/tmp/fxt/a-scenario-copy/scenarios"
+        rules = roots.rules_for([(tmp, "tmp"), (scen, "scenarios")])
+        head, T = scen.encode(), P("tmp", tmp).encode()
+        d = scratch()
+        for lead in self.MARKED:
+            for k in range(len(tmp) + 1, len(scen)):
+                with self.subTest(lead=lead, k=k):
+                    data = b"    bun " + T + head[len(tmp) : k] + b"\n" + lead + head[k:] + b"/p5.ts\n"
+                    # (and `scenarios:real` where /tmp is a link, as on macOS)
+                    left = roots.survivors(data, rules, None)
+                    self.assertEqual({name.split(":")[0] for name in left}, {"scenarios"}, left)
+            with self.subTest(lead=lead, check=True):
+                path = os.path.join(d, "tail.txt")
+                with open(path, "wb") as f:
+                    f.write(data)
+                r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "roots.py"), "--root", tmp, "tmp",
+                                    "--root", scen, "scenarios", "--check", "--", path], capture_output=True, text=True)
+                self.assertEqual(r.returncode, 3, r.stderr)
+                self.assertIn("still holds scenarios", r.stderr)
+                self.assertNotIn("scenario-copy", r.stderr.replace(path, ""))
+                with open(path, "rb") as f:
+                    self.assertEqual(f.read(), data, "--check rewrites nothing")
+
+    def test_a_root_with_a_mark_in_it_broken_before_the_mark_is_refused(self):
+        # The view drops a mark at a row's start as it drops a gutter run, so
+        # a root holding one, broken right before it, reads without it: the
+        # rewrite refuses the file before any edit, as for a gutter run.
+        for mark in ("↳", "↑"):
+            root = "/tmp/fxt%sx" % mark
+            rules = roots.rules_for([(root, "tmp")])
+            data = ("x /tmp/fxt\n%sx/notes\n" % mark).encode()
+            with self.subTest(mark=mark):
+                with self.assertRaises(roots.Refused):
+                    roots.rewrite(data, rules)
+                self.assertEqual({name.split(":")[0] for name in roots.survivors(data, rules, None)}, {"tmp"})
+
+    def test_text_that_only_starts_like_a_root_behind_a_mark_is_no_root(self):
+        # Only a whole root is written: a head whose row goes on behind the
+        # mark with other text is left, and so is a row behind the mark that
+        # is no root's end. The TMPDIR, whole, is written.
+        tmp, scen = "/tmp/fxt", "/tmp/fxt/a-scenario-copy/scenarios"
+        rules = roots.rules_for([(tmp, "tmp"), (scen, "scenarios")])
+        T = P("tmp", tmp).encode()
+        for lead in self.MARKED:
+            with self.subTest(lead=lead):
+                data = b"    " + scen.encode()[:20] + b"\n" + lead + b"other/x\n"
+                got = roots.rewrite(data, rules)[0]
+                self.assertEqual(got, b"    " + T + scen.encode()[len(tmp) : 20] + b"\n" + lead + b"other/x\n")
+                self.assertEqual(roots.survivors(got, rules, None), [])
+
     def test_a_colour_change_inside_a_root_stays_where_it_was(self):
         # The @plan picker bolds the letters a query matched, some inside the
         # run directory (workspace-index `at-plan`).

@@ -43,7 +43,10 @@ its bytes:
   (`/pri\\e[1mvate/...`);
 - across a row's end: a root a terminal wrapped at its margin, or a binary
   broke onto its next row behind a gutter of spaces, tabs or box-drawing and
-  block characters (U+2500-U+259F), is one root;
+  block characters (U+2500-U+259F), or behind a continuation mark at the
+  next row's start (MARKS: xfx's approval goes on behind `↳ `, U+21B3; the
+  composer's first row shown below rows scrolled out opens with `┃↑`, U+2191),
+  is one root;
 - inside an OSC sequence's payload, by its bytes: an OSC 8 link's target.
 
 It ends where no path-name character follows it within its row
@@ -77,7 +80,12 @@ reading (`--check`). Conservative, on purpose: a root that ends in a gutter
 run is refused even where it stands whole inside a row (`/tmp/fxt ` before
 `/notes`), as its reading without the run ends whole there too, and the view
 cannot tell that from the run lost at a row's edge. A root with more than
-MAX_GUTTER_RUNS runs is refused outright. So does the run directory's own name (`--suffix`, mktemp's random
+MAX_GUTTER_RUNS runs is refused outright. A continuation mark counts as a
+gutter character here: the view drops it at a row's start. A row behind a
+mark that starts with a root's end -- its last byte or more, short of the
+whole, ending whole -- refuses the file as well, its head rewritten or not:
+a partial rewrite (the head written as a shorter root's placeholder) leaves
+nothing else that tells the tail from text. So does the run directory's own name (`--suffix`, mktemp's random
 tail) anywhere at all: it names no other path, and a root a binary cut
 short (`.../fxcap.Ab12Cd/wo...`) or whose head scrolled off a frame keeps
 it. The file is named on standard error with what survived or why it was
@@ -107,8 +115,14 @@ CONTROL = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\
 # Ends a row: a newline, a carriage return, or a CSI that moves the cursor.
 CURSOR_MOVE = re.compile(rb"\x1b\[[0-?]*[HfABCDEGd]\Z")
 GUTTER_BYTES = (b" ", b"\t")
-# A run of gutter characters inside a root: spaces, tabs, U+2500-U+259F.
-GUTTER_RUN = re.compile(rb"(?:[ \t]|\xe2(?:[\x94\x95][\x80-\xbf]|\x96[\x80-\x9f]))+")
+# What a renderer leads a continued row with, at the row's start, after its
+# gutter (receipts/local-paths-wrap/marks.md): `↳` (src/tui/mcp_menu.rs
+# `ConfirmLine::Continued`) and `↑` (src/tui/shell.rs RAIL_HIDDEN_ABOVE, fx's
+# input_presentation.zig:1021@481104fd).
+MARKS = (b"\xe2\x86\xb3", b"\xe2\x86\x91")
+# A run of gutter characters inside a root: spaces, tabs, U+2500-U+259F, and
+# the MARKS, which the view drops too.
+GUTTER_RUN = re.compile(rb"(?:[ \t]|\xe2(?:[\x94\x95][\x80-\xbf]|\x96[\x80-\x9f]|\x86[\xb3\x91]))+")
 # The most runs of them a root may hold: each is read present and absent.
 MAX_GUTTER_RUNS = 6
 # Every placeholder, and every literal that reads like one, with the `!`s an
@@ -199,8 +213,10 @@ def _gutter_at(data, i, limit=None):
 
 
 class View:
-    """The visible text of `data` with each row's edge gutters dropped and its
-    rows joined: `text`, and for each of its runs where it came from."""
+    """The visible text of `data` with each row's edge gutters dropped, and a
+    continuation mark among its leading ones, and its rows joined: `text`, for
+    each of its runs where it came from, and `marked`, where each row that
+    opened with a mark starts in it."""
 
     def __init__(self, data):
         self.data = data
@@ -215,9 +231,11 @@ class View:
             pos = m.end()
         self._visible(data, pos, len(data), rows, row)
         rows.append(row)
-        text, runs, ends = bytearray(), [], set()
+        text, runs, ends, self.marked = bytearray(), [], set(), []
         for row in rows:
-            row = self._trim(data, row)
+            row, marked = self._trim(data, row)
+            if marked:
+                self.marked.append(len(text))
             for start, end in row:
                 runs.append((len(text), start, end))
                 text += data[start:end]
@@ -241,10 +259,13 @@ class View:
 
     @staticmethod
     def _trim(data, row):
-        """The row's runs without the gutter at either end."""
-        row = [list(r) for r in row]
+        """The row's runs without the gutter at either end, a MARKS among the
+        leading one; and whether there was one."""
+        row, marked = [list(r) for r in row], False
         while row:
             n = _gutter_at(data, row[0][0], row[0][1])
+            if not n and data[row[0][0] : row[0][0] + 3] in MARKS and row[0][0] + 3 <= row[0][1]:
+                n, marked = 3, True
             if not n:
                 break
             row[0][0] += n
@@ -263,7 +284,7 @@ class View:
             row[-1][1] -= n
             if row[-1][1] <= row[-1][0]:
                 row.pop()
-        return [tuple(r) for r in row]
+        return [tuple(r) for r in row], marked
 
     def spans(self, a, b):
         """The bytes of `data` that text[a:b] came from, as (start, end)."""
@@ -279,6 +300,12 @@ class View:
 
     def ends_whole(self, e):
         return e >= len(self.text) or e in self.row_ends or not PATH_CHAR.match(self.text[e : e + 1])
+
+    def tail_behind_mark(self, needle):
+        """Whether a row behind a mark starts with `needle`'s end -- its last
+        byte or more, short of the whole -- ending whole."""
+        return any(self.text.startswith(needle[-n:], a) and self.ends_whole(a + n)
+                   for a in self.marked for n in range(1, len(needle)))
 
 
 def _find(view, needle, taken):
@@ -404,6 +431,8 @@ def survivors(data, rules, suffix):
       end, reads without it). The rewrite refuses such a file before it
       edits it; this reads it as `--check` does. A sibling that reads like
       one (`/tmp/ab`) is refused too;
+    - a root's end -- its last byte or more, ending whole -- at the start of
+      a row behind a continuation mark (MARKS), its head rewritten or not;
     - or the run directory's own name, anywhere.
 
     A root's bytes in the visible text are the view's to judge: it reads
@@ -420,7 +449,7 @@ def survivors(data, rules, suffix):
             for m in re.finditer(re.escape(needle) + rb"(?![" + EDGE + rb"])", data)
         )
         broken = any(_find(view, v, []) for v in _broken_at_gutters(needle))
-        if in_control or broken or _find(view, needle, []):
+        if in_control or broken or view.tail_behind_mark(needle) or _find(view, needle, []):
             found.append(name + (":real" if real else ""))
     if suffix and (suffix.encode() in data or suffix.encode() in view.text):
         found.append("the run directory's name")
