@@ -43093,6 +43093,129 @@ mod tests {
         assert_eq!(record, written);
     }
 
+    /// An answer with a code block, a table and a rule, each between lines
+    /// of prose.
+    const SPLIT_ANSWER: &str = "Lead line.\n\n```sh\necho end\n```\n\nMiddle line.\n\n\
+        | a | b |\n|---|---|\n| 1 | 2 |\n\nAfter the table.\n\n---\n\nLast line.\n";
+
+    #[test]
+    fn an_answers_blocks_split_its_ctrl_o_record_and_leave_its_document_as_it_was() {
+        // FULLTRANSCRIPT-RESPONSE-HEADER: Ctrl-O heads the text after each
+        // block with a `Response` of its own, as fx v0.0.16's record splits
+        // an answer at its blocks (`super::full_transcript`'s `presented`).
+        // The inline transcript is not that record and does not change: no
+        // header, one blank row around each block, these rows as the base
+        // (3f2d6e78) wrote them; `fulltranscript-response-split`'s inline
+        // snaps are fx's, cell for cell, at the base and at the head.
+        let mut shell = shell(40, 80);
+        shell.route_bytes(b"a prompt\r");
+        let _ = shell.picks_up();
+        shell.start_turn();
+        shell.apply(UiEvent::Delta(SPLIT_ANSWER.into()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        let document: Vec<String> = shell
+            .written()
+            .into_iter()
+            .filter(|row| !row.starts_with("x\u{1d487}x"))
+            .collect();
+        let rule = format!("  {}", "\u{2500}".repeat(78));
+        assert_eq!(
+            document,
+            [
+                "\u{2503} a prompt",
+                "",
+                "  Lead line.",
+                "",
+                "  \u{2500} sh \u{2500}\u{2500}\u{2500}",
+                "  echo end",
+                "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+                "",
+                "  Middle line.",
+                "",
+                "  \u{250c}\u{2500}\u{2500}\u{2500}\u{252c}\u{2500}\u{2500}\u{2500}\u{2510}",
+                "  \u{2502} a \u{2502} b \u{2502}",
+                "  \u{251c}\u{2500}\u{2500}\u{2500}\u{253c}\u{2500}\u{2500}\u{2500}\u{2524}",
+                "  \u{2502} 1 \u{2502} 2 \u{2502}",
+                "  \u{2514}\u{2500}\u{2500}\u{2500}\u{2534}\u{2500}\u{2500}\u{2500}\u{2518}",
+                "",
+                "  After the table.",
+                "",
+                rule.as_str(),
+                "",
+                "  Last line.",
+                "",
+                "  0s (\u{2191}3 \u{2193}34)",
+                "",
+            ]
+        );
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        let kinds: Vec<&str> = screen
+            .iter()
+            .filter_map(|row| row.split_once(" UTC \u{b7} ").map(|(_, kind)| kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            ["Prompt", "Response", "Response", "Response", "Response", "Usage"],
+            "{screen:#?}"
+        );
+        // Every row of the record but its headers is the document's, in the
+        // same order: the split adds a header and moves no row.
+        let record: Vec<&String> = screen[..36]
+            .iter()
+            .filter(|row| !row.contains(" UTC \u{b7} "))
+            .filter(|row| !row.is_empty())
+            .collect();
+        let written: Vec<&String> = document.iter().filter(|row| !row.is_empty()).collect();
+        assert_eq!(record, written);
+    }
+
+    #[test]
+    fn a_resumed_answers_runs_carry_the_turns_conclusion_as_upstreams_replay_stamps_them() {
+        // Upstream's replay stamps every entry of the answer with the turn's
+        // completion before it writes the answer's markdown
+        // (`setCreatedAtMs`, `app_session_runtime.zig:3986-4003@481104fd`;
+        // `ResumeProjection`'s appenders, `resume_projection.zig:150-193`),
+        // so the run after a block carries the same moment as the one before.
+        let mut turn = saved(
+            "look",
+            vec![HydratedStep::Text(SPLIT_ANSWER.to_string())],
+            2,
+            Some(40),
+        );
+        // 2026-10-02 00:00:00 UTC, and two seconds later.
+        turn.started_at_ms = 1_790_899_200_000;
+        turn.concluded_at_ms = Some(1_790_899_202_000);
+        let mut shell = shell(40, 120);
+        shell.hydrate(replay(Some("look"), vec![turn]), false);
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        let headers: Vec<&str> = screen
+            .iter()
+            .filter(|row| row.contains(" UTC \u{b7} "))
+            .map(String::as_str)
+            .collect();
+        // The turn's, after the resume's own.
+        let turn: Vec<&str> = headers
+            .iter()
+            .copied()
+            .skip_while(|row| !row.starts_with("  2026-10-02 "))
+            .collect();
+        assert_eq!(
+            turn,
+            [
+                "  2026-10-02 00:00:00.000 UTC \u{b7} Prompt",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Usage",
+            ],
+            "{screen:#?}"
+        );
+    }
+
     #[test]
     fn the_screens_keys_move_it_and_every_other_key_reaches_the_hidden_composer_as_upstreams() {
         // Upstream's map binds the page keys, the arrows, Escape, Ctrl-C and

@@ -4538,6 +4538,275 @@ mod tests {
         assert!(!rows.iter().any(|row| row.contains("What can")));
     }
 
+    /// The kinds of the screen's headers, in order.
+    fn header_kinds(rows: &[String]) -> Vec<&str> {
+        rows.iter()
+            .filter_map(|row| row.split_once(" UTC \u{b7} ").map(|(_, kind)| kind))
+            .collect()
+    }
+
+    /// `chunks` through a presenter of their own, each fed at the moment
+    /// beside it ([`FullTranscript::stamp_with`]) and the presenter finished
+    /// at the last one's: a stream's clock, chunk by chunk.
+    fn streamed(record: &mut FullTranscript, chunks: &[(i64, &str)]) {
+        let mut processor = markdown::MarkdownProcessor::with_styles(markdown::ansi::Styles::new(
+            markdown::theme::builtin(false),
+        ));
+        for (at, chunk) in chunks {
+            record.stamp_with(Some(*at));
+            for event in processor.feed(chunk) {
+                record.presented(&event);
+            }
+        }
+        for event in processor.finish() {
+            record.presented(&event);
+        }
+        record.stamp_with(None);
+    }
+
+    /// A header row as the screen writes it, colour left out.
+    fn header_at(at_ms: i64, kind: &str) -> String {
+        format!("  {} \u{b7} {kind}", stamp(at_ms).expect("a stamp"))
+    }
+
+    #[test]
+    fn the_text_after_a_code_block_a_table_or_a_rule_is_a_response_of_its_own() {
+        // fx v0.0.16's store makes each completed block an entry of its own
+        // and opens a new assistant entry on the next text
+        // (`store.zig:2955-3075`, `:3103-3150@481104fd`), and its screen
+        // heads each assistant entry with its own moment
+        // (`full_transcript_screen.zig:5934-5958`, `:6028-6056`):
+        // `fx-fulltranscript-response-split-40x120-full-table`, `-full-rule`,
+        // `fx-p5-modified-page-keys-40x120-full` rows 1 and 32.
+        for (case, lead, block, tail) in [
+            (
+                "code",
+                "Lead line.\n\n",
+                "```sh\necho end\n```\n",
+                "\nDone.\n",
+            ),
+            (
+                "table",
+                "Before the table.\n\n",
+                "| name | size |\n|---|---|\n| alpha | 1 |\n",
+                "\nAfter the table.\n",
+            ),
+            (
+                "rule",
+                "Above the rule.\n\n",
+                "---\n",
+                "\nBelow the rule.\n",
+            ),
+        ] {
+            let mut record = record();
+            record.prompt("go");
+            streamed(
+                &mut record,
+                &[(AT, lead), (AT + 100, block), (AT + 200, tail)],
+            );
+            let rows = screen(&record);
+            assert_eq!(
+                header_kinds(&rows),
+                ["Prompt", "Response", "Response"],
+                "{case}: {rows:#?}"
+            );
+            let first = rows
+                .iter()
+                .position(|row| row.ends_with("\u{b7} Response"))
+                .expect("a first header");
+            assert_eq!(rows[first], header_at(AT, "Response"), "{case}");
+            assert_eq!(rows[first + 1], format!("  {}", lead.trim()), "{case}");
+            let second = rows
+                .iter()
+                .rposition(|row| row.ends_with("\u{b7} Response"))
+                .expect("a second header");
+            // Stamped when the first text after the block came: the blank
+            // line under the fence or the rule, or the one that ends the
+            // table (and completes it, so the table is stamped then too).
+            assert_eq!(rows[second], header_at(AT + 200, "Response"), "{case}");
+            assert_eq!(rows[second + 1], format!("  {}", tail.trim()), "{case}");
+            // One blank row between the block's last row and the header, as
+            // between any two entries, and one between the lead and the block.
+            assert_eq!(rows[second - 1], "", "{case}: {rows:#?}");
+            assert_ne!(rows[second - 2], "", "{case}: {rows:#?}");
+            assert_eq!(rows[first + 2], "", "{case}: {rows:#?}");
+            assert_ne!(rows[first + 3], "", "{case}: {rows:#?}");
+        }
+    }
+
+    #[test]
+    fn a_block_has_no_header_so_an_answer_that_is_one_has_none() {
+        // `metadataKind` gives a table, a code block and a rule no kind
+        // (`full_transcript_screen.zig:6051-6054@481104fd`):
+        // `fx-fulltranscript-response-split-40x120-full-block-only`,
+        // `-full-block-last`, `-full-block-first`, `-full-blocks`.
+        let code = |text: &str| format!("```sh\n{text}\n```\n");
+        // Only a block.
+        let mut record = record();
+        record.prompt("go");
+        record.answer(&code("echo only"));
+        let rows = screen(&record);
+        assert_eq!(header_kinds(&rows), ["Prompt"], "{rows:#?}");
+        assert!(rows.contains(&"  echo only".to_string()), "{rows:#?}");
+        // Ends in a block: one header, over the text, and none after.
+        let mut record = self::record();
+        record.prompt("go");
+        record.answer(&format!("Lead line.\n\n{}", code("echo end")));
+        let rows = screen(&record);
+        assert_eq!(header_kinds(&rows), ["Prompt", "Response"], "{rows:#?}");
+        let at = rows
+            .iter()
+            .position(|row| row.ends_with("\u{b7} Response"))
+            .expect("a header");
+        assert_eq!(rows[at + 1], "  Lead line.");
+        // Opens with a block: the header stands over the text after it.
+        let mut record = self::record();
+        record.prompt("go");
+        record.answer(&format!("{}\nThen text.\n", code("echo first")));
+        let rows = screen(&record);
+        assert_eq!(header_kinds(&rows), ["Prompt", "Response"], "{rows:#?}");
+        let at = rows
+            .iter()
+            .position(|row| row.ends_with("\u{b7} Response"))
+            .expect("a header");
+        assert_eq!(rows[at + 1], "  Then text.");
+        assert_eq!(rows[at - 1], "");
+        assert_eq!(rows[at - 3], "  echo first", "{rows:#?}");
+        // Two blocks with only a blank line between them: the blank opens a
+        // run that lays out as nothing, so neither block is headed, and the
+        // two stand one blank row apart.
+        let mut record = self::record();
+        record.prompt("go");
+        record.answer(&format!("{}\n{}", code("echo one"), code("echo two")));
+        let rows = screen(&record);
+        assert_eq!(header_kinds(&rows), ["Prompt"], "{rows:#?}");
+        let one = rows
+            .iter()
+            .position(|row| row == "  echo one")
+            .expect("the first block");
+        assert_eq!(rows[one + 2], "", "{rows:#?}");
+        assert_ne!(rows[one + 3], "", "{rows:#?}");
+        assert_eq!(rows[one + 4], "  echo two", "{rows:#?}");
+    }
+
+    #[test]
+    fn the_run_after_a_block_carries_the_moment_of_its_first_text_line_breaks_included() {
+        // fx's store stamps the new assistant entry when the first chunk
+        // after the block lands, and what comes after joins it
+        // (`store.zig:3141-3143`, `:3088-3095@481104fd`):
+        // `fx-fulltranscript-response-split-40x120-full-block-first` heads
+        // `Then text.` with the moment of the chunk that ended the block and
+        // held the blank line under it, 60 ms before `Then text.` came. The
+        // presenter gives that blank line up as text of its own.
+        let mut processor = markdown::MarkdownProcessor::with_styles(markdown::ansi::Styles::new(
+            markdown::theme::builtin(false),
+        ));
+        let events = processor.feed("```sh\nx\n```\n\nDo");
+        assert!(
+            matches!(
+                &events[..],
+                [markdown::Event::CodeBlock(_), markdown::Event::Text(text)] if text == "\n"
+            ),
+            "{events:?}"
+        );
+        let mut record = record();
+        record.prompt("go");
+        streamed(
+            &mut record,
+            &[
+                (AT, "Lead.\n\n```sh\nx\n```\n"),
+                (AT + 100, "\n"),
+                (AT + 200, "Done.\n"),
+            ],
+        );
+        let rows = screen(&record);
+        assert_eq!(header_kinds(&rows), ["Prompt", "Response", "Response"]);
+        assert!(rows.contains(&header_at(AT + 100, "Response")), "{rows:#?}");
+        assert!(
+            !rows.contains(&header_at(AT + 200, "Response")),
+            "{rows:#?}"
+        );
+        // A line break after a call still opens nothing and leaves the group
+        // open (`answer_text_breaks_a_group_and_a_notice_does_not`); after a
+        // block it opens the run, which lays out as nothing until prose joins
+        // it, so an answer that ends so has no header after its block.
+        let mut record = self::record();
+        record.prompt("go");
+        streamed(&mut record, &[(AT, "```sh\nx\n```\n"), (AT + 100, "\n\n")]);
+        assert_eq!(header_kinds(&screen(&record)), ["Prompt"]);
+    }
+
+    #[test]
+    fn where_the_answer_splits_is_the_same_however_it_was_chunked() {
+        // fx's presenter puts each line together byte by byte and completes
+        // a block on the line that ends it (`pushWithCompletions`,
+        // `assistant_presentation.zig:202-220@481104fd`), so the chunks move
+        // only the moments, not where the answer splits.
+        let answer = "Lead **bold** line.\n\n```sh\necho one\n```\n\nMiddle.\n\n\
+                      | a | b |\n|---|---|\n| 1 | 2 |\nAfter the table.\n\n---\n\nLast line.";
+        let mut whole = record();
+        whole.answer(answer);
+        let mut bytes = record();
+        let chars: Vec<String> = answer.chars().map(String::from).collect();
+        let chunks: Vec<(i64, &str)> = chars.iter().map(|c| (AT, c.as_str())).collect();
+        streamed(&mut bytes, &chunks);
+        let rows = screen(&whole);
+        assert_eq!(rows, screen(&bytes));
+        assert_eq!(
+            header_kinds(&rows),
+            ["Response", "Response", "Response", "Response"],
+            "{rows:#?}"
+        );
+        let kinds = |record: &FullTranscript| -> Vec<&'static str> {
+            record
+                .traced(120, DARK)
+                .0
+                .iter()
+                .filter(|entry| entry.rows.iter().any(|row| !row.trim().is_empty()))
+                .map(|entry| entry.kind)
+                .collect()
+        };
+        assert_eq!(kinds(&whole), kinds(&bytes));
+    }
+
+    #[test]
+    fn trace_names_an_answers_blocks_as_upstream_does() {
+        // `writeTranscriptTimeline`'s names (`app_commands.zig:2684-2687@481104fd`),
+        // each block an entry of its own with its own moment; a run that is
+        // only line breaks lists nothing, as upstream skips an entry whose
+        // text is empty after filtering.
+        let mut record = record();
+        record.prompt("go");
+        streamed(
+            &mut record,
+            &[
+                (AT, "Lead.\n\n```sh\nx\n```\n"),
+                (AT + 1, "\nMiddle.\n\n| a |\n|---|\n| 1 |\n"),
+                (AT + 2, "\nAfter.\n\n---\n"),
+                (AT + 3, "\nLast."),
+            ],
+        );
+        let (timeline, _) = record.traced(120, DARK);
+        let listed: Vec<(i64, &str)> = timeline
+            .iter()
+            .filter(|entry| entry.rows.iter().any(|row| !row.trim().is_empty()))
+            .map(|entry| (entry.at_ms, entry.kind))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                (AT, "user"),
+                (AT, "assistant"),
+                (AT, "assistant code block"),
+                (AT + 1, "assistant"),
+                (AT + 2, "assistant table"),
+                (AT + 2, "assistant"),
+                (AT + 2, "assistant thematic rule"),
+                (AT + 3, "assistant"),
+            ]
+        );
+    }
+
     #[test]
     fn answer_text_breaks_a_group_and_a_notice_does_not() {
         let mut record = record();
