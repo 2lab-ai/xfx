@@ -314,14 +314,23 @@ class RunDirectory(unittest.TestCase):
         # directory emptied between them (sweep.py `run_unit`).
         d = scratch()
         name = "fxcap.%06d" % (os.getpid() % 1000000)
-        fx = capture(self.CAP, d=d, env={"FXCAP_RUN": name})
-        runs = [os.path.basename(p) for p in glob.glob(os.path.join(d, "fxcap.*"))]
-        for run in runs:
-            shutil.rmtree(os.path.join(d, run))
-        xfx = capture(self.CAP, which="xfx", d=d, env={"FXCAP_RUN": name})
+        # Under a umask that would leave a plain `mkdir` group- and
+        # world-readable: the named directory is made owner-only all the same.
+        old = os.umask(0o022)
+        try:
+            fx = capture(self.CAP, d=d, env={"FXCAP_RUN": name})
+            runs = [os.path.basename(p) for p in glob.glob(os.path.join(d, "fxcap.*"))]
+            modes = [os.stat(os.path.join(d, run)).st_mode & 0o777 for run in runs]
+            for run in runs:
+                shutil.rmtree(os.path.join(d, run))
+            xfx = capture(self.CAP, which="xfx", d=d, env={"FXCAP_RUN": name})
+        finally:
+            os.umask(old)
         self.assertEqual(self.sum_row(fx), self.sum_row(xfx), "the two binaries ran in different paths")
         runs += [os.path.basename(p) for p in glob.glob(os.path.join(d, "fxcap.*"))]
+        modes.append(os.stat(os.path.join(d, name)).st_mode & 0o777)
         self.assertEqual(runs, [name, name])
+        self.assertEqual(modes, [0o700, 0o700])
 
     def test_a_run_of_its_own_is_six_digits_owner_only(self):
         d = scratch()
@@ -356,6 +365,75 @@ class RunDirectory(unittest.TestCase):
         self.assertIn("FXCAP_RUN names a run directory that is already there or cannot be made", r.stderr)
         self.assertEqual(r.stdout, "")
         self.assertEqual(os.listdir(os.path.join(d, "fxcap.000001")), [], "the directory there is left as it was")
+
+    def shim_od(self, d, numbers):
+        """A PATH directory whose `od` answers `numbers`, one a call, then the
+        last again: the random name's digits, chosen."""
+        shim = os.path.join(d, "shim")
+        write(os.path.join(shim, "od"),
+              "#!/bin/sh\nn=$(cat \"$0.n\" 2>/dev/null || echo 0)\necho $((n + 1)) > \"$0.n\"\n"
+              "set -- %s\nshift $(( n < $# - 1 ? n : $# - 1 ))\necho \" $1\"\n" % " ".join(str(x) for x in numbers))
+        os.chmod(os.path.join(shim, "od"), 0o755)
+        return {"PATH": shim + ":" + os.environ["PATH"]}
+
+    def test_a_random_name_already_there_is_passed_over(self):
+        # The first name drawn is taken by a directory that is not the run's:
+        # it is left as it was, and the run takes the next name drawn.
+        d = scratch()
+        os.mkdir(os.path.join(d, "fxcap.000123"))
+        write(os.path.join(d, "fxcap.000123", "mine"), "not the run's\n")
+        self.sum_row(capture(self.CAP, d=d, env=self.shim_od(d, [123, 124])))
+        self.assertEqual(os.listdir(os.path.join(d, "fxcap.000123")), ["mine"])
+        self.assertTrue(os.path.isdir(os.path.join(d, "fxcap.000124", "work")), "the run is the next name's")
+
+    def test_a_tmpdir_with_no_room_for_a_run_ends_at_once(self):
+        # No TMPDIR at all: the first failure says so, not a hundred tries.
+        d = scratch()
+        r = capture("wait 1\nsnap a\n", d=d, env=dict(self.shim_od(d, [5]), TMPDIR=os.path.join(d, "absent")))
+        self.assertEqual(r.code, 2, r.stdout + r.stderr)
+        self.assertIn("no run directory can be made under TMPDIR", r.stderr)
+        self.assertEqual(slurp(os.path.join(d, "shim", "od.n")).strip(), "1", "one name drawn")
+        self.assertEqual(r.stdout, "")
+
+    # The pane's process when the run ends. tmux's kill-server hangs it up and
+    # returns at once; a binary still on its way out could write under the run
+    # directory after the run -- where the sweep's next run of the unit, under
+    # the same name, keeps its HOME. Each stub writes its pid first.
+    SLOW_EXIT = ("#!/bin/bash\necho $$ > \"$HOME/pid\"\n"
+                 "trap 'sleep 1; mkdir \"$HOME/late\"; exit 0' HUP\necho up\nwhile :; do sleep 0.1; done\n")
+    NO_EXIT = "#!/bin/bash\necho $$ > \"$HOME/pid\"\ntrap '' HUP TERM\necho up\nwhile :; do sleep 0.1; done\n"
+
+    def stub_run(self, body):
+        d = scratch()
+        stub = os.path.join(d, "stub.sh")
+        write(stub, body)
+        os.chmod(stub, 0o755)
+        r = capture("wait 1\nsnap a\n", which="xfx", binary=stub, d=d)
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        (run,) = glob.glob(os.path.join(d, "fxcap.*"))
+        pid = int(slurp(os.path.join(run, "home", "pid")))
+        self.addCleanup(self.kill_stub, pid, stub)
+        return run, pid
+
+    def kill_stub(self, pid, stub):
+        """A stub the code under test left running (RED), by its pid, once
+        its command line is read as that stub."""
+        ps = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True)
+        if stub in ps.stdout:
+            os.kill(pid, signal.SIGKILL)
+
+    def alive(self, pid):
+        state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+        return bool(state) and not state.startswith("Z")
+
+    def test_a_binary_on_its_way_out_is_waited_for(self):
+        run, pid = self.stub_run(self.SLOW_EXIT)
+        self.assertTrue(os.path.isdir(os.path.join(run, "home", "late")), "the run ended before the binary's last write")
+        self.assertFalse(self.alive(pid))
+
+    def test_a_binary_that_will_not_go_is_killed(self):
+        run, pid = self.stub_run(self.NO_EXIT)
+        self.assertFalse(self.alive(pid), "the run ended with its binary still running")
 
 
 class Placeholders(unittest.TestCase):

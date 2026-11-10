@@ -60,11 +60,11 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import signal
 import subprocess
 import sys
-import secrets
 import threading
 import time
 

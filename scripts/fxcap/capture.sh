@@ -4,8 +4,11 @@
 #
 # usage: scripts/fxcap/capture.sh <fx|xfx> <scenario> <rows>x<cols> [out-dir]
 #
-#   FX_BIN   the reference fx binary (required for `fx`), e.g. a c1db919 build
-#   XFX_BIN  the xfx binary (default: target/debug/xfx in this checkout)
+#   FX_BIN     the reference fx binary (required for `fx`), e.g. a c1db919 build
+#   XFX_BIN    the xfx binary (default: target/debug/xfx in this checkout)
+#   FXCAP_RUN  the run directory's name under TMPDIR, `fxcap.` and six digits
+#              (default: six random ones); the sweep gives a unit's two runs
+#              one (make_run, below)
 #
 # Each run gets its own tmux server on its own socket (never the user's), its
 # own empty HOME, a fake key, and a loopback fake gateway (fakegw.ts) fed the
@@ -453,6 +456,10 @@ make_run() {
       printf '%s\n' "$tmpdir/$name"
       return 0
     fi
+    # A name already there is tried again; any other failure (no TMPDIR, no
+    # permission) ends here, as sweep.py's digit_dir does.
+    [[ -e $tmpdir/$name || -L $tmpdir/$name ]] ||
+      { echo "no run directory can be made under TMPDIR" >&2; return 1; }
   done
   echo "no run directory could be made under TMPDIR in 100 tries" >&2
   return 1
@@ -514,9 +521,36 @@ guards() {
 }
 
 # Every process the run started, by the pid it started, and then the guards.
+# Waits for the pane's process `$1`, the one this script started in its own
+# pane, to exit: 3 s at most, then SIGKILL. Only while it is still that
+# process -- its start time and command as read before its server went -- so
+# a pid the system gave to another process since is left alone.
+reap() {
+  local pid=$1 id=$2 i
+  for (( i = 0; i < 60; i++ )); do
+    [[ $(ps -o lstart=,comm= -p "$pid" 2>/dev/null) == "$id" ]] || return 0
+    sleep 0.05
+  done
+  kill -KILL "$pid" 2>/dev/null || true
+  for (( i = 0; i < 20; i++ )); do
+    [[ $(ps -o lstart=,comm= -p "$pid" 2>/dev/null) == "$id" ]] || return 0
+    sleep 0.05
+  done
+}
+
 cleanup() {
   local code=$?
-  [[ -z $sock ]] || tmux -f /dev/null -S "$sock" kill-server 2>/dev/null || true
+  # The pane's process, read before its server goes: kill-server hangs it up
+  # and returns at once, and a binary still on its way out could write under
+  # $run after this run has ended -- where a sweep unit's next run, under the
+  # same name (FXCAP_RUN), keeps its HOME. So it is waited for (reap).
+  local pane='' id=''
+  if [[ -n $sock ]]; then
+    pane=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_pid}' 2>/dev/null) || pane=''
+    [[ $pane =~ ^[0-9]+$ ]] && id=$(ps -o lstart=,comm= -p "$pane" 2>/dev/null) || id=''
+    tmux -f /dev/null -S "$sock" kill-server 2>/dev/null || true
+    [[ -z $id ]] || reap "$pane" "$id"
+  fi
   [[ -z $gateway ]] || kill "$gateway" 2>/dev/null || true
   [[ -z $mcphttp ]] || kill "$mcphttp" 2>/dev/null || true
   if [[ -n $guard_run ]]; then guards || code=3; fi

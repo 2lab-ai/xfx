@@ -970,6 +970,20 @@ case $scenario in
   run-*)
     printf 'run %s\n' "${FXCAP_RUN-unset}" > "$out/$which-$scenario-$size-a.ansi"
     printf '%s\n' "$TMPDIR" > "$out/$which-$scenario-$size-tmp.txt" ;;
+  iso-*)
+    # What this side's TMPDIR held before it began, then its run directory
+    # made as capture.sh makes it (refused if the last side's is there); fx
+    # leaves a profile, a session and a config file in its HOME.
+    seen=$(cd "$TMPDIR" && find . -mindepth 1 | sort | tr '\n' ' ')
+    run=$TMPDIR/$FXCAP_RUN
+    mkdir -m 700 "$run" "$run/home"
+    if [ "$which" = fx ]; then
+      mkdir -p "$run/home/.fx/sessions" "$run/home/.config/fx"
+      for f in .fx/settings.json .fx/sessions/s1.json .config/fx/config; do echo left > "$run/home/$f"; done
+    fi
+    printf 'seen %s\n' "${seen:-nothing}" > "$out/$which-$scenario-$size-a.ansi"
+    printf '%s\n' "$TMPDIR" > "$out/$which-$scenario-$size-tmp.txt"
+    (cd "$run/home" && find . -type f | sort) > "$out/$which-$scenario-$size-home.txt" ;;
 esac
 """
 
@@ -1221,6 +1235,35 @@ class Sweep(unittest.TestCase):
             self.assertRegex(seen["fx"][0], r"^run fxcap\.[0-9]{6}\n$", unit)
             self.assertRegex(os.path.basename(os.path.dirname(seen["fx"][1])), r"^fxsw\.[0-9]{8}$", unit)
         self.assertEqual(self.board(out)["totals"]["identical"], 2)
+
+    def test_a_units_second_run_finds_nothing_its_first_left(self):
+        # The two runs of a unit share a name, not a directory: the TMPDIR is
+        # emptied before each, so what fx leaves in its HOME -- a profile, a
+        # session, a config file -- is not there for xfx, and each side's
+        # captures, in the out directory, outlive that. Two units at once
+        # (`--jobs 2`) each have a TMPDIR of their own under the one root.
+        for name in ("iso-a", "iso-b"):
+            with open(os.path.join(self.scen, name + ".cap"), "w") as f:
+                f.write("snap a\n")
+        r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, "--only", "iso-*", "--jobs", "2")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        tmps = {}
+        for unit in ("iso-a", "iso-b"):
+            files = {}
+            for side in ("fx", "xfx"):
+                d = os.path.join(out, "runs", unit, side)
+                files[side] = {
+                    ext: slurp(os.path.join(d, "%s-%s-40x120-%s" % (side, unit, ext)))
+                    for ext in ("a.ansi", "tmp.txt", "home.txt")
+                }
+            self.assertEqual(files["fx"]["home.txt"], "./.config/fx/config\n./.fx/sessions/s1.json\n./.fx/settings.json\n", unit)
+            self.assertEqual(files["xfx"]["home.txt"], "", unit)
+            self.assertEqual([files[side]["a.ansi"] for side in ("fx", "xfx")], ["seen nothing\n"] * 2, unit)
+            self.assertEqual(files["fx"]["tmp.txt"], files["xfx"]["tmp.txt"], unit)
+            tmps[unit] = files["fx"]["tmp.txt"].strip()
+        self.assertNotEqual(tmps["iso-a"], tmps["iso-b"])
+        self.assertEqual(os.path.dirname(tmps["iso-a"]), os.path.dirname(tmps["iso-b"]))
+        self.assertEqual(self.board(out)["totals"]["identical"], 2, self.board(out)["totals"])
 
     def test_the_out_directory_is_outside_the_repository(self):
         r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, out=os.path.join(REPO, "target", "sweep-out"))
