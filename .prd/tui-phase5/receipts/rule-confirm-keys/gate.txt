@@ -10,3 +10,9 @@ identity: exit 0
 stubs: exit 0
 secrets: exit 0
 src/tests unchanged after: 0 dirty paths; HEAD 071b26e0
+
+# with this receipt committed (bfa9ceec); check-no-secrets.sh had also run with it staged, exit 0, 18280 tracked files
+identity: exit 0
+stubs: exit 0
+secrets: exit 0 (18280 tracked files)
+cargo test --locked --test parity: exit 0 test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured;
