@@ -11,10 +11,10 @@
 # GATE25 is a 25-byte one under the gate's own TMPDIR, whose fixed part does
 # hold `p`, `l` and `a` (`private`, `claude`): the local case.
 #
-# usage: SCRATCH=<dir> XFX=<checkout> SUITE_LOCK=<suite-lock.sh> GATE_TMP=<dir> runs.sh <step>
+# usage: SCRATCH=<dir> XFX=<checkout> FX_BIN=<fx v0.0.16> SUITE_LOCK=<suite-lock.sh> GATE_TMP=<dir> runs.sh <step>
 set -euo pipefail
 : "${SCRATCH:?}" "${XFX:?}"
-FX=$XFX/.worktrees/.fxref/fx-v0.0.16/bin/fx
+FX=${FX_BIN:?}   # the fx v0.0.16 oracle, sha256 below
 SHA=8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
 LOCK=${SUITE_LOCK:?}
 SYS=/private/tmp
