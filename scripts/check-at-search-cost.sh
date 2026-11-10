@@ -52,7 +52,7 @@ main() {
 	printf 'check-at-search-cost: before: %s\n' "$before"
 	printf 'check-at-search-cost: after:  %s\n' "$(load)"
 	# The measurements, readable as evidence whether or not the bar held.
-	printf '%s\n' "$output" | grep -E 'entries: |keys .* rows p50|searches p50|slowest: |8 ms frame' || true
+	printf '%s\n' "$output" | grep -E 'entries: |keys .* rows p50|searches p50|slowest: |first search, cold: |8 ms frame' || true
 	if [ "$status" -ne 0 ]; then
 		printf '%s\n' "$output" | tail -n 20 | sed 's/^/    | /' >&2
 		fail "the cargo test invocation failed (status $status); its last lines are above"

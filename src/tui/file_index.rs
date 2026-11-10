@@ -108,10 +108,11 @@ pub(crate) struct Candidate {
     /// [`letters`] of the path, and [`NON_ASCII`] if it has a byte past
     /// ASCII (`char_masks`).
     mask: u32,
-    /// [`letters`] of the name, and of the folder holding it and the name:
-    /// where the search inside the name and the one from its folder into it
-    /// look. Not upstream's: they spare those two searches a path whose
-    /// part lacks one of the query's letters (an ASCII path's only).
+    /// [`letters`] of the name, and of the folder holding it and the name
+    /// ([`folder_start`]): where the search inside the name and the one from
+    /// its folder into it look. Not upstream's: they spare those two
+    /// searches a path whose part lacks one of the query's letters. An
+    /// ASCII path's only; any other's are every bit, ruling nothing out.
     name_mask: u32,
     folder_mask: u32,
 }
@@ -122,15 +123,16 @@ impl Candidate {
         let lower: Box<[u8]> = path.bytes().map(|byte| byte.to_ascii_lowercase()).collect();
         let mask = letters(&lower) | if path.is_ascii() { 0 } else { NON_ASCII };
         let name = basename_start(&path);
-        // The folder holding the name starts after the `/` before it, as
-        // `choose_placement` finds it.
-        let folder = name
-            .checked_sub(1)
-            .and_then(|slash| u8::rfind(&lower, slash, b'/'))
-            .map_or(0, |slash| slash + 1);
+        // Read only for an ASCII path; any other is never ruled out.
+        let (name_mask, folder_mask) = if path.is_ascii() {
+            let folder = folder_start(&lower, name);
+            (letters(&lower[name..]), letters(&lower[folder..]))
+        } else {
+            (u32::MAX, u32::MAX)
+        };
         Self {
-            name_mask: letters(&lower[name..]),
-            folder_mask: letters(&lower[folder..]),
+            name_mask,
+            folder_mask,
             name,
             path,
             kind,
@@ -648,34 +650,26 @@ static IDENTITY: [usize; MOST_PATH_BYTES + 1] = {
     offsets
 };
 
-/// The placements an entry may still need (`Needed`, `file_index.zig:1760-1768`).
+/// The placements an entry may still need (`Needed`, `file_index.zig:1760-1768`),
+/// and -- not upstream's -- the searches its letters leave worth running.
 #[derive(Clone, Copy)]
 struct Needed {
     /// Those that end in a folder.
     folder: bool,
-    /// Those that start in the folder holding the name and end in the name.
+    /// Those that start in the folder holding the name and end in the name:
+    /// off once they cannot enter, or when the folder and name lack one of
+    /// the query's letters ([`Candidate::folder_mask`]).
     crossing: bool,
+    /// Those inside the name: off only when it lacks one of the query's
+    /// letters ([`Candidate::name_mask`]), as no search there could find one.
+    name: bool,
 }
 
 /// Every placement: what a search outside [`rank_top`] places.
 const EVERY: Needed = Needed {
     folder: true,
     crossing: true,
-};
-
-/// Whether the name, and the folder holding it with the name, may hold the
-/// query: false only where an ASCII path's part lacks one of its letters
-/// ([`Candidate::name_mask`]), so the search there would find nothing.
-#[derive(Clone, Copy)]
-struct Holds {
-    name: bool,
-    folder: bool,
-}
-
-/// Every part may hold the query: a path with a byte past ASCII, or a name.
-const ANY: Holds = Holds {
     name: true,
-    folder: true,
 };
 
 /// A byte's class (`CharClass`, `charClassOf`, `file_index.zig:1445-1457`).
@@ -815,6 +809,17 @@ impl Unit for char {
     }
 }
 
+/// Where the folder holding the name at `name` starts: after the `/`
+/// before that folder, or at 0. The crossing search starts here
+/// ([`choose_placement`]) and [`Candidate::folder_mask`] holds the letters
+/// from here on; a mask taken from any later start could rule out a
+/// crossing that exists, so both take it from this one function.
+fn folder_start<T: Unit>(text: &[T], name: usize) -> usize {
+    name.checked_sub(1)
+        .and_then(|slash| T::rfind(text, slash, T::from(b'/')))
+        .map_or(0, |slash| slash + 1)
+}
+
 /// One search's text and alignment workspace, reused for every path.
 #[derive(Default)]
 struct Scratch {
@@ -900,6 +905,9 @@ fn align_best<T: Unit>(
         // The earliest scalar with the highest bonus (`:1546-1564`).
         let (mut best, mut from): (Option<(usize, i32)>, usize) = (None, end_min);
         while let Some(j) = T::find(text, from, query[0]) {
+            // `find` answers a place in the whole text: one before `from`
+            // would never let this loop end.
+            debug_assert!(j >= from, "find answered {j} for a search from {from}");
             let bonus = bonus_at(path, offsets, j);
             if best.is_none_or(|(_, top)| bonus > top) {
                 best = Some((j, bonus));
@@ -1073,8 +1081,6 @@ fn max_crossing_quality<T: PartialEq + From<u8>>(query: &[T]) -> i32 {
 /// it; failing both, the best anywhere, ranked in the folder tier below every
 /// name match whether or not it ends in the name. A kind of placement that
 /// `needed` turns off is not searched for.
-// fx's seven arguments, and what the masks rule out.
-#[allow(clippy::too_many_arguments)]
 fn choose_placement<T: Unit>(
     text: &[T],
     path: &[u8],
@@ -1082,7 +1088,6 @@ fn choose_placement<T: Unit>(
     base: usize,
     query: &[T],
     needed: Needed,
-    holds: Holds,
     s: &mut Align,
 ) -> Option<(Score, usize, usize)> {
     let place = |quality: i32, first: usize| Score {
@@ -1091,7 +1096,7 @@ fn choose_placement<T: Unit>(
         name: true,
         ..Score::default()
     };
-    let mut best = holds
+    let mut best = needed
         .name
         .then(|| align_best(text, path, offsets, base, base, query, s))
         .flatten()
@@ -1104,8 +1109,8 @@ fn choose_placement<T: Unit>(
         return None;
     }
     let can_win = best.is_none_or(|(inside, ..)| inside.quality < max_crossing_quality(query));
-    if needed.crossing && holds.folder && base > 0 && query.len() > 1 && can_win {
-        let folder = T::rfind(text, base - 1, T::from(b'/')).map_or(0, |slash| slash + 1);
+    if needed.crossing && base > 0 && query.len() > 1 && can_win {
+        let folder = folder_start(text, base);
         if let Some((quality, first)) = align_best(text, path, offsets, folder, base, query, s) {
             if best.is_none_or(|(inside, ..)| quality > inside.quality) {
                 best = Some((place(quality, first), folder, base));
@@ -1220,16 +1225,7 @@ fn score(path: &str, query: &Folded, needed: Needed, s: &mut Scratch) -> Option<
     let exact = exact_fit(text, &text[base..], query);
     // An exact match always enters, so it is always placed in full.
     let needed = if exact { EVERY } else { needed };
-    let (score, ..) = choose_placement(
-        text,
-        path.as_bytes(),
-        offsets,
-        base,
-        query,
-        needed,
-        ANY,
-        align,
-    )?;
+    let (score, ..) = choose_placement(text, path.as_bytes(), offsets, base, query, needed, align)?;
     Some(Score { exact, ..score })
 }
 
@@ -1258,9 +1254,10 @@ fn score_entry(
         return None;
     }
     let needed = if exact { EVERY } else { needed };
-    let holds = Holds {
+    let needed = Needed {
         name: entry.name_mask & query.mask == query.mask,
-        folder: entry.folder_mask & query.mask == query.mask,
+        crossing: needed.crossing && entry.folder_mask & query.mask == query.mask,
+        ..needed
     };
     let (bytes, offsets) = (entry.path.as_bytes(), &IDENTITY[..=lower.len()]);
     let (score, ..) = choose_placement(
@@ -1270,7 +1267,6 @@ fn score_entry(
         entry.name,
         ascii,
         needed,
-        holds,
         &mut s.align,
     )?;
     Some(Score { exact, ..score })
@@ -1287,7 +1283,7 @@ fn spans(path: &str, query: &Folded, s: &mut Scratch) -> Vec<Range<usize>> {
     let base = loaded(path, s);
     let (text, offsets, bytes) = (&s.text[..], &s.offsets[..], path.as_bytes());
     let Some((_, range_start, end_min)) =
-        choose_placement(text, bytes, offsets, base, query, EVERY, ANY, &mut s.align)
+        choose_placement(text, bytes, offsets, base, query, EVERY, &mut s.align)
     else {
         return Vec::new();
     };
@@ -1365,6 +1361,7 @@ fn rank_top(entries: &[Candidate], query: &Folded, s: &mut Scratch) -> Vec<(Scor
             needed = Needed {
                 folder: !(top.exact || top.name),
                 crossing: !(top.exact || (top.name && top.quality > max_crossing)),
+                ..EVERY
             };
             if top.exact {
                 limit = Some(0);
@@ -2692,6 +2689,25 @@ pub(crate) mod tests {
                                 actual.unwrap()
                             );
                             assert!(positions.iter().zip(&query).all(|(at, c)| lower[*at] == *c));
+                            // The same search over the path's lower-cased
+                            // bytes, as an ASCII path is searched.
+                            let bytes: Vec<u8> = lower.iter().map(|c| *c as u8).collect();
+                            let wanted: Vec<u8> = query.iter().map(|c| *c as u8).collect();
+                            let over_chars = align.positions.clone();
+                            let over_bytes = align_best(
+                                &bytes,
+                                &path,
+                                &offsets,
+                                range_start,
+                                end_min,
+                                &wanted,
+                                &mut align,
+                            );
+                            assert_eq!(over_bytes, actual, "{path:?} {query:?} over bytes");
+                            assert_eq!(
+                                align.positions, over_chars,
+                                "{path:?} {query:?} over bytes"
+                            );
                         }
                     }
                 }
@@ -2768,6 +2784,41 @@ pub(crate) mod tests {
             rows(&candidates(&["a-xb", "aa-b"]), "a-b"),
             ["aa-b", "a-xb"]
         );
+    }
+
+    /// `Unit::find` and `Unit::rfind` over one text, as either kind of unit:
+    /// places in the whole text, from any start, and none past either end.
+    fn finds_in_the_whole_text<T: Unit + std::fmt::Debug>(text: &[T]) {
+        let (a, c, z) = (T::from(b'a'), T::from(b'c'), T::from(b'z'));
+        assert_eq!(T::find(text, 0, a), Some(0));
+        assert_eq!(
+            T::find(text, 1, a),
+            Some(3),
+            "a later match, at its place in the text"
+        );
+        assert_eq!(T::find(text, 4, c), Some(5));
+        assert_eq!(T::find(text, 4, a), None, "none left after the start");
+        assert_eq!(T::find(text, 0, z), None);
+        assert_eq!(T::find(text, text.len(), a), None, "from the end");
+        assert_eq!(T::find(text, text.len() + 1, a), None, "from past the end");
+        assert_eq!(T::rfind(text, text.len(), a), Some(3));
+        assert_eq!(
+            T::rfind(text, 3, a),
+            Some(0),
+            "the last before `to`, in the text"
+        );
+        assert_eq!(T::rfind(text, 1, c), None);
+        assert_eq!(T::rfind(text, 0, a), None, "nothing before 0");
+    }
+
+    #[test]
+    fn find_and_rfind_answer_places_in_the_whole_text() {
+        // The scans of a search hand `find` a start and use the place it
+        // answers as the next start (`align_best`); a place counted from the
+        // start instead would rescan the same letter for ever. Both kinds of
+        // unit: an ASCII path's bytes (`memchr`) and folded scalars.
+        finds_in_the_whole_text(b"abcabc");
+        finds_in_the_whole_text(&['a', 'b', 'c', 'a', 'b', 'c']);
     }
 
     #[test]
@@ -3849,6 +3900,9 @@ pub(crate) mod tests {
         // The one slowest search, by prefix and pass, so a lone outlier on a
         // runner can be told from a slow prefix.
         let mut slowest: (Duration, &str, usize) = (Duration::ZERO, "", 0);
+        // The first search over the index, cold: its pass 0, which the
+        // percentiles drop with every prefix's first passes.
+        let mut cold: Option<(Duration, &str)> = None;
         for (name, query) in queries {
             let mut timings = Vec::new();
             let mut hits = 0;
@@ -3860,6 +3914,7 @@ pub(crate) mod tests {
                     let started = Instant::now();
                     hits = std::hint::black_box(search(&entries, &query[..end])).len();
                     let took = started.elapsed();
+                    cold.get_or_insert((took, &query[..end]));
                     if pass >= warm {
                         if took > slowest.0 {
                             slowest = (took, &query[..end], pass);
@@ -3901,6 +3956,9 @@ pub(crate) mod tests {
             "slowest: {:?} at {:?}, pass {} of {passes}",
             slowest.0, slowest.1, slowest.2
         );
+        if let Some((took, prefix)) = cold {
+            eprintln!("first search, cold: {took:?} at {prefix:?} (pass 0, not counted)");
+        }
         assert!(
             !measured || p95 < Duration::from_millis(8),
             "a keystroke's search took {p95:?} at the 95th percentile, against an 8 ms frame"
