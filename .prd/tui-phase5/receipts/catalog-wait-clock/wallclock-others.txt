@@ -54,3 +54,9 @@ src/provider/model.rs:3933        a_gateway_catalog_past_its_deadline_is_a_failu
 tests/gateway.rs:1178             a_retry_waits_for_the_server_requested_delay                         < 3 s
 tests/gateway.rs:1247             cancelling_during_a_backoff_ends_the_turn_without_another_attempt    < 3 s
 tests/tui.rs:13754                a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind  < 4 s (pty)
+
+## Added by this unit (round 3)
+
+src/tui/worker.rs:18931@9d2e7f3c  first_of_two_and_a_stop (A, B, E)  stop to the first turn's place given
+back < STOP_TO_END (10 s): the backstop for lateness the paused clock cannot see, sized at ten times
+the repeat's measured maximum (README, "What the paused clock cannot see").

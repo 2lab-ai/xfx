@@ -65,6 +65,21 @@ FIRST_LOAD_LATE = ("if !fresh && turn.token.is_cancelled() && state.selector.is_
 TOKIO_700 = "        tokio::time::sleep(std::time::Duration::from_millis(700)).await;"
 THREAD_700 = "        std::thread::sleep(std::time::Duration::from_millis(700));"
 
+
+def THREAD(ms):
+    return f"        std::thread::sleep(std::time::Duration::from_millis({ms}));"
+
+
+def XTHREAD(ms):
+    # An answer from another OS thread `ms` later, awaited: the runtime parks
+    # with no timer of its own standing.
+    return ("        let (late_tx, late_rx) = tokio::sync::oneshot::channel::<()>();\n"
+            "        std::thread::spawn(move || {\n"
+            f"            std::thread::sleep(std::time::Duration::from_millis({ms}));\n"
+            "            let _ = late_tx.send(());\n"
+            "        });\n"
+            "        let _ = late_rx.await;")
+
 MUTANTS = {
     # The stop ignored until each wait ends by itself: its arm gone from the
     # select (train 7's J2 for the retry).
@@ -153,6 +168,32 @@ MUTANTS = {
         "        () = turn.token.cancelled() => false,\n        fresh = state.load_catalog() => fresh,\n    };\n"
         "    " + FIRST_LOAD_LATE + delay + "\n    }\n    // The image route",
     )] for how, delay in [("tokio", TOKIO_700), ("thread", THREAD_700)]},
+    # Round 3: lateness off the loop runtime's timers, at the turn's read
+    # (first loads only) and at the retry wait -- the thread held, and (gpt6)
+    # a wait on a oneshot another OS thread answers, with no timer standing --
+    # below the harness's wall bound (STOP_TO_END, 10 s from 9d2e7f3c; 5 s at
+    # ce221384) and above it.
+    **{f"first-load-late-turn-read-{how}-{ms}": [(
+        W,
+        "            () = turn.token.cancelled() => false,\n            fresh = state.load_catalog() => fresh,\n        };\n",
+        "            () = turn.token.cancelled() => false,\n            fresh = state.load_catalog() => fresh,\n        };\n"
+        "        " + FIRST_LOAD_LATE + delay(ms) + "\n        }\n",
+    )] for how, delay in [("thread", THREAD), ("xthread", XTHREAD)] for ms in (700, 6000, 12000)
+       if not (how == "thread" and ms == 700)},
+    **{f"retry-wait-stop-late-thread-{ms}": [(
+        W,
+        "        () = turn.token.cancelled() => {}\n"
+        "        _ = tokio::time::timeout(FAILED_CATALOG_RETRY_WAIT, state.selector.settle_load()) => {}\n",
+        "        () = turn.token.cancelled() => std::thread::sleep(std::time::Duration::from_millis(" + str(ms) + ")),\n"
+        "        _ = tokio::time::timeout(FAILED_CATALOG_RETRY_WAIT, state.selector.settle_load()) => {}\n",
+    )] for ms in (500, 6000, 12000)},
+    **{f"retry-wait-stop-late-xthread-{ms}": [(
+        W,
+        "        () = turn.token.cancelled() => {}\n"
+        "        _ = tokio::time::timeout(FAILED_CATALOG_RETRY_WAIT, state.selector.settle_load()) => {}\n",
+        "        () = turn.token.cancelled() => {\n" + XTHREAD(ms) + "\n        }\n"
+        "        _ = tokio::time::timeout(FAILED_CATALOG_RETRY_WAIT, state.selector.settle_load()) => {}\n",
+    )] for ms in (500, 6000, 12000)},
     # QUESTIONS-20's M1, for test C's turn that asks twenty.
     "questions-cap-back-to-4": [(Q, "pub const MAX_QUESTIONS: usize = 20;", "pub const MAX_QUESTIONS: usize = 4;")],
 }

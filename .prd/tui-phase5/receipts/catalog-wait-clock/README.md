@@ -3,15 +3,19 @@
 Unit CATALOG-WAIT-CLOCK: test-only -- `src/tui/worker.rs`'s tests module and
 one `[dev-dependencies]` line in `Cargo.toml`; no product line changes. Base
 `afd891af` (train 13's head). Every claim below is tied to a file in this
-folder. Source lines are at `afd891af` unless marked `@a6ab3ee6`.
+folder. Source lines are at `afd891af` unless marked `@a6ab3ee6` or
+`@9d2e7f3c`.
 
 | commit | what |
 |---|---|
 | `3c0a2ab3` | round 1: the stop placed by the loop; first loads held until the stop's end; the retry bound at 2 s on the wall clock |
 | `b5e234e1`, `5f55cfc8` | round 1: the retry runs on tokio's paused clock (`test-util` in `[dev-dependencies]`), the stopped end asserted at zero |
 | `64cfd5a1`..`d525cc7b` | round 1's receipt, gate and repeat check (files without a `2` in their name) |
-| `a6ab3ee6` | round 2 (the reviews of `d525cc7b`): every stopped run on the paused clock, first loads included; no clock places a stop; the compaction test; two new first-load cases -- **the code head**; every round-2 head-side run is this commit |
-| the next commits | round 2's receipt (files with a `2` in their name, and this README), gate and repeat check |
+| `a6ab3ee6` | round 2 (the reviews of `d525cc7b`): every stopped run on the paused clock, first loads included; no clock places a stop; the compaction test; two new first-load cases |
+| `6b0c613f`, `b54cffb4` | round 2's receipt, gate and repeat check (files with a `2` in their name) |
+| `ce221384` | round 3 (the reviews of `a6ab3ee6`): the wall-clock stop-to-end bound, at 5 s; `Held::run`; C's give-up at 30 s; the closed-channel comments |
+| `9d2e7f3c` | round 3: the bound at 10 s, sized from `ce221384`'s repeat -- **the code head** |
+| the next commits | round 3's receipt (files with a `3` in their name, and this README), gate (`gates3.txt`) |
 
 ## The gap
 
@@ -72,13 +76,17 @@ at once, and the turn does not wait out the catalog.**
 - **Why a paused clock is sound for the first-load runs** (gpt6's MUST,
   opus Q1). A paused runtime that waits on another thread runs its clock on
   to the next timer. So: (1) the band's give-up is no tokio timeout but a
-  wall-clock deadline thread (`WallDeadline`, `:18703`), which a paused clock
-  cannot jump to -- a missed stop fails at that deadline instead of hanging;
+  wall-clock deadline thread (`WallDeadline`, `:18752@9d2e7f3c`, 30 s), which
+  a paused clock cannot jump to -- a first load's missed stop fails at that
+  deadline instead of hanging, the give-up letting the load go. It covers
+  first loads only: a retry's gate is let go after the run, so a retry wait
+  that lost both its stop and its 2 s timer would hang (as before this unit);
   (2) in a stopped first-load run the harness asserts that every event came
-  with no tokio time gone (`:18858`), the second turn's too, which waits for
-  the load's answer from its thread: no timer stood in the runtime for the
-  clock to run to, so nothing was run past. The no-stop first-load runs stay
-  on the wall clock, from which the load's 1.5 s are counted.
+  with no tokio time gone (`:18921@9d2e7f3c`), the second turn's too, which
+  waits for the load's answer from its thread: **no advance happened before
+  the last logged event**, so nothing was run past up to there. The no-stop
+  first-load runs stay on the wall clock, from which the load's 1.5 s are
+  counted.
 - **The no-stop lower bounds**: a retry run's first end at `>= 1.9 s` on the
   paused clock (it reads exactly the timer's 2 s), a first load's at `>= 1.5 s`
   on the wall clock, counted from a reading taken **before** the load's
@@ -86,42 +94,84 @@ at once, and the turn does not wait out the catalog.**
   after the opener had started, so a thread held in between made the load
   look early (`red2-base.txt`, `start=1200`): round 1's "load cannot break
   them" was wrong for that one.
-- **Held is structural** (opus SHOULD 3): `Held` is made only where its gate
-  is made (`retry_never_lands`, `first_load_behind_a_history_image`,
-  `waiting_in`), so no test holds a gate's sender of its own; the harness
-  alone opens it and picks the clock from it (`enum Held`, `:18672`).
+- **Held picks the clock and lets the gate go** (round 3, opus SHOULD 1):
+  `Held` is made only where its gate is made (`retry_never_lands`,
+  `first_load_behind_a_history_image`, `waiting_in`) and spent only by
+  `Held::run` (`:18703@9d2e7f3c`), which runs the loop on the wait's clock and
+  lets the gate go -- a retry's after the run, a first load's to the band (with
+  a stop) or to an opener (without). The harness and D both run through it
+  (D at `:20037@9d2e7f3c`). C takes no `Held`: it builds its own gate and picks
+  its clock by `stop`.
 - `CatalogDue` does not apply: it says when a catalog read is due
   (`src/provider/catalog_clock.rs`, `is_due`), and no catalog wait of a turn
   reads it.
 - **Strictness**: `at.is_zero()` fails any tokio timer a later change puts on
-  the stop path. That is deterministic, and meant.
+  the stop path. That is deterministic, and meant. One case it does not fail
+  every time: a timer standing, not awaited, while the second turn waits for
+  the load's answer -- whether the clock advances to it depends on whether
+  the catalog thread's wake lands within the runtime's zero-timeout park
+  (`did_wake`, tokio's `runtime/time/mod.rs:263-275`).
 - **The one non-test file**: `Cargo.toml` `[dev-dependencies]` gains
   `tokio = { version = "1", features = ["test-util"] }`, for `start_paused`.
   Test builds only; it adds no crate, and `Cargo.lock` is unchanged (every
   `--locked` build here passed).
 
-### What the paused clock cannot see, and the contract it gives up
+### What the paused clock cannot see, and the wall-clock backstop
 
-A stop held up by the loop's **thread** -- a blocking sleep, a blocking join,
-CPU work on the stop path -- reads as no tokio time, exactly like a loaded
-machine holding that thread; no deterministic test can tell the two apart.
-The `first-load-late-*-thread` mutants below hold the thread 700 ms after a
-stop, at each first-load select:
+**The class.** Any lateness that is not on a tokio timer of the loop's
+runtime reads as no tokio time: the loop's thread held (a blocking sleep or
+join, CPU work on the stop path), `spawn_blocking` (it stops auto-advance), or
+a wait on another OS thread's answer while no timer stands (the runtime parks
+without advancing). A machine holding the thread looks the same to any
+deterministic test. It applies at all four stop points: the window's,
+the image route's and the turn's catalog reads (`:4585-4589`, `:5850-5854`,
+`:6150-6154`) and the retry wait (`:4552-4556`).
 
-- at the window's and the image route's selects they survive at base and
-  head alike (no base test reached those waits);
-- at the turn's own catalog read (`:6150-6154`) the base killed it (B and C:
-  300 ms + 700 ms broke the 1 s window, the window that flaked) and the head
-  does not. **That is a contract reduction**: the head no longer catches
-  thread-held lateness at a stop in the first-load wait. The same holds for
-  the retry wait (`retry-wait-stop-late` is caught only as a tokio sleep).
-- The backstop the dispatcher named, the sweep scenario
-  `p5-stop-in-catalog-wait`, presses Ctrl-C 0.7 s into a turn's wait and
-  snaps the screen 1 s later on the wall clock -- but its turn waits on a
-  failed catalog's **retry** (`modelsdown`, then a prompt whose read takes
-  10 s: `scripts/fxcap/scenarios/p5-stop-in-catalog-wait.cap`), not on a
-  first load. No sweep scenario stops a first-load wait; the first-load
-  thread-held case has no backstop today.
+**The backstop (round 3): a stop-to-end bound on the wall clock** in
+`first_of_two_and_a_stop` (A, B, E; not C, whose band runs on its own
+thread):
+
+- **The segment.** From the stop, stamped as the band sends it
+  (`:18891@9d2e7f3c`), to the first turn's end, stamped by a watcher thread
+  the moment the loop gives the first turn's place back (`outstanding`,
+  `:18847@9d2e7f3c`; the loop gives it back after the turn's terminal event and
+  before it takes the next work, `worker.rs:3554-3561`). Not the band's read
+  of `TurnEnded`: the band reads a turn's end only after the next turn has
+  started (round 1's finding), so a stall at the next turn's start would fall
+  inside. No stall point does now: `green3-head.txt` and `green3b-head.txt`
+  pass `turn=5000` and `turn=12000`, past the bound.
+- **The bound, `STOP_TO_END` = 10 s** (`:18742@9d2e7f3c`, asserted at
+  `:18931`). The brief: at least max(2 s, 10 x the segment's measured
+  maximum over the 50-run repeat). Measured at `ce221384`, 550 stopped runs
+  at load 5.6-23.4 (`load-check3.txt`): median 97.9 ms, p99 629.3 ms, **max
+  831.9 ms**; 10 x = 8.3 s, so 10 s (the crate's `TEST_DRAIN`). The segment
+  holds the stopped turn's own `fsync`ed record (`session::store`), which is
+  why its tail is long. The final repeat at `9d2e7f3c` (`load-check3b.txt`,
+  load 4.0-13.9): median 68.6 ms, p99 361.3 ms, max 725.9 ms. Round 3 first
+  committed 5 s (`ce221384`), before the repeat measured; the 832 ms maximum
+  put that under the rule, so `9d2e7f3c` raised it.
+- **What it catches** (`mutants3b-head.txt`, at 10 s): a 12 s hold, by the
+  thread or by a cross-thread wait, at the turn's read (B E) and at the retry
+  wait (A B E). What it does not: 700 ms, 500 ms and 6 s holds (6 s was killed
+  under `ce221384`'s 5 s bound, `mutants3-head.txt`).
+
+**What is left, by resolution:**
+
+| stop point | caught deterministically | wall-clock resolution |
+|---|---|---|
+| retry wait | a tokio-timer delay (`is_zero`) | 10 s (`STOP_TO_END`, A B E); the sweep scenario `p5-stop-in-catalog-wait` snaps 1 s after its Ctrl-C (paired with fx, sweeps only) |
+| first loads (window, image route, turn's read) | a tokio-timer delay (`is_zero`) | 10 s (`STOP_TO_END`, A B E); the give-ups, 30 s (`RUN_DEADLINE`, harness and C) |
+
+- **The contract reduction, against the base:** the base's 1 s window killed
+  a 700 ms thread hold, and a 700 ms cross-thread wait, at the turn's read
+  (`mutants2-base.txt`, `mutants3-base.txt`: B C); the head catches neither
+  below 10 s. At the window's and the image route's reads the base caught no
+  such hold at all (no base test reached them); at the retry wait the base did
+  not catch 500 ms either (`retry-wait-stop-late-thread-500`,
+  `-xthread-500`: SURVIVED at base).
+- **The finer backstop to come:** the queued unit
+  **STOP-IN-FIRST-LOAD-SCENARIO**, an fxcap first-load stop scenario paired
+  with fx, about 1 s resolution in the sweeps.
 
 ## RED on demand, GREEN under the same delays
 
@@ -133,25 +183,35 @@ at each side:
   sends `TurnStarted`;
 - `select`: the loop's thread, before the loop's first select;
 - `start`: the test's thread, right before the harness reads its wall-clock
-  start (at the base after B's load opener has started; at the head before).
+  start (at the base after B's load opener has started; at the head before;
+  round 3's head reads it in `Held::run`, `stall-head3.patch`).
 
 `stall_runs.py` runs the five tests once per stall spec, in one normal slot
-of the suite lock (`round2.sh`; `stall2-loads.txt`, load 13.48 at the start).
+of the suite lock (`round2.sh`, `round3.sh`, `round3b.sh`; their loads in
+`stall2-loads.txt`, `stall3-loads.txt`).
 
-| spec | base `afd891af` (`red2-base.txt`) | head `a6ab3ee6` (`green2-head.txt`) |
-|---|---|---|
-| none | 5 ok | 5 ok |
-| `turn=1200` | A B C FAILED | 5 ok |
-| `turn=2500` | A B C E FAILED | 5 ok |
-| `select=1200` | A B C D E FAILED | 5 ok |
-| `start=1200` | B E FAILED | 5 ok |
-| `turn,select,start=1200` | A B C D E FAILED | 5 ok |
-| `turn=5000` | -- | 5 ok |
+| spec | base `afd891af` (`red3-base.txt`) | round 2 `a6ab3ee6` (`green2-head.txt`) | `ce221384`, bound 5 s (`green3-head.txt`) | head `9d2e7f3c`, bound 10 s (`green3b-head.txt`) |
+|---|---|---|---|---|
+| none | 5 ok | 5 ok | 5 ok | 5 ok |
+| `turn=1200` | A B C FAILED | 5 ok | 5 ok | 5 ok |
+| `turn=2500` | A B C E FAILED | 5 ok | 5 ok | 5 ok |
+| `select=1200` | A B C D E FAILED | 5 ok | 5 ok | 5 ok |
+| `start=1200` | B E FAILED | 5 ok | 5 ok | 5 ok |
+| `turn,select,start=1200` | A B C D E FAILED | 5 ok | 5 ok | 5 ok |
+| `turn=5000` | A B C D E FAILED | 5 ok | 5 ok | 5 ok |
+| `turn=12000` | -- | -- | -- | 5 ok |
+
+The base column is round 3's rerun; round 2's (`red2-base.txt`) is the same
+but for `turn=5000`, which it did not run.
 
 - What failed at base (`red2-base.txt`, the `left:`/`right:` lines):
   `turn=1200` the on-time flag only; `turn=2500` the stop read past the
   retry's 2 s, so A's and B's second-turn ends differ from the no-stop runs'
-  (the first turn answered or refused); `select=1200` the stop read before the
+  (the first turn answered or refused), and E's no-stop second turn ended
+  cancelled: the base harness let go of `control_tx` after its stopper's 8 s
+  hold, and a closed control channel is the session's end, which stops every
+  turn (`worker.rs:5810-5816`) -- with 2.5 s at each turn's start and two 2 s
+  retry waits, E's no-stop run outlived those 8 s; `select=1200` the stop read before the
   loop took the first prompt (`Taken::Abandon`): the first prompt was dropped
   unasked, so A, B, D and E have one turn where two should end, and C's band
   saw no turn at all; `start=1200` the load's opener (started in `waiting_in`,
@@ -169,7 +229,12 @@ each mutant applied once (exact text, one match), the five tests run (the
 whole lib suite for the two marked "full lib"), under a 900 s bound, the
 clone reset after each and clean at the end. Round 2: `mutants2-head.txt`
 (all 19), `mutants2-base.txt` (the 8 new ones). Round 1's base runs of the
-first 11, over A to C: `mutants-base.txt`, `mutants-base-late.txt`.
+first 11 ran over A to C only (`mutants-base.txt`, `mutants-base-late.txt`),
+so for those rows the base and head columns span different test sets; every
+base kill among them is by A, B or C, which the head also runs. Round 3:
+`mutants3-head.txt` (all 26 at `ce221384`, bound 5 s), `mutants3b-head.txt`
+(the lateness ones at `9d2e7f3c`, bound 10 s), `mutants3-base.txt` and
+`mutants3b-base.txt` (round 3's at the base).
 
 | mutant | base | head `a6ab3ee6` |
 |---|---|---|
@@ -193,8 +258,30 @@ first 11, over A to C: `mutants-base.txt`, `mutants-base-late.txt`.
 | `stop-leaks-to-next-turn` | killed A B | killed A B D E |
 | `questions-cap-back-to-4` | killed C | killed C |
 
-- Over these 19, the head kills every one the base kills but
-  `first-load-late-turn-read-thread`, and kills five the base does not.
+Round 3, lateness off tokio's timers (`thread` = the loop's thread held;
+`xthread` = the stop handler awaits a oneshot another OS thread answers after
+the delay, with no timer standing -- gpt6's case):
+
+| mutant | base | `ce221384` (5 s) | head `9d2e7f3c` (10 s) |
+|---|---|---|---|
+| `first-load-late-turn-read-thread` (700 ms) | killed B C | SURVIVED | SURVIVED |
+| `first-load-late-turn-read-thread-6000` | killed B C | killed B E | SURVIVED |
+| `first-load-late-turn-read-thread-12000` | killed B C E | -- | killed B E |
+| `first-load-late-turn-read-xthread-700` | killed B C | SURVIVED | SURVIVED |
+| `first-load-late-turn-read-xthread-6000` | killed B C | killed B E | SURVIVED |
+| `first-load-late-turn-read-xthread-12000` | killed B C E | -- | killed B E |
+| `retry-wait-stop-late-thread-500` | SURVIVED | SURVIVED | SURVIVED |
+| `retry-wait-stop-late-thread-6000` | killed A B D E | killed A B E | SURVIVED |
+| `retry-wait-stop-late-thread-12000` | killed A B D E | -- | killed A B E |
+| `retry-wait-stop-late-xthread-500` | SURVIVED | SURVIVED | SURVIVED |
+| `retry-wait-stop-late-xthread-6000` | killed A B D E | killed A B E | SURVIVED |
+| `retry-wait-stop-late-xthread-12000` | killed A B D E | -- | killed A B E |
+
+- Over round 2's 19, the head kills every one the base kills but
+  `first-load-late-turn-read-thread`, and kills five the base does not. Round
+  3's 12: the head kills every hold past its 10 s bound, at both points and
+  of both kinds; under it, it kills none -- the reduction stated above. C is
+  never among the head's kills here: it has no wall bound.
 - `window-first-load-ignores-stop` and `image-route-read-ignores-stop` survived
   the base's **whole lib suite** (4761 passed): those two waits were
   uncovered crate-wide. The new `CatalogWait::WindowFirstLoad` case
@@ -205,6 +292,24 @@ first 11, over A to C: `mutants-base.txt`, `mutants-base-late.txt`.
   STOP-IN-CATALOG-WAIT's `mutants.txt`).
 
 ## Repeat check
+
+**Round 3** (`load_check.py`, here, now run with `--nocapture` to collect the
+harness's `stop-to-end-us` lines): the five tests 50 times on the base's lib
+test binary and 50 on the head's, one after the other in each iteration, in
+one normal slot, no burner.
+
+| run | binary | A | B | C | D | E | load at the runs' start | stop-to-end, 550 segments |
+|---|---|---|---|---|---|---|---|---|
+| `load-check3.txt` | base `afd891af` | 50/50 | **49/50** | 50/50 | 50/50 | 50/50 | 5.38-22.61, median 9.96 | -- |
+| `load-check3.txt` | `ce221384` | 50/50 | 50/50 | 50/50 | 50/50 | 50/50 | 5.62-23.36, median 9.59 | median 97.9 ms, p99 629.3 ms, max 831.9 ms |
+| `load-check3b.txt` | base `afd891af` | 50/50 | 50/50 | 50/50 | 50/50 | 50/50 | 4.21-15.75, median 6.93 | -- |
+| `load-check3b.txt` | head `9d2e7f3c` | 50/50 | 50/50 | 50/50 | 50/50 | 50/50 | 3.96-13.89, median 6.73 | median 68.6 ms, p99 361.3 ms, max 725.9 ms |
+
+- **The base failed on its own once**, B in run 4 of `load-check3.txt` at
+  load 12.73: its `PromptImageFirstLoad` stop case's on-time flag, the
+  original flake's field (the file's `FAIL` lines). The head did not fail in
+  either run.
+- Round 2's repeat: `load-check2.txt`, below.
 
 `load-check2.txt` (`load_check.py`, here): the five tests 50 times on the
 base's lib test binary (built at `afd891af`) and 50 on the head's (built at
@@ -228,6 +333,8 @@ line counts five.)
 
 ## Gate
 
+TBD-GATE3
+
 `gates2.txt` (`gates.sh`, train 13's, unchanged but for its header), in a
 `git clone --no-local` at `6b0c613f` -- the code head `a6ab3ee6` plus round
 2's receipt but for the gate's own file and the repeat check -- inside one
@@ -241,10 +348,17 @@ failures. Round 1's gate at `64cfd5a1`: `gates.txt`, the same counts.
 `wallclock-others.txt`: 17 bounds in 16 tests that are tight (a window, or a
 bound within about 1.5 s of the work it times) and 13 wider ones, two of
 whose tests are also in the tight list. None changed here. The one that had
-this unit's race with no bound asserted, D, is fixed in round 2.
+this unit's race with no bound asserted, D, is fixed in round 2. Round 3 adds
+one wide bound of its own, `STOP_TO_END`, listed at the end.
 
 ## Files
 
+- Round 3: `stall-head3.patch` (at `ce221384`), `stall-head3b.patch` (at
+  `9d2e7f3c`), `round3.sh`, `round3b.sh`, `stall3-loads.txt`, `red3-base.txt`,
+  `green3-head.txt`, `green3b-head.txt`, `mutants3-head.txt`,
+  `mutants3-base.txt`, `mutants3b-head.txt`, `mutants3b-base.txt`,
+  `load-check3.txt`, `load-check3b.txt`, `gates3.txt`. `stall_patch.py`,
+  `mutants.py` and `load_check.py` are round 3's versions.
 - Round 2: `stall_patch.py`, `stall-base.patch`, `stall-head.patch`,
   `stall_runs.py`, `round2.sh`, `stall2-loads.txt`, `red2-base.txt`,
   `green2-head.txt`, `mutants.py`, `mutants2-base.txt`, `mutants2-head.txt`,

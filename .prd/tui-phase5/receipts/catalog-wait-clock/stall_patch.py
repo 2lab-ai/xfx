@@ -12,9 +12,9 @@ names, when set -- a machine holding that thread there:
   loop's first select of each `turn_loop` (where a stop read before the
   first prompt is taken drops it, `Taken::Abandon`).
 - START  `XFX_SCRATCH_START_STALL_MS`: the test's thread, right before the
-  harness reads its wall-clock start -- `first_of_two_and_a_stop`'s and the
-  twenty-question test's (at the base after the load's opener has started,
-  at the head before it).
+  harness reads its wall-clock start -- `first_of_two_and_a_stop`'s (round
+  3: `Held::run`'s) and the twenty-question test's (at the base after the
+  load's opener has started, at the head before it).
 
 Every anchor must match exactly the expected number of times, or nothing is
 written. Base and head differ only in the START anchors, both listed.
@@ -47,6 +47,8 @@ def main():
     for anchor, indent in [
         ("        let outstanding = AtomicUsize::new(2);\n        let started = Instant::now();\n", 8),
         ("        let outstanding = AtomicUsize::new(2);\n        // The wall clock's count begins before a first load's opener does:\n", 8),
+        # Round 3's head: the start is read in `Held::run`, before any opener.
+        ("        ) -> T {\n            let begun = Instant::now();\n", 8),
         ("            let outstanding = AtomicUsize::new(1);\n            let started = Instant::now();\n", 12),
         ("            let outstanding = AtomicUsize::new(1);\n            // Before the opener: a thread held between them cannot make the\n", 12),
     ]:
@@ -54,7 +56,8 @@ def main():
         assert n <= 1, ("START", anchor, n)
         if n:
             first, rest = anchor.split("\n", 1)
-            text = text.replace(anchor, first + "\n" + stall("XFX_SCRATCH_START_STALL_MS", indent) + rest)
+            pad = 12 if first.strip() == ") -> T {" else indent
+            text = text.replace(anchor, first + "\n" + stall("XFX_SCRATCH_START_STALL_MS", pad) + rest)
             planted += 1
     assert planted == 2, ("START planted", planted)
     open(path, "w", encoding="utf-8").write(text)

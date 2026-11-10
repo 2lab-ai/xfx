@@ -1,0 +1,168 @@
+# GREEN, head 9d2e7f3c: the five tests at 9d2e7f3c with stall_patch.py's points planted, one run per stall spec, each bounded at 600 s
+none                               A next-start         ok
+none                               B records-one        ok
+none                               C twenty-questions   ok
+none                               D compaction-join    ok
+none                               E history-notice     ok
+none                               exit 0; test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 6.04s
+turn=1200                          A next-start         ok
+turn=1200                          B records-one        ok
+turn=1200                          C twenty-questions   ok
+turn=1200                          D compaction-join    ok
+turn=1200                          E history-notice     ok
+turn=1200                          exit 0; test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 33.85s
+turn=2500                          A next-start         ok
+turn=2500                          B records-one        ok
+turn=2500                          C twenty-questions   ok
+turn=2500                          D compaction-join    ok
+turn=2500                          E history-notice     ok
+turn=2500                          exit 0; test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 64.11s
+select=1200                        A next-start         ok
+select=1200                        B records-one        ok
+select=1200                        C twenty-questions   ok
+select=1200                        D compaction-join    ok
+select=1200                        E history-notice     ok
+select=1200                        exit 0; test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 16.85s
+start=1200                         A next-start         ok
+start=1200                         B records-one        ok
+start=1200                         C twenty-questions   ok
+start=1200                         D compaction-join    ok
+start=1200                         E history-notice     ok
+start=1200                         exit 0; test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 21.18s
+turn=1200,select=1200,start=1200   A next-start         ok
+turn=1200,select=1200,start=1200   B records-one        ok
+turn=1200,select=1200,start=1200   C twenty-questions   ok
+turn=1200,select=1200,start=1200   D compaction-join    ok
+turn=1200,select=1200,start=1200   E history-notice     ok
+turn=1200,select=1200,start=1200   exit 0; test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 60.51s
+turn=5000                          A next-start         ok
+turn=5000                          B records-one        ok
+turn=5000                          C twenty-questions   ok
+turn=5000                          D compaction-join    ok
+turn=5000                          E history-notice     ok
+turn=5000                          exit 0; test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 121.65s
+turn=12000                         A next-start         ok
+turn=12000                         B records-one        ok
+turn=12000                         C twenty-questions   ok
+turn=12000                         D compaction-join    ok
+turn=12000                         E history-notice     ok
+turn=12000                         exit 0; test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 289.50s
+
+===== stall none =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 5 tests
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 6.04s
+
+
+===== stall turn=1200 =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 5 tests
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 33.85s
+
+
+===== stall turn=2500 =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 5 tests
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one has been running for over 60 seconds
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 64.11s
+
+
+===== stall select=1200 =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 5 tests
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 16.85s
+
+
+===== stall start=1200 =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 5 tests
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 21.18s
+
+
+===== stall turn=1200,select=1200,start=1200 =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 5 tests
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one has been running for over 60 seconds
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 60.51s
+
+
+===== stall turn=5000 =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 5 tests
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one has been running for over 60 seconds
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number has been running for over 60 seconds
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 121.65s
+
+
+===== stall turn=12000 =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 5 tests
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one has been running for over 60 seconds
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number has been running for over 60 seconds
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn has been running for over 60 seconds
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 289.50s
+

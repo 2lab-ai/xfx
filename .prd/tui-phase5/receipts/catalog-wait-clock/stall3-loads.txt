@@ -1,0 +1,8 @@
+# uptime around each round 3 stall table (local time): round3.sh (base, then head at ce221384), round3b.sh (head at 9d2e7f3c)
+round3.sh:
+   3:54  up 12 days,  3:49, 2 users, load averages: 8.68 11.09 13.03
+   4:02  up 12 days,  3:57, 2 users, load averages: 12.03 9.75 11.23
+   4:08  up 12 days,  4:03, 2 users, load averages: 13.44 11.39 11.41
+round3b.sh:
+   4:26  up 12 days,  4:21, 2 users, load averages: 9.71 8.13 9.12
+   4:37  up 12 days,  4:31, 2 users, load averages: 6.44 6.64 7.70
