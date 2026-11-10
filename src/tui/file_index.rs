@@ -3433,6 +3433,16 @@ pub(crate) mod tests {
         assert_eq!(found[0].path, "apps/vercle.ts");
         // Without the perfect names the crossing search is never cut.
         same_as_at_rank(&owned(&paths[..cut]), "vercle");
+
+        // Not in fx's cases: the cut is past the crossing ceiling, not at it
+        // (`>`, `file_index.zig:1368@481104fd`). For `ab` each `w<i>/a/b`
+        // crosses from `a` into `b` at the ceiling itself (34 and 22: 56),
+        // so the worst kept is one; `a/b`, as good and shorter, comes last
+        // and still enters, first.
+        let mut paths: Vec<String> = (0..40).map(|i| format!("w{i}/a/b")).collect();
+        paths.push("a/b".to_string());
+        assert_eq!(max_crossing_quality(&['a', 'b']), 56);
+        assert_eq!(same_as_at_rank(&owned(&paths), "ab")[0].path, "a/b");
     }
 
     #[test]
