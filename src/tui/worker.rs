@@ -18731,15 +18731,63 @@ mod tests {
     const FIRST_LOAD_LANDS: Duration = Duration::from_millis(1_500);
 
     /// How long, on the wall clock, a stopped first turn may take from its
-    /// stop to its end in [`first_of_two_and_a_stop`]. It bounds a
-    /// **failure** -- a stop held up off tokio's timers, which the paused
-    /// clock reads as no time -- not the scheduler: the segment holds the
-    /// stopped turn's own `fsync`ed record (`session::store`), whose tail
-    /// is long. Sized at the larger of the crate's 2 s for "at once" and ten
-    /// times the most the receipt's 50-run repeat measured, 832 ms at load
-    /// up to 23 (CATALOG-WAIT-CLOCK, `load-check3.txt`), rounded up to
-    /// [`TEST_DRAIN`]'s 10 s.
+    /// stop to its end in [`first_of_two_and_a_stop`]: a watchdog for a
+    /// stop held up off tokio's timers, which the paused clock reads as no
+    /// time. **Empirical, not a guarantee.** The segment holds the stopped
+    /// turn's own `fsync`ed record (`session::store`), and its end is the
+    /// watcher thread's *observation* of the place given back, not the
+    /// release itself ([`watched`]): scheduling delay counts in it, and so
+    /// would a stall at the next turn's start that falls before the watcher
+    /// looks. Sized at about twelve times the most the receipt's 50-run
+    /// repeat measured, 832 ms at load up to 23 (CATALOG-WAIT-CLOCK,
+    /// `load-check3.txt`) -- past both the crate's 2 s for "at once" and the
+    /// ten times its brief asked for -- as [`TEST_DRAIN`]'s 10 s.
     const STOP_TO_END: Duration = TEST_DRAIN;
+
+    /// When `outstanding` first drops below `from`, on the wall clock, as a
+    /// watcher thread sees it while `run` runs; `None` when it never did.
+    /// The watcher looks every millisecond, so the stamp is its observation
+    /// -- a millisecond or so after the drop on a quiet machine, later when
+    /// its thread waits for a core -- and it stamps `late` after seeing it
+    /// (zero, but in the test that delays it). It is stopped by a guard
+    /// however `run` ends, a panic included, so the scope never waits on a
+    /// watcher that cannot end.
+    fn watched<T>(
+        outstanding: &AtomicUsize,
+        from: usize,
+        late: Duration,
+        run: impl FnOnce() -> T,
+    ) -> (T, Option<Instant>) {
+        struct StopWatching<'a>(&'a AtomicBool);
+        impl Drop for StopWatching<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Release);
+            }
+        }
+        let watching = AtomicBool::new(true);
+        let seen = std::sync::OnceLock::<Instant>::new();
+        let out = std::thread::scope(|scope| {
+            scope.spawn(|| loop {
+                // Read before the place, so a run that ended between two
+                // looks is still seen once more: its place is back.
+                let over = !watching.load(Ordering::Acquire);
+                if outstanding.load(Ordering::Acquire) < from {
+                    std::thread::sleep(late);
+                    let _ = seen.set(Instant::now());
+                    return;
+                }
+                if over {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            });
+            // Dropped as this closure ends or unwinds, before the scope
+            // joins the watcher.
+            let _stop = StopWatching(&watching);
+            run()
+        });
+        (out, seen.get().copied())
+    }
 
     /// How long the band waits, on the wall clock, for a run that never ends:
     /// far past anything here, because it bounds a **failure**.
@@ -18809,18 +18857,32 @@ mod tests {
     /// first ends that much later, however long the machine holds the
     /// thread. What it cannot see is lateness off the loop runtime's timers
     /// -- the thread held, `spawn_blocking`, a wait on another thread with
-    /// no timer standing -- which reads as no time at all. For that, the
-    /// wall clock bounds the stopped turn from its stop to its end
-    /// ([`STOP_TO_END`]): the stop is stamped as the band sends it, the end
-    /// by a watcher thread the moment the loop gives the first turn's place
-    /// back (`outstanding`, after its terminal event and before the next
-    /// turn starts -- no stall of the loop's thread at a turn's start or
-    /// before its first select falls in between).
+    /// no timer standing -- which reads as no time at all. For that, a
+    /// watchdog on the wall clock bounds the stopped turn from its stop to
+    /// its end ([`STOP_TO_END`]): the stop is stamped as the band sends it,
+    /// the end when a watcher thread sees the loop give the first turn's
+    /// place back (`outstanding`, which the loop does after the turn's
+    /// terminal event and before it takes the next work). The watcher's
+    /// stamp is an observation, so it may land after the next turn has
+    /// started; in a normal run nothing stalls a turn's start, and that
+    /// lateness is the watcher's scheduling.
     fn first_of_two_and_a_stop(
         state: Runtime,
         first: TurnWork,
         stop: bool,
         held: Held,
+    ) -> Vec<(Duration, UiEvent)> {
+        first_of_two_and_a_stop_watched(state, first, stop, held, Duration::ZERO)
+    }
+
+    /// [`first_of_two_and_a_stop`] with its watcher stamping the first
+    /// turn's end `watcher_late` after it sees it ([`watched`]).
+    fn first_of_two_and_a_stop_watched(
+        state: Runtime,
+        first: TurnWork,
+        stop: bool,
+        held: Held,
+        watcher_late: Duration,
     ) -> Vec<(Duration, UiEvent)> {
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(2);
         work_tx.try_send(first).expect("room");
@@ -18837,31 +18899,13 @@ mod tests {
         let paused = held.paused(stop);
         let first_load = matches!(held, Held::FirstLoad(_));
         let (deadline, mut due) = WallDeadline::start(RUN_DEADLINE);
-        // The stop as the band sends it, and the first turn's place given
-        // back, both on the wall clock.
+        // The stop as the band sends it, on the wall clock.
         let stop_sent = std::cell::Cell::new(None::<Instant>);
-        let first_end = std::sync::OnceLock::<Instant>::new();
-        let watching = AtomicBool::new(stop);
-        let log = std::thread::scope(|scope| {
-            if stop {
-                scope.spawn(|| loop {
-                    // Read before the place, so a run that ended between two
-                    // looks is still seen once more: its place is back.
-                    let over = !watching.load(Ordering::Acquire);
-                    if outstanding.load(Ordering::Acquire) < 2 {
-                        let _ = first_end.set(Instant::now());
-                        return;
-                    }
-                    if over {
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_millis(1));
-                });
-            }
+        let run_loop = || {
             let (events, work_rx, changes, outstanding) =
                 (&events, &mut work_rx, &mut changes, &outstanding);
             let (seen, due, control_tx, stop_sent) = (&mut seen, &mut due, &control_tx, &stop_sent);
-            let log = held.run(stop, |mut load, begun| async move {
+            held.run(stop, |mut load, begun| async move {
                 let started = if paused {
                     tokio::time::Instant::now()
                 } else {
@@ -18908,10 +18952,13 @@ mod tests {
                 };
                 let (_, log) = tokio::join!(run, watch);
                 log
-            });
-            watching.store(false, Ordering::Release);
-            log
-        });
+            })
+        };
+        let (log, first_end) = if stop {
+            watched(&outstanding, 2, watcher_late, run_loop)
+        } else {
+            (run_loop(), None)
+        };
         drop(deadline);
         drop(control_tx);
         if paused && first_load {
@@ -18923,7 +18970,9 @@ mod tests {
                 log.iter().map(|(at, _)| *at).collect::<Vec<_>>()
             );
         }
-        if let (Some(sent), Some(end)) = (stop_sent.get(), first_end.get()) {
+        if stop {
+            let sent = stop_sent.get().expect("the band never sent the stop");
+            let end = first_end.expect("the watcher never saw the first turn's place given back");
             let took = end.saturating_duration_since(sent);
             // Read by the receipt's repeat check (`--nocapture`).
             eprintln!("stop-to-end-us {}", took.as_micros());
@@ -18933,6 +18982,72 @@ mod tests {
             );
         }
         log
+    }
+
+    #[test]
+    fn the_place_watcher_ends_when_the_run_it_watches_panics() {
+        // [`watched`] around a run that panics before any place is given
+        // back: the panic reaches the caller, within a wall bound, instead of
+        // the scope waiting for ever on a watcher whose place never drops.
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let runner = std::thread::spawn(move || {
+            let outstanding = AtomicUsize::new(2);
+            let caught = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                watched(&outstanding, 2, Duration::ZERO, || -> () {
+                    panic!("before the first place is given back")
+                })
+            }));
+            let _ = done_tx.send(caught.is_err());
+        });
+        let panicked = done_rx
+            .recv_timeout(TEST_DRAIN)
+            .expect("the scope never joined: the watcher outlived a panicking run");
+        assert!(panicked, "the run's panic did not reach its caller");
+        runner.join().expect("the runner");
+    }
+
+    #[test]
+    fn a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound() {
+        // The end of the harness's stop-to-end segment is the watcher's
+        // observation, not the release ([`watched`]). A watcher that stamps
+        // three seconds late reads three seconds more, and the verdict holds
+        // under [`STOP_TO_END`]; one late past it fails the run, with the
+        // product right -- the bound is a watchdog, not a guarantee.
+        let cancelled = Some(bridge::TURN_CANCELLED.to_string());
+        let first_end = |log: &[(Duration, UiEvent)]| {
+            log.iter().find_map(|(_, event)| match event {
+                UiEvent::TurnEnded { failure } => Some(failure.clone()),
+                _ => None,
+            })
+        };
+        let (_home, _workspace, state, held) = retry_never_lands(false);
+        let log = first_of_two_and_a_stop_watched(
+            state,
+            TurnWork::Submit("first".to_string()),
+            true,
+            held,
+            Duration::from_secs(3),
+        );
+        assert_eq!(first_end(&log), Some(cancelled), "below the bound");
+        let (_home, _workspace, state, held) = retry_never_lands(false);
+        let past = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            first_of_two_and_a_stop_watched(
+                state,
+                TurnWork::Submit("first".to_string()),
+                true,
+                held,
+                STOP_TO_END + Duration::from_secs(1),
+            )
+        }));
+        let message = past.expect_err("a watcher late past the bound passed");
+        let message = message
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .unwrap_or_default();
+        assert!(
+            message.contains("after its stop on the wall clock, past"),
+            "{message}"
+        );
     }
 
     #[test]
