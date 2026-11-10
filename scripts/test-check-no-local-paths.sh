@@ -347,19 +347,15 @@ disagree:*' -C . '*' grep '*)
 	printf 'clean.md\000%s\000%s\n' 1 'nothing here'
 	exit 0
 	;;
-# The plant goes once the check has looked for missing files, before the
-# scan reads it.
-vanish:*' diff-files '*)
-	"$SHIM_REAL" "$@"
-	s=$?
-	if [ ! -e "$SHIM_FLAG" ]; then : >"$SHIM_FLAG"; rm -f vanish.md; fi
-	exit "$s"
+# The plant goes as the tree's scan starts, before git reads it.
+vanish:*' -C . '*' grep '*)
+	rm -f vanish.md
 	;;
 esac
 exec "$SHIM_REAL" "$@"
 SH
 chmod 700 "$shim/git"
-shim_env=("PATH=$shim:$PATH" "SHIM_REAL=$(command -v git)" "SHIM_FLAG=$work/vanish.flag")
+shim_env=("PATH=$shim:$PATH" "SHIM_REAL=$(command -v git)")
 
 t="$work/disagree"
 new_tree "$t"
@@ -378,7 +374,7 @@ new_tree "$t"
 printf '%s\n' "$mac" >"$t/vanish.md"
 track "$t"
 run_check "$t" "${shim_env[@]}" SHIM_MODE=vanish
-if [ "$status" -ne 1 ] || [ ! -e "$work/vanish.flag" ] || ! grep -q 'missing from the working tree' "$work/out" || ! named vanish.md; then
+if [ "$status" -ne 1 ] || [ -e "$t/vanish.md" ] || ! grep -q 'missing from the working tree' "$work/out" || ! named vanish.md; then
 	problem "vanished: a tracked file gone while the scan ran was not refused by name (exit $status):"
 	show
 else

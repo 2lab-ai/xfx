@@ -460,36 +460,33 @@ if [ "$tracked_count" -eq 0 ]; then
 	fail 'no tracked files to scan; the check would pass for the wrong reason'
 	exit 1
 fi
-# A tracked file missing from the working tree, or there as a directory or a
-# symlink, is refused by name: before the scan, and again after it, because
-# `git grep` passes over one that goes while it runs without a word (the
-# file it cannot stat is ENOENT, which it does not report).
-refuse_missing() {
-	if ! scan_git . diff-files --name-only -z --diff-filter=DT >"$work/deleted" 2>"$work/errors" || [ -s "$work/errors" ]; then
-		fail 'git diff-files could not list the tracked files missing from this checkout:'
-		cat "$work/errors" >&2
-		exit 1
-	fi
-	if [ -s "$work/deleted" ]; then
-		fail "tracked files missing from the working tree$1, or there as a directory or a symlink, which git grep would skip; restore or remove them (git restore -- <file>, or git rm -- <file>):"
-		tr '\000' '\n' <"$work/deleted" >&2
-		exit 1
-	fi
-}
-refuse_missing ''
 
-if ! scan_tree . >"$work/found"; then
+# The scan. A tracked file missing from the working tree, or there as a
+# directory or a symlink, is one `git grep` passes over without a word (a file
+# it cannot stat for ENOENT it does not report), whether it was gone before
+# the scan or went while it ran; so the look for one comes after the scan,
+# and refuses it by name.
+scan_status=0
+scan_tree . >"$work/found" || scan_status=$?
+if ! scan_git . diff-files --name-only -z --diff-filter=DT >"$work/deleted" 2>"$work/errors" || [ -s "$work/errors" ]; then
+	fail 'git diff-files could not list the tracked files missing from this checkout:'
+	cat "$work/errors" >&2
+	exit 1
+fi
+if [ -s "$work/deleted" ]; then
+	fail 'tracked files missing from the working tree, or there as a directory or a symlink, which git grep would skip; restore or remove them (git restore -- <file>, or git rm -- <file>):'
+	tr '\000' '\n' <"$work/deleted" >&2
+	exit 1
+fi
+if [ "$scan_status" -ne 0 ]; then
 	fail 'the scan could not finish, so it found nothing it can vouch for'
-else
-	refuse_missing ' (gone while the scan ran)'
-	if [ -s "$work/found" ]; then
-		fail "a path that belongs to one machine is in tracked content (write it as a placeholder such as <tmp>, <home> or <work>, derive it from \$TMPDIR or \$HOME at run time, or mark a fixture's line $marker):"
-		cat "$work/found" >&2
-		# What became of every line git gave: the next reader of a log
-		# can tell a line git never gave from one this check passed.
-		printf 'check-no-local-paths: git gave %d line(s): %d refused, %d in %d binary file(s), %d marked, %d placeholder\n' \
-			"$given" "$refused" "$((given - refused - marked - placeheld))" "$binary_files" "$marked" "$placeheld" >&2
-	fi
+elif [ -s "$work/found" ]; then
+	fail "a path that belongs to one machine is in tracked content (write it as a placeholder such as <tmp>, <home> or <work>, derive it from \$TMPDIR or \$HOME at run time, or mark a fixture's line $marker):"
+	cat "$work/found" >&2
+	# What became of every line git gave: a log of a failure tells a line
+	# git never gave from one this check passed.
+	printf 'check-no-local-paths: git gave %d line(s): %d refused, %d in %d binary file(s), %d marked, %d placeholder\n' \
+		"$given" "$refused" "$((given - refused - marked - placeheld))" "$binary_files" "$marked" "$placeheld" >&2
 fi
 
 if [ "$failures" -ne 0 ]; then
