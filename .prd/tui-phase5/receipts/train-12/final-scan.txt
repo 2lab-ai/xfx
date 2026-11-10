@@ -1,4 +1,4 @@
-## 1. each commit this train adds, first-parent df46777e..63cb877d: the brief's count; a merge also as everything it brings
+## 1. each commit this train adds, first-parent df46777e..0c32118c: the brief's count; a merge also as everything it brings
 d43c8c92 0; as everything it brings (git diff ^1): 0  merge: GATE-ENV-MAINTLOCK-F (fix/p5-gate-env-maintlock @ a1cbdcaf) int
 2c640bac 0; as everything it brings (git diff ^1): 0  merge: SWEEP-WALLCLOCK-F (fix/p5-sweep-wallclock @ 4bc9ab13) into trai
 55d993a7 0; as everything it brings (git diff ^1): 21  merge: LOCAL-PATHS (fix/p5-local-paths @ 5609108f) into train 12
@@ -13,48 +13,52 @@ b20aca45 0  docs(receipt): P5 train 12 -- the reruns, and the README's sweep sec
 0d7d349f 0  docs(receipt): P5 train 12 -- the README's screen class and Files list
 e43387b6 0  docs(receipt): P5 train 12 -- gates-files.txt at the receipt's form
 63cb877d 0  docs(receipt): P5 train 12 -- rows-excerpts.txt, the capture rows thre
+a1d94901 0  docs(receipt): P5 train 12 -- final-scan.txt at 63cb877d
+e320318f 0  docs(receipt): P5 train 12 round 2 -- the reviews' fixes; receipt only
+0c32118c 0  docs(receipt): P5 train 12 round 2 -- gates-files.txt at e320318f
 # the brief's count, summed over this train's commits: 0
 
 ## 2. every commit of the range, and the range (midbranch_scan.py)
+# the check's documented homes at 0c32118c: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
 41023d5f lines 1 (the brief's count), matches 1  test: keep upstream's bytes in the skill-catalog fixture, marked
     SCRATCH     the harness temp root, this machine's uid; the line marked `local-path-ok`  (src/skills/catalog.rs)
 43024057 lines 9 (the brief's count), matches 12  feat(gate): check-no-local-paths, and the paths scripts must der
     SCRATCH     the macOS per-user temp root; the line marked `local-path-ok`  (scripts/check-no-local-paths.sh)
     SCRATCH     the macOS per-user temp root; the line marked `local-path-ok`  (scripts/check-no-local-paths.sh)
-    placeholder a home named 'u'  (scripts/check-no-local-paths.sh)
-    placeholder a home named 'me'  (scripts/check-no-local-paths.sh)
-    placeholder a home named 'someone'  (scripts/check-no-local-paths.sh)
-    placeholder a home named 'someone'; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
+    placeholder a documented home named 'u'  (scripts/check-no-local-paths.sh)
+    placeholder a documented home named 'me'  (scripts/check-no-local-paths.sh)
+    placeholder a documented home named 'someone'  (scripts/check-no-local-paths.sh)
+    placeholder a documented home named 'someone'; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
     SCRATCH     the harness temp root, this machine's uid; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
-    placeholder a home named 'someone'; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
+    placeholder a documented home named 'someone'; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
     SCRATCH     the harness temp root, this machine's uid; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
-    placeholder a home named 'someone'; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
+    placeholder a documented home named 'someone'; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
     SCRATCH     the harness temp root, this machine's uid; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
     SCRATCH     the macOS per-user temp root; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
 19a6b596 lines 1 (the brief's count), matches 1  chore: write the harness scratch root out of every tracked file
-    placeholder a home named 'me`, `'  (.prd/tui-phase4/loop.md)
+    placeholder a documented home named 'me'  (.prd/tui-phase4/loop.md)
 6b507197 lines 1 (the brief's count), matches 3  docs(receipt): LOCAL-PATHS
-    placeholder a home named 'u'  (.prd/tui-phase5/receipts/local-paths/README.md)
-    placeholder a home named 'me'  (.prd/tui-phase5/receipts/local-paths/README.md)
-    placeholder a home named 'someone'  (.prd/tui-phase5/receipts/local-paths/README.md)
+    placeholder a documented home named 'u'  (.prd/tui-phase5/receipts/local-paths/README.md)
+    placeholder a documented home named 'me'  (.prd/tui-phase5/receipts/local-paths/README.md)
+    placeholder a documented home named 'someone'  (.prd/tui-phase5/receipts/local-paths/README.md)
 56e51cb0 lines 1 (the brief's count), matches 1  fix(fxcap): find a run's root however a frame splits it; refuse 
     SCRATCH     the harness temp root, this machine's uid; the line marked `local-path-ok`  (scripts/fxcap/test_capture.py)
 506febef lines 5 (the brief's count), matches 5  fix(gate): no bypass by a redirect, a bare home, a broken root o
     SCRATCH     the macOS per-user temp root; the line marked `local-path-ok`  (scripts/check-no-local-paths.sh)
     SCRATCH     the macOS per-user temp root; the line marked `local-path-ok`  (scripts/check-no-local-paths.sh)
-    placeholder a home named 'me      # src'  (scripts/check-no-local-paths.sh)
-    placeholder a home named 'example # src'  (scripts/check-no-local-paths.sh)
-    placeholder a home named 'someone # scripts'  (scripts/check-no-local-paths.sh)
+    placeholder a documented home named 'me'  (scripts/check-no-local-paths.sh)
+    placeholder a documented home named 'example'  (scripts/check-no-local-paths.sh)
+    placeholder a documented home named 'someone'  (scripts/check-no-local-paths.sh)
 7ff36c75 lines 2 (the brief's count), matches 3  docs(receipt): LOCAL-PATHS round 2
-    placeholder a home named 'u`, `'  (.prd/tui-phase5/receipts/local-paths/README.md)
-    placeholder a home named 'example`, `'  (.prd/tui-phase5/receipts/local-paths/README.md)
-    placeholder a home named 'someone`, `'  (.prd/tui-phase5/receipts/local-paths/README.md)
+    placeholder a documented home named 'u'  (.prd/tui-phase5/receipts/local-paths/README.md)
+    placeholder a documented home named 'example'  (.prd/tui-phase5/receipts/local-paths/README.md)
+    placeholder a documented home named 'someone'  (.prd/tui-phase5/receipts/local-paths/README.md)
 6b4f72fd lines 1 (the brief's count), matches 1  chore: every tracked capture's roots at their own width
-    placeholder a harness temp root, uid 0  (.prd/tui-phase5/receipts/local-paths/red3.sh)
+    review      a harness temp root, uid 0  (.prd/tui-phase5/receipts/local-paths/red3.sh)
 c6e12e82 lines 1 (the brief's count), matches 1  docs(receipt): LOCAL-PATHS round 3
     SCRATCH     the harness temp root, this machine's uid  (.prd/tui-phase5/receipts/local-paths/roots-mutants.txt)
 c57ffb77 lines 1 (the brief's count), matches 1  fix(fxcap): the rewrite refuses a root broken at its gutters bef
-    placeholder a home named 'z'  (scripts/fxcap/roots.py)
+    review      a home named 'z', not in the check's documented list  (scripts/fxcap/roots.py)
 1d707ba4 lines 1 (the brief's count), matches 1  fix(gate): a scratch root broken after its tmp/ is found after a
     placeholder `claud[e]-3/` inside a name or after a `/`  (scripts/check-no-local-paths.sh)
 797ebfa0 lines 2 (the brief's count), matches 3  test(receipt): LOCAL-PATHS round 7's RED script and mutants
@@ -74,14 +78,14 @@ c57ffb77 lines 1 (the brief's count), matches 1  fix(fxcap): the rewrite refuses
     placeholder `claud[e]-3/` inside a name or after a `/`  (scripts/check-no-local-paths.sh)
 5609108f lines 1 (the brief's count), matches 1  docs(receipt): LOCAL-PATHS section 4 says 28 plants and the heur
     placeholder `claud[e]-3/` inside a name or after a `/`  (.prd/tui-phase5/receipts/local-paths/README.md)
-# 100 commits scanned; 33 lines hit (the brief's count, summed); matches: placeholder 31, SCRATCH 12, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
+# 103 commits scanned; 33 lines hit (the brief's count, summed); matches: placeholder 29, review 2, SCRATCH 12, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
 
-## the range, git diff df46777e..63cb877d
-    placeholder a home named 'me`, `'  (.prd/tui-phase4/loop.md)
+## the range, git diff df46777e..0c32118c
+    placeholder a documented home named 'me'  (.prd/tui-phase4/loop.md)
     placeholder `claud[e]-3/` inside a name or after a `/`  (.prd/tui-phase5/receipts/local-paths/README.md)
-    placeholder a home named 'u`, `'  (.prd/tui-phase5/receipts/local-paths/README.md)
-    placeholder a home named 'example`, `'  (.prd/tui-phase5/receipts/local-paths/README.md)
-    placeholder a home named 'someone`, `'  (.prd/tui-phase5/receipts/local-paths/README.md)
+    placeholder a documented home named 'u'  (.prd/tui-phase5/receipts/local-paths/README.md)
+    placeholder a documented home named 'example'  (.prd/tui-phase5/receipts/local-paths/README.md)
+    placeholder a documented home named 'someone'  (.prd/tui-phase5/receipts/local-paths/README.md)
     placeholder `claud[e]-3/` inside a name or after a `/`  (.prd/tui-phase5/receipts/local-paths/README.md)
     placeholder `claud[e]-3/` inside a name or after a `/`  (.prd/tui-phase5/receipts/local-paths/README.md)
     placeholder `claud[e]-3/` inside a name or after a `/`  (.prd/tui-phase5/receipts/local-paths/README.md)
@@ -94,19 +98,35 @@ c57ffb77 lines 1 (the brief's count), matches 1  fix(fxcap): the rewrite refuses
     placeholder `claud[e]-3/` inside a name or after a `/`  (scripts/check-no-local-paths.sh)
     SCRATCH     the macOS per-user temp root; the line marked `local-path-ok`  (scripts/check-no-local-paths.sh)
     SCRATCH     the macOS per-user temp root; the line marked `local-path-ok`  (scripts/check-no-local-paths.sh)
-    placeholder a home named 'me      # src'  (scripts/check-no-local-paths.sh)
-    placeholder a home named 'example # src'  (scripts/check-no-local-paths.sh)
-    placeholder a home named 'someone # scripts'  (scripts/check-no-local-paths.sh)
+    placeholder a documented home named 'me'  (scripts/check-no-local-paths.sh)
+    placeholder a documented home named 'example'  (scripts/check-no-local-paths.sh)
+    placeholder a documented home named 'someone'  (scripts/check-no-local-paths.sh)
     SCRATCH     the harness temp root, this machine's uid; the line marked `local-path-ok`  (scripts/fxcap/test_capture.py)
-    placeholder a home named 'someone'; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
+    placeholder a documented home named 'someone'; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
     SCRATCH     the harness temp root, this machine's uid; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
-    placeholder a home named 'someone'; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
+    placeholder a documented home named 'someone'; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
     SCRATCH     the harness temp root, this machine's uid; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
-    placeholder a home named 'someone'; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
+    placeholder a documented home named 'someone'; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
     SCRATCH     the harness temp root, this machine's uid; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
     SCRATCH     the macOS per-user temp root; the line marked `local-path-ok`  (scripts/fxcap/test_sweep.py)
     SCRATCH     the harness temp root, this machine's uid; the line marked `local-path-ok`  (src/skills/catalog.rs)
-# the range: 21 lines hit (the brief's count); matches: placeholder 21, SCRATCH 8, NAME 0, CREDENTIAL 0
+# the range: 21 lines hit (the brief's count); matches: placeholder 21, review 0, SCRATCH 8, NAME 0, CREDENTIAL 0
 # midbranch_scan.py exit 0
 
 ## 3. files of this directory holding the pattern: 0
+shapes.py over this directory: brief 0; run-name 0; uid-tail 0 (over 113 files)
+
+## 4. each commit after the code head 03fb5436, and the files it touches outside this directory
+e1122281 outside: 0; inside: 61 file(s)
+c419837c outside: 0; inside: 19 file(s)
+95f26e58 outside: 0; inside: 8 file(s)
+39519cdd outside: 0; inside: 3 file(s)
+603c1293 outside: 0; inside: 21 file(s)
+b20aca45 outside: 0; inside: 4 file(s)
+0d7d349f outside: 0; inside: 1 file(s)
+e43387b6 outside: 0; inside: 1 file(s)
+63cb877d outside: 0; inside: 5 file(s)
+a1d94901 outside: 0; inside: 1 file(s)
+e320318f outside: 0; inside: 17 file(s)
+0c32118c outside: 0; inside: 1 file(s)
+# files outside this directory touched after the code head: 0
