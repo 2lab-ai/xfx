@@ -204,7 +204,7 @@ check-no-local-paths, check-xfx-identity, and test_ci_sweep.py
   reads the pane's pid, and that pid's start time and command, before
   kill-server, waits up to 3 s for it, then SIGKILLs that pid only while it is
   still that process (`reap`, `scripts/fxcap/capture.sh:524-539@f718e3c1`; `cleanup`,
-  `:541-553`).
+  `:541-553`). **Replaced in round 3 (8c): no SIGKILL.**
 - **Pinned** (`tests/red2.txt`: the three of new behaviour fail at cc913145):
   - a binary on its way out is waited for;
   - one that ignores SIGHUP is killed;
@@ -233,6 +233,58 @@ check-no-local-paths, check-xfx-identity, and test_ci_sweep.py
   - roots.py no longer calls the run name mktemp's;
   - make_run's loop ends on a failure other than "already there";
   - sweep.py's imports are in order.
+
+## 8c. Round 3 (87219db1, edba4758; gpt6's MUST: no SIGKILL)
+
+Round 2's `reap` sent SIGKILL to a bare pid 0.05 s after its last check of an
+identity first read at cleanup. Now capture.sh signals nothing at a run's
+end:
+
+- **Recorded at launch.** `own_pane` (`scripts/fxcap/capture.sh:525-534@edba4758`)
+  writes the pane's pid and its start time to `$run/pane` right after
+  `new-session` (`:1091`) and after each `relaunch`'s `respawn-pane`
+  (`:1276`).
+  - Its start time only (`ps lstart`, trimmed by `start_of`, `:536-542`), not
+    `comm`. The pane runs `sh`, then `env`, then the binary, in one process:
+    an exec keeps the start time and changes `comm`.
+- **Waited for, never signalled.** `cleanup` (`:564-573`) runs kill-server, which
+  hangs the pane up as tmux does. Then `await_pane` (`:549-562`) looks every
+  0.05 s, 60 times, while the pid still has the recorded start time.
+  - Gone, or another process's: on at once (`pane: ... gone (N looks)`).
+  - Still there: a `LIVE-WRITER GUARD` line naming the pid and its start
+    time, and exit 4 (an earlier non-zero status is kept).
+- **The sweep.** A failed side is a failed unit (`unit_status`, as before).
+  The next side of that unit now runs in its own job's TMPDIR under a new
+  name, never behind the failed run's writer (`run_unit`,
+  `scripts/fxcap/sweep.py:195-201`).
+- **Tests.** No test signals a process: each stub logs the HUP and TERM it
+  gets, and ends by itself.
+  - a binary on its way out is waited for, and gets only tmux's HUP;
+  - one that stays fails the run (exit 4, the line), is alive when the run
+    ends, and gets only tmux's HUP;
+  - a pane already dead is not waited for (0 looks);
+  - a pid whose recorded start time no longer matches (as reuse would leave
+    it) is not waited for and is alive after the run;
+  - a relaunched binary is the one waited for;
+  - the sweep records a failed side as a failed unit, and the next side runs
+    in another TMPDIR.
+  At bf0ed67f, 5 of 10 RunDirectory tests and the sweep test fail
+  (`tests/red3.txt`). Round 2's SIGKILL test is deleted.
+- **Mutants:** 19 / 19 killed at edba4758 (`mutants3.sh`, `mutants3.txt`):
+  the twelve of rounds 1 and 2 that still apply, and seven of round 3:
+  - no wait;
+  - a wait that never fails the run;
+  - the identity read at cleanup instead of at launch;
+  - no record after a relaunch;
+  - the pid's existence in place of its start time;
+  - a 0.1 s wait;
+  - the sweep's next side in the failed side's path.
+- **The pair again,** with the round-3 harness and xfx edba4758, four units a
+  leg: 24 bytes 8 / 8 and 49 bytes 8 / 8. Every one of the 16 runs found its
+  pane process gone at the first look (`r3/edba4758-24.txt`,
+  `r3/edba4758-49.txt`).
+- **Gate** at edba4758, on a clone, under the lock: 22 / 22; the capture
+  harness ran 118 tests (`gate/gates-edba4758.txt`).
 
 ## 9. Open
 

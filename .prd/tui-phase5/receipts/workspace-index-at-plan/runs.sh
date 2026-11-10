@@ -118,5 +118,21 @@ for p in d["pairs"]:
      TMPDIR=$GATE_TMP python3 -I scripts/fxcap/test_sweep.py Sweep.test_a_units_second_run_finds_nothing_its_first_left || true)
     git clone --no-local -q "$XFX" "$SCRATCH/mut2"; git -C "$SCRATCH/mut2" checkout -q -b mut2 f718e3c1
     SCRATCH=$SCRATCH MUT_TMP=$GATE_TMP/mut2 $LOCK "$(dirname "$0")/mutants2.sh" ;;
+  r3)
+    # Round 3: the pair with edba4758's harness, the new tests at bf0ed67f
+    # (RED), the mutants. The gate is gates.sh on a clone at edba4758.
+    git clone --no-local -q "$XFX" "$SCRATCH/h3"; git -C "$SCRATCH/h3" checkout -q -b h3 edba4758
+    H=$SCRATCH/h3
+    $LOCK bash -c "
+      $(declare -f sweep); FX=$FX SHA=$SHA
+      sweep $H $SCRATCH/scen-rep4 'workspace-index-*' $SCRATCH/xbin/xfx-edba4758 $TMP24 $SCRATCH/sw/r3-edba4758-24
+      sweep $H $SCRATCH/scen-rep4 'workspace-index-*' $SCRATCH/xbin/xfx-edba4758 $TMP49 $SCRATCH/sw/r3-edba4758-49"
+    git clone --no-local -q "$XFX" "$SCRATCH/red3"; git -C "$SCRATCH/red3" checkout -q -b red3 bf0ed67f
+    git -C "$XFX" show 87219db1:scripts/fxcap/test_capture.py > "$SCRATCH/red3/scripts/fxcap/test_capture.py"
+    git -C "$XFX" show 87219db1:scripts/fxcap/test_sweep.py > "$SCRATCH/red3/scripts/fxcap/test_sweep.py"
+    (cd "$SCRATCH/red3" && TMPDIR=$GATE_TMP python3 -I scripts/fxcap/test_capture.py RunDirectory || true
+     TMPDIR=$GATE_TMP python3 -I scripts/fxcap/test_sweep.py Sweep.test_a_run_that_failed_is_a_failed_unit_and_its_path_is_not_reused || true)
+    git clone --no-local -q "$XFX" "$SCRATCH/mut3"; git -C "$SCRATCH/mut3" checkout -q -b mut3 edba4758
+    SCRATCH=$SCRATCH MUT_TMP=$GATE_TMP/mut3 $LOCK "$(dirname "$0")/mutants3.sh" ;;
   *) echo "no step $1" >&2; exit 2 ;;
 esac
