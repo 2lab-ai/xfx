@@ -1,12 +1,25 @@
-# RED, the shell cases: red.sh <repo> b9b11596 fb014b08 <tmp>/clone -- this unit's five shell cases and their
-# helpers, as committed at fb014b08, put onto the base b9b11596's src/tui/shell.rs in a throwaway
-# git clone --no-local, run there (thread ids cut):
+# RED, the cases: red.sh <repo> b9b11596 fb014b08 <scratch>/clone -- this unit's five shell cases and their
+# helpers, and picker.rs' new query case, as committed at fb014b08, put onto the base b9b11596's
+# src/tui/shell.rs and src/tui/picker.rs in a throwaway git clone --no-local, run there (thread ids cut).
+# picker.rs' enter_on_a_skill_row_... names names_exactly and PickerOutcome::Typed, which the base has not got.
 put 193 lines onto the base's shell.rs
+put 54 lines onto the base's picker.rs
+test tui::picker::tests::past_a_blank_the_query_goes_on_for_a_name_nobody_has_or_one_with_an_argument ... FAILED
+test tui::shell::tests::escape_over_the_skills_past_a_blank_lasts_while_the_line_is_a_slash_line ... FAILED
+test tui::shell::tests::past_the_blank_of_a_name_nobody_has_the_menu_lists_the_skills_the_line_finds ... FAILED
 test tui::shell::tests::tab_takes_a_slash_words_ghost_before_the_skills_listed_past_the_blank ... FAILED
 test tui::shell::tests::tab_and_enter_bind_the_skill_over_the_whole_line_but_a_names_blank_submits_it ... FAILED
-test tui::shell::tests::past_the_blank_of_a_name_nobody_has_the_menu_lists_the_skills_the_line_finds ... FAILED
-test tui::shell::tests::escape_over_the_skills_past_a_blank_lasts_while_the_line_is_a_slash_line ... FAILED
 test tui::shell::tests::a_name_with_no_argument_lists_nothing_past_its_blank_and_a_table_lists_its_own ... FAILED
+thread 'tui::picker::tests::past_a_blank_the_query_goes_on_for_a_name_nobody_has_or_one_with_an_argument' panicked at src/tui/picker.rs:1222:13:
+assertion `left == right` failed: "/git log"
+  left: None
+ right: Some("/git log")
+thread 'tui::shell::tests::escape_over_the_skills_past_a_blank_lasts_while_the_line_is_a_slash_line' panicked at src/tui/shell.rs:48903:9:
+assertion failed: shell.picker.is_some()
+thread 'tui::shell::tests::past_the_blank_of_a_name_nobody_has_the_menu_lists_the_skills_the_line_finds' panicked at src/tui/shell.rs:48775:9:
+assertion `left == right` failed
+  left: []
+ right: ["release-notes"]
 thread 'tui::shell::tests::tab_takes_a_slash_words_ghost_before_the_skills_listed_past_the_blank' panicked at src/tui/shell.rs:48886:9:
 assertion `left == right` failed
   left: []
@@ -15,17 +28,11 @@ thread 'tui::shell::tests::tab_and_enter_bind_the_skill_over_the_whole_line_but_
 assertion `left == right` failed: [47, 103, 105, 116, 32, 108, 111, 103, 9]
   left: "/git log"
  right: "release-notes "
-thread 'tui::shell::tests::past_the_blank_of_a_name_nobody_has_the_menu_lists_the_skills_the_line_finds' panicked at src/tui/shell.rs:48775:9:
-assertion `left == right` failed
-  left: []
- right: ["release-notes"]
-thread 'tui::shell::tests::escape_over_the_skills_past_a_blank_lasts_while_the_line_is_a_slash_line' panicked at src/tui/shell.rs:48903:9:
-assertion failed: shell.picker.is_some()
 thread 'tui::shell::tests::a_name_with_no_argument_lists_nothing_past_its_blank_and_a_table_lists_its_own' panicked at src/tui/shell.rs:48839:9:
 assertion `left == right` failed
   left: []
  right: ["tidy"]
-test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4791 filtered out; finished in 0.02s
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 4791 filtered out; finished in 0.02s
 exit 0
 
 # RED, the paired scenario: pairs.sh red -- fx/ against red/, the base's binary (row 1 x𝒇x v0.1.0-b9b1159 [debug])

@@ -1,4 +1,4 @@
-# gate.sh <repo> 83dae68e <tmp>/sms-gate <out> under suite-lock.sh, one slot, TMPDIR=<tmp>/sms-gate: a clean
+# gate.sh <repo> 83dae68e <scratch>/sms-gate <out> under suite-lock.sh, one slot, TMPDIR=<scratch>/sms-gate: a clean
 # git clone --no-local of the code head. Each step's rc and seconds, then each test run's suites.
 head 83dae68e; porcelain lines: 0
 fmt rc=0 3s
@@ -84,7 +84,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 50.77s
 
 ## clippy-fi.log (last 3 lines)
-   Compiling xfx v0.1.0 (<tmp>/sms-gate/clone)
+   Compiling xfx v0.1.0 (<scratch>/sms-gate/clone)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 39.52s
 
 ## identity.log (last 3 lines)

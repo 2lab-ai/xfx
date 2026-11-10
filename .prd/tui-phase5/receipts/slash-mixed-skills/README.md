@@ -144,12 +144,15 @@ tables before the slash menu (`Shell::reconcile_picker`, `completion_kind`).
 
 ## RED (`red.txt`, `red.sh`)
 
-- **The shell cases**: the five, with their helpers `mixed` and
-  `slash_rows`, as committed at `fb014b08`, put onto the base's
-  `src/tui/shell.rs` in a throwaway `git clone --no-local` (`red.sh`): 5 of 5
-  fail -- no rows past the blank (`left: []`), `/git log` and Tab left as
-  typed, and `/git log` no menu to dismiss. picker.rs' two new cases name
-  `names_exactly` and `PickerOutcome::Typed`, which the base has not got.
+- **The cases**: the five shell cases, with their helpers `mixed` and
+  `slash_rows`, and picker.rs' `past_a_blank_the_query_goes_on_…`, as
+  committed at `fb014b08`, put onto the base's `src/tui/shell.rs` and
+  `src/tui/picker.rs` in a throwaway `git clone --no-local` (`red.sh`): 6 of
+  6 fail -- `query_of("/git log")` is `None`, no rows past the blank
+  (`left: []`), `/git log` and Tab left as typed, and `/git log` no menu to
+  dismiss. picker.rs' other new case, `enter_on_a_skill_row_…`, names
+  `names_exactly` and `PickerOutcome::Typed`, which the base has not got: it
+  cannot be put there (its rules are pinned by mutants M9-M11 instead).
 - **The paired scenario on the base** (`red/`, `pairs.sh red`): 0 of 26
   identical. `-git-log` and `-git-log-tab` differ by the list and the bind;
   from `-git-log-enter` on, every base snap also holds what its Enters did:
@@ -230,6 +233,18 @@ takes no argument and xfx has no `/feedback`, so past its blank xfx lists
 the skills the line finds where fx lists nothing (fx's `/logout` and
 `/shell` take one, and xfx, which has neither, lists them as fx does; fx's
 `/login ` line is the provider kind, which the row already records).
+
+## Cost
+
+Past a blank the skills' query is the whole draft, so a long draft that
+begins with `/` and a word no command has -- a path at the start of a
+prompt -- is matched against every skill on each edit: `skills_menu::listed`
+asks `rank` six times per skill (three ranks, two groups), and each
+lowercases the query. It is bounded: a paste over 1000 characters becomes a
+block in the composer (`paste::COLLAPSE_ABOVE`), so the draft's text is what
+was typed or pasted in smaller pieces. fx's `skillMatchRank` is the same
+search, by `asciiContainsIgnoreCase`, without the copy. The `$` menu's code is
+shared and left as it is.
 
 ## Not copied
 

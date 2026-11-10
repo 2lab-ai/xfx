@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The unit's gate on a clean `git clone --no-local` of the code head, one
 # suite-lock slot (SLASH-ARG-SKILLS' gate.sh, on a clone).
-# usage: suite-lock.sh gate.sh <repo> <rev> <work dir> <out-dir>   (TMPDIR short: <tmp>/<slug>)
+# usage: suite-lock.sh gate.sh <repo> <rev> <work dir> <out-dir>   (TMPDIR short: <scratch>/<slug>)
 set -uo pipefail
 repo=${1:?repo}; rev=${2:?rev}; work=${3:?work dir}; O=${4:?out dir}
 rm -rf "$O" "$work/clone"; mkdir -p "$O" "$work"
