@@ -18,7 +18,8 @@ head `2593f49c` (branch `fix/p5-approval-horizontal-keys`, not yet on
 | `eb381074` | **the head's tests**: one more case, Up first out of a draft (mutant M13 survived round 1); tests only |
 | `91d5df0d` | round 1's receipt: `xfx/`, `green.txt`, `mutants.py`, `mutants.txt`, the sweeps, `gate.txt`, this file |
 | `66a1ac97` | **round 2** (the reviews of `91d5df0d`): the one-read Enter test, the ledger's refs by content (`refs.py`), the order and `C-p` worded true, `approval::edits`' two dead entries out, `docs/parity.md` |
-| the commit after | round 2's receipt: `refs.txt`, `mutants.txt` (round 3), this file; no `src/` change |
+| `4114705e` | round 2's receipt: `refs.txt`, `mutants.txt` (round 3), `round2.txt`, this file; no `src/` change |
+| the commit after | **round 3** (the reviews of `4114705e`): the readiness finding scoped to file approvals with the dispatcher's decision for its owner, the cases ranked, the ledger's bare `:1658` re-pointed and `refs.py` reading bare refs, one test comment; no code change |
 
 Captures: `fx/` is fx v0.0.16 (sha256 `8e6cda2e…`, `FX_AUTO_UPGRADE=0`;
 `capture.sh` checked its bytes after the run); `red/` the base's binary
@@ -184,12 +185,17 @@ first, then Alt, then Ctrl, then Shift.
     `fn resize` (a `.map` in a card helper);
   - `session-record`, `transcript-page-offset`,
     `toolgroup-ctrlo-record-short`, `safe-page-edge`, `cancel-page-edge` and
-    `full-transcript-shift`: the record's `tools: {} advertised` row (a
-    palette test's comment);
+    `full-transcript-shift`: the shell test's assertion of the record's
+    `tools: {} advertised` row (a palette test's comment); the row itself is
+    written at `src/tui/full_transcript.rs:202`, and the ref is the test's,
+    as origin/main's ledger has it;
   - `amendment-card-after-stop`, its `xfx` and its `why`: `fn trailer_rows`
-    (`write_notice`'s `if self.group.drawn()`).
+    (`write_notice`'s `if self.group.drawn()`), and, in round 3, the `why`'s
+    bare `:1658` after it to `:1840`, `fn queue_card` (`:1658` was
+    `images_next`'s doc). `refs.py` now reads a bare `:N` after a file ref,
+    as `fx_src.sh` does, so such a ref is checked too.
 
-  `refs.txt` is its output at `66a1ac97`: 16 checked, 0 wrong.
+  `refs.txt` is its output at the receipt's head: 17 checked, 0 wrong, 0 without an expected text.
   `ledger.load(..., repo_root)` accepts the file.
 
 ## Approval safety
@@ -216,23 +222,46 @@ first, then Alt, then Ctrl, then Shift.
   which is not part of the receipt's identity (`approval_readiness.rs`'s
   `Intent`: question, plane, size, layout), so the receipt holds and the
   draft sent is the one shown. Mutant M14 (Super in a draft revokes the
-  receipt) fails it.
-- **Not tested, and not changed: a letter typed in the same read as
-  Enter.** Round 2's brief asked for "Super, then a typed letter, then
+  receipt) fails it -- but M14 guards the **stricter** direction: on this
+  file approval fx refuses that Enter (below), and APPROVAL-READINESS-SETTLED
+  will flip the case. The safety-direction mutants, each a key that would
+  change what Enter answers, are M1, M2, M3 and M7, all killed
+  (`mutants.txt`).
+- **Not tested, and not changed: an affirmative read with a key that asks
+  for a frame.** Round 2's brief asked for "Super, then a typed letter, then
   Enter" to wait for a new frame. It does not, at the base or here: a typed
-  letter is `Moved` in `approval::keyed` (the receipt is the disclosure,
-  not the draft's text), so `\x1b[1;9Ay\r` in one read answered `Once`
-  with `yab cd` when probed, as `y\r` does at the base with no Super. fx,
-  read from its code (no capture of it here), refuses it, and refuses an
-  affirmative after every key that asks for a modal frame until that frame
-  is drawn -- an arrow, a caret move, a letter
-  (`settledForApproval`, `render_request.zig:172-177`, `:367-370`; the
-  check at `input_approval_runtime.zig:191-218`; the requests at
-  `input_approval_runtime.zig:86`, `:117`, `app_input_runtime.zig:1251-1255`)
-  -- so fx refuses the Super-then-Enter case above as well. Making the
-  letter case wait means a readiness model for every key and every draft,
-  not this unit's: recorded in `docs/parity.md` as a finding, owner
-  proposed APPROVAL-READINESS-SETTLED, and pinned neither way here.
+  letter is `Moved` in `approval::keyed` (`Reshaped`, which revokes, only
+  when it wraps the draft onto another row, `approval.rs:616`), and the
+  receipt is the disclosure, not the draft's text, so `\x1b[1;9Ay\r` in one
+  read answered `Once` with `yab cd` when probed, as `y\r` does at the base
+  with no Super. **fx refuses it at a file approval only**, read from its
+  code (no capture of it here): its check opens `if (decision != .deny and
+  app.approval_prompt.request.?.file != null)` (`input_approval_runtime.zig:191-192`),
+  then waits for any pending modal frame (`settledForApproval`,
+  `render_request.zig:172-177`, `:367-370`; the refusal at
+  `input_approval_runtime.zig:207-218`), and an arrow, a caret move or a
+  letter asks for one (`input_approval_runtime.zig:86`, `:117`;
+  `app_input_runtime.zig:1251-1255`) -- so it refuses the Super-then-Enter
+  case above too. At any other approval fx takes the answer at once. xfx's
+  gate has no subject check and covers every approval (`Shell::decide`,
+  `src/tui/shell.rs:9602-9603`), but on its own receipt. Two cases, heavier
+  first:
+  1. **the chosen answer**: plain Up or Down anywhere, or Left, Right,
+     Alt-b or Alt-f at a choice, then Enter in one read grants the choice
+     the key marked, which no frame showed (Down then Enter: `Always` under
+     a frame that marked `Apply once`). This unit takes twelve spellings
+     out of that case and adds none;
+  2. **the feedback**: a letter typed in the same read as Enter is sent
+     unseen.
+
+  The fix is fx's one condition -- no modal frame pending since the receipt
+  (`render_request.zig:172-177`); xfx already asks for a modal frame on
+  every `Moved` (`Shell::decide`) -- not a model per key or per draft.
+  Recorded in `docs/parity.md`; owner APPROVAL-READINESS-SETTLED, with the
+  dispatcher's decision for it (round 3, 2026-11-10, reversible, kept for
+  the user's veto): **copy that condition for every approval**, not only
+  file approvals -- stricter than fx, because a widened grant is a safety
+  matter on any approval. Pinned neither way here.
 - **A key that still changes what the card shows still revokes it**, as
   `invalidate_approval` does today: the plain arrow out of a filled draft
   (`Reshaped`) -- the same test's last case, and the existing
@@ -304,7 +333,8 @@ each.
   and -Down in a draft revoking the receipt (an `invalidate_approval()`
   before their `Edit`), is killed by the one-read test alone: an Enter in
   the same buffer is then refused and nothing is answered. The per-mutant
-  filter adds `one_read`.
+  filter adds `one_read`. The kill lists name at most four tests each
+  (`mutants.py` keeps `failed[:4]`); a mutant's full list is longer.
 
 | mutant | killed by (round 3; M1, M2, M3 and M5 also by the one-read test) |
 |---|---|
@@ -391,10 +421,13 @@ tests and their neighbours pass, 407 (`gate.txt`, last section).
   in `docs/parity.md`; owner proposed (APPROVAL-PASTE-SPACES). This unit
   gives Super-Up and -Down fx's `cursorHome`/`cursorEnd` (0 and the length)
   rather than Home's line start, so they stay right once that lands.
-- **When an affirmative may be taken** (round 2): fx waits for any pending
-  modal frame, xfx's receipt is the disclosure; a letter typed in the same
-  read as Enter is sent unseen here (Approval safety, above). Recorded in
-  `docs/parity.md`; owner proposed (APPROVAL-READINESS-SETTLED).
+- **When an affirmative may be taken** (round 2, scoped in round 3): at a
+  file approval fx waits for any pending modal frame, and at any other it
+  does not; xfx gates every approval on a receipt that is the disclosure, so
+  an arrow, or a letter, read with Enter is answered unseen (Approval
+  safety, above). Recorded in `docs/parity.md`; owner
+  APPROVAL-READINESS-SETTLED, to apply fx's condition to every approval
+  (the dispatcher's decision).
 
 `C-p`/`C-n` on the review plane walk the change, where fx's plane scrolls by
 the wheel (xfx enables no mouse reports). That was so and recorded in

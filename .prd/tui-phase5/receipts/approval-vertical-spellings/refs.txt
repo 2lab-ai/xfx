@@ -10,8 +10,9 @@ ok    ledger:849 [safe-page-edge] src/tui/shell.rs:39893  "  tools: {} advertise
 ok    ledger:860 [cancel-page-edge] src/tui/shell.rs:39893  "  tools: {} advertised ({},",  (base 39046 held '// *notifications* would be honouring th')
 ok    ledger:872 [amendment-card-after-stop] src/tui/shell.rs:10339  fn trailer_rows(&self) -> Vec<String> {  (base 10277 held 'if self.group.drawn() {')
 ok    ledger:874 [amendment-card-after-stop] src/tui/shell.rs:10339  fn trailer_rows(&self) -> Vec<String> {  (base 10277 held 'if self.group.drawn() {')
+ok    ledger:874 [amendment-card-after-stop] src/tui/shell.rs:1840 (bare)  fn queue_card(transcript: &mut Transcript, text:  (base 1658 held '/// lands and never given back, so no tw')
 ok    ledger:928 [full-transcript-shift] src/tui/shell.rs:39893  "  tools: {} advertised ({},",  (base 39046 held '// *notifications* would be honouring th')
 ok    ledger:964 [stats-bytes] src/tui/shell.rs:1765  "ansi_bytes={}, redraws={}, debounced_resizes={}  (base 1765 held '"ansi_bytes={}, redraws={}, debounced_re')
 ok    ledger:998 [resize-document-repaint] src/tui/shell.rs:16534  pub(crate) fn resize(&mut self, rows: u16, cols:  (base 16413 held '.map(|(card, links, _)| (card.as_str(), ')
 ok    ledger:1075 [activity-tokens-before-request] src/tui/shell.rs:4343  self.tally.begin(Instant::now(), estimate);  (base 4343 held 'self.tally.begin(Instant::now(), estimat')
-refs: 16 checked, 0 wrong, 0 without an expected text
+refs: 17 checked, 0 wrong, 0 without an expected text

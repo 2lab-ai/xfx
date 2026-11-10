@@ -24,3 +24,15 @@ $ { git diff 2593f49c -- src tests scripts/fxcap/scenarios | grep '^+'; git diff
 
 # scripts/fxcap/ledger.py's load with repo_root
 ledger.load: ok, 56 causes, 26 divergences
+
+# Round 3 checks (review round 2's fixes: words, one ledger ref, refs.py, a test comment; no code change)
+$ cargo test --locked --lib -- (the same filters as above)
+test result: ok. 412 passed; 0 failed; 1 ignored; 0 measured; 4227 filtered out; finished in 0.43s
+$ cargo test --locked --test parity
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.22s
+cargo fmt --check: exit 0
+$ python3 -I refs.py 2593f49c   (full output: refs.txt)
+refs: 17 checked, 0 wrong, 0 without an expected text
+$ fx_src.sh, piped as above
+161 citations checked, 0 outside fx-src.txt's ranges
+ledger.load: ok, 56 causes, 26 divergences

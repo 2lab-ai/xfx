@@ -23016,7 +23016,10 @@ mod tests {
         // caret moved, which is a frame (`Moved`) and not a new screen: a
         // receipt is about the question, its plane, its size and its layout,
         // never the caret (`super::approval_readiness::Intent`), so it holds,
-        // and the answer is the choice shown with the draft unchanged.
+        // and the answer is the choice shown with the draft unchanged. fx
+        // refuses this Enter on a file approval like this one, until the
+        // frame the caret asked for is drawn (`input_approval_runtime.zig:191-218`);
+        // APPROVAL-READINESS-SETTLED flips this case.
         for (name, key) in [
             ("super-up", &b"\x1b[1;9A"[..]),
             ("super-down", b"\x1b[1;9B"),
