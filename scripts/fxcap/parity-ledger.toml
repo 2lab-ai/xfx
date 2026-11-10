@@ -264,7 +264,7 @@ reason = "xfx's /status panel keeps a Sandbox row after Permissions, which fx's 
 owner = "user decision /status Sandbox row"
 resolution = "the user keeps the row (written as a lasting difference) or drops it"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:115", "UPSTREAM.md:96-99"]
+source = ["docs/parity.md:115", "UPSTREAM.md:95-98"]
 
 [[divergence]]
 id = "status-panel-updates"
@@ -277,7 +277,7 @@ reason = "fx's /status panel says its update channel; xfx has no updater, so the
 owner = "user decision updater (sign-in and updater epic)"
 resolution = "the updater lands and the row with it, or the omission is written as lasting"
 expires = "date:2026-12-04"
-source = ["docs/parity.md:115", "UPSTREAM.md:100-102"]
+source = ["docs/parity.md:115", "UPSTREAM.md:99-101"]
 
 [[divergence]]
 id = "status-panel-step-limit"
@@ -291,7 +291,7 @@ reason = "xfx compiles in a bound of 25 steps a turn where fx compiles in unboun
 owner = "user decision default step limit"
 resolution = "the bounded default is written as lasting, or the user takes fx's"
 expires = "date:2026-12-04"
-source = ["UPSTREAM.md:91-95", "docs/parity.md:115"]
+source = ["UPSTREAM.md:90-94", "docs/parity.md:115"]
 
 [[divergence]]
 id = "saved-write-rule-applied"

@@ -96,6 +96,13 @@ when "id-unstamped" then once.("          XFX_BUILD_ID: ${{ needs.preflight.outp
 when "id-from-sha" then once.("XFX_BUILD_ID: ${{ needs.preflight.outputs.build_id }}",
                               "XFX_BUILD_ID: ${{ needs.preflight.outputs.sha12 }}")
 when "id-unchecked" then once.("[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[0-9a-f]{12}", "[0-9a-z-]+")
+# The binary stamped and never asked: the step still names build_id (it is
+# passed in), but nothing compares the version line with it.
+when "version-unasserted"
+  once.("          if not str(status.get(\"version\")).endswith(f\" (preview {build_id})\"):\n" \
+        "              problems.append(\n" \
+        "                  f\"version is {status.get('version')!r}, expected it to end ' (preview {build_id})'\"\n" \
+        "              )\n", "")
 when "environment-dropped" then once.(environment_line, "")
 when "environment-renamed" then once.(environment_line, "    environment: production\n")
 when "environment-on-preflight"
@@ -164,6 +171,7 @@ for row in \
 	"id-unstamped|the release build is not stamped with the id preflight named it through XFX_BUILD_ID" \
 	"id-from-sha|the release build is not stamped with the id preflight named it through XFX_BUILD_ID" \
 	"id-unchecked|preflight does not validate the build id against its exact grammar" \
+	"version-unasserted|the built binary's version line is never asserted to end with the id the build was stamped with" \
 	"environment-dropped|publish reads TAP_PUSH_KEY under environment nil" \
 	"environment-renamed|publish reads TAP_PUSH_KEY under environment \"production\"" \
 	"environment-on-preflight|preflight names environment \"preview\" but reads no secret" \

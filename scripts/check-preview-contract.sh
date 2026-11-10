@@ -640,8 +640,10 @@ if build
              "the built binary is never asserted to report a build revision")
       check.(status_run.include?("needs.preflight.outputs.sha12"),
              "the reported revision is not compared against the commit being published")
-      check.(status_run.include?("needs.preflight.outputs.build_id"),
-             "the reported version line is not compared against the id the build was stamped with")
+      check.(status_run.include?("needs.preflight.outputs.build_id") &&
+               status_run.include?('status.get("version")') &&
+               status_run.include?("(preview {build_id})"),
+             "the built binary's version line is never asserted to end with the id the build was stamped with")
     end
 
     check.(!smoke_step.nil? && smoke_step > build_step,

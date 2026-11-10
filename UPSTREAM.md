@@ -59,7 +59,6 @@ only claim its evidence supports.
 |---|---|
 | Command grammar shape and the `unknown` outcome | `src/core/cli/cli_surface.zig:58-84`, `:441-517` |
 | Exit code 1 for a usage rejection, diagnostics on stderr | `tests/e2e/cli.test.ts:404-412` |
-| `--version` / `-v` print the bare version with no program name | `tests/e2e/cli.test.ts:441-452` |
 | Settings merge order: project, profile global, exact workspace, environment | `src/core/config/config_runtime.zig:341-455` |
 | A later layer overrides only the keys it sets | `src/core/config/config_runtime.zig:1532-1545` |
 | Profile-only keys in the project file are ignored with a diagnostic | `src/core/config/config_runtime.zig:548-593` |
@@ -139,6 +138,14 @@ Each of these is a decision, not an omission.
    `auto` admits a reporting-only command grammar that cannot compile or run
    project code, has no automatic review, and never widens itself. Narrower is
    the right direction to be wrong in for a port with no sandbox.
+10. **The version line names the build.** Upstream's `--version` and `-v`
+    print the bare version with no program name (`tests/e2e/cli.test.ts:441-452`)
+    and its welcome line says `v<version>`. xfx says llmux's line everywhere it
+    names itself -- `xfx 0.2.0 (preview 2026-11-10-0019-ec40c7ad2e50)`: the
+    version, the channel, and the build's id, the UTC minute and the commit --
+    because the user asked for it on 2026-11-10: a local build that says only
+    its version cannot be told from another. `docs/parity.md`'s `version text`
+    row has the surfaces and the rules.
 
 ## Scope
 
