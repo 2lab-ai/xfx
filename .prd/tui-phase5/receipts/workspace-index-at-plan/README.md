@@ -174,7 +174,10 @@ At 2a721846, on a `git clone --no-local`, under the suite lock (`gates.sh`,
 train 12's): 21 / 22 (`gate/gates.txt`). Step 04, `cargo test`, failed two
 `tui::worker` stop-window tests at load 11.6 (4742 passed, 2 failed). Each
 then passed three runs out of three alone (`gate/step-04-reruns.txt`). This
-unit changes no `src/` file; the two are the catalog-wait clock tests.
+unit changes no `src/` file. The two are tests B and E of CATALOG-WAIT-CLOCK
+(fix/p5-catalog-wait-clock, not merged: its receipt README, lines 33 and 37),
+which names their 300 ms to 1 s wall-clock window as the race and moves them
+to tokio's paused clock (3c0a2ab3 to a6ab3ee6).
 
 ## 9. Open
 
