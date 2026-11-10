@@ -252,23 +252,33 @@ pub(crate) enum Action {
     ComposerRight,
     Up,
     Down,
-    /// Up and Down with Ctrl or Alt held and neither Shift nor Super:
+    /// Up and Down with Ctrl held and neither Alt, Shift nor Super:
     /// `CSI 1;<mask> A/B`, kitty's arrow reports and the kitty keypad arrows.
     ///
-    /// Upstream decodes them to a composer move, `visual_up` under Ctrl and
-    /// `paragraph_up` under Alt (`modifiedArrowAction`,
-    /// `escape_parser.zig:83-98@481104fd`), which an approval's choice and its
-    /// amendment both leave alone (`input_approval_runtime.zig:79-128`,
-    /// `src/ui/input/runtime.zig:75-96`), and so do its question's choice and
-    /// field (`:155-197`), while its full transcript leaves it to the composer
-    /// behind it (`keyForAction`, `input_full_transcript_runtime.zig:156-178`).
-    /// Alt with Shift is this too (`paragraph_up`, `escape_parser.zig:83-85`).
-    /// Those three xfx surfaces read this as it came; the shell folds it back
-    /// to [`Action::Up`] for the menus and the composer
-    /// (`super::shell::Shell`'s `folded`).
+    /// Upstream decodes them to a composer move, `visual_up`
+    /// (`modifiedArrowAction`, `escape_parser.zig:90-94@481104fd`), which an
+    /// approval's choice and its amendment both leave alone
+    /// (`input_approval_runtime.zig:79-128`, `src/ui/input/runtime.zig:75-96`),
+    /// and so do its question's choice and field (`:155-197`), a compact menu
+    /// (`app_input_runtime.zig:2259-2263`) and its full transcript, which
+    /// leaves it to the composer behind it (`keyForAction`,
+    /// `input_full_transcript_runtime.zig:156-178`). To the pickers and the
+    /// composer it is the plain arrow, history included
+    /// (`routeComposerVertical`, `input_completion_runtime.zig:215-291`).
     ComposerUp,
     /// Down as a composer move, the mirror of [`Action::ComposerUp`].
     ComposerDown,
+    /// Up with Alt held and not Super, with Shift or Ctrl or neither:
+    /// upstream's `paragraph_up` (`escape_parser.zig:83-85@481104fd`), the
+    /// caret to the start of its paragraph, or of the one before from there
+    /// (`previousParagraphStart`, `text_boundaries.zig:104-130`), and nothing
+    /// else -- no picker move, no edge, no history (`routeComposerShortcutAction`,
+    /// `app_input_runtime.zig:298-309`). Every surface that leaves
+    /// [`Action::ComposerUp`] alone leaves this alone too.
+    ParagraphUp,
+    /// Down with Alt held: `paragraph_down`, the next paragraph's start or the
+    /// draft's end (`nextParagraphStart`, `text_boundaries.zig:132-147`).
+    ParagraphDown,
     /// Up with Super held, whatever else is: upstream's `draft_start`
     /// (`escape_parser.zig:74-75@481104fd`, the first arm, so Super wins over
     /// Alt, Ctrl and Shift).
@@ -278,10 +288,11 @@ pub(crate) enum Action {
     /// `approval_amendment.zig:84-87`); at its choice it does nothing. A
     /// question's field takes it to the answer's start, as Home, and its
     /// choice does nothing (`src/ui/input/runtime.zig:162`, `:184-189`); the
-    /// full transcript leaves it to the composer behind it, Shift or not. The
-    /// menus and the composer read it as the arrow (`super::shell::Shell`'s
-    /// `folded`). `shifted` is whether Shift was held too, which no xfx
-    /// surface reads (the selection it would extend is dropped).
+    /// full transcript leaves it to the composer behind it, Shift or not. No
+    /// menu reads it, and the composer goes to the draft's start and no
+    /// further (`horizontal_navigation.zig:29`, `app_input_runtime.zig:298-309`).
+    /// `shifted` is whether Shift was held too, which no xfx surface reads
+    /// (the selection it would extend is dropped).
     DraftStart {
         shifted: bool,
     },
@@ -294,7 +305,7 @@ pub(crate) enum Action {
     },
     /// Up and Down with Shift held, with Ctrl or without, and neither Super
     /// nor Alt: `CSI 1;<mask> A/B` and the kitty arrow reports with a mask that
-    /// has Shift in it (Shift with Alt is [`Action::ComposerUp`]).
+    /// has Shift in it (Shift with Alt is [`Action::ParagraphUp`]).
     ///
     /// Upstream reads them as `visual_up` extending a selection, which only a
     /// question gives a meaning of its own -- the choice above or below, at a
@@ -303,10 +314,11 @@ pub(crate) enum Action {
     /// `input_question_runtime.zig:149-178`). An approval leaves them alone, at
     /// its choice and in its amendment (`visual_up` is no draft key,
     /// `src/ui/input/runtime.zig:86@481104fd`), and the full transcript
-    /// leaves them to the composer behind it. Everywhere else they are the
-    /// arrows they always were here: the shell folds them back once the full
-    /// transcript, the question and the approval have read the event, before
-    /// the menus and the composer do (`super::shell::Shell`'s `folded`).
+    /// leaves them to the composer behind it, and a compact menu reads them as
+    /// nothing (`app_input_runtime.zig:2259-2263`). The pickers read them as
+    /// the arrows; the composer moves one row and stops at the draft's first
+    /// and last row, with no edge and no history
+    /// (`input_completion_runtime.zig:262-270`).
     SelectUp,
     SelectDown,
     Home,
@@ -1452,7 +1464,7 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
 /// line's edge. On Up and Down every modifier is kept apart from the arrow, in
 /// upstream's order (`modifiedArrowAction`, `escape_parser.zig:73-108
 /// @481104fd`) but for Shift beside Ctrl: Super first ([`Action::DraftStart`],
-/// `draft_start`, with Shift remembered), then Alt ([`Action::ComposerUp`],
+/// `draft_start`, with Shift remembered), then Alt ([`Action::ParagraphUp`],
 /// `paragraph_up`, with Shift or without), then Shift ([`Action::SelectUp`],
 /// `visual_up` extending a selection, with Ctrl or without), then Ctrl
 /// ([`Action::ComposerUp`], `visual_up`). Upstream reads Ctrl before Shift and
@@ -1471,8 +1483,8 @@ fn cursor(letter: u8, mask: u8) -> Action {
     match letter {
         b'A' if draft => Action::DraftStart { shifted },
         b'B' if draft => Action::DraftEnd { shifted },
-        b'A' if alt => Action::ComposerUp,
-        b'B' if alt => Action::ComposerDown,
+        b'A' if alt => Action::ParagraphUp,
+        b'B' if alt => Action::ParagraphDown,
         b'A' if shifted => Action::SelectUp,
         b'B' if shifted => Action::SelectDown,
         b'A' if word => Action::ComposerUp,
@@ -3492,8 +3504,8 @@ mod tests {
         // kitty's arrow codes (`:38-39`) and keypad arrows (`:196-197`) take the
         // same table (`:163-167`, `:208-214`). This decoder's own
         // classification (`cursor`): Super is `DraftStart`/`DraftEnd` with
-        // Shift remembered, Alt without Super `ComposerUp`/`ComposerDown`
-        // (fx's paragraph move, Shift or not), Shift with neither
+        // Shift remembered, Alt without Super `ParagraphUp`/`ParagraphDown`
+        // (fx's paragraph move, Shift or Ctrl or not), Shift with neither
         // `SelectUp`/`SelectDown` (fx's `visual_up` extending a selection,
         // the one move a question's choice binds, `src/ui/input/runtime.zig:184-189`),
         // and Ctrl alone `ComposerUp`/`ComposerDown`.
@@ -3504,14 +3516,14 @@ mod tests {
             (&b"\x1b[1;2B"[..], Action::SelectDown),
             (b"\x1b[1;5B", Action::ComposerDown),
             (b"\x1b[1;9B", end(false)),
-            (b"\x1b[1;3B", Action::ComposerDown),
-            (b"\x1b[57353;3u", Action::ComposerDown),
+            (b"\x1b[1;3B", Action::ParagraphDown),
+            (b"\x1b[57353;3u", Action::ParagraphDown),
             (&[0x0e], Action::HistoryNext),
             (b"\x1b[1;2A", Action::SelectUp),
             (b"\x1b[1;5A", Action::ComposerUp),
             (b"\x1b[1;9A", start(false)),
-            (b"\x1b[1;3A", Action::ComposerUp),
-            (b"\x1b[57352;3u", Action::ComposerUp),
+            (b"\x1b[1;3A", Action::ParagraphUp),
+            (b"\x1b[57352;3u", Action::ParagraphUp),
             (&[0x10], Action::ControlP),
             // Two modifiers at once: Super wins over all, then Alt over Ctrl
             // and Shift (`escape_parser.zig:83`), then Shift over Ctrl --
@@ -3522,19 +3534,22 @@ mod tests {
             (b"\x1b[1;15B", end(false)),
             (b"\x1b[1;16B", end(true)),
             (b"\x1b[1;6A", Action::SelectUp),
-            (b"\x1b[1;4B", Action::ComposerDown),
-            (b"\x1b[1;4A", Action::ComposerUp),
-            (b"\x1b[1;8A", Action::ComposerUp),
-            (b"\x1b[57419;4u", Action::ComposerUp),
-            (b"\x1b[57353;8u", Action::ComposerDown),
-            (b"\x1b[1;7A", Action::ComposerUp),
+            (b"\x1b[1;4B", Action::ParagraphDown),
+            (b"\x1b[1;4A", Action::ParagraphUp),
+            (b"\x1b[1;8A", Action::ParagraphUp),
+            (b"\x1b[57419;4u", Action::ParagraphUp),
+            (b"\x1b[57353;8u", Action::ParagraphDown),
+            (b"\x1b[1;7A", Action::ParagraphUp),
             // The kitty arrows and keypad arrows, through the same table.
             (b"\x1b[57352;9u", start(false)),
             (b"\x1b[57353;10u", end(true)),
             (b"\x1b[57352;2u", Action::SelectUp),
             (b"\x1b[57419;5u", Action::ComposerUp),
+            // Ctrl with Alt is Alt's (`escape_parser.zig:83` before :90).
+            (b"\x1b[1;7B", Action::ParagraphDown),
+            (b"\x1b[57420;7u", Action::ParagraphDown),
             (b"\x1b[57420;9u", end(false)),
-            (b"\x1b[57420;3u", Action::ComposerDown),
+            (b"\x1b[57420;3u", Action::ParagraphDown),
             // No modifier the table reads: the arrow.
             (b"\x1b[A", Action::Up),
             (b"\x1b[1;1B", Action::Down),

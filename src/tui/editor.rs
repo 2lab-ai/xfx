@@ -484,8 +484,8 @@ impl Editor {
             // `draft_end` (`super::input::Action::DraftStart`): the caret to
             // the start of the whole text and to its end, as an approval's
             // amendment takes them (`cursorHome`/`cursorEnd`,
-            // `approval_amendment.zig:84-92@481104fd`). The composer never
-            // reads them -- the shell folds them back to the arrows first.
+            // `approval_amendment.zig:84-92@481104fd`), and as the composer
+            // takes them (`horizontal_navigation.zig:29-30`).
             Action::DraftStart { .. } => {
                 self.move_to(0);
                 None
@@ -494,11 +494,22 @@ impl Editor {
                 self.move_to(self.text.len());
                 None
             }
+            // Alt on the vertical arrows is upstream's `paragraph_up` and
+            // `paragraph_down` (`horizontal_navigation.zig:39-46@481104fd`).
+            // A line start is never inside a block: a summary holds no break.
+            Action::ParagraphUp => {
+                self.move_to(previous_paragraph_start(&self.text, self.cursor));
+                None
+            }
+            Action::ParagraphDown => {
+                self.move_to(next_paragraph_start(&self.text, self.cursor));
+                None
+            }
             // Shift on the vertical arrows, with Ctrl or without, is a
             // question's choice move (`super::input::Action::SelectUp`), and
-            // Alt (Shift or not) or Ctrl alone a move a question and an
-            // approval leave alone (`super::input::Action::ComposerUp`); to
-            // an editor each is the arrow.
+            // Ctrl alone a move a question and an approval leave alone
+            // (`super::input::Action::ComposerUp`); to an editor each is the
+            // arrow.
             Action::Up | Action::SelectUp | Action::ComposerUp => {
                 self.move_by_row(Step::Up, cols);
                 None
@@ -1016,6 +1027,13 @@ impl Editor {
         true
     }
 
+    /// Forgets the column a run of vertical motion was aiming for: a row move
+    /// with no row to go to (`applyTargetWithSelection`'s `.reset`,
+    /// `vertical_navigation.zig:70-73@481104fd`).
+    pub(crate) fn forget_column(&mut self) {
+        self.sticky = None;
+    }
+
     /// `count` rows up or down at once, stopping at the first or the last row:
     /// a page move (`scanRowDelta`, `visual_layout.zig:598-622`).
     ///
@@ -1406,6 +1424,94 @@ fn is_word(cluster: &str) -> bool {
         .chars()
         .next()
         .is_some_and(|scalar| scalar == '_' || scalar.is_ascii_alphanumeric() || scalar >= '\u{c0}')
+}
+
+/// Upstream's paragraph boundaries, byte for byte (`text_boundaries.zig:79-147
+/// @481104fd`): a paragraph is a run of lines that are not blank, and a blank
+/// line is one of nothing but spaces, tabs and carriage returns.
+fn line_is_blank(line: &[u8]) -> bool {
+    line.iter().all(|byte| matches!(byte, b' ' | b'\t' | b'\r'))
+}
+
+fn logical_line_start(text: &[u8], cursor: usize) -> usize {
+    let at = cursor.min(text.len());
+    text[..at]
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |i| i + 1)
+}
+
+fn logical_line_end(text: &[u8], cursor: usize) -> usize {
+    let at = cursor.min(text.len());
+    text[at..]
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map_or(text.len(), |i| at + i)
+}
+
+fn previous_line_start(text: &[u8], line_start: usize) -> Option<usize> {
+    (line_start > 0).then(|| logical_line_start(text, line_start - 1))
+}
+
+fn blank_at(text: &[u8], line_start: usize) -> bool {
+    line_is_blank(&text[line_start..logical_line_end(text, line_start)])
+}
+
+/// The start of the caret's paragraph, or from that start (or from a blank
+/// line) the start of the paragraph before; 0 when there is none
+/// (`previousParagraphStart`, `text_boundaries.zig:104-130`).
+fn previous_paragraph_start(text: &str, cursor: usize) -> usize {
+    let text = text.as_bytes();
+    let mut line_start = logical_line_start(text, cursor);
+    while blank_at(text, line_start) {
+        let Some(previous) = previous_line_start(text, line_start) else {
+            return 0;
+        };
+        line_start = previous;
+    }
+    let first_of = |mut start: usize| {
+        while let Some(candidate) = previous_line_start(text, start) {
+            if blank_at(text, candidate) {
+                break;
+            }
+            start = candidate;
+        }
+        start
+    };
+    let paragraph_start = first_of(line_start);
+    if cursor > paragraph_start {
+        return paragraph_start;
+    }
+    let Some(mut previous) = previous_line_start(text, paragraph_start) else {
+        return 0;
+    };
+    while blank_at(text, previous) {
+        let Some(earlier) = previous_line_start(text, previous) else {
+            return 0;
+        };
+        previous = earlier;
+    }
+    first_of(previous)
+}
+
+/// The next paragraph's start, past the blank lines after the caret's, or the
+/// end of the text (`nextParagraphStart`, `text_boundaries.zig:132-147`).
+fn next_paragraph_start(text: &str, cursor: usize) -> usize {
+    let text = text.as_bytes();
+    let mut line_start = logical_line_start(text, cursor);
+    for blank in [false, true] {
+        loop {
+            let line_end = logical_line_end(text, line_start);
+            if line_is_blank(&text[line_start..line_end]) != blank {
+                break;
+            }
+            if line_end == text.len() {
+                return text.len();
+            }
+            line_start = line_end + 1;
+        }
+    }
+    line_start
 }
 
 /// The grapheme boundary before `at`, or `at` when it is the start of the text.
@@ -1861,6 +1967,63 @@ mod tests {
         assert!(draft.move_rows(Step::Down, 9, 80));
         assert_eq!(draft.point(80), (3, 4));
         assert!(!draft.move_rows(Step::Down, 1, 80));
+    }
+
+    #[test]
+    fn the_paragraph_boundaries_are_upstreams_blank_lines_and_all() {
+        // fx's own case (`paragraph boundaries move across blank-line-delimited
+        // blocks`, `text_boundaries.zig:257-267@481104fd`), whose blank line is
+        // a space and a tab.
+        let text = "alpha\nbeta\n \t\ngamma\ndelta\n\nlast";
+        let gamma = text.find("gamma").unwrap();
+        let last = text.find("last").unwrap();
+        assert_eq!(previous_paragraph_start(text, "alpha\nbeta".len()), 0);
+        assert_eq!(previous_paragraph_start(text, gamma), 0);
+        assert_eq!(next_paragraph_start(text, 0), gamma);
+        assert_eq!(next_paragraph_start(text, gamma), last);
+        assert_eq!(next_paragraph_start(text, last), text.len());
+        // Inside a paragraph, its own start; from a blank line, the start of
+        // the one above; a carriage return is blank too (`lineIsBlank`, :91-97).
+        assert_eq!(previous_paragraph_start(text, gamma + 8), gamma);
+        assert_eq!(previous_paragraph_start(text, text.len()), last);
+        assert_eq!(previous_paragraph_start(text, last - 1), gamma);
+        assert_eq!(previous_paragraph_start(text, last), gamma);
+        assert_eq!(previous_paragraph_start("a\r\nb", 3), 0);
+        assert_eq!(next_paragraph_start("a\n\r\nb", 0), 4);
+        assert_eq!(next_paragraph_start(text, last - 1), last);
+        // No paragraph at all, and a draft that starts blank.
+        for text in ["", "\n\n", " "] {
+            assert_eq!(previous_paragraph_start(text, text.len()), 0, "{text:?}");
+            assert_eq!(next_paragraph_start(text, 0), text.len(), "{text:?}");
+        }
+        assert_eq!(previous_paragraph_start("\n\nab", 3), 2);
+        assert_eq!(previous_paragraph_start("\n\nab", 2), 0);
+    }
+
+    #[test]
+    fn alt_on_the_vertical_arrows_moves_by_paragraph_and_ends_a_run_and_a_selection() {
+        let mut draft = editor("one\ntwo\n\nthree");
+        draft.apply(Action::ParagraphUp, 80);
+        assert_eq!(caret(&draft), "one\ntwo\n\n".len());
+        draft.apply(Action::ParagraphUp, 80);
+        assert_eq!(caret(&draft), 0);
+        draft.apply(Action::ParagraphUp, 80);
+        assert_eq!(caret(&draft), 0);
+        draft.apply(Action::ParagraphDown, 80);
+        assert_eq!(caret(&draft), "one\ntwo\n\n".len());
+        draft.apply(Action::ParagraphDown, 80);
+        assert_eq!(caret(&draft), draft.text().len());
+        // A row run's column is forgotten, as `moveIntent` resets it
+        // (`horizontal_navigation.zig:25`), and a selection ends.
+        draft.apply(Action::Up, 80);
+        draft.apply(Action::ParagraphUp, 80);
+        assert_eq!(draft.sticky, None);
+        // With all of it selected, from the caret -- the draft's end -- and
+        // the selection ends (`moveCursorTo`, `editor_state.zig:131-132`).
+        assert!(draft.select_all());
+        draft.apply(Action::ParagraphUp, 80);
+        assert_eq!(draft.selection(), None);
+        assert_eq!(caret(&draft), "one\ntwo\n\n".len());
     }
 
     #[test]

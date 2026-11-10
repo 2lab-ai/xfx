@@ -7350,8 +7350,8 @@ impl Shell {
     /// nothing to give (the explicit form pasted whole, an id nothing lists).
     /// **A space is the column's** whether or not it advances, as upstream's
     /// is: it moves on from a model spelled exactly, and does nothing else.
-    /// Home, End and the word moves throw a later column away and move the
-    /// caret.
+    /// Home, End, the word moves and Alt's and Super's held Up and Down throw
+    /// a later column away and move the caret.
     ///
     /// **An `/effort ` line is the column's too**, with or without levels to
     /// show (`hasModelQuery`, `input_completion_runtime.zig:629-631@481104fd`):
@@ -7379,6 +7379,10 @@ impl Shell {
                         | Action::End
                         | Action::WordLeft
                         | Action::WordRight
+                        | Action::ParagraphUp
+                        | Action::ParagraphDown
+                        | Action::DraftStart { .. }
+                        | Action::DraftEnd { .. }
                 )
         );
         // Nor while the settings menu is up: the draft is its search, and a
@@ -7464,7 +7468,19 @@ impl Shell {
                 true
             }
             Input::Action(Action::Submit) => self.submit_column(&query),
-            Input::Action(Action::Home | Action::End | Action::WordLeft | Action::WordRight) => {
+            // And Alt's and Super's held Up and Down, which fx routes through
+            // the same arm (`abandonModelPickerOptions`,
+            // `app_input_runtime.zig:298-308@481104fd`).
+            Input::Action(
+                Action::Home
+                | Action::End
+                | Action::WordLeft
+                | Action::WordRight
+                | Action::ParagraphUp
+                | Action::ParagraphDown
+                | Action::DraftStart { .. }
+                | Action::DraftEnd { .. },
+            ) => {
                 if self.column.pending().is_some() {
                     self.column.reset();
                 }
@@ -9724,6 +9740,8 @@ impl Shell {
                 | Action::SelectDown
                 | Action::ComposerUp
                 | Action::ComposerDown
+                | Action::ParagraphUp
+                | Action::ParagraphDown
                 | Action::DraftStart { .. }
                 | Action::DraftEnd { .. }
                 | Action::ControlP
@@ -12385,7 +12403,10 @@ impl Shell {
             }
             // Every spelling the decoder keeps apart means something apart
             // only to those three; to every surface below they are the keys
-            // they always were.
+            // they always were -- but a held Up or Down, which the compact
+            // menus below read as nothing, as fx's do (`else => return`,
+            // `app_input_runtime.zig:2259-2263@481104fd`; a rule change is
+            // fx's approval, `input_approval_runtime.zig:128`).
             let event = folded(event);
             // The `/statusline` picker has the focus whenever no question
             // does: everything is its, and what it does not bind it swallows
@@ -12417,9 +12438,12 @@ impl Shell {
                 self.offer_to_workspace(event);
                 continue;
             }
+            // The pickers read Ctrl's and Shift's held Up and Down as the
+            // arrows, and the composer each as its own move (`Self::act`).
+            let menus = arrow_to_pickers(&event);
             // `/mcp`'s menu takes the keys it binds; the rest go to the
             // composer, which holds its filter, as fx v0.0.16's does.
-            if self.offer_to_mcp(&event, held) {
+            if self.offer_to_mcp(&menus, held) {
                 continue;
             }
             // And the catalog or the completion menu -- never both -- takes
@@ -12427,40 +12451,40 @@ impl Shell {
             // them. Everything else falls through with it still up, because
             // each is a view of the draft and typing is what the draft is made
             // of.
-            if self.offer_to_settings(&event) {
+            if self.offer_to_settings(&menus) {
                 continue;
             }
-            if self.offer_to_sessions(&event) {
+            if self.offer_to_sessions(&menus) {
                 continue;
             }
-            if self.offer_to_fork(&event) {
+            if self.offer_to_fork(&menus) {
                 continue;
             }
-            if self.offer_to_catalog(&event) {
+            if self.offer_to_catalog(&menus) {
                 continue;
             }
-            if self.offer_to_models(&event) {
+            if self.offer_to_models(&menus) {
                 continue;
             }
-            if self.offer_to_effort(&event) {
+            if self.offer_to_effort(&menus) {
                 continue;
             }
-            if self.offer_to_skills(&event) {
+            if self.offer_to_skills(&menus) {
                 continue;
             }
-            if self.offer_to_column(&event) {
+            if self.offer_to_column(&menus) {
                 continue;
             }
-            if self.offer_to_files(&event) {
+            if self.offer_to_files(&menus) {
                 continue;
             }
-            if self.offer_to_picker(&event) {
+            if self.offer_to_picker(&menus) {
                 continue;
             }
-            if self.offer_to_provider_picker(&event) {
+            if self.offer_to_provider_picker(&menus) {
                 continue;
             }
-            if self.offer_to_mcp_args(&event) {
+            if self.offer_to_mcp_args(&menus) {
                 continue;
             }
             match event {
@@ -12703,12 +12727,21 @@ impl Shell {
             // Right takes the ghost after the caret first, with nothing
             // selected (`.character_right`, `app_input_runtime.zig:282-312`).
             Action::Right if self.editor.selection().is_none() && self.take_ghost() => {}
+            //
+            // Alt's paragraph moves and Super's draft edges too, by the caret
+            // move alone: no edge jump, no steer, no history
+            // (`routeComposerShortcutAction`, `app_input_runtime.zig:298-309
+            // @481104fd`; the `/model` column they drop is `offer_to_column`'s).
             Action::Left
             | Action::Right
             | Action::Home
             | Action::End
             | Action::WordLeft
-            | Action::WordRight => {
+            | Action::WordRight
+            | Action::ParagraphUp
+            | Action::ParagraphDown
+            | Action::DraftStart { .. }
+            | Action::DraftEnd { .. } => {
                 let recorded = self.editor.apply(action, self.text_cols());
                 debug_assert!(recorded.is_none(), "a caret move produced a delta");
                 self.moved();
@@ -12757,15 +12790,27 @@ impl Shell {
             // wrap, so a row that did not change is the first row for an `Up`
             // and the last one for a `Down` -- the same fact, measured by the
             // module that owns the wrap instead of restated by this one.
-            // Never reaches here (`folded` folds them back before the
-            // composer sees an event); kept as the moves they are, so a route
-            // that skipped the fold would still move the caret rather than drop
-            // the key.
-            Action::SelectUp | Action::ComposerUp | Action::DraftStart { .. } => {
-                self.act(Action::Up, now)
-            }
-            Action::SelectDown | Action::ComposerDown | Action::DraftEnd { .. } => {
-                self.act(Action::Down, now)
+            // Ctrl's is the plain arrow, edge and history included
+            // (`routeComposerVertical`, `input_completion_runtime.zig:272-291`).
+            Action::ComposerUp => self.act(Action::Up, now),
+            Action::ComposerDown => self.act(Action::Down, now),
+            // Shift's is one row and stops at the draft's first or last row:
+            // no edge, no steer, no history (`if (page or extend_selection)
+            // return;`, `input_completion_runtime.zig:270`), the column the
+            // run aimed for forgotten where there was no row to go to
+            // (`vertical_navigation.zig:70-73`). The selection it would extend
+            // is dropped (COMPOSER-SELECTION-EXTEND).
+            Action::SelectUp | Action::SelectDown => {
+                let step = if action == Action::SelectUp {
+                    EditorStep::Up
+                } else {
+                    EditorStep::Down
+                };
+                if self.editor.move_rows(step, 1, self.text_cols()) {
+                    self.moved();
+                } else {
+                    self.editor.forget_column();
+                }
             }
             Action::AltB => self.act(Action::WordLeft, now),
             Action::AltF => self.act(Action::WordRight, now),
@@ -14177,11 +14222,10 @@ fn image_slash_prefix(text: &str) -> Option<usize> {
 /// `event` with every spelling the decoder keeps apart made the key it is to
 /// the menus and the composer: a composer move on Left or Right
 /// (`super::input::Action::ComposerLeft`, Ctrl-B and Ctrl-F among them) the
-/// arrow, Alt-b and Alt-f (`super::input::Action::AltB`) the word moves, every
-/// held Up and Down -- Ctrl and Alt (`super::input::Action::ComposerUp`),
-/// Shift (`super::input::Action::SelectUp`), Super with Shift or without
-/// (`super::input::Action::DraftStart`) -- the arrow, and a page key held with
-/// a modifier (`super::input::Action::ComposerPageUp`) the page key.
+/// arrow, Alt-b and Alt-f (`super::input::Action::AltB`) the word moves, and
+/// a page key held with a modifier (`super::input::Action::ComposerPageUp`)
+/// the page key. A held Up or Down is not folded: it is a move of its own to
+/// the menus and the composer too ([`arrow_to_pickers`]).
 ///
 /// The three surfaces that tell them apart read the event before this, as it
 /// came: the full transcript binds the plain arrows and the bare page keys
@@ -14204,15 +14248,23 @@ fn folded(event: Input) -> Input {
         Input::Action(Action::ComposerRight) => Input::Action(Action::Right),
         Input::Action(Action::AltB) => Input::Action(Action::WordLeft),
         Input::Action(Action::AltF) => Input::Action(Action::WordRight),
-        Input::Action(Action::ComposerUp | Action::SelectUp | Action::DraftStart { .. }) => {
-            Input::Action(Action::Up)
-        }
-        Input::Action(Action::ComposerDown | Action::SelectDown | Action::DraftEnd { .. }) => {
-            Input::Action(Action::Down)
-        }
         Input::Action(Action::ComposerPageUp) => Input::Action(Action::PageUp),
         Input::Action(Action::ComposerPageDown) => Input::Action(Action::PageDown),
         other => other,
+    }
+}
+
+/// A held Up or Down as the pickers read it: Ctrl's and Shift's are fx's
+/// `visual_up`/`visual_down`, which walk an open picker as the plain arrows do
+/// (`routeNonSlashPickerMove` and the slash completion inside
+/// `routeComposerVertical`, `input_completion_runtime.zig:230-259@481104fd`);
+/// Alt's and Super's are `paragraph_*`/`draft_*`, which no picker reads
+/// (`app_input_runtime.zig:298-309`), and stay what they are.
+fn arrow_to_pickers(event: &Input) -> Input {
+    match event {
+        Input::Action(Action::ComposerUp | Action::SelectUp) => Input::Action(Action::Up),
+        Input::Action(Action::ComposerDown | Action::SelectDown) => Input::Action(Action::Down),
+        other => other.clone(),
     }
 }
 
@@ -24115,19 +24167,25 @@ mod tests {
         // and `a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move`).
         for (event, surfaces_see) in [
             (Action::AltB, Action::WordLeft),
-            (Action::SelectUp, Action::Up),
-            (Action::SelectDown, Action::Down),
             (Action::AltF, Action::WordRight),
             (Action::ComposerLeft, Action::Left),
             (Action::ComposerRight, Action::Right),
-            // The vertical spellings: each is the arrow to the menus and the
-            // composer, Super's with Shift or without.
-            (Action::ComposerUp, Action::Up),
-            (Action::ComposerDown, Action::Down),
-            (Action::DraftStart { shifted: false }, Action::Up),
-            (Action::DraftEnd { shifted: false }, Action::Down),
-            (Action::DraftStart { shifted: true }, Action::Up),
-            (Action::DraftEnd { shifted: true }, Action::Down),
+            // The vertical spellings are moves of their own to the menus and
+            // the composer too (COMPOSER-PARAGRAPH-MOVE): no fold.
+            (Action::SelectUp, Action::SelectUp),
+            (Action::SelectDown, Action::SelectDown),
+            (Action::ComposerUp, Action::ComposerUp),
+            (Action::ComposerDown, Action::ComposerDown),
+            (Action::ParagraphUp, Action::ParagraphUp),
+            (Action::ParagraphDown, Action::ParagraphDown),
+            (
+                Action::DraftStart { shifted: false },
+                Action::DraftStart { shifted: false },
+            ),
+            (
+                Action::DraftEnd { shifted: true },
+                Action::DraftEnd { shifted: true },
+            ),
             // A page key held with a modifier: the page key.
             (Action::ComposerPageUp, Action::PageUp),
             (Action::ComposerPageDown, Action::PageDown),
@@ -24140,6 +24198,32 @@ mod tests {
             assert_eq!(
                 folded(Input::Action(event)),
                 Input::Action(surfaces_see),
+                "{event:?}"
+            );
+        }
+        // The pickers read Ctrl's and Shift's as the arrows, and Alt's and
+        // Super's as no key of theirs (`arrow_to_pickers`).
+        for (event, pickers_see) in [
+            (Action::SelectUp, Action::Up),
+            (Action::SelectDown, Action::Down),
+            (Action::ComposerUp, Action::Up),
+            (Action::ComposerDown, Action::Down),
+            (Action::ParagraphUp, Action::ParagraphUp),
+            (Action::ParagraphDown, Action::ParagraphDown),
+            (
+                Action::DraftStart { shifted: true },
+                Action::DraftStart { shifted: true },
+            ),
+            (
+                Action::DraftEnd { shifted: false },
+                Action::DraftEnd { shifted: false },
+            ),
+            (Action::Up, Action::Up),
+            (Action::Home, Action::Home),
+        ] {
+            assert_eq!(
+                arrow_to_pickers(&Input::Action(event)),
+                Input::Action(pickers_see),
                 "{event:?}"
             );
         }
@@ -40960,6 +41044,8 @@ mod tests {
                 Action::SelectDown,
                 Action::ComposerUp,
                 Action::ComposerDown,
+                Action::ParagraphUp,
+                Action::ParagraphDown,
             ];
             let edges = if open { &[][..] } else { &edges[..] };
             for &still in others.iter().chain(edges) {

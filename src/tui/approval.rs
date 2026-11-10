@@ -730,8 +730,9 @@ fn keyed(
 /// is open, so a draft that took them would change what answering a question
 /// means. `InsertNewline`, `Eof`, `ControlP`, `HistoryNext`, `Redraw`
 /// and `Ignore` are the session's or the panel's and are not a draft's at all,
-/// and `SelectUp`, `ComposerUp` and their Down are composer moves an amendment
-/// leaves alone (`src/ui/input/runtime.zig:86@481104fd`). This reads a folded
+/// and `SelectUp`, `ComposerUp`, `ParagraphUp` and their Down are composer
+/// moves an amendment leaves alone (`src/ui/input/runtime.zig:86@481104fd`),
+/// which `super::shell::Shell::decide` swallows before this. This reads a folded
 /// key, so `DraftStart` and `DraftEnd` -- Super-Up and -Down, the draft's
 /// edges -- never reach it: `super::shell::Shell::decide` hands them to the
 /// draft unfolded, ahead of it.
