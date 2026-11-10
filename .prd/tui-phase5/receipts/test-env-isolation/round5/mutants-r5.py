@@ -52,7 +52,7 @@ TERM = "src/tui/term.rs"
 TMUX_READ = 'env_exception!(var_os("TMUX")).is_some_and'
 ISOLATED = "tests/support/isolated.rs"
 UNIT = "src/test_env/tests.rs"
-UNIT_ANCHOR = "fn same(equal: bool, which: &str) {"
+UNIT_ANCHOR = "/// A comparison of a value read from a (fake) process environment: on a"
 
 DEV = '([], ["--all-features"])'
 RELEASE = '([], ["--all-features"], ["--release"])'
