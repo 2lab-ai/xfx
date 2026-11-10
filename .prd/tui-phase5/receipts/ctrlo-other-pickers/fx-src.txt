@@ -983,3 +983,62 @@
   711          .content_column = 0,
   712      }, terminal_cols);
   713  }
+
+== src/ui/event_loop.zig:88-122@481104fd -- the loop reads up to max_input_reads_per_fact_collection reads (94) before one frame (110, 119)
+   88          const timeout_ms = if (callbacks.poll_timeout_ms) |resolve|
+   89              resolve(callbacks.ctx, poll_timeout_ms)
+   90          else
+   91              poll_timeout_ms;
+   92          var poll_result = try terminal.pollInput(timeout_ms);
+   93          var input_reads: usize = 0;
+   94          while (poll_result.readable and input_reads < max_input_reads_per_fact_collection) : (input_reads += 1) {
+   95              const read_len = try terminal.read(&buf);
+   96              if (read_len == 0) {
+   97                  if (input_reads > 0) attemptFinalFrameCommit(callbacks, "eof");
+   98                  return .input_closed;
+   99              }
+  100  
+  101              record_tape.recordStdin(buf[0..read_len]);
+  102              for (buf[0..read_len]) |byte| {
+  103                  try callbacks.handle_byte(callbacks.ctx, byte);
+  104                  if (should_exit.*) return .requested_exit;
+  105              }
+  106              poll_result = try terminal.pollInput(0);
+  107          }
+  108  
+  109          if (poll_result.readable) {
+  110              try callbacks.commit_frame(callbacks.ctx);
+  111              continue;
+  112          }
+  113          if (poll_result.closed()) {
+  114              if (input_reads > 0) attemptFinalFrameCommit(callbacks, "hangup");
+  115              return .input_closed;
+  116          }
+  117  
+  118          try callbacks.settle_delivery_epoch(callbacks.ctx);
+  119          try callbacks.commit_frame(callbacks.ctx);
+  120      }
+  121      return .requested_exit;
+  122  }
+
+== src/core/slash_commands/command_specs.zig:457-470@481104fd -- helpCatalogSpecMatches: the search's words, split at spaces, tabs and line breaks (460)
+  457  fn helpCatalogSpecMatches(spec: SlashSpec, query: []const u8) bool {
+  458      if (spec.help_entry == null or spec.completion_description == null or spec.presentation_category == null) return false;
+  459  
+  460      var tokens = std.mem.tokenizeAny(u8, query, " \t\r\n");
+  461      while (tokens.next()) |token| {
+  462          if (containsIgnoreCase(spec.command, token) or
+  463              containsIgnoreCase(spec.help_entry.?, token) or
+  464              containsIgnoreCase(spec.completion_description.?, token) or
+  465              containsIgnoreCase(spec.presentation_category.?.label(), token))
+  466          {
+  467              continue;
+  468          }
+  469          for (spec.aliases) |alias| {
+  470              if (containsIgnoreCase(alias, token)) break;
+
+== src/ui/footer/input_presentation.zig:383-386@481104fd -- picker_start_col: projectedAnchorColumn for the model, provider, file and slash columns
+  383      const picker_start_col = if (show_model_query or show_provider_query or show_file_query or show_slash_query)
+  384          visual_layout.projectedAnchorColumn(summary, terminal_cols)
+  385      else
+  386          @as(u16, 1);

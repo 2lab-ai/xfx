@@ -51,3 +51,7 @@ q src/core/app/app_input_runtime.zig 310 330 "the .move arm: visual_up/visual_do
 q src/core/app/input_completion_runtime.zig 211 233 "routeComposerVertical: routeNonSlashPickerMove first (230)"
 # 4. The column's anchor off the caret's row (provider-ctrlo cj)
 q src/ui/input/visual_layout.zig 705 713 "projectedAnchorColumn: the anchor's column on the caret's row, the caret's row's start otherwise"
+# 5. Round 2: the burst, the search's words, the column's anchor
+q src/ui/event_loop.zig 88 122 "the loop reads up to max_input_reads_per_fact_collection reads (94) before one frame (110, 119)"
+q src/core/slash_commands/command_specs.zig 457 470 "helpCatalogSpecMatches: the search's words, split at spaces, tabs and line breaks (460)"
+q src/ui/footer/input_presentation.zig 383 386 "picker_start_col: projectedAnchorColumn for the model, provider, file and slash columns"
