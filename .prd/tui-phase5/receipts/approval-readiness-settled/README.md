@@ -16,7 +16,7 @@ yet on `main`) is this unit's base.
 | `67e40758` | **the code head**: the readiness layer's stamp (`src/tui/approval_readiness.rs`), the shell's call sites and the silent refusal (`src/tui/shell.rs`), `ApprovalScreen::scroll_by` saying whether it moved, four readiness unit tests, two test-only corrections to the RED commit's cases and one older test given its frame (below), `docs/parity.md`, the ledger's moved refs |
 | `152094e6`, `a55ddbfa` | round 1's receipt, and the ledger cause `approval-settled-every-approval`; no `src/` change |
 | `9d4e4940` | **round 2** RED (the reviews of `a55ddbfa`): the Ctrl-L test, the no-write frame test, the digit and Escape cases; tests only |
-| `c0300f17` | **round 2's code head**: Ctrl-L at a question swallowed, as fx's; `approval_changed`'s doc narrowed; the pty case that used Ctrl-L to owe a frame uses Down; an `event_loop` test comment; `docs/parity.md`'s sentence made true; the scenario's `Down Up Enter` step; the ledger's moved refs |
+| `c0300f17` | **round 2's code head**: Ctrl-L at a permission question swallowed, as fx's; `approval_changed`'s doc narrowed; the pty case that used Ctrl-L to owe a frame uses Down; an `event_loop` test comment; `docs/parity.md`'s sentence made true; the scenario's `Down Up Enter` step; the ledger's moved refs |
 | the commit after | round 2's receipt: the captures again, the probe, `mutants.txt`, the sweeps, this file; no `src/` change |
 
 Captures, all `p5-approval-readiness-settled` at 40x120: `fx/` is fx v0.0.16
@@ -111,13 +111,18 @@ Enter in the same read answered the state the key left.
   (the marker; a draft's caret or text: a letter, C-u, C-w, a yank, a paste's
   end, Super-Up/-Down), from both planes, and on a review-plane `C-p`/`C-n`
   that moved the window (`scroll_by` now says whether it did). A swallowed
-  key calls nothing. A draft edit that changes nothing -- Backspace in an
-  empty draft, a yank with nothing killed, Left at the start -- is `Moved`
-  all the same (`approval::keyed`'s `Action::Edit` arm), so it holds the
-  Enter until the next frame, as fx's does: its focused edit asks for the
-  frame whatever it changed (`input_approval_runtime.zig:86`). `Reshaped`
+  key calls nothing. A draft edit that changes nothing -- Backspace or C-u
+  in an empty draft, Left at the start -- is `Moved` all the same
+  (`approval::keyed`'s `Action::Edit` arm), so it holds the Enter until the
+  next frame, as fx's does: its draft edit asks for the frame whatever it
+  changed (Backspace and C-u by the raw-byte route,
+  `input_approval_runtime.zig:59-61`, `approval_decision.zig:152-155`,
+  `:170-174`; Left by `input_approval_runtime.zig:86`). xfx's draft also
+  yanks with C-y, which holds the Enter the same way; fx's draft has no yank
+  (byte 25 is no focused-editor key, `shortcuts.zig:22`, `:31-41`, and no
+  approval byte, `runtime.zig:61-73`), so there it does nothing. `Reshaped`
   still revokes, as before.
-- **Ctrl-L at a question does nothing** (round 2), as fx's: fx makes no
+- **Ctrl-L at a permission question does nothing** (round 2), as fx's: fx makes no
   approval action of byte 12 (`approvalActionFromRawByte`,
   `runtime.zig:98-108`; `.redraw` is no focused-editor key,
   `shortcuts.zig:24`, `:31-41`; `approvalActionFromByte`, `runtime.zig:61-73`)
@@ -272,8 +277,8 @@ killed.
 | M8 a walk that moved holds nothing back | the walk test |
 | M9 a walk that could not move holds the Enter back | the walk test |
 | M10 a frame composed before the change settles it (stamped at the write) | the readiness test for it |
-| M11 Ctrl-L at a question marks the screen damaged again (round 1's code) | the Ctrl-L test |
-| M12 Ctrl-L at a question holds the Enter back (`approval_changed` in its arm, the stricter way) | the Ctrl-L test |
+| M11 Ctrl-L at a permission question marks the screen damaged again (round 1's code) | the Ctrl-L test |
+| M12 Ctrl-L at a permission question holds the Enter back (`approval_changed` in its arm, the stricter way) | the Ctrl-L test |
 
 M1-M5 are the brief's five; M6-M10 what the condition rests on; M11-M12
 round 2's Ctrl-L, both ways it could leave fx's nothing.
@@ -346,10 +351,10 @@ paths before it was made (`git diff --cached`).
   approval, the decision, the revert). Round 2 made it true where it was
   not: a draft edit that changes nothing still holds the Enter, as fx's
   does; the frame that settles a change is reconciled on the next tick, or
-  settles at once when it wrote nothing; Ctrl-L at a question does nothing,
+  settles at once when it wrote nothing; Ctrl-L at a permission question does nothing,
   as fx's; the feedback is held back for the affirmatives only. `fx_src.sh`
   checks those citations
-  with the unit's added lines (run as its header says; `fx-src-check.txt`): 114 citations checked, 0 outside `fx-src.txt`'s ranges.
+  with the unit's added lines (run as its header says; `fx-src-check.txt`): 123 citations checked, 0 outside `fx-src.txt`'s ranges.
 - The ledger's refs into `src/tui/shell.rs`, by content, with
   APPROVAL-VERTICAL-SPELLINGS' `refs.py` (`python3 -I refs.py a37a969e`,
   from the repo root): 17 checked, 0 wrong (`refs.txt`). At the base six of

@@ -30,9 +30,9 @@ snap edit-down-enter
 key Left Enter
 wait 0.6
 snap edit-left-enter
-# Down and Up undo each other in one read: the frame they ask for is the
-# screen's own bytes, so it writes nothing, and it still settles them -- the
-# next Enter answers.
+# Down and Up undo each other in one burst, before a settling frame: the
+# frame they ask for is the screen's own bytes, so it writes nothing, and it
+# still settles them -- the next Enter answers.
 key Down Up Enter
 wait 0.6
 snap edit-down-up-enter

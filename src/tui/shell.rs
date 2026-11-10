@@ -9545,8 +9545,9 @@ impl Shell {
             Input::Action(Action::Submit) => approval::Action::Submit,
             Input::Action(Action::Escape) => approval::Action::Escape,
             Input::Action(Action::Cancel) => approval::Action::Cancel,
-            // **Ctrl-L does nothing at a question**, as fx v0.0.16's does: a raw
-            // byte, `12`, which no approval action is made of
+            // **Ctrl-L does nothing at a permission question**, as fx
+            // v0.0.16's does: a raw byte, `12`, which no approval action is
+            // made of
             // (`approvalActionFromRawByte` and `approvalActionFromByte`,
             // `src/ui/input/runtime.zig:98-108`, `:61-73@481104fd`; `.redraw`
             // is no focused-editor key, `shortcuts.zig:24`, `:31-41`), so the
