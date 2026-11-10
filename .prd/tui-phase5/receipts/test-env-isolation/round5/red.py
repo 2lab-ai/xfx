@@ -2,7 +2,7 @@
 """RED and GREEN for the round-4 reviews' holes (round 5), on a throwaway
 clone only.
 
-    TMPDIR=<short> red.py <clone> <old rev> <new rev>
+    TMPDIR=<short> red.py <clone> <old rev> <new rev> [title filter...]
 
 For each hole and each revision: reset the clone, plant the hole, and run
 the gates that revision has -- `cargo clippy --all-targets -D warnings` and
@@ -12,9 +12,11 @@ revision every hole passes every gate; at the new one the check refuses
 each.
 
 Then the HOME holes, which are about what a binary does when run: at the
-new revision, tests/isolation.rs is run under sentinel-run.sh against the
-new tests/support/isolated.rs and against the old one put in its place, and
-each of its cases reported.
+new revision, with the new tests/support/isolated.rs and with the old one
+put in its place, the isolation test binary is started as tests/isolation.rs
+starts it -- a marker, its HOME and TMPDIR, asked for the case that leaves
+a mark where it runs -- once per hole, and each run reported: refused or
+not, whether a case left its mark, and whether a sentinel value was printed.
 """
 import pathlib
 import subprocess
@@ -29,7 +31,8 @@ HOLES = [
     ("opus M1: an aliased Command in a src test module, its child given the developer's HOME", [(
         UNIT, UNIT_ANCHOR,
         "#[allow(dead_code)]\nfn a_git_with_the_real_home() {\n    use std::process::Command as Git;\n"
-        '    let _ = crate::process::output(&mut Git::new("git").args(["config", "--global", "--list"]));\n}\n\n'
+        '    let mut git = Git::new("git");\n    git.args(["config", "--global", "--list"]);\n'
+        "    let _ = crate::process::output(&mut git);\n}\n\n"
         + UNIT_ANCHOR)]),
     ("gpt6 check MUST 1: option_env!(XFX_GATEWAY_KEY) in a src test", [(
         UNIT, UNIT_ANCHOR,
@@ -73,11 +76,67 @@ def gates(clone):
     return (lint.returncode, lint_why[:2]), (check.returncode, check_why[:3])
 
 
+def home_holes(clone, old, new):
+    import os, shutil, tempfile
+    reset(clone, old)
+    old_copy = (clone / "tests/support/isolated.rs").read_text()
+    marker = "0123456789abcdef0123456789abcdef"
+    for rev in (old, new):
+        reset(clone, new)
+        if rev == old:
+            (clone / "tests/support/isolated.rs").write_text(old_copy)
+        build = run(["cargo", "test", "--locked", "--test", "isolation", "--no-run"], clone)
+        binary = next((clone / line.split("(")[1].rstrip(")") for line in build.stderr.splitlines()
+                       if "Executable tests/isolation.rs" in line), None)
+        assert binary is not None, build.stderr[-2000:]
+        print(f"  with {rev}'s isolated.rs:")
+        for hole in ("a home with the marker's name in another directory",
+                     "a link to an empty private directory at the exact path",
+                     "that link, with a trailing /",
+                     "a TMPDIR no home can be made under, its value a sentinel"):
+            scratch = pathlib.Path(tempfile.mkdtemp(prefix="red-home-"))
+            tmpdir = scratch
+            target = scratch / "target"
+            target.mkdir(mode=0o700)
+            exact = scratch / f"xfx-test-home-{marker}"
+            given_marker = marker
+            if hole.startswith("a home with"):
+                (scratch / "elsewhere").mkdir(mode=0o700)
+                home = scratch / "elsewhere" / f"xfx-test-home-{marker}"
+                home.mkdir(mode=0o700)
+            elif hole.startswith("a link"):
+                exact.symlink_to(target)
+                home = exact
+            elif hole.startswith("that link"):
+                exact.symlink_to(target)
+                home = pathlib.Path(str(exact) + "/")
+            else:
+                tmpdir = scratch / "xfx-sentinel-tmpdir-value" / "gone"
+                home = target
+                given_marker = None
+            env = {"PATH": os.environ["PATH"], "HOME": str(home), "TMPDIR": str(tmpdir)}
+            if given_marker:
+                env["XFX_TEST_ISOLATED_COPY"] = given_marker
+            result = run([str(binary), "--ignored", "--exact", "a_case_marks_where_it_runs"],
+                         str(home), env=env, timeout=120)
+            said = result.stdout + result.stderr
+            refused = "no case runs" in said
+            marked = (home / "ran").exists() or (target / "ran").exists()
+            print(f"    {hole}: {'refused' if refused else 'not refused'} (exit {result.returncode}); "
+                  f"a case left its mark: {'yes' if marked else 'no'}; "
+                  f"sentinel printed: {'yes' if 'xfx-sentinel-tmpdir-value' in said else 'no'}")
+            shutil.rmtree(scratch, ignore_errors=True)
+    reset(clone, new)
+
+
 def main():
     clone = pathlib.Path(sys.argv[1]).resolve()
     old, new = sys.argv[2], sys.argv[3]
+    only = sys.argv[4:]
     assert (clone / ".git").is_dir(), "a clone, not a worktree"
     for hole, edits in HOLES:
+        if only and not any(word in hole for word in only):
+            continue
         print(f"## {hole}")
         for rev in (old, new):
             reset(clone, rev)
@@ -87,28 +146,9 @@ def main():
                   + (f" ({'; '.join(lint_why)})" if lint else "")
                   + f"; check-env-reads {'passes' if check == 0 else 'refuses'}"
                   + (f" ({' | '.join(check_why)})" if check else ""))
-    # The HOME holes: the new regressions against each revision's copy.
-    reset(clone, old)
-    old_copy = (clone / "tests/support/isolated.rs").read_text()
-    print("## gpt6 isolation MUSTs 1-2, opus M3: the new tests/isolation.rs against each revision's isolated.rs")
-    for rev in (old, new):
-        reset(clone, new)
-        if rev == old:
-            (clone / "tests/support/isolated.rs").write_text(old_copy)
-        build = run(["cargo", "test", "--locked", "--test", "isolation", "--no-run"], clone)
-        binary = next((clone / line.split("(")[1].rstrip(")") for line in build.stderr.splitlines()
-                       if "Executable tests/isolation.rs" in line), None)
-        if binary is None:
-            print(f"  at {rev}: does not build: " + "; ".join(sorted({l.strip() for l in build.stderr.splitlines() if l.startswith("error")})[:2]))
-            continue
-        result = run([str(SENTINEL_RUN), str(binary), "--test-threads=1"], clone, timeout=600)
-        cases = [line for line in result.stdout.splitlines() if line.startswith("test ") and " ... " in line]
-        panics = [line.strip() for line in result.stdout.splitlines()
-                  if "a case ran" in line or "printed TMPDIR" in line or "did not refuse" in line]
-        print(f"  at {rev}: " + "; ".join(cases))
-        for line in panics[:4]:
-            # a panic line names the home it was handed, a scratch path: cut it
-            print("    " + line.split(" under ")[0].split(" (")[0][:160])
+    if not only or "HOME" in only:
+        print("## gpt6 isolation MUSTs 1-2, opus M3: HOME, run against each revision's isolated.rs")
+        home_holes(clone, old, new)
     reset(clone, new)
 
 
