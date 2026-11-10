@@ -8,6 +8,8 @@ its conditions, its entry points, its text and its status.
   `fix/p5-profile-refuse-at-launch`. **Code** a57ba760; the commits after
   it are this receipt only, so every capture and probe here is of a binary
   built at a57ba760 (banner `v0.1.0-a57ba76`) or at the base (`3943d66`).
+  The commits after it change no source: this receipt, and one sentence of
+  `docs/parity.md` (the linked `~/.xfx` case).
 - Source outside tests: 125 added lines (`src/config.rs` 99, `src/app.rs`
   12, `src/interactive.rs` 7, `src/tui/mod.rs` 7); `src/config.rs`'s other
   126 are its unit tests.
@@ -42,7 +44,7 @@ good profile).
     `fx-fixtures.txt` `typed-key`); and a bad `provider` or `models` stops fx
     with the parse error's own name instead (the salvage, `:898-911`; run:
     `provider` → `fx: UnknownConfiguredProvider`, `models-bad` →
-    `fx: InvalidModelValue`). Section 6 says why those two are not copied.
+    `fx: InvalidModelValue`). Section 7 says why those two are not copied.
   - Before the profile check, a bad `FX_ULTRAFAST` stops every mode
     (`error.InvalidUltrafastOverride`, `fx-src.txt:13-16`); a bad
     `FX_AUTH_MODE` is its own refusal (`main.zig:3281-3284`).
@@ -85,8 +87,11 @@ and `xfx-head-entries.txt` are a57ba760.
     a `model` in either fails fx's `validateModel` (`fx_refuses_model`,
     fx's rule, not xfx's own 200-byte one-word rule). Every launch refuses.
   - `Unsafe` -- `~/.xfx` or the file is a link, or the file a directory
-    (`profile_path_unsafe`). Only `ask` refuses; the TUI and the line shell
-    go on, as fx's stored-credential launch does.
+    (`profile_path_unsafe`). Only `ask` refuses with this name; the TUI and
+    the line shell go on, as fx's stored-credential launch does -- except
+    that a linked `~/.xfx` is still refused by the session store's own rule
+    (`src/profile_home.rs`, kept by `docs/parity.md`), in its own words,
+    which this unit leaves as it was.
 - The TUI checks it after `load_config` and before `session` (before the
   terminal is taken and before a resume's lookup); the line shell after its
   terminal check and before the session store; `ask` first. Each writes
@@ -97,7 +102,9 @@ and `xfx-head-entries.txt` are a57ba760.
   `nonobject`, `toolarge`, `model-space`, `model-nonstring`, `ws-nonobject`,
   `entry-nonobject`, `entry-model`, `unreadable`: three entries each;
   `dir-settings`, `link-settings`, `link-profile`: `ask` only) with
-  `tty=0B` and nothing touched; and starts where fx starts
+  `tty=0B` and nothing touched (for `link-profile` the TUI and the line
+  shell exit 1 with the session store's `cannot hold session state: it is a
+  symbolic link`, as at the base); and starts where fx starts
   (`model-inner-space`, `model-long`, `project-malformed`,
   `retired-then-model`, `group-writable`, `valid`). The rest differ as
   section 6 says.
@@ -200,7 +207,21 @@ the profiles each seeds were read against the rule.
 ## 6. Mutants (`mutants.py` → `mutants.txt`)
 
 On a `git clone --no-local` of the head outside the worktree, each test
-bounded at 900 s, under the suite lock. MUTANTS-RESULT
+bounded at 900 s, under the suite lock. **12 of 12 killed**:
+
+- each condition dropped -- the unreadable/malformed/too-large file (M1),
+  `workspaces` or the entry not an object (M2), the profile's `model` (M3),
+  the entry's `model` (M4) -- killed by `ask_refuses_a_profile_fx_refuses`
+  and, but M3, the config unit test;
+- fx's model rule loosened (M5, a blank allowed) and its `skill_match_fuzzy`
+  order dropped (M6), the project file counted (M12): killed;
+- the unsafe path not refusing `ask` (M7), and refusing the interactive
+  launches too (M8): killed, M8 by the two pty tests that start with it;
+- the refusal after the terminal is taken (M9: the check moved into
+  `session`, after raw mode): killed by the exact-text assertion
+  (`tests/tui.rs:1102`); the line shell's after its store is opened (M10):
+  killed by the tree snapshot (`tests/interactive.rs:212`); `ask --json`
+  writing the refusal on stderr (M11): killed.
 
 xfx has no auth mode -- no `FX_AUTH_MODE`, no host-managed launch -- so the
 brief's "refusal in a non-local auth mode" has no counterpart to mutate. M8
@@ -221,7 +242,11 @@ launch does not do.
   (`provider=rejected`) or drops the entry. The provider sets differ
   (`llmux` is xfx's alone).
 - **An unsafe profile in an interactive launch**: fx goes on with model
-  requests blocked; xfx goes on.
+  requests blocked. xfx goes on with a linked settings file or a directory
+  in its place, with no block; with a linked `~/.xfx` its session store
+  refuses the launch in its own words (`cannot hold session state: it is a
+  symbolic link`, `xfx-head-fixtures.txt` `link-profile`), a rule older than
+  this unit (`src/profile_home.rs`).
 - `FX_AUTH_MODE` and `FX_ULTRAFAST` have no xfx counterpart.
 - Seen in the oracle runs and older than this unit: fx's `status` writes
   `fx: config user: malformed_settings` on stderr for a refused profile
