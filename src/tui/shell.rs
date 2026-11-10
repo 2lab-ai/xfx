@@ -20983,7 +20983,7 @@ mod tests {
 
     #[test]
     fn a_slash_completion_is_a_boundary_and_never_a_half_undo() {
-        // The whole draft was the query (`picker::Trigger::of`), so the insert
+        // The draft was the query (`picker::query_of`), so the insert
         // is the second half of a **replacement**. Recording only the insert
         // would give an undo that deletes the command name and leaves the
         // composer empty -- silently discarding what the user typed.

@@ -152,9 +152,9 @@ pub(crate) enum Trigger {
     /// (`cancelSkillsMenu`, `app_input_runtime.zig:3230-3242`).
     Skill,
     /// The caret is in an `@` word (`super::file_picker::query_at`). Upstream
-    /// asks for it before the slash word (`inlinePickerTriggerKind`,
-    /// `picker_state.zig:233-242`), and the two cannot both hold: an `@` that
-    /// starts a word needs a separator before it, and a slash word has none.
+    /// asks for it before the slash kind (`inlinePickerTriggerKind`,
+    /// `picker_state.zig:287-296@481104fd`), so it wins when both hold: in
+    /// `/help @f` the caret's `@` word is the kind, not the slash line.
     File,
 }
 
