@@ -22,7 +22,7 @@ flake. The product did not change: train 12 touches nothing under `src/mcp`
 | commit | what |
 |---|---|
 | `2ee33f58` | the fix: `remote` never answers, so it reads `connecting` for the whole run in `p5-mcp-menu-new`, `p5-mcp-menu-old` and `p5-mcp-config`; `p5-mcp-verbs` keeps the refused port in a profile of its own |
-| the next commit | this receipt |
+| `5f5074ed` | this receipt |
 
 ## Measured: 8 runs on each build (`before-runs.txt`, `before-verdicts.txt`, `before-words.txt`)
 
