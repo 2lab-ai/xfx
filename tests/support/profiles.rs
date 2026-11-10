@@ -176,7 +176,7 @@ pub const STOPPED: &[(&str, Profile, &str)] = &[
     ),
     (
         "33 connections",
-        Profile::Built(|_| format!(r#"{{"providers": {{{}}}}}"#, names(1, 33, CONNECTION))),
+        Profile::Built(|_| format!(r#"{{"providers": {{{}}}}}"#, names(1, 33, "1"))),
         "LimitExceeded",
     ),
     (
@@ -185,9 +185,9 @@ pub const STOPPED: &[(&str, Profile, &str)] = &[
         "TooManyModelPreferences",
     ),
     (
-        "36 model preferences in the two layers merged",
+        "40 model preferences in the two layers merged",
         Profile::Built(|key| {
-            let (global, entry) = (names(1, 20, r#""m/x""#), names(21, 36, r#""m/x""#));
+            let (global, entry) = (names(1, 20, r#""m/x""#), names(21, 40, r#""m/x""#));
             format!(
                 r#"{{"models": {{{global}}}, "workspaces": {{{key}: {{"models": {{{entry}}}}}}}}}"#
             )
