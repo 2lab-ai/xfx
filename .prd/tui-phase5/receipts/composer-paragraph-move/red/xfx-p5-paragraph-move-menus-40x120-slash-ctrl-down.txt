@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-3f2d6e7 [debug] · Run /help for commands
+
+┃ /st
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 7                                                                                                          1–6
+
+  /stats        show token and turn statistics                                                               Account
+  /status       show runtime configuration and the session ID                                                General
+  /statusline   toggle status line segments                                                                  Appearance
+  /allowlist    manage trusted commands, tools, and URLs                                                     Security
+  /paste        attach an image from the clipboard when supported                                            Media
+  /fast         toggle Fast mode when supported                                                              Model
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,184 @@
+## p5-paragraph-move-40x120: fx against red, cell by cell (cells.py, row 1 left out)
+DIFF alt-down               rows: 11 12 13 15 17 18 
+       fx:   DCone/two/·/·/EBthree/four/·/Afive/ 
+       red:  oneD/twoE/  C/·/tBhree/four/A/five/ 
+DIFF alt-down2              rows: 11 12 13 15 17 18 
+       fx:   DCone/two/·/·/EBthree/four/·/FAfive/ 
+       red:  oneD/twoE/  CF/·/tBhree/four/A/five/ 
+DIFF alt-down3              rows: 11 12 13 14 15 17 18 
+       fx:   DCone/two/·/·/EBthree/four/·/FAfiveG/ 
+       red:  oneD/twoE/  CF/G/tBhree/four/A/five/ 
+DIFF alt-up                 rows: 17 18 
+       fx:   one/two/·/·/three/four/·/Afive/ 
+       red:  one/two/·/·/three/four/A/five/ 
+DIFF alt-up3                rows: 15 17 18 
+       fx:   one/two/·/·/Bthree/four/·/Afive/ 
+       red:  one/two/·/·/tBhree/four/A/five/ 
+DIFF alt-up5                rows: 11 13 15 17 18 
+       fx:   Cone/two/·/·/Bthree/four/·/Afive/ 
+       red:  one/two/  C/·/tBhree/four/A/five/ 
+DIFF alt-up7                rows: 11 13 15 17 18 
+       fx:   DCone/two/·/·/Bthree/four/·/Afive/ 
+       red:  oneD/two/  C/·/tBhree/four/A/five/ 
+SAME answered               rows: none
+       fx:   ·/ 
+       red:  ·/ 
+DIFF ctrl-up                rows: 11 12 13 14 15 16 17 18 20 
+       fx:   YXUWSDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+       red:  YhelloX/ 
+SAME draft                  rows: none
+       fx:   one/two/·/·/three/four/·/five/ 
+       red:  one/two/·/·/three/four/·/five/ 
+DIFF empty-alt-up           rows: 11 
+       fx:   a/ 
+       red:  helloa/ 
+DIFF empty-ctrl-shift-up    rows: 11 
+       fx:   e/ 
+       red:  helloe/ 
+SAME empty-ctrl-up          rows: none
+       fx:   helloh/ 
+       red:  helloh/ 
+DIFF empty-shift-alt-up     rows: 11 
+       fx:   d/ 
+       red:  hellod/ 
+DIFF empty-shift-up         rows: 11 
+       fx:   c/ 
+       red:  helloc/ 
+DIFF empty-super-up         rows: 11 
+       fx:   b/ 
+       red:  hellob/ 
+DIFF full                   rows: 3 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 22 23 24 25 
+       fx:   full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+       red:  full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+DIFF full-alt-down          rows: 3 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 22 23 24 25 
+       fx:   full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+       red:  full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+DIFF full-shift-up          rows: 3 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 22 23 24 25 
+       fx:   full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+       red:  full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+DIFF full-super-up          rows: 3 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 22 23 24 25 
+       fx:   full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+       red:  full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+DIFF full-typed             rows: 11 12 13 14 15 16 17 18 20 
+       fx:   YXUWSDCone/two/·/·/VEBthree/four/·/FAfiveGT/ 
+       red:  YhelloXV/ 
+DIFF full-typed2            rows: 11 12 13 14 15 16 17 18 20 
+       fx:   ZYXUWSDCone/two/·/·/VEBthree/four/·/FAfiveGT/ 
+       red:  ZYhelloXV/ 
+DIFF full-typed3            rows: 11 12 13 14 15 16 17 18 20 
+       fx:   ZQYXUWSDCone/two/·/·/VEBthree/four/·/FAfiveGT/ 
+       red:  QZYhelloXV/ 
+DIFF shift-up               rows: 11 12 13 14 15 17 18 
+       fx:   UWSDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+       red:  oneWD/twUoE/ S CF/GT/tBhree/four/A/five/ 
+DIFF shift-up2              rows: 11 12 13 14 15 16 17 18 20 
+       fx:   XUWSDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+       red:  helloX/ 
+DIFF super-down             rows: 11 12 13 14 15 17 18 
+       fx:   SDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+       red:  oneD/twoE/ S CF/GT/tBhree/four/A/five/ 
+DIFF super-up               rows: 11 12 13 14 15 17 18 
+       fx:   SDCone/two/·/·/EBthree/four/·/FAfiveG/ 
+       red:  oneD/twoE/ S CF/G/tBhree/four/A/five/ 
+DIFF super-up3              rows: 11 12 13 14 15 17 18 
+       fx:   USDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+       red:  oneD/twUoE/ S CF/GT/tBhree/four/A/five/ 
+
+## p5-paragraph-move-menus-40x120: fx against red, cell by cell (cells.py, row 1 left out)
+SAME at                     rows: none
+       fx:   @/ mark: Cargo.toml
+       red:  @/ mark: Cargo.toml
+DIFF at-alt-up              rows: 4 5 6 7 8 9 10 11 12 13 15 16 
+       fx:   @/ 
+       red:  @/ mark: Cargo.toml
+DIFF at-alt-up-typed        rows: 3 4 5 15 16 
+       fx:   z@/ 
+       red:  @z/ 
+SAME at-shift-down          rows: none
+       fx:   @/ mark: README.md
+       red:  @/ mark: README.md
+SAME effort                 rows: none
+       fx:   /model zai/glm-5.2/ mark: default
+       red:  /model zai/glm-5.2/ mark: default
+DIFF effort-alt-down        rows: 5 6 7 12 
+       fx:   /model zai/glm-5.2/ mark: zai/glm-5.2
+       red:  /model zai/glm-5.2/ mark: high
+SAME effort-shift-down      rows: none
+       fx:   /model zai/glm-5.2/ mark: low
+       red:  /model zai/glm-5.2/ mark: low
+DIFF effort-super-down      rows: 5 6 7 12 
+       fx:   /model zai/glm-5.2/ mark: zai/glm-5.2
+       red:  /model zai/glm-5.2/ mark: low
+SAME slash                  rows: none
+       fx:   /st/ mark: /stats        show token and turn statis
+       red:  /st/ mark: /stats        show token and turn statis
+DIFF slash-alt-up           rows: 8 9 
+       fx:   /st/ mark: /statusline   toggle status line segment
+       red:  /st/ mark: /status       show runtime configuration
+DIFF slash-alt-up-typed     rows: 3 
+       fx:   x/st/ 
+       red:  /stx/ 
+SAME slash-ctrl-down        rows: none
+       fx:   /st/ mark: /statusline   toggle status line segment
+       red:  /st/ mark: /statusline   toggle status line segment
+SAME slash-shift-down       rows: none
+       fx:   /st/ mark: /status       show runtime configuration
+       red:  /st/ mark: /status       show runtime configuration
+DIFF slash-super-up         rows: 5 7 8 9 10 11 12 
+       fx:   /st/ mark: /stats        show token and turn statis
+       red:  /st/ mark: /ultrafast    request Ultra mode when su
+DIFF slash-super-up-typed   rows: 3 
+       fx:   y/st/ 
+       red:  /sty/ 
+SAME statusline             rows: none
+       fx:    mark: Context      off  on
+       red:   mark: Context      off  on
+SAME statusline-alt-down    rows: none
+       fx:    mark: Context      off  on
+       red:   mark: Context      off  on
+DIFF statusline-ctrl-down   rows: 6 7 
+       fx:    mark: Context      off  on
+       red:   mark: Session      off  on
+DIFF statusline-down        rows: 7 8 
+       fx:    mark: Session      off  on
+       red:   mark: Workspace    off  on
+DIFF statusline-shift-down  rows: 6 8 
+       fx:    mark: Context      off  on
+       red:   mark: Workspace    off  on
+DIFF statusline-super-down  rows: 6 7 
+       fx:    mark: Context      off  on
+       red:   mark: Session      off  on
+
+## p5-paragraph-move-column-40x120: fx against red, cell by cell (cells.py, row 1 left out)
+DIFF shift-up-down          rows: 4 
+       fx:   x/aBbcdef/ 
+       red:  x/Babcdef/ 
+SAME up-down                rows: none
+       fx:   x/abcdefC/ 
+       red:  x/abcdefC/ 
+
+## the cursor lines, fx against red (x,y)
+p5-paragraph-move-40x120-alt-up          fx 2,17  red 2,16
+p5-paragraph-move-40x120-alt-up2         fx 2,17  red 3,15
+p5-paragraph-move-40x120-alt-up3         fx 2,14  red 3,14
+p5-paragraph-move-40x120-alt-up4         fx 2,14  red 2,13
+p5-paragraph-move-40x120-alt-up5         fx 2,10  red 4,12
+p5-paragraph-move-40x120-alt-up6         fx 2,10  red 5,11
+p5-paragraph-move-40x120-alt-up7         fx 2,10  red 5,10
+p5-paragraph-move-40x120-shift-up-start  fx 2,10  red 2,10
+p5-paragraph-move-40x120-super-up2       fx 2,10  red 4,12
+p5-paragraph-move-40x120-super-up3       fx 2,10  red 4,11
+p5-paragraph-move-column-40x120-up       fx 3,2  red 3,2
+
+## p5-paragraph-move: each side against itself, rows 2-40 of each full-transcript snap, sha256
+fx   full           17fd2214b813
+fx   full-alt-down  17fd2214b813
+fx   full-super-up  17fd2214b813
+fx   full-shift-up  17fd2214b813
+red  full           89af0cdc1de8
+red  full-alt-down  89af0cdc1de8
+red  full-super-up  89af0cdc1de8
+red  full-shift-up  89af0cdc1de8
+
+13 of 51 pairs identical
+banners (draft row 1): fx 𝒇x v0.0.16 · Run /help for commands / red x𝒇x v0.1.0-3f2d6e7 [debug] · Run /help for commands

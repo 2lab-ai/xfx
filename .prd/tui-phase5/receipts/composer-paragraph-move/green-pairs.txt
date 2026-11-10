@@ -1,0 +1,184 @@
+## p5-paragraph-move-40x120: fx against xfx, cell by cell (cells.py, row 1 left out)
+SAME alt-down               rows: none
+       fx:   DCone/two/·/·/EBthree/four/·/Afive/ 
+       xfx:  DCone/two/·/·/EBthree/four/·/Afive/ 
+SAME alt-down2              rows: none
+       fx:   DCone/two/·/·/EBthree/four/·/FAfive/ 
+       xfx:  DCone/two/·/·/EBthree/four/·/FAfive/ 
+SAME alt-down3              rows: none
+       fx:   DCone/two/·/·/EBthree/four/·/FAfiveG/ 
+       xfx:  DCone/two/·/·/EBthree/four/·/FAfiveG/ 
+SAME alt-up                 rows: none
+       fx:   one/two/·/·/three/four/·/Afive/ 
+       xfx:  one/two/·/·/three/four/·/Afive/ 
+SAME alt-up3                rows: none
+       fx:   one/two/·/·/Bthree/four/·/Afive/ 
+       xfx:  one/two/·/·/Bthree/four/·/Afive/ 
+SAME alt-up5                rows: none
+       fx:   Cone/two/·/·/Bthree/four/·/Afive/ 
+       xfx:  Cone/two/·/·/Bthree/four/·/Afive/ 
+SAME alt-up7                rows: none
+       fx:   DCone/two/·/·/Bthree/four/·/Afive/ 
+       xfx:  DCone/two/·/·/Bthree/four/·/Afive/ 
+SAME answered               rows: none
+       fx:   ·/ 
+       xfx:  ·/ 
+SAME ctrl-up                rows: none
+       fx:   YXUWSDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+       xfx:  YXUWSDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+SAME draft                  rows: none
+       fx:   one/two/·/·/three/four/·/five/ 
+       xfx:  one/two/·/·/three/four/·/five/ 
+SAME empty-alt-up           rows: none
+       fx:   a/ 
+       xfx:  a/ 
+SAME empty-ctrl-shift-up    rows: none
+       fx:   e/ 
+       xfx:  e/ 
+SAME empty-ctrl-up          rows: none
+       fx:   helloh/ 
+       xfx:  helloh/ 
+SAME empty-shift-alt-up     rows: none
+       fx:   d/ 
+       xfx:  d/ 
+SAME empty-shift-up         rows: none
+       fx:   c/ 
+       xfx:  c/ 
+SAME empty-super-up         rows: none
+       fx:   b/ 
+       xfx:  b/ 
+DIFF full                   rows: 3 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 22 23 24 25 
+       fx:   full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+       xfx:  full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+DIFF full-alt-down          rows: 3 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 22 23 24 25 
+       fx:   full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+       xfx:  full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+DIFF full-shift-up          rows: 3 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 22 23 24 25 
+       fx:   full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+       xfx:  full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+DIFF full-super-up          rows: 3 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 22 23 24 25 
+       fx:   full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+       xfx:  full detail · ctrl+o close · pgup/pgdn scroll · esc close/ 
+SAME full-typed             rows: none
+       fx:   YXUWSDCone/two/·/·/VEBthree/four/·/FAfiveGT/ 
+       xfx:  YXUWSDCone/two/·/·/VEBthree/four/·/FAfiveGT/ 
+SAME full-typed2            rows: none
+       fx:   ZYXUWSDCone/two/·/·/VEBthree/four/·/FAfiveGT/ 
+       xfx:  ZYXUWSDCone/two/·/·/VEBthree/four/·/FAfiveGT/ 
+SAME full-typed3            rows: none
+       fx:   ZQYXUWSDCone/two/·/·/VEBthree/four/·/FAfiveGT/ 
+       xfx:  ZQYXUWSDCone/two/·/·/VEBthree/four/·/FAfiveGT/ 
+SAME shift-up               rows: none
+       fx:   UWSDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+       xfx:  UWSDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+SAME shift-up2              rows: none
+       fx:   XUWSDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+       xfx:  XUWSDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+SAME super-down             rows: none
+       fx:   SDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+       xfx:  SDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+SAME super-up               rows: none
+       fx:   SDCone/two/·/·/EBthree/four/·/FAfiveG/ 
+       xfx:  SDCone/two/·/·/EBthree/four/·/FAfiveG/ 
+SAME super-up3              rows: none
+       fx:   USDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+       xfx:  USDCone/two/·/·/EBthree/four/·/FAfiveGT/ 
+
+## p5-paragraph-move-menus-40x120: fx against xfx, cell by cell (cells.py, row 1 left out)
+SAME at                     rows: none
+       fx:   @/ mark: Cargo.toml
+       xfx:  @/ mark: Cargo.toml
+SAME at-alt-up              rows: none
+       fx:   @/ 
+       xfx:  @/ 
+SAME at-alt-up-typed        rows: none
+       fx:   z@/ 
+       xfx:  z@/ 
+SAME at-shift-down          rows: none
+       fx:   @/ mark: README.md
+       xfx:  @/ mark: README.md
+SAME effort                 rows: none
+       fx:   /model zai/glm-5.2/ mark: default
+       xfx:  /model zai/glm-5.2/ mark: default
+SAME effort-alt-down        rows: none
+       fx:   /model zai/glm-5.2/ mark: zai/glm-5.2
+       xfx:  /model zai/glm-5.2/ mark: zai/glm-5.2
+SAME effort-shift-down      rows: none
+       fx:   /model zai/glm-5.2/ mark: low
+       xfx:  /model zai/glm-5.2/ mark: low
+SAME effort-super-down      rows: none
+       fx:   /model zai/glm-5.2/ mark: zai/glm-5.2
+       xfx:  /model zai/glm-5.2/ mark: zai/glm-5.2
+SAME slash                  rows: none
+       fx:   /st/ mark: /stats        show token and turn statis
+       xfx:  /st/ mark: /stats        show token and turn statis
+SAME slash-alt-up           rows: none
+       fx:   /st/ mark: /statusline   toggle status line segment
+       xfx:  /st/ mark: /statusline   toggle status line segment
+SAME slash-alt-up-typed     rows: none
+       fx:   x/st/ 
+       xfx:  x/st/ 
+SAME slash-ctrl-down        rows: none
+       fx:   /st/ mark: /statusline   toggle status line segment
+       xfx:  /st/ mark: /statusline   toggle status line segment
+SAME slash-shift-down       rows: none
+       fx:   /st/ mark: /status       show runtime configuration
+       xfx:  /st/ mark: /status       show runtime configuration
+SAME slash-super-up         rows: none
+       fx:   /st/ mark: /stats        show token and turn statis
+       xfx:  /st/ mark: /stats        show token and turn statis
+SAME slash-super-up-typed   rows: none
+       fx:   y/st/ 
+       xfx:  y/st/ 
+SAME statusline             rows: none
+       fx:    mark: Context      off  on
+       xfx:   mark: Context      off  on
+SAME statusline-alt-down    rows: none
+       fx:    mark: Context      off  on
+       xfx:   mark: Context      off  on
+SAME statusline-ctrl-down   rows: none
+       fx:    mark: Context      off  on
+       xfx:   mark: Context      off  on
+SAME statusline-down        rows: none
+       fx:    mark: Session      off  on
+       xfx:   mark: Session      off  on
+SAME statusline-shift-down  rows: none
+       fx:    mark: Context      off  on
+       xfx:   mark: Context      off  on
+SAME statusline-super-down  rows: none
+       fx:    mark: Context      off  on
+       xfx:   mark: Context      off  on
+
+## p5-paragraph-move-column-40x120: fx against xfx, cell by cell (cells.py, row 1 left out)
+SAME shift-up-down          rows: none
+       fx:   x/aBbcdef/ 
+       xfx:  x/aBbcdef/ 
+SAME up-down                rows: none
+       fx:   x/abcdefC/ 
+       xfx:  x/abcdefC/ 
+
+## the cursor lines, fx against xfx (x,y)
+p5-paragraph-move-40x120-alt-up          fx 2,17  xfx 2,17
+p5-paragraph-move-40x120-alt-up2         fx 2,17  xfx 2,17
+p5-paragraph-move-40x120-alt-up3         fx 2,14  xfx 2,14
+p5-paragraph-move-40x120-alt-up4         fx 2,14  xfx 2,14
+p5-paragraph-move-40x120-alt-up5         fx 2,10  xfx 2,10
+p5-paragraph-move-40x120-alt-up6         fx 2,10  xfx 2,10
+p5-paragraph-move-40x120-alt-up7         fx 2,10  xfx 2,10
+p5-paragraph-move-40x120-shift-up-start  fx 2,10  xfx 2,10
+p5-paragraph-move-40x120-super-up2       fx 2,10  xfx 2,10
+p5-paragraph-move-40x120-super-up3       fx 2,10  xfx 2,10
+p5-paragraph-move-column-40x120-up       fx 3,2  xfx 3,2
+
+## p5-paragraph-move: each side against itself, rows 2-40 of each full-transcript snap, sha256
+fx   full           17fd2214b813
+fx   full-alt-down  17fd2214b813
+fx   full-super-up  17fd2214b813
+fx   full-shift-up  17fd2214b813
+xfx  full           d66196cd1bb6
+xfx  full-alt-down  d66196cd1bb6
+xfx  full-super-up  d66196cd1bb6
+xfx  full-shift-up  d66196cd1bb6
+
+47 of 51 pairs identical
+banners (draft row 1): fx 𝒇x v0.0.16 · Run /help for commands / xfx x𝒇x v0.1.0-45d9ad1 [debug] · Run /help for commands
