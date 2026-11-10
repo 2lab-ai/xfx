@@ -3002,10 +3002,12 @@ mod tests {
                 mode.is_none(),
                 "{word:?}"
             );
-            // Below the entry and the variable, a mode other than the word's.
-            let base = match mode {
-                Some(PermissionMode::Ask) => PermissionMode::Auto,
-                _ => PermissionMode::Ask,
+            // Below the entry and the variable, a mode other than the word's,
+            // and other than ` ask` would be if it were trimmed.
+            let base = if word.trim().eq_ignore_ascii_case("ask") {
+                PermissionMode::Auto
+            } else {
+                PermissionMode::Ask
             };
             let want = mode.unwrap_or(base);
             let entry = load(

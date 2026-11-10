@@ -853,7 +853,12 @@ fn a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs() {
             wire.unwrap_or("auto"),
             "{word:?}"
         );
-        let below = if wire == Some("ask") { "auto" } else { "ask" };
+        // Neither the word's mode nor what ` ask` would be if it were trimmed.
+        let below = if word.trim().eq_ignore_ascii_case("ask") {
+            "auto"
+        } else {
+            "ask"
+        };
         let key = serde_json::to_string(sandbox.workspace.to_str().expect("utf-8")).expect("a key");
         sandbox.write_user_settings(&format!(
             r#"{{"permission_mode": "{below}", "workspaces": {{{key}: {{"permission_mode": {quoted}}}}}}}"#
