@@ -97,7 +97,9 @@ pub(crate) enum Kind {
 /// (`fillProgressive`, `file_index.zig:209-222@481104fd`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Candidate {
-    pub(crate) path: String,
+    /// Private: the facts below are this path's, so nothing outside this
+    /// module may change it (no other module reads it either).
+    path: String,
     pub(crate) kind: Kind,
     /// The path's bytes, ASCII letters lower-cased (`lower_buf`).
     lower: Box<[u8]>,
@@ -766,7 +768,7 @@ struct Align {
     /// Four run slots a cell, at upstream's widths (`AlignScratch`,
     /// `file_index.zig:1427-1438`). They grow to the largest table yet and
     /// are never cleared: a cell's scores are reset when the program reaches
-    /// it (`:1634`), and a start or a predecessor is read only behind a
+    /// it (`file_index.zig:1634`), and a start or a predecessor is read only behind a
     /// score that was written with it -- any offer beats `INVALID` alone.
     scores: Vec<i32>,
     starts: Vec<u16>,
@@ -778,6 +780,10 @@ struct Align {
     backward: Vec<usize>,
     /// The placement found last.
     positions: Vec<usize>,
+    /// How many searches [`align_best`] has run with this workspace, for a
+    /// case to count the work a keystroke does.
+    #[cfg(test)]
+    searches: usize,
 }
 
 impl Scratch {
@@ -819,6 +825,10 @@ fn align_best<T: Copy + PartialEq>(
     query: &[T],
     s: &mut Align,
 ) -> Option<(i32, usize)> {
+    #[cfg(test)]
+    {
+        s.searches += 1;
+    }
     let m = query.len();
     if m == 0 || range_start > text.len() || m > text.len() - range_start {
         return None;
@@ -896,6 +906,8 @@ fn align_best<T: Copy + PartialEq>(
     for (row, wanted) in query.iter().enumerate() {
         s.row_offsets.push(s.columns.len());
         let (first, last) = (s.forward[row], s.backward[row]);
+        // A position fits u16: no indexed path passes `MOST_PATH_BYTES`.
+        debug_assert!(last <= usize::from(u16::MAX));
         s.columns.extend(
             (first..=last)
                 .filter(|at| text[*at] == *wanted)
@@ -1135,7 +1147,7 @@ fn loaded(path: &str, s: &mut Scratch) -> usize {
 /// How well `query` matches `path`, its scalars folded here
 /// (`scoreFoldedMatchWith`, `file_index.zig:1866-1882`): an entry with a byte
 /// past ASCII, and a browsed folder's names. Past [`MOST_PATH_BYTES`], none,
-/// as upstream scores no longer name (`NameQuery.score`, `:1287`).
+/// as upstream scores no longer name (`NameQuery.score`, `file_index.zig:1287`).
 fn score(path: &str, query: &Folded, needed: Needed, s: &mut Scratch) -> Option<Score> {
     let query = &query.chars[..];
     if query.is_empty() || path.is_empty() || path.len() > MOST_PATH_BYTES {
@@ -1249,7 +1261,9 @@ fn spans(path: &str, query: &Folded, s: &mut Scratch) -> Vec<Range<usize>> {
 
 /// The [`MOST_RESULTS`] best of `entries`, best first (`rankTopN`,
 /// `file_index.zig:1330-1403@481104fd`). Upstream keeps `min(out.len, 64)`
-/// (`:617`), and the picker's `out` holds 32 (`file_completion_state.zig:7`).
+/// (`file_index.zig:617`), and the picker's `out` holds 32
+/// (`file_picker_completion_cap`, `input_completion_runtime.zig:44`;
+/// `file_completion_state.zig:7`).
 /// Once the set is full, an entry is placed only as far as it could still
 /// displace the worst kept: no folder placement once that one is a name
 /// match, no crossing one once it beats [`max_crossing_quality`], and past
@@ -1979,9 +1993,6 @@ impl Drop for Files {
         }
     }
 }
-
-#[cfg(test)]
-mod reference;
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -3229,8 +3240,8 @@ pub(crate) mod tests {
         );
     }
 
-    /// fx's benchmark inventory (`generateInventory`,
-    /// `benchmarks/file_index_bench.zig:82-135@481104fd`): entry `i` a file
+    /// fx's benchmark inventory (its arrays and `generateInventory`,
+    /// `benchmarks/file_index_bench.zig:34-70`, `:82-135@481104fd`): entry `i` a file
     /// when `i` is even and a directory when it is odd, the first four fixed.
     fn fx_inventory(count: usize) -> Vec<Candidate> {
         const SUBSYSTEMS: [&str; 14] = [
@@ -3333,11 +3344,35 @@ pub(crate) mod tests {
             .collect()
     }
 
-    /// `search` against AT-RANK's, which scored every path in full: the same
-    /// rows, kinds and bold letters.
-    fn same_as_at_rank(entries: &[Candidate], query: &str) -> Vec<Found> {
+    /// Every entry placed in full by [`score`] -- no kept set, no cut, no
+    /// mask, none of the facts an entry keeps, an ASCII path read scalar by
+    /// scalar -- then the whole order (a stable sort, so a tie keeps the
+    /// index's order), the best [`MOST_RESULTS`] and their bold letters:
+    /// AT-RANK's search, which the pruned one must match.
+    fn unpruned(entries: &[Candidate], query: &str) -> Vec<Found> {
+        let (folded, mut s) = (Folded::new(query), Scratch::default());
+        let mut ranked: Vec<(Score, &Candidate)> = entries
+            .iter()
+            .filter_map(|entry| Some((score(&entry.path, &folded, EVERY, &mut s)?, entry)))
+            .collect();
+        ranked.sort_by(|left, right| {
+            better((&left.0, &left.1.path), (&right.0, &right.1.path), false)
+        });
+        ranked.truncate(MOST_RESULTS);
+        ranked
+            .into_iter()
+            .map(|(_, entry)| Found {
+                path: entry.path.clone(),
+                kind: entry.kind,
+                spans: spans(&entry.path, &folded, &mut s),
+            })
+            .collect()
+    }
+
+    /// `search` against [`unpruned`]: the same rows, kinds and bold letters.
+    fn same_as_unpruned(entries: &[Candidate], query: &str) -> Vec<Found> {
         let found = search(entries, query);
-        assert_eq!(found, reference::search(entries, query), "{query:?}");
+        assert_eq!(found, unpruned(entries, query), "{query:?}");
         found
     }
 
@@ -3396,7 +3431,7 @@ pub(crate) mod tests {
             .chain((0..70).map(|i| format!("src/tools/alpha/tango/y{i}.zig")))
             .collect();
         paths.extend(["docs/stat.md", "stat", "src/STATUS.md"].map(String::from));
-        assert_eq!(same_as_at_rank(&owned(&paths), "stat")[0].path, "stat");
+        assert_eq!(same_as_unpruned(&owned(&paths), "stat")[0].path, "stat");
 
         // Crowded names: more than the kept rows at the top score for `s`
         // and `st`, with equal-length ties, then shorter and exact paths.
@@ -3407,8 +3442,8 @@ pub(crate) mod tests {
             .collect();
         paths.extend(["zz/st.md", "q/s", "st", "x/s.zig", "w/st1.zi"].map(String::from));
         let entries = owned(&paths);
-        same_as_at_rank(&entries, "s");
-        assert_eq!(same_as_at_rank(&entries, "st")[0].path, "st");
+        same_as_unpruned(&entries, "s");
+        assert_eq!(same_as_unpruned(&entries, "st")[0].path, "st");
 
         // Once every kept row is exact, only an exact match is placed.
         let mut paths: Vec<String> = (0..70)
@@ -3416,7 +3451,7 @@ pub(crate) mod tests {
             .chain((0..30).map(|i| format!("x/mainframe{i}.zig")))
             .collect();
         paths.extend(["src/main.zig", "main.zig"].map(String::from));
-        assert_eq!(same_as_at_rank(&owned(&paths), "main")[0].path, "main.zig");
+        assert_eq!(same_as_unpruned(&owned(&paths), "main")[0].path, "main.zig");
 
         // Names of every strength, matches through the own folder, matches
         // that end in a folder, and perfect names that end the crossing search.
@@ -3429,10 +3464,10 @@ pub(crate) mod tests {
         let cut = paths.len();
         paths.extend((0..70).map(|i| format!("lib/{i}/vercle{i}.ts")));
         paths.push("apps/vercle.ts".to_string());
-        let found = same_as_at_rank(&owned(&paths), "vercle");
+        let found = same_as_unpruned(&owned(&paths), "vercle");
         assert_eq!(found[0].path, "apps/vercle.ts");
         // Without the perfect names the crossing search is never cut.
-        same_as_at_rank(&owned(&paths[..cut]), "vercle");
+        same_as_unpruned(&owned(&paths[..cut]), "vercle");
 
         // Not in fx's cases: the cut is past the crossing ceiling, not at it
         // (`>`, `file_index.zig:1368@481104fd`). For `ab` each `w<i>/a/b`
@@ -3442,17 +3477,19 @@ pub(crate) mod tests {
         let mut paths: Vec<String> = (0..40).map(|i| format!("w{i}/a/b")).collect();
         paths.push("a/b".to_string());
         assert_eq!(max_crossing_quality(&['a', 'b']), 56);
-        assert_eq!(same_as_at_rank(&owned(&paths), "ab")[0].path, "a/b");
+        assert_eq!(same_as_unpruned(&owned(&paths), "ab")[0].path, "a/b");
     }
 
     #[test]
-    fn the_pruned_search_finds_what_at_ranks_full_search_finds() {
+    fn the_pruned_search_finds_what_placing_every_path_finds() {
         // Every prefix of each query, over `p5-at-rank`'s workspace and over
         // a generated tree in no particular order: the first entries of fx's
         // benchmark inventory, and crowds that fill the kept rows with exact
         // names, perfect names of many lengths, crossings and folder
-        // matches, mixed case, scalars past ASCII and absolute paths. Every
-        // path once: a path listed twice ties, and AT-RANK left its order open.
+        // matches, mixed case, scalars past ASCII -- a final sigma and a
+        // capital one among them, which the fold keeps apart and joins
+        // (CASE-FOLD-SIMPLE) -- and absolute paths. Every path once; a path
+        // listed twice is `a_path_listed_twice_keeps_its_place_in_the_index`.
         let workspace = discover(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/fxcap/scenarios/p5-at-rank-ws"),
             None,
@@ -3483,6 +3520,8 @@ pub(crate) mod tests {
                 format!("\u{65e5}\u{672c}/\u{30d5}\u{30a1}\u{30a4}\u{30eb}{i}.md"),
                 format!("/run/extra/notes/road_map{i}.md"),
                 format!("ab/x{i}/cd.ts"),
+                format!("docs/{i}/\u{3c2}igma-final{i}.txt"),
+                format!("\u{3a3}IGMA/{i}/\u{3c3}igma{i}.md"),
             ]);
         }
         paths.extend(
@@ -3526,14 +3565,107 @@ pub(crate) mod tests {
             "R\u{e9}sum\u{e9}",
             "\u{30d5}\u{30a1}\u{30a4}\u{30eb}",
             "x/",
+            "\u{3c3}igma",
+            "\u{3a3}\u{3c2}",
         ];
         for entries in [&workspace, &generated] {
             for query in queries {
                 for (end, _) in query.char_indices().skip(1).chain([(query.len(), ' ')]) {
-                    same_as_at_rank(entries, &query[..end]);
+                    same_as_unpruned(entries, &query[..end]);
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_path_listed_twice_keeps_its_place_in_the_index() {
+        // A file and a directory of one path, which `merged` keeps both of,
+        // tie on everything fx compares (`rankedCandidateBetter`,
+        // `file_index.zig:1892-1899@481104fd`). At the cut-off, the one
+        // earlier in the index is kept, before the set is full or after.
+        // fx keeps the one in the earlier slot (`findWorstSlot`, `:1901-1907`),
+        // which a replacement can make the later one.
+        let crowd: Vec<String> = (0..31).map(|i| format!("ab{i}")).collect();
+        for (pair, kept) in [
+            (["zz/ab-x/", "zz/ab-x"], Kind::Directory),
+            (["zz/ab-x", "zz/ab-x/"], Kind::File),
+        ] {
+            for pair_first in [true, false] {
+                let mut paths: Vec<String> = pair.iter().map(|p| p.to_string()).collect();
+                if pair_first {
+                    paths.extend(crowd.iter().cloned());
+                } else {
+                    paths.splice(0..0, crowd.iter().cloned());
+                }
+                let found = same_as_unpruned(&owned(&paths), "ab");
+                assert_eq!(found.len(), MOST_RESULTS);
+                assert_eq!((found[31].path.as_str(), found[31].kind), ("zz/ab-x", kept));
+            }
+        }
+    }
+
+    #[test]
+    fn a_path_of_the_longest_length_is_placed_and_one_past_it_is_not() {
+        // `MOST_PATH_BYTES` (`max_path_len`, `file_index.zig:26@481104fd`):
+        // an ASCII path of 2048 bytes is placed on its kept bytes as any
+        // other, and one of 2049, which no index holds, is placed by
+        // neither search.
+        let long = |n: usize| format!("{}/stat.md", "x".repeat(n - "/stat.md".len()));
+        let paths = vec![
+            long(MOST_PATH_BYTES),
+            long(MOST_PATH_BYTES + 1),
+            "a/stat".to_string(),
+        ];
+        assert_eq!(paths[0].len(), MOST_PATH_BYTES);
+        let found = same_as_unpruned(&owned(&paths), "stat");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[1].path.len(), MOST_PATH_BYTES);
+    }
+
+    #[test]
+    fn a_keystroke_places_no_more_than_its_cuts_allow() {
+        // The cuts change no row, so only the work they save shows them:
+        // the searches `align_best` runs for every prefix of fx's eight
+        // benchmark queries over its 100,000-entry inventory, counted, not
+        // timed, so the count holds on any machine and in a debug build. A
+        // search that places a folder match, a crossing or a long path that
+        // could no longer enter (`file_index.zig:1344-1370@481104fd`) passes
+        // its query's ceiling.
+        let entries = fx_inventory(MOST_INDEXED);
+        // Each ceiling is the count at AT-RANK-PERF's round 2. Without the
+        // folder cut all but the fifth and the seventh go past theirs;
+        // without the crossing cut the second and the sixth; without the
+        // length limit all but the fifth, the seventh and the last (the
+        // AT-RANK-PERF receipt, `r2-counts.txt`).
+        let ceilings = [
+            ("src/core/workspace/file_index.zig", 607_118),
+            ("scwfi", 38_703),
+            ("ae", 125_252),
+            ("ashr", 212_081),
+            ("zzz-no-match-\u{3a9}", 31_113),
+            ("api-route", 189_720),
+            ("\u{e4}rf", 7),
+            ("Klv", 58_773),
+        ];
+        let mut over = Vec::new();
+        for (query, ceiling) in ceilings {
+            let searches: usize = query
+                .char_indices()
+                .skip(1)
+                .map(|(end, _)| end)
+                .chain([query.len()])
+                .map(|end| {
+                    let mut s = Scratch::default();
+                    rank_top(&entries, &Folded::new(&query[..end]), &mut s);
+                    s.align.searches
+                })
+                .sum();
+            eprintln!("{query:36} {searches:>9} searches, ceiling {ceiling}");
+            if searches > ceiling {
+                over.push((query, searches, ceiling));
+            }
+        }
+        assert!(over.is_empty(), "past the ceiling: {over:?}");
     }
 
     #[test]

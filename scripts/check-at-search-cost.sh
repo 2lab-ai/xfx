@@ -15,7 +15,13 @@
 # rather than taken as a regression on a loaded runner.
 #
 # The harness's own count is checked afterwards: a renamed test would
-# otherwise pass here by running nothing.
+# otherwise pass here by running nothing. And the measurement itself must be
+# there: the test asserts only when it timed every prefix, and says so in the
+# line `every keystroke: 1460 searches ...`. A build that kept debug
+# assertions (`CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true`, say) searches
+# each query once, asserts nothing and passes; without that line this script
+# fails it, as check-tui-preflight-cost.sh fails a run with too few
+# measurement lines.
 
 set -euo pipefail
 
@@ -53,6 +59,10 @@ main() {
 	fi
 	if ! printf '%s\n' "$output" | grep -qE '^test result: ok\. 1 passed; 0 failed'; then
 		fail "the filter did not run the @ search's cost test; a rename would look like this"
+	fi
+	# fx's eight queries have 73 prefixes, each timed 20 times: 1,460.
+	if ! printf '%s\n' "$output" | grep -qE '^every keystroke: 1460 searches '; then
+		fail "the @ search's cost test measured nothing: no 'every keystroke: 1460 searches' line"
 	fi
 	printf 'check-at-search-cost: ok\n'
 }

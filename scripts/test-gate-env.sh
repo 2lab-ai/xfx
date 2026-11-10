@@ -227,6 +227,11 @@ cp scripts/check-at-search-cost.sh "$search/scripts/"
 expect at-search-cost -v "the filter did not run the @ search's cost test" \
 	env PATH="$bin:$PATH" XFX_TEST_CARGO_RAN=0 XFX_TEST_CARGO_LINES=0 \
 	"$search/scripts/check-at-search-cost.sh"
+# The test ran and passed, and measured nothing: a release build with debug
+# assertions on searches each query once and asserts nothing.
+expect at-search-measured -v "the @ search's cost test measured nothing" \
+	env PATH="$bin:$PATH" XFX_TEST_CARGO_RAN=1 XFX_TEST_CARGO_LINES=0 \
+	"$search/scripts/check-at-search-cost.sh"
 
 clock="$work/clock"
 mkdir -p "$clock/scripts"
