@@ -36066,15 +36066,16 @@ mod tests {
         // queued, and the list would say `Files unavailable` until Tab.
         let (row, rows, walks, settled) =
             first_at_before_the_poll(super::super::file_index::Published::Failed);
-        assert_eq!(
-            (row, rows, walks),
-            (status_row("indexing files..."), Vec::<String>::new(), 2),
-            "the first `@` after a failed walk skipped its refresh"
-        );
+        // The screen first, so a skip dies on the row it paints.
         assert_ne!(
             settled,
             status_row(FILES_UNAVAILABLE),
             "the failed walk was shown, with no walk after it"
+        );
+        assert_eq!(
+            (row, rows, walks),
+            (status_row("indexing files..."), Vec::<String>::new(), 2),
+            "the first `@` after a failed walk skipped its refresh"
         );
     }
 
