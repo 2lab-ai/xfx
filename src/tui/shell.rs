@@ -23778,6 +23778,302 @@ mod tests {
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
+    /// Every spelling of Ctrl+J that fx v0.0.16 turns back into the byte
+    /// `0x0a` (APPROVAL-CTRL-J): the byte itself, and a kitty or xterm key
+    /// report of `j` or `J` with Ctrl held, whatever else is held
+    /// (`kittyUnicodeKeyAction`, `escape_parser.zig:255-258@481104fd`, the
+    /// lock bits masked first, `:187`), a press or a repeat (`:774-777`),
+    /// xterm's `CSI 27;<m>;<k>~` read into the same function (`:740-752`).
+    const CTRL_J: [(&str, &[u8]); 11] = [
+        ("c-j", &[0x0a]),
+        ("kitty ctrl+j", b"\x1b[106;5u"),
+        ("kitty ctrl+J", b"\x1b[74;5u"),
+        ("kitty ctrl+shift+j", b"\x1b[106;6u"),
+        ("kitty ctrl+alt+j", b"\x1b[106;7u"),
+        ("kitty ctrl+super+j", b"\x1b[106;13u"),
+        ("kitty ctrl+j, caps lock", b"\x1b[106;69u"),
+        ("kitty ctrl+j press", b"\x1b[106;5:1u"),
+        ("kitty ctrl+j repeat", b"\x1b[106;5:2u"),
+        ("xterm ctrl+j", b"\x1b[27;5;106~"),
+        ("xterm ctrl+shift+J", b"\x1b[27;6;74~"),
+    ];
+
+    /// A shell asking the edit question with a frame that showed it: on the
+    /// band, or on the review plane.
+    fn asking_on(review: bool) -> Fixture {
+        let mut shell = shell(24, 80);
+        if review {
+            let started = turn_running(&mut shell, b"edit the notes\r");
+            shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+            shell.settle_band(started);
+            assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+            delivered(&mut shell);
+        } else {
+            asking(&mut shell);
+        }
+        shell
+    }
+
+    /// The answer an Enter or a C-j gives under `id` 1.
+    fn answer_of(answer: ApprovalAnswer, feedback: Option<&str>) -> Option<TurnControl> {
+        Some(TurnControl::Answer {
+            id: ApprovalId(1),
+            answer,
+            feedback: feedback.map(str::to_string),
+        })
+    }
+
+    #[test]
+    fn ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes() {
+        // fx v0.0.16 makes `'\r', '\n'` an approval's `.submit`
+        // (`approvalActionFromByte`, `src/ui/input/runtime.zig:64@481104fd`):
+        // the focused-editor route, asked first, keeps no newline
+        // (`fromFocusedEditorControlByte` drops `fromControlByte`'s
+        // `.insert_newline`, `shortcuts.zig:26`, `:31-41`; `:103-108`), so
+        // C-j answers the marked choice (`approval_decision.zig:141`) at a
+        // choice and in an open draft, which it sends. A kitty or xterm
+        // Ctrl+J is the byte replayed (`app_input_runtime.zig:950-953`,
+        // `:746-756`). Before, xfx's question swallowed every one of them.
+        let mut wrong = Vec::new();
+        for review in [false, true] {
+            let plane = if review {
+                "the review plane"
+            } else {
+                "the band"
+            };
+            for (name, key) in CTRL_J {
+                let mut shell = asking_on(review);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Once, None) {
+                    wrong.push(format!("{plane}, choice 1, {name}: {answered:?}"));
+                }
+                let mut shell = asking_on(review);
+                shell.route_bytes(b"\x1b[B");
+                delivered(&mut shell);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Always, None) {
+                    wrong.push(format!("{plane}, choice 2, {name}: {answered:?}"));
+                }
+                let mut shell = drafting_ab_after_a_kill(review);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Once, Some("ab ")) {
+                    wrong.push(format!("{plane}, a draft, {name}: {answered:?}"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_j_read_with_a_change_waits_for_the_frame_as_enter_does() {
+        // C-j is an affirmative where Enter is, so it meets the same check:
+        // fx takes none while a modal frame is pending
+        // (`input_approval_runtime.zig:191-218@481104fd`), and a move or a
+        // draft edit asks for one (`:117`, `:125`; `:79-89`;
+        // `app_input_runtime.zig:1251-1255`). A move, or a letter in a draft,
+        // and C-j in one read answer nothing; the C-j after the frame answers
+        // what it shows. At a command too: xfx holds every approval to it
+        // (the dispatcher's decision, `docs/parity.md`).
+        // `fx-p5-approval-ctrl-j-40x120-{edit-down-ctrl-j,write-letter-ctrl-j}`.
+        let mut wrong = Vec::new();
+        for (name, key) in CTRL_J {
+            for review in [false, true] {
+                let plane = if review {
+                    "the review plane"
+                } else {
+                    "the band"
+                };
+                let mut shell = asking_on(review);
+                shell.route_bytes(&[&b"\x1b[B"[..], key].concat());
+                if let Some(answered) = shell.controlled() {
+                    wrong.push(format!(
+                        "{plane}, down and {name} in one read: {answered:?}"
+                    ));
+                    continue;
+                }
+                if !shell.marked().contains("\u{276f} 2") {
+                    wrong.push(format!("{plane}, down and {name}: {:?}", shell.marked()));
+                }
+                delivered(&mut shell);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Always, None) {
+                    wrong.push(format!("{plane}, {name} after the frame: {answered:?}"));
+                }
+                let mut shell = drafting_ab_after_a_kill(review);
+                shell.route_bytes(&[&b"x"[..], key].concat());
+                if let Some(answered) = shell.controlled() {
+                    wrong.push(format!("{plane}, x and {name} in one read: {answered:?}"));
+                    continue;
+                }
+                if !shell.drafting() {
+                    wrong.push(format!("{plane}, x and {name}: the draft lost the keys"));
+                }
+                delivered(&mut shell);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Once, Some("ab x")) {
+                    wrong.push(format!(
+                        "{plane}, the draft's {name} after the frame: {answered:?}"
+                    ));
+                }
+            }
+            let mut shell = shell(24, 80);
+            asking_for(&mut shell, asked_to_run());
+            shell.route_bytes(&[&b"\x1b[B"[..], key].concat());
+            if let Some(answered) = shell.controlled() {
+                wrong.push(format!(
+                    "a command, down and {name} in one read: {answered:?}"
+                ));
+                continue;
+            }
+            delivered(&mut shell);
+            shell.route_bytes(key);
+            let answered = shell.controlled();
+            if answered != answer_of(ApprovalAnswer::Always, None) {
+                wrong.push(format!("a command, {name} after the frame: {answered:?}"));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_j_at_deny_refuses_at_once_as_enter_does() {
+        // fx gates the affirmatives only (`decision != .deny`,
+        // `input_approval_runtime.zig:191@481104fd`): C-j on choice 3 is a
+        // refusal, answered at once with a move read with it or a draft edit
+        // unseen, and the deny draft goes with it, as Enter's does.
+        // `fx-p5-approval-ctrl-j-40x120-cmd2-ask` follows Down Down C-j.
+        let mut wrong = Vec::new();
+        for (name, key) in CTRL_J {
+            for request in [asked(), asked_to_run()] {
+                let what = request.tool;
+                let mut shell = shell(24, 80);
+                asking_for(&mut shell, request);
+                shell.route_bytes(&[&b"\x1b[B\x1b[B"[..], key].concat());
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Deny, None) {
+                    wrong.push(format!("{what}, down down and {name}: {answered:?}"));
+                }
+            }
+            for review in [false, true] {
+                let mut shell = asking_on(review);
+                shell.route_bytes(b"\x1b[B\x1b[B");
+                delivered(&mut shell);
+                shell.route_bytes(b"\tno");
+                delivered(&mut shell);
+                shell.route_bytes(&[&b"x"[..], key].concat());
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Deny, Some("nox")) {
+                    wrong.push(format!(
+                        "review {review}, x and {name} in the deny draft: {answered:?}"
+                    ));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_j_at_a_question_over_the_status_panel_answers_the_question_not_the_panel() {
+        // fx's approval takes a raw byte before any menu does
+        // (`routeActiveModalInput`, `app_input_runtime.zig:1161-1185
+        // @481104fd`, ahead of the MCP menu and the compact menus --
+        // `/status`'s panel among them -- at `:1186-1216`, whose C-j is the
+        // next row, `:1205`); the picker's C-j yields to it
+        // (`composerPickerSurfaceVisible`, `:1110-1116`), and so does the
+        // full transcript (`screenOwnsInput`, `input_full_transcript_runtime.zig:30-34`).
+        // So with the panel open under the question C-j answers the question
+        // and the panel is where it was when the answer gives it back.
+        // `fx-p5-approval-ctrl-j-panel-40x120-approval-ctrl-j`.
+        let mut wrong = Vec::new();
+        for (name, key) in CTRL_J {
+            for review in [false, true] {
+                let mut shell = shell(20, 120);
+                let started = turn_running(&mut shell, b"edit the notes\r");
+                shell.open_info_panel(fx_status_panel());
+                shell.settle_band(started);
+                let top = from_the_rule(&shell.band_rows());
+                // The panel's key while no question is up: the next row.
+                shell.route_bytes(key);
+                shell.settle_band(started);
+                let before = from_the_rule(&shell.band_rows());
+                if before == top {
+                    wrong.push(format!("review {review}, {name}: the panel did not scroll"));
+                }
+                let request = if review {
+                    asked_about_a_large_change()
+                } else {
+                    asked()
+                };
+                shell.apply(UiEvent::Approval(question(request)));
+                shell.settle_band(started);
+                delivered(&mut shell);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Once, None) {
+                    wrong.push(format!("review {review}, {name}: {answered:?}"));
+                    continue;
+                }
+                if shell.info_panel.is_none() {
+                    wrong.push(format!(
+                        "review {review}, {name}: the answer closed the panel"
+                    ));
+                }
+                shell.settle_band(started);
+                if from_the_rule(&shell.band_rows()) != before {
+                    wrong.push(format!("review {review}, {name}: the panel moved"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn keys_fx_does_not_read_as_ctrl_j_still_do_nothing_at_a_question() {
+        // Not C-j to fx: a kitty key **release** (`escape_parser.zig:774-777
+        // @481104fd`, `.ignore`); Alt-C-j in the legacy spelling, `ESC LF`,
+        // which is `.insert_newline` (`:515-519`), no draft action
+        // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:94`)
+        // and nothing at the question (`input_approval_runtime.zig:128`); and
+        // Alt-j, no Ctrl, `.ignore` (`escape_parser.zig:265`). Each leaves the
+        // choice, the draft and the receipt as they were, so the Enter after
+        // it answers what the last frame showed.
+        let mut wrong = Vec::new();
+        for (name, key) in [
+            ("kitty ctrl+j release", &b"\x1b[106;5:3u"[..]),
+            ("esc lf", b"\x1b\n"),
+            ("kitty alt+j", b"\x1b[106;3u"),
+        ] {
+            for draft in [false, true] {
+                let mut shell = if draft {
+                    drafting_ab_after_a_kill(false)
+                } else {
+                    asking_on(false)
+                };
+                let receipt = format!("{:?}", shell.readiness);
+                shell.route_bytes(key);
+                if let Some(answered) = shell.controlled() {
+                    wrong.push(format!("draft {draft}, {name}: {answered:?}"));
+                    continue;
+                }
+                if format!("{:?}", shell.readiness) != receipt {
+                    wrong.push(format!("draft {draft}, {name}: it touched the receipt"));
+                }
+                shell.route_bytes(b"\r");
+                let want = answer_of(ApprovalAnswer::Once, draft.then_some("ab "));
+                let answered = shell.controlled();
+                if answered != want {
+                    wrong.push(format!("draft {draft}, {name}, then Enter: {answered:?}"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
     #[test]
     fn the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest() {
         // `folded`'s own contract: `AltB` to `WordLeft`, Shift taken off Up

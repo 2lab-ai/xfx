@@ -1,0 +1,25 @@
+# C-j at a permission question that arrives while `/status` is open
+# (APPROVAL-CTRL-J). fx v0.0.16's approval takes a raw byte before any menu
+# does (`routeActiveModalInput`, app_input_runtime.zig:1161-1185@481104fd,
+# ahead of the MCP menu and the compact menus at :1186-1216; the picker's
+# C-j yields to it, :1093-1116), so C-j answers the question, `Apply once`,
+# and the panel comes back as it was. The turn is p5-panels-keys.cap's.
+fx: gateway p5-panels-keys-turn.json
+xfx: gateway p5-panels-keys-turn-xfx.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 2
+type run it
+key Enter
+wait 0.8
+type /status
+key Enter
+wait 0.8
+snap open-before-approval
+wait 3
+snap approval-arrives
+key -H 0a
+wait 1.5
+snap approval-ctrl-j
+wait 1
+snap end
