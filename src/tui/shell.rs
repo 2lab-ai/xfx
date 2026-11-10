@@ -53059,4 +53059,54 @@ mod tests {
             "the batch went before its twenty answers"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // P5 train 13, join check 2: QUESTION-RESUME x QUESTION-WORD-LEFT
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_question_after_a_resume_that_replayed_a_batch_takes_alt_b_as_before() {
+        // A session resumed with an answered batch replayed
+        // (QUESTION-RESUME's resolutions, `resumed_rows`), then the model asks
+        // again: the new batch reads Alt-b as QUESTION-WORD-LEFT's head reads
+        // it on a fresh screen (`alt_b_at_a_choice_goes_back_a_question_and_
+        // the_word_arrows_do_not`) -- back a question at a choice, the word
+        // move in a draft, Shift-Alt-b and -f the word moves too
+        // (`input_question_runtime.zig:190-195`, `src/ui/input/runtime.zig:
+        // 155-197@481104fd`).
+        let (mut fixture, rows) =
+            resumed_rows(vec![asked_turn("ask", true, &answer_document(4), None)]);
+        assert!(rows.iter().any(|row| row == "  4) Q 4?"), "{rows:#?}");
+        asking_question(&mut fixture, a_batch());
+        let on = |fixture: &Fixture, text: &str| {
+            fixture.band_rows().iter().any(|row| row.contains(text))
+        };
+        fixture.route_bytes(b"\t");
+        assert!(on(&fixture, "Ship it?"), "Tab reached the second question");
+        fixture.route_bytes(b"\x1bb");
+        assert!(
+            on(&fixture, "Which depth?"),
+            "Alt-b did not go back a question: {:?}",
+            fixture.band_rows()
+        );
+        fixture.route_bytes(b"\t");
+        fixture.route_bytes(b"3");
+        fixture.route_bytes(b"ab cd");
+        fixture.route_bytes(b"\x1bb");
+        fixture.route_bytes(b"z");
+        let draft = |fixture: &Fixture, text: &str| {
+            fixture
+                .band_rows()
+                .iter()
+                .any(|row| sgr_free(row).trim_end() == format!("    3) {text}"))
+        };
+        assert!(draft(&fixture, "ab zcd"), "{:?}", fixture.band_rows());
+        fixture.route_bytes(b"\x1b[98;4u");
+        fixture.route_bytes(b"y");
+        assert!(draft(&fixture, "ab yzcd"), "{:?}", fixture.band_rows());
+        fixture.route_bytes(b"\x1b[102;4u");
+        fixture.route_bytes(b"x");
+        assert!(draft(&fixture, "ab yzcdx"), "{:?}", fixture.band_rows());
+        assert!(on(&fixture, "Ship it?"), "a word move left the question");
+    }
 }

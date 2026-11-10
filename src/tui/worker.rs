@@ -19757,4 +19757,143 @@ mod tests {
         );
         assert_eq!(outstanding.load(Ordering::Acquire), 0, "a place was kept");
     }
+
+    // -----------------------------------------------------------------------
+    // P5 train 13, join check 1: HISTORY-NOTICES-COPY-FX x QUESTION-RESUME
+    // -----------------------------------------------------------------------
+
+    /// A saved session holding both units' cases in one step: llmux's
+    /// `fable` signed its thinking on the Anthropic wire and called
+    /// `ask_user_question`, and the batch was answered.
+    fn a_sealed_session_that_asked(config: &RuntimeConfig) -> SessionId {
+        let store = open_store(config).expect("a store");
+        let mut conversation = open_conversation(
+            &store,
+            config,
+            &config.model,
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        let input = serde_json::json!({ "questions": [] });
+        for event in [
+            SessionEvent::UserMessage {
+                text: "ask me".to_string(),
+            },
+            SessionEvent::AssistantMessage {
+                text: String::new(),
+                tool_calls: vec![crate::session::RecordedToolCall {
+                    id: "toolu_q".to_string(),
+                    name: "ask_user_question".to_string(),
+                    input: input.clone(),
+                }],
+                raw_content: vec![
+                    serde_json::json!({"type": "thinking", "thinking": "SEALED", "signature": "sig-1"}),
+                    serde_json::json!({"type": "tool_use", "id": "toolu_q", "name": "ask_user_question", "input": input}),
+                ],
+                responses_state: Vec::new(),
+                wire: Some(Wire::AnthropicMessages),
+                model: Some("fable".to_string()),
+            },
+            SessionEvent::ToolResult {
+                call_id: "toolu_q".to_string(),
+                tool: "ask_user_question".to_string(),
+                ok: true,
+                output: serde_json::json!([{"question": "Which depth?", "answer": "Deep"}])
+                    .to_string(),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+            SessionEvent::AssistantMessage {
+                text: "DONE".to_string(),
+                tool_calls: Vec::new(),
+                raw_content: vec![serde_json::json!({"type": "text", "text": "DONE"})],
+                responses_state: Vec::new(),
+                wire: Some(Wire::AnthropicMessages),
+                model: Some("fable".to_string()),
+            },
+            SessionEvent::TurnConcluded {
+                outcome: crate::session::TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 2,
+                },
+            },
+        ] {
+            conversation.recorder.commit(event);
+        }
+        conversation.recorder.id().clone()
+        // Dropped here, which closes the log and releases its lock.
+    }
+
+    #[test]
+    fn a_resumed_sealed_step_that_asked_replays_its_batch_and_says_nothing_of_its_reasoning() {
+        // The resume path both units change, read off one log. Hydration
+        // (QUESTION-RESUME): the answered batch is its resolutions, not an
+        // `Asked` row (`writeAnsweredQuestionResult`,
+        // `app_session_runtime.zig:4589-4607@481104fd`). The request history
+        // (HISTORY-NOTICES-COPY-FX): the state another provider or model
+        // sealed is dropped without a word (`projectProviderReplay`,
+        // `types.zig:1668-1682@481104fd`) -- `ReplayedHistory::notices`, the
+        // only source of the TUI's `! session:` lines
+        // (`Conversation::unsaid`), says nothing of it -- while the call and
+        // its answer document still go; back on the authority that sealed it,
+        // the state goes too.
+        use super::super::hydration::HydratedStep;
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let id = a_sealed_session_that_asked(&config);
+        let resumed = Resumption::open(&config, &crate::session::Selector::Id(id))
+            .expect("the saved session opens");
+
+        let replay = resumed.hydration();
+        let steps: Vec<&HydratedStep> = replay.turns.iter().flat_map(|turn| &turn.steps).collect();
+        let answered: Vec<_> = steps
+            .iter()
+            .filter_map(|step| match step {
+                HydratedStep::Answered(answers) => Some(answers.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            answered,
+            vec![vec![crate::tools::question::SavedAnswer {
+                question: "Which depth?".to_string(),
+                answer: "Deep".to_string(),
+            }]],
+            "{steps:?}"
+        );
+        assert!(
+            !steps.iter().any(|step| matches!(step, HydratedStep::Asked)),
+            "{steps:?}"
+        );
+
+        for (wire, model, keeps_state) in [
+            (Wire::VercelGateway, "zai/glm-5.2", false),
+            (Wire::AnthropicMessages, "opus", false),
+            (Wire::AnthropicMessages, "fable", true),
+        ] {
+            let history = resumed
+                .session
+                .state()
+                .history_messages(wire.clone(), model);
+            assert!(
+                history.notices.is_empty(),
+                "{wire:?} {model}: {:?}",
+                history.notices
+            );
+            let sent = format!("{:?}", history.messages);
+            assert!(
+                sent.contains("toolu_q") && sent.contains("Which depth?") && sent.contains("Deep"),
+                "{wire:?} {model}: {sent}"
+            );
+            assert_eq!(
+                sent.contains("SEALED") && sent.contains("sig-1"),
+                keeps_state,
+                "{wire:?} {model}: {sent}"
+            );
+        }
+    }
 }
