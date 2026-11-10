@@ -1,4 +1,4 @@
-== probe.sh fx <fx v0.0.16> <run> <edge fixtures> (14, then 3 more)
+== probe.sh fx <fx v0.0.16> <run> <edge fixtures> (14, then 3, then model-then-provider)
 binary sha256 before: 8e6cda2efddb
 == retired-then-provider
   permissions            exit=1 stdout=0B stderr=fx: RetiredSkillMatchFuzzy| | touched: 
@@ -110,4 +110,11 @@ binary sha256 before: 8e6cda2efddb
   status                 exit=0 stdout=699B stderr=fx: config user: invalid_context_limits; context_limits keys must be documented limit names with a non-negative integer or "off" value| | touched: 
     stdout: [status] model=spacexai/grok-4.7|[status] model_origin=default|[status] effort=auto|[status] update_channel=stable|[status] build_channel=stable|[status] build_revision=481104fdbc24|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=fx needs access to Vercel AI Gateway. Run fx 
   interactive            still running after 6 s exit= tty=851B stderr= | touched: 
+binary sha256 after: 8e6cda2efddb
+binary sha256 before: 8e6cda2efddb
+== model-then-provider
+  permissions            exit=1 stdout=0B stderr=fx: InvalidModelValue| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidModelValue| | touched: 
+  status                 exit=1 stdout=0B stderr=fx: InvalidModelValue| | touched: 
+  interactive            exited exit=1 tty=0B stderr=fx: InvalidModelValue| | touched: 
 binary sha256 after: 8e6cda2efddb

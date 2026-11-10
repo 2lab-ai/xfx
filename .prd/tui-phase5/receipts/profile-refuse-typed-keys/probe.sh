@@ -42,7 +42,8 @@ models-llmux model-then-models model-bad-with-provider models-inner-space \
 retired-then-provider mode-upper mode-padded steps-float steps-huge effort-bad typed-statusline-ws \
 provider-entry-fixes limits-ok-then-typed limits-off-then-typed limits-underscore-then-typed \
 limits-plus-then-typed limits-negative-then-typed limits-unknown-then-typed \
-limits-double-underscore-then-typed limits-leading-underscore-then-typed limits-empty-then-typed"
+limits-double-underscore-then-typed limits-leading-underscore-then-typed limits-empty-then-typed \
+model-then-provider"
 fixtures=${*:-$all}
 
 # The fixture's profile: <home>/<prof>/settings.json, or what stands there.
@@ -141,6 +142,7 @@ seed() { # fixture home work
     limits-double-underscore-then-typed) printf '{"context_limits": {"skill_chunk_bytes": "1__0"}, "fast_mode": "yes"}' > "$s" ;;
     limits-leading-underscore-then-typed) printf '{"context_limits": {"skill_chunk_bytes": "_1"}, "fast_mode": "yes"}' > "$s" ;;
     limits-empty-then-typed) printf '{"context_limits": {"skill_chunk_bytes": ""}, "fast_mode": "yes"}' > "$s" ;;
+    model-then-provider) printf '{"model": " a", "provider": 5}' > "$s" ;;
     valid) printf '{"permission_mode": "auto"}' > "$s" ;;
     *) echo "unknown fixture $f" >&2; return 1 ;;
   esac

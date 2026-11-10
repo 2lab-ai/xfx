@@ -250,13 +250,16 @@ fn the_shell_opens_saying_what_the_configuration_could_not_use_and_what_it_means
     let reason = "a permission table did not read (user config diagnostic: invalid_value \
                   key=permission `sure` is not a permission action; use allow, ask or deny); \
                   fix it, then /allowlist reads it again";
+    // fx v0.0.16 starts with these: its parse stops first at
+    // `skill_symlink_authorities`, a cause no launch refuses
+    // (`config_runtime.zig:1025-1037@481104fd`); without it the launch refuses.
     for (profile, said) in [
         (
-            r#"{"permission":{"bash":"sure"}}"#,
+            r#"{"skill_symlink_authorities":5,"permission":{"bash":"sure"}}"#,
             format!("xfx: permissions: every tool is refused: {reason}"),
         ),
         (
-            r#"{"permission_mode":"yolo","permission":{"bash":"sure"}}"#,
+            r#"{"skill_symlink_authorities":5,"permission_mode":"yolo","permission":{"bash":"sure"}}"#,
             format!(
                 "xfx: permissions: full access consults no table, so it is not applied; \
                  every other mode refuses every tool: {reason}"
@@ -646,7 +649,7 @@ fn slash_credits_with_an_unreadable_provider_asks_nobody_and_says_why() {
     assert!(asked.is_empty(), "the Gateway was asked: {asked:?}");
     assert!(
         text.contains(
-            "[credits] error: provider=rejected: the `provider` setting is `not-a-provider`, \
+            "[credits] error: provider=rejected: the `provider` setting is `codex`, \
              which xfx cannot read; set it to `gateway` or `llmux`."
         ),
         "{text}"

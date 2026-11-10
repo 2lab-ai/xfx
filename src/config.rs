@@ -4739,6 +4739,10 @@ mod tests {
                 r#"{"skill_match_fuzzy": true, "provider": 5}"#,
                 Some(Stopped("RetiredSkillMatchFuzzy")),
             ),
+            (
+                r#"{"model": " a", "provider": 5}"#,
+                Some(Stopped("InvalidModelValue")),
+            ),
             // fx starts: the first error is one no launch refuses, or none.
             (r#"{"workspaces": {"{ROOT}": {"statusLine": 5}}}"#, None),
             (

@@ -33,7 +33,10 @@ pub const TEST_KEY: &str = "xfx-test-interactive-key-must-not-appear";
 
 /// A profile whose provider xfx cannot read, which poisons every turn
 /// (`RuntimeConfig::provider_rejected`); [`Sandbox::write_profile`] writes it.
-pub const UNREADABLE_PROVIDER: &str = r#"{"provider":"not-a-provider"}"#;
+/// fx v0.0.16 has this provider; a name it would look up among configured
+/// connections (`"not-a-provider"`) stops the launch instead, as fx's load
+/// fails with `UnknownConfiguredProvider`.
+pub const UNREADABLE_PROVIDER: &str = r#"{"provider":"codex"}"#;
 
 pub struct Sandbox {
     _root: TempDir,

@@ -1481,10 +1481,19 @@ fn an_unreadable_provider_poisons_the_turn_even_when_backend_is_readable() {
     assert_eq!(rejection.key, "provider");
     assert_eq!(rejection.value, "not-a-provider");
 
+    // fx v0.0.16 takes such a name for a configured connection and, with no
+    // `providers` to find it in, its load fails (`config_runtime.zig:350-355`);
+    // so does the launch here.
+    let run = sandbox.run(&["ask", "--no-save", "hello"]);
+    assert_eq!(run.code, Some(1));
+    assert_eq!(run.stderr, "xfx: UnknownConfiguredProvider\n");
+
+    // A provider fx has and xfx does not still poisons the turn, quoted.
+    sandbox.write_user_settings("{\"backend\":\"gateway\",\"provider\":\"codex\"}");
     let run = sandbox.run(&["ask", "--no-save", "hello"]);
     assert_eq!(run.code, Some(1));
     assert!(run.stderr.contains("`provider`"), "{}", run.stderr);
-    assert!(run.stderr.contains("not-a-provider"), "{}", run.stderr);
+    assert!(run.stderr.contains("codex"), "{}", run.stderr);
 }
 
 #[test]
@@ -1890,15 +1899,18 @@ fn provider_backend_cross_layer_matrix() {
 #[test]
 fn a_rejected_provider_from_newer_layer_poisons_at_binary_level() {
     // Test: newer workspace provider rejection refuses the turn, mirroring Task-1 poison pattern
+    // (`codex`: a provider fx has and xfx does not. A name fx would look up
+    // among configured connections stops the launch instead, as fx's load
+    // fails: `UnknownConfiguredProvider`, `ask_refuses_a_profile_fx_refuses`.)
     let sandbox = Sandbox::new();
     sandbox.write_user_settings(&format!(
-        "{{\"backend\":\"gateway\",\"workspaces\":{{{}:{{\"provider\":\"not-a-provider\"}}}}}}",
+        "{{\"backend\":\"gateway\",\"workspaces\":{{{}:{{\"provider\":\"codex\"}}}}}}",
         serde_json::to_string(&sandbox.workspace.display().to_string()).unwrap()
     ));
     let run = sandbox.run(&["ask", "--no-save", "hello"]);
     assert_eq!(run.code, Some(1));
     assert!(run.stderr.contains("`provider`"), "{}", run.stderr);
-    assert!(run.stderr.contains("not-a-provider"), "{}", run.stderr);
+    assert!(run.stderr.contains("codex"), "{}", run.stderr);
     assert!(run.stderr.contains("provider=rejected"), "{}", run.stderr);
 }
 

@@ -6422,7 +6422,7 @@ fn an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses() {
     on_screen(
         &session,
         (40, 120),
-        &["\u{2717} credits: provider=rejected: the `provider` setting is `not-a-provider`"],
+        &["\u{2717} credits: provider=rejected: the `provider` setting is `codex`"],
         &["MARKER-TITLE", "balance=42.17"],
     );
 

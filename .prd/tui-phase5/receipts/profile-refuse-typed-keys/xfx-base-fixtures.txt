@@ -1,4 +1,4 @@
-== probe.sh xfx <xfx at 0a334851, the base> <run> (every fixture)
+== probe.sh xfx <xfx at 0a334851, the base> <run> (every fixture, then model-then-provider)
 binary sha256 before: c2becf5ee8e2
 == truncated
   ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
@@ -534,4 +534,12 @@ binary sha256 before: c2becf5ee8e2
     stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=0a334851f337|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
   interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
   line shell             still running after 6 s exit= tty=296B stderr=xfx: config user: invalid_value; key=fast_mode|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+binary sha256 after: c2becf5ee8e2
+binary sha256 before: c2becf5ee8e2
+== model-then-provider
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=663B stderr= | touched: 
+    stdout: [status] model=a|[status] provider=rejected|[status] provider_rejected=|[status] build_channel=debug|[status] build_revision=0a334851f337|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=provider=rejected: the `provider` setting is a value that is not a string, which xfx cann
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
 binary sha256 after: c2becf5ee8e2
