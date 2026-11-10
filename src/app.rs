@@ -230,6 +230,11 @@ async fn run_streams(
         }
         Command::Status { json } => {
             let config = load_config()?;
+            // fx's `status` fails with its load (`cli_surface.zig:1336-1357`).
+            if let Some(refusal) = config.launch_refusal(crate::config::Launch::Status) {
+                writeln!(stderr, "xfx: {refusal}")?;
+                return Ok(ExitCode::from(REJECTED_EXIT_CODE));
+            }
             let snapshot =
                 StatusSnapshot::new(&config, crate::build_info(), session_facts(&config));
             write!(
@@ -334,12 +339,12 @@ async fn ask(
     // loads it first and fails with the error's name, on stderr, or under
     // `--json` as the result's error on stdout (`cli_ask.zig:1306-1327`,
     // `:1434-1458@481104fd`), and exits 1.
-    if config.refuses_launch(crate::config::Launch::Ask) {
+    if let Some(refusal) = config.launch_refusal(crate::config::Launch::Ask) {
         if request.json {
             let mut sink = JsonlSink::new(stdout).on_terminal(stdout_is_terminal);
-            return fail_turn(&mut sink, crate::config::PROFILE_REFUSAL.to_string());
+            return fail_turn(&mut sink, refusal.to_string());
         }
-        writeln!(stderr, "xfx: {}", crate::config::PROFILE_REFUSAL)?;
+        writeln!(stderr, "xfx: {refusal}")?;
         return Ok(ExitCode::from(REJECTED_EXIT_CODE));
     }
     // The permission mode is deliberately *not* restored from a session. It is

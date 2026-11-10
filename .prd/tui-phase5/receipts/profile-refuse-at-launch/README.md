@@ -438,6 +438,11 @@ launch does not do.
     xfx starts (`xfx-head-fixtures.txt`). Recorded, as the brief asked, and
     put with PROFILE-REFUSE-TYPED-KEYS: both are what fx's parser rejects and
     xfx's takes.
+  - **Done** in PROFILE-REFUSE-TYPED-KEYS, with (b) below
+    (`../profile-refuse-typed-keys/README.md`): fx's parse of the profile is
+    copied for the keys both products read, a key twice is refused in either
+    layer, and a `provider` or `models` that does not parse stops every
+    launch and `status` with the error's name.
 - **(b) A bad `provider` or `models`** (recorded decision): fx stops with
   the parse error's name (`fx: UnknownConfiguredProvider`,
   `fx: InvalidModelValue`) at every surface that loads settings, `status`

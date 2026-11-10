@@ -2,16 +2,15 @@
 //!
 //! Each was run against the oracle
 //! (`.prd/tui-phase5/receipts/profile-refuse-at-launch/probe.sh`,
+//! `.prd/tui-phase5/receipts/profile-refuse-typed-keys/probe.sh`,
 //! `fx-fixtures.txt`): fx exits 1 with `fx: InvalidProfileConfiguration`
-//! (`src/core/app/app_lifecycle.zig:689-703@481104fd`).
+//! (`src/core/app/app_lifecycle.zig:689-703@481104fd`), or with the error its
+//! load fails with ([`STOPPED`]).
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-
-/// What a launch that refuses writes, after the program's name.
-pub const REFUSAL: &str = "xfx: InvalidProfileConfiguration";
 
 /// What stands at `~/.xfx/settings.json`, or at `~/.xfx`, in one fixture.
 #[derive(Clone, Copy, Debug)]
@@ -58,8 +57,8 @@ pub enum Profile {
     LinkedFile,
     /// `~/.xfx` itself a link to a directory holding a valid file.
     LinkedDir,
-    /// A valid profile, and a project file that is not JSON.
-    MalformedProject,
+    /// A valid profile, and a project file holding these bytes.
+    Project(&'static str),
 }
 
 /// Every launch refuses these: the TUI, the line shell and `ask`.
@@ -94,7 +93,73 @@ pub const REJECTED: &[(&str, Profile)] = &[
         "an entry's model with a blank before it",
         Profile::Entry(r#"{"model": " openai/gpt-5"}"#),
     ),
+    (
+        "a switch that is not a bool",
+        Profile::Text(r#"{"fast_mode": "yes"}"#),
+    ),
+    (
+        "a permission action fx does not read",
+        Profile::Text(r#"{"permission": {"bash": "perhaps"}}"#),
+    ),
+    (
+        "an entry's switch that is not a bool",
+        Profile::Entry(r#"{"fast_mode": "yes"}"#),
+    ),
+    (
+        "a key twice",
+        Profile::Text(r#"{"permission_mode": "auto", "permission_mode": "ask"}"#),
+    ),
+    (
+        "a key twice inside a table",
+        Profile::Text(r#"{"permission": {"bash": "allow", "bash": "deny"}}"#),
+    ),
 ];
+
+/// fx's load itself fails on these, and every launch and `status` exit 1
+/// with its error's name (`config_runtime.zig:1011-1015`, `:350-355`).
+pub const STOPPED: &[(&str, Profile, &str)] = &[
+    (
+        "a provider nothing defines",
+        Profile::Text(r#"{"provider": "not-a-provider"}"#),
+        "UnknownConfiguredProvider",
+    ),
+    (
+        "an entry's provider nothing defines",
+        Profile::Entry(r#"{"provider": "not-a-provider"}"#),
+        "UnknownConfiguredProvider",
+    ),
+    (
+        "a provider that is not a string",
+        Profile::Text(r#"{"provider": 5}"#),
+        "InvalidProviderType",
+    ),
+    (
+        "a models entry with a blank before it",
+        Profile::Text(r#"{"models": {"gateway": " openai/gpt-5"}}"#),
+        "InvalidModelValue",
+    ),
+    (
+        "models that is not an object",
+        Profile::Text(r#"{"models": 5}"#),
+        "InvalidModelType",
+    ),
+];
+
+/// Every profile every launch refuses, with the error it is refused with.
+pub fn every_launch_refuses() -> impl Iterator<Item = (&'static str, Profile, &'static str)> {
+    REJECTED
+        .iter()
+        .map(|(name, profile)| (*name, *profile, "InvalidProfileConfiguration"))
+        .chain(STOPPED.iter().copied())
+}
+
+/// Whether `stderr` holds a launch's refusal: `xfx: ` and an error's name.
+pub fn refused(stderr: &str) -> bool {
+    stderr.lines().any(|line| {
+        line.strip_prefix("xfx: ")
+            .is_some_and(|name| !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphabetic()))
+    })
+}
 
 /// Only `ask` refuses these (fx's `durable_path_unsafe`); an interactive
 /// launch goes on.
@@ -125,7 +190,35 @@ pub const STARTED: &[(&str, Profile)] = &[
         "a retired key before a bad model",
         Profile::Text(r#"{"skill_match_fuzzy": true, "model": " openai/gpt-5"}"#),
     ),
-    ("a malformed project file", Profile::MalformedProject),
+    (
+        "a malformed project file",
+        Profile::Project(r#"{"max_agent_steps": "#),
+    ),
+    (
+        "a project file with a key twice",
+        Profile::Project(r#"{"max_agent_steps": 1, "max_agent_steps": 2}"#),
+    ),
+    (
+        "context limits fx does not read, before a switch that is not a bool",
+        Profile::Text(r#"{"context_limits": "x", "fast_mode": "yes"}"#),
+    ),
+    (
+        "skill authorities fx does not read, before notifications it would refuse",
+        Profile::Text(r#"{"skill_symlink_authorities": 5, "notifications": 5}"#),
+    ),
+    (
+        "an entry's statusLine that is not an object",
+        Profile::Entry(r#"{"statusLine": 5}"#),
+    ),
+    ("a key only xfx reads", Profile::Text(r#"{"llmux_url": 5}"#)),
+    (
+        "a models entry with a space inside it",
+        Profile::Text(r#"{"models": {"gateway": "openai/gpt 5"}}"#),
+    ),
+    (
+        "a provider in capitals",
+        Profile::Text(r#"{"provider": "GATEWAY"}"#),
+    ),
     ("exactly the ceiling", Profile::Sized(64 * 1024)),
     (
         "torn JSON group may write",
@@ -240,10 +333,9 @@ pub fn lay(home: &Path, workspace: &Path, profile: Profile) -> bool {
             private(&real.join("settings.json"), 0o600);
             std::os::unix::fs::symlink("real-profile", &dir).expect("the link");
         }
-        Profile::MalformedProject => {
+        Profile::Project(text) => {
             write(r#"{"permission_mode": "auto"}"#);
-            fs::write(workspace.join(".xfx.json"), r#"{"max_agent_steps": "#)
-                .expect("the project file");
+            fs::write(workspace.join(".xfx.json"), text).expect("the project file");
         }
     }
     true
@@ -262,12 +354,11 @@ pub fn unlock(home: &Path) {
 /// modification time: what a run made or changed shows here, and nothing is
 /// opened, so an unreadable file is listed too. A directory its owner may not
 /// list is listed with its mode given back for the look and then put back,
-/// which moves no modification time.
+/// which moves no modification time. A directory it cannot list even so is a
+/// panic, never an empty listing: an empty home is a listing of its own.
 pub fn snapshot(root: &Path) -> Vec<(PathBuf, u64, Option<SystemTime>)> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, u64, Option<SystemTime>)>) {
-        let Ok(metadata) = fs::metadata(dir) else {
-            return;
-        };
+        let metadata = fs::metadata(dir).expect("a directory to list");
         let mode = metadata.permissions();
         let locked = fs::read_dir(dir).is_err();
         if locked {

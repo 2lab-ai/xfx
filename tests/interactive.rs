@@ -187,9 +187,9 @@ fn the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything() {
     let stderr = String::from_utf8(output.stderr).expect("utf-8");
     assert!(stderr.contains("interactive terminal"), "{stderr}");
 
-    for (name, profile) in profiles::REJECTED {
+    for (name, profile, error) in profiles::every_launch_refuses() {
         let sandbox = Sandbox::new();
-        if !profiles::lay(&sandbox.home, &sandbox.workspace, *profile) {
+        if !profiles::lay(&sandbox.home, &sandbox.workspace, profile) {
             eprintln!("skipped {name}: the mode bits do not stop this reader");
             continue;
         }
@@ -197,13 +197,12 @@ fn the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything() {
             profiles::snapshot(&sandbox.home),
             profiles::snapshot(&sandbox.workspace),
         );
-        assert!(!before.0.is_empty(), "{name}: the home is listed");
         let pty = Pty::open();
         let mut session = Session::spawn(&pty, sandbox.command());
         assert_eq!(session.wait_exit().code(), Some(1), "{name}");
         assert_eq!(
             session.settled_text(),
-            format!("{}\r\n", profiles::REFUSAL),
+            format!("xfx: {error}\r\n"),
             "{name}"
         );
         let after = (

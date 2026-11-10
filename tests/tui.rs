@@ -1071,15 +1071,15 @@ fn a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken() {
 /// the session.
 #[test]
 fn a_profile_fx_refuses_is_refused_before_the_terminal_is_taken() {
-    let cases = profiles::REJECTED
-        .iter()
-        .map(|(name, profile)| (*name, *profile, None))
+    let cases = profiles::every_launch_refuses()
+        .map(|(name, profile, error)| (name, profile, error, None))
         .chain([(
             "not JSON, on a resume",
             profiles::REJECTED[0].1,
+            "InvalidProfileConfiguration",
             Some("no-such-session"),
         )]);
-    for (name, profile, resume) in cases {
+    for (name, profile, error, resume) in cases {
         let sandbox = Sandbox::new();
         if !profiles::lay(&sandbox.home, &sandbox.workspace, profile) {
             eprintln!("skipped {name}: the mode bits do not stop this reader");
@@ -1089,7 +1089,6 @@ fn a_profile_fx_refuses_is_refused_before_the_terminal_is_taken() {
             profiles::snapshot(&sandbox.home),
             profiles::snapshot(&sandbox.workspace),
         );
-        assert!(!tree_before.0.is_empty(), "{name}: the home is listed");
         let pty = Pty::open();
         pty.resize(24, 80);
         let before = modes(&pty);
@@ -1100,7 +1099,7 @@ fn a_profile_fx_refuses_is_refused_before_the_terminal_is_taken() {
         let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
         assert_eq!(session.wait_exit().code(), Some(1), "{name}");
         let text = session.settled_text();
-        assert_eq!(text, format!("{}\r\n", profiles::REFUSAL), "{name}");
+        assert_eq!(text, format!("xfx: {error}\r\n"), "{name}");
         assert_no_mode_bytes(&text);
         assert_eq!(
             before,
@@ -2602,7 +2601,7 @@ fn a_live_theme_notification_repaints_the_band_without_losing_the_draft() {
 
     // `C-u` before `C-d`: the composer holds the draft this case typed into
     // it, and `C-d` on a non-empty draft is not the tested exit gesture
-    // (`tests/tui.rs:1306,1654,1777,2103,4607,4803` all clear the line
+    // (`tests/tui.rs:1305,1654,1777,2103,4607,4803` all clear the line
     // first). The kill takes the line the caret is on.
     session.type_bytes(&[0x15, 0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));

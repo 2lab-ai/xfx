@@ -181,7 +181,7 @@ points here for the target.
   `block_on(app::run(...))` (`src/main.rs:17-25`). The comment states the reason: xfx drives one turn
   at a time and never spawns work that outlives the command.
 - One extra **detached OS thread**, `xfx-interrupt`, with its own current-thread runtime, for SIGINT
-  only (`src/app.rs:551-592`). It exists precisely because the main runtime is single-threaded and is
+  only (`src/app.rs:556-597`). It exists precisely because the main runtime is single-threaded and is
   *blocked* for the duration of a `terminal` command and for as long as a user takes to type a line.
   Its start is a handshake, not a hope: a `sync_channel(1)` releases the caller only once the signal
   future has been polled once (that poll is the registration), bounded by a 2 s timeout, and a signal

@@ -83,8 +83,8 @@ pub fn run_blocking(cli: Cli) -> ExitCode {
     // looks for its session: upstream loads it after its terminal check and
     // before raw mode (`bootstrapInteractiveApp`,
     // `app_lifecycle.zig:851-883@481104fd`) and exits 1 naming the error.
-    if config.refuses_launch(crate::config::Launch::Interactive) {
-        return fail(crate::config::PROFILE_REFUSAL);
+    if let Some(refusal) = config.launch_refusal(crate::config::Launch::Interactive) {
+        return fail(refusal);
     }
     match session(&config, resume.as_ref()) {
         Ok(code) => code,

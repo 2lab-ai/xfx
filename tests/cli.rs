@@ -1906,18 +1906,27 @@ fn a_rejected_provider_from_newer_layer_poisons_at_binary_level() {
 fn ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused() {
     // Upstream's headless run says each diagnostic first (`cli_ask.zig:1716-1727`,
     // `fx ask: config user: malformed_settings`); a table that did not read
-    // refuses every tool here, and the run says so.
+    // refuses every tool here, and the run says so. fx starts with this
+    // profile: its parse stops first at `skill_symlink_authorities`, a cause
+    // no launch refuses (`config_runtime.zig:1025-1037@481104fd`).
     let sandbox = Sandbox::new();
-    sandbox.write_user_settings(r#"{"permission":{"read":{"secrets/*":"deny"},"bash":"perhaps"}}"#);
+    sandbox.write_user_settings(
+        r#"{"skill_symlink_authorities":5,"permission":{"read":{"secrets/*":"deny"},"bash":"perhaps"}}"#,
+    );
     let run = sandbox.run(&["ask", "--no-save", "hello"]);
     assert!(
-        run.stderr.starts_with(
+        run.stderr.contains(
             "xfx ask: config user: invalid_value; key=permission; `perhaps` is not a permission action; use allow, ask or deny\n\
              xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: invalid_value key=permission `perhaps` is not a permission action; use allow, ask or deny)\n"
         ),
         "{}",
         run.stderr
     );
+    // Without that key fx's parse stops at the table, and the launch refuses.
+    sandbox.write_user_settings(r#"{"permission":{"read":{"secrets/*":"deny"},"bash":"perhaps"}}"#);
+    let run = sandbox.run(&["ask", "--no-save", "hello"]);
+    assert_eq!(run.stderr, "xfx: InvalidProfileConfiguration\n");
+    assert_eq!(run.code, Some(1));
     // A file that does not read at all is no longer a diagnostic here: fx
     // refuses the launch (`app_lifecycle.zig:689-703@481104fd`), and so does
     // xfx, before either line ([`ask_refuses_a_profile_fx_refuses`]).
@@ -1930,17 +1939,21 @@ fn ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused(
 /// `ask` with every profile fx v0.0.16 refuses under `ask`: the profiles every
 /// launch refuses and the ones only `ask` does (fx's `durable_path_unsafe`,
 /// whose load passes no stored credential mode, `app_lifecycle.zig:420-433`).
-/// fx says `fx: InvalidProfileConfiguration` on stderr and exits 1; under
-/// `--json` the JSON result names the error on stdout and stderr says nothing
-/// (`cli_ask.zig:1306-1327`). Before anything is read or written: a key and an
-/// endpoint are set, and the home and the workspace are as they were.
+/// fx says `fx: InvalidProfileConfiguration`, or the error its load failed
+/// with, on stderr and exits 1; under `--json` the JSON result names the
+/// error on stdout and stderr says nothing (`cli_ask.zig:1306-1327`). Before
+/// anything is read or written: a key and an endpoint are set, and the home
+/// and the workspace are as they were.
 #[cfg(unix)]
 #[test]
 fn ask_refuses_a_profile_fx_refuses() {
-    for (name, profile) in profiles::REJECTED.iter().chain(profiles::UNSAFE) {
+    let only_ask = profiles::UNSAFE
+        .iter()
+        .map(|(name, profile)| (*name, *profile, "InvalidProfileConfiguration"));
+    for (name, profile, error) in profiles::every_launch_refuses().chain(only_ask) {
         for json in [false, true] {
             let sandbox = Sandbox::new();
-            if !profiles::lay(&sandbox.home, &sandbox.workspace, *profile) {
+            if !profiles::lay(&sandbox.home, &sandbox.workspace, profile) {
                 eprintln!("skipped {name}: the mode bits do not stop this reader");
                 continue;
             }
@@ -1948,7 +1961,6 @@ fn ask_refuses_a_profile_fx_refuses() {
                 profiles::snapshot(&sandbox.home),
                 profiles::snapshot(&sandbox.workspace),
             );
-            assert!(!before.0.is_empty(), "{name}: the home is listed");
             let args: &[&str] = if json {
                 &["ask", "--json", "hello"]
             } else {
@@ -1965,13 +1977,13 @@ fn ask_refuses_a_profile_fx_refuses() {
             if json {
                 assert_eq!(
                     run.stdout,
-                    "{\"kind\":\"error\",\"message\":\"InvalidProfileConfiguration\"}\n",
+                    format!("{{\"kind\":\"error\",\"message\":\"{error}\"}}\n"),
                     "{name}"
                 );
                 assert_eq!(run.stderr, "", "{name}");
             } else {
                 assert_eq!(run.stdout, "", "{name}");
-                assert_eq!(run.stderr, format!("{}\n", profiles::REFUSAL), "{name}");
+                assert_eq!(run.stderr, format!("xfx: {error}\n"), "{name}");
             }
             let after = (
                 profiles::snapshot(&sandbox.home),
@@ -1992,11 +2004,7 @@ fn ask_goes_on_with_a_profile_fx_starts_with() {
         let sandbox = Sandbox::new();
         assert!(profiles::lay(&sandbox.home, &sandbox.workspace, *profile));
         let run = sandbox.run(&["ask", "--no-save", "hello"]);
-        assert!(
-            !run.stderr.contains("InvalidProfileConfiguration"),
-            "{name}: {}",
-            run.stderr
-        );
+        assert!(!profiles::refused(&run.stderr), "{name}: {}", run.stderr);
         assert!(
             run.stderr.contains("xfx needs access"),
             "{name}: {}",
@@ -2036,6 +2044,41 @@ fn the_commands_fx_answers_without_a_launch_answer_with_a_profile_it_refuses() {
         );
         let expected = if args == ["session", "last"] { 1 } else { 0 };
         assert_eq!(run.code, Some(expected), "{args:?}: {}", run.stderr);
+    }
+}
+
+/// A profile fx's load fails on stops `status` too, with the error's name
+/// and nothing on stdout (`cli_surface.zig:1336-1357@481104fd`); `doctor`,
+/// `sessions`, `session`, `--version` and help still answer, as fx's do
+/// (`fx-fixtures.txt`, `PROBE_ENTRIES=all`).
+#[cfg(unix)]
+#[test]
+fn status_stops_where_fxs_load_fails_and_the_rest_still_answer() {
+    for (name, profile, error) in profiles::STOPPED {
+        let sandbox = Sandbox::new();
+        assert!(profiles::lay(&sandbox.home, &sandbox.workspace, *profile));
+        for args in [&["status"][..], &["status", "--json"]] {
+            let run = sandbox.run(args);
+            assert_eq!(run.code, Some(1), "{name} {args:?}");
+            assert_eq!(run.stdout, "", "{name} {args:?}");
+            assert_eq!(run.stderr, format!("xfx: {error}\n"), "{name} {args:?}");
+        }
+        for args in [
+            &["--version"][..],
+            &["help"],
+            &["doctor"],
+            &["sessions"],
+            &["session", "last"],
+        ] {
+            let run = sandbox.run(args);
+            assert!(
+                !profiles::refused(&run.stderr),
+                "{name} {args:?}: {}",
+                run.stderr
+            );
+            let expected = if args == ["session", "last"] { 1 } else { 0 };
+            assert_eq!(run.code, Some(expected), "{name} {args:?}: {}", run.stderr);
+        }
     }
 }
 

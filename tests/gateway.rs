@@ -2205,10 +2205,15 @@ fn ask_with_a_permission_table_that_does_not_read_runs_no_tool() {
         "{bodies:?}"
     );
     assert!(written, "the control's write ran");
+    // fx v0.0.16 starts with these: its parse of the layer stops first at
+    // `skill_symlink_authorities`, a cause no launch refuses
+    // (`config_runtime.zig:1025-1037@481104fd`).
     for profile in [
-        Some(r#"{"permission":{"read":"allow","edit":"allow","bash":"perhaps"}}"#),
         Some(
-            r#"{"permission":{"bash":"perhaps"},"workspaces":{{ROOT}:{"permission":{"read":"allow","edit":"allow"}}}}"#,
+            r#"{"skill_symlink_authorities":5,"permission":{"read":"allow","edit":"allow","bash":"perhaps"}}"#,
+        ),
+        Some(
+            r#"{"skill_symlink_authorities":5,"permission":{"bash":"perhaps"},"workspaces":{{ROOT}:{"permission":{"read":"allow","edit":"allow"}}}}"#,
         ),
     ] {
         let Some((run, bodies, written)) = a_tool_attempt_under(profile) else {
@@ -2234,12 +2239,17 @@ fn ask_with_a_permission_table_that_does_not_read_runs_no_tool() {
             first["tools"]
         );
     }
-    // A profile that does not read at all, or whose entry for this workspace
-    // is not an object, is refused before the turn, as fx v0.0.16 refuses it
+    // A profile that does not read at all, whose entry for this workspace is
+    // not an object, or whose table fx's parse stops at first, is refused
+    // before the turn, as fx v0.0.16 refuses it
     // (`app_lifecycle.zig:689-703@481104fd`): no request, so no tool and no
     // secret, and the JSON result names the error.
     for profile in [
         Some(r#"{"permission":{"read":"allow","edit":"allow"},"workspaces":{{ROOT}:["x"]}}"#),
+        Some(r#"{"permission":{"read":"allow","edit":"allow","bash":"perhaps"}}"#),
+        Some(
+            r#"{"permission":{"bash":"perhaps"},"workspaces":{{ROOT}:{"permission":{"read":"allow","edit":"allow"}}}}"#,
+        ),
         Some("{ this is not json"),
         // A real read error, not a parse error.
         None,
