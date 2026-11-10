@@ -196,6 +196,10 @@ pub fn pipe() -> io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
 /// caller that builds the whole environment (the terminal tool, an MCP stdio
 /// server) clears everything first.
 pub fn command(program: impl AsRef<OsStr>) -> Command {
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "the one Command every other child of xfx's is made from"
+    )]
     let mut command = Command::new(program);
     // A unit test's child inherits the case's fake process, never the
     // developer's environment; a build is unchanged.
@@ -882,121 +886,6 @@ mod tests {
                 .any(|(name, value)| name == "VERCEL_OIDC_TOKEN"
                     && value == Some(OsStr::new("xfx-sentinel-granted"))),
             "a credential a caller names is not passed"
-        );
-    }
-
-    /// The rule, kept by reading the library's own code: every child process
-    /// is made by [`command`] -- in a test module too, where `command` gives a
-    /// unit test's child the case's fake process or nothing
-    /// (`crate::test_env`). Two exceptions, and no other:
-    ///
-    /// - this file's code outside its test module (everything before its
-    ///   first unindented `#[cfg(test)]` or `#[cfg(all(test, …))]` that puts
-    ///   a `mod` under it), where [`command`] makes the one `Command` every
-    ///   other comes from;
-    /// - in `tui/signals.rs`, the case about what a bare `Command`'s child
-    ///   inherits, its environment cleared on the next lines.
-    ///
-    /// Integration tests (`tests/`) are not read: each builds its children's
-    /// environment with `support::sandbox::clear_env`, and each test binary
-    /// runs its cases in a copy of itself whose environment is built from
-    /// nothing (`tests/support/isolated.rs`).
-    ///
-    /// Every start of one, tests' too, goes through [`spawn`], and every pipe
-    /// through [`pipe`]: that half is clippy's, on the resolved call
-    /// (`clippy.toml`'s `disallowed-methods`), which sees a command started
-    /// in a later statement as well as in the one that made it. Kept here:
-    /// each entry is still a line of its own in `clippy.toml`, not commented
-    /// out. That nothing lifts them but [`spawn`], [`spawn_unless`], [`pipe`]
-    /// and the build script, under any spelling of an allow,
-    /// `scripts/check-env-reads.py` holds, with the lint forced on.
-    ///
-    /// The `Command::new` half reads lines: a guard against the ordinary ways
-    /// to make a command by accident, not a proof that none is left -- a
-    /// macro, a raw `syscall`, or a dependency's own start are beyond what
-    /// reading lines can see.
-    #[test]
-    fn no_child_process_is_made_any_other_way() {
-        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let rules = std::fs::read_to_string(manifest.join("clippy.toml")).expect("clippy.toml");
-        for path in [
-            "std::process::Command::spawn",
-            "std::process::Command::status",
-            "std::process::Command::output",
-            // Spelled in halves: this module's lines are read below.
-            concat!("tokio::process::", "Command::spawn"),
-            concat!("tokio::process::", "Command::status"),
-            concat!("tokio::process::", "Command::output"),
-            "libc::fork",
-            "libc::vfork",
-            "libc::forkpty",
-            "libc::posix_spawn",
-            "libc::posix_spawnp",
-            "libc::popen",
-            "libc::system",
-            "libc::pipe",
-            "libc::socketpair",
-            "rustix::pipe::pipe",
-            "rustix::pipe::pipe_with",
-            "std::io::pipe",
-            "std::os::unix::net::UnixStream::pair",
-            "std::os::unix::net::UnixDatagram::pair",
-            "mio::unix::pipe::new",
-        ] {
-            let entry = format!("{{ path = \"{path}\", ");
-            assert!(
-                rules
-                    .lines()
-                    .any(|line| line.trim_start().starts_with(&entry)),
-                "clippy.toml no longer disallows {path}"
-            );
-        }
-        let root = manifest.join("src");
-        let mut stack = vec![root.clone()];
-        // Spelled in halves, so that this file's test module, which the
-        // check reads, does not hold what it looks for.
-        let made = concat!("Command", "::new(");
-        let made_by_tokio = concat!("tokio::process::", "Command");
-        let bare_sleep = concat!("Command", "::new(\"/bin/sleep\")");
-        let mut found = Vec::new();
-        while let Some(dir) = stack.pop() {
-            for entry in std::fs::read_dir(&dir).expect("a source dir") {
-                let path = entry.expect("an entry").path();
-                if path.is_dir() {
-                    stack.push(path);
-                    continue;
-                }
-                if path.extension().and_then(OsStr::to_str) != Some("rs") {
-                    continue;
-                }
-                let this_file = path == root.join("process.rs");
-                let text = std::fs::read_to_string(&path).expect("a source file");
-                let lines: Vec<&str> = text.lines().collect();
-                let mut in_tests = false;
-                for (number, line) in lines.iter().enumerate() {
-                    in_tests |= (line.starts_with("#[cfg(test)]")
-                        || line.starts_with("#[cfg(all(test"))
-                        && lines[number + 1..]
-                            .iter()
-                            .find(|next| !next.starts_with("#["))
-                            .is_some_and(|next| next.contains("mod "));
-                    if line.trim_start().starts_with("//") || this_file && !in_tests {
-                        continue;
-                    }
-                    let bare_on_purpose = path.ends_with("tui/signals.rs")
-                        && line.contains(bare_sleep)
-                        && lines[number..lines.len().min(number + 3)]
-                            .iter()
-                            .any(|next| next.contains(".env_clear()"));
-                    if !bare_on_purpose && (line.contains(made) || line.contains(made_by_tokio)) {
-                        found.push(format!("{}:{}", path.display(), number + 1));
-                    }
-                }
-            }
-        }
-        assert!(
-            found.is_empty(),
-            "a child process made or started without crate::process: {found:?}"
         );
     }
 

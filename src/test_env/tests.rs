@@ -517,40 +517,6 @@ fn a_git_plan_reads_the_git_configuration_of_the_fake_home() {
         .any(|(name, value)| name == "HOME" && Path::new(value) == home.path()));
 }
 
-// ---------------------------------------------------------------------------
-// the rest of the crate: clippy's environment rule
-// ---------------------------------------------------------------------------
-
-/// The readers of the process environment `clippy.toml` disallows: checked
-/// on the resolved call, so an imported `var` or an aliased `std::env` is
-/// caught as the plain path is. What clippy is told to let through --
-/// `process_env!`'s build arms and the `env_exception!`s, each held to its
-/// file and its literal names -- `scripts/check-env-reads.py` holds, with the
-/// lint forced on.
-const ENV_READERS: [&str; 6] = [
-    "std::env::var",
-    "std::env::var_os",
-    "std::env::vars",
-    "std::env::vars_os",
-    "std::env::home_dir",
-    "libc::getenv",
-];
-
-#[test]
-fn clippy_disallows_every_reader_of_the_environment() {
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let rules = std::fs::read_to_string(manifest.join("clippy.toml")).expect("clippy.toml");
-    for path in ENV_READERS {
-        let entry = format!("{{ path = \"{path}\", ");
-        assert!(
-            rules
-                .lines()
-                .any(|line| line.trim_start().starts_with(&entry)),
-            "clippy.toml no longer disallows {path}"
-        );
-    }
-}
-
 /// A runtime's environment laid over a case's fake process: what the
 /// environment holds wins, the fake fills the rest; with no fake on the
 /// thread, the environment alone is the process.

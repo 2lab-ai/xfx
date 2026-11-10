@@ -67,7 +67,7 @@ impl Sandbox {
     }
 
     fn command(&self) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+        let mut command = support::command(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
         // Built from nothing but where programs are and where temporary
         // files go: no variable of the developer's -- an xfx setting, a

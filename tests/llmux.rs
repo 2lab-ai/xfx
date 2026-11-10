@@ -1510,7 +1510,7 @@ impl Sandbox {
     }
 
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
-        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_xfx"));
+        let mut command = support::command(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
         support::sandbox::clear_env(&mut command);
         command.env("HOME", &self.home);

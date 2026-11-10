@@ -26,7 +26,6 @@ use std::ffi::{OsStr, OsString};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::OnceLock;
 
 /// The variable that tells the copy what its `HOME` is called.
@@ -93,7 +92,7 @@ fn become_the_copy() -> String {
         Ok(exe) => exe,
         Err(err) => return format!("cannot find this test binary: {err}"),
     };
-    let mut copy = Command::new(exe);
+    let mut copy = super::command(exe);
     super::sandbox::clear_env(&mut copy);
     copy.args(args)
         .env("HOME", &home)
@@ -105,6 +104,10 @@ fn become_the_copy() -> String {
     if let Some(value) = xfx::env_exception!(var_os("RUST_TEST_THREADS")) {
         copy.env("RUST_TEST_THREADS", value);
     }
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "the one exec: this process becomes its clean copy, before main"
+    )]
     let err = copy.exec();
     let _ = std::fs::remove_dir(&home);
     format!("cannot start the copy: {err}")

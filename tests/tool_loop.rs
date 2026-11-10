@@ -18,7 +18,7 @@ use std::collections::VecDeque;
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 
@@ -104,7 +104,8 @@ impl Tree {
     /// run on.
     fn mkfifo(&self, relative: &str) -> PathBuf {
         let path = self.root.join(relative);
-        let status = xfx::process::status(Command::new("mkfifo").arg(&path)).expect("run mkfifo");
+        let status =
+            xfx::process::status(support::command("mkfifo").arg(&path)).expect("run mkfifo");
         assert!(status.success(), "mkfifo failed: {status:?}");
         path
     }
@@ -3619,7 +3620,7 @@ impl Sandbox {
     }
 
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+        let mut command = support::command(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
         support::sandbox::clear_env(&mut command);
         command.env("HOME", &self.home);

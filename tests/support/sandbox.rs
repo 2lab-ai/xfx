@@ -81,7 +81,7 @@ impl Sandbox {
     }
 
     pub fn command(&self) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+        let mut command = super::command(env!("CARGO_BIN_EXE_xfx"));
         self.apply_env(&mut command);
         command
     }

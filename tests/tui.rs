@@ -2083,7 +2083,7 @@ fn shell_output_from_before_the_launch_is_still_readable_afterwards() {
     // terminal's own answer rather than the 24x80 a pty with no size falls
     // back to -- and so the assertion below is about geometry.
     pty.resize(24, 80);
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.arg("-c").arg(format!(
         "printf 'PRIOR-OUTPUT-MARKER\\n'; exec {}",
         env!("CARGO_BIN_EXE_xfx")
@@ -2158,7 +2158,7 @@ fn a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.arg("-c").arg(format!(
         "printf 'PRIOR-OUTPUT-MARKER'; exec {}",
         env!("CARGO_BIN_EXE_xfx")
@@ -2218,7 +2218,7 @@ fn with_startup_scrollback_off_the_launch_starts_under_the_shells_output() {
     std::fs::write(&profile, "{\"startup_scrollback\":false}").expect("the profile");
     let pty = Pty::open();
     pty.resize(24, 80);
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.arg("-c").arg(format!(
         "printf 'PRIOR-OUTPUT-MARKER\\n'; exec {}",
         env!("CARGO_BIN_EXE_xfx")

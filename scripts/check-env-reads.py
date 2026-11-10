@@ -40,8 +40,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# The readers clippy.toml disallows for the environment; every other entry
-# there is the start rule's.
+# The readers clippy.toml disallows for the environment.
 ENV_READERS = {
     "std::env::var",
     "std::env::var_os",
@@ -49,6 +48,44 @@ ENV_READERS = {
     "std::env::vars_os",
     "std::env::home_dir",
     "libc::getenv",
+}
+
+# The start rule's entries: what makes or starts a child, replaces the
+# process, or makes a pipe or socket pair a start could hand on.
+STARTS = {
+    "std::process::Command::new",
+    "tokio::process::Command::new",
+    "std::process::Command::spawn",
+    "std::process::Command::status",
+    "std::process::Command::output",
+    "tokio::process::Command::spawn",
+    "tokio::process::Command::status",
+    "tokio::process::Command::output",
+    "std::os::unix::process::CommandExt::exec",
+    "libc::execv",
+    "libc::execve",
+    "libc::execvp",
+    "libc::execvpe",
+    "libc::fexecve",
+    "libc::execl",
+    "libc::execle",
+    "libc::execlp",
+    "libc::clone",
+    "libc::fork",
+    "libc::vfork",
+    "libc::forkpty",
+    "libc::posix_spawn",
+    "libc::posix_spawnp",
+    "libc::popen",
+    "libc::system",
+    "libc::pipe",
+    "rustix::pipe::pipe",
+    "rustix::pipe::pipe_with",
+    "std::io::pipe",
+    "mio::unix::pipe::new",
+    "libc::socketpair",
+    "std::os::unix::net::UnixStream::pair",
+    "std::os::unix::net::UnixDatagram::pair",
 }
 
 # Every variable an `env_exception!` may name, and why it may: none names the
@@ -143,13 +180,23 @@ EXCEPTIONS = [
 ]
 
 # Calls outside any macro that clippy is told to let through: file, path,
-# how many.
+# how many. One in tests/ is let through only in a test binary that runs its
+# cases in a clean copy of itself (tests/support/isolated.rs).
 PLAIN = [
-    # The start every other start goes through (process::spawn and
+    # The Command every child of xfx's is made from (process::command), the
+    # start every other start goes through (process::spawn and
     # process::spawn_unless), and the pipe every other pipe does
     # (process::pipe), under the lock.
+    ("src/process.rs", "std::process::Command::new", 1),
     ("src/process.rs", "std::process::Command::spawn", 2),
     ("src/process.rs", "rustix::pipe::pipe", 1),
+    # The bare Command a unit test about what a bare Command's child inherits
+    # makes, its environment cleared.
+    ("src/tui/signals.rs", "std::process::Command::new", 1),
+    # The Command every child an integration test starts is made from, and
+    # the exec that makes a test binary its clean copy.
+    ("tests/support/mod.rs", "std::process::Command::new", 1),
+    ("tests/support/isolated.rs", "std::os::unix::process::CommandExt::exec", 1),
     # The build script: a process cargo runs before the crate exists, never a
     # test and never the product. It reads what cargo and a publishing
     # workflow set (XFX_BUILD_REVISION, XFX_BUILD_CHANNEL, PROFILE), drops
@@ -157,6 +204,7 @@ PLAIN = [
     # calls: `git_path` and `git_revision`).
     ("build.rs", "std::env::var", 3),
     ("build.rs", "std::env::vars_os", 1),
+    ("build.rs", "std::process::Command::new", 1),
     ("build.rs", "std::process::Command::output", 2),
 ]
 
@@ -257,6 +305,7 @@ def classify(crate, messages, exception_file, process_env_file):
     invocations = []
     process_env = 0
     plain = collections.Counter()
+    plain_targets = collections.defaultdict(set)
     problems = []
     def_sites = collections.defaultdict(set)
     for record in messages:
@@ -276,6 +325,7 @@ def classify(crate, messages, exception_file, process_env_file):
         path = found.group(1) if found else message["message"]
         chain = expansions(where)
         if not chain:
+            plain_targets[where["file_name"]].add(record["target"]["name"])
             key = ("plain", where["file_name"], where["byte_start"], path)
             if key in seen:
                 continue
@@ -307,7 +357,7 @@ def classify(crate, messages, exception_file, process_env_file):
     for def_file, lines in def_sites.items():
         if def_file in (exception_file, process_env_file) and len(lines) != 1:
             problems.append((def_file, 0, f"{len(lines)} macros there let a read through, not one"))
-    return invocations, process_env, plain, problems
+    return invocations, process_env, plain, problems, plain_targets
 
 
 def judge(invocations, plain, problems, exceptions, plain_listed):
@@ -332,8 +382,26 @@ def judge(invocations, plain, problems, exceptions, plain_listed):
     return problems
 
 
+def config_problems(root):
+    """clippy.toml is the configuration clippy reads, and it disallows every
+    reader and every start this script knows of."""
+    problems = []
+    if os.path.exists(os.path.join(root, ".clippy.toml")):
+        problems.append((".clippy.toml", 0, "a .clippy.toml, which clippy reads in place of clippy.toml"))
+    try:
+        import tomllib
+    except ImportError:
+        return problems + [("clippy.toml", 0, "no tomllib (Python 3.11 or later) to read it with")]
+    with open(os.path.join(root, "clippy.toml"), "rb") as config:
+        rules = tomllib.load(config)
+    methods = {entry["path"] for entry in rules.get("disallowed-methods", []) if isinstance(entry, dict)}
+    for path in sorted((ENV_READERS | STARTS) - methods):
+        problems.append(("clippy.toml", 0, f"disallowed-methods no longer holds {path}"))
+    return problems
+
+
 def check_tree():
-    invocations, process_env, plain, problems = [], 0, collections.Counter(), []
+    invocations, process_env, plain, problems = [], 0, collections.Counter(), config_problems(ROOT)
     seen_invocations = set()
     for features in ([], ["--features", "fault-injection"]):
         status, finished, stderr, messages, tests = clippy(ROOT, ["--locked"] + features)
@@ -341,7 +409,7 @@ def check_tree():
             sys.stderr.write(stderr[-4000:])
             print(f"check-env-reads: clippy {' '.join(features) or '(default features)'} exited {status}")
             return 1
-        found, arms, calls, wrong = classify(ROOT, messages, ENV_EXCEPTION_FILE, PROCESS_ENV_FILE)
+        found, arms, calls, wrong, plain_targets = classify(ROOT, messages, ENV_EXCEPTION_FILE, PROCESS_ENV_FILE)
         # Every integration test binary reads its environment in
         # support::isolated, before main: one that does not has escaped it.
         isolating = {
@@ -355,6 +423,9 @@ def check_tree():
         }
         for name in sorted(tests - isolating):
             wrong.append((f"tests/{name}.rs", 0, "a test binary that does not run its cases in a clean copy (support::isolated)"))
+        for file, targets in sorted(plain_targets.items()):
+            for target in sorted(targets - isolating if file.startswith("tests/") else set()):
+                wrong.append((file, 0, f"a start let through in tests/ compiled into {target}, which does not run in a clean copy"))
         for invocation in found:
             key = (invocation[0], invocation[3])
             if key not in seen_invocations:
@@ -460,6 +531,26 @@ FIXTURES = {
         "#[cfg_attr(all(), allow(clippy::disallowed_methods))]\n" + 'pub fn f() -> bool { std::env::var_os("HOME").is_some() }',
         ["std::env::var_os outside"],
     ),
+    "aliased_command": (
+        "use std::process::Command as Git;\n"
+        'pub fn f() -> std::process::Command { Git::new("git") }',
+        ["std::process::Command::new outside"],
+    ),
+    "command_new_as_a_function": (
+        'pub fn f() -> Vec<std::process::Command> { ["git"].iter().map(std::process::Command::new).collect() }',
+        ["std::process::Command::new outside"],
+    ),
+    "command_new_by_qualified_path": (
+        'pub fn f() -> std::process::Command { <std::process::Command>::new("git") }',
+        ["std::process::Command::new outside"],
+    ),
+    "exec_and_execv": (
+        "use std::os::unix::process::CommandExt;\n"
+        "pub fn f(mut command: std::process::Command) -> std::io::Error { command.exec() }\n"
+        "/// # Safety\n/// The fixture is never called.\n"
+        "pub unsafe fn g() -> i32 { libc::execv(std::ptr::null(), std::ptr::null()) }",
+        ["std::os::unix::process::CommandExt::exec outside", "libc::execv outside"],
+    ),
     "a_start_under_an_env_allow": (
         "pub fn f() -> bool {\n    " + ALLOW + '\n    let started = std::process::Command::new("true").status();\n    started.is_ok()\n}',
         ["std::process::Command::status outside"],
@@ -515,7 +606,7 @@ def self_test():
         _, _, stderr, messages, _ = clippy(
             crate, ["--offline", "--keep-going"], {"CARGO_TARGET_DIR": os.path.join(scratch, "target")}
         )
-        invocations, _, plain, problems = classify(crate, messages, macro, None)
+        invocations, _, plain, problems, _ = classify(crate, messages, macro, None)
         problems = judge(invocations, plain, problems, [("tests/accepted.rs", ("PATH",))], [])
         failures = 0
         for name, (_, reasons) in FIXTURES.items():
@@ -532,7 +623,24 @@ def self_test():
         if not messages:
             sys.stderr.write(stderr[-4000:])
             failures += 1
-        print(f"check-env-reads --self-test: {len(FIXTURES)} fixtures, {failures} not as expected")
+        # The configuration: a .clippy.toml beside clippy.toml, and a
+        # clippy.toml that lost a reader and a start.
+        config = os.path.join(scratch, "config")
+        os.makedirs(config)
+        with open(os.path.join(ROOT, "clippy.toml")) as rules:
+            text = rules.read()
+        with open(os.path.join(config, "clippy.toml"), "w") as rules:
+            rules.write("\n".join(line for line in text.splitlines()
+                                  if '"std::env::var_os"' not in line and '"std::process::Command::new"' not in line))
+        with open(os.path.join(config, ".clippy.toml"), "w") as rules:
+            rules.write("")
+        found = [why for _, _, why in config_problems(config)]
+        wanted = ["a .clippy.toml", "no longer holds std::env::var_os", "no longer holds std::process::Command::new"]
+        missing = [reason for reason in wanted if not any(reason in why for why in found)]
+        failures += bool(missing)
+        print(f"{'refused' if not missing else 'NOT REFUSED for ' + str(missing):9} clippy configuration"
+              + "".join(f"\n            {why}" for why in found))
+        print(f"check-env-reads --self-test: {len(FIXTURES) + 1} fixtures, {failures} not as expected")
         return 1 if failures else 0
     finally:
         shutil.rmtree(scratch, ignore_errors=True)

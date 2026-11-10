@@ -1,9 +1,11 @@
-# The start rule (`src/process.rs`): a child of xfx's is started only by
-# `process::spawn`, under the one lock every start takes, and a pipe is made
-# only by `process::pipe`, under the same lock. Checked on the resolved call,
-# so a command started in a later statement, a `Command::spawn(&mut c)` and a
-# `map(Command::output)` are each caught; `process::tests::no_child_process_is_made_any_other_way`
-# keeps these entries here, one to a line.
+# The start rule (`src/process.rs`): a child of xfx's is made only by
+# `process::command` -- which gives a unit test's child the case's fake
+# process or nothing -- and started only by `process::spawn`, under the one
+# lock every start takes; a pipe is made only by `process::pipe`, under the
+# same lock; nothing replaces the process. Checked on the resolved call, so
+# an aliased `Command`, a `map(Command::new)`, a `<Command>::new`, a command
+# started in a later statement and a `Command::spawn(&mut c)` are each
+# caught. `scripts/check-env-reads.py` asserts every entry is here.
 #
 # The environment rule (`src/lib.rs`'s `process_env!`, `src/test_env.rs`): the
 # process environment is read through `process_env!`, so a unit test cannot
@@ -17,16 +19,29 @@
 # to its file and names and each start an allow lets through to a list.
 #
 # `allow-invalid` marks a path that does not resolve in every build: tokio is
-# built without `process`, mio is not a dependency of xfx's own, `vfork` is
-# not in libc on every target, and `pipe_with` is rustix's only where the
-# system has `pipe2`. Each bites as soon as it resolves.
+# built without `process`, mio is not a dependency of xfx's own, `vfork`,
+# `clone`, `execvpe`, `fexecve` and the variadic `execl*` are not in libc on
+# every target, and `pipe_with` is rustix's only where the system has
+# `pipe2`. Each bites as soon as it resolves.
 disallowed-methods = [
+  { path = "std::process::Command::new", reason = "a child is made by crate::process::command, which gives a unit test's child the case's fake process, never the developer's" },
+  { path = "tokio::process::Command::new", reason = "a child is made by crate::process::command, which gives a unit test's child the case's fake process, never the developer's", allow-invalid = true },
   { path = "std::process::Command::spawn", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },
   { path = "std::process::Command::status", reason = "a child is started by crate::process::spawn (or process::status), under the one lock every start takes" },
   { path = "std::process::Command::output", reason = "a child is started by crate::process::spawn (or process::output), under the one lock every start takes" },
   { path = "tokio::process::Command::spawn", reason = "a child is started by crate::process::spawn, under the one lock every start takes", allow-invalid = true },
   { path = "tokio::process::Command::status", reason = "a child is started by crate::process::spawn, under the one lock every start takes", allow-invalid = true },
   { path = "tokio::process::Command::output", reason = "a child is started by crate::process::spawn, under the one lock every start takes", allow-invalid = true },
+  { path = "std::os::unix::process::CommandExt::exec", reason = "nothing replaces the process: a start is crate::process::spawn's" },
+  { path = "libc::execv", reason = "nothing replaces the process: a start is crate::process::spawn's" },
+  { path = "libc::execve", reason = "nothing replaces the process: a start is crate::process::spawn's" },
+  { path = "libc::execvp", reason = "nothing replaces the process: a start is crate::process::spawn's" },
+  { path = "libc::execvpe", reason = "nothing replaces the process: a start is crate::process::spawn's", allow-invalid = true },
+  { path = "libc::fexecve", reason = "nothing replaces the process: a start is crate::process::spawn's", allow-invalid = true },
+  { path = "libc::execl", reason = "nothing replaces the process: a start is crate::process::spawn's", allow-invalid = true },
+  { path = "libc::execle", reason = "nothing replaces the process: a start is crate::process::spawn's", allow-invalid = true },
+  { path = "libc::execlp", reason = "nothing replaces the process: a start is crate::process::spawn's", allow-invalid = true },
+  { path = "libc::clone", reason = "a child is started by crate::process::spawn, under the one lock every start takes", allow-invalid = true },
   { path = "libc::fork", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },
   { path = "libc::vfork", reason = "a child is started by crate::process::spawn, under the one lock every start takes", allow-invalid = true },
   { path = "libc::forkpty", reason = "a child is started by crate::process::spawn, under the one lock every start takes" },

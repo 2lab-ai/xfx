@@ -10,7 +10,6 @@ mod support;
 
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use support::isolated::{HOME_PREFIX, MARKER};
 
@@ -27,7 +26,7 @@ fn a_case_marks_where_it_runs() {
 /// working directory, `marker` as its marker (none: started as a developer
 /// starts it) and `extra` beside them, asked to run the marking case alone.
 fn started(home: &Path, marker: Option<&str>, extra: &[(&str, &str)]) -> (bool, String) {
-    let mut copy = Command::new(std::env::current_exe().expect("this test binary"));
+    let mut copy = support::command(std::env::current_exe().expect("this test binary"));
     support::sandbox::clear_env(&mut copy);
     copy.current_dir(home).env("HOME", home).args([
         "--ignored",

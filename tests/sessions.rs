@@ -23,7 +23,7 @@ mod support;
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -1544,7 +1544,7 @@ impl Sandbox {
     }
 
     fn run_in(&self, cwd: &Path, args: &[&str], env: &[(&str, &str)]) -> Run {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+        let mut command = support::command(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(cwd);
         support::sandbox::clear_env(&mut command);
         command.env("HOME", &self.home);

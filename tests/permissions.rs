@@ -2086,7 +2086,7 @@ fn git(root: &Path, args: &[&str]) {
     // From nothing but PATH and TMPDIR (`support::sandbox::clear_env`): no
     // `GIT_DIR`, `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n` or
     // `GIT_CONFIG_PARAMETERS` of the developer's decides what this fixture is.
-    let mut command = Command::new("git");
+    let mut command = support::command("git");
     support::sandbox::clear_env(&mut command);
     let output = xfx::process::output(
         command
@@ -2644,7 +2644,7 @@ fn auto_mode_will_not_write_a_file_the_users_git_configuration_includes() {
 /// home; required, not skipped.
 fn real_git(dir: &Path, home: &Path, args: &[&str]) {
     let output = xfx::process::output(
-        Command::new("git")
+        support::command("git")
             .args(args)
             .current_dir(dir)
             .env_clear()
@@ -2809,7 +2809,7 @@ fn an_include_path_is_protected_as_git_reads_its_bytes() {
 /// What the real git says, run in `dir` with a clean environment.
 fn git_says(dir: &Path, home: &Path, args: &[&str]) -> String {
     let output = xfx::process::output(
-        Command::new("git")
+        support::command("git")
             .args(args)
             .current_dir(dir)
             .env_clear()
@@ -3006,7 +3006,7 @@ fn a_superproject_with_a_hundred_submodules_does_not_make_every_write_ask() {
     );
     for index in 1..100 {
         let status = xfx::process::status(
-            Command::new("cp")
+            support::command("cp")
                 .arg("-R")
                 .arg(modules.join("m0"))
                 .arg(modules.join(format!("m{index}"))),
@@ -3901,7 +3901,8 @@ fn a_timeout_kills_the_whole_process_group_and_not_only_the_child() {
 /// inside `Drop`, where panicking while another panic unwinds aborts the
 /// process and takes the real failure's message with it.
 fn sleepers(tag: &str) -> Vec<(String, String)> {
-    let Ok(listing) = xfx::process::output(Command::new("ps").args(["-eo", "pid=,pgid=,args="]))
+    let Ok(listing) =
+        xfx::process::output(support::command("ps").args(["-eo", "pid=,pgid=,args="]))
     else {
         return Vec::new();
     };
@@ -3936,7 +3937,7 @@ struct SweepTag(String);
 impl Drop for SweepTag {
     fn drop(&mut self) {
         for (pid, _) in sleepers(&self.0) {
-            let _ = xfx::process::status(Command::new("kill").args(["-9", &pid]));
+            let _ = xfx::process::status(support::command("kill").args(["-9", &pid]));
         }
     }
 }
@@ -4626,7 +4627,7 @@ impl Sandbox {
     }
 
     fn command(&self, args: &[&str], env: &[(&str, &str)]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+        let mut command = support::command(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
         support::sandbox::clear_env(&mut command);
         command.env("HOME", &self.home);
