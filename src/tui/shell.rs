@@ -6177,12 +6177,14 @@ impl Shell {
     /// nothing, rather than moving a caret the user is not looking at -- Tab
     /// and Enter choose, Escape closes. Everything else is an edit of the
     /// draft and goes on to the composer with the picker still up, which is
-    /// what makes it a search.
+    /// what makes it a search. Under the full transcript `C-j` and `C-k` are
+    /// the composer's too, and Tab chooses nothing (CTRLO-AT-KEYS).
     fn offer_to_files(&mut self, event: &Input) -> bool {
         let Input::Action(action) = event else {
             return false;
         };
         let eligible = self.file_picker_eligible();
+        let transcript = self.full.is_open();
         let Some(files) = self.file_picker.as_mut() else {
             return false;
         };
@@ -6206,21 +6208,39 @@ impl Shell {
             files.distrust();
             self.render.request(Reason::Modal);
         }
+        // Under the full transcript no picker of fx's takes `C-j` or `C-k`:
+        // `routePickerControlByte` returns before any move while it is up
+        // (`composerPickerSurfaceVisible`, `app_input_runtime.zig:1093-1116
+        // @481104fd`), so the bytes reach the composer's shortcuts
+        // (`:1442-1445`; `shortcuts.zig:19`, `:26`): `C-k` kills to the
+        // line's end (`app_input_runtime.zig:479-488`), and `C-j` is a new
+        // line (`:513-521`), which ends the `@` word and so closes the list.
+        // A list not eligible for another reason keeps them: a catalog
+        // menu's move comes first, and with none the file query takes them
+        // and moves nothing (`routeNonSlashPickerMove`,
+        // `input_completion_runtime.zig:395-410`).
+        if transcript && matches!(action, Action::ControlJ | Action::ControlK) {
+            return false;
+        }
         let page = i64::from(layout::input_row_limit(self.geometry.rows));
         let delta = match action {
             Action::Up | Action::ControlK => -1,
             Action::Down | Action::ControlJ => 1,
             Action::PageUp => -page,
             Action::PageDown => page,
+            // fx's Tab returns at the list's eligibility check, before it
+            // resolves a row or reads again (`autocompleteFilePickerSelection`,
+            // `input_completion_runtime.zig:946-956@481104fd`: `:949` before
+            // `:950` and `:953`). The frame it asks for
+            // (`app_input_runtime.zig:1321`) is asked for above.
+            Action::Tab if !eligible => return true,
             Action::Tab => {
                 match files.chosen().cloned() {
                     Some(found) => self.complete_file(&found, file_picker::FolderAction::Open),
                     // Nothing to choose: a picker that could not read is
                     // asked to read again (`autocompleteFilePickerSelection`,
-                    // `input_completion_runtime.zig:946-955@481104fd`) --
-                    // only while it is eligible: fx's Tab returns before the
-                    // retry otherwise (`:949`).
-                    None if eligible && files.shown() == file_picker::Shown::Unavailable => {
+                    // `input_completion_runtime.zig:950-953@481104fd`).
+                    None if files.shown() == file_picker::Shown::Unavailable => {
                         // fx's retry asks for the index's refresh too
                         // (`file_completion_state.zig:230-233`), which an
                         // indexed query's lookup takes.
