@@ -135,7 +135,10 @@ after each run).
   is read by its path as any other. Every other layer (`read_layer`) is
   looked at first, following a link, so only a regular file is opened
   (fx's `readOptionalFile`), then opened with `O_NONBLOCK|O_NOCTTY`,
-  fstat'ed, made blocking and read from that descriptor. The verdicts:
+  fstat'ed, made blocking and read from that descriptor (`blocking`; the
+  profile's descriptor is made blocking in `open_settings`, inside the
+  match guard after its kind and links, as fx's `makeFileBlocking` comes
+  before the mode, and `read_opened` does it again, a no-op). The verdicts:
   - `Unsafe` -- `~/.xfx` a link or not a directory; the file a link, not a
     regular file, or with a second hard link. Only `ask` refuses; the TUI
     and the line shell go on, as fx's stored-credential launch does --
@@ -313,10 +316,16 @@ the profiles each seeds were read against the rule.
   product's text is in the pair: `fx-fixtures.txt` and
   `xfx-head-fixtures.txt` carry it.
 - **No sweep in round 4**: no scenario reaches a changed branch. A
-  zero-link file is a race no capture makes; every seed is a private
-  regular file with one link (`seed-scan.txt`, capture.sh), which the look
-  before the open lets through to the same open and read; `O_NOCTTY` and
-  the blocking read change nothing a regular file gives back.
+  zero-link file is a race no capture makes; every profile seed is a
+  private regular file with one link (`seed-scan.txt`, capture.sh), which
+  the look before the open lets through to the same open and read;
+  `O_NOCTTY` and the blocking read change nothing a regular file gives
+  back. The project layer, the other one round 4 touches: no scenario
+  seeds or names a `.xfx.json` or `.fx.json` (`grep -lE '\.x?fx\.json'`
+  over `scenarios/*.cap` and `*.json`: 0 files; `find scenarios -name
+  .xfx.json -o -name .fx.json`: none), nothing under `scenarios/` is a
+  link, a FIFO or a socket (`find scenarios ! -type f ! -type d`: 0), and
+  capture.sh makes no link or FIFO (no `ln`, `mkfifo`, `mknod`).
 - **Sweep, round 3** (`sweep.sh` under the suite lock → `sweep-r3.txt`;
   each side's `summary.md` in `sweep-r3-head/`, `sweep-r3-base/`): the same
   selection, once with 02c32c3f's xfx and once with 3943d667's. 83
@@ -364,9 +373,11 @@ the profiles each seeds were read against the rule.
 
 ## 6. Mutants (`mutants.py` → `mutants.txt`)
 
-On a `git clone --no-local` of 02c32c3f outside the worktree, each test
-bounded at 900 s, under the suite lock. **24 of 24 killed**, every kill an
-assertion's panic location:
+On a `git clone --no-local` of 419cd3a3 (code adaa56de) outside the
+worktree, each test bounded at 900 s, under the suite lock. **27 of 27
+killed**, every kill an assertion's panic location, none a timeout. Round
+4 moved the texts of M16, M19-M21 and M23 to the new source (`<= 1`,
+`O_NOCTTY`, the blocking guard) without changing what each breaks:
 
 - each condition dropped -- the unreadable/malformed/too-large file (M1),
   `workspaces` or the entry not an object (M2), the profile's `model` (M3),
@@ -389,13 +400,24 @@ assertion's panic location:
   M24, a unit test;
 - the open itself: the file opened following a link (M19), opened waiting
   on a FIFO (M20: the open-on-a-thread test reports `the open waited on a
-  FIFO`, frees the thread with a writer and fails in seconds), the open
-  descriptor not fstat'ed (M21), the regular-file check dropped (M23 -- the
-  one round 2 could not run; with `O_NONBLOCK` it no longer waits, and the
-  FIFO case fails), all killed by
-  `the_open_checks_what_it_opened_not_what_was_looked_at`; the layer read
-  again by its path (M22), killed by
-  `the_profile_layer_is_read_from_the_descriptor_that_was_checked`.
+  FIFO`, frees the thread with a writer opened without waiting and fails
+  in seconds), the open descriptor not fstat'ed (M21), all killed by
+  `the_open_checks_what_it_opened_not_what_was_looked_at`; the regular-file
+  check dropped (M23: a FIFO is then read and found malformed, so
+  Rejected -- `ask` refuses it either way, so its killers are that unit
+  test and the two interactive starts with an UNSAFE profile,
+  `the_shell_starts_with_a_profile_only_ask_refuses` and
+  `a_profile_only_ask_refuses_starts_the_tui`); the layer read again by
+  its path (M22), killed by
+  `the_profile_layer_is_read_from_the_descriptor_that_was_checked`;
+- round 4: a file with no name left unsafe again, `== 1` put back (M25),
+  killed by `a_profile_renamed_over_after_its_open_is_read_and_a_linked_one_is_not`;
+  the look before the open deleted (M26: a hard-linked file nobody may read
+  becomes an open that fails, Rejected), killed by the open-order test's
+  `a second hard link nobody may read` and the two interactive UNSAFE
+  starts; another layer opened before it is looked at (M27: a socket
+  there becomes `unreadable_settings`), killed by
+  `a_project_file_is_looked_at_before_it_is_opened`.
 
 xfx has no auth mode -- no `FX_AUTH_MODE`, no host-managed launch -- so the
 brief's "refusal in a non-local auth mode" has no counterpart to mutate. M8
@@ -460,15 +482,15 @@ launch does not do.
 
 ## 8. Gate (`gates.sh` under the suite lock → `gate.txt`)
 
-At 7b72e92b (code 02c32c3f), the tree clean before and after, one hold of
-the lock: **22 steps, 0 failed** -- fmt, both clippys, `cargo test` (5667
-passed, 0 failed) and `--features fault-injection` (5704 passed, 0
+At 419cd3a3 (code adaa56de), the tree clean before and after, one hold of
+the lock: **22 steps, 0 failed** -- fmt, both clippys, `cargo test` (5669
+passed, 0 failed) and `--features fault-injection` (5706 passed, 0
 failed), the identity, stubs, secrets and local-path checks and their
 self-tests, the preview contract, the preflight cost, the usage clock,
 `test-gate-env`, the fxcap harness tests, both release builds, `smoke.sh`
 (47 checks) and `smoke-tui.sh` (37 scenarios and the oracle, 1167 checks,
-0 failures). Rounds 1 and 2 (c782a6d8, 41ac3864; 22/22 each) are in this
-file's history.
+0 failures). Rounds 1-3 (c782a6d8, 41ac3864, 7b72e92b; 22/22 each) are in
+this file's history.
 
 ## Files
 
