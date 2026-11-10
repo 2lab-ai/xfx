@@ -55,5 +55,33 @@ DIFF     p5-rule-confirm-keys-turn prompt             15 rows differ
          xfx: ''
          fx:  ''
          xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
-3 of 16 pairs identical
+DIFF     p5-rule-confirm-keys-cmd done                7 rows differ
+         fx:  '● 1 tool call · 1 command · 1 cancelled'
+         xfx: '● 1 tool call · 1 command'
+         fx:  '└ Cancelled sleep 6'
+         xfx: '└ Ran sleep 6'
+         fx:  '▪ Cancelled sleep 6 · What can xfx do differently?'
+         xfx: '  post command answer.'
+DIFF     p5-rule-confirm-keys-cmd esc-2               3 rows differ
+         fx:  '● 1 tool call · 1 command · 1 cancelled'
+         xfx: '● 1 tool call · 1 command'
+         fx:  '└ Cancelled sleep 6'
+         xfx: '└ Running sleep 6'
+         fx:  '▪ Cancelled sleep 6 · What can xfx do differently?'
+         xfx: '~ Running (<s>) (↑2 ↓40)'
+DIFF     p5-rule-confirm-keys-cmd esc                 3 rows differ
+         fx:  '● 1 tool call · 1 command · 1 cancelled'
+         xfx: '● 1 tool call · 1 command'
+         fx:  '└ Cancelled sleep 6'
+         xfx: '└ Running sleep 6'
+         fx:  '▪ Cancelled sleep 6 · What can xfx do differently?'
+         xfx: '~ Running (<s>) (↑2 ↓40)'
+DIFF     p5-rule-confirm-keys-cmd prompt              15 rows differ
+         fx:  '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+         xfx: '~ Running (<s>) (↑2 ↓40)'
+         fx:  '  Permission needed · Choose one                                                                       Permission rule'
+         xfx: ''
+         fx:  ''
+         xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+3 of 20 pairs identical
 exit 1

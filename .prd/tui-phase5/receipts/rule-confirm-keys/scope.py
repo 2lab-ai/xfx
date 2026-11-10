@@ -9,7 +9,7 @@ of (its run stopped before it) is MISSING, and counts as different.
 
 usage: python3 -I scope.py <red|xfx>   (reads this directory)
 
-APPROVAL-CTRL-J's scope.py with no entries set aside, for this receipt's two
+APPROVAL-CTRL-J's scope.py with no entries set aside, for this receipt's three
 scenarios.
 """
 
@@ -33,7 +33,7 @@ cells = module("cells")
 ledgermod = module("ledger")
 LEDGER = os.path.join(root, "scripts", "fxcap", "parity-ledger.toml")
 RULES = {side: ledgermod.rules_for(ledgermod.load(LEDGER, root), side) for side in ("fx", "xfx")}
-SCENARIOS = ["p5-rule-confirm-keys-40x120", "p5-rule-confirm-keys-turn-40x120"]
+SCENARIOS = ["p5-rule-confirm-keys-40x120", "p5-rule-confirm-keys-turn-40x120", "p5-rule-confirm-keys-cmd-40x120"]
 
 
 def kept(path, side):
@@ -53,7 +53,7 @@ def main():
         for f in sorted(os.listdir(os.path.join(here, "fx"))):
             if not (f.startswith("fx-" + name + "-") and f.endswith(".ansi")):
                 continue
-            # The scenario's own snaps, not those of the -turn scenario its name begins.
+            # The scenario's own snaps, not those of the -turn and -cmd scenarios its name begins.
             if any(o != name and f.startswith("fx-" + o + "-") for o in SCENARIOS):
                 continue
             label = f[len("fx-" + name + "-") : -len(".ansi")]

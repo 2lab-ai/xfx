@@ -12,28 +12,44 @@ change p5-rule-confirm-keys/prompt: failed -> normalized-identical; causes [] ->
 change p5-rule-confirm-keys/right: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
 change p5-rule-confirm-keys/tab: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
 change p5-rule-confirm-keys/turn: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
-change p5-rule-confirm-keys-turn/end: unresolved-defect -> unresolved-defect; causes [] -> ['rule-confirm-card-after-stop']; uncaused 5 -> 0
-change p5-rule-confirm-keys-turn/esc: unresolved-defect -> unresolved-defect; causes [] -> ['rule-confirm-card-after-stop']; uncaused 3 -> 0
+change p5-rule-confirm-keys-cmd/done: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-rule-confirm-keys-cmd/esc: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-rule-confirm-keys-cmd/esc-2: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-rule-confirm-keys-cmd/prompt: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
 change p5-rule-confirm-keys-turn/prompt: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
-base: 234 pairs, 92 pass, 10 with uncaused rows
-head: 234 pairs, 106 pass, 7 with uncaused rows
-drops: 0
-base: 10 pairs with uncaused rows
+DROP permissions-btab/btab-auto: normalized-identical -> unresolved-defect; causes [] -> []; uncaused 0 -> 2
+DROP permissions-btab/btab-full-again: normalized-identical -> unresolved-defect; causes [] -> []; uncaused 0 -> 2
+base: 238 pairs, 92 pass, 12 with uncaused rows
+head: 238 pairs, 108 pass, 9 with uncaused rows
+drops: 2
+base: 12 pairs with uncaused rows
    p5-input-approval cmd-ask 15
    p5-input-approval edit-ask 17
    p5-input-approval after 13
+   p5-rule-confirm-keys-cmd prompt 2
+   p5-rule-confirm-keys-cmd esc 6
+   p5-rule-confirm-keys-cmd esc-2 6
+   p5-rule-confirm-keys-cmd done 8
    p5-rule-confirm-keys-turn prompt 2
-   p5-rule-confirm-keys-turn esc 3
-   p5-rule-confirm-keys-turn end 5
    rules-read ask 1
    rules-read ask2 1
    rules-read listed 10
    rules-read-auto read-ask 1
-head: 7 pairs with uncaused rows
+head: 9 pairs with uncaused rows
    p5-input-approval cmd-ask 15
    p5-input-approval edit-ask 17
    p5-input-approval after 13
+   permissions-btab btab-auto 2
+   permissions-btab btab-full-again 2
    rules-read ask 1
    rules-read ask2 1
    rules-read listed 10
    rules-read-auto read-ask 1
+# the two head drops, their uncaused rows (side, row, text): the status row fx and xfx each showed
+   btab-auto [['fx', 5, 'ask · model-a'], ['xfx', 5, 'auto · model-a']]
+   btab-full-again [['fx', 5, 'ask · model-a'], ['xfx', 5, 'full access · model-a']]
+
+# permissions-btab alone, three times, under the suite lock, --jobs 1, the code head's binary (scripts/fxcap/sweep.sh --only permissions-btab), each run's pass line
+run 1 exit 0 pass = 7 / 7 = 100.0%
+run 2 exit 0 pass = 7 / 7 = 100.0%
+run 3 exit 0 pass = 7 / 7 = 100.0%

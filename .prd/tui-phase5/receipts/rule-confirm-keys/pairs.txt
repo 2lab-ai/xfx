@@ -27,5 +27,9 @@ DIFF     p5-rule-confirm-keys-turn esc                4 rows differ
          fx:  'auto · model-a'
          xfx: ''
 SAME     p5-rule-confirm-keys-turn prompt             (17 rows compared)
-14 of 16 pairs identical
+SAME     p5-rule-confirm-keys-cmd done                (12 rows compared)
+SAME     p5-rule-confirm-keys-cmd esc-2               (12 rows compared)
+SAME     p5-rule-confirm-keys-cmd esc                 (12 rows compared)
+SAME     p5-rule-confirm-keys-cmd prompt              (20 rows compared)
+18 of 20 pairs identical
 exit 1

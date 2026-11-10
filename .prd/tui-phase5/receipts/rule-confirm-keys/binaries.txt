@@ -5,6 +5,7 @@ xfx   165d54530fb4b8541d6e913d815e5ec3497226ba0bf446c07fb1c5e6e521f1ea  built at
 
 # capture.sh's guard line after each fx run (the oracle's path written <fx-bin>)
 p5-rule-confirm-keys: guards: <fx-bin> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+p5-rule-confirm-keys-cmd: guards: <fx-bin> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 p5-rule-confirm-keys-turn: guards: <fx-bin> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 
 # the base's run of p5-rule-confirm-keys stopped at its second until (capture.sh's own line, the scratch root written <scratch>)
