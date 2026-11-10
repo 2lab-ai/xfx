@@ -62,7 +62,7 @@ def main():
         label, rest = spec.split("=", 1)
         binary, cwd = rest.split("@", 1)
         sets.append((label, binary, cwd))
-    lines = [f"# repeat check: {runs} iterations; in each, every binary runs the three tests "
+    lines = [f"# repeat check: {runs} iterations; in each, every binary runs the five tests "
              f"(A to E) once, one binary after the other; no burner, the machine's own load; "
              f"one normal slot of the suite lock; each run bounded at {LIMIT} s; "
              f"cores {os.cpu_count()}"]

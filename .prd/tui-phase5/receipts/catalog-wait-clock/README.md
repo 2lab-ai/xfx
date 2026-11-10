@@ -206,11 +206,35 @@ first 11, over A to C: `mutants-base.txt`, `mutants-base-late.txt`.
 
 ## Repeat check
 
-TBD
+`load-check2.txt` (`load_check.py`, here): the five tests 50 times on the
+base's lib test binary (built at `afd891af`) and 50 on the head's (built at
+`a6ab3ee6`), one after the other in each iteration, in **one normal slot** of
+the suite lock, with no burner -- the shared machine's own load, read at each
+run's start and written beside it. (Its header says "the three tests (A to
+E)": the script's header string was stale at that run, fixed since; every
+line counts five.)
+
+| binary | A | B | C | D | E | 1-min load at the runs' start (18 cores) |
+|---|---|---|---|---|---|---|
+| base `afd891af` | 50/50 | 50/50 | 50/50 | 50/50 | 50/50 | min 5.48, median 11.33, max 18.13 |
+| head `a6ab3ee6` | 50/50 | 50/50 | 50/50 | 50/50 | 50/50 | min 5.31, median 11.58, max 18.05 |
+
+- At load 5 to 18 the base does not fail either (the gate's misses came at 65
+  to 106); the stall tables are what tell base from head. Round 1's repeat
+  check, three tests at `5f55cfc8`: `load-check.txt`, 50/50 on both sides.
+- The exclusive run with a burner, which round 1's brief asked for, was
+  stopped before it began at the dispatcher's word (it starved for slots and
+  would have held every gate off for up to 90 minutes); its burner never ran.
 
 ## Gate
 
-TBD
+`gates2.txt` (`gates.sh`, train 13's, unchanged but for its header), in a
+`git clone --no-local` at `6b0c613f` -- the code head `a6ab3ee6` plus round
+2's receipt but for the gate's own file and the repeat check -- inside one
+hold of the suite lock: **22 steps, 0 failed**, the tree clean before and
+after. `test` 5685 passed, 0 failed; `test-fault` 5722 passed, 0 failed; A to
+E `ok` in both; smoke-tui 37 scenarios and the oracle, 1167 checks, 0
+failures. Round 1's gate at `64cfd5a1`: `gates.txt`, the same counts.
 
 ## Other wall-clock bounds in the crate
 
