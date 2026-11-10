@@ -7,7 +7,7 @@
   Approve proj for this project? It runs:
     <bun>
     <local-path>
-    /scripts/fxcap/scenarios/p5-mcp-stdio.ts
+    <scenarios>/p5-mcp-stdio.ts
 ────────────────────────────────────────────────────────────
 enter confirm     esc cancel
 
