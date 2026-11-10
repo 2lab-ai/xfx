@@ -1,0 +1,507 @@
+# fx v0.0.16 (vercel-labs/fx@481104fd), every line the README cites, read with git show 481104fd:<path>
+
+## src/core/app/input_question_runtime.zig:139-201@481104fd
+  139          pub fn routeQuestionEscapeAction(
+  140              app: *App,
+  141              action: input_action.Action,
+  142              question_action: ?question_prompt.Action,
+  143          ) !void {
+  144              app.input_runtime.vertical_navigation.reset();
+  145              app.input_runtime.input_limit_rejection = input_limit_rejection.clear();
+  146              if (question_action) |typed| {
+  147                  if (try handleQuestionAction(app, typed)) return;
+  148              }
+  149              if (app.question_prompt.isFreeformSelected()) {
+  150                  switch (action) {
+  151                      .cursor_up => {
+  152                          // At the top of the freeform draft, Up leaves the
+  153                          // slot and resumes option navigation.
+  154                          if (!moveFreeformCursorVertical(app, .up)) {
+  155                              app.question_prompt.moveChoice(-1);
+  156                          }
+  157                          try rerenderQuestionBlock(app);
+  158                          return;
+  159                      },
+  160                      .cursor_down => {
+  161                          if (!moveFreeformCursorVertical(app, .down)) {
+  162                              app.question_prompt.moveChoice(1);
+  163                          }
+  164                          try rerenderQuestionBlock(app);
+  165                          return;
+  166                      },
+  167                      .history_up => {
+  168                          app.question_prompt.moveChoice(-1);
+  169                          try rerenderQuestionBlock(app);
+  170                          return;
+  171                      },
+  172                      .history_down => {
+  173                          app.question_prompt.moveChoice(1);
+  174                          try rerenderQuestionBlock(app);
+  175                          return;
+  176                      },
+  177                      else => {},
+  178                  }
+  179              }
+  180  
+  181              switch (action) {
+  182                  .history_up, .cursor_up => {
+  183                      app.question_prompt.moveChoice(-1);
+  184                      try rerenderQuestionBlock(app);
+  185                  },
+  186                  .history_down, .cursor_down => {
+  187                      app.question_prompt.moveChoice(1);
+  188                      try rerenderQuestionBlock(app);
+  189                  },
+  190                  .cursor_left, .word_left => {
+  191                      switch (app.question_prompt.retreatToPrevious()) {
+  192                          .redraw => try rerenderQuestionBlock(app),
+  193                          else => {},
+  194                      }
+  195                  },
+  196                  .cursor_right, .word_right => {
+  197                      // Enter advances; right arrow remains inert to avoid skipping answers.
+  198                  },
+  199                  else => {},
+  200              }
+  201          }
+
+## src/core/agent/question_prompt.zig:606-615@481104fd
+  606      /// Step back to the previous entry without touching its stored
+  607      /// answer, so the user can revisit and submit it again.
+  608      /// Returns `.none` when already on the first entry.
+  609      pub fn retreatToPrevious(self: *QuestionPrompt) QuestionInputEvent {
+  610          if (!self.active or self.current_index == 0) return .none;
+  611          self.entries.items[self.current_index].freeform_preferred_column = null;
+  612          self.current_index -= 1;
+  613          self.entries.items[self.current_index].freeform_preferred_column = null;
+  614          return .redraw;
+  615      }
+
+## src/core/agent/question_prompt.zig:670-676@481104fd
+  670      fn cycleQuestionPage(self: *QuestionPrompt) void {
+  671          if (!self.active or self.entries.items.len == 0) return;
+  672          self.entries.items[self.current_index].freeform_preferred_column = null;
+  673          const next = (@as(usize, self.current_index) + 1) % self.entries.items.len;
+  674          self.current_index = @intCast(next);
+  675          self.entries.items[self.current_index].freeform_preferred_column = null;
+  676      }
+
+## src/core/agent/question_prompt.zig:987-990@481104fd
+  987  test "question prompt backward navigation preserves the page being left" {
+  988      var prompt = QuestionPrompt{};
+  989      defer prompt.deinit(std.testing.allocator);
+  990  
+
+## src/ui/input/runtime.zig:75-96@481104fd
+   75  fn approvalDraftActionFromShortcut(
+   76      action: input_action.ShortcutAction,
+   77  ) ?approval_decision.DraftAction {
+   78      return switch (action) {
+   79          .move => |intent| switch (intent.kind) {
+   80              .character_left => .cursor_left,
+   81              .character_right => .cursor_right,
+   82              .line_start, .draft_start => .cursor_home,
+   83              .line_end, .draft_end => .cursor_end,
+   84              .word_left => .cursor_word_left,
+   85              .word_right => .cursor_word_right,
+   86              else => null,
+   87          },
+   88          .delete_forward => .delete_next,
+   89          .delete_word_left => .delete_word_left,
+   90          .delete_whitespace_word_left => .delete_whitespace_word_left,
+   91          .delete_word_right => .delete_word_right,
+   92          .delete_to_line_start => .delete_to_line_start,
+   93          .delete_to_line_end => .delete_to_line_end,
+   94          else => null,
+   95      };
+   96  }
+
+## src/ui/input/runtime.zig:135-259@481104fd
+  135  fn questionActionFromByte(
+  136      byte: u8,
+  137      freeform_selected: bool,
+  138  ) ?question_prompt.Action {
+  139      return switch (byte) {
+  140          3 => .cancel,
+  141          '\r', '\n' => .submit,
+  142          '\t' => .next_entry,
+  143          0x7F, 0x08 => if (freeform_selected) .backspace else null,
+  144          '1'...'9' => if (freeform_selected)
+  145              .{ .insert_ascii = byte }
+  146          else
+  147              .{ .select_ordinal = byte - '1' },
+  148          else => if (freeform_selected and byte >= 0x20 and byte <= 0x7E)
+  149              .{ .insert_ascii = byte }
+  150          else
+  151              null,
+  152      };
+  153  }
+  154  
+  155  fn questionFreeformActionFromShortcut(
+  156      action: input_action.ShortcutAction,
+  157  ) ?question_prompt.FreeformAction {
+  158      return switch (action) {
+  159          .move => |intent| switch (intent.kind) {
+  160              .character_left => .cursor_left,
+  161              .character_right => .cursor_right,
+  162              .line_start, .draft_start => .cursor_home,
+  163              .line_end, .draft_end => .cursor_end,
+  164              .word_left => .cursor_word_left,
+  165              .word_right => .cursor_word_right,
+  166              else => null,
+  167          },
+  168          .delete_forward => .delete_next,
+  169          .delete_word_left => .delete_word_left,
+  170          .delete_whitespace_word_left => .delete_whitespace_word_left,
+  171          .delete_word_right => .delete_word_right,
+  172          .delete_to_line_start => .delete_to_line_start,
+  173          .delete_to_line_end => .delete_to_line_end,
+  174          else => null,
+  175      };
+  176  }
+  177  
+  178  fn questionActionFromShortcut(
+  179      action: input_action.ShortcutAction,
+  180      freeform_selected: bool,
+  181  ) ?question_prompt.Action {
+  182      switch (action) {
+  183          .move => |intent| {
+  184              if (intent.extend_selection) {
+  185                  switch (intent.kind) {
+  186                      .visual_up => return .{ .move_choice = .previous },
+  187                      .visual_down => return .{ .move_choice = .next },
+  188                      else => {},
+  189                  }
+  190              }
+  191          },
+  192          else => {},
+  193      }
+  194      if (!freeform_selected) return null;
+  195      const edit = questionFreeformActionFromShortcut(action) orelse return null;
+  196      return .{ .edit_freeform = edit };
+  197  }
+  198  
+  199  fn questionActionFromRawByte(
+  200      byte: u8,
+  201      freeform_selected: bool,
+  202  ) ?question_prompt.Action {
+  203      if (freeform_selected) {
+  204          if (shortcuts.fromFocusedEditorControlByte(byte)) |shortcut| {
+  205              return questionActionFromShortcut(shortcut, true);
+  206          }
+  207      }
+  208      return questionActionFromByte(byte, freeform_selected);
+  209  }
+  210  
+  211  fn questionActionFromDecoded(
+  212      action: input_action.Action,
+  213      shortcut: ?input_action.ShortcutAction,
+  214      freeform_selected: bool,
+  215  ) ?question_prompt.Action {
+  216      switch (action) {
+  217          .remapped_byte => |byte| return questionActionFromRawByte(
+  218              byte,
+  219              freeform_selected,
+  220          ),
+  221          else => {},
+  222      }
+  223      return questionActionFromShortcut(
+  224          shortcut orelse return null,
+  225          freeform_selected,
+  226      );
+  227  }
+  228  
+  229  fn withQuestionInput(
+  230      ingress: input_action.TerminalInputIngress,
+  231      freeform_selected: bool,
+  232  ) input_action.TerminalInputIngress {
+  233      var typed = ingress;
+  234      const event = typed.event orelse return typed;
+  235      typed.event = switch (event) {
+  236          .raw => |raw| input_action.TerminalInputEvent{ .raw = .{
+  237              .byte = raw.byte,
+  238              .composer_shortcut = raw.composer_shortcut,
+  239              .approval_action = raw.approval_action,
+  240              .question_action = questionActionFromRawByte(
+  241                  raw.byte,
+  242                  freeform_selected,
+  243              ),
+  244          } },
+  245          .action => |decoded| input_action.TerminalInputEvent{ .action = .{
+  246              .action = decoded.action,
+  247              .composer_shortcut = decoded.composer_shortcut,
+  248              .approval_focused_edit = decoded.approval_focused_edit,
+  249              .question_action = questionActionFromDecoded(
+  250                  decoded.action,
+  251                  decoded.composer_shortcut,
+  252                  freeform_selected,
+  253              ),
+  254              .cancel_pending = decoded.cancel_pending,
+  255          } },
+  256          .paste_byte => event,
+  257      };
+  258      return typed;
+  259  }
+
+## src/ui/input/escape_parser.zig:66-109@481104fd
+   66  fn composerMove(kind: input_action.MoveKind, modifiers: u16) InputEscapeAction {
+   67      return .{ .composer_shortcut = .{ .move = .{
+   68          .kind = kind,
+   69          .extend_selection = (modifiers & shift_modifier) != 0,
+   70      } } };
+   71  }
+   72  
+   73  fn modifiedArrowAction(byte: u8, modifiers: u16, meta_prefixed: bool) ?InputEscapeAction {
+   74      if ((modifiers & super_modifier) != 0) return switch (byte) {
+   75          'A' => composerMove(.draft_start, modifiers),
+   76          'B' => composerMove(.draft_end, modifiers),
+   77          'C' => composerMove(.line_end, modifiers),
+   78          'D' => composerMove(.line_start, modifiers),
+   79          'H' => composerMove(.draft_start, modifiers),
+   80          'F' => composerMove(.draft_end, modifiers),
+   81          else => null,
+   82      };
+   83      if (meta_prefixed or (modifiers & alt_modifier) != 0) return switch (byte) {
+   84          'A' => composerMove(.paragraph_up, modifiers),
+   85          'B' => composerMove(.paragraph_down, modifiers),
+   86          'C' => composerMove(.word_right, modifiers),
+   87          'D' => composerMove(.word_left, modifiers),
+   88          else => null,
+   89      };
+   90      if ((modifiers & ctrl_modifier) != 0) return switch (byte) {
+   91          'C' => composerMove(.word_right, modifiers),
+   92          'D' => composerMove(.word_left, modifiers),
+   93          'A' => composerMove(.visual_up, modifiers),
+   94          'B' => composerMove(.visual_down, modifiers),
+   95          'H' => composerMove(.draft_start, modifiers),
+   96          'F' => composerMove(.draft_end, modifiers),
+   97          else => null,
+   98      };
+   99      if ((modifiers & shift_modifier) != 0) return switch (byte) {
+  100          'A' => composerMove(.visual_up, modifiers),
+  101          'B' => composerMove(.visual_down, modifiers),
+  102          'C' => composerMove(.character_right, modifiers),
+  103          'D' => composerMove(.character_left, modifiers),
+  104          'H' => composerMove(.line_start, modifiers),
+  105          'F' => composerMove(.line_end, modifiers),
+  106          else => null,
+  107      };
+  108      return null;
+  109  }
+
+## src/ui/input/escape_parser.zig:235-250@481104fd
+  235      if ((mods & (shift_modifier | ctrl_modifier)) ==
+  236          (shift_modifier | ctrl_modifier))
+  237      {
+  238          if (keycode == 'a' or keycode == 'A') return composerMove(.line_start, mods);
+  239          if (keycode == 'b' or keycode == 'B') return composerMove(.character_left, mods);
+  240          if (keycode == 'e' or keycode == 'E') return composerMove(.line_end, mods);
+  241          if (keycode == 'f' or keycode == 'F') return composerMove(.character_right, mods);
+  242      }
+  243      if (keycode == 'b' and (mods & alt_modifier) != 0) {
+  244          if ((mods & shift_modifier) != 0) return composerMove(.word_left, mods);
+  245          return .word_left;
+  246      }
+  247      if (keycode == 'f' and (mods & alt_modifier) != 0) {
+  248          if ((mods & shift_modifier) != 0) return composerMove(.word_right, mods);
+  249          return .word_right;
+  250      }
+
+## src/ui/input/escape_parser.zig:528-539@481104fd
+  528              if (byte == 'b') {
+  529                  stage.* = 0;
+  530                  param.* = 0;
+  531                  param2.* = 0;
+  532                  return .word_left;
+  533              }
+  534              if (byte == 'f') {
+  535                  stage.* = 0;
+  536                  param.* = 0;
+  537                  param2.* = 0;
+  538                  return .word_right;
+  539              }
+
+## src/ui/input/terminal_action_decoder.zig:214-224@481104fd
+  214  fn appendAction(
+  215      ingress: *input_action.TerminalInputIngress,
+  216      action: input_action.Action,
+  217      cancel_pending: bool,
+  218  ) void {
+  219      ingress.setEvent(.{ .action = .{
+  220          .action = action,
+  221          .composer_shortcut = shortcuts.fromEscapeAction(action),
+  222          .cancel_pending = cancel_pending,
+  223      } });
+  224  }
+
+## src/core/input/input_action.zig:69-102@481104fd
+   69  /// Typed result of UI-owned terminal escape decoding.
+   70  pub const Action = union(enum) {
+   71      history_up,
+   72      history_down,
+   73      cursor_up,
+   74      cursor_down,
+   75      cursor_left,
+   76      cursor_right,
+   77      word_left,
+   78      word_right,
+   79      home,
+   80      end,
+   81      page_up,
+   82      page_down,
+   83      mouse_wheel: MouseWheel,
+   84      mouse_pointer: MousePointer,
+   85      delete_next,
+   86      delete_word_left,
+   87      delete_word_right,
+   88      delete_to_line_start,
+   89      delete_to_line_end,
+   90      clear_line,
+   91      toggle_full_transcript,
+   92      toggle_permission_mode,
+   93      open_all_sessions,
+   94      open_model_catalog,
+   95      insert_newline,
+   96      paste_start,
+   97      paste_end,
+   98      composer_shortcut: ShortcutAction,
+   99      remapped_byte: u8,
+  100      escape,
+  101      ignore,
+  102  };
+
+## src/core/app/app_input_runtime.zig:955-971@481104fd
+  955              if (app.question_prompt.isActive()) {
+  956                  try question_rt.routeQuestionEscapeAction(
+  957                      app,
+  958                      resolved,
+  959                      question_action,
+  960                  );
+  961                  return .done;
+  962              }
+  963  
+  964              if (app.approval_prompt.isActive()) {
+  965                  try approval_rt.routeApprovalEscapeAction(
+  966                      app,
+  967                      resolved,
+  968                      approval_focused_edit,
+  969                  );
+  970                  return .done;
+  971              }
+
+## src/core/app/app_input_runtime.zig:1136-1160@481104fd
+ 1136              if (app.question_prompt.isActive()) {
+ 1137                  if (byte >= 0x80) {
+ 1138                      if (app.question_prompt.isFreeformSelected()) {
+ 1139                          try handleTextByte(app, .question_freeform, byte, max_input_len);
+ 1140                      } else {
+ 1141                          input_reset.resetPendingTextScalarWithTrace(
+ 1142                              &app.input_runtime.text_scalar,
+ 1143                              "question_decision_active",
+ 1144                          );
+ 1145                      }
+ 1146                      return true;
+ 1147                  }
+ 1148                  if (raw.question_action) |action| {
+ 1149                      switch (try question_rt.handleQuestionActionBounded(
+ 1150                          app,
+ 1151                          action,
+ 1152                          max_input_len,
+ 1153                      )) {
+ 1154                          .consumed => app.input_runtime.input_limit_rejection = input_limit_rejection.clear(),
+ 1155                          .ignored => {},
+ 1156                          .limit_exceeded => try input_limit_feedback.report(App, app, .question_freeform, 1),
+ 1157                      }
+ 1158                  }
+ 1159                  return true;
+ 1160              }
+
+## src/ui/input/runtime.zig:2266-2273@481104fd
+ 2266  test "input escape parser preserves double escape meta behavior" {
+ 2267      try expectEscapeAction("\x1b[A", moveEscape(.paragraph_up, false));
+ 2268      try expectEscapeAction("\x1b[B", moveEscape(.paragraph_down, false));
+ 2269      try expectEscapeAction("\x1bOA", moveEscape(.paragraph_up, false));
+ 2270      try expectEscapeAction("\x1bOB", moveEscape(.paragraph_down, false));
+ 2271      try expectEscapeAction("\x1b[D", moveEscape(.word_left, false));
+ 2272      try expectEscapeAction("\x1b[C", moveEscape(.word_right, false));
+ 2273      try expectEscapeAction("\x1bb", .word_left);
+
+## src/ui/input/runtime.zig:2292-2295@481104fd
+ 2292  test "input escape parser handles kitty alt+b and alt+f as word navigation" {
+ 2293      try expectEscapeAction("[98;3u", .word_left);
+ 2294      try expectEscapeAction("[102;3u", .word_right);
+ 2295  }
+
+## src/ui/input/runtime.zig:2155-2161@481104fd
+ 2155  test "input escape parser preserves modified arrow intent" {
+ 2156      try expectEscapeAction("[57352;2u", moveEscape(.visual_up, true));
+ 2157      try expectEscapeAction("[57352;3u", moveEscape(.paragraph_up, false));
+ 2158      try expectEscapeAction("[57353;5u", moveEscape(.visual_down, false));
+ 2159      try expectEscapeAction("[57353;9u", moveEscape(.draft_end, false));
+ 2160      try expectEscapeAction("[1;4D", moveEscape(.word_left, true));
+ 2161  }
+
+## src/ui/input/runtime.zig:2201-2201@481104fd
+ 2201      try expectEscapeAction("[57417;5u", moveEscape(.word_left, false));
+
+## src/core/app/input_approval_runtime.zig:71-130@481104fd
+   71          pub fn routeApprovalEscapeAction(
+   72              app: *App,
+   73              action: input_action.Action,
+   74              focused_edit: ?approval_decision.DraftAction,
+   75          ) !void {
+   76              app.input_runtime.vertical_navigation.reset();
+   77              app.input_runtime.input_limit_rejection = input_limit_rejection.clear();
+   78              const amending = app.approval_prompt.isAmending();
+   79              if (amending) {
+   80                  if (focused_edit) |edit| {
+   81                      _ = try applyDecisionAction(
+   82                          app,
+   83                          .{ .edit_draft = edit },
+   84                          null,
+   85                      );
+   86                      requestActiveSurfaceFrame(app);
+   87                      return;
+   88                  }
+   89              }
+   90              switch (action) {
+   91                  .cursor_left, .word_left => {
+   92                      if (!amending) {
+   93                          _ = try applyDecisionAction(
+   94                              app,
+   95                              .{ .move_choice = .previous },
+   96                              null,
+   97                          );
+   98                          requestActiveSurfaceFrame(app);
+   99                      }
+  100                  },
+  101                  .cursor_right, .word_right => {
+  102                      if (!amending) {
+  103                          _ = try applyDecisionAction(
+  104                              app,
+  105                              .{ .move_choice = .next },
+  106                              null,
+  107                          );
+  108                          requestActiveSurfaceFrame(app);
+  109                      }
+  110                  },
+  111                  .history_up, .cursor_up => {
+  112                      _ = try applyDecisionAction(
+  113                          app,
+  114                          .{ .move_choice = .previous },
+  115                          null,
+  116                      );
+  117                      requestActiveSurfaceFrame(app);
+  118                  },
+  119                  .history_down, .cursor_down => {
+  120                      _ = try applyDecisionAction(
+  121                          app,
+  122                          .{ .move_choice = .next },
+  123                          null,
+  124                      );
+  125                      requestActiveSurfaceFrame(app);
+  126                  },
+  127                  .mouse_wheel => |direction| try handleApprovalWheel(app, direction),
+  128                  else => {},
+  129              }
+  130          }

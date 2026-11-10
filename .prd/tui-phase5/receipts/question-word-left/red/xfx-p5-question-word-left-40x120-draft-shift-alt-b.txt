@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-32afd30 [debug] · Run /help for commands
+
+┃ ask twenty
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Pick 2?
+
+    1) Keep 2                        Leave it as it is.
+    2) Change 2                      Apply the change.
+    3) ab zycd
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+type answer    ↑↓←→ cursor    shift+↑↓ options    tab questions    enter answer    esc cancel           Question 2 of 20
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

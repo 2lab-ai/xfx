@@ -9654,28 +9654,81 @@ impl Shell {
         let drafting = self.drafting();
         let action = match event {
             Input::Text(character) => approval::Action::Text(character),
+            // **The plain arrows move the choice, whether or not a draft is
+            // open** (`routeApprovalEscapeAction`,
+            // `input_approval_runtime.zig:111-126@481104fd`: the arrow's
+            // composer move, `visual_up`, is no draft key,
+            // `src/ui/input/runtime.zig:75-96`, so `.cursor_up` reaches the
+            // switch). Every other spelling of Up and Down is below.
             Input::Action(Action::Up) => approval::Action::Up,
             Input::Action(Action::Down) => approval::Action::Down,
-            // **`C-p` and `C-n` are the arrows here**, collapsed at the
-            // translation rather than given to the panel as two more keys
-            // (`input_approval_runtime.zig:127-141` maps `cursor_up` and
-            // `history_up` to one action).
+            // **Left and Alt-b mark the previous choice and Right and Alt-f the
+            // next, while no draft is open** -- fx's `.cursor_left`/`.word_left`
+            // and `.cursor_right`/`.word_right` (`routeApprovalEscapeAction`,
+            // `input_approval_runtime.zig:90-110@481104fd`): `move_choice`, the
+            // move Up and Down make, wrapping at both ends (`moveChoice`,
+            // `approval_decision.zig:214-225`). In a draft they are its caret's
+            // (below). Every other spelling of the four leaves the choice where
+            // it is: Ctrl-, Alt-, Shift- and Super-Left and -Right and
+            // Shift-Alt-b and -f are a composer move, which reaches fx's
+            // `else => {}` (`:128`); Ctrl-B and Ctrl-F never reach it -- they
+            // take fx's raw-byte route as `.edit_draft`, which `apply` answers
+            // with `.none` while no amendment is open
+            // (`src/ui/input/runtime.zig:103-108`,
+            // `approval_decision.zig:170-174`). The decoder keeps them apart
+            // ([`Action::ComposerLeft`], [`Action::WordLeft`]), and they reach
+            // the swallow.
+            Input::Action(Action::Left | Action::AltB) if !drafting => approval::Action::Up,
+            Input::Action(Action::Right | Action::AltF) if !drafting => approval::Action::Down,
+            // **Super-Up and Super-Down take a draft's caret to its start and
+            // its end** -- fx's `draft_start` and `draft_end`
+            // (`modifiedArrowAction`, `escape_parser.zig:74-76@481104fd`),
+            // which its amendment reads as `.cursor_home` and `.cursor_end`
+            // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:82-83`;
+            // `cursorHome`/`cursorEnd`, `approval_amendment.zig:84-92`: the
+            // whole draft's edges, not the line's). Ahead of the draft's arm
+            // below, which reads the folded key, and the fold makes these the
+            // arrows. With no draft open they are the swallow's.
+            Input::Action(edge @ (Action::DraftStart { .. } | Action::DraftEnd { .. }))
+                if drafting =>
+            {
+                approval::Action::Edit(edge)
+            }
+            // **Every other spelling of Up and Down moves nothing, with or
+            // without a draft open.** Shift-, Ctrl- and Alt-Up and -Down (and
+            // Super's with no draft) are composer moves, which reach fx's
+            // `else => {}` (`input_approval_runtime.zig:128`; `visual_up`,
+            // `paragraph_up` and their Down are no draft key,
+            // `src/ui/input/runtime.zig:86`). `C-p` is fx's decoded
+            // `.open_model_catalog` (`controlByteFeatureAction`,
+            // `escape_parser.zig:268-274`; `terminal_action_decoder.zig:118-122`),
+            // which carries no composer move (`shortcuts.zig:63`) and reaches
+            // the same `else`. `C-n` is a raw byte (`appendRaw`), no draft key
+            // (`fromFocusedEditorControlByte`, `shortcuts.zig:31-41`) and no
+            // approval byte (`approvalActionFromByte`,
+            // `src/ui/input/runtime.zig:61-73`, `:103-108`), so the question
+            // takes it and does nothing (`app_input_runtime.zig:1173-1184`).
+            // Swallowed here, before the panel is asked, so the choice, the
+            // draft, the frame and the readiness receipt are all exactly as
+            // they were: a key that does nothing cannot leave a choice marked
+            // that no frame has shown.
             //
-            // **A documented difference from that pin, on one surface.**
-            // Reached only with no review plane up: on the plane these two
-            // keys walk the change itself, and they are the only keys that do
-            // -- a bounded diff is up to 128 KiB
-            // (`crate::permission::ApprovalDiff`) and a screen is a few dozen
-            // rows, so a review surface with no way past its first screenful
-            // would be showing the head of a change and calling it the change.
-            // The arrows are unaffected on both surfaces: they move the choice
-            // and end editing everywhere, which is the property the pin exists
-            // for and which
-            // `up_and_down_move_the_choice_whether_or_not_a_draft_is_open`
-            // asserts in all four spellings. Upstream has no second surface to
-            // scroll, so this is a retention rather than a divergence.
-            Input::Action(Action::ControlP) => approval::Action::Up,
-            Input::Action(Action::HistoryNext) => approval::Action::Down,
+            // **`C-p` and `C-n` on the review plane are this surface's own**:
+            // they walk the change (above), the only keys that do -- a bounded
+            // diff is up to 128 KiB (`crate::permission::ApprovalDiff`) and a
+            // screen is a few dozen rows. Upstream's plane scrolls by the
+            // wheel (`handleApprovalWheel`), which xfx does not enable; a
+            // retention, recorded in `docs/parity.md`.
+            Input::Action(
+                Action::SelectUp
+                | Action::SelectDown
+                | Action::ComposerUp
+                | Action::ComposerDown
+                | Action::DraftStart { .. }
+                | Action::DraftEnd { .. }
+                | Action::ControlP
+                | Action::HistoryNext,
+            ) => return,
             Input::Action(Action::Tab) => approval::Action::Tab,
             Input::Action(Action::Submit) => approval::Action::Submit,
             Input::Action(Action::Escape) => approval::Action::Escape,
@@ -9692,9 +9745,18 @@ impl Shell {
             // not in the subset ([`approval::edits`]) -- they move the choice
             // and end editing, and routing them into the editor would take away
             // the only way out of a draft.
-            Input::Action(editing) if drafting && approval::edits(editing) => {
-                approval::Action::Edit(editing)
-            }
+            //
+            // Each spelling as the plain key it folds to ([`folded`]): in an
+            // amendment fx takes Alt-b and Alt-f as the word moves and
+            // Shift-Left and -Right and Ctrl-B and Ctrl-F as the caret's step
+            // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-108
+            // @481104fd`). Super-Left and -Right are its jump to the line's
+            // edge there (`:82-83`), which this draft takes as the step, as
+            // the composer does.
+            Input::Action(editing) if drafting => match folded(Input::Action(editing)) {
+                Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),
+                _ => return,
+            },
             // Content, to the **draft's** assembler and never the composer's:
             // a modal surface that leaked paste bytes into the composer would
             // leave text behind the panel that the user never sees and cannot
@@ -12287,6 +12349,11 @@ impl Shell {
             // be up with a question: a question closes it
             // ([`Self::full_transcript_sees`]) and it does not open over one
             // ([`Self::open_full_transcript`]).
+            //
+            // It reads the event with the approval's own spellings folded
+            // back, as the question does ([`unspelled`]); the approval below
+            // reads every spelling the decoder tells apart.
+            let (spelled, event) = (event.clone(), unspelled(event));
             if self.full.is_open() && self.view_full_transcript(&event) {
                 continue;
             }
@@ -12306,13 +12373,18 @@ impl Shell {
                 self.answer(event, now);
                 continue;
             }
-            // Shift on Up and Down means something only to a question's
-            // field; to every surface below it is the arrow it always was.
-            let event = unshifted(event);
+            // The approval reads the event before any fold: Left and Alt-b
+            // move its choice where a composer move and the word arrows do not
+            // ([`Self::decide`]).
             if self.asking() {
-                self.decide(event, now);
+                self.decide(spelled, now);
                 continue;
             }
+            // Shift on Up and Down means something only to a question's
+            // field, and Alt-b apart from the word arrows only to a question's
+            // choice and an approval's; to every surface below they are the
+            // keys they always were.
+            let event = folded(event);
             // The `/statusline` picker has the focus whenever no question
             // does: everything is its, and what it does not bind it swallows
             // -- a letter, a Ctrl-C, a Ctrl-D -- as upstream's compact menus
@@ -12683,12 +12755,20 @@ impl Shell {
             // wrap, so a row that did not change is the first row for an `Up`
             // and the last one for a `Down` -- the same fact, measured by the
             // module that owns the wrap instead of restated by this one.
-            // Never reaches here (`unshifted` folds them back before the
-            // composer sees an event); kept as the arrows they are, so a route
+            // Never reaches here (`folded` folds them back before the
+            // composer sees an event); kept as the moves they are, so a route
             // that skipped the fold would still move the caret rather than drop
             // the key.
-            Action::SelectUp => self.act(Action::Up, now),
-            Action::SelectDown => self.act(Action::Down, now),
+            Action::SelectUp | Action::ComposerUp | Action::DraftStart { .. } => {
+                self.act(Action::Up, now)
+            }
+            Action::SelectDown | Action::ComposerDown | Action::DraftEnd { .. } => {
+                self.act(Action::Down, now)
+            }
+            Action::AltB => self.act(Action::WordLeft, now),
+            Action::AltF => self.act(Action::WordRight, now),
+            Action::ComposerLeft => self.act(Action::Left, now),
+            Action::ComposerRight => self.act(Action::Right, now),
             Action::Up | Action::Down => {
                 let cols = self.text_cols();
                 let from = self.editor.point(cols).0;
@@ -14090,18 +14170,59 @@ fn image_slash_prefix(text: &str) -> Option<usize> {
     })
 }
 
-/// `event` with Shift taken off Up and Down.
+/// `event` with the spellings only an approval tells apart made the keys they
+/// are everywhere else: a composer move on Left or Right
+/// (`super::input::Action::ComposerLeft`) the arrow, Alt-f
+/// (`super::input::Action::AltF`) the word move, Ctrl- and Alt-Up and -Down
+/// (`super::input::Action::ComposerUp`) the arrows, and Super-Up and -Down
+/// (`super::input::Action::DraftStart`) the arrow they were before -- the
+/// shifted one with Shift held.
+///
+/// An approval's choice moves on Left and Alt-f where fx's moves, and leaves
+/// Shift-Left, Ctrl-B and Ctrl-Right alone where fx's does, and every
+/// modified Up and Down (`input_approval_runtime.zig:90-128@481104fd`); its
+/// amendment takes Super-Up and -Down to the draft's edges
+/// (`src/ui/input/runtime.zig:82-83`). No other surface reads them apart. The
+/// approval reads the event as it came ([`Shell::decide`]); the full
+/// transcript, which holds Left and Right, and the question read what this
+/// gives, so they see exactly the keys they saw before these were kept apart.
+fn unspelled(event: Input) -> Input {
+    match event {
+        Input::Action(Action::ComposerLeft) => Input::Action(Action::Left),
+        Input::Action(Action::ComposerRight) => Input::Action(Action::Right),
+        Input::Action(Action::AltF) => Input::Action(Action::WordRight),
+        Input::Action(Action::ComposerUp | Action::DraftStart { shifted: false }) => {
+            Input::Action(Action::Up)
+        }
+        Input::Action(Action::ComposerDown | Action::DraftEnd { shifted: false }) => {
+            Input::Action(Action::Down)
+        }
+        Input::Action(Action::DraftStart { shifted: true }) => Input::Action(Action::SelectUp),
+        Input::Action(Action::DraftEnd { shifted: true }) => Input::Action(Action::SelectDown),
+        other => other,
+    }
+}
+
+/// `event` with every spelling the decoder keeps for a question or an
+/// approval made the key it is to every other surface: [`unspelled`], Shift
+/// taken off Up and Down, and Alt-b the word move.
 ///
 /// The decoder keeps Shift on the vertical arrows because a question's
 /// freeform field binds it -- the plain arrows walk the field's rows and the
-/// shifted ones choose (`super::input::Action::SelectUp`) -- and that is the
-/// only surface that does. Folded back here, once, before any other surface
-/// reads the event, so the composer, the approvals and the menus see exactly
-/// the keys they saw before Shift was kept.
-fn unshifted(event: Input) -> Input {
-    match event {
+/// shifted ones choose (`super::input::Action::SelectUp`) -- and Alt-b apart
+/// from Ctrl-Left and Alt-Left because a question's choice binds it -- the
+/// previous question, where the arrows do nothing -- and an approval's -- the
+/// previous choice (`super::input::Action::AltB`). Folded back here, once,
+/// after the full transcript, the question and the approval have read the
+/// event (the full transcript binds neither, so it takes them as unbound) and
+/// before the menus and the composer do, so those see exactly the keys they
+/// saw before any were kept apart. An approval's draft reads its keys through
+/// this too ([`Shell::decide`]).
+fn folded(event: Input) -> Input {
+    match unspelled(event) {
         Input::Action(Action::SelectUp) => Input::Action(Action::Up),
         Input::Action(Action::SelectDown) => Input::Action(Action::Down),
+        Input::Action(Action::AltB) => Input::Action(Action::WordLeft),
         other => other,
     }
 }
@@ -23409,6 +23530,687 @@ mod tests {
             "the batch did not move to its second question: {:?}",
             fixture.band_rows()
         );
+    }
+
+    #[test]
+    fn alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not() {
+        // fx routes `.word_left` with Left to `retreatToPrevious`, which stops
+        // at the first question (`input_question_runtime.zig:190-195`,
+        // `question_prompt.zig:609-615@481104fd`). `.word_left` is what Alt-b
+        // decodes to in each of its spellings -- `ESC b`, kitty's `CSI 98;3u`
+        // and xterm's `CSI 27;3;98~` (`escape_parser.zig:243-246`, `:528-533`)
+        // -- while Ctrl-Left and Alt-Left are a composer move (`:83-92`) that a
+        // choice leaves alone, as it does Alt-f and Ctrl-Right (`:196-199`),
+        // and Shift-Alt-b and Shift-Alt-f, a composer move too (`:244`, `:248`).
+        // `fx-p5-question-word-left-40x120-*`.
+        let mut fixture = shell(24, 120);
+        asking_question(&mut fixture, a_batch());
+        let on = |fixture: &Fixture, text: &str| {
+            fixture.band_rows().iter().any(|row| row.contains(text))
+        };
+        for alt_b in [&b"\x1bb"[..], b"\x1b[98;3u", b"\x1b[27;3;98~"] {
+            fixture.route_bytes(b"\t");
+            assert!(on(&fixture, "Ship it?"), "Tab reached the second question");
+            for word_key in [
+                &b"\x1b[1;5D"[..],
+                b"\x1b[1;3D",
+                b"\x1b[57417;5u",
+                b"\x1bf",
+                b"\x1b[1;5C",
+                b"\x1b[98;4u",
+                b"\x1b[102;4u",
+            ] {
+                fixture.route_bytes(word_key);
+                assert!(
+                    on(&fixture, "Ship it?"),
+                    "{word_key:?} moved off the question"
+                );
+            }
+            fixture.route_bytes(alt_b);
+            assert!(
+                on(&fixture, "Which depth?"),
+                "{alt_b:?} did not go back a question: {:?}",
+                fixture.band_rows()
+            );
+            fixture.route_bytes(alt_b);
+            assert!(on(&fixture, "Which depth?"), "{alt_b:?} at the first");
+        }
+        // Inside a draft Alt-b is the caret's word move, and the question
+        // stays where it is (`.edit_freeform = .cursor_word_left`,
+        // `src/ui/input/runtime.zig:155-197`).
+        fixture.route_bytes(b"\t");
+        fixture.route_bytes(b"3");
+        fixture.route_bytes(b"ab cd");
+        fixture.route_bytes(b"\x1bb");
+        fixture.route_bytes(b"z");
+        assert!(
+            on(&fixture, "Ship it?"),
+            "Alt-b in a draft left the question"
+        );
+        // The caret's cell is painted on its own, so the row is read unpainted
+        // (and, with the caret at the end, without the blank cell it sits on).
+        let draft = |fixture: &Fixture, text: &str| {
+            fixture
+                .band_rows()
+                .iter()
+                .any(|row| sgr_free(row).trim_end() == format!("    3) {text}"))
+        };
+        assert!(draft(&fixture, "ab zcd"), "{:?}", fixture.band_rows());
+        // So are Shift-Alt-b and Shift-Alt-f: the draft drops the Shift
+        // (`questionFreeformActionFromShortcut`, `src/ui/input/runtime.zig:155-176`;
+        // `fx-p5-question-word-left-40x120-draft-shift-alt-{b,f}`).
+        fixture.route_bytes(b"\x1b[98;4u");
+        fixture.route_bytes(b"y");
+        assert!(draft(&fixture, "ab yzcd"), "{:?}", fixture.band_rows());
+        fixture.route_bytes(b"\x1b[102;4u");
+        fixture.route_bytes(b"x");
+        assert!(draft(&fixture, "ab yzcdx"), "{:?}", fixture.band_rows());
+        // And Shift-Left and Alt-f, which the decoder keeps apart for an
+        // approval's choice, reach the draft as the step and the word move
+        // they always were (`unspelled`; `questionFreeformActionFromShortcut`
+        // reads only the move's kind, `src/ui/input/runtime.zig:155-176`).
+        fixture.route_bytes(b"\x1b[1;2D");
+        fixture.route_bytes(b"v");
+        fixture.route_bytes(b"\x1bf");
+        fixture.route_bytes(b"w");
+        assert!(draft(&fixture, "ab yzcdvxw"), "{:?}", fixture.band_rows());
+        assert!(on(&fixture, "Ship it?"), "a word move left the question");
+    }
+
+    #[test]
+    fn alt_b_in_an_approval_amendment_is_the_word_move() {
+        // The approval reads the event before the fold, and its draft reads
+        // each spelling as the plain key it folds to (`Shell::decide`); the
+        // word move and the step are what the draft binds (`approval::edits`),
+        // so a spelling that reached it unfolded would be a key it swallows.
+        // fx's amendment takes Alt-b and Alt-f as `.cursor_word_left/right`
+        // and Shift-Left/Right and Ctrl-B/F as `.cursor_left/right`
+        // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-108`,
+        // `input_approval_runtime.zig:79-88@481104fd`;
+        // `fx-p5-approval-horizontal-keys-40x120-amend-keys`), and none of them
+        // moves the choice there.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        shell.route_bytes(b"\x1bb");
+        shell.route_bytes(b"z");
+        shell.route_bytes(b"\x1b[1;2D");
+        shell.route_bytes(&[0x02]);
+        shell.route_bytes(b"y");
+        shell.route_bytes(&[0x06]);
+        shell.route_bytes(b"\x1b[1;2C");
+        shell.route_bytes(b"x");
+        shell.route_bytes(b"\x1bf");
+        shell.route_bytes(b"w");
+        shell.route_bytes(b"\x1b[D\x1b[D");
+        shell.route_bytes(b"v");
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("aby zxcvdw".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn the_horizontal_keys_at_an_approval_choice_are_fxs() {
+        // fx v0.0.16 at a choice with no amendment open: `.cursor_left` and
+        // `.word_left` mark the previous choice and `.cursor_right` and
+        // `.word_right` the next (`routeApprovalEscapeAction`,
+        // `input_approval_runtime.zig:90-110@481104fd`), wrapping at both ends
+        // (`moveChoice`, `approval_decision.zig:214-225`); every other key is
+        // `else => {}` (`:128`). The two words are Alt-b and Alt-f in each
+        // spelling (`escape_parser.zig:243-250`, `:528-539`). The modified
+        // arrows are composer moves (`modifiedArrowAction`, `:73-108`), and so
+        // are Shift-Alt-b and Shift-Alt-f (`:244`, `:248`); Ctrl-B and Ctrl-F
+        // are raw bytes only an amendment reads (`approvalActionFromRawByte`,
+        // `src/ui/input/runtime.zig:103-108`). `fx-p5-approval-horizontal-keys-40x120-*`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        let on = |shell: &Fixture, choice: &str| shell.marked().contains(&format!("❯ {choice}  "));
+        shell.route_bytes(b"\x1b[B");
+        assert!(on(&shell, "2"), "{:?}", shell.marked());
+        for (key, lands) in [
+            (&b"\x1b[D"[..], "1"),
+            (b"\x1b[D", "3"),
+            (b"\x1b[C", "1"),
+            (b"\x1b[C", "2"),
+            (b"\x1bf", "3"),
+            (b"\x1bb", "2"),
+            (b"\x1b[102;3u", "3"),
+            (b"\x1b[27;3;102~", "1"),
+            (b"\x1b[98;3u", "3"),
+            (b"\x1b[27;3;98~", "2"),
+            (b"\x1bOD", "1"),
+            (b"\x1b[57418u", "2"),
+        ] {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, lands),
+                "{key:?} did not mark choice {lands}: {:?}",
+                shell.marked()
+            );
+        }
+        for key in [
+            &b"\x1b[1;5C"[..],
+            b"\x1b[1;5D",
+            b"\x1b[1;3C",
+            b"\x1b[1;3D",
+            b"\x1b[1;2C",
+            b"\x1b[1;2D",
+            b"\x1b[1;9C",
+            b"\x1b[1;9D",
+            b"\x1b[1;10D",
+            b"\x1b[57417;2u",
+            b"\x1b[57418;9u",
+            &[0x06],
+            &[0x02],
+            b"\x1b[98;5u",
+            b"\x1b[102;5u",
+            b"\x1b[102;4u",
+            b"\x1b[98;4u",
+        ] {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, "2"),
+                "{key:?} moved the choice: {:?}",
+                shell.marked()
+            );
+        }
+    }
+
+    #[test]
+    fn a_draft_left_behind_is_not_painted_and_still_travels_with_its_choice() {
+        // fx paints a draft only on the choice whose amendment is open
+        // (`appendFileApprovalChoiceLabel`, `approval_ui.zig:1181-1193@481104fd`;
+        // `:1413-1418`, `:1688-1694`). Moving the choice ends the amendment and
+        // keeps its text (`moveChoice`'s `clearActive`, `approval_decision.zig:224`;
+        // `approval_amendment.zig:170-172`), Tab on that choice opens it again
+        // with the text in it (`:142-151`), and Enter sends the marked choice's
+        // draft, painted or not (`materializeResponse`, `:112-127`).
+        // `fx-p5-approval-horizontal-keys-40x120-{down,back,tab-back,unpainted,answered}`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        assert!(
+            band(&shell).contains("Apply once, ab cd"),
+            "{}",
+            band(&shell)
+        );
+        shell.route_bytes(b"\x1b[B");
+        let first = |shell: &Fixture| {
+            uncoloured_rows(&shell.shell.band_rows())
+                .into_iter()
+                .find(|row| row.contains("1  Apply once"))
+                .map(|row| row.trim_end().to_string())
+        };
+        assert_eq!(
+            first(&shell).as_deref(),
+            Some("    1  Apply once"),
+            "a draft that has not the keys is painted"
+        );
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(first(&shell).as_deref(), Some("  ❯ 1  Apply once"));
+        shell.route_bytes(b"\t");
+        assert!(
+            band(&shell).contains("Apply once, ab cd"),
+            "Tab did not open the draft again with its text: {}",
+            band(&shell)
+        );
+        shell.route_bytes(b"\x1b[B\x1b[A");
+        assert_eq!(first(&shell).as_deref(), Some("  ❯ 1  Apply once"));
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("ab cd".to_string()),
+            }),
+            "the draft did not travel with its choice"
+        );
+    }
+
+    #[test]
+    fn leaving_a_filled_draft_revokes_the_receipt_and_the_next_frame_earns_it_back() {
+        // Leaving a filled draft takes its rows off the panel, so the screen a
+        // readiness receipt was earned on is not the one the user now sees
+        // (`approval::answered` measures the shape: `Reshaped`, and
+        // `Shell::decide` calls `invalidate_approval`). An Enter before the
+        // next disclosed frame is refused and sends nothing; after it, Enter
+        // answers with the draft that choice carries.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        delivered(&mut shell);
+        assert!(
+            shell.approval_ready(ApprovalId(1)),
+            "no receipt was earned with the filled draft on screen, so this case proves nothing"
+        );
+        shell.route_bytes(b"\x1b[B\x1b[A");
+        assert!(
+            !shell.approval_ready(ApprovalId(1)),
+            "leaving a filled draft kept a receipt about the screen that showed it"
+        );
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "an affirmative was taken before the screen without the draft was disclosed"
+        );
+        assert!(shell.asking(), "the refused Enter took the question down");
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("ab cd".to_string()),
+            }),
+            "the answer after the next frame did not carry its choice's draft"
+        );
+    }
+
+    /// The ten vertical keys, in twelve spellings, that fx v0.0.16's approval
+    /// does not move its choice on (`p5-approval-vertical-keys`): Shift-,
+    /// Ctrl-, Super- and Alt-Down (Alt also as kitty's report of the arrow,
+    /// `CSI 57353;3u`) and `C-n`, then the same on Up and `C-p`.
+    const VERTICAL_SPELLINGS: [(&str, &[u8]); 12] = [
+        ("shift-down", b"\x1b[1;2B"),
+        ("ctrl-down", b"\x1b[1;5B"),
+        ("super-down", b"\x1b[1;9B"),
+        ("alt-down", b"\x1b[1;3B"),
+        ("kitty-alt-down", b"\x1b[57353;3u"),
+        ("ctrl-n", &[0x0e]),
+        ("shift-up", b"\x1b[1;2A"),
+        ("ctrl-up", b"\x1b[1;5A"),
+        ("super-up", b"\x1b[1;9A"),
+        ("alt-up", b"\x1b[1;3A"),
+        ("kitty-alt-up", b"\x1b[57352;3u"),
+        ("ctrl-p", &[0x10]),
+    ];
+
+    #[test]
+    fn the_vertical_spellings_at_an_approval_choice_move_nothing_and_the_arrows_still_do() {
+        // fx v0.0.16 at a choice with no amendment open. Every modified Up and
+        // Down is a composer move (`modifiedArrowAction`,
+        // `escape_parser.zig:73-108@481104fd`; the CSI modifier `:721-730`,
+        // kitty's arrow codes `:38-39` through `:208-217`), which reaches the
+        // switch's `else => {}` (`input_approval_runtime.zig:128`). So does
+        // `C-p`, decoded as `.open_model_catalog` (`escape_parser.zig:268-274`).
+        // `C-n` is a raw byte no approval action is made of
+        // (`approvalActionFromRawByte`, `src/ui/input/runtime.zig:61-73`,
+        // `:103-108`; `shortcuts.zig:11-41`), and the question takes it and
+        // does nothing (`app_input_runtime.zig:1173-1184`). Only the plain
+        // arrows move, wrapping (`input_approval_runtime.zig:111-126`).
+        // `fx-p5-approval-vertical-keys-40x120-*`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        let on = |shell: &Fixture, choice: &str| shell.marked().contains(&format!("❯ {choice}  "));
+        assert!(on(&shell, "1"), "{:?}", shell.marked());
+        for (name, key) in VERTICAL_SPELLINGS {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, "1"),
+                "{name} ({key:?}) moved the choice: {:?}",
+                shell.marked()
+            );
+        }
+        // The same keys by the other routes fx resolves through the one table:
+        // the kitty keypad arrows with a modifier (`escape_parser.zig:196-197`,
+        // then `:163-167`), the kitty arrows with Super or Shift, and two
+        // modifiers at once, Super first (`:74`) and then Alt, Ctrl and Shift
+        // (`:83`, `:90`, `:99`).
+        for key in [
+            &b"\x1b[57419;5u"[..],
+            b"\x1b[57420;2u",
+            b"\x1b[57419;9u",
+            b"\x1b[57352;9u",
+            b"\x1b[57353;2u",
+            b"\x1b[1;10A",
+            b"\x1b[1;6B",
+            b"\x1b[1;4A",
+            b"\x1b[1;16B",
+        ] {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, "1"),
+                "{key:?} moved the choice: {:?}",
+                shell.marked()
+            );
+        }
+        // The plain arrows, in each spelling, still move it and wrap.
+        for (key, lands) in [
+            (&b"\x1b[B"[..], "2"),
+            (b"\x1b[B", "3"),
+            (b"\x1b[B", "1"),
+            (b"\x1b[A", "3"),
+            (b"\x1b[57352u", "2"),
+            (b"\x1bOA", "1"),
+            (b"\x1b[57420u", "2"),
+            (b"\x1b[57353u", "3"),
+        ] {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, lands),
+                "{key:?} did not mark choice {lands}: {:?}",
+                shell.marked()
+            );
+        }
+    }
+
+    #[test]
+    fn the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do() {
+        // fx v0.0.16 in an amendment: the decoded action's composer move is
+        // the draft's only if `approvalDraftActionFromShortcut` names it
+        // (`src/ui/input/runtime.zig:75-96`, `:121-129`;
+        // `input_approval_runtime.zig:79-89`). Super-Up and Super-Down are
+        // `draft_start` and `draft_end` (`escape_parser.zig:74-76`), so the
+        // caret goes to the draft's start and its end
+        // (`src/ui/input/runtime.zig:82-83`; `cursorHome` and `cursorEnd`,
+        // `approval_amendment.zig:84-92`). Shift- and Ctrl-Up/Down are
+        // `visual_up`/`visual_down` and Alt-Up/Down `paragraph_up`/
+        // `paragraph_down` (`escape_parser.zig:84-85`, `:93-94`, `:100-101`),
+        // which it does not name (`src/ui/input/runtime.zig:86`): the switch's
+        // `else => {}` (`input_approval_runtime.zig:128`), nothing. `C-p` is
+        // `.open_model_catalog` (`escape_parser.zig:268-274`), with no
+        // composer move (`shortcuts.zig:63`): the same `else`. `C-n` is a raw
+        // byte, no draft key (`shortcuts.zig:31-41`) and no approval byte
+        // (`src/ui/input/runtime.zig:61-73`): nothing
+        // (`app_input_runtime.zig:1173-1184`). The amendment stays open and
+        // the choice where it is through all twelve; the letter after each
+        // pins where the caret was. `fx-p5-approval-vertical-keys-40x120-amend-*`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        let keys: [(&str, &[u8], &[u8]); 12] = [
+            ("shift-up", b"\x1b[1;2A", b"x"),
+            ("super-up", b"\x1b[1;9A", b"y"),
+            ("ctrl-p", &[0x10], b"w"),
+            ("shift-down", b"\x1b[1;2B", b"v"),
+            ("ctrl-up", b"\x1b[1;5A", b"u"),
+            ("ctrl-down", b"\x1b[1;5B", b"t"),
+            ("alt-up", b"\x1b[1;3A", b"s"),
+            ("alt-down", b"\x1b[1;3B", b"r"),
+            ("kitty-alt-up", b"\x1b[57352;3u", b"q"),
+            ("kitty-alt-down", b"\x1b[57353;3u", b"p"),
+            ("ctrl-n", &[0x0e], b"o"),
+            ("super-down", b"\x1b[1;9B", b"n"),
+        ];
+        for (name, key, letter) in keys {
+            shell.route_bytes(key);
+            assert!(shell.drafting(), "{name} ({key:?}) ended the amendment");
+            assert!(
+                shell.marked().contains("❯ 1  "),
+                "{name} ({key:?}) moved the choice: {:?}",
+                shell.marked()
+            );
+            shell.route_bytes(letter);
+        }
+        // fx's example (`ab cd`, Shift-Up, `x`, Super-Up, `y`, `C-p`, `w`
+        // gives `ywab cdx`), and the rest typed at the caret Super-Up left,
+        // until Super-Down takes it to the end for the last.
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("ywvutsrqpoab cdxn".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn a_no_op_vertical_spelling_keeps_the_receipt_and_enter_answers_the_choice_shown() {
+        // A key that leaves the choice and the amendment as they were changes
+        // nothing on the screen, so the readiness receipt about that screen is
+        // left exactly as it was, and Enter after it, with no frame between,
+        // answers the choice the last disclosed frame marked, with the draft
+        // that frame showed. When these keys moved the marker (a `Moved`
+        // reply, which keeps the receipt: all three choices are on every
+        // frame), such an Enter answered a choice no frame had shown marked --
+        // after Shift-Down, `Always`. Two deliveries here, so the receipt can
+        // be read between them; the one-read cases, key and Enter in one
+        // buffer, are `a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown`.
+        // Super-Up and Super-Down in an amendment move the caret, which is not
+        // nothing: they are that test's.
+        for open in [false, true] {
+            for (name, key) in VERTICAL_SPELLINGS {
+                if open && name.starts_with("super") {
+                    continue;
+                }
+                let mut shell = shell(24, 80);
+                asking(&mut shell);
+                if open {
+                    shell.route_bytes(b"\tab cd");
+                    delivered(&mut shell);
+                }
+                assert!(
+                    shell.approval_ready(ApprovalId(1)),
+                    "no receipt was earned, so this case proves nothing"
+                );
+                let receipt = format!("{:?}", shell.readiness);
+                shell.route_bytes(key);
+                assert_eq!(
+                    format!("{:?}", shell.readiness),
+                    receipt,
+                    "open={open} {name}: a key that moved nothing touched the receipt"
+                );
+                // No frame between the key and the Enter.
+                shell.route_bytes(b"\r");
+                assert_eq!(
+                    shell.controlled(),
+                    Some(TurnControl::Answer {
+                        id: ApprovalId(1),
+                        answer: ApprovalAnswer::Once,
+                        feedback: open.then(|| "ab cd".to_string()),
+                    }),
+                    "open={open} {name}: Enter did not answer the choice the last frame showed"
+                );
+            }
+        }
+        // And a key that still changes what the card shows still revokes it:
+        // the plain arrow out of a filled draft takes the draft's rows away.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        delivered(&mut shell);
+        shell.route_bytes(b"\x1b[B");
+        assert!(
+            !shell.approval_ready(ApprovalId(1)),
+            "the arrow out of a filled draft kept the receipt"
+        );
+    }
+
+    #[test]
+    fn a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown() {
+        // A terminal sends a key and the Enter after it in one write, and the
+        // decoder reads them from one buffer (`route_bytes` is one read). The
+        // answer must be the choice the last disclosed frame marked, with the
+        // draft that frame showed.
+        let answered = |shell: &mut Fixture, feedback: Option<&str>, what: &str| {
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: feedback.map(str::to_string),
+                }),
+                "{what}"
+            );
+        };
+        let open = |shell: &mut Fixture| {
+            shell.route_bytes(b"\tab cd");
+            delivered(shell);
+            assert!(shell.approval_ready(ApprovalId(1)), "no receipt was earned");
+        };
+        // Each spelling and `\r` in one buffer, at a choice and in an
+        // amendment (Super-Up and -Down there below).
+        for amending in [false, true] {
+            for (name, key) in VERTICAL_SPELLINGS {
+                if amending && name.starts_with("super") {
+                    continue;
+                }
+                let mut shell = shell(24, 80);
+                asking(&mut shell);
+                if amending {
+                    open(&mut shell);
+                }
+                shell.route_bytes(&[key, b"\r"].concat());
+                answered(
+                    &mut shell,
+                    amending.then_some("ab cd"),
+                    &format!("amending={amending} {name}"),
+                );
+            }
+        }
+        // All twelve and `\r` in one buffer, at a choice and in an amendment:
+        // nothing moves, and Super-Up and -Down there move only the caret,
+        // which is not part of the receipt's identity
+        // (`super::approval_readiness::Intent`), so the draft is unchanged.
+        for amending in [false, true] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            if amending {
+                open(&mut shell);
+            }
+            let mut all: Vec<u8> = VERTICAL_SPELLINGS
+                .iter()
+                .flat_map(|(_, key)| key.iter().copied())
+                .collect();
+            all.push(b'\r');
+            shell.route_bytes(&all);
+            answered(
+                &mut shell,
+                amending.then_some("ab cd"),
+                &format!("amending={amending}: the twelve and Enter in one read"),
+            );
+        }
+        // Super-Up or Super-Down in an amendment, then Enter at once. The
+        // caret moved, which is a frame (`Moved`) and not a new screen: a
+        // receipt is about the question, its plane, its size and its layout,
+        // never the caret (`super::approval_readiness::Intent`), so it holds,
+        // and the answer is the choice shown with the draft unchanged. fx
+        // refuses this Enter on a file approval like this one, until the
+        // frame the caret asked for is drawn (`input_approval_runtime.zig:191-218`);
+        // APPROVAL-READINESS-SETTLED flips this case.
+        for (name, key) in [
+            ("super-up", &b"\x1b[1;9A"[..]),
+            ("super-down", b"\x1b[1;9B"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            open(&mut shell);
+            shell.route_bytes(&[key, b"\r"].concat());
+            answered(&mut shell, Some("ab cd"), name);
+        }
+    }
+
+    #[test]
+    fn the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest() {
+        // `folded`'s own contract: `AltB` to `WordLeft`, Shift taken off Up
+        // and Down, the approval's spellings to their keys, and every other
+        // key as it came. And `unspelled`'s, which the full transcript and the
+        // question read: only the approval's spellings folded.
+        for (event, surfaces_see, transcript_and_question_see) in [
+            (Action::AltB, Action::WordLeft, Action::AltB),
+            (Action::SelectUp, Action::Up, Action::SelectUp),
+            (Action::SelectDown, Action::Down, Action::SelectDown),
+            (Action::AltF, Action::WordRight, Action::WordRight),
+            (Action::ComposerLeft, Action::Left, Action::Left),
+            (Action::ComposerRight, Action::Right, Action::Right),
+            // The vertical spellings only the approval tells apart: each is
+            // the key every other surface saw before -- Super with Shift the
+            // shifted arrow a question's field binds, without it the arrow.
+            (Action::ComposerUp, Action::Up, Action::Up),
+            (Action::ComposerDown, Action::Down, Action::Down),
+            (
+                Action::DraftStart { shifted: false },
+                Action::Up,
+                Action::Up,
+            ),
+            (
+                Action::DraftEnd { shifted: false },
+                Action::Down,
+                Action::Down,
+            ),
+            (
+                Action::DraftStart { shifted: true },
+                Action::Up,
+                Action::SelectUp,
+            ),
+            (
+                Action::DraftEnd { shifted: true },
+                Action::Down,
+                Action::SelectDown,
+            ),
+            (Action::WordLeft, Action::WordLeft, Action::WordLeft),
+            (Action::Left, Action::Left, Action::Left),
+            (Action::Up, Action::Up, Action::Up),
+            (Action::ControlP, Action::ControlP, Action::ControlP),
+        ] {
+            assert_eq!(
+                folded(Input::Action(event)),
+                Input::Action(surfaces_see),
+                "{event:?}"
+            );
+            assert_eq!(
+                unspelled(Input::Action(event)),
+                Input::Action(transcript_and_question_see),
+                "{event:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_full_transcript_holds_the_composer_spellings_of_the_arrows_as_it_holds_the_arrows() {
+        // The full transcript holds Left and Right (`full_transcript.rs`'s
+        // `key`, `Reply::Held`) and reads the event `unspelled`, so Shift- and
+        // Super-Left and -Right and Ctrl-B and Ctrl-F, which the decoder keeps
+        // apart for an approval's choice, are held too: none reaches the
+        // composer behind the screen. Each side on its own, from the end it
+        // would move away from, so a left and a right that got through cannot
+        // cancel out.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"ab");
+        for (home, keys, typed, text) in [
+            (
+                &b"\x05"[..],
+                [&b"\x1b[1;2D"[..], b"\x1b[1;9D", &[0x02]],
+                &b"z"[..],
+                "abz",
+            ),
+            (
+                &b"\x01"[..],
+                [&b"\x1b[1;2C"[..], b"\x1b[1;9C", &[0x06]],
+                &b"y"[..],
+                "yabz",
+            ),
+        ] {
+            shell.route_bytes(home);
+            shell.route_bytes(b"\x0f");
+            assert!(shell.full.is_open(), "Ctrl-O opened no full transcript");
+            for key in keys {
+                shell.route_bytes(key);
+                assert!(shell.full.is_open(), "{key:?} closed the full transcript");
+            }
+            shell.route_bytes(b"\x0f");
+            assert!(!shell.full.is_open(), "Ctrl-O did not close it");
+            shell.route_bytes(typed);
+            assert_eq!(
+                shell.editor.text(),
+                text,
+                "a key under the full transcript moved the composer's caret"
+            );
+        }
     }
 
     #[test]
@@ -39681,44 +40483,84 @@ mod tests {
 
     #[test]
     fn up_and_down_move_the_choice_whether_or_not_a_draft_is_open() {
-        // Four cases, because `input_approval_runtime.zig:127-141` maps
-        // `cursor_up`/`history_up` to one action and `cursor_down`/`history_down`
-        // to another **regardless of whether an amendment is open**. The shell
-        // collapses each pair at the translation rather than giving the panel
-        // four keys to keep in step -- and neither spelling may ever reach the
-        // editor, because they are the only way out of a draft.
+        // fx v0.0.16 maps `cursor_up` to the previous choice and `cursor_down`
+        // to the next **whether or not an amendment is open**
+        // (`input_approval_runtime.zig:111-126@481104fd`): the plain arrow's
+        // composer move, `visual_up`/`visual_down`, is no draft key
+        // (`src/ui/input/runtime.zig:75-96`), so the arrow reaches the switch.
+        // Neither may ever reach the editor, because they are the only way out
+        // of a draft. `C-p`, `C-n` and the modified arrows are not these keys
+        // there (`the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do`):
+        // with or without a draft they move nothing and type nothing.
         for open in [false, true] {
-            for (up, down) in [
-                (Action::Up, Action::Down),
-                (Action::ControlP, Action::HistoryNext),
-            ] {
-                let mut shell = shell(24, 80);
-                asking(&mut shell);
-                if open {
-                    shell.decide(Input::Action(Action::Tab), Instant::now());
-                    type_at_the_question(&mut shell, "y");
-                }
-                shell.decide(Input::Action(down), Instant::now());
-                assert!(
-                    shell.marked().contains("❯ 2  Apply + allow"),
-                    "open={open} {down:?}: the marker did not move: {:?}",
-                    shell.marked()
-                );
-                shell.decide(Input::Action(up), Instant::now());
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            if open {
+                shell.decide(Input::Action(Action::Tab), Instant::now());
+                type_at_the_question(&mut shell, "y");
+            }
+            // Super-Up and -Down are the draft's edges while one is open
+            // (`super::approval_amendment`'s
+            // `super_up_and_down_are_the_whole_drafts_edges`), and nothing
+            // at the choice.
+            let edges = [
+                Action::DraftStart { shifted: false },
+                Action::DraftEnd { shifted: true },
+            ];
+            let others = [
+                Action::ControlP,
+                Action::HistoryNext,
+                Action::SelectUp,
+                Action::SelectDown,
+                Action::ComposerUp,
+                Action::ComposerDown,
+            ];
+            let edges = if open { &[][..] } else { &edges[..] };
+            for &still in others.iter().chain(edges) {
+                shell.decide(Input::Action(still), Instant::now());
                 assert!(
                     shell.marked().contains("❯ 1  Apply once"),
-                    "open={open} {up:?}: the marker did not come back: {:?}",
+                    "open={open} {still:?}: the marker moved: {:?}",
                     shell.marked()
                 );
-                // And nothing of either key reached the draft: what was typed
-                // is still exactly what was typed.
-                if open {
-                    assert!(
-                        band(&shell).contains("Apply once, y "),
-                        "an arrow was routed into the editor: {:?}",
-                        band(&shell)
-                    );
-                }
+                assert_eq!(shell.drafting(), open, "open={open} {still:?}");
+            }
+            shell.decide(Input::Action(Action::Down), Instant::now());
+            assert!(
+                shell.marked().contains("❯ 2  Apply + allow"),
+                "open={open}: Down did not move the marker: {:?}",
+                shell.marked()
+            );
+            shell.decide(Input::Action(Action::Up), Instant::now());
+            assert!(
+                shell.marked().contains("❯ 1  Apply once"),
+                "open={open}: Up did not bring the marker back: {:?}",
+                shell.marked()
+            );
+            assert!(
+                !shell.drafting(),
+                "open={open}: an arrow kept the draft open"
+            );
+            // And nothing of any of these keys reached the draft: what was
+            // typed is still exactly what was typed, once Tab paints it again
+            // (only the draft that has the keys is painted).
+            if open {
+                shell.decide(Input::Action(Action::Tab), Instant::now());
+                assert!(
+                    band(&shell).contains("Apply once, y "),
+                    "a key was routed into the editor: {:?}",
+                    band(&shell)
+                );
+                // Up first out of the draft, as well as Down first: it ends
+                // the draft and marks the choice above, wrapping to the last.
+                assert!(shell.drafting(), "Tab did not open the draft again");
+                shell.decide(Input::Action(Action::Up), Instant::now());
+                assert!(
+                    shell.marked().contains("❯ 3  Don't apply"),
+                    "Up from a draft did not move the marker: {:?}",
+                    shell.marked()
+                );
+                assert!(!shell.drafting(), "Up from a draft kept it open");
             }
         }
     }
@@ -41042,7 +41884,9 @@ mod tests {
             "the plane's scroll keys ended the editing and took the only walk of the change with it"
         );
 
-        // The arrows do end it, and keep the text.
+        // The arrows do end it, and keep the text: not painted while its
+        // choice is not being amended, as on the band, and painted again by
+        // Tab on that choice.
         shell.decide(Input::Action(Action::Down), Instant::now());
         assert!(
             !shell.drafting(),
@@ -41050,11 +41894,17 @@ mod tests {
         );
         let painted = unwrapped(&shell.screen_rows());
         assert!(
-            painted.contains("rename the flag first"),
-            "leaving the draft threw its text away: {painted:?}"
+            !painted.contains("rename the flag first"),
+            "a draft that has not the keys is painted on the plane: {painted:?}"
         );
         shell.decide(Input::Action(Action::Up), Instant::now());
         assert!(!shell.drafting(), "an arrow re-opened a draft");
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+        let painted = unwrapped(&shell.screen_rows());
+        assert!(
+            painted.contains("rename the flag first"),
+            "leaving the draft threw its text away: {painted:?}"
+        );
     }
     // -----------------------------------------------------------------------
     // the terminal's own background, while the session runs

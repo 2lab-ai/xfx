@@ -230,24 +230,103 @@ use std::time::{Duration, Instant};
 pub(crate) enum Action {
     Left,
     Right,
+    /// Left as upstream's composer move rather than its cursor key: Shift-Left,
+    /// Super-Left (`CSI 1;<mask> D` and the kitty keypad Left with either held,
+    /// but not Ctrl or Alt, which are [`Action::WordLeft`]) and Ctrl-B.
+    ///
+    /// Upstream decodes the arrows to `composerMove` (`modifiedArrowAction`,
+    /// `escape_parser.zig:73-108@481104fd`) and keeps Ctrl-B a raw byte
+    /// (`shortcuts.zig:15`); its approval's choice moves on `.cursor_left`
+    /// alone and leaves both where they are, while an amendment takes them as
+    /// the caret's move (`input_approval_runtime.zig:79-128`,
+    /// `src/ui/input/runtime.zig:75-108`). The approval is the only xfx surface
+    /// that reads this: the shell folds it back to [`Action::Left`] before the
+    /// full transcript, the question and the rest see the event
+    /// (`super::shell::Shell`'s `unspelled`).
+    ComposerLeft,
+    /// Right as a composer move: Shift-Right, Super-Right and Ctrl-F, the
+    /// mirror of [`Action::ComposerLeft`].
+    ComposerRight,
     Up,
     Down,
-    /// Up and Down with Shift held: `CSI 1;<mask> A/B` and the kitty arrow
-    /// reports with a mask that has Shift in it.
+    /// Up and Down with Ctrl or Alt held and neither Shift nor Super:
+    /// `CSI 1;<mask> A/B`, kitty's arrow reports and the kitty keypad arrows.
+    ///
+    /// Upstream decodes them to a composer move, `visual_up` under Ctrl and
+    /// `paragraph_up` under Alt (`modifiedArrowAction`,
+    /// `escape_parser.zig:83-98@481104fd`), which an approval's choice and its
+    /// amendment both leave alone (`input_approval_runtime.zig:79-128`,
+    /// `src/ui/input/runtime.zig:75-96`). The approval is the only xfx surface
+    /// that reads this; the shell folds it back to [`Action::Up`] for the full
+    /// transcript, the question and the rest (`super::shell::Shell`'s
+    /// `unspelled`).
+    ComposerUp,
+    /// Down as a composer move, the mirror of [`Action::ComposerUp`].
+    ComposerDown,
+    /// Up with Super held, whatever else is: upstream's `draft_start`
+    /// (`escape_parser.zig:74-75@481104fd`, the first arm, so Super wins over
+    /// Alt, Ctrl and Shift).
+    ///
+    /// In an approval's amendment it takes the caret to the draft's start
+    /// (`.cursor_home`, `src/ui/input/runtime.zig:82`; `cursorHome`,
+    /// `approval_amendment.zig:84-87`); at its choice it does nothing. An
+    /// editor reads it as that move. `shifted` is whether Shift was held too,
+    /// because every surface but the approval sees the key it saw before this
+    /// was kept apart -- [`Action::SelectUp`] with Shift, [`Action::Up`]
+    /// without (`super::shell::Shell`'s `unspelled`).
+    DraftStart {
+        shifted: bool,
+    },
+    /// Down with Super held: upstream's `draft_end` (`escape_parser.zig:76`),
+    /// the caret to the draft's end in an amendment (`.cursor_end`,
+    /// `src/ui/input/runtime.zig:83`; `cursorEnd`, `approval_amendment.zig:89-92`),
+    /// the mirror of [`Action::DraftStart`].
+    DraftEnd {
+        shifted: bool,
+    },
+    /// Up and Down with Shift held and not Super: `CSI 1;<mask> A/B` and the
+    /// kitty arrow reports with a mask that has Shift in it.
     ///
     /// Upstream reads them as a selection move (`extend_selection`), which
     /// only a question's freeform field gives a meaning of its own -- the
     /// choice above or below, where the plain arrows walk the field's rows
     /// (`src/ui/input/runtime.zig:175-188`, `input_question_runtime.zig:150-185`,
-    /// `c1db919`). Everywhere else they are the arrows they always were here:
-    /// the shell folds them back before any other surface sees them
-    /// (`super::shell::Shell`'s `unshifted`).
+    /// `c1db919`). An approval leaves them alone, at its choice and in its
+    /// amendment (`visual_up` is no draft key, `src/ui/input/runtime.zig:86
+    /// @481104fd`). Everywhere else they are the arrows they always were here:
+    /// the shell folds them back once the full transcript, the question and
+    /// the approval have read the event, before the menus and the composer do
+    /// (`super::shell::Shell`'s `folded`).
     SelectUp,
     SelectDown,
     Home,
     End,
     WordLeft,
+    /// Alt-b, in each of its spellings: `ESC b`, kitty's `CSI 98;3u` and
+    /// xterm's `CSI 27;3;98~`.
+    ///
+    /// Upstream decodes these to its own `.word_left` action, and the
+    /// modified arrows -- Ctrl-Left, Alt-Left -- to a composer move instead
+    /// (`escape_parser.zig:83-92`, `:243-246`, `:528-533@481104fd`). Two of its
+    /// surfaces tell the two apart: at a question's choice `.word_left` is the
+    /// previous question, as Left is, and the arrows do nothing
+    /// (`input_question_runtime.zig:190-199@481104fd`); at an approval's choice
+    /// it is the previous choice, as Left is (`input_approval_runtime.zig:90-100
+    /// @481104fd`). Those are the two xfx surfaces that read it. Everywhere
+    /// else this is [`Action::WordLeft`]: the shell folds it back before the
+    /// menus and the composer read the event (`super::shell::Shell`'s
+    /// `folded`), as it does [`Action::SelectUp`].
+    AltB,
     WordRight,
+    /// Alt-f, in each of its spellings: `ESC f`, kitty's `CSI 102;3u` and
+    /// xterm's `CSI 27;3;102~` -- upstream's `.word_right`
+    /// (`escape_parser.zig:247-250`, `:534-539@481104fd`), the mirror of
+    /// [`Action::AltB`]. An approval's choice reads it as the next choice, as
+    /// Right is (`input_approval_runtime.zig:101-110`); Ctrl-Right and
+    /// Alt-Right are a composer move it leaves alone. A question's choice binds
+    /// neither, so the shell folds this to [`Action::WordRight`] for every
+    /// surface but the approval (`super::shell::Shell`'s `unspelled`).
+    AltF,
     Backspace,
     Delete,
     DeleteWordLeft,
@@ -307,15 +386,23 @@ pub(crate) enum Action {
     BackTab,
     /// `C-p` (`0x10`, and kitty's Ctrl+P): the model catalog at the composer
     /// (`open_model_catalog`, `escape_parser.zig` at `c1db919`, :271), and
-    /// the choice above / a review walked back at a permission question.
+    /// a review walked back on a permission question's review plane.
     ///
     /// Named for the key, as [`Action::ControlJ`] is, because what it does is
     /// the surface's to say. It is **not** the recall any more (ssot
     /// divergence 8): the line before this one is the `Up` arrow's, at the
-    /// first row of the draft.
+    /// first row of the draft. At an approval's choice and in its amendment
+    /// it does nothing: upstream decodes it as `.open_model_catalog`
+    /// (`escape_parser.zig:268-274@481104fd`), which its question's switch
+    /// leaves to `else => {}` (`input_approval_runtime.zig:128`;
+    /// `super::shell::Shell`'s `decide`).
     ControlP,
     /// The line after it, and the draft the walk began from once there are no
-    /// more. `C-n`, and `Down` at the last row.
+    /// more. `C-n`, and `Down` at the last row. A review walked on at a
+    /// permission question's review plane, and nothing at its choice or in
+    /// its amendment, where upstream's question reads no action from the raw
+    /// byte (`approvalActionFromRawByte`, `src/ui/input/runtime.zig:103-108
+    /// @481104fd`).
     HistoryNext,
     /// Take the last edit back. `C-_` (`0x1f`), and Super+Z on a terminal that
     /// speaks either of the two CSI-u families (`shortcuts.zig:23-24`,
@@ -987,14 +1074,16 @@ impl Decoder {
             // Alt-b, Alt-f and Alt-d in the spelling a terminal without a key
             // protocol uses (`escape_parser.zig` at `c1db919`, :529-546): the
             // word moves the modified arrows already make, and the forward
-            // word delete. Lower case only, as upstream reads them.
+            // word delete. Lower case only, as upstream reads them. Alt-b and
+            // Alt-f are their own actions, which a choice reads differently
+            // from the arrows ([`Action::AltB`], [`Action::AltF`]).
             b'b' => {
                 self.stage = Stage::Ground;
-                out.push(Input::Action(Action::WordLeft));
+                out.push(Input::Action(Action::AltB));
             }
             b'f' => {
                 self.stage = Stage::Ground;
-                out.push(Input::Action(Action::WordRight));
+                out.push(Input::Action(Action::AltF));
             }
             b'd' => {
                 self.stage = Stage::Ground;
@@ -1234,11 +1323,13 @@ fn carriable(byte: u8) -> bool {
 fn control(byte: u8) -> Action {
     match byte {
         0x01 => Action::Home,
-        0x02 => Action::Left,
+        // A raw byte to upstream rather than its cursor key: an approval's
+        // choice leaves it alone ([`Action::ComposerLeft`]).
+        0x02 => Action::ComposerLeft,
         0x03 => Action::Cancel,
         0x04 => Action::Eof,
         0x05 => Action::End,
-        0x06 => Action::Right,
+        0x06 => Action::ComposerRight,
         0x08 | 0x7f => Action::Backspace,
         0x09 => Action::Tab,
         0x0a => Action::ControlJ,
@@ -1326,20 +1417,41 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
 /// arrow table, and the one a keypad arrow is resolved through as well
 /// ([`kitty_key`]).
 ///
-/// Shift is dropped from Left and Right along with the selection it would have
-/// extended, so what is left there is "ctrl or alt means by word". On Up and
-/// Down it is kept, as [`Action::SelectUp`] and [`Action::SelectDown`].
+/// On Left and Right "ctrl or alt means by word"; Shift or Super without them
+/// is upstream's composer move, which only an approval's choice tells apart
+/// from the cursor key ([`Action::ComposerLeft`]) -- the selection Shift would
+/// extend is dropped, and so is Super's jump to the line's edge. On Up and Down
+/// every modifier is kept apart from the arrow, in **this decoder's own
+/// classification**: Super first ([`Action::DraftStart`], with Shift
+/// remembered), then Shift ([`Action::SelectUp`]), then Ctrl or Alt
+/// ([`Action::ComposerUp`]). Upstream's table reads Super, then Alt, then
+/// Ctrl, then Shift (`modifiedArrowAction`, `escape_parser.zig:73-108
+/// @481104fd`). The only line an approval draws through those is Super's --
+/// `draft_start`/`draft_end` against every other composer move, which it
+/// leaves alone -- so any order with Super first gives upstream's result
+/// there; Shift before Ctrl and Alt is so `super::shell::Shell`'s
+/// `unspelled` can give every other surface the key it had (any Shift was
+/// [`Action::SelectUp`]). A mask with none of the four is the arrow, as
+/// upstream's table answers `null` and the plain arrow follows (`:727-733`).
 fn cursor(letter: u8, mask: u8) -> Action {
     let word = mask & (ALT | CTRL) != 0;
     let shifted = mask & SHIFT != 0;
+    let draft = mask & SUPER != 0;
+    let composer = mask & (SHIFT | SUPER) != 0;
     match letter {
+        b'A' if draft => Action::DraftStart { shifted },
+        b'B' if draft => Action::DraftEnd { shifted },
         b'A' if shifted => Action::SelectUp,
         b'B' if shifted => Action::SelectDown,
+        b'A' if word => Action::ComposerUp,
+        b'B' if word => Action::ComposerDown,
         b'A' => Action::Up,
         b'B' => Action::Down,
         b'C' if word => Action::WordRight,
+        b'C' if composer => Action::ComposerRight,
         b'C' => Action::Right,
         b'D' if word => Action::WordLeft,
+        b'D' if composer => Action::ComposerLeft,
         b'D' => Action::Left,
         b'H' => Action::Home,
         _ => Action::End,
@@ -1549,7 +1661,7 @@ fn keypad_navigation(code: u32) -> Option<u8> {
 ///   `delete_word_left`, `delete_word_right`,
 ///   `delete_to_line_start`/`delete_to_line_end`, `delete_next` and the page
 ///   keys are [`Action::Escape`], [`Action::InsertNewline`],
-///   [`Action::Undo`]/[`Action::Redo`], [`Action::WordLeft`]/[`Action::WordRight`],
+///   [`Action::Undo`]/[`Action::Redo`], [`Action::AltB`]/[`Action::AltF`],
 ///   [`Action::DeleteWordBackward`], [`Action::DeleteWordRight`],
 ///   [`Action::KillToStart`]/[`Action::KillToEnd`], [`Action::Delete`] and
 ///   [`Action::PageUp`]/[`Action::PageDown`], a page key with a modifier
@@ -1650,14 +1762,25 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
         return ignore;
     }
     if mods & ALT != 0 && matches!(ascii, Some(b'b' | b'f')) {
-        // With Shift, the same move extending a selection (:244, :248).
+        // With Shift, upstream's word move extending a selection (:244,
+        // :248), a composer move: the word move here, the Shift dropped as it
+        // is from the arrows ([`cursor`]), until the composer has a selection
+        // to extend (COMPOSER-SELECTION-EXTEND). A question's draft drops it
+        // upstream too, and its choice does nothing with it
+        // (`src/ui/input/runtime.zig:155-197@481104fd`).
         if mods & SHIFT != 0 {
-            return ignore;
+            return Input::Action(if ascii == Some(b'b') {
+                Action::WordLeft
+            } else {
+                Action::WordRight
+            });
         }
+        // Alt-b and Alt-f are upstream's `.word_left` and `.word_right`
+        // (:245, :249), not a composer move: [`Action::AltB`], [`Action::AltF`].
         return Input::Action(if ascii == Some(b'b') {
-            Action::WordLeft
+            Action::AltB
         } else {
-            Action::WordRight
+            Action::AltF
         });
     }
     // `delete_word_right` (:251).
@@ -2052,8 +2175,10 @@ mod tests {
         ("shift+tab", b"\x1b[9;2u", Action::BackTab),
         ("super+z", b"\x1b[122;9u", Action::Undo),
         ("super+shift+z", b"\x1b[122;10u", Action::Redo),
-        ("ctrl+b", b"\x1b[98;5u", Action::Left),
-        ("ctrl+f", b"\x1b[102;5u", Action::Right),
+        // Ctrl-B and Ctrl-F are their control bytes, which an approval's
+        // choice tells apart from the arrows ([`Action::ComposerLeft`]).
+        ("ctrl+b", b"\x1b[98;5u", Action::ComposerLeft),
+        ("ctrl+f", b"\x1b[102;5u", Action::ComposerRight),
         ("ctrl+h", b"\x1b[104;5u", Action::Backspace),
         ("ctrl+i", b"\x1b[105;5u", Action::Tab),
         ("ctrl+j", b"\x1b[106;5u", Action::ControlJ),
@@ -2071,8 +2196,10 @@ mod tests {
         ("ctrl+right", b"\x1b[1;5C", Action::WordRight),
         ("shift+enter", b"\x1b[13;2u", Action::InsertNewline),
         ("ctrl+enter", b"\x1b[13;5u", Action::Submit),
-        ("alt+b", b"\x1b[98;3u", Action::WordLeft),
-        ("alt+f", b"\x1b[102;3u", Action::WordRight),
+        // Upstream's `.word_left` and `.word_right` (:243-250@481104fd),
+        // which xfx's choices read apart from the modified arrows above.
+        ("alt+b", b"\x1b[98;3u", Action::AltB),
+        ("alt+f", b"\x1b[102;3u", Action::AltF),
     ];
 
     #[test]
@@ -2227,7 +2354,9 @@ mod tests {
             (b"\x1b[57426u", Input::Action(Action::Delete)),
             (b"\x1b[57426;9u", Input::Action(Action::KillToEnd)),
             (b"\x1b[57352u", Input::Action(Action::Up)),
-            (b"\x1b[57353;5u", Input::Action(Action::Down)),
+            // Ctrl on kitty's arrow is a composer move an approval leaves
+            // alone (`escape_parser.zig:208-214@481104fd`).
+            (b"\x1b[57353;5u", Input::Action(Action::ComposerDown)),
             // Shift+Space types the space (:222).
             (b"\x1b[32;2u", Input::Text(' ')),
             // Hyper (16) is not a keypad modifier (:189-191), so it falls
@@ -2257,8 +2386,6 @@ mod tests {
                 b"\x1b[102;6u",
                 "composerMove character_right + selection :241",
             ),
-            (b"\x1b[98;4u", "composerMove word_left + selection :244"),
-            (b"\x1b[102;4u", "composerMove word_right + selection :248"),
             (
                 b"\x1b[111;6u",
                 "ctrlOKeyAction with Shift beside Ctrl :111-114",
@@ -2280,13 +2407,101 @@ mod tests {
     }
 
     #[test]
+    fn alt_b_is_its_own_action_and_the_modified_left_arrows_are_word_left() {
+        // Upstream's `.word_left` is Alt-b's alone (`escape_parser.zig:243-246`,
+        // `:528-533@481104fd`; kitty and xterm's report share the keycode
+        // table); Ctrl-Left and Alt-Left are a composer move (`:83-92`). A
+        // question's choice and an approval's read the two apart
+        // ([`Action::AltB`]).
+        for (bytes, spelling) in [
+            (&b"\x1bb"[..], "ESC b"),
+            (b"\x1b[98;3u", "kitty"),
+            (b"\x1b[27;3;98~", "modifyOtherKeys"),
+        ] {
+            assert_eq!(
+                decode(bytes),
+                vec![Input::Action(Action::AltB)],
+                "{spelling}"
+            );
+        }
+        for bytes in [
+            &b"\x1b[1;3D"[..],
+            b"\x1b[1;5D",
+            b"\x1b[1;7D",
+            b"\x1b[57417;5u",
+        ] {
+            assert_eq!(
+                decode(bytes),
+                vec![Input::Action(Action::WordLeft)],
+                "{bytes:?}"
+            );
+        }
+        // With Shift, upstream's word move extending a selection
+        // (`composerMove(.word_left, mods)`, :244, :248): the word move here,
+        // the Shift dropped as it is from the arrows, until the composer has
+        // a selection to extend (COMPOSER-SELECTION-EXTEND). A question's
+        // draft drops it too (`src/ui/input/runtime.zig:155-197@481104fd`).
+        for (bytes, action) in [
+            (&b"\x1b[98;4u"[..], Action::WordLeft),
+            (b"\x1b[27;4;98~", Action::WordLeft),
+            (b"\x1b[102;4u", Action::WordRight),
+            (b"\x1b[27;4;102~", Action::WordRight),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(action)], "{bytes:?}");
+        }
+    }
+
+    #[test]
+    fn alt_f_and_the_composer_spellings_of_the_arrows_are_their_own_actions() {
+        // An approval's choice moves on `.cursor_left/right` and
+        // `.word_left/right` alone (`input_approval_runtime.zig:90-128
+        // @481104fd`). `.word_right` is Alt-f's (`escape_parser.zig:247-250`,
+        // `:534-539`); `.cursor_left/right` is the bare arrow in every
+        // encoding (`plainNavigationAction`, `:146-167`) -- and Shift, Super
+        // and Ctrl-B/F are a composer move or a raw byte (`:73-108`,
+        // `shortcuts.zig:15-16`), which the choice leaves alone.
+        for bytes in [&b"\x1bf"[..], b"\x1b[102;3u", b"\x1b[27;3;102~"] {
+            assert_eq!(
+                decode(bytes),
+                vec![Input::Action(Action::AltF)],
+                "{bytes:?}"
+            );
+        }
+        for (bytes, action) in [
+            (&b"\x1b[D"[..], Action::Left),
+            (b"\x1bOD", Action::Left),
+            (b"\x1b[1;1D", Action::Left),
+            (b"\x1b[57417u", Action::Left),
+            (b"\x1b[C", Action::Right),
+            (b"\x1b[57418u", Action::Right),
+            (b"\x1b[1;2D", Action::ComposerLeft),
+            (b"\x1b[1;9D", Action::ComposerLeft),
+            (b"\x1b[1;10D", Action::ComposerLeft),
+            (b"\x1b[57417;2u", Action::ComposerLeft),
+            (&[0x02], Action::ComposerLeft),
+            (b"\x1b[98;5u", Action::ComposerLeft),
+            (b"\x1b[1;2C", Action::ComposerRight),
+            (b"\x1b[1;9C", Action::ComposerRight),
+            (b"\x1b[57418;9u", Action::ComposerRight),
+            (&[0x06], Action::ComposerRight),
+            (b"\x1b[102;5u", Action::ComposerRight),
+            (b"\x1b[1;3C", Action::WordRight),
+            (b"\x1b[1;5C", Action::WordRight),
+            (b"\x1b[1;6D", Action::WordLeft),
+            (b"\x1b[1;11D", Action::WordLeft),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(action)], "{bytes:?}");
+        }
+    }
+
+    #[test]
     fn the_forward_word_delete_and_the_page_keys_decode_in_every_spelling() {
         // Each is a real upstream result (`escape_parser.zig` at `c1db919`)
         // that has an action here now.
         for (bytes, action, upstream) in [
             (&b"\x1bd"[..], Action::DeleteWordRight, "ESC d :541-546"),
-            (b"\x1bb", Action::WordLeft, "ESC b :529-534"),
-            (b"\x1bf", Action::WordRight, "ESC f :535-540"),
+            (b"\x1bb", Action::AltB, "ESC b :529-534"),
+            (b"\x1bf", Action::AltF, "ESC f :535-540"),
             (b"\x1b[100;3u", Action::DeleteWordRight, "kitty Alt-d :251"),
             (
                 b"\x1b[100;7u",
@@ -2639,24 +2854,85 @@ mod tests {
                 "{stream:?}"
             );
         }
-        // The two shapes that are keys, including the shift modifier that is
-        // dropped down to a plain move -- on Left and Right; on Up and Down it
-        // is the selection move a question's field binds.
+        // The two shapes that are keys, including the shift modifier -- on
+        // Left and Right the composer move an approval's choice leaves alone;
+        // on Up and Down the selection move a question's field binds.
         assert_eq!(decode(b"\x1b[C"), vec![Input::Action(Action::Right)]);
-        assert_eq!(decode(b"\x1b[1;2C"), vec![Input::Action(Action::Right)]);
+        assert_eq!(
+            decode(b"\x1b[1;2C"),
+            vec![Input::Action(Action::ComposerRight)]
+        );
         assert_eq!(decode(b"\x1b[1;2A"), vec![Input::Action(Action::SelectUp)]);
         assert_eq!(
             decode(b"\x1b[1;2B"),
             vec![Input::Action(Action::SelectDown)]
         );
         assert_eq!(decode(b"\x1b[1;6A"), vec![Input::Action(Action::SelectUp)]);
-        assert_eq!(decode(b"\x1b[1;5A"), vec![Input::Action(Action::Up)]);
+        assert_eq!(
+            decode(b"\x1b[1;5A"),
+            vec![Input::Action(Action::ComposerUp)]
+        );
         assert_eq!(decode(b"\x1b[1;5C"), vec![Input::Action(Action::WordRight)]);
         assert_eq!(decode(b"\x1b[1;16D"), vec![Input::Action(Action::WordLeft)]);
         assert_eq!(decode(b"\x1b[1;5H"), vec![Input::Action(Action::Home)]);
         assert_eq!(decode(b"\x1b[1~"), vec![Input::Action(Action::Home)]);
         assert_eq!(decode(b"\x1b[3~"), vec![Input::Action(Action::Delete)]);
         assert_eq!(decode(b"\x1b[4~"), vec![Input::Action(Action::End)]);
+    }
+
+    #[test]
+    fn every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow() {
+        // `modifiedArrowAction` (`escape_parser.zig:73-108@481104fd`): Super
+        // first (`draft_start`/`draft_end`), then Alt (`paragraph_up`/`_down`),
+        // then Ctrl (`visual_up`/`_down`), then Shift (the same, extending a
+        // selection); a mask with none of the four is the plain arrow
+        // (`:727-733`). The CSI modifier is one more than the mask (`:722`),
+        // kitty's arrow codes (`:38-39`) and keypad arrows (`:196-197`) take the
+        // same table (`:163-167`, `:208-214`). This decoder's own
+        // classification (`cursor`): Super is `DraftStart`/`DraftEnd` with
+        // Shift remembered, Shift without Super `SelectUp`/`SelectDown` (which
+        // a question's field binds), Ctrl or Alt without either
+        // `ComposerUp`/`ComposerDown`.
+        let start = |shifted| Action::DraftStart { shifted };
+        let end = |shifted| Action::DraftEnd { shifted };
+        for (bytes, expected) in [
+            // The twelve of `p5-approval-vertical-keys`.
+            (&b"\x1b[1;2B"[..], Action::SelectDown),
+            (b"\x1b[1;5B", Action::ComposerDown),
+            (b"\x1b[1;9B", end(false)),
+            (b"\x1b[1;3B", Action::ComposerDown),
+            (b"\x1b[57353;3u", Action::ComposerDown),
+            (&[0x0e], Action::HistoryNext),
+            (b"\x1b[1;2A", Action::SelectUp),
+            (b"\x1b[1;5A", Action::ComposerUp),
+            (b"\x1b[1;9A", start(false)),
+            (b"\x1b[1;3A", Action::ComposerUp),
+            (b"\x1b[57352;3u", Action::ComposerUp),
+            (&[0x10], Action::ControlP),
+            // Two modifiers at once: Super wins over all, Shift over Ctrl and
+            // Alt (whose composer moves an approval leaves alone either way).
+            (b"\x1b[1;10A", start(true)),
+            (b"\x1b[1;15B", end(false)),
+            (b"\x1b[1;16B", end(true)),
+            (b"\x1b[1;6A", Action::SelectUp),
+            (b"\x1b[1;4B", Action::SelectDown),
+            (b"\x1b[1;7A", Action::ComposerUp),
+            // The kitty arrows and keypad arrows, through the same table.
+            (b"\x1b[57352;9u", start(false)),
+            (b"\x1b[57353;10u", end(true)),
+            (b"\x1b[57352;2u", Action::SelectUp),
+            (b"\x1b[57419;5u", Action::ComposerUp),
+            (b"\x1b[57420;9u", end(false)),
+            (b"\x1b[57420;3u", Action::ComposerDown),
+            // No modifier the table reads: the arrow.
+            (b"\x1b[A", Action::Up),
+            (b"\x1b[1;1B", Action::Down),
+            (b"\x1bOB", Action::Down),
+            (b"\x1b[57352u", Action::Up),
+            (b"\x1b[57420u", Action::Down),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(expected)], "{bytes:?}");
+        }
     }
 
     #[test]
@@ -2776,7 +3052,10 @@ mod tests {
         // position, which is what keeps this a carve-out rather than a repeal.
         assert_eq!(
             decode(&[0x1b, 0x02]),
-            vec![Input::Action(Action::Escape), Input::Action(Action::Left)]
+            vec![
+                Input::Action(Action::Escape),
+                Input::Action(Action::ComposerLeft)
+            ]
         );
     }
 
@@ -2799,8 +3078,8 @@ mod tests {
         for (byte, action) in [
             (0x01, Action::Home),
             (0x05, Action::End),
-            (0x02, Action::Left),
-            (0x06, Action::Right),
+            (0x02, Action::ComposerLeft),
+            (0x06, Action::ComposerRight),
             (0x04, Action::Eof),
             // `C-k` and `C-j` are the kill and the newline in the composer,
             // and walk a menu that is up, so they decode to their keys
@@ -2879,11 +3158,11 @@ mod tests {
         // binding for it, so it is still a keystroke that types nothing.
         let named = [
             (0x01u8, Action::Home),
-            (0x02, Action::Left),
+            (0x02, Action::ComposerLeft),
             (0x03, Action::Cancel),
             (0x04, Action::Eof),
             (0x05, Action::End),
-            (0x06, Action::Right),
+            (0x06, Action::ComposerRight),
             (0x08, Action::Backspace),
             (0x09, Action::Tab),
             (0x0a, Action::ControlJ),
