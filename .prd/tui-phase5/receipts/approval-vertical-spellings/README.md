@@ -16,7 +16,9 @@ head `2593f49c` (branch `fix/p5-approval-horizontal-keys`, not yet on
 | `ed5ab8b9` | **the code head**: the decoder, the fold, `decide`, the editor, the decoder and fold tests, `docs/parity.md`, the ledger's moved refs |
 | `92d087df` | the paste finding in `docs/parity.md`, a test comment and a doc's file name (comments only in `src/`), `fx_src.sh`'s check reading the piped lines; **the gate ran here** |
 | `eb381074` | **the head's tests**: one more case, Up first out of a draft (mutant M13 survived round 1); tests only |
-| the commit after | the receipt: `xfx/`, `green.txt`, `mutants.py`, `mutants.txt`, the sweeps, `gate.txt`, this file; no `src/` change |
+| `91d5df0d` | round 1's receipt: `xfx/`, `green.txt`, `mutants.py`, `mutants.txt`, the sweeps, `gate.txt`, this file |
+| `66a1ac97` | **round 2** (the reviews of `91d5df0d`): the one-read Enter test, the ledger's refs by content (`refs.py`), the order and `C-p` worded true, `approval::edits`' two dead entries out, `docs/parity.md` |
+| the commit after | round 2's receipt: `refs.txt`, `mutants.txt` (round 3), this file; no `src/` change |
 
 Captures: `fx/` is fx v0.0.16 (sha256 `8e6cda2e…`, `FX_AUTO_UPGRADE=0`;
 `capture.sh` checked its bytes after the run); `red/` the base's binary
@@ -60,10 +62,18 @@ are `.cursor_home` (`:82`), `.line_end, .draft_end` `.cursor_end` (`:83`),
 the other moves nothing (`:86`). In `routeApprovalEscapeAction`
 (`input_approval_runtime.zig:71-130`), an open amendment with a focused edit
 takes it (`:79-89`); otherwise `.history_up, .cursor_up` and their Down move
-the choice (`:111-126`), and everything else is `else => {}` (`:128`). A raw
-byte goes `handleRawTerminalInputWithLimits` (`app_input_runtime.zig:840-894`)
-to `routeActiveModalInput` (`:1126-1185`), where the approval takes it and
-does only `raw.approval_action`, if there is one (`:1173-1184`).
+the choice (`:111-126`), and everything else is `else => {}` (`:128`).
+Which route a byte takes is the decoder's: a control byte is an action when
+`controlByteFeatureAction` names it (`escape_parser.zig:268-274`: 15 and 16,
+so `C-p` is `.open_model_catalog`) and otherwise raw (`appendRaw`,
+`terminal_action_decoder.zig:118-122`); the ingress hands an action to
+`routeResolvedEscapeAction` and a raw byte to
+`handleRawTerminalInputWithLimits` (`app_input_runtime.zig:623-656`), which
+gives it to `routeActiveModalInput` (`app_input_runtime.zig:840-894`,
+`:1126-1185`), where the approval takes it and does only
+`raw.approval_action`, if there is one (`:1173-1184`). The captures are the
+evidence that each route ends where this says: every snap's marker and
+draft are fx's (`fx/`, and `scope.py` 27 of 27).
 
 **What the twelve are.** The CSI modifier is one more than the mask
 (`escape_parser.zig:722`, bits `:61-64`), and kitty's report the same
@@ -78,7 +88,7 @@ first, then Alt, then Ctrl, then Shift.
 | Alt-Up / -Down | `CSI 1;3A` / `B` | `paragraph_up`/`_down` (`escape_parser.zig:83-85`) | nothing | nothing |
 | kitty Alt-Up / -Down | `CSI 57352;3u` / `57353;3u` | the same, through `escape_parser.zig:208-214` | nothing | nothing |
 | Super-Up / -Down | `CSI 1;9A` / `B` | `draft_start`/`draft_end` (`escape_parser.zig:74-76`) | nothing | the caret to 0 / to the draft's length (`.cursor_home`/`.cursor_end`, `src/ui/input/runtime.zig:82-83`; `apply`'s `.edit_draft`, `approval_decision.zig:170-174`; `applyDraftAction`, `approval_decision.zig:231-246`; `cursorHome`/`cursorEnd`, `approval_amendment.zig:84-92`) |
-| `C-p` | `0x10` | a raw byte with no shortcut (`appendRaw`, `terminal_action_decoder.zig:207-212`; `fromControlByte`, `shortcuts.zig:11-29`) | nothing: `approvalActionFromRawByte` (`src/ui/input/runtime.zig:103-108`) makes no action of it (`approvalActionFromByte`, `src/ui/input/runtime.zig:61-73`), so `app_input_runtime.zig:1173-1184` do nothing | nothing, the same |
+| `C-p` | `0x10` | the action `.open_model_catalog` (`controlByteFeatureAction`, `escape_parser.zig:268-274`; `terminal_action_decoder.zig:118-119`), with no composer move (`fromEscapeAction`'s `else`, `shortcuts.zig:63`) | nothing (`input_approval_runtime.zig:128`) | nothing: no focused edit, then `input_approval_runtime.zig:128` |
 | `C-n` | `0x0e` | a raw byte, `.history_next` (`shortcuts.zig:17`), which `fromFocusedEditorControlByte` drops (`shortcuts.zig:31-41`; fx's test lists 14 and 16 as excluded, `shortcuts.zig:101-104`) | nothing, the same | nothing, the same |
 
 - **Plain Up and Down still move**, open amendment or not: `.cursor_up` is
@@ -114,10 +124,16 @@ first, then Alt, then Ctrl, then Shift.
 ## The change (`git diff 2593f49c ed5ab8b9 -- src`: +168 / -55 outside the test modules, most of it comments)
 
 - **The decoder** keeps every modifier on Up and Down apart from the arrow,
-  in fx's order (`cursor`): Super first, as `Action::DraftStart { shifted }`
-  / `DraftEnd { shifted }`; then Shift, as `SelectUp`/`SelectDown`; then Ctrl
-  or Alt, as `ComposerUp`/`ComposerDown`; no modifier the table reads, the
-  arrow. Kitty's arrows and the keypad's go through `cursor` too.
+  in a classification of its own (`cursor`): Super first, as
+  `Action::DraftStart { shifted }` / `DraftEnd { shifted }`; then Shift, as
+  `SelectUp`/`SelectDown`; then Ctrl or Alt, as `ComposerUp`/`ComposerDown`;
+  no modifier the table reads, the arrow. **This is not fx's order**, which
+  is Super, then Alt, then Ctrl, then Shift (above). The approval tells only
+  Super from the rest (`draft_start`/`draft_end` against moves it leaves
+  alone), so any order with Super first gives fx's result there; Shift
+  before Ctrl and Alt is chosen so `unspelled` can give every other surface
+  its base key (at the base any Shift was `SelectUp`). Kitty's arrows and
+  the keypad's go through `cursor` too.
 - **The fold** (`unspelled`, which `folded` calls) gives every surface but
   the approval exactly the key it had: `ComposerUp` and `DraftStart
   { shifted: false }` are `Up`, `DraftStart { shifted: true }` is `SelectUp`
@@ -129,8 +145,11 @@ first, then Alt, then Ctrl, then Shift.
   `cursorHome`/`cursorEnd`. `SelectUp`/`SelectDown`, `ComposerUp`/`Down`,
   `DraftStart`/`End` with no draft, `ControlP` and `HistoryNext` are
   swallowed, with or without a draft, before the panel is asked. On the
-  review plane `C-p`/`C-n` still walk the change (unchanged; checked before
-  the translation). `approval::edits` names `DraftStart`/`DraftEnd`.
+  review plane `C-p`/`C-n` still walk the change (unchanged from the base,
+  checked before the translation, and recorded in `docs/parity.md` there
+  already). `approval::edits` reads folded keys, so it never sees
+  `DraftStart`/`DraftEnd` (round 1 listed them there; round 2 took them
+  out).
 - **Read before the fold, the choice made**: the approval keeps reading the
   event before any fold (`spelled`), as APPROVAL-HORIZONTAL-KEYS chose for
   Alt-b and Alt-f. Why, here: the fold is exactly what erases this unit's
@@ -144,11 +163,33 @@ first, then Alt, then Ctrl, then Shift.
   amendment sentence says the arrows end editing and the rest leave both
   drafts; the composer's Super sentence names `DraftStart`/`DraftEnd`.
   Retired: the "Not changed" clause for the vertical spellings. Kept: `ESC
-  ESC [ A`/`[ B`/`[ D` (owner QUESTION-LEFT-SPELLINGS). Added: the paste
-  finding below.
-- The ledger: four `src/tui/shell.rs` refs moved by the change, re-pointed
-  to the lines they cite (`10277` to `10300`, `13498` to `13525`, `16413` to
-  `16452`, `39046` to `39347`, mapped line for line against the base);
+  ESC [ A`/`[ B`/`[ D`, now owned by **META-PREFIX-DECODE** (proposed): xfx's
+  decoder has no meta prefix, which reaches the question, the approval and
+  the composer; QUESTION-LEFT-SPELLINGS keeps the question's own fold
+  spellings (Shift-Left, Ctrl-B), and the `ask_user_question` row says so.
+  Added: the two findings below.
+- **The ledger's refs, by content** (`refs.py`, `refs.txt`). Round 1
+  re-pointed four refs by mapping the base's lines and missed two in `why`
+  texts; `eb381074` then moved six more. Round 2's review found it, and
+  found that the base's refs were wrong in meaning, not only in number:
+  twelve of the sixteen refs into `src/tui/shell.rs` named a line that is
+  not their entry's (origin/main's ledger names the right ones). `refs.py`
+  keys the expected text by entry, checks each ref holds it on exactly one
+  line, prints what the base's ref held, and `--fix` re-points. All twelve
+  now name their line:
+  - `answer-drawn-wider-named`: `full_transcript::shown_event`'s call (the
+    base's held a `}`);
+  - `submit-multi-card-whole`: `fn send`, the `why`'s `send` (a `}`);
+  - `at-resize-band-at-the-bottom` and `resize-document-repaint`:
+    `fn resize` (a `.map` in a card helper);
+  - `session-record`, `transcript-page-offset`,
+    `toolgroup-ctrlo-record-short`, `safe-page-edge`, `cancel-page-edge` and
+    `full-transcript-shift`: the record's `tools: {} advertised` row (a
+    palette test's comment);
+  - `amendment-card-after-stop`, its `xfx` and its `why`: `fn trailer_rows`
+    (`write_notice`'s `if self.group.drawn()`).
+
+  `refs.txt` is its output at `66a1ac97`: 16 checked, 0 wrong.
   `ledger.load(..., repo_root)` accepts the file.
 
 ## Approval safety
@@ -159,11 +200,39 @@ first, then Alt, then Ctrl, then Shift.
   `a_no_op_vertical_spelling_keeps_the_receipt_and_enter_answers_the_choice_shown`
   earns a receipt, sends each spelling (all twelve at a choice; the ten that
   do nothing in an amendment), compares `Readiness` (its `Debug`) before and
-  after, and sends Enter in the same read with no frame between: it answers
-  `Once`, with `ab cd` when the draft was open. **RED at the base**:
-  Shift-Down then Enter answered `Always` under a frame that marked
-  `Apply once` (`red.txt`); the base's `Moved` keeps the receipt, so the
-  marker's move was answerable before any frame showed it.
+  after, and then sends Enter in a second delivery with no frame between:
+  it answers `Once`, with `ab cd` when the draft was open. **RED at the
+  base**: Shift-Down then Enter, no frame between, answered `Always` under
+  a frame that marked `Apply once` (`red.txt`); the base's `Moved` keeps
+  the receipt, so the marker's move was answerable before any frame showed
+  it.
+- **Key and Enter in one read** (round 2,
+  `a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown`), one
+  `route_bytes` buffer each, so the decoder's boundary between them is
+  exercised too: each spelling and `\r` (all twelve at a choice, the ten in
+  an amendment); all twelve and `\r` in one buffer, at a choice and in an
+  amendment; Super-Up or -Down then `\r` in an amendment. Each answers
+  `Once`, with `ab cd` when the draft was open: Super moves only the caret,
+  which is not part of the receipt's identity (`approval_readiness.rs`'s
+  `Intent`: question, plane, size, layout), so the receipt holds and the
+  draft sent is the one shown. Mutant M14 (Super in a draft revokes the
+  receipt) fails it.
+- **Not tested, and not changed: a letter typed in the same read as
+  Enter.** Round 2's brief asked for "Super, then a typed letter, then
+  Enter" to wait for a new frame. It does not, at the base or here: a typed
+  letter is `Moved` in `approval::keyed` (the receipt is the disclosure,
+  not the draft's text), so `\x1b[1;9Ay\r` in one read answered `Once`
+  with `yab cd` when probed, as `y\r` does at the base with no Super. fx,
+  read from its code (no capture of it here), refuses it, and refuses an
+  affirmative after every key that asks for a modal frame until that frame
+  is drawn -- an arrow, a caret move, a letter
+  (`settledForApproval`, `render_request.zig:172-177`, `:367-370`; the
+  check at `input_approval_runtime.zig:191-218`; the requests at
+  `input_approval_runtime.zig:86`, `:117`, `app_input_runtime.zig:1251-1255`)
+  -- so fx refuses the Super-then-Enter case above as well. Making the
+  letter case wait means a readiness model for every key and every draft,
+  not this unit's: recorded in `docs/parity.md` as a finding, owner
+  proposed APPROVAL-READINESS-SETTLED, and pinned neither way here.
 - **A key that still changes what the card shows still revokes it**, as
   `invalidate_approval` does today: the plain arrow out of a filled draft
   (`Reshaped`) -- the same test's last case, and the existing
@@ -195,9 +264,10 @@ first, then Alt, then Ctrl, then Shift.
   `answered` at the next question's grant-scope rows.
 - The unit's tests and their neighbours, 404 passed (`green.txt`), among
   them the four RED tests and:
-  - `every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow_in_upstreams_order`
-    (the decoder: the twelve, two modifiers at once, kitty's and the
-    keypad's arrows, and the arrow with no modifier);
+  - `every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow`
+    (named `…_in_upstreams_order` until round 2; the decoder: the twelve,
+    two modifiers at once, kitty's and the keypad's arrows, and the arrow
+    with no modifier);
   - `super_up_and_down_are_the_whole_drafts_edges` (`approval_amendment`: a
     draft holding a line break, Shift held or not);
   - `the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest`,
@@ -205,6 +275,13 @@ first, then Alt, then Ctrl, then Shift.
   - `the_keypad_decodes_as_the_main_row_it_mirrors` and
     `a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one`,
     whose Ctrl-Up/Down now expect `ComposerUp`/`ComposerDown`.
+- **Round 2, at `66a1ac97`** (`round2.txt`): the same test set plus the
+  one-read test, 412 passed; `cargo test --locked --test parity` 26 passed;
+  `cargo fmt --check` and both clippy runs clean; `refs.py` 16 checked, 0
+  wrong; `fx_src.sh` 156 citations, 0 outside its ranges. `xfx/` stays at
+  `ed5ab8b9`: what `src/` changed since is comments, tests, and two entries
+  in `approval::edits` that no folded key reaches, so the scenario's binary
+  is the same code. The full gate is the dispatcher's.
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
@@ -221,9 +298,15 @@ each.
   never sent there. `eb381074` makes the up-and-down test open the draft
   again and leave it with Up (wrapping to choice 3, the draft closed).
 - **Round 2, at `eb381074`: 13 of 13 killed**, the clone's tree clean after
-  the run (`mutants.txt`, both rounds).
+  the run.
+- **Round 3 (review round 2), at `66a1ac97`: 14 of 14 killed**, the clone's
+  tree clean (`mutants.txt`, all three rounds, newest first). M14, Super-Up
+  and -Down in a draft revoking the receipt (an `invalidate_approval()`
+  before their `Edit`), is killed by the one-read test alone: an Enter in
+  the same buffer is then refused and nothing is answered. The per-mutant
+  filter adds `one_read`.
 
-| mutant | killed by (round 2) |
+| mutant | killed by (round 3; M1, M2, M3 and M5 also by the one-read test) |
 |---|---|
 | M1 a modified arrow (Ctrl- or Alt-Up) moves the choice again | the four shell tests |
 | M2 `C-p` moves the choice again | the four shell tests |
@@ -238,6 +321,7 @@ each.
 | M11 the fold leaves `ComposerUp` for the question | the fold test |
 | M12 Super-Up in a draft goes to the line's start | the draft-edges test |
 | M13 the plain Up no longer ends a draft | the up-and-down test (round 2) |
+| M14 Super-Up and -Down in a draft revoke the receipt (round 3) | the one-read test |
 
 M1-M6 are the brief's six; M7-M12 the decoder, the fold and the draft's
 edges they rest on; M13 the plain arrow the brief says must not change.
@@ -297,8 +381,8 @@ tests and their neighbours pass, 407 (`gate.txt`, last section).
 
 - **`ESC ESC [ A`/`[ B`** still cancel the turn (fx's meta prefix; xfx reads
   Escape, then the arrow). Left out of the scenario for that reason; owner
-  QUESTION-LEFT-SPELLINGS (proposed), shown by APPROVAL-HORIZONTAL-KEYS'
-  `probe/`.
+  META-PREFIX-DECODE (proposed, round 2: the decoder has no meta prefix on
+  any surface), shown by APPROVAL-HORIZONTAL-KEYS' `probe/`.
 - **A paste into a draft keeps its line breaks and tabs**; fx's turns each
   into a space (`normalizeApprovalAmendmentPasteInPlace`,
   `input_paste_runtime.zig:19-25`). So xfx's draft can hold several lines,
@@ -307,9 +391,14 @@ tests and their neighbours pass, 407 (`gate.txt`, last section).
   in `docs/parity.md`; owner proposed (APPROVAL-PASTE-SPACES). This unit
   gives Super-Up and -Down fx's `cursorHome`/`cursorEnd` (0 and the length)
   rather than Home's line start, so they stay right once that lands.
-- **`C-p`/`C-n` on the review plane** walk the change, where fx's plane
-  scrolls by the wheel (xfx enables no mouse reports): unchanged, recorded
-  in `docs/parity.md`.
+- **When an affirmative may be taken** (round 2): fx waits for any pending
+  modal frame, xfx's receipt is the disclosure; a letter typed in the same
+  read as Enter is sent unseen here (Approval safety, above). Recorded in
+  `docs/parity.md`; owner proposed (APPROVAL-READINESS-SETTLED).
+
+`C-p`/`C-n` on the review plane walk the change, where fx's plane scrolls by
+the wheel (xfx enables no mouse reports). That was so and recorded in
+`docs/parity.md` at the base; this unit keeps it (round 1 listed it here).
 
 ## Decisions (each reversible)
 
@@ -319,6 +408,11 @@ tests and their neighbours pass, 407 (`gate.txt`, last section).
   The other way -- Shift first, the approval treating it as nothing -- would
   have left a spelling fx moves the caret on doing nothing in an amendment.
 - **The approval reads before the fold** (above).
+- **The decoder's classification is Super, Shift, Ctrl/Alt**, not fx's
+  Super, Alt, Ctrl, Shift: the same answer at the approval, and the only
+  order that lets the fold return every surface's base key.
+- **The letter-then-Enter case is recorded, not changed** (round 2): it is
+  a readiness model, not a spelling.
 - **Swallowed before the panel**, not answered by the panel as `Ignored`:
   the panel never sees a key it does not bind, which is what keeps the
   receipt untouched by construction rather than by a reply's meaning.

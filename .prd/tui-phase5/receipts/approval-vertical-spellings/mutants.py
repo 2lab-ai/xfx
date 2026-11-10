@@ -52,11 +52,15 @@ MUTANTS = [
      "            Action::DraftStart { .. } => {\n                self.move_to(self.line_start());"),
     ("M13 the plain Up no longer ends a draft (it stays in it)", S, UP,
      "            Input::Action(Action::Up) if !drafting => approval::Action::Up,\n"),
+    # Round 2 (MUST 3): a key the one-read Enter cases cover, revoking the
+    # receipt where the caret is no part of it.
+    ("M14 Super-Up and -Down in a draft revoke the readiness receipt", S, EDGE,
+     "                self.invalidate_approval();\n" + EDGE),
 ]
 TESTS = [
     ["cargo", "test", "--locked", "--lib", "--", "approval", "amendment", "alt_b", "alt_f", "the_fold",
      "the_full_transcript_holds", "horizontal", "draft_left", "up_and_down_move", "the_arrows_leave",
-     "leaving_a_filled_draft", "revokes", "vertical", "super_up_and_down",
+     "leaving_a_filled_draft", "revokes", "vertical", "super_up_and_down", "one_read",
      "question::", "input::tests", "editor::tests"],
 ]
 env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(mut, "target"), TMPDIR=os.path.join(mut, "tmp"))
