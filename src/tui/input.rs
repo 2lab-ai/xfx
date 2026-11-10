@@ -3474,9 +3474,11 @@ mod tests {
         // kitty's arrow codes (`:38-39`) and keypad arrows (`:196-197`) take the
         // same table (`:163-167`, `:208-214`). This decoder's own
         // classification (`cursor`): Super is `DraftStart`/`DraftEnd` with
-        // Shift remembered, Shift without Super `SelectUp`/`SelectDown` (which
-        // a question's field binds), Ctrl or Alt without either
-        // `ComposerUp`/`ComposerDown`.
+        // Shift remembered, Alt without Super `ComposerUp`/`ComposerDown`
+        // (fx's paragraph move, Shift or not), Shift with neither
+        // `SelectUp`/`SelectDown` (fx's `visual_up` extending a selection,
+        // the one move a question's choice binds, `src/ui/input/runtime.zig:184-189`),
+        // and Ctrl alone `ComposerUp`/`ComposerDown`.
         let start = |shifted| Action::DraftStart { shifted };
         let end = |shifted| Action::DraftEnd { shifted };
         for (bytes, expected) in [
@@ -3493,13 +3495,20 @@ mod tests {
             (b"\x1b[1;3A", Action::ComposerUp),
             (b"\x1b[57352;3u", Action::ComposerUp),
             (&[0x10], Action::ControlP),
-            // Two modifiers at once: Super wins over all, Shift over Ctrl and
-            // Alt (whose composer moves an approval leaves alone either way).
+            // Two modifiers at once: Super wins over all, then Alt over Ctrl
+            // and Shift (`:83`), then Shift over Ctrl -- Ctrl-Shift-Up is
+            // fx's `visual_up` extending a selection (`:90-94`), a question's
+            // choice move, and Shift-Alt-Up its `paragraph_up`, which no
+            // choice takes.
             (b"\x1b[1;10A", start(true)),
             (b"\x1b[1;15B", end(false)),
             (b"\x1b[1;16B", end(true)),
             (b"\x1b[1;6A", Action::SelectUp),
-            (b"\x1b[1;4B", Action::SelectDown),
+            (b"\x1b[1;4B", Action::ComposerDown),
+            (b"\x1b[1;4A", Action::ComposerUp),
+            (b"\x1b[1;8A", Action::ComposerUp),
+            (b"\x1b[57419;4u", Action::ComposerUp),
+            (b"\x1b[57353;8u", Action::ComposerDown),
             (b"\x1b[1;7A", Action::ComposerUp),
             // The kitty arrows and keypad arrows, through the same table.
             (b"\x1b[57352;9u", start(false)),

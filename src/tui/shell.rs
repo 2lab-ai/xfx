@@ -24129,115 +24129,260 @@ mod tests {
 
     #[test]
     fn the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest() {
-        // `folded`'s own contract: `AltB` to `WordLeft`, Shift taken off Up
-        // and Down, the approval's spellings to their keys, and every other
-        // key as it came. And `unspelled`'s, which the full transcript and the
-        // question read: only the approval's spellings folded.
-        for (event, surfaces_see, transcript_and_question_see) in [
-            (Action::AltB, Action::WordLeft, Action::AltB),
-            (Action::SelectUp, Action::Up, Action::SelectUp),
-            (Action::SelectDown, Action::Down, Action::SelectDown),
-            (Action::AltF, Action::WordRight, Action::WordRight),
-            (Action::ComposerLeft, Action::Left, Action::Left),
-            (Action::ComposerRight, Action::Right, Action::Right),
-            // The vertical spellings only the approval tells apart: each is
-            // the key every other surface saw before -- Super with Shift the
-            // shifted arrow a question's field binds, without it the arrow.
-            (Action::ComposerUp, Action::Up, Action::Up),
-            (Action::ComposerDown, Action::Down, Action::Down),
-            (
-                Action::DraftStart { shifted: false },
-                Action::Up,
-                Action::Up,
-            ),
-            (
-                Action::DraftEnd { shifted: false },
-                Action::Down,
-                Action::Down,
-            ),
-            (
-                Action::DraftStart { shifted: true },
-                Action::Up,
-                Action::SelectUp,
-            ),
-            (
-                Action::DraftEnd { shifted: true },
-                Action::Down,
-                Action::SelectDown,
-            ),
-            // A page key held with a modifier: the full transcript tells it
-            // from the bare key (it pages on the bare one only), and every
-            // surface after the approval sees the page key.
-            (
-                Action::ComposerPageUp,
-                Action::PageUp,
-                Action::ComposerPageUp,
-            ),
-            (
-                Action::ComposerPageDown,
-                Action::PageDown,
-                Action::ComposerPageDown,
-            ),
-            (Action::PageUp, Action::PageUp, Action::PageUp),
-            (Action::WordLeft, Action::WordLeft, Action::WordLeft),
-            (Action::Left, Action::Left, Action::Left),
-            (Action::Up, Action::Up, Action::Up),
-            (Action::ControlP, Action::ControlP, Action::ControlP),
+        // `folded`'s contract: every spelling the decoder keeps apart for the
+        // full transcript, a question or an approval made the key it is to
+        // the menus and the composer, and every other key as it came. Those
+        // three read the event as it came (`consume_inputs`), so nothing
+        // reads a half fold: what each of them does with a spelling is its
+        // own test's (the full transcript's and the question's held arrows,
+        // `a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen`
+        // and `a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move`).
+        for (event, surfaces_see) in [
+            (Action::AltB, Action::WordLeft),
+            (Action::SelectUp, Action::Up),
+            (Action::SelectDown, Action::Down),
+            (Action::AltF, Action::WordRight),
+            (Action::ComposerLeft, Action::Left),
+            (Action::ComposerRight, Action::Right),
+            // The vertical spellings: each is the arrow to the menus and the
+            // composer, Super's with Shift or without.
+            (Action::ComposerUp, Action::Up),
+            (Action::ComposerDown, Action::Down),
+            (Action::DraftStart { shifted: false }, Action::Up),
+            (Action::DraftEnd { shifted: false }, Action::Down),
+            (Action::DraftStart { shifted: true }, Action::Up),
+            (Action::DraftEnd { shifted: true }, Action::Down),
+            // A page key held with a modifier: the page key.
+            (Action::ComposerPageUp, Action::PageUp),
+            (Action::ComposerPageDown, Action::PageDown),
+            (Action::PageUp, Action::PageUp),
+            (Action::WordLeft, Action::WordLeft),
+            (Action::Left, Action::Left),
+            (Action::Up, Action::Up),
+            (Action::ControlP, Action::ControlP),
         ] {
             assert_eq!(
                 folded(Input::Action(event)),
                 Input::Action(surfaces_see),
                 "{event:?}"
             );
-            assert_eq!(
-                unspelled(Input::Action(event)),
-                Input::Action(transcript_and_question_see),
-                "{event:?}"
-            );
         }
     }
 
     #[test]
-    fn the_full_transcript_holds_the_composer_spellings_of_the_arrows_as_it_holds_the_arrows() {
-        // The full transcript holds Left and Right (`full_transcript.rs`'s
-        // `key`, `Reply::Held`) and reads the event `unspelled`, so Shift- and
-        // Super-Left and -Right and Ctrl-B and Ctrl-F, which the decoder keeps
-        // apart for an approval's choice, are held too: none reaches the
-        // composer behind the screen. Each side on its own, from the end it
-        // would move away from, so a left and a right that got through cannot
-        // cancel out.
-        let mut shell = shell(24, 80);
-        shell.route_bytes(b"ab");
-        for (home, keys, typed, text) in [
-            (
-                &b"\x05"[..],
-                [&b"\x1b[1;2D"[..], b"\x1b[1;9D", &[0x02]],
-                &b"z"[..],
-                "abz",
-            ),
-            (
-                &b"\x01"[..],
-                [&b"\x1b[1;2C"[..], b"\x1b[1;9C", &[0x06]],
-                &b"y"[..],
-                "yabz",
-            ),
-        ] {
-            shell.route_bytes(home);
-            shell.route_bytes(b"\x0f");
-            assert!(shell.full.is_open(), "Ctrl-O opened no full transcript");
-            for key in keys {
-                shell.route_bytes(key);
-                assert!(shell.full.is_open(), "{key:?} closed the full transcript");
+    fn a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen() {
+        // fx's full transcript binds the plain arrows only (`keyForAction`,
+        // `input_full_transcript_runtime.zig:156-178@481104fd`). A held arrow
+        // is a composer move (`modifiedArrowAction`, `escape_parser.zig:73-108`),
+        // which the screen does not take (`app_input_runtime.zig:930`), and
+        // Ctrl-B and Ctrl-F are raw bytes its `keyForByte` does not bind
+        // (`input_full_transcript_runtime.zig:147-154`;
+        // `app_input_runtime.zig:872`): each goes on to the composer behind
+        // the screen (`app_input_runtime.zig:997-1001`, `:887-893`). So with
+        // the screen up each key leaves the screen where it is and does to
+        // the draft exactly what it does with the screen closed -- from the
+        // middle of a three-row draft, a move.
+        let fixture = |open: bool| {
+            let mut shell = shell(24, 80);
+            for index in 0..20 {
+                shell.apply(UiEvent::Notice(notice::Notice::neutral(
+                    "n",
+                    format!("{index}"),
+                )));
             }
-            shell.route_bytes(b"\x0f");
-            assert!(!shell.full.is_open(), "Ctrl-O did not close it");
-            shell.route_bytes(typed);
+            let _ = shell.written();
+            // The middle row, one cell in from its end.
+            shell.route_bytes(b"abc\ndef\nghi");
+            shell.route_bytes(b"\x1b[A\x1b[D");
+            if open {
+                shell.route_bytes(b"\x0f");
+                assert!(shell.full.is_open(), "Ctrl-O opened no full transcript");
+            }
+            shell
+        };
+        let caret = |shell: &Fixture| shell.editor.point(shell.text_cols());
+        for (name, key) in [
+            ("ctrl-up", &b"\x1b[1;5A"[..]),
+            ("ctrl-down", b"\x1b[1;5B"),
+            ("alt-up", b"\x1b[1;3A"),
+            ("alt-down", b"\x1b[1;3B"),
+            ("super-up", b"\x1b[1;9A"),
+            ("super-down", b"\x1b[1;9B"),
+            ("shift-super-up", b"\x1b[1;10A"),
+            ("shift-alt-up", b"\x1b[1;4A"),
+            ("kitty ctrl-up", b"\x1b[57352;5u"),
+            ("keypad alt-down", b"\x1b[57420;3u"),
+            ("shift-left", b"\x1b[1;2D"),
+            ("super-left", b"\x1b[1;9D"),
+            ("keypad shift-left", b"\x1b[57417;2u"),
+            ("shift-right", b"\x1b[1;2C"),
+            ("super-right", b"\x1b[1;9C"),
+            ("ctrl-b", &[0x02]),
+            ("ctrl-f", &[0x06]),
+            ("kitty ctrl-b", b"\x1b[98;5u"),
+            ("kitty ctrl-f", b"\x1b[102;5u"),
+            // Reached the composer before too: Shift on Up and Down, and the
+            // word moves.
+            ("shift-up", b"\x1b[1;2A"),
+            ("ctrl-left", b"\x1b[1;5D"),
+            ("alt-b", b"\x1bb"),
+        ] {
+            let mut closed = fixture(false);
+            let start = caret(&closed);
+            closed.route_bytes(key);
+            let moved = caret(&closed);
+            assert_ne!(moved, start, "{name} is no composer move");
+            let mut open = fixture(true);
+            let tail = full_screen(&open);
+            open.route_bytes(key);
+            assert!(open.full.is_open(), "{name} closed the full transcript");
+            assert_eq!(full_screen(&open), tail, "{name} moved the screen");
+            assert_eq!(caret(&open), moved, "{name} did not reach the composer");
+            open.route_bytes(b"\x0f");
+            assert!(!open.full.is_open(), "Ctrl-O did not close it");
+            open.route_bytes(b"X");
+            closed.route_bytes(b"X");
+            assert_eq!(open.editor.text(), closed.editor.text(), "{name}");
+        }
+        // The plain arrows stay the screen's: Up and Down move it, Left and
+        // Right are held, and the caret stays where it is.
+        for (name, key, scrolls) in [
+            ("up", &b"\x1b[A"[..], true),
+            ("down", b"\x1b[B", false),
+            ("left", b"\x1b[D", false),
+            ("right", b"\x1b[C", false),
+        ] {
+            let mut open = fixture(true);
+            let start = caret(&open);
+            let tail = full_screen(&open);
+            open.route_bytes(key);
+            assert!(open.full.is_open(), "{name} closed the full transcript");
+            assert_eq!(full_screen(&open) != tail, scrolls, "{name}");
+            assert_eq!(caret(&open), start, "{name} moved the composer");
+        }
+    }
+
+    #[test]
+    fn a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move() {
+        // fx v0.0.16 reads a key at a question through its composer move. The
+        // choice moves only on `visual_up`/`visual_down` extending a selection
+        // (`questionActionFromShortcut`, `src/ui/input/runtime.zig:178-197
+        // @481104fd`) -- Shift-Up and Ctrl-Shift-Up, and their Down
+        // (`modifiedArrowAction`, `escape_parser.zig:90-106`); every other
+        // composer move reaches the switch's `else` at a choice
+        // (`input_question_runtime.zig:181-200`), and Ctrl-B and Ctrl-F are no
+        // question byte there (`questionActionFromByte`,
+        // `src/ui/input/runtime.zig:135-153`, `:199-209`;
+        // `app_input_runtime.zig:1136-1159`). The second question is up, so a
+        // key that went back a question would show.
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        fixture.route_bytes(b"\t");
+        let band = fixture.band_rows();
+        assert!(band.iter().any(|row| row.contains("Ship it?")), "{band:?}");
+        for (name, key) in [
+            ("ctrl-up", &b"\x1b[1;5A"[..]),
+            ("ctrl-down", b"\x1b[1;5B"),
+            ("alt-up", b"\x1b[1;3A"),
+            ("alt-down", b"\x1b[1;3B"),
+            ("super-up", b"\x1b[1;9A"),
+            ("super-down", b"\x1b[1;9B"),
+            ("shift-super-up", b"\x1b[1;10A"),
+            ("shift-super-down", b"\x1b[1;10B"),
+            ("shift-alt-up", b"\x1b[1;4A"),
+            ("shift-alt-down", b"\x1b[1;4B"),
+            ("ctrl-alt-shift-up", b"\x1b[1;8A"),
+            ("kitty ctrl-up", b"\x1b[57352;5u"),
+            ("kitty shift-alt-down", b"\x1b[57353;4u"),
+            ("keypad ctrl-up", b"\x1b[57419;5u"),
+            ("keypad super-down", b"\x1b[57420;9u"),
+            ("shift-left", b"\x1b[1;2D"),
+            ("super-left", b"\x1b[1;9D"),
+            ("keypad shift-left", b"\x1b[57417;2u"),
+            ("ctrl-b", &[0x02]),
+            ("kitty ctrl-b", b"\x1b[98;5u"),
+            ("shift-right", b"\x1b[1;2C"),
+            ("super-right", b"\x1b[1;9C"),
+            ("ctrl-f", &[0x06]),
+        ] {
+            fixture.route_bytes(key);
             assert_eq!(
-                shell.editor.text(),
-                text,
-                "a key under the full transcript moved the composer's caret"
+                fixture.band_rows(),
+                band,
+                "{name} ({key:?}) changed the question"
             );
         }
+        assert_eq!(fixture.controlled(), None, "a held arrow answered");
+        // Shift-Down and Ctrl-Shift-Up are the choice's move, and so the
+        // choice goes down one and back.
+        fixture.route_bytes(b"\x1b[1;2B");
+        assert_ne!(fixture.band_rows(), band, "Shift-Down moved no choice");
+        fixture.route_bytes(b"\x1b[1;6A");
+        assert_eq!(
+            fixture.band_rows(),
+            band,
+            "Ctrl-Shift-Up did not move it back"
+        );
+
+        // In the field a move is the field's when it names one
+        // (`questionFreeformActionFromShortcut`, `src/ui/input/runtime.zig:155-176`):
+        // Super-Up and -Down, with Shift or without, the field's edges
+        // (`draft_start`/`draft_end`, `:162-163`); Shift-Left and -Right and
+        // Ctrl-B and -F the step (`fromFocusedEditorControlByte`,
+        // `shortcuts.zig:31-41`, for the bytes); and Ctrl-, Alt- and
+        // Shift-Alt-Up and -Down nothing (`visual_up` and `paragraph_up` are
+        // no field move) -- the caret stays in the field, which a choice move
+        // would leave. Each followed by a letter typed at the caret.
+        let draft = |fixture: &Fixture, text: &str| {
+            fixture
+                .band_rows()
+                .iter()
+                .any(|row| sgr_free(row).trim_end() == format!("    3) {text}"))
+        };
+        fixture.route_bytes(b"3");
+        fixture.route_bytes(b"ab cd");
+        for (keys, typed, text) in [
+            (&[&b"\x1b[1;9A"[..]][..], b"z", "zab cd"),
+            (
+                &[
+                    &b"\x1b[1;5A"[..],
+                    b"\x1b[1;5B",
+                    b"\x1b[1;3A",
+                    b"\x1b[1;3B",
+                    b"\x1b[1;4A",
+                    b"\x1b[1;4B",
+                    b"\x1b[57352;5u",
+                ][..],
+                b"y",
+                "zyab cd",
+            ),
+            (&[&[0x06][..]][..], b"x", "zyaxb cd"),
+            (&[&b"\x1b[1;9B"[..]][..], b"w", "zyaxb cdw"),
+            (&[&b"\x1b[1;2D"[..]][..], b"v", "zyaxb cdvw"),
+            (&[&[0x02][..]][..], b"u", "zyaxb cduvw"),
+            (&[&b"\x1b[1;10A"[..]][..], b"t", "tzyaxb cduvw"),
+            (&[&b"\x1b[1;2C"[..]][..], b"s", "tzsyaxb cduvw"),
+            (&[&b"\x1b[1;10B"[..]][..], b"r", "tzsyaxb cduvwr"),
+            // Super-Left and -Right are the step here, where fx's jump to the
+            // line's edge (`line_start`/`line_end`, `:162-163`): xfx's decoder
+            // reads Super on Left and Right as the step (COMPOSER-SUPER-ARROWS,
+            // which flips this case).
+            (&[&b"\x1b[1;9D"[..]][..], b"q", "tzsyaxb cduvwqr"),
+        ] {
+            for key in keys {
+                fixture.route_bytes(key);
+            }
+            fixture.route_bytes(typed);
+            assert!(draft(&fixture, text), "{text}: {:?}", fixture.band_rows());
+            assert!(
+                fixture
+                    .band_rows()
+                    .iter()
+                    .any(|row| row.contains("Ship it?")),
+                "{text}: the field left its question"
+            );
+        }
+        assert_eq!(fixture.controlled(), None, "a key in the field answered");
     }
 
     #[test]

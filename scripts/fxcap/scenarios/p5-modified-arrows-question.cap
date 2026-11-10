@@ -1,0 +1,93 @@
+# MODIFIED-ARROWS-SCREENS: a held arrow, and Ctrl-B and Ctrl-F, at the model's
+# question. fx v0.0.16 reads each through its composer move: at a choice the
+# choice moves only on visual_up/visual_down extending a selection
+# (questionActionFromShortcut, src/ui/input/runtime.zig:178-197@481104fd) --
+# Shift-Up and Ctrl-Shift-Up and their Down -- and every other composer move
+# reaches the switch's `else` (input_question_runtime.zig:181-200), the bytes
+# no question action at a choice (src/ui/input/runtime.zig:135-153). In the
+# field a move is the field's when it names one (:155-176): Super-Up and
+# -Down the field's edges, Ctrl-F, Shift-Left and Ctrl-B the step, and Ctrl-
+# and Shift-Alt-Up and -Down nothing. Each vertical key on a page of its own
+# (Tab between), then the horizontal ones on page 7, where going back a page
+# would show; then a draft on page 7, a letter typed after each key.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-input-question20-turns.json
+wait 4
+type ask twenty
+key Enter
+wait 3
+snap p1
+key -H 1b 5b 31 3b 35 42
+wait 0.4
+snap ctrl-down
+key Tab
+wait 0.4
+key -H 1b 5b 31 3b 33 41
+wait 0.4
+snap alt-up
+key Tab
+wait 0.4
+key -H 1b 5b 31 3b 39 41
+wait 0.4
+snap super-up
+key Tab
+wait 0.4
+key -H 1b 5b 31 3b 31 30 42
+wait 0.4
+snap shift-super-down
+key Tab
+wait 0.4
+key -H 1b 5b 31 3b 34 41
+wait 0.4
+snap shift-alt-up
+key Tab
+wait 0.4
+key -H 1b 5b 31 3b 36 42
+wait 0.4
+snap ctrl-shift-down
+key Tab
+wait 0.4
+key -H 1b 5b 31 3b 39 44
+wait 0.4
+snap super-left
+key -H 1b 5b 31 3b 32 44
+wait 0.4
+snap shift-left
+key -H 02
+wait 0.4
+snap ctrl-b
+key -H 1b 5b 31 3b 32 43
+key -H 06
+wait 0.4
+snap right-keys
+type 3
+wait 0.4
+type ab cd
+wait 0.4
+key -H 1b 5b 31 3b 39 41
+wait 0.4
+type z
+wait 0.4
+snap field-super-up
+key -H 1b 5b 31 3b 35 41
+key -H 1b 5b 31 3b 34 42
+wait 0.4
+type y
+wait 0.4
+snap field-ctrl-up
+key -H 06
+wait 0.4
+type x
+wait 0.4
+snap field-ctrl-f
+key -H 1b 5b 31 3b 39 42
+wait 0.4
+type w
+wait 0.4
+snap field-super-down
+key -H 1b 5b 31 3b 32 44
+key -H 02
+wait 0.4
+type v
+wait 0.4
+snap field-left
