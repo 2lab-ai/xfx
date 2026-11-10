@@ -5452,6 +5452,26 @@ impl Shell {
             .ready(id, self.geometry.cols, self.geometry.rows)
     }
 
+    /// Whether all that keeps `id` from an answer is a change the screen has
+    /// not shown yet ([`super::approval_readiness::Readiness::unshown`]).
+    fn approval_unshown(&self, id: ApprovalId) -> bool {
+        self.readiness
+            .unshown(id, self.geometry.cols, self.geometry.rows)
+    }
+
+    /// What the standing question shows changed: no affirmative is taken
+    /// until a frame shows it ([`super::approval_readiness::Readiness::changed`]).
+    ///
+    /// **Every approval**, the dispatcher's decision (2026-11-10, reversible):
+    /// fx v0.0.16 holds back only a file approval's
+    /// (`input_approval_runtime.zig:191-192@481104fd`), so its Down and Enter
+    /// in one read at a command grant `Always` under a frame that marked
+    /// `Apply once`. To copy fx exactly, call `changed` here only while the
+    /// question's subject is a `crate::permission::ApprovalSubject::Path`.
+    fn approval_changed(&mut self) {
+        self.readiness.changed();
+    }
+
     /// Whether an amendment draft has the keys, on whichever surface is up.
     ///
     /// One reading for both, because everything that consults it is about
@@ -9426,7 +9446,9 @@ impl Shell {
                 } else {
                     1
                 };
-                screen.scroll_by(delta, cols, rows);
+                if screen.scroll_by(delta, cols, rows) {
+                    self.approval_changed();
+                }
                 self.render.request(Reason::Modal);
                 return;
             }
@@ -9570,9 +9592,11 @@ impl Shell {
             // repaint of an unchanged band is bytes that say nothing.
             approval::Reply::Ignored => return,
             approval::Reply::Moved => {
-                // The marker or a draft moved, which is a frame and nothing
-                // else: the panel is the same height, so the band's geometry
-                // and the receipt about it both still hold.
+                // The marker or a draft moved: the panel is the same height,
+                // so the band's geometry and the receipt about it both still
+                // hold, but no affirmative is taken until a frame shows the
+                // move ([`Self::approval_changed`]).
+                self.approval_changed();
                 self.render.request(Reason::Modal);
                 return;
             }
@@ -9602,6 +9626,16 @@ impl Shell {
         if matches!(answer, ApprovalAnswer::Once | ApprovalAnswer::Always)
             && !self.asked_id.is_some_and(|id| self.approval_ready(id))
         {
+            // **A change the frame has not shown yet** -- a move, a draft edit
+            // read with this key: spent, and nothing said, as fx says nothing
+            // (its refusal is a trace line, `input_approval_runtime.zig:207-217
+            // @481104fd`). The question is on the screen, so "not on the screen
+            // yet" would be false; the frame asked for here shows what the next
+            // Enter answers.
+            if self.asked_id.is_some_and(|id| self.approval_unshown(id)) {
+                self.render.request(Reason::Modal);
+                return;
+            }
             // **Said, not swallowed**, and which sentence it is matters: waiting
             // fixes one of these and only a bigger window fixes the other.
             let notice = if self.readiness.undisclosed() {
@@ -21707,6 +21741,10 @@ mod tests {
         );
         shell.route_bytes(&[0x1b, 0x5b, 0x41]); // Up, back to the first
         shell.route_bytes(&[0x1b, 0x5b, 0x42]); // Down, forward again
+
+        // The frame that shows the marker there: an Enter before it answers
+        // nothing (`a_move_and_enter_in_one_read_at_an_edit_answer_nothing_until_a_frame_shows_the_move`).
+        delivered(&mut shell);
         shell.route_bytes(&[0x0d]);
 
         assert_eq!(
@@ -23017,7 +23055,7 @@ mod tests {
         let all: Vec<u8> = VERTICAL_SPELLINGS
             .iter()
             .flat_map(|(_, key)| key.iter().copied())
-            .chain([b'\r'])
+            .chain(*b"\r")
             .collect();
         let mut at_a_choice = shell(24, 80);
         asking(&mut at_a_choice);
@@ -23108,8 +23146,9 @@ mod tests {
                 continue;
             }
             assert!(shell.asking(), "{what}, {name}: the question went down");
+            // `❯ 2  Apply …` at an edit, `❯ 2. Yes, …` at a command.
             assert!(
-                shell.marked().contains(&format!("❯ {lands}  ")),
+                shell.marked().contains(&format!("❯ {lands}")),
                 "{what}, {name}: {:?}",
                 shell.marked()
             );
@@ -23247,15 +23286,15 @@ mod tests {
         // (`reasonsAffectApproval`'s doc, `render_request.zig:363-366
         // @481104fd`; fx's wheel asks for a frame, `input_approval_runtime.zig:173-176`):
         // a walk that moved and the Enter after it answer nothing until it
-        // is drawn. A walk that cannot move -- `C-p` at the head -- changes
-        // nothing and does not hold the Enter.
+        // is drawn. A walk that cannot move -- `C-n` at the tail, where the
+        // plane opens -- changes nothing and does not hold the Enter.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         delivered(&mut shell);
-        shell.route_bytes(&[0x10, b'\r']);
+        shell.route_bytes(&[0x0e, b'\r']);
         assert_eq!(
             shell.controlled(),
             Some(TurnControl::Answer {
@@ -23271,7 +23310,7 @@ mod tests {
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         delivered(&mut shell);
-        shell.route_bytes(&[0x0e, b'\r']);
+        shell.route_bytes(&[0x10, b'\r']);
         assert_eq!(shell.controlled(), None, "an undrawn walk was answered");
         delivered(&mut shell);
         shell.route_bytes(b"\r");

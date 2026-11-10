@@ -209,16 +209,18 @@ impl ApprovalScreen {
     /// positive back toward its tail, bounded by what there is to show.
     ///
     /// A window that could be walked past either end would read as a change
-    /// that had stopped when it had not.
-    pub(crate) fn scroll_by(&mut self, delta: isize, cols: u16, terminal_rows: u16) {
+    /// that had stopped when it had not. Says whether the window moved.
+    pub(crate) fn scroll_by(&mut self, delta: isize, cols: u16, terminal_rows: u16) -> bool {
         let composed = self.compose(cols, terminal_rows, &Styles::PLAIN);
         let furthest = composed.total.saturating_sub(composed.viewport);
+        let before = self.scroll;
         self.scroll = if delta < 0 {
             self.scroll.saturating_add(delta.unsigned_abs())
         } else {
             self.scroll.saturating_sub(delta.unsigned_abs())
         }
         .min(furthest);
+        self.scroll != before
     }
 
     /// The whole screen as text, top first: exactly `terminal_rows` rows.
