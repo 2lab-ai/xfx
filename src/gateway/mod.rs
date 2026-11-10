@@ -691,8 +691,12 @@ impl fmt::Display for ProviderError {
             Self::Protocol(err) => write!(f, "{err}"),
             Self::Sink(err) => write!(f, "cannot write assistant output: {err}"),
             Self::Cancelled => write!(f, "the turn was cancelled"),
-            // Upstream's `formatErrorBody` with no detail for the name
-            // (`app_process_runtime.zig:99-136@481104fd`).
+            // Upstream's `formatErrorBody`: its detail for `ImageTooLarge`, and
+            // the name alone for any other (`app_process_runtime.zig:99-136@481104fd`;
+            // `image_too_large_notice`, `image_attachments.zig:24`).
+            Self::Image("ImageTooLarge") => {
+                f.write_str("request failed: image exceeds the 20 MiB limit (ImageTooLarge)")
+            }
             Self::Image(error) => write!(f, "request failed: {error}"),
         }
     }

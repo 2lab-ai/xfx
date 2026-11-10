@@ -6296,6 +6296,7 @@ async fn one_turn(
     let provider = crate::session::store::CopiesChecked {
         inner: &provider,
         copies: replay_copies,
+        failed: Default::default(),
     };
     let provider = ToolImageGate {
         inner: &provider,

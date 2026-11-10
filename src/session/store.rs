@@ -510,36 +510,37 @@ const PAST_A_REQUEST: u64 = (crate::image::MAX_ENCODED_BYTES / 4 * 3 + 1) as u64
 /// `image_attachments.zig:1260-1320@481104fd`).
 pub const COPY_CHANGED: &str = "ImageSnapshotCorrupt";
 
-/// Every error [`CopiesChecked`] fails a request with: [`COPY_CHANGED`], and
-/// a read of the copy that fails, which upstream's reader calls `ReadFailed`
-/// (`readSliceShort` in `loadVerifiedSnapshot`).
-pub const COPY_ERRORS: [&str; 2] = [COPY_CHANGED, "ReadFailed"];
-
 /// `inner`, every request it is asked projected first as upstream projects
 /// each one: each image in it read from a [`SavedCopy`] is opened again. One
 /// that cannot be opened, or whose size is now past what one request carries,
 /// is left out with upstream's note -- its pixel size as the turn first read
 /// it -- and the request goes (`withholdOversizedAttachments`,
 /// `attachmentRawBytes`, `image_attachments.zig:805-850@481104fd`,
-/// `:1011-1045`, from `orchestrator.zig:7612-7632`). Any other is read whole
-/// and held to its digest, and only the bytes just checked are sent; bytes
-/// that are not the digest's, or a read that fails, fail the request with
-/// upstream's error, `request failed: ImageSnapshotCorrupt` (`loadVerifiedSnapshot`,
-/// `:1260-1320`, a `try` from `vercel_protocol.zig:873-890` and
-/// `orchestrator.zig:7712-7716`). No byte the history read is ever sent. It
-/// is built after the turn's prompt is recorded, as upstream's
+/// `:1011-1045`, from `orchestrator.zig:7612-7632`). Any other is read to its
+/// end, as upstream's `loadVerifiedSnapshot` reads it, and only the bytes just
+/// checked are sent. The request fails with upstream's error otherwise
+/// (`:1260-1320`, a `try` from `vercel_protocol.zig:873-890` and
+/// `orchestrator.zig:7712-7716`): `ImageTooLarge` for a copy past the limit
+/// when it is read, [`COPY_CHANGED`] for bytes that are not the digest's, and
+/// `ReadFailed` for a read that fails. No byte the history read is ever sent.
+/// It is built after the turn's prompt is recorded, as upstream's
 /// (`p5-image-loss-changed`), so that turn stays in the log.
 pub struct CopiesChecked<'a> {
     pub inner: &'a dyn crate::gateway::Provider,
     pub copies: Vec<SavedCopy>,
+    /// The name a request was failed with, for `ask` to print it as
+    /// upstream's does.
+    pub failed: std::rc::Rc<std::cell::Cell<Option<&'static str>>>,
 }
+
+/// A test's hand between a copy's open and its read in [`CopiesChecked`]: what
+/// the file does then -- grows, or cannot be read -- is the read's to find.
+#[cfg(test)]
+type BeforeTheRead = Box<dyn FnMut(&Path, &mut File)>;
 
 #[cfg(test)]
 thread_local! {
-    /// A test's hand between a copy's open and its read in [`CopiesChecked`]:
-    /// what the file does then -- grows, or cannot be read -- is the read's to
-    /// find.
-    static BEFORE_THE_READ: std::cell::RefCell<Option<Box<dyn FnMut(&Path, &mut File)>>> =
+    static BEFORE_THE_READ: std::cell::RefCell<Option<BeforeTheRead>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -551,7 +552,16 @@ impl crate::gateway::Provider for CopiesChecked<'_> {
         deltas: &mut dyn crate::gateway::DeltaSink,
     ) -> Result<crate::gateway::protocol::Completion, crate::gateway::ProviderError> {
         use crate::gateway::protocol::ContentPart;
-        if self.copies.is_empty() {
+        let copied = |part: &ContentPart| {
+            matches!(part, ContentPart::Image { saved: Some(saved), .. }
+                if self.copies.iter().any(|copy| copy.path == *saved))
+        };
+        if !request
+            .messages
+            .iter()
+            .flat_map(|message| &message.content)
+            .any(copied)
+        {
             return self.inner.stream(request, deltas).await;
         }
         let limit = crate::image::request_max_dimension(crate::image::count(&request.messages));
@@ -572,38 +582,52 @@ impl crate::gateway::Provider for CopiesChecked<'_> {
                 let Some(copy) = self.copies.iter().find(|copy| copy.path == *saved) else {
                     return true;
                 };
+                // What the history read gives the note its pixel size, and
+                // goes no further: only bytes this request checks are sent.
+                let size = crate::image::dimensions(data);
+                *data = Arc::from(Vec::new());
                 let opened = open_copy(saved).ok().filter(|(_, length)| {
                     usize::try_from(*length).is_ok_and(crate::image::fits_encoded)
                 });
-                let Some((mut file, length)) = opened else {
+                let Some((file, length)) = opened else {
                     notes.push_str(&crate::image::withheld_note(
                         *id,
                         *media_type,
-                        crate::image::dimensions(data),
+                        size,
                         limit,
                         Some(saved),
                     ));
                     return false;
                 };
+                if length != copy.size {
+                    failed = Some(COPY_CHANGED);
+                    return true;
+                }
+                #[cfg(test)]
+                let mut file = file;
                 #[cfg(test)]
                 BEFORE_THE_READ.with(|hook| {
                     if let Some(hook) = hook.borrow_mut().as_mut() {
                         hook(saved, &mut file);
                     }
                 });
-                match read_from(file, length, length) {
+                match read_from(file, length, crate::image::MAX_IMAGE_BYTES + 1) {
+                    Ok(bytes) if bytes.len() as u64 > crate::image::MAX_IMAGE_BYTES => {
+                        failed = Some("ImageTooLarge");
+                    }
                     Ok(bytes)
                         if bytes.len() as u64 == copy.size
                             && crate::image::digest(&bytes) == copy.sha256 =>
                     {
                         *data = Arc::from(bytes);
                     }
-                    Ok(_) => failed = Some(COPY_ERRORS[0]),
-                    Err(_) => failed = Some(COPY_ERRORS[1]),
+                    Ok(_) => failed = Some(COPY_CHANGED),
+                    Err(_) => failed = Some("ReadFailed"),
                 }
                 true
             });
             if let Some(error) = failed {
+                self.failed.set(Some(error));
                 return Err(crate::gateway::ProviderError::Image(error));
             }
             crate::image::put_notes(message, notes);
@@ -1143,14 +1167,16 @@ pub fn turn_messages(
     // `attachmentDimensions`, `image_attachments.zig:1011-1045@481104fd`,
     // `:814-850`); so does one past the limit, read no further than it.
     let mut images = Vec::new();
-    let carried = copies.is_some();
-    for image in turn.images.iter().filter(|_| carried) {
+    for image in &turn.images {
+        let Some(copies) = copies.as_deref_mut() else {
+            break;
+        };
         let Some(media_type) = crate::image::MediaType::parse(&image.recorded.media_type) else {
             continue;
         };
-        let (data, saved) = match (&image.snapshot, copies.as_deref_mut()) {
-            (Snapshot::Loaded { bytes, path }, _) => (Arc::clone(bytes), path.clone()),
-            (Snapshot::Saved(path), Some(copies)) => {
+        let (data, saved) = match &image.snapshot {
+            Snapshot::Loaded { bytes, path } => (Arc::clone(bytes), path.clone()),
+            Snapshot::Saved(path) => {
                 copies.push(SavedCopy {
                     path: Arc::clone(path),
                     sha256: image.recorded.sha256.clone(),
@@ -1161,8 +1187,7 @@ pub fn turn_messages(
                     .unwrap_or_default();
                 (Arc::from(bytes), Some(Arc::clone(path)))
             }
-            (Snapshot::Saved(_), None) => continue,
-            (Snapshot::Unread, _) => (Arc::from(Vec::new()), None),
+            Snapshot::Unread => (Arc::from(Vec::new()), None),
         };
         images.push(crate::gateway::protocol::ContentPart::Image {
             id: image.recorded.id,
@@ -6019,10 +6044,11 @@ mod tests {
             let checked = CopiesChecked {
                 inner: &sent,
                 copies: replay.copies,
+                failed: Default::default(),
             };
             let mut got = Vec::new();
             for change in before {
-                let mut during: Option<Box<dyn FnMut(&Path, &mut File)>> = None;
+                let mut during: Option<BeforeTheRead> = None;
                 match change {
                     Copy::Is(bytes) => std::fs::write(&copy, bytes).expect("rewrite"),
                     Copy::Grown => std::fs::OpenOptions::new()

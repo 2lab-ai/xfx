@@ -454,9 +454,11 @@ async fn run_ask(
     } else {
         Box::new(TextSink::new(stdout, stderr).on_terminal(stdout_is_terminal))
     };
+    let copy_failed = std::rc::Rc::default();
     let mut sink: Box<dyn EventSink + '_> = Box::new(CopyErrorNamed {
         inner,
         json: request.json,
+        failed: std::rc::Rc::clone(&copy_failed),
     });
 
     // A resumed session's model, by [`resumed_model`]'s rule; a fresh one's is
@@ -569,6 +571,7 @@ async fn run_ask(
     let checked = crate::session::store::CopiesChecked {
         inner: bundle.stream.as_ref(),
         copies: std::mem::take(&mut opened.copies),
+        failed: copy_failed,
     };
     // The turn writes its own terminal event, including on failure.
     let outcome = match opened.recorder.as_mut() {
@@ -653,15 +656,18 @@ fn resumed_model<'a>(config: &'a RuntimeConfig, state: &'a DurableState) -> &'a 
     }
 }
 
-/// `ask`'s events, a request a changed copy failed said as upstream's `ask`
-/// says it: no notice is its, so the error goes up and its name is printed,
+/// `ask`'s events, a request a copy failed said as upstream's `ask` says it:
+/// no notice is its, so the error goes up and its name is printed,
 /// `fx: ImageSnapshotCorrupt`, or with `--json` is the error (`askErrorNotice`,
 /// `cli_ask.zig:1189-1197@481104fd`; `:1802-1823`; `tryWriteErrorMessage`,
 /// `app_entry_runtime.zig:563-567`). The TUI says `request failed: …`, as
-/// upstream's does ([`crate::session::store::CopiesChecked`]).
+/// upstream's does. `failed` is the name
+/// [`crate::session::store::CopiesChecked`] failed the request with, which is
+/// the turn's end: such a failure is not retried.
 struct CopyErrorNamed<'a> {
     inner: Box<dyn EventSink + 'a>,
     json: bool,
+    failed: std::rc::Rc<std::cell::Cell<Option<&'static str>>>,
 }
 
 /// An error with no notice of its own, as upstream's `ask` prints it: its name
@@ -676,15 +682,11 @@ fn named(json: bool, error: &str) -> String {
 
 impl EventSink for CopyErrorNamed<'_> {
     fn emit(&mut self, event: &Event) -> io::Result<()> {
-        let image = |name: &&'static str| {
-            matches!(event, Event::Error { message }
-                if *message == crate::gateway::ProviderError::Image(name).to_string())
-        };
-        match crate::session::store::COPY_ERRORS.into_iter().find(image) {
-            Some(name) => self.inner.emit(&Event::Error {
+        match (event, self.failed.get()) {
+            (Event::Error { .. }, Some(name)) => self.inner.emit(&Event::Error {
                 message: named(self.json, name),
             }),
-            None => self.inner.emit(event),
+            _ => self.inner.emit(event),
         }
     }
 
