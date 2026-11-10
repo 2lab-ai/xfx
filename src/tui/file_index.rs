@@ -2850,8 +2850,8 @@ pub(crate) mod tests {
         // run was `fxcap.qnVERa` and its xfx run `fxcap.YTZTDF`: the first
         // has an `n` close to the `a` before it, the second none. Here the
         // scratch root is a short stand-in with the same choice: the run
-        // name's `n` wins for `qnVERa` (66 against 63), the `n` of `notes`
-        // for `YTZTDF`, each the best placement in its own path.
+        // name's `n` wins for `qnVERa`, the `n` of `notes` for `YTZTDF`,
+        // each the best placement in its own path, as the two captures bold.
         let bold = |run: &str| -> String {
             let path = format!("/srv/pr/cl/at/x/039/fxcap.{run}/extra/notes/");
             let found = search(&candidates(&[&path]), "plan");

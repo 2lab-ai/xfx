@@ -1,0 +1,9 @@
+# clone at dad8caa1; tests: cargo test --locked --lib -- tui::file_index tui::file_picker tui::shell; limit 900 s each
+SURVIVED per-letter-dropped: every test passed  [test result: ok. 933 passed; 0 failed; 1 ignored; 0 measured; 3717 filtered out; finished in 5.36s]
+KILLED   camel-digit-bonus-dropped: tui::file_index::tests::a_camel_start_and_a_matched_punctuation_earn_their_bonuses  [test result: FAILED. 932 passed; 1 failed; 1 ignored; 0 measured; 3717 filtered out; finished in 6.95s]
+KILLED   punctuation-bonus-dropped: tui::file_index::tests::a_camel_start_and_a_matched_punctuation_earn_their_bonuses  [test result: FAILED. 932 passed; 1 failed; 1 ignored; 0 measured; 3717 filtered out; finished in 6.05s]
+KILLED   cap-33: tui::file_index::tests::only_the_best_thirty_two_are_kept  [test result: FAILED. 932 passed; 1 failed; 1 ignored; 0 measured; 3717 filtered out; finished in 13.19s]
+KILLED   cells-4095: tui::file_index::tests::the_cell_budget_is_four_thousand_and_ninety_six_cells  [test result: FAILED. 932 passed; 1 failed; 1 ignored; 0 measured; 3717 filtered out; finished in 9.51s]
+KILLED   cells-4097: tui::file_index::tests::the_cell_budget_is_four_thousand_and_ninety_six_cells  [test result: FAILED. 932 passed; 1 failed; 1 ignored; 0 measured; 3717 filtered out; finished in 7.99s]
+KILLED   greedy-fallback-gone: tui::file_index::tests::the_cell_budget_is_four_thousand_and_ninety_six_cells  [test result: FAILED. 932 passed; 1 failed; 1 ignored; 0 measured; 3717 filtered out; finished in 4.85s]
+mutants: 7 run, 6 killed, 0 did not build
