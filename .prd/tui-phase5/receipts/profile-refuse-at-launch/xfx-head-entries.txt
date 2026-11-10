@@ -1,11 +1,11 @@
-== PROBE_ENTRIES=all probe.sh xfx <xfx at b209c786> <run> truncated valid
-binary sha256 before: e63738794c0f
+== PROBE_ENTRIES=all probe.sh xfx <xfx at 02c32c3f> <run> truncated valid
+binary sha256 before: b0d5e22afd8f
 == truncated
   ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
   ask --json             exit=1 stdout=57B stderr= | touched: 
     stdout: {"kind":"error","message":"InvalidProfileConfiguration"}|
   status                 exit=0 stdout=484B stderr= | touched: 
-    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=b209c7861bc1|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=02c32c3f1b4e|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
   doctor                 exit=0 stdout=866B stderr= | touched: 
     stdout: [doctor] ok=4 warn=2 fail=1|[doctor] workspace=<run>/truncated/work|[doctor] model=zai/glm-5.2|[doctor] provider=gateway|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=25|[ok] workspace: using workspace <run>/truncated/work|[warn] config
   sessions               exit=0 stdout=84B stderr= | touched: 
@@ -24,7 +24,7 @@ binary sha256 before: e63738794c0f
   ask --json             exit=1 stdout=113B stderr= | touched: 
     stdout: {"kind":"error","message":"xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY."}|
   status                 exit=0 stdout=480B stderr= | touched: 
-    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=b209c7861bc1|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=02c32c3f1b4e|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
   doctor                 exit=0 stdout=761B stderr= | touched: 
     stdout: [doctor] ok=5 warn=0 fail=1|[doctor] workspace=<run>/valid/work|[doctor] model=zai/glm-5.2|[doctor] provider=gateway|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=25|[ok] workspace: using workspace <run>/valid/work|[ok] config: loaded s
   sessions               exit=0 stdout=84B stderr= | touched: 
@@ -38,4 +38,4 @@ binary sha256 before: e63738794c0f
   interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
   --version, terminal    exited exit=0 tty=7B stderr= | touched: 
   line shell             still running after 6 s exit= tty=278B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
-binary sha256 after: e63738794c0f
+binary sha256 after: b0d5e22afd8f

@@ -40,3 +40,44 @@ binary sha256 before: 8e6cda2efddb
   interactive            still running after 6 s exit= tty=782B stderr= | touched: 
   --version, terminal    exited exit=0 tty=8B stderr= | touched: 
 binary sha256 after: 8e6cda2efddb
+
+== PROBE_ENTRIES=all probe.sh fx <fx v0.0.16> <run> home-unlistable dup-key (round 3)
+binary sha256 before: 8e6cda2efddb
+== home-unlistable
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask --json             exit=1 stdout=213B stderr= | touched: 
+    stdout: {"output":"","final_output":"","exit_code":1,"model":"","resolved_provider":null,"session_id":"","steps":0,"tool_calls":[],"usage":{"input_tokens":null,"output_tokens":null},"error":"InvalidProfileConfiguration"}|
+  status                 exit=0 stdout=655B stderr=fx: config user: malformed_settings| | touched: 
+    stdout: [status] model=spacexai/grok-4.7|[status] model_origin=default|[status] effort=auto|[status] update_channel=stable|[status] build_channel=stable|[status] build_revision=481104fdbc24|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=Saved credential storage is unavailable. Chec
+  doctor                 exit=0 stdout=929B stderr= | touched: 
+    stdout: [doctor] ok=2 warn=4 fail=2|[doctor] workspace=<run>/home-unlistable/work|[doctor] model=spacexai/grok-4.7|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=0|[doctor] mcp_connection_check=not_checked|[doctor] mcp_servers=0 mcp_configuratio
+  sessions               exit=1 stdout=0B stderr=fx session: durable session store is unavailable| | touched: 
+  session last           exit=1 stdout=0B stderr=fx session: durable session store is unavailable| | touched: 
+  --version              exit=0 stdout=7B stderr= | touched: 
+    stdout: 0.0.16|
+  help                   exit=0 stdout=3961B stderr= | touched: 
+    stdout: 𝒇x v0.0.16|Fast, native coding agent for the terminal.||fx starts an interactive session by default. Use `fx ask` to run one|noninteractive request.||Usage:|  fx [flags]|  fx <command> [...flags] [...args]||Commands:|  ask <prompt>                       Run one noninteractive request||  pr [conte
+  bare, no terminal      exit=1 stdout=0B stderr=fx requires an interactive terminal (TTY).| | touched: 
+  interactive            exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  --version, terminal    exited exit=0 tty=8B stderr= | touched: 
+== dup-key
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask --json             exit=1 stdout=213B stderr= | touched: 
+    stdout: {"output":"","final_output":"","exit_code":1,"model":"","resolved_provider":null,"session_id":"","steps":0,"tool_calls":[],"usage":{"input_tokens":null,"output_tokens":null},"error":"InvalidProfileConfiguration"}|
+  status                 exit=0 stdout=684B stderr=fx: config user: malformed_settings| | touched: 
+    stdout: [status] model=spacexai/grok-4.7|[status] model_origin=default|[status] effort=auto|[status] update_channel=stable|[status] build_channel=stable|[status] build_revision=481104fdbc24|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=fx needs access to Vercel AI Gateway. Run fx 
+  doctor                 exit=0 stdout=961B stderr= | touched: 
+    stdout: [doctor] ok=3 warn=5 fail=1|[doctor] workspace=<run>/dup-key/work|[doctor] model=spacexai/grok-4.7|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=0|[doctor] mcp_connection_check=not_checked|[doctor] mcp_servers=0 mcp_configuration_issues
+  sessions               exit=0 stdout=29B stderr= | touched: 
+    stdout: [sessions] no saved sessions|
+  session last           exit=1 stdout=0B stderr=fx session: no saved sessions for this workspace| | touched: 
+  --version              exit=0 stdout=7B stderr= | touched: 
+    stdout: 0.0.16|
+  help                   exit=0 stdout=3961B stderr= | touched: 
+    stdout: 𝒇x v0.0.16|Fast, native coding agent for the terminal.||fx starts an interactive session by default. Use `fx ask` to run one|noninteractive request.||Usage:|  fx [flags]|  fx <command> [...flags] [...args]||Commands:|  ask <prompt>                       Run one noninteractive request||  pr [conte
+  bare, no terminal      exit=1 stdout=0B stderr=fx requires an interactive terminal (TTY).| | touched: 
+  interactive            exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  --version, terminal    exited exit=0 tty=8B stderr= | touched: 
+binary sha256 after: 8e6cda2efddb

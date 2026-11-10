@@ -8,12 +8,17 @@ its conditions, its entry points, its text and its status.
   `fix/p5-profile-refuse-at-launch`.
 - **Round 1** code a57ba760 (reviewed at 98d3513b). **Round 2** code
   b209c786: the profile is read in fx's order, so a profile fx never reads
-  refuses nothing (both reviews' MUST). The commits after b209c786 change
-  no source: this receipt and `docs/parity.md`. Every xfx probe and capture
-  here names the commit its binary was built at (banner `v0.1.0-<sha7>`).
-- Source outside tests: 210 added lines at b209c786 (`src/config.rs` 184,
-  `src/app.rs` 12, `src/interactive.rs` 7, `src/tui/mod.rs` 7);
-  `src/config.rs`'s other 260 are its unit tests.
+  refuses nothing. **Round 3** code 02c32c3f: the order kept on
+  descriptors, as fx keeps it -- HOME opened first, `~/.xfx` and the file
+  opened without following a link, fstat'ed, and the file read from the
+  descriptor that was checked. The commits after 02c32c3f change no source:
+  this receipt and `docs/parity.md`. Every xfx probe and capture here names
+  the commit its binary was built at (banner `v0.1.0-<sha7>`).
+- Source outside tests: 311 added lines at 02c32c3f, 101 of them comments
+  (`src/config.rs` 285, `src/app.rs` 12, `src/interactive.rs` 7,
+  `src/tui/mod.rs` 7) -- past the ~300 the brief set, by the round-3
+  descriptor work it asked for; `src/config.rs`'s other 370 are its unit
+  tests.
 
 ## 1. fx's rule (`fx_src.sh` → `fx-src.txt`, every range checked: 0 out of bounds)
 
@@ -27,8 +32,13 @@ after each run).
   `malformed_settings`, `settings_too_large` or `invalid_model_id` returns
   `error.InvalidProfileConfiguration`; `durable_path_unsafe` returns it
   unless the load's credential mode is `.stored`.
-- **The order a read-only load opens the profile in** (`fx-src.txt:396-597`):
-  1. `~/.fx`, opened without following a link: a link or not a directory
+- **The order a read-only load opens the profile in** (`fx-src.txt:396-597`),
+  every step on a descriptor:
+  0. HOME, opened as a directory (`settings_store.zig:342-348`): missing is
+     no profile, any other failure is returned, so `malformed_settings` --
+     the oracle refuses a `0o300` HOME at every entry (`fx-fixtures.txt`
+     `home-unlistable`);
+  1. `~/.fx`, opened in it without following a link: a link or not a directory
      is `durable_path_unsafe`; another failed open is returned, so
      `malformed_settings` (`settings_store.zig:351-367`, `config_runtime.zig:1038-1043`);
   2. its mode: open to group or other (`mode & 0o022`, `:763-765`) is
@@ -36,14 +46,18 @@ after each run).
      no store: the file is never opened (`:381-383`, `config_runtime.zig:467-474`);
   3. `settings.json`, looked at without following a link: a link, anything
      but a regular file, or a second hard link is `durable_path_unsafe`
-     (`io.zig:213-286`); then opened for reading -- a failure is returned,
-     so `malformed_settings`, before the mode is looked at;
-  4. its mode: open to group or other is again
+     (`io.zig:213-286`); then opened for reading with `NOFOLLOW` and
+     `NONBLOCK` (`:238-254`) -- a failure is returned, so
+     `malformed_settings`, before the mode is looked at -- and the open
+     descriptor checked again (`:260-261`);
+  4. the open descriptor's mode: open to group or other is again
      `private_state_permissions_unsupported`, and the layer is absent
      (`settings_store.zig:744-746`, `config_runtime.zig:477-484`);
   5. only then the size (past 65,536 bytes: `settings_too_large`, `:747`),
-     the parse (not JSON, not an object: `malformed_settings`), and the
-     object:
+     the read of that same descriptor (`:748`), the parse (not JSON, not an
+     object, or a key twice: `malformed_settings`, `:408-416`; the oracle
+     refuses `{"permission_mode": "auto", "permission_mode": "ask"}`,
+     `dup-key`), and the object:
      - `workspaces`, or this workspace's entry in it, not an object
        (`config_runtime.zig:589-597`): `malformed_settings`;
      - a `model` (in the object or the entry) that is not a string, or that
@@ -98,20 +112,32 @@ after each run).
 
 - `ProfileRefusal` (`src/config.rs`), computed by every load, acted on only
   by the launches (`RuntimeConfig::refuses_launch(Launch)`), so a reload
-  in a session never refuses. `profile_open` walks fx's order above:
+  in a session never refuses. `profile_open` walks fx's order above on
+  descriptors: HOME opened as a directory (missing: no profile; any other
+  failure: Rejected); `~/.xfx` opened in it with `O_NOFOLLOW|O_DIRECTORY`
+  and fstat'ed for kind and mode; the file looked at with
+  `statat(SYMLINK_NOFOLLOW)`, then opened in that directory with
+  `O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC` (`open_settings`) and fstat'ed for
+  kind, links and mode; that open descriptor is handed back and the layer
+  read from it (`read_user_layer`), never the path again. Every other layer
+  read (`read_layer`) opens once with `O_NONBLOCK` and reads that
+  descriptor, so no read waits on a FIFO. The verdicts:
   - `Unsafe` -- `~/.xfx` a link or not a directory; the file a link, not a
     regular file, or with a second hard link. Only `ask` refuses; the TUI
     and the line shell go on, as fx's stored-credential launch does --
     except that a `~/.xfx` that is a link or a file is still refused by the
     session store's own rule, in its own words (`src/profile_home.rs`,
     kept by `docs/parity.md`'s profile home row).
+  - `Rejected` also covers a HOME that does not open.
   - `Rejected` -- `~/.xfx` or the file does not open for reading (a `0o222`
     file too); or the file is opened, private, and is not one JSON object
     within 65,536 bytes, its `workspaces` or this workspace's entry is not
     an object, or a `model` in either fails fx's `validateModel`
     (`fx_refuses_model`, fx's rule, not xfx's own 200-byte one-word rule).
     Every launch refuses.
-  - A `~/.xfx` or file open to group or other: not read, so nothing refuses.
+  - A `~/.xfx` or file open to group or other: not read, so nothing refuses
+    -- but an interactive launch still meets the session store's rule for
+    a `~/.xfx` open to group or other (`it is mode 770`).
 - The TUI checks after `load_config` and before `session` (before the
   terminal is taken and before a resume's lookup); the line shell after its
   terminal check and before the session store; `ask` first, before the
@@ -119,23 +145,29 @@ after each run).
   and exits 1; `ask --json` writes
   `{"kind":"error","message":"InvalidProfileConfiguration"}` (xfx's JSONL
   error event) on stdout, stderr empty (`xfx-head-entries.txt`).
-- **Fixture by fixture** (`xfx-head-fixtures.txt`, b209c786, against
-  `fx-fixtures.txt`): fx's refuse-or-start at every entry for 28 of the 31
-  fixtures; `typed-key`, `provider` and `models-bad` are section 7's.
+- **Fixture by fixture** (`xfx-head-fixtures.txt`, 02c32c3f, against
+  `fx-fixtures.txt`; `outcomes.py` → `outcomes.txt`), two counts:
+  - **by refusal** -- the launch refused over the profile, or not, at
+    `ask`, the TUI and the line shell: **29 of 33**; the four that differ,
+    `typed-key`, `provider`, `models-bad` and `dup-key`, are section 7's;
+  - **by how each entry ended** -- exit status, or still running: **27 of
+    33**; besides those four, `link-profile` and `dir-group-writable-torn`,
+    where fx's interactive launch runs and xfx's session store refuses in
+    its own words (as at the base, `xfx-base-fixtures.txt`). `profile-file`
+    ends the same way in both (exit 1): fx later with `fx: NotDir`, xfx with
+    the session store's words.
   Refused at all three entries with `tty=0B` and nothing
   touched: `truncated`, `nonobject`, `toolarge` (65,537 bytes),
   `model-space`, `model-nonstring`, `ws-nonobject`, `entry-nonobject`,
-  `entry-model`, `unreadable`, `write-only`, `dir-unlistable`. Refused by
+  `entry-model`, `unreadable`, `write-only`, `dir-unlistable`,
+  `home-unlistable`. Refused by
   `ask` alone: `dir-settings`, `link-settings`, `link-profile`, `hardlink`,
   `profile-file`, `fifo`. Started: `at-ceiling` (65,536 bytes),
   `model-inner-space`, `model-long`, `project-malformed`,
   `retired-then-model`, `group-writable`, `group-writable-torn`,
   `group-writable-model`, `other-writable-torn`, `dir-group-writable-torn`
-  (`ask`), `valid`; and, where fx refuses, `typed-key`, `provider` and
-  `models-bad`. Where fx's interactive launch starts
-  and xfx's does not, it is the session store's own older rule, in its own
-  words, as at the base (`xfx-base-fixtures.txt`): `link-profile`,
-  `profile-file`, and `dir-group-writable-torn` (`it is mode 770`).
+  (`ask`), `valid`; and, where fx refuses, `typed-key`, `provider`,
+  `models-bad` and `dup-key`.
 - **Round 1 against the same fixtures** (`xfx-r1-fixtures.txt`, a57ba760's
   code = 98d3513b's): round 1 refused `group-writable-torn`,
   `group-writable-model`, `other-writable-torn` and
@@ -143,6 +175,9 @@ after each run).
   MUST); refused `fifo` at all three, where fx refuses only `ask`; and
   started `dir-unlistable` and `hardlink`, which fx refuses. Round 2 fixes
   all seven.
+- **Round 2 against the same fixtures** (`xfx-r2-fixtures.txt`, b209c786):
+  started `home-unlistable`, which fx refuses (28 of 33 by refusal, 26 by
+  how each entry ended, `outcomes.txt`); round 3 fixes it.
 
 ## 3. RED → GREEN
 
@@ -157,6 +192,16 @@ after each run).
   first new fixture, `torn JSON group may write: xfx:
   InvalidProfileConfiguration`, and `ask_refuses_a_profile_fx_refuses` at
   `a hard-linked file` (round 1 went on to the Gateway).
+- **Round 3** (`red-r3.txt`, round 3's tests over b209c786's `src` in a
+  throwaway clone): `ask_refuses_a_profile_fx_refuses` fails at `a HOME
+  nobody may list` (round 2 went on to the Gateway), and
+  `the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything` and
+  `a_profile_fx_refuses_is_refused_before_the_terminal_is_taken` find an
+  xfx that does not exit -- round 2 started with that HOME
+  (`xfx-r2-fixtures.txt` `home-unlistable`), and it is the one profile in
+  REJECTED that round 2 starts. The descriptor tests call functions round 2
+  does not have (`open_settings`, `read_user_layer`); the mutants M19-M22
+  stand for their RED.
 - **Guards**: `the_commands_fx_answers_without_a_launch_answer_with_a_profile_it_refuses`,
   `the_shell_starts_with_a_profile_only_ask_refuses`,
   `a_profile_only_ask_refuses_starts_the_tui`, and
@@ -166,11 +211,23 @@ after each run).
   (each edge of `validateModel`),
   `config::tests::the_refusal_is_read_from_the_profile_and_this_workspaces_entry_only`,
   and `config::tests::the_profile_is_opened_in_fxs_order_before_what_it_holds_counts`
-  (every step of `profile_open`: nothing, torn, torn open to group, to
-  other, in a directory open to group, write-only, an unlistable directory,
-  a second hard link, a FIFO, a file for the directory).
-- **GREEN** (`green.txt`): all 13 pass in the gate's `cargo test` at
-  b209c786's code; the whole suite there too (section 8).
+  (every step of `profile_open`: nothing, a HOME nobody may list, torn,
+  torn open to group, to other, in a directory open to group, write-only,
+  an unlistable directory, a second hard link, a FIFO, a file for the
+  directory; the unlistable and write-only cases skip a reader the mode
+  bits do not stop), and round 3's
+  `config::tests::the_open_checks_what_it_opened_not_what_was_looked_at`
+  (the open on its own, the path as it may stand by then: a link is not
+  followed, a FIFO is not waited on -- the open runs on a thread, freed by
+  a writer if it waits -- a second name and an open mode are seen on the
+  open descriptor) and
+  `config::tests::the_profile_layer_is_read_from_the_descriptor_that_was_checked`
+  (a torn file renamed into place after the open is not what is read).
+- **GREEN** (`green.txt`): all 15 pass in the gate's `cargo test` at
+  02c32c3f's code; the whole suite there too (section 8). The integration
+  fixtures gained, in round 3, an unlistable `~/.xfx` and an unlistable
+  HOME in REJECTED and a FIFO in UNSAFE (`tests/support/profiles.rs`, with
+  `unlock` so a sandbox can be removed).
 
 ## 4. Tests changed to the refusal
 
@@ -214,6 +271,15 @@ the profiles each seeds were read against the rule.
   is on stderr, which capture.sh does not put in the pane, so neither
   product's text is in the pair: `fx-fixtures.txt` and
   `xfx-head-fixtures.txt` carry it.
+- **Sweep, round 3** (`sweep.sh` under the suite lock → `sweep-r3.txt`;
+  each side's `summary.md` in `sweep-r3-head/`, `sweep-r3-base/`): the same
+  selection, once with 02c32c3f's xfx and once with 3943d667's. 83
+  scenarios, 523 pairs, every run `ran`; the oracle's sha256 the pin's
+  before and after. Head 278/523, base 277/523; **moved to passing 1**
+  (`p5-panels-badsettings` `launch`, normalized-identical); **dropped 0**;
+  `p5-panels-status-badsettings` the same three verdicts on both sides; one
+  passing pair moved on the run's clock (`settings-collapse-open`
+  `after-esc`, `3s` against `4s`, masked by the ledger).
 - **Sweep, round 2** (`sweep.sh` under the suite lock → `sweep-r2.txt`):
   every `p5-panels*`, `settings*`, `startup*` and `config*` scenario and
   every one that seeds a profile, with HEAD's scenarios and ledger, once
@@ -252,8 +318,9 @@ the profiles each seeds were read against the rule.
 
 ## 6. Mutants (`mutants.py` → `mutants.txt`)
 
-On a `git clone --no-local` of b209c786 outside the worktree, each test
-bounded at 900 s, under the suite lock. **17 of 17 killed**:
+On a `git clone --no-local` of 02c32c3f outside the worktree, each test
+bounded at 900 s, under the suite lock. **24 of 24 killed**, every kill an
+assertion's panic location:
 
 - each condition dropped -- the unreadable/malformed/too-large file (M1),
   `workspaces` or the entry not an object (M2), the profile's `model` (M3),
@@ -266,14 +333,23 @@ bounded at 900 s, under the suite lock. **17 of 17 killed**:
 - the refusal after the terminal is taken (M9: moved into `session`, after
   raw mode), the line shell's after its store is opened (M10), `ask --json`
   writing it on stderr (M11): killed;
-- round 2, fx's read order: the file's mode check dropped (M13) and the
-  directory's (M14) -- both killed by `ask_goes_on_with_a_profile_fx_starts_with`
-  and the open-order unit test; the open no longer checked before the mode
-  (M15, a `0o222` file taken as not read) and a second hard link no longer
-  unsafe (M16) -- killed by `ask_refuses_a_profile_fx_refuses` and the unit
-  test; a `~/.xfx` that does not open no longer refused (M17) -- killed by
-  the unit test. Dropping the regular-file check was not run: its FIFO case
-  would block in the open the check prevents.
+- fx's read order, on descriptors (round 3): the file's mode not checked
+  (M13) and the directory's (M14) -- killed by
+  `ask_goes_on_with_a_profile_fx_starts_with` and a unit test; a failed open
+  taken as a file not read (M15, `0o222` and `0o000`), a second hard link
+  no longer unsafe (M16), a `~/.xfx` that does not open (M17) or a HOME
+  that does not open (M18) taken as no profile, `~/.xfx` opened following
+  a link (M24) -- killed by `ask_refuses_a_profile_fx_refuses` and, but
+  M24, a unit test;
+- the open itself: the file opened following a link (M19), opened waiting
+  on a FIFO (M20: the open-on-a-thread test reports `the open waited on a
+  FIFO`, frees the thread with a writer and fails in seconds), the open
+  descriptor not fstat'ed (M21), the regular-file check dropped (M23 -- the
+  one round 2 could not run; with `O_NONBLOCK` it no longer waits, and the
+  FIFO case fails), all killed by
+  `the_open_checks_what_it_opened_not_what_was_looked_at`; the layer read
+  again by its path (M22), killed by
+  `the_profile_layer_is_read_from_the_descriptor_that_was_checked`.
 
 xfx has no auth mode -- no `FX_AUTH_MODE`, no host-managed launch -- so the
 brief's "refusal in a non-local auth mode" has no counterpart to mutate. M8
@@ -289,6 +365,11 @@ launch does not do.
   the user's veto): copy fx's typed-key refusal for the keys both products
   read, in a separate unit, **PROFILE-REFUSE-TYPED-KEYS**; keys only xfx
   reads keep their per-key diagnostic.
+  - **A key written twice** (`dup-key`): fx's JSON parse refuses the file
+    (`fx-fixtures.txt`, every entry); serde_json keeps the last value and
+    xfx starts (`xfx-head-fixtures.txt`). Recorded, as the brief asked, and
+    put with PROFILE-REFUSE-TYPED-KEYS: both are what fx's parser rejects and
+    xfx's takes.
 - **(b) A bad `provider` or `models`** (recorded decision): fx stops with
   the parse error's name (`fx: UnknownConfiguredProvider`,
   `fx: InvalidModelValue`) at every surface that loads settings, `status`
@@ -306,9 +387,15 @@ launch does not do.
   (`link-settings` starts like `valid`). With a linked `~/.xfx` or a file
   in its place its session store refuses the launch in its own words, a
   rule older than this unit (`src/profile_home.rs`).
-- A profile open to group or other: fx ignores its settings (the layer
-  absent); xfx reads and applies them, as it did at the base. Only the
-  refusal is copied here.
+- **A profile open to group or other** (queued: **PROFILE-WRITABLE-IGNORED**):
+  fx ignores its settings (the layer absent) and says
+  `config user: private_state_permissions_unsupported` (`fx-fixtures.txt`
+  `group-writable`); xfx says nothing and reads and applies them, as it did
+  at the base. The interactive launches and a saved `ask` are stopped by
+  the session store's rule for a `~/.xfx` open to group or other, but
+  `ask --no-save` opens no store, so it runs a turn under the settings of a
+  `~/.xfx` another account may write to (`provider`, the permission tables,
+  `permission_mode`). Only the refusal is copied here.
 - `FX_AUTH_MODE` and `FX_ULTRAFAST` have no xfx counterpart.
 - Seen in the oracle runs and older than this unit: fx's `status` writes
   `fx: config user: malformed_settings` on stderr for a refused profile
@@ -330,10 +417,12 @@ self-tests, the preview contract, the preflight cost, the usage clock,
 ## Files
 
 `fx_src.sh` → `fx-src.txt` · `probe.sh` → `fx-fixtures.txt`, `fx-entries.txt`,
-`xfx-head-fixtures.txt`, `xfx-head-entries.txt` (b209c786),
-`xfx-r1-fixtures.txt` (a57ba760), `xfx-base-fixtures.txt` (3943d667) ·
-`red.txt`, `red-r2.txt`, `green.txt` · `seed_scan.py` → `seed-scan.txt` ·
+`xfx-head-fixtures.txt`, `xfx-head-entries.txt` (02c32c3f),
+`xfx-r2-fixtures.txt` (b209c786), `xfx-r1-fixtures.txt` (a57ba760),
+`xfx-base-fixtures.txt` (3943d667) · `outcomes.py` → `outcomes.txt` ·
+`red.txt`, `red-r2.txt`, `red-r3.txt`, `green.txt` · `seed_scan.py` → `seed-scan.txt` ·
 `refs.py` → `refs.txt` · `fx/`, `xfx/`, `xfx-base/`, `cells.sh` →
 `cells.txt` · `sweep.sh`, `compare.py` → `sweep.txt`, `sweep-r2.txt`,
-`sweep-head/`, `sweep-base/`, `sweep-r2-head/`, `sweep-r2-base/` ·
+`sweep-r3.txt`, `sweep-head/`, `sweep-base/`, `sweep-r2-head/`,
+`sweep-r2-base/`, `sweep-r3-head/`, `sweep-r3-base/` ·
 `mutants.py` → `mutants.txt` · `gates.sh` → `gate.txt`

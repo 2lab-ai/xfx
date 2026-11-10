@@ -1,0 +1,18 @@
+== python3 -I outcomes.py fx-fixtures.txt xfx-head-fixtures.txt (02c32c3f, round 3)
+typed-key: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+provider: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+models-bad: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+link-profile: end at interactive: fx running xfx exit=1; end at line shell: fx running xfx exit=1
+dir-group-writable-torn: end at interactive: fx running xfx exit=1; end at line shell: fx running xfx exit=1
+dup-key: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+== 33 fixtures: 29 match on refusal at every entry, 27 on how every entry ended
+
+== python3 -I outcomes.py fx-fixtures.txt xfx-r2-fixtures.txt (b209c786, round 2)
+typed-key: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+provider: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+models-bad: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+link-profile: end at interactive: fx running xfx exit=1; end at line shell: fx running xfx exit=1
+dir-group-writable-torn: end at interactive: fx running xfx exit=1; end at line shell: fx running xfx exit=1
+home-unlistable: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+dup-key: refusal at ask: fx True xfx False; refusal at interactive: fx True xfx False; refusal at line shell: fx True xfx False; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+== 33 fixtures: 28 match on refusal at every entry, 26 on how every entry ended

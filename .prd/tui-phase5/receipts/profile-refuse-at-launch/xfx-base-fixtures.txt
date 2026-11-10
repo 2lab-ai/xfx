@@ -133,3 +133,15 @@ binary sha256 before: adb2401b268b
   interactive            still running after 6 s exit= tty=796B stderr= | touched: ./.xfx ./.xfx/sessions 
   line shell             still running after 6 s exit= tty=277B stderr=xfx: config user: malformed_settings|xfx: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings); fix it, then /allowlist reads it again| | touched: ./.xfx ./.xfx/sessions 
 binary sha256 after: adb2401b268b
+
+== probe.sh xfx <xfx at 3943d667, the base> <run> (round 3's new fixtures)
+binary sha256 before: adb2401b268b
+== home-unlistable
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: 
+  line shell             still running after 6 s exit= tty=288B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: 
+== dup-key
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=366B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=279B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+binary sha256 after: adb2401b268b

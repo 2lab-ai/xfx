@@ -20,15 +20,20 @@ between mutants.
     M10 the line shell refuses after its session store is opened
     M11 `ask --json` writes the refusal on stderr, not as its error event
     M12 the project file's malformed content refuses too
-    -- round 2, fx's read order (`profile_open`):
+    -- fx's read order, on descriptors since round 3 (`profile_open`,
+    `open_settings`, `read_user_layer`):
     M13 the file's mode no longer checked: a file group may write is read
     M14 the directory's mode no longer checked
-    M15 the open no longer checked before the mode: a 0o222 file, which fx
-        refuses at the open, is taken as one it does not read
+    M15 a failed open taken as a file that is not read (`0o222`, `0o000`)
     M16 a second hard link no longer unsafe
-    M17 a `~/.xfx` that does not open no longer refused
-    (Dropping the regular-file check is not run: its FIFO case would block
-    in the open the check exists to prevent.)
+    M17 a `~/.xfx` that does not open taken as no profile
+    M18 a HOME that does not open taken as no profile
+    M19 the file opened following a link (no O_NOFOLLOW)
+    M20 the file opened waiting on a FIFO (no O_NONBLOCK)
+    M21 the open descriptor not fstat'ed: what was opened taken as read
+    M22 the profile layer read again by its path, not from the descriptor
+    M23 the regular-file check dropped (safe now: the open does not wait)
+    M24 `~/.xfx` opened following a link
 
 usage: python3 -I mutants.py <head repo> <clone dir>
 """
@@ -105,25 +110,53 @@ MUTANTS = [
      ("src/config.rs", "        let mut profile_rejected = user.present && !user_settings_loaded;\n",
       "        let mut profile_rejected = (user.present && !user_settings_loaded) || project_rejected;\n")),
     ("M13", "src/config.rs",
-     "    if open_to_others(&metadata) {\n        return ProfileOpen::NotRead;\n    }\n",
+     "        Ok(stat) if open_to_others(&stat) => (ProfileOpen::NotRead, None),\n",
      "",
-     [(CLI, "ask_goes_on_with_a_profile_fx_starts_with"), (LIB, "config::tests::the_profile_is_opened")]),
+     [(CLI, "ask_goes_on_with_a_profile_fx_starts_with"), (LIB, "config::tests::the_open_checks")]),
     ("M14", "src/config.rs",
-     "    if open_to_others(&dir_metadata) {\n        return ProfileOpen::NotRead;\n    }\n",
+     "        Ok(stat) if open_to_others(&stat) => return (ProfileOpen::NotRead, None),\n",
      "",
      [(CLI, "ask_goes_on_with_a_profile_fx_starts_with"), (LIB, "config::tests::the_profile_is_opened")]),
     ("M15", "src/config.rs",
-     "    if fs::File::open(file).is_err() {\n        return ProfileOpen::Unopenable;\n    }\n",
-     "",
+     "        Err(Errno::NXIO | Errno::LOOP | Errno::NOTDIR) => return (ProfileOpen::Unsafe, None),\n        Err(_) => return (ProfileOpen::Unopenable, None),",
+     "        Err(Errno::NXIO | Errno::LOOP | Errno::NOTDIR) => return (ProfileOpen::Unsafe, None),\n        Err(_) => return (ProfileOpen::NotRead, None),",
      [(CLI, "ask_refuses_a_profile_fx_refuses"), (LIB, "config::tests::the_profile_is_opened")]),
     ("M16", "src/config.rs",
-     "    if !metadata.is_file() || hard_links(&metadata) > 1 {",
-     "    if !metadata.is_file() {",
-     [(CLI, "ask_refuses_a_profile_fx_refuses"), (LIB, "config::tests::the_profile_is_opened")]),
+     "    is_kind(stat, rustix::fs::FileType::RegularFile) && stat.st_nlink == 1",
+     "    is_kind(stat, rustix::fs::FileType::RegularFile)",
+     [(CLI, "ask_refuses_a_profile_fx_refuses"), (LIB, "config::tests::the_open_checks")]),
     ("M17", "src/config.rs",
-     "    if fs::read_dir(dir).is_err() {\n        return ProfileOpen::Unopenable;\n    }\n",
-     "",
-     [(LIB, "config::tests::the_profile_is_opened")]),
+     "        Err(Errno::NOTDIR | Errno::LOOP) => return (ProfileOpen::Unsafe, None),\n        Err(_) => return (ProfileOpen::Unopenable, None),",
+     "        Err(Errno::NOTDIR | Errno::LOOP) => return (ProfileOpen::Unsafe, None),\n        Err(_) => return (ProfileOpen::Absent, None),",
+     [(CLI, "ask_refuses_a_profile_fx_refuses"), (LIB, "config::tests::the_profile_is_opened")]),
+    ("M18", "src/config.rs",
+     "    let home = match openat(CWD, home, directory, Mode::empty()) {\n        Ok(fd) => fd,\n        Err(Errno::NOENT) => return (ProfileOpen::Absent, None),\n        Err(_) => return (ProfileOpen::Unopenable, None),",
+     "    let home = match openat(CWD, home, directory, Mode::empty()) {\n        Ok(fd) => fd,\n        Err(Errno::NOENT) => return (ProfileOpen::Absent, None),\n        Err(_) => return (ProfileOpen::Absent, None),",
+     [(CLI, "ask_refuses_a_profile_fx_refuses"), (LIB, "config::tests::the_profile_is_opened")]),
+    ("M19", "src/config.rs",
+     "    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;",
+     "    let flags = OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC;",
+     [(LIB, "config::tests::the_open_checks")]),
+    ("M20", "src/config.rs",
+     "    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;",
+     "    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC;",
+     [(LIB, "config::tests::the_open_checks")]),
+    ("M21", "src/config.rs",
+     "    match fstat(&fd) {\n        Ok(stat) if !sole_regular(&stat) => (ProfileOpen::Unsafe, None),\n        Ok(stat) if open_to_others(&stat) => (ProfileOpen::NotRead, None),\n        Ok(_) => (ProfileOpen::Read, Some(fs::File::from(fd))),\n        Err(_) => (ProfileOpen::Unopenable, None),\n    }",
+     "    (ProfileOpen::Read, Some(fs::File::from(fd)))",
+     [(LIB, "config::tests::the_open_checks")]),
+    ("M22", "src/config.rs",
+     "        (Some(file), _) => read_opened(file, ConfigLayer::User, diagnostics),",
+     "        (Some(_), Some(path)) => read_layer(path, ConfigLayer::User, diagnostics),\n        (Some(file), None) => read_opened(file, ConfigLayer::User, diagnostics),",
+     [(LIB, "config::tests::the_profile_layer_is_read")]),
+    ("M23", "src/config.rs",
+     "    is_kind(stat, rustix::fs::FileType::RegularFile) && stat.st_nlink == 1",
+     "    stat.st_nlink == 1",
+     [(LIB, "config::tests::the_open_checks"), (CLI, "ask_refuses_a_profile_fx_refuses")]),
+    ("M24", "src/config.rs",
+     "        directory | OFlags::NOFOLLOW,",
+     "        directory,",
+     [(CLI, "ask_refuses_a_profile_fx_refuses")]),
 ]
 
 

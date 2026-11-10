@@ -28,7 +28,7 @@ all="truncated nonobject toolarge at-ceiling model-space model-nonstring model-i
 ws-nonobject entry-nonobject entry-model typed-key provider models-bad dir-settings \
 link-settings link-profile unreadable project-malformed retired-then-model group-writable \
 group-writable-torn group-writable-model other-writable-torn dir-group-writable-torn write-only \
-dir-unlistable hardlink profile-file fifo valid"
+dir-unlistable hardlink profile-file fifo home-unlistable dup-key valid"
 fixtures=${*:-$all}
 
 # The fixture's profile: <home>/<prof>/settings.json, or what stands there.
@@ -69,11 +69,13 @@ seed() { # fixture home work
     hardlink) printf '{"permission_mode": "auto"}' > "$s"; chmod 600 "$s"; ln "$s" "$h/other.json" ;;
     profile-file) rmdir "$p"; printf '{}' > "$p" ;;
     fifo) mkfifo -m 600 "$s" ;;
+    home-unlistable) printf '{"permission_mode": "auto"}' > "$s"; chmod 600 "$s"; chmod 300 "$h" ;;
+    dup-key) printf '{"permission_mode": "auto", "permission_mode": "ask"}' > "$s" ;;
     valid) printf '{"permission_mode": "auto"}' > "$s" ;;
     *) echo "unknown fixture $f" >&2; return 1 ;;
   esac
   [ -e "$s" ] || [ -L "$s" ] || return 0
-  case $f in unreadable|group-writable*|other-writable*|dir-*|write-only|hardlink|fifo) return 0 ;; esac
+  case $f in unreadable|group-writable*|other-writable*|dir-*|write-only|hardlink|fifo|home-*) return 0 ;; esac
   [ -L "$s" ] || [ -d "$s" ] || chmod 600 "$s"
 }
 
