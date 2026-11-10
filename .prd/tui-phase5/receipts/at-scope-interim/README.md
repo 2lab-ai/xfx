@@ -27,11 +27,16 @@ AT-FOLDERS named and the two residuals of stopping the walk
 | `25c3d090` | round 2: the change-before-any-walk case (AT-LAUNCH-WALK) and the tick's case (§4) |
 | `89a3729e` | round 2: the parity row (§8) |
 | `02bb222a` | round 2: the ledger's 6 refs past the two cases (`refs.txt`: 16 checked, 0 wrong) |
-| (round 2 receipt commit) | this README, `round2-tests.txt`, `mutants-r2.txt`, `mutants.py` (two mutants added), `samepair.*`, `fx_src.sh` and `fx-src.txt` |
+| `db6fcd9c` | round 2's receipt: this README, `round2-tests.txt`, `mutants-r2.txt`, `mutants.py` (two mutants added), `samepair.*`, `fx_src.sh` and `fx-src.txt` -- **round 2's head** |
+| `4fda5350` | round 3: the fix -- the first `@`'s decision takes a finished walk's end first (§3); the tick cases (§4) |
+| `25ff67a6` | round 3: the parity row (§8) |
+| `2461ec50` | round 3: the ledger's 6 refs past the tick cases |
+| `a0bc7d33` | round 3: the mutant that restores the skip -- **round 3's checks, mutants and sweep** |
+| (round 3 receipt commit) | this README, `round3-checks.txt`, `mutants-r3.txt`, `sweep-*-r3.*`, `refs.txt`, `fx_src.sh` and `fx-src.txt`; `mutants-r2.txt`'s header |
 
 Every fx line cited here is printed in `fx-src.txt` (`fx_src.sh`, at
-`481104fd`); "fx-src.txt:N" is its line. Round 2 appended one range, so
-lines 1-503 are round 1's.
+`481104fd`); "fx-src.txt:N" is its line. Rounds 2 and 3 appended ranges,
+so lines 1-503 are round 1's and 1-512 round 2's.
 
 **Round 2** (reviews of `50c4b63e`: opus APPROVE-WITH-FIXES, gpt6
 conditionally ready) changes no production code:
@@ -40,6 +45,15 @@ conditionally ready) changes no production code:
   pinned (§3, §4, §8, §10);
 - the tick's one effect, named and pinned (§3, §4);
 - §6 lists both cells of fx's differing row; §7's table follows the runs.
+
+**Round 3** (reviews of `db6fcd9c`: opus APPROVE-WITH-FIXES, gpt6 MUST
+none) copies the tick round 2 named: opus showed it is on screen (a failed
+walk: fx `indexing files...`, xfx `Files unavailable` until Tab). The
+first `@`'s refresh decision now takes a finished walk's end first, as
+fx's `currentState` reads a finished loader before its join (§3); the
+tick case flips to fx's result and a failed-walk case is added (§4). §8 is
+brought up to date, the premise guards are named as AT-LAUNCH-WALK's
+tripwire, and the NITs are done.
 
 ## 1. fx at the pin
 
@@ -82,6 +96,13 @@ conditionally ready) changes no production code:
 - **fx walks at launch** (`app_entry_runtime.zig:334`, fx-src.txt:511;
   `startFileIndex` -> `ensureScopeEpoch`, `app_workspace_runtime.zig:
   145-148`, fx-src.txt:45-48). xfx does not (round 2; §3).
+- **fx's loop** (round 3): it joins a finished loader at the top of each
+  pass (`loopCollectFacts`, `main.zig:2851`, fx-src.txt:573;
+  `event_loop.zig:80`, fx-src.txt:519), then waits up to 8 ms for keys
+  (`main.zig:174`, fx-src.txt:564) and routes them, then prepares the
+  picker and paints (`main.zig:2998`, fx-src.txt:584; `event_loop.zig:119`,
+  fx-src.txt:558). A loader that finishes while fx waits for a key is
+  unjoined when the key is handled.
 
 ## 2. RED (`red-unit.txt`)
 
@@ -124,16 +145,37 @@ it runs -- is xfx's: in fx the launch walk plays A's part (AT-LAUNCH-WALK,
   walk.is_some()`; `ever_whole` goes. With the index never dropped, an
   index held is exactly "a generation adopted" (fx's `currentState`).
 
-**Not copied, a tick apart:** fx's index is `.ready` or `.failed` once
-its loader has finished, before `joinThreadIfDone` takes it
-(`currentState`, `file_index.zig:333-341`, fx-src.txt:86-94); xfx's is at
-the poll that takes the walk's end. Its one effect (round 2, both
-reviewers): the session's first indexed list opened in that window. fx's
-asks for its refresh (`input_completion_runtime.zig:860`, fx-src.txt:325);
-xfx's reads `loading()` before that poll and skips it -- one walk fewer,
-and only with nothing queued. It is on no screen: `settle_files` polls
-before every frame. Pinned as xfx's by
-`a_first_at_before_the_poll_that_takes_a_finished_walks_end_skips_its_refresh`.
+**The tick, copied (round 3):** fx's `currentState` reads the loading
+generation's own state, so a loader that has finished is `.ready` or
+`.failed` before the join takes it (`file_index.zig:336-340`,
+fx-src.txt:89-93), and the session's first `@` typed then is not loading
+and asks for its refresh (`input_completion_runtime.zig:860`,
+fx-src.txt:325), queued behind the unjoined loader (`:494-497`) and started
+by the join. xfx's walk says it has ended on its channel, which `poll` read
+only after the keys were routed, so the first `@` skipped where fx
+refreshes: after a failed walk xfx said `Files unavailable` until Tab where
+fx says `indexing files...`, and after a whole one fx's second walk
+re-reads the tree and xfx's did not (opus r2 MUST 1). Now `take_walk` --
+`poll`'s walk drain, factored out -- runs before the decision asks
+`loading()` (`Files::refresh_index_for_list`). It is the smallest faithful
+form: the channel is xfx's counterpart of fx's atomic state, and draining
+it is what the poll does next anyway; a whole walk adopted there shows the
+rows fx's unjoined ready generation shows (`searchableGeneration`,
+`:647-654`). The second walk starts at once rather than at the next pass's
+join; that is a background walk, private until whole.
+
+**Not copied, the loop's frame order** (round 3, the dispatcher's to
+decide): fx paints between handling the keys and the next pass's join
+(§1), so a failed first walk with a refresh queued behind it -- the first
+`@` above, or any refresh queued during a first walk -- is painted once as
+`Files unavailable` (its lookup reads `.failed`, `input_completion_runtime.
+zig:909`, fx-src.txt:374) and then, after the join starts the queued walk
+an 8 ms poll later, as `indexing files...`. xfx's `settle_band` takes the
+walk's end and starts the queued walk before it paints, so it shows
+`indexing files...` at once. This is the order of the loop, not of the
+index, and AT-FOLDERS' failed-walk case
+(`a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows`) has it
+too; copying it means holding a queued walk's start until after a frame.
 
 **Not copied, queued as AT-LAUNCH-WALK (round 2, opus MUST):** fx walks
 the index at launch (§1); xfx's constructor starts no walk (`shell.rs`,
@@ -143,7 +185,10 @@ walked once this session. A change of the access before xfx's first walk
 starts the session's first walk at the new epoch, and its prefix is
 searched: xfx says `indexing files...` and lists rows as they are
 published, where fx, whose launch generation holds the old epoch, says
-`Files unavailable`. The gap is AT-FOLDERS' ("xfx starts no index at
+`Files unavailable` -- while that generation is adopted or still loading
+(`searchableGeneration`, `file_index.zig:647-654`); one that failed is no
+searchable generation, and fx's list then reads its new walk's prefix, as
+xfx's does. The gap is AT-FOLDERS' ("xfx starts no index at
 launch") and is older than this unit; copying the launch walk changes
 every Shell a test builds, so it is its own unit. Pinned by
 `a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk`,
@@ -180,9 +225,18 @@ because when the new rows show depends on it.
     (opus SHOULD): no walk at launch; a change, then `@plan` during its
     walk, says `indexing files...` and then the published row. Its comment
     names AT-LAUNCH-WALK, which flips it.
-  - `a_first_at_before_the_poll_that_takes_a_finished_walks_end_skips_its_refresh`:
-    the tick (§3) -- the first walk's `Ready` sent and not yet polled, the
-    first `@plan` skips its refresh: 1 walk, where fx's makes 2.
+  - `a_first_at_before_the_poll_that_takes_a_finished_walks_end_skips_its_refresh`
+    pinned the tick as xfx's (1 walk). Round 3 copies fx and replaces it
+    with two cases on one helper, `first_at_before_the_poll` (the first
+    walk's end sent and not yet polled, then the first `@plan`):
+    `a_first_at_after_a_walk_ended_whole_but_before_the_poll_refreshes`
+    (2 walks, the walk's `plan.md` listed) and
+    `a_first_at_after_a_walk_failed_but_before_the_poll_says_indexing`
+    (opus r2's: `indexing files...`, 2 walks).
+  - Both the change-before-any-walk case and the helper assert no walk at
+    launch first. That assert is AT-LAUNCH-WALK's tripwire, and their
+    comments say so: that unit must drive the launch walk to its end
+    before the change, not only change the rows they expect.
   - The trace helper's doc and the second half of
     `a_change_of_scope_lets_the_walk_run_on_and_its_prefix_answers_nothing`
     name the same gap.
@@ -200,8 +254,13 @@ because when the new rows show depends on it.
 - **Round 2** (`round2-tests.txt`, at `02bb222a`): the same six modules
   under the same a-z TMPDIR, **1339 passed, 0 failed** (round 1's 1337 and
   the two new cases); `cargo test --locked --test parity`, 26 passed, 0
-  failed; `cargo fmt --check` and both clippy runs clean. The full gate is
-  the dispatcher's, after the hand-back.
+  failed. (Round 2's fmt and clippy runs were not recorded in a file;
+  round 3's are.)
+- **Round 3** (`round3-checks.txt`, at `a0bc7d33`, every step under the
+  a-z TMPDIR and one hold of the suite lock): `cargo fmt --check` and both
+  clippy runs exit 0; the six modules, **1340 passed, 0 failed** (round 2's
+  1339, less the tick case, plus its two); parity, 26 passed, 0 failed.
+  The full gate is the dispatcher's, after the hand-back.
 
 ## 6. Pairs: no scenario can hold a walk
 
@@ -232,10 +291,10 @@ head `v0.1.0-274fc43` (`sweep-base.md`, `sweep-head.md`,
     with each run's own directory names masked and the styles kept: **0
     rows differ** in `at-plan` and in `at-all`.
   - fx's two captures of the same snap differ in row 13 only, in two
-    cells (round 2: `samepair.py` now lists every differing cell). Column
-    50, the first letter of the run directory's name, is bold in the head
-    sweep's capture; column 63, the `n` of `notes/`, is bold in the base
-    sweep's. So fx bolds a different `n` for `@plan` on the added
+    cells (round 2: `samepair.py` now lists every differing cell). Cell
+    index 50 (0-based; column 51), the first letter of the run directory's
+    name, is bold in the head sweep's capture; index 63 (column 64), the
+    `n` of `notes/`, is bold in the base sweep's. So fx bolds a different `n` for `@plan` on the added
     directory's absolute path: the head sweep's fx ran in `fxcap.NpCJBx`,
     whose `N` comes first; the base sweep's ran in `fxcap.RmwRfV`, which
     has no `n`. xfx's two runs (`gyUsKU`, `5Jqbc9`) have none either.
@@ -244,11 +303,18 @@ head `v0.1.0-274fc43` (`sweep-base.md`, `sweep-head.md`,
     meeting a run name's random letters. The interim itself is over by
     that snap on both sides (above).
 
-## 7. Mutants (`mutants.txt`, `mutants-pathlist.txt`, `mutants-r2.txt`)
+**Round 3's sweep** (`sweep-base-r3.md`, `sweep-head-r3.md`,
+`sweep-compare-r3.txt`): the same globs, both sides again under the a-z
+TMPDIR and one hold of the suite lock, base `v0.1.0-b4cc300`, head
+`v0.1.0-a0bc7d3`: base 56/66, head 56/66, **0 moved either way**, the same
+ten pairs apart on both sides (`workspace-index at-plan` among them this
+time on the base too), and xfx's `workspace-index` snaps 0 rows apart.
+
+## 7. Mutants (`mutants.txt`, `mutants-pathlist.txt`, `mutants-r2.txt`, `mutants-r3.txt`)
 
 `mutants.py` on a `git clone --no-local` throwaway, one at a time, the six
 modules the unit's runs filter on, under the suite lock. None was killed
-by a failed build (no `no test ran` line in any log). Three runs, each row
+by a failed build (no `no test ran` line in any log). Four runs, each row
 below under the run it was in, in that log's order. "Killed by" is a
 summary of the killers; each log lists them all.
 
@@ -268,23 +334,37 @@ summary of the killers; each log lists them all.
 | `02bb222a` (`mutants-r2.txt`, 13 of 13) | the eleven above, again | -- | the same cases, plus the path-list case (added after the first run) for five of them; neither round-2 case is among them |
 | | `walk-at-launch` | the constructor walks (a guess at AT-LAUNCH-WALK) | the change-before-any-walk case, the trace (all three), Tab, and 6 older walk-count cases |
 | | `never-loading` | the first episode never skips | the tick's case, round 8's case, the trace (failed) |
+| `a0bc7d33` (`mutants-r3.txt`, 14 of 14; a-z TMPDIR) | the thirteen above, again | -- | the same cases, but for the tick's: the round-2 tick case is gone, and the two round-3 cases are among `walk-at-launch`'s killers (its premise guard); `never-loading` keeps round 8's case and the trace (failed), as fx's result is now the never-skip one there |
+| | `decision-before-the-walks-end` | the first `@`'s decision before the walk's end is taken: the round-2 skip | both round-3 tick cases, and only they |
 
-The round-2 cases pin xfx's side of a difference, so the eleven, which
-break the copy, leave them passing; the two round-2 mutants are the
-changes that would move them.
+The change-before-any-walk case pins xfx's side of AT-LAUNCH-WALK, so the
+mutants that break the copy leave it passing; `walk-at-launch` is the
+change that moves it.
 
 ## 8. The parity row, the ledger, AT-FOLDERS' receipts
 
-- `docs/parity.md`, the `@` file picker row (`729d2e82`): the "Narrower
-  than fx's, queued as unit AT-SCOPE-INTERIM" paragraph is now the copy --
-  the epoch, the walk that runs on, `Files unavailable` until a walk of the
-  new scope is adopted, a path list unaffected, Tab and Escape there, the
-  rows when the walk lands, and the one tick named in §3. The first-episode
-  sentence loses its two gaps. Its other narrower item (keystrokes prepared
-  one at a time) keeps its own label. The row's status stays `partial` for
-  its other items.
-- The ledger: `shell.rs` refs re-pointed in two commits (12, then 6); `refs.txt`, 16
-  checked, 0 wrong at `08f3798a` (`refs.py`, AT-FOLDERS', base `b4cc300f`).
+- `docs/parity.md`, the `@` file picker row, in three commits:
+  - `729d2e82` (round 1): the "Narrower than fx's, queued as unit
+    AT-SCOPE-INTERIM" paragraph becomes the copy -- the epoch, the walk
+    that runs on, `Files unavailable` until a walk of the new scope is
+    adopted, a path list unaffected, Tab and Escape there, the rows when
+    the walk lands. The first-episode sentence loses its two gaps.
+  - `89a3729e` (round 2): the copy holds once xfx has walked once this
+    session; a change before then is named as unit **AT-LAUNCH-WALK** --
+    fx walks at launch (`app_entry_runtime.zig:334`) and xfx does not, so
+    there xfx says `indexing files...` and lists the first walk's prefix
+    where fx says `Files unavailable` -- with the first-episode skip's
+    reliance on it. `searchableGeneration` is cited at the pin's
+    `:647-654` in both places.
+  - `25ff67a6` (round 3): round 2's "not copied, a tick apart" sentence
+    goes; the row says the first `@`'s decision reads a finished walk as
+    fx's `currentState` does, and names the loop's frame order (§3).
+  - Its other narrower item (keystrokes prepared one at a time) keeps its
+    own label; the row's status stays `partial` for its other items.
+- The ledger: `shell.rs` refs re-pointed in four commits -- `aa83e2da`
+  (12), `08f3798a` (6), `02bb222a` (6), `2461ec50` (6). `refs.txt` is the
+  run after the last commit of round 3: 16 checked, 0 wrong (`refs.py`,
+  AT-FOLDERS', base `b4cc300f`).
 - AT-FOLDERS' receipts (`274fc435`): round 7 §3, round 8 §1 and §3, round
   9 §4, round 10 §1 and round 11 §1 said the gap or the residuals would end
   with this unit. Each now says they have, and points here. What each round
@@ -314,13 +394,14 @@ this unit adds, less the 2 it removes).
   `acceptedEmpty` (`input_completion_runtime.zig:1038-1041`,
   `../at-height/fx-src.txt:589-592`). No surface beside the `@` list reads
   `Files`' epoch.
-- **What stays apart from fx here:** the tick and AT-LAUNCH-WALK (§3),
-  both pinned as xfx's, and the parity row's other narrower items,
-  untouched. AT-LAUNCH-WALK flips
-  `a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk`,
-  and its first walk would take A's part in the trace (§2) and in the
-  tick's case.
-- **The sweep's one dropped pair** (§6) is a pair a run name's letters
-  decide. It will pass or not from sweep to sweep until the ledger's
+- **What stays apart from fx here:** AT-LAUNCH-WALK (§3), pinned as
+  xfx's, and the loop's frame order (§3), named for the dispatcher; the
+  parity row's other narrower items, untouched. AT-LAUNCH-WALK flips
+  `a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk`;
+  its launch walk would take A's part in the trace (§2) and the first
+  walk's part in the round-3 tick cases, whose guard trips first.
+- **The sweep's `workspace-index at-plan`** (§6) is a pair a run name's
+  letters decide: it passed on round 1's base sweep and on neither side of
+  round 3's. It will pass or not from sweep to sweep until the ledger's
   `at-ranking` divergence is closed (fx's placement score) or the sweep
   masks run names' styles; neither is this unit's.

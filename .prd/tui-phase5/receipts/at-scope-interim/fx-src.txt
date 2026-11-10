@@ -510,3 +510,75 @@
   333          if (@hasDecl(App, "startAutoUpgrade")) app.startAutoUpgrade();
   334          if (@hasDecl(App, "startFileIndex")) app.startFileIndex();
   335          startWorkerThread(App, app, deps) catch |err| {
+
+== src/ui/event_loop.zig:76-122@481104fd -- the loop: collect facts (the join) at the top, then the keys, then the frame (round 3)
+   76  pub fn run(terminal: anytype, should_exit: *bool, poll_timeout_ms: i32, callbacks: EventLoopCallbacks) !ExitCause {
+   77      var buf: [128]u8 = undefined;
+   78  
+   79      while (!should_exit.*) {
+   80          try callbacks.collect_facts(callbacks.ctx);
+   81          if (should_exit.*) return .requested_exit;
+   82  
+   83          while (callbacks.next_collected_byte(callbacks.ctx)) |byte| {
+   84              try callbacks.handle_byte(callbacks.ctx, byte);
+   85              if (should_exit.*) return .requested_exit;
+   86          }
+   87  
+   88          const timeout_ms = if (callbacks.poll_timeout_ms) |resolve|
+   89              resolve(callbacks.ctx, poll_timeout_ms)
+   90          else
+   91              poll_timeout_ms;
+   92          var poll_result = try terminal.pollInput(timeout_ms);
+   93          var input_reads: usize = 0;
+   94          while (poll_result.readable and input_reads < max_input_reads_per_fact_collection) : (input_reads += 1) {
+   95              const read_len = try terminal.read(&buf);
+   96              if (read_len == 0) {
+   97                  if (input_reads > 0) attemptFinalFrameCommit(callbacks, "eof");
+   98                  return .input_closed;
+   99              }
+  100  
+  101              record_tape.recordStdin(buf[0..read_len]);
+  102              for (buf[0..read_len]) |byte| {
+  103                  try callbacks.handle_byte(callbacks.ctx, byte);
+  104                  if (should_exit.*) return .requested_exit;
+  105              }
+  106              poll_result = try terminal.pollInput(0);
+  107          }
+  108  
+  109          if (poll_result.readable) {
+  110              try callbacks.commit_frame(callbacks.ctx);
+  111              continue;
+  112          }
+  113          if (poll_result.closed()) {
+  114              if (input_reads > 0) attemptFinalFrameCommit(callbacks, "hangup");
+  115              return .input_closed;
+  116          }
+  117  
+  118          try callbacks.settle_delivery_epoch(callbacks.ctx);
+  119          try callbacks.commit_frame(callbacks.ctx);
+  120      }
+  121      return .requested_exit;
+  122  }
+
+== src/main.zig:174-175@481104fd -- the loop's poll: 8 ms (round 3)
+  174  const active_poll_timeout_ms: i32 = 8;
+  175  const focused_ui_worker_poll_timeout_ms: i32 = 1;
+
+== src/main.zig:2846-2853@481104fd -- loopCollectFacts joins a finished loader (round 3)
+ 2846      pub fn loopCollectFacts(ctx: *anyopaque) !void {
+ 2847          const self: *App = @ptrCast(@alignCast(ctx));
+ 2848          if (!try WorkerAppRuntime.authorizeInteractiveAdmission(self)) return;
+ 2849  
+ 2850          if (comptime !host_target.is_wasm) {
+ 2851              if (self.file_index.joinThreadIfDone(std.heap.c_allocator)) {
+ 2852                  self.shell.render_requests.request(.footer);
+ 2853              }
+
+== src/main.zig:2992-2998@481104fd -- loopCommitFrame prepares the picker before the frame (round 3)
+ 2992      pub fn loopCommitFrame(ctx: *anyopaque) !void {
+ 2993          const self: *App = @ptrCast(@alignCast(ctx));
+ 2994          defer SessionAppRuntime.finishDeferredSessionInputReplay(self);
+ 2995          if (!try WorkerAppRuntime.authorizeInteractiveAdmission(self)) return;
+ 2996          if (self.terminal_input_runtime.native_clear_probe.active()) return;
+ 2997          _ = self.admitPendingResizeSignal("post_input");
+ 2998          InputAppRuntime.prepareFilePicker(self);
