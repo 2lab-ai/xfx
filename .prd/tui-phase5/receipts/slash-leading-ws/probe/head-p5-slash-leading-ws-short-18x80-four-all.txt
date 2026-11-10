@@ -1,0 +1,18 @@
+x𝒇x v0.1.0-55c4811 [debug] · Run /help for commands
+
+┃
+┃
+┃
+┃ /
+────────────────────────────────────────────────────────────────────────────────
+Commands 34 · type to filter                                                1–3
+
+  /help    show available slash commands                                General
+  /clear   start a fresh conversation while keeping managed processes   General
+  /new     start a fresh session                                        Session
+────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+

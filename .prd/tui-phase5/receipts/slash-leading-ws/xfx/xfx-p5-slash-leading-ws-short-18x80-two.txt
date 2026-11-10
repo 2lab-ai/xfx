@@ -1,0 +1,18 @@
+x𝒇x v0.1.0-55c4811 [debug] · Run /help for commands
+
+┃
+┃ /help
+────────────────────────────────────────────────────────────────────────────────
+Commands 1
+
+  /help   show available slash commands                                 General
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+

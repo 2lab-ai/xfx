@@ -1,0 +1,64 @@
+# GREEN at the code head 55c4811c
+
+## The pairs: fx v0.0.16 (fx/) against the head binary (xfx/, row 1 x𝒇x v0.1.0-55c4811 [debug], sha256 a95848cfabdf...), pairs.sh xfx
+SAME p5-slash-leading-ws-40x120-esc-space-back
+SAME p5-slash-leading-ws-40x120-esc-space
+SAME p5-slash-leading-ws-40x120-mid
+SAME p5-slash-leading-ws-40x120-newline-tab
+SAME p5-slash-leading-ws-40x120-newline
+SAME p5-slash-leading-ws-40x120-spaces-esc-grow
+SAME p5-slash-leading-ws-40x120-spaces
+SAME p5-slash-leading-ws-40x120-tab
+SAME p5-slash-leading-ws-40x120-vers-recall  (version row normalized)
+SAME p5-slash-leading-ws-40x120-vers-run  (version row normalized)
+SAME p5-slash-leading-ws-short-18x80-four
+SAME p5-slash-leading-ws-short-18x80-one
+SAME p5-slash-leading-ws-short-18x80-two
+SAME p5-slash-leading-ws-skill-40x120-dem-enter
+SAME p5-slash-leading-ws-skill-40x120-dem-tab
+15 of 15 pairs identical
+
+## The probe (probe/): the bare slash under a four-row composer at 18x80, fx against the head, cells.py
+row 8: fx [(10, '8', (('fg', 245),)), (11, ' ', ()), (12, '·', (('fg', 245),)), (13, ' ', ())]
+row 8: xfx [(10, '4', (('fg', 245),)), (11, ' ', ()), (12, '·', (('fg', 245),)), (13, ' ', ())]
+1 rows differ in their cells (row 1 not compared)
+fx:   Commands 38 · type to filter 1–3
+head: Commands 34 · type to filter 1–3
+(the one cell that differs is the registry's size, 38 against 34; the range and the three rows are the same)
+
+## The tests at the head: cargo test --locked --lib -- tui::picker:: tui::entity::tests::a_snapshot_moves tui::inline_completion:: and eight shell cases
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 4742 filtered out; finished in 0.03s
+test tui::entity::tests::a_snapshot_moves_with_the_bytes_left_out_before_it ... ok
+test tui::inline_completion::tests::a_dollar_word_is_the_run_back_to_its_dollar_with_the_caret_at_the_end ... ok
+test tui::inline_completion::tests::a_slash_word_needs_words_before_it_and_a_letter_after_its_slash ... ok
+test tui::inline_completion::tests::a_suffix_shows_only_when_its_first_character_fits_and_is_cut_to_the_room ... ok
+test tui::inline_completion::tests::the_first_command_in_registry_order_its_name_before_its_alias ... ok
+test tui::inline_completion::tests::the_first_skill_whose_name_the_word_begins_case_aside ... ok
+test tui::picker::tests::a_bare_slash_has_a_header_a_blank_row_and_six_commands ... ok
+test tui::picker::tests::a_filtered_menu_keeps_its_height_with_blank_rows ... ok
+test tui::picker::tests::a_move_past_either_end_lands_on_the_other_end ... ok
+test tui::picker::tests::a_narrow_screen_drops_the_category_and_cuts_the_summary ... ok
+test tui::picker::tests::a_query_that_names_nothing_opens_no_picker ... ok
+test tui::picker::tests::a_screen_with_two_rows_or_fewer_drops_the_header ... ok
+test tui::picker::tests::a_slash_word_past_spaces_tabs_and_line_breaks_is_the_query ... ok
+test tui::picker::tests::an_exact_name_ranks_before_a_prefix_before_a_substring ... ok
+test tui::picker::tests::completing_a_command_that_takes_an_argument_leaves_room_for_one ... ok
+test tui::picker::tests::dismissal_survives_query_growth_until_the_trigger_kind_changes ... ok
+test tui::picker::tests::picker_rows_and_height_come_from_one_layout ... ok
+test tui::picker::tests::skills_follow_the_commands_with_their_description_and_source ... ok
+test tui::picker::tests::the_budget_is_upstreams_and_never_refuses_a_menu ... ok
+test tui::picker::tests::the_budget_leaves_a_taller_composer_its_rows ... ok
+test tui::picker::tests::the_key_help_is_upstreams_and_fits_the_screen ... ok
+test tui::picker::tests::the_marked_row_is_bright_and_the_rest_are_dim ... ok
+test tui::picker::tests::the_marked_row_is_the_one_tab_and_enter_take ... ok
+test tui::picker::tests::the_name_column_is_as_wide_as_the_names_in_view ... ok
+test tui::picker::tests::the_window_scrolls_at_its_edge_and_only_there ... ok
+test tui::picker::tests::with_categories_off_no_row_has_one_and_the_summary_takes_the_width ... ok
+test tui::shell::tests::a_dismissal_lasts_while_the_draft_still_begins_with_a_slash ... ok
+test tui::shell::tests::a_dismissal_survives_query_growth_until_the_draft_stops_being_a_command ... ok
+test tui::shell::tests::a_recalled_slash_line_opens_no_menu_until_it_is_edited ... ok
+test tui::shell::tests::a_skill_row_binds_over_the_word_and_keeps_the_blanks_before_it ... ok
+test tui::shell::tests::a_slash_word_past_leading_blanks_opens_the_menu ... ok
+test tui::shell::tests::escape_dismisses_the_menu_without_arming_the_clear_gesture ... ok
+test tui::shell::tests::tab_and_enter_over_leading_blanks_put_the_bare_name_in_the_composer ... ok
+test tui::shell::tests::the_menu_leaves_a_taller_composer_its_rows ... ok
