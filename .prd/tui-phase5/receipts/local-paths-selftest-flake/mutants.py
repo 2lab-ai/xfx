@@ -57,6 +57,10 @@ MUTANTS = [
      '\t\t120000\\ *) ;;\n', '\t\t120000\\ *) continue ;;\n', 1),
     ("a run that stops early passes (the EXIT trap's guard)",
      """trap 'rm -rf "$work"; [ "$finished" = 1 ] || exit 1' EXIT""", """trap 'rm -rf "$work"' EXIT""", 1),
+    ("a symlink listing cut inside its last entry accepted",
+     """\tif [ -n "$entry" ]; then\n\t\tprintf 'check-no-local-paths: git ls-files ended inside""", """\tif false; then\n\t\tprintf 'check-no-local-paths: git ls-files ended inside""", 1),
+    ("a tracked listing cut inside its last entry accepted",
+     """if [ -n "$entry" ]; then\n\tfail "git ls-files ended inside""", """if false; then\n\tfail "git ls-files ended inside""", 1),
     ("a stream that ends inside a record accepted",
      '\tif [ -n "$path" ]; then\n\t\tprintf \'check-no-local-paths: git grep ended inside', '\tif false; then\n\t\tprintf \'check-no-local-paths: git grep ended inside', 1),
 ]
