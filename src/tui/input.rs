@@ -283,7 +283,7 @@ pub(crate) enum Action {
     InsertNewline,
     /// `C-j` (`0x0a`): a newline in the composer, exactly as
     /// [`Action::InsertNewline`] -- and the next row of a menu while one is up
-    /// (`app_input_runtime.zig:1220-1235`, `routePickerControlByte`), and
+    /// (`routePickerControlByte`, `app_input_runtime.zig:1093-1108@481104fd`), and
     /// Enter at a permission question (`approvalActionFromByte`,
     /// `src/ui/input/runtime.zig:64@481104fd`; APPROVAL-CTRL-J).
     ///

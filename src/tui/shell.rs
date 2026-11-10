@@ -23843,7 +23843,8 @@ mod tests {
         // (`approvalActionFromByte`, `src/ui/input/runtime.zig:64@481104fd`):
         // the focused-editor route, asked first, keeps no newline
         // (`fromFocusedEditorControlByte` drops `fromControlByte`'s
-        // `.insert_newline`, `shortcuts.zig:26`, `:31-41`; `:103-108`), so
+        // `.insert_newline`, `shortcuts.zig:26`, `:31-41`;
+        // `src/ui/input/runtime.zig:103-108`), so
         // C-j answers the marked choice (`approval_decision.zig:141`) at a
         // choice and in an open draft, which it sends. A kitty or xterm
         // Ctrl+J is the byte replayed (`app_input_runtime.zig:950-953`,
