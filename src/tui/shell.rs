@@ -18630,6 +18630,68 @@ mod tests {
     }
 
     #[test]
+    fn a_ctrl_j_the_model_question_took_counts_for_the_held_rule_as_enter_does() {
+        // QUESTION-CTRL-J: C-j answers the model's panel as Enter does, so it
+        // is the Enter the rule above counts -- the window is about how soon
+        // after the last answering key a person can have read the question
+        // painted again, whichever key that was. The newline habit is the way
+        // in: a C-j meant as a new line answers the panel, and the Enter the
+        // user was already typing lands on Remove.
+        let (mut case, before) = asked_to_remove_keep();
+        case.shell.ask_question(one_question());
+        let _ = case.written();
+        one_read(
+            &mut case,
+            Duration::from_secs(1),
+            vec![Input::Action(Action::ControlJ)],
+        );
+        assert!(case.shell.ask.is_none(), "C-j did not answer the panel");
+        let _ = case.screen();
+        one_read(
+            &mut case,
+            Duration::from_millis(200),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "C-j then Enter answered Remove");
+        assert!(case.written().contains(MCP_ENTER_TOO_SOON));
+        let _ = case.screen();
+        one_read(
+            &mut case,
+            Duration::from_millis(600),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.drained().is_empty());
+        assert_ne!(
+            case.files(),
+            before,
+            "an Enter past the window took no answer"
+        );
+    }
+
+    #[test]
+    fn a_ctrl_j_the_menu_took_does_not_count_for_the_held_rule() {
+        // The other side of the case above: with no question up, C-j is the
+        // menu's Down, which a confirmation does nothing with -- not an
+        // answering key, so it holds no Enter back.
+        let (mut case, before) = asked_to_remove_keep();
+        one_read(
+            &mut case,
+            Duration::from_secs(1),
+            vec![Input::Action(Action::ControlJ)],
+        );
+        assert!(case.screen().contains("Remove keep from ~/.xfx/mcp.json?"));
+        assert_eq!(case.files(), before, "C-j answered Remove");
+        one_read(
+            &mut case,
+            Duration::from_millis(200),
+            vec![Input::Action(Action::Submit)],
+        );
+        assert!(case.drained().is_empty());
+        assert_ne!(case.files(), before, "the menu's C-j held the Enter back");
+    }
+
+    #[test]
     fn a_swallowed_enter_keeps_the_window_open_and_is_said_once() {
         // opus-Y asked that a swallowed tap not hold the window open; opus-Md
         // R2: timing cannot tell it from a slow key repeat, which then
