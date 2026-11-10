@@ -1033,8 +1033,8 @@ pub(crate) struct Files {
 
 impl Files {
     /// A source for the workspace at `root`, with `home` for `~`. Nothing is
-    /// read until the first [`Self::refresh_index`] or [`Self::lookup`] of a
-    /// browsed path.
+    /// read until the launch's walk ([`Self::start_index`]), the first
+    /// [`Self::refresh_index`] or a [`Self::lookup`] of a browsed path.
     pub(crate) fn new(root: PathBuf, home: Option<PathBuf>) -> Self {
         Self {
             root,
@@ -1059,8 +1059,23 @@ impl Files {
         }
     }
 
-    /// The launch's walk (AT-LAUNCH-WALK): not walked yet.
-    pub(crate) fn start_index(&mut self) {}
+    /// The launch's walk (`startFileIndex` -> `ensureScopeEpoch`,
+    /// `app_workspace_runtime.zig:145-148@481104fd`, `file_index.zig:
+    /// 356-363`): the scope as it stands, with its epoch now, which the walk
+    /// keeps whatever changes after it (`startLoad`, `:386`) -- so a change
+    /// of the access before it is whole finds it of the old epoch
+    /// ([`Self::lookup`]). None for an empty root (`:146`, `:358`), and none
+    /// unless nothing has been walked: no index, no walk, no failure
+    /// (`currentState() != .idle`, `:357`, `:333-341`).
+    pub(crate) fn start_index(&mut self) {
+        if self.index.is_some() || self.walk.is_some() || self.failed {
+            return;
+        }
+        if self.root.as_os_str().is_empty() {
+            return;
+        }
+        self.start_walk();
+    }
 
     /// A picker has just opened: the directory listing is forgotten, so a
     /// browsed path is read fresh. Whether the index is walked again is the
@@ -1074,10 +1089,9 @@ impl Files {
     /// one is skipped while no index has been whole yet and a walk runs --
     /// the walk that builds it is the refresh it would have asked for
     /// (`file_picker_episode_seen`, `isFileIndexLoading`, `:857-861`) -- and
-    /// every later one is
-    /// [`Self::refresh_index`]. xfx starts no index at launch, but a
-    /// `/workspace` change before any `@` does ([`super::shell`]'s
-    /// `adopt_workspace`).
+    /// every later one is [`Self::refresh_index`]. The walk it meets is the
+    /// launch's ([`Self::start_index`]), or one a `/workspace` change queued
+    /// behind it ([`super::shell`]'s `adopt_workspace`).
     ///
     /// fx's `currentState` reads the loading generation's own state, so a
     /// loader that has finished is `.ready` or `.failed` before the join
@@ -1586,12 +1600,14 @@ pub(crate) mod tests {
         assert_eq!(files.lookup("main"), Lookup::Unavailable);
 
         // A change before any walk: the walk it starts is the first, of the
-        // new epoch, and its prefix is searched. That is xfx's, not fx's, in a
-        // session: fx's launch walk (`app_entry_runtime.zig:334@481104fd`)
-        // would hold the old epoch, and the list say `Files unavailable`.
-        // xfx starts no walk at launch -- the gap AT-LAUNCH-WALK
-        // (`docs/parity.md`), pinned at the shell by
-        // `a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk`.
+        // new epoch, and its prefix is searched. In a session the launch has
+        // walked first (`app_entry_runtime.zig:334@481104fd`;
+        // `Files::start_index`, since AT-LAUNCH-WALK), so this is the source
+        // after a launch walk that failed (no searchable generation,
+        // `file_index.zig:647-654`), as the shell's
+        // `a_change_after_the_launch_walk_failed_lists_the_new_walks_prefix`
+        // shows; a launch walk loading or adopted holds the old epoch
+        // (`the_launch_walk_keeps_the_launch_epoch_through_a_change`, below).
         let mut files = Files::new(PathBuf::from("/nonexistent-root"), None);
         files.change_scope(Vec::new());
         let new = driven(&mut files);

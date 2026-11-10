@@ -535,6 +535,11 @@ fn open(
     // (`app_bootstrap_runtime.zig:666-687`).
     shell.config_issues(config);
     shell.history_unavailable();
+    // The `@` index's walk, fresh or resumed, as upstream's launch starts it
+    // whatever `resume_requested` says (`startFileIndex`,
+    // `app_entry_runtime.zig:334`; that flag gates only the warmup, `:330`):
+    // the session's first `@` finds it under way or whole.
+    shell.start_file_index();
 }
 
 /// The one measurement a launch is computed from.
