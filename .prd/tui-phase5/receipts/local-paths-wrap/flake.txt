@@ -1,4 +1,0 @@
-git ls-files -z | python3 -I flake.py scripts/fxcap, at the tree of scan.txt
-rows behind a mark: 2998; what each starts with: U+2193 ↓ x2785, U+003C < x163, U+0072 r x34, U+006C l x6, U+0074 t x6, U+0066 f x4
-tokens: 
-of them a work root's end (k, rk, ork, work): 0

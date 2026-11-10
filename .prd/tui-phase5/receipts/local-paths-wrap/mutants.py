@@ -6,6 +6,9 @@ the tests that failed, how many subtests, and the test file's line of the
 first failed assertion -- never a path.
 
 usage: python3 -I mutants.py <clone> <base rev>     (under the suite lock)
+
+Round 2 (the reviews of 4851ba05): the path-shape tail, `┃↑` for a bare `↑`,
+the skip inside a written placeholder, a mark alone on its row.
 """
 import os
 import re
@@ -17,12 +20,23 @@ FX = os.path.join(clone, "scripts", "fxcap")
 ROOTS = os.path.join(FX, "roots.py")
 TESTS = ["test_capture.py", "RootsRewrite"]
 M = [
-    ("drop the `↳` mark", 'MARKS = (b"\\xe2\\x86\\xb3", b"\\xe2\\x86\\x91")', 'MARKS = (b"\\xe2\\x86\\x91",)'),
-    ("drop the `↑` mark", 'MARKS = (b"\\xe2\\x86\\xb3", b"\\xe2\\x86\\x91")', 'MARKS = (b"\\xe2\\x86\\xb3",)'),
+    ("drop the `↳` mark", 'MARKS = (b"\\xe2\\x86\\xb3", b"\\xe2\\x94\\x83\\xe2\\x86\\x91")',
+     'MARKS = (b"\\xe2\\x94\\x83\\xe2\\x86\\x91",)'),
+    ("drop the `┃↑` mark", 'MARKS = (b"\\xe2\\x86\\xb3", b"\\xe2\\x94\\x83\\xe2\\x86\\x91")',
+     'MARKS = (b"\\xe2\\x86\\xb3",)'),
+    ("a bare `↑` a mark (round 1)", 'MARKS = (b"\\xe2\\x86\\xb3", b"\\xe2\\x94\\x83\\xe2\\x86\\x91")',
+     'MARKS = (b"\\xe2\\x86\\xb3", b"\\xe2\\x86\\x91")'),
     ("drop the fail-closed tail check", "if in_control or broken or view.tail_behind_mark(needle) or _find(view, needle, []):",
      "if in_control or broken or _find(view, needle, []):"),
+    ("any tail, no path shape (round 1)",
+     '                   and (b"/" in needle[-n:] or self.text[a + n : a + n + 1] == b"/")\n', ""),
+    ("path shape: a `/` in it only", ' or self.text[a + n : a + n + 1] == b"/")', ")"),
+    ("path shape: a `/` after it only", '(b"/" in needle[-n:] or ', "("),
     ("tail check: two bytes or more", "for a in self.marked for n in range(1, len(needle)))",
      "for a in self.marked for n in range(2, len(needle)))"),
+    ("no skip inside a written placeholder",
+     "        self.marked = [a for a in self.marked if not any(s < a < e for s, e in written)]\n", ""),
+    ("a mark alone on its row leads the next", "            if marked and row:\n", "            if marked:\n"),
     ("the marks no gutter run in a root", "|\\x96[\\x80-\\x9f]|\\x86[\\xb3\\x91]))+\")", "|\\x96[\\x80-\\x9f]))+\")"),
 ]
 env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
@@ -55,8 +69,9 @@ def report(label, text):
     r = run()
     fails = [row for row in r.stderr.splitlines() if row.startswith(("FAIL:", "ERROR:"))]
     tests = sorted({row.split("(")[0].split(" ", 1)[1].strip() for row in fails})
-    print("%-36s exit %d, %3d failed (sub)tests, first at %s: %s" % (label, r.returncode, len(fails),
-                                                                first_assertion(r.stderr), ", ".join(tests) or "none"))
+    ran = next((row for row in r.stderr.splitlines() if row.startswith("Ran ")), "Ran ?")
+    print("%-40s exit %d, %s, %3d failed (sub)tests, first at %s: %s" % (label, r.returncode, ran.split(" in ")[0], len(fails),
+                                                                       first_assertion(r.stderr), ", ".join(tests) or "none"))
     with open(ROOTS, "w") as f:
         f.write(orig)
     return r
@@ -67,4 +82,4 @@ for label, a, b in M:
     assert orig.count(a) == 1, (label, orig.count(a))
     report(label, orig.replace(a, b))
 r = report("unmutated", orig)
-print("%-36s %s" % ("", (r.stderr.strip().splitlines() or ["?"])[-1]))
+print("%-40s %s" % ("", (r.stderr.strip().splitlines() or ["?"])[-1]))

@@ -1,12 +1,12 @@
-scan.sh <this tree>, with this directory's files staged as committed
-tree 0dd6f3c5; roots.py sha256 743ef274695a
-tracked files 18896, 17798 of them under .prd/
-== roots.py --check, the machine roots (7), captures-and-receipts (17798 files): exit 0, 0 file(s) refused
+scan.sh <this tree> at a74a293b, with the round-2 receipt files staged as committed after it
+tree a74a293b; roots.py sha256 5ccfc263fe97
+tracked files 18912, 17814 of them under .prd/
+== roots.py --check, the machine roots (7), captures-and-receipts (17814 files): exit 0, 0 file(s) refused
 == roots.py --check, the machine roots (7), rest (1098 files): exit 1, 3 file(s) refused
 scripts/fxcap/test_capture.py still holds tmp, tmp:real after the rewrite
 scripts/fxcap/test_sweep.py still holds tmp, tmp:real after the rewrite
 src/skills/catalog.rs still holds tmp, tmp:real after the rewrite
-== roots.py --check, the public roots (3), captures-and-receipts (17798 files): exit 1, 13 file(s) refused
+== roots.py --check, the public roots (3), captures-and-receipts (17814 files): exit 1, 13 file(s) refused
 .prd/tui-phase4/receipts/m1/fx-mcp-fixture-40x120-after-add.files still holds bun after the rewrite
 .prd/tui-phase4/receipts/m1/fx-mcp-fixture-40x120-end.files still holds bun after the rewrite
 .prd/tui-phase4/receipts/m1/fx-mcp-wire-40x120-end.files still holds bun after the rewrite
@@ -20,10 +20,11 @@ src/skills/catalog.rs still holds tmp, tmp:real after the rewrite
 .prd/tui-phase5/receipts/cancel-marker/round3/sweep-compare.txt still holds bun after the rewrite
 .prd/tui-phase5/receipts/local-paths/README.md still holds home after the rewrite
 .prd/tui-phase5/receipts/train-6/linux.sh still holds home after the rewrite
-== roots.py --check, the public roots (3), rest (1098 files): exit 1, 3 file(s) refused
+== roots.py --check, the public roots (3), rest (1098 files): exit 1, 4 file(s) refused
 scripts/check-no-local-paths.sh still holds home after the rewrite
+scripts/fxcap/test_capture.py still holds bun, home after the rewrite
 src/mcp/config.rs still holds bun after the rewrite
 src/tui/mcp_menu/tests.rs still holds bun after the rewrite
-rows that open behind a mark in tracked files: 2998, in 2814 file(s)
+rows that open behind a mark in tracked files: 213, in 143 file(s)
 == scripts/check-no-local-paths.sh
-check-no-local-paths: ok (18896 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+check-no-local-paths: ok (18912 tracked file(s) scanned; 8 marked fixture line(s), 82 placeholder line(s))

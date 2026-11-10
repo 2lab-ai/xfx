@@ -1,6 +1,8 @@
-== e2e.sh <tree> <fx v0.0.16> <xfx release build of 635e7242's source> <work> <other>, under the suite lock, TMPDIR under the harness scratch root. GREEN: <tree> = a clone at the head, <other> = a clone at the base
-head of <tree> 6c71502f; roots.py there: sha256 743ef274695a
+== e2e.sh <tree> <fx v0.0.16> <xfx release build of a74a293b> <work> <other>, round 2, under the suite lock, TMPDIR under the harness scratch root. GREEN: <tree> = a clone at a74a293b, <other> = a clone at the base
+   (rows.py ran after the sweep on the same captures: the script's copy that ran could not find it beside itself)
+head of <tree> a74a293b; roots.py there: sha256 5ccfc263fe97
 the scenario directory: 118 bytes, outside the run's TMPDIR and HOME
+xfx: sha256 b801e452a728, banner 0.1.0
 sweep exit 0; fx oracle sha256 the pin, before and after; pass = 33 / 34 = 97.1%; unresolved 0, failed 0, timeout 0
 == fx: run exit 0; approve-confirm
 rows holding 4 bytes or more of the root in one piece: 0

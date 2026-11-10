@@ -20,6 +20,7 @@ scen=$base$(printf "w%.0s" $(seq 1 "$pad"))
 cp -R "$tree/scripts/fxcap/scenarios" "$scen" || exit 2
 echo "head of <tree> $(git -C "$tree" rev-parse --short=8 HEAD); roots.py there: sha256 $(shasum -a 256 "$tree/scripts/fxcap/roots.py" | cut -c1-12)"
 echo "the scenario directory: $(printf %s "$scen" | LC_ALL=C wc -c | tr -d ' ') bytes, outside the run's TMPDIR and HOME"
+echo "xfx: sha256 $(shasum -a 256 "$xfx" | cut -c1-12), banner $("$xfx" --version 2>&1 | head -1)"
 before=$(shasum -a 256 "$fx" | cut -d' ' -f1)
 (cd "$tree" && FX_AUTO_UPGRADE=0 bash scripts/fxcap/sweep.sh --fx "$fx" --pin-sha "$pin" --xfx "$xfx" \
   --jobs 2 --tmp "$work/t" --only p5-mcp-menu-new --scenarios "$scen" --out "$work/out" >"$work/sweep.log" 2>&1 </dev/null)

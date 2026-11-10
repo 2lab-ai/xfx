@@ -12,7 +12,7 @@ revisions'.
 | Mark | Where | What the row is |
 |---|---|---|
 | `↳` U+21B3 | xfx `src/tui/mcp_menu.rs:1345` (measured), `:1362-1364` (drawn: two spaces, `↳`, a space), the enum's doc `:1499-1503` | The rest of an approval row the width wrapped (`ConfirmLine::Continued`), a command line or an address among them. xfx's own: fx's approval goes on four columns in, with spaces. 0 hits for `↳`, `\xe2\x86\xb3` or `\u{21b3}` in fx's `src/` at the pin. Train 12's trial: a 118-byte scenario directory, 116 bytes on one such row and 2 on the next (`../train-12/ci-mcp-timing/gutter-check.txt`). |
-| `↑` U+2191, in `┃↑` | xfx `src/tui/shell.rs:317` (`RAIL_HIDDEN_ABOVE`), `:2923-2930` (the first row shown, when rows above it are scrolled out; no space after it); fx `src/ui/footer/input_presentation.zig:1021` | The composer's first visible row when its rows above are scrolled out of view. A scroll mark, not a wrap: the head of a line it continues is off the screen, so a frame holds only the tail. The "rewritten whole" test for it is synthetic (a head on the row above, which a real frame never has); what it guards in a real frame is the tail (`--check`'s tail rule). A path reaches the composer when a scenario types one (`@SCENARIOS@`). |
+| `┃↑`: the rail U+2503 and `↑` U+2191 in its space's cell | xfx `src/tui/shell.rs:317` (`RAIL_HIDDEN_ABOVE`), `:2923-2930` (the first row shown, when rows above it are scrolled out; no space after it); fx `src/ui/footer/input_presentation.zig:1021` | The composer's first visible row when its rows above are scrolled out of view. A scroll mark, not a wrap: the head of a line it continues is off the screen, so a frame holds only the tail. The "rewritten whole" test for it is synthetic (a head on the row above, which a real frame never has); what it guards in a real frame is the tail (`--check`'s tail rule). A path reaches the composer when a scenario types one (`@SCENARIOS@`). The mark is the pair: a bare `↑` opens `↑↓` key hints, which are text (round 2). |
 
 ## Already read: spaces, tabs, U+2500-U+259F
 
@@ -31,3 +31,20 @@ already drops at a row's edge:
   fx's `transcript_blocks.zig:941`): it stands in for the character, at the
   row's end.
 - `›`, `❯`, `•`, `●`, `▪`: they lead an item's first row, not a continued one.
+
+## Open residuals: a tail whose head is gone, with no mark
+
+Round 2 (opus Q3). `┃↑` is read for a tail whose head scrolled off; the same
+head-gone shape stands with no mark in front of it, and nothing here reads
+it -- recorded, not fixed in this unit:
+
+- a leading `...{tail}`: a status label too long for its third row, cut in
+  front of its tail (`src/tui/retry.rs:152-160`, `keep_tail`, called from
+  `src/tui/shell.rs:11800-11801`; fx's status label wraps the same way,
+  `src/ui/transcript/shimmer_runtime.zig:115-124@481104fd`);
+- a frame's top row, whose head scrolled off with the rows above it;
+- the mid-row `… {tail}` of an approval entry row past 1024 bytes, its last
+  256 bytes after the cut (`src/tui/mcp_menu.rs:1587-1595`).
+
+What such a tail keeps of the run directory's name is refused (`--suffix`);
+a tail of HOME or the TMPDIR is refused by neither check.

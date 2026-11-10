@@ -290,6 +290,13 @@ the ledger entry below (`scoreboard-head-mc-120.md`, `-60.md`):
   the entry it scored an unresolved defect. The other 11 are `remote`'s
   status alone (`remote_only.py`: 11 of 11 and `approve-confirm`, 0 other,
   both sizes), as before.
+  **Edited since (`6c71502f`, LOCAL-PATHS-WRAP):** at 40x60 the scenario
+  directory's tail, on the row under `<local-path>`, is now `<scenarios>` in
+  38 files, one row each -- row 6 of `xfx-base/`'s 34 `.txt`, row 10 of
+  `xfx-head/`'s and `fx/`'s `approve-confirm` `.txt` and `.ansi`. fx's two
+  are reference bytes, edited only so the pair's verdicts stay as above;
+  those rows are redact.py's text now, not what the binaries drew
+  (`../local-paths-wrap/README.md` section 4).
 - `p5-mcp-empty` 24 / 24, `p5-input-mcp` 9 / 9, `p5-mcp-dismiss` 2 / 2: did
   not move.
 - `p5-mcp-verbs` 1 / 28 positionally, did not move: aligned, its unmatched
