@@ -24340,7 +24340,7 @@ mod tests {
             (&[&b"\x1b[1;2C"[..]][..], b"s", "tzsyaxb cduvw"),
             (&[&b"\x1b[1;10B"[..]][..], b"r", "tzsyaxb cduvwr"),
             // Super-Left and -Right are the step here, where fx's jump to the
-            // line's edge (`line_start`/`line_end`, `:162-163`): xfx's decoder
+            // line's edge (`line_start`/`line_end`, `src/ui/input/runtime.zig:162-163`): xfx's decoder
             // reads Super on Left and Right as the step (COMPOSER-SUPER-ARROWS,
             // which flips this case).
             (&[&b"\x1b[1;9D"[..]][..], b"q", "tzsyaxb cduvwqr"),

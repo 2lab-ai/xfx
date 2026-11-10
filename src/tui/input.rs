@@ -1459,7 +1459,8 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
 /// the selection apart is a question's choice, which moves on it alone
 /// (`src/ui/input/runtime.zig:184-189`), and Shift-Alt-Up is `paragraph_up`
 /// to it, which it does not. A mask with none of the four is the arrow, as
-/// upstream's table answers `null` and the plain arrow follows (`:727-733`).
+/// upstream's table answers `null` and the plain arrow follows
+/// (`escape_parser.zig:727-733`).
 fn cursor(letter: u8, mask: u8) -> Action {
     let word = mask & (ALT | CTRL) != 0;
     let alt = mask & ALT != 0;
@@ -3511,10 +3512,10 @@ mod tests {
             (b"\x1b[57352;3u", Action::ComposerUp),
             (&[0x10], Action::ControlP),
             // Two modifiers at once: Super wins over all, then Alt over Ctrl
-            // and Shift (`:83`), then Shift over Ctrl -- Ctrl-Shift-Up is
-            // fx's `visual_up` extending a selection (`:90-94`), a question's
-            // choice move, and Shift-Alt-Up its `paragraph_up`, which no
-            // choice takes.
+            // and Shift (`escape_parser.zig:83`), then Shift over Ctrl --
+            // Ctrl-Shift-Up is fx's `visual_up` extending a selection
+            // (`escape_parser.zig:90-94`), a question's choice move, and
+            // Shift-Alt-Up its `paragraph_up`, which no choice takes.
             (b"\x1b[1;10A", start(true)),
             (b"\x1b[1;15B", end(false)),
             (b"\x1b[1;16B", end(true)),

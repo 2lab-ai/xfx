@@ -196,7 +196,7 @@ pub(crate) enum Act {
     StepLeft,
     /// The draft's caret right. Nothing at a choice: Enter is what moves on,
     /// and a key that skipped a question would skip an answer
-    /// (`input_question_runtime.zig:193-195`). Shift-Right, Super-Right and
+    /// (`input_question_runtime.zig:196-198@481104fd`). Shift-Right, Super-Right and
     /// Ctrl-F too, which upstream's choice leaves alone as it leaves Right
     /// ([`Act::StepLeft`]).
     Right,
