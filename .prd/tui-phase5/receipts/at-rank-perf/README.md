@@ -23,7 +23,9 @@ or bold letter, and makes the 8 ms bar a gate.
 | `3c4b519d` | round 2's receipt |
 | `f8daa194` | **round 3** (§12): the scans by `memchr`, the whole-path subsequence scan only before a whole-path search, letter masks of the name and of its folder, `exactFit`'s cheap test first; the cost test names its slowest search. **The build the round 3 benchmarks and pairs come from; round 4's mutants' clone and a full gate.** |
 | `47c2fc0b` | round 3: one case, from round 4's surviving mutant: a row's window ends before the next row's last place (§12). **The code head: its full gate and the last two mutants.** |
-| (receipt r3) | this README, round 3's files |
+| `7b220216`, `ef89b72a` | round 3's receipt |
+| `64792388` | **round 4** (§13): one `folder_start` for the mask and the search; `Unit::find`/`rfind` pinned; `Holds` folded into `Needed`; the brute force over bytes too; the cold first search printed. No row and no work count moves. **The code head: its gate and round 5's mutants' clone.** |
+| (receipt r4) | this README, round 4's files |
 
 Every fx line cited here and in the source lines this unit added is printed
 in `fx-src.txt`, which `fx_src.sh` generates (AT-RANK's ranges and this
@@ -317,7 +319,8 @@ rename of an added directory.
 
 ## 8. Size (`size.sh`, `size.txt`)
 
-`size.txt`, base `4a5dc3c7` against the code head `47c2fc0b`:
+`size.txt` is round 4's (§13: net +268 at `64792388`). Round 3's, base
+`4a5dc3c7` against its code head `47c2fc0b`:
 
 - **`src/tui/file_index.rs` outside its tests: +414 -143, net +271**
   (83 of the added are comments, 17 blank) -- under the brief's "about
@@ -496,20 +499,22 @@ Per class, p95 on fx's inventory, runs 1 / 2 (base -> head): `exact`
 1.81; `long-gap` 4.12 / 3.63 -> 2.02 / 1.61; `punctuation` 2.22 / 1.77 ->
 0.90 / 0.66; `boundary` 1.00 / 0.79 -> 0.43 / 0.31; `unicode-fold` 0.95 /
 0.76 -> 0.49 / 0.32; `no-match` and `unicode` unchanged (0.17-0.33).
-The gate's own step at `f8daa194` measured 2.25 ms at load 29
+The gate's own step at `f8daa194` measured 2.25 ms at load 29.86
 (`gate-r3.txt`).
 
-**The Intel figure assumed**: on the same code (`3c4b519d`, fx's
-inventory) CI's Intel row measured 9.82 ms where this machine measures
-3.49-3.65 ms: **a ratio of 2.7-2.8**. At that ratio the head's 1.56-1.93
-ms is **4.2-5.4 ms on Intel**, against the 8 ms bar; the `exact` class,
-13.42 ms there at a ratio of 2.8-3.1, would be 5.0-6.3 ms. x86_64 Linux
-(7.69 ms, ratio 2.1-2.2) would be 3.3-4.2 ms. These are estimates, and
-they assume the ratio carries across the change: it was measured on byte
-loops, and the head's scans are `memchr`, which on x86_64 picks its SSE2
-or AVX2 routine at run time where this machine (arm64) uses NEON
-directly, so short searches may cost Intel relatively more. The
-dispatcher's CI run measures it.
+**Intel, measured** (CI run 42852951714, job "gate (x86_64-apple-darwin,
+release)", at `ef89b72a`; `r4-ci-intel-ef89b72a.txt`, the step's log
+lines as the dispatcher took them): **p95 5.53 ms a keystroke, under the
+8 ms bar**; whole queries p95 6.28 ms; load 5.97 before and 6.53 after.
+Per class, p95: `exact` 6.35 ms, `low-selectivity` 6.54, `long-gap` 5.93,
+`punctuation` 2.00, `unicode-fold` 1.64, `boundary` 1.43, `no-match`
+0.75, `unicode` 0.36. **p99 (9.56 ms) and the slowest search (11.75 ms,
+`src/`, pass 21 of 23) are above 8 ms**; the bar is the p95 over every
+keystroke, and it holds. Round 3's estimate before this run was 4.2-5.4
+ms, from a ratio of 2.7-2.8 measured on round 2's byte loops; the
+measured 5.53 ms sets the ratio to this machine's 1.56-1.93 ms at 2.9-3.5,
+so `memchr`'s run-time dispatch on x86_64 did cost Intel relatively more,
+as the estimate warned.
 
 **The work count** (§6) was set again: the masks spare most searches, so
 the counts fell (`exact` 607,118 -> 154,620, `api-route` 189,720 -> 13,989;
@@ -578,3 +583,55 @@ that started the harness with a shell `&` and `wait`, which the brief
 forbids; its output is not used here. Every profile above was taken with
 the harness started by the tool's own background mode and `sample`
 attached by pid.
+
+## 13. Round 4: the reviews' SHOULDs and NITs (`64792388`)
+
+Reviews of `ef89b72a` (opus, gpt6): both approve, no MUST. CI's Intel row
+passed at `ef89b72a` (§12: p95 5.53 ms). This round changes no row, order,
+bold letter or count of work, and makes nothing faster.
+
+- **SHOULD (a), rows and spans across the speed-ups** (`r4-rowdiff.txt`,
+  `r4-rowdiff.sh`, `r4-rowdump.py`, `r4-rows-ef89b72a.txt`): each of
+  `3c4b519d` (round 2, before the speed-ups), `ef89b72a` (round 3) and
+  `64792388` (this round) built in its own `--no-local` clone with a
+  test, never committed, that writes `search()`'s rows and bold spans
+  over fx's 100,000-entry inventory for every one of the 73 prefixes the
+  cost test times. **73 prefixes, 947 rows (13 prefixes have none): the
+  three dumps are byte for byte the same** (960 lines each, sha256
+  `f47c067b3bffe931…`; `cmp` identical). **0 differences.**
+- **SHOULD (b), `find`'s contract**
+  (`find_and_rfind_answer_places_in_the_whole_text`): `Unit::find` and
+  `Unit::rfind` over bytes and over scalars -- a later match from a start
+  past 0 at its place in the whole text, a start at and past the end,
+  exhaustion, `rfind` to 0. A `debug_assert!(j >= from)` in the one-letter
+  scan names the contract where breaking it loops for ever. The two
+  offset mutants now fail in the suite's 4.9 s and 5.5 s -- 16 s and 14 s
+  with the build -- where round 3 killed them only at the 900 s limit
+  (`mutants-r5.txt`, `mutants-r4.txt`).
+- **SHOULD (c), one folder start** (`folder_start`): the crossing search and
+  `Candidate::folder_mask` both take the folder's start from it. A mutant
+  can still narrow the mask's start alone, at the one call in
+  `Candidate::new` (`folder-start-narrowed-for-the-mask`), and one can
+  narrow it in the function for both (`folder-start-narrowed-everywhere`);
+  both are killed, as is `folder-mask-of-the-name-only` again.
+- **NITs, all five done:** `Holds` folded into `Needed` (a `name` field;
+  `Holds`, `ANY` and the clippy allow gone); an entry with a byte past
+  ASCII keeps every bit in its two masks, which are never read for it;
+  the brute force runs `align_best` over bytes beside scalars (600,000+
+  placements each); §12's "load 29" is 29.86; the cost test prints the
+  first search, cold (`first search, cold: 663.9 µs at "s" (pass 0, not
+  counted)` in the gate's step; not part of the percentiles).
+- **No behaviour moved:** the rows above; the oracle and the equivalence
+  corpus (`unit-head.txt`: 90 passed, the round's two cases added); every
+  work-count ceiling met exactly as at `ef89b72a` (`unit-head.txt`).
+- **Mutants, round 5** (`mutants-r5.txt` at `64792388`, `mutants.py`, each
+  line now with its time): **28 run, 28 killed, 0 did not build** -- the
+  26 before, the patterns of the two mask mutants moved to the new line,
+  and the two folder-start mutants.
+- **Gate** (`gate-r4.txt`): at `64792388`, one normal hold of the suite
+  lock, 21 steps, 0 failed, load 5-20; `cargo test` 5575 passed, fault
+  injection 5612 passed, 0 failed each; `check-at-search-cost.sh` ok at p95
+  1.70 ms (load 16.7), slowest 5.91 ms at `src/`; `test-gate-env.sh` 64
+  cases; smoke-tui 1168 checks, 0 failures.
+- **Size** (`size.txt`, base `4a5dc3c7` against `64792388`): outside the
+  tests +411 -143, net +268, under the brief's "about 300"; inside +594 -23.

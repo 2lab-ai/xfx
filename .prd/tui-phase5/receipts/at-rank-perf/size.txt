@@ -1,10 +1,10 @@
-# git diff --stat 4a5dc3c7 47c2fc0b -- src/ scripts/ .github/
+# git diff --stat 4a5dc3c7 64792388 -- src/ scripts/ .github/
  .github/workflows/ci.yml        |    9 +
  scripts/check-at-search-cost.sh |   70 +++
  scripts/test-gate-env.sh        |   12 +
- src/tui/file_index.rs           | 1113 +++++++++++++++++++++++++++++++++------
- 4 files changed, 1038 insertions(+), 166 deletions(-)
-# src/tui/file_index.rs: tests start at line 1798 (4a5dc3c7), 2069 (47c2fc0b)
-outside the tests: +414 -143 (net +271); of the added, 83 comment and 17 blank lines
-inside the tests: +533 -23
-# src/tui/file_index/reference.rs: none at 47c2fc0b (round 2 replaced it with the tests' unpruned oracle)
+ src/tui/file_index.rs           | 1171 +++++++++++++++++++++++++++++++++------
+ 4 files changed, 1096 insertions(+), 166 deletions(-)
+# src/tui/file_index.rs: tests start at line 1798 (4a5dc3c7), 2066 (64792388)
+outside the tests: +411 -143 (net +268); of the added, 90 comment and 16 blank lines
+inside the tests: +594 -23
+# src/tui/file_index/reference.rs: none at 64792388 (round 2 replaced it with the tests' unpruned oracle)

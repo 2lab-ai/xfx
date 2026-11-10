@@ -4,7 +4,8 @@ time in a throwaway clone (`git clone --no-local`), and the modules that read
 the `@` list run against it with a time limit, in their own process group.
 A mutant the tests fail is KILLED; one that does not build is NO-BUILD and
 not counted as killed. (AT-RANK's runner, `../at-rank/mutants.py`, with this
-unit's mutants; round 3 adds four, round 4 seven.)
+unit's mutants; round 3 adds four, round 4 seven, round 5 two. Each line
+says how long its mutant took, its build included.)
 
 usage: python3 -I mutants.py <clone> [<mutant id>...]
 The clone must be at the unit's head with no change; each mutant is restored
@@ -14,6 +15,7 @@ mutant and `mutants: N run, K killed, B did not build`.
 
 import os
 import signal
+import time
 import subprocess
 import sys
 
@@ -102,15 +104,25 @@ MUTANTS = [
     ("subsequence-skip-drops-crossings", edits((
         "needed.folder && !is_subsequence(text, query) {\n",
         "(!needed.folder || !is_subsequence(text, query)) {\n"))),
+    # (round 5: the masks are taken in one line, from `folder_start`)
     ("folder-mask-of-the-name-only", edits((
-        "            folder_mask: letters(&lower[folder..]),\n",
-        "            folder_mask: letters(&lower[name..]),\n"))),
+        "            (letters(&lower[name..]), letters(&lower[folder..]))\n",
+        "            (letters(&lower[name..]), letters(&lower[name..]))\n"))),
     ("name-mask-without-its-first-letter", edits((
-        "            name_mask: letters(&lower[name..]),\n",
-        "            name_mask: letters(&lower[(name + 1).min(lower.len())..]),\n"))),
+        "            (letters(&lower[name..]), letters(&lower[folder..]))\n",
+        "            (letters(&lower[(name + 1).min(lower.len())..]), letters(&lower[folder..]))\n"))),
     ("exact-without-the-prefix", edits((
         "            && name[query.len()] == T::from(b'.')\n            && name.starts_with(query))\n",
         "            && name[query.len()] == T::from(b'.'))\n"))),
+    # round 5 (AT-RANK-PERF r4): the folder's start, narrowed for the mask
+    # alone -- the one place it can still differ from the search's -- and
+    # in the one function both take it from
+    ("folder-start-narrowed-for-the-mask", edits((
+        "            let folder = folder_start(&lower, name);\n",
+        "            let folder = (folder_start(&lower, name) + 1).min(name);\n"))),
+    ("folder-start-narrowed-everywhere", edits((
+        "        .map_or(0, |slash| slash + 1)\n",
+        "        .map_or(0, |slash| (slash + 2).min(name))\n"))),
 ]
 
 
@@ -141,6 +153,7 @@ def main():
         with open(full, "w", encoding="utf-8") as f:
             f.write(new)
         ran += 1
+        began = time.monotonic()
         try:
             cmd = ["cargo", "test", "--locked", "--lib", "--", *TESTS]
             # Its own process group, so a run past the limit is stopped with
@@ -166,7 +179,8 @@ def main():
             else:
                 killed += 1
                 verdict = "KILLED"
-            print(f"{verdict:8} {mid}: {', '.join(failing) or 'every test passed'}  [{summary}]", flush=True)
+            took = time.monotonic() - began
+            print(f"{verdict:8} {mid}: {', '.join(failing) or 'every test passed'}  [{summary}] ({took:.0f} s, build included)", flush=True)
         except subprocess.TimeoutExpired:
             killed += 1
             print(f"KILLED   {mid}: timed out after {LIMIT_S} s", flush=True)
