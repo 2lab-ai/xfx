@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ ask twenty
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Pick 7?
+
+    1) Keep 7                        Leave it as it is.
+    2) Change 7                      Apply the change.
+    3) zyaxb cdw
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+type answer    ↑↓←→ cursor    shift+↑↓ options    tab questions    enter answer    esc cancel           Question 7 of 20
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

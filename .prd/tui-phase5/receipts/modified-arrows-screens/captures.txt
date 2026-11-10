@@ -1,0 +1,29 @@
+# The six capture runs (scripts/fxcap/capture.sh <side> <scenario> 40x120), their log lines but the per-snap file list and the gateway's exit; paths written as placeholders.
+
+## p5-modified-arrows-full, fx/  (FX_BIN=<oracle>/fx-v0.0.16/bin/fx)
+roots: <work>=41 <scratch>=36 <scenarios>=94 <bun>=21 <bun:real>=39 <tmp>=23 <home>=16 bytes
+up: a first frame after 0.08 s (2 looks)
+guards: <oracle>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+
+## p5-modified-arrows-full, red/ (XFX_BIN = the base's binary, built at c77a77ce in a clean --no-local clone; sha256 1984d47e23e3...)
+roots: <work>=41 <scratch>=36 <scenarios>=94 <bun>=21 <bun:real>=39 <tmp>=23 <home>=16 bytes
+up: a first frame after 1.17 s (18 looks)
+
+## p5-modified-arrows-full, xfx/ (XFX_BIN = the code head's binary, built at 8b5aacaa with src/ clean; sha256 8a974717913f...)
+roots: <work>=41 <scratch>=36 <scenarios>=94 <bun>=21 <bun:real>=39 <tmp>=23 <home>=16 bytes
+up: a first frame after 1.53 s (22 looks)
+
+## p5-modified-arrows-question, fx/  (FX_BIN=<oracle>/fx-v0.0.16/bin/fx)
+roots: <work>=41 <scratch>=36 <scenarios>=94 <bun>=21 <bun:real>=39 <tmp>=23 <home>=16 bytes
+up: a first frame after 0.09 s (2 looks)
+guards: <oracle>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+
+## p5-modified-arrows-question, red/ (XFX_BIN = the base's binary, built at c77a77ce in a clean --no-local clone; sha256 1984d47e23e3...)
+roots: <work>=41 <scratch>=36 <scenarios>=94 <bun>=21 <bun:real>=39 <tmp>=23 <home>=16 bytes
+up: a first frame after 0.16 s (3 looks)
+
+## p5-modified-arrows-question, xfx/ (XFX_BIN = the code head's binary, built at 8b5aacaa with src/ clean; sha256 8a974717913f...)
+roots: <work>=41 <scratch>=36 <scenarios>=94 <bun>=21 <bun:real>=39 <tmp>=23 <home>=16 bytes
+up: a first frame after 0.16 s (3 looks)
+
+banners: base x𝒇x v0.1.0-c77a77c [debug] · Run /help for commands, head x𝒇x v0.1.0-8b5aaca [debug] · Run /help for commands (question p1 row 1; each side's one binary ran both scenarios)

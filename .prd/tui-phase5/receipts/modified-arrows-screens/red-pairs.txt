@@ -1,0 +1,87 @@
+## p5-modified-arrows-full-40x120: fx against red, cell by cell (cells.py, row 1 left out)
+SAME answered           rows: none
+SAME draft              rows: none
+DIFF typed              rows: 38 
+DIFF typed2             rows: 37 38 
+DIFF typed3             rows: 37 38 
+DIFF typed4             rows: 37 38 
+DIFF full               rows: 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 35 
+DIFF full-super-left    rows: 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 35 
+DIFF full-ctrl-up       rows: 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 25 26 27 28 29 30 32 33 34 35 36 
+DIFF full-ctrl-b        rows: 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 35 
+DIFF full-ctrl-f        rows: 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 35 
+
+## p5-modified-arrows-full-40x120: the composer rows of each typed snap (Y X W V are where the caret was)
+fx   typed   ┃ one|┃ two|┃ three|┃ Yf|
+fx   typed2  ┃ one|┃ two|┃ tXhree|┃ Yf|
+fx   typed3  ┃ one|┃ two|┃ tWXhree|┃ Yf|
+fx   typed4  ┃ one|┃ two|┃ tWXVhree|┃ Yf|
+red  typed   ┃ one|┃ two|┃ three|┃ fY|
+red  typed2  ┃ one|┃ two|┃ three|┃ fYX|
+red  typed3  ┃ one|┃ two|┃ three|┃ fYXW|
+red  typed4  ┃ one|┃ two|┃ three|┃ fYXWV|
+
+## p5-modified-arrows-full-40x120: each side against itself, rows 2-40 of each full-transcript snap, sha256
+fx   full             93aa600dbf5e
+fx   full-super-left  93aa600dbf5e
+fx   full-ctrl-up     93aa600dbf5e
+fx   full-ctrl-b      93aa600dbf5e
+fx   full-ctrl-f      93aa600dbf5e
+red  full             5f924c8659f2
+red  full-super-left  5f924c8659f2
+red  full-ctrl-up     fc92be6b4dc8
+red  full-ctrl-b      5f924c8659f2
+red  full-ctrl-f      5f924c8659f2
+
+## p5-modified-arrows-question-40x120: fx against red, cell by cell (cells.py, row 1 left out)
+SAME p1                 rows: none
+       fx:  Question 1 of 20, 3) Other
+       red: Question 1 of 20, 3) Other
+DIFF ctrl-down          rows: 8 9 
+       fx:  Question 1 of 20, 3) Other
+       red: Question 1 of 20, 3) Other
+DIFF alt-up             rows: 8 10 13 
+       fx:  Question 2 of 20, 3) Other
+       red: Question 2 of 20, 
+DIFF super-up           rows: 8 10 13 
+       fx:  Question 3 of 20, 3) Other
+       red: Question 3 of 20, 
+DIFF shift-super-down   rows: 8 9 
+       fx:  Question 4 of 20, 3) Other
+       red: Question 4 of 20, 3) Other
+DIFF shift-alt-up       rows: 8 10 13 
+       fx:  Question 5 of 20, 3) Other
+       red: Question 5 of 20, 
+SAME ctrl-shift-down    rows: none
+       fx:  Question 6 of 20, 3) Other
+       red: Question 6 of 20, 3) Other
+DIFF super-left         rows: 6 8 9 13 
+       fx:  Question 7 of 20, 3) Other
+       red: Question 6 of 20, 3) Other
+DIFF shift-left         rows: 6 8 9 10 13 
+       fx:  Question 7 of 20, 3) Other
+       red: Question 5 of 20, 
+DIFF ctrl-b             rows: 6 8 9 10 13 
+       fx:  Question 7 of 20, 3) Other
+       red: Question 5 of 20, 
+DIFF right-keys         rows: 6 8 9 10 13 
+       fx:  Question 7 of 20, 3) Other
+       red: Question 5 of 20, 
+DIFF field-super-up     rows: 6 8 9 10 13 
+       fx:  Question 7 of 20, 3) zab cd
+       red: Question 5 of 20, 3) 3ab cd
+DIFF field-ctrl-up      rows: 6 8 9 10 13 
+       fx:  Question 7 of 20, 3) zyab cd
+       red: Question 5 of 20, 3) 3ab cd
+DIFF field-ctrl-f       rows: 6 8 9 10 13 
+       fx:  Question 7 of 20, 3) zyaxb cd
+       red: Question 5 of 20, 3) 3ab cd
+DIFF field-super-down   rows: 6 8 9 10 13 
+       fx:  Question 7 of 20, 3) zyaxb cdw
+       red: Question 5 of 20, 3) 3ab cdw
+DIFF field-left         rows: 6 8 9 10 13 
+       fx:  Question 7 of 20, 3) zyaxb cvdw
+       red: Question 5 of 20, 3) 3ab cvdw
+
+4 of 27 pairs identical
+banners (question p1 row 1; one binary per side ran both scenarios): fx 𝒇x v0.0.16 · Run /help for commands / red x𝒇x v0.1.0-c77a77c [debug] · Run /help for commands
