@@ -85,7 +85,8 @@ gutter character here: the view drops it at a row's start.
 
 **Behind a mark, a root's path-shaped end.** A row behind a mark that starts
 with a root's end -- its last byte or more, short of the whole, ending whole
--- with a `/` in it or right after it refuses the file too, its head
+-- with a `/` in it or right after it (or its JSON-escaped `\\/`; the
+percent-encoded spelling keeps `/` as `/`) refuses the file too, its head
 rewritten or not: a partial rewrite (the head written as a shorter root's
 placeholder) leaves nothing else that tells such a tail from text. Behind a
 mark only: the same end behind a plain gutter passes, as does an end with no
@@ -272,17 +273,27 @@ class View:
         leading one; and whether there was one."""
         row, marked = [list(r) for r in row], False
         while row:
-            start, end = row[0]
-            mark = next((m for m in MARKS if data.startswith(m, start) and start + len(m) <= end), None)
+            # A mark is read in the row's visible bytes, across a colour
+            # change inside it (`ESC[2m┃ESC[0m ESC[1m↑`), each run's own bytes
+            # only; a gutter character within one run.
+            lead = bytearray()
+            for start, end in row:
+                lead += data[start : min(end, start + 6 - len(lead))]
+                if len(lead) >= 6:
+                    break
+            mark = next((m for m in MARKS if lead.startswith(m)), None)
             if mark:
                 n, marked = len(mark), True
             else:
-                n = _gutter_at(data, start, end)
+                n = _gutter_at(data, row[0][0], row[0][1])
             if not n:
                 break
-            row[0][0] += n
-            if row[0][0] >= row[0][1]:
-                row.pop(0)
+            while n:
+                take = min(n, row[0][1] - row[0][0])
+                row[0][0] += take
+                n -= take
+                if row[0][0] >= row[0][1]:
+                    row.pop(0)
         while row:
             start, end = row[-1]
             if data[end - 1 : end] in GUTTER_BYTES:
@@ -315,10 +326,15 @@ class View:
 
     def tail_behind_mark(self, needle):
         """Whether a row behind a mark starts with `needle`'s end -- its last
-        byte or more, short of the whole -- ending whole, with a `/` in it or
-        right after it."""
+        byte or more, short of the whole -- ending whole, with a separator in
+        it or right after it: `/`, or the JSON-escaped `\\/` every root is
+        also spelled as (`spellings`; in the end itself `\\/` holds a `/`).
+        The percent-encoded spelling keeps `/` as it is (`quote(...,
+        safe="/~")`), so no `%2F` is ever a root's separator."""
         return any(self.text.startswith(needle[-n:], a) and self.ends_whole(a + n)
-                   and (b"/" in needle[-n:] or self.text[a + n : a + n + 1] == b"/")
+                   and (b"/" in needle[-n:]
+                        or self.text[a + n : a + n + 1] == b"/"
+                        or self.text[a + n : a + n + 2] == b"\\/")
                    for a in self.marked for n in range(1, len(needle)))
 
 

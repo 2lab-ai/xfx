@@ -507,6 +507,38 @@ class RootsRewrite(unittest.TestCase):
                 left = {name.split(":")[0] for name in roots.survivors(data, rules, None)}
                 self.assertEqual(bool(left), row in refused, left)
 
+    def test_behind_a_mark_a_json_escaped_separator_is_a_separator(self):
+        # Every root is also spelled JSON-escaped (`spellings`), so `\/` after
+        # a root's end is the `/` of the escaped path: `someone\/x` behind a
+        # mark is refused as `someone/x` is (gpt6 round 2). Words still pass.
+        home = "/Us" + "ers/someone"
+        rules = roots.rules_for([(home, "home"), ("/home/runner/.bun/bin/bun", "bun"),
+                                 ("/tmp/fxt/fxcap.Ab12Cd/work", "work"), ("/tmp/fxt/x/scripts/fxcap/scenarios", "scenarios")])
+        escaped = home.replace("/", "\\/").encode()
+        for lead in (b"  \xe2\x86\xb3 ", b"\xe2\x94\x83\xe2\x86\x91"):
+            refused = (lead + b"someone\\/x", lead + b"one\\/x",
+                       escaped[:4] + b"\n" + lead + escaped[4:10] + b"\n" + lead + escaped[10:] + b"\\/x")
+            passed = (lead + b"bun x.ts", lead + b"work on it", lead + b"scenarios")
+            for row in refused + passed:
+                with self.subTest(row=row):
+                    left = {name.split(":")[0] for name in roots.survivors(b"head\n" + row + b"\n", rules, None)}
+                    self.assertEqual(bool(left), row in refused, left)
+
+    def test_a_mark_split_by_a_colour_change_is_still_a_mark(self):
+        # The view reads through a colour change, and so does the mark
+        # reader: `┃` and `↑` in runs of their own, nothing visible between,
+        # are the mark. A styled `┃`, a space, then `↑↓` is a key hint.
+        rules = roots.rules_for([("/Us" + "ers/someone", "home")])
+        for row in (b"\x1b[2m\xe2\x94\x83\x1b[0m\x1b[1m\xe2\x86\x91\x1b[0m someone/x",
+                    b"\x1b[2m\xe2\x94\x83\x1b[0m\x1b[2m\xe2\x86\x91\x1b[0m someone/x",
+                    b"\x1b[2m  \x1b[0m\xe2\x86\xb3 someone/x"):
+            with self.subTest(row=row):
+                self.assertEqual(len(roots.View(b"head\n" + row + b"\n").marked), 1)
+                self.assertEqual({n.split(":")[0] for n in roots.survivors(b"head\n" + row + b"\n", rules, None)}, {"home"})
+        hint = b"head\n\x1b[2m\xe2\x94\x83\x1b[0m \xe2\x86\x91\xe2\x86\x93 someone/x\n"
+        self.assertEqual(roots.View(hint).marked, [])
+        self.assertEqual(roots.survivors(hint, rules, None), [])
+
     def test_a_placeholder_wrapped_behind_a_mark_is_no_root_s_end(self):
         # A resolved root's placeholder broken in its name, `<wor` then
         # `↳ k:real___>`: the row behind the mark starts inside what the
