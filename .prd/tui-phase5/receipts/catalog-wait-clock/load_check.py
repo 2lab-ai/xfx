@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The repeat check: the three catalog-wait tests, N times each on two lib
+"""The repeat check: the five catalog-wait tests, N times each on two lib
 test binaries (the base's and the head's), one after the other in every
 iteration, at the shared machine's own load -- no burner. Meant to run in
 one normal slot of the suite lock (`suite-lock.sh python3 load_check.py ...`).
@@ -7,7 +7,7 @@ one normal slot of the suite lock (`suite-lock.sh python3 load_check.py ...`).
     python3 -I -B load_check.py <runs> <out> \
         <label>=<test-binary>@<cwd> <label>=<test-binary>@<cwd>
 
-Each run is one binary over the three names (`--exact`), bounded at LIMIT
+Each run is one binary over the five names (`--exact`), bounded at LIMIT
 seconds (its process group killed past it); the 1-minute load average is
 read when it begins. Writes one line per iteration, then per binary the
 pass count of each test with the load range its runs began under, then
@@ -26,8 +26,10 @@ TESTS = [
     "tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number",
     "tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one",
     "tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop",
+    "tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs",
+    "tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn",
 ]
-SHORT = ["A", "B", "C"]
+SHORT = ["A", "B", "C", "D", "E"]
 
 
 def env():
@@ -61,10 +63,10 @@ def main():
         binary, cwd = rest.split("@", 1)
         sets.append((label, binary, cwd))
     lines = [f"# repeat check: {runs} iterations; in each, every binary runs the three tests "
-             f"(A, B, C) once, one binary after the other; no burner, the machine's own load; "
+             f"(A to E) once, one binary after the other; no burner, the machine's own load; "
              f"one normal slot of the suite lock; each run bounded at {LIMIT} s; "
              f"cores {os.cpu_count()}"]
-    counts = {label: [0, 0, 0] for label, _, _ in sets}
+    counts = {label: [0] * len(TESTS) for label, _, _ in sets}
     loads = {label: [] for label, _, _ in sets}
     fails = {label: [] for label, _, _ in sets}
     print(lines[0], flush=True)

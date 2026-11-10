@@ -24,8 +24,13 @@ TESTS = [
     "tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number",
     "tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one",
     "tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop",
+    "tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs",
+    "tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn",
 ]
-SHORT = {TESTS[0]: "A", TESTS[1]: "B", TESTS[2]: "C"}
+SHORT = {TESTS[0]: "A", TESTS[1]: "B", TESTS[2]: "C", TESTS[3]: "D", TESTS[4]: "E"}
+# Run over the whole lib suite, not the five: whether anything in the crate
+# kills them (opus SHOULD 1).
+FULL_LIB = {"window-first-load-ignores-stop", "image-route-read-ignores-stop"}
 
 W = "src/tui/worker.rs"
 M = "src/agent/machine.rs"
@@ -54,6 +59,11 @@ FIRST_LOAD = (
     "    if !images.is_empty()\n"
     "        || !state.settings.effort.is_default()\n"
 )
+
+FIRST_LOAD_LATE = ("if !fresh && turn.token.is_cancelled() && state.selector.is_loading() "
+                   "&& matches!(state.selector.catalog(), CatalogState::NotLoaded) {\n")
+TOKIO_700 = "        tokio::time::sleep(std::time::Duration::from_millis(700)).await;"
+THREAD_700 = "        std::thread::sleep(std::time::Duration::from_millis(700));"
 
 MUTANTS = {
     # The stop ignored until each wait ends by itself: its arm gone from the
@@ -123,6 +133,26 @@ MUTANTS = {
     ],
     "no-machine-guard": [(M, GUARD, "        if self.compactor.is_some() {\n")],
     "stop-leaks-to-next-turn": [(B, "        self.mirror.reset();\n", "")],
+    # Round 2: the stop honoured 700 ms late, only while a first load is on
+    # its way (the catalog not read yet and a load pending), at each of the
+    # three first-load selects; once on a tokio timer, once by holding the
+    # thread.
+    **{f"first-load-late-{where}-{how}": [(W, anchor, anchor + indent + FIRST_LOAD_LATE + delay + "\n" + indent + "}\n")]
+       for where, anchor, indent in [
+           ("window", "        return;\n    }\n    let fresh = tokio::select! {\n        biased;\n"
+                      "        () = turn.token.cancelled() => false,\n        fresh = state.load_catalog() => fresh,\n    };\n", "    "),
+           ("image-route", "        () = turn.token.cancelled() => false,\n        fresh = state.load_catalog() => fresh,\n"
+                           "    };\n    // The image route", None),
+           ("turn-read", "            () = turn.token.cancelled() => false,\n            fresh = state.load_catalog() => fresh,\n"
+                         "        };\n", "        "),
+       ] if indent is not None
+       for how, delay in [("tokio", TOKIO_700), ("thread", THREAD_700)]},
+    **{f"first-load-late-image-route-{how}": [(
+        W,
+        "        () = turn.token.cancelled() => false,\n        fresh = state.load_catalog() => fresh,\n    };\n    // The image route",
+        "        () = turn.token.cancelled() => false,\n        fresh = state.load_catalog() => fresh,\n    };\n"
+        "    " + FIRST_LOAD_LATE + delay + "\n    }\n    // The image route",
+    )] for how, delay in [("tokio", TOKIO_700), ("thread", THREAD_700)]},
     # QUESTIONS-20's M1, for test C's turn that asks twenty.
     "questions-cap-back-to-4": [(Q, "pub const MAX_QUESTIONS: usize = 20;", "pub const MAX_QUESTIONS: usize = 4;")],
 }
@@ -168,8 +198,9 @@ def main():
     clone, label, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
     only = sys.argv[4:] or list(MUTANTS)
     head = git(clone, "rev-parse", "--short=8", "HEAD").stdout.strip()
-    lines = [f"# {label}: mutants.py on a git clone --no-local at {head}; the three tests "
-             f"(A, B, C) per mutant, bounded at {LIMIT} s"]
+    lines = [f"# {label}: mutants.py on a git clone --no-local at {head}; the catalog-wait "
+             f"tests (A, B, C, D, E) per mutant -- the whole lib suite for {sorted(FULL_LIB)} -- "
+             f"bounded at {LIMIT} s"]
     for name in only:
         git(clone, "checkout", "--", ".")
         refused = apply(clone, MUTANTS[name])
@@ -184,7 +215,10 @@ def main():
             print(lines[-1], flush=True)
             git(clone, "checkout", "--", ".")
             continue
-        rc, out, hung = bounded(clone, ["cargo", "test", "--locked", "--lib", "--", "--exact", *TESTS])
+        args = ["cargo", "test", "--locked", "--lib"]
+        if name not in FULL_LIB:
+            args += ["--", "--exact", *TESTS]
+        rc, out, hung = bounded(clone, args)
         failed = re.findall(r"^test (\S+) \.\.\. FAILED$", out, re.M)
         verdict = "timeout" if hung else ("SURVIVED" if rc == 0 else "killed")
         named = " ".join(SHORT.get(t, t) for t in failed)

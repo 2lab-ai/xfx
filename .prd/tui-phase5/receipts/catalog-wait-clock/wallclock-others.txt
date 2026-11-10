@@ -9,6 +9,8 @@ in src/tui/check.rs, and src/tui/event_loop.rs:13575 (byte offsets, not time).
 
 ## Tight: a window, or a bound within about 1.5 s of the work it times (the three tests' kind)
 
+17 bounds in 16 tests (worker.rs:18307 and :18318 are one test).
+
 src/tui/titles.rs:1250            the_drain_is_bounded_and_the_answer_stands_when_it_runs_out          150 ms <= elapsed < 1.4 s
 src/tui/worker.rs:6880            a_drain_whose_runtime_is_already_gone_returns_at_once                < 1 s (against a 10 s deadline)
 src/tui/worker.rs:18307           the_image_route_waits_two_seconds_at_most_and_once_a_turn            < 1 s "waited twice" (against a 2 s wait)
@@ -27,13 +29,17 @@ tests/permissions.rs:3556         a_command_past_its_deadline_is_killed_at_once_
 tests/sessions.rs:791             a_genuine_second_writer_is_still_refused_within_the_bounded_wait     < 1 s
 tests/tool_loop.rs:4041           a_timeout_inside_a_command_ends_it_on_time_from_a_thread_that_blocks_signals  900 ms <= took < 3 s
 
-The same race with no bound asserted: src/tui/worker.rs:19741
+The same race with no bound asserted, at afd891af: src/tui/worker.rs:19741
 a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs.
-Its own stopper thread sends the stop 300 ms in (:19768) behind the WindowRetry wait; a stop read
-past the retry's 2 s lets the first turn be answered, and its asserted ends flip. Same fix as here
-(the stop sent when the band hears the start) would close it; not done, out of this unit's three.
+Its own stopper thread sent the stop 300 ms in (:19768) behind the WindowRetry wait: a stop read past
+the retry's 2 s let the first turn be answered, and one read before the loop took the first prompt
+dropped it. Fixed in round 2 (a6ab3ee6): the stop on TurnStarted{1}, on the paused clock (README,
+"Round 2"; test D in the stall table and the mutants).
 
 ## Wider: a bound 2 s or more past the work it times
+
+13 bounds; two of their tests are also in the tight list (worker.rs:18300 is the test of :18307,
+usage/report.rs:1889 the test of :1875).
 
 src/tui/worker.rs:8371            a_concluded_turn_reaches_the_ui_through_a_channel_that_had_no_room_for_it  < DRAIN_DEADLINE (2 s)
 src/tui/worker.rs:18300           the_image_route_waits_two_seconds_at_most_and_once_a_turn            < 4 s after a 2 s wait
