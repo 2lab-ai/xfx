@@ -43,7 +43,10 @@ retired-then-provider mode-upper mode-padded steps-float steps-huge effort-bad t
 provider-entry-fixes limits-ok-then-typed limits-off-then-typed limits-underscore-then-typed \
 limits-plus-then-typed limits-negative-then-typed limits-unknown-then-typed \
 limits-double-underscore-then-typed limits-leading-underscore-then-typed limits-empty-then-typed \
-model-then-provider"
+model-then-provider \
+provider-missing-empty provider-missing-other provider-defined providers-type providers-null \
+providers-many providers-bad-def models-35 models-36 model-and-35 models-split models-case \
+models-order drift-auto-compact json-big-float json-big-int json-deep entry-providers"
 fixtures=${*:-$all}
 
 # The fixture's profile: <home>/<prof>/settings.json, or what stands there.
@@ -143,6 +146,24 @@ seed() { # fixture home work
     limits-leading-underscore-then-typed) printf '{"context_limits": {"skill_chunk_bytes": "_1"}, "fast_mode": "yes"}' > "$s" ;;
     limits-empty-then-typed) printf '{"context_limits": {"skill_chunk_bytes": ""}, "fast_mode": "yes"}' > "$s" ;;
     model-then-provider) printf '{"model": " a", "provider": 5}' > "$s" ;;
+    provider-missing-empty) printf '{"provider": "missing", "providers": {}}' > "$s" ;;
+    provider-missing-other) printf '{"provider": "missing", "providers": {"other": %s}}' "$DEF" > "$s" ;;
+    provider-defined) printf '{"provider": "local", "providers": {"local": %s}}' "$DEF" > "$s" ;;
+    providers-type) printf '{"providers": 5}' > "$s" ;;
+    providers-null) printf '{"providers": null}' > "$s" ;;
+    providers-many) printf '{"providers": {%s}}' "$(names 01 33 1)" > "$s" ;;
+    providers-bad-def) printf '{"providers": {"x": 5}}' > "$s" ;;
+    models-35) printf '{"models": {%s}}' "$(names 01 35 '"m/x"')" > "$s" ;;
+    models-36) printf '{"models": {%s}}' "$(names 01 36 '"m/x"')" > "$s" ;;
+    model-and-35) printf '{"model": "a/b", "models": {%s}}' "$(names 01 35 '"m/x"')" > "$s" ;;
+    models-split) printf '{"models": {%s}, "workspaces": {"%s": {"models": {%s}}}}' "$(names 01 20 '"m/x"')" "$key" "$(names 21 40 '"m/x"')" > "$s" ;;
+    models-case) printf '{"models": {"GATEWAY": "a/b", "gateway": "a/c"}}' > "$s" ;;
+    models-order) printf '{"models": {"zz": 5, "aa": " x"}}' > "$s" ;;
+    drift-auto-compact) printf '{"auto_compact_percent": "x", "provider": 5}' > "$s" ;;
+    json-big-float) printf '{"zzz": 1e400}' > "$s" ;;
+    json-big-int) printf '{"zzz": %s}' "$(head -c 400 /dev/zero | tr '\0' 7)" > "$s" ;;
+    json-deep) printf '{"zzz": %s%s}' "$(head -c 129 /dev/zero | tr '\0' '[')" "$(head -c 129 /dev/zero | tr '\0' ']')" > "$s" ;;
+    entry-providers) printf '{"workspaces": {"%s": {"providers": 5}}}' "$key" > "$s" ;;
     valid) printf '{"permission_mode": "auto"}' > "$s" ;;
     *) echo "unknown fixture $f" >&2; return 1 ;;
   esac
@@ -172,6 +193,12 @@ listing() { # dir: every entry with its size and mtime, relative. A directory
   (cd "$1" && find . -mindepth 1 \( -name '*.sock' -prune \) -o -print0 2>/dev/null \
     | xargs -0 stat -f '%N %z %m' 2>/dev/null | sort)
   eval "$undo"
+}
+
+# Round 2: a loopback connection definition, and N distinct connection names.
+DEF='{"protocol": "openai-chat-completions", "base_url": "http://127.0.0.1:9/v1", "auth": {"type": "none"}}'
+names() { # first last value: "pFF": value, ... for FF in first..last
+  local i out=""; for i in $(seq -w "$1" "$2"); do out="$out\"p$i\": $3, "; done; printf '%s' "${out%, }"
 }
 
 real_root=$(mkdir -p "$root" && cd "$root" && pwd -P)

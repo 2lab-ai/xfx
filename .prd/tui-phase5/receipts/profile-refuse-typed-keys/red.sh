@@ -1,15 +1,16 @@
 #!/bin/bash
-# RED: the head's tests over the base's src (0a334851), on a throwaway clone
+# RED: the head's tests over an older src (the base's, 0a334851, unless a
+# third argument names another), on a throwaway clone
 # (`git clone --no-local`, never the worktree). Each run bounded at 900 s;
 # the clone and TMPDIR are printed as <clone> and <tmp>.
-# usage: red.sh <head repo> <clone dir>
+# usage: red.sh <head repo> <clone dir> [src rev]
 set -u
-head=$1 clone=$2
+head=$1 clone=$2 rev=${3:-0a334851}
 case "$clone" in "$head"*) echo "the clone must not be inside the worktree"; exit 2 ;; esac
 rm -rf "$clone"
 git clone -q --no-local "$head" "$clone" || exit 2
-git -C "$clone" checkout -q 0a334851 -- src
-echo "clone of $(git -C "$clone" rev-parse --short HEAD), src at 0a334851"
+git -C "$clone" checkout -q "$rev" -- src
+echo "clone of $(git -C "$clone" rev-parse --short HEAD), src at $rev"
 for t in "cli ask_refuses_a_profile_fx_refuses" "cli status_stops_where_fxs_load_fails" \
   "interactive the_shell_refuses_a_profile_fx_refuses" "tui a_profile_fx_refuses_is_refused" \
   "cli ask_goes_on_with_a_profile_fx_starts_with" \
