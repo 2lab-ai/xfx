@@ -27,7 +27,7 @@ The captures in `xfx/` and `probe/head-*` come from the binary built at
 `probe/base-*` from the base (`v0.1.0-b9b1159`); `fx/` and `probe/fx-*`
 from fx.
 
-## What fx v0.0.16 does (`fx-src.txt`, made by `fx_src.sh`; 28 ranges, each range and needle checked, exit 0)
+## What fx v0.0.16 does (`fx-src.txt`, made by `fx_src.sh`; 30 ranges at round 2, each range and needle checked, exit 0)
 
 - **M1, which lines.** `slashCompletionPrefix` (`command_specs.zig:568-576`):
   the draft past its leading ` \t\r\n`, if it begins with `/`; one word,
@@ -75,6 +75,15 @@ from fx.
   kind is the same (`visibleInlinePickerKind`,
   `input_completion_runtime.zig:133-169`; `suppressionAfterEdit`,
   `picker_state.zig:515-532`).
+- **M11, the registry** (round 2). fx's command table, each command's name,
+  aliases and `has_args` (`slash_specs`, `src/builtins/commands.zig:441-481`),
+  and the provider column's prefixes, `/login ` among them
+  (`picker_state.zig:54-61`). `has_args.py` reads the table from `fx-src.txt`
+  and xfx's `SLASH_REGISTRY` from `src/interactive.rs` at `a2f06462`
+  (`has-args.txt`): the 34 commands both have take an argument, or none,
+  alike, with the same aliases (`/balance`, `/img`, `/setup`, `/exit`);
+  fx's `/feedback` takes none, and its `/login`, `/logout` and `/shell` take
+  one, and xfx has none of the four.
 
 The oracle (`fx/`, 26 snaps) shows each: `/git log` lists `release-notes`
 by its description under `Results 1` (`-git-log`); `/notes ` lists
@@ -122,9 +131,12 @@ tables before the slash menu (`Shell::reconcile_picker`, `completion_kind`).
 - `names_exactly` and `Picker::exact` (`picker.rs:231-238`): fx's
   `matchExact` on the line, for Enter (M8); the old test, a command row of
   rank `Exact`, could not see `/rename ` with its blank.
-- `PickerOutcome::Typed` (`picker.rs:398`; `shell.rs:8852`): Enter on a skill
-  row of such a line with no command row goes on and submits it as typed;
-  the old arm took the mark modulo a command count of zero.
+- `PickerOutcome::Typed` (`picker.rs:399`; `shell.rs:8852`): Enter on a skill
+  row of such a line with no command row goes on and submits it as typed.
+  The broader `exact` needs this zero branch: the old test read
+  `matches[..commands]`, which is empty when no command is listed, so the old
+  arm never met a line that is a name with no command row, and never took a
+  modulo of zero.
 - Tab yields to the ghost while one shows (`shell.rs:8822-8828`, M7).
 
 ## Per rule
@@ -248,11 +260,16 @@ how they are matched and ordered (the `$` menu's ranking, shared), the
 header, Tab and Enter, the ghost first, the one Escape -- with the fx
 citations and `fx-p5-slash-mixed-skills-*`; the sentence on the query
 before it says the draft past its blanks is the query. No owner is left. It
-records one registry difference this rule makes visible: fx's `/feedback`
+records the registry differences this rule makes visible, cited from
+`commands.zig:441-481` and `has-args.txt` (M11, round 2): fx's `/feedback`
 takes no argument and xfx has no `/feedback`, so past its blank xfx lists
-the skills the line finds where fx lists nothing (fx's `/logout` and
-`/shell` take one, and xfx, which has neither, lists them as fx does; fx's
-`/login ` line is the provider kind, which the row already records).
+the skills the line finds where fx lists nothing; fx's `/logout` and
+`/shell` take one, and xfx, which has neither, lists them as fx does; and
+fx's `/login x` is its provider column's line (`picker_state.zig:54-61`,
+asked first at `:289`), where xfx, which has no `/login`, lists the skills
+the line finds. Round 2 also says, in the `/skills` row, that the slash
+popup's query past a blank is the whole line, and that Enter submits a name
+and a blank with no command row, `/rename `, as typed.
 
 ## Cost
 
@@ -260,9 +277,11 @@ Past a blank the skills' query is the whole draft, so a long draft that
 begins with `/` and a word no command has -- a path at the start of a
 prompt -- is matched against every skill on each edit: `skills_menu::listed`
 asks `rank` six times per skill (three ranks, two groups), and each
-lowercases the query. It is bounded: a paste over 1000 characters becomes a
-block in the composer (`paste::COLLAPSE_ABOVE`), so the draft's text is what
-was typed or pasted in smaller pieces. fx's `skillMatchRank` is the same
+lowercases the query. Nothing bounds the draft short of the composer's
+8 MiB (`editor::MAX_COMPOSER_BYTES`): a paste over 1000 characters becomes a
+block and adds only its placeholder (`paste::COLLAPSE_ABOVE`), but typing,
+or pastes of 1000 characters or fewer, can go on lengthening the line, and
+each edit then pays for its whole length. fx's `skillMatchRank` is the same
 search, by `asciiContainsIgnoreCase`, without the copy. The `$` menu's code is
 shared and left as it is.
 
@@ -270,3 +289,27 @@ shared and left as it is.
 
 Nothing of the rule. The registry differences above are each registry's,
 recorded, not this unit's to change.
+
+## Round 2 (both reviews: no MUST; behaviour unchanged)
+
+| commit | what |
+|---|---|
+| `9669a00d` | tests and wording: a moved mark and Tab on a slash word alone (gpt6's case, closed by source: no ghost there); the column lines with a skill present (opus S1); `SEARCHED` with `notes`, `help`, `rename` (N3); the query, not only a slash word, in picker.rs' docs (N2) and the blank line before `layout`'s doc (N4); `docs/parity.md`'s `/skills` row (N2) and the TUI row's fx command-table citation and `/login x` (S2, N1). No ledger ref moved (`refs_content.py` at `9669a00d`: the ledger 115 SAME, 38 SAME-ROW, 1 SAME-LINES, 1 WRONG, as before; `docs/parity.md` 25 SAME, 0 WRONG) |
+| the commit after | this receipt: `fx_src.sh` quotes `commands.zig:441-481` and `picker_state.zig:54-61` (M11, 30 ranges), `has_args.py` and `has-args.txt`, `mutants.py`'s M14 and the two new cases, the README's wording (gpt6 NTH 1, 2) |
+
+- **gpt6's MUST, Tab and a ghost on a slash word alone:** no ghost is there
+  (`inline_completion::slash_word` returns `None` when only blanks precede
+  the word, as fx's `findInlineSlashQuery` does, `picker_state.zig:613-623`),
+  so Tab takes the marked row. Pinned by
+  `on_a_slash_word_alone_tab_takes_the_marked_row_for_no_ghost_is_there`:
+  `/he` and `  /he` with the mark on the second row, a skill, which Tab binds
+  with the blanks kept; `/s` and `  /s` with the mark on the second row, a
+  command, which Tab writes in place of the draft; `ghost()` is `None` each
+  time.
+- **opus S1, the column lines:**
+  `a_column_line_opens_no_slash_menu_whatever_skill_its_line_would_find` adds
+  a skill whose description holds `model notes`, `effort notes`,
+  `provider notes` and `setup notes` -- `/for model notes` lists it -- and
+  `/model notes`, `/effort notes`, `/provider notes`, `/setup notes` open no
+  slash menu.
+- **opus S2:** `has-args.txt`, above (M11).

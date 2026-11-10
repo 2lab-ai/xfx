@@ -87,5 +87,9 @@ section "M10 one .slash dismissal: Escape dismisses the visible kind, which last
 cite $ic 133 169 "fn visibleInlinePickerKind"
 cite src/core/input/picker_state.zig 515 532 "fn suppressionAfterEdit"
 
+section "M11 the registry: each command's name, aliases and whether it takes an argument (has-args.txt compares it with xfx's)"
+cite src/builtins/commands.zig 441 481 "pub const slash_specs = [_]SlashSpec{"
+cite src/core/input/picker_state.zig 54 61 "pub const provider_picker_prefixes"
+
 echo "# $ranges ranges"
 exit $fail

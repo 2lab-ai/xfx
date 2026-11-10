@@ -23,6 +23,9 @@ SHELL_TESTS = [
     "tui::shell::tests::tab_takes_a_slash_words_ghost_before_the_skills_listed_past_the_blank",
     "tui::shell::tests::escape_over_the_skills_past_a_blank_lasts_while_the_line_is_a_slash_line",
     "tui::shell::tests::a_skill_row_binds_over_the_word_and_keeps_the_blanks_before_it",
+    # Round 2: a moved mark and Tab on a slash word alone, and the column lines.
+    "tui::shell::tests::on_a_slash_word_alone_tab_takes_the_marked_row_for_no_ghost_is_there",
+    "tui::shell::tests::a_column_line_opens_no_slash_menu_whatever_skill_its_line_would_find",
 ]
 TESTS = ["tui::picker::", "tui::arg_lists::", "tui::skills_menu::"] + SHELL_TESTS
 
@@ -69,6 +72,10 @@ MUTANTS = [
     ("M13", "Tab takes the list's row before a ghost", SHELL,
      "        if request == PickerAction::Complete && self.picker.is_some() && self.ghost().is_some() {",
      "        if false && request == PickerAction::Complete && self.picker.is_some() && self.ghost().is_some() {"),
+    # Round 2 (opus S1): a `/model` or `/effort` line is the slash kind.
+    ("M14", "a `/model` or `/effort` line is the slash kind, not its column's", SHELL,
+     "        if model_column::shaped_line(text) || provider_picker::is_query(text) {",
+     "        if provider_picker::is_query(text) {"),
 ]
 
 
