@@ -18903,6 +18903,8 @@ mod tests {
         // prompt and its end). Nothing is asked of the model. So a copy changed
         // before the resume fails the first turn and, put back, is sent by the
         // next; changed again, the turn after fails; put back, it goes again.
+        // And a copy whole when the session is resumed again is not held from
+        // then on: changed after that resume, the next turn fails.
         let (_home, _workspace, mut state) = seeing_runtime();
         let (id, copy) = a_session_with_a_prompt_image(&state);
         let mut tampered = crate::image::fixture::SHOT_PNG.to_vec();
@@ -18921,7 +18923,22 @@ mod tests {
                 "put back again",
                 Some(crate::image::fixture::SHOT_PNG.to_vec()),
             ),
+            ("resumed whole", None),
+            ("changed after the resume", Some(tampered.clone())),
         ] {
+            if prompt == "resumed whole" {
+                let id = state
+                    .conversation
+                    .as_ref()
+                    .expect("a conversation")
+                    .recorder
+                    .id()
+                    .clone();
+                state.conversation = None;
+                let resumed = Resumption::open(&state.config, &crate::session::Selector::Id(id))
+                    .expect("its copy is whole");
+                state.resume(resumed, &CancelToken::new());
+            }
             if let Some(bytes) = bytes {
                 std::fs::write(&copy, bytes).expect("rewrite");
             }
@@ -18963,7 +18980,7 @@ mod tests {
                 ("put back", None, vec![1], Some("put back".to_string())),
                 (
                     "changed again",
-                    corrupt,
+                    corrupt.clone(),
                     vec![],
                     Some("changed again".to_string())
                 ),
@@ -18972,6 +18989,18 @@ mod tests {
                     None,
                     vec![1],
                     Some("put back again".to_string())
+                ),
+                (
+                    "resumed whole",
+                    None,
+                    vec![1],
+                    Some("resumed whole".to_string())
+                ),
+                (
+                    "changed after the resume",
+                    corrupt,
+                    vec![],
+                    Some("changed after the resume".to_string())
                 ),
             ],
             "each turn: its end, the images each request it sent carried, the prompt the log \
