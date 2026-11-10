@@ -20,10 +20,25 @@ pub enum Profile {
     Text(&'static str),
     /// The settings file's `workspaces` entry for the workspace is this JSON.
     Entry(&'static str),
-    /// One byte past the 64 KiB ceiling, otherwise a valid object.
-    TooLarge,
+    /// A valid object of exactly this many bytes: 65,536 is fx's ceiling
+    /// (`settings_store.zig:17`, `:747`), 65,537 one past it.
+    Sized(usize),
     /// A valid object nobody may read.
     Unreadable,
+    /// A valid object anyone may write and nobody may read (`0o222`): the
+    /// open fails before fx looks at the mode (`settings_store.zig:721-746`).
+    WriteOnly,
+    /// The file holds these bytes and group may write to it (`0o664`): fx
+    /// does not read it (`:744-746`).
+    OpenFile(&'static str),
+    /// `~/.xfx` is `0o770` and its file, private, holds these bytes: fx does
+    /// not read the profile (`:381-383`).
+    OpenDir(&'static str),
+    /// A valid file with a second hard link elsewhere in the home
+    /// (`io.zig:281-283`).
+    HardLinked,
+    /// `~/.xfx` itself a regular file (`settings_store.zig:365`, `:376`).
+    FileForDir,
     /// A `model` of 300 bytes: past xfx's own 200, inside fx's 1024.
     LongModel,
     /// A directory where the file belongs.
@@ -43,8 +58,9 @@ pub const REJECTED: &[(&str, Profile)] = &[
         Profile::Text(r#"{"permission_mode": "auto", "sandbox": "#),
     ),
     ("not an object", Profile::Text("[1, 2]")),
-    ("past the ceiling", Profile::TooLarge),
+    ("one byte past the ceiling", Profile::Sized(64 * 1024 + 1)),
     ("unreadable", Profile::Unreadable),
+    ("write-only, open to group and other", Profile::WriteOnly),
     (
         "a model with a blank before it",
         Profile::Text(r#"{"model": " openai/gpt-5"}"#),
@@ -70,6 +86,11 @@ pub const UNSAFE: &[(&str, Profile)] = &[
     ("a directory", Profile::Directory),
     ("a linked file", Profile::LinkedFile),
     ("a linked profile", Profile::LinkedDir),
+    ("a hard-linked file", Profile::HardLinked),
+    (
+        "a file where the profile directory belongs",
+        Profile::FileForDir,
+    ),
 ];
 
 /// fx starts with these.
@@ -84,6 +105,19 @@ pub const STARTED: &[(&str, Profile)] = &[
         Profile::Text(r#"{"skill_match_fuzzy": true, "model": " openai/gpt-5"}"#),
     ),
     ("a malformed project file", Profile::MalformedProject),
+    ("exactly the ceiling", Profile::Sized(64 * 1024)),
+    (
+        "torn JSON group may write",
+        Profile::OpenFile(r#"{"permission_mode": "auto", "sandbox": "#),
+    ),
+    (
+        "a bad model group may write",
+        Profile::OpenFile(r#"{"model":" a"}"#),
+    ),
+    (
+        "torn JSON in a profile directory group may write",
+        Profile::OpenDir(r#"{"permission_mode": "auto", "sandbox": "#),
+    ),
     (
         "a valid profile",
         Profile::Text(r#"{"permission_mode": "auto"}"#),
@@ -99,7 +133,7 @@ pub fn lay(home: &Path, workspace: &Path, profile: Profile) -> bool {
     let private = |path: &Path, mode: u32| {
         fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("set a mode");
     };
-    if !matches!(profile, Profile::LinkedDir) {
+    if !matches!(profile, Profile::LinkedDir | Profile::FileForDir) {
         fs::create_dir_all(&dir).expect("the profile dir");
         private(&dir, 0o700);
     }
@@ -113,14 +147,36 @@ pub fn lay(home: &Path, workspace: &Path, profile: Profile) -> bool {
             let key = serde_json::to_string(&workspace.display().to_string()).expect("a key");
             write(&format!(r#"{{"workspaces": {{{key}: {entry}}}}}"#));
         }
-        Profile::TooLarge => write(&format!(r#"{{"pad":"{}"}}"#, "x".repeat(64 * 1024))),
-        Profile::Unreadable => {
+        Profile::Sized(bytes) => {
+            let text = format!(r#"{{"pad":"{}"}}"#, "x".repeat(bytes - 10));
+            assert_eq!(text.len(), bytes);
+            write(&text);
+        }
+        Profile::Unreadable | Profile::WriteOnly => {
             write(r#"{"permission_mode": "auto"}"#);
-            private(&file, 0o000);
+            let mode = if matches!(profile, Profile::Unreadable) {
+                0o000
+            } else {
+                0o222
+            };
+            private(&file, mode);
             if fs::read(&file).is_ok() {
                 return false;
             }
         }
+        Profile::OpenFile(text) => {
+            write(text);
+            private(&file, 0o664);
+        }
+        Profile::OpenDir(text) => {
+            write(text);
+            private(&dir, 0o770);
+        }
+        Profile::HardLinked => {
+            write(r#"{"permission_mode": "auto"}"#);
+            fs::hard_link(&file, home.join("other.json")).expect("the second link");
+        }
+        Profile::FileForDir => fs::write(&dir, "{}").expect("a file where the directory belongs"),
         Profile::LongModel => write(&format!(r#"{{"model": "openai/{}"}}"#, "m".repeat(293))),
         Profile::Directory => fs::create_dir(&file).expect("a directory"),
         Profile::LinkedFile => {

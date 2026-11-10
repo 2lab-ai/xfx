@@ -1505,7 +1505,7 @@ pub async fn run(
     // Then a profile fx refuses, as its interactive launch refuses one after
     // the terminal check (`app_lifecycle.zig:851-860@481104fd`), and before
     // the session store below is opened or made.
-    if config.refuses_launch(true) {
+    if config.refuses_launch(crate::config::Launch::Interactive) {
         writeln!(diagnostics, "xfx: {}", crate::config::PROFILE_REFUSAL)?;
         return Ok(ExitCode::from(1));
     }

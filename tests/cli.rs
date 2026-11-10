@@ -118,6 +118,14 @@ impl Sandbox {
                 .expect("tighten the profile dir");
         }
         fs::write(dir.join("settings.json"), body).expect("write user settings");
+        // And the file owner-only whatever the umask, as xfx writes it: one
+        // group or other may write to is a profile fx does not read.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(dir.join("settings.json"), fs::Permissions::from_mode(0o600))
+                .expect("tighten the settings file");
+        }
     }
 
     fn write_project_settings(&self, body: &str) {

@@ -2146,9 +2146,19 @@ fn a_tool_attempt_under(profile: Option<&str>) -> Option<(Run, Vec<String>, bool
     fs::write(sandbox.workspace.join("secrets/key"), SECRET).unwrap();
     let settings = sandbox.home.join(".xfx").join("settings.json");
     fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    // Owner-only whatever the umask: a profile group or other may write to
+    // is one fx does not read, so it would refuse nothing.
+    fs::set_permissions(
+        settings.parent().unwrap(),
+        fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
     let key = serde_json::to_string(&sandbox.workspace.display().to_string()).unwrap();
     match profile {
-        Some(text) => fs::write(&settings, text.replace("{ROOT}", &key)).unwrap(),
+        Some(text) => {
+            fs::write(&settings, text.replace("{ROOT}", &key)).unwrap();
+            fs::set_permissions(&settings, fs::Permissions::from_mode(0o600)).unwrap();
+        }
         None => {
             fs::write(&settings, r#"{"permission":{"read":"allow"}}"#).unwrap();
             fs::set_permissions(&settings, fs::Permissions::from_mode(0o000)).unwrap();

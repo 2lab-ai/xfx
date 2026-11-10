@@ -1005,20 +1005,38 @@ pub const PROFILE_REFUSAL: &str = "InvalidProfileConfiguration";
 /// its default and xfx's only one (`app_lifecycle.zig:689-703@481104fd`).
 /// Only the profile counts, `~/.xfx/settings.json` with this workspace's
 /// `workspaces` entry; the project file never does.
+///
+/// Read in fx's order ([`profile_open`]): a profile fx never opens, or opens
+/// and does not read because group or other may write to it, is never
+/// refused, whatever it holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileRefusal {
-    /// Every launch refuses: the file is there and is not one readable JSON
-    /// object within [`MAX_SETTINGS_BYTES`] (`malformed_settings`,
-    /// `settings_too_large`); `workspaces`, or this workspace's entry, is not
-    /// an object (`malformed_settings`, `config_runtime.zig:589-597`); or a
-    /// `model` in the profile or in that entry is one fx does not take
+    /// Every launch refuses: `~/.xfx` or its settings file is there and does
+    /// not open for reading (`malformed_settings`); or the file fx reads is
+    /// not one JSON object within [`MAX_SETTINGS_BYTES`] (`malformed_settings`,
+    /// `settings_too_large`), its `workspaces` or this workspace's entry is
+    /// not an object (`malformed_settings`, `config_runtime.zig:589-597`), or
+    /// a `model` in the profile or in that entry is one fx does not take
     /// ([`fx_refuses_model`]).
     Rejected,
-    /// Only `ask` refuses: `~/.xfx` or its settings file is a link, or not a
-    /// directory and a file (`durable_path_unsafe`, [`profile_path_unsafe`]).
-    /// fx's interactive launch goes on with it (the stored credential mode,
-    /// `app_lifecycle.zig:693-696`, `:501-515`), and so do xfx's.
+    /// Only `ask` refuses: `~/.xfx` is a link or not a directory, or its
+    /// settings file is a link, not a regular file, or has another hard link
+    /// (`durable_path_unsafe`). fx's interactive launch goes on with it (the
+    /// stored credential mode, `app_lifecycle.zig:693-696`, `:501-515`), and
+    /// so do xfx's.
     Unsafe,
+}
+
+/// Which launch asks [`RuntimeConfig::refuses_launch`]: they refuse
+/// differently only over an unsafe path ([`ProfileRefusal::Unsafe`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Launch {
+    /// The TUI and the line shell, which refuse what fx's interactive launch
+    /// refuses (`loadInteractiveStartupState`, `app_lifecycle.zig:501-515`).
+    Interactive,
+    /// `ask`, which refuses what fx's `ask` refuses (`loadStartupStateForRun`,
+    /// `app_lifecycle.zig:420-433`).
+    Ask,
 }
 
 impl RuntimeConfig {
@@ -1068,10 +1086,10 @@ impl RuntimeConfig {
         }
 
         let before_user = diagnostics.len();
-        let profile_unsafe = profile_dir
+        let profile_opened = profile_dir
             .as_deref()
             .zip(user_settings_path.as_deref())
-            .is_some_and(|(dir, file)| profile_path_unsafe(dir, file));
+            .map_or(ProfileOpen::Absent, |(dir, file)| profile_open(dir, file));
         let user = match user_settings_path.as_ref() {
             Some(path) => read_layer(path, ConfigLayer::User, &mut diagnostics),
             None => LayerRead::absent(),
@@ -1411,26 +1429,21 @@ impl RuntimeConfig {
             sources,
             diagnostics,
             credential: resolve_credential(env),
-            // An unsafe path wins: fx opens nothing there, so it never sees
-            // what the file holds (`settings_store.zig:351-367`, `:721-729`).
-            profile_refusal: if profile_unsafe {
-                Some(ProfileRefusal::Unsafe)
-            } else if profile_rejected {
-                Some(ProfileRefusal::Rejected)
-            } else {
-                None
+            // What the file holds counts only when fx reads it.
+            profile_refusal: match profile_opened {
+                ProfileOpen::Unsafe => Some(ProfileRefusal::Unsafe),
+                ProfileOpen::Unopenable => Some(ProfileRefusal::Rejected),
+                ProfileOpen::Read if profile_rejected => Some(ProfileRefusal::Rejected),
+                ProfileOpen::Read | ProfileOpen::Absent | ProfileOpen::NotRead => None,
             },
         })
     }
 
-    /// Whether a launch refuses this profile with [`PROFILE_REFUSAL`]:
-    /// `interactive` for the TUI and the line shell, which refuse what fx's
-    /// interactive launch refuses, and false for `ask`, which refuses what
-    /// fx's `ask` does (`loadStartupStateForRun`, `app_lifecycle.zig:420-433`).
-    pub fn refuses_launch(&self, interactive: bool) -> bool {
+    /// Whether `launch` refuses this profile with [`PROFILE_REFUSAL`].
+    pub fn refuses_launch(&self, launch: Launch) -> bool {
         match self.profile_refusal {
             Some(ProfileRefusal::Rejected) => true,
-            Some(ProfileRefusal::Unsafe) => !interactive,
+            Some(ProfileRefusal::Unsafe) => launch == Launch::Ask,
             None => false,
         }
     }
@@ -2269,17 +2282,89 @@ fn fx_refuses_model(object: &serde_json::Map<String, Value>) -> bool {
     }
 }
 
-/// Whether fx v0.0.16 would not open the profile at all: `~/.xfx` is a link
-/// or not a directory, or its settings file is a link or a directory -- each
-/// opened without following a link (`initFromHome`,
-/// `settings_store.zig:351-367@481104fd`; `loadRawPrimary`, `:721-729`).
-fn profile_path_unsafe(dir: &Path, file: &Path) -> bool {
-    let kind = |path: &Path| fs::symlink_metadata(path).ok().map(|meta| meta.file_type());
-    match kind(dir) {
-        None => false,
-        Some(dir) if dir.is_symlink() || !dir.is_dir() => true,
-        Some(_) => kind(file).is_some_and(|file| file.is_symlink() || file.is_dir()),
+/// What fx v0.0.16 makes of the profile before it reads a byte of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProfileOpen {
+    /// No `~/.xfx`, or no settings file in it: nothing to refuse.
+    Absent,
+    /// `durable_path_unsafe`: fx opens nothing there.
+    Unsafe,
+    /// An open fails: `malformed_settings`.
+    Unopenable,
+    /// Group or other may write to it: fx does not read it
+    /// (`private_state_permissions_unsupported`, the layer absent), so what it
+    /// holds refuses nothing.
+    NotRead,
+    /// Opened to be read: what it holds decides.
+    Read,
+}
+
+/// fx's read-only load of the profile, step by step (`initFromHome`,
+/// `settings_store.zig:340-391@481104fd`; `loadRawPrimary`, `:716-748`;
+/// `openExistingRegularFile`, `io.zig:170-180`, `:213-286`):
+/// `~/.xfx` looked at without following a link -- a link or not a
+/// directory is unsafe -- then opened, then its mode; the settings file
+/// looked at the same way -- a link, anything but a regular file, or one
+/// with another hard link is unsafe -- then opened for reading, then its
+/// mode. Only a file that passes all of that is read.
+fn profile_open(dir: &Path, file: &Path) -> ProfileOpen {
+    let looked = |path: &Path| match fs::symlink_metadata(path) {
+        Ok(metadata) => Ok(Some(metadata)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(()),
+    };
+    let open_to_others = |metadata: &fs::Metadata| mode_bits(metadata) & 0o022 != 0;
+    let dir_metadata = match looked(dir) {
+        Ok(None) => return ProfileOpen::Absent,
+        Ok(Some(metadata)) => metadata,
+        Err(()) => return ProfileOpen::Unopenable,
+    };
+    if !dir_metadata.is_dir() {
+        return ProfileOpen::Unsafe;
     }
+    if fs::read_dir(dir).is_err() {
+        return ProfileOpen::Unopenable;
+    }
+    if open_to_others(&dir_metadata) {
+        return ProfileOpen::NotRead;
+    }
+    let metadata = match looked(file) {
+        Ok(None) => return ProfileOpen::Absent,
+        Ok(Some(metadata)) => metadata,
+        Err(()) => return ProfileOpen::Unopenable,
+    };
+    if !metadata.is_file() || hard_links(&metadata) > 1 {
+        return ProfileOpen::Unsafe;
+    }
+    // The open before the mode, as fx: a file nobody may read is refused
+    // whatever its mode lets others write.
+    if fs::File::open(file).is_err() {
+        return ProfileOpen::Unopenable;
+    }
+    if open_to_others(&metadata) {
+        return ProfileOpen::NotRead;
+    }
+    ProfileOpen::Read
+}
+
+#[cfg(unix)]
+fn mode_bits(metadata: &fs::Metadata) -> u32 {
+    std::os::unix::fs::PermissionsExt::mode(&metadata.permissions())
+}
+
+#[cfg(not(unix))]
+fn mode_bits(_: &fs::Metadata) -> u32 {
+    0
+}
+
+#[cfg(unix)]
+fn hard_links(metadata: &fs::Metadata) -> u64 {
+    std::os::unix::fs::MetadataExt::nlink(metadata)
+}
+
+#[cfg(not(unix))]
+fn hard_links(_: &fs::Metadata) -> u64 {
+    1
 }
 
 /// Reads one settings file, recording why it was rejected and whether it was
@@ -4122,10 +4207,12 @@ mod tests {
             let home = root.path().join("home");
             let workspace = root.path().join("workspace");
             fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile");
+            private(&home.join(PROFILE_DIR_NAME), 0o700);
             fs::create_dir_all(&workspace).expect("a workspace");
             let workspace = workspace.canonicalize().expect("canonical");
             let file = home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE);
             fs::write(&file, settings(&workspace)).expect("the profile");
+            private(&file, 0o600);
             if let Some(project) = project {
                 fs::write(workspace.join(PROJECT_SETTINGS_FILE), project).expect("project");
             }
@@ -4187,17 +4274,149 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let file = home.path().join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE);
         fs::create_dir_all(&file).expect("a directory where the file belongs");
+        private(&home.path().join(PROFILE_DIR_NAME), 0o700);
         let unsafe_dir = RuntimeConfig::load_with(
             &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
             workspace.path(),
         )
         .expect("load");
         assert_eq!(unsafe_dir.profile_refusal, Some(ProfileRefusal::Unsafe));
-        assert!(unsafe_dir.refuses_launch(false));
-        assert!(!unsafe_dir.refuses_launch(true));
+        assert!(unsafe_dir.refuses_launch(Launch::Ask));
+        assert!(!unsafe_dir.refuses_launch(Launch::Interactive));
         let rejected = load(|_| "[]".into(), None);
-        assert!(rejected.refuses_launch(false) && rejected.refuses_launch(true));
+        assert!(
+            rejected.refuses_launch(Launch::Ask) && rejected.refuses_launch(Launch::Interactive)
+        );
         let none = loaded_with(None, &[]);
-        assert!(!none.refuses_launch(false) && !none.refuses_launch(true));
+        assert!(!none.refuses_launch(Launch::Ask) && !none.refuses_launch(Launch::Interactive));
+    }
+
+    /// Sets `path`'s mode bits, whatever the umask made them.
+    fn private(path: &Path, mode: u32) {
+        #[cfg(unix)]
+        fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(mode))
+            .expect("set a mode");
+        #[cfg(not(unix))]
+        let _ = (path, mode);
+    }
+
+    /// fx's read-only open of the profile, step by step
+    /// (`settings_store.zig:340-391`, `:716-748`, `io.zig:213-286@481104fd`):
+    /// unsafe before anything is opened, an open that fails before the mode,
+    /// a mode open to group or other before any byte is read -- so a torn
+    /// file nobody but its owner may write is refused, and the same file
+    /// group may write to, or in a `~/.xfx` group may write to, is not.
+    #[cfg(unix)]
+    #[test]
+    fn the_profile_is_opened_in_fxs_order_before_what_it_holds_counts() {
+        type Lay = fn(&Path, &Path);
+        fn torn(dir: &Path, file: &Path) {
+            fs::create_dir_all(dir).expect("dir");
+            private(dir, 0o700);
+            fs::write(file, "{").expect("file");
+            private(file, 0o600);
+        }
+        let cases: [(&str, Lay, ProfileOpen, Option<ProfileRefusal>); 10] = [
+            ("nothing", |_, _| {}, ProfileOpen::Absent, None),
+            (
+                "torn",
+                torn,
+                ProfileOpen::Read,
+                Some(ProfileRefusal::Rejected),
+            ),
+            (
+                "torn, group may write the file",
+                |dir, file| {
+                    torn(dir, file);
+                    private(file, 0o664);
+                },
+                ProfileOpen::NotRead,
+                None,
+            ),
+            (
+                "torn, other may write the file",
+                |dir, file| {
+                    torn(dir, file);
+                    private(file, 0o602);
+                },
+                ProfileOpen::NotRead,
+                None,
+            ),
+            (
+                "torn, group may write the directory",
+                |dir, file| {
+                    torn(dir, file);
+                    private(dir, 0o770);
+                },
+                ProfileOpen::NotRead,
+                None,
+            ),
+            (
+                "write-only, open to all",
+                |dir, file| {
+                    torn(dir, file);
+                    private(file, 0o222);
+                },
+                ProfileOpen::Unopenable,
+                Some(ProfileRefusal::Rejected),
+            ),
+            (
+                "a directory nobody may list",
+                |dir, file| {
+                    torn(dir, file);
+                    private(dir, 0o300);
+                },
+                ProfileOpen::Unopenable,
+                Some(ProfileRefusal::Rejected),
+            ),
+            (
+                "a second hard link",
+                |dir, file| {
+                    torn(dir, file);
+                    fs::hard_link(file, dir.with_file_name("other")).expect("link");
+                },
+                ProfileOpen::Unsafe,
+                Some(ProfileRefusal::Unsafe),
+            ),
+            (
+                "a FIFO",
+                |dir, file| {
+                    fs::create_dir_all(dir).expect("dir");
+                    private(dir, 0o700);
+                    let made =
+                        crate::process::status(std::process::Command::new("mkfifo").arg(file))
+                            .expect("run mkfifo");
+                    assert!(made.success(), "a FIFO");
+                },
+                ProfileOpen::Unsafe,
+                Some(ProfileRefusal::Unsafe),
+            ),
+            (
+                "a file where the directory belongs",
+                |dir, _| fs::write(dir, "{}").expect("a file"),
+                ProfileOpen::Unsafe,
+                Some(ProfileRefusal::Unsafe),
+            ),
+        ];
+        for (name, lay, opened, refusal) in cases {
+            let home = tempfile::tempdir().expect("a home");
+            let workspace = tempfile::tempdir().expect("a workspace");
+            let dir = home.path().join(PROFILE_DIR_NAME);
+            let file = dir.join(USER_SETTINGS_FILE);
+            lay(&dir, &file);
+            if name == "write-only, open to all" && fs::read(&file).is_ok() {
+                continue; // a reader the mode bits do not stop (root)
+            }
+            assert_eq!(profile_open(&dir, &file), opened, "{name}");
+            let config = RuntimeConfig::load_with(
+                &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+                workspace.path(),
+            )
+            .expect("load");
+            assert_eq!(config.profile_refusal, refusal, "{name}");
+            if dir.is_dir() {
+                private(&dir, 0o700);
+            }
+        }
     }
 }

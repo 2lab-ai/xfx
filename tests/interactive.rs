@@ -217,13 +217,16 @@ fn the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything() {
 /// launch, with the stored credential mode, goes on with) starts the shell.
 #[test]
 fn the_shell_starts_with_a_profile_only_ask_refuses() {
-    // A linked `~/.xfx` is not here: the session store refuses one in its
-    // own words before anything is asked (`src/profile_home.rs`, whose
-    // rule `docs/parity.md` keeps), which this unit leaves as it was.
-    for (name, profile) in profiles::UNSAFE
-        .iter()
-        .filter(|(_, profile)| !matches!(profile, profiles::Profile::LinkedDir))
-    {
+    // A linked `~/.xfx`, or a file in its place, is not here: the session
+    // store refuses one in its own words before anything is asked
+    // (`src/profile_home.rs`, whose rule `docs/parity.md` keeps), which
+    // this unit leaves as it was.
+    for (name, profile) in profiles::UNSAFE.iter().filter(|(_, profile)| {
+        !matches!(
+            profile,
+            profiles::Profile::LinkedDir | profiles::Profile::FileForDir
+        )
+    }) {
         let sandbox = Sandbox::new();
         assert!(profiles::lay(&sandbox.home, &sandbox.workspace, *profile));
         let pty = Pty::open();

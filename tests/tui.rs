@@ -1119,13 +1119,16 @@ fn a_profile_fx_refuses_is_refused_before_the_terminal_is_taken() {
 /// (`app_lifecycle.zig:693-696`, `:501-515`).
 #[test]
 fn a_profile_only_ask_refuses_starts_the_tui() {
-    // A linked `~/.xfx` is not here: the session store refuses one in its
-    // own words before anything is asked (`src/profile_home.rs`, whose
-    // rule `docs/parity.md` keeps), which this unit leaves as it was.
-    for (name, profile) in profiles::UNSAFE
-        .iter()
-        .filter(|(_, profile)| !matches!(profile, profiles::Profile::LinkedDir))
-    {
+    // A linked `~/.xfx`, or a file in its place, is not here: the session
+    // store refuses one in its own words before anything is asked
+    // (`src/profile_home.rs`, whose rule `docs/parity.md` keeps), which
+    // this unit leaves as it was.
+    for (name, profile) in profiles::UNSAFE.iter().filter(|(_, profile)| {
+        !matches!(
+            profile,
+            profiles::Profile::LinkedDir | profiles::Profile::FileForDir
+        )
+    }) {
         let sandbox = Sandbox::new();
         assert!(profiles::lay(&sandbox.home, &sandbox.workspace, *profile));
         let pty = Pty::open();
