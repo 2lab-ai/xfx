@@ -2043,8 +2043,9 @@ fn ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstr
             let dir = a_session_with_a_prompt_image(&sandbox, "lost-image", copy);
             let before = every_file(&dir);
             let folder = dir.join("images");
+            use std::os::unix::fs::PermissionsExt;
+            let was = fs::metadata(&folder).map_or(0o700, |meta| meta.permissions().mode());
             let mode = |bits: u32| {
-                use std::os::unix::fs::PermissionsExt;
                 fs::set_permissions(&folder, fs::Permissions::from_mode(bits)).expect("chmod")
             };
             if copy.is_some() {
@@ -2058,7 +2059,7 @@ fn ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstr
             }
             let run = sandbox.run(&args, &gateway_env(&url, TEST_KEY));
             if copy.is_some() {
-                mode(0o700);
+                mode(was);
             }
             assert_eq!(
                 run.code,
