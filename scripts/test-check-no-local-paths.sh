@@ -166,17 +166,26 @@ diagnose_shapes() {
 		plant="${line%%: *}"
 		plant="${plant%:[0-9]*}"
 		gave=""
-		while IFS= read -r -d '' class && IFS= read -r -d '' number && IFS= read -r -d '' path; do
-			if [ "$path" = "$plant" ]; then
-				gave="${gave:+$gave, }line $number $class"
-			fi
-		done <"$work/trace" || true
+		if [ ! -f "$work/trace" ]; then
+			gave="no trace written"
+		else
+			while IFS= read -r -d '' class && IFS= read -r -d '' number && IFS= read -r -d '' path; do
+				if [ "$path" = "$plant" ]; then
+					gave="${gave:+$gave, }line $number $class"
+				fi
+			done <"$work/trace" || true
+		fi
 		indexed="$(scratch_git -C "$t" ls-files -- ":(literal)$plant" 2>&1 | wc -l | tr -d ' ' || true)"
-		bytes="$(wc -c <"$t/$plant" 2>/dev/null | tr -d ' ' || true)"
+		if [ -L "$t/$plant" ]; then
+			bytes="a symlink"
+		else
+			bytes="$({ wc -c <"$t/$plant"; } 2>/dev/null | tr -d ' ' || true)"
+			bytes="${bytes:+$bytes byte(s)}"
+		fi
 		probe="$(cd "$t" && git -c core.fsmonitor=false -c grep.column=false -c grep.fullName=false -c color.grep=never \
 			-c submodule.recurse=false --work-tree=. grep -a --no-color -c -E -e '/hom[e]/' -e '/User[s]/' \
 			-e 'claud[e]-[0-9]' -e '/var/folder[s]/' -- ":(literal)$plant" 2>&1 | tr '\n' ' ' || true)"
-		printf '    | lost: %s: the failing pass gave %s; after it: in the index %s time(s), %s byte(s) on disk, a later git grep -c: %s\n' \
+		printf '    | lost: %s: in the failing pass: %s; after it: in the index %s time(s), %s on disk, a later git grep -c: %s\n' \
 			"$plant" "${gave:-no line of it}" "$indexed" "${bytes:-no file}" "${probe:-no line}" >&2
 	done
 	cp "$work/out" "$work/out.first"
@@ -238,6 +247,7 @@ mkdir -p "$t/docs"
 printf 'cd %swork  # local-path-ok: an example\n' "$linux" >"$t/docs/fx-guide-40x120-notes.md"
 ln -s "${linux}x" "$t/home-link"
 track "$t"
+rm -f "$work/trace"
 run_check "$t" "CHECK_NO_LOCAL_PATHS_TRACE=$work/trace"
 want=(
 	"mac.md:1: $home_shape"
