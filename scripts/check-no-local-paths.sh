@@ -44,8 +44,10 @@
 # its test pins both.
 #
 # It is not every path of a machine. A Windows path, `~user`, a path a URL
-# percent-encodes, a home directory broken across two rows and a scratch root
-# broken anywhere but after its `tmp/` are not found by their shape.
+# percent-encodes, a home directory broken across two rows, a scratch root
+# broken anywhere but after its `tmp/`, and text in an encoding ASCII's
+# letters do not spell (UTF-16, a file with a `working-tree-encoding`: the
+# scan reads the working tree's bytes) are not found by their shape.
 #
 # Two exceptions, and no others -- no directory is exempt:
 #
@@ -79,7 +81,11 @@
 # the line there), so this shell cannot read such a line as git did.
 #
 # It is one `git grep` over the tree, which gives every line that holds a
-# shape with its file and number, and that one answer is all the scan reads.
+# shape with its file and number, and that one answer is all the scan reads;
+# a second, `git grep -c`, counts the same lines file by file, and the scan
+# fails, naming the file, if the two readings disagree. A tracked symlink,
+# which `git grep` does not read, is published as its target: each target is
+# matched against the shapes, no exception applying, and a hit is refused.
 # No file name goes on a command line, so there is no `ARG_MAX` to batch
 # under, as scripts/check-no-secrets.sh must; the repository-level guards are
 # scripts/check-xfx-identity.sh's, which also scans with `git grep` (that
@@ -87,18 +93,30 @@
 #
 # Every line git gives is accounted for, or the check fails: a shape is
 # refused, a mark excuses it, or a placeholder taken out of it was all it
-# held, and the counts of those (and of lines in binary files) must add up
-# to the lines git gave. A line git matched in which this shell then finds no
-# shape and takes no placeholder out is refused too, never counted as
-# passing: git and this shell read it differently (they match with two regex
-# engines), and an answer that depends on which of them is right is no
-# answer. For the same reason a mark excuses a line only if bash's string
-# match finds the marker's letters in it as well as the regex. The check used
-# to grep the tree for the files and then each file for its lines, and a file
-# the first said held a shape and the second gave no line for was dropped
-# without a word, as was a line the shell read with no shape in it. On
-# 2026-11-10 its test's tree lost planted files that way on two CI runs
-# (macOS 15, git 2.56.0), and named them on every other run.
+# held. (The four counts, with lines in binary files, must add up to the
+# lines git gave; that guards this file's own code, not git's reading, which
+# the second pass is for.) A line git matched in which this shell then finds
+# no shape and takes no placeholder out is refused too, never counted as
+# passing: git and this shell match it separately, and an answer that
+# depends on which of them is right is no answer. For the same reason a mark
+# excuses a line only if bash's string match finds the marker's letters in
+# it as well as the regex. The limit: a line from which a placeholder was
+# taken out passes if this shell then finds no shape in it, so a real path
+# beside a placeholder that this shell's matcher misses (and git's does not)
+# would pass; nothing here can tell that line from one that held only the
+# placeholder.
+#
+# The check used to grep the tree for the files and then each file for its
+# lines, and a file the first named and the second gave no line for, or a
+# line the shell read with no shape in it, was dropped without a word. On
+# 2026-11-10 its test's tree lost planted files on two CI runs (macOS 15,
+# git 2.56.0) and named them on every other run; which step lost them that
+# check did not record, and the cause is not found.
+#
+# A caller may name a file in CHECK_NO_LOCAL_PATHS_TRACE: the tree's scan
+# then writes there, for each line git gave, its class (refused, binary,
+# marked, placeholder), its number and its path, NUL-separated, never its
+# text. Its test reads it when a plant goes unnamed.
 #
 # What it prints for a hit is the file, the line and the shape, never the
 # line's text: CI's log is public too.
@@ -176,8 +194,11 @@ marked_re="(^|[[:space:]])(#|//|--|;|<!--|/[*]).*${marker}(:.*)?([[:space:]]*(--
 
 # Whether the text $1 matches the ERE $2, as `[[ =~ ]]` says, BASH_REMATCH and
 # all. A pattern this shell cannot compile is status 2, which an `if` reads as
-# "no match"; that is a scan that did not run, so it is kept in
-# `uncompiled` for the scan to fail on, and the answer is still "no".
+# "no match"; it is kept in `uncompiled` for the scan to fail on. The guard
+# that matters is the positive control below, which runs every pattern here
+# and fails first on one that does not compile; this one keeps such a
+# failure in the tree's scan alone from passing. (A regexec that fails is
+# status 1, a "no match", so only a compile failure is seen here.)
 uncompiled=""
 rematch() {
 	local status=0
@@ -228,13 +249,15 @@ done
 
 # Counts of the last scan's lines: every line git gave, those its exceptions
 # excused (for the line that says it passed), those it refused and those in
-# binary files; the four add up to the first, or the scan fails.
+# binary files; the four add up to the first, or the scan fails. And the
+# tracked symlinks it read.
 given=0
 marked=0
 placeheld=0
 refused=0
 binary_files=0
 binary_lines=0
+links=0
 
 # Every hit in the tracked files of `root`, one `<path>:<line>: <shape>` per
 # line on standard output. Returns non-zero, having said why on standard
@@ -243,15 +266,19 @@ binary_lines=0
 # standard error (bad config exits 128; an unreadable tracked file is only
 # `error: failed to stat`, with status 1).
 scan_tree() {
-	local root="$1" path number text bare entry hit current="" binary=no markable=no probe removed status
-	local given_lines="$work/given" errors="$work/errors"
+	local root="$1" trace="${2:-}" path number text bare entry hit current="" in_file=0 binary=no markable=no probe removed status
+	local given_lines="$work/given" tally="$work/tally" counted="$work/counted" errors="$work/errors"
+	local p1 c1 p2 c2 target shape
 	given=0
 	marked=0
 	placeheld=0
 	refused=0
 	binary_files=0
 	binary_lines=0
+	links=0
 	status=0
+	: >"$tally"
+	[ -z "$trace" ] || : >"$trace"
 	# `-z`: `<path>NUL<number>NUL<text>LF` for every line, the path as it is.
 	scan_git "$root" grep -a --no-color -n -z -E "${grep_args[@]}" -- >"$given_lines" 2>"$errors" || status=$?
 	if [ "$status" -gt 1 ] || [ -s "$errors" ]; then
@@ -271,9 +298,12 @@ scan_tree() {
 			;;
 		esac
 		given=$((given + 1))
-		# A file's lines come together, in the index's order.
+		# A file's lines come together, in the index's order; each file's
+		# count goes to the tally as `git grep -c -z` writes it.
 		if [ "$path" != "$current" ]; then
+			[ -z "$current" ] || printf '%s\0%s\n' "$current" "$in_file" >>"$tally"
 			current="$path"
+			in_file=0
 			# Read from the file named, never from what this loop reads.
 			if ! probe="$(tr -d -c '\000' <"$root/$path" | wc -c)"; then
 				printf 'check-no-local-paths: could not read %s\n' "$root/$path" >&2
@@ -290,8 +320,10 @@ scan_tree() {
 				markable=no
 			fi
 		fi
+		in_file=$((in_file + 1))
 		if [ "$binary" = yes ]; then
 			binary_lines=$((binary_lines + 1))
+			[ -z "$trace" ] || printf 'binary\0%s\0%s\0' "$number" "$path" >>"$trace"
 			continue
 		fi
 		# A mark excuses only a line that holds the marker's own letters,
@@ -299,6 +331,7 @@ scan_tree() {
 		# that answers wrongly cannot excuse a line that has no mark.
 		if [ "$markable" = yes ] && [[ $text == *"$marker"* ]] && rematch "$text" "$marked_re"; then
 			marked=$((marked + 1))
+			[ -z "$trace" ] || printf 'marked\0%s\0%s\0' "$number" "$path" >>"$trace"
 			continue
 		fi
 		# A space after the line: every match below then ends in the
@@ -342,10 +375,18 @@ scan_tree() {
 		if [ -n "$hit" ]; then
 			refused=$((refused + 1))
 			printf '%s:%s: %s\n' "$path" "$number" "$hit"
+			[ -z "$trace" ] || printf 'refused\0%s\0%s\0' "$number" "$path" >>"$trace"
 		else
 			placeheld=$((placeheld + 1))
+			[ -z "$trace" ] || printf 'placeholder\0%s\0%s\0' "$number" "$path" >>"$trace"
 		fi
 	done <"$given_lines"
+	# A stream that ends inside a record is one git did not finish.
+	if [ -n "$path" ]; then
+		printf 'check-no-local-paths: git grep ended inside a record of %s\n' "$path" >&2
+		return 1
+	fi
+	[ -z "$current" ] || printf '%s\0%s\n' "$current" "$in_file" >>"$tally"
 	if [ -n "$uncompiled" ]; then
 		printf 'check-no-local-paths: this shell could not compile a pattern of its own (status 2 from [[ =~ ]])\n' >&2
 		return 1
@@ -356,6 +397,54 @@ scan_tree() {
 		printf 'check-no-local-paths: git gave %d line(s) and the scan accounted for %d\n' "$given" "$((refused + binary_lines + marked + placeheld))" >&2
 		return 1
 	fi
+	# The second reading: git's own count of the same lines, file by file.
+	# A line one pass gave and the other did not fails the scan.
+	status=0
+	scan_git "$root" grep -a --no-color -c -z -E "${grep_args[@]}" -- >"$counted" 2>"$errors" || status=$?
+	if [ "$status" -gt 1 ] || [ -s "$errors" ]; then
+		printf 'check-no-local-paths: git grep -c could not search %s (status %d):\n' "$root" "$status" >&2
+		cat "$errors" >&2
+		return 1
+	fi
+	if ! cmp -s "$tally" "$counted"; then
+		exec 3<"$tally" 4<"$counted"
+		while :; do
+			p1="" c1="" p2="" c2=""
+			IFS= read -r -d '' p1 <&3 && IFS= read -r c1 <&3 || true
+			IFS= read -r -d '' p2 <&4 && IFS= read -r c2 <&4 || true
+			if [ "$p1" != "$p2" ] || [ "$c1" != "$c2" ] || [ -z "$p1" ]; then
+				break
+			fi
+		done
+		exec 3<&- 4<&-
+		printf 'check-no-local-paths: two readings of the tree disagree: the line pass has %s with %s line(s), git grep -c has %s with %s\n' \
+			"${p1:-(nothing)}" "${c1:-0}" "${p2:-(nothing)}" "${c2:-0}" >&2
+		return 1
+	fi
+	# Each tracked symlink's target, which is what it publishes.
+	if ! scan_git "$root" ls-files -s -z >"$work/staged" 2>"$errors" || [ -s "$errors" ]; then
+		printf 'check-no-local-paths: git ls-files could not list %s\n' "$root" >&2
+		return 1
+	fi
+	while IFS= read -r -d '' entry; do
+		case "$entry" in
+		120000\ *) ;;
+		*) continue ;;
+		esac
+		path="${entry#*$'\t'}"
+		links=$((links + 1))
+		if ! target="$(readlink "$root/$path")"; then
+			printf 'check-no-local-paths: could not read the symlink %s\n' "$root/$path" >&2
+			return 1
+		fi
+		hit=""
+		for shape in "${patterns[@]}"; do
+			if rematch "$target" "${shape#*:}"; then
+				hit="${hit:+$hit, }${shape%%:*}"
+			fi
+		done
+		[ -z "$hit" ] || printf '%s: (a symlink, whose target is published): %s\n' "$path" "$hit"
+	done <"$work/staged"
 }
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-local-paths.XXXXXX")"
@@ -401,6 +490,7 @@ printf 'trace %sx # %s\n' "$linux" "$marker" >"$control/fx-trace-40x120-report-1
 printf 'x\000%s\n' "$mac" >"$control/blob.bin"
 mkdir -p "$control/x-bodies"
 printf '%s # %s\n' "$linux" "$marker" >"$control/x-bodies/001.json" # a mark in a capture
+ln -s "${linux}x" "$control/home-link" # a symlink, published as its target
 scratch_git -C "$control" add -A -f
 want="blob.bin: (a binary file, which cannot be marked): a local path
 lines.md:1: a macOS home directory
@@ -417,7 +507,8 @@ lines.md:18: a Linux home directory
 fx-trace-40x120-report-1.md:1: a Linux home directory
 lines.md:7: a Linux home directory
 lines.md:9: a Linux home directory
-x-bodies/001.json:1: a Linux home directory"
+x-bodies/001.json:1: a Linux home directory
+home-link: (a symlink, whose target is published): a Linux home directory"
 # Into a file, not through `$( )`: the counts are this shell's.
 if ! scan_tree "$control" >"$work/got"; then
 	fail 'the scan could not run in its own control; this scan is not working'
@@ -483,7 +574,7 @@ fi
 # the scan or went while it ran; so the look for one comes after the scan,
 # and refuses it by name.
 scan_status=0
-scan_tree . >"$work/found" || scan_status=$?
+scan_tree . "${CHECK_NO_LOCAL_PATHS_TRACE:-}" >"$work/found" || scan_status=$?
 if ! scan_git . diff-files --name-only -z --diff-filter=DT >"$work/deleted" 2>"$work/errors" || [ -s "$work/errors" ]; then
 	fail 'git diff-files could not list the tracked files missing from this checkout:'
 	cat "$work/errors" >&2
