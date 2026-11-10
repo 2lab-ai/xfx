@@ -36392,11 +36392,13 @@ mod tests {
             assert_eq!(menu(&shell).len(), usize::from(panel), "{keys:?}");
         }
         // And painted for it: under four rows of composer the bare `/` shows
-        // three commands, its header's range `1–3` (`-four-all`).
+        // three commands, its header's range `1–3`, and still says what a
+        // bare slash's header says (`-four-all`).
         let mut all = shell(18, 80);
         all.route_bytes(b"\x0a\x0a\x0a/");
         let rows = menu(&all);
         assert_eq!(rows.len(), 5);
+        assert!(visible_text(&rows[0]).contains("\u{b7} type to filter"));
         assert!(
             visible_text(&rows[0]).trim_end().ends_with("1\u{2013}3"),
             "{:?}",

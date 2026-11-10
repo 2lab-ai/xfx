@@ -456,6 +456,11 @@ impl Picker {
         &self.query
     }
 
+    /// The slash word in it: what is matched, and what the header reads.
+    fn word(&self) -> &str {
+        &self.query[self.word..]
+    }
+
     /// The trigger it belongs to.
     pub(crate) fn trigger(&self) -> Trigger {
         self.trigger
@@ -604,7 +609,7 @@ impl Picker {
     pub(crate) fn replace_skills(&mut self, skills: &[Skill]) -> bool {
         self.matches.truncate(self.commands);
         self.matches.extend(
-            super::skills_menu::matching(skills, &self.query[self.word + 1..])
+            super::skills_menu::matching(skills, &self.word()[1..])
                 .into_iter()
                 .map(Entry::Skill),
         );
@@ -655,7 +660,7 @@ impl Picker {
         } else {
             "Results"
         };
-        let left = if self.query == "/" {
+        let left = if self.word() == "/" {
             format!("{noun} {count} \u{b7} type to filter")
         } else {
             format!("{noun} {count}")
@@ -1151,6 +1156,14 @@ mod tests {
             assert_eq!(picker.query(), draft);
             assert_eq!(picker.word_start(), draft.len() - "/he".len(), "{draft:?}");
         }
+        // The header reads the word: a bare slash past blanks still says
+        // `type to filter` (`fx-p5-slash-leading-ws-short-18x80-four-all`).
+        let header = |draft: &str| {
+            let picker = Picker::open(draft, &[]).expect("every command");
+            plain(&picker.rows(120, 40, 0, PALETTE, true)[0])
+        };
+        assert_eq!(header("\n\n\n/"), header("/"));
+        assert!(header("  /").contains("\u{b7} type to filter"));
         // Other blanks are not upstream's four.
         for draft in ["\u{a0}/he", "\u{b}/he", "\u{c}/he", "\u{3000}/he", "x/he"] {
             assert_eq!(Trigger::of(draft), None, "{draft:?}");
