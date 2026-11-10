@@ -1,0 +1,180 @@
+# head 8f622949; sides: main dcfa5146, at-stack 4130f4ac, ctrlo-other-pickers e7e1bcf6, page-keys 3ea16930, image-loss bde1ddfa
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:909]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:197]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:308]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:433]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:124]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:934]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:350]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:71, scripts/fxcap/parity-ledger.toml:156, scripts/fxcap/parity-ledger.toml:237, scripts/fxcap/parity-ledger.toml:268, scripts/fxcap/parity-ledger.toml:281, scripts/fxcap/parity-ledger.toml:295, scripts/fxcap/parity-ledger.toml:322, scripts/fxcap/parity-ledger.toml:336, scripts/fxcap/parity-ledger.toml:419]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:62]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:183, scripts/fxcap/parity-ledger.toml:336]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:574, scripts/fxcap/parity-ledger.toml:585]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:797]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:162	[scripts/fxcap/parity-ledger.toml:656]
+    main* = row | at-stack = row | ctrlo-other-pickers = row | page-keys* = row | image-loss* = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:898]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:761]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:156, scripts/fxcap/parity-ledger.toml:322]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:733]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:451, scripts/fxcap/parity-ledger.toml:506, scripts/fxcap/parity-ledger.toml:520, scripts/fxcap/parity-ledger.toml:534]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:140, scripts/fxcap/parity-ledger.toml:364, scripts/fxcap/parity-ledger.toml:378, scripts/fxcap/parity-ledger.toml:388, scripts/fxcap/parity-ledger.toml:392, scripts/fxcap/parity-ledger.toml:406, scripts/fxcap/parity-ledger.toml:464, scripts/fxcap/parity-ledger.toml:492, scripts/fxcap/parity-ledger.toml:809]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+docs/parity.md:243	[scripts/fxcap/parity-ledger.toml:251]
+    main* = row | at-stack* = row | ctrlo-other-pickers* = row | page-keys* = row | image-loss* = row
+scripts/check-xfx-identity.sh:5	[docs/parity.md:241]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+scripts/fxcap/capture.sh:326-328	[scripts/fxcap/parity-ledger.toml:86]
+    main* -> 330-332 MOVED | at-stack -> 407-409 | ctrlo-other-pickers -> 407-409 | page-keys -> 331-333 | image-loss -> 327-329
+scripts/fxcap/capture.sh:379-385	[scripts/fxcap/parity-ledger.toml:86]
+    main* -> 383-389 MOVED | at-stack -> 514-520 | ctrlo-other-pickers -> 514-520 | page-keys -> 494-510 | image-loss -> 490-496
+scripts/fxcap/capture.sh:681	[scripts/fxcap/parity-ledger.toml:79]
+    main* -> 685 MOVED | at-stack -> 881 | ctrlo-other-pickers -> 881 | page-keys -> 849 | image-loss -> 845
+scripts/fxcap/capture.sh:980	[scripts/fxcap/parity-ledger.toml:86]
+    main* -> 984 MOVED | at-stack -> 1192 | ctrlo-other-pickers -> 1192 | page-keys -> 1153 | image-loss -> 1148
+scripts/fxcap/capture.sh:987	[scripts/fxcap/parity-ledger.toml:86]
+    main* -> 991 MOVED | at-stack -> 1199 | ctrlo-other-pickers -> 1199 | page-keys* -> 1161 MOVED | image-loss* -> 1156 MOVED
+scripts/fxcap/capture.sh:1157	[scripts/fxcap/parity-ledger.toml:148]
+    main* -> 1161 MOVED | at-stack -> 1396 | ctrlo-other-pickers -> 1396 | page-keys -> 1357 | image-loss -> 1333
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:54]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+scripts/smoke-tui.sh:10483-10498	[docs/parity.md:162, docs/parity.md:237]
+    main* = | at-stack -> 10502-10517 | ctrlo-other-pickers -> 10502-10517 | page-keys -> 10504-10519 | image-loss -> 10504-10519
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/config.rs:850-851	[scripts/fxcap/parity-ledger.toml:552, scripts/fxcap/parity-ledger.toml:553]
+    main* = | at-stack -> 857-858 | ctrlo-other-pickers -> 857-858 | page-keys -> 857-858 | image-loss -> 857-858
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:641, scripts/fxcap/parity-ledger.toml:651, docs/parity.md:237]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/gateway/mod.rs:994-995	[docs/parity.md:237]
+    main* -> 1005-1006 MOVED | at-stack* -> 1005-1006 MOVED | ctrlo-other-pickers* -> 1005-1006 MOVED | page-keys* -> 1005-1006 MOVED | image-loss* =
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:761]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:251]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:251]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/mcp/runtime.rs:90	[scripts/fxcap/parity-ledger.toml:1078, scripts/fxcap/parity-ledger.toml:1186]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/mcp/runtime.rs:1336	[scripts/fxcap/parity-ledger.toml:1078]
+    main* = | at-stack = | ctrlo-other-pickers = | page-keys = | image-loss =
+src/mcp/transport.rs:1318-1320	[docs/parity.md:221]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:887]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:451]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:887]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:795]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/provider/mod.rs:117	[scripts/fxcap/parity-ledger.toml:783]
+    main* = | at-stack -> 118 | ctrlo-other-pickers -> 118 | page-keys -> 118 | image-loss -> 118
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/session/store.rs:74	[docs/parity.md:48]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:932]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:1139, docs/parity.md:176]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:583, docs/parity.md:158]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tools/question.rs:60-76	[docs/parity.md:242]
+    main* = | at-stack -> 63-79 | ctrlo-other-pickers -> 63-79 | page-keys* = | image-loss* =
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:583, docs/parity.md:158]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:889]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:944]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:795, scripts/fxcap/parity-ledger.toml:818, scripts/fxcap/parity-ledger.toml:830, scripts/fxcap/parity-ledger.toml:841, scripts/fxcap/parity-ledger.toml:852, scripts/fxcap/parity-ledger.toml:875, scripts/fxcap/parity-ledger.toml:920]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:464]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/approval_view.rs:1224	[scripts/fxcap/parity-ledger.toml:1002]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/frame.rs:2757	[scripts/fxcap/parity-ledger.toml:534]
+    main* -> 2765 MOVED | at-stack -> 2765 | ctrlo-other-pickers -> 2765 | page-keys* -> 2765 MOVED | image-loss* -> 2765 MOVED
+src/tui/frame.rs:2803	[docs/parity.md:244]
+    main* -> 2811 MOVED | at-stack -> 2811 | ctrlo-other-pickers -> 2811 | page-keys -> 2811 | image-loss -> 2811
+src/tui/full_transcript.rs:495	[scripts/fxcap/parity-ledger.toml:364]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/full_transcript.rs:3010	[scripts/fxcap/parity-ledger.toml:492, scripts/fxcap/parity-ledger.toml:1002]
+    main* -> 3020 MOVED | at-stack -> 3025 | ctrlo-other-pickers -> 3015 | page-keys* -> 3020 MOVED | image-loss* -> 3020 MOVED
+src/tui/full_transcript.rs:3061	[scripts/fxcap/parity-ledger.toml:506, scripts/fxcap/parity-ledger.toml:520]
+    main* -> 3071 MOVED | at-stack -> 3076 | ctrlo-other-pickers -> 3066 | page-keys* -> 3071 MOVED | image-loss* -> 3071 MOVED
+src/tui/gesture.rs:162-164	[scripts/fxcap/parity-ledger.toml:1173]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/gesture.rs:176-188	[scripts/fxcap/parity-ledger.toml:1161, scripts/fxcap/parity-ledger.toml:1173]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/grid.rs:1088	[scripts/fxcap/parity-ledger.toml:979]
+    main* = | at-stack -> 1243 | ctrlo-other-pickers -> 1243 | page-keys* = | image-loss* =
+src/tui/layout.rs:98	[scripts/fxcap/parity-ledger.toml:967, scripts/fxcap/parity-ledger.toml:1015]
+    main* = | at-stack -> 125 | ctrlo-other-pickers -> 125 | page-keys -> 125 | image-loss -> 125
+src/tui/mcp_menu.rs:786-791	[scripts/fxcap/parity-ledger.toml:1185]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:433]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:1148]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/picker.rs:165-167	[docs/parity.md:237]
+    main = | at-stack = | ctrlo-other-pickers = | page-keys* = | image-loss =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:932]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/shell.rs:183-191	[scripts/fxcap/parity-ledger.toml:45, scripts/fxcap/parity-ledger.toml:46]
+    main* = | at-stack changed | ctrlo-other-pickers changed | page-keys changed | image-loss changed
+src/tui/shell.rs:1852	[scripts/fxcap/parity-ledger.toml:956]
+    main* -> 1857 MOVED | at-stack -> 1939 | ctrlo-other-pickers -> 1939 | page-keys -> 1944 | image-loss -> 1944
+src/tui/shell.rs:3818-3835	[scripts/fxcap/parity-ledger.toml:552, scripts/fxcap/parity-ledger.toml:553]
+    main* -> 3823-3840 MOVED | at-stack -> 3928-3945 | ctrlo-other-pickers -> 3928-3945 | page-keys -> 3934-3951 | image-loss -> 3934-3951
+src/tui/shell.rs:4555	[scripts/fxcap/parity-ledger.toml:1108]
+    main* -> 4560 MOVED | at-stack -> 4766 | ctrlo-other-pickers -> 4766 | page-keys -> 4772 | image-loss -> 4772
+src/tui/shell.rs:10556	[scripts/fxcap/parity-ledger.toml:864, scripts/fxcap/parity-ledger.toml:866]
+    main* -> 10947 MOVED | at-stack -> 10990 | ctrlo-other-pickers -> 10928 | page-keys changed | image-loss -> 11294
+src/tui/shell.rs:13960	[scripts/fxcap/parity-ledger.toml:506]
+    main* -> 14355 MOVED | at-stack changed | ctrlo-other-pickers -> 14518 | page-keys -> 14749 | image-loss -> 14858
+src/tui/shell.rs:16979	[scripts/fxcap/parity-ledger.toml:690, scripts/fxcap/parity-ledger.toml:990]
+    main* -> 17389 MOVED | at-stack -> 17725 | ctrlo-other-pickers -> 17670 | page-keys -> 17848 | image-loss -> 17984
+src/tui/shell.rs:42483	[scripts/fxcap/parity-ledger.toml:807, scripts/fxcap/parity-ledger.toml:818, scripts/fxcap/parity-ledger.toml:830, scripts/fxcap/parity-ledger.toml:841, scripts/fxcap/parity-ledger.toml:852, scripts/fxcap/parity-ledger.toml:920]
+    main* -> 46692 MOVED | at-stack -> 47911 | ctrlo-other-pickers -> 46766 | page-keys -> 49165 | image-loss -> 50140
+src/tui/toolgroup.rs:940	[scripts/fxcap/parity-ledger.toml:378, scripts/fxcap/parity-ledger.toml:875]
+    main* = | at-stack -> 958 | ctrlo-other-pickers -> 958 | page-keys* = | image-loss* =
+src/tui/toolgroup.rs:1017	[scripts/fxcap/parity-ledger.toml:392]
+    main* = | at-stack -> 1035 | ctrlo-other-pickers -> 1035 | page-keys* = | image-loss* =
+src/tui/toolgroup.rs:1131	[scripts/fxcap/parity-ledger.toml:406]
+    main* = | at-stack -> 1149 | ctrlo-other-pickers -> 1149 | page-keys* = | image-loss* =
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:350]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/wrap.rs:673-693	[scripts/fxcap/parity-ledger.toml:979]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+src/tui/wrap.rs:726	[scripts/fxcap/parity-ledger.toml:478]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+tests/e2e/cli.test.ts:445	[docs/parity.md:244]
+    main* = | at-stack = | ctrlo-other-pickers = | page-keys = | image-loss =
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    main* = | at-stack* = | ctrlo-other-pickers* = | page-keys* = | image-loss* =
+# 89 references; 29 (side, reference) pairs MOVED; * = the side's own text cites it

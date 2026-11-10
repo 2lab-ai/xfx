@@ -1,0 +1,94 @@
+# The gate's counts, from its step logs.
+## 18-fxcap-test-sweep
+Ran 76 tests in 5.908s
+OK
+Ran 28 tests in 8.592s
+OK
+## 19-fxcap-test-capture
+Ran 109 tests in 375.335s
+OK
+## 04-test: each binary's 'test result' line, then the sums
+     Running unittests src/lib.rs
+test result: ok. 4927 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 52.05s
+     Running unittests src/main.rs
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/cli.rs
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.70s
+     Running tests/gateway.rs
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+     Running tests/interactive.rs
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.79s
+     Running tests/ledger_compat.rs
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+     Running tests/llmux.rs
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.15s
+     Running tests/mcp.rs
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.02s
+     Running tests/parity.rs
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.47s
+     Running tests/permissions.rs
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+     Running tests/session_compat.rs
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+     Running tests/sessions.rs
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.80s
+     Running tests/tool_loop.rs
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+     Running tests/tui.rs
+test result: ok. 189 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.98s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+# sum: 5854 passed, 0 failed, 7 ignored
+## 05-test-fault: each binary's 'test result' line, then the sums
+     Running unittests src/lib.rs
+test result: ok. 4950 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 50.00s
+     Running unittests src/main.rs
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/cli.rs
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.15s
+     Running tests/gateway.rs
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.37s
+     Running tests/interactive.rs
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.88s
+     Running tests/ledger_compat.rs
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.88s
+     Running tests/llmux.rs
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.55s
+     Running tests/mcp.rs
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.60s
+     Running tests/parity.rs
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.95s
+     Running tests/permissions.rs
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.56s
+     Running tests/session_compat.rs
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+     Running tests/sessions.rs
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.99s
+     Running tests/tool_loop.rs
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.16s
+     Running tests/tui.rs
+test result: ok. 203 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.22s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+# sum: 5891 passed, 0 failed, 7 ignored
+## 09-check-no-local-paths
+check-no-local-paths: ok (22064 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+## 10-test-check-no-local-paths
+test-check-no-local-paths: ok shapes                     28 planted, each named by file and line
+test-check-no-local-paths: ok self                       its own source matches none of its shapes
+test-check-no-local-paths: ok passes                     placeholders, relative and derived paths, a marked fixture, a renamed report
+test-check-no-local-paths: ok env GIT_DIR                the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_INDEX_FILE         the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_WORK_TREE          the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GREP_OPTIONS           the plant named, the decoy unchanged
+test-check-no-local-paths: ok env HOME                   the plant named, the decoy unchanged
+test-check-no-local-paths: ok skip-worktree              refused by name
+test-check-no-local-paths: ok deleted                    refused by name
+test-check-no-local-paths: ok (10 cases)
+## 16-test-gate-env
+test-gate-env: ok decoy-setup-maintenance        the retired product name is still in tracked content
+test-gate-env: ok decoy-setup-starts-nothing     new_decoy's commit starts no maintenance or gc
+test-gate-env: ok ci-script-tests-per-os         test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths on macOS and Linux rows
+test-gate-env: ok (66 cases)
+## 22-smoke
+47 check(s), 0 failure(s)
+## 23-smoke-tui
+smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures
