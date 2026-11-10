@@ -1152,9 +1152,6 @@ impl Interrupts {
 pub(crate) struct Conversation {
     pub(crate) recorder: SessionRecorder,
     pub(crate) tools: ToolContext,
-    /// The history notices this conversation has already said
-    /// ([`Self::unsaid`]).
-    said: std::collections::BTreeSet<String>,
     /// The provider's count of this conversation's last measured request,
     /// which the TUI's compaction scales its estimates by
     /// ([`crate::agent::compact::Calibration`]). Upstream keeps it on the
@@ -1168,46 +1165,6 @@ pub(crate) struct Conversation {
 }
 
 impl Conversation {
-    /// The lines of `notices` this conversation has not said yet, each once and
-    /// in their order. They stay unsaid until [`Self::said`] records each one
-    /// shown.
-    ///
-    /// The history is rebuilt for every request, and so are the notices about
-    /// what it could not send again -- an image whose saved copy could not be
-    /// read back -- so the same line would otherwise open every turn after a
-    /// resume. Said once, it stays true for the rest of the conversation. A
-    /// new conversation starts with nothing said. A reasoning state left
-    /// behind for another provider or model has no notice: upstream drops it
-    /// without a word (`projectProviderReplay`,
-    /// `types.zig:1668-1682@481104fd`), and so does xfx.
-    ///
-    /// **Said when handed to the screen, not when found.** A turn stopped
-    /// before its request hands nothing on (the TUI refuses a stopped turn's
-    /// events, `crate::tui::bridge::send_ui`), so a notice it found belongs to
-    /// the next turn, which sends the history the notice is about. Upstream
-    /// has no notice about the history; its `[context]` lines, said once a
-    /// session (`claimContextNotice`), are not lost to such a stop either: a
-    /// project file's is claimed and written when the prompt is submitted
-    /// (`refreshProjectContext`, `app_agent_runtime.zig:906-938@481104fd`,
-    /// from `main.zig:1200`); the skill and MCP catalogs' only once the turn
-    /// is past its stop checks (`orchestrator.zig:5950`, `:6001`, after
-    /// `:5893-5948`); and those a tool run pushes mid-turn, after a request
-    /// (`orchestrator.zig:11345`, `:12354`), each claimed, then queued
-    /// (`app_callbacks.zig:1294-1307`).
-    pub(crate) fn unsaid(&self, notices: Vec<String>) -> Vec<String> {
-        let mut found = std::collections::BTreeSet::new();
-        notices
-            .into_iter()
-            .filter(|notice| !self.said.contains(notice) && found.insert(notice.clone()))
-            .collect()
-    }
-
-    /// Records `notice`, one of [`Self::unsaid`]'s lines, as shown: this
-    /// conversation does not say it again.
-    pub(crate) fn said(&mut self, notice: String) {
-        self.said.insert(notice);
-    }
-
     /// What `/status` says about this conversation: the turns it holds and the
     /// "always" answers its authority has been given.
     ///
@@ -1480,7 +1437,6 @@ pub(crate) fn bind_conversation(
     Conversation {
         recorder,
         tools,
-        said: std::collections::BTreeSet::new(),
         calibration: std::sync::Arc::default(),
     }
 }
@@ -1834,21 +1790,6 @@ pub async fn run(
     }
 }
 
-/// Writes to `out` the lines of the history's `notices` this conversation has
-/// not said yet, one per line, each recorded as said once it is written
-/// ([`Conversation::unsaid`]).
-fn say_unsaid(
-    conversation: &mut Conversation,
-    notices: Vec<String>,
-    out: &mut impl Write,
-) -> io::Result<()> {
-    for notice in conversation.unsaid(notices) {
-        writeln!(out, "{notice}")?;
-        conversation.said(notice);
-    }
-    Ok(())
-}
-
 /// Runs exactly one turn, the same way `xfx ask` runs its one.
 async fn one_turn(
     provider: &dyn Provider,
@@ -1896,6 +1837,9 @@ async fn one_turn(
         config.home().map(std::path::Path::to_path_buf),
     );
 
+    // This shell continues no saved session, so its history holds no image
+    // read from a copy beside the log: nothing for a request to check again
+    // ([`crate::session::store::CopiesChecked`]).
     let replay = conversation
         .recorder
         .state()
@@ -1913,9 +1857,6 @@ async fn one_turn(
 
     let stdout = io::stdout();
     let stderr = io::stderr();
-    let mut stderr_lock = stderr.lock();
-    say_unsaid(conversation, replay.notices, &mut stderr_lock)?;
-    drop(stderr_lock);
     // What the TUI says under the card, one `[shell]` line per row: which of
     // the named skills loaded (`buildExplicitPromptSection`'s `load_notice`).
     if let Some((_, said)) = &skills.explicit.load_notice {
@@ -3949,109 +3890,5 @@ mod tests {
         // handed to the terminal.
         let (out, _) = allowlist_said("add command \"a\u{1b}[2Jb\"", &config, &rules);
         assert!(!out.contains('\u{1b}'), "{out:?}");
-    }
-
-    #[test]
-    fn the_line_shell_says_each_history_notice_once_and_only_once_it_is_written() {
-        // `Conversation::unsaid` finds the lines and `said` records them. The
-        // line shell writes each line it found to stderr and records it then:
-        // a line that could not be written is still unsaid, and once written,
-        // the next turn's identical rebuild says nothing. A line the rebuild
-        // repeats (an image per result that returned it) is said once.
-        struct Closed;
-        impl Write for Closed {
-            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-                Err(io::ErrorKind::BrokenPipe.into())
-            }
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
-        }
-        let root = tempfile::tempdir().expect("a root");
-        let config = config_under(root.path());
-        let store = SessionStore::open(&root.path().join("home").join(".xfx")).expect("a store");
-        let mut conversation = open_conversation(
-            &store,
-            &config,
-            &config.model,
-            crate::app::permission_session(config.permission_mode, LiveRules::default()),
-            None,
-            &CancelToken::new(),
-        )
-        .expect("a conversation");
-        let rebuilt = || {
-            ["xfx: one", "xfx: two", "xfx: one"]
-                .map(str::to_string)
-                .to_vec()
-        };
-        let found = ["xfx: one", "xfx: two"];
-        // Found is not said: asking again finds the same lines.
-        assert_eq!(conversation.unsaid(rebuilt()), found);
-        assert_eq!(conversation.unsaid(rebuilt()), found);
-        // Not written, not said.
-        assert!(say_unsaid(&mut conversation, rebuilt(), &mut Closed).is_err());
-        assert_eq!(conversation.unsaid(rebuilt()), found);
-        let mut first = Vec::new();
-        say_unsaid(&mut conversation, rebuilt(), &mut first).expect("written");
-        assert_eq!(
-            String::from_utf8(first).expect("utf-8"),
-            "xfx: one\nxfx: two\n"
-        );
-        let mut again = Vec::new();
-        say_unsaid(&mut conversation, rebuilt(), &mut again).expect("written");
-        assert!(again.is_empty(), "{:?}", String::from_utf8_lossy(&again));
-        assert!(conversation.unsaid(rebuilt()).is_empty());
-    }
-
-    #[test]
-    fn the_line_shell_leaves_unsaid_only_the_line_it_could_not_write() {
-        // Per line, not per batch: stderr takes the first notice whole and
-        // refuses the second. The first is said, the second is still unsaid,
-        // and the next turn writes the second alone.
-        struct TakesOnly {
-            written: Vec<u8>,
-            room: usize,
-        }
-        impl Write for TakesOnly {
-            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-                if self.room == 0 {
-                    return Err(io::ErrorKind::BrokenPipe.into());
-                }
-                let taken = bytes.len().min(self.room);
-                self.written.extend_from_slice(&bytes[..taken]);
-                self.room -= taken;
-                Ok(taken)
-            }
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
-        }
-        let root = tempfile::tempdir().expect("a root");
-        let config = config_under(root.path());
-        let store = SessionStore::open(&root.path().join("home").join(".xfx")).expect("a store");
-        let mut conversation = open_conversation(
-            &store,
-            &config,
-            &config.model,
-            crate::app::permission_session(config.permission_mode, LiveRules::default()),
-            None,
-            &CancelToken::new(),
-        )
-        .expect("a conversation");
-        let rebuilt = || ["xfx: one", "xfx: two"].map(str::to_string).to_vec();
-        let mut stderr = TakesOnly {
-            written: Vec::new(),
-            room: "xfx: one\n".len(),
-        };
-        assert!(say_unsaid(&mut conversation, rebuilt(), &mut stderr).is_err());
-        assert_eq!(
-            String::from_utf8(stderr.written).expect("utf-8"),
-            "xfx: one\n"
-        );
-        assert_eq!(conversation.unsaid(rebuilt()), ["xfx: two"]);
-        let mut next = Vec::new();
-        say_unsaid(&mut conversation, rebuilt(), &mut next).expect("written");
-        assert_eq!(String::from_utf8(next).expect("utf-8"), "xfx: two\n");
-        assert!(conversation.unsaid(rebuilt()).is_empty());
     }
 }

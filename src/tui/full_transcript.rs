@@ -947,8 +947,8 @@ fn bounded(text: &str) -> String {
 ///
 /// Stands where the recorder stood (`super::worker`'s `run_turn`): every
 /// record goes to the journal first, untouched and unconditionally, and only
-/// then are its [`details`] sent. **Best effort**, like the history notices
-/// beside it: the log is the record and this is a view of it, so a detail the
+/// then are its [`details`] sent. **Best effort**, as every hand-over to the
+/// UI here is: the log is the record and this is a view of it, so a detail the
 /// UI could not be given -- a cancelled turn, a UI that is gone -- costs the
 /// view and nothing else.
 pub(crate) struct Teed<'a> {

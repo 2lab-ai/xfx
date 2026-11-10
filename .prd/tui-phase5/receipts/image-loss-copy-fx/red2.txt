@@ -1,0 +1,33 @@
+# Round 2 RED: 3a17da54 (dba6007b plus the tests only), in the worktree, TMPDIR a short scratch path:
+#   cargo test --locked --lib -- a_resumed_prompt_images_copy_is_read_at_each_request a_copy_a_request_cannot_carry a_prompt_image_never_read_back_is_held_back a_prompt_images_copy_the_resume_cannot_stat a_tool_results_image_is_saved_and_sent_again a_tools_images_belong_right_behind
+#   cargo test --locked --test sessions -- ask_resume_whose_prompt_images_copy_changed ask_resume_of_a_session_a_prompt_images_copy_is_gone
+#   cargo test --locked --test tui -- a_resume_of_a_session_a_prompt_images_copy_is_gone_from
+# Each test's verdict, each panic's place and its first lines (a log dump cut at 300 characters).
+test session::store::tests::a_tools_images_belong_right_behind_the_result_that_succeeded ... ok
+test tui::worker::tests::a_prompt_image_never_read_back_is_held_back_as_upstreams_with_no_file ... FAILED
+test session::store::tests::a_prompt_images_copy_the_resume_cannot_stat_refuses_it_and_one_it_cannot_open_does_not ... FAILED
+test session::store::tests::a_tool_results_image_is_saved_and_sent_again_with_its_result_after_a_resume ... ok
+test tui::worker::tests::a_resumed_prompt_images_copy_is_read_at_each_request_and_one_changed_fails_its_turn ... FAILED
+test tui::worker::tests::a_copy_a_request_cannot_carry_is_held_back_with_upstreams_note_and_the_turn_goes_on ... FAILED
+thread 'tui::worker::tests::a_prompt_image_never_read_back_is_held_back_as_upstreams_with_no_file' (455878460) panicked at src/tui/worker.rs:19135:9:
+assertion `left == right` failed
+  left: Some("request failed: MissingImageSnapshot")
+ right: None
+thread 'session::store::tests::a_prompt_images_copy_the_resume_cannot_stat_refuses_it_and_one_it_cannot_open_does_not' (455878456) panicked at src/session/store.rs:6071:22:
+a copy the resume cannot stat let it go on
+thread 'tui::worker::tests::a_resumed_prompt_images_copy_is_read_at_each_request_and_one_changed_fails_its_turn' (455878461) panicked at src/tui/worker.rs:18958:9:
+assertion `left == right` failed: each turn: its end, the images each request it sent carried, the prompt the log recorded last
+  left: [("changed", Some("request failed: ImageSnapshotCorrupt"), [], Some("[Image #1] what is it")), ("put back", Some("request failed: ImageSnapshotCorrupt"), [], Some("[Image #1] what is it")), ("changed again", Some("request failed: ImageSnapshotCorrupt"), [], Some("[Image #1] what is it")), ("
+ right: [("changed", Some("request failed: ImageSnapshotCorrupt"), [], Some("changed")), ("put back", None, [1], Some("put back")), ("changed again", Some("request failed: ImageSnapshotCorrupt"), [], Some("changed again")), ("put back again", None, [1], Some("put back again"))]
+thread 'tui::worker::tests::a_copy_a_request_cannot_carry_is_held_back_with_upstreams_note_and_the_turn_goes_on' (455878459) panicked at src/tui/worker.rs:19053:9:
+assertion `left == right` failed: each: the turn's end, the requests, the prompt's images, whether upstream's note is in front of it and names the copy
+  left: [("too large", Some("request failed: ImageTooLarge"), 0, 0, false, false), ("cut short", Some("request failed: ImageSnapshotCorrupt"), 0, 0, false, false), ("unreadable", Some("request failed: AccessDenied"), 0, 0, false, false)]
+ right: [("too large", None, 1, 0, true, true), ("cut short", None, 1, 0, true, true), ("unreadable", None, 1, 0, true, true)]
+test result: FAILED. 2 passed; 4 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 0.63s
+test ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams ... FAILED
+test ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstreams_and_changes_nothing ... ok
+thread 'ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams' (455879002) panicked at tests/sessions.rs:2087:5:
+the failed turn's prompt was not recorded: {"schema_version":1,"log_generation":"d2d3c1b8e13659e9be777eb4378a6e88","seq":1,"event_id":"3d66de6029431b6a10450607c73aaeb9","timestamp_ms":1794269619014,"event":{"kind":"session_started","id":"changed-image","origin_workspace_root":"<scratch>","workspace_
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 65 filtered out; finished in 2.83s
+test a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 2.84s

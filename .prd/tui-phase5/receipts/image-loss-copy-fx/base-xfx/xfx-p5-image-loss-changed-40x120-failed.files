@@ -1,0 +1,24 @@
+=== ~/.xfx/history.jsonl (278 bytes)
+{"schema_version":1,"timestamp_ms":1794270688740,"workspace_root":"<scratch>/work","text":"/quit"}
+{"schema_version":1,"timestamp_ms":1794270694890,"workspace_root":"<scratch>/work","text":"what is it now?"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/events.jsonl (3172 bytes)
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":1,"event_id":"7fe49cf92c8726e41e0cf3f1417f9c9d","timestamp_ms":1794262601233,"event":{"kind":"session_started","id":"kH1xJ5Cm-oRk","origin_workspace_root":"/tmp/fx-v2-fixtures/work","workspace_root":"/tmp/fx-v2-fixtures/work","model":"spacexai/grok-4.7","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":2,"event_id":"240820bdec0e3ebfff53347401cfdd2b","timestamp_ms":1794262601246,"event":{"kind":"user_message","text":"[Image #1] first prompt alpha"}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":3,"event_id":"ed5d43d1d393c7c0c3f26098ab5afa35","timestamp_ms":1794262601251,"event":{"kind":"images_attached","images":[{"id":1,"path":"shot.png","media_type":"image/png","sha256":"3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0","bytes":73}]}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":4,"event_id":"df6438691e1c04bdc44fbac49fd0c6e9","timestamp_ms":1794262601256,"event":{"kind":"assistant_message","text":"ALPHA answer.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":5,"event_id":"77d15a8f3ea3be219b3bae078aba7759","timestamp_ms":1794262601260,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":6,"event_id":"74a60ab289e08f5da210bf986ffe1af6","timestamp_ms":1794270690766,"event":{"kind":"workspace_rebound","previous_workspace_root":"/tmp/fx-v2-fixtures/work","workspace_root":"<scratch>/work"}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":7,"event_id":"9aa4f40a75b135d960256ee92216a9c7","timestamp_ms":1794270694891,"event":{"kind":"preferences_changed","model":"fake/model-a","permission_mode":null}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":8,"event_id":"a380e2219187b054ea2f86465a557871","timestamp_ms":1794270694925,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":9,"event_id":"3a586b03fa632f2342a918313e18d64d","timestamp_ms":1794270694941,"event":{"kind":"user_message","text":"what is it now?"}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":10,"event_id":"b52fb74a6b397246d0e3d7612b5bcc08","timestamp_ms":1794270695059,"event":{"kind":"assistant_message","text":"It is a small red square.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":11,"event_id":"c58a2d46ad6b088b502457d2652cfde9","timestamp_ms":1794270695071,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":40}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":12,"event_id":"1bfe5c2920d3de7f6ad5c756685518d5","timestamp_ms":1794270695083,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/images/image-1-3fd6e6be528c182d.bin (73 bytes)
+(binary)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/session.json (613 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"kH1xJ5Cm-oRk","log_generation":"912e30986cd56ee634186a20686cbf7d","created_at_ms":1794262601233,"updated_at_ms":1794270695083,"origin_workspace_root":"/tmp/fx-v2-fixtures/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"[Image #1] first prompt alpha","history_turns":2,"permission_grants":0,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":12,"event_log_bytes":3172,"event_log_sha256":"a639f232b5d629c7ac08388fb8a7cafcc75bdf615405c1bc3b21f4d48836cc2d"}
+

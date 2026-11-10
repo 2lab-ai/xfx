@@ -1,0 +1,49 @@
+# round 2's cargo checks (checks2.sh, one suite-lock slot; step 00 is `false` and must read rc=1)
+# head f42a68ab, tracked changes outside the receipt: 0
+00 false rc=1 0s
+01 fmt rc=0 1s
+02 clippy rc=0 6s
+03 clippy-fault rc=0 6s
+04 lib rc=0 68s
+05 sessions rc=0 8s
+06 parity rc=0 2s
+07 tool_loop rc=0 4s
+08 tui-resume-image rc=0 9s
+  04-lib: test result: ok. 4622 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 59.40s
+  05-sessions: test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.39s
+  06-parity: test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.66s
+  07-tool_loop: test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.99s
+  08-tui-resume-image: test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 166 filtered out; finished in 6.42s
+# both clippy runs again, the crate roots touched first, so xfx is checked afresh (steps 02-03 reused a check)
+02b clippy (roots touched) rc=0 1 Checking-xfx line(s)
+03b clippy-fault (roots touched) rc=0 1 Checking-xfx line(s)
+
+# the file checks at f42a68ab with this folder staged, and the citation checks
+check-no-secrets rc=0
+check-xfx-identity rc=0
+check-no-stubs rc=0
+redaction grep over git diff --cached 714f6283 (every commit of the unit and this folder): 0
+# bash fx_src.sh <fx-upstream> --check README.md
+checked 49 citations
+rc=0
+# python3 -I -B new_cites.py docs/parity.md > <file>: 11 spans this unit added; bash fx_src.sh <fx-upstream> --check <file>
+checked 11 citations
+rc=0
+# python3 -I -B new_cites.py src tests scripts/fxcap/scenarios > <file>: 43 spans this unit added; bash fx_src.sh <fx-upstream> --check <file>
+checked 43 citations
+rc=0
+
+# again with the rollback commit staged (docs/parity.md's set, README.md, rollback.sh, rollback.txt)
+check-no-secrets rc=0
+check-xfx-identity rc=0
+check-no-stubs rc=0
+redaction grep over git diff --cached 714f6283 (every commit of the unit and this folder): 0
+# bash fx_src.sh <fx-upstream> --check README.md
+checked 49 citations
+rc=0
+# python3 -I -B new_cites.py docs/parity.md > <file>: 11 spans this unit added; bash fx_src.sh <fx-upstream> --check <file>
+checked 11 citations
+rc=0
+# python3 -I -B new_cites.py src tests scripts/fxcap/scenarios > <file>: 43 spans this unit added; bash fx_src.sh <fx-upstream> --check <file>
+checked 43 citations
+rc=0

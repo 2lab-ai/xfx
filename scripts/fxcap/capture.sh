@@ -192,6 +192,10 @@
 #   rmhome <path>          deletes HOME/<path> now (a relative path, no `..`)
 #                          -- a saved sign-in, between an exit and a
 #                          `relaunch`
+#   homemode <mode> <path> sets the mode of the folder HOME/<path> to <mode>
+#                          (three octal digits) now -- one a resume cannot read,
+#                          between an exit and a `relaunch`; set it back
+#                          before `home` lists the files
 #   bells <label>          writes how many terminal bells the pane has rung so
 #                          far (tmux's alert-bell hook, one line per bell; an
 #                          OSC's BEL terminator is not one) and the clients
@@ -1271,6 +1275,26 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
       rmhome)
         case $rest in ''|/*|..|../*|*/..|*/../*) echo "rmhome takes a relative path inside HOME, not $rest" >&2; exit 2 ;; esac
         rm -f "$run/home/$rest"
+        ;;
+      homemode)
+        local mode dest
+        read -r mode dest <<< "$rest"
+        case $mode in [0-7][0-7][0-7]) ;; *) echo "homemode takes a three-digit octal mode, not $mode" >&2; exit 2 ;; esac
+        case $dest in ''|/*|..|../*|*/..|*/../*) echo "homemode takes a relative path inside HOME, not $dest" >&2; exit 2 ;; esac
+        # chmod follows a link: none on the way, so no mode outside the run
+        # is ever changed. A folder only: a file may be a hard link to one
+        # outside the run, whose inode a chmod would change. A run that dies
+        # before the line that sets the mode back leaves it in the run
+        # directory, which `cleanup` keeps anyway.
+        local at=$run/home part
+        local -a parts
+        IFS=/ read -ra parts <<< "$dest"
+        for part in "${parts[@]}"; do
+          at=$at/$part
+          [[ -L $at ]] && { echo "homemode: refusing to change a mode through a link, ~/$dest" >&2; exit 2; }
+        done
+        [[ -d $at ]] || { echo "homemode takes a folder, not ~/$dest" >&2; exit 2; }
+        chmod "$mode" "$at"
         ;;
       clipimage)
         case $rest in
