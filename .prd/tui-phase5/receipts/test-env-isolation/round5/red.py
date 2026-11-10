@@ -109,21 +109,26 @@ def home_holes(clone, old, new):
                 home = exact
             elif hole.startswith("that link"):
                 exact.symlink_to(target)
-                home = pathlib.Path(str(exact) + "/")
+                home = exact
             else:
                 tmpdir = scratch / "xfx-sentinel-tmpdir-value" / "gone"
                 home = target
                 given_marker = None
-            env = {"PATH": os.environ["PATH"], "HOME": str(home), "TMPDIR": str(tmpdir)}
+            # pathlib drops a trailing "/", so the variable is built as text.
+            home_value = str(home) + ("/" if hole.startswith("that link") else "")
+            env = {"PATH": os.environ["PATH"], "HOME": home_value, "TMPDIR": str(tmpdir)}
             if given_marker:
                 env["XFX_TEST_ISOLATED_COPY"] = given_marker
             result = run([str(binary), "--ignored", "--exact", "a_case_marks_where_it_runs"],
-                         str(home), env=env, timeout=120)
+                         home_value, env=env, timeout=120)
             said = result.stdout + result.stderr
             refused = "no case runs" in said
+            ran = "test result: ok. 1 passed" in result.stdout
             marked = (home / "ran").exists() or (target / "ran").exists()
             print(f"    {hole}: {'refused' if refused else 'not refused'} (exit {result.returncode}); "
-                  f"a case left its mark: {'yes' if marked else 'no'}; "
+                  f"the case ran: {'yes' if ran else 'no'}; its mark left: {'yes' if marked else 'no'}; "
+                  f"the home it was handed still there: {'yes' if home.exists() else 'no'}; "
+                  f"what the link points at still there: {'yes' if target.exists() else 'no'}; "
                   f"sentinel printed: {'yes' if 'xfx-sentinel-tmpdir-value' in said else 'no'}")
             shutil.rmtree(scratch, ignore_errors=True)
     reset(clone, new)
