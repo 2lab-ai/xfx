@@ -393,6 +393,29 @@ class Confinement(unittest.TestCase):
                 self.assertEqual(sorted(os.listdir(outside)), ["sentinel"])
 
 
+    def test_homemode_sets_a_mode_and_never_changes_one_through_a_link(self):
+        # `homemode` makes a folder in HOME one a resume cannot read, and back;
+        # a link on the way is refused, so a mode outside the run is never
+        # changed.
+        r = capture("homefile .fx/d/x c.json\nwait 0.5\nhomemode 500 .fx/d\n"
+                    "type [ -w ~/.fx/d ] && echo open-for-writing || printf 'locked-%s\\n' down\nkey Enter\nuntil shown locked-down\n"
+                    "homemode 700 .fx/d\nsnap a\n", {"c.json": "{}\n"})
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("locked-down", r.screen("a"))
+        victim = self.sentinel("keep\n")
+        os.chmod(victim, 0o644)
+        for linked in (".linked", ".dir/x"):
+            with self.subTest(linked=linked):
+                target = victim if linked == ".linked" else os.path.dirname(victim)
+                r = capture("wait 0.5\ntype ln -s '%s' ~/%s; printf 'made-%%s\\n' it\nkey Enter\nuntil shown made-it\n"
+                            "homemode 000 %s\nsnap never\n" % (target, linked.split("/")[0], linked))
+                self.assertEqual(r.code, 2, r.stdout + r.stderr)
+                self.assertIn("homemode: refusing to change a mode through a link", r.stderr)
+                self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-never.txt")), "the run stopped there")
+                self.assertEqual(os.stat(victim).st_mode & 0o777, 0o644)
+                self.assertEqual(os.stat(os.path.dirname(victim)).st_mode & 0o700, 0o700)
+
+
 class Verbs(unittest.TestCase):
     def test_resize(self):
         r = capture("wait 1\ntype stty size\nkey Enter\nwait 0.5\nresize 20x90\nwait 0.5\ntype stty size\nkey Enter\nwait 0.5\nsnap a\n", size="24x80")
