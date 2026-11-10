@@ -116,7 +116,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | p5-mcp-verbs | ran | 28 | 28 | 0 | 1 | 0 | 0 | 0 | 27 | 0 | 0 | 3.6% | list row 3: `* mcp: NAME     SOURCE          TRANSPORT  STATUS` / `* mcp: NAME     SOURCE           TRANSPORT  STATUS` (aligned: 2/2 rows unmatched) |
 | settings-scrollback | ran | 5 | 5 | 0 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
 | startup | ran | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
-| workspace-index | ran | 2 | 2 | 0 | 1 | 0 | 0 | 0 | 1 | 0 | 0 | 50.0% | at-plan row 13: `  <tmp>/fxsw.vzqh9m1o/051/f…` / `  <tmp>/fxsw.vzqh9m1o/051/f…` (aligned: 1/1 rows unmatched) |
+| workspace-index | ran | 2 | 2 | 0 | 1 | 0 | 0 | 0 | 1 | 0 | 0 | 50.0% | at-plan row 13: `  <tmp>/fxsw.<run-1>/051/f…` / `  <tmp>/fxsw.<run-1>/051/f…` (aligned: 1/1 rows unmatched) |
 
 ## Causes of the unresolved snaps
 

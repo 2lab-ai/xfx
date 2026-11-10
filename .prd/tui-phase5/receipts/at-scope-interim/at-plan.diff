@@ -1,10 +1,10 @@
 # workspace-index at-plan: unresolved-defect
 # 1 rows differ by position; aligned as sequences, 1 fx rows and 1 xfx rows have no match
 # aligned: every row left without a match, and what accounts for it
-#   [1] fx  13:   <tmp>/fxsw.xepvj3zc/023/fxcap.XXXXXX/extra/notes/ -> UNCOVERED
-#   [1] xfx 13:   <tmp>/fxsw.xepvj3zc/023/fxcap.XXXXXX/extra/notes/ -> UNCOVERED
+#   [1] fx  13:   <tmp>/fxsw.<run-1>/023/fxcap.XXXXXX/extra/notes/ -> UNCOVERED
+#   [1] xfx 13:   <tmp>/fxsw.<run-1>/023/fxcap.XXXXXX/extra/notes/ -> UNCOVERED
 # positional rows:
 row 13 (attributes only): unresolved
-  fx :   <tmp>/fxsw.xepvj3zc/023/fxcap.XXXXXX/extra/notes/
-  xfx:   <tmp>/fxsw.xepvj3zc/023/fxcap.XXXXXX/extra/notes/
+  fx :   <tmp>/fxsw.<run-1>/023/fxcap.XXXXXX/extra/notes/
+  xfx:   <tmp>/fxsw.<run-1>/023/fxcap.XXXXXX/extra/notes/
   first differing cell 50: fx [(50, 'X', (('bold', True), ('fg', 245))), (51, 'X', (('fg', 245),))] / xfx [(50, 'X', (('fg', 245),)), (51, 'X', (('fg', 245),))]

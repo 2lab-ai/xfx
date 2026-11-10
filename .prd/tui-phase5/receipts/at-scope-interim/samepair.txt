@@ -16,5 +16,5 @@ base sweep, xfx: fxcap.gyUsKU
 head sweep, fx: fxcap.NpCJBx 
 head sweep, xfx: fxcap.5Jqbc9 
 # row 13 of fx's at-plan, base sweep then head sweep (the scratch root as <tmp>):
-  <tmp>/fxsw.frj5vkqo/023/fxcap.RmwRfV/extra/notes/
-  <tmp>/fxsw.xepvj3zc/023/fxcap.NpCJBx/extra/notes/
+  <tmp>/fxsw.<run-1>/023/fxcap.RmwRfV/extra/notes/
+  <tmp>/fxsw.<run-2>/023/fxcap.NpCJBx/extra/notes/

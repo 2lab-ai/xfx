@@ -97,7 +97,7 @@ Groups are the leading letters of a scenario's name (`model-anchor`, `model2` an
 | p5-input-at-paste | ran | 2 | 2 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
 | p5-input-at-resize | ran | 6 | 6 | 0 | 1 | 0 | 0 | 0 | 5 | 0 | 0 | 16.7% | short row 3: `┃ @f-` / (blank) (aligned: 4/4 rows unmatched) |
 | workspace | ran | 11 | 11 | 0 | 11 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% |  |
-| workspace-index | ran | 2 | 2 | 0 | 1 | 0 | 0 | 0 | 1 | 0 | 0 | 50.0% | at-plan row 13: `  <tmp>/fxsw.xepvj3zc/023/fxcap…` / `  <tmp>/fxsw.xepvj3zc/023/fxcap…` (aligned: 1/1 rows unmatched) |
+| workspace-index | ran | 2 | 2 | 0 | 1 | 0 | 0 | 0 | 1 | 0 | 0 | 50.0% | at-plan row 13: `  <tmp>/fxsw.<run-1>/023/fxcap…` / `  <tmp>/fxsw.<run-1>/023/fxcap…` (aligned: 1/1 rows unmatched) |
 
 ## Causes of the unresolved snaps
 
