@@ -3540,6 +3540,17 @@ mod tests {
             (b"\x1b[57419;4u", Action::ParagraphUp),
             (b"\x1b[57353;8u", Action::ParagraphDown),
             (b"\x1b[1;7A", Action::ParagraphUp),
+            (b"\x1b[1;6B", Action::SelectDown),
+            (b"\x1b[1;8B", Action::ParagraphDown),
+            // Super with two more held, masks 11-14 (`CSI 1;12` to `1;15`):
+            // Super's arm, Shift remembered.
+            (b"\x1b[1;12A", start(true)),
+            (b"\x1b[1;12B", end(true)),
+            (b"\x1b[1;13A", start(false)),
+            (b"\x1b[1;13B", end(false)),
+            (b"\x1b[1;14A", start(true)),
+            (b"\x1b[1;14B", end(true)),
+            (b"\x1b[1;15A", start(false)),
             // The kitty arrows and keypad arrows, through the same table.
             (b"\x1b[57352;9u", start(false)),
             (b"\x1b[57353;10u", end(true)),

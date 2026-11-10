@@ -24183,6 +24183,14 @@ mod tests {
                 Action::DraftStart { shifted: false },
             ),
             (
+                Action::DraftStart { shifted: true },
+                Action::DraftStart { shifted: true },
+            ),
+            (
+                Action::DraftEnd { shifted: false },
+                Action::DraftEnd { shifted: false },
+            ),
+            (
                 Action::DraftEnd { shifted: true },
                 Action::DraftEnd { shifted: true },
             ),
@@ -24819,14 +24827,25 @@ mod tests {
         // Shift-Up with no row above forgets the column the run aimed for
         // (`vertical_navigation.zig:70-73@481104fd`; `p5-paragraph-move-column`):
         // the Down after it aims at the caret's own column, not the run's.
-        let mut shell = shell(24, 80);
-        shell.route_bytes(b"x\nabcdef\x1b[A");
-        assert_eq!(shell.editor.caret(), 1);
-        shell.route_bytes(b"\x1b[1;2A\x1b[B");
+        let mut forgot = shell(24, 80);
+        forgot.route_bytes(b"x\nabcdef\x1b[A");
+        assert_eq!(forgot.editor.caret(), 1);
+        forgot.route_bytes(b"\x1b[1;2A\x1b[B");
         assert_eq!(
-            shell.editor.caret(),
+            forgot.editor.caret(),
             3,
             "the run's column survived Shift-Up"
+        );
+        // And a Shift-Up that moves keeps it (`vertical_navigation.zig:76`):
+        // through `x`, one cell wide, back to column 6 of the row above.
+        let mut kept = shell(24, 80);
+        kept.route_bytes(b"abcdef\nx\nabcdef\x1b[1;2A");
+        assert_eq!(kept.editor.caret(), 8);
+        kept.route_bytes(b"\x1b[1;2A");
+        assert_eq!(
+            kept.editor.caret(),
+            6,
+            "a Shift-Up that moved forgot the column"
         );
     }
 
@@ -24944,15 +24963,73 @@ mod tests {
             assert!(shell.rule_confirm.is_some());
             shell
         };
-        for (name, mut shell) in [("statusline", statusline), ("confirm", confirm)] {
+        // The read-only panel, short enough to scroll (`p5-panels-status-short`),
+        // `/usage`'s dashboard and `/workspace`'s picker with a directory to
+        // mark. A plain Down moves each but `/usage`'s, which with no sign-in
+        // has no row to mark.
+        let panel = {
+            let mut shell = shell(14, 120);
+            shell.open_info_panel(fx_status_panel());
+            shell
+        };
+        let usage = {
+            let mut shell = shell(40, 120);
+            shell.route_bytes(b"/usage\r");
+            assert!(shell.usage_menu.is_some());
+            shell
+        };
+        let workspace = {
+            let mut shell = shell_at_home(root.path(), 40, 120);
+            let entries =
+                WorkspaceAccess::load(&shell.workspace.clone(), &["/somewhere/extra".to_string()]);
+            shell.apply(UiEvent::Workspace {
+                notice: notice::Notice::neutral("workspace", "added"),
+                access: Some(entries),
+            });
+            shell.route_bytes(b"/workspace\r");
+            assert!(shell.workspace_menu.is_some());
+            shell
+        };
+        for (name, mut shell, down_moves) in [
+            ("statusline", statusline, true),
+            ("confirm", confirm, true),
+            ("panel", panel, true),
+            ("usage", usage, false),
+            ("workspace", workspace, true),
+        ] {
             let before = shell.band_rows();
             for key in held {
                 shell.route_bytes(key);
                 assert_eq!(shell.band_rows(), before, "{name}: {key:?} moved the mark");
             }
             shell.route_bytes(b"\x1b[B");
-            assert_ne!(shell.band_rows(), before, "{name}: Down moved nothing");
+            assert_eq!(shell.band_rows() != before, down_moves, "{name}: Down");
         }
+        // And each compact menu's own reading: no held spelling is a key of
+        // its, where the plain Down is.
+        let spellings = [
+            Action::ComposerUp,
+            Action::ComposerDown,
+            Action::SelectUp,
+            Action::SelectDown,
+            Action::ParagraphUp,
+            Action::ParagraphDown,
+            Action::DraftStart { shifted: false },
+            Action::DraftEnd { shifted: true },
+        ];
+        for action in spellings {
+            assert_eq!(StatuslineAction::of(action), None, "{action:?}");
+            assert_eq!(InfoAction::of(action), None, "{action:?}");
+            assert_eq!(UsageAction::of_action(action), None, "{action:?}");
+            assert_eq!(WorkspaceAction::of(action), None, "{action:?}");
+        }
+        assert_eq!(
+            UsageAction::of_action(Action::Down),
+            Some(UsageAction::Move(true))
+        );
+        assert!(StatuslineAction::of(Action::Down).is_some());
+        assert!(InfoAction::of(Action::Down).is_some());
+        assert!(WorkspaceAction::of(Action::Down).is_some());
     }
 
     #[test]

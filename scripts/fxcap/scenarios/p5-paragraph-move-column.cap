@@ -4,6 +4,9 @@
 # its end; Up lands at the end of `x`, aiming for column 6; then Shift-Up on
 # that first row, and Down goes to the caret's own column, one cell into
 # `abcdef` (`B`). With no Shift-Up between, Down goes back to column 6 (`C`).
+# And a Shift-Up that moves keeps the column (vertical_navigation.zig:76):
+# `abcdef/x/abcdef`, two Shift-Ups from the end, through `x`, land at column 6
+# of the first row (`D`).
 wait 2.5
 type x
 key C-j
@@ -30,3 +33,17 @@ wait 0.3
 type C
 wait 0.3
 snap up-down
+key C-e C-u
+key BSpace C-u
+type abcdef
+key C-j
+type x
+key C-j
+type abcdef
+key -H 1b 5b 31 3b 32 41
+wait 0.3
+key -H 1b 5b 31 3b 32 41
+wait 0.3
+type D
+wait 0.3
+snap shift-up-twice

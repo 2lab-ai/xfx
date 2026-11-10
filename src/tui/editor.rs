@@ -505,16 +505,11 @@ impl Editor {
                 self.move_to(next_paragraph_start(&self.text, self.cursor));
                 None
             }
-            // Shift on the vertical arrows, with Ctrl or without, is a
-            // question's choice move (`super::input::Action::SelectUp`), and
-            // Ctrl alone a move a question and an approval leave alone
-            // (`super::input::Action::ComposerUp`); to an editor each is the
-            // arrow.
-            Action::Up | Action::SelectUp | Action::ComposerUp => {
+            Action::Up => {
                 self.move_by_row(Step::Up, cols);
                 None
             }
-            Action::Down | Action::SelectDown | Action::ComposerDown => {
+            Action::Down => {
                 self.move_by_row(Step::Down, cols);
                 None
             }
@@ -570,7 +565,11 @@ impl Editor {
             // The page keys are the session's too: how many rows a page is,
             // is the screen's, and while a menu is up a page moves the menu
             // rather than the caret -- so `super::shell` decides, and moves
-            // the caret with [`Self::move_rows`] when it is the caret's.
+            // the caret with [`Self::move_rows`] when it is the caret's. So
+            // are Shift's and Ctrl's held Up and Down, for the history and the
+            // edge they reach or stop at (`super::shell::Shell::act`: Ctrl's
+            // as the arrow, Shift's by [`Self::move_rows`]); no other caller
+            // hands them on, an amendment's keys being `super::approval::edits`.
             //
             // They are named rather than caught by a wildcard so that an action
             // added later has to be routed on purpose.
@@ -606,6 +605,10 @@ impl Editor {
             | Action::PageDown
             | Action::ComposerPageUp
             | Action::ComposerPageDown
+            | Action::SelectUp
+            | Action::SelectDown
+            | Action::ComposerUp
+            | Action::ComposerDown
             | Action::SelectAll
             | Action::CopySelection
             | Action::CutSelection
@@ -1998,6 +2001,26 @@ mod tests {
         }
         assert_eq!(previous_paragraph_start("\n\nab", 3), 2);
         assert_eq!(previous_paragraph_start("\n\nab", 2), 0);
+    }
+
+    #[test]
+    fn shifts_and_ctrls_held_up_and_down_are_the_sessions_not_the_editors() {
+        // `super::shell::Shell::act` moves the caret for them (Ctrl's as the
+        // arrow, Shift's by `move_rows`), and an amendment never hands them on
+        // (`super::approval::edits`): to the editor they are nothing.
+        for action in [
+            Action::SelectUp,
+            Action::SelectDown,
+            Action::ComposerUp,
+            Action::ComposerDown,
+        ] {
+            let mut draft = editor("one\ntwo\nthree");
+            draft.apply(Action::Up, 80);
+            let before = (caret(&draft), draft.sticky);
+            assert!(draft.apply(action, 80).is_none(), "{action:?}");
+            assert_eq!((caret(&draft), draft.sticky), before, "{action:?}");
+            assert!(!super::super::approval::edits(action), "{action:?}");
+        }
     }
 
     #[test]
