@@ -175,7 +175,33 @@ key twice cannot cancel).
 
 ## Mutants (`mutants.txt`, `mutants.py`)
 
-In the next commit, once the run on its clone ends.
+On a `--no-local` clone at `3df0b24d` under the suite lock, one mutant at a
+time, each running `cargo test --lib -- tui::`: **17 of 17 killed**, the
+clone clean after the run.
+
+| mutant | killed by |
+|---|---|
+| M1 the base's fold (every held Up/Down the arrow) | the five composer, steer, picker and compact tests, the fold table |
+| M2 the decoder reads Alt-Up as Ctrl's | the decoder table, the composer and steer tests |
+| M3 Shift-Up the plain arrow, edge and history | the empty-composer, steer and draft tests |
+| M4 Shift-Up keeps the run's column | the draft test (its column case) |
+| M5 Alt-Up/-Down the plain arrows | the empty-composer, steer and draft tests |
+| M6 Super-Up/-Down the plain arrows | the same three |
+| M7 Ctrl-Up stops at the first row | the same three |
+| M8 a line of spaces is no blank line | the editor's boundary test |
+| M9 Alt-Up never crosses into the paragraph before | both editor tests, the draft test |
+| M10 Alt-Down stops at the blank line | both editor tests, the draft test |
+| M11 Alt and Super keep a later `/model` column | the picker test |
+| M12 the pickers do not walk on Shift | the picker test, the fold table |
+| M13 the pickers walk on Alt | the picker test, the fold table |
+| M14 the pickers read the held keys unfolded | the picker test |
+| M15 the compact menus read the pickers' fold | the compact test, and the composer tests (the fold reached `act` too) |
+| M16 the full transcript scrolls on Alt-Up | MODIFIED-ARROWS-SCREENS' full-transcript test |
+| M17 a question moves its choice on Alt-Up | MODIFIED-ARROWS-SCREENS' question test |
+
+Not mutated: the approval's list, where removing `ParagraphUp`/`Down`
+changes nothing (the arm after it swallows every action with no draft
+open, and `approval::edits` names neither), so that mutant is equivalent.
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
 
@@ -209,7 +235,14 @@ with the base's binary (`v0.1.0-3f2d6e7`) and once with the code head's
 
 ## Gate (`gate.txt`)
 
-In the next commit: the gate runs on a clone of this commit.
+The brief's gate once, under the suite lock, on a `--no-local` clone at
+`faf071b7` (the docs head; its `src/` is `3df0b24d`'s): `cargo fmt --check`,
+both clippy runs, `cargo test` 5712 passed and with `fault-injection` 5749
+passed, 0 failed and 7 ignored each, then the identity, stubs, secrets and
+local-paths checks, all exit 0, the clone clean after. The base unit's gate
+was 5706 and 5743 (MODIFIED-ARROWS-SCREENS' `gate.txt`): +6 each, the four
+new shell tests and the two editor tests (the Shift-Up recall test was
+replaced, not added). No catalog-wait failure came up.
 
 ## Refs (`refs.txt`, `refs.py`)
 
@@ -242,10 +275,22 @@ them; 16 checked, 0 wrong.
   arm (`app_input_runtime.zig:298-309`).
 - Shift's row is `move_rows(.., 1, ..)`, the page key's road: the same row
   rule as the arrow's, and no edge or history by construction.
+- The ledger's `transcript-page-offset` cause was not widened to this unit's
+  four full-transcript screens (Sweep, above): its `snaps = ["full-*"]`
+  misses the bare `full`, and adding `full` would reach other scenarios.
+  They stay unresolved with two blank rows; reversible by one ledger line.
 - fx's boundaries are copied over bytes, as fx reads them; a line start can
   never fall inside a collapsed paste, whose summary holds no line break.
 
 ## Open
+
+- Pinned and not pinned: of the five readers that now swallow a held Up or
+  Down, `/statusline` (the capture and `no_held_up_or_down_moves_a_compact_menu_or_a_rule_confirmation`)
+  and a rule confirmation (the same test) are pinned; the read-only panel,
+  `/usage` and `/workspace` swallow them by the same code -- each `of()`
+  answers `None` for them and its offer returns without a move
+  (`InfoAction::of`, `UsageAction::of_action`, `WorkspaceAction::of`) --
+  with no capture or test of their own. [code]
 
 - `folded` still runs before the compact menus for the held Left and Right
   (`ComposerLeft` to `Left`) and the held page keys (`ComposerPageUp` to

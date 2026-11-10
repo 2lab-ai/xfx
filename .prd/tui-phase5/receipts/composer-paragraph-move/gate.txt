@@ -1,0 +1,58 @@
+# The brief's gate, once, under the suite lock in one normal slot, on a --no-local clone at faf071b7 (its remote removed), TMPDIR=<tmp> (short).
+# faf071b7's src/ is 3df0b24d's: the code head 45d9ad1f and one more test; the commits after 3df0b24d change docs, the ledger and the receipt only.
+
+head faf071b7
+STEP fmt exit=0 2s
+STEP clippy exit=0 27s
+STEP clippy-fi exit=0 19s
+STEP test exit=0 158s
+STEP test-fi exit=0 158s
+STEP identity exit=0 2s
+STEP stubs exit=0 9s
+STEP secrets exit=0 61s
+  test: 15 result lines: 5712 passed, 0 failed, 7 ignored
+  test-fi: 15 result lines: 5749 passed, 0 failed, 7 ignored
+STEP local-paths exit=0 (run after, on the same clone)
+tree after: 0 changed paths (git status --porcelain); head faf071b7
+(no catalog-wait failure in this run: the plain suite is 0 failed)
+## identity
+check-xfx-identity: ok (20812 tracked file(s) scanned)
+## stubs
+check-no-stubs: ok
+## secrets
+check-no-secrets: ok (20812 tracked file(s) scanned)
+## local-paths
+check-no-local-paths: ok (20812 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+
+## cargo test, its result lines
+test result: ok. 4788 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 51.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.47s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.15s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.05s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.85s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.96s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.75s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.04s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+## cargo test --features fault-injection, its result lines
+test result: ok. 4811 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 49.10s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.65s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.77s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.16s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.05s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.86s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.20s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.71s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.66s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
