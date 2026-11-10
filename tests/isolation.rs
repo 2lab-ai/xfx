@@ -149,6 +149,67 @@ fn a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given() {
 }
 
 #[test]
+fn a_relative_tmpdir_makes_no_home_and_runs_no_case() {
+    // Run from a scratch directory, with TMPDIR relative to it: a home made
+    // there would be removed, at exit, from wherever a case had moved to.
+    let scratch = tempfile::TempDir::new().expect("a scratch directory");
+    let (passed, said) = started(scratch.path(), Path::new("relative-tmp"), None, &[]);
+    assert!(
+        !passed && said.contains("TMPDIR is not an absolute path"),
+        "a relative TMPDIR was not refused"
+    );
+    assert!(
+        !scratch.path().join("relative-tmp").exists() && !scratch.path().join("ran").exists(),
+        "a home was made under a relative TMPDIR, or a case ran"
+    );
+    // And a copy handed one -- its HOME made where a relative TMPDIR says --
+    // refuses it too.
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(
+            scratch
+                .path()
+                .join("relative-tmp")
+                .join(format!("{HOME_PREFIX}{:032x}", 7)),
+        )
+        .expect("a home under the relative TMPDIR");
+    let home = PathBuf::from("relative-tmp").join(format!("{HOME_PREFIX}{:032x}", 7));
+    let (passed, said) = started_in(
+        scratch.path(),
+        &home,
+        Path::new("relative-tmp"),
+        Some(&format!("{:032x}", 7)),
+    );
+    assert!(
+        !passed && said.contains("TMPDIR is not an absolute path"),
+        "a copy accepted a home under a relative TMPDIR"
+    );
+}
+
+/// [`started`], from `cwd`, with `home` as `HOME` (relative to `cwd` if it is).
+fn started_in(cwd: &Path, home: &Path, tmpdir: &Path, marker: Option<&str>) -> (bool, String) {
+    let mut copy = support::command(std::env::current_exe().expect("this test binary"));
+    support::sandbox::clear_env(&mut copy);
+    copy.current_dir(cwd)
+        .env("HOME", home)
+        .env("TMPDIR", tmpdir)
+        .args(["--ignored", "--exact", "a_case_marks_where_it_runs"]);
+    if let Some(marker) = marker {
+        copy.env(MARKER, marker);
+    }
+    let output = xfx::process::output(&mut copy).expect("this test binary");
+    (
+        output.status.success(),
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ),
+    )
+}
+
+#[test]
 fn a_copy_that_cannot_be_made_says_so_without_a_value_of_the_environment() {
     let scratch = tempfile::TempDir::new().expect("a scratch directory");
     // A TMPDIR no home can be made under, whose value is a sentinel.

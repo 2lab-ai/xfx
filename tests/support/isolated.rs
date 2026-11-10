@@ -84,12 +84,17 @@ extern "C" fn isolate() {
     }
 }
 
-/// The `HOME` a parent makes for `marker`, and the only one a copy accepts.
-fn home_for(marker: &str) -> PathBuf {
-    xfx::env_exception!(var_os("TMPDIR"))
+/// The `HOME` a parent makes for `marker`, and the only one a copy accepts:
+/// an absolute path, so the copy's exit removes the directory it confirmed
+/// whatever directory a case has moved to.
+fn home_for(marker: &str) -> Result<PathBuf, String> {
+    let temporary = xfx::env_exception!(var_os("TMPDIR"))
         .filter(|dir| !dir.is_empty())
-        .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from)
-        .join(format!("{HOME_PREFIX}{marker}"))
+        .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
+    if !temporary.is_absolute() {
+        return Err("TMPDIR is not an absolute path".to_string());
+    }
+    Ok(temporary.join(format!("{HOME_PREFIX}{marker}")))
 }
 
 /// Replaces this process with the copy. Returns only what went wrong, in
@@ -103,14 +108,19 @@ fn become_the_copy() -> String {
         Ok(nonce) => nonce,
         Err(err) => return format!("no random name for the copy's home: {}", err.kind()),
     };
-    let home = home_for(&nonce);
-    if let Err(err) = std::fs::DirBuilder::new().mode(0o700).create(&home) {
-        return format!("cannot make the copy's home under TMPDIR: {}", err.kind());
-    }
+    // Everything that can fail before the home exists, first: past here,
+    // only the exec can, and it removes the home.
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(err) => return format!("cannot find this test binary: {}", err.kind()),
     };
+    let home = match home_for(&nonce) {
+        Ok(home) => home,
+        Err(refusal) => return refusal,
+    };
+    if let Err(err) = std::fs::DirBuilder::new().mode(0o700).create(&home) {
+        return format!("cannot make the copy's home under TMPDIR: {}", err.kind());
+    }
     let mut copy = super::command(exe);
     super::sandbox::clear_env(&mut copy);
     copy.args(args)
@@ -153,7 +163,7 @@ fn confirm(marker: &OsStr) -> Result<(), String> {
     if home.as_os_str().as_bytes().ends_with(b"/") {
         return Err("HOME ends in /, which would make a link read as a directory".to_string());
     }
-    if home.as_os_str() != home_for(marker).as_os_str() {
+    if home.as_os_str() != home_for(marker)?.as_os_str() {
         return Err("HOME is not the path the parent makes for the marker".to_string());
     }
     let meta = std::fs::symlink_metadata(&home)
