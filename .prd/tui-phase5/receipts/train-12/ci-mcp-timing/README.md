@@ -24,7 +24,7 @@ flake. The product did not change: train 12 touches nothing under `src/mcp`
 | `2ee33f58` | round 4's fix: `remote` never answers, so it reads `connecting` for the whole run. It changed the shared `p5-mcp-profile.json`, which broke a unit test; round 5 moves it |
 | `5f5074ed`, `635e7242` | round 4's receipt |
 | `6bfc6562` | round 5: the held `remote` in `p5-mcp-menu-profile.json`, which only `p5-mcp-menu-new` and `p5-mcp-menu-old` name. `p5-mcp-profile.json`, `p5-mcp-verbs.cap` and `p5-mcp-config.cap` are back to their bytes at `3943d667`. The ledger cause `verbs-refused-port-word` added |
-| the round-5 receipt commit (after `6bfc6562`) | round 5's corrections and gates in this receipt |
+| `f4b47260` | round 5's corrections and gates in this receipt |
 
 ## Measured: 8 runs on each build (`before-runs.txt`, `before-verdicts.txt`, `before-words.txt`)
 
