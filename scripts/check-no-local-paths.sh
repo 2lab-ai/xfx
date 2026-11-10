@@ -74,14 +74,28 @@
 # The scan is over *tracked* files -- what a push publishes -- read from the
 # working tree, every one as text: a binary file can carry a path as well as
 # a text one, and git's attributes, which decide "binary", come from config a
-# caller holds. A hit in a file with a NUL in its first 8000 bytes cannot be
-# marked, so it is refused by name.
+# caller holds. A hit in a file with a NUL anywhere in it cannot be marked, so
+# it is refused by name: a shell variable cannot hold a NUL (bash 3.2 cuts
+# the line there), so this shell cannot read such a line as git did.
 #
-# It is one `git grep` over the tree and then one per file that holds a
-# shape. No file name goes on a command line, so there is no `ARG_MAX` to
-# batch under, as scripts/check-no-secrets.sh must; the repository-level
-# guards are scripts/check-xfx-identity.sh's, which also scans with `git grep`
-# (that file says why each is there).
+# It is one `git grep` over the tree, which gives every line that holds a
+# shape with its file and number, and that one answer is all the scan reads.
+# No file name goes on a command line, so there is no `ARG_MAX` to batch
+# under, as scripts/check-no-secrets.sh must; the repository-level guards are
+# scripts/check-xfx-identity.sh's, which also scans with `git grep` (that
+# file says why each is there).
+#
+# Every line git gives is accounted for, or the check fails: a shape is
+# refused, a mark excuses it, or a placeholder taken out of it was all it
+# held. A line git matched in which this shell then finds no shape and takes
+# no placeholder out is refused too, never counted as passing: git and this
+# shell read it differently (they match with two regex engines), and an
+# answer that depends on which of them is right is no answer. The check used
+# to grep the tree for the files and then each file for its lines, and a file
+# the first said held a shape and the second gave no line for was dropped
+# without a word, as was a line the shell read with no shape in it. On
+# 2026-11-10 its test's tree lost two planted files on one CI run (macOS 15,
+# git 2.56.0) somewhere on that path, and named them on every other run.
 #
 # What it prints for a hit is the file, the line and the shape, never the
 # line's text: CI's log is public too.
@@ -157,6 +171,20 @@ marker=local-path-ok
 # The mark, as the comment that ends a line.
 marked_re="(^|[[:space:]])(#|//|--|;|<!--|/[*]).*${marker}(:.*)?([[:space:]]*(-->|[*]/))?[[:space:]]*$"
 
+# Whether the text $1 matches the ERE $2, as `[[ =~ ]]` says, BASH_REMATCH and
+# all. A pattern this shell cannot compile is status 2, which an `if` reads as
+# "no match"; that is a scan that did not run, so it is kept in
+# `uncompiled` for the scan to fail on, and the answer is still "no".
+uncompiled=""
+rematch() {
+	local status=0
+	[[ $1 =~ $2 ]] || status=$?
+	if [ "$status" -gt 1 ]; then
+		uncompiled="$2"
+	fi
+	return "$status"
+}
+
 # Whether a file is a capture, whose text no mark excuses: by its name, any
 # file scripts/fxcap/capture.sh writes or a directory it fills
 # (`<bin>-<scenario>-<rows>x<cols>-<label>...`, a `/trace` report's `.md`
@@ -164,7 +192,7 @@ marked_re="(^|[[:space:]])(#|//|--|;|<!--|/[*]).*${marker}(:.*)?([[:space:]]*(--
 # as the header says); and by its kind, whatever its name.
 capture_name_re='(^|/)x?fx-[^/]*-[0-9]{1,4}x[0-9]{1,4}-'
 is_capture() {
-	if [[ $1 =~ $capture_name_re ]]; then
+	if rematch "$1" "$capture_name_re"; then
 		return 0
 	fi
 	case "$1" in
@@ -195,9 +223,13 @@ for entry in "${patterns[@]}"; do
 	grep_args+=(-e "${entry#*:}")
 done
 
-# Counts the last scan's exceptions, for the line that says it passed.
+# Counts of the last scan's lines: every line git gave, those its exceptions
+# excused (for the line that says it passed), and those it refused.
+given=0
 marked=0
 placeheld=0
+refused=0
+binary_files=0
 
 # Every hit in the tracked files of `root`, one `<path>:<line>: <shape>` per
 # line on standard output. Returns non-zero, having said why on standard
@@ -206,77 +238,108 @@ placeheld=0
 # standard error (bad config exits 128; an unreadable tracked file is only
 # `error: failed to stat`, with status 1).
 scan_tree() {
-	local root="$1" path status probe line number text bare entry hit
-	local listing="$work/listing" lines="$work/lines" errors="$work/errors"
+	local root="$1" path number text bare entry hit current="" binary=no markable=no probe removed status
+	local given_lines="$work/given" errors="$work/errors"
+	given=0
 	marked=0
 	placeheld=0
+	refused=0
+	binary_files=0
 	status=0
-	scan_git "$root" grep -a --no-color -l -z -E "${grep_args[@]}" -- >"$listing" 2>"$errors" || status=$?
+	# `-z`: `<path>NUL<number>NUL<text>LF` for every line, the path as it is.
+	scan_git "$root" grep -a --no-color -n -z -E "${grep_args[@]}" -- >"$given_lines" 2>"$errors" || status=$?
 	if [ "$status" -gt 1 ] || [ -s "$errors" ]; then
 		printf 'check-no-local-paths: git grep could not search %s (status %d):\n' "$root" "$status" >&2
 		cat "$errors" >&2
 		return 1
 	fi
 	while IFS= read -r -d '' path; do
-		markable=yes
-		if is_capture "$path"; then
-			markable=no
-		fi
-		if ! probe="$(head -c 8000 "$root/$path" | tr -d -c '\000' | wc -c)"; then
-			printf 'check-no-local-paths: could not read the first bytes of %s\n' "$root/$path" >&2
+		if ! IFS= read -r -d '' number || ! IFS= read -r text; then
+			printf 'check-no-local-paths: git grep gave a line of %s that ends early\n' "$path" >&2
 			return 1
 		fi
-		if [ "$probe" -ne 0 ]; then
-			printf '%s: (a binary file, which cannot be marked): a local path\n' "$path"
+		case "$number" in
+		'' | *[!0-9]*)
+			printf 'check-no-local-paths: git grep gave a line of %s with no line number\n' "$path" >&2
+			return 1
+			;;
+		esac
+		given=$((given + 1))
+		# A file's lines come together, in the index's order.
+		if [ "$path" != "$current" ]; then
+			current="$path"
+			# Read from the file named, never from what this loop reads.
+			if ! probe="$(tr -d -c '\000' <"$root/$path" | wc -c)"; then
+				printf 'check-no-local-paths: could not read %s\n' "$root/$path" >&2
+				return 1
+			fi
+			binary=no
+			if [ "$probe" -ne 0 ]; then
+				binary=yes
+				binary_files=$((binary_files + 1))
+				printf '%s: (a binary file, which cannot be marked): a local path\n' "$path"
+			fi
+			markable=yes
+			if is_capture "$path"; then
+				markable=no
+			fi
+		fi
+		if [ "$binary" = yes ]; then
 			continue
 		fi
-		status=0
-		scan_git "$root" grep -a --no-color -h -n -E "${grep_args[@]}" -- ":(literal)$path" >"$lines" 2>"$errors" || status=$?
-		if [ "$status" -gt 1 ] || [ -s "$errors" ]; then
-			printf 'check-no-local-paths: git grep could not search %s (status %d):\n' "$root/$path" "$status" >&2
-			cat "$errors" >&2
+		if [ "$markable" = yes ] && rematch "$text" "$marked_re"; then
+			marked=$((marked + 1))
+			continue
+		fi
+		# A space after the line: every match below then ends in the
+		# character after it, never at the end of the text, so the first
+		# place its text occurs is the place it matched. (Without it, a
+		# match at the line's end, a bare documented home, was cut at its
+		# first occurrence -- inside an earlier, longer home that starts
+		# with the same letters.)
+		bare="$text "
+		# Each placeholder home, then each documented one where its name
+		# ends (keeping the character after it), one at a time, the
+		# leftmost first. Rebuilt from either side of the match: bash 3.2
+		# keeps the quotes of a quoted replacement, and bash 5.2 reads `&`
+		# in a bare one.
+		removed=0
+		while rematch "$bare" "$placeholder_home_re"; do
+			found="${BASH_REMATCH[0]}"
+			bare="${bare%%"$found"*}${bare#*"$found"}"
+			removed=$((removed + 1))
+		done
+		while rematch "$bare" "$allowed_re"; do
+			found="${BASH_REMATCH[0]}" after="${BASH_REMATCH[2]}"
+			bare="${bare%%"$found"*}${after}${bare#*"$found"}"
+			removed=$((removed + 1))
+		done
+		hit=""
+		for entry in "${patterns[@]}"; do
+			if rematch "$bare" "${entry#*:}"; then
+				hit="${hit:+$hit, }${entry%%:*}"
+			fi
+		done
+		if [ -n "$uncompiled" ]; then
+			printf 'check-no-local-paths: this shell could not compile a pattern of its own (status 2 from [[ =~ ]]), so it cannot say what %s holds\n' "$path" >&2
 			return 1
 		fi
-		while IFS= read -r line || [ -n "$line" ]; do
-			number="${line%%:*}"
-			text="${line#*:}"
-			if [ "$markable" = yes ] && [[ $text =~ $marked_re ]]; then
-				marked=$((marked + 1))
-				continue
-			fi
-			# A space after the line: every match below then ends in the
-			# character after it, never at the end of the text, so the first
-			# place its text occurs is the place it matched. (Without it, a
-			# match at the line's end, a bare documented home, was cut at its
-			# first occurrence -- inside an earlier, longer home that starts
-			# with the same letters.)
-			bare="$text "
-			# Each placeholder home, then each documented one where its name
-			# ends (keeping the character after it), one at a time, the
-			# leftmost first. Rebuilt from either side of the match: bash 3.2
-			# keeps the quotes of a quoted replacement, and bash 5.2 reads `&`
-			# in a bare one.
-			while [[ $bare =~ $placeholder_home_re ]]; do
-				found="${BASH_REMATCH[0]}"
-				bare="${bare%%"$found"*}${bare#*"$found"}"
-			done
-			while [[ $bare =~ $allowed_re ]]; do
-				found="${BASH_REMATCH[0]}" after="${BASH_REMATCH[2]}"
-				bare="${bare%%"$found"*}${after}${bare#*"$found"}"
-			done
-			hit=""
-			for entry in "${patterns[@]}"; do
-				if [[ $bare =~ ${entry#*:} ]]; then
-					hit="${hit:+$hit, }${entry%%:*}"
-				fi
-			done
-			if [ -n "$hit" ]; then
-				printf '%s:%s: %s\n' "$path" "$number" "$hit"
-			else
-				placeheld=$((placeheld + 1))
-			fi
-		done <"$lines"
-	done <"$listing"
+		if [ -z "$hit" ] && [ "$removed" -eq 0 ]; then
+			# Git matched a shape here and this shell sees none, nor a
+			# placeholder that held it: they read the line differently.
+			hit='a line git matched in which this shell finds no shape and no placeholder'
+		fi
+		if [ -n "$hit" ]; then
+			refused=$((refused + 1))
+			printf '%s:%s: %s\n' "$path" "$number" "$hit"
+		else
+			placeheld=$((placeheld + 1))
+		fi
+	done <"$given_lines"
+	if [ -n "$uncompiled" ]; then
+		printf 'check-no-local-paths: this shell could not compile a pattern of its own (status 2 from [[ =~ ]])\n' >&2
+		return 1
+	fi
 }
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-local-paths.XXXXXX")"
@@ -397,22 +460,36 @@ if [ "$tracked_count" -eq 0 ]; then
 	fail 'no tracked files to scan; the check would pass for the wrong reason'
 	exit 1
 fi
-if ! scan_git . diff-files --name-only -z --diff-filter=DT >"$work/deleted" 2>"$work/errors" || [ -s "$work/errors" ]; then
-	fail 'git diff-files could not list the tracked files missing from this checkout:'
-	cat "$work/errors" >&2
-	exit 1
-fi
-if [ -s "$work/deleted" ]; then
-	fail 'tracked files missing from the working tree, or there as a directory or a symlink, which git grep would skip; restore or remove them (git restore -- <file>, or git rm -- <file>):'
-	tr '\000' '\n' <"$work/deleted" >&2
-	exit 1
-fi
+# A tracked file missing from the working tree, or there as a directory or a
+# symlink, is refused by name: before the scan, and again after it, because
+# `git grep` passes over one that goes while it runs without a word (the
+# file it cannot stat is ENOENT, which it does not report).
+refuse_missing() {
+	if ! scan_git . diff-files --name-only -z --diff-filter=DT >"$work/deleted" 2>"$work/errors" || [ -s "$work/errors" ]; then
+		fail 'git diff-files could not list the tracked files missing from this checkout:'
+		cat "$work/errors" >&2
+		exit 1
+	fi
+	if [ -s "$work/deleted" ]; then
+		fail "tracked files missing from the working tree$1, or there as a directory or a symlink, which git grep would skip; restore or remove them (git restore -- <file>, or git rm -- <file>):"
+		tr '\000' '\n' <"$work/deleted" >&2
+		exit 1
+	fi
+}
+refuse_missing ''
 
 if ! scan_tree . >"$work/found"; then
 	fail 'the scan could not finish, so it found nothing it can vouch for'
-elif [ -s "$work/found" ]; then
-	fail "a path that belongs to one machine is in tracked content (write it as a placeholder such as <tmp>, <home> or <work>, derive it from \$TMPDIR or \$HOME at run time, or mark a fixture's line $marker):"
-	cat "$work/found" >&2
+else
+	refuse_missing ' (gone while the scan ran)'
+	if [ -s "$work/found" ]; then
+		fail "a path that belongs to one machine is in tracked content (write it as a placeholder such as <tmp>, <home> or <work>, derive it from \$TMPDIR or \$HOME at run time, or mark a fixture's line $marker):"
+		cat "$work/found" >&2
+		# What became of every line git gave: the next reader of a log
+		# can tell a line git never gave from one this check passed.
+		printf 'check-no-local-paths: git gave %d line(s): %d refused, %d in %d binary file(s), %d marked, %d placeholder\n' \
+			"$given" "$refused" "$((given - refused - marked - placeheld))" "$binary_files" "$marked" "$placeheld" >&2
+	fi
 fi
 
 if [ "$failures" -ne 0 ]; then

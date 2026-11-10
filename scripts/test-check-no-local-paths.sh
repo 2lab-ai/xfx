@@ -18,7 +18,9 @@
 #     sequence (a coloured path in a capture) and a line start;
 #   - in a file whose name git would quote (a tab and a byte past ASCII), one
 #     named `-`, one under a directory named `-x`, one with no newline at its
-#     end, and a binary file (refused by name: it cannot be marked);
+#     end, and two binary files (refused by name: they cannot be marked),
+#     one with its NUL past git's first 8000 bytes and before the path on
+#     the same line, which no shell variable can hold;
 #   - a placeholder and a real path on one line, and a marked line followed
 #     by an unmarked one: an exception covers its own text, not its neighbour;
 #   - a redirect into a home (`>` is no placeholder), a home with no slash
@@ -44,7 +46,11 @@
 # naming an empty index, `GREP_OPTIONS`, and a HOME whose config sets
 # `grep.column`, `color.grep` and an fsmonitor program must not change the
 # answer or write to the decoy; a skip-worktree entry and a tracked file gone
-# from the working tree are refused.
+# from the working tree are refused, and so is one that goes while the scan
+# runs. And a `git` that gives a line in which the check's own reading finds
+# no shape and no placeholder: the check refuses that line rather than
+# counting it as one that passed (a `git` on PATH in front of the real one
+# makes both happen on demand).
 #
 # Its paths are assembled at run time: this file is tracked and scanned.
 
@@ -133,6 +139,10 @@ printf '%s\n' "$linux" >"$t/-"
 mkdir -p "$t/-x"
 printf 'a\nb\n%s' "$harness_mac" >"$t/-x/last.txt"
 printf 'PNG\000%s\n' "$mac" >"$t/blob.bin"
+{
+	printf '%8100s' '' | tr ' ' a
+	printf '\000 cd %sx\n' "$linux"
+} >"$t/late-nul.md"
 printf '%s and %s\n' "${s}home${s}u${s}" "$linux" >"$t/both.rs"
 printf '%s // local-path-ok\n%s\n' "$folders" "$folders" >"$t/marked.rs"
 printf 'log >%sx\n' "$linux" >"$t/redirect.sh"
@@ -170,6 +180,7 @@ want=(
 	"-:1: $linux_shape"
 	"-x/last.txt:3: $harness_shape"
 	"blob.bin: (a binary file, which cannot be marked): a local path"
+	"late-nul.md: (a binary file, which cannot be marked): a local path"
 	"both.rs:1: $linux_shape"
 	"marked.rs:2: $folders_shape"
 	"redirect.sh:1: $linux_shape"
@@ -317,6 +328,61 @@ if [ "$status" -ne 1 ] || ! grep -q 'missing from the working tree' "$work/out" 
 	show
 else
 	ok deleted "refused by name"
+fi
+
+# --- what a scan cannot vouch for, made to happen ------------------------------
+# A `git` in front of the real one on PATH, which the check runs as `git`:
+# it passes everything to the real one and, by SHIM_MODE, changes one thing.
+shim="$work/shim"
+mkdir -p "$shim"
+cat >"$shim/git" <<'SH'
+#!/bin/sh
+case "$SHIM_MODE: $* " in
+# The tree's scan (`-C .`, not the control's) gives one line more, of a file
+# with no shape in it.
+disagree:*' -C . '*' grep '*)
+	"$SHIM_REAL" "$@"
+	s=$?
+	if [ "$s" -gt 1 ]; then exit "$s"; fi
+	printf 'clean.md\000%s\000%s\n' 1 'nothing here'
+	exit 0
+	;;
+# The plant goes once the check has looked for missing files, before the
+# scan reads it.
+vanish:*' diff-files '*)
+	"$SHIM_REAL" "$@"
+	s=$?
+	if [ ! -e "$SHIM_FLAG" ]; then : >"$SHIM_FLAG"; rm -f vanish.md; fi
+	exit "$s"
+	;;
+esac
+exec "$SHIM_REAL" "$@"
+SH
+chmod 700 "$shim/git"
+shim_env=("PATH=$shim:$PATH" "SHIM_REAL=$(command -v git)" "SHIM_FLAG=$work/vanish.flag")
+
+t="$work/disagree"
+new_tree "$t"
+printf 'nothing here\n' >"$t/clean.md"
+track "$t"
+run_check "$t" "${shim_env[@]}" SHIM_MODE=disagree
+if [ "$status" -ne 1 ] || ! named "clean.md:1: a line git matched in which this shell finds no shape and no placeholder" || [ "$(hits)" -ne 1 ]; then
+	problem "disagree: a line git gave that the check could not account for was not refused (exit $status):"
+	show
+else
+	ok disagree "refused, not counted as passing"
+fi
+
+t="$work/vanished"
+new_tree "$t"
+printf '%s\n' "$mac" >"$t/vanish.md"
+track "$t"
+run_check "$t" "${shim_env[@]}" SHIM_MODE=vanish
+if [ "$status" -ne 1 ] || [ ! -e "$work/vanish.flag" ] || ! grep -q 'missing from the working tree' "$work/out" || ! named vanish.md; then
+	problem "vanished: a tracked file gone while the scan ran was not refused by name (exit $status):"
+	show
+else
+	ok vanished "refused by name"
 fi
 
 if [ "$failed" -ne 0 ]; then
