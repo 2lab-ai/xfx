@@ -29,7 +29,8 @@ one this unit added to `docs/parity.md`, the code and the scenarios (`new_cites.
 | `9131b35b` | round 3 receipt |
 | `44a6532a` | round 4 RED, tests and a test-only seam between a copy's open and its read (`red4.txt`) |
 | `023430f4` | round 4 fix, `homemode` a folder only, and `docs/parity.md`: **the code head** |
-| this README's commit, the unit's last | round 4 receipt |
+| `9b076b09` | round 4 receipt |
+| this README's commit, the unit's last | round 4 follow-up: a copy cut short between the open and the read, its test and mutant (`mutants-r4b.txt`) |
 
 ## fx's rule, case by case (`fx-src.txt`, and the captures of rounds 2 and 3)
 
@@ -138,7 +139,9 @@ A tool image that cannot go is told to the model. The launch line drops fx's two
 - The request is cloned only when it carries an image from a copy.
 - `turn_messages`'s unreachable arm is gone.
 - Tests: a test-only seam between the open and the read grows the copy (by a byte, and past the
-  limit) or swaps in a descriptor that cannot be read; the 5 MiB limit is written out in the
+  limit), cuts it short (the follow-up commit: `ImageSnapshotCorrupt`, the model not asked, no
+  byte sent, as fx's digest of fewer bytes does not match), or swaps in a descriptor that cannot
+  be read; the 5 MiB limit is written out in the
   boundary test; `homemode` refuses a file and a hard link to one outside the run.
 - Source outside tests, this round: +83 / -36, net +47, the test-only seam's lines among them
   (`size.py` counts them as source). The unit from 714f6283: +639 / -265, net +374 (`size.txt`).
@@ -280,6 +283,7 @@ round 4's code; four are new, the brief's three among them:
 | `too-large-as-changed` | a copy past the limit as it is read fails as changed, not `ImageTooLarge` | killed | SURVIVED | | |
 | `read-failure-goes-on` (S1) | a read that fails lets the request go: with the history's bytes taken first, the part goes with no bytes, and the test sees it | killed | SURVIVED | | |
 | `homemode-on-a-file` (MUST 2) | `homemode` changes a file's mode, a hard link's included | | | | killed |
+| `short-read-accepted` (follow-up) | a read shorter than the recorded size is sent without its digest checked | killed (`mutants-r4b.txt`) | | | |
 
 Every one of round 3's 19 has the verdicts it had in round 3. The `--test sessions` survivors are
 the same kind as round 3's: `ask`'s test has one request whose copy is changed and stays there, so
@@ -409,7 +413,8 @@ oldest first:
 15. `9131b35b` (round 3's receipt);
 16. `44a6532a` (round 4's RED);
 17. `023430f4` (round 4's fix);
-18. this README's commit, the last.
+18. `9b076b09` (round 4's receipt);
+19. this README's commit, the last.
 
 `rollback.txt` is round 2's rehearsal, at `b2f95c55`: kept as it was run.
 

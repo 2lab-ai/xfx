@@ -220,6 +220,20 @@ MUTANTS = {
         [(STORE, "read_from(file, length, crate::image::MAX_IMAGE_BYTES + 1)", "read_from(file, length, length)")],
         REQUEST,
     ),
+    # Round 4 follow-up: a read shorter than the recorded size is sent without its digest checked.
+    "short-read-accepted": (
+        [
+            (
+                STORE,
+                "                        if bytes.len() as u64 == copy.size\n"
+                "                            && crate::image::digest(&bytes) == copy.sha256 =>\n",
+                "                        if (bytes.len() as u64) < copy.size\n"
+                "                            || bytes.len() as u64 == copy.size\n"
+                "                                && crate::image::digest(&bytes) == copy.sha256 =>\n",
+            )
+        ],
+        {"lib": ["session::store::tests::each_request_sends_a_copy"]},
+    ),
     # Round 4: a copy past the limit when it is read fails as changed, not as upstream's
     # `ImageTooLarge`.
     "too-large-as-changed": (

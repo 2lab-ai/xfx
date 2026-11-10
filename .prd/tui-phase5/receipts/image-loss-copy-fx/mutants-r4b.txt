@@ -1,0 +1,12 @@
+# Round 4 follow-up, test-only: on a git clone --no-local at 9b076b09 with this commit's src/session/store.rs committed on it (08888561, local to the clone), one suite-lock slot, the a-z TMPDIR:
+#   cargo test --locked --lib -- session::store::
+#   python3 -I -B mutants.py <clone> r4b short-read-accepted
+# clone at 08888561 (9b076b09 and this commit's store.rs)
+store tests rc=0 test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 4529 filtered out; finished in 5.98s
+test session::store::tests::each_request_sends_a_copy_upstream_has_just_checked_holds_it_back_or_fails ... ok
+# clone at 08888561
+r4b short-read-accepted [lib]: killed
+    test session::store::tests::each_request_sends_a_copy_upstream_has_just_checked_holds_it_back_or_fails ... FAILED
+    src/session/store.rs:6112:13:
+      assertion `left == right` failed: whole, then cut short in the read
+# changed files in the clone after the run: 0

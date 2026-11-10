@@ -5975,9 +5975,9 @@ mod tests {
             Is(Vec<u8>),
             Grown,
             Gone,
-            // Between the open and the read: the copy grows to this length, or
-            // the descriptor the read is given cannot be read.
-            GrowsInTheRead(u64),
+            // Between the open and the read: the copy is made this long, longer or
+            // shorter, or the descriptor the read is given cannot be read.
+            ResizedInTheRead(u64),
             UnreadableInTheRead,
         }
         let cases = [
@@ -6003,17 +6003,24 @@ mod tests {
             (
                 "whole, then a byte more in the read",
                 whole.clone(),
-                vec![Copy::GrowsInTheRead(74)],
+                vec![Copy::ResizedInTheRead(74)],
             ),
             (
                 "whole, then past the limit in the read",
                 whole.clone(),
-                vec![Copy::GrowsInTheRead(crate::image::MAX_IMAGE_BYTES + 1)],
+                vec![Copy::ResizedInTheRead(crate::image::MAX_IMAGE_BYTES + 1)],
             ),
             (
                 "whole, then a read that fails",
                 whole.clone(),
                 vec![Copy::UnreadableInTheRead],
+            ),
+            // Fewer bytes than the open found are not the digest's either: the
+            // request fails before the model is asked, and nothing is sent.
+            (
+                "whole, then cut short in the read",
+                whole.clone(),
+                vec![Copy::ResizedInTheRead(10)],
             ),
         ];
         for (how, built, before) in cases {
@@ -6057,13 +6064,13 @@ mod tests {
                         .and_then(|file| file.set_len(fit as u64 + 1))
                         .expect("grow"),
                     Copy::Gone => std::fs::remove_file(&copy).expect("remove"),
-                    Copy::GrowsInTheRead(to) => {
+                    Copy::ResizedInTheRead(to) => {
                         during = Some(Box::new(move |path, _| {
                             std::fs::OpenOptions::new()
                                 .write(true)
                                 .open(path)
                                 .and_then(|file| file.set_len(to))
-                                .expect("grow in the read");
+                                .expect("resize in the read");
                         }))
                     }
                     Copy::UnreadableInTheRead => {
