@@ -19889,11 +19889,16 @@ mod tests {
                 sent.contains("toolu_q") && sent.contains("Which depth?") && sent.contains("Deep"),
                 "{wire:?} {model}: {sent}"
             );
-            assert_eq!(
-                sent.contains("SEALED") && sent.contains("sig-1"),
-                keeps_state,
-                "{wire:?} {model}: {sent}"
-            );
+            // Each part of the sealed state on its own: the thinking text and
+            // its signature both go back to the authority that sealed it, and
+            // neither goes anywhere else.
+            for part in ["SEALED", "sig-1"] {
+                assert_eq!(
+                    sent.contains(part),
+                    keeps_state,
+                    "{wire:?} {model}: {part} in {sent}"
+                );
+            }
         }
     }
 }
