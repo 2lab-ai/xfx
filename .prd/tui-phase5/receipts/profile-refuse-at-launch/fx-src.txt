@@ -1,0 +1,961 @@
+== fx_src.sh over an fx source checkout
+#### 1. The rule
+== src/core/app/app_lifecycle.zig:676-703@481104fd (2901 lines) -- the load, then: a bad FX_ULTRAFAST in every mode; in local mode a user-layer malformed_settings, settings_too_large or invalid_model_id refuses; durable_path_unsafe refuses unless the credential mode is .stored
+   676	    var detailed = if (profile_home) |home_dir|
+   677	        try config_runtime.loadMergedSettingsDetailedFromHome(alloc, home_dir, state.workspace_root)
+   678	    else
+   679	        try config_runtime.loadMergedSettingsDetailed(alloc, state.workspace_root);
+   680	    defer detailed.deinit(alloc);
+   681	    const settings = &detailed.settings;
+   682	    // A malformed process override must never silently fall through to a
+   683	    // potentially paid profile preference, regardless of credential mode.
+   684	    for (detailed.diagnostics) |diagnostic| {
+   685	        if (diagnostic.cause == .invalid_ultrafast_mode_override) {
+   686	            return error.InvalidUltrafastOverride;
+   687	        }
+   688	    }
+   689	    // A rejected local profile cannot safely identify the destination of model data.
+   690	    if (auth_mode == .local) for (detailed.diagnostics) |diagnostic| {
+   691	        if (diagnostic.layer != .user) continue;
+   692	        switch (diagnostic.cause) {
+   693	            .durable_path_unsafe => {
+   694	                if (credential_mode != .stored) return error.InvalidProfileConfiguration;
+   695	                state.model_requests_blocked = true;
+   696	            },
+   697	            .malformed_settings,
+   698	            .settings_too_large,
+   699	            .invalid_model_id,
+   700	            => return error.InvalidProfileConfiguration,
+   701	            else => {},
+   702	        }
+   703	    };
+== src/core/auth/credentials.zig:21-33@481104fd (1646 lines) -- two auth modes; no FX_AUTH_MODE is local
+    21	pub const AuthMode = enum {
+    22	    local,
+    23	    host_managed,
+    24	};
+    25	
+    26	pub const AuthModeError = error{InvalidAuthMode};
+    27	
+    28	pub fn parseAuthMode(value: ?[]const u8) AuthModeError!AuthMode {
+    29	    const raw = value orelse return .local;
+    30	    if (std.mem.eql(u8, raw, "local")) return .local;
+    31	    if (std.mem.eql(u8, raw, "host-managed")) return .host_managed;
+    32	    return error.InvalidAuthMode;
+    33	}
+== src/main.zig:3277-3290@481104fd (4893 lines) -- FX_AUTH_MODE read once per process; a bad value is its own refusal
+  3277	fn runNonBenchmark(raw_args: []const [*:0]const u8, raw_env: RawEnviron, cli_args: []const [:0]const u8) !void {
+  3278	    io_mod.setRawEnviron(raw_env);
+  3279	
+  3280	    const alloc = processAllocator();
+  3281	    const auth_mode = credentials.parseAuthMode(rawEnvValue(raw_env, "FX_AUTH_MODE")) catch {
+  3282	        try writeStderrFast("fx: FX_AUTH_MODE must be local or host-managed\n");
+  3283	        exitFast(1);
+  3284	    };
+  3285	    const cfg = if (cli_args.len == 0)
+  3286	        emptyEntryConfig(auth_mode)
+  3287	    else if (needsFullEntryConfig(cli_args))
+  3288	        fullEntryConfig(auth_mode)
+  3289	    else
+  3290	        localEntryConfig(auth_mode);
+== src/core/config/config_runtime.zig:205-219@481104fd (4718 lines) -- the diagnostic causes
+   205	pub const ConfigDiagnosticCause = enum {
+   206	    malformed_settings,
+   207	    settings_too_large,
+   208	    durable_path_unsafe,
+   209	    private_state_permissions_unsupported,
+   210	    invalid_model_id,
+   211	    ignored_project_user_only_setting,
+   212	    legacy_workspace_preferences,
+   213	    manual_backup_available,
+   214	    retired_skill_match_fuzzy,
+   215	    invalid_context_limits,
+   216	    invalid_additional_directories,
+   217	    invalid_skill_symlink_authorities,
+   218	    invalid_ultrafast_mode_override,
+   219	};
+#### 2. What counts: the user layer only, and how each cause arises
+== src/core/config/config_runtime.zig:463-521@481104fd (4718 lines) -- the profile file: unreadable store (cause by error), invalid JSON or non-object (malformed), oversized (too large)
+   463	    var user_root: ?std.json.Parsed(std.json.Value) = null;
+   464	    defer if (user_root) |*parsed| parsed.deinit();
+   465	
+   466	    if (home_dir) |home| {
+   467	        var store: ?settings_store.Store = settings_store.Store.initFromHome(alloc, home, .read_only) catch |err| blk: {
+   468	            prompt_history_store_allowed = false;
+   469	            try diagnostics.append(alloc, .{
+   470	                .layer = .user,
+   471	                .cause = diagnosticCauseForUserStoreError(err),
+   472	            });
+   473	            break :blk null;
+   474	        };
+   475	        if (store) |*usable_store| {
+   476	            defer usable_store.deinit(alloc);
+   477	            var primary = usable_store.loadPrimary(alloc) catch |err| blk: {
+   478	                prompt_history_store_allowed = false;
+   479	                try diagnostics.append(alloc, .{
+   480	                    .layer = .user,
+   481	                    .cause = diagnosticCauseForUserStoreError(err),
+   482	                });
+   483	                break :blk settings_store.PrimaryLoad.absent;
+   484	            };
+   485	            defer primary.deinit(alloc);
+   486	            switch (primary) {
+   487	                .absent => {},
+   488	                .invalid => {
+   489	                    prompt_history_store_allowed = false;
+   490	                    try diagnostics.append(alloc, .{ .layer = .user, .cause = .malformed_settings });
+   491	                    if (usable_store.newestValidBackupPath(alloc) catch null) |recovery_path| {
+   492	                        try diagnostics.append(alloc, .{
+   493	                            .layer = .user,
+   494	                            .cause = .manual_backup_available,
+   495	                            .recovery_path = recovery_path,
+   496	                        });
+   497	                    }
+   498	                },
+   499	                .oversized => {
+   500	                    prompt_history_store_allowed = false;
+   501	                    try diagnostics.append(alloc, .{ .layer = .user, .cause = .settings_too_large });
+   502	                    if (usable_store.newestValidBackupPath(alloc) catch null) |recovery_path| {
+   503	                        try diagnostics.append(alloc, .{
+   504	                            .layer = .user,
+   505	                            .cause = .manual_backup_available,
+   506	                            .recovery_path = recovery_path,
+   507	                        });
+   508	                    }
+   509	                },
+   510	                .valid => |bytes| {
+   511	                    user_root = try std.json.parseFromSlice(std.json.Value, alloc, bytes, .{ .allocate = .alloc_always });
+   512	                    if (user_root.?.value != .object) {
+   513	                        prompt_history_store_allowed = false;
+   514	                        try diagnostics.append(alloc, .{ .layer = .user, .cause = .malformed_settings });
+   515	                        user_root.?.deinit();
+   516	                        user_root = null;
+   517	                    }
+   518	                },
+   519	            }
+   520	        }
+   521	    }
+== src/core/config/config_runtime.zig:1038-1043@481104fd (4718 lines) -- a store error other than an unsafe path or open permissions is malformed_settings
+  1038	fn diagnosticCauseForUserStoreError(err: anyerror) ConfigDiagnosticCause {
+  1039	    return switch (err) {
+  1040	        error.DurablePathUnsafe => .durable_path_unsafe,
+  1041	        error.PrivateStatePermissionsUnsupported => .private_state_permissions_unsupported,
+  1042	        else => .malformed_settings,
+  1043	    };
+== src/core/config/config_runtime.zig:523-561@481104fd (4718 lines) -- the project file's diagnostics are layer .project: never a refusal
+   523	    const project_path = try std.Io.Dir.path.join(alloc, &.{ workspace_root, ".fx.json" });
+   524	    defer alloc.free(project_path);
+   525	    const project_text = readOptionalFile(alloc, project_path) catch |err| blk: {
+   526	        if (err == error.OutOfMemory) return err;
+   527	        try diagnostics.append(alloc, .{
+   528	            .layer = .project,
+   529	            .cause = switch (err) {
+   530	                error.StreamTooLong => .settings_too_large,
+   531	                error.DurablePathUnsafe => .durable_path_unsafe,
+   532	                else => .malformed_settings,
+   533	            },
+   534	        });
+   535	        break :blk null;
+   536	    };
+   537	    defer if (project_text) |text| alloc.free(text);
+   538	    if (project_text) |text| {
+   539	        if (std.json.parseFromSlice(std.json.Value, alloc, text, .{})) |parsed_value| {
+   540	            var parsed = parsed_value;
+   541	            defer parsed.deinit();
+   542	            if (parsed.value != .object) {
+   543	                try diagnostics.append(alloc, .{ .layer = .project, .cause = .malformed_settings });
+   544	            } else {
+   545	                try appendIgnoredProjectProfileSettingDiagnostics(alloc, &diagnostics, parsed.value);
+   546	                try mergeDetailedSettingsLayer(
+   547	                    alloc,
+   548	                    &detailed_merge_state,
+   549	                    parsed.value,
+   550	                    .project,
+   551	                    false,
+   552	                    .project,
+   553	                    .project,
+   554	                    .none,
+   555	                );
+   556	            }
+   557	        } else |err| {
+   558	            if (err == error.OutOfMemory) return err;
+   559	            try diagnostics.append(alloc, .{ .layer = .project, .cause = .malformed_settings });
+   560	        }
+   561	    }
+== src/core/config/config_runtime.zig:563-630@481104fd (4718 lines) -- the profile's global object, then its workspaces entry for this root: both diagnostic layer .user; a non-object workspaces or entry is malformed_settings
+   563	    if (user_root) |parsed| {
+   564	        if (parsed.value.object.contains("additional_directories")) {
+   565	            try diagnostics.append(alloc, .{
+   566	                .layer = .user,
+   567	                .cause = .invalid_additional_directories,
+   568	                .setting_key = try alloc.dupe(u8, "additional_directories"),
+   569	            });
+   570	        }
+   571	        if (hasLegacyWorkspacePreferences(parsed.value)) {
+   572	            try diagnostics.append(alloc, .{
+   573	                .layer = .user,
+   574	                .cause = .legacy_workspace_preferences,
+   575	            });
+   576	        }
+   577	        try mergeDetailedSettingsLayer(
+   578	            alloc,
+   579	            &detailed_merge_state,
+   580	            parsed.value,
+   581	            .profile,
+   582	            false,
+   583	            .user,
+   584	            .user_global,
+   585	            .user,
+   586	        );
+   587	    }
+   588	
+   589	    if (user_root) |parsed| {
+   590	        const workspaces = parsed.value.object.get("workspaces");
+   591	        if (workspaces) |workspaces_value| {
+   592	            if (workspaces_value != .object) {
+   593	                try diagnostics.append(alloc, .{ .layer = .user, .cause = .malformed_settings });
+   594	            } else if (workspaces_value.object.get(workspace_root)) |workspace_value| {
+   595	                if (workspace_value != .object) {
+   596	                    try diagnostics.append(alloc, .{ .layer = .user, .cause = .malformed_settings });
+   597	                } else {
+   598	                    if (workspace_value.object.get("additional_directories")) |value| {
+   599	                        const parsed_directories = parseAdditionalDirectories(
+   600	                            alloc,
+   601	                            workspace_root,
+   602	                            value,
+   603	                        ) catch |err| blk: {
+   604	                            if (err == error.OutOfMemory) return err;
+   605	                            try diagnostics.append(alloc, .{
+   606	                                .layer = .user,
+   607	                                .cause = .invalid_additional_directories,
+   608	                                .setting_key = try alloc.dupe(u8, "additional_directories"),
+   609	                            });
+   610	                            break :blk null;
+   611	                        };
+   612	                        if (parsed_directories) |directories| {
+   613	                            additional_directories = directories.canonical;
+   614	                            additional_directory_sources = directories.sources;
+   615	                        }
+   616	                    }
+   617	                    try mergeDetailedSettingsLayer(
+   618	                        alloc,
+   619	                        &detailed_merge_state,
+   620	                        workspace_value,
+   621	                        .profile,
+   622	                        true,
+   623	                        .user,
+   624	                        .user_workspace,
+   625	                        .local,
+   626	                    );
+   627	                }
+   628	            }
+   629	        }
+   630	    }
+== src/core/config/config_runtime.zig:1009-1036@481104fd (4718 lines) -- a profile layer that does not parse: the routing salvage, then the cause (InvalidModelValue -> invalid_model_id, a few named causes, anything else malformed_settings)
+  1009	    } else |err| {
+  1010	        if (err == error.OutOfMemory) return err;
+  1011	        if (diagnostic_layer == .user and value == .object) {
+  1012	            _ = salvageProviderRouting(alloc, state.settings, state.sources, value, if (source == .user_workspace) .profile_workspace else settings_layer, source) catch |salvage_err| switch (salvage_err) {
+  1013	                error.OutOfMemory => return error.OutOfMemory,
+  1014	                error.InvalidProviderRouting => return err,
+  1015	            };
+  1016	        }
+  1017	        if (diagnostic_layer == .user and err == error.InvalidModelValue) state.prompt_history_store_allowed.* = false;
+  1018	        try state.diagnostics.append(alloc, .{
+  1019	            .layer = diagnostic_layer,
+  1020	            .cause = diagnosticCauseForParseError(err),
+  1021	        });
+  1022	    }
+  1023	}
+  1024	
+  1025	fn diagnosticCauseForParseError(err: anyerror) ConfigDiagnosticCause {
+  1026	    return switch (err) {
+  1027	        error.InvalidModelValue => .invalid_model_id,
+  1028	        error.RetiredSkillMatchFuzzy => .retired_skill_match_fuzzy,
+  1029	        error.InvalidContextLimitsType,
+  1030	        error.UnknownContextLimit,
+  1031	        error.InvalidContextLimitValue,
+  1032	        => .invalid_context_limits,
+  1033	        error.InvalidSkillSymlinkAuthorities => .invalid_skill_symlink_authorities,
+  1034	        else => .malformed_settings,
+  1035	    };
+  1036	}
+== src/core/config/config_runtime.zig:898-911@481104fd (4718 lines) -- the salvage re-parses only provider, providers and models; when that fails too the parse error itself is returned
+   898	fn salvageProviderRouting(alloc: Allocator, settings: *Settings, sources: *ConfigSources, value: std.json.Value, layer: SettingsLayer, source: ConfigSource) error{ OutOfMemory, InvalidProviderRouting }!bool {
+   899	    var routing_only: std.json.ObjectMap = .empty;
+   900	    defer routing_only.deinit(alloc);
+   901	    for ([_][]const u8{ "provider", "providers", "models" }) |key| {
+   902	        const field = value.object.get(key) orelse continue;
+   903	        routing_only.put(alloc, key, field) catch return error.OutOfMemory;
+   904	    }
+   905	    if (routing_only.count() == 0) return false;
+   906	    var salvaged = parseSettingsValueForLayer(alloc, .{ .object = routing_only }, layer, false, false) catch |err| switch (err) {
+   907	        error.OutOfMemory => return error.OutOfMemory,
+   908	        else => return error.InvalidProviderRouting,
+   909	    };
+   910	    defer salvaged.deinit(alloc);
+   911	    if (salvaged.provider == null and salvaged.providers == null and salvaged.models.isEmpty()) return false;
+== src/core/config/config_runtime.zig:1611-1636@481104fd (4718 lines) -- the parser: profile-only fields for user layers, project-safe fields for all
+  1611	fn parseSettingsValueForLayer(
+  1612	    alloc: Allocator,
+  1613	    root: std.json.Value,
+  1614	    layer: SettingsLayer,
+  1615	    tolerate_non_object_user_containers: bool,
+  1616	    parse_workspace_statusline: bool,
+  1617	) !Settings {
+  1618	    if (root != .object) return error.InvalidSettingsShape;
+  1619	
+  1620	    var settings = Settings{};
+  1621	    errdefer settings.deinit(alloc);
+  1622	
+  1623	    if (layer == .profile) {
+  1624	        if (root.object.get("providers")) |value| settings.providers = try configured_provider.Registry.parse(alloc, value);
+  1625	    }
+  1626	    if (layer != .project) try parseProfileOnlyFields(
+  1627	        &settings,
+  1628	        alloc,
+  1629	        root,
+  1630	        tolerate_non_object_user_containers,
+  1631	        parse_workspace_statusline,
+  1632	    );
+  1633	    try parseProjectSafeFields(&settings, alloc, root);
+  1634	
+  1635	    return settings;
+  1636	}
+== src/core/config/config_runtime.zig:1645-1656@481104fd (4718 lines) -- skill_match_fuzzy is checked before the model; the model must be a string fx's validateModel takes
+  1645	    if (root.object.contains("skill_match_fuzzy")) return error.RetiredSkillMatchFuzzy;
+  1646	    if (root.object.get("auto_compact_percent")) |value| {
+  1647	        if (value != .integer) return error.InvalidAutoCompactPercentType;
+  1648	        if (value.integer < 0 or !compactor.isValidPercent(@intCast(value.integer))) return error.InvalidAutoCompactPercentValue;
+  1649	        settings.auto_compact_percent = @intCast(value.integer);
+  1650	    }
+  1651	    if (root.object.get("model")) |model_value| {
+  1652	        const value = model_value;
+  1653	        if (value != .string) return error.InvalidModelType;
+  1654	        settings_store.validateModel(value.string) catch return error.InvalidModelValue;
+  1655	        try settings.models.putCopy(alloc, .gateway, value.string);
+  1656	    }
+== src/core/config/config_runtime.zig:1658-1662@481104fd (4718 lines) -- provider: a routing key
+  1658	    if (root.object.get("provider")) |provider_value| {
+  1659	        if (provider_value != .string) return error.InvalidProviderType;
+  1660	        settings.provider = model_provider.parse(provider_value.string) orelse
+  1661	            return error.InvalidProviderValue;
+  1662	    }
+== src/core/config/config_runtime.zig:1676-1686@481104fd (4718 lines) -- models: a routing key
+  1676	    if (root.object.get("models")) |models_value| {
+  1677	        if (models_value != .object) return error.InvalidModelType;
+  1678	        var iterator = models_value.object.iterator();
+  1679	        while (iterator.next()) |entry| {
+  1680	            const provider = model_provider.parse(entry.key_ptr.*) orelse return error.InvalidProviderValue;
+  1681	            const model_value = entry.value_ptr.*;
+  1682	            if (model_value != .string) return error.InvalidModelType;
+  1683	            settings_store.validateModel(model_value.string) catch return error.InvalidModelValue;
+  1684	            try settings.models.putCopy(alloc, provider, model_value.string);
+  1685	        }
+  1686	    }
+== src/core/config/config_runtime.zig:1733-1737@481104fd (4718 lines) -- one typed key of many: a non-bool fast_mode fails the whole layer
+  1733	    if (root.object.get("fast_mode")) |fast_mode_value| {
+  1734	        const value = fast_mode_value;
+  1735	        if (value != .bool) return error.InvalidFastModeType;
+  1736	        settings.fast_mode = value.bool;
+  1737	    }
+== src/core/config/config_runtime.zig:1816-1836@481104fd (4718 lines) -- statusLine: a non-object one is tolerated only in a workspace entry
+  1816	    if (root.object.get("statusLine")) |statusline_value| {
+  1817	        const value = statusline_value;
+  1818	        if (value != .object) {
+  1819	            if (!tolerate_non_object_user_containers) return error.InvalidStatusLineType;
+  1820	        } else {
+  1821	            if (value.object.get("context")) |v| {
+  1822	                if (v != .bool) return error.InvalidStatusLineContextType;
+  1823	                settings.statusline_context = v.bool;
+  1824	            }
+  1825	            if (value.object.get("session")) |v| {
+  1826	                if (v != .bool) return error.InvalidStatusLineSessionType;
+  1827	                settings.statusline_session = v.bool;
+  1828	            }
+  1829	            if (parse_workspace_statusline) {
+  1830	                if (value.object.get("workspace")) |v| {
+  1831	                    if (v != .bool) return error.InvalidStatusLineWorkspaceType;
+  1832	                    settings.statusline_workspace = v.bool;
+  1833	                }
+  1834	            }
+  1835	        }
+  1836	    }
+== src/core/config/settings_store.zig:17-17@481104fd (4166 lines) -- the size ceiling
+    17	const max_settings_bytes: usize = 64 * 1024;
+== src/core/config/settings_store.zig:894-902@481104fd (4166 lines) -- validateModel: 1..1024 bytes, UTF-8, no surrounding whitespace, no ASCII control
+   894	pub fn validateModel(model: []const u8) !void {
+   895	    if (model.len == 0 or model.len > max_model_bytes or !std.unicode.utf8ValidateSlice(model)) {
+   896	        return error.InvalidDurableField;
+   897	    }
+   898	    if (!std.mem.eql(u8, model, std.mem.trim(u8, model, " \t\r\n"))) return error.InvalidDurableField;
+   899	    for (model) |byte| {
+   900	        if (std.ascii.isControl(byte)) return error.InvalidDurableField;
+   901	    }
+   902	}
+== src/core/config/settings_store.zig:340-367@481104fd (4166 lines) -- an unsafe profile directory (a link, not a directory) is DurablePathUnsafe
+   340	    pub fn initFromHome(alloc: Allocator, home_path: []const u8, mode: OpenMode) !Store {
+   341	        const zio = io_mod.getIo();
+   342	        var home = std.Io.Dir.openDirAbsolute(zio, home_path, .{ .iterate = true }) catch |err| switch (err) {
+   343	            error.FileNotFound => {
+   344	                if (mode == .read_only) return initReadOnlyAbsent(alloc, home_path);
+   345	                return err;
+   346	            },
+   347	            else => return err,
+   348	        };
+   349	        defer home.close(zio);
+   350	
+   351	        var durable_home = home.openDir(zio, profile_paths.root_dir_name, .{
+   352	            .iterate = true,
+   353	            .follow_symlinks = false,
+   354	        }) catch |err| switch (err) {
+   355	            error.FileNotFound => blk: {
+   356	                if (mode == .read_only) return initReadOnlyAbsent(alloc, home_path);
+   357	
+   358	                var verified_home = io_mod.VerifiedDir{
+   359	                    .dir = try std.Io.Dir.openDirAbsolute(zio, home_path, .{ .iterate = true }),
+   360	                };
+   361	                defer verified_home.close();
+   362	                const created = try io_mod.openOrCreateVerifiedPrivateDir(&verified_home, profile_paths.root_dir_name);
+   363	                break :blk created.dir;
+   364	            },
+   365	            error.NotDir, error.SymLinkLoop => return error.DurablePathUnsafe,
+   366	            else => return err,
+   367	        };
+== src/core/config/settings_store.zig:400-420@481104fd (4166 lines) -- loadPrimary: absent, oversized, invalid, valid
+   400	    pub fn loadPrimary(self: *Store, alloc: Allocator) !PrimaryLoad {
+   401	        var raw = try self.loadRawPrimary(alloc);
+   402	        switch (raw) {
+   403	            .absent => return .absent,
+   404	            .oversized => return .oversized,
+   405	            .bytes => |bytes| {
+   406	                raw = .absent;
+   407	                errdefer alloc.free(bytes);
+   408	                var parsed = std.json.parseFromSlice(std.json.Value, alloc, bytes, .{}) catch {
+   409	                    alloc.free(bytes);
+   410	                    return .invalid;
+   411	                };
+   412	                defer parsed.deinit();
+   413	                if (parsed.value != .object) {
+   414	                    alloc.free(bytes);
+   415	                    return .invalid;
+   416	                }
+   417	                return .{ .valid = bytes };
+   418	            },
+   419	        }
+   420	    }
+== src/core/config/settings_store.zig:715-749@481104fd (4166 lines) -- the settings file opened without following links: a link or a directory is DurablePathUnsafe; oversized past the ceiling
+   715	
+   716	    fn loadRawPrimary(self: *Store, alloc: Allocator) !RawPrimary {
+   717	        if (self.durable_home == null) return .absent;
+   718	        const zio = io_mod.getIo();
+   719	        const open_mode: std.Io.Dir.OpenFileOptions.Mode =
+   720	            if (self.mode == .writable) .read_write else .read_only;
+   721	        var file = io_mod.openExistingRegularFile(
+   722	            self.durable_home.?.dir,
+   723	            "settings.json",
+   724	            open_mode,
+   725	        ) catch |err| switch (err) {
+   726	            error.FileNotFound => return .absent,
+   727	            error.SymLinkLoop, error.IsDir, error.NotDir => return error.DurablePathUnsafe,
+   728	            else => return err,
+   729	        };
+   730	        defer file.close(zio);
+   731	
+   732	        const stat = try file.stat(zio);
+   733	        try io_mod.verifyOpenedRegularFile(stat, open_mode);
+   734	        if (self.mode == .writable) {
+   735	            file.setPermissions(zio, std.Io.File.Permissions.fromMode(0o600)) catch {
+   736	                return error.PrivateStatePermissionsUnsupported;
+   737	            };
+   738	        }
+   739	        const verified_stat = if (self.mode == .writable) try file.stat(zio) else stat;
+   740	        const primary_mode = verified_stat.permissions.toMode() & 0o777;
+   741	        if (self.mode == .writable and primary_mode != 0o600) {
+   742	            return error.PrivateStatePermissionsUnsupported;
+   743	        }
+   744	        if (self.mode == .read_only and durableModeWritableByGroupOrOther(primary_mode)) {
+   745	            return error.PrivateStatePermissionsUnsupported;
+   746	        }
+   747	        if (verified_stat.size > max_settings_bytes) return .oversized;
+   748	        return .{ .bytes = try io_mod.readFileToEnd(alloc, &file, max_settings_bytes + 1) };
+   749	    }
+#### 3. Which loads refuse: the credential mode each entry passes
+== src/core/app/app_lifecycle.zig:420-438@481104fd (2901 lines) -- loadStartupStateForRun (ask): .refresh_if_needed; loadStartupStateWithoutCredentials (permissions, workspace, upgrade): null
+   420	/// `model_override` is the run's `--model`. It stands in for a provider without
+   421	/// a saved model; callers still apply it over the selected or resumed model.
+   422	pub fn loadStartupStateForRun(
+   423	    alloc: Allocator,
+   424	    transport: oauth_transport.Provider,
+   425	    secret_store: host.SecretStore,
+   426	    default_model: []const u8,
+   427	    default_agent_step_limit: usize,
+   428	    auth_mode: credentials.AuthMode,
+   429	    model_override: ?[]const u8,
+   430	) !StartupState {
+   431	    const workspace_root = try io_mod.realpathAlloc(alloc, ".");
+   432	    return loadStartupStateFromOwnedWorkspace(alloc, transport, secret_store, workspace_root, default_model, default_agent_step_limit, auth_mode, null, .refresh_if_needed, null, model_override);
+   433	}
+   434	
+   435	pub fn loadStartupStateWithoutCredentials(alloc: Allocator, default_model: []const u8, default_agent_step_limit: usize) !StartupState {
+   436	    const workspace_root = try io_mod.realpathAlloc(alloc, ".");
+   437	    return loadStartupStateFromOwnedWorkspace(alloc, oauth_transport.unavailable_provider, host.unavailable_secret_store, workspace_root, default_model, default_agent_step_limit, .local, null, null, null, null);
+   438	}
+== src/core/app/app_lifecycle.zig:501-515@481104fd (2901 lines) -- loadInteractiveStartupState (the TUI): .stored
+   501	/// The interactive launch counterpart of `loadCatalogStartupStateWithAuthMode`:
+   502	/// a credential that would be read from the macOS Keychain is left in
+   503	/// `deferred_credential` so the caller can resolve it after the first frame.
+   504	pub fn loadInteractiveStartupState(
+   505	    alloc: Allocator,
+   506	    secret_store: host.SecretStore,
+   507	    default_model: []const u8,
+   508	    default_agent_step_limit: usize,
+   509	    auth_mode: credentials.AuthMode,
+   510	    provider_override: ?model_provider.ProviderId,
+   511	    model_override: ?[]const u8,
+   512	) !StartupState {
+   513	    const workspace_root = try io_mod.realpathAlloc(alloc, ".");
+   514	    return loadStartupStateWithKeychainRead(alloc, oauth_transport.unavailable_provider, secret_store, workspace_root, default_model, default_agent_step_limit, auth_mode, null, .stored, provider_override, model_override, .deferred);
+   515	}
+== src/core/app/app_lifecycle.zig:517-587@481104fd (2901 lines) -- loadStartupStatus (status): reads the settings and keeps the diagnostics; no refusal
+   517	pub fn loadStartupStatus(
+   518	    alloc: Allocator,
+   519	    secret_store: host.SecretStore,
+   520	    default_model: []const u8,
+   521	    default_agent_step_limit: usize,
+   522	) !StartupStatus {
+   523	    return loadStartupStatusWithAuthMode(
+   524	        alloc,
+   525	        secret_store,
+   526	        default_model,
+   527	        default_agent_step_limit,
+   528	        .local,
+   529	    );
+   530	}
+   531	
+   532	pub fn loadStartupStatusWithAuthMode(
+   533	    alloc: Allocator,
+   534	    secret_store: host.SecretStore,
+   535	    default_model: []const u8,
+   536	    default_agent_step_limit: usize,
+   537	    auth_mode: credentials.AuthMode,
+   538	) !StartupStatus {
+   539	    const workspace_root = try io_mod.realpathAlloc(alloc, ".");
+   540	    errdefer alloc.free(workspace_root);
+   541	    debug_trace.configureFromEnv(alloc, workspace_root);
+   542	
+   543	    var detailed = try config_runtime.loadMergedSettingsDetailed(alloc, workspace_root);
+   544	    defer detailed.deinit(alloc);
+   545	    const settings = &detailed.settings;
+   546	
+   547	    const run_model = config_runtime.modelEnvOverride();
+   548	    const configured_selection = try config_runtime.selectProviderModel(default_model, settings, null, run_model);
+   549	    const selected_model = try loadStartupStatusModel(alloc, configured_selection.model, null);
+   550	    errdefer if (selected_model.owned) |model| alloc.free(model);
+   551	
+   552	    var auth_status = if (auth_mode == .host_managed)
+   553	        auth_runtime.StatusSnapshot{
+   554	            .active_source = .host_managed,
+   555	            .gateway_connected = true,
+   556	            .chatgpt_connected = true,
+   557	            .grok_connected = true,
+   558	        }
+   559	    else
+   560	        try auth_runtime.loadStatusSnapshotForProvider(
+   561	            alloc,
+   562	            secret_store,
+   563	            configured_selection.provider,
+   564	            settings.credential_source,
+   565	        );
+   566	    errdefer auth_status.deinit(alloc);
+   567	
+   568	    const definitions: @import("../config/configured_provider.zig").Registry = settings.providers orelse .{};
+   569	    const result = StartupStatus{
+   570	        .workspace_root = workspace_root,
+   571	        .provider_endpoint = if (definitions.get(configured_selection.provider.label())) |definition| try alloc.dupe(u8, definition.base_url) else null,
+   572	        .provider = configured_selection.provider,
+   573	        .selected_model = selected_model.value,
+   574	        .owned_selected_model = selected_model.owned,
+   575	        .model_origin = ModelOrigin.of(settings, configured_selection.provider, run_model),
+   576	        .effort = settings.effort orelse .auto,
+   577	        .ultrafast_mode = detailed.ultrafast_mode_env_override orelse (settings.ultrafast_mode orelse false),
+   578	        .auth = auth_status,
+   579	        .permission_mode = loadPermissionMode(settings.permission_mode),
+   580	        .agent_step_limit = loadAgentStepLimit(default_agent_step_limit, settings.max_agent_steps),
+   581	        .update_channel = settings.update_channel orelse .stable,
+   582	        .config_diagnostics = detailed.diagnostics,
+   583	    };
+   584	    auth_status.owned_team = null;
+   585	    detailed.diagnostics = &.{};
+   586	    return result;
+   587	}
+== src/core/cli/cli_ask.zig:1434-1458@481104fd (8825 lines) -- ask loads the startup state before anything else of the turn
+  1434	fn runPromptInternal(alloc: Allocator, prompt: []const u8, permission_override: ?PermissionMode, initial_cfg: Config, options: RunOptions) !PromptRunResult {
+  1435	    var cfg = initial_cfg;
+  1436	    const owned_prompt = try alloc.dupe(u8, prompt);
+  1437	    defer alloc.free(owned_prompt);
+  1438	
+  1439	    try checkHeadlessCancellation(options.deps);
+  1440	    var startup = if (cfg.auth_mode == .host_managed)
+  1441	        try options.deps.load_startup_state_with_auth_mode(
+  1442	            alloc,
+  1443	            cfg.gateway_provider.oauth_transport,
+  1444	            cfg.secret_store,
+  1445	            cfg.default_model,
+  1446	            cfg.default_agent_step_limit,
+  1447	            cfg.auth_mode,
+  1448	            options.model_override,
+  1449	        )
+  1450	    else
+  1451	        try options.deps.load_startup_state(
+  1452	            alloc,
+  1453	            cfg.gateway_provider.oauth_transport,
+  1454	            cfg.secret_store,
+  1455	            cfg.default_model,
+  1456	            cfg.default_agent_step_limit,
+  1457	            options.model_override,
+  1458	        );
+== src/core/cli/cli_ask.zig:3954-3971@481104fd (8825 lines) -- ask's default loader: loadStartupStateForRun, local
+  3954	fn loadStartupStateDefault(
+  3955	    alloc: Allocator,
+  3956	    transport: oauth_transport.Provider,
+  3957	    secret_store: host.SecretStore,
+  3958	    default_model: []const u8,
+  3959	    default_agent_step_limit: usize,
+  3960	    model_override: ?[]const u8,
+  3961	) !app_lifecycle.StartupState {
+  3962	    return app_lifecycle.loadStartupStateForRun(
+  3963	        alloc,
+  3964	        transport,
+  3965	        secret_store,
+  3966	        default_model,
+  3967	        default_agent_step_limit,
+  3968	        .local,
+  3969	        model_override,
+  3970	    );
+  3971	}
+== src/core/cli/cli_surface.zig:1080-1103@481104fd (5795 lines) -- --version and help answer before any settings are read
+  1080	    if (isVersionFlag(effective_args[0])) {
+  1081	        if (effective_args.len != 1) {
+  1082	            try writeStderr(deps, version_usage);
+  1083	            return .handled_failure;
+  1084	        }
+  1085	        try writeStdout(deps, cfg.version);
+  1086	        try writeStdout(deps, "\n");
+  1087	        return .handled_success;
+  1088	    }
+  1089	
+  1090	    // The MCP verbs print their own help, and pass `-h` after `--` to the server.
+  1091	    if (topLevelHelpRequest(cfg.command_catalog, effective_args)) |kind| if (kind != .mcp) {
+  1092	        const text = try command_specs.renderTopLevelCommandHelp(alloc, cfg.command_catalog, kind);
+  1093	        defer alloc.free(text);
+  1094	        try writeStdout(deps, text);
+  1095	        return .handled_success;
+  1096	    };
+  1097	
+  1098	    switch (parsed_command) {
+  1099	        .interactive, .resume_session => unreachable,
+  1100	        .help => {
+  1101	            try writeTopLevelHelp(alloc, cfg.command_catalog, deps, cfg.version, .stdout);
+  1102	            return .handled_success;
+  1103	        },
+== src/core/cli/cli_surface.zig:1336-1357@481104fd (5795 lines) -- status: loadStartupStatus, then the config diagnostics on stderr
+  1336	        .status => |rest| {
+  1337	            const opts = parseLocalSurfaceArgs(rest) catch |err| {
+  1338	                try writeUsageOrJsonError(alloc, cfg.command_catalog, deps, .status, "status", err, rest);
+  1339	                return .handled_failure;
+  1340	            };
+  1341	            var startup = if (cfg.auth_mode == .host_managed)
+  1342	                try deps.load_startup_status_with_auth_mode(
+  1343	                    alloc,
+  1344	                    cfg.secret_store,
+  1345	                    cfg.default_model,
+  1346	                    cfg.default_agent_step_limit,
+  1347	                    cfg.auth_mode,
+  1348	                )
+  1349	            else
+  1350	                try deps.load_startup_status(
+  1351	                    alloc,
+  1352	                    cfg.secret_store,
+  1353	                    cfg.default_model,
+  1354	                    cfg.default_agent_step_limit,
+  1355	                );
+  1356	            defer startup.deinit(alloc);
+  1357	            try writeConfigDiagnostics(alloc, deps, startup.config_diagnostics);
+== src/core/cli/cli_surface.zig:1520-1553@481104fd (5795 lines) -- doctor: doctor_runtime.collect
+  1520	        .doctor => |rest| {
+  1521	            const opts = parseLocalSurfaceArgs(rest) catch |err| {
+  1522	                try writeUsageOrJsonError(alloc, cfg.command_catalog, deps, .doctor, "doctor", err, rest);
+  1523	                return .handled_failure;
+  1524	            };
+  1525	
+  1526	            const workspace_root = try io_mod.realpathAlloc(alloc, ".");
+  1527	            defer alloc.free(workspace_root);
+  1528	            var mcp_inspection = try cfg.inspect_mcp_local_config(
+  1529	                alloc,
+  1530	                workspace_root,
+  1531	            );
+  1532	            defer mcp_inspection.deinit(alloc);
+  1533	            var snapshot = try doctor_runtime.collect(
+  1534	                alloc,
+  1535	                cfg.secret_store,
+  1536	                cfg.default_model,
+  1537	                cfg.default_agent_step_limit,
+  1538	                mcp_inspection.profile_diagnostic,
+  1539	            );
+  1540	            defer snapshot.deinit(alloc);
+  1541	
+  1542	            var output_snapshot = doctorSnapshotFromRuntime(snapshot);
+  1543	            output_snapshot.mcp = localMcpView(&mcp_inspection);
+  1544	            if (opts.format == .json) {
+  1545	                try writeDoctorJsonLine(alloc, deps, output_snapshot);
+  1546	                return .handled_success;
+  1547	            }
+  1548	
+  1549	            const text = try output_snapshot.render(alloc, opts.format);
+  1550	            defer alloc.free(text);
+  1551	            try writeFormattedOutput(deps, text, opts.format);
+  1552	            return .handled_success;
+  1553	        },
+== src/core/cli/doctor_runtime.zig:92-105@481104fd (739 lines) -- doctor reads the merged settings itself and reports a failure as checks
+    92	    var detailed = config_runtime.loadMergedSettingsDetailed(alloc, snapshot.workspace_root) catch |err| {
+    93	        // Settings are unreadable, so no remembered choice is available to honour.
+    94	        snapshot.auth = try auth_runtime.loadStatusSnapshot(alloc, secret_store, null);
+    95	        try appendConfigLoadFailureCheck(&checks, alloc, "config", "failed to load config", err);
+    96	        try appendMcpConfigCheck(&checks, alloc, mcp_config_diagnostic);
+    97	        try appendAuthCheck(&checks, alloc, snapshot.auth);
+    98	        try appendConfigLoadFailureCheck(&checks, alloc, "startup", "failed to resolve startup settings", err);
+    99	        try appendStateChecks(&checks, alloc);
+   100	        try appendGitCheck(&checks, alloc, snapshot.workspace_root);
+   101	        try appendGhCheck(&checks, alloc);
+   102	
+   103	        snapshot.checks = try checks.toOwnedSlice(alloc);
+   104	        return snapshot;
+   105	    };
+== src/core/cli/cli_surface.zig:1554-1600@481104fd (5795 lines) -- session and sessions read the store, not the settings
+  1554	        .session => |rest| {
+  1555	            if (rest.len > 0 and std.mem.eql(u8, rest[0], "recover")) {
+  1556	                var recovery = parseSessionRecoveryArgs(
+  1557	                    alloc,
+  1558	                    rest[1..],
+  1559	                ) catch |err| {
+  1560	                    try writeUsageOrJsonError(
+  1561	                        alloc,
+  1562	                        cfg.command_catalog,
+  1563	                        deps,
+  1564	                        .session,
+  1565	                        "session",
+  1566	                        err,
+  1567	                        rest[1..],
+  1568	                    );
+  1569	                    return .handled_failure;
+  1570	                };
+  1571	                defer recovery.deinit(alloc);
+  1572	                return runSessionRecovery(alloc, deps, recovery);
+  1573	            }
+  1574	
+  1575	            var opts = parseSessionDetailArgs(alloc, rest) catch |err| {
+  1576	                try writeUsageOrJsonError(alloc, cfg.command_catalog, deps, .session, "session", err, rest);
+  1577	                return .handled_failure;
+  1578	            };
+  1579	            defer opts.deinit(alloc);
+  1580	
+  1581	            const target = opts.target orelse {
+  1582	                try writeUsageOrJsonError(alloc, cfg.command_catalog, deps, .session, "session", error.InvalidSessionDetailArgs, rest);
+  1583	                return .handled_failure;
+  1584	            };
+  1585	            return runSessionDetail(alloc, deps, target, opts.format);
+  1586	        },
+  1587	        .sessions => |rest| {
+  1588	            if (rest.len > 0 and std.mem.eql(u8, rest[0], "convert")) {
+  1589	                const format = parseSessionConvertArgs(rest[1..]) catch |err| {
+  1590	                    try writeUsageOrJsonError(alloc, cfg.command_catalog, deps, .sessions, "sessions", err, rest);
+  1591	                    return .handled_failure;
+  1592	                };
+  1593	                return runSessionConvert(alloc, deps, format);
+  1594	            }
+  1595	            const opts = parseSessionListArgs(rest) catch |err| {
+  1596	                try writeUsageOrJsonError(alloc, cfg.command_catalog, deps, .sessions, "sessions", err, rest);
+  1597	                return .handled_failure;
+  1598	            };
+  1599	            return runSessionList(alloc, deps, opts);
+  1600	        },
+#### 4. The text and the status
+== src/core/app/app_entry_runtime.zig:158-168@481104fd (1456 lines) -- a command's error: 'fx: <ErrorName>' on stderr, exit 1
+   158	pub fn runBeforeInteractive(alloc: Allocator, args: []const [:0]const u8, cfg: Config) !BeforeInteractiveResult {
+   159	    const run_result = cli_surface.runIfRequested(alloc, args, cliSurfaceConfig(cfg)) catch |err| switch (err) {
+   160	        error.UnknownCliCommand => return .{ .exit = 1 },
+   161	        else => {
+   162	            tryWriteErrorMessage(.{}, err);
+   163	            return .{ .exit = 1 };
+   164	        },
+   165	    };
+   166	
+   167	    return beforeInteractiveResultFromRunResult(alloc, run_result, benchEnabled());
+   168	}
+== src/core/app/app_entry_runtime.zig:537-539@481104fd (1456 lines) -- the interactive error's text: 'fx: <ErrorName>'
+   537	fn formatUnexpectedError(buffer: []u8, err: anyerror) ![]const u8 {
+   538	    return std.mem.print(buffer, "fx: {s}\n", .{config_runtime.modelNotSelectedMessage(err) orelse @errorName(err)});
+   539	}
+== src/core/app/app_entry_runtime.zig:553-557@481104fd (1456 lines) -- written to stderr
+   553	fn reportUnexpectedInteractiveError(deps: RunDeps, err: anyerror) void {
+   554	    var buffer: [256]u8 = undefined;
+   555	    const message = deps.format_unexpected_error(&buffer, err) catch return;
+   556	    deps.write_stderr(deps.stderr_ctx, message) catch {};
+   557	}
+== src/core/app/app_entry_runtime.zig:223-229@481104fd (1456 lines) -- a launch with no terminal says so first: the TTY check precedes the load
+   223	/// The exit for an interactive launch whose app could not start.
+   224	fn initFailure(deps: RunDeps, launch: *cli_surface.InteractiveLaunch, alloc: Allocator, err: anyerror) anyerror!RunOutcome {
+   225	    switch (err) {
+   226	        error.NotATerminal => {
+   227	            writeStderr(deps, "fx requires an interactive terminal (TTY).\n");
+   228	            return .{ .exit = 1 };
+   229	        },
+== src/core/app/app_entry_runtime.zig:290-300@481104fd (1456 lines) -- any other init error: reported, then returned
+   290	        else => {
+   291	            // A storage fault is named (D29).
+   292	            if (v2StorageFaultMessage(err)) |message| {
+   293	                writeStderr(deps, message);
+   294	                return .{ .exit = 1 };
+   295	            }
+   296	            reportUnexpectedInteractiveError(deps, err);
+   297	            return err;
+   298	        },
+   299	    }
+   300	}
+== src/core/app/app_entry_runtime.zig:302-315@481104fd (1456 lines) -- App.init failing goes to initFailure
+   302	fn runInteractiveWithDeps(comptime App: type, comptime cooperative: bool, app: *App, alloc: Allocator, launch: *cli_surface.InteractiveLaunch, auth_mode: credentials.AuthMode, deps: RunDeps) !RunOutcome {
+   303	    var resume_requested = launch.requested_resume != null;
+   304	    app.* = App.init(alloc, launch, auth_mode) catch |first_err| fresh: {
+   305	        // An update relaunched a session that had no turn, which v2 never
+   306	        // saved (D2): the new build opens a fresh session instead (D81).
+   307	        if (first_err == error.SessionNotFound and launch.upgrade_relaunch != null) {
+   308	            debug_trace.logf("session", "event=upgrade_relaunch_fresh_session reason=SessionNotFound", .{});
+   309	            if (launch.requested_resume) |*target| target.deinit(alloc);
+   310	            launch.requested_resume = null;
+   311	            resume_requested = false;
+   312	            if (App.init(alloc, launch, auth_mode)) |started| break :fresh started else |err| return initFailure(deps, launch, alloc, err);
+   313	        }
+   314	        return initFailure(deps, launch, alloc, first_err);
+   315	    };
+== src/main.zig:3301-3324@481104fd (4893 lines) -- the interactive outcome: an error is exitFast(1)
+  3301	    const before = try app_entry_runtime.runBeforeInteractive(alloc, cli_args, cfg);
+  3302	    switch (before) {
+  3303	        .interactive => |launch| {
+  3304	            const env_block = environBlockFromRaw(raw_env);
+  3305	            const process_args = argsFromRaw(raw_args);
+  3306	            var threaded = std.Io.Threaded.init(alloc, processIoOptions(process_args, env_block));
+  3307	            io_mod.setIo(threaded.io());
+  3308	
+  3309	            var owned_launch = launch;
+  3310	            // Interactive shutdown has already persisted the session and
+  3311	            // terminated child processes. What remains is freeing memory and
+  3312	            // joining threads that can still be waiting on DNS, the network,
+  3313	            // or a disk scan, so end the process here. The app is declared in
+  3314	            // this scope because those threads still reference it.
+  3315	            var app: App = undefined;
+  3316	            const outcome = app_entry_runtime.runInteractive(App, &app, alloc, &owned_launch, auth_mode) catch exitFast(1);
+  3317	            exitFast(switch (outcome) {
+  3318	                .returned => 0,
+  3319	                .exit => |code| code,
+  3320	            });
+  3321	        },
+  3322	        .returned => exitFast(0),
+  3323	        .exit => |code| exitFast(code),
+  3324	    }
+== src/core/cli/cli_ask.zig:1189-1197@481104fd (8825 lines) -- ask's notices: none for InvalidProfileConfiguration, so the error goes up
+  1189	fn askErrorNotice(err: anyerror) ?[]const u8 {
+  1190	    if (auth_runtime.preparationFailureNotice(err)) |notice| return notice;
+  1191	    if (config_runtime.modelNotSelectedMessage(err)) |message| return message;
+  1192	    return switch (err) {
+  1193	        error.ImagePreparationFailed => image_attachments.image_preparation_failed_notice,
+  1194	        error.ModelImageCapabilityUnavailable => image_attachments.model_image_capability_unavailable_notice,
+  1195	        else => null,
+  1196	    };
+  1197	}
+== src/core/cli/cli_ask.zig:1306-1327@481104fd (8825 lines) -- ask: in text mode an error with no notice is returned; under --json the JSON result carries the error name
+  1306	    }) catch |err| {
+  1307	        if (interrupt_scope.requested()) return headless_interrupt.exitCode();
+  1308	        if (err == error.OutOfMemory) return err;
+  1309	        if (err == error.OneOffSessionNotResumable and !options.json_output) {
+  1310	            try deps.write_stderr(
+  1311	                deps.stderr_ctx,
+  1312	                "fx ask: subagent child sessions cannot be resumed directly; message the named agent from its parent session\n",
+  1313	            );
+  1314	            return 1;
+  1315	        }
+  1316	        if (!options.json_output) {
+  1317	            const notice = askErrorNotice(err) orelse return err;
+  1318	            try deps.write_stderr(deps.stderr_ctx, "fx ask: ");
+  1319	            try deps.write_stderr(deps.stderr_ctx, notice);
+  1320	            try deps.write_stderr(deps.stderr_ctx, "\n");
+  1321	            return 1;
+  1322	        }
+  1323	        const json = try renderErrorJsonResult(alloc, @errorName(err));
+  1324	        defer alloc.free(json);
+  1325	        try deps.write_stdout(deps.stdout_ctx, json);
+  1326	        return 1;
+  1327	    };
+== src/core/cli/cli_ask.zig:3911-3917@481104fd (8825 lines) -- the JSON result for an error
+  3911	fn renderErrorJsonResult(alloc: Allocator, err_name: []const u8) ![]u8 {
+  3912	    return renderFinalJsonResult(alloc, .{
+  3913	        .exit_code = 1,
+  3914	        .assistant_output = &.{},
+  3915	        .error_code = err_name,
+  3916	    });
+  3917	}
+#### 5. What is done before the refusal
+== src/core/app/app_lifecycle.zig:851-883@481104fd (2901 lines) -- the TUI: the TTY check and the termios capture are reads; the load comes before raw mode, the resize signal and the layout query
+   851	pub fn bootstrapInteractiveApp(cfg: BootstrapConfig) !StartupState {
+   852	    try cfg.terminal.ensureInteractive();
+   853	    try cfg.terminal.captureOriginalTermios();
+   854	
+   855	    cfg.shell.sync_updates_enabled = shell_runtime.detectSyncUpdatesEnabled(cfg.alloc);
+   856	    cfg.shell.history_reset_uses_ris = shell_runtime.detectHistoryResetUsesRis(cfg.alloc);
+   857	    cfg.shell.layout = minimalLayout();
+   858	    try cfg.shell.initBacking(cfg.alloc);
+   859	
+   860	    var state = try loadInteractiveStartupState(
+   861	        cfg.alloc,
+   862	        cfg.secret_store,
+   863	        cfg.default_model,
+   864	        cfg.default_agent_step_limit,
+   865	        cfg.auth_mode,
+   866	        cfg.provider_override,
+   867	        cfg.model_override,
+   868	    );
+   869	    errdefer state.deinit(cfg.alloc);
+   870	
+   871	    state.credential_onboarding_skipped = cfg.auth_mode == .host_managed or credentialOnboardingDisabled();
+   872	
+   873	    errdefer shutdownInteractiveShell(
+   874	        cfg.terminal,
+   875	        cfg.shell,
+   876	        cfg.metrics,
+   877	        cfg.terminal_title,
+   878	    );
+   879	
+   880	    try cfg.terminal.enableRawMode();
+   881	    cfg.terminal.installResizeSignal(cfg.resize_handler);
+   882	    installAbnormalExitHandlers(io_mod.getenv("TMUX"));
+   883	    cfg.shell.layout = try cfg.terminal.queryLayout(cfg.footer_rows);
+#### 6. A profile that goes bad after launch
+== src/core/session/session_commands.zig:280-296@481104fd (3531 lines) -- the /status panel reads the settings at open and shows the error name in a row
+   280	        /// The rows the `/status` panel opens with. The profile settings are
+   281	        /// read here, once, for the credential they select; a panel whose
+   282	        /// settings cannot be read says so in a row instead of showing auth.
+   283	        pub fn openStatusSnapshot(app: *App) !info_panel.Snapshot {
+   284	            var preferred: ?types.CredentialSource = null;
+   285	            var settings_error: ?[]const u8 = null;
+   286	            if (provider_runtime.provider(app) == .gateway and app.auth.credentialSource() == null) {
+   287	                if (config_runtime.loadMergedSettings(app.alloc, app.workspace_root)) |loaded| {
+   288	                    var settings = loaded;
+   289	                    defer settings.deinit(app.alloc);
+   290	                    preferred = settings.credential_source;
+   291	                } else |err| {
+   292	                    settings_error = @errorName(err);
+   293	                }
+   294	            }
+   295	            return statusSnapshot(app, preferred, settings_error);
+   296	        }
+== 0 range(s) out of bounds
