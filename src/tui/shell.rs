@@ -41706,11 +41706,15 @@ mod tests {
     /// kill takes nothing. A list that no edit of the draft leaves up --
     /// `/effort`'s and `/fork`'s, which read no search -- is closed by the
     /// kill instead, as fx's are (`dismissActiveMenusForComposerEdit`,
-    /// `:881-886`, `:1984-1990`): `closes`.
+    /// `:881-886`, `:1984-1990`): `closes`. Over `/model`'s menu, the session
+    /// picker and `/skills`' menu fx's `insert_newline` adds nothing
+    /// (`app_input_runtime.zig:514@481104fd`; `Shell::composer_newline`,
+    /// CTRLO-OTHER-PICKERS), so the newline is not there: `held`.
     fn row_keys_reach_the_composer_under_the_full_transcript<T: PartialEq + std::fmt::Debug>(
         shell: &mut Fixture,
         marked: &impl Fn(&Fixture) -> Option<T>,
         closes: bool,
+        held: bool,
     ) {
         let draft = shell.editor.text().to_string();
         let mark = marked(shell);
@@ -41725,10 +41729,11 @@ mod tests {
         }
         assert_eq!(shell.editor.text(), draft);
         shell.route_bytes(&[0x0a]);
+        let newline = if held { draft } else { format!("{draft}\n") };
         assert_eq!(
             shell.editor.text(),
-            format!("{draft}\n"),
-            "C-j did not reach the composer"
+            newline,
+            "C-j did not reach the composer as fx's `insert_newline`"
         );
         assert!(shell.full.is_open(), "C-j closed the full transcript");
     }
@@ -41747,6 +41752,7 @@ mod tests {
                     .and_then(|menu| menu.selected(&shell.settings_snapshot()))
             },
             false,
+            false,
         );
         assert!(shell.settings_menu.is_some());
     }
@@ -41756,7 +41762,12 @@ mod tests {
         let mut shell = harness_shell();
         shell.route_bytes(b"/model ");
         assert_eq!(marked_row(&shell).as_deref(), Some("openai/gpt-6-astra"));
-        row_keys_reach_the_composer_under_the_full_transcript(&mut shell, &marked_row, false);
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut shell,
+            &marked_row,
+            false,
+            false,
+        );
     }
 
     #[test]
@@ -41774,6 +41785,7 @@ mod tests {
                     .map(str::to_string)
             },
             false,
+            true,
         );
     }
 
@@ -41790,6 +41802,7 @@ mod tests {
                     .and_then(|args| args.chosen())
                     .map(str::to_string)
             },
+            false,
             false,
         );
         runtime.shutdown();
@@ -41809,6 +41822,7 @@ mod tests {
             &mut slash,
             &|shell: &Fixture| shell.picker.as_ref().map(|picker| picker.marked()),
             false,
+            false,
         );
         let mut catalog = with_catalog(24, 120);
         row_keys_reach_the_composer_under_the_full_transcript(
@@ -41821,6 +41835,7 @@ mod tests {
                     .map(|spec| spec.name)
             },
             false,
+            false,
         );
         let mut provider = shell(24, 120);
         provider.route_bytes(b"/provider ");
@@ -41832,6 +41847,7 @@ mod tests {
                     .as_ref()
                     .and_then(|column| column.chosen())
             },
+            false,
             false,
         );
         let root = tempfile::tempdir().expect("a root");
@@ -41846,6 +41862,7 @@ mod tests {
                     .map(|menu| menu.selected().clone())
             },
             true,
+            false,
         );
         // `/mcp`'s menu, the first list the check must come before: its own
         // handler takes every key while the full transcript covers it
@@ -41861,6 +41878,7 @@ mod tests {
             &mut mcp,
             &|shell: &Fixture| shell.mcp_menu.as_ref().map(|menu| menu.screen()),
             false,
+            false,
         );
         runtime.shutdown();
         let mut fork = shell(24, 120);
@@ -41874,6 +41892,7 @@ mod tests {
             &mut fork,
             &|shell: &Fixture| shell.fork_menu.as_ref().map(|menu| menu.selected().turn),
             true,
+            false,
         );
     }
 
