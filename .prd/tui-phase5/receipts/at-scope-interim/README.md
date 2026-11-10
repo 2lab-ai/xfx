@@ -32,7 +32,11 @@ AT-FOLDERS named and the two residuals of stopping the walk
 | `25ff67a6` | round 3: the parity row (§8) |
 | `2461ec50` | round 3: the ledger's 6 refs past the tick cases |
 | `a0bc7d33` | round 3: the mutant that restores the skip -- **round 3's checks, mutants and sweep** |
-| (round 3 receipt commit) | this README, `round3-checks.txt`, `mutants-r3.txt`, `sweep-*-r3.*`, `refs.txt`, `fx_src.sh` and `fx-src.txt`; `mutants-r2.txt`'s header |
+| `19bfab39` | round 3's receipt: this README, `round3-checks.txt`, `mutants-r3.txt`, `sweep-*-r3.*`, `refs.txt`, `fx_src.sh` and `fx-src.txt`; `mutants-r2.txt`'s header -- **round 3's head** |
+| `b1872308`, `57123bbf` | round 4: the failed tick case asserts the row after the next `settle_band`, first; the whole case asserts the walk count first (§4) |
+| `6f0d12b4` | round 4: the parity row (§8) |
+| `855a215c`, `c6328a9e` | round 4: the ledger's refs past those lines, twice |
+| (round 4 receipt commit) | this README, `round4-checks.txt`, `refs.txt`, `round3-checks.txt`'s header |
 
 Every fx line cited here is printed in `fx-src.txt` (`fx_src.sh`, at
 `481104fd`); "fx-src.txt:N" is its line. Rounds 2 and 3 appended ranges,
@@ -54,6 +58,12 @@ fx's `currentState` reads a finished loader before its join (§3); the
 tick case flips to fx's result and a failed-walk case is added (§4). §8 is
 brought up to date, the premise guards are named as AT-LAUNCH-WALK's
 tripwire, and the NITs are done.
+
+**Round 4** (reviews of `19bfab39`: both approve the code) changes words
+and one test: the one-frame flash is described as fx can show it, pass by
+pass, and kept as a recorded decision; "private until whole" is limited to
+the whole-walk case (§3); the failed tick case asserts the painted row
+(§4); NITs.
 
 ## 1. fx at the pin
 
@@ -162,20 +172,37 @@ form: the channel is xfx's counterpart of fx's atomic state, and draining
 it is what the poll does next anyway; a whole walk adopted there shows the
 rows fx's unjoined ready generation shows (`searchableGeneration`,
 `:647-654`). The second walk starts at once rather than at the next pass's
-join; that is a background walk, private until whole.
+join. After a whole walk it is a refresh, private until whole: the index
+just adopted answers meanwhile. After a failed one there is no adopted
+index, so the walk started at once is what the list reads -- `indexing
+files...` at the decision itself (round 4; gpt6 and opus r3).
 
-**Not copied, the loop's frame order** (round 3, the dispatcher's to
-decide): fx paints between handling the keys and the next pass's join
-(§1), so a failed first walk with a refresh queued behind it -- the first
-`@` above, or any refresh queued during a first walk -- is painted once as
-`Files unavailable` (its lookup reads `.failed`, `input_completion_runtime.
-zig:909`, fx-src.txt:374) and then, after the join starts the queued walk
-an 8 ms poll later, as `indexing files...`. xfx's `settle_band` takes the
-walk's end and starts the queued walk before it paints, so it shows
-`indexing files...` at once. This is the order of the loop, not of the
-index, and AT-FOLDERS' failed-walk case
-(`a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows`) has it
-too; copying it means holding a queued walk's start until after a frame.
+**Not copied, the loop's frame order** (round 3; kept in round 4 as a
+recorded decision, for the user's veto): fx can show a failed first walk
+for one frame, and xfx never does. The interleaving, pass by pass (§1;
+`event_loop.zig:79-119`, fx-src.txt:518-558):
+- a pass's `collect_facts` joins whatever loader has finished by then, and
+  starts the scope queued behind it; a failure already there is joined and
+  replaced before this pass prepares the list, so it shows no failure frame;
+- the pass then waits for keys (at most 8 ms, `main.zig:174`,
+  fx-src.txt:564) and handles them;
+- its `commit_frame` prepares the list and paints (`main.zig:2998`,
+  fx-src.txt:584). If the first walk failed after this pass's join, with a
+  refresh queued behind it -- or asked for by this preparation, the first
+  `@` above -- the lookup reads `.failed` and the frame shows `Files
+  unavailable` (`input_completion_runtime.zig:909`, fx-src.txt:374);
+- the next pass joins the failure and starts the queued walk, and its
+  frame, at most 8 ms later or at the next key, shows `indexing files...`
+  -- or that walk's rows, if it has finished by then.
+
+xfx takes the walk's end -- at the first `@`'s decision, or at
+`settle_band`'s poll -- and starts the walk before it paints, so it shows
+`indexing files...` (or the new walk's rows) at once. A copy would need two
+changes: hold a queued walk's start past one frame, and make the first
+`@`'s decision queue the walk rather than start it. This is the order of
+the loop, not of the index, and AT-FOLDERS' failed-walk case
+(`a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows`) has the
+same one-frame difference.
 
 **Not copied, queued as AT-LAUNCH-WALK (round 2, opus MUST):** fx walks
 the index at launch (§1); xfx's constructor starts no walk (`shell.rs`,
@@ -232,7 +259,12 @@ because when the new rows show depends on it.
     `a_first_at_after_a_walk_ended_whole_but_before_the_poll_refreshes`
     (2 walks, the walk's `plan.md` listed) and
     `a_first_at_after_a_walk_failed_but_before_the_poll_says_indexing`
-    (opus r2's: `indexing files...`, 2 walks).
+    (opus r2's: `indexing files...`, 2 walks). Round 4 (opus r3): the
+    helper also runs the next `settle_band`, and the failed case first
+    asserts that row is not `Files unavailable` -- with the skip restored,
+    that poll takes the failure with nothing queued and paints it, so the
+    mutant dies on the row; the whole case asserts the walk count with the
+    row count, first.
   - Both the change-before-any-walk case and the helper assert no walk at
     launch first. That assert is AT-LAUNCH-WALK's tripwire, and their
     comments say so: that unit must drive the launch walk to its end
@@ -260,6 +292,13 @@ because when the new rows show depends on it.
   a-z TMPDIR and one hold of the suite lock): `cargo fmt --check` and both
   clippy runs exit 0; the six modules, **1340 passed, 0 failed** (round 2's
   1339, less the tick case, plus its two); parity, 26 passed, 0 failed.
+- **Round 4** (`round4-checks.txt`, at `c6328a9e`, the same way): fmt and
+  both clippy runs exit 0; the two tick cases pass; the six modules, **1340
+  passed, 0 failed**; parity, 26 passed, 0 failed. With
+  `decision-before-the-walks-end` applied by hand in a throwaway clone, the
+  failed case dies on its row -- `Files unavailable` after the next
+  `settle_band` -- and the whole case on its walk count (1, not 2); the
+  mutant runner kills it again.
   The full gate is the dispatcher's, after the hand-back.
 
 ## 6. Pairs: no scenario can hold a walk

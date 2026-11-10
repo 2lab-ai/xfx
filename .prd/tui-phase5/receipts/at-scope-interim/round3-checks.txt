@@ -1,4 +1,4 @@
-# Round 3 at a0bc7d33, one hold of the suite lock (r3-runs.sh: each step's exit and seconds), TMPDIR=<scratch>/abcdefghijklmnopqrstuvwxyz for every step:
+# Round 3 at a0bc7d33, one hold of the suite lock (a scratch script, not kept: each step's exit and seconds), TMPDIR=<scratch>/abcdefghijklmnopqrstuvwxyz for every step:
 fmt exit 0 2s
 clippy exit 0 9s
 clippy-fault exit 0 8s
