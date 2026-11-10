@@ -59,3 +59,8 @@ src/tests/Cargo vs HEAD after: 0 changed
 #   (binaries.txt's two guard lines named the oracle's directory, whose name holds the retired product name; written <fx-bin> in the next commit, and the four checks run again below)
 # after the receipt commit 7d585321 (receipt tracked): scripts/check-no-stubs.sh exit 0 -- check-no-stubs: ok
 # after the receipt commit 7d585321 (receipt tracked): scripts/check-no-local-paths.sh exit 0 -- check-no-local-paths: ok (20089 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+
+# after aafbd7de (receipt tracked): scripts/check-no-secrets.sh exit 0 -- check-no-secrets: ok (20089 tracked file(s) scanned)
+# after aafbd7de (receipt tracked): scripts/check-xfx-identity.sh exit 0 -- check-xfx-identity: ok (20089 tracked file(s) scanned)
+# after aafbd7de (receipt tracked): scripts/check-no-stubs.sh exit 0 -- check-no-stubs: ok
+# after aafbd7de (receipt tracked): scripts/check-no-local-paths.sh exit 0 -- check-no-local-paths: ok (20089 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
