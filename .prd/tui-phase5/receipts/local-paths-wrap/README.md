@@ -11,7 +11,8 @@ machine would have put a home or scratch path into a committed capture.
 Base `635e7242` (train 12's head, with LOCAL-PATHS). Branch
 `fix/p5-local-paths-wrap`. Every claim below names the file in this
 directory that backs it; no file here holds a path of a machine. Round 2
-answers the reviews of `4851ba05` (section 8).
+answers the reviews of `4851ba05` (section 8), round 3 gpt6's of `ff59f0f7`
+(section 9), round 4 both engines' of `76fbee40` (section 10).
 
 ## 1. The marks (`marks.md`)
 
@@ -29,7 +30,7 @@ head-gone shape with no mark in front -- a leading `...{tail}`, a frame's top
 row, an approval row's mid-row `… {tail}` -- is recorded in `marks.md` as an
 open residual, not read here.
 
-## 2. The fix (`scripts/fxcap/roots.py`, `37a9dca2`; the tail rule as round 2 left it, `a74a293b`)
+## 2. The fix (`scripts/fxcap/roots.py`, `37a9dca2`; the tail rule as round 3 left it, `f5fed4b4`; comments only since, `same-rule.txt`)
 
 - **Read through.** The view drops a mark among a row's leading gutter
   characters (`MARKS`, `View._trim`), read in the row's visible bytes
@@ -66,20 +67,22 @@ open residual, not read here.
 ## 3. RED -> GREEN
 
 **Unit** (`mutants.txt`, first row; the tests in
-`scripts/fxcap/test_capture.py` RootsRewrite): at the base, 429
-subtests fail (`mutants.txt`, round 3's 28 tests) -- a root wrapped behind
+`scripts/fxcap/test_capture.py` RootsRewrite): at the base, 436
+subtests fail (`mutants.txt`, round 4's 29 tests) -- a root wrapped behind
 a mark at every byte (behind `  ↳ `, `┃↑`, a coloured `┃↑`, `│ ↳ `, `↳` and
 three spaces), every spelling over three rows, a root holding a mark, the
 tail after a partial rewrite (through the CLI's `--check` too), the
 path-shaped end both ways, the escaped separator, the split mark, the
-placeholder, the mark alone and the bare arrow. At the head the 28 pass.
-(Round 1's figures: 233 in 3 of 22 tests; round 2's: 419 of 26.)
+placeholder, the mark alone, the bare arrow and round 4's edges. At the
+head the 29 pass. (Round 1's figures: 233 in 3 of 22 tests; round 2's: 419
+of 26; round 3's: 429 of 28.)
 
-**End to end** (`e2e-red.txt`, `e2e-green.txt`; `e2e.sh`), round 2's run,
-with the head's roots.py: train 12's trial again, `p5-mcp-menu-new` swept
-on fx v0.0.16 (the pin, sha256 checked before and after) and on a release
-build of the head (its sha256 and banner in each file; the head changes no
-`src/`), from a copy of the scenarios at a 118-byte directory.
+**End to end** (`e2e-red.txt`, `e2e-green.txt`; `e2e.sh`), round 4's run,
+with roots.py at `f5e95437` (round 3's rule; its sha256 in each file):
+train 12's trial again, `p5-mcp-menu-new` swept on fx v0.0.16 (the pin,
+sha256 checked before and after) and on a release build of `f5e95437`
+(its sha256 in each file; no round changed `src/`), from a copy of the
+scenarios at a 118-byte directory.
 
 - RED, the base's capture.sh and roots.py: xfx's `approve-confirm` row 9,
   led by `  ↳ `, holds the directory's first 116 bytes and row 10 its last
@@ -91,11 +94,11 @@ build of the head (its sha256 and banner in each file; the head changes no
   over its own columns, is there); `--check` exits 0 with either roots.py,
   and every run of the sweep exited 0 (33 / 34 pairs, as RED).
 - fx's side holds none of it in either: fx goes on four spaces in.
-- Round 1's run (round 1's roots.py, a build of the base) read the same;
-  round 2 ran again because the rule changed and the binary's sha256 had
-  not been recorded. rows.py ran on the same captures after each sweep:
-  the copy of `e2e.sh` that ran could not find it beside itself (each
-  file's second line).
+- Rounds 1 and 2 ran it with their own roots.py and read the same (round
+  2's: `a74a293b`'s roots.py, whose sha256 was not the round-3 rule's, which
+  opus round 3 noted). Round 4 ran the committed `e2e.sh` from a clone of
+  `f5e95437`, rows.py beside it: the same reading, roots.py sha256
+  `a71c4a5344e4` in both files, the head's (`scan.txt`'s first line).
 - **Not this unit's: a cut.** In both runs 48 published files hold the
   directory's head cut short by `…` (the server screen's `runs` row): a cut
   is not a continuation (`marks.md`), and roots.py writes only a whole root.
@@ -134,9 +137,9 @@ or host).
   `remote_only.py`'s verdicts for those 34 snaps read as before: 22
   identical, 11 `remote`'s status only, 1 other. mcp-menu's README now says
   so where it describes those rows.
-- **After** (`scan.txt`, round 3's head, every tracked file): machine
-  roots over the 17815 captures and receipts, **0 refused** (round 2's:
-  0 of 17814, the same files refused elsewhere);
+- **After** (`scan.txt`, round 4's head, every tracked file): machine
+  roots over the 17820 captures and receipts, **0 refused** (rounds 2 and
+  3: 0 of 17814 and of 17815, the same files refused elsewhere);
   `scripts/check-no-local-paths.sh` ok. Over the rest, 3 files, each a test
   or source fixture whose line ends in a `local-path-ok` comment, which
   roots.py does not read (check-no-local-paths does). Public roots: 13
@@ -145,7 +148,9 @@ or host).
   are a runner's HOME and bun; they name no user and no host and are left as
   they are (check-no-local-paths allows a runner's HOME by name). 213 rows
   of tracked files open behind a mark (2998 in round 1, before a bare `↑`
-  stopped counting).
+  stopped counting), counted since round 4 in every file holding `↳`, or
+  `┃` and `↑` apart, so a split mark would count (`split-marks.txt`: the
+  same 213).
 - **What the tail rule could refuse in a run.** Round 1's measured only a
   random scratch name's 1-6 letters (`flake.py`, dropped in round 2: opus
   showed the real false refusals were fixed words, which that model could
@@ -156,26 +161,26 @@ or host).
 
 ## 5. Mutants (`mutants.txt`)
 
-`mutants.py` on a `git clone --no-local` of `f5fed4b4` (round 3), under the
-suite lock: RootsRewrite (`Ran 28 tests`, printed by each run) against
+`mutants.py` on a `git clone --no-local` of `f5e95437` (round 4), under the
+suite lock: RootsRewrite (`Ran 29 tests`, printed by each run) against
 roots.py at the base, then each mutant of the head's, then unmutated. Every
 mutant fails it:
 
 | roots.py | failed (sub)tests | first failed assertion |
 |---|---|---|
-| at the base, `635e7242` (the unit RED) | 429 | `test_capture.py:569` |
-| `↳` dropped from `MARKS` | 258 | `:536` |
+| at the base, `635e7242` (the unit RED) | 436 | `test_capture.py:597` |
+| `↳` dropped from `MARKS` | 262 | `:536` |
 | `┃↑` dropped from `MARKS` | 169 | `:536` |
-| a bare `↑` a mark again (round 1) | 2, the bare arrow and the styled hint | `:572` |
-| the fail-closed tail check dropped (`survivors`) | 144 | `:537` |
-| any end, no path shape (round 1) | 12, the words that must pass | `:525` |
-| path shape: a separator in the end only | 61 | `:537` |
+| a bare `↑` a mark again (round 1) | 4 | `:600` |
+| the fail-closed tail check dropped (`survivors`) | 148 | `:537` |
+| any end, no path shape (round 1) | 15, the words that must pass | `:525` |
+| path shape: a separator in the end only | 65 | `:537` |
 | path shape: a separator after the end only | 2 | `:508` |
-| no `\/` after the end (round 2) | 4, `someone\/x` and `one\/x` behind each mark | `:525` |
+| no `\/` after the end (round 2) | 6 | `:525` |
 | the tail check from two bytes up | 12 (a one-byte end before a `/`) | `:464` |
-| no skip inside a written placeholder | 4, k = 1..4 | `:560` |
+| no skip inside a written placeholder | 4, k = 1..4 | `:588` |
 | a mark read in one run only (round 2) | 2, the two split marks | `:536` |
-| a mark alone on its row leads the next | 2 | `:569` |
+| a mark alone on its row leads the next | 4 | `:597` |
 | the marks out of `GUTTER_RUN` | 2 (the rewrite does not refuse a root holding one) | `:486` |
 | unmutated | 0: `OK` | -- |
 
@@ -239,8 +244,10 @@ reads (`rerun.txt` holds both suites green at `1e023110`).
 ## 9. Round 3: gpt6's review of `ff59f0f7`
 
 Both findings reproduced at `ff59f0f7` by the dispatcher and by this
-round's tests (6 subtests fail with `ff59f0f7`'s roots.py, 0 with
-`f5fed4b4`'s):
+round's tests: the two mutants that each revert one of them fail 4 and 2
+subtests in round 3's run (6 and 2 in round 4's, `mutants.txt:10` and
+`:13`, where round 4's edge test adds two `\/` cases), and none fails at
+`f5fed4b4`:
 
 - **MUST, a JSON-escaped separator.** Behind a mark `someone/x` was refused
   and `someone\/x` passed. Every root is also spelled JSON-escaped
@@ -251,8 +258,12 @@ round's tests (6 subtests fail with `ff59f0f7`'s roots.py, 0 with
 - **SHOULD, a mark split by a colour change.** `ESC[2m┃ESC[0mESC[1m↑` was no
   mark: `_trim` matched a mark within one run's bytes. Both renderers draw
   `┃↑` in one run (xfx `src/tui/shell.rs:2924-2932`, fx
-  `input_presentation.zig:1020-1022@481104fd`), so no known capture had
-  one; the reader now matches the row's visible bytes across runs. A
+  `input_presentation.zig:1020-1022@481104fd`), and no committed capture
+  has one: `scan.sh` now reads every file holding `↳`, or `┃` and `↑` apart
+  -- 8465 files, 172 with round 3's filter -- and finds 213 rows behind a
+  mark in both, 0 that only a split mark adds (`split-marks.txt`,
+  `split_marks.py`; opus round 3 SHOULD 1); the reader now matches the row's visible bytes
+  across runs. A
   styled `┃`, a space, then `↑↓` is still a key hint, and
   `ESC[2m  ESC[0m↳` stays a mark.
 
@@ -263,6 +274,29 @@ passes unmutated; `scan.sh` over the 18913-odd tracked files with this
 receipt staged, **0 of the 17815 captures and receipts refused** on the
 machine roots and the same files elsewhere as round 2 -- **no new
 refusal**; `check-no-local-paths.sh` **ok**.
+
+## 10. Round 4: both engines' reviews of `76fbee40`
+
+Both approved, no MUST. No rule changes: roots.py gains comments only --
+the byte after an end is read across the row's end, what passes by design,
+the placeholder skip as a second guard -- and its code without docstrings
+and comments is `f5fed4b4`'s (`same-rule.txt`, `same_rule.py`). One test
+pins the edges (opus NIT 2, gpt6's four): `↳ scenarios` before a row
+opening `/x` or `\/x` is refused and before `x` passes; a percent-form end
+(`e%20one/x`) is refused and `e%20one more` passes; `\/` at the end of the
+file is refused and a lone `\` passes; a split mark with nothing after it
+leads nothing; a rail and an arrow a cursor move parts are no mark.
+`scan.sh` reads a file holding `↳`, or `┃` and `↑` apart, so its count
+can see a split mark (opus SHOULD 1). Decisions say what passes (SHOULD 2).
+
+Reruns (`rerun4.txt`, `TMPDIR` the harness scratch root): `test-capture.sh`
+at `f5e95437`, under the suite lock, **119 tests OK**; every mutant
+(section 5), **13 of 13** fail RootsRewrite (`Ran 29 tests` each) and it
+passes unmutated; the end-to-end trial again (section 3); `scan.sh` over
+every tracked file with this receipt staged, **0 of the 17820 captures
+and receipts refused** on the machine roots and the same files elsewhere
+as rounds 2 and 3, **no new refusal**, 213 rows behind a mark;
+`check-no-local-paths.sh` **ok**.
 
 ## Decisions
 
@@ -275,7 +309,11 @@ refusal**; `check-no-local-paths.sh` **ok**.
   fragment before a `/` is what leaks; a root's last word with no `/` at it
   is a word. What it gives up (opus Q2.5): a root's last bytes alone at a
   row's end after a partial rewrite, which this roots.py, reading marks,
-  no longer leaves. The mutant that starts at two bytes is killed by a
+  no longer leaves. **And a root's last bytes with nothing path-like after
+  them now pass** -- HOME's tail closing a `┃↑` row (whose head is never in
+  the frame), ending the file, or before a space or a quote. Round 1
+  refused them; neither check catches such a fragment now (`marks.md`,
+  open residuals). The mutant that starts at two bytes is killed by a
   one-byte end before a `/`.
 - **The fixed captures' tail is `<scenarios>`**, the token redact.py writes
   for the whole directory, and fx's side of the pair is written the same,
@@ -298,4 +336,5 @@ refusal**; `check-no-local-paths.sh` **ok**.
 -> `e2e-red.txt`, `e2e-green.txt` · `fix_tails.py`, `fix-tails.sh` ->
 `fix-tails.txt` · `scan.sh` -> `scan-before.txt`, `scan.txt` ·
 `gutter_tails.py` -> `gutter-tails.txt` · `gate.sh` -> `gate.txt`,
-`gate-head-diff.txt` · `rerun.sh` -> `rerun.txt`, `rerun2.txt`, `rerun3.txt`
+`gate-head-diff.txt` · `rerun.sh` -> `rerun.txt`, `rerun2.txt`, `rerun3.txt`,
+`rerun4.txt` · `same_rule.py` -> `same-rule.txt`

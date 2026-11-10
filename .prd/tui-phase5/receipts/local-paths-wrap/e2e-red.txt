@@ -1,14 +1,13 @@
-== e2e.sh <tree> <fx v0.0.16> <xfx release build of a74a293b> <work> <other>, round 2, under the suite lock, TMPDIR under the harness scratch root. RED: <tree> = a clone at the base, <other> = a clone at a74a293b
-   (rows.py ran after the sweep on the same captures: the script's copy that ran could not find it beside itself)
+== e2e.sh <tree> <fx v0.0.16> <xfx release build of f5e95437> <work> <other>, round 4, the committed script run from a clone of f5e95437, under the suite lock, TMPDIR under the harness scratch root. RED: <tree> = a clone at the base, <other> = a clone at f5e95437
 head of <tree> 635e7242; roots.py there: sha256 e1880b06db2b
 the scenario directory: 118 bytes, outside the run's TMPDIR and HOME
-xfx: sha256 b801e452a728, banner 0.1.0
+xfx: sha256 750a2dd6fcb0, banner 0.1.0
 sweep exit 0; fx oracle sha256 the pin, before and after; pass = 33 / 34 = 97.1%; unresolved 0, failed 0, timeout 0
 == fx: run exit 0; approve-confirm
 rows holding 4 bytes or more of the root in one piece: 0
 -- gutter_check.py, <tree>'s roots.py:
 roots.py --check exit 0
--- gutter_check.py, <other>'s roots.py (a74a293b; sha256 5ccfc263fe97):
+-- gutter_check.py, <other>'s roots.py (f5e95437; sha256 a71c4a5344e4):
 roots.py --check exit 0
 == xfx: run exit 0; approve-confirm
 row 9, led by U+0020 U+0020 U+21B3 U+0020: the root's first 116 of its 118 bytes
@@ -17,7 +16,7 @@ rows holding 4 bytes or more of the root in one piece: 1
 row 9 starts with U+21B3 and holds the root's first 116 of its 118 bytes
 row 10 starts with U+21B3 and holds the root's last 2 of its 118 bytes
 roots.py --check exit 0
--- gutter_check.py, <other>'s roots.py (a74a293b; sha256 5ccfc263fe97):
+-- gutter_check.py, <other>'s roots.py (f5e95437; sha256 a71c4a5344e4):
 roots.py --check exit 3
 == cuts.py on the out directory
 140 published files; 50 hold the directory's first 24 bytes or more, 48 of them cut by an ellipsis, 50 holding a shape check-no-local-paths.sh refuses (2 shapes read)

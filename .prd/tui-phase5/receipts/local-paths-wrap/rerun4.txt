@@ -1,0 +1,22 @@
+LOCAL-PATHS-WRAP round 4 reruns, TMPDIR=<the harness scratch root>; test-capture, the mutants and e2e under the suite lock, the scan and the check (light) without
+== scripts/fxcap/test-capture.sh, in a git clone --no-local of f5e95437
+Ran 119 tests in 349.486s
+OK
+== the mutants: mutants.txt
+runs that failed RootsRewrite: 14 (the base and the 13 mutants)
+unmutated                                exit 0, Ran 29 tests,   0 failed (sub)tests, first at -: none
+== e2e: e2e-red.txt, e2e-green.txt
+== same-rule.txt
+roots.py f5fed4b4 -> f5e95437: 15 lines added, 2 removed; its code without docstrings and comments is the same
+== split-marks.txt
+files read: 8465 now, 172 with round 3's filter; rows behind a mark in them: 213 now, 213 with round 3's filter; rows only a split mark could add: 0
+== scan.sh at f5e95437 with this commit's receipt files staged: scan.txt
+tracked files 18918, 17820 of them under .prd/
+== roots.py --check, the machine roots (7), captures-and-receipts (17820 files): exit 0, 0 file(s) refused
+== roots.py --check, the machine roots (7), rest (1098 files): exit 1, 3 file(s) refused
+== roots.py --check, the public roots (3), captures-and-receipts (17820 files): exit 1, 13 file(s) refused
+== roots.py --check, the public roots (3), rest (1098 files): exit 1, 4 file(s) refused
+rows that open behind a mark in tracked files: 213, in 143 file(s)
+refused files elsewhere: the same as round 3's scan (diff empty)
+== scripts/check-no-local-paths.sh, the same tree
+check-no-local-paths: ok (18918 tracked file(s) scanned; 8 marked fixture line(s), 83 placeholder line(s))

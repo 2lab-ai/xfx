@@ -8,7 +8,7 @@
 #            of <tree>, of the checkout whose .git it shares and of a
 #            GitHub-hosted runner's checkout (a tail of each is the same), and
 #            a run's scratch and work roots with a made-up name (their tails
-#            but the random name's are every run's; flake.py reads those)
+#            but the random name's are every run's)
 #   public   a runner's HOME and bun, and the bun on PATH when it is outside
 #            HOME: paths that name no user, which capture.sh writes as
 #            placeholders in a run of its own
@@ -66,7 +66,10 @@ for n in sys.stdin.buffer.read().split(b"\0"):
         data = open(n, "rb").read() if n else b""
     except OSError:
         continue
-    if not any(m in data for m in roots.MARKS):
+    # A mark may be split by a colour change (`┃`, a style, `↑`), so its
+    # bytes need not be in one piece: read a file with `↳`, or with both `┃`
+    # and `↑`, whole (`View` finds the marks).
+    if b"\xe2\x86\xb3" not in data and not (b"\xe2\x94\x83" in data and b"\xe2\x86\x91" in data):
         continue
     k = len(roots.View(data).marked)
     rows, files = rows + k, files + bool(k)
