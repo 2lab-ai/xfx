@@ -970,6 +970,16 @@ case $scenario in
   run-*)
     printf 'run %s\n' "${FXCAP_RUN-unset}" > "$out/$which-$scenario-$size-a.ansi"
     printf '%s\n' "$TMPDIR" > "$out/$which-$scenario-$size-tmp.txt" ;;
+  stays-*)
+    # fx's run fails as capture.sh fails one whose pane process outlived its
+    # wait (exit 4), leaving a file under its run directory.
+    run=$TMPDIR/$FXCAP_RUN
+    mkdir -m 700 "$run" "$run/home"
+    [ "$which" = fx ] && echo writer > "$run/home/late"
+    printf '%s %s\n' "$TMPDIR" "$FXCAP_RUN" > "$out/$which-$scenario-$size-tmp.txt"
+    (cd "$run/home" && find . -type f | sort) > "$out/$which-$scenario-$size-home.txt"
+    [ "$which" = fx ] && exit 4
+    printf 'ok\n' > "$out/$which-$scenario-$size-a.ansi" ;;
   iso-*)
     # What this side's TMPDIR held before it began, then its run directory
     # made as capture.sh makes it (refused if the last side's is there); fx
@@ -1264,6 +1274,28 @@ class Sweep(unittest.TestCase):
         self.assertNotEqual(tmps["iso-a"], tmps["iso-b"])
         self.assertEqual(os.path.dirname(tmps["iso-a"]), os.path.dirname(tmps["iso-b"]))
         self.assertEqual(self.board(out)["totals"]["identical"], 2, self.board(out)["totals"])
+
+    def test_a_run_that_failed_is_a_failed_unit_and_its_path_is_not_reused(self):
+        # capture.sh fails a run whose pane process is still running past its
+        # wait (exit 4, a writer that may still write under its path). The
+        # unit is failed, never a pass, and the next side runs in another
+        # TMPDIR under another name.
+        with open(os.path.join(self.scen, "stays-a.cap"), "w") as f:
+            f.write("snap a\n")
+        r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, "--only", "stays-*")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        b = self.board(out)
+        self.assertEqual(b["scenario_status"], {"ran": 0, "failed": 1, "timeout": 0}, b)
+        self.assertEqual((b["totals"]["failed"], b["totals"]["identical"]), (1, 0), b["totals"])
+        seen = {}
+        for side in ("fx", "xfx"):
+            d = os.path.join(out, "runs", "stays-a", side)
+            seen[side] = (slurp(os.path.join(d, "%s-stays-a-40x120-tmp.txt" % side)).split(),
+                          slurp(os.path.join(d, "%s-stays-a-40x120-home.txt" % side)))
+        self.assertEqual(seen["fx"][1], "./late\n")
+        self.assertEqual(seen["xfx"][1], "", "xfx ran where fx's writer left its file")
+        self.assertNotEqual(seen["fx"][0][0], seen["xfx"][0][0], "the same TMPDIR")
+        self.assertEqual(os.path.dirname(seen["fx"][0][0]), os.path.dirname(seen["xfx"][0][0]))
 
     def test_the_out_directory_is_outside_the_repository(self):
         r, out = self.sweep("--fx", self.fx, "--pin-sha", self.sha, out=os.path.join(REPO, "target", "sweep-out"))

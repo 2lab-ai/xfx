@@ -189,13 +189,24 @@ class Runner:
         one letter differed by a row (WORKSPACE-INDEX-AT-PLAN)."""
         jobtmp = os.path.join(self.root, "%03d" % jobs[0]["n"])
         run = "fxcap.%06d" % secrets.randbelow(10**6)
+        used = [jobtmp]
         out = []
         for job in jobs:
+            if out and (out[-1]["exit"] != 0 or out[-1]["timed_out"]):
+                # A run that failed may have left its binary writing under its
+                # path (capture.sh's `cleanup` fails one whose pane process
+                # outlived its wait, exit 4): the next side runs elsewhere, in
+                # its own job's number. The unit is failed either way
+                # (`unit_status`), so its pair is not compared.
+                jobtmp = os.path.join(self.root, "%03d" % job["n"])
+                run = "fxcap.%06d" % secrets.randbelow(10**6)
+                used.append(jobtmp)
             shutil.rmtree(jobtmp, ignore_errors=True)
             os.makedirs(jobtmp)
             out.append(self.run(job, jobtmp, run))
             self.report(job, out[-1])
-        shutil.rmtree(jobtmp, ignore_errors=True)
+        for d in used:
+            shutil.rmtree(d, ignore_errors=True)
         return out
 
     def report(self, job, st):

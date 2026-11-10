@@ -419,6 +419,8 @@ for_this() {
 # three are set once fx's chime names are made, so a run that never launched fx
 # is not checked for what it could not have done.
 gateway='' sock='' mcphttp='' guard_run='' guard_bin='' guard_sha=''
+# The record of the pane's process (own_pane), for cleanup (main sets it).
+pane_rec=''
 # The paths `@SCENARIOS@` and `@BUN@` stand for (main sets them), what
 # `fill` and `fill_text` write for each, and the one line `fill_text` leaves
 # its text in.
@@ -520,36 +522,54 @@ guards() {
   echo "guards: $guard_bin sha256 ${guard_sha:0:12} unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories"
 }
 
-# Every process the run started, by the pid it started, and then the guards.
-# Waits for the pane's process `$1`, the one this script started in its own
-# pane, to exit: 3 s at most, then SIGKILL. Only while it is still that
-# process -- its start time and command as read before its server went -- so
-# a pid the system gave to another process since is left alone.
-reap() {
-  local pid=$1 id=$2 i
+# Records the process this script just started in its pane -- at launch and
+# at each `relaunch`, never later -- as its pid and its start time (`ps
+# lstart`, which an exec keeps: the pane runs `sh`, `env`, then the binary in
+# one process), in $pane_rec: what `cleanup` waits for.
+own_pane() {
+  local sock=$1 pid start=''
+  pid=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_pid}' 2>/dev/null) || pid=''
+  [[ ! $pid =~ ^[0-9]+$ ]] || start=$(start_of "$pid")
+  if [[ -n $start ]]; then printf '%s\n%s\n' "$pid" "$start" > "$pane_rec"; else : > "$pane_rec"; fi
+}
+
+# A pid's start time as `ps` prints it, without the padding around it;
+# nothing for a pid that is not running.
+start_of() {
+  local start=''
+  read -r start < <(ps -o lstart= -p "$1" 2>/dev/null) || true
+  printf '%s' "$start"
+}
+
+# After its server is gone: waits, 3 s at most, while the process `own_pane`
+# recorded is still that process (the pid, with the start time recorded).
+# Gone, or the pid now another process's, and it returns 0 at once. Still
+# there at the end, and it says so and returns 1. It signals nothing: tmux's
+# kill-server hung the pane up, and ending that process is tmux's.
+await_pane() {
+  local pid start i
+  [[ -s $pane_rec ]] || return 0
+  { read -r pid; read -r start; } < "$pane_rec"
   for (( i = 0; i < 60; i++ )); do
-    [[ $(ps -o lstart=,comm= -p "$pid" 2>/dev/null) == "$id" ]] || return 0
+    if [[ $(start_of "$pid") != "$start" ]]; then
+      echo "pane: the process the run started is gone ($i looks)"
+      return 0
+    fi
     sleep 0.05
   done
-  kill -KILL "$pid" 2>/dev/null || true
-  for (( i = 0; i < 20; i++ )); do
-    [[ $(ps -o lstart=,comm= -p "$pid" 2>/dev/null) == "$id" ]] || return 0
-    sleep 0.05
-  done
+  echo "LIVE-WRITER GUARD: the process this run started in its pane, pid $pid (started $start), is still running 3 s after its tmux server went; this run fails, so the sweep does not run another binary in its directory" >&2
+  return 1
 }
 
 cleanup() {
   local code=$?
-  # The pane's process, read before its server goes: kill-server hangs it up
-  # and returns at once, and a binary still on its way out could write under
-  # $run after this run has ended -- where a sweep unit's next run, under the
-  # same name (FXCAP_RUN), keeps its HOME. So it is waited for (reap).
-  local pane='' id=''
+  # kill-server hangs the pane's process up and returns at once, and a
+  # binary still on its way out could write under $run after the run has
+  # ended -- where a sweep unit's next run, under the same name (FXCAP_RUN),
+  # keeps its HOME. So the run waits for it, and fails if it stays.
   if [[ -n $sock ]]; then
-    pane=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_pid}' 2>/dev/null) || pane=''
-    [[ $pane =~ ^[0-9]+$ ]] && id=$(ps -o lstart=,comm= -p "$pane" 2>/dev/null) || id=''
     tmux -f /dev/null -S "$sock" kill-server 2>/dev/null || true
-    [[ -z $id ]] || reap "$pane" "$id"
+    if ! await_pane && (( code == 0 )); then code=4; fi
   fi
   [[ -z $gateway ]] || kill "$gateway" 2>/dev/null || true
   [[ -z $mcphttp ]] || kill "$mcphttp" 2>/dev/null || true
@@ -748,7 +768,7 @@ main() {
   # and the run directory's own name, which no file may keep. A shared system
   # TMPDIR names no one and is left as it is: fx's help text says /tmp, and
   # keeps saying it.
-  stage=$run/stage roots_py=$here/roots.py
+  stage=$run/stage roots_py=$here/roots.py pane_rec=$run/pane
   mkdir -p "$stage"
   : > "$run/started"
   net_out=$out net_prefix=$which-$scenario-$size- net_since=$run/started
@@ -1068,6 +1088,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
     ${hold[@]+"${hold[@]}"} \
     new-session -d -s cap -x "$cols" -y "$rows" "cd $run/work && exec $launch" \; \
     pipe-pane -o -t cap "cat >> $run/wire"
+  own_pane "$sock"
   # The texts an `until` has seen on the screen since the binary was last
   # launched, and the labels this run's snaps wrote (`expect` reads no other).
   : > "$run/seen"
@@ -1252,6 +1273,7 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
       relaunch)
         fill_text "$port" "$run/home" "$mcpport" "$rest"
         tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $filled"
+        own_pane "$sock"
         # A new binary on a cleared screen: what an `until` saw before says
         # nothing of what this one showed.
         : > "$run/seen"

@@ -395,45 +395,97 @@ class RunDirectory(unittest.TestCase):
         self.assertEqual(slurp(os.path.join(d, "shim", "od.n")).strip(), "1", "one name drawn")
         self.assertEqual(r.stdout, "")
 
-    # The pane's process when the run ends. tmux's kill-server hangs it up and
-    # returns at once; a binary still on its way out could write under the run
-    # directory after the run -- where the sweep's next run of the unit, under
-    # the same name, keeps its HOME. Each stub writes its pid first.
-    SLOW_EXIT = ("#!/bin/bash\necho $$ > \"$HOME/pid\"\n"
-                 "trap 'sleep 1; mkdir \"$HOME/late\"; exit 0' HUP\necho up\nwhile :; do sleep 0.1; done\n")
-    NO_EXIT = "#!/bin/bash\necho $$ > \"$HOME/pid\"\ntrap '' HUP TERM\necho up\nwhile :; do sleep 0.1; done\n"
+    # The pane's process when the run ends (capture.sh `own_pane`, `await_pane`).
+    # tmux's kill-server hangs it up and returns at once; a binary still on
+    # its way out could write under the run directory after the run -- where
+    # the sweep's next run of the unit, under the same name, keeps its HOME.
+    # The run waits for it, signals nothing, and fails if it stays. Each stub
+    # writes its pid, logs every HUP and TERM it is sent, and ends by itself:
+    # nothing here signals a process either.
+    STUB_HEAD = ("#!/bin/bash\necho $$ > \"$HOME/pid\"\n"
+                 "trap 'echo HUP >> \"$HOME/sigs.$$\"; on_hup' HUP\ntrap 'echo TERM >> \"$HOME/sigs.$$\"' TERM\n")
+    # On a hangup, a second's last writing, then gone: inside the wait.
+    SLOW_EXIT = STUB_HEAD + ("on_hup() { sleep 1; mkdir \"$HOME/late.$$\"; exit 0; }\necho up\n"
+                             "while :; do sleep 0.05; done\n")
+    # Deaf to the hangup, gone by itself about 7 s after it starts: past the wait.
+    STAYS = STUB_HEAD + "on_hup() { :; }\necho up\nfor i in $(seq 140); do sleep 0.05; done\nexit 0\n"
+    # Gone on its own half a second in, under `keep`: the pane dead long before
+    # the run ends.
+    GONE = STUB_HEAD + "on_hup() { :; }\necho up\nsleep 0.5\nexit 0\n"
+    # The pid it was recorded by is, by the run's end, another process's: the
+    # record's start time rewritten, as the pid's reuse would leave it. Deaf
+    # to the hangup, gone by itself about 5 s after it starts.
+    REUSED = STUB_HEAD + ("on_hup() { :; }\nrec=\"$(dirname \"$HOME\")/pane\"\n"
+                          "until [ -s \"$rec\" ]; do sleep 0.02; done\nsleep 0.2\n"
+                          "printf '%s\\nThu Jan  1 00:00:00 1970\\n' $$ > \"$rec\"\necho up\n"
+                          "for i in $(seq 100); do sleep 0.05; done\nexit 0\n")
 
-    def stub_run(self, body):
+    def stub_run(self, body, cap="wait 1\nsnap a\n"):
         d = scratch()
         stub = os.path.join(d, "stub.sh")
         write(stub, body)
         os.chmod(stub, 0o755)
-        r = capture("wait 1\nsnap a\n", which="xfx", binary=stub, d=d)
-        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        r = capture(cap, which="xfx", binary=stub, d=d)
         (run,) = glob.glob(os.path.join(d, "fxcap.*"))
         pid = int(slurp(os.path.join(run, "home", "pid")))
-        self.addCleanup(self.kill_stub, pid, stub)
-        return run, pid
-
-    def kill_stub(self, pid, stub):
-        """A stub the code under test left running (RED), by its pid, once
-        its command line is read as that stub."""
-        ps = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True)
-        if stub in ps.stdout:
-            os.kill(pid, signal.SIGKILL)
+        return r, run, pid
 
     def alive(self, pid):
         state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
         return bool(state) and not state.startswith("Z")
 
-    def test_a_binary_on_its_way_out_is_waited_for(self):
-        run, pid = self.stub_run(self.SLOW_EXIT)
-        self.assertTrue(os.path.isdir(os.path.join(run, "home", "late")), "the run ended before the binary's last write")
-        self.assertFalse(self.alive(pid))
+    def ends_by_itself(self, pid, seconds=15):
+        for _ in range(int(seconds / 0.1)):
+            if not self.alive(pid):
+                return
+            time.sleep(0.1)
+        self.fail("the stub %d did not end by itself" % pid)
 
-    def test_a_binary_that_will_not_go_is_killed(self):
-        run, pid = self.stub_run(self.NO_EXIT)
-        self.assertFalse(self.alive(pid), "the run ended with its binary still running")
+    def sigs(self, run, pid):
+        path = os.path.join(run, "home", "sigs.%d" % pid)
+        return slurp(path).split() if os.path.exists(path) else []
+
+    def looks(self, r):
+        m = re.search(r"^pane: the process the run started is gone \((\d+) looks\)$", r.stdout, re.M)
+        self.assertTrue(m, r.stdout + r.stderr)
+        return int(m.group(1))
+
+    def test_a_binary_on_its_way_out_is_waited_for(self):
+        r, run, pid = self.stub_run(self.SLOW_EXIT)
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.isdir(os.path.join(run, "home", "late.%d" % pid)), "the run ended before the binary's last write")
+        self.assertGreater(self.looks(r), 0)
+        self.assertFalse(self.alive(pid))
+        self.assertEqual(self.sigs(run, pid), ["HUP"], "tmux's hangup and no other signal")
+
+    def test_a_binary_that_stays_fails_the_run_and_is_sent_nothing(self):
+        r, run, pid = self.stub_run(self.STAYS)
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("LIVE-WRITER GUARD: the process this run started in its pane, pid %d (started " % pid, r.stderr)
+        self.assertTrue(self.alive(pid), "capture.sh ended the process it waited for")
+        self.ends_by_itself(pid)
+        self.assertEqual(self.sigs(run, pid), ["HUP"], "tmux's hangup and no other signal")
+
+    def test_a_pane_already_dead_is_not_waited_for(self):
+        r, run, pid = self.stub_run(self.GONE, cap="keep\nwait 2\nsnap a\n")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertEqual(self.looks(r), 0)
+        self.assertEqual(self.sigs(run, pid), [])
+
+    def test_a_pid_that_is_another_process_now_is_not_waited_for_or_signalled(self):
+        r, run, pid = self.stub_run(self.REUSED)
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertEqual(self.looks(r), 0)
+        self.assertTrue(self.alive(pid), "capture.sh ended a process that was not the one it recorded")
+        self.ends_by_itself(pid)
+        self.assertEqual(self.sigs(run, pid), ["HUP"], "tmux's hangup and no other signal")
+
+    def test_a_relaunched_binary_is_the_one_waited_for(self):
+        # `relaunch` replaces the pane's process: the record is the new one's.
+        r, run, pid = self.stub_run(self.SLOW_EXIT, cap="wait 1\nrelaunch\nwait 1\nsnap a\n")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.isdir(os.path.join(run, "home", "late.%d" % pid)), "the run ended before the relaunched binary's last write")
+        self.assertGreater(self.looks(r), 0)
 
 
 class Placeholders(unittest.TestCase):
