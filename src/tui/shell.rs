@@ -24816,6 +24816,18 @@ mod tests {
             let expected = if steps { "" } else { "first" };
             assert_eq!(shell.editor.text(), expected, "{name}");
         }
+        // Shift-Up with no row above forgets the column the run aimed for
+        // (`vertical_navigation.zig:70-73@481104fd`; `p5-paragraph-move-column`):
+        // the Down after it aims at the caret's own column, not the run's.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"x\nabcdef\x1b[A");
+        assert_eq!(shell.editor.caret(), 1);
+        shell.route_bytes(b"\x1b[1;2A\x1b[B");
+        assert_eq!(
+            shell.editor.caret(),
+            3,
+            "the run's column survived Shift-Up"
+        );
     }
 
     #[test]

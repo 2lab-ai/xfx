@@ -173,9 +173,9 @@ wait 0.4
 type Y
 wait 0.4
 snap ctrl-up
-# Behind the full transcript: Alt-Down (`V` at `Bthree`'s start, after `E`),
-# Super-Up (`Z` in front of everything), Shift-Up on the first row (`Q` after
-# `Z`), each with the screen up, then Escape and the letter.
+# Behind the full transcript: Alt-Down (`V` in front of `EBthree`), Super-Up
+# (`Z` in front of everything), Shift-Up on the first row (`Q` after `Z`),
+# each with the screen up, then Escape and the letter.
 key C-o
 wait 2
 snap full

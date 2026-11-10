@@ -1,0 +1,32 @@
+# COMPOSER-PARAGRAPH-MOVE: Shift-Up with no row above forgets the column a run
+# of rows aimed for (applyTargetWithSelection's `.reset`,
+# vertical_navigation.zig:70-73@481104fd). The draft `x/abcdef`, the caret at
+# its end; Up lands at the end of `x`, aiming for column 6; then Shift-Up on
+# that first row, and Down goes to the caret's own column, one cell into
+# `abcdef` (`B`). With no Shift-Up between, Down goes back to column 6 (`C`).
+wait 2.5
+type x
+key C-j
+type abcdef
+key Up
+wait 0.3
+cursor up
+key -H 1b 5b 31 3b 32 41
+wait 0.3
+key Down
+wait 0.3
+type B
+wait 0.3
+snap shift-up-down
+key C-e C-u
+key BSpace C-u
+type x
+key C-j
+type abcdef
+key Up
+wait 0.3
+key Down
+wait 0.3
+type C
+wait 0.3
+snap up-down
