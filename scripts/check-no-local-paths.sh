@@ -448,7 +448,12 @@ scan_tree() {
 }
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-local-paths.XXXXXX")"
-trap 'rm -rf "$work"' EXIT
+# Under bash 3.2 a script that stops on an error of its own (an unset
+# variable under `set -u`) leaves through an EXIT trap with status 0, so a
+# run that never reached its end would read as a pass: the trap fails any
+# exit before `finished=1`.
+finished=0
+trap 'rm -rf "$work"; [ "$finished" = 1 ] || exit 1' EXIT
 
 # --- the positive control ----------------------------------------------------
 #
@@ -603,3 +608,4 @@ fi
 
 printf 'check-no-local-paths: ok (%d tracked file(s) scanned; %d marked fixture line(s), %d placeholder line(s))\n' \
 	"$tracked_count" "$marked" "$placeheld"
+finished=1

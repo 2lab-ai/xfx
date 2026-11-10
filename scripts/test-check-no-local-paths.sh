@@ -74,7 +74,12 @@ done
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-local-paths-test.XXXXXX")"
-trap 'rm -rf "$work"' EXIT
+# Under bash 3.2 a script that stops on an error of its own (an unset
+# variable under `set -u`) leaves through an EXIT trap with status 0, so a
+# run that never reached its end would read as a pass: the trap fails any
+# exit before `finished=1`.
+finished=0
+trap 'rm -rf "$work"; [ "$finished" = 1 ] || exit 1' EXIT
 
 passed=0
 failed=0
@@ -162,7 +167,7 @@ diagnose_shapes() {
 	printf '    | ran: bash %s (%s); %s (%s)\n' "$BASH_VERSION" "$(command -v bash)" "$(git --version)" "$(command -v git)" >&2
 	(cd "$t" && git config --show-origin --get-regexp '^(grep|core\.fsmonitor|index|feature)\.' || true) 2>/dev/null | sed 's/^/    | config: /' >&2
 	printf '    | expected: %s\n    | actual:   %s\n' "$accounting" "$(grep -E '^check-no-local-paths: git gave ' "$work/out" || echo none)" >&2
-	for line in "${missing[@]}"; do
+	for line in ${missing[@]+"${missing[@]}"}; do
 		plant="${line%%: *}"
 		plant="${plant%:[0-9]*}"
 		gave=""
@@ -190,7 +195,7 @@ diagnose_shapes() {
 	done
 	cp "$work/out" "$work/out.first"
 	run_check "$t"
-	for line in "${missing[@]}"; do
+	for line in ${missing[@]+"${missing[@]}"}; do
 		named "$line" || again=$((again + 1))
 	done
 	if [ "${#missing[@]}" -ne 0 ] && [ "$again" -eq 0 ]; then
@@ -531,3 +536,4 @@ if [ "$failed" -ne 0 ]; then
 	exit 1
 fi
 printf 'test-check-no-local-paths: ok (%d cases)\n' "$passed"
+finished=1
