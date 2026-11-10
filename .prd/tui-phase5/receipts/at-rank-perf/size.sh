@@ -2,7 +2,7 @@
 # AT-RANK-PERF's size against the brief's rule ("the source change outside
 # tests ... about 300 lines"): src/tui/file_index.rs's lines added and removed
 # against the base, split at the line `#[cfg(test)]` that opens its tests;
-# src/tui/file_index/reference.rs, which is compiled only under `cfg(test)`;
+# src/tui/file_index/reference.rs, test-only, if the revision has it;
 # and the gate's script and CI lines.
 # usage: size.sh <base> <rev>   (run in the repo; size.txt is its output)
 set -euo pipefail
@@ -20,9 +20,8 @@ git diff -U0 "$base" "$rev" -- "$f" | awk -v TN="$tn" -v TO="$to" '
   /^-/ { if (old < TO) del++; else tdel++; old++; next }
   END { printf "outside the tests: +%d -%d (net %+d); of the added, %d comment and %d blank lines\n", add, del, add - del, com, bl
         printf "inside the tests: +%d -%d\n", tadd, tdel }'
-echo "# src/tui/file_index.rs's '#[cfg(test)] mod reference;' (test-only): $(git show "$rev:src/tui/file_index/reference.rs" | wc -l | tr -d ' ') lines, of them (17 on) $(git show "$rev:src/tui/file_index/reference.rs" | sed -n '17,$p' | wc -l | tr -d ' ') AT-RANK's ranking section verbatim"
-if diff <(git show "$base:$f" | sed -n 527,1152p) <(git show "$rev:src/tui/file_index/reference.rs" | sed -n '17,$p') > /dev/null; then
-  echo "# reference.rs from line 17 = $base:$f lines 527-1152: identical"
+if git cat-file -e "$rev:src/tui/file_index/reference.rs" 2>/dev/null; then
+  echo "# src/tui/file_index/reference.rs (test-only): $(git show "$rev:src/tui/file_index/reference.rs" | wc -l | tr -d ' ') lines"
 else
-  echo "# reference.rs from line 17 = $base:$f lines 527-1152: DIFFERS"
+  echo "# src/tui/file_index/reference.rs: none at $rev (round 2 replaced it with the tests' unpruned oracle)"
 fi

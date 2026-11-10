@@ -1,12 +1,10 @@
-# git diff --stat 4a5dc3c7 c8f41359 -- src/ scripts/ .github/
+# git diff --stat 4a5dc3c7 4db582d8 -- src/ scripts/ .github/
  .github/workflows/ci.yml        |   9 +
- scripts/check-at-search-cost.sh |  60 +++
- scripts/test-gate-env.sh        |   7 +
- src/tui/file_index.rs           | 816 +++++++++++++++++++++++++++++++++-------
- src/tui/file_index/reference.rs | 642 +++++++++++++++++++++++++++++++
- 5 files changed, 1398 insertions(+), 136 deletions(-)
-# src/tui/file_index.rs: tests start at line 1798 (4a5dc3c7), 1983 (c8f41359)
-outside the tests: +298 -113 (net +185); of the added, 56 comment and 10 blank lines
-inside the tests: +382 -23
-# src/tui/file_index.rs's '#[cfg(test)] mod reference;' (test-only): 642 lines, of them (17 on) 626 AT-RANK's ranking section verbatim
-# reference.rs from line 17 = 4a5dc3c7:src/tui/file_index.rs lines 527-1152: identical
+ scripts/check-at-search-cost.sh |  70 +++
+ scripts/test-gate-env.sh        |  12 +
+ src/tui/file_index.rs           | 950 ++++++++++++++++++++++++++++++++++------
+ 4 files changed, 904 insertions(+), 137 deletions(-)
+# src/tui/file_index.rs: tests start at line 1798 (4a5dc3c7), 1997 (4db582d8)
+outside the tests: +313 -114 (net +199); of the added, 63 comment and 10 blank lines
+inside the tests: +500 -23
+# src/tui/file_index/reference.rs: none at 4db582d8 (round 2 replaced it with the tests' unpruned oracle)

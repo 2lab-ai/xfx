@@ -56,3 +56,6 @@ q benchmarks/file_index_bench.zig 283 289 "the gate: overall p95 < latency_budge
 q src/core/workspace/file_index.zig 1164 1176 "alphaMask (1164-1173); non_ascii_mask (1175); max_search_results = 64 (1176)"
 q src/core/workspace/file_index.zig 1208 1215 "prepareQuery: the folded query, and its ASCII bytes when every scalar is ASCII"
 q src/core/workspace/file_index.zig 2092 2128 "buildFromRaw tests: the lower-cased path (2102), the name starts (2105-2117), the a-z masks (2119-2128)"
+# AT-RANK-PERF round 2: the picker's cap at the pin (line 44 there; 42 in a later tree), and the arrays the inventory is made of
+q src/core/app/input_completion_runtime.zig 44 44 "file_picker_completion_cap = file_completion_state.capacity: the out of 32 that min(out.len, 64) reads"
+q benchmarks/file_index_bench.zig 34 70 "subsystems, areas, subareas, names, extensions: the arrays fx_inventory copies"

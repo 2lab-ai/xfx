@@ -1,5 +1,5 @@
 # ../at-rank/fx/ row 1: 𝒇x v0.0.16 · Run /help for commands
-# xfx/ row 1: x𝒇x v0.1.0-b47953e [debug] · Run /help for commands
+# xfx/ row 1: x𝒇x v0.1.0-4db582d [debug] · Run /help for commands
 p5-at-rank scm              identical
 p5-at-rank stat             identical
 p5-at-rank index            identical

@@ -4,7 +4,7 @@ time in a throwaway clone (`git clone --no-local`), and the modules that read
 the `@` list run against it with a time limit, in their own process group.
 A mutant the tests fail is KILLED; one that does not build is NO-BUILD and
 not counted as killed. (AT-RANK's runner, `../at-rank/mutants.py`, with this
-unit's mutants.)
+unit's mutants; round 3 adds four.)
 
 usage: python3 -I mutants.py <clone> [<mutant id>...]
 The clone must be at the unit's head with no change; each mutant is restored
@@ -79,6 +79,16 @@ MUTANTS = [
     # the narrowed scratch
     ("cell-reset-gone", edits((RESET, ""))),
     ("cell-reset-after-the-first-row", edits((RESET + ROW0, ROW0 + RESET))),
+    # round 3 (AT-RANK-PERF r2): each cut switched off -- no row changes, so
+    # only the work count can see it -- and the ASCII length guard at 2048
+    ("folder-cut-never", edits((FOLDER, "                folder: true,\n"))),
+    ("crossing-cut-never", edits((CROSSING, "                crossing: true,\n"))),
+    ("length-limit-never", edits(
+        ("                limit = Some(0);\n", "                limit = None;\n"),
+        ("                limit = Some(entries[at].path.len());\n", "                limit = None;\n"))),
+    ("ascii-guard-at-2048", edits((
+        "    if lower.is_empty() || lower.len() > MOST_PATH_BYTES {\n",
+        "    if lower.is_empty() || lower.len() >= MOST_PATH_BYTES {\n"))),
 ]
 
 

@@ -1790,3 +1790,45 @@
  2126      const generation = index.active_generation.?;
  2127      try std.testing.expectEqual(alphaMask("src/main.zig"), generation.char_masks[0]);
  2128      try std.testing.expectEqual(alphaMask("readme.md"), generation.char_masks[1]);
+
+== src/core/app/input_completion_runtime.zig:44-44@481104fd -- file_picker_completion_cap = file_completion_state.capacity: the out of 32 that min(out.len, 64) reads
+   44  pub const file_picker_completion_cap: usize = file_completion_state.capacity;
+
+== benchmarks/file_index_bench.zig:34-70@481104fd -- subsystems, areas, subareas, names, extensions: the arrays fx_inventory copies
+   34  const subsystems = [_][]const u8{
+   35      "apps",    "packages",  "libs",       "services",
+   36      "tools",   "plugins",   "extensions", "modules",
+   37      "infra",   "vendor",    "web",        "mobile",
+   38      "workers", "functions",
+   39  };
+   40  
+   41  const areas = [_][]const u8{
+   42      "core",   "utils",    "components", "hooks",
+   43      "api",    "db",       "auth",       "ui",
+   44      "server", "client",   "cli",        "tests",
+   45      "docs",   "internal", "shared",     "config",
+   46  };
+   47  
+   48  const subareas = [_][]const u8{
+   49      "common",   "helpers", "types",   "schemas",
+   50      "models",   "views",   "routes",  "handlers",
+   51      "services", "stores",  "context", "providers",
+   52      "layouts",  "pages",   "forms",   "fields",
+   53  };
+   54  
+   55  const names = [_][]const u8{
+   56      "index", "main",    "app",      "Button",
+   57      "Input", "Modal",   "helper",   "util",
+   58      "types", "schema",  "model",    "view",
+   59      "route", "handler", "service",  "store",
+   60      "hook",  "context", "provider", "layout",
+   61      "page",  "widget",  "icon",     "form",
+   62      "field", "label",   "table",    "list",
+   63      "card",  "dialog",  "menu",     "nav",
+   64  };
+   65  
+   66  const extensions = [_][]const u8{
+   67      ".ts",   ".tsx", ".js", ".jsx", ".zig",
+   68      ".py",   ".rs",  ".go", ".md",  ".json",
+   69      ".yaml",
+   70  };
