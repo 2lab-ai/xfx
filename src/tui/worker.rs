@@ -19207,7 +19207,10 @@ mod tests {
         // met by one copy and passed by one byte or one pixel: met, the copy is
         // sent; passed, it is held back with upstream's whole note
         // (`writeWithheldAttachmentNotice`, `image_attachments.zig:960-988`).
-        let fit = crate::image::MAX_ENCODED_BYTES / 4 * 3;
+        // Upstream's limit, written out: 5 MiB once encoded, so 3.75 MiB of image
+        // (`max_encoded_image_bytes`, `image_data.zig:6@481104fd`).
+        assert_eq!(crate::image::MAX_ENCODED_BYTES, 5 * 1024 * 1024);
+        let fit = 5 * 1024 * 1024 / 4 * 3;
         let sized = |width: u32, height: u32, length: usize| {
             let mut png = crate::image::fixture::SHOT_PNG.to_vec();
             png[16..20].copy_from_slice(&width.to_be_bytes());

@@ -414,6 +414,17 @@ class Confinement(unittest.TestCase):
                 self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-never.txt")), "the run stopped there")
                 self.assertEqual(os.stat(victim).st_mode & 0o777, 0o644)
                 self.assertEqual(os.stat(os.path.dirname(victim)).st_mode & 0o700, 0o700)
+        # A file is refused: a hard link to one outside the run shares its
+        # inode, which a chmod would change.
+        for made in ("homefile .fx/f c.json\nwait 0.5\n",
+                     "wait 0.5\ntype ln '%s' ~/.fx-hard; printf 'made-%%s\\n' it\nkey Enter\nuntil shown made-it\n" % victim):
+            name = ".fx/f" if made.startswith("homefile") else ".fx-hard"
+            with self.subTest(file=name):
+                r = capture(made + "homemode 000 %s\nsnap never\n" % name, {"c.json": "{}\n"})
+                self.assertEqual(r.code, 2, r.stdout + r.stderr)
+                self.assertIn("homemode takes a folder, not ~/%s" % name, r.stderr)
+                self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-never.txt")), "the run stopped there")
+                self.assertEqual(os.stat(victim).st_mode & 0o777, 0o644)
 
 
 class Verbs(unittest.TestCase):

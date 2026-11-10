@@ -534,6 +534,15 @@ pub struct CopiesChecked<'a> {
     pub copies: Vec<SavedCopy>,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// A test's hand between a copy's open and its read in [`CopiesChecked`]:
+    /// what the file does then -- grows, or cannot be read -- is the read's to
+    /// find.
+    static BEFORE_THE_READ: std::cell::RefCell<Option<Box<dyn FnMut(&Path, &mut File)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 #[async_trait::async_trait(?Send)]
 impl crate::gateway::Provider for CopiesChecked<'_> {
     async fn stream(
@@ -566,7 +575,7 @@ impl crate::gateway::Provider for CopiesChecked<'_> {
                 let opened = open_copy(saved).ok().filter(|(_, length)| {
                     usize::try_from(*length).is_ok_and(crate::image::fits_encoded)
                 });
-                let Some((file, length)) = opened else {
+                let Some((mut file, length)) = opened else {
                     notes.push_str(&crate::image::withheld_note(
                         *id,
                         *media_type,
@@ -576,6 +585,12 @@ impl crate::gateway::Provider for CopiesChecked<'_> {
                     ));
                     return false;
                 };
+                #[cfg(test)]
+                BEFORE_THE_READ.with(|hook| {
+                    if let Some(hook) = hook.borrow_mut().as_mut() {
+                        hook(saved, &mut file);
+                    }
+                });
                 match read_from(file, length, length) {
                     Ok(bytes)
                         if bytes.len() as u64 == copy.size
@@ -5935,6 +5950,10 @@ mod tests {
             Is(Vec<u8>),
             Grown,
             Gone,
+            // Between the open and the read: the copy grows to this length, or
+            // the descriptor the read is given cannot be read.
+            GrowsInTheRead(u64),
+            UnreadableInTheRead,
         }
         let cases = [
             ("changed, then gone", tampered.clone(), vec![Copy::Gone]),
@@ -5952,6 +5971,24 @@ mod tests {
                 "whole, then changed",
                 whole.clone(),
                 vec![Copy::Is(tampered.clone())],
+            ),
+            // Upstream reads to the end, past the size it `stat`ed: a byte more
+            // is not the digest's, and past the limit is `ImageTooLarge`
+            // (`loadVerifiedSnapshot`, `image_attachments.zig:1260-1320@481104fd`).
+            (
+                "whole, then a byte more in the read",
+                whole.clone(),
+                vec![Copy::GrowsInTheRead(74)],
+            ),
+            (
+                "whole, then past the limit in the read",
+                whole.clone(),
+                vec![Copy::GrowsInTheRead(crate::image::MAX_IMAGE_BYTES + 1)],
+            ),
+            (
+                "whole, then a read that fails",
+                whole.clone(),
+                vec![Copy::UnreadableInTheRead],
             ),
         ];
         for (how, built, before) in cases {
@@ -5985,6 +6022,7 @@ mod tests {
             };
             let mut got = Vec::new();
             for change in before {
+                let mut during: Option<Box<dyn FnMut(&Path, &mut File)>> = None;
                 match change {
                     Copy::Is(bytes) => std::fs::write(&copy, bytes).expect("rewrite"),
                     Copy::Grown => std::fs::OpenOptions::new()
@@ -5993,9 +6031,28 @@ mod tests {
                         .and_then(|file| file.set_len(fit as u64 + 1))
                         .expect("grow"),
                     Copy::Gone => std::fs::remove_file(&copy).expect("remove"),
+                    Copy::GrowsInTheRead(to) => {
+                        during = Some(Box::new(move |path, _| {
+                            std::fs::OpenOptions::new()
+                                .write(true)
+                                .open(path)
+                                .and_then(|file| file.set_len(to))
+                                .expect("grow in the read");
+                        }))
+                    }
+                    Copy::UnreadableInTheRead => {
+                        during = Some(Box::new(|path, file| {
+                            *file = std::fs::OpenOptions::new()
+                                .write(true)
+                                .open(path)
+                                .expect("a descriptor that cannot be read");
+                        }))
+                    }
                 }
+                BEFORE_THE_READ.with(|hook| *hook.borrow_mut() = during);
                 let asked = sent.0.borrow().len();
                 let result = checked.stream(&request, &mut Quiet).await;
+                BEFORE_THE_READ.with(|hook| *hook.borrow_mut() = None);
                 got.push(match sent.0.borrow().get(asked) {
                     Some(sent) => match image_parts(&sent.messages[0]).as_slice() {
                         [(data, _)] => {
@@ -6009,17 +6066,32 @@ mod tests {
                 });
             }
             let held = note(&copy);
-            let corrupt = format!(
-                "{:?}",
-                Some(crate::gateway::ProviderError::Image("ImageSnapshotCorrupt"))
-            );
+            let failed = |name| format!("{:?}", Some(crate::gateway::ProviderError::Image(name)));
             let want: Vec<String> = match how {
                 "changed, then gone" => vec![held],
                 "changed, repaired, then gone" => vec!["sent 73 bytes, whole".to_string(), held],
                 "whole, then grown past the limit" => vec![held],
-                _ => vec![corrupt],
+                "whole, then past the limit in the read" => vec![failed("ImageTooLarge")],
+                "whole, then a read that fails" => vec![failed("ReadFailed")],
+                _ => vec![failed("ImageSnapshotCorrupt")],
             };
             assert_eq!(got, want, "{how}");
+        }
+        // The TUI says each as upstream's does (`formatErrorBody`,
+        // `detailedErrorSummary`, `app_process_runtime.zig:99-136@481104fd`;
+        // `image_too_large_notice`, `image_attachments.zig:24`).
+        for (name, said) in [
+            (
+                "ImageSnapshotCorrupt",
+                "request failed: ImageSnapshotCorrupt",
+            ),
+            ("ReadFailed", "request failed: ReadFailed"),
+            (
+                "ImageTooLarge",
+                "request failed: image exceeds the 20 MiB limit (ImageTooLarge)",
+            ),
+        ] {
+            assert_eq!(crate::gateway::ProviderError::Image(name).to_string(), said);
         }
     }
 
