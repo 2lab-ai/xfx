@@ -7420,6 +7420,20 @@ mod tests {
         tokio::task::LocalSet::new().block_on(&runtime, work)
     }
 
+    /// [`on_a_runtime`] on a paused clock: tokio's time moves only while
+    /// every task is parked, straight to the next timer, so a thread held by
+    /// a loaded machine is no time at all. Only for work that waits on
+    /// nothing outside the runtime: an answer from another thread is not
+    /// waited for, the clock runs on to the next timer instead.
+    fn on_a_paused_runtime<T>(work: impl Future<Output = T>) -> T {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .start_paused(true)
+            .build()
+            .expect("a runtime");
+        tokio::task::LocalSet::new().block_on(&runtime, work)
+    }
+
     #[test]
     fn a_cancellation_reaches_a_turn_that_is_still_running() {
         // The claim the whole mid-turn race exists for. `turn_loop` reads
@@ -18624,11 +18638,15 @@ mod tests {
         /// The retry behind a failed catalog, which does not land while the
         /// loop runs: its gate opens when the sender goes, once the loop is
         /// over. The wait it holds ends on its own after
-        /// [`FAILED_CATALOG_RETRY_WAIT`].
+        /// [`FAILED_CATALOG_RETRY_WAIT`], tokio's timer, and nothing in such
+        /// a run waits on another thread: the loop runs on a paused clock
+        /// ([`on_a_paused_runtime`]).
         Retry(tokio::sync::oneshot::Sender<()>),
         /// The first load, which lands when its gate opens: [`FIRST_LOAD_LANDS`]
         /// in when nothing stops the turn, and -- with a stop -- only once the
         /// stopped turn has ended, so nothing but the stop can end its wait.
+        /// Its answer comes from the catalog's own thread, so the loop runs
+        /// on the wall clock.
         FirstLoad(tokio::sync::oneshot::Sender<()>),
     }
 
@@ -18645,7 +18663,8 @@ mod tests {
 
     /// [`two_prompts_and_a_stop`] with the first submission given: a prompt
     /// with images attached, say. Each event comes with when the band read
-    /// it, counted from just before the loop began.
+    /// it on the loop's clock ([`Held`] says which), counted from just
+    /// before the loop began.
     ///
     /// **No clock places the stop.** The band is read on the loop's own
     /// thread, so it hears the first turn's start only once the loop has
@@ -18655,8 +18674,10 @@ mod tests {
     /// moves again ([`raced_against_control`] reads control first). A first
     /// load is held until the stopped turn has ended ([`Held::FirstLoad`]);
     /// a retry's wait has an end of its own, [`FAILED_CATALOG_RETRY_WAIT`]
-    /// on the clock, which callers tell from the stop's by when the turn
-    /// ended: its timer starts after the count does.
+    /// on tokio's clock, which callers tell from the stop's by when the turn
+    /// ended on that clock, paused: a turn the stop ended ends with no time
+    /// gone, one that waited the timer out at its two seconds, however long
+    /// the machine holds the thread.
     fn first_of_two_and_a_stop(
         state: Runtime,
         first: TurnWork,
@@ -18675,7 +18696,6 @@ mod tests {
         let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
         let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
         let outstanding = AtomicUsize::new(2);
-        let started = Instant::now();
         // The retry's gate, kept shut until the loop is over; a first load's,
         // let go as the stop says.
         let (retry, mut load, opener) = match held {
@@ -18689,7 +18709,10 @@ mod tests {
             }
             Held::FirstLoad(open) => (None, Some(open), None),
         };
-        let log = on_a_runtime(async {
+        let paused = retry.is_some();
+        let loop_and_band = async {
+            // The runtime's clock: paused for a retry, the wall's otherwise.
+            let started = tokio::time::Instant::now();
             let run = turn_loop(
                 state,
                 &events,
@@ -18729,7 +18752,12 @@ mod tests {
             };
             let (_, log) = tokio::join!(run, watch);
             log
-        });
+        };
+        let log = if paused {
+            on_a_paused_runtime(loop_and_band)
+        } else {
+            on_a_runtime(loop_and_band)
+        };
         drop(control_tx);
         drop(retry);
         if let Some(opener) = opener {
@@ -18755,11 +18783,12 @@ mod tests {
         // stop, the first waits its two seconds -- the wait the stop cut --
         // and ends as MODELS-REASK ends it.
         //
-        // "At once" is measured against the wait's own end: its two seconds
-        // (`FAILED_CATALOG_RETRY_WAIT`) start after the count does, so a turn
-        // that waited them out ends past them, however late the thread runs;
-        // the stop is placed by the loop, not by a clock
-        // ([`first_of_two_and_a_stop`]).
+        // "At once" is measured on the clock the wait itself runs on, tokio's,
+        // paused ([`first_of_two_and_a_stop`]): it moves only while every task
+        // is parked, so the stopped turn ends with no time gone and one that
+        // waited the retry out ends at its two seconds
+        // (`FAILED_CATALOG_RETRY_WAIT`), however long the machine holds the
+        // thread. The stop is placed by the loop, not by a clock.
         let mut got = Vec::new();
         for (case, history_image) in [("the turn's start", false), ("the image route", true)] {
             for stop in [true, false] {
@@ -18854,8 +18883,8 @@ mod tests {
                 ),
             ],
             "each: the starts, the first turn's end, whether it came when it should (with \
-             the stop: inside the wait's own 2 s, counted from before the loop began; \
-             without it: past the wait's 1.9 s), the ends, the second turn's end"
+             the stop: before the wait's own 2 s on the paused clock; without it: past \
+             the wait's 1.9 s), the ends, the second turn's end"
         );
     }
 
@@ -19059,9 +19088,10 @@ mod tests {
         // "At once", without a clock where the wait has none: a first load is
         // held until the stopped turn has ended ([`Held::FirstLoad`]), so a
         // turn that ends at all was ended by the stop. A retry's wait ends by
-        // itself after `FAILED_CATALOG_RETRY_WAIT`, whose timer starts after
-        // the count does: a turn that waited it out ends past it, however
-        // late the thread runs ([`first_of_two_and_a_stop`]).
+        // itself after `FAILED_CATALOG_RETRY_WAIT`, tokio's timer, and those
+        // runs are on tokio's clock, paused: a turn that waited the retry out
+        // ends at its two seconds, the stopped one with no time gone, however
+        // long the machine holds the thread ([`first_of_two_and_a_stop`]).
         let cancelled = Some(bridge::TURN_CANCELLED.to_string());
         let ultra = Some(ULTRAFAST_UNAVAILABLE.to_string());
         let unknown = Some(crate::image::CAPABILITY_UNKNOWN.to_string());
@@ -19207,8 +19237,8 @@ mod tests {
         assert_eq!(
             got, want,
             "each: the starts, both turns' ends, whether the first came when it should (with \
-             the stop: at all while a first load was held, or inside a retry's own 2 s counted \
-             from before the loop began; without it: past 1.2 s), what the log says of the turns"
+             the stop: at all while a first load was held, or before a retry's own 2 s on the \
+             paused clock; without it: past 1.2 s), what the log says of the turns"
         );
     }
 

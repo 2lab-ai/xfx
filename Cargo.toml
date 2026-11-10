@@ -82,6 +82,10 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3.10"
+# `test-util`: tokio's clock, paused, for a test whose wait is tokio's own
+# timer -- it moves only while every task is parked, so a loaded machine
+# holding the thread is no time at all. Test builds only; adds no crate.
+tokio = { version = "1", features = ["test-util"] }
 
 # The interactive shell is only meaningful on a terminal, so its acceptance
 # tests drive the real binary through a real pseudoterminal rather than through
