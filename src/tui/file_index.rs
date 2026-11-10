@@ -20,13 +20,14 @@
 //!   none longer than [`MOST_PATH_BYTES`], files and directories merged in byte
 //!   order. A query shows at most [`MOST_RESULTS`] of them
 //!   (`file_completion_state.zig:5`).
-//! * **How a query ranks them** (`scoreAsciiMatch` .. `rankedCandidateBetter`,
-//!   `file_index.zig:1309-1499`): a case-blind subsequence match, tried on the
-//!   basename first, scored by eight facts in a fixed order -- the query *is*
-//!   the path or its basename, the match is in the basename, how many matched
-//!   characters start a word, whether it starts at the first character, where
-//!   it starts, its longest run, its adjacent pairs, its gaps -- and then the
-//!   shorter path, then byte order. An empty query is the index's own order.
+//! * **How a query ranks them** (`file_index.zig:1405-1902@481104fd`): a
+//!   case-blind subsequence, placed where fzf's v2 path score is highest --
+//!   inside the name, or from the folder holding it into the name, or, only
+//!   failing both, anywhere -- and ranked by four facts in a fixed order: the
+//!   query *is* the path, the name or the name before a dot; the placement
+//!   ends in the name; its score; where it starts. Then the shorter path, then
+//!   byte order. The bold letters are that placement. An empty query is the
+//!   index's own order.
 //!
 //! **The walk never runs on the thread that paints** ([`Files`]): a
 //! `git ls-files` on a large tree or a slow disk would freeze the band. The
@@ -522,37 +523,33 @@ fn list_entries(
 // ranking
 // ---------------------------------------------------------------------------
 
-/// What one match is scored on (`MatchScore`, `file_index.zig:1196-1205`), in
-/// the order [`better`] compares them.
+/// What a match is ranked on (`MatchScore`, `file_index.zig:1254-1265@481104fd`),
+/// in the order [`score_order`] compares them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct Score {
+    /// The query is the path, the name, or the name up to a dot (`exactFit`).
     exact: bool,
-    basename: bool,
-    boundaries: usize,
-    prefix: bool,
+    /// The placement ends in the name, not in a folder above it.
+    name: bool,
+    /// The placement's score, [`NAME_BONUS`] in it for one inside the name.
+    quality: i32,
+    /// Its first scalar, counted from where its search began.
     first: usize,
-    longest_run: usize,
-    adjacent: usize,
-    gaps: usize,
 }
 
-/// Whether `left` is the better match (`scoreBetter`, `file_index.zig:1477-1487`).
+/// Whether `left` is the better match (`scoreBetter`, `file_index.zig:1884-1890`).
 fn score_order(left: &Score, right: &Score) -> Ordering {
     right
         .exact
         .cmp(&left.exact)
-        .then(right.basename.cmp(&left.basename))
-        .then(right.boundaries.cmp(&left.boundaries))
-        .then(right.prefix.cmp(&left.prefix))
+        .then(right.name.cmp(&left.name))
+        .then(right.quality.cmp(&left.quality))
         .then(left.first.cmp(&right.first))
-        .then(right.longest_run.cmp(&left.longest_run))
-        .then(right.adjacent.cmp(&left.adjacent))
-        .then(left.gaps.cmp(&right.gaps))
 }
 
 /// The whole order: the score, then the shorter path, then bytes
-/// (`rankedCandidateBetter`, `file_index.zig:1489-1496`; `NameQuery.better`,
-/// `:1241-1248`, which skips the first two for an empty query).
+/// (`rankedCandidateBetter`, `file_index.zig:1892-1899`; `NameQuery.better`,
+/// `:1302-1309`, which skips the first two for an empty query).
 fn better(left: (&Score, &str), right: (&Score, &str), query_empty: bool) -> Ordering {
     let ranked = if query_empty {
         Ordering::Equal
@@ -560,6 +557,434 @@ fn better(left: (&Score, &str), right: (&Score, &str), query_empty: bool) -> Ord
         score_order(left.0, right.0).then(left.1.len().cmp(&right.1.len()))
     };
     ranked.then_with(|| left.1.as_bytes().cmp(right.1.as_bytes()))
+}
+
+// fzf's v2 path-scheme score, as fx keeps it (`file_index.zig:1410-1423`).
+const MOST_ALIGN_CELLS: usize = 4096;
+const RUN_BONUS: [i32; 4] = [4, 7, 8, 9];
+const SCORE_MATCH: i32 = 16;
+const GAP_START: i32 = -3;
+const GAP_EXTENSION: i32 = -1;
+const BONUS_BOUNDARY: i32 = SCORE_MATCH / 2;
+const BONUS_NON_WORD: i32 = SCORE_MATCH / 2;
+const BONUS_CAMEL_123: i32 = BONUS_BOUNDARY + GAP_EXTENSION;
+const BONUS_CONSECUTIVE: i32 = -(GAP_START + GAP_EXTENSION);
+const FIRST_CHAR_MULTIPLIER: i32 = 2;
+const BONUS_BOUNDARY_WHITE: i32 = BONUS_BOUNDARY;
+const BONUS_BOUNDARY_DELIMITER: i32 = BONUS_BOUNDARY + 1;
+const INVALID: i32 = i32::MIN;
+/// What a placement inside the name earns over one that starts in the
+/// folder holding it (`name_bonus`, `file_index.zig:1722-1727`).
+const NAME_BONUS: i32 = 4;
+
+/// A byte's class (`CharClass`, `charClassOf`, `file_index.zig:1443-1455`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Class {
+    White,
+    NonWord,
+    Delimiter,
+    Lower,
+    Upper,
+    Letter,
+    Number,
+}
+
+fn class(byte: u8) -> Class {
+    match byte {
+        b'a'..=b'z' => Class::Lower,
+        b'A'..=b'Z' => Class::Upper,
+        b'0'..=b'9' => Class::Number,
+        b' ' | b'\t' | b'\n' | b'\r' => Class::White,
+        b'/' => Class::Delimiter,
+        0x80..=0xff => Class::Letter,
+        _ => Class::NonWord,
+    }
+}
+
+/// What a character after `prev` earns (`bonusFor`, `file_index.zig:1457-1473`).
+fn bonus_for(prev: Class, class: Class) -> i32 {
+    use Class::*;
+    if matches!(class, Lower | Upper | Letter | Number) {
+        match prev {
+            White => return BONUS_BOUNDARY_WHITE,
+            Delimiter => return BONUS_BOUNDARY_DELIMITER,
+            NonWord => return BONUS_BOUNDARY,
+            _ => {}
+        }
+    }
+    if (prev == Lower && class == Upper) || (prev != Number && class == Number) {
+        return BONUS_CAMEL_123;
+    }
+    match class {
+        NonWord | Delimiter => BONUS_NON_WORD,
+        White => BONUS_BOUNDARY_WHITE,
+        _ => 0,
+    }
+}
+
+/// The bonus of scalar `position`, read from the path's own bytes: the case
+/// as written, and the start a separator (`bonusAt`, `file_index.zig:1475-1479`).
+fn bonus_at(path: &[u8], offsets: &[usize], position: usize) -> i32 {
+    let at = offsets[position];
+    let prev = if at == 0 {
+        Class::Delimiter
+    } else {
+        class(path[at - 1])
+    };
+    bonus_for(prev, class(path[at]))
+}
+
+fn run_slot(run: i32) -> usize {
+    match run.max(BONUS_CONSECUTIVE) {
+        4 => 0,
+        7 => 1,
+        8 => 2,
+        9 => 3,
+        _ => unreachable!("a bonus is 0, 7, 8 or 9"),
+    }
+}
+
+/// A character in a run: its bonus and the run's (`consecutiveBonus`,
+/// `file_index.zig:1491-1494`).
+fn consecutive_bonus(bonus: i32, run: i32) -> (i32, i32) {
+    if bonus >= BONUS_BOUNDARY && bonus > run {
+        return (bonus, bonus);
+    }
+    (bonus.max(run.max(BONUS_CONSECUTIVE)), run)
+}
+
+/// The score of one placement and its first scalar from `range_start`
+/// (`scoreAlignment`, `file_index.zig:1496-1520`).
+fn score_alignment(
+    path: &[u8],
+    offsets: &[usize],
+    range_start: usize,
+    positions: &[usize],
+) -> (i32, usize) {
+    let (mut total, mut run) = (0, 0);
+    for (index, &position) in positions.iter().enumerate() {
+        let bonus = bonus_at(path, offsets, position);
+        if index == 0 {
+            (total, run) = (SCORE_MATCH + bonus * FIRST_CHAR_MULTIPLIER, bonus);
+        } else if position == positions[index - 1] + 1 {
+            let (bonus, next) = consecutive_bonus(bonus, run);
+            (total, run) = (total + SCORE_MATCH + bonus, next);
+        } else {
+            let gap = (position - positions[index - 1] - 1) as i32;
+            total += SCORE_MATCH + bonus + GAP_START + (gap - 1) * GAP_EXTENSION;
+            run = bonus;
+        }
+    }
+    (total, positions[0] - range_start)
+}
+
+fn better_candidate(score: i32, start: usize, best: i32, best_start: usize) -> bool {
+    score > best || (score == best && start < best_start)
+}
+
+/// One search's text and alignment workspace, reused for every path.
+#[derive(Default)]
+struct Scratch {
+    /// The path's scalars, case-folded.
+    text: Vec<char>,
+    /// Each scalar's first byte, then the path's length.
+    offsets: Vec<usize>,
+    align: Align,
+}
+
+#[derive(Default)]
+struct Align {
+    /// Four run slots a cell (`AlignScratch`, `file_index.zig:1427-1437`).
+    scores: Vec<i32>,
+    starts: Vec<usize>,
+    pred_entries: Vec<usize>,
+    pred_slots: Vec<usize>,
+    columns: Vec<usize>,
+    row_offsets: Vec<usize>,
+    forward: Vec<usize>,
+    backward: Vec<usize>,
+    /// The placement found last.
+    positions: Vec<usize>,
+}
+
+impl Scratch {
+    fn load(&mut self, path: &str) {
+        self.text.clear();
+        self.offsets.clear();
+        for (at, scalar) in path.char_indices() {
+            self.text.push(fold(scalar));
+            self.offsets.push(at);
+        }
+        self.offsets.push(path.len());
+    }
+}
+
+impl Align {
+    /// Keeps `score` in slot `at` if it beats what is there (`betterCandidate`,
+    /// `file_index.zig:1522-1524`): higher, or as high and starting earlier.
+    fn offer(&mut self, at: usize, score: i32, start: usize, entry: usize, from: usize) {
+        if better_candidate(score, start, self.scores[at], self.starts[at]) {
+            self.scores[at] = score;
+            self.starts[at] = start;
+            self.pred_entries[at] = entry;
+            self.pred_slots[at] = from;
+        }
+    }
+}
+
+/// The best placement of `query` in `text[range_start..]` whose last scalar is
+/// at or after `end_min`: its score and first scalar, the highest score and
+/// then the earliest start, its positions in `align.positions`; past
+/// [`MOST_ALIGN_CELLS`], the leftmost one (`alignBest`, `file_index.zig:1526-1720`).
+fn align_best(
+    text: &[char],
+    path: &[u8],
+    offsets: &[usize],
+    range_start: usize,
+    end_min: usize,
+    query: &[char],
+    s: &mut Align,
+) -> Option<(i32, usize)> {
+    let m = query.len();
+    if m == 0 || range_start > text.len() || m > text.len() - range_start {
+        return None;
+    }
+    s.positions.clear();
+    if m == 1 && text.len() - end_min <= MOST_ALIGN_CELLS {
+        // The earliest scalar with the highest bonus (`:1543-1559`).
+        let mut best: Option<(usize, i32)> = None;
+        for (j, _) in text
+            .iter()
+            .enumerate()
+            .skip(end_min)
+            .filter(|(_, c)| **c == query[0])
+        {
+            let bonus = bonus_at(path, offsets, j);
+            if best.is_none_or(|(_, top)| bonus > top) {
+                best = Some((j, bonus));
+                if bonus == BONUS_BOUNDARY_DELIMITER {
+                    break;
+                }
+            }
+        }
+        let (only, bonus) = best?;
+        s.positions.push(only);
+        return Some((
+            SCORE_MATCH + bonus * FIRST_CHAR_MULTIPLIER,
+            only - range_start,
+        ));
+    }
+    s.forward.clear();
+    for (position, scalar) in text.iter().enumerate().skip(range_start) {
+        if *scalar == query[s.forward.len()] {
+            s.forward.push(position);
+            if s.forward.len() == m {
+                break;
+            }
+        }
+    }
+    if s.forward.len() < m {
+        return None;
+    }
+    s.backward.clear();
+    s.backward.resize(m, 0);
+    let mut row = m;
+    for (position, scalar) in text.iter().enumerate().rev() {
+        if *scalar == query[row - 1] {
+            row -= 1;
+            s.backward[row] = position;
+            if row == 0 {
+                break;
+            }
+        }
+    }
+    if s.backward[m - 1] < end_min {
+        return None;
+    }
+    if s.forward[m - 1] < end_min {
+        s.forward[m - 1] = (end_min..text.len()).find(|at| text[*at] == query[m - 1])?;
+    }
+    let cells: usize = s
+        .forward
+        .iter()
+        .zip(&s.backward)
+        .map(|(a, b)| b - a + 1)
+        .sum();
+    if s.forward == s.backward || cells > MOST_ALIGN_CELLS {
+        // One placement, or too many cells: the leftmost (`:1584-1598`).
+        s.positions.extend_from_slice(&s.forward);
+        return Some(score_alignment(path, offsets, range_start, &s.positions));
+    }
+    // One cell for each place `query[row]` matches between its two greedy
+    // positions, four run slots each.
+    s.columns.clear();
+    s.row_offsets.clear();
+    for (row, wanted) in query.iter().enumerate() {
+        s.row_offsets.push(s.columns.len());
+        let (first, last) = (s.forward[row], s.backward[row]);
+        s.columns
+            .extend((first..=last).filter(|at| text[*at] == *wanted));
+    }
+    s.row_offsets.push(s.columns.len());
+    let slots = s.columns.len() * 4;
+    for cells in [&mut s.starts, &mut s.pred_entries, &mut s.pred_slots] {
+        cells.clear();
+        cells.resize(slots, 0);
+    }
+    s.scores.clear();
+    s.scores.resize(slots, INVALID);
+    for row in 0..m {
+        let prev = if row > 0 {
+            s.row_offsets[row - 1]..s.row_offsets[row]
+        } else {
+            0..0
+        };
+        let (mut gap, mut gap_start, mut gap_entry, mut gap_slot) = (INVALID, 0, 0, 0);
+        let (mut next_gap, mut diag) = (prev.start, prev.start);
+        for entry in s.row_offsets[row]..s.row_offsets[row + 1] {
+            let (j, cell) = (s.columns[entry], entry * 4);
+            let bonus = bonus_at(path, offsets, j);
+            if row == 0 {
+                let slot = run_slot(bonus);
+                s.scores[cell + slot] = SCORE_MATCH + bonus * FIRST_CHAR_MULTIPLIER;
+                s.starts[cell + slot] = j;
+                continue;
+            }
+            // Every predecessor at least two positions back.
+            while next_gap < prev.end && s.columns[next_gap] + 2 <= j {
+                for slot in 0..4 {
+                    let (value, start) =
+                        (s.scores[next_gap * 4 + slot], s.starts[next_gap * 4 + slot]);
+                    if value == INVALID {
+                        continue;
+                    }
+                    let shifted = value + s.columns[next_gap] as i32;
+                    if better_candidate(shifted, start, gap, gap_start) {
+                        (gap, gap_start, gap_entry, gap_slot) = (shifted, start, next_gap, slot);
+                    }
+                }
+                next_gap += 1;
+            }
+            while diag < prev.end && s.columns[diag] + 1 < j {
+                diag += 1;
+            }
+            if diag < prev.end && s.columns[diag] + 1 == j {
+                for (from, run) in RUN_BONUS.into_iter().enumerate() {
+                    let (value, start) = (s.scores[diag * 4 + from], s.starts[diag * 4 + from]);
+                    if value != INVALID {
+                        let (step, run) = consecutive_bonus(bonus, run);
+                        s.offer(
+                            cell + run_slot(run),
+                            value + SCORE_MATCH + step,
+                            start,
+                            diag,
+                            from,
+                        );
+                    }
+                }
+            }
+            if gap != INVALID {
+                // A gap of `j - p - 1`: `GAP_START`, then `GAP_EXTENSION`
+                // for each position past its first (`:1665-1672`).
+                let score = gap - j as i32 - 1 + SCORE_MATCH + bonus;
+                s.offer(
+                    cell + run_slot(bonus),
+                    score,
+                    gap_start,
+                    gap_entry,
+                    gap_slot,
+                );
+            }
+        }
+    }
+    let (mut best, mut best_start, mut at) = (INVALID, 0, 0);
+    for cell in s.row_offsets[m - 1] * 4..s.row_offsets[m] * 4 {
+        let (value, start) = (s.scores[cell], s.starts[cell]);
+        if value != INVALID && better_candidate(value, start, best, best_start) {
+            (best, best_start, at) = (value, start, cell);
+        }
+    }
+    if best == INVALID {
+        return None;
+    }
+    s.positions.resize(m, 0);
+    for row in (0..m).rev() {
+        s.positions[row] = s.columns[at / 4];
+        at = s.pred_entries[at] * 4 + s.pred_slots[at];
+    }
+    Some((best, best_start - range_start))
+}
+
+/// The highest score a placement that starts above the name and ends in it
+/// can reach (`maxCrossingQuality`, `file_index.zig:1736-1743`).
+fn max_crossing_quality(query: &[char]) -> i32 {
+    let m = query.len() as i32;
+    let ceiling = SCORE_MATCH * m + BONUS_BOUNDARY_DELIMITER * (m + 1);
+    if query.contains(&'/') {
+        ceiling
+    } else {
+        ceiling + GAP_START
+    }
+}
+
+/// The placement a path is ranked by, and the search that found it
+/// (`choosePlacement`, `file_index.zig:1783-1815`): the best inside the name
+/// plus [`NAME_BONUS`], or a better one from the folder holding the name into
+/// it; failing both, the best anywhere, which ends in a folder.
+fn choose_placement(
+    path: &str,
+    base: usize,
+    query: &[char],
+    s: &mut Scratch,
+) -> Option<(Score, usize, usize)> {
+    let (text, offsets, bytes) = (&s.text[..], &s.offsets[..], path.as_bytes());
+    let place = |quality: i32, first: usize| Score {
+        quality,
+        first,
+        name: true,
+        ..Score::default()
+    };
+    let mut best = align_best(text, bytes, offsets, base, base, query, &mut s.align)
+        .map(|(quality, first)| (place(quality + NAME_BONUS, first), base, base));
+    if best.is_none() && query.len() > 1 && !is_subsequence(text, query) {
+        return None;
+    }
+    let can_win = best.is_none_or(|(inside, ..)| inside.quality < max_crossing_quality(query));
+    if base > 0 && query.len() > 1 && can_win {
+        let folder = text[..base - 1]
+            .iter()
+            .rposition(|c| *c == '/')
+            .map_or(0, |slash| slash + 1);
+        if let Some((quality, first)) =
+            align_best(text, bytes, offsets, folder, base, query, &mut s.align)
+        {
+            if best.is_none_or(|(inside, ..)| quality > inside.quality) {
+                best = Some((place(quality, first), folder, base));
+            }
+        }
+    }
+    best.or_else(|| {
+        let (quality, first) = align_best(text, bytes, offsets, 0, 0, query, &mut s.align)?;
+        Some((
+            Score {
+                quality,
+                first,
+                ..Score::default()
+            },
+            0,
+            0,
+        ))
+    })
+}
+
+fn is_subsequence(text: &[char], query: &[char]) -> bool {
+    let mut wanted = query.iter().peekable();
+    for scalar in text {
+        if wanted.next_if_eq(&scalar).is_some() && wanted.peek().is_none() {
+            return true;
+        }
+    }
+    false
 }
 
 /// A query, case-folded once.
@@ -574,6 +999,9 @@ impl Folded {
 /// One scalar's case fold: its lower case when that is one scalar, itself
 /// otherwise (upstream's `unicode_simple_fold`, which is a one-to-one map).
 fn fold(scalar: char) -> char {
+    if scalar.is_ascii() {
+        return scalar.to_ascii_lowercase();
+    }
     let mut lower = scalar.to_lowercase();
     match (lower.next(), lower.next()) {
         (Some(one), None) => one,
@@ -581,11 +1009,12 @@ fn fold(scalar: char) -> char {
     }
 }
 
-/// `path` as scalars, folded, with the byte offset each begins at.
-fn folded_scalars(path: &str) -> Vec<(usize, char)> {
-    path.char_indices()
-        .map(|(at, scalar)| (at, fold(scalar)))
-        .collect()
+/// Whether `path` holds `query`'s scalars in order at all: one pass, which
+/// most paths fail, before any is scored.
+fn holds(path: &str, query: &[char]) -> bool {
+    let mut wanted = query.iter().peekable();
+    path.chars()
+        .any(|scalar| wanted.next_if_eq(&&fold(scalar)).is_some() && wanted.peek().is_none())
 }
 
 /// The basename's first byte: after the last `/`.
@@ -593,110 +1022,65 @@ fn basename_start(path: &str) -> usize {
     path.rfind('/').map_or(0, |slash| slash + 1)
 }
 
-/// How well `query` matches `path` (`scoreAsciiMatch` / `scoreFoldedMatch`,
-/// `file_index.zig:1309-1386`): the basename first, the whole path after.
-fn score(path: &str, query: &Folded) -> Option<Score> {
-    if query.0.is_empty() || path.is_empty() {
-        return None;
-    }
-    let scalars = folded_scalars(path);
+/// `path` loaded into `s`, and its name's first scalar.
+fn loaded(path: &str, s: &mut Scratch) -> usize {
+    s.load(path);
     let base = basename_start(path);
-    let base_index = scalars
+    s.offsets
         .iter()
-        .position(|(at, _)| *at >= base)
-        .unwrap_or(scalars.len());
-    let folded: Vec<char> = scalars.iter().map(|(_, scalar)| *scalar).collect();
-    let exact = folded == query.0 || folded[base_index..] == query.0[..];
-    if let Some(facts) = score_range(path, &scalars, base_index, &query.0) {
-        return Some(Score {
-            exact,
-            basename: true,
-            ..facts
-        });
-    }
-    let facts = score_range(path, &scalars, 0, &query.0)?;
-    Some(Score {
-        exact,
-        basename: false,
-        ..facts
-    })
+        .position(|at| *at >= base)
+        .unwrap_or(s.text.len())
 }
 
-/// The subsequence facts of `query` in `scalars[start..]`
-/// (`scoreAsciiRange`, `file_index.zig:1327-1363`), greedy left to right.
-fn score_range(
-    path: &str,
-    scalars: &[(usize, char)],
-    start: usize,
-    query: &[char],
-) -> Option<Score> {
-    if query.len() > scalars.len().saturating_sub(start) {
+/// How well `query` matches `path` (`scoreAsciiMatchWith`,
+/// `scoreFoldedMatchWith`, `file_index.zig:1849-1882`).
+fn score(path: &str, query: &Folded, s: &mut Scratch) -> Option<Score> {
+    let query = &query.0[..];
+    if query.is_empty() || path.is_empty() || !holds(path, query) {
         return None;
     }
-    let mut facts = Score::default();
-    let mut matched = 0usize;
-    let mut previous = 0usize;
-    let mut run = 0usize;
-    for (position, (byte, scalar)) in scalars.iter().enumerate().skip(start) {
-        if matched == query.len() {
-            break;
-        }
-        if *scalar != query[matched] {
-            continue;
-        }
-        if matched == 0 {
-            facts.first = position - start;
-            facts.prefix = position == start;
-            run = 1;
-        } else if position == previous + 1 {
-            facts.adjacent += 1;
-            run += 1;
-        } else {
-            facts.gaps += position - previous - 1;
-            run = 1;
-        }
-        facts.longest_run = facts.longest_run.max(run);
-        facts.boundaries += usize::from(is_boundary(path, *byte));
-        previous = position;
-        matched += 1;
-    }
-    (matched == query.len()).then_some(facts)
+    let base = loaded(path, s);
+    let (whole, name) = (&s.text[..], &s.text[base..]);
+    // `exactFit` (`:1752-1757`): the path, the name, or the name before a dot.
+    let exact = whole == query
+        || name == query
+        || (name.len() > query.len() && name.starts_with(query) && name[query.len()] == '.');
+    let (score, ..) = choose_placement(path, base, query, s)?;
+    Some(Score { exact, ..score })
 }
 
-/// Whether a match at `at` starts a word (`isMatchBoundary`,
-/// `file_index.zig:1466-1474`).
-fn is_boundary(path: &str, at: usize) -> bool {
-    if at == 0 {
-        return true;
-    }
-    let bytes = path.as_bytes();
-    let previous = bytes[at - 1];
-    if matches!(previous, b'/' | b'-' | b'_' | b'.' | b' ') {
-        return true;
-    }
-    bytes
-        .get(at)
-        .is_some_and(|current| previous.is_ascii_lowercase() && current.is_ascii_uppercase())
-}
-
-/// The byte ranges of `path` the query matched, whole grapheme clusters,
-/// adjacent ones merged (`reconstructMatchSpans` and `spansFromMatchedOffsets`,
-/// `file_index.zig:1501-1574`). The basename first, as the score was.
-fn spans(path: &str, query: &Folded) -> Vec<Range<usize>> {
-    if query.0.is_empty() {
+/// The byte ranges of `path` the query matched -- the placement that set its
+/// rank -- whole grapheme clusters, adjacent ones merged
+/// (`reconstructMatchSpans` and `spansFromMatchedOffsets`, `file_index.zig:1921-1983`).
+fn spans(path: &str, query: &Folded, s: &mut Scratch) -> Vec<Range<usize>> {
+    let query = &query.0[..];
+    if query.is_empty() || path.is_empty() {
         return Vec::new();
     }
-    let scalars = folded_scalars(path);
-    let base = basename_start(path);
-    let base_index = scalars
-        .iter()
-        .position(|(at, _)| *at >= base)
-        .unwrap_or(scalars.len());
-    let Some(offsets) = matched_offsets(&scalars, base_index, &query.0)
-        .or_else(|| matched_offsets(&scalars, 0, &query.0))
-    else {
+    let base = loaded(path, s);
+    let Some((_, range_start, end_min)) = choose_placement(path, base, query, s) else {
         return Vec::new();
     };
+    // The chosen search again: a later one in the choice reused the positions.
+    if align_best(
+        &s.text,
+        path.as_bytes(),
+        &s.offsets,
+        range_start,
+        end_min,
+        query,
+        &mut s.align,
+    )
+    .is_none()
+    {
+        return Vec::new();
+    }
+    let offsets: Vec<usize> = s
+        .align
+        .positions
+        .iter()
+        .map(|position| s.offsets[*position])
+        .collect();
     let mut out: Vec<Range<usize>> = Vec::new();
     let mut next = offsets.iter().peekable();
     for (start, cluster) in path.grapheme_indices(true) {
@@ -717,20 +1101,6 @@ fn spans(path: &str, query: &Folded) -> Vec<Range<usize>> {
     out
 }
 
-/// The byte offsets a greedy match of `query` in `scalars[start..]` lands on.
-fn matched_offsets(scalars: &[(usize, char)], start: usize, query: &[char]) -> Option<Vec<usize>> {
-    let mut out = Vec::with_capacity(query.len());
-    for (byte, scalar) in scalars.iter().skip(start) {
-        if out.len() == query.len() {
-            break;
-        }
-        if *scalar == query[out.len()] {
-            out.push(*byte);
-        }
-    }
-    (out.len() == query.len()).then_some(out)
-}
-
 /// The [`MOST_RESULTS`] best of `entries` for `query`, best first
 /// (`searchAtRevision`, `file_index.zig:585-649`).
 ///
@@ -749,13 +1119,13 @@ pub(crate) fn search(entries: &[Candidate], query: &str) -> Vec<Found> {
             .collect();
     }
     let folded = Folded::new(query);
-    let mut ranked: Vec<(Score, usize)> = entries
-        .iter()
-        .enumerate()
-        .filter_map(|(index, candidate)| {
-            score(&candidate.path, &folded).map(|score| (score, index))
-        })
-        .collect();
+    let mut scratch = Scratch::default();
+    let mut ranked: Vec<(Score, usize)> = Vec::new();
+    for (index, candidate) in entries.iter().enumerate() {
+        if let Some(score) = score(&candidate.path, &folded, &mut scratch) {
+            ranked.push((score, index));
+        }
+    }
     let order = |left: &(Score, usize), right: &(Score, usize)| {
         better(
             (&left.0, &entries[left.1].path),
@@ -775,7 +1145,7 @@ pub(crate) fn search(entries: &[Candidate], query: &str) -> Vec<Found> {
             Found {
                 path: candidate.path.clone(),
                 kind: candidate.kind,
-                spans: spans(&candidate.path, &folded),
+                spans: spans(&candidate.path, &folded, &mut scratch),
             }
         })
         .collect()
@@ -807,13 +1177,14 @@ fn listed_folder<'a>(explicit: &'a Explicit<'_>) -> Option<&'a str> {
 fn rank_listing(entries: &[(String, Kind)], explicit: &Explicit<'_>) -> Vec<Found> {
     let folded = Folded::new(explicit.name);
     let empty = folded.0.is_empty();
+    let mut scratch = Scratch::default();
     let mut ranked: Vec<(Score, String, Kind)> = entries
         .iter()
         .filter_map(|(name, kind)| {
             let score = if empty {
                 Score::default()
             } else {
-                score(name, &folded)?
+                score(name, &folded, &mut scratch)?
             };
             let path = format!("{}{name}", explicit.prefix);
             (path.len() <= MOST_PATH_BYTES && is_terminal_safe(&path))
@@ -831,7 +1202,7 @@ fn rank_listing(entries: &[(String, Kind)], explicit: &Explicit<'_>) -> Vec<Foun
         .into_iter()
         .chain(ranked.into_iter().map(|(_, path, kind)| {
             let name = &path[explicit.prefix.len()..];
-            let spans = spans(name, &folded)
+            let spans = spans(name, &folded, &mut scratch)
                 .into_iter()
                 .map(|span| span.start + explicit.prefix.len()..span.end + explicit.prefix.len())
                 .collect();
@@ -1878,14 +2249,17 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_basename_outranks_the_directories_and_an_exact_name_outranks_both() {
+    fn an_exact_name_comes_first_and_a_clean_folder_and_name_match_beats_a_mid_name_one() {
         let entries = candidates(&["main/other.rs", "src/main.rs", "main.rs", "x/remain.rs"]);
-        // `main.rs` is the query exactly; `src/main.rs`'s basename is too, and
-        // is longer; `x/remain.rs` matches inside its basename but not at its
-        // start; `main/other.rs` only across the directory.
+        // `main.rs` is the query exactly; `src/main.rs`'s name is too, and is
+        // longer. `main/other.rs` runs `main` from its own folder's start into
+        // `.rs` (173), which fx ranks as a name match above `x/remain.rs`'s
+        // run from the middle of its name (148, and the name bonus 4):
+        // `choosePlacement` (`file_index.zig:1783-1815@481104fd`), and
+        // `p5-at-rank`'s `main-rs` on fx.
         assert_eq!(
             rows(&entries, "main.rs"),
-            ["main.rs", "src/main.rs", "x/remain.rs", "main/other.rs"]
+            ["main.rs", "src/main.rs", "main/other.rs", "x/remain.rs"]
         );
     }
 
@@ -1936,6 +2310,224 @@ pub(crate) mod tests {
             .into_iter()
             .next()
             .expect("a row")
+    }
+
+    /// Every placement of `query` in `lower[range_start..]` ending at or after
+    /// `end_min`, scored: the best (highest, then earliest), and the highest
+    /// of those that start before `end_min` (`bruteForceAlignment`,
+    /// `file_index.zig:2633-2672@481104fd`).
+    fn brute_force(
+        path: &[u8],
+        lower: &[char],
+        range_start: usize,
+        end_min: usize,
+        query: &[char],
+    ) -> (Option<(i32, usize)>, Option<i32>) {
+        fn visit(
+            at: (&[u8], &[char], usize, usize, &[char]),
+            from: usize,
+            positions: &mut Vec<usize>,
+            out: &mut (Option<(i32, usize)>, Option<i32>),
+        ) {
+            let (path, lower, range_start, end_min, query) = at;
+            if positions.len() == query.len() {
+                if positions[query.len() - 1] < end_min {
+                    return;
+                }
+                let offsets: Vec<usize> = (0..=path.len()).collect();
+                let (quality, first) = score_alignment(path, &offsets, range_start, positions);
+                if positions[0] < end_min {
+                    out.1 = Some(out.1.map_or(quality, |peak| peak.max(quality)));
+                }
+                if out.0.is_none_or(|(best, start)| {
+                    quality > best || (quality == best && first < start)
+                }) {
+                    out.0 = Some((quality, first));
+                }
+                return;
+            }
+            for (position, scalar) in lower.iter().enumerate().skip(from) {
+                if *scalar == query[positions.len()] {
+                    positions.push(position);
+                    visit(at, position + 1, positions, out);
+                    positions.pop();
+                }
+            }
+        }
+        let mut out = (None, None);
+        visit(
+            (path, lower, range_start, end_min, query),
+            range_start,
+            &mut Vec::new(),
+            &mut out,
+        );
+        out
+    }
+
+    #[test]
+    fn the_best_placement_is_what_a_brute_force_search_finds() {
+        // "best alignment equals a brute-force search over a small alphabet"
+        // (`file_index.zig:2674-2729@481104fd`): every text of one to four
+        // of `aAb/-1`, every query of one to three of `ab/-1`, searched from
+        // the start, the name, and the start into the name.
+        let mut align = Align::default();
+        let mut checked = 0;
+        for text_len in 1..=4u32 {
+            for code in 0..6usize.pow(text_len) {
+                let path: Vec<u8> = (0..text_len)
+                    .map(|digit| b"aAb/-1"[code / 6usize.pow(digit) % 6])
+                    .collect();
+                let lower: Vec<char> = path
+                    .iter()
+                    .map(|b| b.to_ascii_lowercase() as char)
+                    .collect();
+                let offsets: Vec<usize> = (0..=path.len()).collect();
+                let base = path
+                    .iter()
+                    .rposition(|b| *b == b'/')
+                    .map_or(0, |slash| slash + 1);
+                for (range_start, end_min) in [(0, 0), (base, base), (0, base)] {
+                    for query_len in 1..=3u32 {
+                        for query_code in 0..5usize.pow(query_len) {
+                            let query: Vec<char> = (0..query_len)
+                                .map(|digit| {
+                                    "ab/-1".as_bytes()[query_code / 5usize.pow(digit) % 5] as char
+                                })
+                                .collect();
+                            let (expected, peak) =
+                                brute_force(&path, &lower, range_start, end_min, &query);
+                            if let Some(peak) = peak {
+                                assert!(peak <= max_crossing_quality(&query));
+                            }
+                            let actual = align_best(
+                                &lower,
+                                &path,
+                                &offsets,
+                                range_start,
+                                end_min,
+                                &query,
+                                &mut align,
+                            );
+                            checked += 1;
+                            assert_eq!(
+                                actual, expected,
+                                "{path:?} {query:?} {range_start} {end_min}"
+                            );
+                            if actual.is_none() {
+                                continue;
+                            }
+                            let positions = &align.positions;
+                            assert!(positions[query.len() - 1] >= end_min);
+                            assert_eq!(
+                                score_alignment(&path, &offsets, range_start, positions),
+                                actual.unwrap()
+                            );
+                            assert!(positions.iter().zip(&query).all(|(at, c)| lower[*at] == *c));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(checked > 600_000, "{checked}");
+    }
+
+    #[test]
+    fn past_the_cell_budget_the_leftmost_placement_is_scored() {
+        // "alignment scores the greedy placement beyond the cell budget"
+        // (`file_index.zig:2731-2740@481104fd`).
+        let path = [b'a'; 2000];
+        let text = ['a'; 2000];
+        let offsets: Vec<usize> = (0..=path.len()).collect();
+        let mut align = Align::default();
+        let found =
+            align_best(&text, &path, &offsets, 0, 0, &['a'; 100], &mut align).expect("a placement");
+        assert_eq!(align.positions, (0..100).collect::<Vec<_>>());
+        assert_eq!(found, score_alignment(&path, &offsets, 0, &align.positions));
+    }
+
+    #[test]
+    fn the_score_compares_its_tiers_before_its_quality_and_position() {
+        // "score comparison ranks tiers before alignment quality and
+        // position" (`file_index.zig:2531-2549@481104fd`).
+        let base = Score {
+            exact: false,
+            name: false,
+            quality: 10,
+            first: 5,
+        };
+        let exact = Score {
+            exact: true,
+            quality: 0,
+            ..base
+        };
+        let name = Score {
+            name: true,
+            quality: 0,
+            ..base
+        };
+        let stronger = Score {
+            quality: 11,
+            first: 9,
+            ..base
+        };
+        let earlier = Score { first: 4, ..base };
+        for (left, right) in [
+            (exact, name),
+            (name, stronger),
+            (stronger, earlier),
+            (earlier, base),
+        ] {
+            assert_eq!(
+                score_order(&left, &right),
+                Ordering::Less,
+                "{left:?} {right:?}"
+            );
+        }
+        assert_eq!(score_order(&base, &base), Ordering::Equal);
+    }
+
+    #[test]
+    fn the_kept_rows_are_the_best_of_every_path_scored() {
+        // fx's "pruned ranking keeps ..." cases (`file_index.zig:2775-2827@
+        // 481104fd`): more rows than the list keeps, and the one fx names first.
+        let mut paths: Vec<String> = Vec::new();
+        paths.extend((0..12).map(|i| format!("src/tools/alpha/tango/x{i}.zig")));
+        paths.extend((0..80).map(|i| format!("pkg/{i}/st-at{i}.zig")));
+        paths.extend((0..70).map(|i| format!("src/tools/alpha/tango/y{i}.zig")));
+        paths.extend(["docs/stat.md", "stat", "src/STATUS.md"].map(String::from));
+        let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+        assert_eq!(first_row(&refs, "stat"), "stat");
+        let mut paths: Vec<String> = Vec::new();
+        paths.extend((0..90).map(|i| format!("pkg/{}/st{i}.zig", i % 7)));
+        paths.extend((0..40).map(|i| format!("deep/nested/folder/{i}/stage{i}.md")));
+        paths.extend((0..30).flat_map(|i| [format!("a/sx{i}.ts"), format!("b/ts{i}.ts")]));
+        paths.extend(
+            [
+                "zz/st.md",
+                "q/s",
+                "st",
+                "x/s.zig",
+                "pkg/0/st0.zig",
+                "w/st1.zi",
+            ]
+            .map(String::from),
+        );
+        let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+        assert_eq!(first_row(&refs, "st"), "st");
+        let mut paths: Vec<String> = (0..70).map(|i| format!("service/{i}/main.zig")).collect();
+        paths.extend((0..30).map(|i| format!("x/mainframe{i}.zig")));
+        paths.extend(["src/main.zig", "main.zig"].map(String::from));
+        let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+        assert_eq!(first_row(&refs, "main"), "main.zig");
+        let mut paths: Vec<String> = Vec::new();
+        paths.extend((0..40).map(|i| format!("pkg/{i}/vercel-error{i}.ts")));
+        paths.extend((0..30).map(|i| format!("docs/{i}/vercel-json/clean{i}.mdx")));
+        paths.extend((0..30).map(|i| format!("vercel/cle/x{i}/z.md")));
+        paths.extend((0..20).map(|i| format!("v/e/r/c/l/e{i}.txt")));
+        paths.extend((0..70).map(|i| format!("lib/{i}/vercle{i}.ts")));
+        paths.push("apps/vercle.ts".into());
+        let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+        assert_eq!(first_row(&refs, "vercle"), "apps/vercle.ts");
     }
 
     #[test]
