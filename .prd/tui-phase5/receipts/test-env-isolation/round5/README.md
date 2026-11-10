@@ -280,3 +280,89 @@ On the `--no-local` clone at `2cfe0ca7`, under `../sentinel-run.sh` (whose
   own, so their reads land in that directory's log, not this one. As in
   rounds 3 and 4, the instrumented run alone shows one interactive and
   eight tui failures; the uninstrumented runs above pass them.
+
+## RED: each hole, at the round-4 head and at this one
+
+`red.py`, on the clone: each hole planted at `4050be81` and at the new
+head, then that revision's own gates run -- `cargo clippy --all-targets -D
+warnings` and `scripts/check-env-reads.py`. Every hole passes every gate at
+`4050be81`; the new check refuses each, for its reason.
+
+| hole | at `4050be81` | now (`check-env-reads.py`) |
+|---|---|---|
+| opus M1: `use std::process::Command as Git;` then `crate::process::output(&mut git)` in a src test module (`red.txt`) | clippy passes, check passes | refused: `std::process::Command::new outside ...` (clippy -D refuses it too) |
+| gpt6 check MUST 1: `option_env!("XFX_GATEWAY_KEY")` in a src test (`red-first-run.txt`) | passes, passes | refused twice: dep-info "compiled with XFX_GATEWAY_KEY", and "a core::option_env! of XFX_GATEWAY_KEY" |
+| gpt6 check MUST 2: a `HOME` read under `cfg(not(debug_assertions))` (`red-first-run.txt`, `red.txt`) | passes, passes | refused: `std::env::var_os outside ...`, by the release pass |
+| gpt6 isolation MUST 3: `tests/escape.rs` with `#[cfg(clippy)] mod support;` (`red-first-run.txt`) | passes, passes | refused three times: "its test binary (dev / --all-features / --release) runs its cases without making a clean copy of itself (exit 0)" |
+
+`red-first-run.txt` is the first run. Its M1 row is not used: that plant
+wrote `&mut Git::new("git").args(..)`, which tripped `needless_borrow` at the
+old head -- a style refusal that hid the hole -- and the run's HOME section
+judged by the test's messages, which this round changed. `red.txt` reruns
+both: the M1 plant builds its command in steps, and the HOME holes are
+judged by what happened.
+
+**The HOME holes, by what happened** (`red.txt`, second half): the
+isolation binary started as `tests/isolation.rs` starts it, once with
+`4050be81`'s `isolated.rs` and once with this one.
+
+| started with a marker and | round 4's copy | this round's |
+|---|---|---|
+| a home with the marker's name in another directory | **ran the case**, and at exit **deleted that directory** | refused, nothing touched |
+| a link to an empty private directory at the exact path | refused | refused |
+| that link, `HOME` ending in `/` | **ran the case**, and at exit **deleted what the link points at** -- opus M3's prediction | refused, nothing touched |
+| a `TMPDIR` no home can be made under, its value a sentinel | refused, and **printed the sentinel** | refused, sentinel not printed |
+
+## Self-test, mutants, release, gate
+
+- **Self-test** (`gates.txt`'s last step): 35 fixtures, 0 not as expected
+  -- round 4's 24, and `aliased_command`, `command_new_as_a_function`,
+  `command_new_by_qualified_path`, `exec_and_execv`, `option_env_of_a_key`,
+  `env_inside_concat`, `release_only_read`, `temp_dir_read`,
+  `ns_get_environ`, the configuration, and the test binaries cargo built (a
+  test binary with no constructor and a binary harness with a case, each
+  refused in all three builds). Its fixture crate now carries the tree's
+  `[lints.clippy] disallowed_macros = "allow"` (`cbab9aba`): without it a
+  check that stopped forcing the macro lint still passed (below).
+- **Mutants** (`mutants.txt`, `mutants-r5.py`, at `f015d3c7`): **47, 47
+  killed, 0 runs with a sentinel value in their output**, and each of the
+  three narrowings of the check passes on the unmutated head first.
+  - Rounds 1-4's 14 unit mutants, at this round's text.
+  - The start rule (`envcheck`): round 2's bare `Command` in a test module,
+    the bare SIGCHLD probe, opus M1's aliased `Git::new`, a
+    `Command::new` in a test file, `clippy.toml` losing `Command::new`, and
+    a `.clippy.toml`.
+  - Compile-time reads: `option_env!("XFX_GATEWAY_KEY")` in a unit test,
+    and an unlisted `env!` inside `concat!` (refused by dep-info alone).
+  - Round 4's nine allow and listing mutants; a test file with no `mod
+    support;`; a release-only read; a `#[cfg(clippy)] mod support;` file
+    (refused on its built binary); a `#[test]` in `src/main.rs`.
+  - The check's own code (`selftest`): the macro taking `$name:expr`, the
+    self-test compiling its fixtures in dev only, dep-info not read, the
+    probe never run, the macro lint not forced.
+  - The copy: trusting its marker, taking a non-empty `HOME`, a name it was
+    not given, no constructor, the whole environment handed on, a `HOME`
+    ending in `/`, the round-4 last-component comparison, and the path in
+    the creation error.
+
+  The first run (`mutants-first-run.txt`, at `2cfe0ca7`) had six
+  survivors, two causes, both fixed before the run above. Five
+  isolation mutants were scored by any "test result: ok." in the
+  output, which a failing case's message quotes from its copy (the
+  harness's mistake; their suites had failed). `no-macro-lint` was a real
+  gap in the self-test (the fixture crate's `[lints]`). Four unit-test plants
+  sat between `#[track_caller]` and its `fn`; `env-in-concat` died of a
+  compile error for it, so those four were rerun with the plant above the
+  attribute (`mutants-plants-rerun.txt`): each killed by the check, for
+  its reason.
+- **Release** (`release-compare.txt`): main and `2cfe0ca7`, built back to
+  back on the clone: 11,668,096 bytes each, the same section table, 591
+  differing bytes -- 414 signature, 16 `LC_UUID`, 161 moved panic lines, 0
+  unexplained. **`__text` is identical.** Everything after `2cfe0ca7`
+  changes only the script and the receipt.
+- **Gate** (`gates.txt`, `../gates.sh` under the lock, on the clone at
+  `f015d3c7`): fmt, both clippy runs, both test runs (lib 4638; every
+  integration suite), identity, stubs, secrets, `check-env-reads.py` (39
+  invocations in 26 files, 12 `process_env!` call sites, 14 plain calls,
+  70 compile-time reads of 6 names, 39 test binaries started) and its
+  self-test: every step exit 0.

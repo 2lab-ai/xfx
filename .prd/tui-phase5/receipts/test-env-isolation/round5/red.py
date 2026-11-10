@@ -151,7 +151,7 @@ def main():
                   + (f" ({'; '.join(lint_why)})" if lint else "")
                   + f"; check-env-reads {'passes' if check == 0 else 'refuses'}"
                   + (f" ({' | '.join(check_why)})" if check else ""))
-    if not only or "HOME" in only:
+    if not only or any("HOME" in word for word in only):
         print("## gpt6 isolation MUSTs 1-2, opus M3: HOME, run against each revision's isolated.rs")
         home_holes(clone, old, new)
     reset(clone, new)
