@@ -369,9 +369,16 @@ def dep_info(filename):
             found = HASHED.match(name)
             if name.startswith(crate + "-") and found and not found.group("ext") and not found.group("lib"):
                 candidates.append(os.path.join(place, name))
-    same_file = [c for c in candidates if (os.stat(c).st_dev, os.stat(c).st_ino) == (mine.st_dev, mine.st_ino)]
+    stats = {}
+    for candidate in candidates:
+        try:
+            stats[candidate] = os.stat(candidate)
+        except OSError:
+            # A dangling link among the candidates: no answer, not a crash.
+            return None
+    same_file = [c for c in candidates if (stats[c].st_dev, stats[c].st_ino) == (mine.st_dev, mine.st_ino)]
     if not same_file:
-        same_file = [c for c in candidates if os.stat(c).st_size == mine.st_size and same_bytes(c, filename)]
+        same_file = [c for c in candidates if stats[c].st_size == mine.st_size and same_bytes(c, filename)]
     return dep_info(same_file[0]) if len(same_file) == 1 else None
 
 
@@ -738,6 +745,8 @@ def tool_environment(extra=None):
 
 
 CFG_CALL = re.compile(r"\bcfg(?P<attr>_attr)?\s*(?P<bang>!)?\s*\(")
+CFG_SELECT = re.compile(r"\bcfg_select\s*!\s*[({\[]")
+OPENS, CLOSES = "([{", ")]}"
 CLIPPY_WORD = re.compile(r"(?<![A-Za-z0-9_:])clippy(?![A-Za-z0-9_])")
 RAW_STRING = re.compile(r'(?:b|c)?r(#*)"')
 
@@ -827,8 +836,9 @@ def compiled_sources(compiled, root, also=()):
 
 
 def cfg_problems(root, compiled=None, also=()):
-    """No cfg predicate names `clippy`, in `cfg(..)`, `cfg!(..)` or the
-    predicate of `cfg_attr(..)`, in any file this package compiles.
+    """No cfg predicate names `clippy` -- in `cfg(..)`, `cfg!(..)`, the
+    predicate of `cfg_attr(..)` or an arm's predicate of `cfg_select!`, any
+    delimiter -- in any file this package compiles.
 
     Clippy compiles with `cfg(clippy)` set, so code under `not(clippy)` is
     never linted, and the library's unit-test binary would run it in the
@@ -848,7 +858,7 @@ def cfg_problems(root, compiled=None, also=()):
         inside, outside = compiled_sources(compiled, root, also)
         files |= inside
         for path in sorted(outside):
-            problems.append((os.path.basename(path), 0, "a source this package compiles from outside the repository"))
+            problems.append((os.path.relpath(path, root), 0, "a source this package compiles from outside the repository"))
     seen = set()
     for path in sorted(files):
         real = os.path.realpath(path)
@@ -872,7 +882,67 @@ def cfg_problems(root, compiled=None, also=()):
             if CLIPPY_WORD.search(predicate):
                 line = text.count("\n", 0, call.start()) + 1
                 problems.append((os.path.relpath(path, root), line, "a cfg predicate that names clippy, under which code is never linted"))
+        for start, predicate in cfg_select_predicates(text):
+            if CLIPPY_WORD.search(predicate):
+                line = text.count("\n", 0, start) + 1
+                problems.append((os.path.relpath(path, root), line, "a cfg_select! arm whose predicate names clippy, under which code is never linted"))
     return problems
+
+
+def closing(text, at):
+    """Where the bracket group that opens at `at` ends: the index past its
+    closing bracket, any of the three kinds nesting."""
+    depth = 0
+    while at < len(text):
+        if text[at] in OPENS:
+            depth += 1
+        elif text[at] in CLOSES:
+            depth -= 1
+            if depth == 0:
+                return at + 1
+        at += 1
+    return len(text)
+
+
+def cfg_select_predicates(text):
+    """Each `cfg_select!` arm's predicate -- the text before its `=>`, at
+    the top level of the body, whatever the delimiter -- with where the
+    macro starts. The arms' bodies, a braced group or an expression up to
+    the next top-level `,`, are skipped: an `allow(clippy::x)` there is not
+    a predicate."""
+    for found in CFG_SELECT.finditer(text):
+        body_end = closing(text, found.end() - 1) - 1
+        at = found.end()
+        while at < body_end:
+            depth, arrow = 0, None
+            for index in range(at, body_end):
+                char = text[index]
+                if char in OPENS:
+                    depth += 1
+                elif char in CLOSES:
+                    depth -= 1
+                elif depth == 0 and text.startswith("=>", index):
+                    arrow = index
+                    break
+            if arrow is None:
+                break
+            yield found.start(), text[at:arrow]
+            at = arrow + 2
+            while at < body_end and text[at].isspace():
+                at += 1
+            if at < body_end and text[at] == "{":
+                at = closing(text, at)
+                while at < body_end and text[at].isspace():
+                    at += 1
+                if at < body_end and text[at] == ",":
+                    at += 1
+            else:
+                depth = 0
+                while at < body_end and not (depth == 0 and text[at] == ","):
+                    depth += text[at] in OPENS
+                    depth -= text[at] in CLOSES
+                    at += 1
+                at += 1
 
 
 def build_script_problems(root, compiled):
@@ -1146,8 +1216,33 @@ FIXTURES = {
         ["a cfg predicate that names clippy"],
     ),
     "cfg_in_a_comment_or_a_string": (
-        '// cfg(not(clippy))\n/* cfg(not(clippy)) */\npub const S: &str = "cfg(not(clippy))";\n'
-        'pub const R: &str = r#"cfg(not(clippy))"#;\npub const C: char = \'(\';',
+        '// cfg(not(clippy))\n/* cfg(not(clippy)) */\n/* /* */ cfg(not(clippy)) */\n'
+        'pub const S: &str = "cfg(not(clippy))";\n'
+        'pub const R: &str = r#"cfg(not(clippy))"#;\npub const B: &[u8] = b")";\npub const C: char = \'(\';',
+        [],
+    ),
+    "cfg_after_a_lifetime": (
+        "pub fn f<'a>(x: &'a u8) -> &'a u8 {\n    #[cfg(not(clippy))]\n    let _ = 'b';\n    x\n}",
+        ["a cfg predicate that names clippy"],
+    ),
+    "cfg_select_braces": (
+        "cfg_select! {\n    clippy => {}\n    _ => { pub fn h() {} }\n}",
+        ["a cfg_select! arm whose predicate names clippy"],
+    ),
+    "cfg_select_parentheses": (
+        "cfg_select!(\n    clippy => {}\n    _ => { pub fn h() {} }\n);",
+        ["a cfg_select! arm whose predicate names clippy"],
+    ),
+    "cfg_select_brackets": (
+        "cfg_select![\n    clippy => {}\n    _ => { pub fn h() {} }\n];",
+        ["a cfg_select! arm whose predicate names clippy"],
+    ),
+    "cfg_select_expression_arms": (
+        "pub fn g() -> u8 {\n    cfg_select! { unix => 1, not(clippy) => 2, _ => 3 }\n}",
+        ["a cfg_select! arm whose predicate names clippy"],
+    ),
+    "cfg_select_naming_a_clippy_lint_in_an_arm": (
+        "cfg_select! {\n    unix => { #[allow(clippy::needless_return)] pub fn h() {} }\n    _ => { pub fn h() {} }\n}",
         [],
     ),
     "path_module_not_rs": ('#[path = "t.inc"]\nmod t;', ["a cfg predicate that names clippy"]),
@@ -1207,7 +1302,7 @@ FIXTURE_OWNS = {
     "path_module_not_rs": ("tests/t.inc",),
     "include_outside_src_and_tests": ("gen/hidden.rs",),
     "under_a_linked_directory": ("tests/linked/x.rs",),
-    "path_outside_the_repository": ("y.rs",),
+    "path_outside_the_repository": ("../outside/y.rs",),
 }
 
 
@@ -1303,6 +1398,27 @@ def self_test():
         failures += not any("dep-info without XFX_GATEWAY_KEY" in why for why in cut)
         print(f"{'refused' if cut else 'NOT REFUSED':9} dep-info cut before its env-dep lines"
               + "".join(f"\n            {why}" for why in cut))
+        # The lexer alone, on text: what is blanked, what is kept, and that
+        # every offset and newline stays where it was.
+        lexed_wrong = []
+        for what, text, kept in (
+            ("nested comments", "a /* b /* c */ d */ e", "a                   e"),
+            ("a line comment", "a // b ( c\nd", "a         \nd"),
+            ("a byte string and a byte char", 'x(b")", b\'(\')', "x(    ,     )"),
+            ("an escaped quote", 'f("a\\"b)", c)', "f(       , c)"),
+            ("a unicode char", "f('\\u{1F600}', g)", "f(           , g)"),
+            ("an escaped quote char", "f('\\'', g)", "f(    , g)"),
+            ("a lifetime kept", "fn f<'a>(x: &'a u8) {}", "fn f<'a>(x: &'a u8) {}"),
+            ("a raw string", 'f(r#"a")"#, g)', "f(        , g)"),
+            ("newlines kept", '"a\nb" /* c\nd */ e', "  \n       \n     e"),
+        ):
+            got = code_of(text)
+            if got != kept or len(got) != len(text) or [i for i, c in enumerate(got) if c == "\n"] != [
+                i for i, c in enumerate(text) if c == "\n"
+            ]:
+                lexed_wrong.append(what)
+        failures += bool(lexed_wrong)
+        print(f"{'lexed' if not lexed_wrong else 'NOT LEXED for ' + str(lexed_wrong):9} comments, literals and lifetimes")
         # Where rustc's dep-info is, by artifact: an executable whose name
         # begins with "lib" keeps it, a library's file loses it, and an
         # uplifted executable is traced to its original, a hard link or a
@@ -1442,7 +1558,7 @@ def self_test():
         failures += bool(missing)
         print(f"{'refused' if not missing else 'NOT REFUSED for ' + str(missing):9} clippy configuration"
               + "".join(f"\n            {why}" for why in found))
-        print(f"check-env-reads --self-test: {len(FIXTURES) + 4} fixtures, {failures} not as expected")
+        print(f"check-env-reads --self-test: {len(FIXTURES) + 5} fixtures, {failures} not as expected")
         return 1 if failures else 0
     finally:
         shutil.rmtree(scratch, ignore_errors=True)

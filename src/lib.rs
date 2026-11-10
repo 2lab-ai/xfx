@@ -58,8 +58,9 @@ mod env_exception;
 /// `env_exception!`'s, each held to its file and its names. A C function
 /// declared by hand, the `environ` static and `/proc/self/environ` are
 /// outside what clippy can name, and so is code under a cfg that names
-/// `clippy`, which clippy never compiles: the check refuses such a cfg in
-/// every file the package compiles, and a build script that sets one. What
+/// `clippy`, which clippy never compiles: the check refuses such a cfg --
+/// in `cfg`, `cfg!`, `cfg_attr`'s predicate and each `cfg_select!` arm's --
+/// in every file the package compiles, and a build script that sets one. What
 /// a dependency reads on its own is outside it too: `ignore::WalkBuilder`
 /// reads the global gitignore under the real `HOME` unless the caller turns
 /// `git_global` off, as `tools::read` does. The check guards against honest

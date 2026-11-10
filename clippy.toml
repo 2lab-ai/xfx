@@ -18,8 +18,9 @@
 # HOME) among them; a C function declared by hand, the `environ` static (a
 # static, which no entry can name) and a read of `/proc/self/environ` are
 # not. Nor is code under a cfg that names `clippy`, which clippy never
-# compiles; the check refuses any such cfg, in every file the package
-# compiles, and a build script that sets a cfg. Nor is what a dependency
+# compiles; the check refuses any such cfg -- in `cfg`, `cfg!`, the predicate
+# of `cfg_attr` and each arm's predicate of `cfg_select!` -- in every file
+# the package compiles, and a build script that sets a cfg. Nor is what a dependency
 # reads on its own: `ignore::WalkBuilder` reads the global gitignore under
 # the real HOME unless the caller turns `git_global` off, as
 # `src/tools/read.rs` does. The check guards against honest mistakes in
