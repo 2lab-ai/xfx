@@ -2094,7 +2094,10 @@ mod tests {
 
     #[test]
     fn a_ctrl_letter_is_upstreams_table_in_a_strict_spelling() {
-        // Bounded on every axis, not just the three captured letters.
+        // Bounded on every axis, not just the three captured letters. (The
+        // name is older than TILDE-EMPTY-MODIFIER: the tilde report's fields
+        // are upstream's numbers now, so "strict" is the table, not the
+        // spelling.)
 
         // The modifier parameter is `1 + mask` (shift 1, alt 2, ctrl 4,
         // super 8), and what a combination means is upstream's
@@ -2883,7 +2886,10 @@ mod tests {
         }
         // The moves count a lock bit as a modifier too (`modifiers != 0`,
         // `:699-711`), and a modifier with no Ctrl is the line's edge or the
-        // page: here, the key itself.
+        // page: here, the key itself. On `5` and `6` this pins xfx's reading
+        // of every modified page key, the page key, which pages the full
+        // transcript where upstream's composer move does not
+        // (`docs/parity.md`, the full-screen TUI row; MODIFIED-PAGE-KEYS).
         for (key, want) in TILDE_KEYS {
             if key == "3" {
                 continue;
