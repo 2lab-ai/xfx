@@ -12,7 +12,8 @@ unit the owner (its README, "Left apart" 2; its `probe/frames.txt`).
 |---|---|
 | `4c3ab703` | RED: the two variants `Action::ComposerPageUp`/`ComposerPageDown` with the arms the exhaustive matches need and **no producer and no fold**; the decoder pins of a held page key flipped; the per-surface tests; `delete(62)`/`delete(63)`; the scenario `p5-modified-page-keys` |
 | `0c10d6ee` | **the code head**: `tilde_key` and `kitty_key` make the two, `folded` folds them back, the docs of `Action::PageUp`, `tilde_key` and `kitty_key`; three test comments name the file of a bare citation (no assertion change) |
-| the commits after | `docs/parity.md`, the ledger's refs, this folder; no `src/` change |
+| `60043e55` | `docs/parity.md`, the ledger's refs, this folder but its mutant, gate and citation-check records; no `src/` change. **The gate ran here** |
+| the commit after | `mutants.txt`, `gate.txt`, `green.txt`, `fx-src-check.txt`, this file's mutant and gate sections; no `src/` change |
 
 The source change outside the test modules is +63/-19 lines over the three
 files (`git diff -U0 fab7a217 0c10d6ee -- src`, lines above each file's
@@ -94,19 +95,42 @@ caret behind the screen up a page.
 - The scenario on the code head's binary (`v0.1.0-0c10d6e`, `xfx/`):
   - **the four inline snaps identical**, `answered`, `draft`, `closed` and
     `typed` (`┃ oneX` on both), cell by cell (`cells.py`, row 1 left out);
-  - the four full-transcript snaps differ across the sides before any key,
-    in the same rows (2-32 and 35): the page shows p5-transcript-md's
-    document one row apart and each side's own header times (the sweep's
-    unresolved `p5-transcript-md` `full`, the ledger's
-    `full-transcript-shift` kind). So they are read within each side: on
+  - the full-transcript snaps differ across the sides before any key: each
+    side's own record times, which `cells.py` does not mask, and a
+    `· Response` header fx's tail page has and xfx's document does not, so
+    the page stands one row apart (the sweep's 2 uncaused rows, Sweep
+    below); at the head, `full-pgup` differs as the ledger's
+    `session-record` cause says. So they are read within each side: on
     both, `full == full-ctrl-pgup == full-kp-ctrl-pgup` and `full-pgup`
-    moved, and the differing-row list of each held-key snap is `full`'s.
-    On the base side the held key added rows 33 and 36 and moved the page.
+    moved, and the differing-row list of each held-key snap is `full`'s
+    (rows 2-32 and 35). On the base side the held key moved the page, and
+    the list gained rows 33 and 36.
 - `green.txt`: the unit's tests in the gate's run.
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
-MUTANTS-SECTION
+On a `git clone --no-local` at `0c10d6ee` (its remote removed) under
+`$TMPDIR/mut/`, one at a time, the file restored after each, under the suite
+lock, each run the unit's tests (`tui::input::tests` and the shell tests
+above). **9 of 9 killed**, the clone's tree clean after the run
+(`mutants.txt`, which names the first six failing tests of each):
+
+| mutant | killed by |
+|---|---|
+| M1 a held tilde page key is the page key (the base's reading) | the decoder's held-key test, the four flipped pins, the full-transcript test |
+| M2 a held keypad page key is the page key (the base's reading) | the decoder's held-key test, the page-keys table, the full-transcript test |
+| M3 the keypad counts a lock bit alone as held | the decoder's held-key test (`;65u`, `;129u`, `;193u`), the full-transcript test (`57422;65u`) |
+| M4 the tilde page key reads only the field's low byte | the past-256 test, the held-key test, the full-transcript test (`6;257~`) |
+| M5 the tilde page key masks the lock bits off | the past-256 test, the held-key test, the lock-bit test, the full-transcript test (`5;65~`) |
+| M6 no fold | the fold table and the `at_41_rows` list tests, 9 failing in all (the held key paged no list; the composer's page test passes, `act` pages it) |
+| M7 the fold makes a held page key the arrow | the fold table and the `at_41_rows` tests, 11 failing in all |
+| M8 the fold runs before the full transcript reads the event | the fold table, the full-transcript test |
+| M9 the full transcript pages on the held key too | the full-transcript test |
+
+Not mutated: `act`'s two arms that take the held keys as the page keys. The
+fold runs before every route to `act`, so no input reaches them, as none
+reaches the arms beside them for the other kept-apart spellings; a test for
+them would have to call `act` with an event no route delivers.
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
 
@@ -137,7 +161,29 @@ this branch does not stack on. APPROVAL-VERTICAL-SPELLINGS' `cmp_sweeps.py`
 
 ## Gate (`gate.txt`)
 
-GATE-SECTION
+The brief's gate, once, under the suite lock with a short `TMPDIR`, at
+`60043e55`, whose `src/` is the code head's (`gate.txt` carries the empty
+`git diff --stat`). Every step exits 0 and the tree was the same at the end:
+
+| step | result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo clippy --locked --all-targets -- -D warnings` | clean |
+| `cargo clippy --locked --all-targets --features fault-injection -- -D warnings` | clean |
+| `cargo test --locked --no-fail-fast` | 5705 passed, 0 failed, 7 ignored (15 result lines) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 5742 passed, 0 failed, 7 ignored (15 result lines) |
+| `scripts/check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh`, `check-no-local-paths.sh` | exit 0 each |
+
+TILDE-EMPTY-MODIFIER's round-2 gate read 5699 passed and 3 failed (5702)
+and 5739; this unit adds three `#[test]`s (the decoder's held-key test, the
+full-transcript test, the question and approval test) and removes none.
+`green.txt`: the unit's 18 tests in both suites of this run, 36 of 36 ok.
+
+## The citations (`fx-src-check.txt`)
+
+`fx_src.sh` over this file and the unit's added lines (`src`, `tests`, the
+scenario, and `docs/parity.md`'s added words), the command in the file:
+every citation falls inside a range of `fx-src.txt`.
 
 ## The ledger's refs (`refs.py`, `refs.txt`)
 

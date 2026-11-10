@@ -1,0 +1,2 @@
+# $ { git diff fab7a217 -- src tests scripts/fxcap/scenarios | grep '^+'; git diff --word-diff=porcelain fab7a217 -- docs/parity.md | grep '^+'; } | fx_src.sh <fx checkout>   (at the receipt's last commit; README.md read too)
+87 citations checked, 0 outside fx-src.txt's ranges
