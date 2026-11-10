@@ -1,0 +1,8 @@
+# python3 -I fxcites.py 5a83bc4a, then --self-test (this folder's fxcites.py, at the receipt commit)
+README.md: 61 citations, 0 failed
+docs/parity.md:239: 8 citations, 0 failed
+src: 31 citations, 0 failed
+scripts/fxcap/scenarios/p5-ctrlo-at-keys.cap: 4 citations, 0 failed
+all: 104 citations, 0 failed
+# exit 0
+self-test: 10 cases, 0 wrong

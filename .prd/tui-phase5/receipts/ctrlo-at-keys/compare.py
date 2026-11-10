@@ -41,7 +41,9 @@ def main():
     for (s, l), b, h in other:
         print(f"  {s} {l}: {b} -> {h}")
     failing = {side: sorted((k, v) for k, v in pairs.items() if v not in PASS) for side, pairs in (("base", base), ("head", head))}
-    print(f"\n# the pairs that do not pass, each side (scenario label verdict); the same set on both sides: {failing['base'] == failing['head']}")
+    rest = [row for row in failing["base"] if row[0] not in {k for k, _, _ in up}]
+    print(f"\n# the pairs that do not pass, each side (scenario label verdict); the same set on both sides: {failing['base'] == failing['head']}; "
+          f"the head's is the base's less those moved to passing: {rest == failing['head']}")
     for side, rows in failing.items():
         print(f"{side} ({len(rows)}): " + ", ".join(f"{s} {l} [{v}]" for (s, l), v in rows))
 

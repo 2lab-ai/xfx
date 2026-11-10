@@ -35,3 +35,10 @@ q src/core/app/input_completion_runtime.zig 848 866 "prepareFilePicker: nothing 
 q src/core/app/input_completion_runtime.zig 939 965 "navigateFilePicker; autocompleteFilePickerSelection: the eligibility check (949) before the row (950) and the retry (953)"
 q src/core/app/input_completion_runtime.zig 1034 1056 "submitFilePickerOnEnter: nothing unless the list owns the surface (1037); filePickerOwnsSurface (1054-1056)"
 q src/core/input/file_completion_state.zig 230 233 "retry: the index's refresh asked for"
+# Appended after the gate's commit (so the lines above keep their fx-src.txt numbers): Shift-Up/Down under the transcript
+q src/ui/input/escape_parser.zig 66 71 "composerMove: a modified arrow is a composer move, extend_selection on Shift"
+q src/ui/input/escape_parser.zig 99 107 "Shift-Up/Down: visual_up/visual_down moves"
+q src/ui/input/shortcuts.zig 43 65 "fromEscapeAction: a composer_shortcut action carries its shortcut (61)"
+q src/core/app/app_input_runtime.zig 994 1002 "after the transcript's composer actions (997), the composer shortcut (999-1002)"
+q src/core/app/app_input_runtime.zig 310 330 "the .move arm: visual_up/visual_down -> routeComposerVertical (321-327), a frame (330)"
+q src/core/app/input_completion_runtime.zig 211 233 "routeComposerVertical: routeNonSlashPickerMove first (230)"

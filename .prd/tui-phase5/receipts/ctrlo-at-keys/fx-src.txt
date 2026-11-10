@@ -553,3 +553,106 @@
   231          self.lookup_dirty = true;
   232          self.refresh_requested = true;
   233      }
+
+== src/ui/input/escape_parser.zig:66-71@481104fd -- composerMove: a modified arrow is a composer move, extend_selection on Shift
+   66  fn composerMove(kind: input_action.MoveKind, modifiers: u16) InputEscapeAction {
+   67      return .{ .composer_shortcut = .{ .move = .{
+   68          .kind = kind,
+   69          .extend_selection = (modifiers & shift_modifier) != 0,
+   70      } } };
+   71  }
+
+== src/ui/input/escape_parser.zig:99-107@481104fd -- Shift-Up/Down: visual_up/visual_down moves
+   99      if ((modifiers & shift_modifier) != 0) return switch (byte) {
+  100          'A' => composerMove(.visual_up, modifiers),
+  101          'B' => composerMove(.visual_down, modifiers),
+  102          'C' => composerMove(.character_right, modifiers),
+  103          'D' => composerMove(.character_left, modifiers),
+  104          'H' => composerMove(.line_start, modifiers),
+  105          'F' => composerMove(.line_end, modifiers),
+  106          else => null,
+  107      };
+
+== src/ui/input/shortcuts.zig:43-65@481104fd -- fromEscapeAction: a composer_shortcut action carries its shortcut (61)
+   43  pub fn fromEscapeAction(action: InputEscapeAction) ?ShortcutAction {
+   44      return switch (action) {
+   45          .cursor_up => move(.visual_up),
+   46          .cursor_down => move(.visual_down),
+   47          .cursor_left => move(.character_left),
+   48          .cursor_right => move(.character_right),
+   49          .word_left => move(.word_left),
+   50          .word_right => move(.word_right),
+   51          .home => move(.line_start),
+   52          .end => move(.line_end),
+   53          .page_up => move(.page_up),
+   54          .page_down => move(.page_down),
+   55          .delete_next => .delete_forward,
+   56          .delete_word_left => .delete_word_left,
+   57          .delete_word_right => .delete_word_right,
+   58          .delete_to_line_start => .delete_to_line_start,
+   59          .delete_to_line_end => .delete_to_line_end,
+   60          .insert_newline => .insert_newline,
+   61          .composer_shortcut => |shortcut| shortcut,
+   62          .remapped_byte => |byte| fromControlByte(byte),
+   63          else => null,
+   64      };
+   65  }
+
+== src/core/app/app_input_runtime.zig:994-1002@481104fd -- after the transcript's composer actions (997), the composer shortcut (999-1002)
+  994              if (resolved == .cursor_left and try backMcpHostMenuScreen(app)) return .done;
+  995              if (resolved == .cursor_right and try enterMcpHostMenuItem(app)) return .done;
+  996  
+  997              if (try full_transcript_rt.routeComposerAction(app, resolved)) return .done;
+  998  
+  999              if (composer_shortcut) |action| {
+ 1000                  try routeComposerShortcutAction(app, action, max_input_len);
+ 1001                  return .done;
+ 1002              }
+
+== src/core/app/app_input_runtime.zig:310-330@481104fd -- the .move arm: visual_up/visual_down -> routeComposerVertical (321-327), a frame (330)
+  310                          .visual_up,
+  311                          .visual_down,
+  312                          .page_up,
+  313                          .page_down,
+  314                          => {
+  315                              const direction: visual_layout.Direction = switch (intent.kind) {
+  316                                  .visual_up, .page_up => .up,
+  317                                  .visual_down, .page_down => .down,
+  318                                  else => unreachable,
+  319                              };
+  320                              const delta: i32 = if (direction == .up) -1 else 1;
+  321                              try completion_rt.routeComposerVertical(
+  322                                  app,
+  323                                  direction,
+  324                                  delta,
+  325                                  intent.extend_selection,
+  326                                  intent.kind == .page_up or intent.kind == .page_down,
+  327                              );
+  328                          },
+  329                      }
+  330                      app.shell.render_requests.request(.footer);
+
+== src/core/app/input_completion_runtime.zig:211-233@481104fd -- routeComposerVertical: routeNonSlashPickerMove first (230)
+  211          pub fn routePlainVertical(app: *App, direction: visual_layout.Direction, delta: i32) !void {
+  212              try routeComposerVertical(app, direction, delta, false, false);
+  213          }
+  214  
+  215          pub fn routeComposerVertical(
+  216              app: *App,
+  217              direction: visual_layout.Direction,
+  218              delta: i32,
+  219              extend_selection: bool,
+  220              page: bool,
+  221          ) !void {
+  222              const row_count = if (page)
+  223                  input_presentation.inputRowLimit(app.shell.layout.content_bottom)
+  224              else
+  225                  @as(usize, 1);
+  226              const picker_delta = if (page)
+  227                  delta * @as(i32, @intCast(@min(row_count, std.math.maxInt(i32))))
+  228              else
+  229                  delta;
+  230              if (try routeNonSlashPickerMove(app, picker_delta)) {
+  231                  app.input_runtime.vertical_navigation.reset();
+  232                  return;
+  233              }

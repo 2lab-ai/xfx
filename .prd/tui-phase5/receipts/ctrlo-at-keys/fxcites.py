@@ -5,7 +5,8 @@ this unit put into `docs/parity.md` and in the source lines it added under
 for that file, or it is reported.
 
 AT-LAUNCH-WALK's checker (`../at-launch-walk/fxcites.py`), unchanged for
-CTRLO-AT-KEYS but for its receipt folder and this sentence. That is
+CTRLO-AT-KEYS but for its receipt folder, this sentence and a fourth input:
+the scenario `p5-ctrlo-at-keys.cap`, whose header cites fx. That is
 PAGE-KEYS-SETTINGS-COLUMN's checker, with two changes for AT-LAUNCH-WALK:
 the source lines are a third input (each hunk's added lines, comment
 markers stripped and joined, so a bare `:N` reads in the hunk's own file
@@ -38,6 +39,7 @@ TOKEN = re.compile(r"([A-Za-z0-9_./-]+\.(?:zig|rs|md|toml|py|sh|txt|json|cap))(?
 
 
 RECEIPT = ".prd/tui-phase5/receipts/ctrlo-at-keys"
+SCENARIO = "scripts/fxcap/scenarios/p5-ctrlo-at-keys.cap"
 WRAP = re.compile(r"\.zig:\s*\n[ \t]*(?:///?|#)?[ \t]*(?=\d)")
 MARK = re.compile(r"^\s*(?:///?!?|#)\s?")
 
@@ -203,8 +205,10 @@ def main():
         t3 += t
         b3 += b
     print(f"src: {t3} citations, {b3} failed")
-    print(f"all: {t1 + t2 + t3} citations, {b1 + b2 + b3} failed")
-    return 1 if b1 + b2 + b3 else 0
+    # CTRLO-AT-KEYS: the scenario's header cites fx too.
+    t4, b4 = check(SCENARIO, read(SCENARIO, None), quoted)
+    print(f"all: {t1 + t2 + t3 + t4} citations, {b1 + b2 + b3 + b4} failed")
+    return 1 if b1 + b2 + b3 + b4 else 0
 
 
 if __name__ == "__main__":
