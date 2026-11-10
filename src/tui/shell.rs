@@ -5466,8 +5466,14 @@ impl Shell {
     /// fx v0.0.16 holds back only a file approval's
     /// (`input_approval_runtime.zig:191-192@481104fd`), so its Down and Enter
     /// in one read at a command grant `Always` under a frame that marked
-    /// `Apply once`. To copy fx exactly, call `changed` here only while the
-    /// question's subject is a `crate::permission::ApprovalSubject::Path`.
+    /// `Apply once`. To restrict this condition to file approvals, as fx does,
+    /// call `changed` here only while the question's subject is a
+    /// `crate::permission::ApprovalSubject::Path`. That reverts the scope and
+    /// nothing else: fx's settled state also waits out a resize and external
+    /// damage (`reasonsAffectApproval`, `render_request.zig:367-370`) and its
+    /// claim has a resize interlock (`input_approval_runtime.zig:194`, `:222`),
+    /// which xfx's receipt answers in its own way (`Readiness::reconcile`,
+    /// `Readiness::invalidate`).
     fn approval_changed(&mut self) {
         self.readiness.changed();
     }
@@ -9539,12 +9545,17 @@ impl Shell {
             Input::Action(Action::Submit) => approval::Action::Submit,
             Input::Action(Action::Escape) => approval::Action::Escape,
             Input::Action(Action::Cancel) => approval::Action::Cancel,
-            // The whole band is repainted every frame, so a redraw is a frame
-            // here as much as anywhere else.
-            Input::Action(Action::Redraw) => {
-                self.external_damage();
-                return;
-            }
+            // **Ctrl-L does nothing at a question**, as fx v0.0.16's does: a raw
+            // byte, `12`, which no approval action is made of
+            // (`approvalActionFromRawByte` and `approvalActionFromByte`,
+            // `src/ui/input/runtime.zig:98-108`, `:61-73@481104fd`; `.redraw`
+            // is no focused-editor key, `shortcuts.zig:24`, `:31-41`), so the
+            // question takes it and asks for nothing
+            // (`app_input_runtime.zig:1173-1184`) -- no repaint and no
+            // `.external_damage`, and the composer's redraw is never reached
+            // (`:873`). Swallowed, so the screen the receipt is about is not
+            // declared damaged under an Enter read with it.
+            Input::Action(Action::Redraw) => return,
             // The draft's own keys, and **only while a draft has them**: with
             // no amendment open these stay what they have always been at a
             // question, which is swallowed. `Up` and `Down` are deliberately
