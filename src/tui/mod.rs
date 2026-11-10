@@ -79,6 +79,13 @@ pub fn run_blocking(cli: Cli) -> ExitCode {
         Ok(config) => config,
         Err(err) => return fail(&format!("{err}")),
     };
+    // A profile fx refuses, before the terminal is taken and before a resume
+    // looks for its session: upstream loads it after its terminal check and
+    // before raw mode (`bootstrapInteractiveApp`,
+    // `app_lifecycle.zig:851-883@481104fd`) and exits 1 naming the error.
+    if config.refuses_launch(true) {
+        return fail(crate::config::PROFILE_REFUSAL);
+    }
     match session(&config, resume.as_ref()) {
         Ok(code) => code,
         Err(err) => fail(&format!("{err}")),

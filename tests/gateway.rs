@@ -2200,14 +2200,9 @@ fn ask_with_a_permission_table_that_does_not_read_runs_no_tool() {
         Some(
             r#"{"permission":{"bash":"perhaps"},"workspaces":{{ROOT}:{"permission":{"read":"allow","edit":"allow"}}}}"#,
         ),
-        Some(r#"{"permission":{"read":"allow","edit":"allow"},"workspaces":{{ROOT}:["x"]}}"#),
-        Some("{ this is not json"),
-        // A real read error, not a parse error.
-        None,
     ] {
         let Some((run, bodies, written)) = a_tool_attempt_under(profile) else {
-            eprintln!("skipped the unreadable profile: the mode bits do not stop this reader");
-            continue;
+            unreachable!("a readable profile");
         };
         assert!(
             run.stderr.contains(
@@ -2228,6 +2223,28 @@ fn ask_with_a_permission_table_that_does_not_read_runs_no_tool() {
             "{profile:?}: {}",
             first["tools"]
         );
+    }
+    // A profile that does not read at all, or whose entry for this workspace
+    // is not an object, is refused before the turn, as fx v0.0.16 refuses it
+    // (`app_lifecycle.zig:689-703@481104fd`): no request, so no tool and no
+    // secret, and the JSON result names the error.
+    for profile in [
+        Some(r#"{"permission":{"read":"allow","edit":"allow"},"workspaces":{{ROOT}:["x"]}}"#),
+        Some("{ this is not json"),
+        // A real read error, not a parse error.
+        None,
+    ] {
+        let Some((run, bodies, written)) = a_tool_attempt_under(profile) else {
+            eprintln!("skipped the unreadable profile: the mode bits do not stop this reader");
+            continue;
+        };
+        assert_eq!(run.code, Some(1), "{profile:?}");
+        assert_eq!(
+            run.stdout, "{\"kind\":\"error\",\"message\":\"InvalidProfileConfiguration\"}\n",
+            "{profile:?}"
+        );
+        assert!(bodies.is_empty(), "{profile:?}: a request was sent");
+        assert!(!written, "{profile:?}: the write ran");
     }
 }
 

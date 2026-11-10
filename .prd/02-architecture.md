@@ -221,7 +221,7 @@ break.
   in `main` and driving everything through one `block_on(app::run(..))` (`src/main.rs:17-25`), because
   xfx drives one turn at a time and never spawns work that outlives the command. When it returns there
   is no work left running anywhere.
-- The one extra OS thread is `xfx-interrupt` (`src/app.rs:539-580`): its own current-thread runtime,
+- The one extra OS thread is `xfx-interrupt` (`src/app.rs:551-592`): its own current-thread runtime,
   detached, SIGINT only. It exists because the main runtime is single-threaded and is *blocked* for
   the duration of a `terminal` command and for as long as a user takes to type a line, so a signal
   observable only by that runtime would arrive exactly when it could not be noticed. Its start is a

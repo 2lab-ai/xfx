@@ -19,6 +19,7 @@ use rustix::process::Signal;
 use rustix::termios::{ControlModes, InputModes, LocalModes};
 use serde_json::Value;
 use support::fake_gateway::{sent, FakeGateway};
+use support::profiles;
 use support::pty::{modes, open_slave, Pty, Session, TerminalState, Wait, IDLE_POLL, WAIT};
 use support::sandbox::{Sandbox, UNREADABLE_PROVIDER};
 use unicode_segmentation::UnicodeSegmentation;
@@ -588,7 +589,7 @@ fn assert_raw(state: TerminalState) {
 ///
 /// Every other raw-mode assertion in this suite waits on a byte that the child
 /// writes *after* the `tcsetattr` in question -- the mode set, which `resume`
-/// emits only once raw mode is back (`src/tui/mod.rs:269-270`). That works
+/// emits only once raw mode is back (`src/tui/mod.rs:276-277`). That works
 /// whenever the wire says which mode set is which. After a stop whose timing
 /// the test does not control, it does not: a session stopped *after* it
 /// announced itself has already put one mode set on the wire, so waiting for
@@ -1058,6 +1059,120 @@ fn a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken() {
     assert_no_mode_bytes(&text);
     assert_eq!(before, modes(&pty), "a refused resume touched the terminal");
     assert_eq!(sandbox.session_ids(), Vec::<String>::new());
+}
+
+/// A profile fx v0.0.16 refuses stops the TUI before the terminal is
+/// taken: fx loads the startup state after its terminal check and before raw
+/// mode (`bootstrapInteractiveApp`, `app_lifecycle.zig:851-883@481104fd`),
+/// refuses (`:689-703`) and exits 1 with `fx: InvalidProfileConfiguration`
+/// (`app_entry_runtime.zig:537-539`, `main.zig:3316`). So: that one line, no
+/// mode byte, the terminal's modes as they were, and the home and the
+/// workspace untouched -- a resume too, which fx refuses before it looks for
+/// the session.
+#[test]
+fn a_profile_fx_refuses_is_refused_before_the_terminal_is_taken() {
+    let cases = profiles::REJECTED
+        .iter()
+        .map(|(name, profile)| (*name, *profile, None))
+        .chain([(
+            "not JSON, on a resume",
+            profiles::REJECTED[0].1,
+            Some("no-such-session"),
+        )]);
+    for (name, profile, resume) in cases {
+        let sandbox = Sandbox::new();
+        if !profiles::lay(&sandbox.home, &sandbox.workspace, profile) {
+            eprintln!("skipped {name}: the mode bits do not stop this reader");
+            continue;
+        }
+        let tree_before = (
+            profiles::snapshot(&sandbox.home),
+            profiles::snapshot(&sandbox.workspace),
+        );
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let mut command = tui(&sandbox);
+        if let Some(id) = resume {
+            command.arg("--resume").arg(id);
+        }
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        assert_eq!(session.wait_exit().code(), Some(1), "{name}");
+        let text = session.settled_text();
+        assert_eq!(text, format!("{}\r\n", profiles::REFUSAL), "{name}");
+        assert_no_mode_bytes(&text);
+        assert_eq!(
+            before,
+            modes(&pty),
+            "{name}: the refusal touched the terminal"
+        );
+        let tree_after = (
+            profiles::snapshot(&sandbox.home),
+            profiles::snapshot(&sandbox.workspace),
+        );
+        assert_eq!(tree_after, tree_before, "{name}: the refusal wrote");
+    }
+}
+
+/// What only `ask` refuses (fx's `durable_path_unsafe`) starts the TUI, as
+/// fx's interactive launch, with the stored credential mode, goes on
+/// (`app_lifecycle.zig:693-696`, `:501-515`).
+#[test]
+fn a_profile_only_ask_refuses_starts_the_tui() {
+    // A linked `~/.xfx` is not here: the session store refuses one in its
+    // own words before anything is asked (`src/profile_home.rs`, whose
+    // rule `docs/parity.md` keeps), which this unit leaves as it was.
+    for (name, profile) in profiles::UNSAFE
+        .iter()
+        .filter(|(_, profile)| !matches!(profile, profiles::Profile::LinkedDir))
+    {
+        let sandbox = Sandbox::new();
+        assert!(profiles::lay(&sandbox.home, &sandbox.workspace, *profile));
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+        session.wait_for(READY);
+        assert!(
+            !session.text().contains("InvalidProfileConfiguration"),
+            "{name}"
+        );
+        session.type_bytes(&[0x04]);
+        assert_eq!(session.wait_exit().code(), Some(0), "{name}");
+    }
+}
+
+/// A profile that goes bad after the launch is no refusal: the session goes
+/// on and the `/status` panel says the settings could not be read where Auth
+/// would stand (`openStatusSnapshot`, `session_commands.zig:280-296@481104fd`;
+/// `p5-panels-status-badsettings`).
+#[test]
+fn a_profile_that_goes_bad_after_the_launch_is_a_panel_row_not_a_refusal() {
+    let sandbox = Sandbox::new();
+    assert!(profiles::lay(
+        &sandbox.home,
+        &sandbox.workspace,
+        profiles::Profile::Text(r#"{"permission_mode": "auto"}"#)
+    ));
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    std::fs::write(
+        sandbox.settings_path(),
+        r#"{"permission_mode": "auto", "sandbox": "#,
+    )
+    .expect("the profile goes bad");
+    session.type_bytes(b"/status\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["couldn't be read: InvalidSettingsFormat"],
+        &["InvalidProfileConfiguration"],
+    );
+    session.type_bytes(b"\x1b");
+    on_screen(&session, (40, 120), &[], &["couldn't be read"]);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
 }
 
 #[test]
@@ -2480,7 +2595,7 @@ fn a_live_theme_notification_repaints_the_band_without_losing_the_draft() {
 
     // `C-u` before `C-d`: the composer holds the draft this case typed into
     // it, and `C-d` on a non-empty draft is not the tested exit gesture
-    // (`tests/tui.rs:1191,1654,1777,2103,4607,4803` all clear the line
+    // (`tests/tui.rs:1306,1654,1777,2103,4607,4803` all clear the line
     // first). The kill takes the line the caret is on.
     session.type_bytes(&[0x15, 0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));

@@ -1,0 +1,175 @@
+//! Profiles fx v0.0.16 refuses at launch, and their neighbours it starts with.
+//!
+//! Each was run against the oracle
+//! (`.prd/tui-phase5/receipts/profile-refuse-at-launch/probe.sh`,
+//! `fx-fixtures.txt`): fx exits 1 with `fx: InvalidProfileConfiguration`
+//! (`src/core/app/app_lifecycle.zig:689-703@481104fd`).
+
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
+/// What a launch that refuses writes, after the program's name.
+pub const REFUSAL: &str = "xfx: InvalidProfileConfiguration";
+
+/// What stands at `~/.xfx/settings.json`, or at `~/.xfx`, in one fixture.
+#[derive(Clone, Copy, Debug)]
+pub enum Profile {
+    /// The settings file holds exactly these bytes.
+    Text(&'static str),
+    /// The settings file's `workspaces` entry for the workspace is this JSON.
+    Entry(&'static str),
+    /// One byte past the 64 KiB ceiling, otherwise a valid object.
+    TooLarge,
+    /// A valid object nobody may read.
+    Unreadable,
+    /// A `model` of 300 bytes: past xfx's own 200, inside fx's 1024.
+    LongModel,
+    /// A directory where the file belongs.
+    Directory,
+    /// A link to a valid file elsewhere in the home.
+    LinkedFile,
+    /// `~/.xfx` itself a link to a directory holding a valid file.
+    LinkedDir,
+    /// A valid profile, and a project file that is not JSON.
+    MalformedProject,
+}
+
+/// Every launch refuses these: the TUI, the line shell and `ask`.
+pub const REJECTED: &[(&str, Profile)] = &[
+    (
+        "not JSON",
+        Profile::Text(r#"{"permission_mode": "auto", "sandbox": "#),
+    ),
+    ("not an object", Profile::Text("[1, 2]")),
+    ("past the ceiling", Profile::TooLarge),
+    ("unreadable", Profile::Unreadable),
+    (
+        "a model with a blank before it",
+        Profile::Text(r#"{"model": " openai/gpt-5"}"#),
+    ),
+    (
+        "a model that is not a string",
+        Profile::Text(r#"{"model": 5}"#),
+    ),
+    (
+        "workspaces that is not an object",
+        Profile::Text(r#"{"workspaces": []}"#),
+    ),
+    ("an entry that is not an object", Profile::Entry("5")),
+    (
+        "an entry's model with a blank before it",
+        Profile::Entry(r#"{"model": " openai/gpt-5"}"#),
+    ),
+];
+
+/// Only `ask` refuses these (fx's `durable_path_unsafe`); an interactive
+/// launch goes on.
+pub const UNSAFE: &[(&str, Profile)] = &[
+    ("a directory", Profile::Directory),
+    ("a linked file", Profile::LinkedFile),
+    ("a linked profile", Profile::LinkedDir),
+];
+
+/// fx starts with these.
+pub const STARTED: &[(&str, Profile)] = &[
+    (
+        "a model with a space inside it",
+        Profile::Text(r#"{"model": "openai/gpt 5"}"#),
+    ),
+    ("a 300-byte model", Profile::LongModel),
+    (
+        "a retired key before a bad model",
+        Profile::Text(r#"{"skill_match_fuzzy": true, "model": " openai/gpt-5"}"#),
+    ),
+    ("a malformed project file", Profile::MalformedProject),
+    (
+        "a valid profile",
+        Profile::Text(r#"{"permission_mode": "auto"}"#),
+    ),
+];
+
+/// Lays `profile` down under `home` for `workspace`. False when it cannot be
+/// made here: a reader the mode bits do not stop (root) cannot have an
+/// unreadable file.
+pub fn lay(home: &Path, workspace: &Path, profile: Profile) -> bool {
+    let dir = home.join(".xfx");
+    let file = dir.join("settings.json");
+    let private = |path: &Path, mode: u32| {
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("set a mode");
+    };
+    if !matches!(profile, Profile::LinkedDir) {
+        fs::create_dir_all(&dir).expect("the profile dir");
+        private(&dir, 0o700);
+    }
+    let write = |text: &str| {
+        fs::write(&file, text).expect("write the profile");
+        private(&file, 0o600);
+    };
+    match profile {
+        Profile::Text(text) => write(text),
+        Profile::Entry(entry) => {
+            let key = serde_json::to_string(&workspace.display().to_string()).expect("a key");
+            write(&format!(r#"{{"workspaces": {{{key}: {entry}}}}}"#));
+        }
+        Profile::TooLarge => write(&format!(r#"{{"pad":"{}"}}"#, "x".repeat(64 * 1024))),
+        Profile::Unreadable => {
+            write(r#"{"permission_mode": "auto"}"#);
+            private(&file, 0o000);
+            if fs::read(&file).is_ok() {
+                return false;
+            }
+        }
+        Profile::LongModel => write(&format!(r#"{{"model": "openai/{}"}}"#, "m".repeat(293))),
+        Profile::Directory => fs::create_dir(&file).expect("a directory"),
+        Profile::LinkedFile => {
+            let real = home.join("real.json");
+            fs::write(&real, r#"{"permission_mode": "auto"}"#).expect("the real file");
+            private(&real, 0o600);
+            std::os::unix::fs::symlink("../real.json", &file).expect("the link");
+        }
+        Profile::LinkedDir => {
+            let real = home.join("real-profile");
+            fs::create_dir_all(&real).expect("the real profile");
+            private(&real, 0o700);
+            fs::write(real.join("settings.json"), r#"{"permission_mode": "auto"}"#)
+                .expect("the real file");
+            private(&real.join("settings.json"), 0o600);
+            std::os::unix::fs::symlink("real-profile", &dir).expect("the link");
+        }
+        Profile::MalformedProject => {
+            write(r#"{"permission_mode": "auto"}"#);
+            fs::write(workspace.join(".xfx.json"), r#"{"max_agent_steps": "#)
+                .expect("the project file");
+        }
+    }
+    true
+}
+
+/// Every entry under `root`, not following links, with its size and
+/// modification time: what a run made or changed shows here, and nothing is
+/// opened, so an unreadable file is listed too.
+pub fn snapshot(root: &Path) -> Vec<(PathBuf, u64, Option<SystemTime>)> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, u64, Option<SystemTime>)>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries {
+            let path = entry.expect("an entry").path();
+            let metadata = fs::symlink_metadata(&path).expect("metadata");
+            let name = path
+                .strip_prefix(root)
+                .expect("under the root")
+                .to_path_buf();
+            out.push((name, metadata.len(), metadata.modified().ok()));
+            if metadata.is_dir() {
+                walk(root, &path, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out);
+    out.sort();
+    out
+}

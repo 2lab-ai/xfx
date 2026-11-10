@@ -334,6 +334,18 @@ async fn ask(
     // the most dangerous setting xfx has, and a `--yolo` turn recorded last week
     // must not become the default of a turn run today without the word being
     // typed again.
+    // A profile fx refuses, before anything else is said or read: fx's `ask`
+    // loads it first and fails with the error's name, on stderr, or under
+    // `--json` as the result's error on stdout (`cli_ask.zig:1306-1327`,
+    // `:1434-1458@481104fd`), and exits 1.
+    if config.refuses_launch(false) {
+        if request.json {
+            let mut sink = JsonlSink::new(stdout).on_terminal(stdout_is_terminal);
+            return fail_turn(&mut sink, crate::config::PROFILE_REFUSAL.to_string());
+        }
+        writeln!(stderr, "xfx: {}", crate::config::PROFILE_REFUSAL)?;
+        return Ok(ExitCode::from(REJECTED_EXIT_CODE));
+    }
     let mode = request.mode.unwrap_or(config.permission_mode);
     // Before anything runs, and on stderr, so it is visible whether or not the
     // caller is parsing stdout as JSONL.

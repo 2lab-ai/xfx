@@ -847,8 +847,10 @@ impl Environment {
     }
 }
 
-/// A fatal configuration failure. Malformed content is never fatal; only losing
-/// the workspace itself is.
+/// A fatal configuration failure: only losing the workspace itself. Malformed
+/// content never fails a load -- `status`, `doctor` and a reload in a session
+/// must still read it -- and a launch refuses a profile fx refuses by asking
+/// [`RuntimeConfig::refuses_launch`] itself.
 #[derive(Debug)]
 pub enum ConfigError {
     /// The current directory could not be resolved.
@@ -987,6 +989,36 @@ pub struct RuntimeConfig {
     pub sources: Sources,
     pub diagnostics: Vec<Diagnostic>,
     pub credential: Option<Credential>,
+    /// Why a launch refuses this profile, as fx v0.0.16 refuses one
+    /// ([`ProfileRefusal`], [`Self::refuses_launch`]). Only the launches ask:
+    /// a reload inside a session never refuses, as upstream's never does.
+    pub profile_refusal: Option<ProfileRefusal>,
+}
+
+/// What a launch that refuses the profile says after the program's name, and
+/// exits 1 with: `fx: InvalidProfileConfiguration`, the error's own name
+/// (`app_lifecycle.zig:689-703@481104fd`, written by `formatUnexpectedError`,
+/// `app_entry_runtime.zig:537-539`, and by `runBeforeInteractive`, `:158-168`).
+pub const PROFILE_REFUSAL: &str = "InvalidProfileConfiguration";
+
+/// Why fx v0.0.16 refuses a profile at launch, in the local auth mode that is
+/// its default and xfx's only one (`app_lifecycle.zig:689-703@481104fd`).
+/// Only the profile counts, `~/.xfx/settings.json` with this workspace's
+/// `workspaces` entry; the project file never does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileRefusal {
+    /// Every launch refuses: the file is there and is not one readable JSON
+    /// object within [`MAX_SETTINGS_BYTES`] (`malformed_settings`,
+    /// `settings_too_large`); `workspaces`, or this workspace's entry, is not
+    /// an object (`malformed_settings`, `config_runtime.zig:589-597`); or a
+    /// `model` in the profile or in that entry is one fx does not take
+    /// ([`fx_refuses_model`]).
+    Rejected,
+    /// Only `ask` refuses: `~/.xfx` or its settings file is a link, or not a
+    /// directory and a file (`durable_path_unsafe`, [`profile_path_unsafe`]).
+    /// fx's interactive launch goes on with it (the stored credential mode,
+    /// `app_lifecycle.zig:693-696`, `:501-515`), and so do xfx's.
+    Unsafe,
 }
 
 impl RuntimeConfig {
@@ -1036,12 +1068,17 @@ impl RuntimeConfig {
         }
 
         let before_user = diagnostics.len();
+        let profile_unsafe = profile_dir
+            .as_deref()
+            .zip(user_settings_path.as_deref())
+            .is_some_and(|(dir, file)| profile_path_unsafe(dir, file));
         let user = match user_settings_path.as_ref() {
             Some(path) => read_layer(path, ConfigLayer::User, &mut diagnostics),
             None => LayerRead::absent(),
         };
         let user_settings_present = user.present;
         let user_settings_loaded = user.object.is_some();
+        let mut profile_rejected = user.present && !user_settings_loaded;
         let mut additional_directories = Vec::new();
         let mut permission = PermissionTables::default();
         // Fail closed (`PermissionTables::unreadable`): a profile that is there
@@ -1053,6 +1090,7 @@ impl RuntimeConfig {
             ));
         }
         if let Some(object) = &user.object {
+            profile_rejected |= fx_refuses_model(object);
             let layer = parse_layer(
                 object,
                 LayerKind::Profile,
@@ -1069,11 +1107,13 @@ impl RuntimeConfig {
             let entry = match exact_workspace_entry(object, &workspace_root, &mut diagnostics) {
                 Ok(entry) => entry,
                 Err(reason) => {
+                    profile_rejected = true;
                     permission.refuse(reason);
                     None
                 }
             };
             if let Some(entry) = entry {
+                profile_rejected |= fx_refuses_model(entry);
                 let layer = parse_layer(
                     entry,
                     LayerKind::Profile,
@@ -1371,7 +1411,28 @@ impl RuntimeConfig {
             sources,
             diagnostics,
             credential: resolve_credential(env),
+            // An unsafe path wins: fx opens nothing there, so it never sees
+            // what the file holds (`settings_store.zig:351-367`, `:721-729`).
+            profile_refusal: if profile_unsafe {
+                Some(ProfileRefusal::Unsafe)
+            } else if profile_rejected {
+                Some(ProfileRefusal::Rejected)
+            } else {
+                None
+            },
         })
+    }
+
+    /// Whether a launch refuses this profile with [`PROFILE_REFUSAL`]:
+    /// `interactive` for the TUI and the line shell, which refuse what fx's
+    /// interactive launch refuses, and false for `ask`, which refuses what
+    /// fx's `ask` does (`loadStartupStateForRun`, `app_lifecycle.zig:420-433`).
+    pub fn refuses_launch(&self, interactive: bool) -> bool {
+        match self.profile_refusal {
+            Some(ProfileRefusal::Rejected) => true,
+            Some(ProfileRefusal::Unsafe) => !interactive,
+            None => false,
+        }
     }
 
     /// Whether a settings file exists on disk, usable or not.
@@ -2181,6 +2242,43 @@ impl LayerRead {
             present: true,
             object: Some(object),
         }
+    }
+}
+
+/// Whether fx v0.0.16 refuses a profile object over its `model`: one that is
+/// not a string, or a string `validateModel` does not take -- empty, past
+/// 1024 bytes, with a blank around it or an ASCII control character in it
+/// (`config_runtime.zig:1651-1656@481104fd`, `settings_store.zig:894-902`).
+/// Not xfx's own rule ([`usable_model`]), which trims and stops at 200 bytes
+/// and one word. Read after `skill_match_fuzzy`, as fx reads it: that retired
+/// key fails the object first, with a cause no launch refuses
+/// (`config_runtime.zig:1645`).
+fn fx_refuses_model(object: &serde_json::Map<String, Value>) -> bool {
+    if object.contains_key("skill_match_fuzzy") {
+        return false;
+    }
+    match object.get("model") {
+        None => false,
+        Some(Value::String(model)) => {
+            model.is_empty()
+                || model.len() > 1024
+                || model.trim_matches([' ', '\t', '\r', '\n']) != model
+                || model.bytes().any(|byte| byte.is_ascii_control())
+        }
+        Some(_) => true,
+    }
+}
+
+/// Whether fx v0.0.16 would not open the profile at all: `~/.xfx` is a link
+/// or not a directory, or its settings file is a link or a directory -- each
+/// opened without following a link (`initFromHome`,
+/// `settings_store.zig:351-367@481104fd`; `loadRawPrimary`, `:721-729`).
+fn profile_path_unsafe(dir: &Path, file: &Path) -> bool {
+    let kind = |path: &Path| fs::symlink_metadata(path).ok().map(|meta| meta.file_type());
+    match kind(dir) {
+        None => false,
+        Some(dir) if dir.is_symlink() || !dir.is_dir() => true,
+        Some(_) => kind(file).is_some_and(|file| file.is_symlink() || file.is_dir()),
     }
 }
 
@@ -3976,5 +4074,130 @@ mod tests {
             assert_eq!(config.user_settings_path, None, "HOME={home:?}");
             assert_eq!(config.home(), None, "HOME={home:?}");
         }
+    }
+
+    /// fx v0.0.16's `validateModel` over a profile's `model`, edge by edge
+    /// (`settings_store.zig:894-902@481104fd`): its own trim set and ASCII
+    /// controls, not xfx's [`usable_model`].
+    #[test]
+    fn a_launch_refuses_the_models_fx_refuses_and_no_other() {
+        let refused = |model: Value| {
+            let mut object = serde_json::Map::new();
+            object.insert("model".to_string(), model);
+            fx_refuses_model(&object)
+        };
+        for model in ["", " a", "a ", "\ta", "a\r", "a\n", "a\u{1}b", "a\u{7f}b"] {
+            assert!(refused(serde_json::json!(model)), "{model:?}");
+        }
+        assert!(refused(serde_json::json!("m".repeat(1025))));
+        for model in [
+            serde_json::json!(5),
+            serde_json::json!(null),
+            serde_json::json!(true),
+            serde_json::json!(["a"]),
+        ] {
+            assert!(refused(model.clone()), "{model}");
+        }
+        for model in [
+            "openai/gpt-5".to_string(),
+            "openai/gpt 5".to_string(),
+            "\u{a0}openai/gpt-5".to_string(),
+            "모델".to_string(),
+            "m".repeat(1024),
+        ] {
+            assert!(!refused(serde_json::json!(model)), "{model:?}");
+        }
+        assert!(!fx_refuses_model(&serde_json::Map::new()));
+        let retired = serde_json::json!({"skill_match_fuzzy": true, "model": " a"});
+        assert!(!fx_refuses_model(retired.as_object().unwrap()));
+    }
+
+    /// Which profiles a launch refuses, read as a load reads them: the
+    /// profile's own file and this workspace's entry, never the project file
+    /// or another workspace's entry; an unsafe path ahead of what it holds.
+    #[test]
+    fn the_refusal_is_read_from_the_profile_and_this_workspaces_entry_only() {
+        fn load(settings: impl Fn(&Path) -> String, project: Option<&str>) -> RuntimeConfig {
+            let root = tempfile::tempdir().expect("a root");
+            let home = root.path().join("home");
+            let workspace = root.path().join("workspace");
+            fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile");
+            fs::create_dir_all(&workspace).expect("a workspace");
+            let workspace = workspace.canonicalize().expect("canonical");
+            let file = home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE);
+            fs::write(&file, settings(&workspace)).expect("the profile");
+            if let Some(project) = project {
+                fs::write(workspace.join(PROJECT_SETTINGS_FILE), project).expect("project");
+            }
+            RuntimeConfig::load_with(&Environment::new(Some(home), BTreeMap::new()), &workspace)
+                .expect("load")
+        }
+        let key = |workspace: &Path| serde_json::json!(workspace.display().to_string()).to_string();
+        // A name, the profile for a workspace, the project file, the refusal.
+        type Case<'a> = (
+            &'a str,
+            Box<dyn Fn(&Path) -> String>,
+            Option<&'a str>,
+            Option<ProfileRefusal>,
+        );
+        let cases: [Case; 7] = [
+            ("valid", Box::new(|_| "{}".into()), None, None),
+            (
+                "torn",
+                Box::new(|_| "{".into()),
+                None,
+                Some(ProfileRefusal::Rejected),
+            ),
+            (
+                "a torn project file",
+                Box::new(|_| "{}".into()),
+                Some("{"),
+                None,
+            ),
+            (
+                "a project model fx would refuse",
+                Box::new(|_| "{}".into()),
+                Some(r#"{"model":" a"}"#),
+                None,
+            ),
+            (
+                "another workspace's entry not an object",
+                Box::new(|_| r#"{"workspaces":{"/elsewhere":5}}"#.into()),
+                None,
+                None,
+            ),
+            (
+                "this workspace's entry not an object",
+                Box::new(move |w| format!(r#"{{"workspaces":{{{}:5}}}}"#, key(w))),
+                None,
+                Some(ProfileRefusal::Rejected),
+            ),
+            (
+                "this workspace's model",
+                Box::new(move |w| format!(r#"{{"workspaces":{{{}:{{"model":"a\n"}}}}}}"#, key(w))),
+                None,
+                Some(ProfileRefusal::Rejected),
+            ),
+        ];
+        for (name, settings, project, expected) in cases {
+            assert_eq!(load(settings, project).profile_refusal, expected, "{name}");
+        }
+
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let file = home.path().join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE);
+        fs::create_dir_all(&file).expect("a directory where the file belongs");
+        let unsafe_dir = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            workspace.path(),
+        )
+        .expect("load");
+        assert_eq!(unsafe_dir.profile_refusal, Some(ProfileRefusal::Unsafe));
+        assert!(unsafe_dir.refuses_launch(false));
+        assert!(!unsafe_dir.refuses_launch(true));
+        let rejected = load(|_| "[]".into(), None);
+        assert!(rejected.refuses_launch(false) && rejected.refuses_launch(true));
+        let none = loaded_with(None, &[]);
+        assert!(!none.refuses_launch(false) && !none.refuses_launch(true));
     }
 }

@@ -27,6 +27,7 @@ use serde_json::{json, Value};
 use support::fake_clipboard::FakeClipboard;
 use support::fake_gateway::{content_only, sent, sse_body, text_delta, FakeGateway, Reply};
 use support::fake_llmux::FakeLlmux;
+use support::profiles;
 use support::pty::{modes, try_modes, wait_state, Pty, Session, TerminalState, Wait};
 use support::sandbox::{
     edit_then_finish, edit_then_finish_called, with_notes, Sandbox, TEST_KEY, UNREADABLE_PROVIDER,
@@ -165,6 +166,73 @@ fn a_shell_with_nowhere_to_record_says_so_instead_of_forgetting_the_conversation
             .expect("the home it names")
             .collect();
         assert!(made.is_empty(), "HOME={home:?} made {made:?}");
+    }
+}
+
+/// The line shell is xfx's interactive launch where the TUI is not, so it
+/// refuses what fx's interactive launch refuses
+/// (`app_lifecycle.zig:689-703@481104fd`), with fx's text and status, after
+/// the terminal check fx makes first (`ensureInteractive`, `:852`) and before
+/// the session store is opened: the home and the workspace are as they were.
+#[test]
+fn the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything() {
+    let no_terminal = Sandbox::new();
+    assert!(profiles::lay(
+        &no_terminal.home,
+        &no_terminal.workspace,
+        profiles::REJECTED[0].1
+    ));
+    let output =
+        xfx::process::output(no_terminal.command().stdin(Stdio::null())).expect("spawn xfx");
+    let stderr = String::from_utf8(output.stderr).expect("utf-8");
+    assert!(stderr.contains("interactive terminal"), "{stderr}");
+
+    for (name, profile) in profiles::REJECTED {
+        let sandbox = Sandbox::new();
+        if !profiles::lay(&sandbox.home, &sandbox.workspace, *profile) {
+            eprintln!("skipped {name}: the mode bits do not stop this reader");
+            continue;
+        }
+        let before = (
+            profiles::snapshot(&sandbox.home),
+            profiles::snapshot(&sandbox.workspace),
+        );
+        let pty = Pty::open();
+        let mut session = Session::spawn(&pty, sandbox.command());
+        assert_eq!(session.wait_exit().code(), Some(1), "{name}");
+        assert_eq!(
+            session.settled_text(),
+            format!("{}\r\n", profiles::REFUSAL),
+            "{name}"
+        );
+        let after = (
+            profiles::snapshot(&sandbox.home),
+            profiles::snapshot(&sandbox.workspace),
+        );
+        assert_eq!(after, before, "{name}: the refusal wrote");
+    }
+}
+
+/// What only `ask` refuses (fx's `durable_path_unsafe`, which its interactive
+/// launch, with the stored credential mode, goes on with) starts the shell.
+#[test]
+fn the_shell_starts_with_a_profile_only_ask_refuses() {
+    // A linked `~/.xfx` is not here: the session store refuses one in its
+    // own words before anything is asked (`src/profile_home.rs`, whose
+    // rule `docs/parity.md` keeps), which this unit leaves as it was.
+    for (name, profile) in profiles::UNSAFE
+        .iter()
+        .filter(|(_, profile)| !matches!(profile, profiles::Profile::LinkedDir))
+    {
+        let sandbox = Sandbox::new();
+        assert!(profiles::lay(&sandbox.home, &sandbox.workspace, *profile));
+        let pty = Pty::open();
+        let mut session = start(&sandbox, &pty, sandbox.command());
+        assert!(
+            !session.text().contains("InvalidProfileConfiguration"),
+            "{name}"
+        );
+        assert_eq!(session.quit().code(), Some(0), "{name}");
     }
 }
 

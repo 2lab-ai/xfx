@@ -16,6 +16,9 @@
 pub mod fake_clipboard;
 pub mod fake_gateway;
 pub mod fake_llmux;
+// Profiles fx refuses at launch; the links and modes they lay down are unix.
+#[cfg(unix)]
+pub mod profiles;
 // The pty harness drives a real terminal, so it is unix-only; `tests/cli.rs`
 // and its siblings pull this module in on every platform.
 #[cfg(unix)]

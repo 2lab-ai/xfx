@@ -16,6 +16,10 @@ use xfx::config::{
 };
 use xfx::provider::{resolve_credential_for, ProviderCredential, ProviderId};
 
+#[cfg(unix)]
+#[path = "support/profiles.rs"]
+mod profiles;
+
 /// Upstream command names that xfx deliberately does not implement in v0.1.
 ///
 /// Evidence: `vercel-labs/fx@580a0c5d src/core/cli/cli_surface.zig:58-84`.
@@ -1906,17 +1910,123 @@ fn ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused(
         "{}",
         run.stderr
     );
-    // A file that does not read at all: its cause, and the same refusal.
+    // A file that does not read at all is no longer a diagnostic here: fx
+    // refuses the launch (`app_lifecycle.zig:689-703@481104fd`), and so does
+    // xfx, before either line ([`ask_refuses_a_profile_fx_refuses`]).
     sandbox.write_user_settings("{ this is not json");
     let run = sandbox.run(&["ask", "--no-save", "hello"]);
-    assert!(
-        run.stderr.starts_with(
-            "xfx ask: config user: malformed_settings\n\
-             xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings)\n"
-        ),
-        "{}",
-        run.stderr
-    );
+    assert_eq!(run.stderr, "xfx: InvalidProfileConfiguration\n");
+    assert_eq!(run.code, Some(1));
+}
+
+/// `ask` with every profile fx v0.0.16 refuses under `ask`: the profiles every
+/// launch refuses and the ones only `ask` does (fx's `durable_path_unsafe`,
+/// whose load passes no stored credential mode, `app_lifecycle.zig:420-433`).
+/// fx says `fx: InvalidProfileConfiguration` on stderr and exits 1; under
+/// `--json` the JSON result names the error on stdout and stderr says nothing
+/// (`cli_ask.zig:1306-1327`). Before anything is read or written: a key and an
+/// endpoint are set, and the home and the workspace are as they were.
+#[cfg(unix)]
+#[test]
+fn ask_refuses_a_profile_fx_refuses() {
+    for (name, profile) in profiles::REJECTED.iter().chain(profiles::UNSAFE) {
+        for json in [false, true] {
+            let sandbox = Sandbox::new();
+            if !profiles::lay(&sandbox.home, &sandbox.workspace, *profile) {
+                eprintln!("skipped {name}: the mode bits do not stop this reader");
+                continue;
+            }
+            let before = (
+                profiles::snapshot(&sandbox.home),
+                profiles::snapshot(&sandbox.workspace),
+            );
+            let args: &[&str] = if json {
+                &["ask", "--json", "hello"]
+            } else {
+                &["ask", "hello"]
+            };
+            let run = sandbox.run_with_env(
+                args,
+                &[
+                    ("AI_GATEWAY_API_KEY", "xfx-test-key-never-sent"),
+                    ("XFX_GATEWAY_URL", "http://127.0.0.1:9/v1/chat/completions"),
+                ],
+            );
+            assert_eq!(run.code, Some(1), "{name} json={json}: {}", run.stderr);
+            if json {
+                assert_eq!(
+                    run.stdout,
+                    "{\"kind\":\"error\",\"message\":\"InvalidProfileConfiguration\"}\n",
+                    "{name}"
+                );
+                assert_eq!(run.stderr, "", "{name}");
+            } else {
+                assert_eq!(run.stdout, "", "{name}");
+                assert_eq!(run.stderr, format!("{}\n", profiles::REFUSAL), "{name}");
+            }
+            let after = (
+                profiles::snapshot(&sandbox.home),
+                profiles::snapshot(&sandbox.workspace),
+            );
+            assert_eq!(after, before, "{name} json={json}: the refusal wrote");
+        }
+    }
+}
+
+/// The neighbours fx starts with: `ask` goes on to the turn (here, to a
+/// Gateway nobody answers), and nothing says the profile was refused.
+#[cfg(unix)]
+#[test]
+fn ask_goes_on_with_a_profile_fx_starts_with() {
+    for (name, profile) in profiles::STARTED {
+        let sandbox = Sandbox::new();
+        assert!(profiles::lay(&sandbox.home, &sandbox.workspace, *profile));
+        let run = sandbox.run(&["ask", "--no-save", "hello"]);
+        assert!(
+            !run.stderr.contains("InvalidProfileConfiguration"),
+            "{name}: {}",
+            run.stderr
+        );
+        assert!(
+            run.stderr.contains("xfx needs access"),
+            "{name}: {}",
+            run.stderr
+        );
+    }
+}
+
+/// The commands fx answers without the startup state still answer with a
+/// profile it refuses: `--version` and help before any setting is read
+/// (`cli_surface.zig:1080-1103`), `status` from `loadStartupStatus`, which
+/// keeps the diagnostics (`app_lifecycle.zig:517-587`), `doctor`
+/// (`doctor_runtime.zig:92-105`), and `sessions`/`session`, which read the
+/// store (`cli_surface.zig:1554-1600`).
+#[cfg(unix)]
+#[test]
+fn the_commands_fx_answers_without_a_launch_answer_with_a_profile_it_refuses() {
+    let sandbox = Sandbox::new();
+    assert!(profiles::lay(
+        &sandbox.home,
+        &sandbox.workspace,
+        profiles::REJECTED[0].1
+    ));
+    for args in [
+        &["--version"][..],
+        &["help"],
+        &["status"],
+        &["doctor"],
+        &["sessions"],
+        &["session", "last"],
+    ] {
+        let run = sandbox.run(args);
+        assert!(
+            !run.stderr.contains("InvalidProfileConfiguration"),
+            "{args:?}: {}",
+            run.stderr
+        );
+        let expected = if args == ["session", "last"] { 1 } else { 0 };
+        assert_eq!(run.code, Some(expected), "{args:?}: {}", run.stderr);
+    }
 }
 
 #[test]

@@ -1502,6 +1502,13 @@ pub async fn run(
         writeln!(diagnostics, "{NO_TERMINAL}")?;
         return Ok(ExitCode::from(1));
     }
+    // Then a profile fx refuses, as its interactive launch refuses one after
+    // the terminal check (`app_lifecycle.zig:851-860@481104fd`), and before
+    // the session store below is opened or made.
+    if config.refuses_launch(true) {
+        writeln!(diagnostics, "xfx: {}", crate::config::PROFILE_REFUSAL)?;
+        return Ok(ExitCode::from(1));
+    }
     let Some(profile_dir) = config.profile_dir.clone() else {
         writeln!(diagnostics, "{NO_STORE}")?;
         return Ok(ExitCode::from(1));
