@@ -5141,9 +5141,12 @@ impl Shell {
     /// composer, and the turn's clock is stopped because the interval is
     /// measuring a person. [`Self::asking`] stays the narrower fact -- a
     /// permission question, on either plane -- because the plane and the
-    /// approval channel are its alone.
+    /// approval channel are its alone. A rule confirmation counts: upstream
+    /// asks it in the same approval prompt (`syncRuleManagement`,
+    /// `approval_prompt.zig:119-146@481104fd`), so a turn running under it has
+    /// no activity row either (`p5-rule-confirm-keys-turn`'s `prompt`).
     fn modal(&self) -> bool {
-        self.asking() || self.ask.is_some()
+        self.asking() || self.ask.is_some() || self.rule_confirm.is_some()
     }
 
     /// The alternate plane's rows, top first: as many as the screen has.
@@ -7634,9 +7637,12 @@ impl Shell {
     /// ([`RuleConfirm::apply`]). Escape closes it saying nothing
     /// (`cancelApprovalOperation`, `:401-436`, which `resolveEscape` reached
     /// at every Escape the receipt traced, `app_input_runtime.zig:2689`,
-    /// `:2712-2716`), and over a running turn or compaction stops that too,
-    /// read as the composer's Escape reads one. Everything else, Ctrl-L
-    /// included, is swallowed, as the approval swallows it.
+    /// `:2712-2716`), and over a running turn or compaction -- read as the
+    /// composer's Escape reads one -- stops that too, writing no cancellation
+    /// row: that route writes none, where Ctrl-C's does
+    /// (`input_interrupt_runtime.zig:118-126`). A stop already asked for is
+    /// not asked again ([`Self::cancel_turn`]'s rule). Everything else,
+    /// Ctrl-L included, is swallowed, as the approval swallows it.
     fn offer_to_rule_confirm(&mut self, event: Input, now: Instant) {
         use super::rule_confirm::Reply;
         let Some(action) = Self::approval_action(event, false) else {
@@ -7651,7 +7657,9 @@ impl Shell {
             Reply::Dismiss => {
                 self.close_rule_confirm();
                 if self.activity.working() || self.compacting() {
-                    self.cancel_turn();
+                    if !self.stop_requested || self.work_typed_since_the_stop() {
+                        self.cancel_turn_with(true);
+                    }
                     self.settle_band(now);
                 }
             }
