@@ -136,3 +136,35 @@ and its ignored marking case; the rest as in round 6);
 `integration-reads.txt`, 17,259 reads -- 15,352 by the `xfx` binary the
 suites start, 1,829 in clean copies, 78 in the processes the developer
 started (the constructor's own), **0 of them through `process_env!`**.
+
+## Mutants
+
+`mutants-first-run.txt` (`mutants-r7.py`, on the clone at `c405fb7d`): 68
+entries -- round 6's 58 at round 7's text, and ten for round 7's rules --
+66 killed, 0 runs with a sentinel value in their output, every narrowing
+passing on the unmutated head first. Each round-7 rule's mutant is killed
+for its reason: `cfg-behind-a-comment-paren` and `cfg-in-a-path-module`
+(plants), `lexer-gone` and `compiled-files-unread` (the self-test's
+fixtures for each), `unrecorded-gone` ("dep-info cut before its env-dep
+lines" not refused), `rustc-cfg`, `default-feature`, `user-database-walk`;
+and `lib-strip-everywhere` now quotes its "NOT RESOLVED" line (opus NIT).
+
+Two survived, and each showed a missing self-test case, not a missing
+rule: `any-d-is-evidence` (any well-formed rule counts) -- the empty and
+cut-in-the-first-line `.d`s were refused by their shape alone -- and
+`uplift-first-match` (the first byte-identical original) -- no fixture had
+two. `3de3d2dd` adds a `.d` cut after its first rule (rustc's first rule is
+the `.d` file's own: well formed, not the artifact's) and a copy with two
+byte-identical originals. `mutants-rerun.txt`, at `55b88784`: both killed
+for those reasons, and `lib-strip-everywhere` again: 3 of 3.
+
+## Gate
+
+`gates.txt` (`../gates.sh` under the lock, on the clone at `55b88784`):
+fmt, both clippy runs, both test runs (lib 4638; every integration suite),
+identity, stubs, secrets, `check-env-reads.py` (39 invocations in 26
+files, 12 `process_env!` call sites, 14 plain calls, 70 compile-time reads
+of 6 names, 52 test binaries started) and its self-test (55 fixtures, 0
+not as expected; the three accepted fixtures and the resolved dep-info line
+now kept): every step exit 0. No release build was compared: the code
+change outside tests and the script is `src/lib.rs`'s doc comment.
