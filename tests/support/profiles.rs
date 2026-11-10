@@ -37,6 +37,9 @@ pub enum Profile {
     /// A valid file with a second hard link elsewhere in the home
     /// (`io.zig:281-283`).
     HardLinked,
+    /// The same, nobody may read it: unsafe on fx's look before the open
+    /// (`io.zig:218-224`), so not an open that fails.
+    HardLinkedUnreadable,
     /// `~/.xfx` itself a regular file (`settings_store.zig:365`, `:376`).
     FileForDir,
     /// A FIFO where the file belongs (`io.zig:278-280`).
@@ -100,6 +103,10 @@ pub const UNSAFE: &[(&str, Profile)] = &[
     ("a linked file", Profile::LinkedFile),
     ("a linked profile", Profile::LinkedDir),
     ("a hard-linked file", Profile::HardLinked),
+    (
+        "a hard-linked file nobody may read",
+        Profile::HardLinkedUnreadable,
+    ),
     ("a FIFO", Profile::Fifo),
     (
         "a file where the profile directory belongs",
@@ -187,9 +194,15 @@ pub fn lay(home: &Path, workspace: &Path, profile: Profile) -> bool {
             write(text);
             private(&dir, 0o770);
         }
-        Profile::HardLinked => {
+        Profile::HardLinked | Profile::HardLinkedUnreadable => {
             write(r#"{"permission_mode": "auto"}"#);
             fs::hard_link(&file, home.join("other.json")).expect("the second link");
+            if matches!(profile, Profile::HardLinkedUnreadable) {
+                private(&file, 0o000);
+                if fs::read(&file).is_ok() {
+                    return false;
+                }
+            }
         }
         Profile::FileForDir => fs::write(&dir, "{}").expect("a file where the directory belongs"),
         Profile::Fifo => {
@@ -247,12 +260,24 @@ pub fn unlock(home: &Path) {
 
 /// Every entry under `root`, not following links, with its size and
 /// modification time: what a run made or changed shows here, and nothing is
-/// opened, so an unreadable file is listed too.
+/// opened, so an unreadable file is listed too. A directory its owner may not
+/// list is listed with its mode given back for the look and then put back,
+/// which moves no modification time.
 pub fn snapshot(root: &Path) -> Vec<(PathBuf, u64, Option<SystemTime>)> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, u64, Option<SystemTime>)>) {
-        let Ok(entries) = fs::read_dir(dir) else {
+        let Ok(metadata) = fs::metadata(dir) else {
             return;
         };
+        let mode = metadata.permissions();
+        let locked = fs::read_dir(dir).is_err();
+        if locked {
+            fs::set_permissions(dir, fs::Permissions::from_mode(mode.mode() | 0o500))
+                .expect("list a locked directory");
+        }
+        let entries: Vec<_> = fs::read_dir(dir).expect("list").collect();
+        if locked {
+            fs::set_permissions(dir, mode).expect("lock it again");
+        }
         for entry in entries {
             let path = entry.expect("an entry").path();
             let metadata = fs::symlink_metadata(&path).expect("metadata");

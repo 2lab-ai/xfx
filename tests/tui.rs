@@ -1089,6 +1089,7 @@ fn a_profile_fx_refuses_is_refused_before_the_terminal_is_taken() {
             profiles::snapshot(&sandbox.home),
             profiles::snapshot(&sandbox.workspace),
         );
+        assert!(!tree_before.0.is_empty(), "{name}: the home is listed");
         let pty = Pty::open();
         pty.resize(24, 80);
         let before = modes(&pty);
@@ -1131,7 +1132,9 @@ fn a_profile_only_ask_refuses_starts_the_tui() {
         )
     }) {
         let sandbox = Sandbox::new();
-        assert!(profiles::lay(&sandbox.home, &sandbox.workspace, *profile));
+        if !profiles::lay(&sandbox.home, &sandbox.workspace, *profile) {
+            continue;
+        }
         let pty = Pty::open();
         pty.resize(24, 80);
         let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));

@@ -197,6 +197,7 @@ fn the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything() {
             profiles::snapshot(&sandbox.home),
             profiles::snapshot(&sandbox.workspace),
         );
+        assert!(!before.0.is_empty(), "{name}: the home is listed");
         let pty = Pty::open();
         let mut session = Session::spawn(&pty, sandbox.command());
         assert_eq!(session.wait_exit().code(), Some(1), "{name}");
@@ -229,7 +230,9 @@ fn the_shell_starts_with_a_profile_only_ask_refuses() {
         )
     }) {
         let sandbox = Sandbox::new();
-        assert!(profiles::lay(&sandbox.home, &sandbox.workspace, *profile));
+        if !profiles::lay(&sandbox.home, &sandbox.workspace, *profile) {
+            continue;
+        }
         let pty = Pty::open();
         let mut session = start(&sandbox, &pty, sandbox.command());
         assert!(

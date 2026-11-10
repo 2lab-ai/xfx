@@ -1948,6 +1948,7 @@ fn ask_refuses_a_profile_fx_refuses() {
                 profiles::snapshot(&sandbox.home),
                 profiles::snapshot(&sandbox.workspace),
             );
+            assert!(!before.0.is_empty(), "{name}: the home is listed");
             let args: &[&str] = if json {
                 &["ask", "--json", "hello"]
             } else {
