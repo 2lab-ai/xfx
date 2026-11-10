@@ -136,6 +136,38 @@ class Normalize(unittest.TestCase):
             self.assertEqual(compare(fx, xfx, self.led), [], build)
             self.assertEqual(len(compare(fx, xfx)), 1, "and they differ before")
 
+    def test_a_banner_the_screen_wrapped_is_read_as_the_banner(self):
+        # At 50 and 60 columns xfx's banner takes two rows (72 cells for a
+        # debug build, 74 for release and preview; 52 before 0.2.0): read
+        # back as one, and the rows under it stand where fx's do.
+        fx = "\x1b[1;38;5;255m𝒇x\x1b[0m\x1b[38;5;245m v0.0.16 · Run /help for commands\x1b[0m\n\n  rest\nlast"
+        for rows in (
+            ["x𝒇x v0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50) ·", "Run /help for commands"],
+            ["x𝒇x v0.2.0 (release 2026-11-10-0019-ec40c7ad2e50)", "· Run /help for commands"],
+            ["x𝒇x v0.1.0-1a94cdf [debug] · Run /help for", "commands"],
+            # Narrower still, three rows.
+            ["x𝒇x v0.2.0 (preview", "2026-11-10-0019-ec40c7ad2e50) ·", "Run /help for commands"],
+        ):
+            xfx = "\x1b[38;5;245m" + "\n".join(rows) + "\x1b[0m\n\n  rest\nlast"
+            self.assertEqual(compare(fx, xfx, self.led), [], rows)
+            self.assertGreater(len(compare(fx, xfx)), 1, "and they differ before")
+
+    def test_only_a_whole_banner_is_joined(self):
+        fx = "𝒇x v0.0.16 · Run /help for commands\nrest"
+        for xfx in (
+            # The next row is not the rest of the banner.
+            "x𝒇x v0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50) ·\nrest",
+            # Rows that make more than a banner.
+            "x𝒇x v0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50) ·\nRun /help for commands now\nrest",
+            # A blank row between is not a wrap.
+            "x𝒇x v0.2.0 (debug 2026-11-10-0019-ec40c7ad2e50) ·\n\nRun /help for commands\nrest",
+        ):
+            self.assertNotEqual(compare(fx, xfx, self.led), [], xfx)
+        rule = next(r for r in ledgermod.rules_for(self.led, "xfx") if r["id"] == "banner")
+        self.assertTrue(rule["wrapped"])
+        rows = cells.join_wrapped(cells.parse("a\nb\nc"), rule["pattern"])
+        self.assertEqual([cells.text_of(r) for r in rows], ["a", "b", "c"], "nothing to join")
+
     def test_a_banner_is_its_whole_row(self):
         fx = "𝒇x v0.0.13 · Run /help for commands"
         self.assertEqual(len(compare(fx, "x𝒇x v0.1.0 · Run /help for commands now", self.led)), 1)

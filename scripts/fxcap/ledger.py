@@ -9,7 +9,11 @@ The ledger has three bins:
                  true` lets a rewrite that widens the text (`fx` -> `xfx`)
                  take the column it adds from the padding after it or before
                  it, so a padded or right-aligned column stays where it
-                 stood; a row equal in any of the three readings is the same
+                 stood; a row equal in any of the three readings is the same.
+                 `wrapped = true` reads a line the screen wrapped onto the
+                 rows under it as that line (`cells.join_wrapped`): the rows
+                 that make a whole match are one row, and the rows under
+                 them move up into the place they would hold had it fit
   divergence     an approved difference, allowed only for a reason outside
                  xfx (`.prd/07-fx-parity-program.md`, Measurement: Ledger),
                  one per `class`:
@@ -132,6 +136,8 @@ def load(path, repo_root=None):
             raise LedgerError("%s: exactly one of replace and mask" % where)
         if n.get("attrs", "keep") not in ("keep", "none"):
             raise LedgerError("%s: attrs is keep or none" % where)
+        if not isinstance(n.get("wrapped", False), bool):
+            raise LedgerError("%s: wrapped is true or false" % where)
         norms.append(
             {
                 "id": n["id"],
@@ -140,6 +146,7 @@ def load(path, repo_root=None):
                 "mask": n.get("mask"),
                 "attrs": n.get("attrs", "keep"),
                 "absorb": bool(n.get("absorb", False)),
+                "wrapped": n.get("wrapped", False),
                 "why": n["why"],
                 "source": _sources(n["source"], where, repo_root),
             }
@@ -285,6 +292,7 @@ def rules_for(ledger, side):
                     "mask": n["mask"],
                     "attrs": n["attrs"],
                     "absorb": n["absorb"],
+                    "wrapped": n["wrapped"],
                 }
             )
     return out

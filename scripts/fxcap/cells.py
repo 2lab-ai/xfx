@@ -34,7 +34,8 @@ A rule is a dict: `pattern` (a compiled regex), `replace` (a string, or None
 to mask), `mask` (the character a masked match is written with) and `attrs`
 (`"keep"`: each written cell takes the attributes of the cell it replaces, the
 match's last cell for any past its end; `"none"`: no attributes, so a banner's
-colours are not compared either).
+colours are not compared either). With `wrapped`, `normalize` first joins the
+rows a screen wrapped one such line onto (`join_wrapped`).
 """
 
 import re
@@ -201,7 +202,49 @@ def _take_padding(pairs, after, extra, direction):
         del pairs[found[0] : found[0] + extra]
 
 
+def join_wrapped(all_rows, pattern, most=3):
+    """The rows with every line the screen wrapped onto two or three rows --
+    the rows joined make a whole match of `pattern` and the first alone does
+    not -- read back as one row, and the rows under it moved up into the
+    places they would hold had the line fit.
+
+    A word wrap takes away the space it breaks on, so the rows are joined with
+    one; a word too long for the row breaks inside it, with nothing taken, so
+    the rows are tried with none too. Only a whole match joins: a row that
+    merely starts like the line, or two rows that make a longer one, are left
+    as they are."""
+    out, i = [], 0
+    while i < len(all_rows):
+        row, joined = all_rows[i], None
+        if row and not pattern.search(text_of(row)):
+            for k in range(2, most + 1):
+                part = all_rows[i : i + k]
+                if len(part) < k or not all(part):
+                    break
+                for gap in (" ", ""):
+                    pairs = []
+                    for n, cells in enumerate(part):
+                        if n and gap:
+                            pairs.append((gap, ()))
+                        pairs.extend((ch, shown) for _, ch, shown in cells)
+                    if pattern.search("".join(ch for ch, _ in pairs)):
+                        joined = (k, _recount(pairs))
+                        break
+                if joined:
+                    break
+        if joined:
+            out.append(joined[1])
+            i += joined[0]
+        else:
+            out.append(row)
+            i += 1
+    return out
+
+
 def normalize(all_rows, rules, absorb=None):
+    for rule in rules:
+        if rule.get("wrapped"):
+            all_rows = join_wrapped(all_rows, rule["pattern"])
     return [normalize_row(cells, rules, absorb) for cells in all_rows]
 
 
