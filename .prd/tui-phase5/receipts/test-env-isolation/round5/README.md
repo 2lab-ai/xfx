@@ -259,3 +259,24 @@ now point here).
   toolchain" is "Install the stable toolchain" (it installs unpinned
   stable; `release.yml` and `preview.yml` keep their names, outside this
   unit); the tool variables not handed on are in `isolated.rs`'s doc.
+
+## GREEN under the sentinel environment, and the enumeration
+
+On the `--no-local` clone at `2cfe0ca7`, under `../sentinel-run.sh` (whose
+`.gitconfig` now carries the token-shaped `insteadOf`):
+
+- `green-lib.txt`: the lib suite, 4638 passed, 0 failed, 7 ignored (two
+  fewer than round 4: the line check and the reader-list test are gone);
+  no sentinel value in the output.
+- `integration-green.txt`: all 13 integration suites, 0 failed -- cli 82,
+  gateway 93, interactive 79, isolation 2 (and its ignored marking case),
+  ledger_compat 5, llmux 103, mcp 5, parity 26, permissions 159,
+  session_compat 9, sessions 65, tool_loop 109, tui 186.
+- `integration-reads.txt` (round 4's `integration-reads.py`): 17,251 reads
+  -- 15,348 by the `xfx` binary the suites start, 1,825 in clean copies,
+  78 in the processes the developer started, **0 of them through
+  `process_env!`**. The 78 are the constructor's own six per binary, 13
+  binaries; the isolation suite's own starts run under a `TMPDIR` of their
+  own, so their reads land in that directory's log, not this one. As in
+  rounds 3 and 4, the instrumented run alone shows one interactive and
+  eight tui failures; the uninstrumented runs above pass them.

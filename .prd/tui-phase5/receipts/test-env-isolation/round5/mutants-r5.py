@@ -2,7 +2,7 @@
 """Round 5's mutants (round 1-4's that still apply at round 5's text, and the
 new ones), on a throwaway clone only.
 
-    TMPDIR=<short> mutants-r5.py <clone> <head> [name filter]
+    TMPDIR=<short> mutants-r5.py <clone> <head> [name filter...]
 
 <clone> is a `git clone --no-local` copy, never the worktree. For each entry:
 reset the clone to <head>, apply its edits (an `old` of None writes a new
@@ -182,7 +182,7 @@ ENTRIES = [
         "build.rs", '    println!("cargo:rerun-if-changed=build.rs");',
         '    println!("cargo:rerun-if-changed=build.rs");\n    let _home = std::env::var("HOME");')]),
     ("envcheck", "escape: a test binary that does not declare mod support", [(
-        "tests/parity.rs", "// Runs this binary's cases in a copy of it whose environment is built from\n// nothing (`support::isolated`).\nmod support;\n", "")]),
+        "tests/escape.rs", None, "#[test]\nfn runs_in_the_developers_process() {}\n")]),
     # Round 5, part 3: seen only by the release pass.
     ("envcheck", "release-only-read: a read under cfg(not(debug_assertions))", [(
         UNIT, UNIT_ANCHOR,
@@ -257,6 +257,9 @@ def apply(clone, edits):
 def envcheck(clone, passes, builds):
     out = run(["python3", "-I", "-c", HARNESS, passes, builds], clone)
     why = [line.strip() for line in out.stdout.splitlines() if line.strip().startswith("refused:")]
+    if out.returncode != 0 and not why:
+        why = [line.strip() for line in out.stdout.splitlines() if line.startswith("check-env-reads:")][-1:]
+        why += [line.strip() for line in out.stderr.splitlines() if line.startswith(("error", "Traceback"))][:2]
     return out.returncode, why, out.stdout
 
 
@@ -276,7 +279,7 @@ def lib_tests(clone):
 def main():
     clone = pathlib.Path(sys.argv[1]).resolve()
     head = sys.argv[2]
-    only = sys.argv[3] if len(sys.argv) > 3 else None
+    only = sys.argv[3:]
     assert (clone / ".git").is_dir(), "a clone, not a worktree"
     assert run(["git", "checkout", "-q", "--force", head], clone).returncode == 0
     entries = [entry if len(entry) == 5 else (*entry, DEV, NO_BUILDS) for entry in ENTRIES]
@@ -285,7 +288,7 @@ def main():
             if old is not None:
                 assert (clone / path).read_text().count(old) == 1, f"{name}: does not apply"
     survived = leaked = failed_baselines = 0
-    chosen = [entry for entry in entries if not only or only in entry[1]]
+    chosen = [entry for entry in entries if not only or any(word in entry[1] for word in only)]
     baselines = sorted({(passes, builds) for kind, _, _, passes, builds in chosen if kind == "envcheck"})
     for passes, builds in baselines:
         run(["git", "checkout", "-q", "--force", head], clone)
@@ -323,9 +326,11 @@ def main():
                 continue
             result = run([str(SENTINEL_RUN), str(binary), "--test-threads=4"], clone)
             output = result.stdout + result.stderr
-            killed = "test result: ok." not in result.stdout
-            found = [value for value in SENTINEL_VALUES if value in output]
             summary = [line for line in result.stdout.splitlines() if line.startswith("test result")]
+            # The suite's own last line: a failing case's message can hold a
+            # copy's "test result: ok." of its own.
+            killed = not summary or not summary[-1].startswith("test result: ok.")
+            found = [value for value in SENTINEL_VALUES if value in output]
             verdict = "KILLED" if killed else "SURVIVED"
             survived += not killed
             leaked += bool(found)

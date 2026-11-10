@@ -1,0 +1,14 @@
+# at 2cfe0ca7: every integration suite under sentinel-run.sh
+suite cli: test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.11s
+suite gateway: test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.69s
+suite interactive: test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.42s
+suite isolation: test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.02s
+suite ledger_compat: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.36s
+suite llmux: test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.69s
+suite mcp: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.03s
+suite parity: test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.65s
+suite permissions: test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.81s
+suite session_compat: test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+suite sessions: test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.38s
+suite tool_loop: test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.34s
+suite tui: test result: ok. 186 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 53.22s
