@@ -199,7 +199,7 @@ ENTRIES = [
     ("selftest", "self-test-dev-only: the self-test compiles its fixtures in the dev profile only", [(
         "scripts/check-env-reads.py", '        for build in ([], ["--release"]):', "        for build in ([],):")]),
     ("selftest", "no-dep-info: rustc's env-dep names are not read", [(
-        "scripts/check-env-reads.py", "    return names - CLIPPY_OWN", "    return set()")]),
+        "scripts/check-env-reads.py", '                if line.startswith(b"# env-dep:"):', "                if False:")]),
     ("selftest", "probe-gone: a test binary is never started", [(
         "scripts/check-env-reads.py", '            if probe.returncode != 101 or b"no case runs" not in probe.stderr:', "            if False:")]),
     ("selftest", "no-macro-lint: disallowed_macros is not forced", [(
