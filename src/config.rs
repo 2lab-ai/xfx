@@ -2255,41 +2255,47 @@ impl LayerRead {
     }
 }
 
+/// fx's limits: a connection name's bytes and a model's
+/// (`configured_provider.zig:8-9`), and a load's model preferences
+/// (`model_preferences.zig:4`).
+const FX_MAX_ID_BYTES: usize = 64;
+const FX_MAX_MODEL_BYTES: usize = 1024;
+const FX_MAX_PREFERENCES: usize = 35;
+
 /// What fx v0.0.16's load makes of the profile object it read, for the keys
-/// xfx reads too (`loadMergedSettingsDetailed`, `config_runtime.zig:463-632`
-/// @481104fd): the global object, then this workspace's entry, each parsed
-/// whole and dropped at its first error. A dropped layer with a `provider` or
-/// `models` is parsed again for those alone (the salvage, `:898-911`), and
-/// when that fails too the load fails ([`fx_stop`]). Last, the provider is
-/// looked up among the connections `providers` defines
-/// (`resolve_provider_selection`, `:350-355`; `model_provider.zig:53-55`):
-/// xfx has no such registry, so a profile without one stops on any name fx
-/// would look up there -- but xfx's own `llmux`.
+/// xfx reads too (`config_runtime.zig:463-632@481104fd`): the global object,
+/// then this workspace's entry, each parsed whole and dropped at its first
+/// error, its routing salvaged or the load failed ([`fx_stop`]); their model
+/// preferences merged, at most 35 (`model_preferences.zig:36-52`); then the
+/// provider bound to the global `providers` (`:350-355`;
+/// `model_provider.zig:53-63`), a name it lacks stopping all but xfx's `llmux`.
 fn fx_profile_refusal(
     object: &serde_json::Map<String, Value>,
     workspace_root: &Path,
 ) -> Option<ProfileRefusal> {
-    let workspaces = object.get("workspaces");
-    let entry = match workspaces {
-        Some(Value::Object(map)) => workspace_root.to_str().and_then(|key| map.get(key)),
-        _ => None,
-    };
-    let mut rejected =
-        !workspaces.is_none_or(Value::is_object) || !entry.is_none_or(Value::is_object);
-    let entry = entry.and_then(Value::as_object);
-    let mut provider = None;
-    for (layer, global) in std::iter::once((object, true)).chain(entry.map(|entry| (entry, false)))
+    let entry = exact_workspace_entry(object, workspace_root, &mut Vec::new());
+    let mut rejected = entry.is_err();
+    let (mut provider, mut preferences) = (None, std::collections::BTreeSet::new());
+    for (layer, global) in
+        std::iter::once((object, true)).chain(entry.ok().flatten().map(|e| (e, false)))
     {
-        if let Some(name) = fx_stop(layer) {
+        if let Some(name) = fx_stop(layer, global) {
             return Some(ProfileRefusal::Stopped(name));
         }
-        rejected |= fx_first_error_refuses(layer, global) == Some(true);
+        let first = fx_first_error_refuses(layer, global);
+        rejected |= first == Some(true);
+        // A layer that parsed is merged whole; one that did not, its routing.
+        preferences.extend(fx_routing(layer, first.is_none()).unwrap_or_default());
+        if preferences.len() > FX_MAX_PREFERENCES {
+            return Some(ProfileRefusal::Stopped("TooManyModelPreferences"));
+        }
         provider = layer.get(PROVIDER_KEY).and_then(Value::as_str).or(provider);
     }
+    let defined = object.get("providers").and_then(Value::as_object);
     let unknown = provider.is_some_and(|name| {
         fx_provider(name) == Some(false)
             && ProviderId::parse(name) != Some(ProviderId::Llmux)
-            && !object.contains_key("providers")
+            && !defined.is_some_and(|defined| defined.contains_key(name))
     });
     if unknown {
         return Some(ProfileRefusal::Stopped("UnknownConfiguredProvider"));
@@ -2297,21 +2303,37 @@ fn fx_profile_refusal(
     rejected.then_some(ProfileRefusal::Rejected)
 }
 
-/// The error fx's load fails with over one profile layer: when its routing
-/// keys do not parse ([`fx_routing_error`]) the salvage fails, and the
-/// layer's first error is returned (`config_runtime.zig:1011-1015`) -- the
-/// retired key, the `model`, or the routing key's own.
-fn fx_stop(layer: &serde_json::Map<String, Value>) -> Option<&'static str> {
-    let routing = fx_routing_error(layer)?;
+/// The error fx's load fails with over one profile layer: the global
+/// `providers` not one fx's registry takes ([`fx_providers_error`]), or
+/// routing that does not parse even alone ([`fx_routing`]), so the salvage
+/// fails and the layer's first error is returned (`config_runtime.zig:1011-1015`):
+/// the retired key, the `model`, or the routing keys' own in a whole parse.
+fn fx_stop(layer: &serde_json::Map<String, Value>, global: bool) -> Option<&'static str> {
+    if let Some(name) = fx_providers_error(layer).filter(|_| global) {
+        return Some(name);
+    }
+    fx_routing(layer, false).err()?;
     if layer.contains_key("skill_match_fuzzy") {
         return Some("RetiredSkillMatchFuzzy");
     }
-    Some(fx_model_error(layer).unwrap_or(routing))
+    fx_model_error(layer).or(fx_routing(layer, true).err())
+}
+
+/// The global `providers` object, parsed first (`config_runtime.zig:1623-1625`;
+/// `Registry.parse`, `configured_provider.zig:6`, `:115-117`): an object of at
+/// most 32 connections. Each connection's checks are not copied (queued:
+/// PROVIDERS-REGISTRY).
+fn fx_providers_error(layer: &serde_json::Map<String, Value>) -> Option<&'static str> {
+    match layer.get("providers")? {
+        Value::Object(providers) => (providers.len() > 32).then_some("LimitExceeded"),
+        _ => Some("InvalidObject"),
+    }
 }
 
 /// Whether the first error of fx's parse of one profile layer, among the keys
 /// xfx reads and the fx-only ones whose cause no launch refuses, refuses a
-/// launch: in fx's order (`parseProfileOnlyFields`, `config_runtime.zig:1638-1860`;
+/// launch, once [`fx_stop`] has not stopped: in fx's order
+/// (`parseProfileOnlyFields`, `config_runtime.zig:1638-1860`;
 /// `parseProjectSafeFields`, `:1898-1953`), `malformed_settings` and
 /// `invalid_model_id` do; a retired key, the context limits and the skill
 /// authorities do not (`:1025-1037`). A `statusLine` that is not an object,
@@ -2320,7 +2342,9 @@ fn fx_first_error_refuses(layer: &serde_json::Map<String, Value>, global: bool) 
     if layer.contains_key("skill_match_fuzzy") {
         return Some(false);
     }
-    if fx_model_error(layer).is_some() || fx_routing_error(layer).is_some() {
+    // The whole parse's routing can fail where the salvage's did not: the
+    // `model`'s preference counts in it (`model_preferences.zig:26-34`).
+    if fx_model_error(layer).is_some() || fx_routing(layer, true).is_err() {
         return Some(true);
     }
     use crate::permission::rules::RuleSet;
@@ -2375,28 +2399,50 @@ fn fx_model_error(layer: &serde_json::Map<String, Value>) -> Option<&'static str
     }
 }
 
-/// The routing keys' first error (`:1658-1686`): `provider` a string fx's
-/// [`fx_provider`] reads, `models` an object of such names to models fx's
-/// `validateModel` takes.
-fn fx_routing_error(layer: &serde_json::Map<String, Value>) -> Option<&'static str> {
+/// The routing keys' first error (`:1658-1686`), or the preferences they name:
+/// `provider` a name [`fx_provider`] reads; `models` such names to models
+/// `validateModel` takes, one preference per provider (a built-in in any
+/// case), at most 35 with what a whole parse names first: the `model`'s
+/// Gateway, fx's `codex_model` and `grok_model` (`model_preferences.zig:26-34`).
+fn fx_routing(
+    layer: &serde_json::Map<String, Value>,
+    whole: bool,
+) -> Result<Vec<String>, &'static str> {
     match layer.get(PROVIDER_KEY) {
         Some(Value::String(name)) if fx_provider(name).is_none() => {
-            return Some("InvalidProviderValue")
+            return Err("InvalidProviderValue")
         }
         Some(Value::String(_)) | None => {}
-        Some(_) => return Some("InvalidProviderType"),
+        Some(_) => return Err("InvalidProviderType"),
     }
+    let mut named: Vec<String> = ["model", "codex_model", "grok_model"]
+        .into_iter()
+        .zip(["gateway", "codex", "grok"])
+        .filter(|(key, _)| whole && layer.contains_key(*key))
+        .map(|(_, provider)| provider.to_string())
+        .collect();
     let models = match layer.get(MODELS_KEY) {
         Some(Value::Object(models)) => models,
-        Some(_) => return Some("InvalidModelType"),
-        None => return None,
+        Some(_) => return Err("InvalidModelType"),
+        None => return Ok(named),
     };
-    models.iter().find_map(|(name, model)| match model {
-        _ if fx_provider(name).is_none() => Some("InvalidProviderValue"),
-        Value::String(model) if fx_valid_model(model) => None,
-        Value::String(_) => Some("InvalidModelValue"),
-        _ => Some("InvalidModelType"),
-    })
+    for (name, model) in models {
+        let provider = match fx_provider(name) {
+            Some(true) => name.to_ascii_lowercase(),
+            Some(false) => name.clone(),
+            None => return Err("InvalidProviderValue"),
+        };
+        match model {
+            Value::String(model) if !fx_valid_model(model) => return Err("InvalidModelValue"),
+            Value::String(_) if named.contains(&provider) => {}
+            Value::String(_) if named.len() == FX_MAX_PREFERENCES => {
+                return Err("TooManyModelPreferences")
+            }
+            Value::String(_) => named.push(provider),
+            _ => return Err("InvalidModelType"),
+        }
+    }
+    Ok(named)
 }
 
 /// fx's `model_provider.parse` (`model_provider.zig:106-114`): `Some(true)` a
@@ -2412,7 +2458,7 @@ fn fx_provider(name: &str) -> Option<bool> {
     }
     let bytes = name.as_bytes();
     let id = |b: &u8| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-');
-    (bytes.len() <= 64
+    (bytes.len() <= FX_MAX_ID_BYTES
         && bytes.first().is_some_and(u8::is_ascii_alphabetic)
         && bytes.iter().all(id))
     .then_some(false)
@@ -2423,7 +2469,7 @@ fn fx_provider(name: &str) -> Option<bool> {
 /// ([`usable_model`]), which trims and stops at 200 bytes and one word.
 fn fx_valid_model(model: &str) -> bool {
     !model.is_empty()
-        && model.len() <= 1024
+        && model.len() <= FX_MAX_MODEL_BYTES
         && model.trim_matches([' ', '\t', '\r', '\n']) == model
         && !model.bytes().any(|byte| byte.is_ascii_control())
 }
@@ -4784,20 +4830,106 @@ mod tests {
             (r#"{"models": {"llmux": "anthropic/claude-x"}}"#, None),
             (r#"{"models": {"gateway": "openai/gpt 5"}}"#, None),
             (r#"{"permission_mode": "ASK"}"#, None),
+            // Round 2: the global connections, read first and bound last.
+            (r#"{"provider": "missing", "providers": {}}"#, unknown),
+            (r#"{"providers": 5}"#, Some(Stopped("InvalidObject"))),
+            (r#"{"providers": null}"#, Some(Stopped("InvalidObject"))),
+            (r#"{"workspaces": {"{ROOT}": {"providers": 5}}}"#, None),
+            // Round 2: the models, in the order the file wrote them.
+            (
+                r#"{"models": {"zz": 5, "aa": " x"}}"#,
+                Some(Stopped("InvalidModelType")),
+            ),
+            (r#"{"models": {"GATEWAY": "a/b", "gateway": "a/c"}}"#, None),
             // Where xfx does not copy fx (`docs/parity.md`): keys only xfx
-            // reads, a key only fx reads, xfx's own provider, and providers
-            // xfx has no registry for. fx refuses or stops on the last four.
+            // reads, a key only fx reads, xfx's own provider, providers xfx
+            // has no registry for, a connection's own checks, and the name
+            // of an error a key only fx reads makes first. fx refuses or
+            // stops on all but the first.
             (r#"{"backend": 5, "llmux_url": 5}"#, None),
             (r#"{"theme": 5}"#, None),
             (r#"{"provider": "llmux"}"#, None),
             (r#"{"provider": "codex"}"#, None),
-            (r#"{"provider": "acme", "providers": {}}"#, None),
+            (r#"{"providers": {"x": 5}}"#, None),
+            (
+                r#"{"auto_compact_percent": "x", "provider": 5}"#,
+                Some(Stopped("InvalidProviderType")),
+            ),
         ];
         for (profile, expected) in cases {
             assert_eq!(refusal(profile, None), *expected, "{profile}");
         }
+        // One preference per provider, at most 35 in a layer and in the two
+        // merged; the `model` counts in a whole parse (`model_preferences.zig`).
+        let names = |first: u32, last: u32, value: &str| {
+            let names = (first..=last).map(|i| format!(r#""p{i:02}": {value}"#));
+            names.collect::<Vec<_>>().join(", ")
+        };
+        let too_many = Some(Stopped("TooManyModelPreferences"));
+        // A connection fx's registry takes: one it does not name is unknown;
+        // one it does, a registry xfx does not have (`docs/parity.md`).
+        let connection = r#"{"protocol": "openai-chat-completions", "base_url": "http://127.0.0.1:9/v1", "auth": {"type": "none"}}"#;
+        for (profile, expected) in [
+            (
+                format!(r#"{{"provider": "missing", "providers": {{"other": {connection}}}}}"#),
+                unknown,
+            ),
+            (
+                format!(r#"{{"provider": "acme", "providers": {{"acme": {connection}}}}}"#),
+                None,
+            ),
+            (
+                format!(r#"{{"models": {{{}}}}}"#, names(1, 35, r#""m/x""#)),
+                None,
+            ),
+            (
+                format!(r#"{{"models": {{{}}}}}"#, names(1, 36, r#""m/x""#)),
+                too_many,
+            ),
+            (
+                format!(
+                    r#"{{"model": "a/b", "models": {{{}}}}}"#,
+                    names(1, 35, r#""m/x""#)
+                ),
+                Some(Rejected),
+            ),
+            (
+                format!(
+                    r#"{{"models": {{{}}}, "workspaces": {{"{{ROOT}}": {{"models": {{{}}}}}}}}}"#,
+                    names(1, 20, r#""m/x""#),
+                    names(21, 40, r#""m/x""#)
+                ),
+                too_many,
+            ),
+            (
+                format!(r#"{{"providers": {{{}}}}}"#, names(1, 33, "1")),
+                Some(Stopped("LimitExceeded")),
+            ),
+        ] {
+            assert_eq!(refusal(&profile, None), expected, "{profile}");
+        }
         let twice = r#"{"max_agent_steps": 1, "max_agent_steps": 2}"#;
         assert_eq!(refusal(r#"{"permission_mode": "auto"}"#, Some(twice)), None);
+    }
+
+    /// Every key the profile alone may set, of a type no key takes, is one
+    /// fx's parse fails at -- but the keys only xfx reads (`backend`,
+    /// `llmux_url`), `workspaces` (looked up, not parsed), and one fx reads
+    /// that xfx does not (`credential_source`): a key added to
+    /// [`PROFILE_ONLY_KEYS`] must be added to fx's checks too, or here.
+    #[test]
+    fn every_profile_key_xfx_reads_is_one_fxs_parse_checks() {
+        let not_checked = ["backend", "llmux_url", "workspaces", "credential_source"];
+        for key in PROFILE_ONLY_KEYS
+            .iter()
+            .filter(|key| !not_checked.contains(key))
+        {
+            let layer = serde_json::json!({ *key: [[1]] });
+            let layer = layer.as_object().expect("an object");
+            let caught =
+                fx_stop(layer, true).is_some() || fx_first_error_refuses(layer, true).is_some();
+            assert!(caught, "{key}");
+        }
     }
 
     /// fx's parse refuses a settings file naming a key twice, in either

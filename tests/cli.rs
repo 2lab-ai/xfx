@@ -1926,13 +1926,12 @@ fn ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused(
         r#"{"skill_symlink_authorities":5,"permission":{"read":{"secrets/*":"deny"},"bash":"perhaps"}}"#,
     );
     let run = sandbox.run(&["ask", "--no-save", "hello"]);
-    assert!(
-        run.stderr.contains(
-            "xfx ask: config user: invalid_value; key=permission; `perhaps` is not a permission action; use allow, ask or deny\n\
-             xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: invalid_value key=permission `perhaps` is not a permission action; use allow, ask or deny)\n"
-        ),
-        "{}",
-        run.stderr
+    assert_eq!(
+        run.stderr,
+        "xfx ask: config user: invalid_value; key=skill_symlink_authorities; skill_symlink_authorities must be an array of at most 32 absolute directory paths without .. components\n\
+         xfx ask: config user: invalid_value; key=permission; `perhaps` is not a permission action; use allow, ask or deny\n\
+         xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: invalid_value key=permission `perhaps` is not a permission action; use allow, ask or deny)\n\
+         xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.\n"
     );
     // Without that key fx's parse stops at the table, and the launch refuses.
     sandbox.write_user_settings(r#"{"permission":{"read":{"secrets/*":"deny"},"bash":"perhaps"}}"#);
@@ -2060,9 +2059,9 @@ fn the_commands_fx_answers_without_a_launch_answer_with_a_profile_it_refuses() {
 }
 
 /// A profile fx's load fails on stops `status` too, with the error's name
-/// and nothing on stdout (`cli_surface.zig:1336-1357@481104fd`); `doctor`,
-/// `sessions`, `session`, `--version` and help still answer, as fx's do
-/// (`fx-fixtures.txt`, `PROBE_ENTRIES=all`).
+/// and nothing on stdout (`cli_surface.zig:1336-1357@481104fd`); `doctor`
+/// names it in two failing checks, and it, `sessions`, `session`,
+/// `--version` and help still answer, as fx's do (`fx-entries.txt`).
 #[cfg(unix)]
 #[test]
 fn status_stops_where_fxs_load_fails_and_the_rest_still_answer() {
@@ -2074,6 +2073,15 @@ fn status_stops_where_fxs_load_fails_and_the_rest_still_answer() {
             assert_eq!(run.code, Some(1), "{name} {args:?}");
             assert_eq!(run.stdout, "", "{name} {args:?}");
             assert_eq!(run.stderr, format!("xfx: {error}\n"), "{name} {args:?}");
+        }
+        // doctor says why, where its config and startup checks stand
+        // (`doctor_runtime.zig:92-104@481104fd`).
+        let doctor = sandbox.run(&["doctor"]).stdout;
+        for line in [
+            format!("[fail] config: failed to load config: {error}\n"),
+            format!("[fail] startup: failed to resolve startup settings: {error}\n"),
+        ] {
+            assert!(doctor.contains(&line), "{name}: {doctor}");
         }
         for args in [
             &["--version"][..],

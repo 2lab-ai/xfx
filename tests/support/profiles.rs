@@ -143,6 +143,16 @@ pub const STOPPED: &[(&str, Profile, &str)] = &[
         Profile::Text(r#"{"models": 5}"#),
         "InvalidModelType",
     ),
+    (
+        "a provider its connections do not name",
+        Profile::Text(r#"{"provider": "missing", "providers": {}}"#),
+        "UnknownConfiguredProvider",
+    ),
+    (
+        "connections that are not an object",
+        Profile::Text(r#"{"providers": 5}"#),
+        "InvalidObject",
+    ),
 ];
 
 /// Every profile every launch refuses, with the error it is refused with.

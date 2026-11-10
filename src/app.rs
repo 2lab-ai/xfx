@@ -1009,7 +1009,16 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
             config.max_agent_steps
         ),
     ));
-
+    // A load fx's fails says so in place of the config and startup checks
+    // (`doctor_runtime.zig:92-104@481104fd`, `formatConfigLoadFailure`).
+    if let Some(error) = config.launch_refusal(crate::config::Launch::Status) {
+        let fail = |name: &str, what: &str| {
+            DoctorCheck::new(name, CheckStatus::Fail, format!("{what}: {error}"))
+        };
+        checks.retain(|check| check.name != "config" && check.name != "startup");
+        checks.insert(1, fail("config", "failed to load config"));
+        checks.push(fail("startup", "failed to resolve startup settings"));
+    }
     checks
 }
 
