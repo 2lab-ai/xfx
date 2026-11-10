@@ -1,0 +1,31 @@
+== gate.sh <tree> <logs>, under the suite lock, TMPDIR the harness scratch root's lpw-gate; at 0dd6f3c5 (the head after it changes only this README, scan.sh, scan*.txt, flake.*)
+head 0dd6f3c5cf86dacc3ebbeb1d4ff2f523b7dce5a2
+0      449s  test-capture
+0        1s  fmt
+0       41s  clippy
+0       33s  clippy-fi
+101    187s  test
+101    158s  test-fi
+0       10s  check-no-stubs
+0       55s  check-no-secrets
+0        4s  check-no-local-paths
+0        9s  test-check-no-local-paths
+0      181s  test-gate-env
+0        1s  check-xfx-identity
+0        2s  check-preview-contract
+0       42s  test-preview-contract
+0       77s  check-tui-preflight-cost
+0        1s  check-usage-clock
+0       13s  build-release
+0        3s  smoke
+0       25s  build-faulty
+0       67s  smoke-tui
+0       16s  test-sweep
+steps 21, failed 2; tree clean
+== the two failures: one test, in both
+05-test: test result: FAILED. 4729 passed; 1 failed; 7 ignored; 0 measured; 0 filtered out; finished in 54.15s; failed: mcp::config::tests::the_verbs_scenario_leaves_fx_v0_0_16s_bytes 
+06-test-fi: test result: FAILED. 4752 passed; 1 failed; 7 ignored; 0 measured; 0 filtered out; finished in 54.84s; failed: mcp::config::tests::the_verbs_scenario_leaves_fx_v0_0_16s_bytes 
+every other test target: ok (13 in test, 14 in test-fi)
+test-capture: Ran 112 tests in 439.674s  OK 
+test-sweep: Ran 28 tests in 8.535s  OK 
+smoke-tui: smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures
