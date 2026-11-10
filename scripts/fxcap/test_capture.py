@@ -426,8 +426,10 @@ class RootsRewrite(unittest.TestCase):
     # two columns in (src/tui/mcp_menu.rs `ConfirmLine::Continued`); the
     # composer's first shown row, with the rows above it scrolled out, opens
     # with `┃↑` (src/tui/shell.rs RAIL_HIDDEN_ABOVE, fx's
-    # input_presentation.zig:1021@481104fd), in its .txt and in its .ansi.
-    MARKED = (b"  \xe2\x86\xb3 ", b"\xe2\x94\x83\xe2\x86\x91", b"\x1b[38;5;245m\xe2\x94\x83\xe2\x86\x91\x1b[0m")
+    # input_presentation.zig:1021@481104fd), in its .txt and in its .ansi;
+    # and `↳` behind a box rail, and with more spaces after it.
+    MARKED = (b"  \xe2\x86\xb3 ", b"\xe2\x94\x83\xe2\x86\x91", b"\x1b[38;5;245m\xe2\x94\x83\xe2\x86\x91\x1b[0m",
+              b"\xe2\x94\x82 \xe2\x86\xb3 ", b"  \xe2\x86\xb3   ")
 
     def test_a_root_wrapped_behind_a_continuation_mark_is_rewritten_whole(self):
         # train-12/ci-mcp-timing: a 118-byte scenario directory went on behind
@@ -476,7 +478,7 @@ class RootsRewrite(unittest.TestCase):
         # The view drops a mark at a row's start as it drops a gutter run, so
         # a root holding one, broken right before it, reads without it: the
         # rewrite refuses the file before any edit, as for a gutter run.
-        for mark in ("↳", "↑"):
+        for mark in ("↳", "┃↑"):
             root = "/tmp/fxt%sx" % mark
             rules = roots.rules_for([(root, "tmp")])
             data = ("x /tmp/fxt\n%sx/notes\n" % mark).encode()
@@ -484,6 +486,80 @@ class RootsRewrite(unittest.TestCase):
                 with self.assertRaises(roots.Refused):
                     roots.rewrite(data, rules)
                 self.assertEqual({name.split(":")[0] for name in roots.survivors(data, rules, None)}, {"tmp"})
+
+    def test_behind_a_mark_only_a_path_shaped_end_of_a_root_refuses(self):
+        # A row behind a mark that starts with a root's end refuses the file
+        # only where a `/` is in that end or right after it: what a wrap left
+        # of a path. A root's last word with no `/` at it is a word (opus Q2,
+        # gpt6 MUST: `work`, `bun`, `scenarios`, a runner's HOME, one letter).
+        home, bun = "/Us" + "ers/someone", "/home/runner/.bun/bin/bun"
+        work, scen = "/tmp/fxt/fxcap.Ab12Cd/work", "/tmp/fxt/x/scripts/fxcap/scenarios"
+        rules = roots.rules_for([(home, "home"), ("/home/runner", "home"), (bun, "bun"), (work, "work"),
+                                 (scen, "scenarios")])
+        up = "\u2503\u2191"
+        refused = ("  \u21b3 ers/someone/x", "  \u21b3 someone/x", "  \u21b3 ers/someone", "  \u21b3 e/x",
+                   up + "one/notes", "  \u21b3 s/p5.ts", "  \u21b3 cripts/fxcap/scenarios")
+        passed = ("  \u21b3 bun x.ts", up + "work on it", "  \u21b3 scenarios", "  \u21b3 runner", "  \u21b3 s",
+                  "  \u21b3 one more", "  e/x", "    someone/x")
+        for row in refused + passed:
+            data = ("head\n%s\n" % row).encode()
+            with self.subTest(row=row):
+                left = {name.split(":")[0] for name in roots.survivors(data, rules, None)}
+                self.assertEqual(bool(left), row in refused, left)
+
+    def test_a_placeholder_wrapped_behind_a_mark_is_no_root_s_end(self):
+        # A resolved root's placeholder broken in its name, `<wor` then
+        # `↳ k:real___>`: the row behind the mark starts inside what the
+        # rewrite wrote, which is no text (opus Q2.3).
+        d = scratch()
+        os.makedirs(os.path.join(d, "real"))
+        os.symlink(os.path.join(d, "real"), os.path.join(d, "link"))
+        given = os.path.join(d, "link", "fxcap.Ab12Cd", "work")
+        os.makedirs(given)
+        real = os.path.realpath(given)
+        self.assertNotEqual(given, real)
+        rules = roots.rules_for([(given, "work")])
+        R = P("work", real, True).encode()
+        for k in range(1, 5):
+            with self.subTest(k=k):
+                data = b"x " + real.encode()[:k] + b"\n  \xe2\x86\xb3 " + real.encode()[k:] + b"/a\n"
+                got = roots.rewrite(data, rules)[0]
+                self.assertEqual(got, b"x " + R[:k] + b"\n  \xe2\x86\xb3 " + R[k:] + b"/a\n")
+                self.assertEqual(roots.View(got).marked, [])
+                self.assertEqual(roots.survivors(got, rules, None), [])
+
+    def test_a_mark_alone_on_its_row_and_a_bare_up_arrow_lead_nothing(self):
+        # A row of only a gutter and a mark holds no text, so the row after it
+        # is not behind a mark; `↑` without the rail is text (`↑↓` hints).
+        rules = roots.rules_for([("/Us" + "ers/someone", "home")])
+        for data in (b"head\n  \xe2\x86\xb3 \nsomeone/x\n", b"head\n\xe2\x94\x83\xe2\x86\x91\nsomeone/x\n"):
+            with self.subTest(data=data):
+                self.assertEqual(roots.View(data).marked, [])
+                self.assertEqual(roots.survivors(data, rules, None), [])
+        data = b"x /Us" + b"ers/some\n\xe2\x86\x91one/x\n"
+        self.assertEqual(roots.rewrite(data, rules)[0], data)
+        self.assertEqual(roots.survivors(data, rules, None), [])
+
+    def test_every_spelling_wrapped_over_three_rows_behind_marks_is_rewritten_whole(self):
+        # Each spelling rules_for makes -- as given, `//` collapsed,
+        # JSON-escaped, percent-encoded -- broken over three rows behind each
+        # lead, is one placeholder over its own columns, and nothing survives.
+        spaced, doubled = "/tmp/a b/fxcap.Q1w2E3", "/tmp/fxt//x/fxcap.Q1w2E3"
+        rules = roots.rules_for([(spaced, "scratch"), (doubled, "work")])
+        made = [r[0] for r in rules]
+        cases = (("work", "/tmp/fxt//x/fxcap.Q1w2E3"), ("work", "/tmp/fxt/x/fxcap.Q1w2E3"),
+                 ("work", "\\/tmp\\/fxt\\/x\\/fxcap.Q1w2E3"), ("scratch", "/tmp/a%20b/fxcap.Q1w2E3"))
+        for name, spelled in cases:
+            raw, S = spelled.encode(), P(name, spelled).encode()
+            self.assertIn(raw, made)
+            i, j = len(raw) // 3, 2 * len(raw) // 3
+            for lead in self.MARKED:
+                with self.subTest(spelled=spelled, lead=lead):
+                    data = b"x " + raw[:i] + b"\n" + lead + raw[i:j] + b"\n" + lead + raw[j:] + b"/a\n"
+                    self.assertNotEqual(roots.survivors(data, rules, None), [])
+                    got = roots.rewrite(data, rules)[0]
+                    self.assertEqual(got, b"x " + S[:i] + b"\n" + lead + S[i:j] + b"\n" + lead + S[j:] + b"/a\n")
+                    self.assertEqual(roots.survivors(got, rules, "fxcap.Q1w2E3"), [])
 
     def test_text_that_only_starts_like_a_root_behind_a_mark_is_no_root(self):
         # Only a whole root is written: a head whose row goes on behind the

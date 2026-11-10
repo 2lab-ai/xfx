@@ -45,8 +45,8 @@ its bytes:
   broke onto its next row behind a gutter of spaces, tabs or box-drawing and
   block characters (U+2500-U+259F), or behind a continuation mark at the
   next row's start (MARKS: xfx's approval goes on behind `↳ `, U+21B3; the
-  composer's first row shown below rows scrolled out opens with `┃↑`, U+2191),
-  is one root;
+  composer's first row shown below rows scrolled out opens with `┃↑`, its
+  rail and U+2191), is one root;
 - inside an OSC sequence's payload, by its bytes: an OSC 8 link's target.
 
 It ends where no path-name character follows it within its row
@@ -81,11 +81,16 @@ run is refused even where it stands whole inside a row (`/tmp/fxt ` before
 `/notes`), as its reading without the run ends whole there too, and the view
 cannot tell that from the run lost at a row's edge. A root with more than
 MAX_GUTTER_RUNS runs is refused outright. A continuation mark counts as a
-gutter character here: the view drops it at a row's start. A row behind a
-mark that starts with a root's end -- its last byte or more, short of the
-whole, ending whole -- refuses the file as well, its head rewritten or not:
-a partial rewrite (the head written as a shorter root's placeholder) leaves
-nothing else that tells the tail from text. So does the run directory's own name (`--suffix`, mktemp's random
+gutter character here: the view drops it at a row's start.
+
+**Behind a mark, a root's path-shaped end.** A row behind a mark that starts
+with a root's end -- its last byte or more, short of the whole, ending whole
+-- with a `/` in it or right after it refuses the file too, its head
+rewritten or not: a partial rewrite (the head written as a shorter root's
+placeholder) leaves nothing else that tells such a tail from text. Behind a
+mark only: the same end behind a plain gutter passes, as does an end with no
+`/` at it (`↳ bun x.ts`, `┃↑work on it`), which reads as a word, and a
+position inside a placeholder the rewrite wrote, which is not text. So does the run directory's own name (`--suffix`, mktemp's random
 tail) anywhere at all: it names no other path, and a root a binary cut
 short (`.../fxcap.Ab12Cd/wo...`) or whose head scrolled off a frame keeps
 it. The file is named on standard error with what survived or why it was
@@ -117,11 +122,12 @@ CURSOR_MOVE = re.compile(rb"\x1b\[[0-?]*[HfABCDEGd]\Z")
 GUTTER_BYTES = (b" ", b"\t")
 # What a renderer leads a continued row with, at the row's start, after its
 # gutter (receipts/local-paths-wrap/marks.md): `↳` (src/tui/mcp_menu.rs
-# `ConfirmLine::Continued`) and `↑` (src/tui/shell.rs RAIL_HIDDEN_ABOVE, fx's
-# input_presentation.zig:1021@481104fd).
-MARKS = (b"\xe2\x86\xb3", b"\xe2\x86\x91")
+# `ConfirmLine::Continued`) and `┃↑`, the rail with `↑` where its space was
+# (src/tui/shell.rs RAIL_HIDDEN_ABOVE, fx's input_presentation.zig:1021@481104fd).
+# A bare `↑` is text: `↑↓` key hints open rows.
+MARKS = (b"\xe2\x86\xb3", b"\xe2\x94\x83\xe2\x86\x91")
 # A run of gutter characters inside a root: spaces, tabs, U+2500-U+259F, and
-# the MARKS, which the view drops too.
+# `↳` and `↑`, which the view drops in a mark.
 GUTTER_RUN = re.compile(rb"(?:[ \t]|\xe2(?:[\x94\x95][\x80-\xbf]|\x96[\x80-\x9f]|\x86[\xb3\x91]))+")
 # The most runs of them a root may hold: each is read present and absent.
 MAX_GUTTER_RUNS = 6
@@ -216,7 +222,8 @@ class View:
     """The visible text of `data` with each row's edge gutters dropped, and a
     continuation mark among its leading ones, and its rows joined: `text`, for
     each of its runs where it came from, and `marked`, where each row that
-    opened with a mark starts in it."""
+    opened with a mark and holds text starts in it -- unless that is inside a
+    placeholder the rewrite wrote (no `!`), whose letters are no text."""
 
     def __init__(self, data):
         self.data = data
@@ -234,7 +241,7 @@ class View:
         text, runs, ends, self.marked = bytearray(), [], set(), []
         for row in rows:
             row, marked = self._trim(data, row)
-            if marked:
+            if marked and row:
                 self.marked.append(len(text))
             for start, end in row:
                 runs.append((len(text), start, end))
@@ -243,6 +250,8 @@ class View:
         self.text = bytes(text)
         self.runs = runs
         self.row_ends = ends
+        written = [m.span() for m in LITERAL.finditer(self.text) if not m.group(1)]
+        self.marked = [a for a in self.marked if not any(s < a < e for s, e in written)]
 
     @staticmethod
     def _visible(data, start, end, rows, row):
@@ -263,9 +272,12 @@ class View:
         leading one; and whether there was one."""
         row, marked = [list(r) for r in row], False
         while row:
-            n = _gutter_at(data, row[0][0], row[0][1])
-            if not n and data[row[0][0] : row[0][0] + 3] in MARKS and row[0][0] + 3 <= row[0][1]:
-                n, marked = 3, True
+            start, end = row[0]
+            mark = next((m for m in MARKS if data.startswith(m, start) and start + len(m) <= end), None)
+            if mark:
+                n, marked = len(mark), True
+            else:
+                n = _gutter_at(data, start, end)
             if not n:
                 break
             row[0][0] += n
@@ -303,8 +315,10 @@ class View:
 
     def tail_behind_mark(self, needle):
         """Whether a row behind a mark starts with `needle`'s end -- its last
-        byte or more, short of the whole -- ending whole."""
+        byte or more, short of the whole -- ending whole, with a `/` in it or
+        right after it."""
         return any(self.text.startswith(needle[-n:], a) and self.ends_whole(a + n)
+                   and (b"/" in needle[-n:] or self.text[a + n : a + n + 1] == b"/")
                    for a in self.marked for n in range(1, len(needle)))
 
 
@@ -431,8 +445,9 @@ def survivors(data, rules, suffix):
       end, reads without it). The rewrite refuses such a file before it
       edits it; this reads it as `--check` does. A sibling that reads like
       one (`/tmp/ab`) is refused too;
-    - a root's end -- its last byte or more, ending whole -- at the start of
-      a row behind a continuation mark (MARKS), its head rewritten or not;
+    - a root's end -- its last byte or more, ending whole, with a `/` in it
+      or right after it -- at the start of a row behind a continuation mark
+      (MARKS), its head rewritten or not;
     - or the run directory's own name, anywhere.
 
     A root's bytes in the visible text are the view's to judge: it reads
