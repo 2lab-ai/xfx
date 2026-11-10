@@ -17,7 +17,7 @@ step() {
   "$@" > "$log" 2>&1
   local status=$?
   echo "== $n: $* -> exit $status"
-  grep -E '^test result|^error|^warning: unused|FAILED|panicked|Running |check-|OK|ok$|refused|NOT REFUSED|no case runs' "$log" \
+  grep -E '^test result|^error|^warning: unused|FAILED|panicked|Running |check-|OK|ok$|refused|NOT REFUSED|^accepted|^resolved|NOT RESOLVED|no case runs' "$log" \
     | grep -vE '^test .* \.\.\. ok$' | tail -60
 }
 

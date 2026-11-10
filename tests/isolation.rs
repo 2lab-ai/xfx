@@ -149,41 +149,51 @@ fn a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given() {
 }
 
 #[test]
-fn a_relative_tmpdir_makes_no_home_and_runs_no_case() {
-    // Run from a scratch directory, with TMPDIR relative to it: a home made
-    // there would be removed, at exit, from wherever a case had moved to.
+fn a_parent_under_a_relative_tmpdir_makes_no_home_and_runs_no_case() {
+    // Run from a scratch directory, with TMPDIR relative to it and there: a
+    // home made in it would be removed, at exit, from wherever a case had
+    // moved to.
     let scratch = tempfile::TempDir::new().expect("a scratch directory");
+    let relative = a_private_dir(scratch.path().join("relative-tmp"));
     let (passed, said) = started(scratch.path(), Path::new("relative-tmp"), None, &[]);
     assert!(
         !passed && said.contains("TMPDIR is not an absolute path"),
         "a relative TMPDIR was not refused"
     );
     assert!(
-        !scratch.path().join("relative-tmp").exists() && !scratch.path().join("ran").exists(),
-        "a home was made under a relative TMPDIR, or a case ran"
+        std::fs::read_dir(&relative)
+            .expect("the relative TMPDIR")
+            .next()
+            .is_none(),
+        "a home was made under a relative TMPDIR"
     );
-    // And a copy handed one -- its HOME made where a relative TMPDIR says --
-    // refuses it too.
+    assert!(!scratch.path().join("ran").exists(), "a case ran");
+}
+
+#[test]
+fn a_copy_handed_a_home_under_a_relative_tmpdir_runs_no_case() {
+    // The home its parent would have made, relative to where it runs.
+    let scratch = tempfile::TempDir::new().expect("a scratch directory");
+    let marker = format!("{:032x}", 7);
+    let home = PathBuf::from("relative-tmp").join(format!("{HOME_PREFIX}{marker}"));
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
-        .create(
-            scratch
-                .path()
-                .join("relative-tmp")
-                .join(format!("{HOME_PREFIX}{:032x}", 7)),
-        )
+        .create(scratch.path().join(&home))
         .expect("a home under the relative TMPDIR");
-    let home = PathBuf::from("relative-tmp").join(format!("{HOME_PREFIX}{:032x}", 7));
     let (passed, said) = started_in(
         scratch.path(),
         &home,
         Path::new("relative-tmp"),
-        Some(&format!("{:032x}", 7)),
+        Some(&marker),
     );
     assert!(
         !passed && said.contains("TMPDIR is not an absolute path"),
         "a copy accepted a home under a relative TMPDIR"
+    );
+    assert!(
+        !scratch.path().join("ran").exists() && !scratch.path().join(&home).join("ran").exists(),
+        "a case ran"
     );
 }
 

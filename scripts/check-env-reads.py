@@ -46,6 +46,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -65,6 +66,8 @@ ENV_READERS = {
     "libc::getpwuid_r",
     "libc::getpwnam",
     "libc::getpwnam_r",
+    "libc::getpwent",
+    "libc::getpwent_r",
 }
 
 # The start rule's entries: what makes or starts a child, replaces the
@@ -318,34 +321,45 @@ def clippy(crate, extra, env_extra=None):
         elif record.get("reason") == "build-finished":
             finished = record.get("success")
     for source in compiled:
-        compiled[source] -= CLIPPY_OWN
+        if source != SOURCES:
+            compiled[source] -= CLIPPY_OWN
     return run.returncode, finished, run.stderr.decode(), messages, tests, compiled
 
 
 HASHED = re.compile(r"^(?P<lib>lib)?(?P<stem>[A-Za-z0-9_]+-[0-9a-f]{16})(?P<ext>\.(?:rlib|rmeta|so|dylib|a))?$")
 
 
+LIBRARY_EXTENSIONS = (".rlib", ".rmeta", ".so", ".dylib", ".a")
+
+
 def dep_info(filename):
-    """rustc's dep-info for one of an artifact's files, or None.
+    """rustc's dep-info for one of an artifact's files, as (the `.d` file,
+    the target lines it must hold), or None.
 
     rustc writes `<crate>-<hash>.d` beside `lib<crate>-<hash>.rlib` or
     `.rmeta` and beside an executable `<crate>-<hash>` (whose name may begin
     with `lib`: only a library's file name has the prefix to strip). Cargo
     uplifts an executable (`target/debug/xfx`, a build script's
     `build-script-build`) by a hard link or, on macOS, a copy of such a
-    file, so an uplifted one is traced back to the original it is the same
-    bytes as: by inode, else by size and content."""
+    file, so an uplifted one is traced back to its original: the one
+    candidate with its device and inode, else the one with its bytes; two
+    candidates either way is no answer."""
     directory, base = os.path.split(filename)
     hashed = HASHED.match(base)
     if hashed and (hashed.group("ext") or not hashed.group("lib")):
-        return os.path.join(directory, hashed.group("stem") + ".d")
+        stem = hashed.group("stem")
+        targets = {os.path.join(directory, stem)} | {
+            os.path.join(directory, "lib" + stem + extension) for extension in LIBRARY_EXTENSIONS
+        }
+        return os.path.join(directory, stem + ".d"), targets
     if hashed:
-        return os.path.join(directory, base + ".d")
+        return os.path.join(directory, base + ".d"), {os.path.join(directory, base)}
     try:
         mine = os.stat(filename)
     except OSError:
         return None
     crate = base.replace("-", "_")
+    candidates = []
     for place in (directory, os.path.join(directory, "deps")):
         try:
             names = os.listdir(place)
@@ -353,13 +367,12 @@ def dep_info(filename):
             continue
         for name in names:
             found = HASHED.match(name)
-            if not name.startswith(crate + "-") or not found or found.group("ext") or found.group("lib"):
-                continue
-            original = os.path.join(place, name)
-            theirs = os.stat(original)
-            if theirs.st_ino == mine.st_ino or (theirs.st_size == mine.st_size and same_bytes(original, filename)):
-                return dep_info(original)
-    return None
+            if name.startswith(crate + "-") and found and not found.group("ext") and not found.group("lib"):
+                candidates.append(os.path.join(place, name))
+    same_file = [c for c in candidates if (os.stat(c).st_dev, os.stat(c).st_ino) == (mine.st_dev, mine.st_ino)]
+    if not same_file:
+        same_file = [c for c in candidates if os.stat(c).st_size == mine.st_size and same_bytes(c, filename)]
+    return dep_info(same_file[0]) if len(same_file) == 1 else None
 
 
 def same_bytes(one, other):
@@ -372,34 +385,72 @@ def same_bytes(one, other):
                 return True
 
 
-def compile_time_names(filenames):
+RULE = re.compile(r"^((?:[^:\\\s]|\\.)+):(?:\s+(.*))?$")
+
+
+def split_paths(text):
+    """The paths of a make rule's right-hand side, `\\ ` an escaped space."""
+    return [path.replace("\\ ", " ") for path in re.split(r"(?<!\\)\s+", text.strip()) if path]
+
+
+def read_dep_info(info, targets, root):
+    """(the names read at compile time, the source files) from a `.d`, or
+    None unless it holds one of `targets` as a rule with sources: an empty,
+    a truncated or a foreign file is not evidence."""
+    try:
+        with open(info, "rb") as lines:
+            text = lines.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    names, sources, valid = set(), set(), False
+    for line in text.splitlines():
+        if line.startswith("# env-dep:"):
+            names.add(line[len("# env-dep:") :].split("=", 1)[0].strip())
+            continue
+        rule = RULE.match(line)
+        if not rule:
+            continue
+        target = rule.group(1).replace("\\ ", " ")
+        paths = split_paths(rule.group(2) or "")
+        if target in targets and paths:
+            valid = True
+            sources |= {os.path.normpath(os.path.join(root, path)) for path in paths}
+    return (names, sources) if valid else None
+
+
+def compile_time_names(filenames, root):
     """The names rustc's dep-info for an artifact says were read at compile
-    time (`# env-dep:NAME=value`): the names, never the values. None when no
-    dep-info file is found for any of the artifact's files: missing evidence
-    is not an empty set of reads."""
-    names = set()
-    found = False
+    time (`# env-dep:NAME=value`), the names and never the values, and the
+    source files it was compiled from. None when no file of the artifact has
+    dep-info that is its own: missing evidence is not an empty set of
+    reads."""
+    names, sources, found = set(), set(), False
     for filename in filenames:
-        info = dep_info(filename)
-        if not info or not os.path.exists(info):
+        located = dep_info(filename)
+        read = read_dep_info(*located, root) if located else None
+        if read is None:
             continue
         found = True
-        with open(info, "rb") as lines:
-            for line in lines:
-                if line.startswith(b"# env-dep:"):
-                    names.add(line[len(b"# env-dep:") :].split(b"=", 1)[0].strip().decode(errors="replace"))
-    return names if found else None
+        names |= read[0]
+        sources |= read[1]
+    return (names, sources) if found else None
+
+
+# Where `compiled` keeps the source files every compilation read.
+SOURCES = "\0sources"
 
 
 def record_compiled(compiled, record, root):
-    """Adds an artifact's compile-time reads to `compiled`, under its source;
-    an artifact with no dep-info is recorded as such."""
+    """Adds an artifact's compile-time reads to `compiled`, under its source,
+    and its source files under SOURCES; an artifact with no dep-info of its
+    own is recorded as such."""
     source = os.path.relpath(record["target"]["src_path"], root)
-    names = compile_time_names(record["filenames"])
-    if names is None:
+    read = compile_time_names(record["filenames"], root)
+    if read is None:
         compiled[source].add(NO_DEP_INFO)
     else:
-        compiled[source] |= names
+        compiled[source] |= read[0]
+        compiled[SOURCES] |= {(source, path) for path in read[1]}
 
 
 def expansions(span):
@@ -440,6 +491,7 @@ def classify(crate, messages, exception_file, process_env_file):
     plain = collections.Counter()
     plain_targets = collections.defaultdict(set)
     compile_time = collections.Counter()
+    seen_at_compile_time = collections.defaultdict(set)
     problems = []
     def_sites = collections.defaultdict(set)
     for record in messages:
@@ -469,6 +521,8 @@ def classify(crate, messages, exception_file, process_env_file):
             with open(os.path.join(crate, where["file_name"]), "rb") as source:
                 text = source.read()[where["byte_start"] : where["byte_end"]].decode()
             literal = COMPILE_TIME.match(text)
+            if literal:
+                seen_at_compile_time[os.path.relpath(record["target"]["src_path"], crate)].add(literal.group(1))
             if not literal:
                 problems.append((*at, f"a {path}! whose name is not a literal"))
             elif literal.group(1) not in COMPILE_TIME_NAMES:
@@ -511,7 +565,7 @@ def classify(crate, messages, exception_file, process_env_file):
     for def_file, lines in def_sites.items():
         if def_file in (exception_file, process_env_file) and len(lines) != 1:
             problems.append((def_file, 0, f"{len(lines)} macros there let a read through, not one"))
-    return invocations, process_env, plain, problems, plain_targets, compile_time
+    return invocations, process_env, plain, problems, plain_targets, compile_time, seen_at_compile_time
 
 
 def compiled_problems(compiled):
@@ -519,10 +573,25 @@ def compiled_problems(compiled):
     built without dep-info to say what it read."""
     problems = []
     for source, names in sorted(compiled.items()):
+        if source == SOURCES:
+            continue
         if NO_DEP_INFO in names:
             problems.append((source, 0, "built with no dep-info to say what it read at compile time"))
         for name in sorted(names - set(COMPILE_TIME_NAMES) - {NO_DEP_INFO}):
             problems.append((source, 0, f"compiled with {name} from the environment (rustc's dep-info), which is not a compile-time name"))
+    return problems
+
+
+def unrecorded_problems(seen, compiled):
+    """A compile-time read clippy's macro lint saw that the same pass's
+    dep-info does not hold: a `.d` cut short (rustc writes its `# env-dep:`
+    lines last) or rewritten."""
+    problems = []
+    for source, names in sorted(seen.items()):
+        if NO_DEP_INFO in compiled.get(source, ()):
+            continue
+        for name in sorted(names - compiled.get(source, set())):
+            problems.append((source, 0, f"dep-info without {name}, a compile-time read clippy saw: cut short or rewritten"))
     return problems
 
 
@@ -565,8 +634,18 @@ def matrix_problems(root):
     except ImportError:
         return [("Cargo.toml", 0, "no tomllib (Python 3.11 or later) to read it with")]
     with open(os.path.join(root, "Cargo.toml"), "rb") as manifest:
-        features = tomllib.load(manifest).get("features", {})
-    if features.get("default") or len(set(features) - {"default"}) > 1:
+        package = tomllib.load(manifest)
+    features = set(package.get("features", {}))
+    # An optional dependency is a feature of its own.
+    tables = [package] + list(package.get("target", {}).values())
+    for table in tables:
+        for kind in ("dependencies", "build-dependencies"):
+            for name, spec in table.get(kind, {}).items():
+                if isinstance(spec, dict) and spec.get("optional"):
+                    features.add(name)
+    if "default" in features:
+        return [("Cargo.toml", 0, "a default feature, which the check's matrix (none, all) never turns off")]
+    if len(features) > 1:
         return [("Cargo.toml", 0, "features the check's matrix (none, all) does not cover every set of")]
     return []
 
@@ -660,29 +739,126 @@ def tool_environment(extra=None):
 
 CFG_CALL = re.compile(r"\bcfg(?P<attr>_attr)?\s*(?P<bang>!)?\s*\(")
 CLIPPY_WORD = re.compile(r"(?<![A-Za-z0-9_:])clippy(?![A-Za-z0-9_])")
+RAW_STRING = re.compile(r'(?:b|c)?r(#*)"')
+
+# Files a compilation lists as read that are not Rust: its configuration.
+NOT_RUST = {"Cargo.toml", "Cargo.lock", "clippy.toml", ".clippy.toml"}
 
 
-def cfg_problems(root):
+def code_of(text):
+    """`text` with every comment and every string, raw-string, byte-string
+    and char literal turned to spaces (newlines kept), so what is left is
+    code and every offset still points at the same character. `//` and
+    nested `/* */` comments; `"..."`, `b"..."`, `c"..."`, `r#"..."#` and
+    their byte and C forms; `'x'`, `'\\''`, `b'x'` -- and a lifetime `'a`
+    left as code."""
+    out = list(text)
+    at, size = 0, len(text)
+
+    def blank(start, end):
+        for index in range(start, min(end, size)):
+            if out[index] != "\n":
+                out[index] = " "
+
+    while at < size:
+        char = text[at]
+        if text.startswith("//", at):
+            end = text.find("\n", at)
+            end = size if end < 0 else end
+            blank(at, end)
+            at = end
+        elif text.startswith("/*", at):
+            depth, end = 1, at + 2
+            while end < size and depth:
+                if text.startswith("/*", end):
+                    depth, end = depth + 1, end + 2
+                elif text.startswith("*/", end):
+                    depth, end = depth - 1, end + 2
+                else:
+                    end += 1
+            blank(at, end)
+            at = end
+        elif (raw := RAW_STRING.match(text, at)) and (at == 0 or not (text[at - 1].isalnum() or text[at - 1] == "_")):
+            closing = '"' + raw.group(1)
+            end = text.find(closing, raw.end())
+            end = size if end < 0 else end + len(closing)
+            blank(at, end)
+            at = end
+        elif char == '"' or (char in "bc" and text.startswith('"', at + 1)
+                             and (at == 0 or not (text[at - 1].isalnum() or text[at - 1] == "_"))):
+            end = at + (1 if char == '"' else 2)
+            while end < size and text[end] != '"':
+                end += 2 if text[end] == "\\" else 1
+            blank(at, end + 1)
+            at = end + 1
+        elif char == "'" or (char == "b" and text.startswith("'", at + 1)
+                             and (at == 0 or not (text[at - 1].isalnum() or text[at - 1] == "_"))):
+            start = at + (1 if char == "'" else 2)
+            if text.startswith("\\", start):
+                end = text.find("'", start + 2)
+            elif start + 1 < size and text[start + 1] == "'":
+                end = start + 1
+            else:
+                end = -1
+            if end < 0:
+                at += 1
+            else:
+                blank(at, end + 1)
+                at = end + 1
+        else:
+            at += 1
+    return "".join(out)
+
+
+def compiled_sources(compiled, root, also=()):
+    """The source files the compilations in `compiled` read, under `root`
+    (or one of `also`), and those outside every one of them."""
+    inside, outside = set(), set()
+    places = [os.path.realpath(place) for place in (root, *also)]
+    for _, path in compiled.get(SOURCES, ()):
+        if os.path.basename(path) in NOT_RUST:
+            continue
+        real = os.path.realpath(path)
+        if any(path.startswith(place + os.sep) or real.startswith(place + os.sep) for place in places):
+            inside.add(path)
+        else:
+            outside.add(path)
+    return inside, outside
+
+
+def cfg_problems(root, compiled=None, also=()):
     """No cfg predicate names `clippy`, in `cfg(..)`, `cfg!(..)` or the
-    predicate of `cfg_attr(..)`, in src/, tests/ or build.rs.
+    predicate of `cfg_attr(..)`, in any file this package compiles.
 
     Clippy compiles with `cfg(clippy)` set, so code under `not(clippy)` is
     never linted, and the library's unit-test binary would run it in the
-    developer's process. A text check, narrow by design: the one token in
-    the one place, comment lines skipped. A cfg a macro builds from its
-    arguments is beyond it."""
+    developer's process. The files are every `.rs` under src/ and tests/,
+    build.rs, and every source a compilation's dep-info lists -- a `#[path]`
+    module, an `include!`d file, one under a linked directory, one a build
+    script generates -- and a source outside the repository is refused
+    outright. Each is read as code: comments and literals are blanked
+    first (code_of). A cfg a macro builds from its arguments is beyond
+    this."""
     problems = []
-    files = [os.path.join(root, "build.rs")] if os.path.exists(os.path.join(root, "build.rs")) else []
+    files = {os.path.join(root, "build.rs")} if os.path.exists(os.path.join(root, "build.rs")) else set()
     for top in ("src", "tests"):
-        for directory, _, names in os.walk(os.path.join(root, top)):
-            files += [os.path.join(directory, name) for name in names if name.endswith(".rs")]
+        for directory, _, names in os.walk(os.path.join(root, top), followlinks=True):
+            files |= {os.path.join(directory, name) for name in names if name.endswith(".rs")}
+    if compiled is not None:
+        inside, outside = compiled_sources(compiled, root, also)
+        files |= inside
+        for path in sorted(outside):
+            problems.append((os.path.basename(path), 0, "a source this package compiles from outside the repository"))
+    seen = set()
     for path in sorted(files):
+        real = os.path.realpath(path)
+        if real in seen or not os.path.isfile(real):
+            continue
+        seen.add(real)
         with open(path, encoding="utf-8", errors="replace") as source:
-            lines = source.read().split("\n")
-        text = "\n".join("" if line.lstrip().startswith("//") else line for line in lines)
+            text = code_of(source.read())
         for call in CFG_CALL.finditer(text):
-            depth, at, end = 1, call.end(), None
-            predicate_end = None
+            depth, at, predicate_end = 1, call.end(), None
             while at < len(text) and depth:
                 char = text[at]
                 if char == "(":
@@ -692,11 +868,28 @@ def cfg_problems(root):
                 elif char == "," and depth == 1 and call.group("attr") and predicate_end is None:
                     predicate_end = at
                 at += 1
-            end = at - 1
-            predicate = text[call.end() : predicate_end if predicate_end is not None else end]
+            predicate = text[call.end() : predicate_end if predicate_end is not None else at - 1]
             if CLIPPY_WORD.search(predicate):
                 line = text.count("\n", 0, call.start()) + 1
                 problems.append((os.path.relpath(path, root), line, "a cfg predicate that names clippy, under which code is never linted"))
+    return problems
+
+
+def build_script_problems(root, compiled):
+    """build.rs, and what it includes, prints no `rustc-cfg`: a cfg the
+    build script sets can differ between the check's clippy and a test
+    build without naming clippy."""
+    problems = []
+    files = {os.path.join(root, "build.rs")} if os.path.exists(os.path.join(root, "build.rs")) else set()
+    files |= {path for source, path in compiled.get(SOURCES, ()) if source == "build.rs"}
+    for path in sorted(files):
+        try:
+            with open(path, "rb") as script:
+                raw = script.read()
+        except OSError:
+            continue
+        if b"rustc-cfg" in raw:
+            problems.append((os.path.relpath(path, root), 0, "the build script sets a cfg (rustc-cfg), which can differ between clippy and a test build"))
     return problems
 
 
@@ -723,8 +916,9 @@ def config_problems(root):
 
 def check_tree():
     invocations, process_env, plain = [], 0, collections.Counter()
-    problems = config_problems(ROOT) + matrix_problems(ROOT) + cfg_problems(ROOT)
+    problems = config_problems(ROOT) + matrix_problems(ROOT)
     compile_time = collections.Counter()
+    everything = collections.defaultdict(set)
     seen_invocations = set()
     for build in PASSES:
         status, finished, stderr, messages, tests, compiled = clippy(ROOT, ["--locked"] + build)
@@ -732,9 +926,11 @@ def check_tree():
             sys.stderr.write(stderr[-4000:])
             print(f"check-env-reads: clippy {' '.join(build) or '(dev, default features)'} exited {status}")
             return 1
-        found, arms, calls, wrong, plain_targets, uses = classify(ROOT, messages, ENV_EXCEPTION_FILE, PROCESS_ENV_FILE)
+        found, arms, calls, wrong, plain_targets, uses, seen = classify(ROOT, messages, ENV_EXCEPTION_FILE, PROCESS_ENV_FILE)
         compile_time = compile_time | uses
-        wrong += compiled_problems(compiled)
+        wrong += compiled_problems(compiled) + unrecorded_problems(seen, compiled)
+        for source, read in compiled.items():
+            everything[source] |= read
         # Every integration test binary reads its environment in
         # support::isolated, before main: one that does not has escaped it.
         isolating = {
@@ -761,6 +957,9 @@ def check_tree():
         problems += [problem for problem in wrong if problem not in problems]
     built, compiled, probed = artifact_problems(ROOT)
     problems += built + compiled_problems(compiled)
+    for source, read in compiled.items():
+        everything[source] |= read
+    problems += cfg_problems(ROOT, everything) + build_script_problems(ROOT, everything)
     problems = judge(invocations, plain, problems, EXCEPTIONS, PLAIN)
     used = {name for _, names, _, _ in invocations for name in names}
     for name in sorted(set(ALLOWED_NAMES) - used):
@@ -930,6 +1129,36 @@ FIXTURES = {
         "pub unsafe fn f() -> bool {\n    libc::getpwuid(libc::getuid()).is_null()\n}",
         ["libc::getpwuid outside"],
     ),
+    "cfg_comment_holding_a_paren": (
+        "#[cfg(/*)*/ all(test, not(clippy)))]\nmod t {}",
+        ["a cfg predicate that names clippy"],
+    ),
+    "cfg_comment_before_its_paren": (
+        "#[cfg /* c */ (not(clippy))]\nmod t {}",
+        ["a cfg predicate that names clippy"],
+    ),
+    "cfg_string_holding_a_paren": (
+        '#[cfg(any(feature = "))", not(clippy)))]\nmod t {}',
+        ["a cfg predicate that names clippy"],
+    ),
+    "cfg_after_a_block_comment_line": (
+        "/*\n// */ #[cfg(all(test, not(clippy)))]\nmod t {}",
+        ["a cfg predicate that names clippy"],
+    ),
+    "cfg_in_a_comment_or_a_string": (
+        '// cfg(not(clippy))\n/* cfg(not(clippy)) */\npub const S: &str = "cfg(not(clippy))";\n'
+        'pub const R: &str = r#"cfg(not(clippy))"#;\npub const C: char = \'(\';',
+        [],
+    ),
+    "path_module_not_rs": ('#[path = "t.inc"]\nmod t;', ["a cfg predicate that names clippy"]),
+    "include_outside_src_and_tests": ('include!("../gen/hidden.rs");', ["a cfg predicate that names clippy"]),
+    "under_a_linked_directory": ('#[path = "linked/x.rs"]\nmod x;', ["a cfg predicate that names clippy"]),
+    "path_outside_the_repository": ('#[path = "../../outside/y.rs"]\nmod y;', ["from outside the repository"]),
+    "user_database_walk": (
+        "/// # Safety\n/// The fixture is never called.\n"
+        "pub unsafe fn f() -> bool {\n    libc::getpwent().is_null()\n}",
+        ["libc::getpwent outside"],
+    ),
     "dependency_macro": (
         "pub fn f() -> std::process::Command {\n    macro_dep::start!()\n}",
         ["std::process::Command::new inside"],
@@ -961,6 +1190,24 @@ FIXTURES = {
         'pub fn f() -> bool { wrap!("PATH").is_some() }',
         ["not the literal form"],
     ),
+}
+
+
+# Files the fixtures above compile beyond their own: by path under the fixture
+# crate, or, with "../", beside it -- outside the repository it stands for.
+HIDDEN = "#[cfg(not(clippy))]\npub fn hidden() {}\n"
+FIXTURE_FILES = {
+    "tests/t.inc": HIDDEN,
+    "gen/hidden.rs": HIDDEN,
+    "linked_target/x.rs": HIDDEN,
+    "../outside/y.rs": "pub fn outside() {}\n",
+}
+# Which fixture a refusal in one of those files belongs to.
+FIXTURE_OWNS = {
+    "path_module_not_rs": ("tests/t.inc",),
+    "include_outside_src_and_tests": ("gen/hidden.rs",),
+    "under_a_linked_directory": ("tests/linked/x.rs",),
+    "path_outside_the_repository": ("y.rs",),
 }
 
 
@@ -1001,6 +1248,14 @@ def self_test():
         for name, (source, _) in FIXTURES.items():
             with open(os.path.join(crate, "tests", name + ".rs"), "w") as fixture:
                 fixture.write(source + "\n")
+        # The files three fixtures compile that a walk of src/ and tests/
+        # for `.rs` never reads, and one outside the repository.
+        for relative, body in FIXTURE_FILES.items():
+            target = os.path.join(scratch if relative.startswith("../") else crate, relative.removeprefix("../"))
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "w") as extra:
+                extra.write(body)
+        os.symlink(os.path.join(crate, "linked_target"), os.path.join(crate, "tests", "linked"))
         messages, compiled, stderr = [], collections.defaultdict(set), ""
         for build in ([], ["--release"]):
             _, _, err, found, _, names = clippy(
@@ -1010,13 +1265,14 @@ def self_test():
             stderr += err
             for source, read in names.items():
                 compiled[source] |= read
-        invocations, _, plain, problems, _, _ = classify(crate, messages, macro, None)
-        problems += compiled_problems(compiled) + cfg_problems(crate)
+        invocations, _, plain, problems, _, _, seen = classify(crate, messages, macro, None)
+        problems += unrecorded_problems(seen, compiled)
+        problems += compiled_problems(compiled) + cfg_problems(crate, compiled, also=(ROOT,))
         problems = judge(invocations, plain, problems, [("tests/accepted.rs", ("PATH",))], [])
         failures = 0
         for name, (_, reasons) in FIXTURES.items():
             file = f"tests/{name}.rs"
-            mine = [why for f, _, why in problems if f == file]
+            mine = [why for f, _, why in problems if f in (file, *FIXTURE_OWNS.get(name, ()))]
             if not reasons:
                 verdict = "accepted" if not mine else "REFUSED, expected accepted"
                 failures += bool(mine)
@@ -1028,6 +1284,25 @@ def self_test():
         if not messages:
             sys.stderr.write(stderr[-4000:])
             failures += 1
+        # A `.d` cut before its `# env-dep:` lines -- rustc writes them last
+        # -- still holds the artifact's rule; what clippy's macro lint saw
+        # shows what it lost. Cargo replays the fresh pass's reports.
+        for directory, _, names in os.walk(os.path.join(scratch, "target")):
+            for name in names:
+                if name.endswith(".d"):
+                    path = os.path.join(directory, name)
+                    with open(path, "rb") as info:
+                        kept = [line for line in info.read().split(b"\n") if not line.startswith(b"# env-dep:")]
+                    with open(path, "wb") as info:
+                        info.write(b"\n".join(kept))
+        _, _, _, found, _, names = clippy(
+            crate, ["--offline", "--keep-going"], {"CARGO_TARGET_DIR": os.path.join(scratch, "target")}
+        )
+        _, _, _, _, _, _, seen = classify(crate, found, macro, None)
+        cut = [why for f, _, why in unrecorded_problems(seen, names) if f == "tests/option_env_of_a_key.rs"]
+        failures += not any("dep-info without XFX_GATEWAY_KEY" in why for why in cut)
+        print(f"{'refused' if cut else 'NOT REFUSED':9} dep-info cut before its env-dep lines"
+              + "".join(f"\n            {why}" for why in cut))
         # Where rustc's dep-info is, by artifact: an executable whose name
         # begins with "lib" keeps it, a library's file loses it, and an
         # uplifted executable is traced to its original, a hard link or a
@@ -1049,10 +1324,13 @@ def self_test():
         copied = os.path.join(scratch, "names", "xfx")
         shutil.copyfile(os.path.join(names_dir, "xfx-fedcba9876543210"), copied)
         resolved = {
-            "an executable named lib...": dep_info(os.path.join(names_dir, "library-0123456789abcdef")),
-            "a library's .rlib": dep_info(os.path.join(names_dir, "libxfx-0123456789abcdef.rlib")),
-            "an executable uplifted by a hard link": dep_info(os.path.join(linked, "xfx")),
-            "an executable uplifted by a copy": dep_info(copied),
+            what: (dep_info(path) or (None,))[0]
+            for what, path in (
+                ("an executable named lib...", os.path.join(names_dir, "library-0123456789abcdef")),
+                ("a library's .rlib", os.path.join(names_dir, "libxfx-0123456789abcdef.rlib")),
+                ("an executable uplifted by a hard link", os.path.join(linked, "xfx")),
+                ("an executable uplifted by a copy", copied),
+            )
         }
         expected = {
             "an executable named lib...": os.path.join(names_dir, "library-0123456789abcdef.d"),
@@ -1083,6 +1361,8 @@ def self_test():
         os.makedirs(os.path.join(built, "tests"))
         with open(os.path.join(built, "Cargo.toml"), "w") as manifest:
             manifest.write('[package]\nname = "built"\nversion = "0.0.0"\nedition = "2021"\npublish = false\n')
+        with open(os.path.join(built, "build.rs"), "w") as script:
+            script.write('fn main() {\n    println!("cargo:rustc-cfg=hidden");\n}\n')
         with open(os.path.join(built, "src", "main.rs"), "w") as main:
             main.write("fn main() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn runs() {}\n}\n")
         with open(os.path.join(built, "tests", "plain.rs"), "w") as plain:
@@ -1100,6 +1380,28 @@ def self_test():
                     os.remove(os.path.join(directory, name))
         _, compiled, _ = artifact_problems(built, ("--offline",), built_target)
         artifacts += [(f, line, "after the dep-info is gone: " + why) for f, line, why in compiled_problems(compiled)]
+        # Then each `.d` empty, then each cut inside its first line: neither
+        # holds the artifact's own rule, so neither is evidence.
+        for label, cut in (("empty", lambda text: b""), ("truncated", lambda text: text[: len(text.split(b"\n")[0]) // 2])):
+            # Sources newer than the last build, so the builds run once more
+            # and rustc writes every `.d` afresh, then each one cut.
+            # Not later than now: a source dated in the future would keep
+            # every next build stale, and rustc would write the `.d` again.
+            now = time.time()
+            for source in ("build.rs", "src/main.rs", "tests/plain.rs"):
+                os.utime(os.path.join(built, source), (now, now))
+            artifact_problems(built, ("--offline",), built_target)
+            for directory, _, names in os.walk(built_target["CARGO_TARGET_DIR"]):
+                for name in names:
+                    if name.endswith(".d"):
+                        path = os.path.join(directory, name)
+                        with open(path, "rb") as info:
+                            text = info.read()
+                        with open(path, "wb") as info:
+                            info.write(cut(text))
+            _, compiled, _ = artifact_problems(built, ("--offline",), built_target)
+            artifacts += [(f, line, f"with every dep-info {label}: " + why) for f, line, why in compiled_problems(compiled)]
+        artifacts += build_script_problems(built, compiled)
         refusals = [why for _, _, why in artifacts]
         wanted_built = [
             ("tests/plain.rs", "without making a clean copy", len(TEST_BUILDS)),
@@ -1107,6 +1409,9 @@ def self_test():
             ("tests/plain.rs", "compiled with CARGO_PKG_AUTHORS", 1),
             ("tests/plain.rs", "after the dep-info is gone: built with no dep-info", 1),
             ("src/main.rs", "after the dep-info is gone: built with no dep-info", 1),
+            ("tests/plain.rs", "with every dep-info empty: built with no dep-info", 1),
+            ("tests/plain.rs", "with every dep-info truncated: built with no dep-info", 1),
+            ("build.rs", "sets a cfg (rustc-cfg)", 1),
         ]
         missing_built = [
             (file, reason) for file, reason, count in wanted_built
@@ -1120,7 +1425,7 @@ def self_test():
         failures += bool(missing)
         print(f"{'refused' if not missing else 'NOT REFUSED for ' + str(missing):9} clippy configuration"
               + "".join(f"\n            {why}" for why in found))
-        print(f"check-env-reads --self-test: {len(FIXTURES) + 3} fixtures, {failures} not as expected")
+        print(f"check-env-reads --self-test: {len(FIXTURES) + 4} fixtures, {failures} not as expected")
         return 1 if failures else 0
     finally:
         shutil.rmtree(scratch, ignore_errors=True)

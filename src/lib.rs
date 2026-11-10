@@ -59,10 +59,16 @@ mod env_exception;
 /// declared by hand, the `environ` static and `/proc/self/environ` are
 /// outside what clippy can name, and so is code under a cfg that names
 /// `clippy`, which clippy never compiles: the check refuses such a cfg in
-/// `src`, `tests` and `build.rs`. Every integration test binary also runs in
-/// a clean copy of itself; this crate's own unit-test binary does not -- it
-/// runs in the developer's process, held by these lints and the fake
-/// process alone.
+/// every file the package compiles, and a build script that sets one. What
+/// a dependency reads on its own is outside it too: `ignore::WalkBuilder`
+/// reads the global gitignore under the real `HOME` unless the caller turns
+/// `git_global` off, as `tools::read` does. The check guards against honest
+/// mistakes in ordinary Rust source; outside it are a cfg a macro builds
+/// from its arguments, code a dependency runs on its own, and inline
+/// `asm!` -- deliberate evasion inside the repository is review's job.
+/// Every integration test binary also runs in a clean copy of itself; this
+/// crate's own unit-test binary does not -- it runs in the developer's
+/// process, held by these lints and the fake process alone.
 #[cfg(not(test))]
 macro_rules! process_env {
     ($who:literal, var($name:expr)) => {

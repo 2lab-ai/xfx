@@ -18,7 +18,14 @@
 # HOME) among them; a C function declared by hand, the `environ` static (a
 # static, which no entry can name) and a read of `/proc/self/environ` are
 # not. Nor is code under a cfg that names `clippy`, which clippy never
-# compiles; the check refuses any such cfg. A read of a named
+# compiles; the check refuses any such cfg, in every file the package
+# compiles, and a build script that sets a cfg. Nor is what a dependency
+# reads on its own: `ignore::WalkBuilder` reads the global gitignore under
+# the real HOME unless the caller turns `git_global` off, as
+# `src/tools/read.rs` does. The check guards against honest mistakes in
+# ordinary Rust source; outside it are a cfg a macro builds from its
+# arguments, code a dependency runs on its own, and inline `asm!`.
+# Deliberate evasion inside the repository is review's job. A read of a named
 # reader that stays outside `process_env!` is an `env_exception!`
 # (`src/env_exception.rs`), whose names are literals; but for the build
 # script, cargo's own process, nothing else lets one through.
@@ -30,7 +37,7 @@
 # built without `process`, mio is not a dependency of xfx's own, `vfork`,
 # `clone`, `execvpe`, `fexecve` and the variadic `execl*` are not in libc on
 # every target, `_NSGetEnviron` and `execvP` are libc's on Apple targets
-# only, `execveat` on Linux with glibc only, and
+# only, `execveat` and `getpwent_r` on Linux with glibc only, and
 # `pipe_with` is rustix's only where the system has `pipe2`. Each bites as
 # soon as it resolves.
 disallowed-methods = [
@@ -81,6 +88,8 @@ disallowed-methods = [
   { path = "libc::getpwuid_r", reason = "the user database gives the real home with no read of HOME, as std::env::home_dir falls back on it" },
   { path = "libc::getpwnam", reason = "the user database gives the real home with no read of HOME, as std::env::home_dir falls back on it" },
   { path = "libc::getpwnam_r", reason = "the user database gives the real home with no read of HOME, as std::env::home_dir falls back on it" },
+  { path = "libc::getpwent", reason = "the user database gives the real home with no read of HOME, as std::env::home_dir falls back on it" },
+  { path = "libc::getpwent_r", reason = "the user database gives the real home with no read of HOME, as std::env::home_dir falls back on it", allow-invalid = true },
   { path = "std::env::temp_dir", reason = "it reads TMPDIR: the process environment is read through process_env! (src/lib.rs) or an env_exception!" },
 ]
 
