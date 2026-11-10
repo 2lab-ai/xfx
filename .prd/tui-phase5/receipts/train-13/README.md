@@ -57,7 +57,8 @@ After the merges, in order:
 | `ea35d548` | two join tests, appended at their modules' ends (join checks 1 and 2) |
 | `e1e15efd` | 24 references re-pointed, numbers only -- **the code head: the gate, the sweeps and every job ran here**. Its title says "the 24 references the merges moved": 22 were, 2 were wrong at the base already (its body and the section below give the split) |
 | `8a2dbd29`, `3e81637f`, `1df65ee0` | the merges' scripts and checks and the join jobs; the gate, the probe and the selection; the sweeps and their compares |
-| the receipt's last three | the reruns and this README; then `gates-files.txt` (`gates-files.sh` in a clone at the commit before it); then `final-scan.txt` alone (`final-scan.sh` at the commit before it, which it does not list) |
+| `3083bc8f`, then one more | the reruns and this README; then this README's last fixes, `new-scenarios.txt` and `final-scan.sh`'s per-unit counts |
+| the last two | `gates-files.txt` (`gates-files.sh` in a clone at the commit before it); then `final-scan.txt` alone (`final-scan.sh` at the commit before it, which it does not list) |
 
 **No code after the code head**: `final-scan.txt` part 4 lists every commit
 after `e1e15efd` through the one before it, each with the files it touches
@@ -318,8 +319,9 @@ is keys.
 ## Commits partway along the branch (`midbranch_scan.py`, `final-scan.txt`)
 
 The brief's check over **every commit of `f53606d1..HEAD`** -- the units'
-54 (HISTORY-NOTICES-COPY-FX 13, QUESTION-RESUME 14, the approval stack 27)
-and this train's -- each as `git show --format=` prints it (a merge as its
+54 (HISTORY-NOTICES-COPY-FX 13, QUESTION-RESUME 14, the approval stack 27,
+each since its base `32afd307`; `final-scan.txt` part 2's first line) and
+this train's -- each as `git show --format=` prints it (a merge as its
 combined diff), every hit classified by `midbranch_scan.py` (train 12's,
 the brief's two new terms added: a wrapped scratch root's tail
 `-<uid>/t<n>/` and a sweep run name; the account's name and uid read at
@@ -400,13 +402,14 @@ head's (330 and 68), `v0.1.0-f53606d` on all of the base's (256 and 68;
 | head, the extra selection (`sweep-head-x.md`) | 18 | 110 | 42 (38.2%) | 0 | 0 |
 | base, the same (`sweep-base-x.md`, rescored) | 18 | 110 | 42 (38.2%) | 0 | 0 |
 
-The head's five scenarios more are the units' new ones, 77 pairs:
-`p5-question-word-left` 16 of 16 and `p5-question-resume` 4 of 4 pass;
-`p5-approval-horizontal-keys` 0 of 29 and `p5-approval-vertical-keys` 0 of
-27, each pair unresolved under `approval-grant-scope` alone (a user
-decision, as both units registered); `p5-question-resume-ctrlo` 0 of 1,
-under `question-resume-ctrlo-detail` alone, as QUESTION-RESUME registered.
-So 175 + 2 + 20 = 197.
+The head's five scenarios more are the units' new ones, 77 pairs
+(`new-scenarios.txt`): `p5-question-word-left` 16 of 16 and
+`p5-question-resume` 4 of 4 pass; `p5-approval-horizontal-keys` 0 of 29 and
+`p5-approval-vertical-keys` 0 of 27, each pair unresolved under
+`approval-grant-scope` alone, no row left uncovered (a user decision, as
+both units registered); `p5-question-resume-ctrlo` 0 of 1, under
+`question-resume-ctrlo-detail` alone, as QUESTION-RESUME registered. So
+175 + 2 + 20 = 197.
 
 ### Against the base, pair by pair (`compare-base.txt`, `compare-base-x.txt`, `screen-moves-base*.txt`, `screen-classes*.txt`, `screen-partition.txt`, `gained-rows*.txt`)
 
@@ -491,8 +494,12 @@ text.
   `scripts/fxcap/ledger.py` reads them for the file and the range,
   `_sources`) name 18 scenarios more: **swept too, as a second pair**
   (`selection-extra.txt`, `sweep-*-x.md`). Left out: `session-record`'s
-  `scenarios = ["*"]`, every scenario, though it sat in six of merge 3's
-  twelve blocks. Why that is safe: the merge kept ours' entry and the
+  `scenarios = ["*"]`, every scenario: one of merge 3's twelve blocks
+  (ledger `:806`); the other five `:41113` blocks are five other entries
+  (`transcript-page-offset`, `toolgroup-ctrlo-record-short`,
+  `safe-page-edge`, `cancel-page-edge`, `full-transcript-shift`;
+  `avs-refs.txt`), every scenario of which the extra sweep took. Why
+  leaving it out is safe: the merge kept ours' entry and the
   re-point changed its `xfx` numbers alone; a cause's `xfx` is read only by
   `scripts/fxcap/ledger.py:212-219` (a defect names its source lines,
   checked by `_sources`, `:246-263`: the file exists and holds the range)
@@ -584,7 +591,8 @@ this folder. Each receipt commit also passed `check-no-local-paths.sh`.
 - Sweeps: `selection.py`, `selection.txt`, `selection-extra.txt`,
   `sweep.sh`, `sweep-runs.sh` / `sweep-runs.txt`, `sweep-*.md`;
   `sweep-compare.sh`, `compare.py`, `screen_moves.py`, `screen_classes.py`,
-  `screen_partition.py`, `gained_rows.py`, `banners.py`, `unit_compare.py`
+  `screen_partition.py`, `gained_rows.py`, `new_scenarios.py` /
+  `new-scenarios.txt`, `banners.py`, `unit_compare.py`
   (its `diff` mode new), `compare-*.txt`, `screen-moves-*.txt`,
   `screen-classes*.txt`, `screen-partition.txt`, `gained-rows*.txt`;
   `sweep-rerun.sh`, `reruns.sh`, `rerun_verdicts.py`, `reruns_txt.sh`,

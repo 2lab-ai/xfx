@@ -47,3 +47,5 @@ U=.prd/tui-phase5/receipts
 { echo "## the base and the head"; $P/screen_partition.py "$T/ref-base" "$T/sw-head"
   echo "## the extra pair"; $P/screen_partition.py "$T/ref-base-x" "$T/sw-head-x"; } | rd "$here/screen-partition.txt"
 $P/screen_classes.py "$here/screen-moves-base-x.txt" | rd "$here/screen-classes-x.txt"
+# the units' new scenarios at the head: verdicts and causes (new_scenarios.py)
+$P/new_scenarios.py "$T/ref-base" "$T/sw-head" | rd "$here/new-scenarios.txt"

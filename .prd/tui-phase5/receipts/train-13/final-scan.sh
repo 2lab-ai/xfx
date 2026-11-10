@@ -10,7 +10,8 @@
 #      then the range of this train's commits, `git diff <base>..<head>`, 0;
 #   2. midbranch_scan.py: every commit of <base>..<head>, the units' own
 #      included, and the range itself, each hit classified (placeholder,
-#      SCRATCH, NAME; a NAME stops the train);
+#      SCRATCH, NAME; a NAME stops the train); train 13: first, each unit
+#      tip's commits since its base 32afd307, and the range's;
 #   3. every file of this directory, by the same pattern; round 2 adds
 #      shapes.py's three shapes over it (the brief's, a run directory's name,
 #      the harness root's uid tail);
@@ -40,6 +41,7 @@ echo "# the brief's count over the range, git diff $base..$(git -C "$repo" rev-p
 mine=$((mine + range))
 echo
 echo "## 2. every commit of the range, and the range (midbranch_scan.py)"
+echo "# commits per side: $(for tip in 714f6283 d0e08d8c a37a969e; do printf '%s %s; ' "$tip" "$(git -C "$repo" rev-list --count "32afd307..$tip")"; done)the range $base..$(git -C "$repo" rev-parse --short=8 "$head") $(git -C "$repo" rev-list --count "$base..$head")"
 python3 -I -B "$here/midbranch_scan.py" "$repo" "$base" "$head"
 rc=$?
 echo "# midbranch_scan.py exit $rc"
