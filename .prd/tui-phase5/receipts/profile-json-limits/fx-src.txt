@@ -1,0 +1,430 @@
+std/json/dynamic.zig@0.17.0 sha256 37b8c7e934cf2887b6677ee345e6661a78af8ee4dcdc3225ecd563b352b23fa0
+std/json/Scanner.zig@0.17.0 sha256 6668cf992d2d3a0c7a680bdbe76e53534ed843f26b3b07367fc95082b956f563
+std/json/static.zig@0.17.0 sha256 6a5ebd3c69f615353fbc8df0fe7b439ffaa4418dad5ee3927e2452454ea0611e
+#### 1. The parse: std.json.parseFromSlice into a std.json.Value, default options, both layers
+== src/core/config/settings_store.zig:400-412@481104fd (4166 lines) -- loadPrimary: the profile, .{}; a parse error is .invalid (malformed_settings, which refuses a launch)
+   400	    pub fn loadPrimary(self: *Store, alloc: Allocator) !PrimaryLoad {
+   401	        var raw = try self.loadRawPrimary(alloc);
+   402	        switch (raw) {
+   403	            .absent => return .absent,
+   404	            .oversized => return .oversized,
+   405	            .bytes => |bytes| {
+   406	                raw = .absent;
+   407	                errdefer alloc.free(bytes);
+   408	                var parsed = std.json.parseFromSlice(std.json.Value, alloc, bytes, .{}) catch {
+   409	                    alloc.free(bytes);
+   410	                    return .invalid;
+   411	                };
+   412	                defer parsed.deinit();
+== src/core/config/config_runtime.zig:523-545@481104fd (4718 lines) -- the project file: .{} too; a parse error is project malformed_settings, never a refusal
+   523	    const project_path = try std.Io.Dir.path.join(alloc, &.{ workspace_root, ".fx.json" });
+   524	    defer alloc.free(project_path);
+   525	    const project_text = readOptionalFile(alloc, project_path) catch |err| blk: {
+   526	        if (err == error.OutOfMemory) return err;
+   527	        try diagnostics.append(alloc, .{
+   528	            .layer = .project,
+   529	            .cause = switch (err) {
+   530	                error.StreamTooLong => .settings_too_large,
+   531	                error.DurablePathUnsafe => .durable_path_unsafe,
+   532	                else => .malformed_settings,
+   533	            },
+   534	        });
+   535	        break :blk null;
+   536	    };
+   537	    defer if (project_text) |text| alloc.free(text);
+   538	    if (project_text) |text| {
+   539	        if (std.json.parseFromSlice(std.json.Value, alloc, text, .{})) |parsed_value| {
+   540	            var parsed = parsed_value;
+   541	            defer parsed.deinit();
+   542	            if (parsed.value != .object) {
+   543	                try diagnostics.append(alloc, .{ .layer = .project, .cause = .malformed_settings });
+   544	            } else {
+   545	                try appendIgnoredProjectProfileSettingDiagnostics(alloc, &diagnostics, parsed.value);
+== src/core/config/config_runtime.zig:1434-1438@481104fd (4718 lines) -- parseSettingsJsonForLayer: the same parse, for a layer read whole
+  1434	
+  1435	fn parseSettingsJsonForLayer(alloc: Allocator, json_text: []const u8, layer: SettingsLayer) !Settings {
+  1436	    var parsed = try std.json.parseFromSlice(std.json.Value, alloc, json_text, .{});
+  1437	    defer parsed.deinit();
+  1438	    return parseSettingsValueForLayer(alloc, parsed.value, layer, false, true);
+== src/core/app/app_lifecycle.zig:689-703@481104fd (2901 lines) -- malformed_settings refuses every launch
+   689	    // A rejected local profile cannot safely identify the destination of model data.
+   690	    if (auth_mode == .local) for (detailed.diagnostics) |diagnostic| {
+   691	        if (diagnostic.layer != .user) continue;
+   692	        switch (diagnostic.cause) {
+   693	            .durable_path_unsafe => {
+   694	                if (credential_mode != .stored) return error.InvalidProfileConfiguration;
+   695	                state.model_requests_blocked = true;
+   696	            },
+   697	            .malformed_settings,
+   698	            .settings_too_large,
+   699	            .invalid_model_id,
+   700	            => return error.InvalidProfileConfiguration,
+   701	            else => {},
+   702	        }
+   703	    };
+#### 2. The size cap is the only bound on nesting
+== src/core/config/settings_store.zig:17-17@481104fd (4166 lines) -- the profile: 64 KiB
+    17	const max_settings_bytes: usize = 64 * 1024;
+== src/core/config/config_runtime.zig:19-19@481104fd (4718 lines) -- the project file: 64 KiB
+    19	const max_settings_bytes: usize = 64 * 1024;
+== src/core/config/config_runtime.zig:1414-1429@481104fd (4718 lines) -- readOptionalFile: a larger file is StreamTooLong (settings_too_large)
+  1414	
+  1415	fn readOptionalFile(alloc: Allocator, path: []const u8) !?[]u8 {
+  1416	    var file = io_mod.openExistingRegularFile(
+  1417	        std.Io.Dir.cwd(),
+  1418	        path,
+  1419	        .read_only,
+  1420	    ) catch |err| switch (err) {
+  1421	        error.FileNotFound => return null,
+  1422	        else => return err,
+  1423	    };
+  1424	    defer file.close(io_mod.getIo());
+  1425	
+  1426	    const stat = try file.stat(io_mod.getIo());
+  1427	    if (stat.kind != .file or stat.size > max_settings_bytes) return error.StreamTooLong;
+  1428	    return try io_mod.readFileToEnd(alloc, &file, max_settings_bytes + 1);
+  1429	}
+== src/core/config/configured_provider.zig:131-145@481104fd (640 lines) -- fx's own note: std.json.Value parses iteratively; input size bounds nesting
+   131	
+   132	    /// Bounded, duplicate-rejecting convenience parser for a raw providers object.
+   133	    /// std.json.Value parses iteratively; input size also bounds nesting/work.
+   134	    /// The temporary JSON tree is released before returning the owned registry.
+   135	    pub fn parse_json(alloc: Allocator, json: []const u8) ParseError!Registry {
+   136	        if (json.len > max_json_bytes) return error.LimitExceeded;
+   137	        var parsed = std.json.parseFromSlice(std.json.Value, alloc, json, .{
+   138	            .duplicate_field_behavior = .@"error",
+   139	            .max_value_len = max_url_bytes,
+   140	        }) catch |err| switch (err) {
+   141	            error.OutOfMemory => return error.OutOfMemory,
+   142	            error.DuplicateField => return error.DuplicateField,
+   143	            error.ValueTooLong => return error.LimitExceeded,
+   144	            else => return error.InvalidJson,
+   145	        };
+== lib/std/json/Scanner.zig:1-40@0.17.0 (1766 lines) -- the scanner: memory O(depth), nesting depth needs allocation, unpaired surrogates refused
+     1	//! The lowest level parsing API in this package;
+     2	//! supports streaming input with a low memory footprint.
+     3	//! The memory requirement is `O(d)` where d is the nesting depth of `[]` or `{}` containers in the input.
+     4	//! Specifically `d/8` bytes are required for this purpose,
+     5	//! with some extra buffer according to the implementation of `std.ArrayList`.
+     6	//!
+     7	//! This scanner can emit partial tokens; see `std.json.Token`.
+     8	//! The input to this class is a sequence of input buffers that you must supply one at a time.
+     9	//! Call `feedInput()` with the first buffer, then call `next()` repeatedly until `error.BufferUnderrun` is returned.
+    10	//! Then call `feedInput()` again and so forth.
+    11	//! Call `endInput()` when the last input buffer has been given to `feedInput()`, either immediately after calling `feedInput()`,
+    12	//! or when `error.BufferUnderrun` requests more data and there is no more.
+    13	//! Be sure to call `next()` after calling `endInput()` until `Token.end_of_document` has been returned.
+    14	//!
+    15	//! Notes on standards compliance: https://datatracker.ietf.org/doc/html/rfc8259
+    16	//! * RFC 8259 requires JSON documents be valid UTF-8,
+    17	//!   but makes an allowance for systems that are "part of a closed ecosystem".
+    18	//!   I have no idea what that's supposed to mean in the context of a standard specification.
+    19	//!   This implementation requires inputs to be valid UTF-8.
+    20	//! * RFC 8259 contradicts itself regarding whether lowercase is allowed in \u hex digits,
+    21	//!   but this is probably a bug in the spec, and it's clear that lowercase is meant to be allowed.
+    22	//!   (RFC 5234 defines HEXDIG to only allow uppercase.)
+    23	//! * When RFC 8259 refers to a "character", I assume they really mean a "Unicode scalar value".
+    24	//!   See http://www.unicode.org/glossary/#unicode_scalar_value .
+    25	//! * RFC 8259 doesn't explicitly disallow unpaired surrogate halves in \u escape sequences,
+    26	//!   but vaguely implies that \u escapes are for encoding Unicode "characters" (i.e. Unicode scalar values?),
+    27	//!   which would mean that unpaired surrogate halves are forbidden.
+    28	//!   By contrast ECMA-404 (a competing(/compatible?) JSON standard, which JavaScript's JSON.parse() conforms to)
+    29	//!   explicitly allows unpaired surrogate halves.
+    30	//!   This implementation forbids unpaired surrogate halves in \u sequences.
+    31	//!   If a high surrogate half appears in a \u sequence,
+    32	//!   then a low surrogate half must immediately follow in \u notation.
+    33	//! * RFC 8259 allows implementations to "accept non-JSON forms or extensions".
+    34	//!   This implementation does not accept any of that.
+    35	//! * RFC 8259 allows implementations to put limits on "the size of texts",
+    36	//!   "the maximum depth of nesting", "the range and precision of numbers",
+    37	//!   and "the length and character contents of strings".
+    38	//!   This low-level implementation does not limit these,
+    39	//!   except where noted above, and except that nesting depth requires memory allocation.
+    40	//!   Note that this low-level API does not interpret numbers numerically,
+== lib/std/json/Scanner.zig:50-85@0.17.0 (1766 lines) -- the nesting levels are a BitStack on the allocator
+    50	const BitStack = std.BitStack;
+    51	
+    52	state: State = .value,
+    53	string_is_object_key: bool = false,
+    54	stack: BitStack,
+    55	value_start: usize = undefined,
+    56	utf16_code_units: [2]u16 = undefined,
+    57	
+    58	input: []const u8 = "",
+    59	cursor: usize = 0,
+    60	is_end_of_input: bool = false,
+    61	diagnostics: ?*Diagnostics = null,
+    62	
+    63	/// The allocator is only used to track `[]` and `{}` nesting levels.
+    64	pub fn initStreaming(allocator: Allocator) @This() {
+    65	    return .{
+    66	        .stack = BitStack.init(allocator),
+    67	    };
+    68	}
+    69	/// Use this if your input is a single slice.
+    70	/// This is effectively equivalent to:
+    71	/// ```
+    72	/// initStreaming(allocator);
+    73	/// feedInput(complete_input);
+    74	/// endInput();
+    75	/// ```
+    76	pub fn initCompleteInput(allocator: Allocator, complete_input: []const u8) @This() {
+    77	    return .{
+    78	        .stack = BitStack.init(allocator),
+    79	        .input = complete_input,
+    80	        .is_end_of_input = true,
+    81	    };
+    82	}
+    83	pub fn deinit(self: *@This()) void {
+    84	    self.stack.deinit();
+    85	    self.* = undefined;
+== lib/std/json/dynamic.zig:76-132@0.17.0 (192 lines) -- Value.jsonParse: an explicit stack of Values, no recursion
+    76	    pub fn jsonParse(allocator: Allocator, source: anytype, options: ParseOptions) ParseError(@TypeOf(source.*))!@This() {
+    77	        // The grammar of the stack is:
+    78	        //  (.array | .object .string)*
+    79	        var stack = Array.init(allocator);
+    80	        defer stack.deinit();
+    81	
+    82	        while (true) {
+    83	            // Assert the stack grammar at the top of the stack.
+    84	            debug.assert(stack.items.len == 0 or
+    85	                stack.items[stack.items.len - 1] == .array or
+    86	                (stack.items[stack.items.len - 2] == .object and stack.items[stack.items.len - 1] == .string));
+    87	
+    88	            switch (try source.nextAllocMax(allocator, .alloc_always, options.max_value_len.?)) {
+    89	                .allocated_string => |s| {
+    90	                    return try handleCompleteValue(&stack, allocator, source, Value{ .string = s }, options) orelse continue;
+    91	                },
+    92	                .allocated_number => |slice| {
+    93	                    if (options.parse_numbers) {
+    94	                        return try handleCompleteValue(&stack, allocator, source, Value.parseFromNumberSlice(slice), options) orelse continue;
+    95	                    } else {
+    96	                        return try handleCompleteValue(&stack, allocator, source, Value{ .number_string = slice }, options) orelse continue;
+    97	                    }
+    98	                },
+    99	
+   100	                .null => return try handleCompleteValue(&stack, allocator, source, .null, options) orelse continue,
+   101	                .true => return try handleCompleteValue(&stack, allocator, source, Value{ .bool = true }, options) orelse continue,
+   102	                .false => return try handleCompleteValue(&stack, allocator, source, Value{ .bool = false }, options) orelse continue,
+   103	
+   104	                .object_begin => {
+   105	                    switch (try source.nextAllocMax(allocator, .alloc_always, options.max_value_len.?)) {
+   106	                        .object_end => return try handleCompleteValue(&stack, allocator, source, Value{ .object = .empty }, options) orelse continue,
+   107	                        .allocated_string => |key| {
+   108	                            try stack.appendSlice(&[_]Value{
+   109	                                Value{ .object = .empty },
+   110	                                Value{ .string = key },
+   111	                            });
+   112	                        },
+   113	                        else => unreachable,
+   114	                    }
+   115	                },
+   116	                .array_begin => {
+   117	                    try stack.append(Value{ .array = Array.init(allocator) });
+   118	                },
+   119	                .array_end => return try handleCompleteValue(&stack, allocator, source, stack.pop().?, options) orelse continue,
+   120	
+   121	                else => unreachable,
+   122	            }
+   123	        }
+   124	    }
+   125	
+   126	    pub fn jsonParseFromValue(allocator: Allocator, source: Value, options: ParseOptions) !@This() {
+   127	        _ = allocator;
+   128	        _ = options;
+   129	        return source;
+   130	    }
+   131	};
+   132	
+== lib/std/json/dynamic.zig:133-183@0.17.0 (192 lines) -- handleCompleteValue: a completed value goes to its container in a loop; a key twice is DuplicateField
+   133	fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, value_: Value, options: ParseOptions) !?Value {
+   134	    if (stack.items.len == 0) return value_;
+   135	    var value = value_;
+   136	    while (true) {
+   137	        // Assert the stack grammar at the top of the stack.
+   138	        debug.assert(stack.items[stack.items.len - 1] == .array or
+   139	            (stack.items[stack.items.len - 2] == .object and stack.items[stack.items.len - 1] == .string));
+   140	        switch (stack.items[stack.items.len - 1]) {
+   141	            .string => |key| {
+   142	                // stack: [..., .object, .string]
+   143	                _ = stack.pop();
+   144	
+   145	                // stack: [..., .object]
+   146	                var object = &stack.items[stack.items.len - 1].object;
+   147	
+   148	                const gop = try object.getOrPut(allocator, key);
+   149	                if (gop.found_existing) {
+   150	                    switch (options.duplicate_field_behavior) {
+   151	                        .use_first => {},
+   152	                        .@"error" => return error.DuplicateField,
+   153	                        .use_last => {
+   154	                            gop.value_ptr.* = value;
+   155	                        },
+   156	                    }
+   157	                } else {
+   158	                    gop.value_ptr.* = value;
+   159	                }
+   160	
+   161	                // This is an invalid state to leave the stack in,
+   162	                // so we have to process the next token before we return.
+   163	                switch (try source.nextAllocMax(allocator, .alloc_always, options.max_value_len.?)) {
+   164	                    .object_end => {
+   165	                        // This object is complete.
+   166	                        value = stack.pop().?;
+   167	                        // Effectively recurse now that we have a complete value.
+   168	                        if (stack.items.len == 0) return value;
+   169	                        continue;
+   170	                    },
+   171	                    .allocated_string => |next_key| {
+   172	                        // We've got another key.
+   173	                        try stack.append(Value{ .string = next_key });
+   174	                        // stack: [..., .object, .string]
+   175	                        return null;
+   176	                    },
+   177	                    else => unreachable,
+   178	                }
+   179	            },
+   180	            .array => |*array| {
+   181	                // stack: [..., .array]
+   182	                try array.append(value);
+   183	                return null;
+#### 3. Numbers: an integer, a float, or the number's own text
+== lib/std/json/static.zig:19-56@0.17.0 (825 lines) -- ParseOptions: duplicate_field_behavior .error and parse_numbers true by default
+    19	pub const ParseOptions = struct {
+    20	    /// Behaviour when a duplicate field is encountered.
+    21	    /// The default is to return `error.DuplicateField`.
+    22	    duplicate_field_behavior: enum {
+    23	        use_first,
+    24	        @"error",
+    25	        use_last,
+    26	    } = .@"error",
+    27	
+    28	    /// If false, finding an unknown field returns `error.UnknownField`.
+    29	    ignore_unknown_fields: bool = false,
+    30	
+    31	    /// Passed to `std.json.Scanner.nextAllocMax` or `std.json.Reader.nextAllocMax`.
+    32	    /// The default for `parseFromSlice` or `parseFromTokenSource` with a `*std.json.Scanner` input
+    33	    /// is the length of the input slice, which means `error.ValueTooLong` will never be returned.
+    34	    /// The default for `parseFromTokenSource` with a `*std.json.Reader` is `std.json.default_max_value_len`.
+    35	    /// Ignored for values that don't need allocation or are not copied (see `allocate`).
+    36	    /// Ignored for `parseFromValue` and `parseFromValueLeaky`.
+    37	    max_value_len: ?usize = null,
+    38	
+    39	    /// This determines whether strings should always be copied,
+    40	    /// or if a reference to the given buffer should be preferred if possible.
+    41	    /// The default for `parseFromSlice` or `parseFromTokenSource` with a `*std.json.Scanner` input
+    42	    /// is `.alloc_if_needed`.
+    43	    /// The default with a `*std.json.Reader` input is `.alloc_always`.
+    44	    /// Ignored for `parseFromValue` and `parseFromValueLeaky`.
+    45	    allocate: ?AllocWhen = null,
+    46	
+    47	    /// When parsing to a `std.json.Value`, set this option to false to always emit
+    48	    /// JSON numbers as unparsed `std.json.Value.number_string`.
+    49	    /// Otherwise, JSON numbers are parsed as either `std.json.Value.integer`,
+    50	    /// `std.json.Value.float` or left as unparsed `std.json.Value.number_string`
+    51	    /// depending on the format and value of the JSON number.
+    52	    /// When this option is true, JSON numbers encoded as floats (see `std.json.isNumberFormattedLikeAnInteger`)
+    53	    /// may lose precision when being parsed into `std.json.Value.float`.
+    54	    parse_numbers: bool = true,
+    55	};
+    56	
+== lib/std/json/dynamic.zig:16-47@0.17.0 (192 lines) -- parseFromNumberSlice: past i64 or not finite as f64 (1e400) is .number_string; 1e-400 is the float 0
+    16	/// Represents any JSON value, potentially containing other JSON values.
+    17	/// A .float value may be an approximation of the original value.
+    18	/// Arbitrary precision numbers can be represented by .number_string values.
+    19	/// See also `std.json.ParseOptions.parse_numbers`.
+    20	pub const Value = union(enum) {
+    21	    null,
+    22	    bool: bool,
+    23	    integer: i64,
+    24	    float: f64,
+    25	    number_string: []const u8,
+    26	    string: []const u8,
+    27	    array: Array,
+    28	    object: ObjectMap,
+    29	
+    30	    pub fn parseFromNumberSlice(s: []const u8) Value {
+    31	        if (!isNumberFormattedLikeAnInteger(s)) {
+    32	            const f = std.fmt.parseFloat(f64, s) catch unreachable;
+    33	            if (std.math.isFinite(f)) {
+    34	                return Value{ .float = f };
+    35	            } else {
+    36	                return Value{ .number_string = s };
+    37	            }
+    38	        }
+    39	        if (std.fmt.parseInt(i64, s, 10)) |i| {
+    40	            return Value{ .integer = i };
+    41	        } else |e| {
+    42	            switch (e) {
+    43	                error.Overflow => return Value{ .number_string = s },
+    44	                error.InvalidCharacter => unreachable,
+    45	            }
+    46	        }
+    47	    }
+== lib/std/json/Scanner.zig:1759-1762@0.17.0 (1766 lines) -- isNumberFormattedLikeAnInteger: -0 is a float
+  1759	pub fn isNumberFormattedLikeAnInteger(value: []const u8) bool {
+  1760	    if (std.mem.eql(u8, value, "-0")) return false;
+  1761	    return std.mem.findAny(u8, value, ".eE") == null;
+  1762	}
+#### 4. No settings key takes anything but its own type
+== src/core/config/config_runtime.zig:1934-1946@481104fd (4718 lines) -- max_agent_steps and max_tool_result_bytes: anything but .integer is InvalidMaxAgentStepsType
+  1934	    if (root.object.get("max_agent_steps")) |max_agent_steps_value| {
+  1935	        const value = max_agent_steps_value;
+  1936	        if (value != .integer) return error.InvalidMaxAgentStepsType;
+  1937	        if (value.integer < 0) return error.InvalidMaxAgentStepsValue;
+  1938	        settings.max_agent_steps = std.math.cast(usize, value.integer) orelse return error.InvalidMaxAgentStepsValue;
+  1939	    }
+  1940	
+  1941	    if (root.object.get("max_tool_result_bytes")) |max_tool_result_bytes_value| {
+  1942	        const value = max_tool_result_bytes_value;
+  1943	        if (value != .integer) return error.InvalidMaxToolResultBytesType;
+  1944	        if (value.integer < @as(i64, @intCast(tool_result_limits.min_configured_tool_result_bytes))) return error.InvalidMaxToolResultBytesValue;
+  1945	        settings.max_tool_result_bytes = std.math.cast(usize, value.integer) orelse return error.InvalidMaxToolResultBytesValue;
+  1946	    }
+== src/core/config/config_runtime.zig:1645-1650@481104fd (4718 lines) -- auto_compact_percent: the same
+  1645	    if (root.object.contains("skill_match_fuzzy")) return error.RetiredSkillMatchFuzzy;
+  1646	    if (root.object.get("auto_compact_percent")) |value| {
+  1647	        if (value != .integer) return error.InvalidAutoCompactPercentType;
+  1648	        if (value.integer < 0 or !compactor.isValidPercent(@intCast(value.integer))) return error.InvalidAutoCompactPercentValue;
+  1649	        settings.auto_compact_percent = @intCast(value.integer);
+  1650	    }
+== src/core/config/context_limits.zig:193-199@481104fd (256 lines) -- context_limits: .integer or .string, else InvalidContextLimitValue
+   193	fn parseJsonValue(value: std.json.Value) !Value {
+   194	    return switch (value) {
+   195	        .integer => |integer| .{ .bytes = std.math.cast(usize, integer) orelse return error.InvalidContextLimitValue },
+   196	        .string => |string| parseValueString(string),
+   197	        else => error.InvalidContextLimitValue,
+   198	    };
+   199	}
+#### 5. The writers keep the number's text (not copied here: the parity row)
+== src/core/config/settings_store.zig:1818-1847@481104fd (4166 lines) -- settings_store's writer: .number_string written as read
+  1818	    switch (value) {
+  1819	        .null => try writer.writeAll("null"),
+  1820	        .bool => |boolean| try writer.writeAll(if (boolean) "true" else "false"),
+  1821	        .integer => |integer| try writer.print("{d}", .{integer}),
+  1822	        .float => |float| try writer.print("{d}", .{float}),
+  1823	        .string => |string| try std.json.Stringify.value(string, .{}, writer),
+  1824	        .array => |array| {
+  1825	            try writer.writeByte('[');
+  1826	            for (array.items, 0..) |item, index| {
+  1827	                if (index > 0) try writer.writeByte(',');
+  1828	                try writeJsonValue(writer, item);
+  1829	            }
+  1830	            try writer.writeByte(']');
+  1831	        },
+  1832	        .object => |object| {
+  1833	            try writer.writeByte('{');
+  1834	            var first = true;
+  1835	            var it = object.iterator();
+  1836	            while (it.next()) |entry| {
+  1837	                if (!first) try writer.writeByte(',');
+  1838	                first = false;
+  1839	                try std.json.Stringify.value(entry.key_ptr.*, .{}, writer);
+  1840	                try writer.writeByte(':');
+  1841	                try writeJsonValue(writer, entry.value_ptr.*);
+  1842	            }
+  1843	            try writer.writeByte('}');
+  1844	        },
+  1845	        .number_string => |number| try writer.writeAll(number),
+  1846	    }
+  1847	}
