@@ -1,0 +1,13 @@
+# r3-edba4758-49: the round-3 harness (edba4758), xfx edba4758, TMPDIR of 49 bytes, four units of workspace-index.
+# run 01 fx: roots: <work>=85 <scratch>=80 <scenarios>=140 <bun>=21 <bun:real>=39 <tmp>=67 <home>=16 bytes
+#    8 pane: the process the run started is gone (0 looks)
+# sweep: pass = 8 / 8 = 100.0%; unresolved 0, failed 0, timeout 0
+workspace-index-01       at-all   normalized-identical                             
+workspace-index-01       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-02       at-all   normalized-identical                             
+workspace-index-02       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-03       at-all   normalized-identical                             
+workspace-index-03       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-04       at-all   normalized-identical                             
+workspace-index-04       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+totals: {"normalized-identical": 8}

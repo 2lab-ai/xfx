@@ -1,0 +1,21 @@
+# r6-495fbb40-24: the round-6 harness (495fbb40), xfx 495fbb40, TMPDIR of 24 bytes.
+#   15 pane: the process the run started is gone (0 looks)
+#    1 pane: the process the run started is gone (1 looks)
+# sweep: pass = 16 / 16 = 100.0%; unresolved 0, failed 0, timeout 0
+workspace-index-01       at-all   normalized-identical                             
+workspace-index-01       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-02       at-all   normalized-identical                             
+workspace-index-02       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-03       at-all   normalized-identical                             
+workspace-index-03       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-04       at-all   normalized-identical                             
+workspace-index-04       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-05       at-all   normalized-identical                             
+workspace-index-05       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-06       at-all   normalized-identical                             
+workspace-index-06       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-07       at-all   normalized-identical                             
+workspace-index-07       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-08       at-all   normalized-identical                             
+workspace-index-08       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+totals: {"normalized-identical": 16}

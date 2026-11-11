@@ -1,0 +1,8 @@
+# quick checks at 267ab4f1
+scripts/check-no-secrets.sh exit 0
+scripts/check-no-stubs.sh exit 0
+scripts/check-no-local-paths.sh exit 0
+scripts/check-xfx-identity.sh exit 0
+test_ci_sweep.py exit 0
+tree clean after: yes
+# (at 2c560438's successor ac8cb967, check-xfx-identity refused runs.sh:17, which named the oracle's directory; 267ab4f1 takes it from FX_BIN.)

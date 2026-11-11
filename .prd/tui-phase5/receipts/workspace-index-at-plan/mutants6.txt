@@ -1,0 +1,15 @@
+# mutants6.sh on a git clone --no-local at 495fbb40 (scratch): round 6's four, one edit at a time, the clone restored after each (git status empty at the end).
+# KILLED = a targeted test fails; its first assertion, the diff, and every failing test are shown.
+W1-no-wait-at-relaunch: KILLED by scripts/fxcap/test_capture.py (AssertionError: None is not true : roots: <work>=67 <scratch>=62 <scenarios>=59 <bun>=21 <bun:real>=39 <tmp>=49 <home>=1)
+    diff: -        await_pane "$old_kind" "$old_pid" "$old_start" "$old_why" "the relaunched pane's process" 'the relaunch replaced it' || exit 4 +        : 
+    failing: test_a_relaunched_binary_is_the_one_waited_for test_a_relaunched_binary_whose_last_one_stays_fails_the_run 
+W2-old-record-taken-after-the-respawn: KILLED by scripts/fxcap/test_capture.py (AssertionError: 4 != 0 : roots: <work>=67 <scratch>=62 <scenarios>=59 <bun>=21 <bun:real>=39 <tmp>=49 <home>=16 bytes)
+    diff: -        old_kind=$pane_kind old_pid=$pane_pid old_start=$pane_start old_why=$pane_why +        : -        own_pane "$sock" +        own_pane "$sock"; old_kind=$pane_kind old_pid=$pane_pid old_start=$pane_start old_why=$
+    failing: test_a_record_copy_the_binary_made_a_fifo_never_blocks_the_run test_a_relaunched_binary_is_the_one_waited_for test_a_relaunched_binary_whose_last_one_stays_fails_the_run test_a_respawn_that_fails_leaves_cleanup_the_first_binary_to_wait_for test_an_exit_after_the_respawn_leaves_cleanup_the_first_binary_to_wait_for 
+W3-cleanup-forgets-the-old-record: KILLED by scripts/fxcap/test_capture.py (AssertionError: "LIVE-WRITER GUARD: the relaunched pane's process, pid 59675 (started " not found in 'LIVE-WRITER GUARD:)
+    diff: -    await_pane "$old_kind" "$old_pid" "$old_start" "$old_why" "the relaunched pane's process" 'the relaunch replaced it' || gone=0 +    : 
+    failing: test_a_respawn_that_fails_leaves_cleanup_the_first_binary_to_wait_for test_an_exit_after_the_respawn_leaves_cleanup_the_first_binary_to_wait_for 
+W4-copy-opened-in-place: KILLED by scripts/fxcap/test_capture.py (    raise AssertionError("capture.sh did not finish in %d s" % timeout))
+    diff: -  { printf '%s\n' "$@" > "$t" && mv -f "$t" "$pane_rec"; } 2> /dev/null || rm -f "$t" +  printf '%s\n' "$@" > "$pane_rec" 2> /dev/null || true 
+    failing: test_a_record_copy_the_binary_made_a_fifo_never_blocks_the_run 
+exit 0

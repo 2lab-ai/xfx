@@ -75,8 +75,8 @@ id = "run-directory"
 fx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 xfx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 mask = "X"
-why = "capture.sh runs each binary in its own `mktemp -d .../fxcap.XXXXXX`, so a path on screen (/status's workspace, a picker's root) carries a different random suffix on each side. capture.sh writes the whole run directory as `<scratch>` (or `<work>`) since LOCAL-PATHS, wherever a frame wraps or colours it, and refuses a capture that keeps any of its name; this rule reads the captures taken before it (`--rescore`). Masked to the same length, so nothing after it moves."
-source = ["scripts/fxcap/capture.sh:685"]
+why = "capture.sh ran each binary in its own `mktemp -d .../fxcap.XXXXXX`, so a path on screen (/status's workspace, a picker's root) carried a different random suffix on each side. capture.sh writes the whole run directory as `<scratch>` (or `<work>`) since LOCAL-PATHS, wherever a frame wraps or colours it, and refuses a capture that keeps any of its name; since WORKSPACE-INDEX-AT-PLAN a sweep unit's two runs share one name of six digits (FXCAP_RUN). This rule reads the captures taken before either (`--rescore`). Masked to the same length, so nothing after it moves."
+source = ["scripts/fxcap/capture.sh:442-474", "scripts/fxcap/capture.sh:818"]
 
 [[normalization]]
 id = "capture-tmpdir"

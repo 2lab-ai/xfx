@@ -1,0 +1,17 @@
+# The Sweep workflow's result.json (gh run download <run>), workspace-index's pairs, per run.
+# Extracted by the `ci` step of runs.sh in this folder; everything below is its output.
+run 42762620303 head 3943d667 base df46777e  workspace-index/at-all  head=normalized-identical (runs 1) base=None  first=null
+run 42762620303 head 3943d667 base df46777e  workspace-index/at-plan  head=normalized-identical (runs 1) base=None  first=null
+run 42804085569 head 71d3e02b base df46777e  workspace-index/at-all  head=normalized-identical (runs 1) base=None  first=null
+run 42804085569 head 71d3e02b base df46777e  workspace-index/at-plan  head=normalized-identical (runs 1) base=None  first=null
+run 42826560730 head 208a8dd4 base 8f921425  workspace-index/at-all  head=normalized-identical (runs 1) base=None  first=null
+run 42826560730 head 208a8dd4 base 8f921425  workspace-index/at-plan  head=normalized-identical (runs 1) base=None  first=null
+run 42844785959 head d2b2ca75 base 8f921425  workspace-index/at-all  head=normalized-identical (runs 1) base=normalized-identical  first=null
+run 42844785959 head d2b2ca75 base 8f921425  workspace-index/at-plan  head=unresolved-defect (runs 1) base=normalized-identical  first={"row": 13, "fx": "", "xfx": "  <scratch______________________________________________>/extra/notes/"}
+
+# The trees of the PR run's head and the main run's head:
+git rev-parse 208a8dd4^{tree} d2b2ca75^{tree}
+6f7fce71845f188da2f35fd564767ff13d2d635f
+6f7fce71845f188da2f35fd564767ff13d2d635f
+git log -1 --format=%P d2b2ca75
+8f9214251710c13f3083ea564acc7cc17e4d0057 208a8dd4be52dbf8c6f79203abd305a7de8ba5b1

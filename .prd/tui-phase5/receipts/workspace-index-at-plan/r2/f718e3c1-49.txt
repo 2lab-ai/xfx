@@ -1,0 +1,12 @@
+# r2-f718e3c1-49: the round-2 harness (f718e3c1), xfx f718e3c1, TMPDIR of 49 bytes, four units of workspace-index.
+# run 01 fx: roots: <work>=85 <scratch>=80 <scenarios>=140 <bun>=21 <bun:real>=39 <tmp>=67 <home>=16 bytes
+# sweep: pass = 8 / 8 = 100.0%; unresolved 0, failed 0, timeout 0
+workspace-index-01       at-all   normalized-identical                             
+workspace-index-01       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-02       at-all   normalized-identical                             
+workspace-index-02       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-03       at-all   normalized-identical                             
+workspace-index-03       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-04       at-all   normalized-identical                             
+workspace-index-04       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+totals: {"normalized-identical": 8}

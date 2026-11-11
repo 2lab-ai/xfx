@@ -1,0 +1,62 @@
+# Round 6 RED: 495fbb40's test_capture.py in a clone at f8600318 (round 5's head).
+# Four relaunch tests fail there; the FIFO test passes (see README 8f).
+## the relaunch tests at f8600318's capture.sh
+FFFF.
+======================================================================
+FAIL: test_a_relaunched_binary_whose_last_one_stays_fails_the_run (__main__.RunDirectory.test_a_relaunched_binary_whose_last_one_stays_fails_the_run)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red6/scripts/fxcap/test_capture.py", line 614, in test_a_relaunched_binary_whose_last_one_stays_fails_the_run
+    self.assertEqual(r.code, 4, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 4 : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: a first frame after 0.15 s (3 looks)
+up: a first frame after 0.01 s (1 looks)
+<tmp>/wiap6/fxcapt.dqyv0k88/side.h___q1x5/out/xfx-t-30x200-a.txt
+pane: the process the run started is gone (1 looks)
+<scratch>/red6/scripts/fxcap/capture.sh: line 1: 65736 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+======================================================================
+FAIL: test_a_relaunched_binary_is_the_one_waited_for (__main__.RunDirectory.test_a_relaunched_binary_is_the_one_waited_for)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red6/scripts/fxcap/test_capture.py", line 601, in test_a_relaunched_binary_is_the_one_waited_for
+    self.assertTrue(m and int(m.group(1)) > 0, r.stdout)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: None is not true : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: a first frame after 0.14 s (3 looks)
+up: a first frame after 0.01 s (1 looks)
+<tmp>/wiap6/fxcapt.webwj6x1/side.u7cp1rs9/out/xfx-t-30x200-a.txt
+pane: the process the run started is gone (16 looks)
+
+
+======================================================================
+FAIL: test_a_respawn_that_fails_leaves_cleanup_the_first_binary_to_wait_for (__main__.RunDirectory.test_a_respawn_that_fails_leaves_cleanup_the_first_binary_to_wait_for)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red6/scripts/fxcap/test_capture.py", line 568, in test_a_respawn_that_fails_leaves_cleanup_the_first_binary_to_wait_for
+    self.relaunch_ends('for a; do [ "$a" = respawn-pane ] && exit 1; done\nexec "$REAL" "$@"\n')
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<scratch>/red6/scripts/fxcap/test_capture.py", line 562, in relaunch_ends
+    self.assertIn("LIVE-WRITER GUARD: the relaunched pane's process, pid %d (started " % first, r.stderr)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: "LIVE-WRITER GUARD: the relaunched pane's process, pid 72841 (started " not found in 'LIVE-WRITER GUARD: the process this run started in its pane could not be recorded (the pane was being remade); this run fails, so the sweep does not run another binary in its directory\n'
+
+======================================================================
+FAIL: test_an_exit_after_the_respawn_leaves_cleanup_the_first_binary_to_wait_for (__main__.RunDirectory.test_an_exit_after_the_respawn_leaves_cleanup_the_first_binary_to_wait_for)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red6/scripts/fxcap/test_capture.py", line 571, in test_an_exit_after_the_respawn_leaves_cleanup_the_first_binary_to_wait_for
+    self.relaunch_ends('"$REAL" "$@"; rc=$?\nfor a; do [ "$a" = respawn-pane ] && exit 1; done\nexit $rc\n')
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<scratch>/red6/scripts/fxcap/test_capture.py", line 562, in relaunch_ends
+    self.assertIn("LIVE-WRITER GUARD: the relaunched pane's process, pid %d (started " % first, r.stderr)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: "LIVE-WRITER GUARD: the relaunched pane's process, pid 73837 (started " not found in 'LIVE-WRITER GUARD: the process this run started in its pane could not be recorded (the pane was being remade); this run fails, so the sweep does not run another binary in its directory\n'
+
+----------------------------------------------------------------------
+Ran 5 tests in 25.465s
+
+FAILED (failures=4)
+exit 1
