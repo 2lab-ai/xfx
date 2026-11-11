@@ -1,0 +1,80 @@
+# token_check.py (train 7's, byte for byte: the same file) over the join
+merge 583cc13a: ours 08066ac9, theirs 3570a182, base dcfa5146 -- OK
+  parity row '`sessions`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row '`/help`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/resume`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/fork`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/model`': changed by ours; 105 tokens added, 0 deleted, all as expected, in order
+  parity row '`/effort`': changed by ours; 55 tokens added, 1 deleted, all as expected, in order
+  parity row '`/provider`': changed by ours; 79 tokens added, 1 deleted, all as expected, in order
+  parity row '`/mcp`': changed by ours; 99 tokens added, 1 deleted, all as expected, in order
+  parity row '`/skills`': changed by ours; 44 tokens added, 0 deleted, all as expected, in order
+  parity row '`/image`': changed by ours; 437 tokens added, 201 deleted, all as expected, in order
+  parity row '`/settings`': changed by ours; 92 tokens added, 1 deleted, all as expected, in order
+  parity row 'session resume': changed by ours; 39 tokens added, 24 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 369 tokens added, 41 deleted, all as expected, in order
+  parity row 'full transcript (`C-o`)': changed by ours; 237 tokens added, 1 deleted, all as expected, in order
+  parity row '`@` file picker': changed by ours; 1852 tokens added, 20 deleted, all as expected, in order
+  parity row 'version text': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause activity-tokens-before-request: changed by ours, kept so
+  ledger cause amendment-card-after-stop: changed by ours, kept so
+  ledger cause answer-modifier-sequence-wider: changed by ours, kept so
+  ledger cause at-folder-row: deleted by ours, kept so
+  ledger cause at-ranking: deleted by ours, kept so
+  ledger cause at-resize-band-at-the-bottom: changed by ours, kept so
+  ledger cause cancel-page-edge: changed by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause model-column-clip: added by ours, kept so
+  ledger cause profile-refuse-at-launch: changed by ours, kept so
+  ledger cause resize-document-repaint: changed by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger divergence answer-drawn-wider-named: changed by ours, kept so
+  ledger divergence answer-label-and-modifier-named: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: changed by ours, kept so
+  ledger normalization capture-tmpdir: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger normalization run-directory: changed by theirs, its path:line numbers alone by ours; theirs' entry, the numbers re-pointed (repointed.py)
+  ledger normalization tmux-dead-pane: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger comments: 11 added, 0 deleted, all as expected
+# exit 0
+  self-test ledger, an entry one side changed and the other re-pointed (run-directory) with a word changed: found
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (model-column-clip) dropped: found
+  self-test ledger, a deleted entry (at-ranking) back: found
+  self-test ledger, a comment line dropped: found
+  self-test ledger, a numbers-only entry (capture-tmpdir) with a word changed: MISSED
+  self-test ledger, a numbers-only entry (capture-tmpdir) with a reference dropped: found
+  self-test parity, a row a side changed ('`sessions`') as the other side has it: found
+  self-test parity, a row a side changed ('`/help`') as the other side has it: found
+  self-test parity, a row a side changed ('`/resume`') as the other side has it: found
+  self-test parity, a row a side changed ('`/fork`') as the other side has it: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/effort`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/mcp`') as the other side has it: found
+  self-test parity, a row a side changed ('`/skills`') as the other side has it: found
+  self-test parity, a row a side changed ('`/image`') as the other side has it: found
+  self-test parity, a row a side changed ('`/settings`') as the other side has it: found
+  self-test parity, a row a side changed ('session resume') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side changed ('full transcript (`C-o`)') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ('version text') as the other side has it: found
+  self-test parity, a row one side changed ('`sessions`'), two tokens swapped: found
+self-test 583cc13a: 24 of 25 found
+# exit 1
+# token_control.py
+merge 583cc13a: no docs/parity.md row both sides changed; nothing to plant
+# 0 of 0 found
+# exit 0
+# word_control.py: the self-test's missed case, planted in `why`
+  capture-tmpdir: `why`'s first word doubled: found
+  tmux-dead-pane: `why`'s first word doubled: found
+# 2 of 2 found
+# exit 0

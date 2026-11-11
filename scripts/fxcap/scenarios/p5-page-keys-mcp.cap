@@ -1,0 +1,64 @@
+# PAGE-KEYS-SETTINGS-COLUMN: PgDn and PgUp in /mcp's argument completions,
+# at 24 rows, where a page is inputRowLimit(20) = 11
+# (input_completion_runtime.zig:222-233@481104fd). fx counts them as a slash
+# list (slashCompletionCount over the registry's `arguments`,
+# command_specs.zig:578-585, :883-889) and pages it by picker_delta
+# (:255-260); navigatePickerOptions sends a page past either end to the
+# other end (list_window.zig:40-53). `/mcp show ` lists one row per server:
+# the profile names 24, every one `"enabled": false` on loopback, so none
+# starts and each row reads `disabled` (config.zig:190).
+fx: env FX_AUTO_UPGRADE=0
+fx: homefile .fx/mcp.json p5-page-keys-mcp-profile.json
+xfx: homefile .xfx/mcp.json p5-page-keys-mcp-profile.json
+wait 4
+xfx: wait 1
+type /mcp show 
+wait 1.5
+snap args
+key NPage
+wait 0.6
+snap args-pgdn
+key NPage
+wait 0.6
+snap args-pgdn2
+key NPage
+wait 0.6
+snap args-pgdn3
+key PPage
+wait 0.6
+snap args-pgup
+key PPage
+wait 0.6
+snap args-pgup2
+key C-j
+wait 0.5
+snap args-cj
+# Round 2: the same list on a three-row composer -- two newlines typed while
+# no list is up, then the line, which slashCompletionPrefix trims them off
+# (command_specs.zig:568-576). The arrows and a page are the caret's there
+# (`capped.input_extra == 0` only, input_completion_runtime.zig:255-260);
+# C-j still walks the list (routeSlashCompletionMove, :175-180).
+key C-u
+wait 0.5
+key C-j
+key C-j
+type /mcp show 
+wait 1.5
+snap wrapped
+cursor wrapped
+key Up
+wait 0.5
+snap wrapped-up
+cursor wrapped-up
+key PPage
+wait 0.6
+snap wrapped-pgup
+cursor wrapped-pgup
+key NPage
+wait 0.6
+snap wrapped-pgdn
+cursor wrapped-pgdn
+key C-j
+wait 0.5
+snap wrapped-cj
+cursor wrapped-cj

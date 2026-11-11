@@ -919,7 +919,9 @@ fn failure(err: &ProviderError) -> Unavailable {
         ProviderError::Status { status, .. } => Unavailable::Provider(*status),
         ProviderError::Cancelled => Unavailable::Cancelled,
         ProviderError::Endpoint(_) => Unavailable::Transport("Endpoint"),
-        ProviderError::Request { .. } => Unavailable::Transport("Request"),
+        ProviderError::Request { .. } | ProviderError::Image(_) => {
+            Unavailable::Transport("Request")
+        }
         ProviderError::InvalidHeader { .. } => Unavailable::Transport("InvalidHeader"),
         ProviderError::Connect { .. } => Unavailable::Transport("Connect"),
         ProviderError::Transport { .. } => Unavailable::Transport("Transport"),

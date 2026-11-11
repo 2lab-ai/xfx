@@ -1,0 +1,24 @@
+x𝒇x v0.1.0-3d3d56c [debug] · Run /help for commands
+
+┃ /model fake/a-model-id-long-enough-to-wrap-the-composer-ro
+┃ w-at-sixty-c
+────────────────────────────────────────────────────────────
+  fake/a-model-id-long-enough-to-wrap-the-composer-row-at-s…
+
+
+
+
+
+────────────────────────────────────────────────────────────
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+

@@ -178,7 +178,8 @@ pub(crate) fn may_have_billed(err: &ProviderError) -> bool {
         | ProviderError::Request { .. }
         | ProviderError::InvalidHeader { .. }
         | ProviderError::Connect { .. }
-        | ProviderError::Status { .. } => false,
+        | ProviderError::Status { .. }
+        | ProviderError::Image(_) => false,
         ProviderError::Transport { .. }
         | ProviderError::Protocol(_)
         | ProviderError::Sink(_)

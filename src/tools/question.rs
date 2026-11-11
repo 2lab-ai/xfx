@@ -882,7 +882,7 @@ mod tests {
 
     #[test]
     fn the_closed_schema_is_enforced_here_because_only_this_side_can_enforce_it() {
-        // `additionalProperties: false` is advertised (`spec.rs:98-101`); a provider
+        // `additionalProperties: false` is advertised (`spec.rs:108-111`); a provider
         // that does not enforce it must not make xfx accept a field it never offered.
         assert_eq!(
             parse(&json!({"questions": [{"question": "q", "why": "extra",

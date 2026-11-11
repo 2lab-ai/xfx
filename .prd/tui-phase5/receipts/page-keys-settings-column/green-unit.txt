@@ -1,0 +1,18 @@
+# GREEN: the round 1 and round 2 cases at 0312cf42 (round 2's code and the pin 8e85d9b5),
+# `cargo test --locked --lib -- at_24_rows taller_composer under_the_full_transcript_the under_the_full_transcript_no_other`.
+test tui::layout::tests::a_taller_composer_takes_rows_from_the_transcript_and_nothing_else ... ok
+test tui::shell::tests::under_the_full_transcript_the_model_menu_takes_no_row_key ... ok
+test tui::shell::tests::under_the_full_transcript_the_settings_menu_takes_no_row_key ... ok
+test tui::shell::tests::a_taller_composer_gets_one_row_each_and_the_marker_stays_on_the_first ... ok
+test tui::shell::tests::under_the_full_transcript_the_model_column_takes_no_row_key ... ok
+test tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end ... ok
+test tui::shell::tests::a_slash_menu_on_a_taller_composer_leaves_the_arrows_and_pages_to_the_caret ... ok
+test tui::shell::tests::under_the_full_transcript_no_other_list_takes_a_row_key ... ok
+test tui::shell::tests::at_24_rows_a_page_of_the_mcp_arguments_is_11_servers ... ok
+test tui::shell::tests::under_the_full_transcript_the_mcp_arguments_take_no_row_key ... ok
+test tui::shell::tests::mcp_arguments_on_a_taller_composer_leave_the_arrows_and_pages_to_the_caret ... ok
+test tui::shell::tests::at_24_rows_a_page_of_the_model_column_is_11_models ... ok
+test tui::shell::tests::at_24_rows_a_page_of_the_settings_model_list_is_11_models ... ok
+test tui::shell::tests::at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end ... ok
+test tui::event_loop::tests::under_the_full_transcript_the_at_list_takes_no_key ... ok
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 4631 filtered out; finished in 0.08s

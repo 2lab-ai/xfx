@@ -1,0 +1,21 @@
+# mutants4.sh on a git clone --no-local at 2e85d15b (scratch): round 4's four and round 3's no-wait and no-fail at their new line, one edit at a time, the clone restored after each (git status empty at the end).
+# KILLED = a targeted test fails; its first assertion, the diff, and every failing test are shown.
+U1-unknown-as-gone-at-launch: KILLED by scripts/fxcap/test_capture.py (AssertionError: 0 != 4 : roots: <work>=67 <scratch>=62 <scenarios>=59 <bun>=21 <bun:real>=39 <tmp>=49 <home>=16 bytes)
+    diff: -    printf 'unknown\nthe pane pid could not be read\n' > "$pane_rec" +    printf 'gone\n' > "$pane_rec" 
+    failing: test_a_pane_pid_that_cannot_be_read_fails_the_run 
+U2-unknown-as-gone-in-the-wait: KILLED by scripts/fxcap/test_capture.py (AssertionError: 0 != 4 : roots: <work>=67 <scratch>=62 <scenarios>=59 <bun>=21 <bun:real>=39 <tmp>=49 <home>=16 bytes)
+    diff: -  if ! now=$(start_of "$pid") || [[ -z $now ]]; then echo unknown +  if ! now=$(start_of "$pid") || [[ -z $now ]]; then echo gone 
+    failing: test_a_ps_that_fails_in_the_wait_fails_the_run 
+U3-unknown-record-ignored: KILLED by scripts/fxcap/test_capture.py (AssertionError: 0 != 4 : roots: <work>=67 <scratch>=62 <scenarios>=59 <bun>=21 <bun:real>=39 <tmp>=49 <home>=16 bytes)
+    diff: -      return 1 ;; +      return 0 ;; 
+    failing: test_a_pane_pid_that_cannot_be_read_fails_the_run 
+U4-no-kill-0: KILLED by scripts/fxcap/test_capture.py (AssertionError: 4 != 0 : roots: <work>=67 <scratch>=62 <scenarios>=59 <bun>=21 <bun:real>=39 <tmp>=49 <home>=16 bytes)
+    diff: -  kill -0 "$pid" 2>/dev/null || { echo gone; return 0; } +  : 
+    failing: test_a_binary_on_its_way_out_is_waited_for test_a_pane_already_dead_is_not_waited_for test_a_random_name_already_there_is_passed_over test_a_relaunched_binary_is_the_one_waited_for test_a_run_of_its_own_is_six_digits_owner_only test_a_sweep_units_two_runs_see_the_same_path 
+R1-no-wait: KILLED by scripts/fxcap/test_capture.py (AssertionError: False is not true : the run ended before the binary's last write)
+    diff: -    if ! await_pane && (( code == 0 )); then code=4; fi +    true 
+    failing: test_a_binary_on_its_way_out_is_waited_for test_a_binary_that_stays_fails_the_run_and_is_sent_nothing test_a_live_process_with_the_recorded_pid_and_start_is_waited_for test_a_pane_already_dead_is_not_waited_for test_a_pane_pid_that_cannot_be_read_fails_the_run test_a_pid_that_is_another_process_now_is_not_waited_for_or_signalled test_a_ps_that_fails_in_the_wait_fails_the_run test_a_relaunched_binary_is_the_one_waited_for 
+R2-no-fail: KILLED by scripts/fxcap/test_capture.py (AssertionError: 0 != 4 : roots: <work>=67 <scratch>=62 <scenarios>=59 <bun>=21 <bun:real>=39 <tmp>=49 <home>=16 bytes)
+    diff: -    if ! await_pane && (( code == 0 )); then code=4; fi +    await_pane || true 
+    failing: test_a_binary_that_stays_fails_the_run_and_is_sent_nothing test_a_live_process_with_the_recorded_pid_and_start_is_waited_for test_a_pane_pid_that_cannot_be_read_fails_the_run test_a_ps_that_fails_in_the_wait_fails_the_run 
+exit 0

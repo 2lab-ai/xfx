@@ -1,0 +1,228 @@
+# content.sh at b3dffdad, blame as it is
+## UPSTREAM.md
+# UPSTREAM.md at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 42; unread 0; refs 42
+# exit 0
+## docs/architecture.md
+# docs/architecture.md at b3dffdad; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 1
+# exit 0
+## docs/parity.md
+# docs/parity.md at b3dffdad; blame ignoring nothing
+# SAME 25; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 113; unread 0; refs 138
+# exit 0
+## scripts/check-no-local-paths.sh
+# scripts/check-no-local-paths.sh at b3dffdad; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 1
+# exit 0
+## scripts/fxcap/capfile.py
+# scripts/fxcap/capfile.py at b3dffdad; blame ignoring nothing
+# SAME 5; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 6
+# exit 0
+## scripts/fxcap/capture.sh
+# scripts/fxcap/capture.sh at b3dffdad; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 5
+# exit 0
+## scripts/fxcap/fakegw.ts
+# scripts/fxcap/fakegw.ts at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 12; unread 0; refs 12
+# exit 0
+## scripts/fxcap/parity-ledger.toml
+# scripts/fxcap/parity-ledger.toml at b3dffdad; blame ignoring nothing
+SAME-LINES scripts/fxcap/parity-ledger.toml:419 .prd/07-fx-parity-program.md:45 (path; written by a1007a00 as :45): the cited text the same, a neighbour not
+# SAME 120; SAME-ROW 40; SAME-LINES 1; WRONG 0; other product 5; unread 0; refs 166
+# exit 0
+## scripts/fxcap/scenarios/p5-esc-clear.cap
+# scripts/fxcap/scenarios/p5-esc-clear.cap at b3dffdad; blame ignoring nothing
+# SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 4
+# exit 0
+## scripts/fxcap/scenarios/p5-mcp-fail-held.cap
+# scripts/fxcap/scenarios/p5-mcp-fail-held.cap at b3dffdad; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 2
+# exit 0
+## scripts/fxcap/scenarios/p5-mcp-fail.cap
+# scripts/fxcap/scenarios/p5-mcp-fail.cap at b3dffdad; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 2
+# exit 0
+## scripts/fxcap/scenarios/p5-panels-badsettings.cap
+# scripts/fxcap/scenarios/p5-panels-badsettings.cap at b3dffdad; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 2
+# exit 0
+## scripts/fxcap/scenarios/p5-usage-mkcache.py
+# scripts/fxcap/scenarios/p5-usage-mkcache.py at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 2
+# exit 0
+## scripts/fxcap/test_sweep.py
+# scripts/fxcap/test_sweep.py at b3dffdad; blame ignoring nothing
+UNREAD scripts/fxcap/test_sweep.py:512 scripts/fxcap/cells.py:100000 (path): out of range at 9344eb85 or the head
+# SAME 6; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 1; refs 8
+# exit 0
+## scripts/smoke-tui.sh
+# scripts/smoke-tui.sh at b3dffdad; blame ignoring nothing
+SAME-LINES scripts/smoke-tui.sh:5755 src/process.rs:24-43 (path; written by 878186b5 as :24): the cited text the same, a neighbour not
+SAME-LINES scripts/smoke-tui.sh:5840 process.rs:24-43 (short; written by 878186b5 as :24): the cited text the same, a neighbour not
+# SAME 19; SAME-ROW 0; SAME-LINES 2; WRONG 0; other product 4; unread 0; refs 25
+# exit 0
+## scripts/test-check-no-local-paths.sh
+# scripts/test-check-no-local-paths.sh at b3dffdad; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 3
+# exit 0
+## src/app.rs
+# src/app.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 5; unread 0; refs 5
+# exit 0
+## src/build_meta.rs
+# src/build_meta.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## src/cli.rs
+# src/cli.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/clipboard.rs
+# src/clipboard.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/gateway/mod.rs
+# src/gateway/mod.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 15; unread 0; refs 15
+# exit 0
+## src/image.rs
+# src/image.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 3; unread 0; refs 3
+# exit 0
+## src/llmux/protocol.rs
+# src/llmux/protocol.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 14; unread 0; refs 14
+# exit 0
+## src/llmux/setup.rs
+# src/llmux/setup.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## src/llmux/sse.rs
+# src/llmux/sse.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## src/output.rs
+# src/output.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/permission/authority.rs
+# src/permission/authority.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 10; unread 0; refs 10
+# exit 0
+## src/permission/policy.rs
+# src/permission/policy.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 9; unread 0; refs 9
+# exit 0
+## src/provider/model.rs
+# src/provider/model.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 25; unread 0; refs 25
+# exit 0
+## src/session/store/fork.rs
+# src/session/store/fork.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 3; unread 0; refs 3
+# exit 0
+## src/tools/mutate.rs
+# src/tools/mutate.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 7; unread 0; refs 7
+# exit 0
+## src/tools/question.rs
+# src/tools/question.rs at b3dffdad; blame ignoring nothing
+WRONG src/tools/question.rs:303 Cargo.toml:42 (path; written by 866de4f4 as :42): the head's line holds '"http2",'; 'serde_json = "1.0"' -- its text is at 0 places; the head's line most like its first is :38 (ratio 0.44)
+# SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 4; unread 0; refs 8
+# exit 1
+## src/tools/undo.rs
+# src/tools/undo.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/tui/approval.rs
+# src/tui/approval.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 6; unread 0; refs 6
+# exit 0
+## src/tui/bridge.rs
+# src/tui/bridge.rs at b3dffdad; blame ignoring nothing
+# SAME 4; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 8
+# exit 0
+## src/tui/edit_history.rs
+# src/tui/edit_history.rs at b3dffdad; blame ignoring nothing
+# SAME 4; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 4
+# exit 0
+## src/tui/event_loop.rs
+# src/tui/event_loop.rs at b3dffdad; blame ignoring nothing
+# SAME 12; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 12; unread 0; refs 24
+# exit 0
+## src/tui/file_index.rs
+# src/tui/file_index.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## src/tui/file_picker.rs
+# src/tui/file_picker.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/tui/frame.rs
+# src/tui/frame.rs at b3dffdad; blame ignoring nothing
+# SAME 10; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 10
+# exit 0
+## src/tui/input.rs
+# src/tui/input.rs at b3dffdad; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 7; unread 0; refs 8
+# exit 0
+## src/tui/probe.rs
+# src/tui/probe.rs at b3dffdad; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 4
+# exit 0
+## src/tui/program_status.rs
+# src/tui/program_status.rs at b3dffdad; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 1
+# exit 0
+## src/tui/shell.rs
+# src/tui/shell.rs at b3dffdad; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 67; unread 0; refs 69
+# exit 0
+## src/tui/toolgroup.rs
+# src/tui/toolgroup.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 1; SAME-LINES 0; WRONG 0; other product 14; unread 0; refs 15
+# exit 0
+## src/tui/worker.rs
+# src/tui/worker.rs at b3dffdad; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 27; unread 0; refs 29
+# exit 0
+## src/tui/wrap.rs
+# src/tui/wrap.rs at b3dffdad; blame ignoring nothing
+# SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 5
+# exit 0
+## src/usage/clock.rs
+# src/usage/clock.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 3; unread 0; refs 3
+# exit 0
+## tests/permissions.rs
+# tests/permissions.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 9; unread 0; refs 9
+# exit 0
+## tests/session_compat.rs
+# tests/session_compat.rs at b3dffdad; blame ignoring nothing
+WRONG tests/session_compat.rs:57 src/session/event.rs:98-192 (path; written by 9956e7a8 as :98-192): the head's line holds ''; '' -- its text is at 0 places; the head's line most like its first is :25 (ratio 1.00)
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 3; unread 0; refs 5
+# exit 1
+## tests/sessions.rs
+# tests/sessions.rs at b3dffdad; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 3
+# exit 0
+## tests/support/fake_gateway.rs
+# tests/support/fake_gateway.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 6; unread 0; refs 6
+# exit 0
+## tests/support/fake_llmux.rs
+# tests/support/fake_llmux.rs at b3dffdad; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## tests/tool_loop.rs
+# tests/tool_loop.rs at b3dffdad; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 6; unread 0; refs 7
+# exit 0
+## tests/tui.rs
+# tests/tui.rs at b3dffdad; blame ignoring nothing
+# SAME 7; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 24; unread 0; refs 31
+# exit 0
+# all 55 files: SAME 243; SAME-ROW 41; SAME-LINES 3; WRONG 2; other product 500; unread 1; refs 790

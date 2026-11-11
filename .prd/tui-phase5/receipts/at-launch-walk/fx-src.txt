@@ -1,0 +1,747 @@
+
+== src/core/app/app_entry_runtime.zig:143-156@481104fd -- the native entry: runInteractiveWithDeps with cooperative = false (155)
+  143  fn runWithDeps(comptime App: type, alloc: Allocator, args: []const [:0]const u8, cfg: Config, deps: RunDeps) !RunOutcome {
+  144      var launch: cli_surface.InteractiveLaunch = .{};
+  145      defer launch.deinit(alloc);
+  146  
+  147      const before = try runBeforeInteractiveWithDeps(alloc, args, cfg, deps);
+  148      switch (before) {
+  149          .interactive => |value| launch = value,
+  150          .returned => return .returned,
+  151          .exit => |code| return .{ .exit = code },
+  152      }
+  153  
+  154      var app: App = undefined;
+  155      return runInteractiveWithDeps(App, false, &app, alloc, &launch, cfg.auth_mode, deps);
+  156  }
+
+== src/core/app/app_entry_runtime.zig:205-217@481104fd -- runInteractive (false, 209); runInteractiveCooperative (true, 216), a single-threaded host
+  205  /// `app` is uninitialized storage that must stay valid until the process
+  206  /// exits: interactive shutdown stops background threads without joining them,
+  207  /// so they can still reach the app after this returns.
+  208  pub fn runInteractive(comptime App: type, app: *App, alloc: Allocator, launch: *cli_surface.InteractiveLaunch, auth_mode: credentials.AuthMode) !RunOutcome {
+  209      return runInteractiveWithDeps(App, false, app, alloc, launch, auth_mode, .{});
+  210  }
+  211  
+  212  /// Runs the interactive product without native CLI dispatch, process replacement,
+  213  /// or a worker thread. Single-threaded hosts must arrange cooperative prompt work.
+  214  pub fn runInteractiveCooperative(comptime App: type, alloc: Allocator, launch: *cli_surface.InteractiveLaunch, auth_mode: credentials.AuthMode) !RunOutcome {
+  215      var app: App = undefined;
+  216      return runInteractiveWithDeps(App, true, &app, alloc, launch, auth_mode, .{});
+  217  }
+
+== src/core/app/app_entry_runtime.zig:302-343@481104fd -- the launch: App.init (304), the resumed warmup (330), startFileIndex (334), then app.run() (343)
+  302  fn runInteractiveWithDeps(comptime App: type, comptime cooperative: bool, app: *App, alloc: Allocator, launch: *cli_surface.InteractiveLaunch, auth_mode: credentials.AuthMode, deps: RunDeps) !RunOutcome {
+  303      var resume_requested = launch.requested_resume != null;
+  304      app.* = App.init(alloc, launch, auth_mode) catch |first_err| fresh: {
+  305          // An update relaunched a session that had no turn, which v2 never
+  306          // saved (D2): the new build opens a fresh session instead (D81).
+  307          if (first_err == error.SessionNotFound and launch.upgrade_relaunch != null) {
+  308              debug_trace.logf("session", "event=upgrade_relaunch_fresh_session reason=SessionNotFound", .{});
+  309              if (launch.requested_resume) |*target| target.deinit(alloc);
+  310              launch.requested_resume = null;
+  311              resume_requested = false;
+  312              if (App.init(alloc, launch, auth_mode)) |started| break :fresh started else |err| return initFailure(deps, launch, alloc, err);
+  313          }
+  314          return initFailure(deps, launch, alloc, first_err);
+  315      };
+  316      // `App.init` built the app in a local and copied it here: whatever holds
+  317      // a pointer to the app needs this address instead.
+  318      if (@hasDecl(App, "rebindAfterInit")) app.rebindAfterInit();
+  319      var app_needs_deinit = true;
+  320      defer if (app_needs_deinit) {
+  321          if (comptime cooperative) {
+  322              app.deinit();
+  323          } else {
+  324              var shutdown = app.shutdownForProcessExit();
+  325              defer shutdown.deinit(alloc);
+  326              if (shutdown.failure) |err| reportShutdownFailure(deps, err);
+  327          }
+  328      };
+  329      if (comptime !cooperative) {
+  330          if (resume_requested) app.startResumedSessionWarmup();
+  331          if (@hasDecl(App, "configureNotifications")) try app.configureNotifications();
+  332          if (@hasDecl(App, "playStartupSound")) app.playStartupSound();
+  333          if (@hasDecl(App, "startAutoUpgrade")) app.startAutoUpgrade();
+  334          if (@hasDecl(App, "startFileIndex")) app.startFileIndex();
+  335          startWorkerThread(App, app, deps) catch |err| {
+  336              app.releaseTerminal();
+  337              reportUnexpectedInteractiveError(deps, err);
+  338              return err;
+  339          };
+  340          app.startModelCacheWarmup();
+  341      }
+  342  
+  343      app.run() catch |err| {
+
+== src/core/app/app_entry_runtime.zig:867-869@481104fd -- the entry tests' app: startFileIndex records an event, walks nothing
+  867      pub fn startFileIndex(_: *TestApp) void {
+  868          appendTestEvent("file-index");
+  869      }
+
+== src/core/app/app_entry_runtime.zig:964-973@481104fd -- fx's test: a launch's order -- init, auto-upgrade, file-index, worker thread, then run
+  964  test "app entry runs interactive startup callbacks in active order" {
+  965      const alloc = std.testing.allocator;
+  966      var capture = TestCapture.init(.{ .interactive = .{} });
+  967      defer capture.deinit();
+  968      const outcome = try runWithDeps(TestApp, alloc, &.{}, testConfig(), capture.deps());
+  969  
+  970      try std.testing.expectEqual(RunOutcome.returned, outcome);
+  971      try std.testing.expectEqual(@as(usize, 0), capture.stdout_calls);
+  972      try expectEvents(&.{ "init:none", "rebind-after-init", "auto-upgrade", "file-index", "worker-thread", "model-cache", "run", "terminal-release", "deinit" });
+  973  }
+
+== src/core/app/app_entry_runtime.zig:975-984@481104fd -- fx's test: the cooperative launch has no file-index
+  975  test "a cooperative launch rebinds the app at its final address before running it" {
+  976      var capture = TestCapture.init(.{ .interactive = .{} });
+  977      defer capture.deinit();
+  978      var launch: cli_surface.InteractiveLaunch = .{};
+  979      var app: TestApp = undefined;
+  980      const outcome = try runInteractiveWithDeps(TestApp, true, &app, std.testing.allocator, &launch, .local, capture.deps());
+  981  
+  982      try std.testing.expectEqual(RunOutcome.returned, outcome);
+  983      try expectEvents(&.{ "init:none", "rebind-after-init", "run", "terminal-release", "deinit" });
+  984  }
+
+== src/core/app/app_entry_runtime.zig:1316-1325@481104fd -- fx's test: a resumed launch -- init:session-123, the warmup, then file-index
+ 1316  test "app entry passes requested resume into app init" {
+ 1317      const alloc = std.testing.allocator;
+ 1318      const id = try alloc.dupe(u8, "session-123");
+ 1319      var capture = TestCapture.init(.{ .interactive = .{ .requested_resume = .{ .id = id } } });
+ 1320      defer capture.deinit();
+ 1321      const outcome = try runWithDeps(TestApp, alloc, &.{ @constCast("resume"), @constCast("session-123") }, testConfig(), capture.deps());
+ 1322  
+ 1323      try std.testing.expectEqual(RunOutcome.returned, outcome);
+ 1324      try expectEvents(&.{ "init:session-123", "rebind-after-init", "resume-reconciliation", "auto-upgrade", "file-index", "worker-thread", "model-cache", "run", "terminal-release", "deinit" });
+ 1325  }
+
+== src/main.zig:655-718@481104fd -- App.init: bootstrap, applyLaunch (682-686), then the requested resume (696-713)
+  655          if (launch.requested_resume) |target| {
+  656              app.requested_resume = target;
+  657              launch.requested_resume = null;
+  658          }
+  659          errdefer if (app.requested_resume) |*target| target.deinit(alloc);
+  660          try BootstrapAppRuntime.bootstrap(
+  661              &app,
+  662              footer_rows,
+  663              builtin_gateway.default_model,
+  664              default_max_agent_steps,
+  665              handle_sigwinch,
+  666              .{
+  667                  .load_mcp_host = if (comptime host_target.is_wasm) null else builtin_mcp.loadHost,
+  668                  .skill_root_policy = if (comptime host_target.is_wasm) wasm_skill_root_policy else builtin_skills.root_policy,
+  669                  .terminal_title = app.terminalTitle(),
+  670              },
+  671              .{
+  672                  .provider = launch.modifiers.provider_override,
+  673                  .model = launch.modifiers.model_override,
+  674                  .effort = launch.modifiers.effort_override,
+  675                  .fast = launch.modifiers.fast_override,
+  676                  .ultrafast = launch.modifiers.ultrafast_override,
+  677                  .provider_order = launch.modifiers.provider_order_override,
+  678                  .provider_strict = launch.modifiers.provider_strict_override,
+  679              },
+  680          );
+  681          errdefer app.deinit();
+  682          try WorkspaceAppRuntime.applyLaunch(
+  683              &app,
+  684              launch.modifiers.additional_directories,
+  685              launch.modifiers.saved_directories_suppressed,
+  686          );
+  687          if (comptime !host_target.is_wasm) {
+  688              app.provider_selection.ensureGatewayHttpPool();
+  689              if (app.provider_selection.selection().provider == .gateway) {
+  690                  if (app.provider_selection.gateway_http_pool) |pool| {
+  691                      pool.warmAsync(gateway_client.resolveChatUrlForWarmup(builtin_gateway.agentChatUrl()));
+  692                  }
+  693              }
+  694          }
+  695          app.context_limits.applyCommandLine(launch.modifiers.context_limit_overrides);
+  696          if (comptime host_profile.durable_sessions or host_profile.js_host_sessions) {
+  697              if (app.requested_resume != null) {
+  698                  const resumed = if (launch.upgrade_relaunch != null)
+  699                      SessionAppRuntime.resumeRequestedSessionAfterUpgrade(
+  700                          &app,
+  701                          app_version,
+  702                          build_update_channel,
+  703                          launch.upgrade_relaunch.?.previous_revision orelse "",
+  704                          build_revision,
+  705                      )
+  706                  else
+  707                      SessionAppRuntime.resumeRequestedSession(&app);
+  708                  resumed catch |err| {
+  709                      // Why a v1 session could not be converted, for the exit message (D61).
+  710                      launch.resume_refusal = SessionAppRuntime.conversionRefusal(&app, alloc, err);
+  711                      return err;
+  712                  };
+  713                  SessionAppRuntime.syncTerminalTitle(&app);
+  714              } else if (launch.upgrade_relaunch) |relaunch| {
+  715                  SessionAppRuntime.writeUpgradeNotice(&app, app_version, build_update_channel, relaunch.previous_revision orelse "", build_revision) catch |err|
+  716                      debug_trace.logf("session", "event=upgrade_notice_unavailable err={s}", .{@errorName(err)});
+  717              }
+  718          }
+
+== src/main.zig:2073-2078@481104fd -- App.startFileIndex: after init() returns
+ 2073      /// Must be called after init() returns so the loader thread captures
+ 2074      /// a pointer to the final App location (not a temporary). Same hazard
+ 2075      /// as `startAutoUpgrade` above.
+ 2076      pub fn startFileIndex(self: *App) void {
+ 2077          WorkspaceAppRuntime.startFileIndex(self);
+ 2078      }
+
+== src/main.zig:2125-2131@481104fd -- isFileIndexLoading: currentState() == .loading
+ 2125      pub fn isFileIndexLoading(self: *App) bool {
+ 2126          return self.file_index.currentState() == .loading;
+ 2127      }
+ 2128  
+ 2129      pub fn isFileIndexFailed(self: *App) bool {
+ 2130          return self.file_index.currentState() == .failed;
+ 2131      }
+
+== src/core/app/app_bootstrap_runtime.zig:438-441@481104fd -- bootstrap: the workspace root and its access adopted
+  438              app.workspace_root = startup.takeWorkspaceRoot();
+  439              if (comptime @hasDecl(App, "adoptWorkspaceAccess")) {
+  440                  app.adoptWorkspaceAccess(startup.takeWorkspaceAccess());
+  441              }
+
+== src/core/app/app_workspace_runtime.zig:20-28@481104fd -- the scope: the access over the workspace root
+   20  pub fn Runtime(comptime App: type) type {
+   21      return struct {
+   22          pub fn access(app: *App) *Access {
+   23              return &app.workspace.access;
+   24          }
+   25  
+   26          pub fn scope(app: *const App) AccessScope {
+   27              return app.workspace.access.scope(app.workspace_root);
+   28          }
+
+== src/core/app/app_workspace_runtime.zig:98-152@481104fd -- invalidateScope, adopt, applyLaunch, install; startFileIndex (145-148): none for an empty root (146), ensureScopeEpoch with the app's epoch (147)
+   98          fn invalidateScope(app: *App) void {
+   99              app.workspace.scope_epoch +%= 1;
+  100              requestStop(app);
+  101              if (comptime @hasField(App, "input_runtime")) {
+  102                  app.input_runtime.picker.file_completion.invalidate();
+  103              }
+  104          }
+  105  
+  106          pub fn adopt(app: *App, value: Access) void {
+  107              invalidateScope(app);
+  108              app.workspace.access.deinit(app.alloc);
+  109              app.workspace.access = value;
+  110          }
+  111  
+  112          pub fn applyLaunch(
+  113              app: *App,
+  114              command_line_directories: []const []const u8,
+  115              saved_suppressed: bool,
+  116          ) !void {
+  117              try app.workspace.access.applyLaunch(
+  118                  app.alloc,
+  119                  app.workspace_root,
+  120                  command_line_directories,
+  121                  saved_suppressed,
+  122              );
+  123              invalidateScope(app);
+  124          }
+  125  
+  126          /// Installs `replacement` and clears it after taking ownership.
+  127          pub fn install(app: *App, replacement: *Access) bool {
+  128              if (comptime !runtime_profile.allows(App, .file_index)) {
+  129                  app.workspace.access.deinit(app.alloc);
+  130                  app.workspace.access = replacement.*;
+  131                  replacement.* = .{};
+  132                  return true;
+  133              }
+  134              const runtime_changed = !app.workspace.access.eql(replacement);
+  135              app.workspace.access.deinit(app.alloc);
+  136              app.workspace.access = replacement.*;
+  137              replacement.* = .{};
+  138              if (runtime_changed) {
+  139                  invalidateScope(app);
+  140                  refreshFileIndex(app);
+  141              }
+  142              return runtime_changed;
+  143          }
+  144  
+  145          pub fn startFileIndex(app: *App) void {
+  146              if (app.workspace_root.len == 0) return;
+  147              app.file_index.ensureScopeEpoch(std.heap.c_allocator, scope(app), app.workspace.scope_epoch);
+  148          }
+  149  
+  150          pub fn refreshFileIndex(app: *App) void {
+  151              app.file_index.refreshScopeEpoch(std.heap.c_allocator, scope(app), app.workspace.scope_epoch);
+  152          }
+
+== src/core/workspace/file_index.zig:333-341@481104fd -- currentState: .idle with nothing adopted, loading or failed
+  333      pub fn currentState(self: *const FileIndex) State {
+  334          if (self.active_generation != null) return .ready;
+  335          const loading = self.loading_generation orelse return if (self.initial_failed) .failed else .idle;
+  336          return switch (loading.currentState()) {
+  337              .loading => .loading,
+  338              .ready => .ready,
+  339              .failed, .canceled => .failed,
+  340          };
+  341      }
+
+== src/core/workspace/file_index.zig:351-406@481104fd -- ensureScopeEpoch (356-363): only from idle (357), none for an empty primary (358), the epoch set (361); startLoad: the cache (371-378), the walk takes the epoch (386), clears the failure (389)
+  351      /// Kick off one background generation from an immutable access scope.
+  352      pub fn ensureScope(self: *FileIndex, alloc: Allocator, scope: workspace_access.AccessScope) void {
+  353          self.ensureScopeEpoch(alloc, scope, 0);
+  354      }
+  355  
+  356      pub fn ensureScopeEpoch(self: *FileIndex, alloc: Allocator, scope: workspace_access.AccessScope, epoch: u64) void {
+  357          if (self.currentState() != .idle) return;
+  358          if (scope.primary_directory.len == 0) return;
+  359  
+  360          self.roots = activeRootsAlloc(alloc, scope) catch return;
+  361          self.scope_epoch = epoch;
+  362          _ = self.startLoad(alloc);
+  363      }
+  364  
+  365      fn startLoad(self: *FileIndex, alloc: Allocator) bool {
+  366          if (self.roots.len == 0 or
+  367              self.thread != null or
+  368              self.loading_generation != null or
+  369              self.stop_requested.load(.seq_cst)) return false;
+  370  
+  371          // The persisted cache is consumed at most once per scope: the first
+  372          // generation paints from disk, then a real scan replaces it.
+  373          const roots_digest = rootsDigest(self.roots);
+  374          const allow_cache = if (self.cache_attempted_digest) |attempted|
+  375              !std.mem.eql(u8, &attempted, &roots_digest)
+  376          else
+  377              true;
+  378          if (allow_cache) self.cache_attempted_digest = roots_digest;
+  379  
+  380          const generation_id = self.generation + 1;
+  381          const loading = Generation.create(alloc, generation_id) catch |err| {
+  382              if (self.active_generation == null) self.initial_failed = true;
+  383              debug_trace.logf("core", "file index generation allocation failed generation={d} err={s}", .{ generation_id, @errorName(err) });
+  384              return false;
+  385          };
+  386          loading.scope_epoch = self.scope_epoch;
+  387          self.loading_generation = loading;
+  388          self.generation = generation_id;
+  389          self.initial_failed = false;
+  390          self.thread = std.Thread.spawn(.{}, loaderThreadMain, .{
+  391              loading,
+  392              alloc,
+  393              self.roots,
+  394              &self.stop_requested,
+  395              allow_cache,
+  396          }) catch |err| {
+  397              self.loading_generation = null;
+  398              loading.destroy(alloc);
+  399              if (self.active_generation == null) self.initial_failed = true;
+  400              debug_trace.logf("core", "file index generation spawn failed generation={d} err={s}", .{ generation_id, @errorName(err) });
+  401              return false;
+  402          };
+  403          debug_trace.logf("core", "file index generation started generation={d} caller_thread={d} from_cache={}", .{ generation_id, std.Thread.getCurrentId(), allow_cache });
+  404          return true;
+  405      }
+  406  
+
+== src/core/workspace/file_index.zig:407-461@481104fd -- joinThreadIfDone: adopted only whole (425), a failure dropped (432-440), the pending scope started after any end (443-451)
+  407      /// Reaps one terminal loader without waiting for incomplete work. Returns
+  408      /// whether candidate or initial-status facts changed and need rendering.
+  409      pub fn joinThreadIfDone(self: *FileIndex, alloc: Allocator) bool {
+  410          const handle = self.thread orelse return false;
+  411          const loading = self.loading_generation orelse return false;
+  412          const terminal_state = loading.currentState();
+  413          if (terminal_state == .loading) return false;
+  414  
+  415          handle.join();
+  416          self.thread = null;
+  417          debug_trace.logf("core", "file index generation joined generation={d} state={s}", .{ loading.id, @tagName(terminal_state) });
+  418  
+  419          var visible_changed = false;
+  420          const adopted_from_cache = terminal_state == .ready and loading.from_cache;
+  421          switch (terminal_state) {
+  422              .loading => unreachable,
+  423              .ready => {
+  424                  const previous = self.active_generation;
+  425                  self.active_generation = loading;
+  426                  self.loading_generation = null;
+  427                  self.initial_failed = false;
+  428                  debug_trace.logf("core", "file index generation adopted generation={d} count={d} from_cache={}", .{ loading.id, loading.count(), loading.from_cache });
+  429                  if (previous) |generation| generation.destroy(alloc);
+  430                  visible_changed = true;
+  431              },
+  432              .failed, .canceled => {
+  433                  self.loading_generation = null;
+  434                  if (self.active_generation == null and terminal_state == .failed) {
+  435                      self.initial_failed = true;
+  436                      visible_changed = true;
+  437                  }
+  438                  debug_trace.logf("core", "file index generation discarded generation={d} state={s}", .{ loading.id, @tagName(terminal_state) });
+  439                  loading.destroy(alloc);
+  440              },
+  441          }
+  442  
+  443          if (!self.stop_requested.load(.seq_cst)) {
+  444              if (self.pending_scope) |pending| {
+  445                  self.pending_scope = null;
+  446                  freeRoots(alloc, self.roots);
+  447                  self.roots = pending.roots;
+  448                  self.scope_epoch = pending.epoch;
+  449                  _ = self.startLoad(alloc);
+  450              }
+  451          }
+  452          // A cache-painted generation is a preview only: one real scan follows
+  453          // it and replaces it, unless a pending scope already started that load.
+  454          if (adopted_from_cache and
+  455              !self.stop_requested.load(.seq_cst) and
+  456              self.thread == null)
+  457          {
+  458              _ = self.startLoad(alloc);
+  459          }
+  460          return visible_changed;
+  461      }
+
+== src/core/workspace/file_index.zig:462-524@481104fd -- refresh, refreshScopeEpoch, refreshOwnedRoots: a running loader gets a pending scope (494-497)
+  462  
+  463      /// Requests one replacement generation. A current loader retains its
+  464      /// immutable scope and coalesces only the latest owned replacement scope.
+  465      pub fn refresh(self: *FileIndex, alloc: Allocator) void {
+  466          const epoch = if (self.pending_scope) |pending| pending.epoch else self.scope_epoch;
+  467          const roots = cloneRoots(alloc, if (self.pending_scope) |pending| pending.roots else self.roots) catch |err| {
+  468              debug_trace.logf("core", "file index refresh snapshot failed generation={d} err={s}", .{ self.generation, @errorName(err) });
+  469              return;
+  470          };
+  471          self.refreshOwnedRoots(alloc, roots, epoch);
+  472      }
+  473  
+  474      /// Refreshes from the latest active scope. A loading generation keeps its
+  475      /// immutable roots and receives one owned, coalesced replacement snapshot.
+  476      pub fn refreshScope(self: *FileIndex, alloc: Allocator, scope: workspace_access.AccessScope) void {
+  477          self.refreshScopeEpoch(alloc, scope, 0);
+  478      }
+  479  
+  480      pub fn refreshScopeEpoch(self: *FileIndex, alloc: Allocator, scope: workspace_access.AccessScope, epoch: u64) void {
+  481          const roots = activeRootsAlloc(alloc, scope) catch |err| {
+  482              debug_trace.logf("core", "file index scope snapshot failed generation={d} err={s}", .{ self.generation, @errorName(err) });
+  483              return;
+  484          };
+  485          self.refreshOwnedRoots(alloc, roots, epoch);
+  486      }
+  487  
+  488      fn refreshOwnedRoots(self: *FileIndex, alloc: Allocator, roots: [][]u8, epoch: u64) void {
+  489          if (self.stop_requested.load(.seq_cst)) {
+  490              freeRoots(alloc, roots);
+  491              debug_trace.logf("core", "file index refresh discarded during shutdown generation={d}", .{self.generation});
+  492              return;
+  493          }
+  494          if (self.thread != null) {
+  495              self.replacePendingRoots(alloc, roots, epoch);
+  496              return;
+  497          }
+  498  
+  499          if (self.loading_generation != null) {
+  500              freeRoots(alloc, roots);
+  501              debug_trace.logf("core", "file index refresh discarded with unowned loading generation={d}", .{self.generation});
+  502              return;
+  503          }
+  504          freeRoots(alloc, self.roots);
+  505          self.roots = roots;
+  506          self.scope_epoch = epoch;
+  507          const started = self.startLoad(alloc);
+  508          if (!started) debug_trace.logf("core", "file index refresh not started generation={d}", .{self.generation});
+  509      }
+  510  
+  511      fn replacePendingRoots(self: *FileIndex, alloc: Allocator, roots: [][]u8, epoch: u64) void {
+  512          if (self.pending_scope) |pending| {
+  513              if (pending.epoch == epoch and rootsEqual(pending.roots, roots)) {
+  514                  freeRoots(alloc, roots);
+  515                  debug_trace.logf("core", "file index refresh coalesced generation={d} identical=true", .{self.generation});
+  516                  return;
+  517              }
+  518              freeRoots(alloc, pending.roots);
+  519              debug_trace.logf("core", "file index pending refresh superseded generation={d}", .{self.generation});
+  520          }
+  521          self.pending_scope = .{ .roots = roots, .epoch = epoch };
+  522          debug_trace.logf("core", "file index refresh coalesced generation={d} identical=false", .{self.generation});
+  523      }
+  524  
+
+== src/core/workspace/file_index.zig:572-583@481104fd -- readableRevision: the searchable generation's epoch
+  572      pub fn readableRevision(self: *const FileIndex) ReadableRevision {
+  573          const generation = self.searchableGeneration() orelse return .{
+  574              .scope_epoch = self.scope_epoch,
+  575              .state = self.currentState(),
+  576          };
+  577          return .{
+  578              .scope_epoch = generation.scope_epoch,
+  579              .generation = generation.id,
+  580              .count = generation.count(),
+  581              .state = self.currentState(),
+  582          };
+  583      }
+
+== src/core/workspace/file_index.zig:647-654@481104fd -- searchableGeneration: the adopted one, else a loading or ready loader; a failed one is none
+  647      fn searchableGeneration(self: *const FileIndex) ?*const Generation {
+  648          if (self.active_generation) |active| return active;
+  649          const loading = self.loading_generation orelse return null;
+  650          return switch (loading.currentState()) {
+  651              .loading, .ready => loading,
+  652              .failed, .canceled => null,
+  653          };
+  654      }
+
+== src/core/workspace/file_index.zig:1041-1061@481104fd -- activeRootsAlloc: the primary, then each active added directory, once
+ 1041  fn activeRootsAlloc(alloc: Allocator, scope: workspace_access.AccessScope) ![][]u8 {
+ 1042      var roots: std.ArrayList([]u8) = .empty;
+ 1043      errdefer {
+ 1044          for (roots.items) |root| alloc.free(root);
+ 1045          roots.deinit(alloc);
+ 1046      }
+ 1047  
+ 1048      try roots.append(alloc, try alloc.dupe(u8, scope.primary_directory));
+ 1049      for (scope.additional_directories) |entry| {
+ 1050          if (!entry.active) continue;
+ 1051          var duplicate = false;
+ 1052          for (roots.items) |root| {
+ 1053              if (std.mem.eql(u8, root, entry.path)) {
+ 1054                  duplicate = true;
+ 1055                  break;
+ 1056              }
+ 1057          }
+ 1058          if (!duplicate) try roots.append(alloc, try alloc.dupe(u8, entry.path));
+ 1059      }
+ 1060      return roots.toOwnedSlice(alloc);
+ 1061  }
+
+== src/core/app/input_completion_runtime.zig:848-920@481104fd -- prepareFilePicker: the first episode's skip (857-861), the refresh (863), the epoch check (887-888), a failure (909)
+  848          pub fn prepareFilePicker(app: *App) void {
+  849              if (comptime !runtime_profile.allows(App, .file_index)) return;
+  850              reconcileFilePicker(app);
+  851              const picker = &app.input_runtime.picker;
+  852              const state = &picker.file_completion;
+  853              if (!state.active or !filePickerEligible(app)) return;
+  854              if (state.refresh_requested) {
+  855                  state.refresh_requested = false;
+  856                  if (state.indexed) {
+  857                      var refresh = true;
+  858                      if (!picker.file_picker_episode_seen) {
+  859                          picker.file_picker_episode_seen = true;
+  860                          if (comptime @hasDecl(App, "isFileIndexLoading")) refresh = !app.isFileIndexLoading();
+  861                      }
+  862                      if (refresh) {
+  863                          if (comptime @hasDecl(App, "refreshFileIndex")) app.refreshFileIndex();
+  864                      }
+  865                  }
+  866              }
+  867              var source: file_index.ReadableRevision = .{ .scope_epoch = fileScopeEpoch(app), .state = .ready };
+  868              if (state.indexed) {
+  869                  if (comptime @hasDecl(App, "fileCompletionRevision")) {
+  870                      source = app.fileCompletionRevision();
+  871                  } else {
+  872                      if (comptime @hasDecl(App, "isFileIndexLoading")) {
+  873                          if (app.isFileIndexLoading()) source.state = .loading;
+  874                      }
+  875                      if (comptime @hasDecl(App, "isFileIndexFailed")) {
+  876                          if (app.isFileIndexFailed()) source.state = .failed;
+  877                      }
+  878                  }
+  879              }
+  880              if (!state.needsLookup(source)) return;
+  881              const query = picker.activeFilePickerQuery(&app.input_runtime.edit_state) orelse return;
+  882              var decoded_storage: [file_index.max_path_len]u8 = undefined;
+  883              const decoded = query.decoded_query(&decoded_storage) catch {
+  884                  state.stage(app.alloc, source, .unavailable, null);
+  885                  return;
+  886              };
+  887              if (decoded.len > file_index.max_path_len or source.scope_epoch != fileScopeEpoch(app)) {
+  888                  state.stage(app.alloc, source, .unavailable, null);
+  889                  return;
+  890              }
+  891              if (!state.indexed) {
+  892                  app.prepareDirectoryCompletion();
+  893                  return;
+  894              }
+  895              var results: [file_picker_completion_cap]file_index.SearchResult = undefined;
+  896              var spans: [file_picker_match_span_cap]file_index.MatchSpan = undefined;
+  897              var paths: [file_picker_path_storage_cap]u8 = undefined;
+  898              const lookup = if (comptime @hasDecl(App, "fileCompletionsAtRevision"))
+  899                  app.fileCompletionsAtRevision(source, decoded, &results, &spans, &paths)
+  900              else
+  901                  app.fileCompletions(decoded, &results, &spans, &paths);
+  902              const count = lookup catch |err| {
+  903                  debug_trace.logf("input", "file picker preparation failed err={s}", .{@errorName(err)});
+  904                  state.stage(app.alloc, source, .unavailable, null);
+  905                  return;
+  906              };
+  907              const status: file_completion_state.Status = if (count > 0) .ready else switch (source.state) {
+  908                  .loading => .loading,
+  909                  .failed => .unavailable,
+  910                  .idle, .ready => .empty,
+  911              };
+  912              const rows = file_completion_state.Rows.copy(app.alloc, results[0..count]) catch |err| {
+  913                  debug_trace.logf("input", "file picker result copy failed err={s}", .{@errorName(err)});
+  914                  state.stage(app.alloc, source, .unavailable, null);
+  915                  return;
+  916              };
+  917              state.stage(app.alloc, source, status, rows);
+  918              debug_trace.logf("input", "file picker prepared revision={d} count={d} indexed={}", .{ state.next_revision -% 1, count, state.indexed });
+  919              app.shell.render_requests.request(.footer);
+  920          }
+
+== src/core/app/app_session_runtime.zig:2052-2068@481104fd -- resumeSelectedSession: no file index call
+ 2052          pub fn resumeSelectedSession(app: *App) !bool {
+ 2053              const selected_id = app.session_persistence.session_picker.selectedId() orelse return false;
+ 2054              const v2_store = app.session_persistence.v2_store orelse return false;
+ 2055              // A session open in another fx shows as busy at once (D38).
+ 2056              const v2 = session_adapter.Session.resumeSessionWithoutWaiting(app.alloc, v2_store, .{ .id = selected_id }, app.workspace_root, .app) catch |err| {
+ 2057                  noteConversionProblem(app, v2_store, err);
+ 2058                  return err;
+ 2059              };
+ 2060              var v2_owned = true;
+ 2061              errdefer if (v2_owned) v2.close();
+ 2062              try app.prepareLiveSessionResume();
+ 2063              v2_owned = false;
+ 2064              try installResumedV2Session(app, v2, .session);
+ 2065              startResumedSessionWarmup(app);
+ 2066              try app.finishLiveSessionResume();
+ 2067              return true;
+ 2068          }
+
+== src/core/app/app_session_runtime.zig:2098-2126@481104fd -- forkBeforeSelectedPrompt: the fork switched to in place, no file index call
+ 2098          /// Forks the session before the fork menu's selected prompt and
+ 2099          /// switches to the fork, which opens before the source closes (D58).
+ 2100          /// Returns that prompt's text for the composer; caller owns it.
+ 2101          pub fn forkBeforeSelectedPrompt(app: *App) ![]u8 {
+ 2102              const menu = &app.session_persistence.fork_menu;
+ 2103              const points = menu.points;
+ 2104              const point = points[menu.selected];
+ 2105              menu.* = .{};
+ 2106              defer session_adapter.Session.freeForkPoints(app.alloc, points);
+ 2107              const source = app.session_persistence.v2 orelse return error.SessionStoreUnavailable;
+ 2108              const source_id = try app.alloc.dupe(u8, source.id());
+ 2109              defer app.alloc.free(source_id);
+ 2110              const prompt = try app.alloc.dupe(u8, point.prompt);
+ 2111              errdefer app.alloc.free(prompt);
+ 2112              const fork = try source.fork(app.alloc, .{
+ 2113                  .before_turn = point.turn,
+ 2114                  .workspace = app.workspace_root,
+ 2115                  .host = .app,
+ 2116                  .title = cachedSessionTitle(app),
+ 2117              });
+ 2118              var fork_owned = true;
+ 2119              errdefer if (fork_owned) fork.close();
+ 2120              try app.prepareLiveSessionResume();
+ 2121              fork_owned = false;
+ 2122              try installResumedV2Session(app, fork, .{ .fork = source_id });
+ 2123              startResumedSessionWarmup(app);
+ 2124              try app.finishLiveSessionResume();
+ 2125              return prompt;
+ 2126          }
+
+== src/ui/event_loop.zig:76-122@481104fd -- the loop: collect facts (the join) at the top, then the keys, then the frame
+   76  pub fn run(terminal: anytype, should_exit: *bool, poll_timeout_ms: i32, callbacks: EventLoopCallbacks) !ExitCause {
+   77      var buf: [128]u8 = undefined;
+   78  
+   79      while (!should_exit.*) {
+   80          try callbacks.collect_facts(callbacks.ctx);
+   81          if (should_exit.*) return .requested_exit;
+   82  
+   83          while (callbacks.next_collected_byte(callbacks.ctx)) |byte| {
+   84              try callbacks.handle_byte(callbacks.ctx, byte);
+   85              if (should_exit.*) return .requested_exit;
+   86          }
+   87  
+   88          const timeout_ms = if (callbacks.poll_timeout_ms) |resolve|
+   89              resolve(callbacks.ctx, poll_timeout_ms)
+   90          else
+   91              poll_timeout_ms;
+   92          var poll_result = try terminal.pollInput(timeout_ms);
+   93          var input_reads: usize = 0;
+   94          while (poll_result.readable and input_reads < max_input_reads_per_fact_collection) : (input_reads += 1) {
+   95              const read_len = try terminal.read(&buf);
+   96              if (read_len == 0) {
+   97                  if (input_reads > 0) attemptFinalFrameCommit(callbacks, "eof");
+   98                  return .input_closed;
+   99              }
+  100  
+  101              record_tape.recordStdin(buf[0..read_len]);
+  102              for (buf[0..read_len]) |byte| {
+  103                  try callbacks.handle_byte(callbacks.ctx, byte);
+  104                  if (should_exit.*) return .requested_exit;
+  105              }
+  106              poll_result = try terminal.pollInput(0);
+  107          }
+  108  
+  109          if (poll_result.readable) {
+  110              try callbacks.commit_frame(callbacks.ctx);
+  111              continue;
+  112          }
+  113          if (poll_result.closed()) {
+  114              if (input_reads > 0) attemptFinalFrameCommit(callbacks, "hangup");
+  115              return .input_closed;
+  116          }
+  117  
+  118          try callbacks.settle_delivery_epoch(callbacks.ctx);
+  119          try callbacks.commit_frame(callbacks.ctx);
+  120      }
+  121      return .requested_exit;
+  122  }
+
+== src/main.zig:174-175@481104fd -- the loop's key wait: 8 ms
+  174  const active_poll_timeout_ms: i32 = 8;
+  175  const focused_ui_worker_poll_timeout_ms: i32 = 1;
+
+== src/main.zig:2846-2853@481104fd -- loopCollectFacts joins a finished loader
+ 2846      pub fn loopCollectFacts(ctx: *anyopaque) !void {
+ 2847          const self: *App = @ptrCast(@alignCast(ctx));
+ 2848          if (!try WorkerAppRuntime.authorizeInteractiveAdmission(self)) return;
+ 2849  
+ 2850          if (comptime !host_target.is_wasm) {
+ 2851              if (self.file_index.joinThreadIfDone(std.heap.c_allocator)) {
+ 2852                  self.shell.render_requests.request(.footer);
+ 2853              }
+
+== src/main.zig:2992-2998@481104fd -- loopCommitFrame prepares the picker before the frame
+ 2992      pub fn loopCommitFrame(ctx: *anyopaque) !void {
+ 2993          const self: *App = @ptrCast(@alignCast(ctx));
+ 2994          defer SessionAppRuntime.finishDeferredSessionInputReplay(self);
+ 2995          if (!try WorkerAppRuntime.authorizeInteractiveAdmission(self)) return;
+ 2996          if (self.terminal_input_runtime.native_clear_probe.active()) return;
+ 2997          _ = self.admitPendingResizeSignal("post_input");
+ 2998          InputAppRuntime.prepareFilePicker(self);
+
+== src/core/app/app_bootstrap_runtime.zig:617-620@481104fd -- fresh sessions only: the welcome and the assembly notice (moved with tui::open, not changed)
+  617                  try app.writeTranscriptClassified(welcome_message, true, .welcome);
+  618                  // Fresh sessions only: on resume the transcript must stay
+  619                  // empty until the deferred session load replays history.
+  620                  try writeSessionAssemblyNotice(app, startup.provider.label());
+
+== src/core/app/app_bootstrap_runtime.zig:660-690@481104fd -- the launch's config and history notices (moved with tui::open, not changed)
+  660                          reported,
+  661                          if (reported == 1) "" else "s",
+  662                      });
+  663                      defer app.alloc.free(summary);
+  664                      try writeCollapsedStartupNotice(app, "config", summary, detail_writer.written());
+  665                  }
+  666              }
+  667              if (comptime @hasField(App, "prompt_history")) {
+  668                  if (prompt_history_unavailable) {
+  669                      try app.writeDomainNotice(.{
+  670                          .topic = "history",
+  671                          .tone = .warning,
+  672                          .body = "durable prompt history unavailable",
+  673                      }, true);
+  674                  } else {
+  675                      app_input_runtime.Runtime(App).loadAndInstallPromptHistory(
+  676                          app,
+  677                      ) catch |err| {
+  678                          app.prompt_history.writes_available = false;
+  679                          debug_trace.logf(
+  680                              "prompt_history",
+  681                              "startup load failed err={s}",
+  682                              .{@errorName(err)},
+  683                          );
+  684                          const history_body = try app.alloc.print(
+  685                              "failed to load durable prompt history ({s})",
+  686                              .{@errorName(err)},
+  687                          );
+  688                          defer app.alloc.free(history_body);
+  689                          try app.writeDomainNotice(.{
+  690                              .topic = "history",

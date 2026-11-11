@@ -1,0 +1,34 @@
+# suite-lock.sh gates.sh <clone> <logs> <smoke>, a --no-local clone at 76a5052d, TMPDIR a short scratch directory, the whole script in one hold of the suite lock
+# head 76a5052d; tree clean: yes
+01 fmt                                exit 0     2s  load 14.15
+02 clippy                             exit 0    27s  load 14.15
+03 clippy-fault                       exit 0    18s  load 12.26
+04 test                               exit 0   141s  load 11.31
+05 test-fault                         exit 0   168s  load 8.04
+06 check-xfx-identity                 exit 0     2s  load 9.68
+07 check-no-stubs                     exit 0    18s  load 12.19
+08 check-no-secrets                   exit 0    50s  load 11.57
+09 check-preview-contract             exit 0     2s  load 11.96
+10 check-tui-preflight-cost           exit 0   118s  load 11.88
+11 check-usage-clock                  exit 0     1s  load 17.44
+12 test-check-no-secrets              exit 0    77s  load 17.44
+13 test-gate-env                      exit 0   199s  load 14.65
+14 test-preview-contract              exit 0    67s  load 11.72
+15 fxcap-test-sweep                   exit 0    16s  load 15.72
+16 fxcap-test-capture                 exit 0   269s  load 15.61
+17 build-release                      exit 0    14s  load 4.83
+18 build-faulty                       exit 0    25s  load 5.30
+19 smoke                              exit 0     2s  load 5.60
+20 smoke-tui                          exit 0    63s  load 5.60
+# 20 steps, 0 failed; tree clean after: yes
+# gates.sh exit 0
+
+# cargo test, summed over each run's test binaries (the 'test result:' lines of its log)
+test:       5561 passed, 0 failed, 7 ignored, over 15 binaries
+test-fault: 5598 passed, 0 failed, 7 ignored, over 15 binaries
+# smoke-tui's last line but one (the last names the evidence directory, in <tmp>)
+smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+
+# after 0ab399ed, outside the gate, in the worktree: scripts/check-no-stubs.sh (exit 0), its last line; cargo test --locked --test parity, its result line
+check-no-stubs: ok
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

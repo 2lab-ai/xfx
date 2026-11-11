@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-cb7c9c1 [debug] · Run /help for commands
+
+┃ first prompt alpha
+
+  ALPHA answer.
+
+  0s (↑6 ↓40)
+
+┃ second prompt beta
+
+  BETA answer.
+
+  0s (↑5 ↓40)
+
+┃ third prompt gamma
+
+  GAMMA answer.
+
+  0s (↑6 ↓40)
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  first prompt alpha
+  second prompt beta
+  third prompt gamma
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter fork     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+

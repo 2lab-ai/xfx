@@ -1,0 +1,126 @@
+# train 14's sweep selection: the brief's globs, then the scenarios named by the ledger entries the merges and the ledger commits after them (d548c078, ecad8518, 7a1773d9, fb6dfdb8, 8f622949) touched, then the scenarios the merges added
+filepicker*
+p5-input-at*
+p5-input-row-limit*
+workspace*
+p5-ctrlo*
+p5-page-keys*
+settings*
+image*
+p5-image*
+model-column*
+p5-panels-help
+fulltranscript*
+# d548c078 (a merge): 4 entries
+#   cause at-folder-row (removed): p5-input-at, p5-input-at-dir, filepicker
+#   cause at-plan-run-directory (added): workspace-index
+#   cause at-ranking (removed): p5-input-at, workspace-index
+#   cause question-resume-ctrlo-detail (changed): p5-question-resume-ctrlo
+# ecad8518 (a merge): 0 entries
+# 7a1773d9 (a merge): 2 entries
+#   cause at-ranking-anchor (added): p5-page-keys-anchor
+#   cause model-column-clip (added): p5-page-keys-anchor
+# fb6dfdb8 (a merge): 0 entries
+# 8f622949 (a ledger commit): 2 entries
+#   cause at-plan-run-directory (removed): workspace-index
+#   cause question-resume-ctrlo-detail (changed): p5-question-resume-ctrlo
+# 04e4491d (the re-point: listed, not selected): 20 entries
+#   cause activity-tokens-before-request (changed): model-parked
+#   cause amendment-card-after-stop (changed): approvals
+#   cause answer-modifier-sequence-wider (changed): p5-ctrlo-wider-mod
+#   cause at-resize-band-at-the-bottom (changed): p5-input-at-resize
+#   cause cancel-page-edge (changed): p5-transcript-cancel
+#   cause full-transcript-shift (changed): fulltranscript*, links, read-failures, resume-tools, timeout
+#   cause profile-refuse-at-launch (changed): p5-panels-badsettings
+#   cause resize-document-repaint (changed): p5-ctrlo-wider-inline-fam, h1-resize
+#   cause safe-page-edge (changed): p5-transcript-safe, p5-transcript-safetab
+#   cause session-record (changed): *
+#   cause stats-bytes (changed): *
+#   cause toolgroup-ctrlo-record-short (changed): p5-toolgroup-ctrlo, p5-toolgroup-ctrlo-tc
+#   cause transcript-page-offset (changed): p5-transcript-anchor, p5-transcript-anchormid, p5-transcript-resize, p5-transcript-records, p5-transcript-question
+#   divergence answer-drawn-wider-named (changed): p5-ctrlo-wider-inline-fam
+#   divergence answer-label-and-modifier-named (changed): p5-ctrlo-wider-fence, p5-ctrlo-wider-mod
+#   divergence ctrl-o-drawn-wider-named (changed): p5-ctrlo-wider-diff-fam
+#   divergence inline-band-row-anchor (changed): p5-ctrlo-wider-inline-fam
+#   normalization capture-tmpdir (changed): names no scenario
+#   normalization run-directory (changed): names no scenario
+#   normalization tmux-dead-pane (changed): names no scenario
+# filepicker: in the brief's globs already
+# p5-input-at: in the brief's globs already
+# p5-input-at-dir: in the brief's globs already
+# p5-page-keys-anchor: in the brief's globs already
+p5-question-resume-ctrlo
+# workspace-index: in the brief's globs already
+# p5-at-rank: added by d548c078
+p5-at-rank
+# p5-ctrlo-at-keys: added by d548c078, selected already
+# p5-input-at-folders: added by d548c078, selected already
+# p5-input-at-paste: added by d548c078, selected already
+# p5-ctrlo-burst-help: added by ecad8518, selected already
+# p5-ctrlo-burst-model: added by ecad8518, selected already
+# p5-ctrlo-burst-settings: added by ecad8518, selected already
+# p5-ctrlo-effort: added by ecad8518, selected already
+# p5-ctrlo-fork: added by ecad8518, selected already
+# p5-ctrlo-help: added by ecad8518, selected already
+# p5-ctrlo-mcp-args: added by ecad8518, selected already
+# p5-ctrlo-model: added by ecad8518, selected already
+# p5-ctrlo-sessions: added by ecad8518, selected already
+# p5-ctrlo-slash: added by ecad8518, selected already
+# provider-ctrlo: added by ecad8518
+provider-ctrlo
+# skills-ctrlo-dollar: added by ecad8518
+skills-ctrlo-dollar
+# skills-ctrlo: added by ecad8518
+skills-ctrlo
+# p5-page-keys-anchor: added by 7a1773d9, selected already
+# p5-page-keys-column: added by 7a1773d9, selected already
+# p5-page-keys-mcp: added by 7a1773d9, selected already
+# p5-page-keys-settings: added by 7a1773d9, selected already
+# p5-image-loss-changed: added by fb6dfdb8, selected already
+# p5-image-loss-folder: added by fb6dfdb8, selected already
+# p5-image-loss-gone: added by fb6dfdb8, selected already
+# p5-image-loss-whole: added by fb6dfdb8, selected already
+# train 14's extra selection: the scenarios the 04e4491d re-point's entries name that the first selection (selection.txt) did not take
+# *: every scenario (session-record, stats-bytes): left out
+# approvals: amendment-card-after-stop
+approvals
+# fulltranscript* (full-transcript-shift): in the first selection
+# h1-resize: resize-document-repaint
+h1-resize
+# links: full-transcript-shift
+links
+# model-parked: activity-tokens-before-request
+model-parked
+# p5-ctrlo-wider-diff-fam (ctrl-o-drawn-wider-named): in the first selection
+# p5-ctrlo-wider-fence (answer-label-and-modifier-named): in the first selection
+# p5-ctrlo-wider-inline-fam (resize-document-repaint, answer-drawn-wider-named, inline-band-row-anchor): in the first selection
+# p5-ctrlo-wider-mod (answer-modifier-sequence-wider, answer-label-and-modifier-named): in the first selection
+# p5-input-at-resize (at-resize-band-at-the-bottom): in the first selection
+# p5-panels-badsettings: profile-refuse-at-launch
+p5-panels-badsettings
+# p5-toolgroup-ctrlo: toolgroup-ctrlo-record-short
+p5-toolgroup-ctrlo
+# p5-toolgroup-ctrlo-tc: toolgroup-ctrlo-record-short
+p5-toolgroup-ctrlo-tc
+# p5-transcript-anchor: transcript-page-offset
+p5-transcript-anchor
+# p5-transcript-anchormid: transcript-page-offset
+p5-transcript-anchormid
+# p5-transcript-cancel: cancel-page-edge
+p5-transcript-cancel
+# p5-transcript-question: transcript-page-offset
+p5-transcript-question
+# p5-transcript-records: transcript-page-offset
+p5-transcript-records
+# p5-transcript-resize: transcript-page-offset
+p5-transcript-resize
+# p5-transcript-safe: safe-page-edge
+p5-transcript-safe
+# p5-transcript-safetab: safe-page-edge
+p5-transcript-safetab
+# read-failures: full-transcript-shift
+read-failures
+# resume-tools: full-transcript-shift
+resume-tools
+# timeout: full-transcript-shift
+timeout

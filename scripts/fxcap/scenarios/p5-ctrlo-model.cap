@@ -1,0 +1,57 @@
+# CTRLO-OTHER-PICKERS: Ctrl-O over /model's menu (the model scenario's
+# catalog and profiles), then one key at a time between a Ctrl-O and its
+# return.
+# fx closes the full transcript before every frame while this menu is up
+# (reconcileBeforeFrameRender, app_render_runtime.zig:1206-1215@481104fd), so
+# Ctrl-O over it shows nothing and every key below is the menu's own, as
+# without Ctrl-O: `held` is the composer's plane with the menu, C-j and C-k
+# move the mark (routePickerControlByte, app_input_runtime.zig:1093-1116),
+# Escape closes the menu (resolveEscape, :2765).
+fx: env FX_AUTO_UPGRADE=0
+models models.json
+fx: seed model-seed-fx.json
+xfx: seed model-seed-xfx.json
+nomodel
+wait 2.5
+type /model
+key Enter
+wait 1.5
+snap open
+key C-o
+wait 0.8
+snap held
+key C-o
+wait 0.8
+key C-o
+wait 0.8
+key Down
+wait 0.4
+key C-o
+wait 0.8
+snap down
+key C-o
+wait 0.8
+key C-k
+wait 0.4
+key C-o
+wait 0.8
+snap ck
+key C-o
+wait 0.8
+key C-j
+wait 0.4
+key C-o
+wait 0.8
+snap cj
+key C-o
+wait 0.8
+key Tab
+wait 0.4
+key C-o
+wait 0.8
+snap tab
+key C-o
+wait 0.8
+key Escape
+wait 0.8
+snap esc

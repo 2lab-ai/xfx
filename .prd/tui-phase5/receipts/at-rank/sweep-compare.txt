@@ -1,0 +1,28 @@
+# python3 -I compare.py <base>/pairs.json <head>/pairs.json, the two sweeps of sweeps.sh (one hold of the suite lock: base 245 s, head 239 s), each re-scored (sweep.sh --rescore) with the ledger at e7661322, whose at-plan-run-directory covers row 13 of workspace-index at-plan only
+pairs: base 99, head 99
+base: pass 64/99  approved-divergence 11, normalized-identical 64, unresolved-defect 24
+head: pass 78/99  approved-divergence 11, normalized-identical 78, unresolved-defect 10
+
+moved to passing: 14
+  p5-at-rank ab: unresolved-defect -> normalized-identical
+  p5-at-rank comp: unresolved-defect -> normalized-identical
+  p5-at-rank file-index: unresolved-defect -> normalized-identical
+  p5-at-rank index: unresolved-defect -> normalized-identical
+  p5-at-rank main-rs: unresolved-defect -> normalized-identical
+  p5-at-rank road-map: unresolved-defect -> normalized-identical
+  p5-at-rank scm: unresolved-defect -> normalized-identical
+  p5-at-rank stat: unresolved-defect -> normalized-identical
+  p5-at-rank ta: unresolved-defect -> normalized-identical
+  p5-at-rank vercle: unresolved-defect -> normalized-identical
+  p5-input-at at-st: unresolved-defect -> normalized-identical
+  p5-input-at at-st-down12: unresolved-defect -> normalized-identical
+  p5-input-at at-st-up6: unresolved-defect -> normalized-identical
+  p5-input-at at-stat: unresolved-defect -> normalized-identical
+
+dropped from passing: 0
+
+other verdict changes: 0
+
+# the pairs that do not pass, each side (scenario label verdict); the same set on both sides: False; the head's is the base's less those moved to passing: True
+base (35): p5-at-rank ab [unresolved-defect], p5-at-rank comp [unresolved-defect], p5-at-rank file-index [unresolved-defect], p5-at-rank index [unresolved-defect], p5-at-rank main-rs [unresolved-defect], p5-at-rank road-map [unresolved-defect], p5-at-rank scm [unresolved-defect], p5-at-rank stat [unresolved-defect], p5-at-rank ta [unresolved-defect], p5-at-rank vercle [unresolved-defect], p5-ctrlo-wider-diff-fam full [approved-divergence], p5-ctrlo-wider-fence answer [approved-divergence], p5-ctrlo-wider-fence ctrlo [approved-divergence], p5-ctrlo-wider-inline-fam answer [approved-divergence], p5-ctrlo-wider-inline-fam composer [approved-divergence], p5-ctrlo-wider-inline-fam ctrlo [approved-divergence], p5-ctrlo-wider-inline-fam ctrlo-resized [approved-divergence], p5-ctrlo-wider-inline-fam margin [approved-divergence], p5-ctrlo-wider-inline-fam prompt [approved-divergence], p5-ctrlo-wider-inline-fam resized [unresolved-defect], p5-ctrlo-wider-mod answer [approved-divergence], p5-ctrlo-wider-mod more [approved-divergence], p5-ctrlo-wider-ri answer [unresolved-defect], p5-ctrlo-wider-ri erased [unresolved-defect], p5-ctrlo-wider-ri typed [unresolved-defect], p5-input-at at-st [unresolved-defect], p5-input-at at-st-down12 [unresolved-defect], p5-input-at at-st-up6 [unresolved-defect], p5-input-at at-stat [unresolved-defect], p5-input-at-resize short [unresolved-defect], p5-input-at-resize short-up1 [unresolved-defect], p5-input-at-resize short-up7 [unresolved-defect], p5-input-at-resize tall [unresolved-defect], p5-input-at-resize tall-down1 [unresolved-defect], workspace-index at-plan [unresolved-defect]
+head (21): p5-ctrlo-wider-diff-fam full [approved-divergence], p5-ctrlo-wider-fence answer [approved-divergence], p5-ctrlo-wider-fence ctrlo [approved-divergence], p5-ctrlo-wider-inline-fam answer [approved-divergence], p5-ctrlo-wider-inline-fam composer [approved-divergence], p5-ctrlo-wider-inline-fam ctrlo [approved-divergence], p5-ctrlo-wider-inline-fam ctrlo-resized [approved-divergence], p5-ctrlo-wider-inline-fam margin [approved-divergence], p5-ctrlo-wider-inline-fam prompt [approved-divergence], p5-ctrlo-wider-inline-fam resized [unresolved-defect], p5-ctrlo-wider-mod answer [approved-divergence], p5-ctrlo-wider-mod more [approved-divergence], p5-ctrlo-wider-ri answer [unresolved-defect], p5-ctrlo-wider-ri erased [unresolved-defect], p5-ctrlo-wider-ri typed [unresolved-defect], p5-input-at-resize short [unresolved-defect], p5-input-at-resize short-up1 [unresolved-defect], p5-input-at-resize short-up7 [unresolved-defect], p5-input-at-resize tall [unresolved-defect], p5-input-at-resize tall-down1 [unresolved-defect], workspace-index at-plan [unresolved-defect]

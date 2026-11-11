@@ -1,0 +1,319 @@
+# join checks 1 and 2 at the code head, as joins.sh printed them (one hold of the suite lock, after the head's main sweep)
+# TMPDIR of 24 bytes (wanted 24); load 6.92; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+# exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 51 / 63 = 81.0%; unresolved 12, failed 0, timeout 0
+# TMPDIR of 49 bytes (wanted 49); load 8.74; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+# exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 49 / 63 = 77.8%; unresolved 14, failed 0, timeout 0
+# tmpdir part exit 0
+# walk rerun 1 of p5-input-row-limit (40x120) at b3dffdad; xfx sha256 8b230e83d95cb184958251a8033cdd8adfcc643e339306cb855a9e8e24715705; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 8.21
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 5 / 9 = 55.6%; unresolved 4, failed 0, timeout 0
+# walk rerun 2 of p5-input-row-limit (40x120) at b3dffdad; xfx sha256 8b230e83d95cb184958251a8033cdd8adfcc643e339306cb855a9e8e24715705; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 7.41
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 5 / 9 = 55.6%; unresolved 4, failed 0, timeout 0
+# walk rerun 3 of p5-input-row-limit (40x120) at b3dffdad; xfx sha256 8b230e83d95cb184958251a8033cdd8adfcc643e339306cb855a9e8e24715705; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 11.30
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 5 / 9 = 55.6%; unresolved 4, failed 0, timeout 0
+# walk rerun 4 of p5-input-row-limit (40x120) at b3dffdad; xfx sha256 8b230e83d95cb184958251a8033cdd8adfcc643e339306cb855a9e8e24715705; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 11.07
+# rerun 4: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 5 / 9 = 55.6%; unresolved 4, failed 0, timeout 0
+# walk rerun 5 of p5-input-row-limit (40x120) at b3dffdad; xfx sha256 8b230e83d95cb184958251a8033cdd8adfcc643e339306cb855a9e8e24715705; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 12.50
+# rerun 5: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 5 / 9 = 55.6%; unresolved 4, failed 0, timeout 0
+j2-1: at normalized-identical; row 5 fx '  items/f-01.txt'; xfx '  items/f-01.txt'; xfx says indexing: False; at-pgdn normalized-identical
+j2-2: at normalized-identical; row 5 fx '  items/f-01.txt'; xfx '  items/f-01.txt'; xfx says indexing: False; at-pgdn normalized-identical
+j2-3: at normalized-identical; row 5 fx '  items/f-01.txt'; xfx '  items/f-01.txt'; xfx says indexing: False; at-pgdn normalized-identical
+j2-4: at normalized-identical; row 5 fx '  items/f-01.txt'; xfx '  items/f-01.txt'; xfx says indexing: False; at-pgdn normalized-identical
+j2-5: at normalized-identical; row 5 fx '  items/f-01.txt'; xfx '  items/f-01.txt'; xfx says indexing: False; at-pgdn normalized-identical
+# walk part exit 0
+exit 0
+
+## join check 1: the three globs at a 24-byte and a 49-byte TMPDIR, against the same tree's main sweep (its own TMPDIR)
+### TMPDIR of 24 bytes: 63 pairs, 51 pass; 63 also in that sweep, 51 of them pass there; verdicts that differ: 0; pairs not in that sweep: 0
+  p5-input-at at-src: normalized-identical
+  p5-input-at at-src-enter: normalized-identical
+  p5-input-at at-src-tab: normalized-identical
+  p5-input-at at-st: normalized-identical
+  p5-input-at at-st-down12: normalized-identical
+  p5-input-at at-st-up6: normalized-identical
+  p5-input-at at-stat: normalized-identical
+  p5-input-at-dir dir-enter: normalized-identical
+  p5-input-at-dir dir-query: normalized-identical
+  p5-input-at-folders space-enter: normalized-identical
+  p5-input-at-folders space-open: normalized-identical
+  p5-input-at-folders space-query: normalized-identical
+  p5-input-at-folders space-x: normalized-identical
+  p5-input-at-folders src-enter-x: normalized-identical
+  p5-input-at-folders src-open: normalized-identical
+  p5-input-at-folders sto-query: normalized-identical
+  p5-input-at-folders sto-x: normalized-identical
+  p5-input-at-gate downs-after: normalized-identical
+  p5-input-at-gate downs-in-the-read: normalized-identical
+  p5-input-at-gate tab-in-the-read: normalized-identical
+  p5-input-at-height at: normalized-identical
+  p5-input-at-height down12: normalized-identical
+  p5-input-at-height pgup: normalized-identical
+  p5-input-at-height up6: normalized-identical
+  p5-input-at-height up9: normalized-identical
+  p5-input-at-paste paste-src: normalized-identical
+  p5-input-at-paste paste-src-back: normalized-identical
+  p5-input-at-resize down12: normalized-identical
+  p5-input-at-resize short: unresolved-defect
+  p5-input-at-resize short-up1: unresolved-defect
+  p5-input-at-resize short-up7: unresolved-defect
+  p5-input-at-resize tall: unresolved-defect
+  p5-input-at-resize tall-down1: unresolved-defect
+  p5-input-row-limit at: normalized-identical
+  p5-input-row-limit at-pgdn: normalized-identical
+  p5-input-row-limit grown: normalized-identical
+  p5-input-row-limit grown-pgup: normalized-identical
+  p5-input-row-limit grown-pgup2: normalized-identical
+  p5-input-row-limit help: unresolved-defect
+  p5-input-row-limit help-pgdn: unresolved-defect
+  p5-input-row-limit slash: unresolved-defect
+  p5-input-row-limit slash-pgdn: unresolved-defect
+  p5-input-row-limit-menus effort: normalized-identical
+  p5-input-row-limit-menus effort-pgdn: normalized-identical
+  p5-input-row-limit-menus model: normalized-identical
+  p5-input-row-limit-menus model-pgdn: normalized-identical
+  p5-input-row-limit-short grown: normalized-identical
+  p5-input-row-limit-short grown-pgup: normalized-identical
+  p5-input-row-limit-short slash: unresolved-defect
+  p5-input-row-limit-short slash-pgdn: unresolved-defect
+  workspace add: normalized-identical
+  workspace add-row-enter: normalized-identical
+  workspace bare: normalized-identical
+  workspace clear-done: normalized-identical
+  workspace clear-prefill: normalized-identical
+  workspace clear-row: normalized-identical
+  workspace dir-enter: normalized-identical
+  workspace list: normalized-identical
+  workspace picker-down1: normalized-identical
+  workspace picker-one: normalized-identical
+  workspace refusals: normalized-identical
+  workspace-index at-all: normalized-identical
+  workspace-index at-plan: unresolved-defect
+  redaction: 252 capture files; lines holding the run's TMPDIR: 0; lines the brief's pattern matches: 0; lines holding a `<scratch` or `<tmp` placeholder: 71
+  workspace-index at-plan row 13, fx: '  <scratch:real________________________________________________>/extra/notes/' (77 columns)
+  workspace-index at-plan row 13, xfx: '  <scratch:real________________________________________________>/extra/notes/' (77 columns)
+  workspace clear-row row 27, fx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace clear-row row 27, xfx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-down1 row 27, fx: '❯ <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-down1 row 27, xfx: '❯ <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-one row 27, fx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-one row 27, xfx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+### TMPDIR of 49 bytes: 63 pairs, 49 pass; 63 also in that sweep, 51 of them pass there; verdicts that differ: 4; pairs not in that sweep: 0
+  p5-input-at at-src: normalized-identical
+  p5-input-at at-src-enter: normalized-identical
+  p5-input-at at-src-tab: normalized-identical
+  p5-input-at at-st: normalized-identical
+  p5-input-at at-st-down12: normalized-identical
+  p5-input-at at-st-up6: normalized-identical
+  p5-input-at at-stat: normalized-identical
+  p5-input-at-dir dir-enter: normalized-identical
+  p5-input-at-dir dir-query: normalized-identical
+  p5-input-at-folders space-enter: normalized-identical
+  p5-input-at-folders space-open: normalized-identical
+  p5-input-at-folders space-query: normalized-identical
+  p5-input-at-folders space-x: normalized-identical
+  p5-input-at-folders src-enter-x: normalized-identical
+  p5-input-at-folders src-open: normalized-identical
+  p5-input-at-folders sto-query: normalized-identical
+  p5-input-at-folders sto-x: normalized-identical
+  p5-input-at-gate downs-after: normalized-identical
+  p5-input-at-gate downs-in-the-read: normalized-identical
+  p5-input-at-gate tab-in-the-read: normalized-identical
+  p5-input-at-height at: normalized-identical
+  p5-input-at-height down12: normalized-identical
+  p5-input-at-height pgup: normalized-identical
+  p5-input-at-height up6: normalized-identical
+  p5-input-at-height up9: normalized-identical
+  p5-input-at-paste paste-src: normalized-identical
+  p5-input-at-paste paste-src-back: normalized-identical
+  p5-input-at-resize down12: normalized-identical
+  p5-input-at-resize short: unresolved-defect
+  p5-input-at-resize short-up1: unresolved-defect
+  p5-input-at-resize short-up7: unresolved-defect
+  p5-input-at-resize tall: unresolved-defect
+  p5-input-at-resize tall-down1: unresolved-defect
+  p5-input-row-limit at: normalized-identical
+  p5-input-row-limit at-pgdn: normalized-identical
+  p5-input-row-limit grown: normalized-identical
+  p5-input-row-limit grown-pgup: normalized-identical
+  p5-input-row-limit grown-pgup2: normalized-identical
+  p5-input-row-limit help: unresolved-defect
+  p5-input-row-limit help-pgdn: unresolved-defect
+  p5-input-row-limit slash: unresolved-defect
+  p5-input-row-limit slash-pgdn: unresolved-defect
+  p5-input-row-limit-menus effort: normalized-identical
+  p5-input-row-limit-menus effort-pgdn: normalized-identical
+  p5-input-row-limit-menus model: normalized-identical
+  p5-input-row-limit-menus model-pgdn: normalized-identical
+  p5-input-row-limit-short grown: normalized-identical
+  p5-input-row-limit-short grown-pgup: normalized-identical
+  p5-input-row-limit-short slash: unresolved-defect
+  p5-input-row-limit-short slash-pgdn: unresolved-defect
+  workspace add: normalized-identical
+  workspace add-row-enter: normalized-identical
+  workspace bare: normalized-identical
+  workspace clear-done: normalized-identical
+  workspace clear-prefill: normalized-identical
+  workspace clear-row: unresolved-defect   (that sweep: normalized-identical)
+  workspace dir-enter: normalized-identical
+  workspace list: normalized-identical
+  workspace picker-down1: unresolved-defect   (that sweep: normalized-identical)
+  workspace picker-one: unresolved-defect   (that sweep: normalized-identical)
+  workspace refusals: normalized-identical
+  workspace-index at-all: normalized-identical
+  workspace-index at-plan: normalized-identical   (that sweep: unresolved-defect)
+  redaction: 252 capture files; lines holding the run's TMPDIR: 0; lines the brief's pattern matches: 0; lines holding a `<scratch` or `<tmp` placeholder: 70
+  workspace-index at-plan row 13, fx: '  <scratch:real_________________________________________________________________________>/extra/notes/' (102 columns)
+  workspace-index at-plan row 13, xfx: '  <scratch:real_________________________________________________________________________>/extra/notes/' (102 columns)
+  workspace clear-row row 27, fx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+  workspace clear-row row 27, xfx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+    the sweep's reading, row 27: fx '  <tmp:real________________________________________________________________>/xfx… Active · Saved' / xfx '  <tmp:real________________________________________________________________>/fx… Active · Saved'
+  workspace picker-down1 row 27, fx: '❯ <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+  workspace picker-down1 row 27, xfx: '❯ <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+    the sweep's reading, row 27: fx '❯ <tmp:real________________________________________________________________>/xfx… Active · Saved' / xfx '❯ <tmp:real________________________________________________________________>/fx… Active · Saved'
+  workspace picker-one row 27, fx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+  workspace picker-one row 27, xfx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+    the sweep's reading, row 27: fx '  <tmp:real________________________________________________________________>/xfx… Active · Saved' / xfx '  <tmp:real________________________________________________________________>/fx… Active · Saved'
+
+## join check 2: p5-input-row-limit five times, one after another (walk_rows.py)
+j2-1: at normalized-identical; row 5 fx '  items/f-01.txt'; xfx '  items/f-01.txt'; xfx says indexing: False; at-pgdn normalized-identical
+j2-2: at normalized-identical; row 5 fx '  items/f-01.txt'; xfx '  items/f-01.txt'; xfx says indexing: False; at-pgdn normalized-identical
+j2-3: at normalized-identical; row 5 fx '  items/f-01.txt'; xfx '  items/f-01.txt'; xfx says indexing: False; at-pgdn normalized-identical
+j2-4: at normalized-identical; row 5 fx '  items/f-01.txt'; xfx '  items/f-01.txt'; xfx says indexing: False; at-pgdn normalized-identical
+j2-5: at normalized-identical; row 5 fx '  items/f-01.txt'; xfx '  items/f-01.txt'; xfx says indexing: False; at-pgdn normalized-identical
+
+# join check 1's TMPDIR part on the base's build, as joins.sh printed it
+# TMPDIR of 24 bytes (wanted 24); load 7.16; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+# exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 34 / 53 = 64.2%; unresolved 19, failed 0, timeout 0
+# TMPDIR of 49 bytes (wanted 49); load 11.07; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+# exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 31 / 53 = 58.5%; unresolved 22, failed 0, timeout 0
+exit 0
+
+## join check 1: the three globs at a 24-byte and a 49-byte TMPDIR, against the same tree's main sweep (its own TMPDIR)
+### TMPDIR of 24 bytes: 53 pairs, 34 pass; 53 also in that sweep, 34 of them pass there; verdicts that differ: 0; pairs not in that sweep: 0
+  p5-input-at at-src: unresolved-defect
+  p5-input-at at-src-enter: unresolved-defect
+  p5-input-at at-src-tab: unresolved-defect
+  p5-input-at at-st: unresolved-defect
+  p5-input-at at-st-down12: unresolved-defect
+  p5-input-at at-st-up6: unresolved-defect
+  p5-input-at at-stat: unresolved-defect
+  p5-input-at-dir dir-enter: unresolved-defect
+  p5-input-at-dir dir-query: normalized-identical
+  p5-input-at-gate downs-after: normalized-identical
+  p5-input-at-gate downs-in-the-read: normalized-identical
+  p5-input-at-gate tab-in-the-read: normalized-identical
+  p5-input-at-height at: normalized-identical
+  p5-input-at-height down12: normalized-identical
+  p5-input-at-height pgup: normalized-identical
+  p5-input-at-height up6: normalized-identical
+  p5-input-at-height up9: normalized-identical
+  p5-input-at-resize down12: normalized-identical
+  p5-input-at-resize short: unresolved-defect
+  p5-input-at-resize short-up1: unresolved-defect
+  p5-input-at-resize short-up7: unresolved-defect
+  p5-input-at-resize tall: unresolved-defect
+  p5-input-at-resize tall-down1: unresolved-defect
+  p5-input-row-limit at: normalized-identical
+  p5-input-row-limit at-pgdn: normalized-identical
+  p5-input-row-limit grown: normalized-identical
+  p5-input-row-limit grown-pgup: normalized-identical
+  p5-input-row-limit grown-pgup2: normalized-identical
+  p5-input-row-limit help: unresolved-defect
+  p5-input-row-limit help-pgdn: unresolved-defect
+  p5-input-row-limit slash: unresolved-defect
+  p5-input-row-limit slash-pgdn: unresolved-defect
+  p5-input-row-limit-menus effort: normalized-identical
+  p5-input-row-limit-menus effort-pgdn: normalized-identical
+  p5-input-row-limit-menus model: normalized-identical
+  p5-input-row-limit-menus model-pgdn: normalized-identical
+  p5-input-row-limit-short grown: normalized-identical
+  p5-input-row-limit-short grown-pgup: normalized-identical
+  p5-input-row-limit-short slash: unresolved-defect
+  p5-input-row-limit-short slash-pgdn: unresolved-defect
+  workspace add: normalized-identical
+  workspace add-row-enter: normalized-identical
+  workspace bare: normalized-identical
+  workspace clear-done: normalized-identical
+  workspace clear-prefill: normalized-identical
+  workspace clear-row: normalized-identical
+  workspace dir-enter: normalized-identical
+  workspace list: normalized-identical
+  workspace picker-down1: normalized-identical
+  workspace picker-one: normalized-identical
+  workspace refusals: normalized-identical
+  workspace-index at-all: normalized-identical
+  workspace-index at-plan: normalized-identical
+  redaction: 212 capture files; lines holding the run's TMPDIR: 0; lines the brief's pattern matches: 0; lines holding a `<scratch` or `<tmp` placeholder: 70
+  workspace-index at-plan row 13, fx: '  <scratch:real________________________________________________>/extra/notes/' (77 columns)
+  workspace-index at-plan row 13, xfx: '  <scratch:real________________________________________________>/extra/notes/' (77 columns)
+  workspace clear-row row 27, fx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace clear-row row 27, xfx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-down1 row 27, fx: '❯ <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-down1 row 27, xfx: '❯ <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-one row 27, fx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-one row 27, xfx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+### TMPDIR of 49 bytes: 53 pairs, 31 pass; 53 also in that sweep, 34 of them pass there; verdicts that differ: 3; pairs not in that sweep: 0
+  p5-input-at at-src: unresolved-defect
+  p5-input-at at-src-enter: unresolved-defect
+  p5-input-at at-src-tab: unresolved-defect
+  p5-input-at at-st: unresolved-defect
+  p5-input-at at-st-down12: unresolved-defect
+  p5-input-at at-st-up6: unresolved-defect
+  p5-input-at at-stat: unresolved-defect
+  p5-input-at-dir dir-enter: unresolved-defect
+  p5-input-at-dir dir-query: normalized-identical
+  p5-input-at-gate downs-after: normalized-identical
+  p5-input-at-gate downs-in-the-read: normalized-identical
+  p5-input-at-gate tab-in-the-read: normalized-identical
+  p5-input-at-height at: normalized-identical
+  p5-input-at-height down12: normalized-identical
+  p5-input-at-height pgup: normalized-identical
+  p5-input-at-height up6: normalized-identical
+  p5-input-at-height up9: normalized-identical
+  p5-input-at-resize down12: normalized-identical
+  p5-input-at-resize short: unresolved-defect
+  p5-input-at-resize short-up1: unresolved-defect
+  p5-input-at-resize short-up7: unresolved-defect
+  p5-input-at-resize tall: unresolved-defect
+  p5-input-at-resize tall-down1: unresolved-defect
+  p5-input-row-limit at: normalized-identical
+  p5-input-row-limit at-pgdn: normalized-identical
+  p5-input-row-limit grown: normalized-identical
+  p5-input-row-limit grown-pgup: normalized-identical
+  p5-input-row-limit grown-pgup2: normalized-identical
+  p5-input-row-limit help: unresolved-defect
+  p5-input-row-limit help-pgdn: unresolved-defect
+  p5-input-row-limit slash: unresolved-defect
+  p5-input-row-limit slash-pgdn: unresolved-defect
+  p5-input-row-limit-menus effort: normalized-identical
+  p5-input-row-limit-menus effort-pgdn: normalized-identical
+  p5-input-row-limit-menus model: normalized-identical
+  p5-input-row-limit-menus model-pgdn: normalized-identical
+  p5-input-row-limit-short grown: normalized-identical
+  p5-input-row-limit-short grown-pgup: normalized-identical
+  p5-input-row-limit-short slash: unresolved-defect
+  p5-input-row-limit-short slash-pgdn: unresolved-defect
+  workspace add: normalized-identical
+  workspace add-row-enter: normalized-identical
+  workspace bare: normalized-identical
+  workspace clear-done: normalized-identical
+  workspace clear-prefill: normalized-identical
+  workspace clear-row: unresolved-defect   (that sweep: normalized-identical)
+  workspace dir-enter: normalized-identical
+  workspace list: normalized-identical
+  workspace picker-down1: unresolved-defect   (that sweep: normalized-identical)
+  workspace picker-one: unresolved-defect   (that sweep: normalized-identical)
+  workspace refusals: normalized-identical
+  workspace-index at-all: normalized-identical
+  workspace-index at-plan: normalized-identical
+  redaction: 212 capture files; lines holding the run's TMPDIR: 0; lines the brief's pattern matches: 0; lines holding a `<scratch` or `<tmp` placeholder: 70
+  workspace-index at-plan row 13, fx: '  <scratch:real_________________________________________________________________________>/extra/notes/' (102 columns)
+  workspace-index at-plan row 13, xfx: '  <scratch:real_________________________________________________________________________>/extra/notes/' (102 columns)
+  workspace clear-row row 27, fx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+  workspace clear-row row 27, xfx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+    the sweep's reading, row 27: fx '  <tmp:real________________________________________________________________>/xfx… Active · Saved' / xfx '  <tmp:real________________________________________________________________>/fx… Active · Saved'
+  workspace picker-down1 row 27, fx: '❯ <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+  workspace picker-down1 row 27, xfx: '❯ <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+    the sweep's reading, row 27: fx '❯ <tmp:real________________________________________________________________>/xfx… Active · Saved' / xfx '❯ <tmp:real________________________________________________________________>/fx… Active · Saved'
+  workspace picker-one row 27, fx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+  workspace picker-one row 27, xfx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+    the sweep's reading, row 27: fx '  <tmp:real________________________________________________________________>/xfx… Active · Saved' / xfx '  <tmp:real________________________________________________________________>/fx… Active · Saved'

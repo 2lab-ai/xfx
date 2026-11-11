@@ -1,0 +1,28 @@
+# green-2a721846-24: the fixed harness (2a721846), xfx 2a721846, TMPDIR of 24 bytes, twelve units of workspace-index.
+# run 01 fx: roots: <work>=60 <scratch>=55 <scenarios>=139 <bun>=21 <bun:real>=39 <tmp>=42 <home>=16 bytes
+# sweep: pass = 24 / 24 = 100.0%; unresolved 0, failed 0, timeout 0
+workspace-index-01       at-all   normalized-identical                             
+workspace-index-01       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-02       at-all   normalized-identical                             
+workspace-index-02       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-03       at-all   normalized-identical                             
+workspace-index-03       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-04       at-all   normalized-identical                             
+workspace-index-04       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-05       at-all   normalized-identical                             
+workspace-index-05       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-06       at-all   normalized-identical                             
+workspace-index-06       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-07       at-all   normalized-identical                             
+workspace-index-07       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-08       at-all   normalized-identical                             
+workspace-index-08       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-09       at-all   normalized-identical                             
+workspace-index-09       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-10       at-all   normalized-identical                             
+workspace-index-10       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-11       at-all   normalized-identical                             
+workspace-index-11       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+workspace-index-12       at-all   normalized-identical                             
+workspace-index-12       at-plan  normalized-identical  notes/ row: fx -, xfx -    
+totals: {"normalized-identical": 24}

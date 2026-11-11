@@ -1,0 +1,54 @@
+# CTRLO-OTHER-PICKERS: the /provider column under Ctrl-O, one key at a time
+# (the provider scenario's profile). Named provider-* so the sign-in
+# ledger rows the provider scenarios share apply. fx's C-j and C-k reach
+# the composer (routePickerControlByte, app_input_runtime.zig:1093-1116
+# @481104fd; :881-893): C-k kills nothing (:479-488), C-j is a new line
+# after the argument (:513-521). Down and Escape are the transcript's
+# (input_full_transcript_runtime.zig:156-197). Down first, so a move would
+# show.
+# Last, with no Ctrl-O: Backspace takes the new line back, and Alt-Enter
+# (ESC CR, insert_newline in both) puts it in again, so the column's anchor
+# follows the caret's row without the screen (projectedAnchorColumn,
+# visual_layout.zig:705-713; `alt-enter`).
+fx: env FX_AUTO_UPGRADE=0
+seed provider-settings.json
+nomodel
+gateway slow-line-turn.json
+wait 2.5
+type /provider 
+wait 0.8
+key Down
+wait 0.4
+snap open
+key C-o
+wait 0.8
+key Down
+wait 0.4
+key C-o
+wait 0.8
+snap down
+key C-o
+wait 0.8
+key Escape
+wait 0.8
+snap esc
+key C-o
+wait 0.8
+key C-k
+wait 0.4
+key C-o
+wait 0.8
+snap ck
+key C-o
+wait 0.8
+key C-j
+wait 0.4
+key C-o
+wait 0.8
+snap cj
+key BSpace
+wait 0.4
+snap bspace
+key M-Enter
+wait 0.6
+snap alt-enter

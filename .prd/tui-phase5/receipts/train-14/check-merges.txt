@@ -1,0 +1,50 @@
+# each tree's checks before its commit (check-merge.sh, no lock), as run
+## merge 1 (4130f4ac onto dcfa5146), staged tree fdbbd06aac9c
+cargo check --locked --all-targets: exit 0, 0 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+cargo check --locked --all-targets --features fault-injection: exit 0, 1 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 0 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 1 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+# 0 failed
+## merge 2 (e7e1bcf6 onto d548c078), after semantic.py 2, staged tree 9480c908dadc
+cargo check --locked --all-targets: exit 0, 7 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.02s
+cargo check --locked --all-targets --features fault-injection: exit 0, 6 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.26s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 8 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.02s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 7 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.01s
+# 0 failed
+## merge 3 (3ea16930 onto ecad8518), after semantic.py 3, staged tree 144488a64555
+cargo check --locked --all-targets: exit 0, 5 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.26s
+cargo check --locked --all-targets --features fault-injection: exit 0, 5 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.38s
+cargo fmt --check: exit 0, 2 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 6 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.28s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 6 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.22s
+# 0 failed
+## merge 4 (bde1ddfa onto 7a1773d9), after semantic.py 4, staged tree e39ecc8a8f23
+cargo check --locked --all-targets: exit 0, 13 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.44s
+cargo check --locked --all-targets --features fault-injection: exit 0, 13 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.63s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 14 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.52s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 16 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.49s
+# 0 failed
+## the join commit (one C-j/C-k check), staged tree 46c2478c64ed
+cargo check --locked --all-targets: exit 0, 6 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.24s
+cargo check --locked --all-targets --features fault-injection: exit 0, 5 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.83s
+cargo fmt --check: exit 0, 2 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 7 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.85s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 6 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.13s
+# 0 failed
+## the re-point commit, staged tree 9e258910bcc8
+cargo check --locked --all-targets: exit 0, 5 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.09s
+cargo check --locked --all-targets --features fault-injection: exit 0, 6 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.51s
+cargo fmt --check: exit 0, 2 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 6 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.34s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 7 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.74s
+# 0 failed
+## the second re-point, staged tree 83cb525ce5cd
+cargo check --locked --all-targets: exit 0, 7 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.37s
+cargo check --locked --all-targets --features fault-injection: exit 0, 8 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.30s
+cargo fmt --check: exit 0, 2 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 12 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.77s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 15 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.05s
+# 0 failed

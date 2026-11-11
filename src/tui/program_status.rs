@@ -13,7 +13,7 @@
 //!
 //! * **`app=xfx`, not `app=fx`.** The record names the program that owns the
 //!   terminal, and the program is xfx: "a separate identity"
-//!   (`.prd/01-spec.md:56`), held by `scripts/check-xfx-identity.sh`.
+//!   (`.prd/01-spec.md:58`), held by `scripts/check-xfx-identity.sh`.
 //!   Upstream writes its own name (`:22`).
 //!
 //! A report the terminal did not take is **dropped**, as upstream's is: the

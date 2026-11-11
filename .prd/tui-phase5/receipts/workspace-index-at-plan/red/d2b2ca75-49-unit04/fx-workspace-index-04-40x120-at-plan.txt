@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* workspace: primary=<work_______________________________________________________________________________>
+  saved_suppressed=false limit=16
+  add ../extra saved_changed=true runtime_changed=true launch_flag_can_restore=false
+  additional directories:
+   - <scratch_______________________________________________________________________>/extra saved=true
+  command_line=false available=true active=true
+
+┃ @plan
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  <scratch_______________________________________________________________________>/extra/notes/plan.md
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,16 @@
+# python3 -I fxcites.py f4aa7dcc at the round 2 receipt commit (this folder's fxcites.py), then --self-test
+README.md: 38 citations, 0 failed
+docs/parity.md:239: 9 citations, 0 failed
+src: 59 citations, 0 failed
+all: 106 citations, 0 failed
+ok   a quoted citation passes: 0 failed, planted 0
+ok   a quoted bare :N after its .zig passes: 0 failed, planted 0
+ok   an unquoted citation fails: 1 failed, planted 1
+ok   a bare :N with no .zig before it fails: 1 failed, planted 1
+ok   a bare :N after an .rs fails: 1 failed, planted 1
+ok   another pin's citation is skipped: 0 failed, planted 0
+ok   a citation wrapped after its colon is read whole: 1 failed, planted 1
+ok   a wrapped quoted citation passes: 0 failed, planted 0
+ok   a number changed inside an older citation fails: 1 failed, planted 1
+ok   an older citation left alone is not this unit's: 0 failed, planted 0
+self-test: 10 cases, 0 wrong

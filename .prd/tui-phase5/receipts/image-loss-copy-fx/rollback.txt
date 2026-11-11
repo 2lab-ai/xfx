@@ -1,0 +1,80 @@
+# The rollback, checked on throwaway clones (git clone --no-local) at b2f95c55, each run in one suite-lock slot, TMPDIR a short scratch path.
+# The commit after b2f95c55 adds only this file, rollback.sh's logging and the set's wording in README.md and docs/parity.md; reverting it first gives b2f95c55's tree, which these runs revert to 714f6283's.
+
+## run 2 (rollback.sh as committed after b2f95c55: every cargo log kept, panics printed), a new clone: <scratch>/rb2
+# the set, oldest first (git log --reverse 714f6283..b2f95c55)
+f61bcf1a test(image-loss): RED -- a lost history image refuses the resume, fails the request, or is told to the model, as fx v0.0.16
+0f0b6789 fix(image-loss): a lost history image refuses the resume, fails the request, or is told to the model, as fx v0.0.16
+67a80e48 test(fxcap): p5-image-loss-gone -- a session whose prompt image's copy is gone, resumed by id at launch
+dba6007b docs(receipt): IMAGE-LOSS-COPY-FX -- fx's rule per case, RED/GREEN, the launch pair, data safety, mutants, sweep and gate
+3a17da54 test(image-loss): round 2 RED -- a copy read at each request, held back as fx's build does, a failed stat refusing the resume
+2336c989 fix(image-loss): round 2 -- a resumed image's copy read at each request, held back as fx's build does, a failed stat refusing the resume
+f290f697 test(fxcap): p5-image-loss-whole and -changed, and the lock files fx keeps beside a session
+f42a68ab test(image-loss): a copy whole at a second resume is read afresh at each request after it
+b2f95c55 docs(receipt): IMAGE-LOSS-COPY-FX round 2 -- the captures with their control, RED, checks, mutants and the sweep
+# git revert --no-edit 714f6283..HEAD (newest first)
+revert rc=0, 9 revert commits
+# git diff --stat 714f6283 (empty: the tree is 714f6283's)
+files changed against 714f6283: 0
+# cargo test --locked --lib -- session:: tui::worker interactive:: image:: agent::compact
+test result: ok. 437 passed; 0 failed; 0 ignored; 0 measured; 4187 filtered out; finished in 37.09s
+cargo rc=0
+# cargo test --locked --test sessions --test parity --test tool_loop
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.91s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.91s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+cargo rc=0
+# cargo test --locked --test tui -- resume image
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 166 filtered out; finished in 8.07s
+cargo rc=0
+
+## run 1 (rollback.sh as committed in b2f95c55, which printed result lines only), its own clone: <scratch>/rb
+# the set, oldest first (git log --reverse 714f6283..b2f95c55)
+f61bcf1a test(image-loss): RED -- a lost history image refuses the resume, fails the request, or is told to the model, as fx v0.0.16
+0f0b6789 fix(image-loss): a lost history image refuses the resume, fails the request, or is told to the model, as fx v0.0.16
+67a80e48 test(fxcap): p5-image-loss-gone -- a session whose prompt image's copy is gone, resumed by id at launch
+dba6007b docs(receipt): IMAGE-LOSS-COPY-FX -- fx's rule per case, RED/GREEN, the launch pair, data safety, mutants, sweep and gate
+3a17da54 test(image-loss): round 2 RED -- a copy read at each request, held back as fx's build does, a failed stat refusing the resume
+2336c989 fix(image-loss): round 2 -- a resumed image's copy read at each request, held back as fx's build does, a failed stat refusing the resume
+f290f697 test(fxcap): p5-image-loss-whole and -changed, and the lock files fx keeps beside a session
+f42a68ab test(image-loss): a copy whole at a second resume is read afresh at each request after it
+b2f95c55 docs(receipt): IMAGE-LOSS-COPY-FX round 2 -- the captures with their control, RED, checks, mutants and the sweep
+# git revert --no-edit 714f6283..HEAD (newest first)
+revert rc=0, 9 revert commits
+# git diff --stat 714f6283 (empty: the tree is 714f6283's)
+files changed against 714f6283: 0
+# cargo test --locked --lib -- session:: tui::worker interactive:: image:: agent::compact
+test result: ok. 437 passed; 0 failed; 0 ignored; 0 measured; 4187 filtered out; finished in 36.01s
+cargo rc=0
+# cargo test --locked --test sessions --test parity --test tool_loop
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.42s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.79s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+cargo rc=0
+# cargo test --locked --test tui -- resume image
+test a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken ... FAILED
+test an_automatic_compaction_that_fails_leaves_no_turn_and_a_resume_shows_nothing_of_it ... FAILED
+test a_stop_and_resume_at_a_question_puts_the_review_back_on_a_plane_of_its_own ... FAILED
+test an_image_wider_than_a_request_permits_is_withheld_with_upstreams_note_on_every_request ... FAILED
+test an_attached_image_is_a_file_part_on_the_gateway_and_rides_with_the_history_even_after_a_resume ... FAILED
+test a_resumed_session_says_its_title_again_and_leaves_the_stack_balanced ... FAILED
+test an_image_path_pasted_or_typed_into_a_prompt_is_attached_where_it_stood ... FAILED
+test an_always_answered_in_the_band_is_written_where_a_resume_will_read_it ... FAILED
+test quit_after_a_conversation_names_the_session_and_resume_continues_it ... FAILED
+test llmux_is_sent_anthropics_image_block_and_its_refusal_is_reported_as_it_said_it ... FAILED
+test a_session_that_switched_provider_resumes_on_the_provider_it_recorded_whatever_the_profile_says ... FAILED
+test a_session_resumed_onto_a_provider_with_nothing_to_authenticate_with_says_so_and_stays_there ... FAILED
+test a_session_holding_an_image_is_refused_on_a_model_nobody_vouches_for_even_with_a_text_prompt ... FAILED
+test a_turn_of_two_requests_counts_both_in_its_summary_live_and_resumed ... FAILED
+test compact_replaces_the_older_turn_in_every_later_request_and_a_resume_keeps_it ... FAILED
+test a_model_the_catalog_lists_without_vision_is_told_why_the_tool_image_is_not_there ... FAILED
+test a_session_resumed_under_an_unreadable_provider_asks_the_gateway_nothing ... FAILED
+test result: FAILED. 3 passed; 17 failed; 0 ignored; 0 measured; 166 filtered out; finished in 21.39s
+error: test failed, to rerun pass `--test tui`
+cargo rc=101
+# The tui target's 17 failures came together at 21.39 s: the pty harness waits 20 s for a screen (tests/support/pty.rs:31). Their panic lines were not kept. Rerun in the same clone, unchanged:
+#   cargo test --locked --test tui -- quit_after_a_conversation_names_the_session_and_resume_continues_it
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 185 filtered out; finished in 14.91s
+#   cargo test --locked --test tui -- resume image
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 166 filtered out; finished in 15.90s
+# Run 2 then passed in a clone of its own. Run 1's failure is not reproduced; its cause is not known [no panic lines].

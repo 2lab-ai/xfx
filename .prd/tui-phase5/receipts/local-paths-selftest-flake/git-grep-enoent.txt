@@ -1,0 +1,18 @@
+# git v2.56.0 grep.c:1946-1961 (https://raw.githubusercontent.com/git/git/v2.56.0/grep.c): a working-tree file
+# that lstat says is gone (ENOENT) is skipped with no message, so git grep's status and stderr do not show it
+  1946	static int grep_source_load_file(struct grep_source *gs)
+  1947	{
+  1948		const char *filename = gs->identifier;
+  1949		struct stat st;
+  1950		char *data;
+  1951		size_t size;
+  1952		int i;
+  1953	
+  1954		if (lstat(filename, &st) < 0) {
+  1955		err_ret:
+  1956			if (errno != ENOENT)
+  1957				error_errno(_("failed to stat '%s'"), filename);
+  1958			return -1;
+  1959		}
+  1960		if (!S_ISREG(st.st_mode))
+  1961			return -1;

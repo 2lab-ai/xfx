@@ -1,0 +1,45 @@
+# mutants2.sh on a git clone --no-local at f718e3c1 (scratch): round 1's eight and round 2's six, one edit at a time, the clone restored after each (git status empty at the end).
+# KILLED = a targeted test fails; its first assertion, the diff, and every failing test are shown.
+M1-ignore-FXCAP_RUN: KILLED by scripts/fxcap/test_capture.py (AssertionError: 0 != 2 : roots: <work>=70 <scratch>=65 <scenarios>=62 <bun>=21 <bun:real>=39 <tmp>=52 <home>=16 bytes)
+    diff: -  if [[ -n ${FXCAP_RUN:-} ]]; then +  if false; then 
+    failing: test_a_name_of_another_shape_or_already_there_is_refused test_a_name_of_another_shape_or_already_there_is_refused (name='../fxcap.123456') test_a_name_of_another_shape_or_already_there_is_refused (name='fxcap.12345/') test_a_name_of_another_shape_or_already_there_is_refused (name='fxcap.1234567') test_a_name_of_another_shape_or_already_there_is_refused (name='fxcap.abcdef') test_a_sweep_units_two_runs_see_the_same_path 
+M2-letters-again: KILLED by scripts/fxcap/test_capture.py (AssertionError: False is not true : the run is the next name's)
+    diff: -    name=fxcap.$(printf '%06d' $(( n % 1000000 ))) +    name=$(basename "$(mktemp -u "$tmpdir/fxcap.XXXXXX")") 
+    failing: test_a_random_name_already_there_is_passed_over test_a_run_of_its_own_is_six_digits_owner_only test_a_tmpdir_with_no_room_for_a_run_ends_at_once 
+M3-any-shape: KILLED by scripts/fxcap/test_capture.py (AssertionError: 0 != 2 : roots: <work>=70 <scratch>=65 <scenarios>=62 <bun>=21 <bun:real>=39 <tmp>=52 <home>=16 bytes)
+    diff: -    [[ $FXCAP_RUN =~ ^fxcap\.[0-9]{6}$ ]] || { echo "FXCAP_RUN is \`fxcap.\` and six digits" >&2; return 1; } +    true 
+    failing: test_a_name_of_another_shape_or_already_there_is_refused (name='../fxcap.123456') test_a_name_of_another_shape_or_already_there_is_refused (name='fxcap.12345/') test_a_name_of_another_shape_or_already_there_is_refused (name='fxcap.1234567') test_a_name_of_another_shape_or_already_there_is_refused (name='fxcap.abcdef') 
+M4-reuse-named: KILLED by scripts/fxcap/test_capture.py (AssertionError: 0 != 2 : roots: <work>=70 <scratch>=65 <scenarios>=62 <bun>=21 <bun:real>=39 <tmp>=52 <home>=16 bytes)
+    diff: -    mkdir -m 700 "$tmpdir/$FXCAP_RUN" 2> /dev/null || +    mkdir -p -m 700 "$tmpdir/$FXCAP_RUN" 2> /dev/null || 
+    failing: test_a_name_of_another_shape_or_already_there_is_refused 
+M5-random-mode: KILLED by scripts/fxcap/test_capture.py (AssertionError: 493 != 448)
+    diff: -    if mkdir -m 700 "$tmpdir/$name" 2> /dev/null; then +    if mkdir "$tmpdir/$name" 2> /dev/null; then 
+    failing: test_a_run_of_its_own_is_six_digits_owner_only 
+M6-name-per-run: KILLED by scripts/fxcap/test_sweep.py (AssertionError: Tuples differ: ('run fxcap.147237\n', '<tmp>/wiap2[38 chars]001') != ('run fxcap.96263)
+    diff: -        env["FXCAP_RUN"] = run +        env["FXCAP_RUN"] = "fxcap.%06d" % secrets.randbelow(10**6) 
+    failing: test_a_units_two_runs_share_one_run_directory_named_by_digits 
+M7-no-env: KILLED by scripts/fxcap/test_sweep.py (FileNotFoundError: [Errno 2] No such file or directory: '<tmp>/wiap2-mut/fxsw-test.<8>/out/runs/i)
+    diff: -        env["FXCAP_RUN"] = run +        pass 
+    failing: test_a_units_second_run_finds_nothing_its_first_left test_a_units_two_runs_share_one_run_directory_named_by_digits 
+M8-root-letters: KILLED by scripts/fxcap/test_sweep.py (AssertionError: Regex didn't match: '^fxsw\\.[0-9]{8}$' not found in 'fxsw.<mkdtemp's 8: letters and digits>' : run-a)
+    diff: -        self.root = digit_dir(args.tmp, "fxsw.", 8) +        self.root = __import__("tempfile").mkdtemp(prefix="fxsw.", dir=args.tmp) 
+    failing: test_a_units_two_runs_share_one_run_directory_named_by_digits 
+M9-named-mode: KILLED by scripts/fxcap/test_capture.py (AssertionError: Lists differ: [493, 493] != [448, 448])
+    diff: -    mkdir -m 700 "$tmpdir/$FXCAP_RUN" 2> /dev/null || +    mkdir "$tmpdir/$FXCAP_RUN" 2> /dev/null || 
+    failing: test_a_sweep_units_two_runs_see_the_same_path 
+M10-random-reuse: KILLED by scripts/fxcap/test_capture.py (AssertionError: Lists differ: ['gateway.log', 'home', 'turns.json', 'star[111 chars]him'] != ['mine'])
+    diff: -    if mkdir -m 700 "$tmpdir/$name" 2> /dev/null; then +    if mkdir -p -m 700 "$tmpdir/$name" 2> /dev/null; then 
+    failing: test_a_random_name_already_there_is_passed_over test_a_tmpdir_with_no_room_for_a_run_ends_at_once 
+M11-no-reap: KILLED by scripts/fxcap/test_capture.py (AssertionError: False is not true : the run ended before the binary's last write)
+    diff: -    [[ -z $id ]] || reap "$pane" "$id" +    true 
+    failing: test_a_binary_on_its_way_out_is_waited_for test_a_binary_that_will_not_go_is_killed 
+M12-reap-no-kill: KILLED by scripts/fxcap/test_capture.py (AssertionError: True is not false : the run ended with its binary still running)
+    diff: -  kill -KILL "$pid" 2>/dev/null || true +  true 
+    failing: test_a_binary_that_will_not_go_is_killed 
+M13-every-failure-retried: KILLED by scripts/fxcap/test_capture.py (AssertionError: 'no run directory can be made under TMPDIR' not found in 'no run directory could be made under TMPDIR in)
+    diff: -    [[ -e $tmpdir/$name || -L $tmpdir/$name ]] || +    true || 
+    failing: test_a_tmpdir_with_no_room_for_a_run_ends_at_once 
+M14-no-wipe-between-sides: KILLED by scripts/fxcap/test_sweep.py (AssertionError: 1 != 0 : [1/5] fx run-a: ran (0s))
+    diff: -            shutil.rmtree(jobtmp, ignore_errors=True) +            pass 
+    failing: test_a_units_second_run_finds_nothing_its_first_left test_a_units_two_runs_share_one_run_directory_named_by_digits 
+exit 0

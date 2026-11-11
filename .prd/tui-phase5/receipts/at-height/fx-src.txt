@@ -649,3 +649,1982 @@
   639          list_picker_rows
   640      else
   641          0;
+
+== src/core/app/app_input_runtime.zig:310-330@481104fd -- AT-HEIGHT r3: the arrows and page keys route, then ask for a frame (:330)
+  310                          .visual_up,
+  311                          .visual_down,
+  312                          .page_up,
+  313                          .page_down,
+  314                          => {
+  315                              const direction: visual_layout.Direction = switch (intent.kind) {
+  316                                  .visual_up, .page_up => .up,
+  317                                  .visual_down, .page_down => .down,
+  318                                  else => unreachable,
+  319                              };
+  320                              const delta: i32 = if (direction == .up) -1 else 1;
+  321                              try completion_rt.routeComposerVertical(
+  322                                  app,
+  323                                  direction,
+  324                                  delta,
+  325                                  intent.extend_selection,
+  326                                  intent.kind == .page_up or intent.kind == .page_down,
+  327                              );
+  328                          },
+  329                      }
+  330                      app.shell.render_requests.request(.footer);
+
+== src/core/app/app_input_runtime.zig:1013-1020@481104fd -- AT-HEIGHT r3: plain Up and Down route, then ask for a frame
+ 1013                  .cursor_up => {
+ 1014                      try completion_rt.routePlainVertical(app, .up, -1);
+ 1015                      app.shell.render_requests.request(.footer);
+ 1016                  },
+ 1017                  .cursor_down => {
+ 1018                      try completion_rt.routePlainVertical(app, .down, 1);
+ 1019                      app.shell.render_requests.request(.footer);
+ 1020                  },
+
+== src/core/app/app_input_runtime.zig:1317-1321@481104fd -- AT-HEIGHT r3: Tab on a file query, then a frame whatever it did
+ 1317                      } else if (completion_rt.hasFileQuery(app)) {
+ 1318                          if ((try completion_rt.autocompleteFilePickerSelection(app, max_input_len)) == .limit_exceeded) {
+ 1319                              try input_limit_feedback.report(App, app, .composer, 1);
+ 1320                          }
+ 1321                          app.shell.render_requests.request(.footer);
+
+== src/core/app/app_input_runtime.zig:1405-1410@481104fd -- AT-HEIGHT r3: Enter the list answers, then a frame
+ 1405                      if (try completion_rt.submitFilePickerOnEnter(app, max_input_len)) |result| {
+ 1406                          if (result == .limit_exceeded) {
+ 1407                              try input_limit_feedback.report(App, app, .composer, 1);
+ 1408                          }
+ 1409                          app.shell.render_requests.request(.footer);
+ 1410                          return;
+
+== src/core/app/app_lifecycle.zig:1198-1212@481104fd -- AT-HEIGHT r3: a job-control resume resets the terminal (:1210)
+ 1198  /// Re-arm raw mode after a job-control continue, re-query layout in case the
+ 1199  /// terminal was resized while stopped, then request a full repaint.
+ 1200  fn resumeTerminalAfterJobControl(
+ 1201      terminal: *TerminalState,
+ 1202      shell: *TranscriptRuntime,
+ 1203      metrics: *Metrics,
+ 1204      footer_rows: u16,
+ 1205  ) !void {
+ 1206      shell.layout = terminal.queryLayout(footer_rows) catch shell.layout;
+ 1207      try terminal.captureOriginalTermios();
+ 1208      try terminal.enableRawMode();
+ 1209      try enableInteractiveTerminalModes(shell, metrics);
+ 1210      try shell.requestTerminalReset(metrics);
+ 1211      shell.render_requests.request(.first_frame);
+ 1212  }
+
+== src/ui/transcript/runtime.zig:7164-7168@481104fd -- AT-HEIGHT r3: the reset sets terminal_reset_pending (:7167)
+ 7164          self.render_requests.clearPendingInvalidations();
+ 7165          self.footer_viewport.has_frame = false;
+ 7166          self.footer_viewport.clearExternalInvalidation();
+ 7167          self.terminal_reset_pending = true;
+ 7168          try self.initViewportWithReservedRows(metrics, 1, min_body_rows);
+
+== src/ui/render_request.zig:196-200@481104fd -- AT-FOLDERS: the resize signal asks for a frame of its own (:199)
+  196      pub fn observeResizeSignal(self: *RenderRequestState, now_ms: i64, debounce_ms: i64) void {
+  197          self.resize_dirty = true;
+  198          self.resize_apply_after_ms = now_ms + debounce_ms;
+  199          self.request(.resize);
+  200      }
+
+== src/ui/render_request.zig:216-226@481104fd -- AT-FOLDERS: resize pending, and a commit blocked while it is
+  216      pub fn resizeLifecyclePending(self: RenderRequestState) bool {
+  217          return self.resize_dirty or self.pending_settled_width_reflow;
+  218      }
+  219  
+  220      pub fn shouldApplyDeferredResize(self: RenderRequestState, now_ms: i64) bool {
+  221          return self.resize_dirty and now_ms >= self.resize_apply_after_ms;
+  222      }
+  223  
+  224      pub fn blocksFrameCommit(self: RenderRequestState) bool {
+  225          return self.resize_dirty or self.frame_admission_block_depth > 0;
+  226      }
+
+== src/core/app/input_completion_runtime.zig:78-80@481104fd -- AT-FOLDERS: FolderAction, open or select
+   78          /// What accepting a folder row does: Tab opens it to list its
+   79          /// contents, Enter selects the folder itself.
+   80          const FolderAction = enum { open, select };
+
+== src/core/app/input_completion_runtime.zig:967-1032@481104fd -- AT-FOLDERS: applyFilePickerSelection -- a selected folder is path + /, quote closed, a space
+  967          fn applyFilePickerSelection(
+  968              app: *App,
+  969              selection: FilePickerSelection,
+  970              max_input_len: usize,
+  971              folder_action: FolderAction,
+  972          ) !edit_contract.InsertResult {
+  973              if (!file_picker_path.isRepresentable(selection.choice.path)) {
+  974                  debug_trace.logf("input", "file picker rejected unrepresentable selection bytes={d}", .{selection.choice.path.len});
+  975                  app.input_runtime.picker.resetFilePickerIndex();
+  976                  return .inactive;
+  977              }
+  978              var query_storage: [file_index.max_path_len]u8 = undefined;
+  979              const decoded_query = try selection.query.decoded_query(&query_storage);
+  980              const indexed = fileCompletionsDependOnIndex(app, decoded_query);
+  981              if (!isCurrentFileCompletion(app, decoded_query, selection.choice.path, selection.choice.kind)) {
+  982                  debug_trace.logf("input", "file picker rejected stale selection bytes={d} kind={s}", .{ selection.choice.path.len, @tagName(selection.choice.kind) });
+  983                  app.input_runtime.picker.file_completion.rejectSelection();
+  984                  return .inactive;
+  985              }
+  986  
+  987              const items = app.input_runtime.edit_state.input.items;
+  988              const replace_start = selection.query.at_offset;
+  989              const replace_end = selection.query.replace_end;
+  990              const tail = items[replace_end..];
+  991              const reuses_terminator = tail.len > 0 and picker_state.isFilePickerTerminator(tail[0]);
+  992              const is_directory = selection.choice.kind == .directory;
+  993              const opens_directory = is_directory and folder_action == .open;
+  994              const adds_terminator = !opens_directory and !reuses_terminator;
+  995              // An opened folder stays an active query so its contents list next.
+  996              // A selected folder is finished like a file: its path with the
+  997              // trailing slash, any quote closed, and a separating space.
+  998              const selected_folder = if (is_directory and !opens_directory)
+  999                  try std.mem.concat(app.alloc, u8, &.{ selection.choice.path, "/" })
+ 1000              else
+ 1001                  null;
+ 1002              defer if (selected_folder) |path| app.alloc.free(path);
+ 1003              const encoded = try file_picker_path.encode(app.alloc, selected_folder orelse selection.choice.path, .{
+ 1004                  .quoted = selection.query.quoted,
+ 1005                  .directory = opens_directory,
+ 1006                  .workspace_relative = indexed,
+ 1007              });
+ 1008              var replacement = std.ArrayList(u8).fromOwnedSlice(encoded);
+ 1009              defer replacement.deinit(app.alloc);
+ 1010              const separator_offset = replace_start + replacement.items.len;
+ 1011              if (adds_terminator) try replacement.append(app.alloc, ' ');
+ 1012              const cursor_after_replacement = replace_start + replacement.items.len + @intFromBool(!opens_directory and reuses_terminator);
+ 1013  
+ 1014              const result = try app.input_runtime.replacementState(&app.pending_images).replaceRangeBounded(
+ 1015                  app.alloc,
+ 1016                  .{ .start = replace_start, .end = replace_end },
+ 1017                  replacement.items,
+ 1018                  cursor_after_replacement,
+ 1019                  max_input_len,
+ 1020              );
+ 1021              if (result == .inserted) {
+ 1022                  if (adds_terminator) {
+ 1023                      app.input_runtime.entities.markFileCompletionSeparator(
+ 1024                          app.input_runtime.edit_state.input.items,
+ 1025                          app.input_runtime.edit_state.cursor,
+ 1026                          separator_offset,
+ 1027                      );
+ 1028                  }
+ 1029                  if (opens_directory) app.input_runtime.picker.resetFilePickerIndex();
+ 1030              }
+ 1031              return result;
+ 1032          }
+
+== src/core/workspace/path_completion.zig:44-143@481104fd -- AT-FOLDERS: completeCancellable reserves row 0 for the listed folder; listedFolder
+   44  pub fn completeCancellable(
+   45      workspace_root: []const u8,
+   46      home_dir: ?[]const u8,
+   47      query: []const u8,
+   48      cancel: ?*const std.atomic.Value(bool),
+   49      out: []file_index.SearchResult,
+   50      match_spans: []file_index.MatchSpan,
+   51      path_storage: []u8,
+   52  ) (Error || error{Cancelled})!usize {
+   53      try checkCancellation(cancel);
+   54      if (out.len == 0) return 0;
+   55      const parsed = parseExplicitQuery(query) orelse return 0;
+   56      const matcher = file_index.NameQuery.init(parsed.basename_query) orelse return 0;
+   57      var scores: [file_index.max_search_results]file_index.NameQuery.Score = undefined;
+   58      const slot_len: usize = file_index.max_path_len;
+   59      if (out.len > scores.len or out.len > path_storage.len / slot_len) return error.NoSpaceLeft;
+   60  
+   61      var resolve_storage: [file_index.max_path_len * 4]u8 = undefined;
+   62      var resolve_fba = std.heap.FixedBufferAllocator.init(&resolve_storage);
+   63      try checkCancellation(cancel);
+   64      const resolved = pathing.resolve_workspace_or_external_literal_path_with_home(
+   65          resolve_fba.allocator(),
+   66          workspace_root,
+   67          parsed.parent,
+   68          home_dir,
+   69      ) catch |err| switch (err) {
+   70          error.OutOfMemory => return error.NoSpaceLeft,
+   71          else => return error.PathUnavailable,
+   72      };
+   73  
+   74      const io = io_mod.getIo();
+   75      try checkCancellation(cancel);
+   76      var dir = std.Io.Dir.openDirAbsolute(io, resolved, .{ .iterate = true }) catch return error.PathUnavailable;
+   77      defer dir.close(io);
+   78  
+   79      // Listing a folder's contents: the folder itself is the first row, so it
+   80      // can be selected and not only opened.
+   81      const folder = listedFolder(parsed);
+   82      const reserved: usize = @intFromBool(folder != null);
+   83      const entries = out[reserved..];
+   84      const entry_storage = path_storage[reserved * slot_len ..];
+   85  
+   86      var count: usize = 0;
+   87      var iterator = dir.iterate();
+   88      while (true) {
+   89          try checkCancellation(cancel);
+   90          const entry = (iterator.next(io) catch return error.PathUnavailable) orelse break;
+   91          try checkCancellation(cancel);
+   92          if (!text_utils.isTerminalSafe(entry.name)) continue;
+   93          const score = matcher.score(entry.name) orelse continue;
+   94          // candidateKind may stat symlinks or unknown kinds.
+   95          try checkCancellation(cancel);
+   96          const kind = candidateKind(&dir, entry.name, entry.kind) orelse continue;
+   97  
+   98          var candidate_storage: [file_index.max_path_len]u8 = undefined;
+   99          const candidate_len = parsed.display_prefix.len + entry.name.len;
+  100          if (candidate_len > candidate_storage.len) continue;
+  101          @memcpy(candidate_storage[0..parsed.display_prefix.len], parsed.display_prefix);
+  102          @memcpy(candidate_storage[parsed.display_prefix.len..candidate_len], entry.name);
+  103          const candidate = candidate_storage[0..candidate_len];
+  104          if (!text_utils.isTerminalSafe(candidate)) continue;
+  105          if (!file_picker_path.isRepresentable(candidate)) continue;
+  106          count = insertCandidate(entries, entry_storage, &scores, &matcher, count, candidate, kind, score);
+  107      }
+  108  
+  109      var spans_used: usize = 0;
+  110      for (entries[0..count]) |*result| {
+  111          try checkCancellation(cancel);
+  112          const span_count = matcher.match_spans(result.path[parsed.display_prefix.len..], match_spans[spans_used..]) catch |err| switch (err) {
+  113              error.NoSpaceLeft => return error.NoSpaceLeft,
+  114              error.InvalidIndexData => return error.PathUnavailable,
+  115          };
+  116          const spans = match_spans[spans_used..][0..span_count];
+  117          for (spans) |*span| {
+  118              span.byte_start += @intCast(parsed.display_prefix.len);
+  119              span.byte_end += @intCast(parsed.display_prefix.len);
+  120          }
+  121          result.matched_spans = spans;
+  122          spans_used += span_count;
+  123      }
+  124      if (folder) |path| {
+  125          const slot = pathSlot(path_storage, 0);
+  126          @memcpy(slot[0..path.len], path);
+  127          out[0] = .{ .path = slot[0..path.len], .kind = .directory, .matched_spans = &.{} };
+  128      }
+  129      try checkCancellation(cancel);
+  130      return reserved + count;
+  131  }
+  132  
+  133  /// The folder whose contents a query lists (`src/` lists `src`, `~` lists
+  134  /// `~`), or null when the query names a partial entry or the root.
+  135  fn listedFolder(parsed: ParsedQuery) ?[]const u8 {
+  136      if (parsed.basename_query.len != 0) return null;
+  137      const prefix = parsed.display_prefix;
+  138      if (prefix.len < 2 or !std.Io.Dir.path.isSep(prefix[prefix.len - 1])) return null;
+  139      const folder = prefix[0 .. prefix.len - 1];
+  140      if (std.Io.Dir.path.isSep(folder[folder.len - 1])) return null;
+  141      if (!text_utils.isTerminalSafe(folder) or !file_picker_path.isRepresentable(folder)) return null;
+  142      return folder;
+  143  }
+
+== src/core/workspace/path_completion.zig:171-190@481104fd -- AT-FOLDERS: parseExplicitQuery, ~ . .. and a /
+  171  fn parseExplicitQuery(query: []const u8) ?ParsedQuery {
+  172      inline for (.{ "~", ".", ".." }) |shortcut| {
+  173          if (std.mem.eql(u8, query, shortcut)) return .{
+  174              .parent = query,
+  175              .display_prefix = shortcut ++ "/",
+  176              .basename_query = "",
+  177          };
+  178      }
+  179      var separator_index: ?usize = null;
+  180      for (query, 0..) |byte, index| {
+  181          if (std.Io.Dir.path.isSep(byte)) separator_index = index;
+  182      }
+  183      const separator = separator_index orelse return null;
+  184      const parent = if (separator == 0) query[0..1] else query[0..separator];
+  185      return .{
+  186          .parent = parent,
+  187          .display_prefix = query[0 .. separator + 1],
+  188          .basename_query = query[separator + 1 ..],
+  189      };
+  190  }
+
+== src/core/workspace/path_completion.zig:307-330@481104fd -- AT-FOLDERS: fx's test, . and .. list themselves first
+  307  test "path completion browses bare current and parent directories" {
+  308      const alloc = std.testing.allocator;
+  309      var tmp = std.testing.tmpDir(.{});
+  310      defer tmp.cleanup();
+  311      try writeTestFile(tmp.dir, "workspace/local.txt");
+  312      try writeTestFile(tmp.dir, "parent.txt");
+  313      const root = try io_mod.dirRealpathAlloc(alloc, tmp.dir, "workspace");
+  314      defer alloc.free(root);
+  315      var results: [4]file_index.SearchResult = undefined;
+  316      var spans: [4]file_index.MatchSpan = undefined;
+  317      var paths: [4 * file_index.max_path_len]u8 = undefined;
+  318  
+  319      try std.testing.expectEqual(@as(usize, 2), try complete(root, ".", &results, &spans, &paths));
+  320      try std.testing.expectEqualStrings(".", results[0].path);
+  321      try std.testing.expectEqual(file_index.CandidateKind.directory, results[0].kind);
+  322      try std.testing.expectEqualStrings("./local.txt", results[1].path);
+  323      try std.testing.expectEqual(@as(usize, 0), results[1].matched_spans.len);
+  324      try std.testing.expect(isCurrentCandidateKind(root, results[1].path, .file));
+  325  
+  326      try std.testing.expectEqual(@as(usize, 3), try complete(root, "..", &results, &spans, &paths));
+  327      try std.testing.expectEqualStrings("..", results[0].path);
+  328      try std.testing.expectEqualStrings("../parent.txt", results[1].path);
+  329      try std.testing.expectEqualStrings("../workspace", results[2].path);
+  330      try std.testing.expect(isCurrentCandidateKind(root, results[2].path, .directory));
+
+== src/core/workspace/path_completion.zig:401-434@481104fd -- AT-FOLDERS: fx's test, a folder first so it can be selected
+  401  test "path completion lists a folder first so it can be selected" {
+  402      const alloc = std.testing.allocator;
+  403      var tmp = std.testing.tmpDir(.{});
+  404      defer tmp.cleanup();
+  405      try writeTestFile(tmp.dir, "workspace/src/main.zig");
+  406      try writeTestFile(tmp.dir, "home/notes.txt");
+  407      const root = try io_mod.dirRealpathAlloc(alloc, tmp.dir, "workspace");
+  408      defer alloc.free(root);
+  409      const home = try io_mod.dirRealpathAlloc(alloc, tmp.dir, "home");
+  410      defer alloc.free(home);
+  411      var results: [4]file_index.SearchResult = undefined;
+  412      var spans: [4]file_index.MatchSpan = undefined;
+  413      var paths: [4 * file_index.max_path_len]u8 = undefined;
+  414  
+  415      try std.testing.expectEqual(@as(usize, 2), try complete(root, "src/", &results, &spans, &paths));
+  416      try std.testing.expectEqualStrings("src", results[0].path);
+  417      try std.testing.expectEqual(file_index.CandidateKind.directory, results[0].kind);
+  418      try std.testing.expectEqual(@as(usize, 0), results[0].matched_spans.len);
+  419      try std.testing.expectEqualStrings("src/main.zig", results[1].path);
+  420      try std.testing.expect(isCurrentCandidateKind(root, results[0].path, .directory));
+  421  
+  422      // A partial name lists matching entries only.
+  423      try std.testing.expectEqual(@as(usize, 1), try complete(root, "src/ma", &results, &spans, &paths));
+  424      try std.testing.expectEqualStrings("src/main.zig", results[0].path);
+  425  
+  426      var cancel: std.atomic.Value(bool) = .init(false);
+  427      try std.testing.expectEqual(@as(usize, 2), try completeCancellable(root, home, "~", &cancel, &results, &spans, &paths));
+  428      try std.testing.expectEqualStrings("~", results[0].path);
+  429      try std.testing.expectEqualStrings("~/notes.txt", results[1].path);
+  430  
+  431      // With room for one row, the folder itself is kept.
+  432      try std.testing.expectEqual(@as(usize, 1), try complete(root, "src/", results[0..1], &spans, paths[0..file_index.max_path_len]));
+  433      try std.testing.expectEqualStrings("src", results[0].path);
+  434  }
+
+== src/core/input/file_picker_path.zig:5-16@481104fd -- AT-FOLDERS: needs_quotes, isRepresentable
+    5  fn needs_quotes(path: []const u8) bool {
+    6      if (std.mem.endsWith(u8, path, ".")) return true;
+    7      for (path) |byte| {
+    8          if (byte >= 0x80 or std.ascii.isAlphanumeric(byte)) continue;
+    9          if (byte != '_' and byte != '-' and byte != '.' and byte != '/' and byte != '~') return true;
+   10      }
+   11      return false;
+   12  }
+   13  
+   14  pub fn isRepresentable(path: []const u8) bool {
+   15      return path.len > 0 and text_utils.isTerminalSafe(path);
+   16  }
+
+== src/core/input/file_picker_path.zig:222-243@481104fd -- AT-FOLDERS: encode
+  222  pub fn encode(alloc: std.mem.Allocator, path: []const u8, options: EncodeOptions) ![]u8 {
+  223      if (!isRepresentable(path)) return error.InvalidPath;
+  224      const quote = options.quoted or needs_quotes(path);
+  225      const prefix_relative = options.workspace_relative and path[0] == '~';
+  226      var length = try std.math.add(usize, 1 + @as(usize, @intFromBool(quote)) + @as(usize, @intFromBool(quote and !options.directory)) + @as(usize, @intFromBool(options.directory)) + @as(usize, if (prefix_relative) 2 else 0), path.len);
+  227      if (quote) for (path) |byte| {
+  228          if (byte == '\\' or byte == '"') length = try std.math.add(usize, length, 1);
+  229      };
+  230      var out: std.ArrayList(u8) = .empty;
+  231      errdefer out.deinit(alloc);
+  232      try out.ensureTotalCapacity(alloc, length);
+  233      out.appendAssumeCapacity('@');
+  234      if (quote) out.appendAssumeCapacity('"');
+  235      if (prefix_relative) out.appendSliceAssumeCapacity("./");
+  236      for (path) |byte| {
+  237          if (quote and (byte == '\\' or byte == '"')) out.appendAssumeCapacity('\\');
+  238          out.appendAssumeCapacity(byte);
+  239      }
+  240      if (options.directory) out.appendAssumeCapacity('/');
+  241      if (quote and !options.directory) out.appendAssumeCapacity('"');
+  242      return out.toOwnedSlice(alloc);
+  243  }
+
+== src/core/input/file_completion_state.zig:7-7@481104fd -- AT-FOLDERS: capacity, the rows a listing has
+    7  pub const capacity = 32;
+
+== src/core/app/app_input_runtime.zig:6708-6757@481104fd -- AT-FOLDERS: fx's test, Tab opens a typed folder and Enter selects it
+ 6708  test "app_input_runtime opens typed directories with Tab and selects them with Enter" {
+ 6709      const alloc = std.testing.allocator;
+ 6710      const completions = [_]file_index.Candidate{.{ .path = "src/nested", .kind = .directory }};
+ 6711      const cases = [_]struct {
+ 6712          input: []const u8,
+ 6713          cursor: usize,
+ 6714          opened: []const u8,
+ 6715          opened_cursor: usize,
+ 6716          selected: []const u8,
+ 6717          selected_cursor: usize,
+ 6718      }{
+ 6719          .{
+ 6720              .input = "@srcn",
+ 6721              .cursor = "@srcn".len,
+ 6722              .opened = "@src/nested/",
+ 6723              .opened_cursor = "@src/nested/".len,
+ 6724              .selected = "@src/nested/ ",
+ 6725              .selected_cursor = "@src/nested/ ".len,
+ 6726          },
+ 6727          .{
+ 6728              .input = "before @srcn tail",
+ 6729              .cursor = "before @srcn".len,
+ 6730              .opened = "before @src/nested/ tail",
+ 6731              .opened_cursor = "before @src/nested/".len,
+ 6732              .selected = "before @src/nested/ tail",
+ 6733              .selected_cursor = "before @src/nested/ ".len,
+ 6734          },
+ 6735      };
+ 6736  
+ 6737      for ([_]u8{ '\t', '\r' }) |byte| {
+ 6738          const opens = byte == '\t';
+ 6739          for (cases) |case| {
+ 6740              var app = try RoutingFakeApp.init(alloc);
+ 6741              defer app.deinit();
+ 6742              app.file_completion_values = &completions;
+ 6743              app.expected_file_completion_kind = .directory;
+ 6744              try app.input_runtime.textReplacementState().replace(alloc, case.input);
+ 6745              app.input_runtime.edit_state.cursor = case.cursor;
+ 6746  
+ 6747              presentRoutingFilePicker(&app);
+ 6748              try Runtime(RoutingFakeApp).handleByte(&app, byte, 4096, 100);
+ 6749  
+ 6750              try std.testing.expectEqualStrings(if (opens) case.opened else case.selected, app.input_runtime.edit_state.input.items);
+ 6751              try std.testing.expectEqual(if (opens) case.opened_cursor else case.selected_cursor, app.input_runtime.edit_state.cursor);
+ 6752              try std.testing.expectEqual(file_index.CandidateKind.directory, app.validated_file_completion_kind.?);
+ 6753              try std.testing.expectEqual(opens, app.input_runtime.picker.activeFilePickerQuery(&app.input_runtime.edit_state) != null);
+ 6754              try std.testing.expectEqual(@as(usize, 0), app.submitted_prompt_count);
+ 6755          }
+ 6756      }
+ 6757  }
+
+== src/core/app/input_completion_runtime.zig:2200-2235@481104fd -- AT-FOLDERS: fx's test, a listed folder first and Enter selects it (a space in its name)
+ 2200  test "filesystem file picker lists an opened folder first and Enter selects it" {
+ 2201      const alloc = std.testing.allocator;
+ 2202      var tmp = std.testing.tmpDir(.{});
+ 2203      defer tmp.cleanup();
+ 2204      try tmp.dir.createDirPath(std.testing.io, "workspace/space dir");
+ 2205      try tmp.dir.writeFile(std.testing.io, .{
+ 2206          .sub_path = "workspace/space dir/item.txt",
+ 2207          .data = "inside",
+ 2208      });
+ 2209  
+ 2210      const io_mod = @import("../shared/io.zig");
+ 2211      const workspace_root = try io_mod.dirRealpathAlloc(alloc, tmp.dir, "workspace");
+ 2212      defer alloc.free(workspace_root);
+ 2213  
+ 2214      const rt = CompletionRuntime(FilesystemFilePickerTestApp);
+ 2215      var app = FilesystemFilePickerTestApp{
+ 2216          .alloc = alloc,
+ 2217          .workspace_root = workspace_root,
+ 2218      };
+ 2219      defer app.deinit();
+ 2220  
+ 2221      try app.input_runtime.textReplacementState().replace(alloc, "@./space");
+ 2222      try presentFilePickerForTest(&app);
+ 2223      try std.testing.expectEqual(edit_contract.InsertResult.inserted, try rt.autocompleteFilePickerSelection(&app, 4096));
+ 2224      try std.testing.expectEqualStrings("@\"./space dir/", app.input_runtime.edit_state.input.items);
+ 2225  
+ 2226      try presentFilePickerForTest(&app);
+ 2227      const folder = app.input_runtime.picker.file_completion.selected(0).?;
+ 2228      try std.testing.expectEqualStrings("./space dir", folder.path);
+ 2229      try std.testing.expectEqual(file_index.CandidateKind.directory, folder.kind);
+ 2230      try std.testing.expectEqualStrings("./space dir/item.txt", app.input_runtime.picker.file_completion.selected(1).?.path);
+ 2231  
+ 2232      try std.testing.expectEqual(edit_contract.InsertResult.inserted, (try rt.submitFilePickerOnEnter(&app, 4096)).?);
+ 2233      try std.testing.expectEqualStrings("@\"./space dir/\" ", app.input_runtime.edit_state.input.items);
+ 2234      try std.testing.expect(app.input_runtime.picker.activeFilePickerQuery(&app.input_runtime.edit_state) == null);
+ 2235  }
+
+== src/core/input/picker_state.zig:99-139@481104fd -- AT-FOLDERS: FileListingWait, hold_ms = 8
+   99  /// Paces the frame for a keystroke that started a folder listing. Most folders
+  100  /// list well within one event-loop tick, so that frame waits for the rows and
+  101  /// the keystroke paints together with them instead of over an empty
+  102  /// "indexing files..." list. Times are monotonic milliseconds. Modeled in
+  103  /// `tests/tla/indexer/ListingWait.tla`.
+  104  const FileListingWait = struct {
+  105      const hold_ms: i64 = 8;
+  106  
+  107      started_ms: ?i64 = null,
+  108      // The previous listing outlasted the wait, so the next keystroke paints at
+  109      // once instead of paying the wait again on a slow folder.
+  110      last_outlasted_hold: bool = false,
+  111  
+  112      /// Returns true while the next frame should wait for an in-flight listing.
+  113      /// Keystrokes during one listing share its wait.
+  114      pub fn hold(self: *FileListingWait, listing_in_flight: bool, now_ms: i64) bool {
+  115          if (!listing_in_flight) {
+  116              if (self.started_ms) |started| self.last_outlasted_hold = !withinHold(started, now_ms);
+  117              self.started_ms = null;
+  118              return false;
+  119          }
+  120          if (self.started_ms == null) self.started_ms = now_ms;
+  121          return self.active(now_ms);
+  122      }
+  123  
+  124      pub fn active(self: FileListingWait, now_ms: i64) bool {
+  125          return !self.last_outlasted_hold and self.measuring(now_ms);
+  126      }
+  127  
+  128      /// True during the first tick of every listing, waited for or not, so a
+  129      /// listing that finishes in time is seen at once and waiting turns back on.
+  130      pub fn measuring(self: FileListingWait, now_ms: i64) bool {
+  131          const started = self.started_ms orelse return false;
+  132          return withinHold(started, now_ms);
+  133      }
+  134  
+  135      fn withinHold(started_ms: i64, now_ms: i64) bool {
+  136          // A clock that steps backwards ends the wait instead of extending it.
+  137          return now_ms >= started_ms and now_ms - started_ms < hold_ms;
+  138      }
+  139  };
+
+== src/core/input/picker_state.zig:172-172@481104fd -- AT-FOLDERS: the wait lives in the picker's state
+  172      file_listing_wait: FileListingWait = .{},
+
+== src/core/input/picker_state.zig:1087-1112@481104fd -- AT-FOLDERS: fx's test of the wait
+ 1087  test "folder listing wait spans one tick and is skipped after a slow listing" {
+ 1088      var wait: FileListingWait = .{};
+ 1089      try std.testing.expect(!wait.hold(false, 100));
+ 1090      // Keystrokes during one listing share the first keystroke's wait.
+ 1091      try std.testing.expect(wait.hold(true, 100));
+ 1092      try std.testing.expect(wait.hold(true, 100 + FileListingWait.hold_ms - 1));
+ 1093      try std.testing.expect(wait.active(100 + FileListingWait.hold_ms - 1));
+ 1094      // A listing that outlasts the wait paints at once from then on.
+ 1095      try std.testing.expect(!wait.hold(true, 100 + FileListingWait.hold_ms));
+ 1096      try std.testing.expect(!wait.hold(true, 140));
+ 1097      try std.testing.expect(!wait.active(140));
+ 1098      try std.testing.expect(!wait.hold(false, 141));
+ 1099      // The folder was slow, so the next keystroke does not wait for it, but
+ 1100      // the listing is still watched for its first tick.
+ 1101      try std.testing.expect(!wait.hold(true, 200));
+ 1102      try std.testing.expect(!wait.active(200));
+ 1103      try std.testing.expect(wait.measuring(200 + FileListingWait.hold_ms - 1));
+ 1104      try std.testing.expect(!wait.measuring(200 + FileListingWait.hold_ms));
+ 1105      // A listing that finishes within the wait turns waiting back on.
+ 1106      try std.testing.expect(!wait.hold(false, 202));
+ 1107      try std.testing.expect(wait.hold(true, 300));
+ 1108      try std.testing.expect(!wait.hold(false, 301));
+ 1109      try std.testing.expect(wait.hold(true, 400));
+ 1110      // A clock that steps backwards ends the wait.
+ 1111      try std.testing.expect(!wait.hold(true, 350));
+ 1112  }
+
+== src/core/app/input_completion_runtime.zig:817-844@481104fd -- AT-FOLDERS: holdFrameForFileListing, fileListingHoldPending
+  817          /// Returns true while the frame for a keystroke that started a folder
+  818          /// listing should wait for its rows, so they paint together.
+  819          pub fn holdFrameForFileListing(app: *App, now_ms: i64) bool {
+  820              if (comptime !runtime_profile.allows(App, .file_index)) return false;
+  821              app.harvestDirectoryCompletion(filePickerEligible(app));
+  822              const picker = &app.input_runtime.picker;
+  823              const state = &picker.file_completion;
+  824              if (!state.active) {
+  825                  picker.file_listing_wait = .{};
+  826                  return false;
+  827              }
+  828              const in_flight = !state.indexed and state.directory_request != null;
+  829              const was_holding = picker.file_listing_wait.active(now_ms);
+  830              const hold = picker.file_listing_wait.hold(in_flight, now_ms);
+  831              if (was_holding and !hold and in_flight) {
+  832                  debug_trace.logf("input", "file picker painted before folder listing request={d}", .{state.directory_request.?});
+  833              }
+  834              return hold;
+  835          }
+  836  
+  837          /// For the first tick of every folder listing, the event loop checks
+  838          /// back every millisecond instead of every tick. A listing that
+  839          /// finishes in that time is seen at once, which also turns waiting
+  840          /// back on after a slow folder.
+  841          pub fn fileListingHoldPending(app: *const App, now_ms: i64) bool {
+  842              if (comptime !runtime_profile.allows(App, .file_index)) return false;
+  843              return app.input_runtime.picker.file_listing_wait.measuring(now_ms);
+  844          }
+
+== src/core/app/input_completion_runtime.zig:2237-2282@481104fd -- AT-FOLDERS: fx's tests, a held frame released with its rows; watched after a slow folder
+ 2237  test "filesystem file picker releases a held folder frame only with its rows" {
+ 2238      const alloc = std.testing.allocator;
+ 2239      var tmp = std.testing.tmpDir(.{});
+ 2240      defer tmp.cleanup();
+ 2241      try tmp.dir.createDirPath(std.testing.io, "workspace/tree");
+ 2242      try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "workspace/tree/leaf.txt", .data = "leaf" });
+ 2243  
+ 2244      const io_mod = @import("../shared/io.zig");
+ 2245      const workspace_root = try io_mod.dirRealpathAlloc(alloc, tmp.dir, "workspace");
+ 2246      defer alloc.free(workspace_root);
+ 2247  
+ 2248      const rt = CompletionRuntime(FilesystemFilePickerTestApp);
+ 2249      var app = FilesystemFilePickerTestApp{
+ 2250          .alloc = alloc,
+ 2251          .workspace_root = workspace_root,
+ 2252      };
+ 2253      defer app.deinit();
+ 2254  
+ 2255      try app.input_runtime.textReplacementState().replace(alloc, "@./tree/");
+ 2256      rt.prepareFilePicker(&app);
+ 2257      // The clock stands still, so the wait can end only because the rows arrived.
+ 2258      const now_ms: i64 = 1_000;
+ 2259      var polls: usize = 0;
+ 2260      while (rt.holdFrameForFileListing(&app, now_ms)) : (polls += 1) {
+ 2261          if (polls == 5_000) return error.TestUnexpectedResult;
+ 2262          std.Io.sleep(std.testing.io, .fromMilliseconds(1), .awake) catch unreachable;
+ 2263      }
+ 2264      const view = rt.filePickerView(&app);
+ 2265      try std.testing.expectEqual(file_completion_state.Status.ready, view.status);
+ 2266      try std.testing.expectEqual(@as(usize, 2), view.items.len);
+ 2267      try std.testing.expectEqualStrings("./tree", view.items[0].path);
+ 2268      try std.testing.expectEqualStrings("./tree/leaf.txt", view.items[1].path);
+ 2269      try std.testing.expect(!rt.fileListingHoldPending(&app, now_ms));
+ 2270  }
+ 2271  
+ 2272  test "file picker keeps watching a listing after a slow folder so waiting can turn back on" {
+ 2273      const rt = CompletionRuntime(FilePickerTestApp);
+ 2274      var app: FilePickerTestApp = .{ .alloc = std.testing.allocator };
+ 2275      defer app.deinit();
+ 2276  
+ 2277      // The previous folder outlasted the wait, so this listing's frame paints
+ 2278      // at once, but the loop still checks back every millisecond.
+ 2279      app.input_runtime.picker.file_listing_wait = .{ .started_ms = 1_000, .last_outlasted_hold = true };
+ 2280      try std.testing.expect(!app.input_runtime.picker.file_listing_wait.active(1_001));
+ 2281      try std.testing.expect(rt.fileListingHoldPending(&app, 1_001));
+ 2282  }
+
+== src/main.zig:173-207@481104fd -- AT-FOLDERS: the loop's poll timeout, 1 ms while a listing is in its first tick
+  173  const footer_rows: u16 = 4;
+  174  const active_poll_timeout_ms: i32 = 8;
+  175  const focused_ui_worker_poll_timeout_ms: i32 = 1;
+  176  const idle_wasm_poll_timeout_ms: i32 = 16;
+  177  const resize_debounce_ms: i64 = 100;
+  178  const max_transcript_bytes: usize = 256 * 1024;
+  179  const default_max_agent_steps: usize = agent_steps.default_max_agent_steps;
+  180  const native_gateway_provider = builtin_gateway.provider;
+  181  const max_history_turns: usize = 8;
+  182  const max_list_entries: usize = 100;
+  183  const max_read_file_bytes: usize = 50 * 1024;
+  184  const max_read_file_lines: usize = 400;
+  185  const max_read_file_line_len: usize = 2000;
+  186  const max_command_output_bytes: usize = 64 * 1024;
+  187  const input_escape_timeout_ms: i64 = 30;
+  188  
+  189  /// The first frame counts as focused work: an idle wait before it would only
+  190  /// delay the launch.
+  191  fn nativeLoopPollTimeoutMs(
+  192      default_timeout_ms: i32,
+  193      first_frame_pending: bool,
+  194      auth_refresh_active: bool,
+  195      skills_refresh_active: bool,
+  196      transcript_page_work_active: bool,
+  197      file_listing_hold_pending: bool,
+  198  ) i32 {
+  199      return if (first_frame_pending or
+  200          auth_refresh_active or
+  201          skills_refresh_active or
+  202          transcript_page_work_active or
+  203          file_listing_hold_pending)
+  204          @min(default_timeout_ms, focused_ui_worker_poll_timeout_ms)
+  205      else
+  206          default_timeout_ms;
+  207  }
+
+== src/main.zig:1131-1144@481104fd -- AT-FOLDERS: the timeout asks fileListingHoldPending
+ 1131      pub fn loopPollTimeoutMs(ctx: *anyopaque, default_timeout_ms: i32) i32 {
+ 1132          const self: *App = @ptrCast(@alignCast(ctx));
+ 1133          if (comptime !host_target.is_wasm) {
+ 1134              return nativeLoopPollTimeoutMs(
+ 1135                  default_timeout_ms,
+ 1136                  self.shell.render_requests.hasReason(.first_frame),
+ 1137                  self.auth.sourceInventoryRefreshActive(),
+ 1138                  self.skills.refreshActive(),
+ 1139                  self.fullTranscriptFocusedWorkActive(),
+ 1140                  InputAppRuntime.fileListingHoldPending(self, app_permission_runtime.monotonicMillis()),
+ 1141              );
+ 1142          }
+ 1143          return if (self.pacer.hasPending()) default_timeout_ms else idle_wasm_poll_timeout_ms;
+ 1144      }
+
+== src/main.zig:2992-3012@481104fd -- AT-FOLDERS: loopCommitFrame holds flushRequestedFrame while holdFrameForFileListing
+ 2992      pub fn loopCommitFrame(ctx: *anyopaque) !void {
+ 2993          const self: *App = @ptrCast(@alignCast(ctx));
+ 2994          defer SessionAppRuntime.finishDeferredSessionInputReplay(self);
+ 2995          if (!try WorkerAppRuntime.authorizeInteractiveAdmission(self)) return;
+ 2996          if (self.terminal_input_runtime.native_clear_probe.active()) return;
+ 2997          _ = self.admitPendingResizeSignal("post_input");
+ 2998          InputAppRuntime.prepareFilePicker(self);
+ 2999          if (comptime !host_target.is_wasm) {
+ 3000              if (self.shell.sessionScrollbackHandoffPending()) {
+ 3001                  try SessionAppRuntime.settlePendingLiveSessionTransition(self);
+ 3002                  if (self.shell.sessionScrollbackHandoffPending()) return;
+ 3003              }
+ 3004          }
+ 3005          _ = try InputAppRuntime.flushDeferredSessionInput(self, input_limits, max_prompt_history);
+ 3006          if (self.should_exit) return;
+ 3007          if (!InputAppRuntime.holdFrameForFileListing(self, app_permission_runtime.monotonicMillis())) try self.flushRequestedFrame();
+ 3008          if (comptime !host_target.is_wasm) {
+ 3009              try SessionAppRuntime.settlePendingLiveSessionTransition(self);
+ 3010              if (try InputAppRuntime.flushDeferredSessionInput(self, input_limits, max_prompt_history)) try self.flushRequestedFrame();
+ 3011          }
+ 3012      }
+
+== src/core/app/app_render_runtime.zig:924-936@481104fd -- AT-FOLDERS r2: flushRequestedFrame writes nothing while a handoff is pending; the active surface's requests (the full transcript's too)
+  924          pub fn flushRequestedFrame(app: *App) !void {
+  925              if (comptime @hasDecl(@TypeOf(app.shell), "sessionScrollbackHandoffPending")) {
+  926                  if (app.shell.sessionScrollbackHandoffPending()) return;
+  927              }
+  928              if (app.shell.terminal_dimensions_invalid or app.shell.layout.rows == 0 or app.shell.layout.cols == 0) return;
+  929              const has_resize_lifecycle =
+  930                  @hasField(@TypeOf(app.shell), "pending_resize_observation");
+  931              if (comptime has_resize_lifecycle) {
+  932                  if (shell_runtime.resizeBlocksFrameCommit(&app.shell)) return;
+  933              }
+  934              const render_requests = activeRenderRequests(app);
+  935              var attempt = (try render_requests.beginAttempt()) orelse return;
+  936              const snapshot = attempt.snapshot;
+
+== src/ui/render_engine/terminal_diff.zig:601-646@481104fd -- AT-FOLDERS r2: the wire frame carries the document movement bytes inside its update
+  601  fn composeWireFrame(
+  602      wire_frame: *std.Io.Writer.Allocating,
+  603      input: FrameCommitInput,
+  604      previous_for_diff: *const vt_emulator.Grid,
+  605      target: *const vt_emulator.Grid,
+  606      repaint_window: paint_plan.FrameRepaintWindow,
+  607      full_repaint: bool,
+  608      movement: *const PreparedTerminalMovement,
+  609  ) !usize {
+  610      // RIS and startup modes precede synchronization; document bytes follow it.
+  611      try wire_frame.writer.writeAll(movement.bytes[0..movement.sync_prefix_offset]);
+  612      const prefix_start = wire_frame.written().len;
+  613      if (input.synchronized_update) try wire_frame.writer.writeAll("\x1b[?2026h");
+  614      try wire_frame.writer.writeAll("\x1b[?25l");
+  615      const prefix_len = wire_frame.written().len - prefix_start;
+  616      try wire_frame.writer.writeAll(movement.bytes[movement.sync_prefix_offset..]);
+  617  
+  618      if (!repaint_window.isEmpty()) {
+  619          if (full_repaint) {
+  620              var clear_baseline = try cloneAuthoritativeShadow(
+  621                  input.surface.alloc,
+  622                  previous_for_diff,
+  623                  target.cols,
+  624                  target.rows,
+  625              );
+  626              defer clear_baseline.deinit();
+  627  
+  628              for (repaint_window.ranges()) |range| {
+  629                  const clear_start = wire_frame.written().len;
+  630                  try writeBandClears(&wire_frame.writer, range.top, range.bottom);
+  631                  const clear_bytes = wire_frame.written()[clear_start..];
+  632                  try clear_baseline.feed(clear_bytes);
+  633                  try vt_emulator.Grid.diffBand(clear_baseline, target.*, range.top, range.bottom, &wire_frame.writer);
+  634              }
+  635          } else {
+  636              for (repaint_window.ranges()) |range| {
+  637                  try vt_emulator.Grid.diffBand(previous_for_diff.*, target.*, range.top, range.bottom, &wire_frame.writer);
+  638              }
+  639          }
+  640      }
+  641  
+  642      try writeCursorPosition(&wire_frame.writer, target.*);
+  643      if (input.synchronized_update) try wire_frame.writer.writeAll("\x1b[?2026l");
+  644      if (target.cursor_visible) try wire_frame.writer.writeAll("\x1b[?25h");
+  645      return prefix_len;
+  646  }
+
+== src/main.zig:2804-2844@481104fd -- AT-FOLDERS r2: the theme query is written while facts are collected, not in the frame
+ 2804      fn collectThemeFacts(self: *App) !void {
+ 2805          const now_ms = io_mod.milliTimestamp();
+ 2806          self.terminal_input_runtime.terminal_theme_monitor.poll(now_ms);
+ 2807  
+ 2808          // A configured light|dark pin (FX_THEME or the settings "theme" key)
+ 2809          // locks the variant; keep owning protocol bytes (monitor started) but
+ 2810          // never query or apply live theme updates. Custom theme files stay
+ 2811          // live: updates re-resolve the theme pair.
+ 2812          if (ui_render.themeInputLocked()) {
+ 2813              _ = self.terminal_input_runtime.terminal_theme_monitor.takeSettledUpdate();
+ 2814              return;
+ 2815          }
+ 2816  
+ 2817          if (self.terminal_input_runtime.terminal_theme_monitor.takeSettledUpdate()) |update| {
+ 2818              debug_trace.logf("theme", "theme_update_settled light={s} rgb={s}", .{
+ 2819                  if (update.light) "true" else "false",
+ 2820                  if (update.rgb == null) "fallback" else "terminal",
+ 2821              });
+ 2822              try RenderAppRuntime.applyThemeUpdate(self, update.light, update.rgb);
+ 2823          }
+ 2824          if (InputAppRuntime.terminalPasteActive(self) or
+ 2825              self.terminal_input_runtime.native_clear_probe.active() or
+ 2826              self.terminal_input_runtime.native_clear_probe.awaitingLateResponse())
+ 2827          {
+ 2828              return;
+ 2829          }
+ 2830          if (self.terminal_input_runtime.terminal_theme_monitor.takeQueryRequest(now_ms)) |request| {
+ 2831              debug_trace.logf("theme", "theme_query_requested kind={s}", .{@tagName(request)});
+ 2832              const query_result = switch (request) {
+ 2833                  .response_fence => self.terminal.requestThemeResponseFence(),
+ 2834                  .background => self.terminal.requestThemeBackground(),
+ 2835              };
+ 2836              query_result catch |err| {
+ 2837                  self.terminal_input_runtime.terminal_theme_monitor.failQuery(now_ms);
+ 2838                  debug_trace.logf("theme", "theme_query_failed kind={s} err={s}", .{
+ 2839                      @tagName(request),
+ 2840                      @errorName(err),
+ 2841                  });
+ 2842              };
+ 2843          }
+ 2844      }
+
+== src/ui/transcript/runtime.zig:10402-10430@481104fd -- AT-FOLDERS r2: the bell and the program status report, each a write of its own between frames
+10402      pub fn writeNotificationBell(
+10403          self: *TranscriptRuntime,
+10404          metrics: *Metrics,
+10405      ) void {
+10406          switch (transcript_io.writeFrameBytes(self, metrics, "\x07")) {
+10407              .complete => {},
+10408              .partial => |partial| debug_trace.logf(
+10409                  "notifications",
+10410                  "terminal bell write failed accepted_bytes={d} err={s}",
+10411                  .{ partial.accepted_bytes, @errorName(partial.err) },
+10412              ),
+10413          }
+10414      }
+10415  
+10416      /// Writes an OSC 7501 report between frames, like the notification bell.
+10417      pub fn writeProgramStatus(
+10418          self: *TranscriptRuntime,
+10419          metrics: *Metrics,
+10420          report: []const u8,
+10421      ) void {
+10422          switch (transcript_io.writeFrameBytes(self, metrics, report)) {
+10423              .complete => {},
+10424              .partial => |partial| debug_trace.logf(
+10425                  "program_status",
+10426                  "report write failed accepted_bytes={d} err={s}",
+10427                  .{ partial.accepted_bytes, @errorName(partial.err) },
+10428              ),
+10429          }
+10430      }
+
+== src/core/app/app_session_runtime.zig:2958-2987@481104fd -- AT-FOLDERS r2: the title is set by the provider when it changes, outside any frame
+ 2958          /// Terminal tabs show the session title once one exists; before the
+ 2959          /// first prompt they identify the running build and workspace.
+ 2960          pub fn syncTerminalTitle(app: *App) void {
+ 2961              if (comptime !provider_runtime.supported(App)) return;
+ 2962              syncTerminalTitleWith(app, terminalTitle(app));
+ 2963          }
+ 2964  
+ 2965          pub fn syncTerminalTitleWith(
+ 2966              app: *App,
+ 2967              provider: host_capability.TerminalTitle,
+ 2968          ) void {
+ 2969              if (comptime !provider_runtime.supported(App)) return;
+ 2970              if (cachedSessionTitle(app)) |title| {
+ 2971                  provider.set(title);
+ 2972                  return;
+ 2973              }
+ 2974              const basename = if (comptime @hasField(App, "workspace_root"))
+ 2975                  std.Io.Dir.path.basename(app.workspace_root)
+ 2976              else
+ 2977                  "";
+ 2978              const folder = if (basename.len == 0) "workspace" else basename;
+ 2979              const prefix = "fx v" ++ build_options.app_version ++ " | ";
+ 2980              var label_buffer: [prefix.len + std.Io.Dir.max_path_bytes]u8 = undefined;
+ 2981              const label = std.mem.print(&label_buffer, "{s}{s}", .{ prefix, folder }) catch |err| {
+ 2982                  debug_trace.logf("session", "terminal title workspace omitted err={s}", .{@errorName(err)});
+ 2983                  provider.set("fx v" ++ build_options.app_version);
+ 2984                  return;
+ 2985              };
+ 2986              provider.set(label);
+ 2987          }
+
+== src/core/workspace/directory_completion_job.zig:140-151@481104fd -- AT-FOLDERS r2: an ineligible harvest stops the listing and drops the directory request
+  140      pub fn reconcile(self: *Job, alloc: std.mem.Allocator, state: *completion.State, eligible: bool) void {
+  141          if (self.task) |task| {
+  142              if (!eligible or !task.request.matches(state)) task.stop();
+  143          }
+  144          if (self.pending) |request| {
+  145              if (!eligible or !request.matches(state)) self.dropPending(alloc, if (eligible) "superseded" else "hidden");
+  146          }
+  147          if (!eligible and state.directory_request != null) {
+  148              state.directory_request = null;
+  149              state.lookup_dirty = true;
+  150          }
+  151      }
+
+== src/core/app/app_render_runtime.zig:1040-1065@481104fd -- AT-FOLDERS r3: after the frame commits, flushRequestedFrame flushes the notifications (the bell) under .notification
+ 1040                  if (snapshot.reasons.contains(.first_frame)) App.startMcpHostServers(app);
+ 1041              }
+ 1042              if (comptime @hasDecl(App, "notePendingFrameCommitted")) {
+ 1043                  if (result.pending_prompt_presented) {
+ 1044                      App.notePendingFrameCommitted(app);
+ 1045                  }
+ 1046              }
+ 1047              if (comptime @hasField(App, "permission_state") and
+ 1048                  @hasField(App, "permission_engine"))
+ 1049              {
+ 1050                  app_permission_runtime.Runtime(App).noteFrameCommitted(
+ 1051                      app,
+ 1052                      app_permission_runtime.monotonicMillis(),
+ 1053                      result.yolo_warning_visible,
+ 1054                  );
+ 1055              }
+ 1056              if (comptime has_resize_lifecycle) {
+ 1057                  shell_runtime.acknowledgeResizeFrameCommit(&app.shell, resize_commit);
+ 1058              }
+ 1059              if (comptime @hasDecl(App, "flushNotifications")) {
+ 1060                  if (snapshot.reasons.contains(.notification)) {
+ 1061                      app.flushNotifications();
+ 1062                  }
+ 1063              }
+ 1064              if (comptime @hasField(@TypeOf(app.shell), "resize_history_row_delta")) {
+ 1065                  if (snapshot.reasons.contains(.resize) and
+
+== src/main.zig:785-790@481104fd -- AT-FOLDERS r3: flushNotifications, whose only caller in src is flushRequestedFrame
+  785          NotificationAppRuntime.presentationFinished(self);
+  786      }
+  787  
+  788      pub fn flushNotifications(self: *App) void {
+  789          NotificationAppRuntime.flush(self);
+  790      }
+
+== src/main.zig:2975-2990@481104fd -- AT-FOLDERS r3: loopCollectFacts runs the worker tick
+ 2975          const input_now_ms = io_mod.milliTimestamp();
+ 2976          InputAppRuntime.expireTerminalInputGestures(self, input_now_ms);
+ 2977          const terminal_input = self.terminal_input_runtime.flushTerminalAction(
+ 2978              input_now_ms,
+ 2979              input_escape_timeout_ms,
+ 2980              InputAppRuntime.terminalPasteActive(self),
+ 2981          );
+ 2982          try self.routeTerminalInputIngress(terminal_input);
+ 2983          try WorkerAppRuntime.tick(self, app_callbacks.Bindings(App).workerEventHandlers(self));
+ 2984          const now_ns = io_mod.nanoTimestamp();
+ 2985          if (!self.approval_prompt.isActive() and !self.question_prompt.isActive() and !self.auth.apiKeyEntryActive()) {
+ 2986              try self.pacer.tick(self.alloc, now_ns, self.pacerCallbacks());
+ 2987          } else {
+ 2988              self.pacer.pause(now_ns);
+ 2989          }
+ 2990      }
+
+== src/core/app/app_worker_runtime.zig:809-827@481104fd -- AT-FOLDERS r3: the worker tick drains the events and syncs the state
+  809          pub fn tick(
+  810              app: *App,
+  811              event_handlers: WorkerEventHandlers,
+  812          ) !void {
+  813              if (!try authorizeInteractiveAdmission(app)) return;
+  814              try drainEvents(app, event_handlers);
+  815              syncState(app, event_handlers.tool_lifecycle);
+  816  
+  817              const now_ms = io_mod.milliTimestamp();
+  818              if (app.shell.worker_status_state().expire_transient(now_ms)) {
+  819                  app.shell.render_requests.request(.footer);
+  820              }
+  821              _ = advanceVisibleAnimation(
+  822                  app,
+  823                  event_handlers.tool_lifecycle,
+  824                  now_ms,
+  825                  std.Io.Clock.Timestamp.now(io_mod.getIo(), .awake),
+  826              );
+  827          }
+
+== src/core/app/app_worker_runtime.zig:657-665@481104fd -- AT-FOLDERS r3: syncState
+  657          pub fn syncState(
+  658              app: *App,
+  659              presenter: activity_runtime.LifecyclePresenter,
+  660          ) void {
+  661              const snapshot = app.worker.snapshotState(app.alloc) catch return;
+  662              defer snapshot.deinit(app.alloc);
+  663  
+  664              const was_approval_active = app.approval_prompt.isActive();
+  665              const worker_pending_request = if (snapshot.pending_permission_request) |*request|
+
+== src/core/app/app_worker_runtime.zig:758-791@481104fd -- AT-FOLDERS r3: syncState reports the program status; reportProgramStatus writes it
+  758              // Waiting on an approval or question is not thinking: freeze the
+  759              // elapsed clock for the duration of the wait.
+  760              activity_status.syncWaitingClock(&app.stream, modal_active, io_mod.milliTimestamp());
+  761  
+  762              if (comptime @hasField(App, "program_status")) {
+  763                  reportProgramStatus(app, !cancellation_stops_turn and
+  764                      (app.stream.active or snapshot.processing or snapshot.queued_count > 0));
+  765              }
+  766          }
+  767  
+  768          /// Tells the terminal what the user would see: a decision prompt,
+  769          /// running work, or the result of the last turn.
+  770          fn reportProgramStatus(app: *App, busy: bool) void {
+  771              if (comptime @hasDecl(@TypeOf(app.worker), "compactionActivitySnapshot")) {
+  772                  app.program_status.noteCompaction(app.worker.compactionActivitySnapshot());
+  773              }
+  774              const activity: program_status.Activity = if (app.approval_prompt.isActive())
+  775                  .{ .blocked = .{
+  776                      .kind = .permission,
+  777                      .message = if (app.approval_prompt.request) |*request| request.view().label else "",
+  778                  } }
+  779              else if (app.question_prompt.isActive())
+  780                  .{ .blocked = .{ .kind = .question, .message = activeQuestionText(app) } }
+  781              else if (busy)
+  782                  .working
+  783              else
+  784                  .settled;
+  785              const report = app.program_status.update(activity) orelse return;
+  786              debug_trace.logf("program_status", "report activity={s} settled={s}", .{
+  787                  @tagName(activity),
+  788                  @tagName(app.program_status.settled),
+  789              });
+  790              app.writeProgramStatus(report);
+  791          }
+
+== src/core/app/input_completion_runtime.zig:811-815@481104fd -- AT-FOLDERS r3: collectFilePickerFacts harvests with filePickerEligible
+  811          pub fn collectFilePickerFacts(app: *App) void {
+  812              if (comptime !runtime_profile.allows(App, .file_index)) return;
+  813              reconcileFilePicker(app);
+  814              app.harvestDirectoryCompletion(filePickerEligible(app));
+  815          }
+
+== src/core/workspace/directory_completion_job.zig:191-217@481104fd -- AT-FOLDERS r3: harvest drops an abandoned or superseded task's output
+  191      pub fn harvest(self: *Job, alloc: std.mem.Allocator, state_alloc: std.mem.Allocator, state: *completion.State, eligible: bool) bool {
+  192          self.reconcile(alloc, state, eligible);
+  193          const task = self.task orelse return false;
+  194          if (!task.done.load(.acquire)) return false;
+  195          if (!task.abandoned and task.request.matches(state)) {
+  196              if (task.failure) |err| {
+  197                  fail(state_alloc, state, task.request.id, err);
+  198              } else {
+  199                  const rows = completion.Rows.copy(state_alloc, task.rows.?.results) catch |err| blk: {
+  200                      fail(state_alloc, state, task.request.id, err);
+  201                      break :blk null;
+  202                  };
+  203                  if (rows) |owned| {
+  204                      state.directory_request = null;
+  205                      state.stage(state_alloc, .{ .scope_epoch = state.scope_epoch, .state = .ready }, if (owned.results.len == 0) .empty else .ready, owned);
+  206                      debug_trace.logf("input", "file picker prepared revision={d} count={d} indexed=false request={d}", .{ state.next_revision -% 1, owned.results.len, task.request.id });
+  207                  }
+  208              }
+  209          } else debug_trace.logf("input", "directory completion stale output dropped request={d} failed={}", .{ task.request.id, task.failure != null });
+  210          task.deinit();
+  211          self.task = null;
+  212          if (self.pending) |request| {
+  213              self.pending = null;
+  214              self.start(alloc, request) catch |err| fail(state_alloc, state, request.id, err);
+  215          }
+  216          return true;
+  217      }
+
+== src/builtins/hooks/notifications.zig:185-203@481104fd -- AT-FOLDERS r3: the provider's flush delivers the ready notifications to the player
+  185          pub fn flush(app: *App) void {
+  186              const ready = app.notifications.takeReady(app.pacer.hasPending());
+  187              const count = ready.attention_required +| ready.turn_end_success +| ready.turn_end_error;
+  188              if (count == 0) return;
+  189  
+  190              const player = if (app.notifications.player) |*configured|
+  191                  configured
+  192              else {
+  193                  debug_trace.logf(
+  194                      "notifications",
+  195                      "notification delivery dropped count={d} reason=player_not_configured",
+  196                      .{count},
+  197                  );
+  198                  return;
+  199              };
+  200              deliver(player, .attention_required, .success, ready.attention_required);
+  201              deliver(player, .turn_end, .success, ready.turn_end_success);
+  202              deliver(player, .turn_end, .@"error", ready.turn_end_error);
+  203          }
+
+== src/builtins/hooks/notifications.zig:283-286@481104fd -- AT-FOLDERS r3: the player's emit is the bell: writeNotificationBell's one caller
+  283          fn emitInteractiveBell(raw: *anyopaque) void {
+  284              const app: *App = @ptrCast(@alignCast(raw));
+  285              app.shell.writeNotificationBell(&app.metrics);
+  286          }
+
+== src/core/app/input_completion_runtime.zig:754-786@481104fd -- AT-FOLDERS r4: catalogMenuOwnsSurface and filePickerEligible, the predicate's terms
+  754          fn catalogMenuOwnsSurface(app: *App) bool {
+  755              if (app.input_runtime.help_menu.active or app.input_runtime.settings_menu.active) return true;
+  756              if (comptime @hasField(App, "skills")) {
+  757                  if (comptime @hasField(@TypeOf(app.skills), "menu")) {
+  758                      if (app.skills.menuVisible()) return true;
+  759                  }
+  760              }
+  761              if (comptime @hasField(App, "model_cache")) {
+  762                  if (app.model_cache.menu.active) return true;
+  763              }
+  764              if (comptime @hasField(App, "session_persistence")) {
+  765                  if (app.session_persistence.session_picker.active) return true;
+  766              }
+  767              return false;
+  768          }
+  769  
+  770          fn fileScopeEpoch(app: *const App) u64 {
+  771              if (comptime @hasDecl(App, "fileCompletionScopeEpoch")) return app.fileCompletionScopeEpoch();
+  772              return 0;
+  773          }
+  774  
+  775          fn filePickerEligible(app: *App) bool {
+  776              if (comptime !runtime_profile.allows(App, .file_index)) return false;
+  777              if (comptime @hasField(App, "question_prompt")) if (app.question_prompt.isActive()) return false;
+  778              if (comptime @hasField(App, "approval_prompt")) if (app.approval_prompt.isActive()) return false;
+  779              if (comptime @hasField(App, "auth")) {
+  780                  if (comptime @hasDecl(@TypeOf(app.auth), "pickerView")) if (app.auth.pickerView().active) return false;
+  781              }
+  782              if (comptime @hasField(App, "shell")) {
+  783                  if (comptime @hasDecl(@TypeOf(app.shell), "fullTranscriptActive")) if (app.shell.fullTranscriptActive()) return false;
+  784              }
+  785              return !catalogMenuOwnsSurface(app);
+  786          }
+
+== src/core/app/input_completion_runtime.zig:846-866@481104fd -- AT-FOLDERS r4: prepareFilePicker, the sole acquisition boundary, returns while not eligible; the episode's refresh after that
+  846          /// The sole acquisition boundary. Called after input batching, never by
+  847          /// painters, navigation or acceptance. Directory work is scheduled, not run.
+  848          pub fn prepareFilePicker(app: *App) void {
+  849              if (comptime !runtime_profile.allows(App, .file_index)) return;
+  850              reconcileFilePicker(app);
+  851              const picker = &app.input_runtime.picker;
+  852              const state = &picker.file_completion;
+  853              if (!state.active or !filePickerEligible(app)) return;
+  854              if (state.refresh_requested) {
+  855                  state.refresh_requested = false;
+  856                  if (state.indexed) {
+  857                      var refresh = true;
+  858                      if (!picker.file_picker_episode_seen) {
+  859                          picker.file_picker_episode_seen = true;
+  860                          if (comptime @hasDecl(App, "isFileIndexLoading")) refresh = !app.isFileIndexLoading();
+  861                      }
+  862                      if (refresh) {
+  863                          if (comptime @hasDecl(App, "refreshFileIndex")) app.refreshFileIndex();
+  864                      }
+  865                  }
+  866              }
+
+== src/core/app/input_completion_runtime.zig:946-958@481104fd -- AT-FOLDERS r4: Tab returns before its retry while not eligible
+  946          pub fn autocompleteFilePickerSelection(app: *App, max_input_len: usize) !edit_contract.InsertResult {
+  947              if (comptime !runtime_profile.allows(App, .file_index)) return .inactive;
+  948              reconcileFilePicker(app);
+  949              if (!filePickerEligible(app)) return .inactive;
+  950              const selection = resolveFilePickerSelection(app) orelse {
+  951                  const picker = &app.input_runtime.picker;
+  952                  const status = filePickerView(app).status;
+  953                  if (status != .loading and (status == .unavailable or status == .stale or picker.file_completion.selection_missing)) picker.file_completion.retry();
+  954                  app.shell.render_requests.request(.footer);
+  955                  return .inactive;
+  956              };
+  957              return applyFilePickerSelection(app, selection, max_input_len, .open);
+  958          }
+
+== src/core/app/input_completion_runtime.zig:1034-1056@481104fd -- AT-FOLDERS r4: Enter on the list and the list owning the surface, both behind filePickerEligible
+ 1034          pub fn submitFilePickerOnEnter(app: *App, max_input_len: usize) !?edit_contract.InsertResult {
+ 1035              if (comptime !runtime_profile.allows(App, .file_index)) return null;
+ 1036              reconcileFilePicker(app);
+ 1037              if (!filePickerOwnsSurface(app)) return null;
+ 1038              const selection = resolveFilePickerSelection(app) orelse {
+ 1039                  if (app.input_runtime.picker.file_completion.acceptedEmpty()) return null;
+ 1040                  return .inactive;
+ 1041              };
+ 1042              const result = try applyFilePickerSelection(app, selection, max_input_len, .select);
+ 1043              debug_trace.logf(
+ 1044                  "input",
+ 1045                  "file picker Enter consumed selected={s} limit_exceeded={s}",
+ 1046                  .{
+ 1047                      if (result == .inserted) "true" else "false",
+ 1048                      if (result == .limit_exceeded) "true" else "false",
+ 1049                  },
+ 1050              );
+ 1051              return result;
+ 1052          }
+ 1053  
+ 1054          pub fn filePickerOwnsSurface(app: *App) bool {
+ 1055              return filePickerEligible(app) and hasFileQuery(app);
+ 1056          }
+
+== src/core/workspace/directory_completion_job.zig:63-111@481104fd -- AT-FOLDERS r4: Task.stop sets the cancel flag; run and lookup check it
+   63  const Task = struct {
+   64      alloc: std.mem.Allocator,
+   65      request: Request,
+   66      thread: ?std.Thread = null,
+   67      done: std.atomic.Value(bool) = .init(false),
+   68      cancel: std.atomic.Value(bool) = .init(false),
+   69      // Main-only. Worker output is read only after acquire-observing done.
+   70      abandoned: bool = false,
+   71      rows: ?completion.Rows = null,
+   72      failure: ?(path_completion.Error || error{ Cancelled, OutOfMemory }) = null,
+   73  
+   74      fn stop(self: *Task) void {
+   75          if (!self.abandoned) {
+   76              self.abandoned = true;
+   77              self.cancel.store(true, .release);
+   78              debug_trace.logf("input", "directory completion cancelled request={d}", .{self.request.id});
+   79          }
+   80      }
+   81  
+   82      fn deinit(self: *Task) void {
+   83          if (self.thread) |thread| thread.join();
+   84          if (self.rows) |*rows| rows.deinit(self.alloc);
+   85          self.request.deinit(self.alloc);
+   86          self.alloc.destroy(self);
+   87      }
+   88  
+   89      fn run(self: *Task) void {
+   90          // All operation scratch and directory handles are gone before publication.
+   91          defer self.done.store(true, .release);
+   92          self.rows = self.lookup() catch |err| {
+   93              self.failure = err;
+   94              return;
+   95          };
+   96          if (self.cancel.load(.acquire)) {
+   97              self.rows.?.deinit(self.alloc);
+   98              self.rows = null;
+   99              self.failure = error.Cancelled;
+  100          }
+  101      }
+  102  
+  103      fn lookup(self: *Task) !completion.Rows {
+  104          var results: [completion.capacity]file_index.SearchResult = undefined;
+  105          var spans: [completion.capacity * file_index.max_path_len]file_index.MatchSpan = undefined;
+  106          var paths: [completion.capacity * file_index.max_path_len]u8 = undefined;
+  107          const count = try path_completion.completeCancellable(self.request.root, self.request.home, self.request.query, &self.cancel, &results, &spans, &paths);
+  108          if (self.cancel.load(.acquire)) return error.Cancelled;
+  109          return completion.Rows.copy(self.alloc, results[0..count]);
+  110      }
+  111  };
+
+== src/core/workspace/path_completion.zig:43-147@481104fd -- AT-FOLDERS r4: completeCancellable checks the cancel flag between steps; cooperative, cannot interrupt a filesystem call in flight
+   43  /// cancellation is cooperative and cannot interrupt an in-flight filesystem call.
+   44  pub fn completeCancellable(
+   45      workspace_root: []const u8,
+   46      home_dir: ?[]const u8,
+   47      query: []const u8,
+   48      cancel: ?*const std.atomic.Value(bool),
+   49      out: []file_index.SearchResult,
+   50      match_spans: []file_index.MatchSpan,
+   51      path_storage: []u8,
+   52  ) (Error || error{Cancelled})!usize {
+   53      try checkCancellation(cancel);
+   54      if (out.len == 0) return 0;
+   55      const parsed = parseExplicitQuery(query) orelse return 0;
+   56      const matcher = file_index.NameQuery.init(parsed.basename_query) orelse return 0;
+   57      var scores: [file_index.max_search_results]file_index.NameQuery.Score = undefined;
+   58      const slot_len: usize = file_index.max_path_len;
+   59      if (out.len > scores.len or out.len > path_storage.len / slot_len) return error.NoSpaceLeft;
+   60  
+   61      var resolve_storage: [file_index.max_path_len * 4]u8 = undefined;
+   62      var resolve_fba = std.heap.FixedBufferAllocator.init(&resolve_storage);
+   63      try checkCancellation(cancel);
+   64      const resolved = pathing.resolve_workspace_or_external_literal_path_with_home(
+   65          resolve_fba.allocator(),
+   66          workspace_root,
+   67          parsed.parent,
+   68          home_dir,
+   69      ) catch |err| switch (err) {
+   70          error.OutOfMemory => return error.NoSpaceLeft,
+   71          else => return error.PathUnavailable,
+   72      };
+   73  
+   74      const io = io_mod.getIo();
+   75      try checkCancellation(cancel);
+   76      var dir = std.Io.Dir.openDirAbsolute(io, resolved, .{ .iterate = true }) catch return error.PathUnavailable;
+   77      defer dir.close(io);
+   78  
+   79      // Listing a folder's contents: the folder itself is the first row, so it
+   80      // can be selected and not only opened.
+   81      const folder = listedFolder(parsed);
+   82      const reserved: usize = @intFromBool(folder != null);
+   83      const entries = out[reserved..];
+   84      const entry_storage = path_storage[reserved * slot_len ..];
+   85  
+   86      var count: usize = 0;
+   87      var iterator = dir.iterate();
+   88      while (true) {
+   89          try checkCancellation(cancel);
+   90          const entry = (iterator.next(io) catch return error.PathUnavailable) orelse break;
+   91          try checkCancellation(cancel);
+   92          if (!text_utils.isTerminalSafe(entry.name)) continue;
+   93          const score = matcher.score(entry.name) orelse continue;
+   94          // candidateKind may stat symlinks or unknown kinds.
+   95          try checkCancellation(cancel);
+   96          const kind = candidateKind(&dir, entry.name, entry.kind) orelse continue;
+   97  
+   98          var candidate_storage: [file_index.max_path_len]u8 = undefined;
+   99          const candidate_len = parsed.display_prefix.len + entry.name.len;
+  100          if (candidate_len > candidate_storage.len) continue;
+  101          @memcpy(candidate_storage[0..parsed.display_prefix.len], parsed.display_prefix);
+  102          @memcpy(candidate_storage[parsed.display_prefix.len..candidate_len], entry.name);
+  103          const candidate = candidate_storage[0..candidate_len];
+  104          if (!text_utils.isTerminalSafe(candidate)) continue;
+  105          if (!file_picker_path.isRepresentable(candidate)) continue;
+  106          count = insertCandidate(entries, entry_storage, &scores, &matcher, count, candidate, kind, score);
+  107      }
+  108  
+  109      var spans_used: usize = 0;
+  110      for (entries[0..count]) |*result| {
+  111          try checkCancellation(cancel);
+  112          const span_count = matcher.match_spans(result.path[parsed.display_prefix.len..], match_spans[spans_used..]) catch |err| switch (err) {
+  113              error.NoSpaceLeft => return error.NoSpaceLeft,
+  114              error.InvalidIndexData => return error.PathUnavailable,
+  115          };
+  116          const spans = match_spans[spans_used..][0..span_count];
+  117          for (spans) |*span| {
+  118              span.byte_start += @intCast(parsed.display_prefix.len);
+  119              span.byte_end += @intCast(parsed.display_prefix.len);
+  120          }
+  121          result.matched_spans = spans;
+  122          spans_used += span_count;
+  123      }
+  124      if (folder) |path| {
+  125          const slot = pathSlot(path_storage, 0);
+  126          @memcpy(slot[0..path.len], path);
+  127          out[0] = .{ .path = slot[0..path.len], .kind = .directory, .matched_spans = &.{} };
+  128      }
+  129      try checkCancellation(cancel);
+  130      return reserved + count;
+  131  }
+  132  
+  133  /// The folder whose contents a query lists (`src/` lists `src`, `~` lists
+  134  /// `~`), or null when the query names a partial entry or the root.
+  135  fn listedFolder(parsed: ParsedQuery) ?[]const u8 {
+  136      if (parsed.basename_query.len != 0) return null;
+  137      const prefix = parsed.display_prefix;
+  138      if (prefix.len < 2 or !std.Io.Dir.path.isSep(prefix[prefix.len - 1])) return null;
+  139      const folder = prefix[0 .. prefix.len - 1];
+  140      if (std.Io.Dir.path.isSep(folder[folder.len - 1])) return null;
+  141      if (!text_utils.isTerminalSafe(folder) or !file_picker_path.isRepresentable(folder)) return null;
+  142      return folder;
+  143  }
+  144  
+  145  fn checkCancellation(cancel: ?*const std.atomic.Value(bool)) error{Cancelled}!void {
+  146      if (cancel) |flag| if (flag.load(.acquire)) return error.Cancelled;
+  147  }
+
+== src/core/app/input_completion_runtime.zig:787-797@481104fd -- AT-FOLDERS r5: reconcileFilePicker sets indexed from fileCompletionsDependOnIndex (a decoding failure counts as indexed)
+  787  
+  788          pub fn reconcileFilePicker(app: *App) void {
+  789              if (comptime !runtime_profile.allows(App, .file_index)) return;
+  790              const picker = &app.input_runtime.picker;
+  791              const query = picker.activeFilePickerQuery(&app.input_runtime.edit_state);
+  792              var decoded_storage: [file_index.max_path_len]u8 = undefined;
+  793              const indexed = if (query) |q| blk: {
+  794                  const decoded = q.decoded_query(&decoded_storage) catch break :blk true;
+  795                  break :blk fileCompletionsDependOnIndex(app, decoded);
+  796              } else true;
+  797              if (picker.file_completion.reconcile(query, fileScopeEpoch(app), indexed)) picker.resetFilePickerIndex();
+
+== src/core/app/input_completion_runtime.zig:1065-1070@481104fd -- AT-FOLDERS r5: fileCompletionsDependOnIndex
+ 1065          fn fileCompletionsDependOnIndex(app: *App, query: []const u8) bool {
+ 1066              if (comptime @hasDecl(App, "fileCompletionsDependOnIndex")) {
+ 1067                  return app.fileCompletionsDependOnIndex(query);
+ 1068              }
+ 1069              return true;
+ 1070          }
+
+== src/core/app/app_workspace_runtime.zig:82-84@481104fd -- AT-FOLDERS r5: the app's fileCompletionsDependOnIndex is queryMode == .workspace_index
+   82          pub fn fileCompletionsDependOnIndex(_: *const App, query: []const u8) bool {
+   83              return path_completion.queryMode(query) == .workspace_index;
+   84          }
+
+== src/core/workspace/path_completion.zig:25-27@481104fd -- AT-FOLDERS r5: queryMode: a parsed explicit query is a path, anything else the index
+   25  pub fn queryMode(query: []const u8) QueryMode {
+   26      return if (parseExplicitQuery(query) != null) .explicit_path else .workspace_index;
+   27  }
+
+== src/core/input/file_completion_state.zig:147-168@481104fd -- AT-FOLDERS r5: reconcile asks for the refresh on a new episode and on a change of indexed
+  147      pub fn reconcile(self: *State, query: ?file_picker_path.Query, scope_epoch: u64, indexed: bool) bool {
+  148          const q = query orelse {
+  149              if (!self.active) return false;
+  150              self.invalidate();
+  151              return true;
+  152          };
+  153          const kept = @min(q.query.len, self.raw_query.len);
+  154          if (self.active and self.scope_epoch == scope_epoch and self.indexed == indexed and
+  155              self.at_offset == q.at_offset and self.token_start == q.token_start and
+  156              self.replace_end == q.replace_end and self.quoted == q.quoted and
+  157              self.raw_len == q.query.len and std.mem.eql(u8, self.raw_query[0..kept], q.query[0..kept])) return false;
+  158          var decoded_storage: [file_index.max_path_len]u8 = undefined;
+  159          const decoded = q.decoded_query(&decoded_storage) catch null;
+  160          const lookup = if (decoded) |bytes| if (bytes.len <= self.lookup_query.len) bytes else null else null;
+  161          const same_lookup = self.active and self.directory_request == null and self.scope_epoch == scope_epoch and self.indexed == indexed and
+  162              self.lookup_len != null and lookup != null and std.mem.eql(u8, self.lookup_query[0..self.lookup_len.?], lookup.?);
+  163          self.directory_request = null;
+  164          self.refresh_requested = self.refresh_requested or !self.active or self.indexed != indexed or self.scope_epoch != scope_epoch;
+  165          self.episode +%= 1;
+  166          self.active = true;
+  167          self.indexed = indexed;
+  168          self.scope_epoch = scope_epoch;
+
+== src/core/input/file_completion_state.zig:230-233@481104fd -- AT-FOLDERS r5: retry asks for the refresh too
+  230      pub fn retry(self: *State) void {
+  231          self.lookup_dirty = true;
+  232          self.refresh_requested = true;
+  233      }
+
+== src/core/app/app_workspace_runtime.zig:145-152@481104fd -- AT-FOLDERS r5: startFileIndex and refreshFileIndex
+  145          pub fn startFileIndex(app: *App) void {
+  146              if (app.workspace_root.len == 0) return;
+  147              app.file_index.ensureScopeEpoch(std.heap.c_allocator, scope(app), app.workspace.scope_epoch);
+  148          }
+  149  
+  150          pub fn refreshFileIndex(app: *App) void {
+  151              app.file_index.refreshScopeEpoch(std.heap.c_allocator, scope(app), app.workspace.scope_epoch);
+  152          }
+
+== src/core/app/app_entry_runtime.zig:330-335@481104fd -- AT-FOLDERS r5: the index is started at launch
+  330          if (resume_requested) app.startResumedSessionWarmup();
+  331          if (@hasDecl(App, "configureNotifications")) try app.configureNotifications();
+  332          if (@hasDecl(App, "playStartupSound")) app.playStartupSound();
+  333          if (@hasDecl(App, "startAutoUpgrade")) app.startAutoUpgrade();
+  334          if (@hasDecl(App, "startFileIndex")) app.startFileIndex();
+  335          startWorkerThread(App, app, deps) catch |err| {
+
+== src/main.zig:2125-2127@481104fd -- AT-FOLDERS r5: isFileIndexLoading
+ 2125      pub fn isFileIndexLoading(self: *App) bool {
+ 2126          return self.file_index.currentState() == .loading;
+ 2127      }
+
+== src/core/workspace/file_index.zig:333-341@481104fd -- AT-FOLDERS r5: currentState: loading only while the first generation loads
+  333      pub fn currentState(self: *const FileIndex) State {
+  334          if (self.active_generation != null) return .ready;
+  335          const loading = self.loading_generation orelse return if (self.initial_failed) .failed else .idle;
+  336          return switch (loading.currentState()) {
+  337              .loading => .loading,
+  338              .ready => .ready,
+  339              .failed, .canceled => .failed,
+  340          };
+  341      }
+
+== src/core/workspace/file_index.zig:488-523@481104fd -- AT-FOLDERS r5: a refresh during a walk is queued as pending roots
+  488      fn refreshOwnedRoots(self: *FileIndex, alloc: Allocator, roots: [][]u8, epoch: u64) void {
+  489          if (self.stop_requested.load(.seq_cst)) {
+  490              freeRoots(alloc, roots);
+  491              debug_trace.logf("core", "file index refresh discarded during shutdown generation={d}", .{self.generation});
+  492              return;
+  493          }
+  494          if (self.thread != null) {
+  495              self.replacePendingRoots(alloc, roots, epoch);
+  496              return;
+  497          }
+  498  
+  499          if (self.loading_generation != null) {
+  500              freeRoots(alloc, roots);
+  501              debug_trace.logf("core", "file index refresh discarded with unowned loading generation={d}", .{self.generation});
+  502              return;
+  503          }
+  504          freeRoots(alloc, self.roots);
+  505          self.roots = roots;
+  506          self.scope_epoch = epoch;
+  507          const started = self.startLoad(alloc);
+  508          if (!started) debug_trace.logf("core", "file index refresh not started generation={d}", .{self.generation});
+  509      }
+  510  
+  511      fn replacePendingRoots(self: *FileIndex, alloc: Allocator, roots: [][]u8, epoch: u64) void {
+  512          if (self.pending_scope) |pending| {
+  513              if (pending.epoch == epoch and rootsEqual(pending.roots, roots)) {
+  514                  freeRoots(alloc, roots);
+  515                  debug_trace.logf("core", "file index refresh coalesced generation={d} identical=true", .{self.generation});
+  516                  return;
+  517              }
+  518              freeRoots(alloc, pending.roots);
+  519              debug_trace.logf("core", "file index pending refresh superseded generation={d}", .{self.generation});
+  520          }
+  521          self.pending_scope = .{ .roots = roots, .epoch = epoch };
+  522          debug_trace.logf("core", "file index refresh coalesced generation={d} identical=false", .{self.generation});
+  523      }
+
+== src/core/app/app_input_runtime.zig:6997-7019@481104fd -- AT-FOLDERS r5: fx's test: each episode refreshes after startup loading
+ 6997  test "app_input_runtime refreshes each file picker episode after startup loading" {
+ 6998      const alloc = std.testing.allocator;
+ 6999      var app = try RoutingFakeApp.init(alloc);
+ 7000      defer app.deinit();
+ 7001  
+ 7002      for ("@first") |byte| {
+ 7003          try Runtime(RoutingFakeApp).handleTerminalByte(&app, byte, 4096, 100);
+ 7004      }
+ 7005      Runtime(RoutingFakeApp).prepareFilePicker(&app);
+ 7006      try std.testing.expect(app.input_runtime.picker.file_picker_episode_seen);
+ 7007      Runtime(RoutingFakeApp).prepareFilePicker(&app);
+ 7008      try std.testing.expectEqual(@as(usize, 1), app.file_index_refresh_count);
+ 7009  
+ 7010      try Runtime(RoutingFakeApp).handleTerminalByte(&app, ' ', 4096, 100);
+ 7011      try Runtime(RoutingFakeApp).handleTerminalByte(&app, '@', 4096, 100);
+ 7012      Runtime(RoutingFakeApp).prepareFilePicker(&app);
+ 7013      try std.testing.expectEqual(@as(usize, 2), app.file_index_refresh_count);
+ 7014  
+ 7015      for ("second") |byte| {
+ 7016          try Runtime(RoutingFakeApp).handleTerminalByte(&app, byte, 4096, 100);
+ 7017      }
+ 7018      Runtime(RoutingFakeApp).prepareFilePicker(&app);
+ 7019      try std.testing.expectEqual(@as(usize, 2), app.file_index_refresh_count);
+
+== src/core/app/app_input_runtime.zig:7050-7070@481104fd -- AT-FOLDERS r5: fx's test: the startup load is not duplicated
+ 7050  }
+ 7051  
+ 7052  test "app_input_runtime does not duplicate the startup file index load" {
+ 7053      const alloc = std.testing.allocator;
+ 7054      var app = try RoutingFakeApp.init(alloc);
+ 7055      defer app.deinit();
+ 7056      app.file_index_loading = true;
+ 7057  
+ 7058      for ("@first") |byte| {
+ 7059          try Runtime(RoutingFakeApp).handleTerminalByte(&app, byte, 4096, 100);
+ 7060      }
+ 7061      Runtime(RoutingFakeApp).prepareFilePicker(&app);
+ 7062      try std.testing.expect(app.input_runtime.picker.file_picker_episode_seen);
+ 7063      Runtime(RoutingFakeApp).prepareFilePicker(&app);
+ 7064      try std.testing.expectEqual(@as(usize, 0), app.file_index_refresh_count);
+ 7065  
+ 7066      app.file_index_loading = false;
+ 7067      try Runtime(RoutingFakeApp).handleTerminalByte(&app, ' ', 4096, 100);
+ 7068      try Runtime(RoutingFakeApp).handleTerminalByte(&app, '@', 4096, 100);
+ 7069      Runtime(RoutingFakeApp).prepareFilePicker(&app);
+ 7070      try std.testing.expectEqual(@as(usize, 1), app.file_index_refresh_count);
+
+== src/core/permissions/approval_prompt.zig:61-63@481104fd -- AT-FOLDERS r5: isActive is request != null
+   61      pub fn isActive(self: ApprovalPrompt) bool {
+   62          return self.request != null;
+   63      }
+
+== src/core/permissions/approval_prompt.zig:119-146@481104fd -- AT-FOLDERS r5: syncRuleManagement sets the request: a rule confirmation is an active approval prompt
+  119      pub fn syncRuleManagement(
+  120          self: *ApprovalPrompt,
+  121          alloc: Allocator,
+  122          request: permission_request.PermissionRequest,
+  123          event: session_permission_state.ConfirmedRuleEvent,
+  124      ) !void {
+  125          if (!request.confirmation_only or request.file != null) {
+  126              return error.InvalidRuleManagementRequest;
+  127          }
+  128          const owned_request = try permission_request.OwnedPermissionRequest.dupe(
+  129              alloc,
+  130              request,
+  131          );
+  132          var request_owned = true;
+  133          errdefer if (request_owned) {
+  134              var value = owned_request;
+  135              value.deinit(alloc);
+  136          };
+  137          const owned_event = try session_permission_state.OwnedConfirmedRuleEvent.dupe(
+  138              alloc,
+  139              event,
+  140          );
+  141          self.clearWithReason(alloc, "rule_management_started");
+  142          self.request = owned_request;
+  143          request_owned = false;
+  144          self.rule_management = owned_event;
+  145          self.decision.setConfirmationOnly(true);
+  146      }
+
+== src/core/app/app_input_runtime.zig:1392-1411@481104fd -- AT-FOLDERS r5: Enter asks the skills menu before the @ list
+ 1392                  '\r' => {
+ 1393                      if (try submitEffortMenuSelection(app)) return;
+ 1394                      if (try submitSettingsMenuSelection(app)) return;
+ 1395                      if (try submitHelpMenuSelection(app, max_input_len, max_prompt_history)) return;
+ 1396                      if (try submitMcpHostMenu(app)) return;
+ 1397                      if (try submitAuthPickerSelection(app)) return;
+ 1398                      if (try submitModelMenuSelection(app)) return;
+ 1399                      if (try submitSkillsMenuSelection(app, max_input_len)) return;
+ 1400                      if (try submitSlashPickerSelection(app)) return;
+ 1401                      if (comptime runtime_profile.allows(App, .durable_sessions)) {
+ 1402                          if (try submitSessionPickerSelection(app)) return;
+ 1403                          if (try submitForkMenuSelection(app, max_input_len)) return;
+ 1404                      }
+ 1405                      if (try completion_rt.submitFilePickerOnEnter(app, max_input_len)) |result| {
+ 1406                          if (result == .limit_exceeded) {
+ 1407                              try input_limit_feedback.report(App, app, .composer, 1);
+ 1408                          }
+ 1409                          app.shell.render_requests.request(.footer);
+ 1410                          return;
+ 1411                      }
+
+== src/core/app/app_input_runtime.zig:1998-2040@481104fd -- AT-FOLDERS r5: submitSkillsMenuSelection: a marked skill binds; a mention menu with none closes and hands Enter on
+ 1998          fn submitSkillsMenuSelection(app: *App, max_input_len: usize) !bool {
+ 1999              if (comptime !@hasField(App, "skills")) return false;
+ 2000              if (!app.skills.menu.active) return false;
+ 2001              // Captured before the sync: a stale $ anchor makes the sync close
+ 2002              // the menu, and close() resets origin to .command.
+ 2003              const origin = app.skills.menu.origin;
+ 2004              syncSkillsMenu(app);
+ 2005              const skill = app.skills.selectedMenuSkill() orelse {
+ 2006                  if (origin.isMention()) {
+ 2007                      app.skills.closeMenu();
+ 2008                      app.shell.render_requests.request(.footer);
+ 2009                      return false;
+ 2010                  }
+ 2011                  return true;
+ 2012              };
+ 2013              const target = if (!origin.isMention())
+ 2014                  skill_runtime.SkillMenuTarget{ .start = 0, .end = app.input_runtime.edit_state.input.items.len }
+ 2015              else
+ 2016                  app.skills.menu.target orelse skill_runtime.SkillMenuTarget{
+ 2017                      .start = app.input_runtime.edit_state.cursor,
+ 2018                      .end = app.input_runtime.edit_state.cursor,
+ 2019                  };
+ 2020              const raw_len = app.input_runtime.entities.skillTokenInsertedLen(
+ 2021                  app.input_runtime.edit_state.input.items,
+ 2022                  target.end,
+ 2023                  skill.name,
+ 2024              );
+ 2025              if (!app.input_runtime.insertionState().canReplaceRange(
+ 2026                  target.start,
+ 2027                  target.end,
+ 2028                  raw_len,
+ 2029                  max_input_len,
+ 2030              )) {
+ 2031                  app.skills.closeMenu();
+ 2032                  app.shell.render_requests.request(.footer);
+ 2033                  try input_limit_feedback.report(App, app, .composer, raw_len);
+ 2034                  return true;
+ 2035              }
+ 2036  
+ 2037              try app.input_runtime.skillBindingState().bindSkillToken(
+ 2038                  app.alloc,
+ 2039                  target.start,
+ 2040                  target.end,
+
+== src/core/workspace/file_index.zig:284-288@481104fd -- AT-FOLDERS r6: the index's one pending scope
+  284      /// active additional roots follow in configured order.
+  285      roots: [][]u8 = &.{},
+  286      scope_epoch: u64 = 0,
+  287      /// Roots and their installed-scope identity transfer together.
+  288      pending_scope: ?PendingScope = null,
+
+== src/core/workspace/file_index.zig:386-389@481104fd -- AT-FOLDERS r6: startLoad clears the first index's failure
+  386          loading.scope_epoch = self.scope_epoch;
+  387          self.loading_generation = loading;
+  388          self.generation = generation_id;
+  389          self.initial_failed = false;
+
+== src/core/workspace/file_index.zig:407-461@481104fd -- AT-FOLDERS r6: joinThreadIfDone starts the pending scope when a walk ends, ready or failed
+  407      /// Reaps one terminal loader without waiting for incomplete work. Returns
+  408      /// whether candidate or initial-status facts changed and need rendering.
+  409      pub fn joinThreadIfDone(self: *FileIndex, alloc: Allocator) bool {
+  410          const handle = self.thread orelse return false;
+  411          const loading = self.loading_generation orelse return false;
+  412          const terminal_state = loading.currentState();
+  413          if (terminal_state == .loading) return false;
+  414  
+  415          handle.join();
+  416          self.thread = null;
+  417          debug_trace.logf("core", "file index generation joined generation={d} state={s}", .{ loading.id, @tagName(terminal_state) });
+  418  
+  419          var visible_changed = false;
+  420          const adopted_from_cache = terminal_state == .ready and loading.from_cache;
+  421          switch (terminal_state) {
+  422              .loading => unreachable,
+  423              .ready => {
+  424                  const previous = self.active_generation;
+  425                  self.active_generation = loading;
+  426                  self.loading_generation = null;
+  427                  self.initial_failed = false;
+  428                  debug_trace.logf("core", "file index generation adopted generation={d} count={d} from_cache={}", .{ loading.id, loading.count(), loading.from_cache });
+  429                  if (previous) |generation| generation.destroy(alloc);
+  430                  visible_changed = true;
+  431              },
+  432              .failed, .canceled => {
+  433                  self.loading_generation = null;
+  434                  if (self.active_generation == null and terminal_state == .failed) {
+  435                      self.initial_failed = true;
+  436                      visible_changed = true;
+  437                  }
+  438                  debug_trace.logf("core", "file index generation discarded generation={d} state={s}", .{ loading.id, @tagName(terminal_state) });
+  439                  loading.destroy(alloc);
+  440              },
+  441          }
+  442  
+  443          if (!self.stop_requested.load(.seq_cst)) {
+  444              if (self.pending_scope) |pending| {
+  445                  self.pending_scope = null;
+  446                  freeRoots(alloc, self.roots);
+  447                  self.roots = pending.roots;
+  448                  self.scope_epoch = pending.epoch;
+  449                  _ = self.startLoad(alloc);
+  450              }
+  451          }
+  452          // A cache-painted generation is a preview only: one real scan follows
+  453          // it and replaces it, unless a pending scope already started that load.
+  454          if (adopted_from_cache and
+  455              !self.stop_requested.load(.seq_cst) and
+  456              self.thread == null)
+  457          {
+  458              _ = self.startLoad(alloc);
+  459          }
+  460          return visible_changed;
+  461      }
+
+== src/core/workspace/file_index.zig:463-472@481104fd -- AT-FOLDERS r6: refresh: one coalesced replacement
+  463      /// Requests one replacement generation. A current loader retains its
+  464      /// immutable scope and coalesces only the latest owned replacement scope.
+  465      pub fn refresh(self: *FileIndex, alloc: Allocator) void {
+  466          const epoch = if (self.pending_scope) |pending| pending.epoch else self.scope_epoch;
+  467          const roots = cloneRoots(alloc, if (self.pending_scope) |pending| pending.roots else self.roots) catch |err| {
+  468              debug_trace.logf("core", "file index refresh snapshot failed generation={d} err={s}", .{ self.generation, @errorName(err) });
+  469              return;
+  470          };
+  471          self.refreshOwnedRoots(alloc, roots, epoch);
+  472      }
+
+== src/core/input/picker_state.zig:171-171@481104fd -- AT-FOLDERS r6: file_picker_episode_seen, a picker-state field set once (input_completion_runtime.zig:858-859) and never reset
+  171      file_picker_episode_seen: bool = false,
+
+== src/core/app/app_workspace_runtime.zig:98-104@481104fd -- AT-FOLDERS r6: invalidateScope moves the scope epoch and invalidates the open list
+   98          fn invalidateScope(app: *App) void {
+   99              app.workspace.scope_epoch +%= 1;
+  100              requestStop(app);
+  101              if (comptime @hasField(App, "input_runtime")) {
+  102                  app.input_runtime.picker.file_completion.invalidate();
+  103              }
+  104          }
+
+== src/core/app/app_workspace_runtime.zig:127-143@481104fd -- AT-FOLDERS r6: install: a changed scope invalidates it and refreshes the index
+  127          pub fn install(app: *App, replacement: *Access) bool {
+  128              if (comptime !runtime_profile.allows(App, .file_index)) {
+  129                  app.workspace.access.deinit(app.alloc);
+  130                  app.workspace.access = replacement.*;
+  131                  replacement.* = .{};
+  132                  return true;
+  133              }
+  134              const runtime_changed = !app.workspace.access.eql(replacement);
+  135              app.workspace.access.deinit(app.alloc);
+  136              app.workspace.access = replacement.*;
+  137              replacement.* = .{};
+  138              if (runtime_changed) {
+  139                  invalidateScope(app);
+  140                  refreshFileIndex(app);
+  141              }
+  142              return runtime_changed;
+  143          }
+
+== src/core/workspace/workspace_access.zig:176-189@481104fd -- AT-FOLDERS r7: eql compares every entry's path, saved, command_line, available and active
+  176      pub fn eql(self: *const WorkspaceAccess, other: *const WorkspaceAccess) bool {
+  177          if (self.entries.len != other.entries.len) return false;
+  178          for (self.entries, other.entries) |left, right| {
+  179              if (!std.mem.eql(u8, left.path, right.path) or
+  180                  left.saved != right.saved or
+  181                  left.command_line != right.command_line or
+  182                  left.available != right.available or
+  183                  left.active != right.active)
+  184              {
+  185                  return false;
+  186              }
+  187          }
+  188          return true;
+  189      }
+
+== src/core/app/app_workspace_runtime.zig:70-72@481104fd -- AT-FOLDERS r7: requestStop stops the folder listing (the directory completion job), not the index's walk
+   70          pub fn requestStop(app: *App) void {
+   71              if (comptime runtime_profile.allows(App, .file_index)) app.workspace.directory_completion.stop(std.heap.c_allocator);
+   72          }
+
+== src/core/input/file_completion_state.zig:130-139@481104fd -- AT-FOLDERS r7: invalidate: inactive, untrusted, lookup dirty, the folder's request dropped
+  130      pub fn invalidate(self: *State) void {
+  131          self.episode +%= 1;
+  132          self.active = false;
+  133          self.trusted = false;
+  134          self.source = null;
+  135          self.lookup_dirty = true;
+  136          self.directory_request = null;
+  137          self.refresh_requested = false;
+  138          self.selection_missing = false;
+  139      }
+
+== src/core/input/picker_state.zig:249-252@481104fd -- AT-FOLDERS r7: resetFilePickerIndex: the bar and the window to row 0
+  249      pub fn resetFilePickerIndex(self: *State) void {
+  250          self.file_completion_index = 0;
+  251          self.file_completion_window_start = 0;
+  252      }
+
+== src/core/workspace/file_index.zig:103-108@481104fd -- AT-FOLDERS r7: ReadableRevision carries a scope epoch
+  103  pub const ReadableRevision = struct {
+  104      scope_epoch: u64 = 0,
+  105      generation: usize = 0,
+  106      count: usize = 0,
+  107      state: State = .idle,
+  108  };
+
+== src/core/workspace/file_index.zig:572-583@481104fd -- AT-FOLDERS r7: readableRevision: the searchable generation's scope epoch
+  572      pub fn readableRevision(self: *const FileIndex) ReadableRevision {
+  573          const generation = self.searchableGeneration() orelse return .{
+  574              .scope_epoch = self.scope_epoch,
+  575              .state = self.currentState(),
+  576          };
+  577          return .{
+  578              .scope_epoch = generation.scope_epoch,
+  579              .generation = generation.id,
+  580              .count = generation.count(),
+  581              .state = self.currentState(),
+  582          };
+  583      }
+
+== src/core/workspace/file_index.zig:647-654@481104fd -- AT-FOLDERS r7: searchableGeneration: the active generation first, the old scope's included
+  647      fn searchableGeneration(self: *const FileIndex) ?*const Generation {
+  648          if (self.active_generation) |active| return active;
+  649          const loading = self.loading_generation orelse return null;
+  650          return switch (loading.currentState()) {
+  651              .loading, .ready => loading,
+  652              .failed, .canceled => null,
+  653          };
+  654      }
+
+== src/core/app/input_completion_runtime.zig:884-890@481104fd -- AT-FOLDERS r7: prepareFilePicker stages unavailable when the readable scope is not the workspace's
+  884                  state.stage(app.alloc, source, .unavailable, null);
+  885                  return;
+  886              };
+  887              if (decoded.len > file_index.max_path_len or source.scope_epoch != fileScopeEpoch(app)) {
+  888                  state.stage(app.alloc, source, .unavailable, null);
+  889                  return;
+  890              }
+
+== src/core/app/input_completion_runtime.zig:853-866@481104fd -- AT-FOLDERS r8: the refresh request taken: indexed only, and the session's first skipped while the index is loading
+  853              if (!state.active or !filePickerEligible(app)) return;
+  854              if (state.refresh_requested) {
+  855                  state.refresh_requested = false;
+  856                  if (state.indexed) {
+  857                      var refresh = true;
+  858                      if (!picker.file_picker_episode_seen) {
+  859                          picker.file_picker_episode_seen = true;
+  860                          if (comptime @hasDecl(App, "isFileIndexLoading")) refresh = !app.isFileIndexLoading();
+  861                      }
+  862                      if (refresh) {
+  863                          if (comptime @hasDecl(App, "refreshFileIndex")) app.refreshFileIndex();
+  864                      }
+  865                  }
+  866              }
+
+== src/core/app/input_completion_runtime.zig:867-890@481104fd -- AT-FOLDERS r8: the indexed source is fileCompletionRevision; a source of another scope epoch is staged unavailable
+  867              var source: file_index.ReadableRevision = .{ .scope_epoch = fileScopeEpoch(app), .state = .ready };
+  868              if (state.indexed) {
+  869                  if (comptime @hasDecl(App, "fileCompletionRevision")) {
+  870                      source = app.fileCompletionRevision();
+  871                  } else {
+  872                      if (comptime @hasDecl(App, "isFileIndexLoading")) {
+  873                          if (app.isFileIndexLoading()) source.state = .loading;
+  874                      }
+  875                      if (comptime @hasDecl(App, "isFileIndexFailed")) {
+  876                          if (app.isFileIndexFailed()) source.state = .failed;
+  877                      }
+  878                  }
+  879              }
+  880              if (!state.needsLookup(source)) return;
+  881              const query = picker.activeFilePickerQuery(&app.input_runtime.edit_state) orelse return;
+  882              var decoded_storage: [file_index.max_path_len]u8 = undefined;
+  883              const decoded = query.decoded_query(&decoded_storage) catch {
+  884                  state.stage(app.alloc, source, .unavailable, null);
+  885                  return;
+  886              };
+  887              if (decoded.len > file_index.max_path_len or source.scope_epoch != fileScopeEpoch(app)) {
+  888                  state.stage(app.alloc, source, .unavailable, null);
+  889                  return;
+  890              }
+
+== src/core/app/app_workspace_runtime.zig:74-80@481104fd -- AT-FOLDERS r8: fileCompletionRevision is the index's readableRevision; the scope epoch is the workspace's
+   74          pub fn fileCompletionRevision(app: *const App) file_index.ReadableRevision {
+   75              return app.file_index.readableRevision();
+   76          }
+   77  
+   78          pub fn fileCompletionScopeEpoch(app: *const App) u64 {
+   79              return app.workspace.scope_epoch;
+   80          }
+
+== src/core/workspace/file_index.zig:309-331@481104fd -- AT-FOLDERS r9: deinit, the one place outside tests that clears active_generation (:325; the others are the tests at :2208 and :3205)
+  309      pub fn deinit(self: *FileIndex, alloc: Allocator) void {
+  310          self.requestStop();
+  311          if (self.thread) |handle| {
+  312              handle.join();
+  313              self.thread = null;
+  314              debug_trace.logf("core", "file index shutdown joined generation={d}", .{self.generation});
+  315          }
+  316          if (self.loading_generation) |generation| {
+  317              debug_trace.logf("core", "file index generation discarded generation={d} state={s}", .{ generation.id, @tagName(generation.currentState()) });
+  318              generation.destroy(alloc);
+  319          }
+  320          self.loading_generation = null;
+  321          if (self.active_generation) |generation| {
+  322              debug_trace.logf("core", "file index shutdown reclaiming generation={d}", .{generation.id});
+  323              generation.destroy(alloc);
+  324          }
+  325          self.active_generation = null;
+  326          freeRoots(alloc, self.roots);
+  327          self.roots = &.{};
+  328          if (self.pending_scope) |pending| freeRoots(alloc, pending.roots);
+  329          self.pending_scope = null;
+  330          debug_trace.logf("core", "file index shutdown complete generation={d}", .{self.generation});
+  331      }
+
+== src/core/workspace/file_index.zig:668-681@481104fd -- AT-FOLDERS r9: buildFromSource, the other place a generation is adopted as active (:677; joinThreadIfDone :425 is quoted above)
+  668      fn buildFromSource(self: *FileIndex, alloc: Allocator, source: CandidateSource) !void {
+  669          if (self.thread != null or self.loading_generation != null) return error.LoadInProgress;
+  670          const generation_id = self.generation + 1;
+  671          const generation = try Generation.create(alloc, generation_id);
+  672          errdefer generation.destroy(alloc);
+  673          try generation.fillProgressive(alloc, source, null);
+  674          generation.finish(.ready);
+  675  
+  676          const previous = self.active_generation;
+  677          self.active_generation = generation;
+  678          self.generation = generation_id;
+  679          self.initial_failed = false;
+  680          if (previous) |active| active.destroy(alloc);
+  681      }
+
+== src/core/workspace/file_index.zig:480-486@481104fd -- AT-FOLDERS r10: refreshScopeEpoch snapshots the roots and hands them to refreshOwnedRoots, which queues them behind a running walk (quoted above, :488-523)
+  480      pub fn refreshScopeEpoch(self: *FileIndex, alloc: Allocator, scope: workspace_access.AccessScope, epoch: u64) void {
+  481          const roots = activeRootsAlloc(alloc, scope) catch |err| {
+  482              debug_trace.logf("core", "file index scope snapshot failed generation={d} err={s}", .{ self.generation, @errorName(err) });
+  483              return;
+  484          };
+  485          self.refreshOwnedRoots(alloc, roots, epoch);
+  486      }
+
+== src/core/workspace/file_index.zig:957-959@481104fd -- AT-FOLDERS r12: candidatesFromTrees: primary-root paths stay relative, added-root paths become absolute
+  957  /// Converts trees into candidates in root order: primary-root paths stay
+  958  /// relative, added-root paths become absolute, overlapping roots appear once,
+  959  /// and at most `max_indexed_files` are kept. Paths may borrow tree memory.
+
+== src/core/workspace/file_index.zig:1094-1099@481104fd -- AT-FOLDERS r12: an added root's candidate is shown by its absolute path
+ 1094  ) !bool {
+ 1095      const absolute = try std.Io.Dir.path.resolveAlloc(alloc, &.{ root_path, relative });
+ 1096      if (!pathing.pathInside(root_path, absolute)) return false;
+ 1097  
+ 1098      const display = if (root_index == 0) relative else absolute;
+ 1099      if (acceptedCandidate(.{ .path = display, .kind = kind }) == null) return false;
+
+== src/core/workspace/file_index.zig:1776-1819@481104fd -- AT-FOLDERS r12: choosePlacement: inside the name, then crossing, then anywhere in the path
+ 1776  /// Pure: picks the placement that defines a candidate's score. A placement
+ 1777  /// ending in the file or folder name ranks above one ending in a parent
+ 1778  /// folder. Among those, the best placement inside the name, plus
+ 1779  /// `name_bonus`, competes with the best one that starts in the folder that
+ 1780  /// holds the name, as in `vercle` for `vercel-json/clean-urls.mdx`. Crossing
+ 1781  /// placements start no higher than that folder, so their search covers only
+ 1782  /// the folder and the name.
+ 1783  fn choosePlacement(
+ 1784      comptime T: type,
+ 1785      text: []const T,
+ 1786      path: []const u8,
+ 1787      byte_offsets: ?[]const u16,
+ 1788      base_start: usize,
+ 1789      query: []const T,
+ 1790      scratch: *AlignScratch,
+ 1791      needed: Needed,
+ 1792  ) ?Placement {
+ 1793      var best: ?Placement = null;
+ 1794      if (alignBest(T, text, path, byte_offsets, base_start, base_start, query, scratch)) |inside| {
+ 1795          best = .{
+ 1796              .name_fit = true,
+ 1797              .alignment = .{ .quality = inside.quality + name_bonus, .first_position = inside.first_position },
+ 1798              .range_start = base_start,
+ 1799              .end_min = base_start,
+ 1800          };
+ 1801      }
+ 1802      // Without a placement in the name, a path that does not hold the letters
+ 1803      // in order has no other placement either; one scan settles it.
+ 1804      if (best == null and query.len > 1 and !isSubsequence(T, text, query)) return null;
+ 1805      const crossing_can_win = if (best) |inside| inside.alignment.quality < maxCrossingQuality(T, query) else true;
+ 1806      if (needed.crossing and base_start > 0 and query.len > 1 and crossing_can_win) {
+ 1807          // text[base_start - 1] is the `/` before the name.
+ 1808          const folder_start = if (std.mem.findScalarLast(T, text[0 .. base_start - 1], '/')) |slash| slash + 1 else 0;
+ 1809          if (alignBest(T, text, path, byte_offsets, folder_start, base_start, query, scratch)) |crossing| {
+ 1810              if (best == null or crossing.quality > best.?.alignment.quality) {
+ 1811                  best = .{ .name_fit = true, .alignment = crossing, .range_start = folder_start, .end_min = base_start };
+ 1812              }
+ 1813          }
+ 1814      }
+ 1815      if (best != null) return best;
+ 1816      if (!needed.folder) return null;
+ 1817      const anywhere = alignBest(T, text, path, byte_offsets, 0, 0, query, scratch) orelse return null;
+ 1818      return .{ .name_fit = false, .alignment = anywhere, .range_start = 0, .end_min = 0 };
+ 1819  }
+
+== src/core/workspace/file_index.zig:1884-1890@481104fd -- AT-FOLDERS r12: scoreBetter: a name match ranks above a path-only one
+ 1884  inline fn scoreBetter(left: MatchScore, right: MatchScore) bool {
+ 1885      if (left.exact_fit != right.exact_fit) return left.exact_fit;
+ 1886      if (left.name_fit != right.name_fit) return left.name_fit;
+ 1887      if (left.quality != right.quality) return left.quality > right.quality;
+ 1888      if (left.first_position != right.first_position) return left.first_position < right.first_position;
+ 1889      return false;
+ 1890  }

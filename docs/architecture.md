@@ -44,7 +44,7 @@ cli ─┬─► app ──► agent ──► gateway ──► (network)
 - **`output`** owns every byte the product writes: immutable snapshots plus a
   text, JSON, and JSONL renderer. Nothing else formats for a user.
 - **`tui`** is the opt-in full-screen surface, and the one branch that does not
-  go through `app::run` (`src/main.rs:22-25`). It is not a command: it owns the
+  go through `app::run` (`src/main.rs:28-31`). It is not a command: it owns the
   main thread and blocks on the terminal, so it cannot be reached from inside
   the runtime at all.
 

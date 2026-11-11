@@ -1,0 +1,116 @@
+# every merge redone by this folder's scripts in a clone (reproduce.sh), each resolver's lines under it; the join of main is the fifth
+d548c078 (4130f4ac): resolve exit 0; against the merge commit's tree: no difference
+    # docs/parity.md: row '`@` file picker': 6 edits of ours, 32 of theirs (ours and theirs)
+    # docs/parity.md: 1 blocks resolved
+    src/tui/event_loop.rs:974: block 1 resolved by hand (ours 1 lines, base 1, theirs 3 -> 10)
+    src/tui/event_loop.rs:989: block 2 resolved by hand (ours 3 lines, base 1, theirs 7 -> 9)
+    src/tui/event_loop.rs:1267: block 3 resolved by hand (ours 4 lines, base 2, theirs 5 -> 7)
+    src/tui/event_loop.rs:1370: block 4 resolved by hand (ours 10 lines, base 1, theirs 5 -> 31)
+    # src/tui/event_loop.rs: 4 blocks resolved
+    scripts/fxcap/parity-ledger.toml:506: numbers, 1 line(s); line 506: base :3056 / ours :3061 / theirs :3056 -> :3061 (ours); line 506: base :13506 / ours :13960 / theirs :13742 -> :13960 (both)
+    scripts/fxcap/parity-ledger.toml:560: ours -- ours kept (3 base lines -> 4); theirs had moved only :13195 -> :13431
+    scripts/fxcap/parity-ledger.toml:688: numbers, 1 line(s); line 688: base :16412 / ours :16979 / theirs :16648 -> :16979 (both)
+    scripts/fxcap/parity-ledger.toml:805: numbers, 1 line(s); line 805: base :38921 / ours :42483 / theirs :41264 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:816: numbers, 1 line(s); line 816: base :38921 / ours :42483 / theirs :41264 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:828: numbers, 1 line(s); line 828: base :38921 / ours :42483 / theirs :41264 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:839: numbers, 1 line(s); line 839: base :38921 / ours :42483 / theirs :41264 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:850: numbers, 1 line(s); line 850: base :38921 / ours :42483 / theirs :41264 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:862: numbers, 1 line(s); line 862: base :10277 / ours :10556 / theirs :10513 -> :10556 (both)
+    scripts/fxcap/parity-ledger.toml:864: numbers, 1 line(s); line 864: base :10277 / ours :10556 / theirs :10513 -> :10556 (both); line 864: base :1658 / ours :1927 / theirs :1658 -> :1927 (ours)
+    scripts/fxcap/parity-ledger.toml:918: numbers, 1 line(s); line 918: base :38921 / ours :42483 / theirs :41264 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:954: numbers, 1 line(s); line 954: base :1765 / ours :1852 / theirs :1770 -> :1852 (both)
+    scripts/fxcap/parity-ledger.toml:988: numbers, 1 line(s); line 988: base :16412 / ours :16979 / theirs :16648 -> :16979 (both)
+    scripts/fxcap/parity-ledger.toml:1096: numbers, 1 line(s); line 1096: base :4343 / ours :4555 / theirs :4349 -> :4555 (both)
+    # scripts/fxcap/parity-ledger.toml: 14 blocks resolved
+ecad8518 (e7e1bcf6): resolve exit 0; against the merge commit's tree: no difference
+    # docs/parity.md: row '`/fork`': 0 edits of ours, 1 of theirs (theirs)
+    # docs/parity.md: row '`/model`': 32 edits of ours, 1 of theirs (ours and theirs)
+    # docs/parity.md: row '`/effort`': 6 edits of ours, 1 of theirs (ours and theirs)
+    # docs/parity.md: row '`/provider`': 7 edits of ours, 2 of theirs (ours and theirs)
+    # docs/parity.md: row '`/compact`': 1 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`/settings`': 0 edits of ours, 2 of theirs (theirs)
+    # docs/parity.md: row 'full-screen TUI': 131 edits of ours, 1 of theirs (ours and theirs)
+    # docs/parity.md: row 'full transcript (`C-o`)': 0 edits of ours, 2 of theirs (theirs)
+    # docs/parity.md: row '`@` file picker': 13 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: 3 blocks resolved
+    scripts/fxcap/parity-ledger.toml:492: numbers, 1 line(s); line 492: base :3005 / ours :3010 / theirs :3015 -> :3010 (both)
+    scripts/fxcap/parity-ledger.toml:506: numbers, 1 line(s); line 506: base :3056 / ours :3061 / theirs :3066 -> :3061 (both); line 506: base :13742 / ours :13960 / theirs :13797 -> :13960 (both)
+    scripts/fxcap/parity-ledger.toml:520: numbers, 1 line(s); line 520: base :3056 / ours :3061 / theirs :3066 -> :3061 (both)
+    scripts/fxcap/parity-ledger.toml:560: ours -- ours kept (3 base lines -> 4); theirs had moved only :13431 -> :13486
+    scripts/fxcap/parity-ledger.toml:688: numbers, 1 line(s); line 688: base :16648 / ours :16979 / theirs :16703 -> :16979 (both)
+    scripts/fxcap/parity-ledger.toml:805: numbers, 1 line(s); line 805: base :41264 / ours :42483 / theirs :42409 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:816: numbers, 1 line(s); line 816: base :41264 / ours :42483 / theirs :42409 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:828: numbers, 1 line(s); line 828: base :41264 / ours :42483 / theirs :42409 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:839: numbers, 1 line(s); line 839: base :41264 / ours :42483 / theirs :42409 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:850: numbers, 1 line(s); line 850: base :41264 / ours :42483 / theirs :42409 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:862: numbers, 1 line(s); line 862: base :10513 / ours :10556 / theirs :10575 -> :10556 (both)
+    scripts/fxcap/parity-ledger.toml:864: numbers, 1 line(s); line 864: base :10513 / ours :10556 / theirs :10575 -> :10556 (both); line 864: base :1658 / ours :1927 / theirs :1658 -> :1927 (ours)
+    scripts/fxcap/parity-ledger.toml:918: numbers, 1 line(s); line 918: base :41264 / ours :42483 / theirs :42409 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:988: numbers, 1 line(s); line 988: base :16648 / ours :16979 / theirs :16703 -> :16979 (both)
+    scripts/fxcap/parity-ledger.toml:1000: numbers, 1 line(s); line 1000: base :3005 / ours :3010 / theirs :3015 -> :3010 (both)
+    # scripts/fxcap/parity-ledger.toml: 15 blocks resolved
+    src/tui/event_loop.rs:19439: append -- both inserted at one base place: ours' 567 lines, then theirs' 44
+    # src/tui/event_loop.rs: 1 blocks resolved
+    merge 2: build fix: src/tui/shell.rs: 3 place(s), 1 lines -> 1: 'due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,' ...
+    # merge 2: 1 fixes
+7a1773d9 (3ea16930): resolve exit 0; against the merge commit's tree: no difference
+    src/tui/shell.rs:3607: by hand, ours (ours 3 lines, base 7, theirs 9 -> 3)
+    src/tui/shell.rs:3615: by hand, ours (ours 10 lines, base 2, theirs 2 -> 10)
+    src/tui/shell.rs:3632: by hand, ours (ours 6 lines, base 2, theirs 1 -> 6)
+    src/tui/shell.rs:3740: by hand, ours (ours 1 lines, base 1, theirs 1 -> 1)
+    src/tui/shell.rs:7528: by hand, ours (ours 0 lines, base 17, theirs 17 -> 0)
+    # src/tui/shell.rs: 5 blocks resolved by hand
+    scripts/fxcap/parity-ledger.toml:686: by hand, anchor_entry (ours 10 lines, base 16, theirs 24 -> 19)
+    # scripts/fxcap/parity-ledger.toml: 1 blocks resolved by hand
+    scripts/fxcap/parity-ledger.toml:506: numbers, 1 line(s); line 506: base :13498 / ours :13960 / theirs :13607 -> :13960 (both)
+    scripts/fxcap/parity-ledger.toml:560: ours -- ours kept (3 base lines -> 4); theirs had moved only :13187 -> :13296
+    scripts/fxcap/parity-ledger.toml:697: numbers, 1 line(s); line 697: base :16413 / ours :16979 / theirs :16537 -> :16979 (both)
+    scripts/fxcap/parity-ledger.toml:814: numbers, 1 line(s); line 814: base :39279 / ours :42483 / theirs :40010 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:825: numbers, 1 line(s); line 825: base :39279 / ours :42483 / theirs :40010 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:837: numbers, 1 line(s); line 837: base :39279 / ours :42483 / theirs :40010 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:848: numbers, 1 line(s); line 848: base :39279 / ours :42483 / theirs :40010 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:859: numbers, 1 line(s); line 859: base :39279 / ours :42483 / theirs :40010 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:871: numbers, 1 line(s); line 871: base :10277 / ours :10556 / theirs :10369 -> :10556 (both)
+    scripts/fxcap/parity-ledger.toml:873: numbers, 1 line(s); line 873: base :10277 / ours :10556 / theirs :10369 -> :10556 (both); line 873: base :1658 / ours :1927 / theirs :1658 -> :1927 (ours)
+    scripts/fxcap/parity-ledger.toml:927: numbers, 1 line(s); line 927: base :39279 / ours :42483 / theirs :40010 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:997: numbers, 1 line(s); line 997: base :16413 / ours :16979 / theirs :16537 -> :16979 (both)
+    # scripts/fxcap/parity-ledger.toml: 12 blocks resolved
+    scripts/fxcap/capfile.py:180: numbers, 2 line(s); line 180: base :14687-14712 / ours :15196-15221 / theirs :14796-14821 -> :15196-15221 (both); line 181: base :14705-14707 / ours :15214-15216 / theirs :14814-14816 -> :15214-15216 (both)
+    # scripts/fxcap/capfile.py: 1 blocks resolved
+    # docs/parity.md: row '`/fork`': 1 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`/model`': 47 edits of ours, 3 of theirs (ours and theirs)
+    # docs/parity.md: row '`/effort`': 1 edits of ours, 1 of theirs (ours and theirs)
+    # docs/parity.md: row '`/provider`': 9 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`/permissions`': 0 edits of ours, 0 of theirs (neither)
+    # docs/parity.md: row '`/allowlist`': 0 edits of ours, 0 of theirs (neither)
+    # docs/parity.md: row '`/undo`': 0 edits of ours, 0 of theirs (neither)
+    # docs/parity.md: row '`/mcp`': 2 edits of ours, 1 of theirs (ours and theirs)
+    # docs/parity.md: row '`/skills`': 1 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`/settings`': ours' edit of base[221:221] dropped (--drop): " `C-j` is a line break in its search that leaves the mark where it was, as fx's composer's (`insert_newline`, `app_input_runtime.zig:513-521@481104fd`) -- where fx's menu moves on `C-j` instead (SETTINGS-CJ-CK);"
+    # docs/parity.md: row '`/settings`': 1 edits of ours, 4 of theirs (ours and theirs)
+    # docs/parity.md: row 'full-screen TUI': 102 edits of ours, 22 of theirs (ours and theirs)
+    # docs/parity.md: row 'full transcript (`C-o`)': 2 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`@` file picker': 32 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: 3 blocks resolved
+    merge 3: behaviour fix: src/tui/shell.rs: 1 place(s), 13 lines -> 11: '// they go on to the composer, a newline and a kill to the end. The' ...
+    merge 3: build fix: src/tui/shell.rs: 1 place(s), 1 lines -> 1: 'fn walked<T: PartialEq + Clone + std::fmt::Debug>(' ...
+    merge 3: build fix: src/tui/shell.rs: 5 place(s), 1 lines -> 1: 'walked(&mut shell, &' ...
+    merge 3: build fix: src/tui/shell.rs: 3 place(s), 1 lines -> 1: 'due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,' ...
+    # merge 3: 4 fixes
+fb6dfdb8 (bde1ddfa): resolve exit 0; against the merge commit's tree: no difference
+    scripts/fxcap/parity-ledger.toml:814: numbers, 1 line(s); line 814: base :39046 / ours :42483 / theirs :39041 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:825: numbers, 1 line(s); line 825: base :39046 / ours :42483 / theirs :39041 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:837: numbers, 1 line(s); line 837: base :39046 / ours :42483 / theirs :39041 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:848: numbers, 1 line(s); line 848: base :39046 / ours :42483 / theirs :39041 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:859: numbers, 1 line(s); line 859: base :39046 / ours :42483 / theirs :39041 -> :42483 (both)
+    scripts/fxcap/parity-ledger.toml:927: numbers, 1 line(s); line 927: base :39046 / ours :42483 / theirs :39041 -> :42483 (both)
+    # scripts/fxcap/parity-ledger.toml: 6 blocks resolved
+    merge 4: build fix: src/tui/worker.rs: 1 place(s), 5 lines -> 4: '// `types.zig:1668-1682@481104fd`) -- `ReplayedHistory::notices`, the' ...
+    merge 4: build fix: src/tui/worker.rs: 1 place(s), 5 lines -> 0: 'assert!(' ...
+    # merge 4: 2 fixes
+583cc13a (3570a182): resolve exit 0; against the merge commit's tree: no difference
+    scripts/fxcap/parity-ledger.toml:78: rewrite -- theirs taken (2 base lines -> 2); ours had moved only :681 -> :685
+    scripts/fxcap/parity-ledger.toml:86: numbers, 1 line(s); line 86: base :326-328 / ours :330-332 / theirs :329-331 -> :330-332 (both); line 86: base :379-385 / ours :383-389 / theirs :382-388 -> :383-389 (both); line 86: base :980 / ours :984 / theirs :1117 -> :984 (both); line 86: base :987 / ours :991 / theirs :1124 -> :991 (both)
+    scripts/fxcap/parity-ledger.toml:148: numbers, 1 line(s); line 148: base :1157 / ours :1161 / theirs :1297 -> :1161 (both)
+    # scripts/fxcap/parity-ledger.toml: 3 blocks resolved
+# exit 0

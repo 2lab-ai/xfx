@@ -1,0 +1,13 @@
+# round 3 at the code of 8e809d40: git rev-parse; fmt --check; clippy --all-targets -D warnings, without and with --features fault-injection; cargo test --locked --lib -- at_24_rows taller_composer under_the_full_transcript; cargo test --locked --test parity
+8e809d40
+code = 8e809d40
+fmt-ok
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.31s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.11s
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 4629 filtered out; finished in 0.06s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.74s
+
+# python3 -I -B scripts/fxcap/test_sweep.py Ledger Normalize Capfile (the ledger as committed here)
+Ran 44 tests in 7.508s
+
+OK

@@ -25,6 +25,7 @@ What they show:
   line is sent. The head now does the same (round 3; the base sent only a
   query nothing matched).
 - C-j: fx's composer takes it as a new line. The head spends it, as it
-  spends Tab and C-k there. That routing is unit CTRLO-AT-KEYS's.
+  spends Tab and C-k there. That routing is unit CTRLO-AT-KEYS's (since
+  copied: `../../ctrlo-at-keys/README.md`).
 - The gateway's error is worded differently on fx and xfx, which is not
   this unit's.

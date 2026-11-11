@@ -5,13 +5,14 @@ xfx is an unofficial Rust port of [`vercel-labs/fx`](https://github.com/vercel-l
 | | |
 |---|---|
 | Upstream | `vercel-labs/fx` |
-| Pinned commit | `580a0c5da9386317251968c09c1cee69e763487a` |
+| Original pin | `580a0c5da9386317251968c09c1cee69e763487a` |
+| Current parity target | fx v0.0.16, `481104fd` |
 | Upstream license | Apache-2.0, Copyright 2025 Vercel, Inc. |
 | xfx license | Apache-2.0, Copyright 2026 2lab.ai |
 | Relationship | Independent reimplementation. No Zig source is copied. |
 
 xfx is not affiliated with or endorsed by Vercel. Every behavioral claim below
-cites a file and line at the pinned commit. When a claim here disagrees with the
+cites a file and line at the original pin. When a claim here disagrees with the
 code, the code wins and this file is wrong.
 
 ## Why the name is `xfx`
@@ -28,30 +29,22 @@ Credential variables are the exception. `VERCEL_OIDC_TOKEN` and
 `AI_GATEWAY_API_KEY` name a Vercel service, not the fx product, so renaming them
 would break the integration rather than disambiguate it.
 
-## Upstream has moved since the pin
+## Upstream has moved since the original pin
 
-The pin is the evidence base for every claim in this file and in
-`docs/parity.md`: each cited file and line is read at
-`580a0c5da9386317251968c09c1cee69e763487a`, not at whatever upstream is on
-today.
+This file's citations are read at the original pin,
+`580a0c5da9386317251968c09c1cee69e763487a`. `docs/parity.md` has moved on: it
+cites fx v0.0.16 (`481104fd`) for the current work, and the earlier pins
+`c1db9191` (fx 0.0.13) and the original one for the rows and citations written
+against them.
 
-Upstream has gone on without it. As of 2026-08-24 `vercel-labs/fx` is at
-`ef1d0d0c6a1a`, and upstream has released 0.0.5, whose headline items are Codex
-subscription OAuth (`fx login codex`), Grok subscription OAuth
-(`fx login grok`), provider switching moved into `/setup`, host command
-execution in place of sandbox configuration, workspace skills under
-`.fx/skills`, and ACP and WASM SDK surfaces. **None of that is ported to xfx.**
-Some of those names already have deferred rows -- `acp`, `provider` (provider
-switching, including Codex), the Codex subscription credential, skills, the WASM
-core -- but each row cites the pinned commit and describes the surface as that
-commit had it, not as 0.0.5 ships it. The rest have no row at all, because a
-surface upstream added after the pin is not yet something this ledger has read,
-and an unread surface is not one it can claim to be missing.
+Of what upstream added after the original pin, xfx 0.2.0 has workspace skills
+(under `.xfx/skills`) and provider switching inside a session (`/provider`,
+with `/setup` as its alias). It does not have Codex or Grok subscription OAuth,
+ACP or the WASM SDK, and `docs/parity.md` records each of those as absent.
 
-The pin advances deliberately, and the ledger moves with it when it does: the
-citations are re-read at the new commit, and the rows the new commit needs are
-added there. Until then this file describes a port of one commit, which is the
-only claim its evidence supports.
+The target advances deliberately, and the ledger moves with it when it does:
+the citations are re-read at the new commit, and the rows the new commit needs
+are added there.
 
 ## Behavior taken from upstream
 

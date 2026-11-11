@@ -2030,7 +2030,7 @@ mod tests {
         // sending Ctrl-C, Ctrl-D and Ctrl-U as `ESC[27;5;<code>~`, modifier
         // `5` being ctrl alone -- driven through the terminal's own `SendKey`
         // action, not a physical keypress, and logged raw in
-        // `.prd/tui-phase3/loop.md:416` (R125). `control` is where each
+        // `.prd/tui-phase3/loop.md:441` (R125). `control` is where each
         // letter is already bound; this is the literal captured spelling,
         // replayed straight into `csi`.
         assert_eq!(csi(b"27;5;99", b'~'), Action::Cancel, "captured Ctrl-C");

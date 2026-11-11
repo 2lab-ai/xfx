@@ -1,0 +1,129 @@
+# head ab2cfb94; tree clean: no
+01 fmt                                exit 0     1s  load 47.00
+02 clippy                             exit 0     8s  load 47.00
+03 clippy-fault                       exit 0     1s  load 47.16
+04 test                               exit 0   179s  load 47.16
+05 test-fault                         exit 101   214s  load 63.47
+06 check-xfx-identity                 exit 0     2s  load 52.72
+07 check-no-stubs                     exit 0    14s  load 52.72
+08 check-no-secrets                   exit 0    57s  load 50.39
+09 check-preview-contract             exit 0     6s  load 46.15
+10 check-tui-preflight-cost           exit 0   135s  load 47.74
+11 check-usage-clock                  exit 0     1s  load 57.77
+12 test-check-no-secrets              exit 0   130s  load 57.77
+13 test-gate-env                      exit 0   672s  load 83.70
+14 test-preview-contract              exit 0    93s  load 22.28
+15 fxcap-test-sweep                   exit 0    25s  load 38.71
+16 fxcap-test-capture                 exit 0   337s  load 42.80
+17 build-release                      exit 0    27s  load 26.10
+18 build-faulty                       exit 0    29s  load 34.79
+19 smoke                              exit 0     2s  load 46.11
+20 smoke-tui                          exit 0    65s  load 46.11
+# 20 steps, 1 failed; tree clean after: no
+
+# the test steps' result lines (04-test.log, 05-test-fault.log)
+## 04-test
+     Running unittests src/lib.rs 
+test result: ok. 4639 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 70.23s
+     Running unittests src/main.rs 
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/cli.rs 
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.01s
+     Running tests/gateway.rs 
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+     Running tests/interactive.rs 
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.97s
+     Running tests/ledger_compat.rs 
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.75s
+     Running tests/llmux.rs 
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.14s
+     Running tests/mcp.rs 
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.04s
+     Running tests/parity.rs 
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.58s
+     Running tests/permissions.rs 
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+     Running tests/session_compat.rs 
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.78s
+     Running tests/sessions.rs 
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.60s
+     Running tests/tool_loop.rs 
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.31s
+     Running tests/tui.rs 
+test result: ok. 186 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.71s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+## 05-test-fault
+     Running unittests src/lib.rs 
+test result: FAILED. 4661 passed; 1 failed; 7 ignored; 0 measured; 0 filtered out; finished in 80.30s
+     Running unittests src/main.rs 
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/cli.rs 
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.17s
+     Running tests/gateway.rs 
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.51s
+     Running tests/interactive.rs 
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.79s
+     Running tests/ledger_compat.rs 
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.80s
+     Running tests/llmux.rs 
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.14s
+     Running tests/mcp.rs 
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.12s
+     Running tests/parity.rs 
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.47s
+     Running tests/permissions.rs 
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+     Running tests/session_compat.rs 
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.73s
+     Running tests/sessions.rs 
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.58s
+     Running tests/tool_loop.rs 
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.45s
+     Running tests/tui.rs 
+test result: ok. 200 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.59s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+# 05-test-fault's one failure, and the test alone three times after the gate (fault-injection build, not under the lock)
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... FAILED
+thread 'tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop' panicked at src/tui/worker.rs:18738:9:
+assertion `left == right` failed: each: whether stopped, the batches the band was shown (their sizes), the turn's end, whether it came when it should (with the stop: 300 ms to 1 s; without it: past 1.2 s), the model's requests, what the log says of the turn
+  left: [(true, [], [Some("the turn was cancelled")], false, 0, ["asked first", "1 image(s)", "interrupted cancelled"]), (false, [20], [None], true, 2, ["asked first", "1 image(s)", "final stop"])]
+ right: [(true, [], [Some("the turn was cancelled")], true, 0, ["asked first", "1 image(s)", "interrupted cancelled"]), (false, [20], [None], true, 2, ["asked first", "1 image(s)", "final stop"])]
+rerun 1 (load 50.39): test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4668 filtered out; finished in 3.28s
+rerun 2 (load 50.35): test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4668 filtered out; finished in 3.19s
+rerun 3 (load 49.28): test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4668 filtered out; finished in 3.26s
+
+# 05-test-fault again after the gate, alone, in its own hold of the suite lock (cargo test --locked --features fault-injection --no-fail-fast)
+load 45.13 at 20:32Z
+     Running unittests src/lib.rs 
+test tui::question::tests::a_screen_the_terminal_will_not_describe_is_refused_rather_than_panicked_on ... ok
+test tui::worker::tests::a_panic_that_carried_text_is_reported_in_the_words_it_panicked_with ... ok
+test result: ok. 4662 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 52.16s
+     Running unittests src/main.rs 
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/cli.rs 
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+     Running tests/gateway.rs 
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+     Running tests/interactive.rs 
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.69s
+     Running tests/ledger_compat.rs 
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.73s
+     Running tests/llmux.rs 
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.09s
+     Running tests/mcp.rs 
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.02s
+     Running tests/parity.rs 
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+     Running tests/permissions.rs 
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.52s
+     Running tests/session_compat.rs 
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.95s
+     Running tests/sessions.rs 
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.13s
+     Running tests/tool_loop.rs 
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+     Running tests/tui.rs 
+test result: ok. 200 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.11s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+rc=0

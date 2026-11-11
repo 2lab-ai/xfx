@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-cb7c9c1 [debug] · Run /help for commands
+
+  2026-11-10 21:36:09.413 KST · Notice
+* session: provider: gateway · model: fake/model-a · effort: auto
+  tools: 12 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,
+  +4 more)
+  mcp: none
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

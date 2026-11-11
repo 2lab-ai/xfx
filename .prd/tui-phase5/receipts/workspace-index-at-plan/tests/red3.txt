@@ -1,0 +1,98 @@
+# Round 3 RED: 87219db1's test_capture.py and test_sweep.py in a clone at bf0ed67f (round 2's head).
+# The run's pane process, recorded at launch and waited for without a signal, is new in round 3: those tests fail there.
+## test_capture.py RunDirectory at bf0ed67f's capture.sh
+FF.FF.F...
+======================================================================
+FAIL: test_a_binary_on_its_way_out_is_waited_for (__main__.RunDirectory.test_a_binary_on_its_way_out_is_waited_for)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red3/scripts/fxcap/test_capture.py", line 457, in test_a_binary_on_its_way_out_is_waited_for
+    self.assertGreater(self.looks(r), 0)
+                       ~~~~~~~~~~^^^
+  File "<scratch>/red3/scripts/fxcap/test_capture.py", line 450, in looks
+    self.assertTrue(m, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: None is not true : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: a first frame after 1.17 s (18 looks)
+<tmp>/wiap3/fxcapt.46ezfr5b/side.v9bqqkcz/out/xfx-t-30x200-a.txt
+<scratch>/red3/scripts/fxcap/capture.sh: line 1: 63925 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+======================================================================
+FAIL: test_a_binary_that_stays_fails_the_run_and_is_sent_nothing (__main__.RunDirectory.test_a_binary_that_stays_fails_the_run_and_is_sent_nothing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red3/scripts/fxcap/test_capture.py", line 463, in test_a_binary_that_stays_fails_the_run_and_is_sent_nothing
+    self.assertEqual(r.code, 4, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 4 : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: a first frame after 0.16 s (3 looks)
+<tmp>/wiap3/fxcapt.6il9m7kn/side.to9yfdab/out/xfx-t-30x200-a.txt
+<scratch>/red3/scripts/fxcap/capture.sh: line 1: 64587 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+======================================================================
+FAIL: test_a_pane_already_dead_is_not_waited_for (__main__.RunDirectory.test_a_pane_already_dead_is_not_waited_for)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red3/scripts/fxcap/test_capture.py", line 472, in test_a_pane_already_dead_is_not_waited_for
+    self.assertEqual(self.looks(r), 0)
+                     ~~~~~~~~~~^^^
+  File "<scratch>/red3/scripts/fxcap/test_capture.py", line 450, in looks
+    self.assertTrue(m, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: None is not true : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: a first frame after 0.14 s (3 looks)
+<tmp>/wiap3/fxcapt.c4e1fsd1/side.d9pbjypu/out/xfx-t-30x200-a.txt
+<scratch>/red3/scripts/fxcap/capture.sh: line 1: 65685 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+======================================================================
+FAIL: test_a_pid_that_is_another_process_now_is_not_waited_for_or_signalled (__main__.RunDirectory.test_a_pid_that_is_another_process_now_is_not_waited_for_or_signalled)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red3/scripts/fxcap/test_capture.py", line 477, in test_a_pid_that_is_another_process_now_is_not_waited_for_or_signalled
+    self.assertEqual(r.code, 0, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 0 : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: nothing on the screen after 29.06 s (409 looks): the binary never drew a frame
+
+
+======================================================================
+FAIL: test_a_relaunched_binary_is_the_one_waited_for (__main__.RunDirectory.test_a_relaunched_binary_is_the_one_waited_for)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red3/scripts/fxcap/test_capture.py", line 488, in test_a_relaunched_binary_is_the_one_waited_for
+    self.assertGreater(self.looks(r), 0)
+                       ~~~~~~~~~~^^^
+  File "<scratch>/red3/scripts/fxcap/test_capture.py", line 450, in looks
+    self.assertTrue(m, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: None is not true : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: a first frame after 0.36 s (6 looks)
+up: a first frame after 0.08 s (2 looks)
+<tmp>/wiap3/fxcapt.2zrvcwn0/side.pqnesdnd/out/xfx-t-30x200-a.txt
+<scratch>/red3/scripts/fxcap/capture.sh: line 1: 75730 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+----------------------------------------------------------------------
+Ran 10 tests in 67.941s
+
+FAILED (failures=5)
+exit 1
+## test_sweep.py Sweep.test_a_run_that_failed_is_a_failed_unit_and_its_path_is_not_reused at bf0ed67f's sweep.py
+F
+======================================================================
+FAIL: test_a_run_that_failed_is_a_failed_unit_and_its_path_is_not_reused (__main__.Sweep.test_a_run_that_failed_is_a_failed_unit_and_its_path_is_not_reused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red3/scripts/fxcap/test_sweep.py", line 1297, in test_a_run_that_failed_is_a_failed_unit_and_its_path_is_not_reused
+    self.assertNotEqual(seen["fx"][0][0], seen["xfx"][0][0], "the same TMPDIR")
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '<tmp>/wiap3/fxsw-test.<8>/fxsw.<8>/001' == '<tmp>/wiap3/fxsw-test.<8>/fxsw.<8>/001' : the same TMPDIR
+
+----------------------------------------------------------------------
+Ran 1 test in 1.139s
+
+FAILED (failures=1)
+exit 1

@@ -1,0 +1,41 @@
+# round 4 RED at <this commit> (the cases on round 3's code, ec242827's src plus test-only seams in file_index.rs: a started counter, the listing's stop flag, and list_directory taking a stop flag it ignores): cargo test --locked --lib -- --exact <the 8 cases>, TMPDIR=<scratch>
+# abandoning_a_listing_tells_it_to_stop, the Ctrl-O case's new stop-flag line, and the two event-loop cases (bands sized as mod.rs:479; one idle tick) pass on round 3's code: they pin, they are not RED.
+running 8 tests
+test tui::file_index::tests::abandoning_a_listing_tells_it_to_stop ... ok
+test tui::shell::tests::no_listing_starts_while_the_list_is_not_eligible ... FAILED
+test tui::shell::tests::an_at_word_typed_under_the_full_transcript_reads_nothing_until_it_closes ... FAILED
+test tui::shell::tests::tab_under_the_full_transcript_asks_for_no_read ... FAILED
+test tui::shell::tests::a_listing_out_when_ctrl_o_opens_is_dropped_and_the_folder_listed_again ... ok
+test tui::event_loop::tests::a_held_tick_that_owes_a_title_writes_the_title_then_the_report ... ok
+test tui::event_loop::tests::a_frame_held_for_a_folder_holds_its_bell_but_no_report_or_title ... ok
+test tui::file_index::tests::a_listing_stops_between_entries_once_told_to ... FAILED
+thread 'tui::shell::tests::no_listing_starts_while_the_list_is_not_eligible' (390400221) panicked at src/tui/shell.rs:34869:9:
+assertion `left == right` failed
+  left: 1
+ right: 0
+thread 'tui::shell::tests::an_at_word_typed_under_the_full_transcript_reads_nothing_until_it_closes' (390400220) panicked at src/tui/shell.rs:34920:9:
+assertion `left == right` failed: a walk or a listing started under the transcript
+  left: 2
+ right: 0
+thread 'tui::shell::tests::tab_under_the_full_transcript_asks_for_no_read' (390400222) panicked at src/tui/shell.rs:34975:9:
+assertion `left == right` failed: Tab under the transcript read the folder again
+  left: 1
+ right: 0
+thread 'tui::file_index::tests::a_listing_stops_between_entries_once_told_to' (390400217) panicked at src/tui/file_index.rs:1732:9:
+assertion `left == right` failed: a stopped listing read the folder
+  left: Ok(2000)
+ right: Err(())
+    tui::file_index::tests::a_listing_stops_between_entries_once_told_to
+    tui::shell::tests::an_at_word_typed_under_the_full_transcript_reads_nothing_until_it_closes
+    tui::shell::tests::no_listing_starts_while_the_list_is_not_eligible
+    tui::shell::tests::tab_under_the_full_transcript_asks_for_no_read
+test result: FAILED. 4 passed; 4 failed; 0 ignored; 0 measured; 4577 filtered out; finished in 0.14s
+error: test failed, to rerun pass `--lib`
+
+# and the skills-menu case (the one more ineligible state that can hold the @ list: a pasted 'dem @src/' after a typed $ keeps the mention menu shown and opens the list), on the same code, at <the next commit>: cargo test --locked --lib -- --exact tui::shell::tests::an_at_word_under_a_shown_skills_menu_reads_nothing_until_it_goes
+test tui::shell::tests::an_at_word_under_a_shown_skills_menu_reads_nothing_until_it_goes ... FAILED
+thread 'tui::shell::tests::an_at_word_under_a_shown_skills_menu_reads_nothing_until_it_goes' (390607201) panicked at src/tui/shell.rs:44439:9:
+assertion `left == right` failed: a walk or a listing started under the skills menu
+  left: 2
+ right: 0
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4585 filtered out; finished in 0.01s

@@ -1,0 +1,18 @@
+# the check's two greps of .prd/tui-phase5/receipts/train-6/linux.sh, git 2.56.0 (Homebrew, arm64), od -c: the line pass (-n -z), then the count (-c -z)
+0000000    .   p   r   d   /   t   u   i   -   p   h   a   s   e   5   /
+0000020    r   e   c   e   i   p   t   s   /   t   r   a   i   n   -   6
+0000040    /   l   i   n   u   x   .   s   h  \0   1   5  \0  \t   c   p
+0000060        -   R       /   s   r   c       /   h   o   m   e   /   r
+0000100    u   n   n   e   r   /   x       &   &       c   h   o   w   n
+0000120        -   R       r   u   n   n   e   r       /   h   o   m   e
+0000140    /   r   u   n   n   e   r   /   x  \n   .   p   r   d   /   t
+0000160    u   i   -   p   h   a   s   e   5   /   r   e   c   e   i   p
+0000200    t   s   /   t   r   a   i   n   -   6   /   l   i   n   u   x
+0000220    .   s   h  \0   1   8  \0  \t  \t   c   d       /   h   o   m
+0000240    e   /   r   u   n   n   e   r   /   x  \n                    
+0000253
+---
+0000000    .   p   r   d   /   t   u   i   -   p   h   a   s   e   5   /
+0000020    r   e   c   e   i   p   t   s   /   t   r   a   i   n   -   6
+0000040    /   l   i   n   u   x   .   s   h  \0   2  \n                
+0000054

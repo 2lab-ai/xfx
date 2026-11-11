@@ -1,0 +1,24 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ /provider qa-provider-name-long-enough-to-wrap-the-compose
+┃ r-row-at-sixty
+────────────────────────────────────────────────────────────
+  no matching providers
+
+
+
+
+
+────────────────────────────────────────────────────────────
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+

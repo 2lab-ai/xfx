@@ -1,0 +1,6 @@
+# Run 42844785959's log (gh run view 42844785959 --log), the two lines that place the sweep's --tmp.
+# The runner's user name is written <runner> (six letters: r, u, n, n, e, r -- no p, no l).
+sweep (fx v0.0.16, macOS arm64)	Build xfx at the base and at the head	2026-11-10T15:42:15.1143080Z    Compiling xfx v0.2.0 (/Users/<runner>/work/_temp/base)
+sweep (fx v0.0.16, macOS arm64)	Sweep the changed scenarios and the core set	2026-11-10T15:43:07.8509030Z ^[[36;1m  --jobs 2 --tmp "$RUNNER_TEMP" --out "$RUNNER_TEMP/sweep"^[[0m
+# So --tmp is RUNNER_TEMP, /Users/<runner>/work/_temp: 24 bytes. The sweep's run directory under it,
+# <tmp>/fxsw.<8>/<NNN>/fxcap.<6>, is 24 + 14 + 4 + 13 = 55 bytes: <scratch + 46 '_' + > in CI's report.

@@ -1,0 +1,42 @@
+𝒇x v0.0.16 · Run /help for commands
+
+fx: saved session is unreadable. Run `fx doctor`; if it is recoverable, use `fx session recover <id>`.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 1, Tue Nov 10 09:27:13 2026)

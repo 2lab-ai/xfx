@@ -1,0 +1,10 @@
+snap                                                 fx        xfx-base          xfx-r1             xfx  row (fx | head)
+p5-page-keys-anchor-24x60-file-one                    7               7               7               7  same  'items/a-file-name-long-enough-to-w' | 'items/a-file-name-long-enough-to-w'
+p5-page-keys-anchor-24x60-file-wrapped           3 @8,3          3 @8,3          3 @8,3          3 @8,3  same  'items/a-file-name-long-enough-to-w' | 'items/a-file-name-long-enough-to-w'
+p5-page-keys-anchor-24x60-model-one                  10              10              10              10  same  'xai/grok-4.7' | 'xai/grok-4.7'
+p5-page-keys-anchor-24x60-model-wrapped         3 @14,3         3 @14,3         3 @14,3         3 @14,3  same  'fake/a-model-id-long-enough-to-wra' | 'fake/a-model-id-long-enough-to-wra'
+p5-page-keys-anchor-24x60-provider-one               13              13              13              13  same  'no matching providers' | 'no matching providers'
+p5-page-keys-anchor-24x60-provider-wrapped        3 @16,3        13 @16,3        13 @16,3         3 @16,3  same  'no matching providers' | 'no matching providers'
+p5-page-keys-anchor-24x60-slash-one                   3               3               3               3  same  'wrap-the-composer-past-its-first-r' | 'wrap-the-composer-past-its-first-r'
+p5-page-keys-anchor-24x60-slash-wrapped          3 @5,3          3 @5,3          3 @5,3          3 @5,3  same  'wrap-the-composer-past-its-first-r' | 'wrap-the-composer-past-its-first-r'
+p5-page-keys-anchor-24x60-slash-wrapped-up         3 @5,2          3 @5,3          3 @5,3          3 @5,2  same  'wrap-the-composer-past-its-first-r' | 'wrap-the-composer-past-its-first-r'

@@ -48,17 +48,29 @@
 //!
 //! # What choosing does
 //!
-//! Tab and Enter both put the marked path, once a frame has shown it, in place
-//! of what was typed after the `@` (`applyFilePickerSelection`,
-//! `input_completion_runtime.zig:898-953`):
-//! `@path` and a space for a file, so the next word can be typed and the picker
-//! closes; `@dir/` and no space for a directory, so the picker goes on, listing
-//! it. Enter does **not** submit -- a second Enter does
-//! (`fx-composer-40x120-at-enter.txt`). With a query that matched nothing,
-//! once a frame has said so, Enter submits the line as typed
-//! (`tests/e2e/tui-file-picker.test.ts:1142`); while there is nothing to
-//! choose yet, it does nothing. The mention stays
-//! text: what is sent is the line the user sees.
+//! Tab and Enter put the marked path, once a frame has shown it, in place of
+//! what was typed after the `@` (`applyFilePickerSelection`,
+//! `input_completion_runtime.zig:967-1032@481104fd`), and differ on a folder
+//! (7c8ef4a3; [`FolderAction`]):
+//! `@path` and a space for a file, either key, so the next word can be typed
+//! and the picker closes; for a folder, Enter mentions it -- `@dir/`, any
+//! quote closed, and a space, so the picker closes too (`.select`, `:1042`,
+//! `:995-1007`) -- and Tab opens it -- `@dir/`, no space and the quote left
+//! open, so the picker goes on, listing it (`.open`, `:957`). A listed folder
+//! (`@src/`) is its own first row, so it can be chosen from inside
+//! (`listedFolder`, `path_completion.zig:133-143`). Enter does **not**
+//! submit -- a second Enter does (`fx-composer-40x120-at-enter.txt`). With a
+//! query that matched nothing, once a frame has said so, Enter submits the
+//! line as typed (`tests/e2e/tui-file-picker.test.ts:1142`); while there is
+//! nothing to choose yet, it does nothing. The mention stays text: what is
+//! sent is the line the user sees.
+//!
+//! # A folder's rows
+//!
+//! The keystroke that starts a folder listing holds its frame, up to
+//! [`LISTING_HOLD`], for the listing's rows, so they paint with it rather
+//! than after an `indexing files...` frame (09d2e934, 6aa678d9;
+//! [`ListingWait`], `super::shell::Shell::hold_frame_for_file_listing`).
 
 use std::ops::Range;
 
@@ -412,25 +424,50 @@ pub(crate) struct Completion {
     pub(crate) separator: Option<usize>,
 }
 
+/// What choosing a folder row does (`FolderAction`,
+/// `input_completion_runtime.zig:78-80@481104fd`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FolderAction {
+    /// Tab: the folder is opened, and its contents list next.
+    Open,
+    /// Enter: the folder itself is mentioned.
+    Select,
+}
+
 /// What choosing `found` for `query` does to `draft`
-/// (`applyFilePickerSelection`, `input_completion_runtime.zig:898-953`).
+/// (`applyFilePickerSelection`, `input_completion_runtime.zig:967-1032
+/// @481104fd`).
 ///
-/// A file gets a space after it unless the draft already has a separator
-/// there, in which case the caret steps over that one; a directory gets
-/// neither, so the next keystroke goes on with the path.
-pub(crate) fn completion(draft: &str, query: &Query, found: &Found, indexed: bool) -> Completion {
+/// A file, and a folder Enter selects, get a space after them unless the
+/// draft already has a separator there, in which case the caret steps over
+/// that one -- the folder as its path and a `/`, any quote closed
+/// (`:995-1007`), so the caret leaves the word and the picker closes. A
+/// folder Tab opens gets neither: its `/` and its quote left open, so the
+/// next keystroke goes on with the path and the picker lists it.
+pub(crate) fn completion(
+    draft: &str,
+    query: &Query,
+    found: &Found,
+    indexed: bool,
+    action: FolderAction,
+) -> Completion {
     let directory = found.kind == Kind::Directory;
+    let opens = directory && action == FolderAction::Open;
     let reuses = draft
         .as_bytes()
         .get(query.replace_end)
         .is_some_and(|byte| is_separator(*byte));
-    let adds = !directory && !reuses;
-    let mut text = encode(&found.path, query.quoted, directory, indexed);
+    let adds = !opens && !reuses;
+    let mut text = if directory && !opens {
+        encode(&format!("{}/", found.path), query.quoted, false, indexed)
+    } else {
+        encode(&found.path, query.quoted, opens, indexed)
+    };
     let separator = adds.then(|| query.at + text.len());
     if adds {
         text.push(' ');
     }
-    let caret = query.at + text.len() + usize::from(!directory && reuses);
+    let caret = query.at + text.len() + usize::from(!opens && reuses);
     Completion {
         range: query.at..query.replace_end,
         text,
@@ -490,6 +527,22 @@ pub(crate) struct FilePicker {
     /// [`Self::distrust`]. While it is false the arrows are spent and
     /// nothing is chosen (`:218-228`, `:239-240`).
     trusted: bool,
+    /// Whether this list is to be looked up again once it is eligible: the
+    /// listing it waited for was dropped while it was not
+    /// (`lookup_dirty`, `directory_completion_job.zig:147-150@481104fd`), or
+    /// a lookup was owed meanwhile and not run (`prepareFilePicker`,
+    /// `input_completion_runtime.zig:848-853`).
+    lookup_dirty: bool,
+    /// Whether the index's refresh is asked for and not yet taken. fx's
+    /// reconcile keeps a request until it is taken and adds one on a new
+    /// episode, on a change between an indexed and an explicit query, and on
+    /// a change of the workspace's scope (`refresh_requested =
+    /// refresh_requested or !active or indexed != indexed or scope_epoch !=
+    /// scope_epoch`, `file_completion_state.zig:164@481104fd`); its retry
+    /// adds one too (`:230-233`). Taken where the list prepares its lookup,
+    /// only while it is eligible, and walks the index only for an indexed
+    /// query (`prepareFilePicker`, `input_completion_runtime.zig:853-866`).
+    refresh_requested: bool,
 }
 
 impl FilePicker {
@@ -508,7 +561,48 @@ impl FilePicker {
             selected: 0,
             window_start: 0,
             trusted: false,
+            lookup_dirty: false,
+            refresh_requested: false,
         }
+    }
+
+    /// The workspace's scope changed under this list (fx's `invalidate`,
+    /// `file_completion_state.zig:130-139@481104fd`, and the reconcile that
+    /// follows it, `:164`, `input_completion_runtime.zig:797`): the bar and
+    /// the window back on row 0 (`resetFilePickerIndex`,
+    /// `picker_state.zig:249-252`), its rows not trusted until a frame shows
+    /// them again, and the index's refresh asked for, as on a new episode.
+    pub(crate) fn invalidate(&mut self) {
+        self.selected = 0;
+        self.window_start = 0;
+        self.trusted = false;
+        self.refresh_requested = true;
+    }
+
+    /// Asks for the index's refresh ([`Self::refresh_requested`]).
+    pub(crate) fn request_refresh(&mut self) {
+        self.refresh_requested = true;
+    }
+
+    /// Whether the index's refresh is asked for and not yet taken.
+    pub(crate) fn refresh_requested(&self) -> bool {
+        self.refresh_requested
+    }
+
+    /// Whether the index's refresh was asked for, taken.
+    pub(crate) fn take_refresh_requested(&mut self) -> bool {
+        std::mem::take(&mut self.refresh_requested)
+    }
+
+    /// This list is to be looked up again once it is eligible
+    /// ([`Self::lookup_dirty`]).
+    pub(crate) fn mark_lookup_dirty(&mut self) {
+        self.lookup_dirty = true;
+    }
+
+    /// Whether the list is to be looked up again, taken.
+    pub(crate) fn take_lookup_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.lookup_dirty)
     }
 
     /// A frame that showed this list landed (`acknowledge`,
@@ -537,11 +631,13 @@ impl FilePicker {
     }
 
     /// Whether the query searches the workspace index rather than browsing a
-    /// path the user typed.
+    /// path the user typed -- and, as fx counts it, a query that cannot be
+    /// decoded (`fileCompletionsDependOnIndex`, whose caller takes a decoding
+    /// failure as indexed, `input_completion_runtime.zig:788-794@481104fd`).
     pub(crate) fn indexed(&self) -> bool {
         self.lookup
             .as_deref()
-            .is_some_and(|lookup| !super::file_index::is_explicit(lookup))
+            .is_none_or(|lookup| !super::file_index::is_explicit(lookup))
     }
 
     /// What the list shows.
@@ -897,6 +993,70 @@ fn styled(row: &mut String, found: &Found, range: Range<usize>, base: &str) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// the folder listing's wait
+// ---------------------------------------------------------------------------
+
+/// How long the frame of a keystroke that started a folder listing waits for
+/// its rows (`hold_ms`, `picker_state.zig:105@481104fd`).
+pub(crate) const LISTING_HOLD: std::time::Duration = std::time::Duration::from_millis(8);
+
+/// Paces the frame of a keystroke that started a folder listing
+/// (`FileListingWait`, `picker_state.zig:99-139@481104fd`; 09d2e934,
+/// 6aa678d9).
+///
+/// A folder usually lists well inside one tick of the loop, so the frame of
+/// the keystroke that asked for it waits for the rows, and the keystroke
+/// paints with them rather than over an `indexing files...` list first. A
+/// listing that outlasts the wait lets that frame go, and the next listing's
+/// frame goes at once rather than paying the wait again on a slow folder --
+/// but every listing is still watched for its first tick, so one that lands
+/// inside it turns the wait back on.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct ListingWait {
+    /// When the listing in flight was first seen.
+    started: Option<std::time::Instant>,
+    /// The previous listing outlasted the wait.
+    last_outlasted_hold: bool,
+}
+
+impl ListingWait {
+    /// Whether the next frame waits for a listing in flight: keystrokes
+    /// during one listing share its wait (`hold`, `:112-122`).
+    pub(crate) fn hold(&mut self, in_flight: bool, now: std::time::Instant) -> bool {
+        if !in_flight {
+            if let Some(started) = self.started {
+                self.last_outlasted_hold = !within_hold(started, now);
+            }
+            self.started = None;
+            return false;
+        }
+        if self.started.is_none() {
+            self.started = Some(now);
+        }
+        self.active(now)
+    }
+
+    /// Whether a frame is being held now (`active`, `:124-126`).
+    pub(crate) fn active(&self, now: std::time::Instant) -> bool {
+        !self.last_outlasted_hold && self.measuring(now)
+    }
+
+    /// Whether the listing in flight is in its first [`LISTING_HOLD`], waited
+    /// for or not (`measuring`, `:128-133`).
+    pub(crate) fn measuring(&self, now: std::time::Instant) -> bool {
+        self.started
+            .is_some_and(|started| within_hold(started, now))
+    }
+}
+
+/// Whether `now` is inside the wait that began at `started` -- a clock that
+/// steps backwards ends it rather than extending it (`withinHold`, `:135-138`).
+fn within_hold(started: std::time::Instant, now: std::time::Instant) -> bool {
+    now.checked_duration_since(started)
+        .is_some_and(|waited| waited < LISTING_HOLD)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1029,6 +1189,7 @@ mod tests {
             &query(draft).expect("a query"),
             &file("docs/guide.md"),
             true,
+            FolderAction::Select,
         );
         assert_eq!(chosen.range, 0..4);
         assert_eq!(chosen.text, "@docs/guide.md ");
@@ -1040,6 +1201,7 @@ mod tests {
             &query("see @sr").expect("a query"),
             &directory("src"),
             true,
+            FolderAction::Open,
         );
         assert_eq!(
             (chosen.text.as_str(), chosen.caret, chosen.separator),
@@ -1050,7 +1212,13 @@ mod tests {
         let draft = "Read @first- suffix";
         let caret = "Read @first-".len();
         let found = query_at(draft, caret).expect("a query");
-        let chosen = completion(draft, &found, &file("first-file.txt"), true);
+        let chosen = completion(
+            draft,
+            &found,
+            &file("first-file.txt"),
+            true,
+            FolderAction::Select,
+        );
         assert_eq!(chosen.text, "@first-file.txt");
         assert_eq!(chosen.caret, "Read @first-file.txt ".len());
         assert_eq!(chosen.separator, None);
@@ -1194,6 +1362,19 @@ mod tests {
         assert_eq!(
             browsed.rows(3, 40, 1, DARK),
             ["  \u{1b}[38;5;245mDirectory unavailable. tab to retry; e\u{1b}[0m"]
+        );
+        // Round 5: a query that cannot be decoded -- a quoted path ending in
+        // a lone `\` -- is unavailable, and indexed as fx counts it
+        // (`reconcileFilePicker`: a decoding failure is indexed,
+        // `input_completion_runtime.zig:793-794@481104fd`), so it says
+        // `Files unavailable` (`app_render_runtime.zig:647-651`) and its
+        // episode's refresh walks the index.
+        let undecodable = FilePicker::open(query("@\"a\\").expect("a query"));
+        assert_eq!(undecodable.lookup(), None);
+        assert!(undecodable.indexed());
+        assert_eq!(
+            undecodable.rows(3, 60, 1, DARK),
+            ["  \u{1b}[38;5;245mFiles unavailable. tab to retry; esc to dismiss.\u{1b}[0m"]
         );
     }
 
@@ -1400,6 +1581,25 @@ mod tests {
     }
 
     #[test]
+    fn a_list_invalidated_by_a_change_of_scope_starts_over() {
+        // Round 7: fx's `invalidate` and the reconcile after it
+        // (`file_completion_state.zig:130-139`, `:164@481104fd`;
+        // `resetFilePickerIndex`, `picker_state.zig:249-252`): the bar and the
+        // window on row 0, the rows untrusted, the index's refresh asked for.
+        let mut list = thirty();
+        list.trust();
+        for _ in 0..7 {
+            list.step(1, 6);
+        }
+        assert_eq!(mark_and_window(&list), (7, 2));
+        assert!(list.chosen().is_some());
+        list.invalidate();
+        assert_eq!(mark_and_window(&list), (0, 0));
+        assert_eq!(list.chosen(), None, "the rows stayed trusted");
+        assert!(list.take_refresh_requested(), "no refresh was asked for");
+    }
+
+    #[test]
     fn the_arrows_scroll_within_the_rows_the_last_frame_painted() {
         // fx's `file picker navigation scrolls within the rows the last frame
         // painted` (`file_completion_state.zig:319-350@481104fd`).
@@ -1552,5 +1752,147 @@ mod tests {
         assert_eq!(plain(&rows[0]), "./12.txt");
         list.step(1, 10);
         assert_eq!(mark_and_window(&list), (3, 3));
+    }
+
+    /// `draft` with `chosen` applied, and where its caret is.
+    fn applied(draft: &str, chosen: &Completion) -> (String, usize) {
+        let mut out = draft.to_string();
+        out.replace_range(chosen.range.clone(), &chosen.text);
+        (out, chosen.caret)
+    }
+
+    #[test]
+    fn tab_opens_a_folder_and_enter_mentions_it() {
+        // fx's "app_input_runtime opens typed directories with Tab and
+        // selects them with Enter" (`app_input_runtime.zig:6708@481104fd`;
+        // `applyFilePickerSelection`, `input_completion_runtime.zig:993-1012`):
+        // Tab leaves the folder an open query, Enter finishes it like a file,
+        // its `/` and a separating space -- or the space already there.
+        let nested = directory("src/nested");
+        let draft = "@srcn";
+        let found = query(draft).expect("a query");
+        let open = completion(draft, &found, &nested, true, FolderAction::Open);
+        assert_eq!(applied(draft, &open), ("@src/nested/".into(), 12));
+        assert_eq!(open.separator, None);
+        let select = completion(draft, &found, &nested, true, FolderAction::Select);
+        assert_eq!(applied(draft, &select), ("@src/nested/ ".into(), 13));
+        assert_eq!(select.separator, Some(12), "the space it added");
+
+        let draft = "before @srcn tail";
+        let found = query_at(draft, "before @srcn".len()).expect("a query");
+        let open = completion(draft, &found, &nested, true, FolderAction::Open);
+        assert_eq!(
+            applied(draft, &open),
+            (
+                "before @src/nested/ tail".into(),
+                "before @src/nested/".len()
+            )
+        );
+        let select = completion(draft, &found, &nested, true, FolderAction::Select);
+        assert_eq!(
+            applied(draft, &select),
+            (
+                "before @src/nested/ tail".into(),
+                "before @src/nested/ ".len()
+            )
+        );
+        assert_eq!(select.separator, None, "the space was there");
+        // A file is the same either way.
+        let draft = "@gui";
+        let found = query(draft).expect("a query");
+        for action in [FolderAction::Open, FolderAction::Select] {
+            let chosen = completion(draft, &found, &file("docs/guide.md"), true, action);
+            assert_eq!(applied(draft, &chosen), ("@docs/guide.md ".into(), 15));
+        }
+    }
+
+    #[test]
+    fn a_mentioned_folder_closes_its_quote() {
+        // fx's "filesystem file picker lists an opened folder first and
+        // Enter selects it" (`input_completion_runtime.zig:2200-2235
+        // @481104fd`): Tab on `space dir` opens `@"./space dir/`, and Enter on
+        // the folder's own row there leaves `@"./space dir/" `.
+        let draft = "@./space";
+        let opened = completion(
+            draft,
+            &query(draft).expect("a query"),
+            &directory("./space dir"),
+            false,
+            FolderAction::Open,
+        );
+        assert_eq!(applied(draft, &opened), ("@\"./space dir/".into(), 14));
+        let draft = "@\"./space dir/";
+        let chosen = completion(
+            draft,
+            &query(draft).expect("a query"),
+            &directory("./space dir"),
+            false,
+            FolderAction::Select,
+        );
+        assert_eq!(applied(draft, &chosen), ("@\"./space dir/\" ".into(), 16));
+        assert!(
+            query_at(&applied(draft, &chosen).0, 16).is_none(),
+            "the caret is out of the word, so the list closes"
+        );
+        // A workspace folder that starts with `~` is not the home directory.
+        let draft = "@notes";
+        let chosen = completion(
+            draft,
+            &query(draft).expect("a query"),
+            &directory("~notes"),
+            true,
+            FolderAction::Select,
+        );
+        assert_eq!(applied(draft, &chosen).0, "@./~notes/ ");
+    }
+
+    #[test]
+    fn a_folder_listing_holds_its_frame_for_one_tick() {
+        // fx's "folder listing wait spans one tick and is skipped after a
+        // slow listing" (`picker_state.zig:1087-1112@481104fd`), on a clock
+        // given in milliseconds from `t0`.
+        let t0 = std::time::Instant::now();
+        let at = |ms: u64| t0 + std::time::Duration::from_millis(ms);
+        let hold = u64::try_from(LISTING_HOLD.as_millis()).expect("ms");
+        assert_eq!(hold, 8);
+        let mut wait = ListingWait::default();
+        assert!(!wait.hold(false, at(100)));
+        // Keystrokes during one listing share the first keystroke's wait.
+        assert!(wait.hold(true, at(100)));
+        assert!(wait.hold(true, at(100 + hold - 1)));
+        assert!(wait.active(at(100 + hold - 1)));
+        // A listing that outlasts the wait paints at once from then on.
+        assert!(!wait.hold(true, at(100 + hold)));
+        assert!(!wait.hold(true, at(140)));
+        assert!(!wait.active(at(140)));
+        assert!(!wait.hold(false, at(141)));
+        // The folder was slow, so the next keystroke does not wait for it,
+        // but the listing is still watched for its first tick (6aa678d9).
+        assert!(!wait.hold(true, at(200)));
+        assert!(!wait.active(at(200)));
+        assert!(wait.measuring(at(200 + hold - 1)));
+        assert!(!wait.measuring(at(200 + hold)));
+        // A listing that finishes within the wait turns waiting back on.
+        assert!(!wait.hold(false, at(202)));
+        assert!(wait.hold(true, at(300)));
+        assert!(!wait.hold(false, at(301)));
+        assert!(wait.hold(true, at(400)));
+        // A clock that steps backwards ends the wait.
+        assert!(!wait.hold(true, at(350)));
+    }
+
+    #[test]
+    fn a_listing_after_a_slow_folder_is_watched_so_the_wait_can_come_back() {
+        // fx's "file picker keeps watching a listing after a slow folder so
+        // waiting can turn back on" (`input_completion_runtime.zig:2272-2282
+        // @481104fd`).
+        let t0 = std::time::Instant::now();
+        let wait = ListingWait {
+            started: Some(t0),
+            last_outlasted_hold: true,
+        };
+        let later = t0 + std::time::Duration::from_millis(1);
+        assert!(!wait.active(later));
+        assert!(wait.measuring(later));
     }
 }

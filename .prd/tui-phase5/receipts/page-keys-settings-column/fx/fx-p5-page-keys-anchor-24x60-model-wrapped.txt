@@ -1,0 +1,24 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ /model fake/a-model-id-long-enough-to-wrap-the-composer-ro
+┃ w-at-sixty-c
+────────────────────────────────────────────────────────────
+  fake/a-model-id-long-enough-to-wrap-the-composer-row-at-si
+
+
+
+
+
+────────────────────────────────────────────────────────────
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+

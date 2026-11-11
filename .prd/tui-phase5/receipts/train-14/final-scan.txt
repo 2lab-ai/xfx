@@ -1,0 +1,65 @@
+## 1. each commit this train adds, first-parent 3570a182..663c6753: the brief's count; a merge also as everything it brings
+d548c078 0; as everything it brings (git diff ^1): 9  merge: the `@` stack, AT-RANK-PERF (feat/p5-at-rank-perf @ 4130f4ac), 
+ecad8518 0; as everything it brings (git diff ^1): 0  merge: CTRLO-OTHER-PICKERS (feat/p5-ctrlo-other-pickers @ e7e1bcf6) in
+7a1773d9 0; as everything it brings (git diff ^1): 0  merge: PAGE-KEYS-SETTINGS-COLUMN (fix/p5-page-keys-settings-column @ 3
+fb6dfdb8 0; as everything it brings (git diff ^1): 0  merge: IMAGE-LOSS-COPY-FX (fix/p5-image-loss-copy-fx @ bde1ddfa) into 
+594fddc8 0  fix(tui): train 14 join -- one C-j/C-k check under the full transcript
+8f622949 0  fxcap ledger: at-plan-run-directory deleted -- its rows cannot match t
+04e4491d 0  fix(refs): train 14 -- every reference the content check read WRONG, r
+09b13511 0  receipts: AT-FOLDERS' and AT-SCOPE-INTERIM's sweep run names as placeh
+16fff02d 0  fxcap ledger: at-ranking-anchor deleted -- AT-RANK closed its owner, a
+6bc758a0 0  fix(refs): `place()`'s range starts on its doc's first line
+725b3c90 0  test(tui): train 14 join -- C-j under the full transcript adds nothing
+3a2830fb 0  fix(refs): the six ledger references 725b3c90 moved, re-pointed
+b3dffdad 0  fix(refs): two bare continuations on the line after their path, re-poi
+41a82093 0  docs(receipt): train 14 -- the merges' checks, the references, the gat
+ab640b82 0  docs(receipt): train 14 -- join checks 1 and 2, the movers' reruns
+eb52b1c0 0  docs(receipt): train 14 -- the sweeps and the README
+ee803eb4 0  docs(receipt): train 14 -- the file checks with the receipt in its fin
+1a6278e8 0  docs(receipt): train 14 -- the final scan at the receipt's last commit
+91d5b566 0  docs(receipt): train 14 round 2 -- the reviews' SHOULDs and NITs, rece
+9cd65922 0  docs(receipt): train 14 round 2 -- the file checks again, at 91d5b566
+08066ac9 0  docs(receipt): train 14 round 2 -- the final scan through 9cd65922
+583cc13a 0; as everything it brings (git diff ^1): 0  merge: main 3570a182 (WORKSPACE-INDEX-AT-PLAN, PR #94) into train 14
+3e073a96 0  fix(refs): the seven capture.sh references the join of main moved, re-
+d765f057 0  docs(receipt): train 14 -- PR #93's CI Sweep red at 08066ac9, read (ci
+42935f45 0  fxcap ledger: the at-plan comment -- identical only when the two runs'
+04c10753 0  docs(receipt): train 14 -- the join of main 3570a182 (join-main/), at-
+663c6753 0  docs(receipt): train 14 -- the file checks at 04c10753, after the join
+# the brief's count, summed over this train's commits: 0
+# the brief's count over the range, git diff 3570a182..663c6753: 0
+# shapes.py over the range's added lines (not gating; the brief's count is the first): brief 0; run-name 29; uid-tail 0
+#   the run-name lines by file: .prd/tui-phase5/receipts/at-rank-perf/README.md 1; .prd/tui-phase5/receipts/at-rank/README.md 2; .prd/tui-phase5/receipts/at-rank/at-plan-sweep/bold.txt 1; .prd/tui-phase5/receipts/at-rank/at-plan-sweep/fx-workspace-index-40x120-at-plan.ansi 3; .prd/tui-phase5/receipts/at-rank/at-plan-sweep/fx-workspace-index-40x120-at-plan.txt 4; .prd/tui-phase5/receipts/at-rank/at-plan-sweep/redact.py 1; .prd/tui-phase5/receipts/at-rank/at-plan-sweep/xfx-workspace-index-40x120-at-plan.ansi 4; .prd/tui-phase5/receipts/at-rank/at-plan-sweep/xfx-workspace-index-40x120-at-plan.txt 4; .prd/tui-phase5/receipts/at-scope-interim/README.md 2; .prd/tui-phase5/receipts/at-scope-interim/samepair.txt 6; src/tui/file_index.rs 1
+
+## 2. every commit of the range, and the range (midbranch_scan.py)
+# commits per unit since its base: af2b6137..4130f4ac 146; cb7c9c18..e7e1bcf6 24; 3d3d56c8..3ea16930 15; 714f6283..bde1ddfa 19; the range 3570a182..663c6753 231
+# the check's documented homes at HEAD: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
+6310d5c3 lines 2 (the brief's count), matches 4  docs(receipt): AT-FOLDERS -- RED, 23 pairs identical, 31 of 31 m
+    SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-folders/sweep-base.md)
+    SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-folders/sweep-base.md)
+    SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-folders/sweep-head.md)
+    SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-folders/sweep-head.md)
+024a2bb5 lines 5 (the brief's count), matches 6  docs(receipt): AT-SCOPE-INTERIM -- RED 7 at 74960592, GREEN; 11 
+    SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-scope-interim/at-plan.diff)
+    SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-scope-interim/at-plan.diff)
+    SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-scope-interim/at-plan.diff)
+    SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-scope-interim/at-plan.diff)
+    SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-scope-interim/sweep-head.md)
+    SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-scope-interim/sweep-head.md)
+db6fcd9c lines 2 (the brief's count), matches 2  docs(receipt): AT-SCOPE-INTERIM round 2 -- AT-LAUNCH-WALK named,
+    SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-scope-interim/samepair.txt)
+    SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-scope-interim/samepair.txt)
+# 231 commits scanned; 9 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 12, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
+
+## the range, git diff 3570a182..HEAD
+# the range: 0 lines hit (the brief's count); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0
+# midbranch_scan.py exit 0
+
+## 3. files of this directory holding the pattern: 0
+shapes.py over this directory: brief 0; run-name 0; uid-tail 0 (over 163 files)
+
+## 4. each commit after the code head 42935f45, and the files it touches outside this directory
+04c10753 outside: 0; inside: 20 file(s)
+663c6753 outside: 0; inside: 1 file(s)
+# files outside this directory touched after the code head: 0
+# final-scan.sh exit 0

@@ -348,7 +348,10 @@ impl SessionStore {
         // as upstream leaves a published one (`session.zig:578`).
         sync_directory(&self.sessions_dir)?;
         // Its images read back from its own copies, as a resume reads them.
-        read_snapshots(&destination, &mut session.state);
+        // Each was carried whole just now (`carry_image`), so none makes the
+        // fork unreadable; one gone since is the request's to fail
+        // ([`DurableState::unsendable`]).
+        let _ = read_snapshots(&destination, &mut session.state);
         Ok(session)
     }
 }
@@ -475,7 +478,8 @@ pub(super) fn carry_image(
     link: impl Fn(&Path, &Path) -> io::Result<()>,
 ) -> Result<(), CarryError> {
     // Not through a link, a regular file, its size, its digest.
-    let bytes = read_snapshot(from, sha256, size).map_err(CarryError::Unusable)?;
+    let bytes =
+        read_snapshot(from, sha256, size).map_err(|loss| CarryError::Unusable(loss.to_string()))?;
     if link(from, to).is_ok() {
         if read_snapshot(to, sha256, size).is_ok() && owned_and_private(to) {
             return Ok(());

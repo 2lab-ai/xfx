@@ -1,0 +1,41 @@
+x𝒇x v0.1.0-714f628 [debug] · Run /help for commands
+* session resumed: [Image #1] first prompt alpha
+
+┃ [Image 1] first prompt alpha
+
+  ALPHA answer.
+
+  0s (↑9 ↓4)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

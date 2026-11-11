@@ -1,0 +1,62 @@
+# PAGE-KEYS-SETTINGS-COLUMN round 3: where the four lists fx hangs under the
+# composer start (projectedAnchorColumn, visual_layout.zig:705-713; the
+# anchors, input_presentation.zig:356-363, :383-386@481104fd). The model,
+# provider and file lists anchor at their argument while the caret is on its
+# row, else at the start of the caret's row; the slash menu of commands and
+# skills has no anchor (slashRawAnchor, :287-292: no argument completion) and
+# starts at column 1. At 60 columns a row holds 58 cells: each list once on a
+# one-row composer, then under a token longer than a row, which starts on the
+# first row and breaks onto the second, where the caret is; the slash word
+# then with the caret moved up a row. No typed text starts with `-`, which
+# tmux would read as a flag. Run it at 24x60: at 120 columns every token
+# fits its row and the `-wrapped` snaps are one-row ones. (A `resize 24x60`
+# first would not do: from a wider launch fx clears the screen and writes
+# its document again at the top, xfx keeps its band at the bottom -- the
+# ledger's `resize-document-repaint` -- so every row would differ.) The
+# provider query is `q`, which no provider matches, so the one-row list is
+# its status row on both sides and not the two products' provider sets.
+fx: env FX_AUTO_UPGRADE=0
+work p5-page-keys-anchor-ws
+models p5-page-keys-anchor-models.json
+wait 4
+xfx: wait 1
+type /model xai/gr
+wait 1
+snap model-one
+key C-u
+wait 0.5
+type /model fake/a-model-id-long-enough-to-wrap-the-composer-row-at-sixty-c
+wait 1
+snap model-wrapped
+cursor model-wrapped
+key C-u
+wait 0.5
+type /provider q
+wait 1
+snap provider-one
+type a-provider-name-long-enough-to-wrap-the-composer-row-at-sixty
+wait 1
+snap provider-wrapped
+cursor provider-wrapped
+key C-u
+wait 0.5
+type see @a-fi
+wait 1.5
+snap file-one
+type le-name-long-enough-to-wrap-the-composer-row-at-sixty-c
+wait 1.5
+snap file-wrapped
+cursor file-wrapped
+key C-u
+wait 0.5
+type /wrap-th
+wait 1
+snap slash-one
+type e-composer-past-its-first-row-and-on-to-the-next-row-
+wait 1
+snap slash-wrapped
+cursor slash-wrapped
+key Up
+wait 0.5
+snap slash-wrapped-up
+cursor slash-wrapped-up

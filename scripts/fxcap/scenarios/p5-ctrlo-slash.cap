@@ -1,0 +1,39 @@
+# CTRLO-OTHER-PICKERS: the slash menu under Ctrl-O, one key at a time. fx's
+# C-j and C-k reach the composer (routePickerControlByte,
+# app_input_runtime.zig:1093-1116@481104fd; :881-893): C-k kills nothing
+# (:479-488), C-j is a new line after the slash word (:513-521). Down and
+# Escape are the transcript's (input_full_transcript_runtime.zig:156-197).
+# Down first, so a move would show.
+fx: env FX_AUTO_UPGRADE=0
+wait 2
+type /
+wait 1
+key Down
+wait 0.5
+snap open
+key C-o
+wait 0.8
+key Down
+wait 0.4
+key C-o
+wait 0.8
+snap down
+key C-o
+wait 0.8
+key Escape
+wait 0.8
+snap esc
+key C-o
+wait 0.8
+key C-k
+wait 0.4
+key C-o
+wait 0.8
+snap ck
+key C-o
+wait 0.8
+key C-j
+wait 0.4
+key C-o
+wait 0.8
+snap cj

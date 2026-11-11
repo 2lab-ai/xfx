@@ -458,8 +458,8 @@ fn a_fork_replays_as_the_source_did_before_the_prompt_it_was_made_at() {
         renamed("[Image #1] first prompt alpha (fork)")
     );
 
-    // The writer it hands back is the one a resume would: its images read
-    // back from the fork's own copies, so the next request sends them.
+    // The writer it hands back is the one a resume would: its images pointed
+    // at the fork's own copies, which the next request reads and sends.
     let live = fork.state();
     assert_eq!(
         live.turns,
@@ -522,10 +522,8 @@ fn live_snapshot(
             image.recorded.id,
             &image.recorded.sha256,
         ));
-    Snapshot::Loaded {
-        bytes: Arc::from(fs::read(&path).expect("the fork's copy")),
-        path: Some(Arc::from(path.as_path())),
-    }
+    assert!(path.is_file(), "the fork has no copy at {}", path.display());
+    Snapshot::Saved(Arc::from(path.as_path()))
 }
 
 #[test]
@@ -562,10 +560,20 @@ fn a_pasted_image_is_named_by_the_forks_own_copy() {
         .store
         .resume(&Selector::Id(id.clone()), &bench.workspace)
         .expect("the fork resumes alone");
+    let state = resumed.session.state();
     assert!(matches!(
-        resumed.session.state().turns[0].images[0].snapshot,
-        Snapshot::Loaded { .. }
+        &state.turns[0].images[0].snapshot,
+        Snapshot::Saved(path) if **path == own
     ));
+    let replay = state.history_messages(Wire::VercelGateway, &state.model);
+    assert!(
+        replay.messages[0].content.iter().any(|part| matches!(
+            part,
+            crate::gateway::protocol::ContentPart::Image { data, .. }
+                if **data == *crate::image::fixture::SHOT_PNG
+        )),
+        "the fork's own copy was not read"
+    );
 }
 
 #[test]

@@ -1,0 +1,40 @@
+  2026-11-11 00:04:28.118 KST · Notice
+* network: provider: gateway · model: fake/model-a · 55ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-11 00:04:31.172 KST · Notice
+* network: provider: gateway · model: fake/model-a · 53ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-11 00:04:24.954 KST · Prompt
+┃ first prompt alpha
+
+  2026-11-11 00:04:25.159 KST · Response
+  ALPHA answer.
+
+  2026-11-11 00:04:25.159 KST · Usage
+  0s (↑6 ↓40)
+
+  2026-11-11 00:04:27.992 KST · Prompt
+┃ second prompt beta
+
+  2026-11-11 00:04:28.183 KST · Response
+  BETA answer.
+
+  2026-11-11 00:04:28.184 KST · Usage
+  0s (↑5 ↓40)
+
+  2026-11-11 00:04:31.032 KST · Prompt
+┃ third prompt gamma
+
+  2026-11-11 00:04:31.246 KST · Response
+  GAMMA answer.
+
+  2026-11-11 00:04:31.246 KST · Usage
+  0s (↑6 ↓40)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

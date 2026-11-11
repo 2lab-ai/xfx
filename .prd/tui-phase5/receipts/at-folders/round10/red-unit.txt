@@ -1,0 +1,12 @@
+# round 10 RED at <this commit> (the cases on round 9's code, 48f96022's src): cargo test --locked --lib -- --exact <the 2 cases>, TMPDIR=<scratch>
+# a_first_at_before_the_poll_that_ends_a_stopped_walk_coalesces passes here: it pins the case opus asked to keep at 2.
+running 2 tests
+test tui::shell::tests::a_first_at_before_the_poll_that_ends_a_stopped_walk_coalesces ... ok
+test tui::shell::tests::a_walk_a_change_of_roots_stopped_counts_as_whole_once_it_is_over ... FAILED
+thread 'tui::shell::tests::a_walk_a_change_of_roots_stopped_counts_as_whole_once_it_is_over' (420650475) panicked at src/tui/shell.rs:35677:9:
+assertion `left == right` failed: the first episode skipped its refresh after the stopped walk was over
+  left: 2
+ right: 3
+    tui::shell::tests::a_walk_a_change_of_roots_stopped_counts_as_whole_once_it_is_over
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4608 filtered out; finished in 0.29s
+error: test failed, to rerun pass `--lib`

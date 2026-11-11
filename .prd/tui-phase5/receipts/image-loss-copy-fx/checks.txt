@@ -1,0 +1,34 @@
+# round 4's checks (green4.sh, one suite-lock slot; step 00 is `false` and must read rc=1; clippy touches the crate roots first)
+# TMPDIR <tmp>/abcdefghijklmnopqrstuvwxyz; head 023430f4, tracked changes outside the receipt: 0
+00 false rc=1 0s
+01 fmt rc=0 2s
+02 clippy rc=0 7s
+03 clippy-fault rc=0 7s
+04 lib rc=101 78s
+05 sessions rc=0 14s
+06 parity rc=0 3s
+07 tool_loop rc=0 2s
+08 tui-resume-image rc=0 6s
+09 test-capture rc=0 339s
+  04-lib: test result: FAILED. 4623 passed; 2 failed; 7 ignored; 0 measured; 0 filtered out; finished in 61.73s
+  05-sessions: test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.32s
+  06-parity: test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.66s
+  07-tool_loop: test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+  08-tui-resume-image: test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 166 filtered out; finished in 4.22s
+  09-test-capture: Ran 80 tests in 339.360s OK 
+  04-lib's two failures: the timing windows of two catalog-wait stop tests; run alone, 5 of 5 each (flake4.txt)
+
+# the file checks at 023430f4 with this folder staged, and the citation checks
+check-no-secrets rc=0
+check-xfx-identity rc=0
+check-no-stubs rc=0
+redaction grep over git diff --cached 714f6283 (every commit of the unit and this folder): 0
+# bash fx_src.sh <fx-upstream> --check README.md
+checked 61 citations
+rc=0
+# python3 -I -B new_cites.py docs/parity.md > <file>: 14 spans this unit added; bash fx_src.sh <fx-upstream> --check <file>
+checked 14 citations
+rc=0
+# python3 -I -B new_cites.py src tests scripts/fxcap/scenarios > <file>: 52 spans this unit added; bash fx_src.sh <fx-upstream> --check <file>
+checked 52 citations
+rc=0

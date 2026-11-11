@@ -1,0 +1,52 @@
+# mutants over the head 8e809d40 on a --no-local clone; tests: at_24_rows taller_composer under_the_full_transcript_the under_the_full_transcript_no_other
+settings:no-page-key: KILLED (1 failed, 67s;  1 file changed, 2 deletions(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end
+settings:page-of-one: KILLED (2 failed, 14s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_model_list_is_11_models
+settings:round: KILLED (1 failed, 15s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end
+settings:no-row-keys: KILLED (1 failed, 15s;  1 file changed, 2 deletions(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end
+settings-list:moves-the-menu: KILLED (1 failed, 15s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_model_list_is_11_models
+column:no-page-key: KILLED (2 failed, 24s;  1 file changed, 2 deletions(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end
+    tui::shell::tests::at_24_rows_a_page_of_the_model_column_is_11_models
+column:page-of-one: KILLED (2 failed, 15s;  1 file changed, 2 insertions(+), 2 deletions(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end
+    tui::shell::tests::at_24_rows_a_page_of_the_model_column_is_11_models
+column:round: KILLED (2 failed, 11s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end
+    tui::shell::tests::at_24_rows_a_page_of_the_model_column_is_11_models
+column:no-row-keys: KILLED (2 failed, 17s;  1 file changed, 2 deletions(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end
+    tui::shell::tests::at_24_rows_a_page_of_the_model_column_is_11_models
+mcp:no-page-key: KILLED (1 failed, 11s;  1 file changed, 1 insertion(+), 2 deletions(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_mcp_arguments_is_11_servers
+mcp:page-of-one: KILLED (1 failed, 11s;  1 file changed, 2 insertions(+), 2 deletions(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_mcp_arguments_is_11_servers
+mcp:round: KILLED (1 failed, 13s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_mcp_arguments_is_11_servers
+slash:arrows-at-any-height: KILLED (1 failed, 25s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::a_slash_menu_on_a_taller_composer_leaves_the_arrows_and_pages_to_the_caret
+mcp:arrows-at-any-height: KILLED (1 failed, 13s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::mcp_arguments_on_a_taller_composer_leave_the_arrows_and_pages_to_the_caret
+full-transcript:row-keys-reach-the-lists: KILLED (5 failed, 14s;  1 file changed, 1 insertion(+), 2 deletions(-))
+    tui::shell::tests::under_the_full_transcript_no_other_list_takes_a_row_key
+    tui::shell::tests::under_the_full_transcript_the_mcp_arguments_take_no_row_key
+    tui::shell::tests::under_the_full_transcript_the_model_column_takes_no_row_key
+    tui::shell::tests::under_the_full_transcript_the_model_menu_takes_no_row_key
+    tui::shell::tests::under_the_full_transcript_the_settings_menu_takes_no_row_key
+full-transcript:check-below-mcp-menu: KILLED (1 failed, 16s;  1 file changed, 5 insertions(+), 5 deletions(-))
+    tui::shell::tests::under_the_full_transcript_no_other_list_takes_a_row_key
+settings:empty-list-spends-every-move: KILLED (1 failed, 16s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end
+settings:empty-list-spends-the-arrows: KILLED (1 failed, 16s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end
+anchor:argument-row-always: KILLED (1 failed, 12s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::mcp_arguments_on_a_taller_composer_leave_the_arrows_and_pages_to_the_caret
+settings:empty-list-spends-a-page: KILLED (1 failed, 14s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end
+settings:empty-list-spends-row-keys: KILLED (1 failed, 15s;  1 file changed, 1 insertion(+), 1 deletion(-))
+    tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end

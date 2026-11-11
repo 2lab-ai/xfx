@@ -1,0 +1,43 @@
+# Round 2 RED: f718e3c1's test_capture.py and test_sweep.py in a clone at cc913145 (round 1's head).
+# The three tests of behaviour round 2 adds fail there; the others pin what round 1 already did and pass.
+## test_capture.py RunDirectory at cc913145's capture.sh
+FF....F
+======================================================================
+FAIL: test_a_binary_on_its_way_out_is_waited_for (__main__.RunDirectory.test_a_binary_on_its_way_out_is_waited_for)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red2/scripts/fxcap/test_capture.py", line 431, in test_a_binary_on_its_way_out_is_waited_for
+    self.assertTrue(os.path.isdir(os.path.join(run, "home", "late")), "the run ended before the binary's last write")
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: False is not true : the run ended before the binary's last write
+
+======================================================================
+FAIL: test_a_binary_that_will_not_go_is_killed (__main__.RunDirectory.test_a_binary_that_will_not_go_is_killed)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red2/scripts/fxcap/test_capture.py", line 436, in test_a_binary_that_will_not_go_is_killed
+    self.assertFalse(self.alive(pid), "the run ended with its binary still running")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not false : the run ended with its binary still running
+
+======================================================================
+FAIL: test_a_tmpdir_with_no_room_for_a_run_ends_at_once (__main__.RunDirectory.test_a_tmpdir_with_no_room_for_a_run_ends_at_once)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red2/scripts/fxcap/test_capture.py", line 394, in test_a_tmpdir_with_no_room_for_a_run_ends_at_once
+    self.assertIn("no run directory can be made under TMPDIR", r.stderr)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'no run directory can be made under TMPDIR' not found in 'no run directory could be made under TMPDIR in 100 tries\n'
+
+----------------------------------------------------------------------
+Ran 7 tests in 18.372s
+
+FAILED (failures=3)
+exit 1
+## test_sweep.py Sweep.test_a_units_second_run_finds_nothing_its_first_left at cc913145's sweep.py
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.238s
+
+OK
+exit 0

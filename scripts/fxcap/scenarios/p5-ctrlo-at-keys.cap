@@ -1,0 +1,69 @@
+# CTRLO-AT-KEYS: one key at a time under Ctrl-O while the @ list is up
+# (AT-HEIGHT's ctrlo-probe, extended). Each step opens Ctrl-O over the list,
+# sends one key, closes it again, and snaps the composer's plane. fx's list
+# is not eligible under the transcript (filePickerEligible,
+# input_completion_runtime.zig:775-786@481104fd), and the bytes the
+# transcript does not bind reach the composer (app_input_runtime.zig:
+# 872-893): Tab chooses nothing (input_completion_runtime.zig:946-956), a
+# letter is typed, C-k kills to the line's end, C-j is a new line. Down and
+# Escape are the transcript's (input_full_transcript_runtime.zig:156-197).
+# C-e C-u empties the line before a step that needs its own draft, so no
+# step's result carries into the next.
+fx: env FX_AUTO_UPGRADE=0
+work p5-input-at-height-ws
+wait 4
+type @f-
+wait 1.5
+snap open
+key C-o
+wait 0.8
+key Tab
+wait 0.4
+key C-o
+wait 0.8
+snap tab
+key C-o
+wait 0.8
+key Down
+wait 0.4
+key C-o
+wait 0.8
+snap down
+key C-o
+wait 0.8
+key Escape
+wait 0.8
+snap esc
+key C-o
+wait 0.8
+type z
+wait 0.4
+key C-o
+wait 1
+snap letter
+key C-e C-u
+wait 0.4
+type  tail
+key Home
+wait 0.3
+type @f-
+wait 1.5
+snap tail-open
+key C-o
+wait 0.8
+key C-k
+wait 0.4
+key C-o
+wait 0.8
+snap ck
+key C-e C-u
+wait 0.4
+type @f-
+wait 1.5
+key C-o
+wait 0.8
+key C-j
+wait 0.4
+key C-o
+wait 0.8
+snap cj

@@ -1,0 +1,13 @@
+# fx/ row 1: 𝒇x v0.0.16 · Run /help for commands
+# xfx/ row 1: x𝒇x v0.1.0-1e41a77 [debug] · Run /help for commands
+# xfx-base/ row 1: x𝒇x v0.1.0-5a83bc4 [debug] · Run /help for commands
+snap                 base           head
+open            identical      identical
+tab             identical      identical
+down            identical      identical
+esc             identical      identical
+letter          identical      identical
+tail-open       identical      identical
+ck          1 rows differ      identical
+cj         13 rows differ      identical
+pairs: 8; identical: base 6, head 8

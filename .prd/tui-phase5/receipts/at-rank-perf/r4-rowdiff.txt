@@ -1,0 +1,6 @@
+# r4-rowdiff.sh over 3c4b519d (round 2's head, before the speed-ups), ef89b72a (round 3's) and 64792388 (round 4's code head): each a --no-local clone with r4-rowdump.py's test, rows and bold spans of fx's 100,000-entry inventory for each of the 73 prefixes the cost test times; one hold of the suite lock
+3c4b519d: 960 lines, 73 prefixes, 13 with no row, sha256 f47c067b3bffe931
+ef89b72a: 960 lines, 73 prefixes, 13 with no row, sha256 f47c067b3bffe931
+ef89b72a against 3c4b519d: identical
+64792388: 960 lines, 73 prefixes, 13 with no row, sha256 f47c067b3bffe931
+64792388 against 3c4b519d: identical

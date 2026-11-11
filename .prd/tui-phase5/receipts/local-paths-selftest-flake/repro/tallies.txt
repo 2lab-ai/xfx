@@ -1,0 +1,15 @@
+# Local reproduction of the CI failure, at d2b2ca75 (the check and test unchanged since)
+# machine: macOS 26.7.1 (Darwin 25.6.0), 18 cores, /bin/bash 3.2.57, git 2.56.0 (CI: macos-15-arm64 20261104.0514.1, bash 3.2.57, git 2.56.0)
+# load averages sampled during the loops: 14.71 (03:15), 13.62 (03:24), 33.79 (03:37), 8.46 (03:58), local time 2026-11-11
+# every tally line below is the loop's own last line, copied as printed
+
+loopA:   b32-long-A: 300 pass, 0 fail of 300
+loopB:   b32-short-B: 300 pass, 0 fail of 300
+loopI:   instrumented: 500 pass, 0 fail of 500
+loopV:   var-folders: 300 pass, 0 fail of 300
+stageA:  stageA: 0 bad of 1000
+stageC:  stageC: 0 differing of 999
+stageC3: stage C3: 0 differing of 499
+stageB3: stageB threads=3: 0 bad of 3000 (listing 28 entries)
+stageD:  stageD: 0 bad of 200000
+stageD:  stageD-procs: 2000 processes done

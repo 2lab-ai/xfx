@@ -1,0 +1,6 @@
+# round 7: scenario workspace-index at 40x120 on fx v0.0.16 (sha256 8e6cda2efddb, capture.sh's guard: unchanged), on xfx at the head (built at 57b00e24, row 1 v0.1.0-57b00e2) and on xfx at round 6's code (built at 1467e1e9, row 1 v0.1.0-1467e1e).
+# Each capture runs in its own <scratch>/fxcap.XXXXXX, which is on screen. Compared on the captures as taken: python3 -I runid.py compare scripts/fxcap/cells.py <a>.ansi <b>.ansi -- cells.py's parse and comparison, with the six characters of each run directory's name written as XXXXXX, every style kept. Committed: the same captures with the scratch root and run directory written as <tmp> (runid.py redact; SGR sequences inside the path kept in order after it).
+snap                               fx vs head                 round 6 vs head
+workspace-index-40x120-at-plan     0 rows differ              0 rows differ
+workspace-index-40x120-at-all      0 rows differ              0 rows differ
+# and on the committed (redacted) copies, cells.py as it is: at-plan 0 rows, at-all 0 rows differ (fx vs head)

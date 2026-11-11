@@ -1,0 +1,81 @@
+# Train 14's sweeps, as sweep.sh printed them; then each sweep's run.json, the banners (banners.py) and the bases' rescores (sweep.sh --rescore on a copy, with the head's ledger).
+
+## base
+# base: build in sb at dcfa5146, exit 0; xfx sha256 344a72b06f9fae5d7999003453a8273b751267ddd33095f94beb5f44c8e40845
+# size 40x120; selection: selection-all.txt
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 9.05
+# base: sweep exit 0, 1235 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 20.44
+[133/135] xfx p5-ctrlo-wider-inline: ran (4s)
+[134/135] xfx p5-ctrlo-wider-ri: ran (4s)
+[135/135] fx (inventory): ran (37s)
+pass = 215 / 389 = 55.3%; unresolved 161, failed 0, timeout 0
+wrote <tmp>/scoreboard.md
+# sweep.sh exit 0
+run.json: started 2026-11-11T06:23:44+09:00; wall 20m31s; start_load 9.05; peak_load 23.48; jobs 2; size 40x120; xfx_sha256 344a72b06f9fae5d7999003453a8273b751267ddd33095f94beb5f44c8e40845; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head dcfa5146b520bd3f5d6b2d0d20ba7acced8ad806
+
+## head
+# head: build in sh at b3dffdad, exit 0; xfx sha256 8b230e83d95cb184958251a8033cdd8adfcc643e339306cb855a9e8e24715705
+# size 40x120; selection: selection-all.txt
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 9.55
+# head: sweep exit 0, 1628 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 6.92
+[183/185] xfx p5-ctrlo-wider-inline: ran (5s)
+[184/185] xfx p5-ctrlo-wider-ri: ran (5s)
+[185/185] fx (inventory): ran (33s)
+pass = 348 / 561 = 62.0%; unresolved 200, failed 0, timeout 0
+wrote <tmp>/scoreboard.md
+# sweep.sh exit 0
+run.json: started 2026-11-11T06:00:32+09:00; wall 27m05s; start_load 9.55; peak_load 14.17; jobs 2; size 40x120; xfx_sha256 8b230e83d95cb184958251a8033cdd8adfcc643e339306cb855a9e8e24715705; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head b3dffdad3e0b5c5a0ee003a07996eb7539bef911
+
+## base-u
+# base-u: build in sbu at dcfa5146, exit 0; xfx sha256 176fb6a62dcc6b814cad9557c201355c2776267d2a36e0625dfabb3e1dde4c70
+# size 40x120; selection: selection-units.txt
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 17.68
+# base-u: sweep exit 0, 2171 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 11.97
+[185/187] fx startup: ran (4s)
+[186/187] xfx startup: ran (4s)
+[187/187] fx (inventory): ran (36s)
+pass = 372 / 544 = 68.4%; unresolved 169, failed 0, timeout 0
+wrote <tmp>/scoreboard.md
+# sweep.sh exit 0
+run.json: started 2026-11-11T07:11:18+09:00; wall 36m04s; start_load 17.68; peak_load 18.59; jobs 2; size 40x120; xfx_sha256 176fb6a62dcc6b814cad9557c201355c2776267d2a36e0625dfabb3e1dde4c70; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head dcfa5146b520bd3f5d6b2d0d20ba7acced8ad806
+
+## head-u
+# head-u: build in shu at b3dffdad, exit 0; xfx sha256 8fc694c7860b590f5caf6ba2481488327682179ab7a22908dbbe6c95f412a261
+# size 40x120; selection: selection-units.txt
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 10.74
+# head-u: sweep exit 0, 2169 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 8.41
+[185/187] xfx model-anchor: ran (5s)
+[186/187] xfx startup: ran (4s)
+[187/187] fx (inventory): ran (34s)
+pass = 372 / 544 = 68.4%; unresolved 169, failed 0, timeout 0
+wrote <tmp>/scoreboard.md
+# sweep.sh exit 0
+run.json: started 2026-11-11T08:08:07+09:00; wall 36m06s; start_load 10.74; peak_load 16.03; jobs 2; size 40x120; xfx_sha256 8fc694c7860b590f5caf6ba2481488327682179ab7a22908dbbe6c95f412a261; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head b3dffdad3e0b5c5a0ee003a07996eb7539bef911
+
+## banners
+head: 494 xfx snaps show the banner; 494 name the build b3dffda; others none
+base: 327 xfx snaps show the banner; 327 name the build dcfa514; others none
+head-u: 477 xfx snaps show the banner; 477 name the build b3dffda; others none
+base-u: 477 xfx snaps show the banner; 477 name the build dcfa514; others none
+
+## the base sweep rescored with the head's ledger
+pass = 215 / 389 = 55.3%; unresolved 161, failed 0, timeout 0
+wrote <out>/scoreboard.md
+exit 0
+ref-base: before pass = 215 / 389; after pass = 215 / 389; ledger 1b43f828 (the head's 1b43f828)
+pair by pair: 389 pairs before, 389 after; verdicts moved by the rescore: 0
+
+## the base-u sweep rescored with the head's ledger
+pass = 372 / 544 = 68.4%; unresolved 169, failed 0, timeout 0
+wrote <out>/scoreboard.md
+exit 0
+ref-base-u: before pass = 372 / 544; after pass = 372 / 544; ledger 1b43f828 (the head's 1b43f828)
+pair by pair: 544 pairs before, 544 after; verdicts moved by the rescore: 0
+
+## the product version each tree builds (Cargo.toml), the units' tips with the two swept
+dcfa514 version = "0.2.0"
+b3dffda version = "0.2.0"
+4130f4ac version = "0.1.0"
+e7e1bcf6 version = "0.1.0"
+3ea16930 version = "0.1.0"
+bde1ddfa version = "0.1.0"

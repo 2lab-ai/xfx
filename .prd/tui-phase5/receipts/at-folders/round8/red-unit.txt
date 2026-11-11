@@ -1,0 +1,16 @@
+# round 8 RED at <this commit> (the cases on round 7's code, b4a07a4a's src): cargo test --locked --lib -- --exact <the 2 cases>, TMPDIR=<scratch>
+running 2 tests
+test tui::shell::tests::the_first_indexed_episode_skips_its_refresh_while_the_index_loads ... FAILED
+test tui::shell::tests::an_equal_access_changes_nothing_even_where_its_directory_is_gone ... FAILED
+thread 'tui::shell::tests::the_first_indexed_episode_skips_its_refresh_while_the_index_loads' (412369161) panicked at src/tui/shell.rs:35558:9:
+assertion `left == right` failed: the first episode refreshed behind the loading index
+  left: 2
+ right: 1
+thread 'tui::shell::tests::an_equal_access_changes_nothing_even_where_its_directory_is_gone' (412369160) panicked at src/tui/shell.rs:35604:9:
+assertion `left == right` failed: the index was dropped with no walk asked for
+  left: Some(Loading)
+ right: Some(Rows)
+    tui::shell::tests::an_equal_access_changes_nothing_even_where_its_directory_is_gone
+    tui::shell::tests::the_first_indexed_episode_skips_its_refresh_while_the_index_loads
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4605 filtered out; finished in 0.32s
+error: test failed, to rerun pass `--lib`

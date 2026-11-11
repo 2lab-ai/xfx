@@ -1,0 +1,42 @@
+𝒇x v0.0.16 · Run /help for commands
+
+fx: Io
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 1, Tue Nov 10 11:50:10 2026)

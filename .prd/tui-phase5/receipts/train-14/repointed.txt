@@ -1,0 +1,87 @@
+# at 6bc758a0, where the plan's numbers stand; the third re-point's six are content-725b3c90.txt's WRONG and content-head.txt's not
+ok  auto  docs/architecture.md:47 src/main.rs:22-25 -> src/main.rs:28-31: the frame's lines and two either side at :28-31
+ok  auto  docs/parity.md:48 :1356-1367 -> :1635-1646: the frame's lines and two either side at :1635-1646
+ok  auto  docs/parity.md:237 src/gateway/mod.rs:994-995 -> src/gateway/mod.rs:1005-1006: the frame's lines and two either side at :1005-1006
+ok  auto  docs/parity.md:237 :199-207 -> :200-208: the frame's lines and two either side at :200-208
+ok  auto  docs/parity.md:244 src/tui/frame.rs:2803 -> src/tui/frame.rs:2811: the frame's lines and two either side at :2811
+ok  auto  scripts/fxcap/capfile.py:180 src/tui/shell.rs:15196-15221 -> src/tui/shell.rs:15591-15616: the frame's lines and two either side at :15591-15616
+ok  text  scripts/fxcap/parity-ledger.toml:28: the span '(.prd/07-fx-parity-program.md:19@6bc31872)' stands once
+ok  auto  scripts/fxcap/parity-ledger.toml:79 scripts/fxcap/capture.sh:681 -> scripts/fxcap/capture.sh:685: the frame's lines and two either side at :685
+ok  auto  scripts/fxcap/parity-ledger.toml:86 scripts/fxcap/capture.sh:326-328 -> scripts/fxcap/capture.sh:330-332: the frame's lines and two either side at :330-332
+ok  auto  scripts/fxcap/parity-ledger.toml:86 scripts/fxcap/capture.sh:379-385 -> scripts/fxcap/capture.sh:383-389: the frame's lines and two either side at :383-389
+ok  auto  scripts/fxcap/parity-ledger.toml:86 scripts/fxcap/capture.sh:980 -> scripts/fxcap/capture.sh:984: the frame's lines and two either side at :984
+ok  auto  scripts/fxcap/parity-ledger.toml:86 scripts/fxcap/capture.sh:987 -> scripts/fxcap/capture.sh:991: the frame's lines and two either side at :991
+ok  auto  scripts/fxcap/parity-ledger.toml:148 scripts/fxcap/capture.sh:1157 -> scripts/fxcap/capture.sh:1161: the frame's lines and two either side at :1161
+ok  auto  scripts/fxcap/parity-ledger.toml:492 src/tui/full_transcript.rs:3010 -> src/tui/full_transcript.rs:3020: the frame's lines and two either side at :3020
+ok  auto  scripts/fxcap/parity-ledger.toml:506 src/tui/full_transcript.rs:3061 -> src/tui/full_transcript.rs:3071: the frame's lines and two either side at :3071
+ok  auto  scripts/fxcap/parity-ledger.toml:506 src/tui/shell.rs:13960 -> src/tui/shell.rs:14355: the frame's lines and two either side at :14355
+ok  auto  scripts/fxcap/parity-ledger.toml:520 src/tui/full_transcript.rs:3061 -> src/tui/full_transcript.rs:3071: the frame's lines and two either side at :3071
+ok  auto  scripts/fxcap/parity-ledger.toml:534 src/tui/frame.rs:2757 -> src/tui/frame.rs:2765: the frame's lines and two either side at :2765
+ok  auto  scripts/fxcap/parity-ledger.toml:552 src/tui/shell.rs:3818-3835 -> src/tui/shell.rs:3823-3840: the frame's lines and two either side at :3823-3840
+ok  auto  scripts/fxcap/parity-ledger.toml:553 src/tui/shell.rs:3818-3835 -> src/tui/shell.rs:3823-3840: the frame's lines and two either side at :3823-3840
+ok  auto  scripts/fxcap/parity-ledger.toml:690 src/tui/shell.rs:16979 -> src/tui/shell.rs:17389: the frame's lines and two either side at :17389
+ok  auto  scripts/fxcap/parity-ledger.toml:807 src/tui/shell.rs:42483 -> src/tui/shell.rs:46692: the frame's lines and two either side at :46692
+ok  auto  scripts/fxcap/parity-ledger.toml:818 src/tui/shell.rs:42483 -> src/tui/shell.rs:46692: the frame's lines and two either side at :46692
+ok  auto  scripts/fxcap/parity-ledger.toml:830 src/tui/shell.rs:42483 -> src/tui/shell.rs:46692: the frame's lines and two either side at :46692
+ok  auto  scripts/fxcap/parity-ledger.toml:841 src/tui/shell.rs:42483 -> src/tui/shell.rs:46692: the frame's lines and two either side at :46692
+ok  auto  scripts/fxcap/parity-ledger.toml:852 src/tui/shell.rs:42483 -> src/tui/shell.rs:46692: the frame's lines and two either side at :46692
+ok  auto  scripts/fxcap/parity-ledger.toml:864 src/tui/shell.rs:10556 -> src/tui/shell.rs:10947: the frame's lines and two either side at :10947
+ok  auto  scripts/fxcap/parity-ledger.toml:866 src/tui/shell.rs:10556 -> src/tui/shell.rs:10947: the frame's lines and two either side at :10947
+ok  auto  scripts/fxcap/parity-ledger.toml:866 :1927 -> :1932: the frame's lines and two either side at :1932
+ok  auto  scripts/fxcap/parity-ledger.toml:920 src/tui/shell.rs:42483 -> src/tui/shell.rs:46692: the frame's lines and two either side at :46692
+ok  auto  scripts/fxcap/parity-ledger.toml:956 src/tui/shell.rs:1852 -> src/tui/shell.rs:1857: the frame's lines and two either side at :1857
+ok  auto  scripts/fxcap/parity-ledger.toml:990 src/tui/shell.rs:16979 -> src/tui/shell.rs:17389: the frame's lines and two either side at :17389
+ok  auto  scripts/fxcap/parity-ledger.toml:1002 src/tui/full_transcript.rs:3010 -> src/tui/full_transcript.rs:3020: the frame's lines and two either side at :3020
+ok  auto  scripts/fxcap/parity-ledger.toml:1108 src/tui/shell.rs:4555 -> src/tui/shell.rs:4560: the frame's lines and two either side at :4560
+ok  auto  scripts/fxcap/scenarios/p5-panels-badsettings.cap:7 src/tui/shell.rs:3820-3837 -> src/tui/shell.rs:3823-3840: the frame's lines and two either side at :3823-3840
+ok  hand  scripts/smoke-tui.sh:194 term.rs:32-52 -> term.rs:56-113: the head's :56 holds 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b['
+ok  hand  scripts/smoke-tui.sh:291 src/tui/term.rs:32-52 -> src/tui/term.rs:56-113: the head's :56 holds 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b['
+ok  auto  scripts/smoke-tui.sh:4708 src/main.rs:44-49 -> src/main.rs:50-55: the frame's lines and two either side at :50-55
+ok  auto  scripts/smoke-tui.sh:4977 src/tui/check.rs:1084 -> src/tui/check.rs:1689: the frame's lines and two either side at :1689
+ok  lines scripts/smoke-tui.sh:11208 editor.rs:351 -> editor.rs:540: the frame's lines at :540
+ok  hand  scripts/smoke-tui.sh:11212 shell.rs:2703 -> shell.rs:13043: the head's :13043 holds 'if let Some(delta) = self.editor.insert(&text) {'
+ok  left  src/tools/question.rs:303 Cargo.toml:42: as it was
+ok  auto  src/tools/question.rs:885 spec.rs:98-101 -> spec.rs:108-111: the frame's lines and two either side at :108-111
+ok  lines src/tui/bridge.rs:1744 machine.rs:334-345 -> machine.rs:849-860: the frame's lines at :849-860
+ok  hand  src/tui/bridge.rs:1797 machine.rs:641-648 -> machine.rs:1752-1766: the head's :1752 holds 'self.delivered = true;'
+ok  hand  src/tui/bridge.rs:2328 machine.rs:646 -> machine.rs:1766: the head's :1766 holds 'let reported = io::Error::new(err.kind(), err.to_s'
+ok  lines src/tui/bridge.rs:2342 machine.rs:334-345 -> machine.rs:849-860: the frame's lines at :849-860
+ok  lines src/tui/edit_history.rs:69 entity.rs:113-116 -> entity.rs:138-141: the frame's lines at :138-141
+ok  auto  src/tui/edit_history.rs:108 editor.rs:374-376 -> editor.rs:570-572: the frame's lines and two either side at :570-572
+ok  hand  src/tui/edit_history.rs:127 entity.rs:468-484 -> entity.rs:686-710: the head's :686 holds '/// different every keystroke.'
+ok  auto  src/tui/edit_history.rs:129 entity.rs:91-96 -> entity.rs:116-121: the frame's lines and two either side at :116-121
+ok  lines src/tui/event_loop.rs:8409 frame.rs:1533 -> frame.rs:2631: the frame's lines at :2631
+ok  auto  src/tui/event_loop.rs:14225 frame.rs:61 -> frame.rs:102: the frame's lines and two either side at :102
+ok  hand  src/tui/event_loop.rs:14227 frame.rs:1615-1628 -> frame.rs:2734-2772: the head's :2734 holds '/// Places one row of the document: `CUP`, the cli'
+ok  lines src/tui/event_loop.rs:14228 grid.rs:41 -> grid.rs:47: the frame's lines at :47
+ok  lines src/tui/event_loop.rs:14451 transcript.rs:136 -> transcript.rs:348: the frame's lines at :348
+ok  auto  src/tui/event_loop.rs:15009 shell.rs:2815 -> shell.rs:2821: the frame's lines and two either side at :2821
+ok  hand  src/tui/event_loop.rs:15107 transcript.rs:505-531 -> transcript.rs:1078-1104: the head's :1078 holds 'pub(crate) fn emit_front<E>('
+ok  auto  src/tui/event_loop.rs:15110 event_loop.rs:1046-1049 -> event_loop.rs:1128-1131: the frame's lines and two either side at :1128-1131
+ok  auto  src/tui/frame.rs:7817 frame.rs:1599-1622 -> frame.rs:1607-1630: the frame's lines and two either side at :1607-1630
+ok  auto  src/tui/frame.rs:7818 frame.rs:1623 -> frame.rs:1631: the frame's lines and two either side at :1631
+ok  auto  src/tui/frame.rs:7901 frame.rs:1623-1626 -> frame.rs:1631-1634: the frame's lines and two either side at :1631-1634
+ok  auto  src/tui/frame.rs:7967 frame.rs:1462 -> frame.rs:1470: the frame's lines and two either side at :1470
+ok  auto  src/tui/frame.rs:7969 frame.rs:1539-1591 -> frame.rs:1547-1599: the frame's lines and two either side at :1547-1599
+ok  auto  src/tui/frame.rs:8144 frame.rs:1593-1604 -> frame.rs:1601-1612: the frame's lines and two either side at :1601-1612
+ok  auto  src/tui/input.rs:2033 .prd/tui-phase3/loop.md:416 -> .prd/tui-phase3/loop.md:441: the frame's lines and two either side at :441
+ok  hand  src/tui/probe.rs:519 .prd/03-tui-port.md:43-44 -> .prd/03-tui-port.md:62-63: the head's :62 holds '1. At launch, query the cursor row (CSI `6n`, 100 '
+ok  auto  src/tui/program_status.rs:16 .prd/01-spec.md:56 -> .prd/01-spec.md:58: the frame's lines and two either side at :58
+ok  auto  src/tui/shell.rs:24979 shell.rs:6084 -> shell.rs:6178: the frame's lines and two either side at :6178
+ok  auto  src/tui/worker.rs:4 src/main.rs:22-25 -> src/main.rs:28-31: the frame's lines and two either side at :28-31
+ok  lines src/tui/worker.rs:33 machine.rs:334-345 -> machine.rs:849-860: the frame's lines at :849-860
+ok  hand  src/tui/wrap.rs:2179 wrap.rs:102-106 -> wrap.rs:108-112: the head's :108 holds 'pub(crate) fn width(text: &str) -> u16 {'
+ok  auto  src/tui/wrap.rs:2181 check.rs:1808-1813 -> check.rs:1814-1819: the frame's lines and two either side at :1814-1819
+ok  left  tests/session_compat.rs:57 src/session/event.rs:98-192: as it was
+ok  auto  tests/tui.rs:591 src/tui/mod.rs:269-270 -> src/tui/mod.rs:759-760: the frame's lines and two either side at :759-760
+ok  auto  tests/tui.rs:2521 .prd/tui-phase3/ssot.md:43 -> .prd/tui-phase3/ssot.md:51: the frame's lines and two either side at :51
+ok  text  tests/tui.rs:2600: the span '(`tests/tui.rs:1809,2191,2766,3113,3236,3928,7648,7722,8515,' stands once
+ok  auto  tests/tui.rs:3246 .prd/tui-phase3/loop.md:416 -> .prd/tui-phase3/loop.md:441: the frame's lines and two either side at :441
+ok  auto  tests/tui.rs:9448 src/tui/shell.rs:16943 -> src/tui/shell.rs:17353: the frame's lines and two either side at :17353
+ok  hand  tests/tui.rs:9488 src/tui/shell.rs:9736 -> src/tui/shell.rs:10127: the head's :10127 holds 'Input::Action(Action::Redraw) => {'
+ok  extra scripts/smoke-tui.sh input.rs:1152 -> input.rs:1347: the head's line holds '0x1f => Action::Undo,'
+# 81 plan lines checked at 6bc758a0: 81 ok, 0 bad
+# 04e4491d, 6bc758a0: 74 lines out, 74 in; the same once numbers are masked and the 2 text spans put back: True
+# exit 0
+# 3a2830fb: 6 lines out, 6 in; the same once numbers are masked: True
+# b3dffdad: 2 lines out, 2 in; the same once numbers are masked: True

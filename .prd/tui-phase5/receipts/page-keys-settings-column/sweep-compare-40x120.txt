@@ -1,0 +1,13 @@
+pairs: base 295, head 295
+base: pass 169/295  normalized-identical 169, unresolved-defect 126
+head: pass 166/295  identical 1, normalized-identical 165, unresolved-defect 129
+
+moved to passing: 0
+
+dropped from passing: 3
+  model-column-idle col-down: normalized-identical -> unresolved-defect
+  model-column-idle col-idle: normalized-identical -> unresolved-defect
+  model-column-idle col-typed: normalized-identical -> unresolved-defect
+
+other verdict changes: 1
+  settings-collapse-open after-esc: normalized-identical -> identical

@@ -516,7 +516,7 @@ fn readable_before(fd: BorrowedFd<'_>, deadline: Instant) -> io::Result<bool> {
 ///
 /// Everything above the cursor is the shell's, and all of it goes into
 /// scrollback: the session then owns a screen that begins at row 1, which is
-/// what the transcript viewport is anchored to (`.prd/03-tui-port.md:43-44`,
+/// what the transcript viewport is anchored to (`.prd/03-tui-port.md:62-63`,
 /// `.prd/research/tui-core.md:30,114`). So the count is the number of rows
 /// above the cursor -- capped at the screen, because a cursor row reported
 /// larger than the window cannot mean more scrolling than the screen holds.

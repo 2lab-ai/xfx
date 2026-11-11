@@ -1,0 +1,26 @@
+banners: head x𝒇x v0.1.0-9a83cad [debug] | base x𝒇x v0.1.0-af2b613 [debug]
+pair                                                        base  head
+filepicker-40x120-at-dir-cj                                    4     0
+filepicker-40x120-at-dir-down                                  4     0
+filepicker-40x120-at-dir                                       4     0
+filepicker-40x120-at-tab                                       1     0
+p5-input-at-16x120-at-src-enter                                1     0
+p5-input-at-16x120-at-src-tab                                 10     0
+p5-input-at-16x120-at-src                                      6     0
+p5-input-at-18x120-at-src-enter                                1     0
+p5-input-at-18x120-at-src-tab                                 12     0
+p5-input-at-18x120-at-src                                      8     0
+p5-input-at-40x120-at-src-enter                                1     0
+p5-input-at-40x120-at-src-tab                                 13     0
+p5-input-at-40x120-at-src                                      9     0
+p5-input-at-dir-40x120-dir-enter                               5     0
+p5-input-at-dir-40x120-dir-query                               0     0
+p5-input-at-folders-40x120-space-enter                         1     0
+p5-input-at-folders-40x120-space-open                          2     0
+p5-input-at-folders-40x120-space-query                         0     0
+p5-input-at-folders-40x120-space-x                             1     0
+p5-input-at-folders-40x120-src-enter-x                         1     0
+p5-input-at-folders-40x120-src-open                            3     0
+p5-input-at-folders-40x120-sto-query                           0     0
+p5-input-at-folders-40x120-sto-x                               5     0
+pairs: 23; identical on the head (0 rows differ): 23

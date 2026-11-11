@@ -1,0 +1,23 @@
+# The diagnosis, made to happen: the self-test at 2ddf7d88 against two copies of its check, each changed in one place (scratch only, never committed).
+
+## 1. The check's git pass leaves out w3/trace-report.md: before 'given=$((given + 1))', the copy skips that path's record.
+test-check-no-local-paths: FAIL shapes: exit 1; 0 of 30 named; not named: mac.md:1: a macOS home directory linux.sh:1: a Linux home directory harness.py:1: a harness scratch root linux-harness.txt:2: a harness scratch root link.ansi:1: a ma
+    | check-no-local-paths: two readings of the tree disagree: the line pass has w3/xfx-trace-40x120-report-1.md with 1 line(s), git grep -c has w3/trace-report.md with 1
+    | ran: bash 3.2.57(1)-release (/bin/bash); git version 2.56.0 (/opt/homebrew/bin/git)
+    | expected: check-no-local-paths: git gave 43 line(s): 27 refused, 2 in 2 binary file(s), 3 marked, 11 placeholder
+    | actual:   none
+    | lost: w3/trace-report.md: in the failing pass: no line of it; after it: in the index 1 time(s), 26 byte(s) on disk, a later git grep -c: w3/trace-report.md:1 
+    | per tree: a second run over the same tree (exit 1) missed 30 of them too
+    | second run: 0 named; no accounting
+    | check-no-local-paths: two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has w3/trace-report.md with 1
+test-check-no-local-paths: ok omit                       the two readings disagree; the check fails
+
+## 2. The check classifies w3/trace-report.md's line as a placeholder line: before the shape match, the copy counts that path's line as one.
+test-check-no-local-paths: FAIL shapes: exit 1; 29 of 30 named; not named: w3/trace-report.md:1: a Linux home directory
+    | ran: bash 3.2.57(1)-release (/bin/bash); git version 2.56.0 (/opt/homebrew/bin/git)
+    | expected: check-no-local-paths: git gave 43 line(s): 27 refused, 2 in 2 binary file(s), 3 marked, 11 placeholder
+    | actual:   check-no-local-paths: git gave 43 line(s): 26 refused, 2 in 2 binary file(s), 3 marked, 12 placeholder
+    | lost: w3/trace-report.md: in the failing pass: line 1 placeholder; after it: in the index 1 time(s), 26 byte(s) on disk, a later git grep -c: w3/trace-report.md:1 
+    | per tree: a second run over the same tree (exit 1) missed 1 of them too
+    | second run: 29 named; check-no-local-paths: git gave 43 line(s): 26 refused, 2 in 2 binary file(s), 3 marked, 12 placeholder
+test-check-no-local-paths: ok omit                       the two readings disagree; the check fails

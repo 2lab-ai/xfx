@@ -1,0 +1,24 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Settings 14  [All]  Interface  Agent  Notifications  Advanced
+
+  Model                    openai/gpt-6-astra
+                           fake/row-06
+                           fake/row-05
+                           fake/row-04
+                           fake/row-03
+                           fake/row-02
+                           fake/row-01
+  Reasoning effort         default  low  medium  high  xhigh
+  Fast mode                off  on
+  Ultra mode               off  on
+  Permission mode          ask  auto  full access
+  Session titles           off  on
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     ←→ change     esc close
+
+
+
+

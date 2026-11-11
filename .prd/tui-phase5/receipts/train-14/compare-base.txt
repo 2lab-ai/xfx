@@ -1,0 +1,305 @@
+pairs: reference 389, train 561, shared 389; only the reference: 0
+reference: 389 pairs, pass 215; approved-divergence 13, identical 5, normalized-identical 210, unresolved-defect 161
+train: 389 pairs, pass 226; approved-divergence 13, identical 6, normalized-identical 220, unresolved-defect 150
+filepicker at-dir: 4 differing rows left, 0 new
+    left: fx '      src/' / xfx '      src/deep/'
+    left: fx '      src/deep/' / xfx '      src/lib.rs'
+    left: fx '      src/lib.rs' / xfx '      src/main.rs'
+    left: fx '      src/main.rs' / xfx ''
+filepicker at-dir-cj: 4 differing rows left, 0 new
+    left: fx '      src/' / xfx '      src/deep/'
+    left: fx '      src/deep/' / xfx '      src/lib.rs'
+    left: fx '      src/lib.rs' / xfx '      src/main.rs'
+    left: fx '      src/main.rs' / xfx ''
+filepicker at-dir-down: 4 differing rows left, 0 new
+    left: fx '      src/' / xfx '      src/deep/'
+    left: fx '      src/deep/' / xfx '      src/lib.rs'
+    left: fx '      src/lib.rs' / xfx '      src/main.rs'
+    left: fx '      src/main.rs' / xfx ''
+filepicker at-tab: 1 differing rows left, 0 new
+    left: fx '┃ see @src/lib.rs' / xfx '┃ see @src/main.rs'
+p5-input-at at-src: 9 differing rows left, 0 new
+    left: fx '  src/' / xfx '  src/config.zig'
+    left: fx '  src/config.zig' / xfx '  src/main.zig'
+    left: fx '  src/main.zig' / xfx '  src/master.zig'
+    left: fx '  src/master.zig' / xfx '  src/parse.zig'
+    left: fx '  src/parse.zig' / xfx '  src/render.zig'
+    left: fx '  src/render.zig' / xfx '  src/state.zig'
+    left: fx '  src/state.zig' / xfx '  src/store/'
+    left: fx '  src/store/' / xfx '  src/util.zig'
+    left: fx '  src/util.zig' / xfx ''
+p5-input-at at-src-enter: 1 differing rows left, 0 new
+    left: fx '┃ @src/' / xfx '┃ @src/config.zig'
+p5-input-at at-src-tab: 12 differing rows left, 0 new
+    left: fx '  src/' / xfx 'auto · model-a'
+    left: fx '  src/config.zig' / xfx ''
+    left: fx '  src/main.zig' / xfx ''
+    left: fx '  src/master.zig' / xfx ''
+    left: fx '  src/parse.zig' / xfx ''
+    left: fx '  src/render.zig' / xfx ''
+    left: fx '  src/state.zig' / xfx ''
+    left: fx '  src/store/' / xfx ''
+    left: fx '  src/util.zig' / xfx ''
+    left: fx 'auto · model-a' / xfx ''
+    left: fx '──────────────────────────────────────────────────────────────────────' / xfx ''
+    left: fx '┃ @src/' / xfx '┃ @src/config.zig'
+p5-input-at at-st: 10 differing rows left, 0 new
+    left: fx '  STATUS.md' / xfx '  spikes/s-03-trace.txt'
+    left: fx '  docs/strategy.md' / xfx '  STATUS.md'
+    left: fx '  src/state.zig' / xfx '  start.sh'
+    left: fx '  src/store/' / xfx '  spikes/s-04-trace.txt'
+    left: fx '  start.sh' / xfx '  spikes/s-01-trace.txt'
+    left: fx '  stats.json' / xfx '  spikes/s-06-trace.txt'
+    left: fx '  store.rs' / xfx '  spikes/s-02-trace.txt'
+    left: fx '  stream.zig' / xfx '  spikes/s-07-trace.txt'
+    left: fx '  string_utils.c' / xfx '  store.rs'
+    left: fx '  style.css' / xfx '  spikes/s-05-trace.txt'
+p5-input-at at-st-down12: 10 differing rows left, 0 new
+    left: fx '  docs/strategy.md' / xfx '  STATUS.md'
+    left: fx '  spikes/s-01-trace.txt' / xfx '  src/store/'
+    left: fx '  spikes/s-02-trace.txt' / xfx '  style.css'
+    left: fx '  spikes/s-03-trace.txt' / xfx '  stats.json'
+    left: fx '  src/state.zig' / xfx '  start.sh'
+    left: fx '  src/store/' / xfx '  spikes/s-04-trace.txt'
+    left: fx '  stats.json' / xfx '  spikes/s-06-trace.txt'
+    left: fx '  stream.zig' / xfx '  spikes/s-07-trace.txt'
+    left: fx '  string_utils.c' / xfx '  store.rs'
+    left: fx '  style.css' / xfx '  spikes/s-05-trace.txt'
+p5-input-at at-st-up6: 10 differing rows left, 0 new
+    left: fx '  docs/strategy.md' / xfx '  STATUS.md'
+    left: fx '  spikes/s-01-trace.txt' / xfx '  src/store/'
+    left: fx '  spikes/s-02-trace.txt' / xfx '  style.css'
+    left: fx '  spikes/s-03-trace.txt' / xfx '  stats.json'
+    left: fx '  src/state.zig' / xfx '  start.sh'
+    left: fx '  src/store/' / xfx '  spikes/s-04-trace.txt'
+    left: fx '  stats.json' / xfx '  spikes/s-06-trace.txt'
+    left: fx '  stream.zig' / xfx '  spikes/s-07-trace.txt'
+    left: fx '  string_utils.c' / xfx '  store.rs'
+    left: fx '  style.css' / xfx '  spikes/s-05-trace.txt'
+p5-input-at at-stat: 10 differing rows left, 0 new
+    left: fx '  STATUS.md' / xfx '  spikes/s-01-trace.txt'
+    left: fx '  docs/strategy.md' / xfx '  spikes/s-05-trace.txt'
+    left: fx '  spikes/s-01-trace.txt' / xfx '  spikes/s-06-trace.txt'
+    left: fx '  spikes/s-02-trace.txt' / xfx '  spikes/s-07-trace.txt'
+    left: fx '  spikes/s-03-trace.txt' / xfx '  spikes/noisy/clusters-a.toml'
+    left: fx '  spikes/s-04-trace.txt' / xfx '  STATUS.md'
+    left: fx '  spikes/s-05-trace.txt' / xfx '  stats.json'
+    left: fx '  src/state.zig' / xfx '  spikes/s-03-trace.txt'
+    left: fx '  start.sh' / xfx '  spikes/s-04-trace.txt'
+    left: fx '  stats.json' / xfx '  spikes/s-02-trace.txt'
+p5-input-at-dir dir-enter: 4 differing rows left, 0 new
+    left: fx '' / xfx '  src/store/slots.ts'
+    left: fx '' / xfx 'auto · model-a'
+    left: fx '' / xfx '──────────────────────────────────────────────────────────────────────'
+    left: fx 'auto · model-a' / xfx '  src/store/index.ts'
+p5-transcript-question full-60: 1 differing rows left, 1 new
+    left: fx '<banner>' / xfx 'x𝒇x v0.2.0 (debug 2026-11-10-1858-dcfa5146b520) · Run /help…'
+    NEW:  fx '<banner>' / xfx 'x𝒇x v0.2.0 (debug 2026-11-10-2057-b3dffdad3e0b) · Run /help…'
+workspace-index at-plan: 0 differing rows left, 1 new
+    NEW:  fx '________________________________________________________>/extra/notes/' / xfx '________________________________________________________>/extra/notes/'
+verdicts moved: 14
+    filepicker at-dir: unresolved-defect -> normalized-identical
+    filepicker at-dir-cj: unresolved-defect -> normalized-identical
+    filepicker at-dir-down: unresolved-defect -> normalized-identical
+    filepicker at-tab: unresolved-defect -> normalized-identical
+    p5-input-at at-src: unresolved-defect -> normalized-identical
+    p5-input-at at-src-enter: unresolved-defect -> normalized-identical
+    p5-input-at at-src-tab: unresolved-defect -> normalized-identical
+    p5-input-at at-st: unresolved-defect -> normalized-identical
+    p5-input-at at-st-down12: unresolved-defect -> normalized-identical
+    p5-input-at at-st-up6: unresolved-defect -> normalized-identical
+    p5-input-at at-stat: unresolved-defect -> normalized-identical
+    p5-input-at-dir dir-enter: unresolved-defect -> normalized-identical
+    settings-collapse-open after-esc: normalized-identical -> identical
+    workspace-index at-plan: normalized-identical -> unresolved-defect
+fx screens not the same in the two sweeps: 76
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    image-paste ctrl-v
+    image-paste end.full
+    image-paste images
+    image-paste paste
+    image-paste sent
+    links full
+    p5-ctrlo-wider-diff full
+    p5-ctrlo-wider-diff-fam full
+    p5-ctrlo-wider-fence ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo-resized
+    p5-panels-badsettings launch
+    p5-question-resume-ctrlo resumed-ctrlo
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchor running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel full
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    settings-collapse running
+    settings-collapse-open after-esc
+    timeout live-ctrl-o
+    workspace-index at-plan
+xfx screens not the same in the two sweeps: 110
+    approvals after-cc-cmd-ask
+    approvals cmd2-ask
+    approvals edit-amend-typed
+    approvals edit-ask
+    approvals edit-down1
+    approvals edit-down3-wrap
+    approvals edit-tab-amend
+    approvals write-ask
+    filepicker at-dir
+    filepicker at-dir-cj
+    filepicker at-dir-down
+    filepicker at-tab
+    fulltranscript cmd-ask
+    fulltranscript cmd-ask-ctrl-o
+    fulltranscript edit-ask
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice end
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    image-paste ctrl-v
+    image-paste end.full
+    image-paste images
+    image-paste paste
+    image-paste sent
+    links full
+    model-column-reask col-held
+    p5-ctrlo-wider-diff full
+    p5-ctrlo-wider-diff-fam full
+    p5-ctrlo-wider-fence ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo-resized
+    p5-input-at at-src
+    p5-input-at at-src-enter
+    p5-input-at at-src-tab
+    p5-input-at at-st
+    p5-input-at at-st-down12
+    p5-input-at at-st-up6
+    p5-input-at at-stat
+    p5-input-at-dir dir-enter
+    p5-question-resume-ctrlo resumed-ctrlo
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-transcript-anchor end
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid end
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel cmd-running
+    p5-transcript-cancel full
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab end
+    p5-transcript-safetab full
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    resume-tools cmd-ask
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools edit-ask
+    resume-tools exit-ask
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    resume-tools write-ask
+    settings-collapse cmd-ask
+    settings-collapse running
+    settings-collapse-open after-esc
+    settings-collapse-open collapse-on
+    settings-collapse-open running
+    timeout live-ctrl-o
+    workspace-index at-plan
+passed on the reference, not on the train: 1
+    workspace-index at-plan; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 2

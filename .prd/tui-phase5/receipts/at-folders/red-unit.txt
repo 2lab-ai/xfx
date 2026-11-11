@@ -1,0 +1,65 @@
+# RED at 7ef30e66 (the tests and the seams at the base's behaviour): cargo test --locked --lib -- <the 15 cases>, TMPDIR=<scratch>
+test tui::file_picker::tests::a_listing_after_a_slow_folder_is_watched_so_the_wait_can_come_back ... FAILED
+test tui::file_picker::tests::a_folder_listing_holds_its_frame_for_one_tick ... FAILED
+test tui::file_picker::tests::tab_opens_a_folder_and_enter_mentions_it ... FAILED
+test tui::file_picker::tests::a_mentioned_folder_closes_its_quote ... FAILED
+test tui::file_index::tests::a_listed_folder_is_its_own_first_row ... FAILED
+test tui::file_index::tests::a_browsed_directory_lists_its_entries_by_name ... FAILED
+test tui::shell::tests::after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one ... FAILED
+test tui::shell::tests::a_keystroke_that_lists_a_folder_holds_its_frame_until_the_rows_land ... FAILED
+test tui::shell::tests::tab_on_the_folders_own_row_lists_it_again ... FAILED
+test tui::shell::tests::a_later_at_puts_the_rows_under_itself_and_down_and_tab_choose ... FAILED
+test tui::shell::tests::a_folder_with_a_space_is_mentioned_inside_its_quotes ... FAILED
+test tui::event_loop::tests::the_frame_of_a_keystroke_that_lists_a_folder_waits_for_its_rows ... FAILED
+test tui::shell::tests::enter_on_a_folder_row_mentions_the_folder_and_closes_the_list ... FAILED
+test tui::shell::tests::a_directory_choice_keeps_the_list_up_on_that_directory ... FAILED
+test tui::event_loop::tests::a_key_the_list_hands_on_mid_resize_asks_for_the_frame_too ... FAILED
+thread 'tui::file_picker::tests::a_listing_after_a_slow_folder_is_watched_so_the_wait_can_come_back' panicked at src/tui/file_picker.rs:1753:9:
+assertion failed: wait.measuring(later)
+thread 'tui::file_picker::tests::a_folder_listing_holds_its_frame_for_one_tick' panicked at src/tui/file_picker.rs:1718:9:
+assertion failed: wait.hold(true, at(100))
+thread 'tui::file_picker::tests::tab_opens_a_folder_and_enter_mentions_it' panicked at src/tui/file_picker.rs:1635:9:
+assertion `left == right` failed
+  left: ("@src/nested/", 12)
+ right: ("@src/nested/ ", 13)
+thread 'tui::file_picker::tests::a_mentioned_folder_closes_its_quote' panicked at src/tui/file_picker.rs:1689:9:
+assertion `left == right` failed
+  left: ("@\"./space dir/", 14)
+ right: ("@\"./space dir/\" ", 16)
+thread 'tui::file_index::tests::a_listed_folder_is_its_own_first_row' panicked at src/tui/file_index.rs:1595:9:
+assertion `left == right` failed
+  left: [("src/main.zig", File)]
+ right: [("src", Directory), ("src/main.zig", File)]
+thread 'tui::file_index::tests::a_browsed_directory_lists_its_entries_by_name' panicked at src/tui/file_index.rs:1554:9:
+assertion `left == right` failed
+  left: ["src/deep/", "src/lib.rs", "src/main.rs"]
+ right: ["src/", "src/deep/", "src/lib.rs", "src/main.rs"]
+thread 'tui::shell::tests::after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one' panicked at src/tui/shell.rs:34678:9:
+assertion failed: shell.hold_frame_for_file_listing(at(0))
+thread 'tui::shell::tests::a_keystroke_that_lists_a_folder_holds_its_frame_until_the_rows_land' panicked at src/tui/shell.rs:34630:9:
+the frame did not wait for the folder's rows
+thread 'tui::shell::tests::tab_on_the_folders_own_row_lists_it_again' panicked at src/tui/shell.rs:34585:9:
+assertion `left == right` failed
+  left: "@src/deep/"
+ right: "@src/"
+thread 'tui::shell::tests::a_later_at_puts_the_rows_under_itself_and_down_and_tab_choose' panicked at src/tui/shell.rs:34460:9:
+assertion `left == right` failed
+  left: ["      \u{1b}[48;5;239m\u{1b}[38;5;255msrc/deep/\u{1b}[0m", "      \u{1b}[38;5;245msrc/lib.rs\u{1b}[0m", "      \u{1b}[38;5;245msrc/main.rs\u{1b}[0m", ""]
+ right: ["      \u{1b}[48;5;239m\u{1b}[38;5;255msrc/\u{1b}[0m", "      \u{1b}[38;5;245msrc/deep/\u{1b}[0m", "      \u{1b}[38;5;245msrc/lib.rs\u{1b}[0m", "      \u{1b}[38;5;245msrc/main.rs\u{1b}[0m"]
+thread 'tui::shell::tests::a_folder_with_a_space_is_mentioned_inside_its_quotes' panicked at src/tui/shell.rs:34605:9:
+assertion `left == right` failed
+  left: ["  \u{1b}[48;5;239m\u{1b}[38;5;255m./space dir/item.txt\u{1b}[0m", ""]
+ right: ["  \u{1b}[48;5;239m\u{1b}[38;5;255m./space dir/\u{1b}[0m", "  \u{1b}[38;5;245m./space dir/item.txt\u{1b}[0m"]
+thread 'tui::event_loop::tests::the_frame_of_a_keystroke_that_lists_a_folder_waits_for_its_rows' panicked at src/tui/event_loop.rs:16171:9:
+a frame went out before the folder's rows: "\u{1b}]7501;state=idle:app=xfx\u{1b}\\\u{1b}]2;xfx v0.1.0 | work\u{7}\u{1b}[?2026h\u{1b}[?25l\u{1b}[27;1H\u{1b}[J\u{1b}[27;1H\u{1b}[38;5;255m┃\u{1b}[0m @tree/\u{1b}[28;1H\u{1b}[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u{1b}[29;1H\u{1b}[0m  \u{1b}[38;5;245mindexing fi
+thread 'tui::shell::tests::enter_on_a_folder_row_mentions_the_folder_and_closes_the_list' panicked at src/tui/shell.rs:34552:9:
+assertion `left == right` failed
+  left: "@src/"
+ right: "@src/ "
+thread 'tui::shell::tests::a_directory_choice_keeps_the_list_up_on_that_directory' panicked at src/tui/shell.rs:34536:9:
+assertion `left == right` failed
+  left: ["  \u{1b}[48;5;239m\u{1b}[38;5;255msrc/deep/\u{1b}[0m", "  \u{1b}[38;5;245msrc/lib.rs\u{1b}[0m"]
+ right: ["  \u{1b}[48;5;239m\u{1b}[38;5;255msrc/\u{1b}[0m", "  \u{1b}[38;5;245msrc/deep/\u{1b}[0m"]
+thread 'tui::event_loop::tests::a_key_the_list_hands_on_mid_resize_asks_for_the_frame_too' panicked at src/tui/event_loop.rs:16224:9:
+after these keys were handed on mid-resize, the Down was spent: [[7], [27, 91, 49, 50, 50, 59, 49, 48, 117]]
+test result: FAILED. 0 passed; 15 failed; 0 ignored; 0 measured; 4557 filtered out; finished in 0.08s

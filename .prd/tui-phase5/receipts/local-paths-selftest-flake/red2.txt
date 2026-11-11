@@ -1,0 +1,58 @@
+# RED: the self-test at a72b738a run against the check at d2b2ca75 (git clone --no-local, detached at d2b2ca75, the test file swapped in)
+d2b2ca75 Merge pull request #90 from 2lab-ai/train/p5-1110a
+test-check-no-local-paths: FAIL shapes: not named: late-nul.md: (a binary file, which cannot be marked): a local path
+    | check-no-local-paths: a path that belongs to one machine is in tracked content (write it as a placeholder such as <tmp>, <home> or <work>, derive it from $TMPDIR or $HOME at run time, or mark a fixture's line local-path-ok):
+    | -:1: a Linux home directory
+    | -x/last.txt:3: a harness scratch root
+    | accented.md:1: a harness scratch root, broken after its tmp/
+    | at-sign.md:1: a harness scratch root, broken after its tmp/
+    | bare.md:1: a macOS home directory
+    | bare.md:2: a Linux home directory
+    | blob.bin: (a binary file, which cannot be marked): a local path
+    | body.json:1: a macOS per-user temporary root
+    | both.rs:1: a Linux home directory
+    | café	name.md:1: a macOS home directory
+    | colour.ansi:1: a macOS home directory
+    | docs/fx-guide-40x120-notes.md:1: a Linux home directory
+    | fx-x-40x120-bodies/001-completion.json:1: a Linux home directory
+    | harness.py:1: a harness scratch root
+    | link.ansi:1: a macOS per-user temporary root
+    | linux-harness.txt:2: a harness scratch root
+    | linux.sh:1: a Linux home directory
+    | mac.md:1: a macOS home directory
+    | marked.rs:2: a macOS per-user temporary root
+    | midline.md:1: a macOS home directory
+    | notes.txt:1: a macOS home directory
+    | redirect.sh:1: a Linux home directory
+    | sentinel.sh:1: a Linux home directory
+    | tag.html:1: a macOS home directory
+    | ticked.md:1: a harness scratch root, broken after its tmp/
+    | w3/trace-report.md:1: a Linux home directory
+    | w3/xfx-trace-40x120-report-1.md:1: a Linux home directory
+    | wrapped.ansi:1: a harness scratch root, broken after its tmp/
+    | check-no-local-paths: 1 problem(s) found
+    | lost: late-nul.md: in the index 1 time(s); 8117 byte(s) on disk; git grep -c: late-nul.md:1 
+test-check-no-local-paths: ok self                       its own source matches none of its shapes
+test-check-no-local-paths: ok passes                     placeholders, relative and derived paths, a marked fixture, a renamed report
+test-check-no-local-paths: ok env GIT_DIR                the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_INDEX_FILE         the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_WORK_TREE          the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GREP_OPTIONS           the plant named, the decoy unchanged
+test-check-no-local-paths: ok env HOME                   the plant named, the decoy unchanged
+test-check-no-local-paths: ok skip-worktree              refused by name
+test-check-no-local-paths: ok deleted                    refused by name
+test-check-no-local-paths: FAIL disagree: a line git gave that the check could not account for was not refused (exit 1):
+    | head: ./1: No such file or directory
+    | check-no-local-paths: could not read the first bytes of ./1
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: FAIL vanished: a tracked file gone while the scan ran was not refused by name (exit 0):
+    | check-no-local-paths: ok (2 tracked file(s) scanned; 2 marked fixture line(s), 11 placeholder line(s))
+test-check-no-local-paths: FAIL badnum: a line git gave with no line number did not stop the scan (exit 1):
+    | head: ./x: No such file or directory
+    | check-no-local-paths: could not read the first bytes of ./x
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: ok gitfail                    the check fails
+test-check-no-local-paths: 4 of 14 case(s) failed
+exit=1

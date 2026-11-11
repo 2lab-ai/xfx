@@ -1,0 +1,13 @@
+# cargo test --locked --lib -- --exact <the nine cases>, TMPDIR a short scratch directory
+# GREEN run at 1e41a773 (src as at 732e1962), 2026-11-10T05:06:06Z
+running 9 tests
+test tui::shell::tests::tab_under_the_full_transcript_asks_for_no_read ... ok
+test tui::shell::tests::tab_under_the_full_transcript_over_files_unavailable_walks_nothing ... ok
+test tui::shell::tests::tab_under_the_full_transcript_chooses_nothing_and_keeps_the_list ... ok
+test tui::shell::tests::a_letter_under_the_full_transcript_is_typed_and_looked_up_once_it_closes ... ok
+test tui::shell::tests::the_arrows_and_page_keys_under_the_full_transcript_are_its_own ... ok
+test tui::shell::tests::escape_under_the_full_transcript_closes_it_and_keeps_the_list ... ok
+test tui::shell::tests::c_j_under_the_full_transcript_is_a_new_line_and_closes_the_list ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_kills_to_the_lines_end_and_keeps_the_list ... ok
+test tui::shell::tests::enter_under_the_full_transcript_goes_on_to_the_composer ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 4626 filtered out; finished in 0.11s

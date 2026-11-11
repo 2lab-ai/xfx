@@ -1,0 +1,26 @@
+# head 7b842c2c; tree clean: yes
+01 fmt                                exit 0     2s  load 40.36
+02 clippy                             exit 0     9s  load 40.36
+03 clippy-fault                       exit 0    26s  load 38.33
+04 test                               exit 0   180s  load 39.92
+05 test-fault                         exit 0   258s  load 51.46
+06 check-xfx-identity                 exit 0     1s  load 40.88
+07 check-no-stubs                     exit 0    12s  load 40.88
+08 check-no-secrets                   exit 0    56s  load 43.48
+09 check-preview-contract             exit 0     6s  load 51.61
+10 check-tui-preflight-cost           exit 0   172s  load 50.44
+11 check-usage-clock                  exit 0     4s  load 69.93
+12 test-check-no-secrets              exit 0   113s  load 68.73
+13 test-gate-env                      exit 0   295s  load 62.63
+14 test-preview-contract              exit 0    68s  load 59.50
+15 fxcap-test-sweep                   exit 0    15s  load 51.54
+16 fxcap-test-capture                 exit 0   290s  load 47.20
+17 build-release                      exit 0    20s  load 24.70
+18 build-faulty                       exit 0    32s  load 29.73
+19 smoke                              exit 0     2s  load 34.19
+20 smoke-tui                          exit 0    66s  load 34.82
+# 20 steps, 0 failed; tree clean after: yes
+# test totals, summed over every 'test result' line of the step's log:
+04-test: passed 5527, failed 0
+05-test-fault: passed 5564, failed 0
+# usage: suite-lock.sh gates.sh <worktree> <log dir> <smoke dir>, TMPDIR=<tmp> (a short scratch dir)

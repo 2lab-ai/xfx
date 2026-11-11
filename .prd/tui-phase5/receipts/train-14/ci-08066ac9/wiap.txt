@@ -1,0 +1,46 @@
+# fix/p5-workspace-index-at-plan at 1012f418; its merge base with dcfa5146: d2b2ca75, on main: yes
+# git diff --stat dcfa5146...fix/p5-workspace-index-at-plan outside .prd/
+     scripts/fxcap/capture.sh         | 169 ++++++++++++++++++--
+     scripts/fxcap/parity-ledger.toml |   8 +-
+     scripts/fxcap/roots.py           |   8 +-
+     scripts/fxcap/sweep.py           |  62 ++++++--
+     scripts/fxcap/test_capture.py    | 334 ++++++++++++++++++++++++++++++++++++++-
+     scripts/fxcap/test_sweep.py      | 104 ++++++++++++
+     6 files changed, 652 insertions(+), 33 deletions(-)
+# its README, lines 9-24 and 81-100
+    main's CI sweep at d2b2ca75 (run 42844785959) reported one regression:
+    `workspace-index` / `at-plan` at 40x120, row 13, fx blank and xfx
+    `  <scratch___...>/extra/notes/`. Every claim below names the file in this
+    folder it rests on. `runs.sh` holds every command, by step.
+    
+    ## 1. No commit caused it
+    
+    - The same tree passed it on CI. d2b2ca75 is the merge of 208a8dd4 into
+      8f921425, and the two trees are one (`6f7fce71`). Run 42826560730 swept
+      208a8dd4 and scored `at-plan` normalized-identical; run 42844785959 swept
+      d2b2ca75 and scored it unresolved-defect. Runs 42762620303 (3943d667) and
+      42804085569 (71d3e02b) also passed it (`ci/runs.txt`).
+    - The base binary does it too. With the harness CI used for both builds
+      (d2b2ca75's), xfx 8f921425 at a CI-like TMPDIR gave CI's exact frame in
+      unit 12 -- fx's row 13 blank, xfx's `<scratch` + 46 `_` + `>/extra/notes/`
+      -- and the reverse in unit 04 (`red/8f921425-24.txt`,
+    are bold depends on the names too (fx's best placement, xfx's leftmost one;
+    AT-RANK's ledger cause `at-plan-run-directory` on feat/p5-at-rank names it).
+    At the gate's own TMPDIR, whose fixed part holds `p`, `l`, `a`
+    (`private`, `claude`), the row is always there and only the bold letters
+    flip (`red/d2b2ca75-25.txt`: 9 of 12 differ).
+    
+    ## 3. RED, at d2b2ca75's harness
+    
+    Sweeps of twelve copies of the scenario (`runs.sh red`, `runs.sh copies`):
+    
+    | leg | TMPDIR | at-plan differing | how | file |
+    |---|---|---|---|---|
+    | xfx d2b2ca75 | 24 B, no `l` | 12 / 12 | row on both, bold differs: the `l` was in fxsw's shared name (xfx's second bold cell is byte 34 of the run path, inside `fxsw.`'s eight: `red/d2b2ca75-24-unit01/`) | `red/d2b2ca75-24.txt` |
+    | xfx 8f921425 | 24 B, no `l` | 2 / 12 | row on one side only: units 04 (fx), 12 (xfx, CI's frame) | `red/8f921425-24.txt` |
+    | xfx d2b2ca75 | 49 B, no `l` | 5 / 12 | row on one side only: fx 01, 03, 09; xfx 04, 07 | `red/d2b2ca75-49.txt` |
+    | xfx d2b2ca75 | 16 B, no `l` | 5 / 12 | row on both, bold differs | `red/d2b2ca75-16.txt` |
+    | xfx d2b2ca75 | 25 B, gate's | 9 / 12 | row on both, bold differs | `red/d2b2ca75-25.txt` |
+    
+    `at-all` (an empty query: the index's order, no match) is identical in all
+    60 units. The harness tests, new in this unit, fail at d2b2ca75: 4 tests, 8

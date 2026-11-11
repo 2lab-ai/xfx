@@ -1,0 +1,24 @@
+CI run 42852951714, job 129958280811, gate (x86_64-apple-darwin, release), commit ef89b72a3cb21d8b9a76e57f04a6525a355377d0
+2026-11-10T16:29:20.0340050Z ##[group]Run ./scripts/check-at-search-cost.sh
+2026-11-10T16:29:20.0341380Z ./scripts/check-at-search-cost.sh
+2026-11-10T16:29:20.0469020Z shell: /bin/bash -e {0}
+2026-11-10T16:29:20.0469610Z env:
+2026-11-10T16:29:20.0470370Z   CARGO_TERM_COLOR: never
+2026-11-10T16:29:20.0471040Z   RUST_BACKTRACE: 1
+2026-11-10T16:29:20.0471670Z   COMMIT_UNDER_TEST: ef89b72a3cb21d8b9a76e57f04a6525a355377d0
+2026-11-10T16:29:20.0472300Z ##[endgroup]
+2026-11-10T16:29:22.8123800Z check-at-search-cost: before: load averages: 5.97 5.51 6.61
+2026-11-10T16:29:22.8193180Z check-at-search-cost: after:  load averages: 6.53 5.64 6.65
+2026-11-10T16:29:22.8244710Z test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... entries: 100000
+2026-11-10T16:29:22.8246560Z exact            33 keys  1 rows p50 498.067µs p95 6.350632ms max 11.753348ms
+2026-11-10T16:29:22.8247510Z boundary          5 keys 32 rows p50 1.101958ms p95 1.426829ms max 1.624513ms
+2026-11-10T16:29:22.8248660Z low-selectivity   2 keys 32 rows p50 1.199852ms p95 6.544153ms max 6.70632ms
+2026-11-10T16:29:22.8249660Z long-gap          4 keys 32 rows p50 1.871894ms p95 5.931701ms max 6.104128ms
+2026-11-10T16:29:22.8250710Z no-match         14 keys  0 rows p50 406.461µs p95 745.683µs max 878.58µs
+2026-11-10T16:29:22.8251630Z punctuation       9 keys  1 rows p50 1.198096ms p95 1.996296ms max 3.11861ms
+2026-11-10T16:29:22.8252630Z unicode           3 keys  1 rows p50 339.246µs p95 360.53µs max 401.677µs
+2026-11-10T16:29:22.8253920Z unicode-fold      3 keys 32 rows p50 1.171408ms p95 1.641361ms max 1.999163ms
+2026-11-10T16:29:22.8255480Z every keystroke: 1460 searches p50 734.349µs p95 5.534204ms p99 9.563747ms max 11.753348ms
+2026-11-10T16:29:22.8256650Z whole queries (fx's gate): 160 searches p50 899.526µs p95 6.276884ms
+2026-11-10T16:29:22.8257430Z slowest: 11.753348ms at "src/", pass 21 of 23
+2026-11-10T16:29:22.8336850Z check-at-search-cost: ok

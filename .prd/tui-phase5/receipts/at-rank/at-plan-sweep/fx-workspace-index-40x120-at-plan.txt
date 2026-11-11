@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+* workspace: primary=<tmp>/fxcap.qnVERa/work
+  saved_suppressed=false limit=16
+  add ../extra saved_changed=true runtime_changed=true launch_flag_can_restore=false
+  additional directories:
+   - <tmp>/fxcap.qnVERa/extra saved=true command_line=false available=true
+  active=true
+
+┃ @plan
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  <tmp>/fxcap.qnVERa/extra/notes/plan.md
+  <tmp>/fxcap.qnVERa/extra/notes/
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

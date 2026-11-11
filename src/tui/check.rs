@@ -1065,6 +1065,12 @@ pub(crate) enum Intent<'a> {
     /// One program status report ([`super::program_status`]), saying this
     /// and nothing else: no cell, no caret, no mode.
     ProgramStatus(super::program_status::State),
+    /// The window title on its own, this one and nothing else: no cell, no
+    /// caret, no mode. The title a frame would have led with, on a tick whose
+    /// frame waits for a folder listing's rows (`super::event_loop`'s
+    /// `commit_or_hold`), as fx writes its title outside any frame
+    /// (`syncTerminalTitleWith`, `app_session_runtime.zig:2965-2987@481104fd`).
+    Title(&'a str),
     /// `/sound`'s terminal bells, exactly this many and nothing else: no cell,
     /// no caret, no mode -- the byte a multiplexer marks a pane for, and the
     /// one every other intent declares none of.
@@ -1950,6 +1956,10 @@ fn expected_metadata(seed: &TerminalModel, declared: &Declared<'_>) -> Metadata 
             statuses: vec![StatusRecord::Reported(*state)],
             ..unchanged(None)
         },
+        Intent::Title(title) => Metadata {
+            shown_title: Some((*title).to_string()),
+            ..unchanged(None)
+        },
     }
 }
 
@@ -2000,7 +2010,8 @@ fn check_cells(
         Intent::Modes { .. }
         | Intent::Queries(_)
         | Intent::Bell { .. }
-        | Intent::ProgramStatus(_) => {
+        | Intent::ProgramStatus(_)
+        | Intent::Title(_) => {
             if !model.effects.is_empty() {
                 return Err(Reject::new(
                     "a vector that moved a cell it did not declare",
@@ -5207,6 +5218,50 @@ mod tests {
         let mut model = seed.clone();
         apply(&mut model, b"\x1b]2;a title\x07", None).expect("a title");
         assert_eq!(model.bells, 0, "a title's terminator was counted as a bell");
+    }
+
+    #[test]
+    fn a_title_on_its_own_sets_that_title_and_nothing_else() {
+        // The vector a frame held for a folder listing's rows leaves the
+        // title in (`event_loop`'s `write_title_alone`): `OSC 2 ; t BEL`.
+        let seed = TerminalModel::seed_modes(1, 1, ModeSet::fresh(), 0, PlaneKind::Primary);
+        let title = |text| Declared::new(Intent::Title(text), Footprint::none(PlaneKind::Primary));
+        preflight(
+            &seed,
+            b"\x1b]2;xfx v0.1.0 | work\x07",
+            &title("xfx v0.1.0 | work"),
+        )
+        .expect("the declared title");
+        for (bytes, shape) in [
+            (
+                &b"\x1b]2;other\x07"[..],
+                "a title that is not the one asked for",
+            ),
+            (
+                &b"\x1b]2;t\x07x"[..],
+                "text written at a caret nothing can place",
+            ),
+            (
+                &b"\x1b]2;t\x07\x07"[..],
+                "a bell this vector did not declare",
+            ),
+            (
+                &b"\x1b]2;t\x07\x1b]7501;state=idle:app=xfx\x1b\\"[..],
+                "a program status this vector did not declare",
+            ),
+            (
+                &b"\x1b]2;t\x1b\\"[..],
+                "a title this crate does not spell that way",
+            ),
+        ] {
+            assert_eq!(
+                preflight(&seed, bytes, &title("t"))
+                    .expect_err("refused")
+                    .shape(),
+                shape,
+                "{bytes:?}"
+            );
+        }
     }
 
     #[test]

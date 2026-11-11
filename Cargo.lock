@@ -1689,6 +1689,7 @@ dependencies = [
  "globset",
  "ignore",
  "libc",
+ "memchr",
  "reqwest",
  "rustix",
  "serde",

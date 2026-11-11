@@ -1,0 +1,43 @@
+# mutants.sh on a git clone --no-local at 2a721846 (scratch), one edit at a time, the clone restored after each (git status empty at the end).
+# KILLED = the named test file's targeted tests fail; the first assertion is quoted. Then each mutant's failing tests.
+M1-ignore-FXCAP_RUN: KILLED by RunDirectory (AssertionError: 0 != 2 : roots: <work>=69 <scratch>=64 <scenarios>=61 <bun>=21 <bun:real>=39 <tmp>=51 <home>=16 bytes)
+    diff: -  if [[ -n ${FXCAP_RUN:-} ]]; then +  if false; then 
+M2-letters-again: KILLED by RunDirectory (AssertionError: Regex didn't match: '^fxcap\\.[0-9]{6}$' not found in 'fxcap.lj7W9N')
+    diff: -    name=fxcap.$(printf '%06d' $(( n % 1000000 ))) +    name=$(basename "$(mktemp -u "$tmpdir/fxcap.XXXXXX")") 
+M3-any-shape: KILLED by RunDirectory (AssertionError: 0 != 2 : roots: <work>=69 <scratch>=64 <scenarios>=61 <bun>=21 <bun:real>=39 <tmp>=51 <home>=16 bytes)
+    diff: -    [[ $FXCAP_RUN =~ ^fxcap\.[0-9]{6}$ ]] || { echo "FXCAP_RUN is \`fxcap.\` and six digits" >&2; return 1; } +    true 
+M4-reuse-existing: KILLED by RunDirectory (AssertionError: 0 != 2 : roots: <work>=69 <scratch>=64 <scenarios>=61 <bun>=21 <bun:real>=39 <tmp>=51 <home>=16 bytes)
+    diff: -    mkdir -m 700 "$tmpdir/$FXCAP_RUN" 2> /dev/null || +    mkdir -p -m 700 "$tmpdir/$FXCAP_RUN" 2> /dev/null || 
+M5-default-mode: KILLED by RunDirectory (AssertionError: 493 != 448)
+    diff: -    if mkdir -m 700 "$tmpdir/$name" 2> /dev/null; then +    if mkdir "$tmpdir/$name" 2> /dev/null; then 
+M6-name-per-run: KILLED by Sweep.test_a_units_two_runs_share_one_run_directory_named_by_digits (AssertionError: Tuples differ: ('run fxcap.065795\n', '<tmp>/wiap-[37 chars]001') != ('run fxcap.73147)
+    diff: -        env["FXCAP_RUN"] = run +        env["FXCAP_RUN"] = "fxcap.%06d" % secrets.randbelow(10**6) 
+M7-no-env: KILLED by Sweep.test_a_units_two_runs_share_one_run_directory_named_by_digits (AssertionError: Regex didn't match: '^run fxcap\\.[0-9]{6}\\n$' not found in 'run unset\n' : run-a)
+    diff: -        env["FXCAP_RUN"] = run +        pass 
+M8-root-letters: KILLED by Sweep.test_a_units_two_runs_share_one_run_directory_named_by_digits (AssertionError: Regex didn't match: '^fxsw\\.[0-9]{8}$' not found in 'fxsw.<mkdtemp's 8: letters and digits>' : run-a)
+    diff: -        self.root = digit_dir(args.tmp, "fxsw.", 8) +        self.root = __import__("tempfile").mkdtemp(prefix="fxsw.", dir=args.tmp) 
+exit 0
+## M1-ignore-FXCAP_RUN failing tests
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused (name='fxcap.abcdef')
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused (name='fxcap.1234567')
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused (name='../fxcap.123456')
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused (name='fxcap.12345/')
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused
+FAIL: test_a_sweep_units_two_runs_see_the_same_path
+## M2-letters-again failing tests
+FAIL: test_a_run_of_its_own_is_six_digits_owner_only
+## M3-any-shape failing tests
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused (name='fxcap.abcdef')
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused (name='fxcap.1234567')
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused (name='../fxcap.123456')
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused (name='fxcap.12345/')
+## M4-reuse-existing failing tests
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused
+## M5-default-mode failing tests
+FAIL: test_a_run_of_its_own_is_six_digits_owner_only
+## M6-name-per-run failing tests
+FAIL: test_a_units_two_runs_share_one_run_directory_named_by_digits
+## M7-no-env failing tests
+FAIL: test_a_units_two_runs_share_one_run_directory_named_by_digits
+## M8-root-letters failing tests
+FAIL: test_a_units_two_runs_share_one_run_directory_named_by_digits

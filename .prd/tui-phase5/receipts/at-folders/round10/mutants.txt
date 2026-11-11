@@ -1,0 +1,134 @@
+# suite-lock.sh: python3 -I round10/mutants.py <clone>, then round9/ to round 1's mutants.py -- one git clone --no-local at 4278fe27, TMPDIR=<scratch>; 900 s per mutant, own process group
+# 17 BROKEN: round 7's 16, unchanged (../round7/mutants.txt), and round 7's superseded-never-cleared, whose anchor this round's comment moved. It was re-texted in round10/mutants.py after this run and run alone in the same clone: the last two lines below.
+# total: 92 run, 92 killed
+## round10/mutants.py
+KILLED   stopped-walk-not-whole: tui::shell::tests::a_walk_a_change_of_roots_stopped_counts_as_whole_once_it_is_over
+mutants: 1 run, 1 killed
+## round9/mutants.py
+KILLED   skip-on-index-is-none: tui::shell::tests::the_first_episode_after_a_whole_index_refreshes_even_where_the_roots_dropped_it
+KILLED   loading-is-a-walk: tui::shell::tests::the_first_episode_after_a_whole_index_refreshes_even_where_the_roots_dropped_it
+KILLED   ever-whole-never-set: tui::shell::tests::the_first_episode_after_a_whole_index_refreshes_even_where_the_roots_dropped_it
+mutants: 3 run, 3 killed
+## round8/mutants.py
+KILLED   no-first-episode-skip: tui::shell::tests::the_first_indexed_episode_skips_its_refresh_while_the_index_loads
+KILLED   skip-on-every-episode: tui::shell::tests::a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows, tui::shell::tests::a_new_episode_during_a_walk_queues_one_walk_and_its_rows_show, tui::shell::tests::two_requests_during_one_walk_queue_one_walk
+KILLED   skip-whether-loading-or-not: tui::shell::tests::a_folder_query_edited_into_an_indexed_one_asks_for_the_refresh, tui::shell::tests::an_episode_opened_under_the_transcript_keeps_its_refresh_across_keys, tui::shell::tests::an_indexed_query_opens_with_one_walk_or_none_while_one_runs, tui::shell::tests::a_workspace_change_with_no_list_open_walks_the_new_roots_at_once, tui::shell::tests::a_directory_choice_keeps_the_list_up_on_that_directory, tui::event_loop::tests::a_key_the_list_hands_on_mid_resize_asks_for_the_frame_too, tui::event_loop::tests::a_key_spent_mid_resize_asks_for_the_frame_that_shows_the_list_again, tui::shell::tests::a_workspace_change_behind_the_transcript_looks_nothing_up_until_it_closes, tui::shell::tests::a_workspace_change_that_keeps_the_rows_still_resets_the_bar_and_the_trust, tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots, tui::shell::tests::an_unmatched_mention_is_sent_by_enter, tui::shell::tests::enter_on_a_folder_row_mentions_the_folder_and_closes_the_list, tui::shell::tests::enter_puts_the_path_in_and_only_a_second_enter_sends_it, tui::shell::tests::enter_under_the_full_transcript_goes_on_to_the_composer
+KILLED   list-refresh-unskipped: tui::shell::tests::the_first_indexed_episode_skips_its_refresh_while_the_index_loads
+KILLED   equal-access-reads-the-roots: tui::shell::tests::an_equal_access_changes_nothing_even_where_its_directory_is_gone
+mutants: 5 run, 5 killed
+## round7/mutants.py
+KILLED   start-keeps-the-pending: tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once, tui::shell::tests::enter_under_a_mention_menu_goes_to_the_menu_while_it_shows_and_then_to_the_list, tui::shell::tests::a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows, tui::shell::tests::a_new_episode_during_a_walk_queues_one_walk_and_its_rows_show, tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots, tui::shell::tests::two_requests_during_one_walk_queue_one_walk
+KILLED   superseded-never-set: tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once
+BROKEN   superseded-never-cleared: the text to mutate is in src/tui/file_index.rs 0 times
+KILLED   no-install-refresh: tui::shell::tests::a_workspace_change_behind_the_transcript_looks_nothing_up_until_it_closes, tui::shell::tests::a_workspace_change_that_moves_no_root_still_refreshes_the_index, tui::shell::tests::a_workspace_change_with_no_list_open_walks_the_new_roots_at_once, tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots
+KILLED   no-invalidation: tui::shell::tests::a_workspace_change_that_keeps_the_rows_still_resets_the_bar_and_the_trust, tui::shell::tests::a_workspace_change_behind_the_transcript_looks_nothing_up_until_it_closes, tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots
+KILLED   trigger-on-the-roots-only: tui::shell::tests::a_workspace_change_that_moves_no_root_still_refreshes_the_index, tui::shell::tests::a_workspace_change_that_keeps_the_rows_still_resets_the_bar_and_the_trust
+KILLED   listing-not-stopped: tui::shell::tests::a_workspace_change_drops_a_listing_in_flight
+KILLED   folder-not-read-again: tui::shell::tests::a_workspace_change_resets_an_open_list_and_reads_its_folder_again
+KILLED   invalidate-keeps-the-bar: tui::file_picker::tests::a_list_invalidated_by_a_change_of_scope_starts_over, tui::shell::tests::a_workspace_change_that_keeps_the_rows_still_resets_the_bar_and_the_trust
+KILLED   invalidate-keeps-the-window: tui::file_picker::tests::a_list_invalidated_by_a_change_of_scope_starts_over
+KILLED   invalidate-keeps-trust: tui::file_picker::tests::a_list_invalidated_by_a_change_of_scope_starts_over, tui::shell::tests::a_workspace_change_that_keeps_the_rows_still_resets_the_bar_and_the_trust
+KILLED   drop-the-pending-refresh: tui::shell::tests::a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows, tui::shell::tests::a_new_episode_during_a_walk_queues_one_walk_and_its_rows_show, tui::shell::tests::two_requests_during_one_walk_queue_one_walk, tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots, tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once
+KILLED   never-coalesce: tui::shell::tests::two_requests_during_one_walk_queue_one_walk, tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once
+KILLED   pending-never-cleared: tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once, tui::shell::tests::a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows, tui::shell::tests::a_new_episode_during_a_walk_queues_one_walk_and_its_rows_show, tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots, tui::shell::tests::two_requests_during_one_walk_queue_one_walk
+KILLED   workspace-asks-no-refresh: tui::file_picker::tests::a_list_invalidated_by_a_change_of_scope_starts_over, tui::shell::tests::a_workspace_change_behind_the_transcript_looks_nothing_up_until_it_closes, tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots
+KILLED   workspace-looks-nothing-up: tui::shell::tests::a_workspace_change_resets_an_open_list_and_reads_its_folder_again, tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once
+KILLED   unchanged-access-refreshes: tui::shell::tests::a_workspace_change_that_moves_no_root_still_refreshes_the_index, tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots
+KILLED   prepare-index-from-adopt: tui::shell::tests::a_workspace_change_behind_the_transcript_looks_nothing_up_until_it_closes
+mutants: 17 run, 17 killed
+## round6/mutants.py
+BROKEN   drop-the-pending-refresh: the text to mutate is in src/tui/file_index.rs 0 times
+KILLED   pending-not-taken-on-failed: tui::shell::tests::a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows
+BROKEN   never-coalesce: the text to mutate is in src/tui/file_index.rs 0 times
+BROKEN   pending-never-cleared: the text to mutate is in src/tui/file_index.rs 0 times
+BROKEN   workspace-asks-no-refresh: the text to mutate is in src/tui/shell.rs 0 times
+BROKEN   workspace-looks-nothing-up: the text to mutate is in src/tui/shell.rs 0 times
+BROKEN   unchanged-roots-refresh: the text to mutate is in src/tui/shell.rs 0 times
+KILLED   failed-advance-skipped: tui::file_index::tests::an_advance_that_fails_after_entries_that_read_fails_the_listing
+mutants: 2 run, 2 killed
+## round5/mutants.py
+KILLED   walk-regardless-of-query: tui::shell::tests::a_folder_query_opens_with_its_listing_and_no_walk, tui::shell::tests::an_at_word_typed_under_the_full_transcript_reads_nothing_until_it_closes, tui::shell::tests::an_at_word_under_a_shown_skills_menu_reads_nothing_until_it_goes, tui::shell::tests::a_folder_query_edited_into_an_indexed_one_asks_for_the_refresh
+KILLED   no-refresh-on-kind-change: tui::shell::tests::a_folder_query_edited_into_an_indexed_one_asks_for_the_refresh
+KILLED   no-refresh-on-episode: tui::shell::tests::a_folder_query_edited_into_an_indexed_one_asks_for_the_refresh, tui::shell::tests::an_episode_opened_under_the_transcript_keeps_its_refresh_across_keys, tui::shell::tests::an_indexed_query_opens_with_one_walk_or_none_while_one_runs, tui::event_loop::tests::a_key_the_list_hands_on_mid_resize_asks_for_the_frame_too, tui::event_loop::tests::a_key_spent_mid_resize_asks_for_the_frame_that_shows_the_list_again, tui::shell::tests::a_directory_choice_keeps_the_list_up_on_that_directory, tui::shell::tests::an_unmatched_mention_is_sent_by_enter, tui::shell::tests::enter_on_a_folder_row_mentions_the_folder_and_closes_the_list, tui::shell::tests::enter_under_the_full_transcript_goes_on_to_the_composer, tui::shell::tests::enter_puts_the_path_in_and_only_a_second_enter_sends_it
+KILLED   refresh-not-carried: tui::shell::tests::an_episode_opened_under_the_transcript_keeps_its_refresh_across_keys
+KILLED   tab-retry-no-refresh: tui::shell::tests::tab_retries_a_failed_index_by_walking_it_and_a_failed_folder_without
+KILLED   open-site-ungated: tui::shell::tests::an_at_word_typed_under_the_full_transcript_reads_nothing_until_it_closes, tui::shell::tests::an_episode_opened_under_the_transcript_keeps_its_refresh_across_keys, tui::shell::tests::an_at_word_under_a_shown_skills_menu_reads_nothing_until_it_goes
+KILLED   refresh-site-prepares-nothing: tui::shell::tests::an_episode_opened_under_the_transcript_keeps_its_refresh_across_keys, tui::shell::tests::tab_retries_a_failed_index_by_walking_it_and_a_failed_folder_without
+KILLED   undecodable-not-indexed: tui::file_picker::tests::an_empty_list_says_why_at_the_at_column
+KILLED   cancel-not-before-advance: tui::file_index::tests::a_listing_stops_between_entries_once_told_to
+KILLED   cancel-not-after-advance: tui::file_index::tests::a_listing_stops_between_entries_once_told_to
+KILLED   cancel-not-before-stat: tui::file_index::tests::a_listing_stops_between_entries_once_told_to
+KILLED   empty-menu-keeps-enter: tui::shell::tests::enter_under_a_mention_menu_goes_to_the_menu_while_it_shows_and_then_to_the_list
+mutants: 12 run, 12 killed
+## round4/mutants.py
+KILLED   poll-site-ungated: tui::shell::tests::no_listing_starts_while_the_list_is_not_eligible
+KILLED   tab-site-ungated: tui::shell::tests::tab_under_the_full_transcript_asks_for_no_read
+BROKEN   open-site-ungated: the text to mutate is in src/tui/shell.rs 0 times
+BROKEN   episode-not-owed: the text to mutate is in src/tui/shell.rs 0 times
+BROKEN   episode-not-begun: the text to mutate is in src/tui/shell.rs 0 times
+BROKEN   eligible-never-relists: the text to mutate is in src/tui/shell.rs 0 times
+KILLED   hold-ignores-eligibility: tui::shell::tests::under_the_full_transcript_a_folder_listing_holds_no_frame
+KILLED   abandon-ignores-eligibility: tui::shell::tests::a_listing_out_when_ctrl_o_opens_is_dropped_and_the_folder_listed_again, tui::shell::tests::no_listing_starts_while_the_list_is_not_eligible
+KILLED   predicate-drops-transcript: tui::shell::tests::a_listing_out_when_ctrl_o_opens_is_dropped_and_the_folder_listed_again, tui::shell::tests::an_at_word_typed_under_the_full_transcript_reads_nothing_until_it_closes, tui::shell::tests::under_the_full_transcript_a_folder_listing_holds_no_frame, tui::shell::tests::no_listing_starts_while_the_list_is_not_eligible, tui::shell::tests::tab_under_the_full_transcript_asks_for_no_read, tui::shell::tests::enter_under_the_full_transcript_goes_on_to_the_composer
+KILLED   predicate-drops-skills: tui::shell::tests::an_at_word_under_a_shown_skills_menu_reads_nothing_until_it_goes
+KILLED   enter-ignores-eligibility: tui::shell::tests::enter_under_the_full_transcript_goes_on_to_the_composer
+KILLED   cancel-not-wired: tui::file_index::tests::a_listing_stops_between_entries_once_told_to
+BROKEN   cancel-not-between-entries: the text to mutate is in src/tui/file_index.rs 0 times
+KILLED   abandon-does-not-stop: tui::file_index::tests::abandoning_a_listing_tells_it_to_stop, tui::shell::tests::a_listing_out_when_ctrl_o_opens_is_dropped_and_the_folder_listed_again
+KILLED   bells-never-drained: tui::event_loop::tests::owed_bells_go_out_after_the_frame_on_their_own_and_are_counted, tui::event_loop::tests::a_frame_held_for_a_folder_holds_its_bell_but_no_report_or_title
+mutants: 10 run, 10 killed
+## round3/mutants.py
+KILLED   held-tick-rings: tui::event_loop::tests::a_frame_held_for_a_folder_holds_its_bell_but_no_report_or_title
+BROKEN   first-frame-retells-title: the text to mutate is in src/tui/frame.rs 0 times
+KILLED   ctrl-o-keeps-listing: tui::shell::tests::a_listing_out_when_ctrl_o_opens_is_dropped_and_the_folder_listed_again
+KILLED   ctrl-o-never-relists: tui::shell::tests::a_listing_out_when_ctrl_o_opens_is_dropped_and_the_folder_listed_again
+KILLED   ctrl-o-not-marked: tui::shell::tests::a_listing_out_when_ctrl_o_opens_is_dropped_and_the_folder_listed_again
+KILLED   abandon-keeps-the-answer: tui::file_index::tests::abandoning_a_listing_tells_it_to_stop, tui::shell::tests::a_listing_out_when_ctrl_o_opens_is_dropped_and_the_folder_listed_again
+mutants: 5 run, 5 killed
+## round2/mutants.py
+KILLED   whole-tick-held: tui::event_loop::tests::a_frame_held_for_a_folder_holds_its_bell_but_no_report_or_title
+KILLED   held-writes-the-frame: tui::event_loop::tests::a_listing_still_out_at_8_ms_lets_the_owed_frame_go_and_its_rows_follow, tui::event_loop::tests::the_frame_of_a_keystroke_that_lists_a_folder_waits_for_its_rows, tui::event_loop::tests::a_frame_held_for_a_folder_holds_its_bell_but_no_report_or_title
+KILLED   held-title-not-written: tui::event_loop::tests::a_frame_held_for_a_folder_holds_its_bell_but_no_report_or_title
+KILLED   title-alone-not-recorded: tui::event_loop::tests::a_frame_held_for_a_folder_holds_its_bell_but_no_report_or_title
+KILLED   title-intent-unchecked: tui::check::tests::a_title_on_its_own_sets_that_title_and_nothing_else, tui::event_loop::tests::a_frame_held_for_a_folder_holds_its_bell_but_no_report_or_title
+KILLED   loop-never-holds: tui::event_loop::tests::a_listing_still_out_at_8_ms_lets_the_owed_frame_go_and_its_rows_follow, tui::event_loop::tests::the_frame_of_a_keystroke_that_lists_a_folder_waits_for_its_rows, tui::event_loop::tests::a_frame_held_for_a_folder_holds_its_bell_but_no_report_or_title
+KILLED   hold-ignores-indexed: tui::shell::tests::only_a_folder_listing_holds_the_frame_not_the_index
+KILLED   hold-ignores-loading: tui::event_loop::tests::the_frame_of_a_keystroke_that_lists_a_folder_waits_for_its_rows, tui::shell::tests::a_keystroke_that_lists_a_folder_holds_its_frame_until_the_rows_land, tui::shell::tests::after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one, tui::event_loop::tests::a_frame_held_for_a_folder_holds_its_bell_but_no_report_or_title
+BROKEN   ctrl-o-holds: the text to mutate is in src/tui/shell.rs 0 times
+mutants: 8 run, 8 killed
+## mutants.py
+KILLED   select-is-open: tui::file_picker::tests::a_mentioned_folder_closes_its_quote, tui::file_picker::tests::tab_opens_a_folder_and_enter_mentions_it, tui::shell::tests::a_folder_with_a_space_is_mentioned_inside_its_quotes, tui::shell::tests::enter_on_a_folder_row_mentions_the_folder_and_closes_the_list
+KILLED   open-is-select: tui::file_picker::tests::a_mentioned_folder_closes_its_quote, tui::file_picker::tests::choosing_a_file_adds_one_separator_and_a_directory_none, tui::file_picker::tests::tab_opens_a_folder_and_enter_mentions_it, tui::shell::tests::a_folder_with_a_space_is_mentioned_inside_its_quotes, tui::shell::tests::tab_on_the_folders_own_row_lists_it_again, tui::shell::tests::a_directory_choice_keeps_the_list_up_on_that_directory
+KILLED   select-no-slash: tui::file_picker::tests::a_mentioned_folder_closes_its_quote, tui::file_picker::tests::tab_opens_a_folder_and_enter_mentions_it, tui::shell::tests::a_folder_with_a_space_is_mentioned_inside_its_quotes, tui::shell::tests::enter_on_a_folder_row_mentions_the_folder_and_closes_the_list
+KILLED   select-quote-left-open: tui::file_picker::tests::a_mentioned_folder_closes_its_quote, tui::shell::tests::a_folder_with_a_space_is_mentioned_inside_its_quotes
+KILLED   select-no-space: tui::file_picker::tests::a_mentioned_folder_closes_its_quote, tui::file_picker::tests::tab_opens_a_folder_and_enter_mentions_it, tui::shell::tests::a_folder_with_a_space_is_mentioned_inside_its_quotes, tui::shell::tests::enter_on_a_folder_row_mentions_the_folder_and_closes_the_list
+KILLED   select-caret-before-space: tui::file_picker::tests::tab_opens_a_folder_and_enter_mentions_it
+KILLED   tab-selects: tui::shell::tests::a_folder_with_a_space_is_mentioned_inside_its_quotes, tui::shell::tests::tab_on_the_folders_own_row_lists_it_again, tui::shell::tests::a_directory_choice_keeps_the_list_up_on_that_directory
+KILLED   enter-opens: tui::shell::tests::a_folder_with_a_space_is_mentioned_inside_its_quotes, tui::shell::tests::enter_on_a_folder_row_mentions_the_folder_and_closes_the_list
+KILLED   no-folder-row: tui::file_index::tests::a_listed_folder_is_its_own_first_row, tui::file_index::tests::a_browsed_directory_lists_its_entries_by_name, tui::file_index::tests::a_browsed_directory_is_read_once_on_a_worker_and_then_ranked_here, tui::file_index::tests::home_is_where_a_tilde_goes, tui::shell::tests::a_folder_with_a_space_is_mentioned_inside_its_quotes, tui::shell::tests::a_keystroke_that_lists_a_folder_holds_its_frame_until_the_rows_land, tui::shell::tests::tab_on_the_folders_own_row_lists_it_again, tui::shell::tests::a_later_at_puts_the_rows_under_itself_and_down_and_tab_choose, tui::shell::tests::a_directory_choice_keeps_the_list_up_on_that_directory, tui::shell::tests::enter_on_a_folder_row_mentions_the_folder_and_closes_the_list
+KILLED   folder-row-for-a-name: tui::file_index::tests::a_listed_folder_is_its_own_first_row, tui::file_index::tests::a_browsed_directory_lists_its_entries_by_name, tui::file_index::tests::a_browsed_directory_is_read_once_on_a_worker_and_then_ranked_here, tui::shell::tests::a_folder_with_a_space_is_mentioned_inside_its_quotes, tui::shell::tests::enter_on_a_folder_row_mentions_the_folder_and_closes_the_list
+KILLED   folder-row-for-the-root: tui::file_index::tests::a_listed_folder_is_its_own_first_row
+KILLED   folder-row-for-a-double-slash: tui::file_index::tests::a_listed_folder_is_its_own_first_row
+KILLED   folder-row-unsafe: tui::file_index::tests::a_listed_folder_is_its_own_first_row
+KILLED   folder-takes-no-slot: tui::file_index::tests::a_listed_folder_is_its_own_first_row
+BROKEN   loop-never-holds: the text to mutate is in src/tui/event_loop.rs 0 times
+KILLED   shell-never-holds: tui::event_loop::tests::the_frame_of_a_keystroke_that_lists_a_folder_waits_for_its_rows, tui::shell::tests::after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one, tui::shell::tests::a_keystroke_that_lists_a_folder_holds_its_frame_until_the_rows_land
+BROKEN   hold-ignores-indexed: the text to mutate is in src/tui/shell.rs 0 times
+BROKEN   hold-ignores-loading: the text to mutate is in src/tui/shell.rs 0 times
+KILLED   hold-takes-no-rows: tui::event_loop::tests::the_frame_of_a_keystroke_that_lists_a_folder_waits_for_its_rows, tui::shell::tests::after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one, tui::shell::tests::a_keystroke_that_lists_a_folder_holds_its_frame_until_the_rows_land
+KILLED   closed-list-keeps-wait: tui::shell::tests::after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one
+KILLED   keystrokes-extend-wait: tui::file_picker::tests::a_folder_listing_holds_its_frame_for_one_tick, tui::shell::tests::after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one
+KILLED   slow-never-recorded: tui::file_picker::tests::a_folder_listing_holds_its_frame_for_one_tick, tui::shell::tests::after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one
+KILLED   slow-is-forever: tui::file_picker::tests::a_folder_listing_holds_its_frame_for_one_tick, tui::shell::tests::after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one
+KILLED   active-ignores-slow: tui::file_picker::tests::a_folder_listing_holds_its_frame_for_one_tick, tui::file_picker::tests::a_listing_after_a_slow_folder_is_watched_so_the_wait_can_come_back, tui::shell::tests::after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one
+KILLED   measuring-is-active: tui::file_picker::tests::a_folder_listing_holds_its_frame_for_one_tick, tui::file_picker::tests::a_listing_after_a_slow_folder_is_watched_so_the_wait_can_come_back, tui::shell::tests::after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one
+KILLED   hold-inclusive: tui::file_picker::tests::a_folder_listing_holds_its_frame_for_one_tick, tui::shell::tests::after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one
+KILLED   backwards-clock-extends: tui::file_picker::tests::a_folder_listing_holds_its_frame_for_one_tick
+KILLED   hold-is-16-ms: tui::file_picker::tests::a_folder_listing_holds_its_frame_for_one_tick, tui::shell::tests::after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one
+KILLED   wait-is-the-tick: tui::event_loop::tests::the_frame_of_a_keystroke_that_lists_a_folder_waits_for_its_rows
+KILLED   pending-is-active: tui::shell::tests::after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one
+KILLED   distrust-asks-nothing: tui::event_loop::tests::a_key_the_list_hands_on_mid_resize_asks_for_the_frame_too
+mutants: 28 run, 28 killed
+## round10/mutants.py superseded-never-cleared (re-texted), alone, in the same clone (src as at 4278fe27), under the suite lock
+KILLED   superseded-never-cleared: tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once
+mutants: 1 run, 1 killed

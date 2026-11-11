@@ -1,0 +1,24 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Settings 5  All  [Interface]  Agent  Notifications  Advanced
+
+  Status line context      off  on
+  Status line session      off  on
+  Status line workspace    off  on
+  Slash menu categories    off  on
+  Collapse tool calls      off  on
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     ←→ change     esc close
+
+
+
+
+
+
+
+
+
+
+

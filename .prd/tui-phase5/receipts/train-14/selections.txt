@@ -1,0 +1,8 @@
+# the two selections made again here, their scenario names against the swept files'
+selection-all.txt: 35 names swept; made again 35; the same names
+    83c83
+    < # train 14's extra selection: the scenarios the 04e4491d re-point's entries name that the first selection (selection.txt) did not take
+    ---
+    > # train 14's extra selection: the scenarios the 04e4491d re-point's entries name that the first selection (the brief globs) did not take
+selection-units.txt: 93 names swept; made again 93; the same file, byte for byte
+no name in both: 0

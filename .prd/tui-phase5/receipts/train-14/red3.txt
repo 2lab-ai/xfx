@@ -1,0 +1,34 @@
+# red3.sh <repo> <scratch> 594fddc8, inside one hold of the suite lock (TMPDIR the harness scratch root); an empty stat after 'against merge 3's commit' is git's for no difference
+Recreated 1 merge conflict
+merge 3: build fix: src/tui/shell.rs: 1 place(s), 1 lines -> 1: 'fn walked<T: PartialEq + Clone + std::fmt::Debug>(' ...
+merge 3: build fix: src/tui/shell.rs: 5 place(s), 1 lines -> 1: 'walked(&mut shell, &' ...
+merge 3: build fix: src/tui/shell.rs: 3 place(s), 1 lines -> 1: 'due: std::time::Instant::now() + crate::provider::model::REFRESH_INTERVAL,' ...
+# merge 3: 3 fixes (build only)
+## merge 3 with its build fixes alone (ecad8518 + the working tree)
+cargo test exit 101
+test tui::shell::tests::c_j_under_the_full_transcript_is_a_new_line_and_closes_the_list ... FAILED
+test tui::shell::tests::c_k_under_the_full_transcript_kills_to_the_lines_end_and_keeps_the_list ... FAILED
+test tui::shell::tests::under_the_full_transcript_no_other_list_takes_a_row_key ... ok
+thread 'tui::shell::tests::c_j_under_the_full_transcript_is_a_new_line_and_closes_the_list' (511005805) panicked at src/tui/shell.rs:39572:9:
+  left: "@src"
+ right: "@src\n"
+thread 'tui::shell::tests::c_k_under_the_full_transcript_kills_to_the_lines_end_and_keeps_the_list' (511005806) panicked at src/tui/shell.rs:39596:9:
+  left: "@src tail"
+ right: "@src"
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4923 filtered out; finished in 0.05s
+merge 3: behaviour fix: src/tui/shell.rs: 1 place(s), 13 lines -> 11: '// they go on to the composer, a newline and a kill to the end. The' ...
+# merge 3: 1 fixes (behaviour only)
+## the tree now against merge 3's commit: 
+## merge 3 with its behaviour fix too (ecad8518 + the working tree)
+cargo test exit 0
+test tui::shell::tests::under_the_full_transcript_no_other_list_takes_a_row_key ... ok
+test tui::shell::tests::c_j_under_the_full_transcript_is_a_new_line_and_closes_the_list ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_kills_to_the_lines_end_and_keeps_the_list ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4923 filtered out; finished in 0.02s
+## the train at 594fddc8 (594fddc8 + the working tree)
+cargo test exit 0
+test tui::shell::tests::c_j_under_the_full_transcript_is_a_new_line_and_closes_the_list ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_kills_to_the_lines_end_and_keeps_the_list ... ok
+test tui::shell::tests::under_the_full_transcript_no_other_list_takes_a_row_key ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4931 filtered out; finished in 0.05s
+exit 0

@@ -1,0 +1,41 @@
+# RED: the self-test at f8ab5be4 against the check at c5cf594b (git clone --no-local, the test file swapped in)
+c5cf594b receipts(local-paths-selftest-flake): round 6's README, gate, RED/GREEN
+test-check-no-local-paths: ok self                       its own source matches none of its shapes
+test-check-no-local-paths: ok shapes                     31 planted, each named by file and line
+test-check-no-local-paths: ok passes                     placeholders, relative and derived paths, a marked fixture, a renamed report
+test-check-no-local-paths: ok env GIT_DIR                the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_INDEX_FILE         the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_WORK_TREE          the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GREP_OPTIONS           the plant named, the decoy unchanged
+test-check-no-local-paths: ok env HOME                   the plant named, the decoy unchanged
+test-check-no-local-paths: ok skip-worktree              refused by name
+test-check-no-local-paths: ok deleted                    refused by name
+test-check-no-local-paths: ok disagree                   refused, not counted as passing
+test-check-no-local-paths: ok vanished                   refused by name
+test-check-no-local-paths: ok badnum                     the scan stops
+test-check-no-local-paths: ok gitfail                    the check fails
+test-check-no-local-paths: FAIL omit: a line pass that left out a file the count pass has did not fail the check (exit 1):
+    | check-no-local-paths: two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: FAIL fewer: a line pass with one line of a file fewer than the count did not fail the check, naming both (exit 1):
+    | check-no-local-paths: two readings of the tree disagree: the line pass has plant.md with 1 line(s), git grep -c has plant.md with 2
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: FAIL omitonce: a line pass that left out a file once did not fail the check, or the second look did not say per run (exit 1):
+    | check-no-local-paths: two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: FAIL threads: a pass of the tree ran on more than one thread (exit 1):
+    | check-no-local-paths: git grep could not search . (status 2):
+    | git grep of the tree on more than one thread
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: ok truncated                  the scan stops
+test-check-no-local-paths: ok cutlinks                   the scan stops
+test-check-no-local-paths: ok cuttracked                 the check stops
+test-check-no-local-paths: ok stopped                    the check fails
+test-check-no-local-paths: ok diagnosis                  keys by scope, no path
+test-check-no-local-paths: ok diagnosis-gone             no path, every line its shape
+test-check-no-local-paths: 4 of 24 case(s) failed
+exit=1

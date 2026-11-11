@@ -1,0 +1,13 @@
+# round 4 (text and the checker; code = 8e809d40's): the fxcap ledger/normalize/capfile tests, the parity test, fxcites.py's exit
+## python3 -I -B scripts/fxcap/test_sweep.py Ledger Normalize Capfile
+Ran 44 tests in 0.836s
+
+OK
+## cargo test --locked --test parity
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.38s
+## python3 -I fxcites.py 3d3d56c8
+all: 102 citations, 0 failed
+exit 0
+## python3 -I fxcites.py --self-test
+self-test: 8 cases, 0 wrong
+exit 0

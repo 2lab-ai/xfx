@@ -1,0 +1,14 @@
+# Round 2 at 02bb222a, under the suite lock and bounded.py (1800 s each):
+# (1) the unit's six modules, TMPDIR=<scratch>/abcdefghijklmnopqrstuvwxyz (every letter a-z in order);
+# (2) cargo test --locked --test parity, TMPDIR=<tmp>.
+# (1) the round-2 cases, as cargo printed them:
+test tui::file_index::tests::a_change_of_scope_keeps_the_index_and_is_unavailable_until_its_walk_is_whole ... ok
+test tui::file_index::tests::a_change_of_scope_lets_the_walk_run_on_and_its_prefix_answers_nothing ... ok
+test tui::shell::tests::a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk ... ok
+test tui::shell::tests::a_first_at_before_the_poll_that_takes_a_finished_walks_end_skips_its_refresh ... ok
+# (1) result:
+test result: ok. 1339 passed; 0 failed; 3 ignored; 0 measured; 3277 filtered out; finished in 7.05s
+# exit: 0
+# (2) result:
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+# exit: 0

@@ -1,0 +1,115 @@
+# RED: the new harness tests at d2b2ca75's capture.sh and sweep.py (a clone at d2b2ca75 with this branch's test_capture.py and test_sweep.py copied in: runs.sh tests-red).
+## python3 -I scripts/fxcap/test_capture.py RunDirectory
+FFFFFFF
+======================================================================
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused (__main__.RunDirectory.test_a_name_of_another_shape_or_already_there_is_refused) (name='fxcap.abcdef')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/redtest/scripts/fxcap/test_capture.py", line 349, in test_a_name_of_another_shape_or_already_there_is_refused
+    self.assertEqual(r.code, 2, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 2 : roots: <work>=65 <scratch>=60 <scenarios>=57 <bun>=21 <bun:real>=39 <tmp>=47 <home>=16 bytes
+up: a first frame after 0.01 s (1 looks)
+<tmp>/wiap/fxcapt.2sylj6hf/in/side.zu60xhew/out/fx-t-30x200-a.txt
+guards: <tmp>/wiap/fxcapt.2sylj6hf/in/bin/it sha256 67e853b74060 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+<scratch>/redtest/scripts/fxcap/capture.sh: line 1: 83596 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+======================================================================
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused (__main__.RunDirectory.test_a_name_of_another_shape_or_already_there_is_refused) (name='fxcap.1234567')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/redtest/scripts/fxcap/test_capture.py", line 349, in test_a_name_of_another_shape_or_already_there_is_refused
+    self.assertEqual(r.code, 2, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 2 : roots: <work>=65 <scratch>=60 <scenarios>=57 <bun>=21 <bun:real>=39 <tmp>=47 <home>=16 bytes
+up: a first frame after 0.08 s (2 looks)
+<tmp>/wiap/fxcapt.2sylj6hf/in/side.7k6l9ysv/out/fx-t-30x200-a.txt
+guards: <tmp>/wiap/fxcapt.2sylj6hf/in/bin/it sha256 67e853b74060 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+<scratch>/redtest/scripts/fxcap/capture.sh: line 1: 84266 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+======================================================================
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused (__main__.RunDirectory.test_a_name_of_another_shape_or_already_there_is_refused) (name='../fxcap.123456')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/redtest/scripts/fxcap/test_capture.py", line 349, in test_a_name_of_another_shape_or_already_there_is_refused
+    self.assertEqual(r.code, 2, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 2 : roots: <work>=65 <scratch>=60 <scenarios>=57 <bun>=21 <bun:real>=39 <tmp>=47 <home>=16 bytes
+up: a first frame after 0.08 s (2 looks)
+<tmp>/wiap/fxcapt.2sylj6hf/in/side.l6eepms9/out/fx-t-30x200-a.txt
+guards: <tmp>/wiap/fxcapt.2sylj6hf/in/bin/it sha256 67e853b74060 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+<scratch>/redtest/scripts/fxcap/capture.sh: line 1: 84498 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+======================================================================
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused (__main__.RunDirectory.test_a_name_of_another_shape_or_already_there_is_refused) (name='fxcap.12345/')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/redtest/scripts/fxcap/test_capture.py", line 349, in test_a_name_of_another_shape_or_already_there_is_refused
+    self.assertEqual(r.code, 2, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 2 : roots: <work>=65 <scratch>=60 <scenarios>=57 <bun>=21 <bun:real>=39 <tmp>=47 <home>=16 bytes
+up: a first frame after 0.09 s (2 looks)
+<tmp>/wiap/fxcapt.2sylj6hf/in/side.micnur4a/out/fx-t-30x200-a.txt
+guards: <tmp>/wiap/fxcapt.2sylj6hf/in/bin/it sha256 67e853b74060 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+<scratch>/redtest/scripts/fxcap/capture.sh: line 1: 85023 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+======================================================================
+FAIL: test_a_name_of_another_shape_or_already_there_is_refused (__main__.RunDirectory.test_a_name_of_another_shape_or_already_there_is_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/redtest/scripts/fxcap/test_capture.py", line 355, in test_a_name_of_another_shape_or_already_there_is_refused
+    self.assertEqual(r.code, 2, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 2 : roots: <work>=65 <scratch>=60 <scenarios>=57 <bun>=21 <bun:real>=39 <tmp>=47 <home>=16 bytes
+up: a first frame after 0.07 s (2 looks)
+<tmp>/wiap/fxcapt.2sylj6hf/in/side.dgl7s6g5/out/fx-t-30x200-a.txt
+guards: <tmp>/wiap/fxcapt.2sylj6hf/in/bin/it sha256 67e853b74060 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+<scratch>/redtest/scripts/fxcap/capture.sh: line 1: 85363 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+======================================================================
+FAIL: test_a_run_of_its_own_is_six_digits_owner_only (__main__.RunDirectory.test_a_run_of_its_own_is_six_digits_owner_only)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/redtest/scripts/fxcap/test_capture.py", line 333, in test_a_run_of_its_own_is_six_digits_owner_only
+    self.assertRegex(os.path.basename(run), r"^fxcap\.[0-9]{6}$")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Regex didn't match: '^fxcap\\.[0-9]{6}$' not found in 'fxcap.qZK3XY'
+
+======================================================================
+FAIL: test_a_sweep_units_two_runs_see_the_same_path (__main__.RunDirectory.test_a_sweep_units_two_runs_see_the_same_path)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/redtest/scripts/fxcap/test_capture.py", line 322, in test_a_sweep_units_two_runs_see_the_same_path
+    self.assertEqual(self.sum_row(fx), self.sum_row(xfx), "the two binaries ran in different paths")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'sum=988592721 63' != 'sum=4276430234 63'
+- sum=988592721 63
++ sum=4276430234 63
+ : the two binaries ran in different paths
+
+----------------------------------------------------------------------
+Ran 3 tests in 23.501s
+
+FAILED (failures=7)
+exit 1
+## python3 -I scripts/fxcap/test_sweep.py Sweep.test_a_units_two_runs_share_one_run_directory_named_by_digits
+F
+======================================================================
+FAIL: test_a_units_two_runs_share_one_run_directory_named_by_digits (__main__.Sweep.test_a_units_two_runs_share_one_run_directory_named_by_digits)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/redtest/scripts/fxcap/test_sweep.py", line 1221, in test_a_units_two_runs_share_one_run_directory_named_by_digits
+    self.assertRegex(seen["fx"][0], r"^run fxcap\.[0-9]{6}\n$", unit)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Regex didn't match: '^run fxcap\\.[0-9]{6}\\n$' not found in 'run unset\n' : run-a
+
+----------------------------------------------------------------------
+Ran 1 test in 0.114s
+
+FAILED (failures=1)
+exit 1

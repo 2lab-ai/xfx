@@ -1,0 +1,3 @@
+/opt/homebrew/bin/git threads=default: 0 disagreements in 300; files 17, lines 88
+/usr/bin/git threads=default: 0 disagreements in 300; files 17, lines 88
+/opt/homebrew/bin/git threads=64: 0 disagreements in 100; files 17, lines 88

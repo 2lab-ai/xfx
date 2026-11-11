@@ -1,0 +1,9 @@
+# 3e073a96: 3 lines out, 3 in; the same once numbers are masked: True
+# each re-pointed number's line at 42935f45:
+  scripts/fxcap/capture.sh:446-478  # Makes the run directory under $1, owner-only, and prints its path: the name
+  scripts/fxcap/capture.sh:822    run=$(make_run "$tmpdir") || exit 2
+  scripts/fxcap/capture.sh:333-335  # Each binary gets a TMPDIR inside the run (fx `$run/fxtmp`, xfx
+  scripts/fxcap/capture.sh:386-392  # fx's side and xfx's are rewritten by the same rule, so a pair compares as it
+  scripts/fxcap/capture.sh:1121      launch="env -i $base FX_DISABLE_KEYCHAIN=1 FX_SKIP_ONBOARDING=1 FX_SOUND=0 TMPDIR=$run
+  scripts/fxcap/capture.sh:1128      launch="env -i $base TMPDIR=$run/xfxtmp XFX_GATEWAY_URL=http://127.0.0.1:$port/v4/ai/l
+  scripts/fxcap/capture.sh:1301        keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/nul

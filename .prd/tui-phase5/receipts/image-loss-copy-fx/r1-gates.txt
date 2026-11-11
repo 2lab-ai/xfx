@@ -1,0 +1,57 @@
+# bash gates.sh <worktree> <log-dir>, in one suite-lock slot (TMPDIR a short scratch path)
+# head 67a80e48317307f992559767327d8d4bd69c7efd, tree: 0 tracked changes
+# slot taken 2026-11-09T22:44:40Z
+00 false rc=1 0s
+01 fmt rc=0 1s
+02 clippy rc=0 6s
+03 clippy-fault rc=0 6s
+04 test rc=0 128s
+05 test-fault-tui rc=0 32s
+06 test-fault-lib rc=0 80s
+07 check-no-stubs rc=0 9s
+08 check-no-secrets rc=0 42s
+09 test-check-no-secrets rc=0 70s
+10 test-gate-env rc=0 198s
+11 check-xfx-identity rc=0 1s
+12 check-preview-contract rc=0 3s
+13 test-preview-contract rc=0 53s
+14 check-tui-preflight-cost rc=0 99s
+15 check-usage-clock rc=0 1s
+16 fxcap-test-sweep rc=0 16s
+17 fxcap-test-capture rc=0 434s
+18 build-release rc=0 17s
+19 build-faulty rc=0 28s
+20 smoke rc=0 3s
+21 smoke-tui rc=0 65s
+# slot released 2026-11-09T23:06:12Z
+# tree after: 0 tracked changes
+exit=0
+
+# counts, from the step logs
+04 test: 5542 passed, 0 failed over 14 test binaries
+05 test-fault-tui: test result: ok. 201 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.64s
+06 test-fault-lib: test result: ok. 4641 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 52.86s
+16 fxcap-test-sweep: Ran 70 tests in 5.755s;Ran 27 tests in 8.837s;
+17 fxcap-test-capture: Ran 79 tests in 432.367s
+21 smoke-tui: smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures
+
+# the new and flipped tests, in 04's log
+test a_model_the_catalog_lists_without_vision_is_told_why_the_tool_image_is_not_there ... ok
+test a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words ... ok
+test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... ok
+test ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstreams_and_changes_nothing ... ok
+test ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams ... ok
+test image::tests::a_model_that_cannot_read_tool_images_gets_upstreams_sentence_in_their_place ... ok
+test image::tests::a_tool_image_counts_toward_the_request_and_is_withheld_with_upstreams_tool_note ... ok
+test session::store::tests::a_prompt_image_never_read_back_names_upstreams_attachment_with_no_file ... ok
+test session::store::tests::a_prompt_images_copy_gone_or_not_a_file_refuses_the_resume_in_upstreams_words_and_changes_nothing ... ok
+test session::store::tests::a_prompt_images_copy_that_cannot_go_resumes_and_names_what_its_request_fails_with ... ok
+test session::store::tests::a_tool_image_never_read_back_is_unavailable_in_this_session_and_the_note_fits_the_limit ... ok
+test session::store::tests::a_tool_images_lost_copy_is_told_to_the_model_in_front_of_its_result ... ok
+test tui::shell::tests::a_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... ok
+test tui::worker::tests::a_prompt_image_never_read_back_fails_the_turn_as_upstreams_with_no_file ... ok
+test tui::worker::tests::a_request_carrying_tool_images_waits_for_the_retry_behind_a_failed_catalog ... ok
+test tui::worker::tests::a_resumed_prompt_image_whose_copy_changed_fails_the_turn_in_upstreams_words_and_asks_nothing ... ok
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_before_the_turn_that_runs ... ok
+test tui::worker::tests::a_tool_image_that_cannot_go_is_told_to_the_model_and_the_screen_says_nothing ... ok
+test tui::worker::tests::the_picker_cannot_resume_a_session_a_prompt_images_copy_is_gone_from ... ok

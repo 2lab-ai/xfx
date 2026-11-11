@@ -1,0 +1,2 @@
+# run.sh's first line, its computation run again on the same TMPDIR string (as run, bash refused that line: run.txt's first three lines)
+# TMPDIR of 24 bytes, its fixed part holding an l: no

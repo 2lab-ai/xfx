@@ -1,0 +1,93 @@
+# first run
+# suite-lock.sh gates.sh <clone> <logs> <smoke>, a --no-local clone at dad8caa1, TMPDIR a short scratch directory, the whole script in one hold of the suite lock
+# head dad8caa1; tree clean: yes
+01 fmt                                exit 0     1s  load 38.88
+02 clippy                             exit 0    23s  load 38.88
+03 clippy-fault                       exit 0    16s  load 37.30
+04 test                               exit 0   139s  load 33.39
+05 test-fault                         exit 0   139s  load 20.83
+06 check-xfx-identity                 exit 0     2s  load 10.27
+07 check-no-stubs                     exit 0    10s  load 10.32
+08 check-no-secrets                   exit 0    46s  load 10.03
+09 check-preview-contract             exit 0     3s  load 10.00
+10 check-tui-preflight-cost           exit 0   102s  load 10.00
+11 check-usage-clock                  exit 0     1s  load 22.06
+12 test-check-no-secrets              exit 0    79s  load 22.06
+13 test-gate-env                      exit 0   213s  load 27.28
+14 test-preview-contract              exit 0    64s  load 28.48
+15 fxcap-test-sweep                   exit 0    17s  load 24.85
+16 fxcap-test-capture                 exit 0   280s  load 20.69
+17 build-release                      exit 0    15s  load 10.02
+18 build-faulty                       exit 0    27s  load 10.21
+19 smoke                              exit 0     2s  load 11.48
+20 smoke-tui                          exit 0    68s  load 11.48
+# 20 steps, 0 failed; tree clean after: yes
+# gates.sh exit 0
+
+# cargo test, summed over each run's test binaries (the 'test result:' lines of its log)
+test:       5560 passed, 0 failed, 8 ignored, over 15 binaries
+test-fault: 5597 passed, 0 failed, 8 ignored, over 15 binaries
+# smoke-tui's last line
+smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+
+# second run: suite-lock.sh gates.sh <clone> <logs> <smoke>, a --no-local clone at e2cba14b, TMPDIR a fresh short scratch directory, the whole script in one hold of the suite lock
+# head e2cba14b; tree clean: yes
+01 fmt                                exit 0     2s  load 27.42
+02 clippy                             exit 0    28s  load 29.15
+03 clippy-fault                       exit 0    22s  load 29.01
+04 test                               exit 0   192s  load 32.13
+05 test-fault                         exit 0   218s  load 29.44
+06 check-xfx-identity                 exit 0     2s  load 56.49
+07 check-no-stubs                     exit 0    21s  load 56.49
+08 check-no-secrets                   exit 0    61s  load 59.75
+09 check-preview-contract             exit 0     3s  load 67.41
+10 check-tui-preflight-cost           exit 0   151s  load 67.41
+11 check-usage-clock                  exit 0     1s  load 85.04
+12 test-check-no-secrets              exit 0   102s  load 85.04
+13 test-gate-env                      exit 0   197s  load 103.53
+14 test-preview-contract              exit 0    56s  load 62.46
+15 fxcap-test-sweep                   exit 0    35s  load 88.46
+16 fxcap-test-capture                 exit 0   323s  load 114.19
+17 build-release                      exit 0    18s  load 90.85
+18 build-faulty                       exit 0    31s  load 94.32
+19 smoke                              exit 0     1s  load 98.44
+20 smoke-tui                          exit 0    66s  load 98.44
+# 20 steps, 0 failed; tree clean after: yes
+# gates.sh exit 0
+
+# cargo test, summed over each run's test binaries (the 'test result:' lines of its log)
+test:       5561 passed, 0 failed, 8 ignored, over 15 binaries
+test-fault: 5598 passed, 0 failed, 8 ignored, over 15 binaries
+# smoke-tui's last line
+smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+
+# third run (AT-RANK r2): suite-lock.sh gates.sh <clone> <logs> <smoke>, a --no-local clone at e7661322 (the last commit that changes src, scripts or tests; git diff --stat e7661322..HEAD -- src scripts tests Cargo.toml Cargo.lock build.rs is empty), TMPDIR a fresh short scratch directory, the whole script in one hold of the suite lock
+# head e7661322; tree clean: yes
+01 fmt                                exit 0     3s  load 96.42
+02 clippy                             exit 0    42s  load 96.42
+03 clippy-fault                       exit 0    29s  load 85.32
+04 test                               exit 0   212s  load 85.80
+05 test-fault                         exit 0   181s  load 68.87
+06 check-xfx-identity                 exit 0     1s  load 124.96
+07 check-no-stubs                     exit 0    21s  load 124.96
+08 check-no-secrets                   exit 0    61s  load 127.49
+09 check-preview-contract             exit 0     5s  load 111.90
+10 check-tui-preflight-cost           exit 0   140s  load 114.39
+11 check-usage-clock                  exit 0     1s  load 108.88
+12 test-check-no-secrets              exit 0    89s  load 108.88
+13 test-gate-env                      exit 0   262s  load 96.91
+14 test-preview-contract              exit 0   108s  load 95.85
+15 fxcap-test-sweep                   exit 0    16s  load 58.80
+16 fxcap-test-capture                 exit 0   294s  load 53.53
+17 build-release                      exit 0    15s  load 112.14
+18 build-faulty                       exit 0    23s  load 115.57
+19 smoke                              exit 0     1s  load 133.84
+20 smoke-tui                          exit 0    64s  load 133.84
+# 20 steps, 0 failed; tree clean after: yes
+# gates.sh exit 0
+
+# cargo test, summed over each run's test binaries (the 'test result:' lines of its log)
+test:       5564 passed, 0 failed, 8 ignored, over 15 binaries
+test-fault: 5601 passed, 0 failed, 8 ignored, over 15 binaries
+# smoke-tui's last line
+smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures

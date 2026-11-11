@@ -1,0 +1,39 @@
+# Round 4 at c6328a9e, one hold of the suite lock (a scratch script, not kept: each step's exit and seconds), TMPDIR=<scratch>/abcdefghijklmnopqrstuvwxyz for every step:
+fmt exit 0 2s
+clippy exit 0 13s
+clippy-fault exit 0 10s
+two-cases exit 0 16s
+unit exit 0 15s
+parity exit 0 12s
+mutant-row exit 0 74s
+mutant exit 0 29s
+# cargo fmt --check: 0 lines of output
+# clippy, last line: Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.08s
+# clippy --features fault-injection, last line: Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.17s
+# two-cases: cargo test --locked --lib -- tui::shell::tests::a_first_at_after_a_walk
+test tui::shell::tests::a_first_at_after_a_walk_failed_but_before_the_poll_says_indexing ... ok
+test tui::shell::tests::a_first_at_after_a_walk_ended_whole_but_before_the_poll_refreshes ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 0.02s
+# exit: 0
+# unit: the six modules (tui::file_index tui::file_picker tui::shell tui::event_loop tui::check tui::frame)
+test result: ok. 1340 passed; 0 failed; 3 ignored; 0 measured; 3277 filtered out; finished in 15.19s
+# exit: 0
+# parity: cargo test --locked --test parity
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.91s
+# exit: 0
+# mutant-row: the two cases on a --no-local clone at c6328a9e with decision-before-the-walks-end applied by hand (restored after: clone clean after: 0 changes)
+test tui::shell::tests::a_first_at_after_a_walk_failed_but_before_the_poll_says_indexing ... FAILED
+test tui::shell::tests::a_first_at_after_a_walk_ended_whole_but_before_the_poll_refreshes ... FAILED
+thread 'tui::shell::tests::a_first_at_after_a_walk_failed_but_before_the_poll_says_indexing' panicked at src/tui/shell.rs:36070:9:
+assertion `left != right` failed: the failed walk was shown, with no walk after it
+  left: "  \u{1b}[38;5;245mFiles unavailable. tab to retry; esc to dismiss.\u{1b}[0m"
+ right: "  \u{1b}[38;5;245mFiles unavailable. tab to retry; esc to dismiss.\u{1b}[0m"
+thread 'tui::shell::tests::a_first_at_after_a_walk_ended_whole_but_before_the_poll_refreshes' panicked at src/tui/shell.rs:36047:9:
+assertion `left == right` failed: the first `@` skipped its refresh: []
+  left: (1, 0)
+ right: (2, 1)
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 0.02s
+# exit: 101
+# mutant: python3 -I mutants.py <the same clone> decision-before-the-walks-end (this folder's mutants.py at c6328a9e)
+KILLED   decision-before-the-walks-end: tui::shell::tests::a_first_at_after_a_walk_ended_whole_but_before_the_poll_refreshes, tui::shell::tests::a_first_at_after_a_walk_failed_but_before_the_poll_says_indexing
+mutants: 1 run, 1 killed

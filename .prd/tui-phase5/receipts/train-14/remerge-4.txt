@@ -1,0 +1,128 @@
+commit fb6dfdb80a75a41e3b5f66ec8aed2f36b30a211a
+Merge: 7a1773d9 bde1ddfa
+
+merge: IMAGE-LOSS-COPY-FX (fix/p5-image-loss-copy-fx @ bde1ddfa) into train 14
+
+The merge carries one unit, its 19 commits since its base 714f6283
+(HISTORY-NOTICES-COPY-FX's head, on main): IMAGE-LOSS-COPY-FX bde1ddfa.
+
+Conflicts: scripts/fxcap/parity-ledger.toml, 6 blocks, each `numbers`
+(blocks.py in .prd/tui-phase5/receipts/train-14/).
+
+One build fix (semantic.py 4): the unit deletes the history's notices
+(`ReplayedHistory::notices`, `Conversation::unsaid`) and its own tests'
+`notices.is_empty()` asserts; train 13's join test in src/tui/worker.rs
+asserted it too, and that assert goes the same way.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+
+diff --git a/scripts/fxcap/parity-ledger.toml b/scripts/fxcap/parity-ledger.toml
+remerge CONFLICT (content): Merge conflict in scripts/fxcap/parity-ledger.toml
+index 0e78d426..fd818338 100644
+--- a/scripts/fxcap/parity-ledger.toml
++++ b/scripts/fxcap/parity-ledger.toml
+@@ -811,11 +811,7 @@ scenarios = ["*"]
+ snaps = ["*"]
+ fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
+ xfx_row = '^  tools: \d+ advertised|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
+-<<<<<<< 7a1773d9 (merge: PAGE-KEYS-SETTINGS-COLUMN (fix/p5-page-keys-settings-column @ 3ea16930) into train 14)
+ xfx = ["src/tui/shell.rs:42483"]
+-=======
+-xfx = ["src/tui/shell.rs:39041"]
+->>>>>>> bde1ddfa (test(image-loss): a copy cut short between the open and the read fails as fx's, nothing sent; its mutant)
+ fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
+ why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:238). The tool list's later rows are matched at any width: rows of tool names alone, each ending `,` or `+N more)` (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools`; `  edit_file, write_file, shell, subagent, capability_search,` / `  +6 more)` at 60, `p5-transcript-question`)."
+ 
+@@ -826,11 +822,7 @@ owner = "unowned (follows tool-schema and session-record)"
+ scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize", "p5-transcript-records", "p5-transcript-question"]
+ snaps = ["full-*"]
+ rows = ["1-2", "35-37"]
+-<<<<<<< 7a1773d9 (merge: PAGE-KEYS-SETTINGS-COLUMN (fix/p5-page-keys-settings-column @ 3ea16930) into train 14)
+ xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:42483"]
+-=======
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:39041"]
+->>>>>>> bde1ddfa (test(image-loss): a copy cut short between the open and the read fails as fx's, nothing sent; its mutant)
+ fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+ why = "Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command entry has two argument rows xfx's `terminal` has not (`tool-schema`), so a page counted from the tail starts two rows later on fx; fx's `* session:` record has two lines xfx's has not (`session-record`), so a page counted from the top ends two rows earlier, and a record shorter than the screen leaves xfx two more blank rows. Only the two rows at each edge of the record (and the footer's blank row under it); every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
+ 
+@@ -842,11 +834,7 @@ scenarios = ["p5-toolgroup-ctrlo", "p5-toolgroup-ctrlo-tc"]
+ snaps = ["full-*"]
+ rows = ["34-37"]
+ xfx_row = '^\s*$'
+-<<<<<<< 7a1773d9 (merge: PAGE-KEYS-SETTINGS-COLUMN (fix/p5-page-keys-settings-column @ 3ea16930) into train 14)
+ xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:42483"]
+-=======
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:39041"]
+->>>>>>> bde1ddfa (test(image-loss): a copy cut short between the open and the read fails as fx's, nothing sent; its mutant)
+ fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+ why = "TG-REDRAW's Ctrl-O pages hold the whole record, read from the top: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so xfx's record ends four rows higher and leaves rows 34-37 blank where fx's turn summary still stands. xfx's blank rows there only (`xfx_row`): no fx row and no xfx row with text is this cause's, and every other row of these pages is compared, the tool group's two rows among them (.prd/tui-phase5/receipts/toolgroup-redraw/)."
+ 
+@@ -857,11 +845,7 @@ owner = "unowned (follows tool-schema and session-record)"
+ scenarios = ["p5-transcript-safe", "p5-transcript-safetab"]
+ snaps = ["full", "full-pgup"]
+ rows = ["1-2", "33-36"]
+-<<<<<<< 7a1773d9 (merge: PAGE-KEYS-SETTINGS-COLUMN (fix/p5-page-keys-settings-column @ 3ea16930) into train 14)
+ xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:42483"]
+-=======
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:39041"]
+->>>>>>> bde1ddfa (test(image-loss): a copy cut short between the open and the read fails as fx's, nothing sent; its mutant)
+ fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+ why = "`transcript-page-offset` for `p5-transcript-safe` and `p5-transcript-safetab`, four rows deep: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so the tail page starts later on fx (xfx's top rows, the record's `+5 more)` and `mcp: none`, are above fx's) and the page at the top ends four rows earlier (xfx's rows 33-36, the read's heading and its two rows and the blank under them, are below fx's). The read's rows are compared on the tail page."
+ 
+@@ -872,11 +856,7 @@ owner = "session-record and tool-schema's owners: the page offset those two caus
+ scenarios = ["p5-transcript-cancel"]
+ snaps = ["full"]
+ rows = ["1-2"]
+-<<<<<<< 7a1773d9 (merge: PAGE-KEYS-SETTINGS-COLUMN (fix/p5-page-keys-settings-column @ 3ea16930) into train 14)
+ xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:42483"]
+-=======
+-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:39041"]
+->>>>>>> bde1ddfa (test(image-loss): a copy cut short between the open and the read fails as fx's, nothing sent; its mutant)
+ fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
+ why = "`transcript-page-offset` for `p5-transcript-cancel`'s Ctrl-O page, read from the tail: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`action: run`, `yield_time_ms: 30000`; `tool-schema`), so xfx's page starts at its record's `* session:` row where fx's starts lower in its record (`skills: loading`). Every other row of the page is compared. Named by T-U4, which gave the scenario xfx's own turns (.prd/tui-phase5/receipts/cancel-marker/README.md)."
+ 
+@@ -944,11 +924,7 @@ owner = "unowned (follows session-record and tool-schema)"
+ scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
+ snaps = ["*ctrl-o*", "full*"]
+ whole_snap = true
+-<<<<<<< 7a1773d9 (merge: PAGE-KEYS-SETTINGS-COLUMN (fix/p5-page-keys-settings-column @ 3ea16930) into train 14)
+ xfx = ["src/tui/shell.rs:42483", "src/tui/approval_view.rs:685"]
+-=======
+-xfx = ["src/tui/shell.rs:39041", "src/tui/approval_view.rs:685"]
+->>>>>>> bde1ddfa (test(image-loss): a copy cut short between the open and the read fails as fx's, nothing sent; its mutant)
+ fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/execution/command_environment.zig:128@c1db9191"]
+ why = "Every Ctrl-O row under fx's taller session record and its shell calls' argument rows stands lower than xfx's, so a page shows other entries; what else differs on these pages is read only once those two are fixed."
+ 
+diff --git a/src/tui/worker.rs b/src/tui/worker.rs
+index db496699..00bd391d 100644
+--- a/src/tui/worker.rs
++++ b/src/tui/worker.rs
+@@ -20309,11 +20309,10 @@ mod tests {
+         // `app_session_runtime.zig:4589-4607@481104fd`). The request history
+         // (HISTORY-NOTICES-COPY-FX): the state another provider or model
+         // sealed is dropped without a word (`projectProviderReplay`,
+-        // `types.zig:1668-1682@481104fd`) -- `ReplayedHistory::notices`, the
+-        // only source of the TUI's `! session:` lines
+-        // (`Conversation::unsaid`), says nothing of it -- while the call and
+-        // its answer document still go; back on the authority that sealed it,
+-        // the state goes too.
++        // `types.zig:1668-1682@481104fd`) -- since IMAGE-LOSS-COPY-FX the
++        // history holds no notice at all, so nothing can say it -- while the
++        // call and its answer document still go; back on the authority that
++        // sealed it, the state goes too.
+         use super::super::hydration::HydratedStep;
+         let home = tempfile::tempdir().expect("a home");
+         let workspace = tempfile::tempdir().expect("a workspace");
+@@ -20353,11 +20352,6 @@ mod tests {
+                 .session
+                 .state()
+                 .history_messages(wire.clone(), model);
+-            assert!(
+-                history.notices.is_empty(),
+-                "{wire:?} {model}: {:?}",
+-                history.notices
+-            );
+             let sent = format!("{:?}", history.messages);
+             assert!(
+                 sent.contains("toolu_q") && sent.contains("Which depth?") && sent.contains("Deep"),

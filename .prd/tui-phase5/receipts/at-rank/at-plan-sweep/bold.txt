@@ -1,0 +1,3 @@
+# python3 -I redact.py --bold .: row 13 of each side, bold letters in brackets; <tmp> is the sweep's scratch root and unit directory, whose own bold letters (p, l, a, the same on both sides) the redaction leaves as empty brackets
+fx    row 13:   <tmp>[][][]/fxcap.q[n]VERa/extra/notes/
+xfx   row 13:   <tmp>[][][]/fxcap.YTZTDF/extra/[n]otes/

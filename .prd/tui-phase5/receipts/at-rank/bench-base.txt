@@ -1,0 +1,20 @@
+# base ranking: 20a42b58 (the base's code with this unit's cases), release lib test binary, run alone under the suite lock
+# XFX_AT_BENCH_TREE=<scratch>/tree100k (gen_tree.py: fx's benchmark inventory as a tree, 128,006 entries, walked to the 100,000 cap)
+# uptime before: 15:40  load averages: 40.24 37.74 38.19 (18 cores)
+running 1 test
+entries: 100000
+exact            33 keys  1 rows p50 30.404083ms p95 45.539042ms max 121.184875ms
+boundary          5 keys 32 rows p50 37.657875ms p95 45.7715ms max 50.544458ms
+low-selectivity   2 keys 32 rows p50 26.280041ms p95 31.249375ms max 33.150208ms
+long-gap          4 keys 32 rows p50 31.920958ms p95 60.348834ms max 90.193916ms
+no-match         14 keys  0 rows p50 33.131209ms p95 43.504792ms max 47.398875ms
+punctuation       9 keys  1 rows p50 36.499125ms p95 46.726166ms max 63.123041ms
+unicode           3 keys  1 rows p50 31.400625ms p95 33.261417ms max 33.644333ms
+unicode-fold      3 keys 32 rows p50 41.261959ms p95 122.856834ms max 169.0065ms
+every keystroke: 1460 searches p50 32.6865ms p95 46.702125ms p99 61.081875ms max 169.0065ms
+whole queries (fx's gate): 160 searches p50 32.536958ms p95 51.7595ms
+thread 'tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame' (472197156) panicked at src/tui/file_index.rs:2416:9:
+a keystroke's search took 46.702125ms at the 95th percentile, against an 8 ms frame
+test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4643 filtered out; finished in 62.77s
+# uptime after: 15:41  load averages: 39.76 38.13 38.31

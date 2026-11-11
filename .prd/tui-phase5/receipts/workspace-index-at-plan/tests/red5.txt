@@ -1,0 +1,74 @@
+# Round 5 RED: 80486812's test_capture.py in a clone at 05d80375 (round 4's head).
+# The launch-time ps test passes there: round 4 already failed that run; round 5 pins it.
+## the three forged-record tests at 05d80375's capture.sh
+FFF
+======================================================================
+FAIL: test_a_record_copy_the_binary_deletes_changes_nothing (__main__.RunDirectory.test_a_record_copy_the_binary_deletes_changes_nothing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red5/scripts/fxcap/test_capture.py", line 548, in test_a_record_copy_the_binary_deletes_changes_nothing
+    self.forged('rm -f "$rec"\n')
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "<scratch>/red5/scripts/fxcap/test_capture.py", line 541, in forged
+    self.assertEqual(r.code, 4, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 4 : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: a first frame after 2.25 s (34 looks)
+<tmp>/wiap5/fxcapt.zb03tbw0/side.6v82lcyx/out/xfx-t-30x200-a.txt
+<scratch>/red5/scripts/fxcap/capture.sh: line 1: 41073 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+======================================================================
+FAIL: test_a_record_copy_the_binary_writes_gone_changes_nothing (__main__.RunDirectory.test_a_record_copy_the_binary_writes_gone_changes_nothing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red5/scripts/fxcap/test_capture.py", line 551, in test_a_record_copy_the_binary_writes_gone_changes_nothing
+    self.forged("printf 'gone\\n' > \"$rec\"\n")
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<scratch>/red5/scripts/fxcap/test_capture.py", line 541, in forged
+    self.assertEqual(r.code, 4, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 4 : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: a first frame after 0.58 s (9 looks)
+<tmp>/wiap5/fxcapt.vm18xor3/side.gy46edhp/out/xfx-t-30x200-a.txt
+<scratch>/red5/scripts/fxcap/capture.sh: line 1: 43437 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+======================================================================
+FAIL: test_a_record_copy_the_binary_writes_without_a_start_changes_nothing (__main__.RunDirectory.test_a_record_copy_the_binary_writes_without_a_start_changes_nothing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red5/scripts/fxcap/test_capture.py", line 554, in test_a_record_copy_the_binary_writes_without_a_start_changes_nothing
+    self.forged("printf 'pid\\n%s\\n' $$ > \"$rec\"\n")
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<scratch>/red5/scripts/fxcap/test_capture.py", line 541, in forged
+    self.assertEqual(r.code, 4, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 4 : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: a first frame after 0.57 s (9 looks)
+<tmp>/wiap5/fxcapt.0bf96ofq/side.0kjdrqlr/out/xfx-t-30x200-a.txt
+pane: the process the run started is gone (0 looks)
+<scratch>/red5/scripts/fxcap/capture.sh: line 1: 44397 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+----------------------------------------------------------------------
+Ran 3 tests in 16.032s
+
+FAILED (failures=3)
+exit 1
+## the launch-time ps test and the relaunch test at 05d80375
+.F
+======================================================================
+FAIL: test_a_relaunch_that_fails_after_respawning_says_the_pane_was_being_remade (__main__.RunDirectory.test_a_relaunch_that_fails_after_respawning_says_the_pane_was_being_remade)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red5/scripts/fxcap/test_capture.py", line 563, in test_a_relaunch_that_fails_after_respawning_says_the_pane_was_being_remade
+    self.assertIn("could not be recorded (the pane was being remade)", r.stderr)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'could not be recorded (the pane was being remade)' not found in ''
+
+----------------------------------------------------------------------
+Ran 2 tests in 14.126s
+
+FAILED (failures=1)
+exit 1

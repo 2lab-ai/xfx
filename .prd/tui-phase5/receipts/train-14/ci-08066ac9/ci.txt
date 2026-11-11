@@ -1,0 +1,18 @@
+# report.md, lines 1-12
+## fx parity sweep, per pull request (v0.0.16)
+
+- fx v0.0.16, sha256 `8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`
+- head `08066ac99a44`, base `dcfa5146b520` (both xfx builds against the same fx)
+- 56 scenarios, 329 snap pairs: 244 pass at the head, 172 new, **1 regression(s)**
+- wall: head 910 s, retries 0 s, base 222 s, total 1138 s
+
+### Regressions: the base passes these, the head does not
+
+| scenario | snap | base | head | runs (base / head) | first differing row (fx / xfx) |
+|---|---|---|---|---|---|
+| workspace-index | at-plan | normalized-identical | unresolved-defect | 1 / 1 | row 13: `  <scratch______________________________________________>/e…` / (blank) |
+
+# result.json: head, base, and the workspace-index pairs
+head 08066ac99a448608015154ff938500de9223063b base dcfa5146b520bd3f5d6b2d0d20ba7acced8ad806 regressions 1
+{"scenario": "workspace-index", "label": "at-all", "head": "normalized-identical", "runs": 1, "new": false, "base": "normalized-identical", "base_runs": 0, "regression": false, "first": null}
+{"scenario": "workspace-index", "label": "at-plan", "head": "unresolved-defect", "runs": 1, "new": false, "base": "normalized-identical", "base_runs": 1, "regression": true, "first": {"row": 13, "fx": "  <scratch______________________________________________>/extra/notes/", "xfx": ""}}

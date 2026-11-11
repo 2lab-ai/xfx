@@ -1,0 +1,12 @@
+# round 2 RED at <this commit> (the tests on round 1's code, 90fbeeb6's src plus these cases): cargo test --locked --lib -- <the 4 cases>, TMPDIR=<scratch>
+test tui::shell::tests::under_the_full_transcript_a_folder_listing_holds_no_frame ... FAILED
+test tui::event_loop::tests::the_frame_of_a_keystroke_that_lists_a_folder_waits_for_its_rows ... ok
+test tui::event_loop::tests::a_listing_still_out_at_8_ms_lets_the_owed_frame_go_and_its_rows_follow ... ok
+test tui::event_loop::tests::a_frame_held_for_a_folder_holds_no_report_title_or_bell ... FAILED
+thread 'tui::shell::tests::under_the_full_transcript_a_folder_listing_holds_no_frame' panicked at src/tui/shell.rs:34720:9:
+the transcript's frame waited for the list's rows
+thread 'tui::event_loop::tests::a_frame_held_for_a_folder_holds_no_report_title_or_bell' panicked at src/tui/event_loop.rs:16356:9:
+unheld ["frame", "\u{1b}]7501;state=working:app=xfx\u{1b}\\", "\u{1b}]7501;state=done:app=xfx\u{1b}\\", "title go", "frame", "bell x1"]
+  left: []
+ right: ["\u{1b}]7501;state=working:app=xfx\u{1b}\\", "\u{1b}]7501;state=done:app=xfx\u{1b}\\", "title go", "bell x1"]
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 4573 filtered out; finished in 0.11s

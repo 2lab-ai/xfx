@@ -1,0 +1,33 @@
+# suite-lock.sh gates.sh <clone> <logs> <smoke>, a --no-local clone at 5d6c4cbb, TMPDIR a short scratch directory, the whole script in one hold of the suite lock
+# head 5d6c4cbb; tree clean: yes
+01 fmt                                exit 0     1s  load 8.50
+02 clippy                             exit 0    25s  load 8.50
+03 clippy-fault                       exit 0    17s  load 8.09
+04 test                               exit 0   141s  load 8.64
+05 test-fault                         exit 0   128s  load 13.33
+06 check-xfx-identity                 exit 0     2s  load 9.57
+07 check-no-stubs                     exit 0    10s  load 9.57
+08 check-no-secrets                   exit 0    42s  load 10.84
+09 check-preview-contract             exit 0     2s  load 11.07
+10 check-tui-preflight-cost           exit 0    87s  load 10.66
+11 check-usage-clock                  exit 0     1s  load 12.55
+12 test-check-no-secrets              exit 0    77s  load 12.55
+13 test-gate-env                      exit 0   185s  load 12.08
+14 test-preview-contract              exit 0    75s  load 10.07
+15 fxcap-test-sweep                   exit 0    38s  load 10.33
+16 fxcap-test-capture                 exit 0   287s  load 13.45
+17 build-release                      exit 0    16s  load 5.13
+18 build-faulty                       exit 0    27s  load 6.17
+19 smoke                              exit 0     2s  load 7.25
+20 smoke-tui                          exit 0    64s  load 7.25
+# 20 steps, 0 failed; tree clean after: yes
+# gates.sh exit 0
+
+# cargo test, summed over each run's test binaries (the 'test result:' lines of its log)
+test:       5567 passed, 0 failed, 7 ignored, over 15 binaries
+test-fault: 5604 passed, 0 failed, 7 ignored, over 15 binaries
+# smoke-tui's last line but one (the last names the evidence directory, in <tmp>)
+smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures
+# the parity rows' two readers inside the gate: tests/parity.rs's result line in step 04's log, and check-no-stubs' last line (step 07)
+tests/parity.rs: test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.42s
+check-no-stubs: ok

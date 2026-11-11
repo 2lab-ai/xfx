@@ -1,0 +1,11 @@
+# python3 -I compare.py <base sweep>/pairs.json <head sweep>/pairs.json -- base v0.1.0-b4cc300, head v0.1.0-274fc43; both scored with the ledger at 08f3798a (unchanged at 7b842c2c)
+pairs: base 66, head 66
+base: pass 57/66  normalized-identical 57, unresolved-defect 9
+head: pass 56/66  normalized-identical 56, unresolved-defect 10
+
+moved to passing: 0
+
+dropped from passing: 1
+  workspace-index at-plan: normalized-identical -> unresolved-defect
+
+other verdict changes: 0

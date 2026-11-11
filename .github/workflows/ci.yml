@@ -225,6 +225,15 @@ jobs:
         if: matrix.part != 'checks'
         run: ./scripts/check-tui-preflight-cost.sh
 
+      # The `@` picker searches its whole index again on every keystroke, on
+      # the thread that paints, so one keystroke's search is held to the 8 ms
+      # frame over fx's own 100,000-entry benchmark. Measured here for the
+      # same reasons as the output check: release, and alone. The script
+      # prints the load beside the figures.
+      - name: The @ search still fits inside a frame
+        if: matrix.part != 'checks'
+        run: ./scripts/check-at-search-cost.sh
+
       # `XFX_E2E_USAGE_CLOCK_FILE` pins /usage's clock for the capture harness
       # (src/usage/clock.rs), and only a build with debug assertions reads it.
       # That is a property of the build profile, so the one test that knows

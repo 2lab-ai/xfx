@@ -1,0 +1,13 @@
+# the round-2 gate, at 25336ee5 (gates-round2.sh), in one hold of the suite lock after the round-2 mutants
+# gate round 2 start 2026-11-10T19:48:53Z
+# head 25336ee5; tree clean: yes
+01 check-xfx-identity                 exit 0     1s  load 8.75
+02 check-no-stubs                     exit 0    13s  load 8.75
+03 check-no-secrets                   exit 0    65s  load 8.80
+04 check-no-local-paths               exit 0     2s  load 13.89
+05 test-check-no-local-paths          exit 0     5s  load 13.17
+06 test-check-no-local-paths-2        exit 0     6s  load 12.84
+07 test-check-no-local-paths-3        exit 0     9s  load 12.29
+08 test-gate-env                      exit 0   235s  load 11.01
+# 8 steps, 0 failed; tree clean after: yes
+gate exit 0

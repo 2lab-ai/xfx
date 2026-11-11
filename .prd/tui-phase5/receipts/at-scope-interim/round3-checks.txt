@@ -1,0 +1,33 @@
+# Round 3 at a0bc7d33, one hold of the suite lock (a scratch script, not kept: each step's exit and seconds), TMPDIR=<scratch>/abcdefghijklmnopqrstuvwxyz for every step:
+fmt exit 0 2s
+clippy exit 0 9s
+clippy-fault exit 0 8s
+unit exit 0 15s
+parity exit 0 8s
+mutants exit 0 294s
+# cargo fmt --check: 0 lines of output
+# clippy, last line: Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.42s
+# clippy --features fault-injection, last line: Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.76s
+# the unit's six modules (cargo test --locked --lib -- tui::file_index tui::file_picker tui::shell tui::event_loop tui::check tui::frame, bounded.py 1800 s):
+test tui::file_index::tests::a_change_of_scope_keeps_the_index_and_is_unavailable_until_its_walk_is_whole ... ok
+test tui::file_index::tests::a_change_of_scope_lets_the_walk_run_on_and_its_prefix_answers_nothing ... ok
+test tui::shell::tests::a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk ... ok
+test tui::shell::tests::a_change_of_roots_under_an_open_indexed_list_says_files_unavailable_until_its_walk_is_whole ... ok
+test tui::shell::tests::a_change_that_moves_no_root_says_files_unavailable_until_its_walk_is_whole ... ok
+test tui::shell::tests::a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows ... ok
+test tui::shell::tests::a_first_at_after_a_walk_ended_whole_but_before_the_poll_refreshes ... ok
+test tui::shell::tests::a_first_at_after_a_walk_failed_but_before_the_poll_says_indexing ... ok
+test tui::shell::tests::a_path_list_in_the_interim_lists_its_folder ... ok
+test tui::shell::tests::a_workspace_change_that_keeps_the_rows_still_resets_the_bar_and_the_trust ... ok
+test tui::shell::tests::escape_in_the_interim_closes_the_list_and_keeps_the_word ... ok
+test tui::shell::tests::tab_in_the_interim_retries_and_still_says_files_unavailable ... ok
+test tui::shell::tests::the_first_at_after_the_old_roots_walk_failed_skips_its_refresh ... ok
+test tui::shell::tests::the_first_at_after_the_old_roots_walk_was_adopted_refreshes ... ok
+test tui::shell::tests::the_first_at_while_the_old_roots_walk_runs_skips_its_refresh ... ok
+test tui::shell::tests::the_first_episode_after_a_whole_index_refreshes_across_a_change_of_roots ... ok
+test tui::shell::tests::the_first_indexed_episode_skips_its_refresh_while_the_index_loads ... ok
+test result: ok. 1340 passed; 0 failed; 3 ignored; 0 measured; 3277 filtered out; finished in 6.91s
+# exit: 0
+# cargo test --locked --test parity (bounded.py 1800 s):
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.87s
+# exit: 0

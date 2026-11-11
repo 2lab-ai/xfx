@@ -427,39 +427,42 @@ async fn run_ask(
 
     // The session, before anything is asked of a model. A resume that names a
     // session that does not exist must fail before a token is spent.
-    let mut opened = match open_session(config, &request, mode) {
+    // Upstream's `ask` has no sentence for a session a prompt image's blob is
+    // gone from, nor for a request such an image fails: the error goes up and
+    // its name is printed, `fx: <Error>`, or with `--json` is the error
+    // (`askErrorNotice`, `cli_ask.zig:1189-1197@481104fd`; `:1306-1326`,
+    // `:1802-1823`; `tryWriteErrorMessage`, `app_entry_runtime.zig:563-567`).
+    let failure = match open_session(config, &request, mode) {
+        Ok(opened) => Ok(opened),
+        Err(SessionError::Unreadable { error, .. }) => Err(named(request.json, error)),
+        Err(err) => Err(err.to_string()),
+    };
+    let mut opened = match failure {
         Ok(opened) => opened,
-        Err(err) => {
+        Err(message) => {
             let mut sink: Box<dyn EventSink> = if request.json {
                 Box::new(JsonlSink::new(stdout).on_terminal(stdout_is_terminal))
             } else {
                 Box::new(TextSink::new(stdout, stderr))
             };
-            return quiet(fail_turn(sink.as_mut(), err.to_string()));
+            return quiet(fail_turn(sink.as_mut(), message));
         }
     };
 
-    // Report any notices about what the history could not send again -- an
-    // image whose saved copy could not be read back -- before the turn
-    // starts. Inert: a notice quotes what the log names (the tool that
-    // returned the image, the reason its copy failed), and the log is file
-    // input.
-    for notice in &opened.notices {
-        writeln!(
-            stderr,
-            "{}",
-            crate::output::safe_one_line(notice, MAX_NOTICE_BYTES)
-        )?;
-    }
-
-    // Now create the sink after notices are printed. On a terminal the
-    // answer arrives inert: the approval question is asked on the same one,
-    // after it, and must not find a state the model left there.
-    let mut sink: Box<dyn EventSink + '_> = if request.json {
+    // On a terminal the answer arrives inert: the approval question is asked
+    // on the same one, after it, and must not find a state the model left
+    // there.
+    let inner: Box<dyn EventSink + '_> = if request.json {
         Box::new(JsonlSink::new(stdout).on_terminal(stdout_is_terminal))
     } else {
         Box::new(TextSink::new(stdout, stderr).on_terminal(stdout_is_terminal))
     };
+    let copy_failed = std::rc::Rc::default();
+    let mut sink: Box<dyn EventSink + '_> = Box::new(CopyErrorNamed {
+        inner,
+        json: request.json,
+        failed: std::rc::Rc::clone(&copy_failed),
+    });
 
     // A resumed session's model, by [`resumed_model`]'s rule; a fresh one's is
     // the configuration's.
@@ -566,18 +569,17 @@ async fn run_ask(
         tools: tools.clone(),
     };
 
+    // Each request's images read again from the session's copies
+    // ([`crate::session::store::CopiesChecked`]).
+    let checked = crate::session::store::CopiesChecked {
+        inner: bundle.stream.as_ref(),
+        copies: std::mem::take(&mut opened.copies),
+        failed: copy_failed,
+    };
     // The turn writes its own terminal event, including on failure.
     let outcome = match opened.recorder.as_mut() {
         Some(recorder) => {
-            run_turn_with_skills(
-                turn,
-                context,
-                &skills,
-                bundle.stream.as_ref(),
-                sink.as_mut(),
-                recorder,
-            )
-            .await
+            run_turn_with_skills(turn, context, &skills, &checked, sink.as_mut(), recorder).await
         }
         None => {
             let mut journal = crate::agent::NoJournal;
@@ -585,7 +587,7 @@ async fn run_ask(
                 turn,
                 context,
                 &skills,
-                bundle.stream.as_ref(),
+                &checked,
                 sink.as_mut(),
                 &mut journal,
             )
@@ -617,11 +619,6 @@ async fn run_ask(
         warning,
     ))
 }
-
-/// The most bytes of one history notice `ask` prints: a notice is a sentence
-/// around what the log names -- the tool that returned an image -- and a log
-/// can make that as long as a frame.
-const MAX_NOTICE_BYTES: usize = 1024;
 
 /// The model a resumed `ask` is sent in.
 ///
@@ -662,11 +659,74 @@ fn resumed_model<'a>(config: &'a RuntimeConfig, state: &'a DurableState) -> &'a 
     }
 }
 
+/// `ask`'s events, a request a copy failed said as upstream's `ask` says it:
+/// no notice is its, so the error goes up and its name is printed,
+/// `fx: ImageSnapshotCorrupt`, or with `--json` is the error (`askErrorNotice`,
+/// `cli_ask.zig:1189-1197@481104fd`; `:1802-1823`; `tryWriteErrorMessage`,
+/// `app_entry_runtime.zig:563-567`). The TUI says `request failed: …`, as
+/// upstream's does. `failed` is the name
+/// [`crate::session::store::CopiesChecked`] failed the request with, which is
+/// the turn's end: such a failure is not retried.
+struct CopyErrorNamed<'a> {
+    inner: Box<dyn EventSink + 'a>,
+    json: bool,
+    failed: std::rc::Rc<std::cell::Cell<Option<&'static str>>>,
+}
+
+/// An error with no notice of its own, as upstream's `ask` prints it: its name
+/// after `fx: `, or with `--json` the name alone.
+fn named(json: bool, error: &str) -> String {
+    if json {
+        error.to_string()
+    } else {
+        format!("xfx: {error}")
+    }
+}
+
+impl EventSink for CopyErrorNamed<'_> {
+    fn emit(&mut self, event: &Event) -> io::Result<()> {
+        match (event, self.failed.get()) {
+            (Event::Error { .. }, Some(name)) => self.inner.emit(&Event::Error {
+                message: named(self.json, name),
+            }),
+            _ => self.inner.emit(event),
+        }
+    }
+
+    fn retrying(
+        &mut self,
+        error: &crate::gateway::ProviderError,
+        attempt: u32,
+        limit: u32,
+        delay: std::time::Duration,
+    ) {
+        self.inner.retrying(error, attempt, limit, delay);
+    }
+
+    fn retry_started(&mut self, attempt: u32, limit: u32) {
+        self.inner.retry_started(attempt, limit);
+    }
+
+    fn recovered(&mut self, attempt: u32, limit: u32) {
+        self.inner.recovered(attempt, limit);
+    }
+
+    fn steered(&mut self, steers: &[crate::agent::Steer]) {
+        self.inner.steered(steers);
+    }
+
+    fn output_tokens(&mut self, progress: crate::agent::tokens::Progress) {
+        self.inner.output_tokens(progress);
+    }
+}
+
 /// What opening a session produced for the turn that follows.
 struct OpenedSession {
     recorder: Option<SessionRecorder>,
     history: Vec<crate::gateway::protocol::Message>,
-    notices: Vec<String>,
+    /// The copies the history's prompt images were read from, which every
+    /// request reads again ([`crate::session::store::CopiesChecked`]).
+    copies: Vec<crate::session::store::SavedCopy>,
     restored_grants: Vec<Grant>,
     restored_model: Option<String>,
 }
@@ -684,7 +744,7 @@ fn open_session(
     let empty = OpenedSession {
         recorder: None,
         history: Vec::new(),
-        notices: Vec::new(),
+        copies: Vec::new(),
         restored_grants: Vec::new(),
         restored_model: None,
     };
@@ -712,7 +772,7 @@ fn open_session(
             Ok(OpenedSession {
                 recorder: Some(SessionRecorder::new(store, resumed.session)),
                 history: replay.messages,
-                notices: replay.notices,
+                copies: replay.copies,
                 restored_grants,
                 restored_model,
             })

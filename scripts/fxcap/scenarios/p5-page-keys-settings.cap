@@ -1,0 +1,93 @@
+# PAGE-KEYS-SETTINGS-COLUMN: PgDn and PgUp in /settings' menu and in its
+# Model row's list, at 24 rows, where a page is inputRowLimit(20) = 11
+# (input_completion_runtime.zig:222-233@481104fd). The menu lists 14
+# settings (settings_catalog.zig:261-276) and the list thirty models, so a
+# page lands inside both. A page past either end goes to the other end, not
+# round it (Menu.move, settings_catalog.zig:225-241; moveVisibleItems,
+# model_cache_runtime.zig:229-245): 11 then 0, and from 0 the last. C-j and
+# C-k walk the same lists one row (routePickerControlByte, :1093-1108 of
+# app_input_runtime.zig); they come last, after Tab has closed the list and
+# moved to the Interface tab, so a release that types them as a newline in
+# the search spoils no snap before them. The list is opened from a menu
+# opened again, so where the pages before left the mark does not matter.
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+fx: env FX_AUTO_UPGRADE=0
+xfx: env XFX_SOUND=off
+models p5-input-row-limit-models.json
+seed p5-effort-fork-seed-astra.json
+nomodel
+wait 3
+xfx: wait 1
+type /settings
+key Enter
+wait 1.2
+snap menu
+key NPage
+wait 0.6
+snap menu-pgdn
+key NPage
+wait 0.6
+snap menu-pgdn2
+key PPage
+wait 0.6
+snap menu-pgup
+key PPage
+wait 0.6
+snap menu-pgup2
+key Escape
+wait 0.7
+type /settings
+key Enter
+wait 1.2
+key Down Down Down Down Down
+wait 0.3
+key Right
+wait 1.5
+snap list
+key NPage
+wait 0.6
+snap list-pgdn
+key NPage
+wait 0.6
+snap list-pgdn2
+key NPage
+wait 0.6
+snap list-pgdn3
+key PPage
+wait 0.6
+snap list-pgup
+key C-j
+wait 0.5
+snap list-cj
+key C-k
+wait 0.5
+snap list-ck
+key Tab
+wait 0.8
+snap tab
+key C-j
+wait 0.5
+snap menu-cj
+key C-k
+wait 0.5
+snap menu-ck
+# Round 2: a search that finds nothing. Menu.move answers false over an
+# empty list (settings_catalog.zig:227), so Up and Down go on to the caret:
+# the start and the end of the search (input_completion_runtime.zig:262-291),
+# and a page to its page of rows (:235-268).
+type zzz
+wait 0.6
+snap empty
+cursor empty
+key Up
+wait 0.5
+snap empty-up
+cursor empty-up
+key Down
+wait 0.5
+snap empty-down
+cursor empty-down
+key PPage
+wait 0.6
+snap empty-pgup
+cursor empty-pgup

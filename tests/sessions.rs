@@ -1909,18 +1909,260 @@ fn ask_resume_keeps_the_sessions_model_over_the_profiles_and_under_the_processs(
     );
 }
 
+/// Every file under `dir`, by its path from `dir`: its mode and its bytes.
+fn every_file(dir: &Path) -> Vec<(String, u32, Vec<u8>)> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut out = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(at) = pending.pop() {
+        for entry in fs::read_dir(&at).expect("a listing") {
+            let path = entry.expect("an entry").path();
+            let meta = fs::symlink_metadata(&path).expect("metadata");
+            let name = path
+                .strip_prefix(dir)
+                .expect("inside")
+                .display()
+                .to_string();
+            let mode = meta.permissions().mode();
+            if meta.is_dir() {
+                out.push((name, mode, Vec::new()));
+                pending.push(path);
+            } else {
+                out.push((name, mode, fs::read(&path).expect("bytes")));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// An image's saved bytes: the 4x4 red PNG upstream's capture attached
+/// (`shot.png`). A request reads its size from its header.
+const SHOT: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x08, 0x02, 0x00, 0x00, 0x00, 0x26, 0x93, 0x09,
+    0x29, 0x00, 0x00, 0x00, 0x10, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0x00,
+    0x47, 0x0c, 0xc4, 0x71, 0x00, 0xae, 0x93, 0x0f, 0xf1, 0xd0, 0x5f, 0x23, 0x9e, 0x00, 0x00, 0x00,
+    0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+/// Records session `name`, whose one turn carried image #1 with `copy` saved
+/// beside its log (`None`: nothing saved), then a log tail past its published
+/// end; returns the session's directory.
+fn a_session_with_a_prompt_image(sandbox: &Sandbox, name: &str, copy: Option<&[u8]>) -> PathBuf {
+    let store = SessionStore::open(&sandbox.profile_dir()).expect("open the store");
+    let mut session = store
+        .create(
+            id(name),
+            NewSession {
+                origin_workspace_root: sandbox.workspace.clone(),
+                workspace_root: sandbox.workspace.clone(),
+                model: "test/model".to_string(),
+                permission_mode: PermissionMode::Auto,
+                provider: Some(xfx::provider::ProviderId::Gateway),
+            },
+        )
+        .expect("create");
+    let sha256 = xfx::image::digest(SHOT);
+    for event in [
+        SessionEvent::UserMessage {
+            text: "[Image #1] what is it".to_string(),
+        },
+        SessionEvent::ImagesAttached {
+            images: vec![RecordedImage {
+                id: 1,
+                path: "shot.png".to_string(),
+                media_type: "image/png".to_string(),
+                sha256: sha256.clone(),
+                bytes: SHOT.len() as u64,
+            }],
+        },
+        SessionEvent::AssistantMessage {
+            text: "a picture".to_string(),
+            tool_calls: Vec::new(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        },
+        SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        },
+    ] {
+        store.append(&mut session, event).expect("append");
+    }
+    store.publish(&mut session).expect("publish");
+    drop(session);
+    let dir = store.session_dir(&id(name));
+    if let Some(bytes) = copy {
+        let images = dir.join("images");
+        fs::create_dir_all(&images).expect("images");
+        fs::write(images.join(xfx::image::snapshot_name(1, &sha256)), bytes).expect("a copy");
+    }
+    {
+        use std::io::Write as _;
+        let mut log = fs::OpenOptions::new()
+            .append(true)
+            .open(dir.join(EVENTS_FILE))
+            .expect("the log");
+        log.write_all(b"{\"seq\":99,\"torn\":").expect("a tail");
+    }
+    dir
+}
+
+#[test]
+fn ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstreams_and_changes_nothing(
+) {
+    // Upstream's `ask --resume` reads the conversation through `decodeUser`,
+    // which finds the blob gone: `InvalidSessionFormat`
+    // (`session_adapter.zig:2871-2893@481104fd`, `cli_ask.zig:926-936`). No
+    // notice names it (`askErrorNotice`, `cli_ask.zig:1189-1197`), so the
+    // error goes up and the entry prints its name, `fx: InvalidSessionFormat`
+    // (`cli_ask.zig:1306-1326`, `app_entry_runtime.zig:158-166`,
+    // `:563-567`); `--json` writes the name as its error
+    // (`cli_ask.zig:8063-8079`). No model is asked, and the session -- its log
+    // tail too -- is left as it was. A blob folder the check cannot read
+    // fails it with `Io` instead (`blobExists`, `notFoundOr`,
+    // `session.zig:1666-1681`; `imageBlobFailed` hands it up unchanged), and
+    // `ask` prints that name the same way. Root reads any folder, so that case
+    // is asked of everyone else.
+    let unreadable_folder = rustix::process::geteuid().as_raw() != 0;
+    for (how, name) in [
+        ("gone", "InvalidSessionFormat"),
+        ("unreadable folder", "Io"),
+    ] {
+        if how == "unreadable folder" && !unreadable_folder {
+            continue;
+        }
+        for json in [false, true] {
+            let sandbox = Sandbox::new();
+            let copy = (how != "gone").then_some(SHOT);
+            let dir = a_session_with_a_prompt_image(&sandbox, "lost-image", copy);
+            let before = every_file(&dir);
+            let folder = dir.join("images");
+            use std::os::unix::fs::PermissionsExt;
+            let was = fs::metadata(&folder).map_or(0o700, |meta| meta.permissions().mode());
+            let mode = |bits: u32| {
+                fs::set_permissions(&folder, fs::Permissions::from_mode(bits)).expect("chmod")
+            };
+            if copy.is_some() {
+                mode(0o000);
+            }
+            let gateway = FakeGateway::start(Vec::new());
+            let url = gateway.chat_url();
+            let mut args = vec!["ask", "--resume-id", "lost-image", "and now?"];
+            if json {
+                args.insert(1, "--json");
+            }
+            let run = sandbox.run(&args, &gateway_env(&url, TEST_KEY));
+            if copy.is_some() {
+                mode(was);
+            }
+            assert_eq!(
+                run.code,
+                Some(1),
+                "{how}, json: {json}, stderr={:?}",
+                run.stderr
+            );
+            if json {
+                let message = format!("\"message\":\"{name}\"");
+                assert!(
+                    run.stdout
+                        .lines()
+                        .any(|line| line.contains("\"kind\":\"error\"") && line.contains(&message)),
+                    "{how}: {:?}",
+                    run.stdout
+                );
+            } else {
+                assert_eq!(run.stderr, format!("xfx: {name}\n"), "{how}");
+            }
+            assert_eq!(
+                gateway.request_count(),
+                0,
+                "{how}, json: {json}: a model was asked"
+            );
+            assert_eq!(
+                every_file(&dir),
+                before,
+                "{how}, json: {json}: the refusal changed the session"
+            );
+        }
+    }
+}
+
+#[test]
+fn ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams() {
+    // The blob is there, so the session reads; its bytes are checked when the
+    // request is built and fail it, `ImageSnapshotCorrupt`
+    // (`loadVerifiedSnapshot`, `image_attachments.zig:1260-1320@481104fd`,
+    // from `orchestrator.zig:7712-7716`), after the turn and its prompt were
+    // recorded (`p5-image-loss-changed`). `ask` has no notice for it and
+    // prints the name (`cli_ask.zig:1802-1823`, `app_entry_runtime.zig:563-567`).
+    let sandbox = Sandbox::new();
+    let mut tampered = SHOT.to_vec();
+    tampered[40] ^= 0xff;
+    // What the failure writes is the turn, as upstream records one -- the
+    // context it was asked in, its prompt and how it ended -- and nothing
+    // else: no other file changes, and the copy is left as it was.
+    let dir = a_session_with_a_prompt_image(&sandbox, "changed-image", Some(&tampered));
+    let log_before = fs::read_to_string(dir.join(EVENTS_FILE)).expect("the log");
+    let others = |dir: &Path| {
+        every_file(dir)
+            .into_iter()
+            .filter(|(name, ..)| !name.ends_with(EVENTS_FILE) && !name.ends_with("session.json"))
+            .collect::<Vec<_>>()
+    };
+    let before = others(&dir);
+    let gateway = FakeGateway::start(Vec::new());
+    let url = gateway.chat_url();
+    let run = sandbox.run(
+        &["ask", "--resume-id", "changed-image", "and now?"],
+        &gateway_env(&url, TEST_KEY),
+    );
+    assert_eq!(run.code, Some(1), "stderr={:?}", run.stderr);
+    assert_eq!(run.stderr, "xfx: ImageSnapshotCorrupt\n");
+    assert_eq!(gateway.request_count(), 0, "a model was asked");
+    let log = fs::read_to_string(dir.join(EVENTS_FILE)).expect("the log");
+    // The torn tail the session was left with is cut before the turn is written.
+    let published = log_before.rfind('\n').map_or(0, |at| at + 1);
+    let kinds = log[published..]
+        .lines()
+        .filter_map(|line| {
+            let value: serde_json::Value = serde_json::from_str(line).ok()?;
+            Some(value["event"]["kind"].as_str()?.to_string())
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        log.contains(r#""kind":"user_message","text":"and now?""#),
+        "the failed turn's prompt was not recorded: {log}"
+    );
+    assert_eq!(
+        kinds,
+        ["project_context_recorded", "user_message", "turn_concluded"],
+        "the failed request wrote more than its turn: {log}"
+    );
+    assert_eq!(
+        others(&dir),
+        before,
+        "the failed request changed another file"
+    );
+}
+
 #[test]
 fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
     // The log is file input. A model xfx would not have written
     // (`model_id_problem`) is not sent, as the TUI's resume does not restore
-    // one (`Resumption::selection`): the launch's model goes instead. And the
-    // history notice `ask` prints -- here an image a tool returned whose saved
-    // copy is gone, which quotes the tool's name as the log gives it -- reaches
-    // stderr through `safe_one_line` (`src/app.rs`): every control character a
-    // space, nothing raw. Red before: the log's model was the one asked for,
-    // and the notice carried its escapes to stderr. The reasoning a step
-    // sealed on the hostile wire is left out without a word, as fx leaves it
-    // (`projectProviderReplay`, `types.zig:1668-1682@481104fd`).
+    // one (`Resumption::selection`): the launch's model goes instead. An image
+    // the hostile tool returned, whose saved copy is gone, is told to the
+    // model in front of its result in upstream's words, which quote no name
+    // (`materializeToolImages`, `execution_memory.zig:993-1022@481104fd`;
+    // `ResultHandleNotFound`, `result_store.zig:728-742`), and stderr says
+    // nothing of it. The reasoning a step sealed on the hostile wire is left
+    // out without a word, as fx leaves it (`projectProviderReplay`,
+    // `types.zig:1668-1682@481104fd`).
     const HOSTILE_MODEL: &str = "m\u{1b}]0;pwned\u{7}x";
     const HOSTILE_WIRE: &str = "w\u{1b}[2Jire\u{9b}31m";
     // A line break, a carriage return and DEL too: without `safe_one_line`
@@ -2008,15 +2250,25 @@ fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
     let model = asked.header("ai-language-model-id").expect("a model");
     assert!(!model.chars().any(char::is_control), "{model:?}");
     assert_ne!(model, HOSTILE_MODEL);
-    // The notice, made one inert line: the tool's escapes, its line break,
-    // its carriage return and its DEL are spaces, and no line of stderr
-    // begins with the forged words.
-    let notice = "xfx: an image `read [2Jfile 31m  xfx: forged  line` returned could not be read \
-                  back (its saved copy is missing), so it was not sent again";
-    assert_eq!(
-        run.stderr.lines().filter(|line| *line == notice).count(),
-        1,
-        "the notice is not on stderr as one inert line: {:?}",
+    // The model is told, in front of the result; stderr is not.
+    fn strings(value: &Value, out: &mut Vec<String>) {
+        match value {
+            Value::String(text) => out.push(text.clone()),
+            Value::Array(items) => items.iter().for_each(|item| strings(item, out)),
+            Value::Object(map) => map.values().for_each(|item| strings(item, out)),
+            _ => {}
+        }
+    }
+    let mut sent = Vec::new();
+    strings(&asked.json(), &mut sent);
+    assert!(
+        sent.iter()
+            .any(|text| text == "[Stored tool image unavailable: ResultHandleNotFound]\nan image"),
+        "the model was not told in front of the result: {sent:?}"
+    );
+    assert!(
+        !run.stderr.contains("image"),
+        "stderr spoke of the image: {:?}",
         run.stderr
     );
     assert!(
@@ -2942,7 +3194,6 @@ fn a_legacy_record_with_blocks_and_no_wire_replays_on_the_messages_wire() {
     );
 
     let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
-    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
     assert_eq!(
         replay.messages[1].raw_blocks().expect("blocks replayed")[0]["signature"],
         "sig"
@@ -2968,7 +3219,6 @@ fn a_legacy_record_is_dropped_without_a_word_on_any_other_wire() {
     assert_eq!(replay.messages[1].text(), "answered");
     // And without a word, as fx drops a replay that does not match
     // (`projectProviderReplay`, `types.zig:1668-1682@481104fd`).
-    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 }
 
 #[test]
@@ -2994,11 +3244,6 @@ fn responses_state_recorded_under_one_authority_is_never_sent_to_another() {
     ] {
         let replay = state.history_messages(active.clone(), &state.model);
         assert!(replay.messages[1].raw_blocks().is_none(), "for {active:?}");
-        assert!(
-            replay.notices.is_empty(),
-            "for {active:?}: {:?}",
-            replay.notices
-        );
     }
 }
 
@@ -3017,7 +3262,6 @@ fn a_wire_this_version_does_not_know_drops_rather_than_guessing() {
 
     let replay = state.history_messages(Wire::AnthropicMessages, &state.model);
     assert!(replay.messages[1].raw_blocks().is_none());
-    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 }
 
 #[test]
@@ -3039,7 +3283,6 @@ fn a_wire_less_responses_state_record_drops_rather_than_replaying_under_active()
         replay.messages[1].raw_blocks().is_none(),
         "wire-less responses_state must not replay under active CodexResponses"
     );
-    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 }
 
 #[test]
@@ -3058,7 +3301,6 @@ fn codex_responses_wire_replays_state_verbatim_under_codex() {
     );
 
     let replay = state.history_messages(Wire::CodexResponses, &state.model);
-    assert_eq!(replay.notices.len(), 0, "same-authority replay: no notice");
     let blocks = replay.messages[1]
         .raw_blocks()
         .expect("Codex→Codex carries state");
@@ -3083,7 +3325,6 @@ fn grok_responses_wire_replays_state_verbatim_under_grok() {
     );
 
     let replay = state.history_messages(Wire::GrokResponses, &state.model);
-    assert_eq!(replay.notices.len(), 0, "same-authority replay: no notice");
     let blocks = replay.messages[1]
         .raw_blocks()
         .expect("Grok→Grok carries state");
@@ -3116,7 +3357,6 @@ fn a_dropped_state_is_not_deleted_from_the_log() {
     let replay = reread
         .state
         .history_messages(Wire::AnthropicMessages, &reread.state.model);
-    assert!(replay.notices.is_empty());
     assert_eq!(
         replay.messages[1].raw_blocks().expect("still on disk")[0]["signature"],
         "sig"
@@ -3213,7 +3453,6 @@ fn a_batch_that_died_after_the_first_of_three_results_replays_neither_the_group_
         "{:?}",
         replay.messages
     );
-    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
 
     // The record itself is intact: dropping shapes a request, never the log.
     let steps = &state.turns[0].steps;

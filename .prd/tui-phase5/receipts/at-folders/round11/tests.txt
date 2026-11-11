@@ -1,0 +1,23 @@
+# run 1: cargo test --locked --lib -- tui::file_index::tests tui::file_picker::tests tui::shell::tests
+test result: FAILED. 894 passed; 1 failed; 0 ignored; 0 measured; 3715 filtered out; finished in 15.92s
+---- tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once stdout ----
+
+thread 'tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once' panicked at src/tui/shell.rs:35391:9:
+assertion `left == right` failed
+  left: ["src/deep/sched.rs", "<tmp>/.tmpe6S18h/plan.md"]
+ right: ["src/deep/sched.rs"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+# run 2: the same filter
+test result: ok. 895 passed; 0 failed; 0 ignored; 0 measured; 3715 filtered out; finished in 14.74s
+
+# the failing case alone (--exact), 3 runs with TMPDIR=<scratch>/schtmp, 6 with the default TMPDIR
+schtmp run 1: test result: FAILED .tmp3VVI5o/plan.md
+schtmp run 2: test result: FAILED .tmpPG3MKU/plan.md
+schtmp run 3: test result: FAILED .tmptSnDJj/plan.md
+default run 1: test result: ok 
+default run 2: test result: FAILED .tmpukHgnF/plan.md
+default run 3: test result: ok 
+default run 4: test result: ok 
+default run 5: test result: ok 
+default run 6: test result: FAILED .tmp6HKi2i/plan.md

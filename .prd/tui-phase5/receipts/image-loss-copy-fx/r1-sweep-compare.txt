@@ -1,0 +1,7 @@
+# python3 -I -B cmp_sweeps.py <base>/pairs.json <head>/pairs.json
+base: 86 / 110 pass; head: 86 / 110 pass; dropped: 0
+
+# python3 -I -B pair_rows.py <base>/pairs.json <head>/pairs.json
+pairs compared: 110; pairs whose rows or causes moved: 0
+base: captures with an image-loss line or note: 0
+head: captures with an image-loss line or note: 0

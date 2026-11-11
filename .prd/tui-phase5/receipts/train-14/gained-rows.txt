@@ -1,0 +1,6 @@
+pairs that gained a differing row: 2
+    main normalized-identical -> head unresolved-defect: 1
+    main unresolved-defect -> head unresolved-defect: 1
+  1  other
+  1  a placeholder where main's row held a path of the run (LOCAL-PATHS)
+    p5-transcript-question full-60 (unresolved-defect -> unresolved-defect): fx '<banner>' / xfx ' (debug 2026-11-10-2057-b3dffdad3e0b) · Run /help…'

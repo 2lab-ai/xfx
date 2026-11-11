@@ -1,0 +1,24 @@
+# fx/ row 1: 𝒇x v0.0.16 · Run /help for commands
+# xfx/ row 1: x𝒇x v0.1.0-ebe3875 [debug] · Run /help for commands
+# xfx-base/ row 1: x𝒇x v0.1.0-cb7c9c1 [debug] · Run /help for commands
+p5-at-rank             base           head
+scm           6 rows differ      identical
+stat          4 rows differ      identical
+index         3 rows differ      identical
+file-index    2 rows differ      identical
+main-rs       2 rows differ      identical
+vercle        2 rows differ      identical
+abcd              identical      identical
+comp          1 rows differ      identical
+ab            4 rows differ      identical
+ta            2 rows differ      identical
+main-case         identical      identical
+empty             identical      identical
+road-map      1 rows differ      identical
+p5-at-rank pairs: 13; identical: base 3, head 13
+p5-input-at at-st          head identical
+p5-input-at at-st-down12   head identical
+p5-input-at at-st-up6      head identical
+p5-input-at at-stat        head identical
+workspace-index at-plan        head identical
+at-ranking pairs: 5; identical: head 5

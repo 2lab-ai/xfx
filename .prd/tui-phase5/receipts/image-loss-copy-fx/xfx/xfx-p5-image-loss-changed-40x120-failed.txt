@@ -1,0 +1,40 @@
+* session resumed: [Image #1] first prompt alpha
+
+┃ [Image 1] first prompt alpha
+
+  ALPHA answer.
+
+  0s (↑9 ↓4)
+
+┃ what is it now?
+
+✗ system: request failed: ImageSnapshotCorrupt
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

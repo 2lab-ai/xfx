@@ -1,0 +1,16 @@
+<repo>/.prd/tui-phase5/receipts/train-14/ci-08066ac9/run.sh: command substitution: line 27: syntax error near unexpected token `newline'
+<repo>/.prd/tui-phase5/receipts/train-14/ci-08066ac9/run.sh: command substitution: line 27: `case $tmp in *[lL]*'
+# TMPDIR of 24 bytes, its fixed part holding an l:  echo yes ;; *) echo no ;; esac)
+# head sweep 1: xfx b3dffdad, sha256 8b230e83d95cb184; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 19.87
+# exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 16 / 24 = 66.7%; unresolved 8, failed 0, timeout 0; names logged 25
+# base sweep 1: xfx dcfa5146, sha256 344a72b06f9fae5d; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 12.97
+# exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 12 / 24 = 50.0%; unresolved 12, failed 0, timeout 0; names logged 25
+# head sweep 2: xfx b3dffdad, sha256 8b230e83d95cb184; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 21.53
+# exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 21 / 24 = 87.5%; unresolved 3, failed 0, timeout 0; names logged 25
+# base sweep 2: xfx dcfa5146, sha256 344a72b06f9fae5d; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 16.90
+# exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 22 / 24 = 91.7%; unresolved 2, failed 0, timeout 0; names logged 25
+# head sweep 3: xfx b3dffdad, sha256 8b230e83d95cb184; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 9.98
+# exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 17 / 24 = 70.8%; unresolved 7, failed 0, timeout 0; names logged 25
+# base sweep 3: xfx dcfa5146, sha256 344a72b06f9fae5d; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 13.23
+# exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 20 / 24 = 83.3%; unresolved 4, failed 0, timeout 0; names logged 25
+exit 0

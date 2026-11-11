@@ -947,8 +947,8 @@ fn bounded(text: &str) -> String {
 ///
 /// Stands where the recorder stood (`super::worker`'s `run_turn`): every
 /// record goes to the journal first, untouched and unconditionally, and only
-/// then are its [`details`] sent. **Best effort**, like the history notices
-/// beside it: the log is the record and this is a view of it, so a detail the
+/// then are its [`details`] sent. **Best effort**, as every hand-over to the
+/// UI here is: the log is the record and this is a view of it, so a detail the
 /// UI could not be given -- a cancelled turn, a UI that is gone -- costs the
 /// view and nothing else.
 pub(crate) struct Teed<'a> {
@@ -1816,6 +1816,16 @@ impl FullTranscript {
 
     pub(crate) fn close(&mut self) {
         self.view = None;
+    }
+
+    /// The first row of the page the screen shows on a terminal `rows` tall,
+    /// as [`Self::key`] measures it; `None` while it is closed. For the
+    /// cases that assert a key scrolled it, or did not.
+    #[cfg(test)]
+    pub(crate) fn offset(&self, cols: u16, rows: u16, palette: Palette) -> Option<usize> {
+        let view = self.view.as_ref()?;
+        let page = Layout::of(rows).viewport.max(1);
+        Some(view.select(self, cols, page, palette).offset)
     }
 
     /// What one keystroke does while the screen is up: upstream's key map

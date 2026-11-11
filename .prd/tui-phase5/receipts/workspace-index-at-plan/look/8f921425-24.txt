@@ -1,0 +1,74 @@
+filepicker               at       normalized-identical                             
+filepicker               at-claim normalized-identical                             
+filepicker               at-dir   unresolved-defect                                first row 5: text differs
+filepicker               at-dir-cj unresolved-defect                                first row 5: text differs
+filepicker               at-dir-down unresolved-defect                                first row 5: text differs
+filepicker               at-enter normalized-identical                             
+filepicker               at-esc   normalized-identical                             
+filepicker               at-sch   normalized-identical                             
+filepicker               at-tab   unresolved-defect                                first row 3: text differs
+filepicker               submitted normalized-identical                             
+filepicker-keys          alt-b    normalized-identical                             
+filepicker-keys          alt-d    normalized-identical                             
+filepicker-keys          alt-f    normalized-identical                             
+filepicker-keys          at-ck    normalized-identical                             
+filepicker-keys          at-pgdn  normalized-identical                             
+filepicker-keys          pgdn     normalized-identical                             
+filepicker-keys          pgup     normalized-identical                             
+filepicker-narrow        at-alpha normalized-identical                             
+filepicker-narrow        at-alpha-down normalized-identical                             
+filepicker-narrow        at-deep  normalized-identical                             
+p5-input-at              at-src   unresolved-defect                                first row 5: text differs
+p5-input-at              at-src-enter unresolved-defect                                first row 3: text differs
+p5-input-at              at-src-tab unresolved-defect                                first row 3: text differs
+p5-input-at              at-st    unresolved-defect                                first row 5: text differs
+p5-input-at              at-st-down12 unresolved-defect                                first row 5: text differs
+p5-input-at              at-st-up6 unresolved-defect                                first row 5: text differs
+p5-input-at              at-stat  unresolved-defect                                first row 5: text differs
+p5-input-at-dir          dir-enter unresolved-defect                                first row 4: text differs
+p5-input-at-dir          dir-query normalized-identical                             
+p5-input-at-gate         downs-after normalized-identical                             
+p5-input-at-gate         downs-in-the-read normalized-identical                             
+p5-input-at-gate         tab-in-the-read normalized-identical                             
+p5-input-at-height       at       normalized-identical                             
+p5-input-at-height       down12   normalized-identical                             
+p5-input-at-height       pgup     normalized-identical                             
+p5-input-at-height       up6      normalized-identical                             
+p5-input-at-height       up9      normalized-identical                             
+p5-input-at-resize       down12   normalized-identical                             
+p5-input-at-resize       short    unresolved-defect                                first row 3: text differs
+p5-input-at-resize       short-up1 unresolved-defect                                first row 3: text differs
+p5-input-at-resize       short-up7 unresolved-defect                                first row 3: text differs
+p5-input-at-resize       tall     unresolved-defect                                first row 3: text differs
+p5-input-at-resize       tall-down1 unresolved-defect                                first row 3: text differs
+p5-input-row-limit       at       normalized-identical                             
+p5-input-row-limit       at-pgdn  normalized-identical                             
+p5-input-row-limit       grown    normalized-identical                             
+p5-input-row-limit       grown-pgup normalized-identical                             
+p5-input-row-limit       grown-pgup2 normalized-identical                             
+p5-input-row-limit       help     unresolved-defect                                first row 5: text differs
+p5-input-row-limit       help-pgdn unresolved-defect                                first row 5: text differs
+p5-input-row-limit       slash    unresolved-defect                                first row 5: text differs
+p5-input-row-limit       slash-pgdn unresolved-defect                                first row 5: text differs
+p5-input-row-limit-menus effort   normalized-identical                             
+p5-input-row-limit-menus effort-pgdn normalized-identical                             
+p5-input-row-limit-menus model    normalized-identical                             
+p5-input-row-limit-menus model-pgdn normalized-identical                             
+p5-input-row-limit-short grown    normalized-identical                             
+p5-input-row-limit-short grown-pgup normalized-identical                             
+p5-input-row-limit-short slash    unresolved-defect                                first row 5: text differs
+p5-input-row-limit-short slash-pgdn unresolved-defect                                first row 5: text differs
+workspace                add      normalized-identical                             
+workspace                add-row-enter normalized-identical                             
+workspace                bare     normalized-identical                             
+workspace                clear-done normalized-identical                             
+workspace                clear-prefill normalized-identical                             
+workspace                clear-row normalized-identical                             
+workspace                dir-enter normalized-identical                             
+workspace                list     normalized-identical                             
+workspace                picker-down1 normalized-identical                             
+workspace                picker-one normalized-identical                             
+workspace                refusals normalized-identical                             
+workspace-index          at-all   normalized-identical                             
+workspace-index          at-plan  normalized-identical  notes/ row: fx -, xfx -    
+totals: {"normalized-identical": 50, "unresolved-defect": 23}

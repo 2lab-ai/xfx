@@ -1,0 +1,261 @@
+# content.sh at dcfa5146 (main=dcfa5146)
+## UPSTREAM.md
+# UPSTREAM.md at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 42; unread 0; refs 42
+# exit 0
+## docs/architecture.md
+# docs/architecture.md at dcfa5146; blame ignoring nothing
+WRONG docs/architecture.md:47 src/main.rs:22-25 (path; written by fe38df53 as :22-25): the head's line holds '}'; 'if xfx::tui::should_run(&cli) {' -- its text is at :28-31
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 0; unread 0; refs 1
+# exit 1
+## docs/parity.md
+# docs/parity.md at dcfa5146; blame ignoring nothing
+# SAME 26; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 113; unread 0; refs 139
+# exit 0
+## scripts/check-no-local-paths.sh
+# scripts/check-no-local-paths.sh at dcfa5146; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 1
+# exit 0
+## scripts/fxcap/capfile.py
+# scripts/fxcap/capfile.py at dcfa5146; blame ignoring nothing
+# SAME 5; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 6
+# exit 0
+## scripts/fxcap/capture.sh
+# scripts/fxcap/capture.sh at dcfa5146; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 5
+# exit 0
+## scripts/fxcap/fakegw.ts
+# scripts/fxcap/fakegw.ts at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 12; unread 0; refs 12
+# exit 0
+## scripts/fxcap/parity-ledger.toml
+# scripts/fxcap/parity-ledger.toml at dcfa5146; blame ignoring nothing
+WRONG scripts/fxcap/parity-ledger.toml:28 .prd/07-fx-parity-program.md:19 (path; written by 6bc31872 as :19): the head's line holds ''; "5. A reference binary was replaced in place by fx'" -- its text is at 0 places; the head's line most like its first is :33 (ratio 0.28)
+SAME-LINES scripts/fxcap/parity-ledger.toml:419 .prd/07-fx-parity-program.md:45 (path; written by a1007a00 as :45): the cited text the same, a neighbour not
+# SAME 120; SAME-ROW 40; SAME-LINES 1; WRONG 1; other product 3; unread 0; refs 165
+# exit 1
+## scripts/fxcap/scenarios/p5-esc-clear.cap
+# scripts/fxcap/scenarios/p5-esc-clear.cap at dcfa5146; blame ignoring nothing
+# SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 4
+# exit 0
+## scripts/fxcap/scenarios/p5-mcp-fail-held.cap
+# scripts/fxcap/scenarios/p5-mcp-fail-held.cap at dcfa5146; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 2
+# exit 0
+## scripts/fxcap/scenarios/p5-mcp-fail.cap
+# scripts/fxcap/scenarios/p5-mcp-fail.cap at dcfa5146; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 2
+# exit 0
+## scripts/fxcap/scenarios/p5-panels-badsettings.cap
+# scripts/fxcap/scenarios/p5-panels-badsettings.cap at dcfa5146; blame ignoring nothing
+WRONG scripts/fxcap/scenarios/p5-panels-badsettings.cap:7 src/tui/shell.rs:3820-3837 (path; written by f0a9af5b as :3820-3837): the head's line holds 'if count > 0 {'; 'pub(crate) fn config_issues(&mut self, config: &Ru' -- its text is at :3818-3835
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 0; unread 0; refs 2
+# exit 1
+## scripts/fxcap/scenarios/p5-usage-mkcache.py
+# scripts/fxcap/scenarios/p5-usage-mkcache.py at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 2
+# exit 0
+## scripts/fxcap/test_sweep.py
+# scripts/fxcap/test_sweep.py at dcfa5146; blame ignoring nothing
+UNREAD scripts/fxcap/test_sweep.py:512 scripts/fxcap/cells.py:100000 (path): out of range at 9344eb85 or the head
+# SAME 6; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 1; refs 8
+# exit 0
+## scripts/smoke-tui.sh
+# scripts/smoke-tui.sh at dcfa5146; blame ignoring nothing
+WRONG scripts/smoke-tui.sh:194 term.rs:32-52 (short; written by fe38df53 as :32-52): the head's line holds '/// (`terminal.zig:4-13`), the theme-change subscr'; 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.88)
+WRONG scripts/smoke-tui.sh:291 src/tui/term.rs:32-52 (path; written by fe38df53 as :32-52): the head's line holds '/// (`terminal.zig:4-13`), the theme-change subscr'; 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.88)
+WRONG scripts/smoke-tui.sh:4708 src/main.rs:44-49 (path; written by 9fdf7596 as :44-49): the head's line holds 'Ok(code) => code,'; 'fn fail(message: &str) -> ExitCode {' -- its text is at :50-55
+WRONG scripts/smoke-tui.sh:4977 src/tui/check.rs:1084 (path; written by 9acf15d1 as :1084): the head's line holds ''; 'pub(crate) const RECOVERY_CLEANUP: &str = "\\x18\\x1' -- its text is at :1683
+SAME-LINES scripts/smoke-tui.sh:5755 src/process.rs:24-43 (path; written by 878186b5 as :24): the cited text the same, a neighbour not
+SAME-LINES scripts/smoke-tui.sh:5840 process.rs:24-43 (short; written by 878186b5 as :24): the cited text the same, a neighbour not
+WRONG scripts/smoke-tui.sh:11208 editor.rs:351 (short; written by 060e2a4b as :351): the head's line holds '}'; 'Action::KillToStart => self.delete(self.line_start' -- its text is at :540
+# SAME 14; SAME-ROW 0; SAME-LINES 2; WRONG 5; other product 4; unread 0; refs 25
+# exit 1
+## scripts/test-check-no-local-paths.sh
+# scripts/test-check-no-local-paths.sh at dcfa5146; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 3
+# exit 0
+## src/app.rs
+# src/app.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 5; unread 0; refs 5
+# exit 0
+## src/build_meta.rs
+# src/build_meta.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## src/cli.rs
+# src/cli.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/clipboard.rs
+# src/clipboard.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/gateway/mod.rs
+# src/gateway/mod.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 15; unread 0; refs 15
+# exit 0
+## src/image.rs
+# src/image.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 3; unread 0; refs 3
+# exit 0
+## src/llmux/protocol.rs
+# src/llmux/protocol.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 14; unread 0; refs 14
+# exit 0
+## src/llmux/setup.rs
+# src/llmux/setup.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## src/llmux/sse.rs
+# src/llmux/sse.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## src/output.rs
+# src/output.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/permission/authority.rs
+# src/permission/authority.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 10; unread 0; refs 10
+# exit 0
+## src/permission/policy.rs
+# src/permission/policy.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 9; unread 0; refs 9
+# exit 0
+## src/provider/model.rs
+# src/provider/model.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 25; unread 0; refs 25
+# exit 0
+## src/session/store/fork.rs
+# src/session/store/fork.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 3; unread 0; refs 3
+# exit 0
+## src/tools/mutate.rs
+# src/tools/mutate.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 7; unread 0; refs 7
+# exit 0
+## src/tools/question.rs
+# src/tools/question.rs at dcfa5146; blame ignoring nothing
+WRONG src/tools/question.rs:303 Cargo.toml:42 (path; written by 866de4f4 as :42): the head's line holds 'serde_json = { version = "1.0", features = ["prese'; 'serde_json = "1.0"' -- its text is at 0 places; the head's line most like its first is :34 (ratio 0.44)
+WRONG src/tools/question.rs:885 spec.rs:98-101 (short; written by 866de4f4 as :98-101): the head's line holds '}'; '#[derive(Debug, Clone, Copy)]' -- its text is at :108-111
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 2; other product 4; unread 0; refs 8
+# exit 1
+## src/tools/undo.rs
+# src/tools/undo.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/tui/approval.rs
+# src/tui/approval.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 6; unread 0; refs 6
+# exit 0
+## src/tui/bridge.rs
+# src/tui/bridge.rs at dcfa5146; blame ignoring nothing
+WRONG src/tui/bridge.rs:1744 machine.rs:334-345 (short; written by 00d830f3 as :334-345): the head's line holds '/// `src/core/images/image_attachments.zig:1050-10'; '// The only place a terminal event is written. One' -- its text is at :848-859
+WRONG src/tui/bridge.rs:1797 machine.rs:641-648 (short; written by 00d830f3 as :641-648): the head's line holds '///'; 'self.delivered = true;' -- its text is at 0 places; the head's line most like its first is :1751 (ratio 1.00)
+WRONG src/tui/bridge.rs:2328 machine.rs:646 (short; written by 00d830f3 as :646): the head's line holds 'self.static_context = context.render();'; 'Ok(()) => Ok(()),' -- its text is at 0 places; the head's line most like its first is :1760 (ratio 0.85)
+WRONG src/tui/bridge.rs:2342 machine.rs:334-345 (short; written by 00d830f3 as :334-345): the head's line holds '/// `src/core/images/image_attachments.zig:1050-10'; '// The only place a terminal event is written. One' -- its text is at :848-859
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 4; other product 4; unread 0; refs 8
+# exit 1
+## src/tui/edit_history.rs
+# src/tui/edit_history.rs at dcfa5146; blame ignoring nothing
+WRONG src/tui/edit_history.rs:69 entity.rs:113-116 (short; written by a03d08fb as :113-116): the head's line holds '/// and how many lines that text has.'; 'pub(crate) fn range(&self) -> Range<usize> {' -- its text is at :138-141
+WRONG src/tui/edit_history.rs:108 editor.rs:374-376 (short; written by a03d08fb as :374-376): the head's line holds '///'; '// [`Self::set_text`]).' -- its text is at :570-572
+WRONG src/tui/edit_history.rs:127 entity.rs:468-484 (short; written by a03d08fb as :468-484): the head's line holds 'pub(crate) fn inline_pastes(&mut self, draft: &mut'; '/// different every keystroke.' -- its text is at 0 places; the head's line most like its first is :686 (ratio 1.00)
+WRONG src/tui/edit_history.rs:129 entity.rs:91-96 (short; written by a03d08fb as :91-96): the head's line holds '/// ([`super::edit_history::EditHistory::record`])'; '/// `Arc<str>` rather than `String`: the same past' -- its text is at :116-121
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 4; other product 0; unread 0; refs 4
+# exit 1
+## src/tui/event_loop.rs
+# src/tui/event_loop.rs at dcfa5146; blame ignoring nothing
+WRONG src/tui/event_loop.rs:8233 frame.rs:1533 (short; written by d3f61f5e as :1533): the head's line holds '// written side by side rather than in two functio'; 'pub(crate) fn append_document(' -- its text is at :2623
+WRONG src/tui/event_loop.rs:14049 frame.rs:61 (short; written by 060e2a4b as :61): the head's line holds "/// handed back its caret. A reset's handoff ends "; 'const ERASE_LINE: &str = "\\x1b[K";' -- its text is at :102
+WRONG src/tui/event_loop.rs:14051 frame.rs:1615-1628 (short; written by 060e2a4b as :1615-1628): the head's line holds '};'; '/// Places one row of the document: `CUP`, the cli' -- its text is at 0 places; the head's line most like its first is :2726 (ratio 1.00)
+WRONG src/tui/event_loop.rs:14052 grid.rs:41 (short; written by 060e2a4b as :41): the head's line holds 'use super::frame::cup;'; 'const ERASE_LINE: &str = "\\u{1b}[K";' -- its text is at :47
+WRONG src/tui/event_loop.rs:14275 transcript.rs:136 (short; written by 060e2a4b as :136): the head's line holds 'if bytes == 0 {'; 'const MAX_TAIL_ROWS: usize = 256;' -- its text is at :348
+WRONG src/tui/event_loop.rs:14931 transcript.rs:505-531 (short; written by 063fc66e as :505-531): the head's line holds '}'; 'pub(crate) fn emit_front<E>(' -- its text is at 0 places; the head's line most like its first is :1078 (ratio 1.00)
+# SAME 6; SAME-ROW 0; SAME-LINES 0; WRONG 6; other product 12; unread 0; refs 24
+# exit 1
+## src/tui/file_index.rs
+# src/tui/file_index.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## src/tui/file_picker.rs
+# src/tui/file_picker.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/tui/frame.rs
+# src/tui/frame.rs at dcfa5146; blame ignoring nothing
+# SAME 10; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 10
+# exit 0
+## src/tui/input.rs
+# src/tui/input.rs at dcfa5146; blame ignoring nothing
+WRONG src/tui/input.rs:2033 .prd/tui-phase3/loop.md:416 (path; written by 6c421313 as :416): the head's line holds ''; '- R125 installed WezTerm encoder receipt inspected' -- its text is at :441
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 7; unread 0; refs 8
+# exit 1
+## src/tui/probe.rs
+# src/tui/probe.rs at dcfa5146; blame ignoring nothing
+WRONG src/tui/probe.rs:519 .prd/03-tui-port.md:43-44 (path; written by 100f1909 as :43-44): the head's line holds ''; '1. At launch, query the cursor row (CSI `6n`, 100 ' -- its text is at 0 places; the head's line most like its first is :62 (ratio 1.00)
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 2; unread 0; refs 4
+# exit 1
+## src/tui/program_status.rs
+# src/tui/program_status.rs at dcfa5146; blame ignoring nothing
+WRONG src/tui/program_status.rs:16 .prd/01-spec.md:56 (path; written by fefa5f25 as :56): the head's line holds '2. **Absence is real absence.** Everything not imp'; '3. **A separate identity.** Binary `xfx`, profile ' -- its text is at :58
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 0; unread 0; refs 1
+# exit 1
+## src/tui/shell.rs
+# src/tui/shell.rs at dcfa5146; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 67; unread 0; refs 69
+# exit 0
+## src/tui/toolgroup.rs
+# src/tui/toolgroup.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 1; SAME-LINES 0; WRONG 0; other product 14; unread 0; refs 15
+# exit 0
+## src/tui/worker.rs
+# src/tui/worker.rs at dcfa5146; blame ignoring nothing
+WRONG src/tui/worker.rs:4 src/main.rs:22-25 (path; written by 5988cf25 as :22-25): the head's line holds '}'; 'if xfx::tui::should_run(&cli) {' -- its text is at :28-31
+WRONG src/tui/worker.rs:33 machine.rs:334-345 (short; written by 5988cf25 as :334-345): the head's line holds '/// `src/core/images/image_attachments.zig:1050-10'; '// The only place a terminal event is written. One' -- its text is at :848-859
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 2; other product 27; unread 0; refs 29
+# exit 1
+## src/tui/wrap.rs
+# src/tui/wrap.rs at dcfa5146; blame ignoring nothing
+WRONG src/tui/wrap.rs:2179 wrap.rs:102-106 (short; written by 060e2a4b as :102-106): the head's line holds '/// row could break in the middle of it -- and the'; 'pub(crate) fn width(text: &str) -> u16 {' -- its text is at 0 places; the head's line most like its first is :108 (ratio 1.00)
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 2; unread 0; refs 5
+# exit 1
+## src/usage/clock.rs
+# src/usage/clock.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 3; unread 0; refs 3
+# exit 0
+## tests/permissions.rs
+# tests/permissions.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 9; unread 0; refs 9
+# exit 0
+## tests/session_compat.rs
+# tests/session_compat.rs at dcfa5146; blame ignoring nothing
+WRONG tests/session_compat.rs:57 src/session/event.rs:98-192 (path; written by 9956e7a8 as :98-192): the head's line holds ''; '' -- its text is at 0 places; the head's line most like its first is :25 (ratio 1.00)
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 3; unread 0; refs 5
+# exit 1
+## tests/sessions.rs
+# tests/sessions.rs at dcfa5146; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 3
+# exit 0
+## tests/support/fake_gateway.rs
+# tests/support/fake_gateway.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 6; unread 0; refs 6
+# exit 0
+## tests/support/fake_llmux.rs
+# tests/support/fake_llmux.rs at dcfa5146; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## tests/tool_loop.rs
+# tests/tool_loop.rs at dcfa5146; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 6; unread 0; refs 7
+# exit 0
+## tests/tui.rs
+# tests/tui.rs at dcfa5146; blame ignoring nothing
+WRONG tests/tui.rs:591 src/tui/mod.rs:269-270 (path; written by 43b27001 as :269-270): the head's line holds '// the two lines above -- `term::shutdown` itself '; 'term::enter_raw(stdin.as_fd(), &current)?;' -- its text is at :741-742
+WRONG tests/tui.rs:2404 .prd/tui-phase3/ssot.md:43 (path; written by 3dd16a11 as :43): the head's line holds ''; '| P3-THEME | TUI ladder 23 | Live theme monitoring' -- its text is at :51
+WRONG tests/tui.rs:2483 tests/tui.rs:1191 (path; written by 3dd16a11 as :1191): the head's line holds '// log, a history or a lock kept under it would ch'; 'pty.resize(24, 80);' -- its text is at 2 places
+WRONG tests/tui.rs:3129 .prd/tui-phase3/loop.md:416 (path; written by 6c421313 as :416): the head's line holds ''; '- R125 installed WezTerm encoder receipt inspected' -- its text is at :441
+# SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 4; other product 24; unread 0; refs 31
+# exit 1
+# all 55 files: SAME 212; SAME-ROW 41; SAME-LINES 3; WRONG 35; other product 498; unread 1; refs 790

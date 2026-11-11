@@ -1,0 +1,137 @@
+# run 1: all 13 mutants (python3 -I -B mutants.py <clone> r2)
+# clone at f290f697
+r2 notice-kept-tui [lib]: killed
+    test tui::worker::tests::a_tool_image_that_cannot_go_is_told_to_the_model_and_the_screen_says_nothing ... FAILED
+    src/tui/worker.rs:19206:9:
+      assertion `left == right` failed: each: resumed, the turn's end, the notices, each result as the model is sent it
+r2 notice-kept-ask [sessions]: killed
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+    tests/sessions.rs:2208:5:
+      stderr spoke of the image: "xfx: an image a tool returned could not be read back, so it was not sent again\n"
+r2 resume-goes-on [lib]: killed
+    test session::store::tests::a_prompt_images_copy_the_resume_cannot_stat_refuses_it_and_one_it_cannot_open_does_not ... FAILED
+    test session::store::tests::a_prompt_images_copy_gone_or_not_a_file_refuses_the_resume_in_upstreams_words_and_changes_nothing ... FAILED
+    test tui::worker::tests::the_picker_cannot_resume_a_session_a_prompt_images_copy_is_gone_from ... FAILED
+    src/session/store.rs:6157:22:
+      a copy the resume cannot stat let it go on
+    src/session/store.rs:5687:30:
+      removed, waiting: true: the resume went on
+    src/tui/worker.rs:19074:9:
+      the picker resumed it
+r2 resume-goes-on [sessions]: killed
+    test ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstreams_and_changes_nothing ... FAILED
+    tests/sessions.rs:2050:13:
+      assertion `left == right` failed
+r2 resume-goes-on [tui]: killed
+    test a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words ... FAILED
+    tests/support/pty.rs:388:21:
+      xfx did not exit; terminal so far:
+r2 refusal-after-truncate [lib]: killed
+    test session::store::tests::a_prompt_images_copy_gone_or_not_a_file_refuses_the_resume_in_upstreams_words_and_changes_nothing ... FAILED
+    src/session/store.rs:5690:17:
+      assertion `left == right` failed: removed, waiting: true: a refused resume changed the session
+r2 refusal-after-truncate [sessions]: killed
+    test ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstreams_and_changes_nothing ... FAILED
+    tests/sessions.rs:2057:9:
+      assertion `left == right` failed: json: false: the refusal changed the session
+r2 refusal-after-truncate [tui]: killed
+    test a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words ... FAILED
+    tests/tui.rs:1177:5:
+      assertion `left == right` failed: a refused resume changed the session
+r2 stat-failure-resumed [lib]: killed
+    test session::store::tests::a_prompt_images_copy_the_resume_cannot_stat_refuses_it_and_one_it_cannot_open_does_not ... FAILED
+    src/session/store.rs:6160:22:
+      a copy the resume cannot stat let it go on
+r2 read-at-resume [lib]: killed
+    test session::store::tests::a_resumed_prompt_images_copy_is_read_when_the_history_is_built_and_resumes_whatever_its_bytes ... FAILED
+    src/session/store.rs:5776:13:
+      assertion `left == right` failed: whole
+r2 read-at-resume [sessions]: SURVIVED
+r2 oversized-fails [lib]: killed
+    test tui::worker::tests::a_copy_a_request_cannot_carry_is_held_back_with_upstreams_note_and_the_turn_goes_on ... FAILED
+    src/tui/worker.rs:19049:9:
+      assertion `left == right` failed: each: the turn's end, the requests, the prompt's images, whether upstream's note is in front of it and names the copy
+r2 request-goes-on [lib]: killed
+    test tui::worker::tests::a_resumed_prompt_images_copy_is_read_at_each_request_and_one_changed_fails_its_turn ... FAILED
+    src/tui/worker.rs:18954:9:
+      assertion `left == right` failed: each turn: its end, the images each request it sent carried, the prompt the log recorded last
+r2 request-goes-on [sessions]: killed
+    test ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams ... FAILED
+    tests/sessions.rs:2084:5:
+      assertion `left == right` failed
+r2 request-goes-on-tui [lib]: killed
+    test tui::worker::tests::a_resumed_prompt_images_copy_is_read_at_each_request_and_one_changed_fails_its_turn ... FAILED
+    src/tui/worker.rs:18957:9:
+      assertion `left == right` failed: each turn: its end, the images each request it sent carried, the prompt the log recorded last
+r2 ask-name-not-copied [sessions]: killed
+    test ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams ... FAILED
+    tests/sessions.rs:2084:5:
+      assertion `left == right` failed
+r2 tool-note-missing [lib]: killed
+    test session::store::tests::a_tool_image_never_read_back_is_unavailable_in_this_session_and_the_note_fits_the_limit ... FAILED
+    test session::store::tests::a_tool_images_lost_copy_is_told_to_the_model_in_front_of_its_result ... FAILED
+    test tui::worker::tests::a_tool_image_that_cannot_go_is_told_to_the_model_and_the_screen_says_nothing ... FAILED
+    src/session/store.rs:6000:13:
+      "an image"
+    src/session/store.rs:5924:9:
+      assertion `left == right` failed
+    src/tui/worker.rs:19200:9:
+      assertion `left == right` failed: each: resumed, the turn's end, the notices, each result as the model is sent it
+r2 tool-note-missing [sessions]: killed
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+    tests/sessions.rs:2203:5:
+      the model was not told in front of the result: ["user", "text", "first question", "assistant", "tool-call", "call-1", "read\u{1b}[2Jfile\u{9b}31m\u{7}\nxfx: forged\r\u{7f}line", "shot.png", "tool", "t
+r2 tool-note-changed [lib]: killed
+    test session::store::tests::a_tool_images_lost_copy_is_told_to_the_model_in_front_of_its_result ... FAILED
+    test tui::worker::tests::a_tool_image_that_cannot_go_is_told_to_the_model_and_the_screen_says_nothing ... FAILED
+    src/session/store.rs:5923:9:
+      assertion `left == right` failed
+    src/tui/worker.rs:19200:9:
+      assertion `left == right` failed: each: resumed, the turn's end, the notices, each result as the model is sent it
+r2 tool-note-changed [sessions]: killed
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+    tests/sessions.rs:2203:5:
+      the model was not told in front of the result: ["user", "text", "first question", "assistant", "tool-call", "call-1", "read\u{1b}[2Jfile\u{9b}31m\u{7}\nxfx: forged\r\u{7f}line", "shot.png", "tool", "t
+r2 tool-images-kept [lib]: killed
+    test session::store::tests::a_tool_images_lost_copy_is_told_to_the_model_in_front_of_its_result ... FAILED
+    src/session/store.rs:5923:9:
+      assertion `left == right` failed
+r2 tool-images-kept [sessions]: SURVIVED
+# changed files in the clone after the run: 0
+exit=0
+
+# run 2: the request mutants again after f42a68ab (python3 -I -B mutants.py <clone> r2b read-at-resume request-goes-on request-goes-on-tui oversized-fails)
+# clone at f42a68ab
+r2b read-at-resume [lib]: killed
+    test session::store::tests::a_resumed_prompt_images_copy_is_read_when_the_history_is_built_and_resumes_whatever_its_bytes ... FAILED
+    test tui::worker::tests::a_resumed_prompt_images_copy_is_read_at_each_request_and_one_changed_fails_its_turn ... FAILED
+    src/session/store.rs:5776:13:
+      assertion `left == right` failed: whole
+    src/tui/worker.rs:18971:9:
+      assertion `left == right` failed: each turn: its end, the images each request it sent carried, the prompt the log recorded last
+r2b read-at-resume [sessions]: SURVIVED
+r2b request-goes-on [lib]: killed
+    test tui::worker::tests::a_resumed_prompt_images_copy_is_read_at_each_request_and_one_changed_fails_its_turn ... FAILED
+    src/tui/worker.rs:18971:9:
+      assertion `left == right` failed: each turn: its end, the images each request it sent carried, the prompt the log recorded last
+r2b request-goes-on [sessions]: killed
+    test ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams ... FAILED
+    tests/sessions.rs:2084:5:
+      assertion `left == right` failed
+r2b request-goes-on-tui [lib]: killed
+    test tui::worker::tests::a_resumed_prompt_images_copy_is_read_at_each_request_and_one_changed_fails_its_turn ... FAILED
+    src/tui/worker.rs:18974:9:
+      assertion `left == right` failed: each turn: its end, the images each request it sent carried, the prompt the log recorded last
+r2b oversized-fails [lib]: killed
+    test tui::worker::tests::a_copy_a_request_cannot_carry_is_held_back_with_upstreams_note_and_the_turn_goes_on ... FAILED
+    src/tui/worker.rs:19078:9:
+      assertion `left == right` failed: each: the turn's end, the requests, the prompt's images, whether upstream's note is in front of it and names the copy
+# changed files in the clone after the run: 0
+
+# run 3: the detail mutant (python3 -I -B mutants.py <clone> r2c oversized-without-detail)
+# clone at f42a68ab
+r2c oversized-without-detail [lib]: killed
+    test tui::worker::tests::a_copy_a_request_cannot_carry_is_held_back_with_upstreams_note_and_the_turn_goes_on ... FAILED
+    src/tui/worker.rs:19078:9:
+      assertion `left == right` failed: each: the turn's end, the requests, the prompt's images, whether upstream's note is in front of it and names the copy
+# changed files in the clone after the run: 0

@@ -1,0 +1,32 @@
+# What each run appended to the seeded session's log, every line past the seed (fx: past its 26 lines; xfx: past its 5),
+# its run directory written as <scratch>, a line cut at 240 characters.
+
+## gone, fx (the refused launch): 28 lines, 2 appended
+{"v":1,"seq":27,"ts":1794270433565,"kind":"set","key":"workspace","value":"<scratch>/work","crc":"fd323de7"}
+{"v":1,"seq":28,"ts":1794270433573,"kind":"closed","crc":"9282db2e"}
+
+## gone, xfx head (the refused launch): 5 lines, 0 appended
+
+## changed, fx (resumed, then the failed request): 32 lines, 6 appended
+{"v":1,"seq":27,"ts":1794270600691,"kind":"set","key":"workspace","value":"<scratch>/work","crc":"8227b059"}
+{"v":1,"seq":28,"ts":1794270604848,"kind":"turn_started","turn":4,"crc":"0190d01e"}
+{"v":1,"seq":29,"ts":1794270604848,"kind":"item","turn":4,"type":"user","data":{"text":"what is it now?","images":[],"work_id":null},"crc":"acc4ddff"}
+{"v":1,"seq":30,"ts":1794270604848,"kind":"item","turn":4,"type":"context_note","data":{"text":"<fx-context-update>\nThe runtime context changed during this session. These blocks replace the turn context and runtime notes in the instruction
+{"v":1,"seq":31,"ts":1794270604848,"kind":"item","turn":4,"type":"turn_end","data":{"files":[],"turn_summary":{"started_at_ms":1794270604838,"completed_at_ms":1794270604840,"thinking_duration_ms":0,"turn_duration_ms":2,"token_progress":{"in
+{"v":1,"seq":32,"ts":1794270604848,"kind":"turn_committed","turn":4,"crc":"fc6b1af2"}
+
+## changed, xfx head (resumed, then the failed request): 10 lines, 5 appended
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":6,"event_id":"b467fafc94e552e1df5c47c9dac514bd","timestamp_ms":1794270645037,"event":{"kind":"workspace_rebound","previous_workspace_root":"/tmp/fx-v2-fixtures/wo
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":7,"event_id":"7dab5e1152d1f5e07714cafaf6b786b5","timestamp_ms":1794270649163,"event":{"kind":"preferences_changed","model":"fake/model-a","permission_mode":null}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":8,"event_id":"15e43068b1a7b4e9bec551431387dec0","timestamp_ms":1794270649184,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":9,"event_id":"ae78208aa773faab556797d3e6be6672","timestamp_ms":1794270649197,"event":{"kind":"user_message","text":"what is it now?"}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":10,"event_id":"1739677151e5fcf945170cab8bfd3552","timestamp_ms":1794270649209,"event":{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"request f
+
+## folder, fx (round 3, the refused launch, the blob folder at mode 000): 28 lines, 2 appended
+{"v":1,"seq":27,"ts":1794279010774,"kind":"set","key":"workspace","value":"<scratch>/work","crc":"3ebfe45e"}
+{"v":1,"seq":28,"ts":1794279010774,"kind":"closed","crc":"9c5992aa"}
+
+## folder, xfx head (round 3, the refused launch): 5 lines, 0 appended
+
+## folder, xfx base (round 3, resumed although the folder cannot be read): 6 lines, 1 appended
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":6,"event_id":"86dcb987b9cecce13585ba20bc53855e","timestamp_ms":1794280381489,"event":{"kind":"workspace_rebound","previous_workspace_root":"/tmp/fx-v2-fixtures/wo

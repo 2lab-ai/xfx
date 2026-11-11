@@ -1,0 +1,99 @@
+# cargo test --locked --lib -- <the filters below>, TMPDIR a short scratch directory; the build line's path written as <work>
+# filters: tui::shell::tests::ctrl_o_over tui::shell::tests::a_menu_that_opens_under tui::shell::tests::c_k_under_the_full_transcript_over tui::shell::tests::c_j_under_the_full_transcript_over tui::shell::tests::the_arrows_and_page_keys_under_the_full_transcript_are_its_own tui::shell::tests::shift_up_and_down_under tui::shell::tests::a_column_hangs_under
+# GREEN run at 91c46731 (the code head), 2026-11-10T13:03:17Z
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 17 tests
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_provider_column_is_a_new_line ... ok
+test tui::shell::tests::ctrl_o_over_the_help_catalog_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_slash_menu_moves_no_mark ... ok
+test tui::shell::tests::ctrl_o_over_the_session_picker_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_settings_menu_holds_no_frame ... ok
+test tui::shell::tests::a_column_hangs_under_its_argument_only_on_the_carets_row ... ok
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_slash_menu_is_a_new_line ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_provider_column_moves_no_mark ... ok
+test tui::shell::tests::ctrl_o_over_the_model_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_fork_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_effort_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::a_menu_that_opens_under_the_full_transcript_takes_the_plane_back ... ok
+test tui::shell::tests::ctrl_o_over_the_skills_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_mcp_arguments_moves_no_mark ... ok
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_mcp_arguments_is_a_new_line ... ok
+test tui::shell::tests::shift_up_and_down_under_the_full_transcript_scroll_nothing_and_move_no_bar ... ok
+test tui::shell::tests::the_arrows_and_page_keys_under_the_full_transcript_are_its_own ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 4634 filtered out; finished in 0.03s
+
+
+# Round 2: GREEN at 5d6c4cbb (round 2's gate commit, the code of 3369622a), from the gate's own `cargo test` (gate-r2.txt, step 04): the unit's 23 cases' lines, rounds 1 and 2, and the lib binary's result line
+test tui::event_loop::tests::ctrl_o_over_the_catalog_writes_no_plane_change_in_its_turn ... ok
+test tui::shell::tests::a_column_hangs_under_its_argument_only_on_the_carets_row ... ok
+test tui::shell::tests::a_menu_that_opens_under_the_full_transcript_takes_the_plane_back ... ok
+test tui::shell::tests::a_question_over_a_menu_closes_the_full_transcript_and_ctrl_o_opens_none_over_it ... ok
+test tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_fork_and_effort_close_the_menu_and_the_screen_stays ... ok
+test tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_the_catalog_edit_its_search_and_keep_its_mark ... ok
+test tui::shell::tests::c_j_in_ctrl_os_burst_over_a_dollar_menu_is_a_new_line_after_its_word ... ok
+test tui::shell::tests::c_j_in_ctrl_os_burst_over_model_session_and_skills_menus_does_nothing_and_c_k_kills_nothing ... ok
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_mcp_arguments_is_a_new_line ... ok
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_provider_column_is_a_new_line ... ok
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_slash_menu_is_a_new_line ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_mcp_arguments_moves_no_mark ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_provider_column_moves_no_mark ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_slash_menu_moves_no_mark ... ok
+test tui::shell::tests::ctrl_o_over_the_effort_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_fork_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_help_catalog_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_model_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_session_picker_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_settings_menu_holds_no_frame ... ok
+test tui::shell::tests::ctrl_o_over_the_skills_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::shift_up_and_down_under_the_full_transcript_scroll_nothing_and_move_no_bar ... ok
+test tui::shell::tests::the_arrows_and_page_keys_under_the_full_transcript_are_its_own ... ok
+test result: ok. 4650 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 48.55s
+
+# Round 3: GREEN at c5c177a3 (round 3's gate commit, the code of bcb4e211), from the gate's own `cargo test` (gate-r3.txt, step 04): the unit's 28 cases' lines, rounds 1 to 3, and the lib binary's result line. Round 3's five new cases pass on ec0dfe00's code as well (its source differs from bcb4e211's in comments and cases only), so none has a RED
+test tui::event_loop::tests::ctrl_o_over_the_catalog_writes_no_plane_change_in_its_turn ... ok
+test tui::shell::tests::a_column_hangs_under_its_argument_only_on_the_carets_row ... ok
+test tui::shell::tests::a_menu_that_opens_under_the_full_transcript_takes_the_plane_back ... ok
+test tui::shell::tests::a_question_over_a_menu_closes_the_full_transcript_and_ctrl_o_opens_none_over_it ... ok
+test tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_effort_close_the_menu_and_the_screen_stays ... ok
+test tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_fork_close_the_menu_and_the_screen_stays ... ok
+test tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_the_catalog_edit_its_search_and_keep_its_mark ... ok
+test tui::shell::tests::c_j_in_ctrl_os_burst_inside_a_search_word_keeps_a_scrolled_catalogs_mark_and_window ... ok
+test tui::shell::tests::c_j_in_ctrl_os_burst_inside_a_search_word_keeps_a_scrolled_settings_mark_and_window ... ok
+test tui::shell::tests::c_j_in_ctrl_os_burst_over_a_dollar_menu_is_a_new_line_after_its_word ... ok
+test tui::shell::tests::c_j_in_ctrl_os_burst_over_model_session_and_skills_menus_does_nothing_and_c_k_kills_nothing ... ok
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_mcp_arguments_is_a_new_line ... ok
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_provider_column_is_a_new_line ... ok
+test tui::shell::tests::c_j_under_the_full_transcript_over_the_slash_menu_is_a_new_line ... ok
+test tui::shell::tests::c_k_in_ctrl_os_burst_with_text_after_the_caret_kills_it_and_each_menus_search_follows ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_mcp_arguments_moves_no_mark ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_provider_column_moves_no_mark ... ok
+test tui::shell::tests::c_k_under_the_full_transcript_over_the_slash_menu_moves_no_mark ... ok
+test tui::shell::tests::ctrl_o_over_the_effort_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_fork_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_help_catalog_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_model_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_session_picker_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::ctrl_o_over_the_settings_menu_holds_no_frame ... ok
+test tui::shell::tests::ctrl_o_over_the_skills_menu_holds_no_frame_and_its_keys_stay_its ... ok
+test tui::shell::tests::shift_up_and_down_under_the_full_transcript_scroll_nothing_and_move_no_bar ... ok
+test tui::shell::tests::the_arrows_and_page_keys_under_the_full_transcript_are_its_own ... ok
+test tui::shell::tests::the_at_lists_column_hangs_from_the_carets_row_once_its_word_has_wrapped ... ok
+test result: ok. 4655 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 41.87s
+
+# Round 3, no RED: the round's six cases on ec0dfe00's code
+# at ec0dfe00 with bcb4e211's cases applied (git diff c2452375 bcb4e211 -- src/tui/shell.rs, git apply --3way) in a --no-local clone; cargo test --locked --lib -- <the round's cases by name>, TMPDIR a short scratch directory, under suite-lock.sh (one normal slot); the build line's path written as <work>
+   Compiling xfx v0.1.0 (<work>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.85s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+running 6 tests
+test tui::shell::tests::c_j_in_ctrl_os_burst_inside_a_search_word_keeps_a_scrolled_settings_mark_and_window ... ok
+test tui::shell::tests::c_j_in_ctrl_os_burst_inside_a_search_word_keeps_a_scrolled_catalogs_mark_and_window ... ok
+test tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_fork_close_the_menu_and_the_screen_stays ... ok
+test tui::shell::tests::c_j_and_c_k_in_ctrl_os_burst_over_effort_close_the_menu_and_the_screen_stays ... ok
+test tui::shell::tests::the_at_lists_column_hangs_from_the_carets_row_once_its_word_has_wrapped ... ok
+test tui::shell::tests::c_k_in_ctrl_os_burst_with_text_after_the_caret_kills_it_and_each_menus_search_follows ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 4656 filtered out; finished in 0.04s
+# exit 0

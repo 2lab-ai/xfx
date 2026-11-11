@@ -1,0 +1,13 @@
+# ../train-13/join-main/gates.txt: # head 0dbfaf39; tree clean: yes
+# git diff --stat 0dbfaf39 dcfa5146 outside .prd/: none
+# ../train-13/join-main/gate-counts.txt's sums (cargo test, then with fault injection):
+# sum: 5699 passed, 0 failed, 7 ignored
+# sum: 5736 passed, 0 failed, 7 ignored
+# the binaries whose cargo test count differs, main | b3dffdad (gate-counts.txt):
+  src/lib.rs: test result: ok. 4775 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out|src/lib.rs: test result: ok. 4927 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out
+  tests/sessions.rs: test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out|tests/sessions.rs: test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+  tests/tui.rs: test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out|tests/tui.rs: test result: ok. 189 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+# test attributes git diff dcfa5146 b3dffdad adds (+) and deletes (-) under src/:
+   155 + #[test]
+     1 + #[tokio::test]
+     4 - #[test]

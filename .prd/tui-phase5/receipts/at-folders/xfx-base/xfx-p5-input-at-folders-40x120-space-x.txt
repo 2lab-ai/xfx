@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-af2b613 [debug] · Run /help for commands
+
+┃ @"./space dir/item.txt" x
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

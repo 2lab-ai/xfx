@@ -1,0 +1,319 @@
+## 4130f4ac:.prd/tui-phase5/receipts/at-folders/sweep-head.md
+scenarios: unit 26, head 171, shared 26
+  composer-keys: unit 8 / 11, head 8 / 11
+  composer-wrap: unit 11 / 11, head 11 / 11
+  filepicker: unit 10 / 10, head 10 / 10
+  filepicker-keys: unit 7 / 7, head 7 / 7
+  filepicker-narrow: unit 3 / 3, head 3 / 3
+  h1-resize: unit 1 / 3, head 1 / 3
+  model-column: unit 8 / 8, head 8 / 8
+  p5-input-approval: unit 0 / 3, head 0 / 3
+  p5-input-at: unit 3 / 7, head 7 / 7  MOVED
+  p5-input-at-dir: unit 2 / 2, head 2 / 2
+  p5-input-at-folders: unit 8 / 8, head 8 / 8
+  p5-input-at-gate: unit 3 / 3, head 3 / 3
+  p5-input-at-height: unit 5 / 5, head 5 / 5
+  p5-input-at-resize: unit 1 / 6, head 1 / 6
+  p5-input-ctrlbs: unit 4 / 4, head 4 / 4
+  p5-input-mcp: unit 9 / 9, head 9 / 9
+  p5-input-model: unit 1 / 7, head 7 / 7  MOVED
+  p5-input-model-fail: unit 2 / 2, head 2 / 2
+  p5-input-paste: unit 0 / 2, head 2 / 2  MOVED
+  p5-input-question: unit 3 / 6, head 6 / 6  MOVED
+  p5-input-smoke: unit 1 / 1, head 1 / 1
+  p5-mcp-config: unit 1 / 3, head 1 / 3
+  p5-mcp-verbs: unit 1 / 28, head 1 / 28
+  settings-scrollback: unit 5 / 5, head 5 / 5
+  startup: unit 1 / 1, head 1 / 1
+  workspace-index: unit 1 / 2, head 1 / 2
+pass over the shared scenarios: unit 99, head 114
+passed on the unit, not on the head: 0
+# exit 0
+## 4130f4ac:.prd/tui-phase5/receipts/at-scope-interim/sweep-head.md
+scenarios: unit 12, head 171, shared 12
+  filepicker: unit 10 / 10, head 10 / 10
+  filepicker-keys: unit 7 / 7, head 7 / 7
+  filepicker-narrow: unit 3 / 3, head 3 / 3
+  p5-input-at: unit 3 / 7, head 7 / 7  MOVED
+  p5-input-at-dir: unit 2 / 2, head 2 / 2
+  p5-input-at-folders: unit 8 / 8, head 8 / 8
+  p5-input-at-gate: unit 3 / 3, head 3 / 3
+  p5-input-at-height: unit 5 / 5, head 5 / 5
+  p5-input-at-paste: unit 2 / 2, head 2 / 2
+  p5-input-at-resize: unit 1 / 6, head 1 / 6
+  workspace: unit 11 / 11, head 11 / 11
+  workspace-index: unit 1 / 2, head 1 / 2
+pass over the shared scenarios: unit 56, head 60
+passed on the unit, not on the head: 0
+# exit 0
+## 4130f4ac:.prd/tui-phase5/receipts/at-scope-interim/sweep-head-r3.md
+scenarios: unit 12, head 171, shared 12
+  filepicker: unit 10 / 10, head 10 / 10
+  filepicker-keys: unit 7 / 7, head 7 / 7
+  filepicker-narrow: unit 3 / 3, head 3 / 3
+  p5-input-at: unit 3 / 7, head 7 / 7  MOVED
+  p5-input-at-dir: unit 2 / 2, head 2 / 2
+  p5-input-at-folders: unit 8 / 8, head 8 / 8
+  p5-input-at-gate: unit 3 / 3, head 3 / 3
+  p5-input-at-height: unit 5 / 5, head 5 / 5
+  p5-input-at-paste: unit 2 / 2, head 2 / 2
+  p5-input-at-resize: unit 1 / 6, head 1 / 6
+  workspace: unit 11 / 11, head 11 / 11
+  workspace-index: unit 1 / 2, head 1 / 2
+pass over the shared scenarios: unit 56, head 60
+passed on the unit, not on the head: 0
+# exit 0
+## 4130f4ac:.prd/tui-phase5/receipts/at-launch-walk/sweep-head.md
+scenarios: unit 42, head 171, shared 28
+  filepicker: unit 10 / 10, head 10 / 10
+  filepicker-keys: unit 7 / 7, head 7 / 7
+  filepicker-narrow: unit 3 / 3, head 3 / 3
+  p5-input-at: unit 3 / 7, head 7 / 7  MOVED
+  p5-input-at-dir: unit 2 / 2, head 2 / 2
+  p5-input-at-folders: unit 8 / 8, head 8 / 8
+  p5-input-at-gate: unit 3 / 3, head 3 / 3
+  p5-input-at-height: unit 5 / 5, head 5 / 5
+  p5-input-at-paste: unit 2 / 2, head 2 / 2
+  p5-input-at-resize: unit 1 / 6, head 1 / 6
+  p5-lifecycle-compactfail: unit 1 / 1, head 1 / 1
+  p5-lifecycle-compactok: unit 3 / 3, head 3 / 3
+  p5-lifecycle-login: unit 0 / 6, head 0 / 6
+  p5-lifecycle-login2: unit 0 / 9, head 0 / 9
+  p5-lifecycle-osc: unit 0 / 9, head 0 / 9
+  p5-lifecycle-osc-ask: unit 0 / 0, not in this sweep's selection
+  p5-lifecycle-osc-autocompactfail: unit 0 / 0, not in this sweep's selection
+  p5-lifecycle-osc-compact: unit 0 / 0, not in this sweep's selection
+  p5-lifecycle-osc-compactfail: unit 0 / 0, not in this sweep's selection
+  p5-lifecycle-osc-hostile: unit 0 / 0, not in this sweep's selection
+  p5-lifecycle-osc-hup: unit 0 / 0, not in this sweep's selection
+  p5-lifecycle-osc-interrupt: unit 0 / 0, not in this sweep's selection
+  p5-lifecycle-osc-interruptnext: unit 0 / 0, not in this sweep's selection
+  p5-lifecycle-osc-picker: unit 0 / 0, not in this sweep's selection
+  p5-lifecycle-osc-retry: unit 0 / 0, not in this sweep's selection
+  p5-lifecycle-osc-states: unit 0 / 0, not in this sweep's selection
+  p5-lifecycle-osc-stopnext: unit 0 / 0, not in this sweep's selection
+  p5-lifecycle-osc-suspend: unit 0 / 0, not in this sweep's selection
+  p5-lifecycle-osc-term: unit 0 / 0, not in this sweep's selection
+  p5-lifecycle-relhome: unit 2 / 2, head 2 / 2
+  p5-lifecycle-relhome-image: unit 2 / 2, head 2 / 2
+  p5-lifecycle-relhome-made: unit 3 / 3, head 3 / 3
+  p5-lifecycle-relhome-resume: unit 0 / 1, head 0 / 1
+  p5-lifecycle-relhome-unsaved: unit 8 / 9, head 8 / 9
+  p5-lifecycle-retry: unit 1 / 7, head 1 / 7
+  p5-lifecycle-retryok: unit 3 / 3, head 3 / 3
+  p5-lifecycle-suspend: unit 2 / 2, head 2 / 2
+  p5-lifecycle-update: unit 0 / 4, head 0 / 4
+  p5-lifecycle-v1bad: unit 2 / 3, head 2 / 3
+  p5-lifecycle-v1resume: unit 1 / 5, head 1 / 5
+  workspace: unit 11 / 11, head 11 / 11
+  workspace-index: unit 1 / 2, head 1 / 2
+pass over the shared scenarios: unit 84, head 88
+passed on the unit, not on the head: 0
+# exit 0
+## 4130f4ac:.prd/tui-phase5/receipts/ctrlo-at-keys/sweep-head.md
+scenarios: unit 18, head 171, shared 18
+  filepicker: unit 10 / 10, head 10 / 10
+  filepicker-keys: unit 7 / 7, head 7 / 7
+  filepicker-narrow: unit 3 / 3, head 3 / 3
+  p5-ctrlo-at-keys: unit 8 / 8, head 8 / 8
+  p5-ctrlo-wider-diff: unit 3 / 3, head 3 / 3
+  p5-ctrlo-wider-diff-fam: unit 2 / 3, head 2 / 3
+  p5-ctrlo-wider-fence: unit 0 / 2, head 0 / 2
+  p5-ctrlo-wider-inline: unit 3 / 3, head 3 / 3
+  p5-ctrlo-wider-inline-fam: unit 0 / 7, head 0 / 7
+  p5-ctrlo-wider-mod: unit 0 / 2, head 0 / 2
+  p5-ctrlo-wider-ri: unit 0 / 3, head 0 / 3
+  p5-input-at: unit 3 / 7, head 7 / 7  MOVED
+  p5-input-at-dir: unit 2 / 2, head 2 / 2
+  p5-input-at-folders: unit 8 / 8, head 8 / 8
+  p5-input-at-gate: unit 3 / 3, head 3 / 3
+  p5-input-at-height: unit 5 / 5, head 5 / 5
+  p5-input-at-paste: unit 2 / 2, head 2 / 2
+  p5-input-at-resize: unit 1 / 6, head 1 / 6
+pass over the shared scenarios: unit 60, head 64
+passed on the unit, not on the head: 0
+# exit 0
+## 4130f4ac:.prd/tui-phase5/receipts/at-rank/sweep-head.md
+scenarios: unit 20, head 171, shared 20
+  filepicker: unit 10 / 10, head 10 / 10
+  filepicker-keys: unit 7 / 7, head 7 / 7
+  filepicker-narrow: unit 3 / 3, head 3 / 3
+  p5-at-rank: unit 13 / 13, head 13 / 13
+  p5-ctrlo-at-keys: unit 8 / 8, head 8 / 8
+  p5-ctrlo-wider-diff: unit 3 / 3, head 3 / 3
+  p5-ctrlo-wider-diff-fam: unit 2 / 3, head 2 / 3
+  p5-ctrlo-wider-fence: unit 0 / 2, head 0 / 2
+  p5-ctrlo-wider-inline: unit 3 / 3, head 3 / 3
+  p5-ctrlo-wider-inline-fam: unit 0 / 7, head 0 / 7
+  p5-ctrlo-wider-mod: unit 0 / 2, head 0 / 2
+  p5-ctrlo-wider-ri: unit 0 / 3, head 0 / 3
+  p5-input-at: unit 7 / 7, head 7 / 7
+  p5-input-at-dir: unit 2 / 2, head 2 / 2
+  p5-input-at-folders: unit 8 / 8, head 8 / 8
+  p5-input-at-gate: unit 3 / 3, head 3 / 3
+  p5-input-at-height: unit 5 / 5, head 5 / 5
+  p5-input-at-paste: unit 2 / 2, head 2 / 2
+  p5-input-at-resize: unit 1 / 6, head 1 / 6
+  workspace-index: unit 1 / 2, head 1 / 2
+pass over the shared scenarios: unit 78, head 78
+passed on the unit, not on the head: 0
+# exit 0
+## e7e1bcf6:.prd/tui-phase5/receipts/ctrlo-other-pickers/sweep-head.md
+scenarios: unit 85, head 171, shared 85
+  fulltranscript: unit 6 / 15, head 6 / 15
+  fulltranscript-notice: unit 1 / 4, head 0 / 4  MOVED
+  help: unit 9 / 19, head 5 / 19  MOVED
+  model: unit 11 / 12, head 11 / 12
+  model-anchor: unit 1 / 2, head 2 / 2  MOVED
+  model-busy: unit 2 / 2, head 2 / 2
+  model-busy-known: unit 2 / 2, head 2 / 2
+  model-column: unit 8 / 8, head 8 / 8
+  model-column-hold: unit 4 / 4, head 4 / 4
+  model-column-idle: unit 3 / 3, head 3 / 3
+  model-column-reask: unit 3 / 3, head 4 / 4  MOVED
+  model-effort: unit 7 / 7, head 7 / 7
+  model-empty: unit 2 / 2, head 2 / 2
+  model-floor: unit 3 / 3, head 3 / 3
+  model-parked: unit 4 / 5, head 4 / 5
+  model-reask: unit 4 / 4, head 4 / 4
+  model-router: unit 4 / 4, head 4 / 4
+  model-speed: unit 12 / 12, head 12 / 12
+  p5-ctrlo-at-keys: unit 8 / 8, head 8 / 8
+  p5-ctrlo-effort: unit 7 / 7, head 7 / 7
+  p5-ctrlo-fork: unit 7 / 7, head 9 / 9  MOVED
+  p5-ctrlo-help: unit 2 / 7, head 2 / 9  MOVED
+  p5-ctrlo-mcp-args: unit 5 / 5, head 5 / 5
+  p5-ctrlo-model: unit 7 / 7, head 7 / 7
+  p5-ctrlo-sessions: unit 7 / 7, head 7 / 7
+  p5-ctrlo-slash: unit 1 / 5, head 1 / 5
+  p5-ctrlo-wider-diff: unit 3 / 3, head 3 / 3
+  p5-ctrlo-wider-diff-fam: unit 2 / 3, head 2 / 3
+  p5-ctrlo-wider-fence: unit 0 / 2, head 0 / 2
+  p5-ctrlo-wider-inline: unit 3 / 3, head 3 / 3
+  p5-ctrlo-wider-inline-fam: unit 0 / 7, head 0 / 7
+  p5-ctrlo-wider-mod: unit 0 / 2, head 0 / 2
+  p5-ctrlo-wider-ri: unit 0 / 3, head 0 / 3
+  p5-effort-fork-effort-backtab: unit 2 / 2, head 2 / 2
+  p5-effort-fork-effort-column: unit 17 / 17, head 17 / 17
+  p5-effort-fork-effort-ctrlc: unit 2 / 2, head 2 / 2
+  p5-effort-fork-effort-down: unit 2 / 2, head 2 / 2
+  p5-effort-fork-effort-loading: unit 2 / 2, head 2 / 2
+  p5-effort-fork-effort-menu: unit 18 / 18, head 18 / 18
+  p5-effort-fork-effort-nolevels: unit 5 / 5, head 5 / 5
+  p5-effort-fork-effort-short: unit 3 / 3, head 3 / 3
+  p5-effort-fork-fork: unit 15 / 16, head 15 / 16
+  p5-effort-fork-fork-continue: unit 2 / 2, head 2 / 2
+  p5-effort-fork-fork-edge: unit 10 / 11, head 10 / 11
+  p5-effort-fork-fork-empty: unit 4 / 4, head 4 / 4
+  p5-effort-fork-oldread-src: unit 0 / 3, head 0 / 3
+  p5-effort-fork-oldread-v1: unit 2 / 4, head 2 / 4
+  p5-effort-fork-oldread-v2: unit 2 / 7, head 2 / 7
+  p5-effort-fork-slash-rank: unit 3 / 4, head 3 / 4
+  p5-mcp-menu-new: unit 32 / 34, head 34 / 34  MOVED
+  p5-mcp-menu-old: unit 16 / 16, head 16 / 16
+  p5-mcp-verbs: unit 1 / 28, head 1 / 28
+  provider: unit 5 / 15, head 5 / 15
+  provider-carry: unit 2 / 8, head 2 / 8
+  provider-carry-back: unit 0 / 6, head 0 / 6
+  provider-ctrlo: unit 1 / 5, head 2 / 7  MOVED
+  provider-resume: unit 2 / 6, head 2 / 6
+  provider-resume-missing: unit 0 / 3, head 0 / 3
+  provider-switch: unit 0 / 3, head 0 / 3
+  resume: unit 13 / 13, head 13 / 13
+  resume-empty: unit 4 / 4, head 4 / 4
+  resume-launch: unit 4 / 4, head 4 / 4
+  resume-paging: unit 2 / 8, head 2 / 8
+  resume-tools: unit 7 / 18, head 7 / 18
+  resume-wire: unit 2 / 2, head 2 / 2
+  settings: unit 4 / 7, head 4 / 7
+  settings-cats: unit 0 / 4, head 0 / 4
+  settings-collapse: unit 6 / 8, head 6 / 8
+  settings-collapse-open: unit 1 / 3, head 1 / 3
+  settings-effort: unit 0 / 8, head 0 / 8
+  settings-history: unit 6 / 9, head 6 / 9
+  settings-model: unit 1 / 3, head 1 / 3
+  settings-model-list: unit 1 / 5, head 1 / 5
+  settings-perm: unit 1 / 4, head 1 / 4
+  settings-scrollback: unit 5 / 5, head 5 / 5
+  settings-speed: unit 0 / 4, head 0 / 4
+  settings2: unit 5 / 12, head 5 / 12
+  skills: unit 2 / 18, head 2 / 18
+  skills-ctrlo: unit 1 / 7, head 1 / 7
+  skills-ctrlo-dollar: unit 1 / 6, head 1 / 6
+  skills-ghost: unit 14 / 15, head 14 / 15
+  skills-paste: unit 2 / 3, head 2 / 3
+  skills-slash: unit 5 / 8, head 5 / 8
+  slash: unit 4 / 9, head 4 / 9
+  slash-filter: unit 5 / 6, head 5 / 6
+pass over the shared scenarios: unit 382, head 384
+passed on the unit, not on the head: 2
+    fulltranscript-notice 1 -> 0
+    help 9 -> 5
+# exit 1
+## 3ea16930:.prd/tui-phase5/receipts/page-keys-settings-column/sweep-40x120-head.md
+scenarios: unit 37, head 171, shared 37
+  composer-keys: unit 8 / 11, head 8 / 11
+  fulltranscript: unit 6 / 15, head 6 / 15
+  fulltranscript-notice: unit 1 / 4, head 0 / 4  MOVED
+  model: unit 11 / 12, head 11 / 12
+  model-column: unit 8 / 8, head 8 / 8
+  model-column-hold: unit 4 / 4, head 4 / 4
+  model-column-idle: unit 0 / 3, head 3 / 3  MOVED
+  model-column-reask: unit 3 / 3, head 4 / 4  MOVED
+  model-effort: unit 7 / 7, head 7 / 7
+  model-speed: unit 12 / 12, head 12 / 12
+  p5-effort-fork-effort-column: unit 17 / 17, head 17 / 17
+  p5-input-model: unit 7 / 7, head 7 / 7
+  p5-input-model-fail: unit 2 / 2, head 2 / 2
+  p5-input-model-rank: unit 27 / 27, head 27 / 27
+  p5-input-model-swap: unit 4 / 4, head 4 / 4
+  p5-mcp-verbs: unit 1 / 28, head 1 / 28
+  provider: unit 5 / 15, head 5 / 15
+  provider-carry: unit 2 / 8, head 2 / 8
+  provider-carry-back: unit 0 / 6, head 0 / 6
+  provider-carry-back-stop: unit 0 / 3, head 0 / 3
+  provider-resume: unit 2 / 6, head 2 / 6
+  provider-resume-missing: unit 0 / 3, head 0 / 3
+  provider-switch: unit 0 / 3, head 0 / 3
+  settings: unit 4 / 7, head 4 / 7
+  settings-cats: unit 0 / 4, head 0 / 4
+  settings-collapse: unit 6 / 8, head 6 / 8
+  settings-collapse-open: unit 1 / 3, head 1 / 3
+  settings-effort: unit 0 / 8, head 0 / 8
+  settings-history: unit 6 / 9, head 6 / 9
+  settings-model: unit 1 / 3, head 1 / 3
+  settings-model-list: unit 1 / 5, head 1 / 5
+  settings-perm: unit 1 / 4, head 1 / 4
+  settings-scrollback: unit 5 / 5, head 5 / 5
+  settings-speed: unit 0 / 4, head 0 / 4
+  settings2: unit 5 / 12, head 5 / 12
+  slash: unit 4 / 9, head 4 / 9
+  slash-filter: unit 5 / 6, head 5 / 6
+pass over the shared scenarios: unit 166, head 169
+passed on the unit, not on the head: 1
+    fulltranscript-notice 1 -> 0
+# exit 1
+## bde1ddfa:.prd/tui-phase5/receipts/image-loss-copy-fx/sweep-head.md
+scenarios: unit 19, head 171, shared 19
+  image: unit 17 / 17, head 17 / 17
+  image-composer: unit 8 / 8, head 8 / 8
+  image-inline: unit 5 / 5, head 5 / 5
+  image-nonnative: unit 1 / 3, head 1 / 3
+  image-paste: unit 7 / 7, head 7 / 7
+  image-readfile: unit 2 / 2, head 2 / 2
+  image-undo: unit 5 / 5, head 5 / 5
+  image-unknown: unit 3 / 3, head 3 / 3
+  image-withheld: unit 2 / 2, head 2 / 2
+  p5-lifecycle-relhome-image: unit 2 / 2, head 2 / 2
+  p5-lifecycle-relhome-resume: unit 0 / 1, head 0 / 1
+  p5-lifecycle-v1resume: unit 1 / 5, head 1 / 5
+  resume: unit 13 / 13, head 13 / 13
+  resume-empty: unit 4 / 4, head 4 / 4
+  resume-launch: unit 4 / 4, head 4 / 4
+  resume-paging: unit 2 / 8, head 2 / 8
+  resume-tools: unit 7 / 18, head 7 / 18
+  resume-wire: unit 2 / 2, head 2 / 2
+  undo-resume: unit 1 / 1, head 1 / 1
+pass over the shared scenarios: unit 86, head 86
+passed on the unit, not on the head: 0
+# exit 0

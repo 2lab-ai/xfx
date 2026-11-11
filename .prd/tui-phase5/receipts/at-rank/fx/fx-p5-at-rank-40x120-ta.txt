@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ @ta
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  scripts/test-matrix.ts
+  src/test-stat.zig
+  STATUS.md
+  contracts/fixtures/stats_response.json
+  src/beta.txt
+  src/zeta.txt
+  contracts/
+  src/components/card.tsx
+  contracts/fixtures/
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
