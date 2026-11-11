@@ -1,0 +1,19 @@
+# the unit's 8 tests (7 new, and the guard answer_text_breaks_a_group_and_a_notice_does_not) in the gate's run at e3e66b0b, src = the code head b9007bc3's
+## cargo test --locked --no-fail-fast (04-test.log)
+test tui::full_transcript::tests::a_block_has_no_header_so_an_answer_that_is_one_has_none ... ok
+test tui::full_transcript::tests::answer_text_breaks_a_group_and_a_notice_does_not ... ok
+test tui::full_transcript::tests::the_run_after_a_block_carries_the_moment_of_its_first_text_line_breaks_included ... ok
+test tui::full_transcript::tests::the_text_after_a_code_block_a_table_or_a_rule_is_a_response_of_its_own ... ok
+test tui::full_transcript::tests::trace_names_an_answers_blocks_as_upstream_does ... ok
+test tui::full_transcript::tests::where_the_answer_splits_is_the_same_however_it_was_chunked ... ok
+test tui::shell::tests::a_resumed_answers_runs_carry_the_turns_conclusion_as_upstreams_replay_stamps_them ... ok
+test tui::shell::tests::an_answers_blocks_split_its_ctrl_o_record_and_leave_its_document_as_it_was ... ok
+## cargo test --locked --features fault-injection --no-fail-fast (05-test-fault.log)
+test tui::full_transcript::tests::a_block_has_no_header_so_an_answer_that_is_one_has_none ... ok
+test tui::full_transcript::tests::answer_text_breaks_a_group_and_a_notice_does_not ... ok
+test tui::full_transcript::tests::the_run_after_a_block_carries_the_moment_of_its_first_text_line_breaks_included ... ok
+test tui::full_transcript::tests::the_text_after_a_code_block_a_table_or_a_rule_is_a_response_of_its_own ... ok
+test tui::full_transcript::tests::trace_names_an_answers_blocks_as_upstream_does ... ok
+test tui::full_transcript::tests::where_the_answer_splits_is_the_same_however_it_was_chunked ... ok
+test tui::shell::tests::a_resumed_answers_runs_carry_the_turns_conclusion_as_upstreams_replay_stamps_them ... ok
+test tui::shell::tests::an_answers_blocks_split_its_ctrl_o_record_and_leave_its_document_as_it_was ... ok

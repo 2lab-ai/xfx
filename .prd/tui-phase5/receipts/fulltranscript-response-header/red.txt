@@ -1,0 +1,26 @@
+# RED: the unit's tests over the base's code (3f2d6e78's src with only the tests added), cargo test --locked --lib
+
+test tui::full_transcript::tests::the_run_after_a_block_carries_the_moment_of_its_first_text_line_breaks_included ... FAILED
+test tui::full_transcript::tests::trace_names_an_answers_blocks_as_upstream_does ... FAILED
+test tui::full_transcript::tests::the_text_after_a_code_block_a_table_or_a_rule_is_a_response_of_its_own ... FAILED
+test tui::full_transcript::tests::a_block_has_no_header_so_an_answer_that_is_one_has_none ... FAILED
+test tui::full_transcript::tests::where_the_answer_splits_is_the_same_however_it_was_chunked ... FAILED
+test tui::full_transcript::tests::answer_text_breaks_a_group_and_a_notice_does_not ... ok
+test tui::shell::tests::a_resumed_answers_runs_carry_the_turns_conclusion_as_upstreams_replay_stamps_them ... FAILED
+test tui::shell::tests::an_answers_blocks_split_its_ctrl_o_record_and_leave_its_document_as_it_was ... FAILED
+thread 'tui::full_transcript::tests::the_run_after_a_block_carries_the_moment_of_its_first_text_line_breaks_included' (524567939) panicked at src/tui/full_transcript.rs:4723:9:
+  left: ["Prompt", "Response"]
+thread 'tui::full_transcript::tests::trace_names_an_answers_blocks_as_upstream_does' (524567941) panicked at src/tui/full_transcript.rs:4795:9:
+  left: [(1791297830620, "user"), (1791297830620, "assistant")]
+thread 'tui::full_transcript::tests::the_text_after_a_code_block_a_table_or_a_rule_is_a_response_of_its_own' (524567940) panicked at src/tui/full_transcript.rs:4608:13:
+  left: ["Prompt", "Response"]
+thread 'tui::full_transcript::tests::a_block_has_no_header_so_an_answer_that_is_one_has_none' (524567937) panicked at src/tui/full_transcript.rs:4649:9:
+  left: ["Prompt", "Response"]
+thread 'tui::full_transcript::tests::where_the_answer_splits_is_the_same_however_it_was_chunked' (524567942) panicked at src/tui/full_transcript.rs:4755:9:
+  left: ["Response"]
+thread 'tui::shell::tests::a_resumed_answers_runs_carry_the_turns_conclusion_as_upstreams_replay_stamps_them' (524567943) panicked at src/tui/shell.rs:43205:9:
+  left: ["  2026-10-02 00:00:00.000 UTC · Prompt", "  2026-10-02 00:00:02.000 UTC · Response", "  2026-10-02 00:00:02.000 UTC · Usage"]
+thread 'tui::shell::tests::an_answers_blocks_split_its_ctrl_o_record_and_leave_its_document_as_it_was' (524567944) panicked at src/tui/shell.rs:43158:9:
+  left: ["Prompt", "Response", "Usage"]
+test result: FAILED. 1 passed; 7 failed; 0 ignored; 0 measured; 4788 filtered out; finished in 0.01s
+Note: an_answers_blocks_split_its_ctrl_o_record_and_leave_its_document_as_it_was fails at its kinds (shell.rs:43158), past its document pin (the assert_eq! at shell.rs:43123), which holds over the base's code: the inline document is the base's.

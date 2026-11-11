@@ -1,0 +1,115 @@
+# python3 -I ../approval-vertical-spellings/cmp_sweeps.py <scratch>/sw-base/pairs.json <scratch>/sw-head/pairs.json
+# base: xfx v0.1.0-3f2d6e7 (sha256 3451945e1a74...), head: v0.1.0-b9007bc (sha256 be955b4c5ff7...); fx v0.0.16 both; this branch's scenarios; both rescored (--rescore) with this branch's ledger (sha256 90a4e94e28a8...): the cause deleted, full-transcript-shift's scenarios named, session-record-page-bottom added, the refs re-pointed
+# --only p5-transcript* fulltranscript* p5-modified-* transcript* (transcript* selects nothing), 40x120, --jobs 2, base then head in one suite-lock slot
+change fulltranscript-response-split/full-block-first: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change fulltranscript-response-split/full-block-last: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change fulltranscript-response-split/full-block-only: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change fulltranscript-response-split/full-blocks: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change fulltranscript-response-split/full-rule: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change fulltranscript-response-split/full-table: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-modified-arrows-full/answered: normalized-identical -> identical; causes [] -> []; uncaused 0 -> 0
+change p5-modified-arrows-full/draft: normalized-identical -> identical; causes [] -> []; uncaused 0 -> 0
+change p5-modified-arrows-full/full: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-modified-arrows-full/full-ctrl-b: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-modified-arrows-full/full-ctrl-f: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-modified-arrows-full/full-ctrl-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-modified-arrows-full/full-super-left: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-modified-arrows-full/typed: normalized-identical -> identical; causes [] -> []; uncaused 0 -> 0
+change p5-modified-arrows-full/typed2: normalized-identical -> identical; causes [] -> []; uncaused 0 -> 0
+change p5-modified-arrows-full/typed3: normalized-identical -> identical; causes [] -> []; uncaused 0 -> 0
+change p5-modified-arrows-full/typed4: normalized-identical -> identical; causes [] -> []; uncaused 0 -> 0
+change p5-modified-page-keys/full: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-modified-page-keys/full-ctrl-pgup: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-modified-page-keys/full2: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-modified-page-keys/full2-kp-ctrl-pgdn: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-transcript-md/full: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-transcript-md-light/full: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-transcript-submit/filled: normalized-identical -> identical; causes [] -> []; uncaused 0 -> 0
+change p5-transcript-submit/second: normalized-identical -> identical; causes [] -> []; uncaused 0 -> 0
+change p5-transcript-tallfirst/tall: normalized-identical -> identical; causes [] -> []; uncaused 0 -> 0
+base: 178 pairs, 94 pass, 19 with uncaused rows
+head: 178 pairs, 111 pass, 2 with uncaused rows
+drops: 0
+
+# the other scenarios whose answers hold a block and that open Ctrl-O (links, p5-ctrlo-wider-fence), the same two binaries, rescored with the same ledger
+change links/full: unresolved-defect -> unresolved-defect; causes ['full-transcript-shift', 'session-record'] -> ['session-record']; uncaused 0 -> 0
+base: 8 pairs, 5 pass, 0 with uncaused rows
+head: 8 pairs, 5 pass, 0 with uncaused rows
+drops: 0
+
+# the pairs left with rows no cause covers, each side
+base fulltranscript-response-split/full-table: unresolved-defect, 2 uncaused rows
+base fulltranscript-response-split/full-rule: unresolved-defect, 4 uncaused rows
+base fulltranscript-response-split/full-block-only: unresolved-defect, 4 uncaused rows
+base fulltranscript-response-split/full-block-last: unresolved-defect, 2 uncaused rows
+base fulltranscript-response-split/full-block-first: unresolved-defect, 4 uncaused rows
+base fulltranscript-response-split/full-blocks: unresolved-defect, 4 uncaused rows
+base p5-modified-arrows-full/full: unresolved-defect, 2 uncaused rows
+base p5-modified-arrows-full/full-super-left: unresolved-defect, 2 uncaused rows
+base p5-modified-arrows-full/full-ctrl-up: unresolved-defect, 2 uncaused rows
+base p5-modified-arrows-full/full-ctrl-b: unresolved-defect, 2 uncaused rows
+base p5-modified-arrows-full/full-ctrl-f: unresolved-defect, 2 uncaused rows
+base p5-modified-page-keys/full: unresolved-defect, 2 uncaused rows
+base p5-modified-page-keys/full-ctrl-pgup: unresolved-defect, 2 uncaused rows
+base p5-modified-page-keys/full2: unresolved-defect, 2 uncaused rows
+base p5-modified-page-keys/full2-kp-ctrl-pgdn: unresolved-defect, 2 uncaused rows
+base p5-transcript-md/full: unresolved-defect, 2 uncaused rows
+base p5-transcript-md-light/full: unresolved-defect, 2 uncaused rows
+base p5-transcript-question/asked: unresolved-defect, 6 uncaused rows
+base p5-transcript-question/narrow: unresolved-defect, 27 uncaused rows
+head p5-transcript-question/asked: unresolved-defect, 6 uncaused rows
+head p5-transcript-question/narrow: unresolved-defect, 27 uncaused rows
+
+# the ledger's edits alone, on the same captures: each sweep as it first scored itself against its rescore with the final ledger
+# (in this block cmp_sweeps' `base:` line is the first scoring and its `head:` line the rescore; no pair of fulltranscript or fulltranscript-notice changes, so full-transcript-shift keeps every pair it covered)
+# base: first scored with the base's ledger, its refs re-pointed (refs.py --fix ran before it ended; scoreboard ledger sha256 9340bbd3455e...) -- every cause as at 3f2d6e78
+change fulltranscript-response-split/full-block-first: unresolved-defect -> unresolved-defect; causes ['full-transcript-shift'] -> []; uncaused 0 -> 4
+change fulltranscript-response-split/full-block-last: unresolved-defect -> unresolved-defect; causes ['full-transcript-shift'] -> []; uncaused 0 -> 2
+change fulltranscript-response-split/full-block-only: unresolved-defect -> unresolved-defect; causes ['full-transcript-shift'] -> []; uncaused 0 -> 4
+change fulltranscript-response-split/full-blocks: unresolved-defect -> unresolved-defect; causes ['full-transcript-shift'] -> []; uncaused 0 -> 4
+change fulltranscript-response-split/full-rule: unresolved-defect -> unresolved-defect; causes ['full-transcript-shift'] -> []; uncaused 0 -> 4
+change fulltranscript-response-split/full-table: unresolved-defect -> unresolved-defect; causes ['full-transcript-shift'] -> []; uncaused 0 -> 2
+change p5-modified-arrows-full/full: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-arrows-full/full-ctrl-b: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-arrows-full/full-ctrl-f: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-arrows-full/full-ctrl-up: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-arrows-full/full-super-left: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-page-keys/full: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-page-keys/full-ctrl-pgup: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-page-keys/full-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> ['session-record', 'session-record-page-bottom']; uncaused 2 -> 0
+change p5-modified-page-keys/full2: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-page-keys/full2-kp-ctrl-pgdn: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-transcript-md/full: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-transcript-md/full-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> ['session-record', 'session-record-page-bottom']; uncaused 2 -> 0
+change p5-transcript-md-light/full: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-transcript-md-light/full-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> ['session-record', 'session-record-page-bottom']; uncaused 2 -> 0
+base: 178 pairs, 94 pass, 5 with uncaused rows
+head: 178 pairs, 94 pass, 19 with uncaused rows
+drops: 0
+# head: first scored with the ledger as it stood when it ended (the cause deleted, full-transcript-shift's scenarios named; session-record-page-bottom not yet added)
+change p5-modified-page-keys/full-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> ['session-record', 'session-record-page-bottom']; uncaused 2 -> 0
+change p5-transcript-md/full-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> ['session-record', 'session-record-page-bottom']; uncaused 2 -> 0
+change p5-transcript-md-light/full-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> ['session-record', 'session-record-page-bottom']; uncaused 2 -> 0
+base: 178 pairs, 111 pass, 5 with uncaused rows
+head: 178 pairs, 111 pass, 2 with uncaused rows
+drops: 0
+
+# Round 2: session-record-page-bottom's xfx_row without its `|^$` alternative (ledger.py classifies no blank text, :366-367; account covers none, :421). Each sweep rescored with round 1's final ledger and with round 2's; pairs.json byte-identical on both sides (cmp).
+## base: round 1's ledger against round 2's
+base: 178 pairs, 94 pass, 19 with uncaused rows
+head: 178 pairs, 94 pass, 19 with uncaused rows
+drops: 0
+pairs.json: byte-identical
+## head: round 1's ledger against round 2's
+base: 178 pairs, 111 pass, 2 with uncaused rows
+head: 178 pairs, 111 pass, 2 with uncaused rows
+drops: 0
+pairs.json: byte-identical
+
+# Round 2's head sweep: the same families plus links and p5-ctrlo-wider-fence (186 pairs), xfx v0.1.0-58b7ee2 (round 2's code head), fx v0.0.16, 40x120, --jobs 2, one suite-lock slot, rescored with 615c2bdb's ledger;
+# against round 1's head sweeps (sw-head + swx-head, v0.1.0-b9007bc), rescored with the same ledger (their pairs unchanged by it)
+change p5-transcript-tallfirst/tall: identical -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+base: 186 pairs, 116 pass, 2 with uncaused rows
+head: 186 pairs, 116 pass, 2 with uncaused rows
+drops: 0
+# p5-transcript-tallfirst/tall: each run's turn time (fx 0s, xfx 1s; turn-wall-time), the inline document

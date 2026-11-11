@@ -1,0 +1,7 @@
+# Round 3's src change outside test modules: each file's hunks against the line its `mod tests {` opens on, at
+# both ends (git diff -U0 41af67e1 HEAD -- src). A hunk is a test hunk when it starts after that line on both sides.
+src/tui/full_transcript.rs: mod tests opens at 3306 (base) and 3306 (head); 1 hunk(s)
+  hunk -6763 +6764: test
+src/tui/shell.rs: mod tests opens at 17065 (base) and 17065 (head); 1 hunk(s)
+  hunk -43175 +43176: test
+non-test hunks: 0

@@ -1,0 +1,85 @@
+# The brief's gate (gates.sh), once, under the suite lock in one normal slot, TMPDIR=<tmp>/tmp (short), on a git clone --no-local (its remote removed) at e3e66b0b.
+# e3e66b0b's src/ is the code head b9007bc3's:
+$ git diff --stat b9007bc3 e3e66b0b -- src tests Cargo.toml Cargo.lock
+(empty: no change)
+
+# head e3e66b0b; tree clean: yes
+01 fmt                                exit 0     2s  load 17.59
+02 clippy                             exit 0    32s  load 18.02
+03 clippy-fault                       exit 0    33s  load 15.64
+04 test                               exit 0   174s  load 17.44
+05 test-fault                         exit 0   178s  load 12.74
+06 check-xfx-identity                 exit 0     2s  load 8.24
+07 check-no-stubs                     exit 0     9s  load 9.99
+08 check-no-secrets                   exit 0    60s  load 9.59
+09 check-no-local-paths               exit 0     3s  load 7.20
+10 test-check-no-local-paths          exit 0     4s  load 8.54
+11 check-preview-contract             exit 0     3s  load 8.58
+12 check-tui-preflight-cost           exit 0   107s  load 8.58
+13 check-usage-clock                  exit 0     1s  load 15.63
+14 test-check-no-secrets              exit 0    79s  load 15.63
+15 test-gate-env                      exit 0   254s  load 10.43
+16 test-preview-contract              exit 0    83s  load 11.57
+17 fxcap-test-sweep                   exit 0    32s  load 13.39
+18 fxcap-test-capture                 exit 0   379s  load 11.32
+19 build-release                      exit 0    15s  load 4.97
+20 build-faulty                       exit 0    29s  load 8.80
+21 smoke                              exit 0     2s  load 9.59
+22 smoke-tui                          exit 0    72s  load 9.59
+# 22 steps, 0 failed; tree clean after: yes
+gate exit 0
+(no catalog-wait failure in this run: the plain suite is 0 failed)
+
+## cargo test, its result lines (04-test.log)
+test result: ok. 4789 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 51.49s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.44s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.57s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.14s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.04s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.58s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.07s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.92s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.61s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+## cargo test --features fault-injection, its result lines (05-test-fault.log)
+test result: ok. 4812 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 71.73s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.61s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.13s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.03s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.52s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.84s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.60s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.31s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+# The first run, at 8bd5be58 (the same src/), stopped by hand after step 11 once it had failed:
+# head 8bd5be58; tree clean: yes
+01 fmt                                exit 0     3s  load 11.11
+02 clippy                             exit 0    70s  load 11.11
+03 clippy-fault                       exit 0    39s  load 22.23
+04 test                               exit 101   275s  load 19.78
+05 test-fault                         exit 101   150s  load 11.80
+06 check-xfx-identity                 exit 1     1s  load 12.81
+07 check-no-stubs                     exit 0    24s  load 12.81
+08 check-no-secrets                   exit 0    87s  load 18.34
+09 check-no-local-paths               exit 0     4s  load 13.32
+10 test-check-no-local-paths          exit 0     5s  load 16.10
+11 check-preview-contract             exit 0     4s  load 15.45
+- 06 check-xfx-identity and, through it, tests/parity.rs the_tracked_tree_carries_only_the_current_product_name in both suites: this folder's captures.txt named the oracle's directory with a placeholder whose letters spell the retired product name; e3e66b0b renames it.
+- the plain suite's other 3 failures were the known catalog-wait class (none in the run above, the rerun):
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... FAILED
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... FAILED
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+test result: FAILED. 4786 passed; 3 failed; 7 ignored; 0 measured; 0 filtered out; finished in 91.79s
