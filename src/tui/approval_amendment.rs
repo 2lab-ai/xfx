@@ -178,6 +178,22 @@ impl Draft {
                     return self.insert(&text);
                 }
             }
+            // fx's amendment reads Home and every line-start spelling as
+            // `.cursor_home`, and End's as `.cursor_end`
+            // (`approvalDraftActionFromShortcut`,
+            // `src/ui/input/runtime.zig:82-83@481104fd`), which put the caret
+            // at 0 and at the draft's length (`cursorHome`/`cursorEnd`,
+            // `approval_amendment.zig:84-92`): the draft's edges outright, not
+            // the caret line's -- the same edges only while a draft holds no
+            // line break. A move records no delta.
+            Action::Home | Action::LineStart { .. } => {
+                let _ = self
+                    .editor
+                    .apply(Action::DraftStart { shifted: false }, cols);
+            }
+            Action::End | Action::LineEnd { .. } => {
+                let _ = self.editor.apply(Action::DraftEnd { shifted: false }, cols);
+            }
             // Everything the buffer really answers, kills included: those are
             // `Editor::apply`'s own and they record normally, which is what
             // keeps `C-y` yanking the last thing that was really killed.
@@ -270,9 +286,22 @@ impl DraftPaste {
     /// known. A non-UTF-8 byte becomes a three-byte replacement scalar, and a
     /// CR LF becomes one space, so neither the bytes that arrived nor their
     /// decoding is what the draft would hold.
+    ///
+    /// **Refused before decoding when the bytes alone settle it**, which is
+    /// the same answer sooner and never a different one: decoding never makes
+    /// text shorter (a scalar keeps its bytes, and an ill-formed run of at
+    /// most three bytes becomes one three-byte replacement), and making it
+    /// one line shortens only a CR LF, two bytes to one. So the text is at
+    /// least half the bytes, and more than twice the room left can never
+    /// fit. What it saves is decoding eight mebibytes into some twenty-four
+    /// only to refuse them.
     fn finish(&mut self, held: usize) -> Option<String> {
         let bytes = std::mem::take(&mut self.buffer);
         if std::mem::take(&mut self.refused) {
+            return None;
+        }
+        let room = MAX_FEEDBACK_BYTES.saturating_sub(held);
+        if bytes.len() > room.saturating_mul(2) {
             return None;
         }
         let text = one_line(&String::from_utf8_lossy(&bytes));
