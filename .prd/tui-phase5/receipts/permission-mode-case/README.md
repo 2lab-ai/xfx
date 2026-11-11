@@ -13,8 +13,9 @@ This unit copies fx's parse at every surface that reads a mode, fx's
 - **Base** 9c64ddd3 (PROFILE-REFUSE-TYPED-KEYS's closed head). **Branch**
   `fix/p5-permission-mode-case`.
 - **Code** 15d36581 (the parse, the flag) and **9b37d774** (the words on the
-  lines). 10c45b17 changes tests only; 052fd2c9 and later are docs,
-  scenarios and this receipt.
+  lines). 10c45b17 changes tests only; 052fd2c9 to d708ffb8 are docs,
+  scenarios and this receipt. **Round 2** (§9): code **5891efea**, then
+  83ed41a0 (docs and the receipt's scripts) and the receipt.
 - The probes and captures ran binaries built at 9b37d774 (head) and 9c64ddd3
   (base): `build.txt`, each binary's sha256 and the `build_revision=` its
   `status` reports. The gate, RED and mutants ran at the heads their files
@@ -83,8 +84,9 @@ two-flag fixtures are `usage: fx ask ...`.
 | status record (`StatusSnapshot`, from `RuntimeConfig`) | the shared parse | as the two above | as the two above |
 | launch refusal (`fx_first_error_refuses`, `:2375`) | the shared parse | its own copy (`fx_permission_mode`) | `parse_choice`; the copy deleted |
 | `/permissions` (`slash::Request::parse`, `src/permission/slash.rs:327`) | the shared parse after a trim | `parse_choice`, which trimmed | unchanged: the line trimmed here, then `parse_choice` |
-| `ask` flags (`src/cli.rs:396`) | its own: `--auto`, `--full-access`, `--yolo`, exact | `--auto`, `--yolo` | `--full-access` added (a visible alias) |
+| `ask` flags (`src/cli.rs`'s `RawCommand::Ask`) | its own: `--auto`, `--full-access`, `--yolo`, exact | `--auto`, `--yolo` | `--full-access` added (round 1 as clap's alias; round 2 its own flag, so `--help` prints fx's two lines) |
 | session log (`PermissionMode::parse`) | -- (xfx's own record) | exact | unchanged: xfx's wire |
+| a settings write's result (`provider/profile.rs`'s `write_preference`) | fx's validator over the whole candidate (`validateCandidate`, `settings_store.zig:536-539`, `:1849-1859`, `:1932-1936`) | no check | **not copied** (round 2, §9) |
 
 `PermissionMode::parse_choice` (`src/config.rs:408`) is fx's parse word for
 word. **What xfx writes back** is unchanged and is fx's: the wire word
@@ -216,6 +218,65 @@ tests beside them, from that log: `green.txt`.
   not read still adds xfx's `invalid_value` line, which fx does not print;
   the applied mode is fx's.
 
+## 9. Round 2 (reviews r1-gpt6 and r1-opus of d708ffb8, no MUST)
+
+Code 5891efea; the NITs that left a doc untrue or a difference unrecorded.
+
+- **NIT 1, the trim.** `parse_choice`'s doc (`src/config.rs:401-405`) and the
+  slash test now say it: xfx trims a `/permissions` line of every Unicode
+  blank (`str::trim`; `src/interactive.rs`'s `classify`,
+  `src/permission/slash.rs`'s `Request::parse`), fx's router of space and
+  tab only (`command_router.zig:92-94`, `fx-src.txt` §2). So `/permissions
+  yolo` ending in a no-break space sets full access here and is the usage in
+  fx. Behaviour unchanged; recorded in the `/permissions` row.
+- **NIT 2, `ask --help`.** The flag is two clap flags now, `--full-access`
+  then `--yolo`, so `--help` prints fx's two lines (`help.txt`: fx, then xfx
+  before and after); the parse is the same -- any two mode flags refused
+  (`src/cli.rs`'s flag table: `--full-access --full-access`, `--yolo
+  --full-access`, `--yolo --auto` added) -- and the probe at the round-2
+  head is still 35 of 35 (`xfx-head-probe-round2.txt`, `outcomes.txt`;
+  `build.txt`: `build_revision=83ed41a00b31`). `--auto`'s own description
+  stays xfx's. Pinned by `ask_help_advertises_only_the_implemented_flags`.
+- **NIT 3, fx's check of what a write leaves: not copied.** Every fx
+  settings write parses the file it would leave and refuses it when a known
+  key, `permission_mode` among them, is one its parse refuses
+  (`validateCandidate`, `settings_store.zig:536-539`, `:1849-1859`;
+  `fx-src.txt` §2). xfx's writer checks no key of what it leaves -- the
+  class of the key-twice write TYPED-KEYS recorded -- and a check of the
+  mode alone would be half of fx's. Recorded in `config diagnostics`.
+- **NIT 4.** `scripts/fxcap/capfile.py`'s launch arm reads `full access`
+  too; a race case for `XFX_PERMISSION_MODE=FULL-ACCESS` in `test_sweep.py`.
+- **NIT 5.** The trim has its own test,
+  `the_line_is_trimmed_before_the_modes_parse_which_trims_nothing`, which M14
+  now names; M15 covers the blank-variable filter; RED is rerun with the
+  final tests (`red-round2.txt`). Mutants: `mutants-round2.txt`.
+- **NIT 6.** The `tool permission modes` row adds the side effect: fx's
+  headless run saves `yolo_acknowledged`, so its TUI's warning stops after an
+  `fx ask --full-access`; xfx's `ask` saves nothing.
+- **NIT 7.** Doctor's own `permissions` check (fx's doctor has none,
+  `doctor_runtime.zig` at the pin) says `mode=full access`, the word of the
+  two lines beside it (`src/app.rs:1139`; pinned in
+  `full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word`).
+- NIT 8 (the xfx-only `[shell]` and `[session]` lines keep `yolo`) stays.
+
+**Results, round 2.** RED with the final tests (`red-round2.txt`): the same
+four fail over the base's src, the two controls pass. Mutants
+(`mutants-round2.txt`): **18 of 18 KILLED**, M14 by its new test, M15 by
+the blank-variable assertion. Gate on a `git clone --no-local` at 83ed41a0
+(`gate-round2.txt`): **22 steps, 0 failed**, tree clean before and after;
+`cargo test` 5678 passed, fault-injection 5715, none failed. The sweep's
+scenarios are TUI-only and the round changed no TUI code, so they were not
+rerun.
+
+### Open, for the train join (record only)
+- When this line joins SLASH-ARG-SKILLS, `docs/parity.md:96` (the
+  `/permissions` row's argument-completion clause) and §8's first bullet
+  change: Enter on `/permissions full` would then take the menu's
+  `full-access`.
+- The two `p5-mode-case-full` snaps then belong to the slash line (a cause
+  of kind `b`, owner SLASH-ARG-SKILLS).
+- Re-sweep `p5-mode-case-full` on the joined head.
+
 ## Files
 
 - fx: `fx_src.sh` → `fx-src.txt`; `fx-probe.txt`.
@@ -228,5 +289,7 @@ tests beside them, from that log: `green.txt`.
   scenarios are `scripts/fxcap/scenarios/p5-mode-case-{key,env,full}.cap`.
 - TYPED-KEYS's probe, again: `tk-base.txt`, `tk-head.txt`, `tk_same.sh` →
   `tk-sweep.txt`.
+- Round 2: `help.txt`, `xfx-head-probe-round2.txt`, `red-round2.txt`,
+  `mutants-round2.txt`, `gate-round2.txt`.
 - Gate: `gates.sh` → `gate.txt`, `green.txt`. Size and refs: `count.py` →
   `count.txt`, `refs.py` → `refs.txt`.

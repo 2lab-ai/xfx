@@ -24,3 +24,6 @@ flag-full-access: ask: fx 'full access' xfx 'parser'
 
 == python3 -I outcomes.py fx-probe.txt xfx-head-probe.txt (GREEN: xfx at 9b37d774)
 == 35 fixtures: 35 report the same mode at every entry, 0 do not
+
+== python3 -I outcomes.py fx-probe.txt xfx-head-probe-round2.txt (round 2: xfx at 83ed41a0, src 5891efea)
+== 35 fixtures: 35 report the same mode at every entry, 0 do not
