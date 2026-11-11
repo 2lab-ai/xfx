@@ -23817,7 +23817,16 @@ mod tests {
         };
         fixture.route_bytes(b"\t");
         assert!(on(&fixture, "Ship it?"), "Tab reached the second question");
-        for key in [&b"\x1b\x1b[D"[..], b"\x1b\x1b[A", b"\x1b\x1bOD"] {
+        // The caret marks the choice (`marked`): the first, `Yes`, and it
+        // stays there.
+        let mark = fixture.marked();
+        assert!(mark.contains("1) Yes"), "{mark:?}");
+        for key in [
+            &b"\x1b\x1b[D"[..],
+            b"\x1b\x1b[A",
+            b"\x1b\x1b[B",
+            b"\x1b\x1bOD",
+        ] {
             fixture.route_bytes(key);
             fixture.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
             assert_eq!(fixture.controlled(), None, "{key:?} cancelled the batch");
@@ -23826,7 +23835,11 @@ mod tests {
                 "{key:?} moved off the question: {:?}",
                 fixture.band_rows()
             );
+            assert_eq!(fixture.marked(), mark, "{key:?} moved the choice");
         }
+        // And the plain Down still moves it: the marker is read, not assumed.
+        fixture.route_bytes(b"\x1b[B");
+        assert!(fixture.marked().contains("2) No"), "{:?}", fixture.marked());
     }
 
     #[test]
