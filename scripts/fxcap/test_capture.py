@@ -506,7 +506,8 @@ class RunDirectory(unittest.TestCase):
     # A look that fails is never read as gone (round 4): the stub stays past
     # the wait, and the run must not pass behind it.
     def test_a_pane_pid_that_cannot_be_read_fails_the_run(self):
-        shim = 'for a; do [ "$a" = "#{pane_pid}" ] && exit 1; done\nexec "$REAL" "$@"\n'
+        # Any look whose format asks for the pane's pid fails.
+        shim = 'for a; do case $a in *"#{pane_pid}"*) exit 1 ;; esac; done\nexec "$REAL" "$@"\n'
         r, run, pid = self.stub_run(self.STAYS, shims={"tmux": shim})
         self.assertEqual(r.code, 4, r.stdout + r.stderr)
         self.assertIn("LIVE-WRITER GUARD: the process this run started in its pane could not be recorded "
