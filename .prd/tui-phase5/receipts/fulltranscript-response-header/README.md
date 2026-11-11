@@ -454,9 +454,26 @@ blank before leaving it out (`src/tui/shell.rs:43179-43183`).
 Both new tests pass on `41af67e1`'s code, as the dispatcher's check expected
 (the marks are sparse by design): a coverage gap, not a defect.
 
-**Mutants** (`mutants-r3.py`, `mutants-r3.txt`): MUTANTS_R3
+**Mutants** (`mutants-r3.py`, `mutants-r3.txt`): on a `git clone
+--no-local` at `9a1bbf37`, under the lock, each running round 3's two new
+tests alone: **4 of 4 killed**, each by the near-entry test, the clone's
+tree clean after. M1 (`resolve_bookmark_row` drops both fallbacks), M2 (it
+drops the entry after), M3 (every entry that lays out as nothing is marked,
+round 1's `measure`), M4 (only a call is). Which case of the test each
+fails, `mutants-r3.txt` does not say: by the code, M1 can fail only cases
+2 and 3 and M2 only case 3 (the bookmarks naming an unmarked entry), M3 and
+M4 case 1 or 3 (a write marked) [추론]. None fails the tail test, a guard: a
+reader at the tail has no bookmark to resolve. The run took a fourth slot
+(`SUITE_LOCK_SLOTS=4`), as the dispatcher told it to, after its first
+wrapper had waited 77 minutes for the three default slots and run nothing.
 
-**Gate** (`gate-r3.txt`): GATE_R3
+**Gate** (`gate-r3.txt`, `nontest-r3.txt`): `gates.sh` once, under the
+suite lock in one normal slot with a short `TMPDIR`, on a `git clone
+--no-local` at `a7893e2c`: **22 steps, 0 failed**, the tree clean before and
+after; 5718 and 5755 passed, 0 failed, 7 ignored -- round 2's 5716 and 5753
+and round 3's two new `#[test]`s. No catalog-wait failure in this run.
+`src/` against `41af67e1`: two hunks, each inside its file's `mod tests`
+(`nontest-r3.txt`: non-test hunks 0).
 
 ## Left apart
 
