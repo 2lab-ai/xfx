@@ -25,6 +25,8 @@ use serde_json::Value;
 
 use crate::provider::ProviderId;
 
+mod layer_json;
+
 /// The model xfx requests when nothing selects one.
 ///
 /// Matches upstream's Gateway default
@@ -2721,61 +2723,11 @@ fn read_opened(file: fs::File, layer: ConfigLayer, diagnostics: &mut Vec<Diagnos
         Ok(_) => {}
         Err(_) => return reject(diagnostics, DiagnosticCause::UnreadableSettings),
     }
-    match serde_json::from_str::<Value>(&text) {
-        Ok(Value::Object(object)) if serde_json::from_str::<KeysOnce>(&text).is_ok() => {
-            LayerRead::loaded(object)
-        }
-        Ok(_) | Err(_) => {
-            diagnostics.push(Diagnostic::new(layer, DiagnosticCause::MalformedSettings));
-            LayerRead::rejected()
-        }
-    }
-}
-
-/// A JSON value no object of which names a key twice, at any depth and as
-/// decoded: fx's parse of a settings file refuses one (`std.json`'s default
-/// `duplicate_field_behavior`; the profile `settings_store.zig:408`, the
-/// project file `config_runtime.zig:539`), where serde_json keeps the last.
-struct KeysOnce;
-
-/// A scalar is a value with no key in it.
-macro_rules! scalars {
-    ($($visit:ident($type:ty)),*) => {
-        $(fn $visit<E>(self, _: $type) -> Result<Self, E> {
-            Ok(self)
-        })*
-    };
-}
-
-impl<'de> serde::Deserialize<'de> for KeysOnce {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(KeysOnce)
-    }
-}
-
-impl<'de> serde::de::Visitor<'de> for KeysOnce {
-    type Value = KeysOnce;
-
-    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("a JSON value")
-    }
-    scalars! { visit_bool(bool), visit_i64(i64), visit_u64(u64), visit_f64(f64), visit_str(&str) }
-    fn visit_unit<E>(self) -> Result<Self, E> {
-        Ok(self)
-    }
-    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut items: A) -> Result<Self, A::Error> {
-        while items.next_element::<KeysOnce>()?.is_some() {}
-        Ok(self)
-    }
-    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self, A::Error> {
-        let mut keys = std::collections::HashSet::new();
-        while let Some(key) = map.next_key::<String>()? {
-            if !keys.insert(key) {
-                return Err(serde::de::Error::custom("a key twice"));
-            }
-            map.next_value::<KeysOnce>()?;
-        }
-        Ok(self)
+    // fx's parse, not serde_json's: no depth limit, a number past `f64`
+    // kept, a key twice refused at any depth ([`layer_json`]).
+    match layer_json::object(&text) {
+        Some(object) => LayerRead::loaded(object),
+        None => reject(diagnostics, DiagnosticCause::MalformedSettings),
     }
 }
 
@@ -5093,6 +5045,191 @@ mod tests {
         assert_eq!(read(r#"{"a": 1, "\u0061": 1}"#), malformed);
         let apart = r#"{"a": {"b": 1}, "b": {"a": 1}, "c": [{"a": 1}, {"a": 1}]}"#;
         assert_eq!(read(apart), (true, vec![]));
+    }
+
+    /// No key xfx reads looks past the depth [`layer_json`] keeps: for every
+    /// one, a value 200 deep -- kept 128 deep, the last container empty --
+    /// decides what the same shape 8 deep does, in each reader of a layer:
+    /// the profile's and the project's parse, the permission table, fx's
+    /// refusal (in the global object and this workspace's entry), the
+    /// ignored-key notes and the saved directories. One reader quotes the
+    /// value it cannot read, a permission action's (`TableError::BadAction`):
+    /// what a line shows of it, at most [`STARTUP_LINE_BYTES`], is what the
+    /// file says, the kept value's text being longer than that.
+    #[test]
+    fn no_key_xfx_reads_looks_past_the_depth_kept() {
+        let root = Path::new("/w");
+        let arrays = |depth: usize| format!("{}1{}", "[".repeat(depth), "]".repeat(depth));
+        let objects = |depth: usize| format!("{}1{}", r#"{"a": "#.repeat(depth), "}".repeat(depth));
+        // What each reader decides, its notes aside; and the notes.
+        let read = |text: String| {
+            let object = layer_json::object(&text).expect("it reads");
+            let mut diagnostics = Vec::new();
+            let profile = parse_layer(
+                &object,
+                LayerKind::Profile,
+                ConfigLayer::User,
+                &mut diagnostics,
+            );
+            let project = parse_layer(
+                &object,
+                LayerKind::Project,
+                ConfigLayer::Project,
+                &mut diagnostics,
+            );
+            let table = permission_table(&object, &mut diagnostics).ok();
+            report_ignored_profile_keys(&object, &mut diagnostics);
+            let entry = exact_workspace_entry(&object, root, &mut diagnostics)
+                .map(|entry| entry.map(crate::workspace::access::saved_from_entry));
+            let causes: Vec<_> = diagnostics
+                .iter()
+                .map(|d| (d.layer, d.cause, d.setting_key.clone()))
+                .collect();
+            let decided = format!(
+                "{profile:?} {project:?} {table:?} {entry:?} {:?} {causes:?}",
+                fx_profile_refusal(&object, root)
+            );
+            let notes: Vec<_> = diagnostics.into_iter().filter_map(|d| d.note).collect();
+            (decided, notes)
+        };
+        let keys = PROFILE_ONLY_KEYS.iter().copied().chain([
+            "max_agent_steps",
+            "context_limits",
+            "providers",
+            crate::workspace::access::ADDITIONAL_DIRECTORIES_KEY,
+        ]);
+        let mut quoted = Vec::new();
+        for key in keys {
+            for nested in [&arrays as &dyn Fn(usize) -> String, &objects] {
+                let at = |depth| {
+                    let value = nested(depth);
+                    let global = read(format!(r#"{{"{key}": {value}}}"#));
+                    let entry = read(format!(
+                        r#"{{"workspaces": {{"/w": {{"{key}": {value}}}}}}}"#
+                    ));
+                    ((global.0, entry.0), (global.1, entry.1))
+                };
+                let (deep, shallow) = (at(200), at(8));
+                assert_eq!(deep.0, shallow.0, "{key} {}", nested(1));
+                if deep.1 != shallow.1 {
+                    quoted.push((key, deep.1 .0));
+                }
+            }
+        }
+        // `{"permission": {"a": {"a": <the action>}}}`: the action is the
+        // chain 198 deep, which the file spells `{"a":` 198 times, `1`, and
+        // as many `}`.
+        let action = format!("{}1{}", r#"{"a":"#.repeat(198), "}".repeat(198));
+        let says = format!("`{action}` is not a permission action; use allow, ask or deny");
+        let shown = |note: &str| crate::output::safe_one_line(note, STARTUP_LINE_BYTES);
+        assert_eq!(quoted.len(), 1, "{quoted:?}");
+        assert_eq!(quoted[0].0, PERMISSION_KEY);
+        assert_eq!(quoted[0].1.len(), 1);
+        assert!(quoted[0].1[0].len() > STARTUP_LINE_BYTES);
+        assert_eq!(shown(&quoted[0].1[0]), shown(&says));
+    }
+
+    /// fx starts on a number past `f64` and on any nesting at a key nothing
+    /// reads (`.prd/tui-phase5/receipts/profile-json-limits/fx-fixtures.txt`),
+    /// and refuses one at `max_agent_steps` that is no integer
+    /// (`value != .integer`, `config_runtime.zig:1936@481104fd`): past `f64`,
+    /// past `i64`, `1e-400` and `-0` alike. A number `std.json` keeps as its
+    /// text leaves the others in the file as written: `max_agent_steps: 3`
+    /// beside it is 3.
+    #[test]
+    fn a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it() {
+        use ProfileRefusal::Rejected;
+        let load = |profile: &str| {
+            let dir = tempfile::tempdir().expect("a directory");
+            let home = dir.path().join("home");
+            let workspace = dir.path().join("work");
+            fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+            private(&home.join(PROFILE_DIR_NAME), 0o700);
+            fs::create_dir_all(&workspace).expect("a workspace");
+            let workspace = workspace.canonicalize().expect("canonical");
+            let key = serde_json::json!(workspace.to_str().expect("utf-8")).to_string();
+            let file = home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE);
+            fs::write(&file, profile.replace("\"{ROOT}\"", &key)).expect("the profile");
+            private(&file, 0o600);
+            RuntimeConfig::load_with(&Environment::new(Some(home), BTreeMap::new()), &workspace)
+                .expect("load")
+        };
+        let deep = |depth: usize| format!("{}{}", "[".repeat(depth - 1), "]".repeat(depth - 1));
+        let huge = "7".repeat(400);
+        let thirty = "123456789012345678901234567890";
+        for value in ["1e400", "-1e400", &huge, thirty, "1e-400", "-0", &deep(129)] {
+            for profile in [
+                format!(r#"{{"zzz": {value}}}"#),
+                format!(r#"{{"workspaces": {{"{{ROOT}}": {{"zzz": {value}}}}}}}"#),
+            ] {
+                let config = load(&profile);
+                assert_eq!(config.profile_refusal, None, "{profile}");
+                assert!(
+                    config.diagnostics.is_empty(),
+                    "{profile}: {:?}",
+                    config.diagnostics
+                );
+            }
+            for profile in [
+                format!(r#"{{"max_agent_steps": {value}}}"#),
+                format!(r#"{{"workspaces": {{"{{ROOT}}": {{"max_agent_steps": {value}}}}}}}"#),
+            ] {
+                assert_eq!(load(&profile).profile_refusal, Some(Rejected), "{profile}");
+            }
+        }
+        // 32,753 is the deepest 64 KiB holds beside `"max_agent_steps": 3`.
+        for depth in [128, 1_000, 32_753] {
+            let profile = format!(r#"{{"zzz": {}, "max_agent_steps": 3}}"#, deep(depth));
+            assert!(profile.len() <= MAX_SETTINGS_BYTES, "{depth}");
+            let config = load(&profile);
+            assert_eq!(config.profile_refusal, None, "{depth}");
+            assert_eq!(config.max_agent_steps, 3, "{depth}");
+        }
+        let config = load(r#"{"zzz": 1e400, "yyy": -1e400, "max_agent_steps": 3}"#);
+        assert_eq!((config.profile_refusal, config.max_agent_steps), (None, 3));
+    }
+
+    /// The project file: one fx reads -- a number past `f64` or a value 200
+    /// deep at a key nothing reads -- is applied, where serde_json made it
+    /// `malformed_settings`; one at `max_agent_steps` is that key's
+    /// `invalid_value`, as `5.0` there is.
+    #[test]
+    fn a_project_file_fx_reads_is_applied() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let path = dir.path().join(PROJECT_SETTINGS_FILE);
+        let read = |text: &str| {
+            fs::write(&path, text).expect("a file");
+            let mut diagnostics = Vec::new();
+            let read = read_layer(&path, ConfigLayer::Project, &mut diagnostics);
+            let Some(object) = read.object else {
+                return (None, diagnostics.iter().map(|d| (d.cause, None)).collect());
+            };
+            let layer = parse_layer(
+                &object,
+                LayerKind::Project,
+                ConfigLayer::Project,
+                &mut diagnostics,
+            );
+            let keys: Vec<_> = diagnostics
+                .iter()
+                .map(|d| (d.cause, d.setting_key.clone()))
+                .collect();
+            (layer.max_agent_steps, keys)
+        };
+        let deep = format!("{}{}", "[".repeat(200), "]".repeat(200));
+        for value in ["1e400", "-1e400", deep.as_str()] {
+            let text = format!(r#"{{"zzz": {value}, "max_agent_steps": 3}}"#);
+            assert_eq!(read(&text), (Some(3), vec![]), "{value}");
+        }
+        let key = Some("max_agent_steps".to_string());
+        let invalid = (None, vec![(DiagnosticCause::InvalidValue, key)]);
+        for value in ["1e400", "5.0", deep.as_str()] {
+            assert_eq!(
+                read(&format!(r#"{{"max_agent_steps": {value}}}"#)),
+                invalid,
+                "{value}"
+            );
+        }
     }
 
     /// Sets `path`'s mode bits, whatever the umask made them.

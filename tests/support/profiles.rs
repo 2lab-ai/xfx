@@ -70,6 +70,21 @@ pub fn names(first: u32, last: u32, value: &str) -> String {
     names.collect::<Vec<_>>().join(", ")
 }
 
+/// `{"zzz": ...}` holding `depth` containers one inside another, the settings
+/// object counted: arrays, or objects each holding the next under `"a"`.
+pub fn nested(depth: usize, objects: bool) -> String {
+    let inner = depth - 1;
+    if objects {
+        format!(
+            r#"{{"zzz": {}0{}}}"#,
+            r#"{"a": "#.repeat(inner),
+            "}".repeat(inner)
+        )
+    } else {
+        format!(r#"{{"zzz": {}{}}}"#, "[".repeat(inner), "]".repeat(inner))
+    }
+}
+
 /// A loopback connection fx's registry takes (`probe.sh`'s `DEF`).
 const CONNECTION: &str = r#"{"protocol": "openai-chat-completions", "base_url": "http://127.0.0.1:9/v1", "auth": {"type": "none"}}"#;
 
@@ -124,6 +139,23 @@ pub const REJECTED: &[(&str, Profile)] = &[
     (
         "a key twice inside a table",
         Profile::Text(r#"{"permission": {"bash": "allow", "bash": "deny"}}"#),
+    ),
+    // `.prd/tui-phase5/receipts/profile-json-limits/`: a value at
+    // `max_agent_steps` fx's parse keeps and its check refuses
+    // (`value != .integer`, `config_runtime.zig:1936`).
+    (
+        "max_agent_steps past f64",
+        Profile::Text(r#"{"max_agent_steps": 1e400}"#),
+    ),
+    (
+        "max_agent_steps 200 deep",
+        Profile::Built(|_| {
+            format!(
+                r#"{{"max_agent_steps": {}{}}}"#,
+                "[".repeat(200),
+                "]".repeat(200)
+            )
+        }),
     ),
     (
         "a model and 35 other model preferences",
@@ -296,6 +328,40 @@ pub const STARTED: &[(&str, Profile)] = &[
         Profile::Built(|_| {
             let others = names(1, 34, r#""m/x""#);
             format!(r#"{{"model": "a/b", "models": {{"gateway": "c/d", {others}}}}}"#)
+        }),
+    ),
+    // `.prd/tui-phase5/receipts/profile-json-limits/`: what fx's `std.json`
+    // reads and serde_json does not, at keys nothing reads.
+    ("a number past f64", Profile::Text(r#"{"zzz": 1e400}"#)),
+    (
+        "a negative number past f64",
+        Profile::Text(r#"{"zzz": -1e400}"#),
+    ),
+    (
+        "a 400-digit integer",
+        Profile::Built(|_| format!(r#"{{"zzz": {}}}"#, "7".repeat(400))),
+    ),
+    (
+        "128 containers deep",
+        Profile::Built(|_| nested(128, false)),
+    ),
+    (
+        "1,000 arrays deep",
+        Profile::Built(|_| nested(1_000, false)),
+    ),
+    (
+        "1,000 objects deep",
+        Profile::Built(|_| nested(1_000, true)),
+    ),
+    (
+        "the deepest 64 KiB holds",
+        Profile::Built(|_| nested((64 * 1024 - 9) / 2 + 1, false)),
+    ),
+    (
+        "past f64 and 200 deep in the workspace's entry",
+        Profile::Built(|key| {
+            let deep = format!("{}{}", "[".repeat(200), "]".repeat(200));
+            format!(r#"{{"workspaces": {{{key}: {{"zzz": 1e400, "yyy": {deep}}}}}}}"#)
         }),
     ),
     (
