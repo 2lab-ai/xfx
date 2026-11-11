@@ -3488,6 +3488,51 @@ fn unpaced_case(mut case: impl FnMut() -> Result<(), std::time::Duration>) {
 }
 
 #[test]
+fn the_harness_measures_a_pause_between_two_writes_of_one_paste() {
+    // What `unpaced_case` decides by: the longest the terminal can have gone
+    // without a byte, across the calls that write one paste. The child reads
+    // nothing, so each write is one attempt the queue takes at once.
+    let pty = Pty::open();
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", "sleep 30"]);
+    let session = Session::spawn_without_taking_the_terminal(&pty, command);
+    let mut previous = None;
+    assert_eq!(
+        session.write_raw_measured(b"a", &mut previous),
+        std::time::Duration::ZERO
+    );
+    std::thread::sleep(PASTE_QUIET * 2);
+    let gap = session.write_raw_measured(b"b", &mut previous);
+    assert!(gap >= PASTE_QUIET * 2, "{gap:?}");
+}
+
+#[test]
+fn an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused() {
+    let mut runs = 0;
+    unpaced_case(|| {
+        runs += 1;
+        if runs < UNPACED_ATTEMPTS {
+            Err(PASTE_QUIET)
+        } else {
+            Ok(())
+        }
+    });
+    assert_eq!(runs, UNPACED_ATTEMPTS);
+    let mut runs = 0;
+    unpaced_case(|| {
+        runs += 1;
+        Ok(())
+    });
+    assert_eq!(runs, 1);
+}
+
+#[test]
+#[should_panic(expected = "no session tested the paste")]
+fn an_unpaced_case_whose_every_paste_paused_fails_saying_so() {
+    unpaced_case(|| Err(PASTE_QUIET));
+}
+
+#[test]
 fn a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing() {
     // PASTE-GAP: a paste that long reaches the TUI in many deliveries, and fx
     // reads everything after the first readiness gap as keys
