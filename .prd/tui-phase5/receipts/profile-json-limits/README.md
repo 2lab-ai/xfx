@@ -330,4 +330,15 @@ and gpt6's NTH 2 (the note).
   - a profile that does not read treated as none;
   - the runtime loading the workspace anyway, killed by the runtime test;
   - not-UTF-8 labelled unreadable again, or decoded lossily.
-- **Gate** (`gate-round2.txt`): the full gate on a clone of `45009bc7`, under the lock, is running as this is committed; the next commit fills this in.
+- **Gate** (`gate-round2.txt`): `gates.sh` on a `git clone --no-local` of
+  `45009bc7` (code `6a198b9d`), under one hold of the lock, with a short
+  TMPDIR. **22 of 22 steps exit 0** on the first plain run, the tree clean
+  before and after. The step logs give:
+  - `cargo test`: 5,689 passed, 0 failed (round 1's 5,686 and the 3 new
+    tests);
+  - the fault-injection run: 5,726 passed, 0 failed;
+  - `smoke.sh`: 47 checks, 0 failures;
+  - `smoke-tui.sh`: 37 scenarios plus the oracle, 1,167 checks, 0 failures.
+
+  The plain run had no catalog-wait failures, so there was nothing to
+  rerun.
