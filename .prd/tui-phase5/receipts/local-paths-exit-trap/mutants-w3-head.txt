@@ -1,0 +1,3 @@
+# mutants-r3.py <clone at 704c489b> W3, under the suite lock, /bin/bash 3.2.57
+W3 scripts/early-stop-env.sh: an unset stop by `false`, not an unset variable: killed (test-early-stop.sh exit 1, failing smoke-stopped-unset, test-gate-env-stopped-unset; test-preview-contract.sh exit 1, failing stopped-unset; test-check-no-secrets.sh exit 1, failing stopped-late, stopped-unset; test-gate-env.sh exit 1, failing check-xfx-identity-stopped-unset, stopped-late, stopped-unset, test-check-no-secrets-stopped-unset, test-early-stop-stopped-unset, test-preview-contract-stopped-unset)
+# clone clean after: yes

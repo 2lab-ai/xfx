@@ -23,11 +23,77 @@ file in this folder.
 | `3f03a1ef` | **merge of main `753b0a72`** (train 14, PR #94), an ordinary merge, no conflict |
 | `f529be91` | ci.yml: the `script_tests` comment rewrapped, comments only |
 | `9e88f9ce` | round 2's README and records, the first merge's |
-| `03cd1e67` | **merge of main `35cb4c7a`** (PR #95, release v0.2.0 #96), no conflict -- **the code head and the final gate's head** |
-| (this one) | the second merge's records and README |
+| `03cd1e67` | **merge of main `35cb4c7a`** (PR #95, release v0.2.0 #96), no conflict -- round 2's final gate head |
+| `1fad3ed6` | the second merge's records and README |
+| `3ed3d5f3` | round 3: an `unset` stop must also show bash's unbound-variable line, in every host |
+| `29fb83bd` | round 3: check-no-secrets.sh's markers renamed `listing_done`, `scan_done` |
+| `704c489b` | **merge of main `e2fc7e94`** (PR #97), no conflict -- **the code head and round 3's gate head** |
+| (this one) | round 3's records and README |
 
 Sections from "The class" to "Gate" are round 1's, at `6071c6f8`; round 2's
-runs are in the next section, at `401b3fb2`.
+runs are in its section, at `401b3fb2`; round 3's in the next.
+
+## Round 3 (reviews r2-gpt6 and r2-opus)
+
+No MUST or SHOULD from either engine at `1fad3ed6`. Lines below are at
+`704c489b`.
+
+1. **An `unset` stop must show bash's own line** (gpt6 NTH). The `early
+   stop: unset` marker prints before the failing expansion, so another stop
+   with status 1 after it passed the cases. Every host's unset cases now
+   also require `xfx_test_unset: unbound variable`:
+   test-check-no-secrets.sh `:439`, `:443` (the needle of `stopped-unset` and
+   `stopped-late`), test-preview-contract.sh `:307`, test-gate-env.sh
+   `:1070-1071`, test-early-stop.sh `:112-113`; each loop's comment says
+   why (`:404`, `:292`, `:1045`, `:20`).
+2. **The TMPDIR-empty check, shown to fire** (opus NIT 2): mutants P7, X7
+   and G7 drop `rm -rf` from one subject's trap each (check-preview-contract.sh
+   `:966`, check-xfx-identity.sh `:177`, test-gate-env.sh `:123`); each host
+   must then fail on the files left. smoke.sh's 7 TMPDIR cases are vacuous:
+   given its evidence directory, smoke.sh makes no file in its TMPDIR (it
+   reads TMPDIR only for a default evidence directory, `:44`, a reading);
+   test-early-stop.sh's header says so (`:22-24`).
+3. **The markers renamed** (opus NIT 3): `listed` shared its name with
+   `is_deleted`'s `local listed`; the pair is now `listing_done` (`:133`,
+   `:166`, `:168`) and `scan_done` (`:376`, `:478`, `:480`) in
+   check-no-secrets.sh. SL1, SL2, SS1 and SS2 rerun on the new names.
+4. **Merge of main `e2fc7e94`** (`704c489b`): #97 changes capture.sh, its
+   ledger and its test; no conflict. capture.sh's trap is now at `:1013`,
+   its `cleanup()` at `:640`-`:667`, and a `set -u` stop after it still
+   exits **0** (`capture-r3.txt`): LOCAL-PATHS-EXIT-TRAP-CAPTURE's, as
+   before.
+
+### Round 3's runs (`/bin/bash` 3.2.57)
+
+- **RED and GREEN for item 1** (`mutants-r3.py` W3, the generator's `unset`
+  stopping by `false`: status 1 and its marker, no unbound-variable line):
+  `mutants-w3-old.txt`, at `1fad3ed6`, the four hosts exit 0: the mutant
+  survives, the RED; `mutants-w3-head.txt`, at `704c489b`, all four exit 1,
+  each on its `unset` cases (test-early-stop.sh `smoke-` and
+  `test-gate-env-stopped-unset`; test-preview-contract.sh `stopped-unset`;
+  test-check-no-secrets.sh `stopped-unset`, `stopped-late`; test-gate-env.sh
+  its three subjects' and test-early-stop's `-stopped-unset`): killed.
+- **Mutants for items 2 and 3** (`mutants-r3-rest.txt`): 7 of 7 killed, the
+  clone clean after. SL1, SL2, SS1, SS2 on the renamed markers, killed as in
+  round 2 (`stopped-late`, `skipped-listing`, `skipped-scan`). P7, X7, G7,
+  each subject's `rm -rf` dropped from its trap: test-preview-contract.sh,
+  test-gate-env.sh and test-early-stop.sh fail all 7 of that subject's
+  cases on the files left in its TMPDIR. With W3, round 3 has 8 mutants,
+  all killed at `704c489b`.
+- **Gate** (`gate-r3.txt`, `gates.sh` at `704c489b`, on a `git clone
+  --no-local`, one hold of the suite lock): 23 of 23 steps exit 0, the clone
+  clean before and after; `cargo test` 5854 passed, with the fault injector
+  5891, 0 failed each; test-check-no-local-paths 31 cases,
+  test-check-no-secrets 23, test-gate-env 95, test-preview-contract 35,
+  test-early-stop 15.
+- **Path scan** (`scan.txt`, `scan.sh`): every commit the branch has that
+  main does not, non-merge commits by their added lines and message, merge
+  commits by their diff against the first parent and message, and
+  `origin/main..HEAD`, each under both rules, with a control sample that
+  must count 1: run at `704c489b`, before this README's commit, 0 for all 16
+  non-merge commits, the 3 merges and `origin/main..HEAD` (`total: 0`).
+  The receipt commit itself was checked staged, under both rules, before it
+  was made.
 
 ## Round 2 (reviews r1-opus and r1-gpt6)
 
@@ -454,7 +520,8 @@ sweep.py runs `bash capture.sh` from PATH (`sweep.py:205` at `dcfa5146`,
 #94) rewrote capture.sh, so this unit does not touch it. #94 is on main
 since `3570a182`, and the merged tree's capture.sh still exits 0 after a
 `set -u` stop (`merged-scripts.txt`; its trap at `:990`, `cleanup()` at
-`:617`). **Owner: LOCAL-PATHS-EXIT-TRAP-CAPTURE**, now unblocked:
+`:617`), and so does the one after #97 (`capture-r3.txt`; `:1013`, `:640`).
+**Owner: LOCAL-PATHS-EXIT-TRAP-CAPTURE**, now unblocked:
 `cleanup()` keeps its `code` and fails a 0 before the end of `main` the same
 way (a `finished` set after `main` returns), with a case that stops it after
 the trap. Whether the sweep's later comparison would catch a half capture
