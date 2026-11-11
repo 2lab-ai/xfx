@@ -313,12 +313,13 @@ mod tests {
                     let text = nested(depth, objects);
                     let read = object(&text).unwrap_or_else(|| panic!("{depth} {objects}"));
                     let read = Value::Object(read);
-                    assert_eq!(depth_of(&read), depth.min(KEPT_DEPTH + 1), "{depth}");
-                    if depth <= KEPT_DEPTH {
-                        let theirs: Value =
-                            serde_json::from_str(&text).expect("serde_json reads it");
-                        assert_eq!(read, theirs, "{depth} {objects}");
+                    // What serde_json reads (127 deep) is its value; past
+                    // that, 128 deep is kept, its last container empty.
+                    match serde_json::from_str::<Value>(&text) {
+                        Ok(theirs) => assert_eq!(read, theirs, "{depth} {objects}"),
+                        Err(_) => assert!(depth >= 128, "serde_json refused {depth}"),
                     }
+                    assert_eq!(depth_of(&read), depth.min(128), "{depth}");
                 }
             }
         });
