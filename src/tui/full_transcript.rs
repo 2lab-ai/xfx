@@ -6761,6 +6761,213 @@ mod tests {
         assert_eq!(screen(&record)[0], wide[0]);
     }
 
+    /// A record taller than the screen: a first turn of `lines` list rows.
+    fn tall_first_turn(record: &mut FullTranscript, lines: usize) {
+        record.prompt("first");
+        record.answer(
+            &(1..=lines)
+                .map(|n| format!("- filler {n}\n"))
+                .collect::<String>(),
+        );
+        record.usage("  0s (\u{2191}1 \u{2193}2)");
+    }
+
+    /// The page the screen shows now: its first 36 rows at 40x120.
+    fn page_now(record: &FullTranscript) -> Vec<String> {
+        screen(record)[..36].to_vec()
+    }
+
+    #[test]
+    fn a_reader_near_an_entry_that_lays_out_as_nothing_holds_when_it_becomes_visible() {
+        // fx's rule for a page that rebuilds: the reader is pinned to the
+        // marked entry the old page shows at its offset, and how far into it
+        // (`pin_reading_position`, `transcript_presentation.zig:144-164`), and
+        // found there again on the new page (`select_visual_offset`,
+        // `:166-202`); a bookmark whose entry has no mark takes the nearest
+        // marked entry before it, else the one after (`resolve_bookmark_row`,
+        // `:278-298@481104fd`; `position.rs`). An entry that lays out as
+        // nothing has no mark (`measure`), so the entry above it holds the
+        // reader, and nothing moves when the entry fills in below.
+        let code: String = (1..=50).map(|n| format!("line {n}\n")).collect();
+        let block = |record: &FullTranscript| {
+            plain(&record.all_rows(120, DARK))
+                .iter()
+                .position(|row| row.starts_with("  \u{2500} sh "))
+                .expect("the block's top")
+        };
+
+        // 1. A reader on the blank row under a block, a running write (no
+        //    row yet) between the block and the summary; the write finishes.
+        let mut record = record();
+        record.prompt("go");
+        record.answer(&format!("Lead line.\n\n```sh\n{code}```\n"));
+        let input = json!({"path": "a.txt", "content": "x"});
+        record.tool_started("w", &crate::tools::mutate::WRITE_FILE.shown(&input));
+        record.usage("  0s (\u{2191}1 \u{2193}2)");
+        tall_first_turn(&mut record, 60);
+        record.open();
+        let top = block(&record);
+        let under = top + 52;
+        let view = record.view.as_ref().expect("open");
+        view.reading.set(Reading {
+            scroll_rows: under,
+            follow_tail: false,
+            ..Reading::default()
+        });
+        let before = page_now(&record);
+        assert_eq!(before[0], "", "{before:#?}");
+        assert!(before[1].ends_with("\u{b7} Usage"), "{before:#?}");
+        record.tool_finished("w", true, "", Outcome::Finished, None);
+        let after = page_now(&record);
+        let rows = plain(&record.all_rows(120, DARK));
+        assert_eq!(after, rows[under..under + 36], "{after:#?}");
+        assert_eq!(after[0], "", "{after:#?}");
+        assert!(after[1].ends_with("\u{b7} Tool"), "{after:#?}");
+        assert!(
+            !record
+                .view
+                .as_ref()
+                .expect("open")
+                .reading
+                .get()
+                .follow_tail
+        );
+
+        // 2. A reader pinned on a whitespace-only run under a tall block,
+        //    its bookmark naming the run: it has no mark, so the block above
+        //    holds the reader, a row into it; prose then joins the run.
+        let mut record = self::record();
+        tall_first_turn(&mut record, 10);
+        record.prompt("go");
+        record.answer(&format!("Lead line.\n\n```sh\n{code}```\n\n"));
+        let run = record.entries.len() - 1 + FIRST_ENTRY;
+        assert!(
+            matches!(&record.entries[run - FIRST_ENTRY].body, Body::Response(events)
+                if events.iter().all(|event| matches!(event, markdown::Event::Text(text) if text.trim().is_empty()))),
+            "the answer's last entry is a run of line breaks"
+        );
+        record.open();
+        let top = block(&record);
+        let view = record.view.as_ref().expect("open");
+        view.reading.set(Reading {
+            scroll_rows: 0,
+            follow_tail: false,
+            bookmark: Some(run),
+            bookmark_intra_row: 1,
+            bookmark_pending: true,
+        });
+        let before = page_now(&record);
+        let rows = plain(&record.all_rows(120, DARK));
+        assert_eq!(before, rows[top + 1..top + 37], "{before:#?}");
+        assert_eq!(before[0], "  line 1");
+        record.answer("Then text.\n");
+        let after = page_now(&record);
+        let rows = plain(&record.all_rows(120, DARK));
+        assert!(rows.iter().any(|row| row == "  Then text."), "{rows:#?}");
+        assert_eq!(after, rows[top + 1..top + 37], "{after:#?}");
+        assert!(
+            !record
+                .view
+                .as_ref()
+                .expect("open")
+                .reading
+                .get()
+                .follow_tail
+        );
+
+        // 3. The same with nothing marked before the run's place: a running
+        //    write is the record's first entry, so a bookmark naming it takes
+        //    the entry after it, the prompt; the write finishes above it.
+        let mut record = self::record();
+        record.tool_started("w", &crate::tools::mutate::WRITE_FILE.shown(&input));
+        tall_first_turn(&mut record, 60);
+        record.open();
+        let view = record.view.as_ref().expect("open");
+        view.reading.set(Reading {
+            scroll_rows: 5,
+            follow_tail: false,
+            bookmark: Some(FIRST_ENTRY),
+            bookmark_intra_row: 0,
+            bookmark_pending: true,
+        });
+        let before = page_now(&record);
+        assert!(before[0].ends_with("\u{b7} Prompt"), "{before:#?}");
+        record.tool_finished("w", true, "", Outcome::Finished, None);
+        let after = page_now(&record);
+        let rows = plain(&record.all_rows(120, DARK));
+        let prompt = rows
+            .iter()
+            .position(|row| row.ends_with("\u{b7} Prompt"))
+            .expect("the prompt's header");
+        assert!(prompt > 0, "the write's rows stand above it now: {rows:#?}");
+        assert_eq!(after, rows[prompt..prompt + 36], "{after:#?}");
+    }
+
+    #[test]
+    fn a_reader_at_the_tail_follows_an_entry_that_lays_out_as_nothing_when_it_becomes_visible() {
+        // At the tail the screen follows it (`select_visual_offset`,
+        // `transcript_presentation.zig:166-202@481104fd`): the rows an empty
+        // entry gains at the end are on the screen.
+        let tail = |record: &FullTranscript| {
+            let rows = plain(&record.all_rows(120, DARK));
+            rows[rows.len() - 36..].to_vec()
+        };
+        // A whitespace-only run after a block gets its prose.
+        let mut record = record();
+        tall_first_turn(&mut record, 60);
+        record.prompt("go");
+        record.answer("Lead line.\n\n```sh\necho end\n```\n\n");
+        record.open();
+        let before = page_now(&record);
+        assert_eq!(before, tail(&record));
+        assert_eq!(
+            before[35],
+            format!("  {}", "\u{2500}".repeat(8)),
+            "{before:#?}"
+        );
+        record.answer("Then text.\n");
+        let after = page_now(&record);
+        assert_eq!(after, tail(&record));
+        assert_eq!(after[35], "  Then text.", "{after:#?}");
+        assert!(after[34].ends_with("\u{b7} Response"), "{after:#?}");
+        assert!(
+            record
+                .view
+                .as_ref()
+                .expect("open")
+                .reading
+                .get()
+                .follow_tail
+        );
+        // A running write at the end finishes.
+        let mut record = self::record();
+        tall_first_turn(&mut record, 60);
+        record.prompt("go");
+        let input = json!({"path": "a.txt", "content": "x"});
+        record.tool_started("w", &crate::tools::mutate::WRITE_FILE.shown(&input));
+        record.open();
+        let before = page_now(&record);
+        assert_eq!(before, tail(&record));
+        assert_eq!(before[35], "\u{2503} go", "{before:#?}");
+        record.tool_finished("w", true, "", Outcome::Finished, None);
+        let after = page_now(&record);
+        assert_eq!(after, tail(&record));
+        assert_ne!(after, before);
+        assert!(
+            after.iter().any(|row| row.ends_with("\u{b7} Tool")),
+            "{after:#?}"
+        );
+        assert!(
+            record
+                .view
+                .as_ref()
+                .expect("open")
+                .reading
+                .get()
+                .follow_tail
+        );
+    }
+
     #[test]
     fn a_width_change_keeps_the_entry_the_reader_was_in() {
         // A width change is a rebuild: the position is pinned on the page

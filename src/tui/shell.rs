@@ -43173,6 +43173,14 @@ mod tests {
             .iter()
             .filter(|row| !row.contains(" UTC \u{b7} "))
             .collect();
+        // The document ends on a blank row under the summary, which the
+        // record, ending on its last entry's last row, has not: the one row
+        // left out, and only once it is seen to be blank.
+        assert_eq!(
+            document.last().map(String::as_str),
+            Some(""),
+            "{document:#?}"
+        );
         let written: Vec<&String> = document[..document.len() - 1].iter().collect();
         assert_eq!(record, written, "{screen:#?}");
     }
