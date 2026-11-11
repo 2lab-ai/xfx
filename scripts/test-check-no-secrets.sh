@@ -403,9 +403,10 @@ verdict only-a-symlink 1 "check-no-secrets: no files to scan; the check would pa
 #
 # And an arithmetic error, which bash does not stop on: it drops the command
 # that holds it and goes on. One in the listing (`skipped-listing`, the
-# second `read`) left the scan a list cut short, and one in the scan
-# (`skipped-scan`, while it refuses a tracked .env) left it unfinished: each
-# passed with the problem in the tree. Each must fail, by name.
+# second `read`) left the scan a list of one name, with a key in a later
+# file; one in the scan (`skipped-scan`, while it refuses a tracked .env)
+# left it unfinished: each passed with the problem in the tree. Each must
+# fail, by name.
 early_stop_env="$repo_root/scripts/early-stop-env.sh"
 small="$work/small"
 mkdir -p "$small/scripts"
@@ -413,23 +414,31 @@ sg -C "$small" init -q
 cp "$check" "$small/scripts/check-no-secrets.sh"
 printf 'clean\n' >"$small/a.txt"
 sg -C "$small" add -f -- a.txt scripts/check-no-secrets.sh
-# A key in the last file git lists, and a tracked .env.
-skip="$work/skip"
+# For the listing, a key in the last file git lists, so a list cut after the
+# first name holds no problem; for the scan, a tracked .env, which the scan
+# refuses first.
+skiplist="$work/skip-listing"
+mkdir -p "$skiplist/scripts"
+sg -C "$skiplist" init -q
+cp "$check" "$skiplist/scripts/check-no-secrets.sh"
+printf 'clean\n' >"$skiplist/a.txt"
+printf 'clean\n' >"$skiplist/b.txt"
+printf '%s\n' "$fake_key" >"$skiplist/zz-key.txt"
+sg -C "$skiplist" add -f -- a.txt b.txt zz-key.txt scripts/check-no-secrets.sh
+skip="$work/skip-scan"
 mkdir -p "$skip/scripts"
 sg -C "$skip" init -q
 cp "$check" "$skip/scripts/check-no-secrets.sh"
 printf 'clean\n' >"$skip/a.txt"
-printf 'clean\n' >"$skip/b.txt"
 printf 'A=1\n' >"$skip/.env.zz-planted"
-printf '%s\n' "$fake_key" >"$skip/zz-key.txt"
-sg -C "$skip" add -f -- a.txt b.txt .env.zz-planted zz-key.txt scripts/check-no-secrets.sh
+sg -C "$skip" add -f -- a.txt .env.zz-planted scripts/check-no-secrets.sh
 # <case>|<tree>|<stop>|<hook>|<status>|<text the output must hold, or ->
 for row in "stopped-unset|$small|unset|trap-exit|1|-" "stopped-exit7|$small|exit7|trap-exit|7|-" \
 	"stopped-subshell|$small|subshell|trap-exit|5|-" "stopped-term|$small|term|trap-exit|143|-" \
 	"stopped-hup|$small|hup|trap-exit|129|-" "stopped-int|$small|int|trap-exit|130|-" \
 	"stopped-int-group|$small|int-group|trap-exit|130|-" \
 	"stopped-late|$small|unset|printf=check-no-secrets: ok*|1|-" \
-	"skipped-listing|$skip|arith|read=2|1|check-no-secrets: the listing did not finish" \
+	"skipped-listing|$skiplist|arith|read=2|1|check-no-secrets: the listing did not finish" \
 	"skipped-scan|$skip|arith|printf=*zz-planted*|1|check-no-secrets: the scan did not finish"; do
 	IFS='|' read -r name root stop hook want needle <<<"$row"
 	"$early_stop_env" "$stop" "$hook" >"$work/$name.env"
