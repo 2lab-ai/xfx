@@ -21834,6 +21834,28 @@ mod tests {
     }
 
     #[test]
+    fn a_turn_start_owes_its_frame_exactly_when_its_tick_writes_working_after_the_frame() {
+        // The drain stops behind a turn's start for the report that tick
+        // writes after its frame (`super::event_loop`'s `drain_ui_events`).
+        // The two agree for every way the report came to be owed -- held for
+        // the turn, sent by this tick's keys, both, neither -- or the drain
+        // reads past a start whose `working` waits for a frame, or stops for
+        // a report that goes ahead of one.
+        for (held, keyed) in [(false, false), (true, false), (false, true), (true, true)] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(b"ask something\r");
+            shell.status_held = held;
+            shell.status_moved_by_input = keyed;
+            shell.start_turn();
+            assert_eq!(
+                shell.turn_start_owes_its_frame(),
+                shell.take_status_moved_by_input() == Keyed::AfterFrame,
+                "held {held}, keyed {keyed}"
+            );
+        }
+    }
+
+    #[test]
     fn a_prompt_queued_behind_a_turn_does_not_restart_the_turns_clock() {
         // What the row measures is the turn that is running, and a second
         // prompt joining the queue is not an event in that turn's life.
