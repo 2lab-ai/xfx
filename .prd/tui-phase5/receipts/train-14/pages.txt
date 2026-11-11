@@ -1,5 +1,5 @@
 # INPUT-ROW-LIMIT's head and PAGE-KEYS' base: 3d3d56c8; main merged it in 12b56ab8 (merge: INPUT-ROW-LIMIT (fix/p5-input-row-limit @ 3d3d56c8) into train 12)
-# each page line at b3dffdad: line, the commit that wrote it, the function it is in, and the sides holding that commit
+# each call of input_row_limit at b3dffdad: line, the commit that wrote it, the function it is in, and the sides holding that commit
   :5826 82bdf6dc offer_to_catalog -- page-keys main ctrlo-other-pickers at-stack
   :6118 72306b85 offer_to_skills -- page-keys main ctrlo-other-pickers at-stack
   :6371 c4bfa8b1 offer_to_settings -- page-keys
@@ -14,7 +14,11 @@
   :9772 82bdf6dc offer_to_provider_picker -- page-keys main ctrlo-other-pickers at-stack
   :13134 23070be3 act -- page-keys main ctrlo-other-pickers at-stack
   :17086 2cbf4d41 composer_rows -- page-keys
+  :21945 a8fe60c7 the_composer_stops_growing_at_half_the_content_area_and_scrolls_instead -- page-keys main ctrlo-other-pickers at-stack
+  :22022 a8fe60c7 the_smallest_band_still_grows_by_the_rule_rather_than_by_luck -- page-keys main ctrlo-other-pickers at-stack
+  :23773 191a343e a_draft_at_its_cap_gives_rows_back_to_the_question_rather_than_hiding_it -- page-keys main ctrlo-other-pickers at-stack
   :39363 23070be3 a_page_key_moves_the_list_a_page_and_wraps_past_its_end -- page-keys main ctrlo-other-pickers at-stack
+  :41340 01d661ba pages_as_fx_does -- page-keys
   :49989 2630f11c page_keys_move_the_effort_menu_by_the_composers_row_cap_and_wrap -- page-keys main ctrlo-other-pickers at-stack
 
 | function | base-pk `3d3d56c8` | page-keys `3ea16930` | main `dcfa5146` | m3 `7a1773d9` | head `b3dffdad` |

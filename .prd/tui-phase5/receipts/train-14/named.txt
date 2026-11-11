@@ -1,6 +1,9 @@
 J1         at_41_rows_a_page_of_the_at_list_is_19_paths: test ok; test-fault ok
 J1         at_41_rows_the_composer_is_capped_at_19_rows_and_a_page_is_19_of_them: test ok; test-fault ok
 J1         on_an_eight_row_screen_a_page_and_the_composers_cap_are_one_row: test ok; test-fault ok
+J2         the_launch_starts_the_index_walk_fresh_or_resumed: test ok; test-fault ok
+J2         the_launch_walks_a_root_once_and_an_empty_root_never: test ok; test-fault ok
+J2         a_fresh_sessions_first_at_after_the_launch_walk_is_whole_shows_its_rows_at_once: test ok; test-fault ok
 J3         c_j_under_the_full_transcript_is_a_new_line_and_closes_the_list: test ok; test-fault ok
 J3         c_k_under_the_full_transcript_kills_to_the_lines_end_and_keeps_the_list: test ok; test-fault ok
 J3         tab_under_the_full_transcript_chooses_nothing_and_keeps_the_list: test ok; test-fault ok
@@ -47,4 +50,4 @@ M1         a_key_the_list_hands_on_mid_resize_asks_for_the_frame_too: test ok; t
 M1         a_key_handed_on_under_the_full_transcript_writes_nothing: test ok; test-fault ok
 M2         ctrl_o_over_the_model_menu_holds_no_frame_and_its_keys_stay_its: test ok; test-fault ok
 M2         a_resumed_sealed_step_that_asked_replays_its_batch_and_says_nothing_of_its_reasoning: test ok; test-fault ok
-# 49 tests named; every one ok in both runs
+# 52 tests named; every one ok in both runs

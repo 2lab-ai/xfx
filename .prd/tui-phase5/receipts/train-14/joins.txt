@@ -90,6 +90,12 @@ exit 0
   redaction: 252 capture files; lines holding the run's TMPDIR: 0; lines the brief's pattern matches: 0; lines holding a `<scratch` or `<tmp` placeholder: 71
   workspace-index at-plan row 13, fx: '  <scratch:real________________________________________________>/extra/notes/' (77 columns)
   workspace-index at-plan row 13, xfx: '  <scratch:real________________________________________________>/extra/notes/' (77 columns)
+  workspace clear-row row 27, fx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace clear-row row 27, xfx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-down1 row 27, fx: '❯ <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-down1 row 27, xfx: '❯ <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-one row 27, fx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-one row 27, xfx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
 ### TMPDIR of 49 bytes: 63 pairs, 49 pass; 63 also in that sweep, 51 of them pass there; verdicts that differ: 4; pairs not in that sweep: 0
   p5-input-at at-src: normalized-identical
   p5-input-at at-src-enter: normalized-identical
@@ -157,6 +163,15 @@ exit 0
   redaction: 252 capture files; lines holding the run's TMPDIR: 0; lines the brief's pattern matches: 0; lines holding a `<scratch` or `<tmp` placeholder: 70
   workspace-index at-plan row 13, fx: '  <scratch:real_________________________________________________________________________>/extra/notes/' (102 columns)
   workspace-index at-plan row 13, xfx: '  <scratch:real_________________________________________________________________________>/extra/notes/' (102 columns)
+  workspace clear-row row 27, fx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+  workspace clear-row row 27, xfx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+    the sweep's reading, row 27: fx '  <tmp:real________________________________________________________________>/xfx… Active · Saved' / xfx '  <tmp:real________________________________________________________________>/fx… Active · Saved'
+  workspace picker-down1 row 27, fx: '❯ <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+  workspace picker-down1 row 27, xfx: '❯ <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+    the sweep's reading, row 27: fx '❯ <tmp:real________________________________________________________________>/xfx… Active · Saved' / xfx '❯ <tmp:real________________________________________________________________>/fx… Active · Saved'
+  workspace picker-one row 27, fx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+  workspace picker-one row 27, xfx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+    the sweep's reading, row 27: fx '  <tmp:real________________________________________________________________>/xfx… Active · Saved' / xfx '  <tmp:real________________________________________________________________>/fx… Active · Saved'
 
 ## join check 2: p5-input-row-limit five times, one after another (walk_rows.py)
 j2-1: at normalized-identical; row 5 fx '  items/f-01.txt'; xfx '  items/f-01.txt'; xfx says indexing: False; at-pgdn normalized-identical
@@ -230,6 +245,12 @@ exit 0
   redaction: 212 capture files; lines holding the run's TMPDIR: 0; lines the brief's pattern matches: 0; lines holding a `<scratch` or `<tmp` placeholder: 70
   workspace-index at-plan row 13, fx: '  <scratch:real________________________________________________>/extra/notes/' (77 columns)
   workspace-index at-plan row 13, xfx: '  <scratch:real________________________________________________>/extra/notes/' (77 columns)
+  workspace clear-row row 27, fx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace clear-row row 27, xfx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-down1 row 27, fx: '❯ <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-down1 row 27, xfx: '❯ <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-one row 27, fx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
+  workspace picker-one row 27, xfx: '  <scratch:real________________________________________________>/extra    Active · Saved' (placeholder scratch:real, 62 columns)
 ### TMPDIR of 49 bytes: 53 pairs, 31 pass; 53 also in that sweep, 34 of them pass there; verdicts that differ: 3; pairs not in that sweep: 0
   p5-input-at at-src: unresolved-defect
   p5-input-at at-src-enter: unresolved-defect
@@ -287,3 +308,12 @@ exit 0
   redaction: 212 capture files; lines holding the run's TMPDIR: 0; lines the brief's pattern matches: 0; lines holding a `<scratch` or `<tmp` placeholder: 70
   workspace-index at-plan row 13, fx: '  <scratch:real_________________________________________________________________________>/extra/notes/' (102 columns)
   workspace-index at-plan row 13, xfx: '  <scratch:real_________________________________________________________________________>/extra/notes/' (102 columns)
+  workspace clear-row row 27, fx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+  workspace clear-row row 27, xfx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+    the sweep's reading, row 27: fx '  <tmp:real________________________________________________________________>/xfx… Active · Saved' / xfx '  <tmp:real________________________________________________________________>/fx… Active · Saved'
+  workspace picker-down1 row 27, fx: '❯ <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+  workspace picker-down1 row 27, xfx: '❯ <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+    the sweep's reading, row 27: fx '❯ <tmp:real________________________________________________________________>/xfx… Active · Saved' / xfx '❯ <tmp:real________________________________________________________________>/fx… Active · Saved'
+  workspace picker-one row 27, fx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+  workspace picker-one row 27, xfx: '  <tmp:real________________________________________________________________>/fx… Active · Saved' (placeholder tmp:real, 74 columns)
+    the sweep's reading, row 27: fx '  <tmp:real________________________________________________________________>/xfx… Active · Saved' / xfx '  <tmp:real________________________________________________________________>/fx… Active · Saved'

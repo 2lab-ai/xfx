@@ -9,7 +9,9 @@ lines holding the run's TMPDIR (given, never printed), of lines the brief's
 path pattern matches (spelt with bracket classes, so this file does not
 match itself), and of lines holding a `<scratch` or `<tmp` placeholder, and `workspace-index`'s `at-plan` row 13 on each
 side, the `@` list's absolute path, as captured (the placeholder; its width
-the path's).
+the path's); and (round 2) row 27 of the three `workspace` picker pairs,
+each side, with its placeholder's root and width, and the rows the sweep
+read as differing in it (pairs.json, after the ledger's normalizations).
 
 Part 2, for each walk run (`j2-1` .. `j2-5`), when there are any (the
 base's runs have none): walk_rows.py's line.
@@ -62,6 +64,19 @@ for size, tmp in (("24", tmp24), ("49", tmp49)):
         hits = glob.glob(os.path.join(out, "runs", "workspace-index", side, f"{side}-workspace-index-*-at-plan.txt"))
         row = open(hits[0], encoding="utf-8").read().split("\n")[12].rstrip() if len(hits) == 1 else None
         print(f"  workspace-index at-plan row 13, {side}: {row!r} ({len(row) if row else 0} columns)")
+    # round 2 (opus S4): row 27 of the three `workspace` picker pairs, each
+    # side as captured, with the placeholder's root name and width
+    for label in ("clear-row", "picker-down1", "picker-one"):
+        for side in ("fx", "xfx"):
+            hits = glob.glob(os.path.join(out, "runs", "workspace", side, f"{side}-workspace-*-{label}.txt"))
+            row = open(hits[0], encoding="utf-8").read().split("\n")[26].rstrip() if len(hits) == 1 else None
+            m = re.search(r"<([a-z]+(?::real)?)_*>", row or "")
+            print(f"  workspace {label} row 27, {side}: {row!r} (placeholder {m.group(1) if m else None}, "
+                  f"{len(m.group(0)) if m else 0} columns)")
+        with open(os.path.join(out, "pairs.json"), encoding="utf-8") as f:
+            pair = next((p for p in json.load(f) if p["scenario"] == "workspace" and p["label"] == label), {})
+        for r in pair.get("rows", []):
+            print(f"    the sweep's reading, row {r['row']}: fx {r['fx']!r} / xfx {r['xfx']!r}")
 if os.path.isdir(os.path.join(joins, "j2-1")):
     print()
     print("## join check 2: p5-input-row-limit five times, one after another (walk_rows.py)")

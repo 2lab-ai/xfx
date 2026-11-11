@@ -23,8 +23,10 @@ its first lines what changed for this train; the new ones say so too. What
 those reviews asked is carried: every figure rests on a file of this folder,
 named where it is used; counts are checked against the lists they count; the
 path scans run over this folder (`pathcheck.sh` before every commit,
-`final-scan.sh`); "no code after the code head" is shown at the last commit
-(`final-scan.txt` part 4), and each scan names the revision it read.
+`final-scan.sh`); "no code after the code head" is shown by `final-scan.txt`
+part 4, which reads through the receipt's second-to-last commit and names
+it, while the last commit stores `final-scan.txt` alone (`git show --stat`
+of it); each scan names the revision it read.
 
 **Where this train is not train 13.** Train 13's merges built as git merged
 them. Three of these did not, and one built but broke a unit's behaviour:
@@ -65,7 +67,7 @@ After the merges, in order (`git log --first-parent dcfa5146..`):
 | `725b3c90` | **tests**: PAGE-KEYS' case over `/model`'s menu under the full transcript takes fx's expectation, C-j adds nothing (join check 3; the first gate, at `6bc758a0`, failed it) |
 | `3a2830fb` | the six ledger references `725b3c90`'s 19 lines moved, re-pointed |
 | `b3dffdad` | two bare continuations on the line after their path, re-pointed (`refs_bare.py` read them MOVED; join check 6): **the code head. The gate, the sweeps and every job ran here** |
-| the receipt's commits | this folder only (`final-scan.txt` part 4) |
+| the receipt's commits | this folder only (`final-scan.txt` part 4, through the second-to-last of them; the last stores `final-scan.txt` alone) |
 
 The first gate ran at `6bc758a0` and failed one case (join check 3); the
 head's first main sweep and join checks 1 and 2 read a build of
@@ -84,7 +86,7 @@ and without `fault-injection`, `cargo fmt --check` and both clippy runs
 (`check-merge.sh`, no lock, as train 13); each tree checked is the
 committed tree (`check-merges.txt` names it, `git rev-parse <c>^{tree}`
 agrees for all seven). Merge 1's recorded run is the second on its staged
-tree, cached (0 s); the first, 37 s, compiled it and was not kept.
+tree, cached (0 s); the first compiled it and was not kept.
 
 - `blocks.py` is train 13's with its `numbers` rule read token by token, as
   train 13's join of main read it: each `:N` the side that moved it wins, and
@@ -230,7 +232,8 @@ rows and an eight-row screen's one-row page. In the head's main sweep
 every `p5-input-at*` pair is as at the base or better ("Sweeps", below).
 
 **LOCAL-PATHS against the `@` list's absolute paths, at a 24-byte and a
-49-byte TMPDIR** (CI's runner's length, train 12's ci-socket receipt):
+49-byte TMPDIR** (49 is CI's TMPDIR, train 12's ci-socket receipt; CI's
+sweep itself runs under `$RUNNER_TEMP`, below):
 `joins.sh tmpdir` swept `p5-input-row-limit*`, `p5-input-at*` and
 `workspace*` (63 pairs) on the head's build with TMPDIR, and so every run
 root, under `/tmp/claude-<uid>/` at each length, fx's sha256 the pin before
@@ -250,12 +253,17 @@ The four that differ at 49 bytes:
 - **`workspace` `clear-row`, `picker-down1`, `picker-one`: unresolved at 49
   bytes, normalized-identical at 24 and in the sweep.** Row 27, the
   workspace picker's row for the added folder, cut by the picker at the
-  screen's edge: both sides capture `<tmp:real___...___>/fx… Active ·
-  Saved` -- the same text, the run root cut before its end, so only the
-  TMPDIR part is replaced and `/fx…`, the cut run directory's first
-  letters, is left -- and the ledger's `product-name` normalization reads
-  fx's `fx` as `xfx` (`\bfx\b`, fx's side only), so fx's row reads
-  `/xfx…` and xfx's `/fx…`. **Main's, not the train's**: the base's build,
+  screen's edge. **Row 27 is on file** (`joins.txt`: each pair, each side,
+  both trees, both lengths, with the placeholder's root and width, and the
+  sweep's own reading of the row). At 24 bytes both sides capture
+  `<scratch:real___...>/extra    Active · Saved`: the run directory's
+  placeholder, 62 columns, and the folder whole. At 49 bytes both capture
+  `<tmp:real___...>/fx… Active · Saved`, the same text: the run directory
+  is cut before its end, so the root `roots.py` finds is the capture's
+  TMPDIR, `<tmp>/fxsw.<8>/<NNN>` (74 columns), and `/fx…`, the cut
+  `fxcap.` name's first letters, is left; the ledger's `product-name`
+  normalization reads fx's `fx` as `xfx` (`\bfx\b`, fx's side only), and
+  the sweep's reading is fx `/xfx…` against xfx `/fx…`. **Main's, not the train's**: the base's build,
   run the same way (`joins.sh tmpdir` on the base sweep's clone, the same
   three globs, 53 pairs there), has the same 24-byte verdicts as its own
   sweep and at 49 bytes these same three pairs and no other unresolved
@@ -272,7 +280,7 @@ The four that differ at 49 bytes:
 `@` cases and LOCAL-PATHS' harness tests (`test-capture.sh`,
 `test-sweep.sh`, in the gate).
 
-### 2. AT-LAUNCH-WALK's launch-time index (`joins.txt`, `walk_rows.py`)
+### 2. AT-LAUNCH-WALK's launch-time index (`joins.txt`, `walk_rows.py`, `named.txt`)
 
 `p5-input-row-limit` swept five times one after another on the head's build
 (`joins.sh walk`, `sweep-rerun.sh`, `--jobs 1`), in the same hold of the
@@ -289,6 +297,17 @@ each run:**
 | 5 | 12.50 | `  items/f-01.txt` | `  items/f-01.txt` | normalized-identical | normalized-identical |
 
 Never `indexing files...`: the index is ready by the snap at the head.
+**These runs cannot tell the head from the base**: the base passes the
+same pair in its own sweep too (`sweep-base.md:133` and
+`sweep-head.md:153`, the same `p5-input-row-limit` line), so the five readings show the head
+ready, not that the train made it so. What does tell them apart is
+AT-LAUNCH-WALK's own cases of the launch walk, which the gate ran at the
+head, ok in both `cargo test` runs (`named.txt`, J2):
+`the_launch_starts_the_index_walk_fresh_or_resumed` (`src/tui/mod.rs:1204`),
+`the_launch_walks_a_root_once_and_an_empty_root_never`
+(`src/tui/file_index.rs:2260`) and
+`a_fresh_sessions_first_at_after_the_launch_walk_is_whole_shows_its_rows_at_once`
+(`src/tui/shell.rs:38632`).
 
 ### 3. CTRLO-OTHER-PICKERS x CTRLO-AT-KEYS x PAGE-KEYS-SETTINGS-COLUMN x main's `shell.rs` (`functions.txt`, `shared.txt`, `red3.txt`, `gate-6bc758a0.txt`)
 
@@ -375,14 +394,16 @@ meeting; no join test is added.
 
 PAGE-KEYS' base `3d3d56c8` is INPUT-ROW-LIMIT's head itself, the commit
 main merged in train 12 (`12b56ab8`; `pages.txt`'s first line). Every page
-a list takes is `layout::input_row_limit(rows)`: **16 lines of
-`src/tui/shell.rs` at the head take one**, and blame names each one's
-commit (`pages.txt`): 12 are main's, held by every side (the catalog,
-`/skills`, the `@` list, sessions, `/model`, `/effort`, `/fork`, the
-picker, `/provider`, `act`, two tests); **4 are PAGE-KEYS' own** --
-`offer_to_settings`, `offer_to_column`, `offer_to_mcp_args` (`c4bfa8b1`)
-and `composer_rows` (`2cbf4d41`), held by no other side. `functions.py`
-over those four and `input_row_limit`: **`input_row_limit` is one text at
+a list takes is `layout::input_row_limit(rows)`: **20 lines of
+`src/tui/shell.rs` at the head call it**, and blame names each one's
+commit (`pages.txt`; round 1 read 16, missing four tests' `crate::tui::layout::`
+form): 15 are held by every side (the catalog, `/skills`, the `@` list,
+sessions, `/model`, `/effort`, `/fork`, the picker, `/provider`, `act`,
+and five tests); **5 are PAGE-KEYS' own** -- `offer_to_settings`,
+`offer_to_column`, `offer_to_mcp_args` (`c4bfa8b1`), `composer_rows`
+(`2cbf4d41`) and its test helper `pages_as_fx_does` (`01d661ba`), held by
+no other side; the four round 1 missed are tests. `functions.py`
+over its four production functions and `input_row_limit`: **`input_row_limit` is one text at
 PAGE-KEYS' base, its tip, main, merge 3 and the head** (`2d380a6191ba`,
 9 lines), and each of PAGE-KEYS' four is its tip's text at merge 3 and at
 the head. So each page PAGE-KEYS sized is the size it was built and tested
@@ -408,8 +429,8 @@ same Sound level `max` row as above (`new-scenarios.txt`).
   comment where the cause stood says so, beside AT-RANK's own for
   `at-ranking`. The pair itself passes by the run, not always: its bold
   letters inside the placeholder still follow the random run directories,
-  which the cause was written for (4 of the head's 6 runs pass; "Sweeps",
-  and the decision below).
+  which the cause was written for, on main's code too; its owner is
+  WORKSPACE-INDEX-AT-PLAN ("Sweeps", and the decision below).
 - **`at-ranking-anchor` (PAGE-KEYS-SETTINGS-COLUMN's), deleted in
   `16fff02d`.** It was `at-ranking` on the unit's anchor scenario
   (`p5-page-keys-anchor` `file-one`, owner I-U2), and merge 1 brought
@@ -445,9 +466,13 @@ first ledger commit; `refs-*-pre.txt`, six sides: main and the four tips):
 **The content check over every reference** (`content.sh`, new: train 13
 ran `refs_content.py` over seven files; this runs it over every tracked
 file that holds a reference by its own pattern, outside `.prd/` and the
-historical plans -- 55 files, 790 references, 500 of them into fx's tree).
-Each reference is read against the commit that wrote its numbers (its
-frame): the cited line and two either side must stand at the head's number.
+historical plans -- 55 files, 790 references). **289 are checked**: each
+is read against the commit that wrote its numbers (its frame), the cited
+line and two either side standing at the head's number (at the head 243
+SAME, 41 SAME-ROW, 3 SAME-LINES, 2 WRONG, `content-head.txt`'s last line).
+The other 501 are not checked: 500 point into fx's tree and are counted
+only (`refs_content.py`'s "other product"), and 1 is unread (`UNREAD`, a
+test's number past any file's end).
 
 | at | WRONG | `content-*.txt` |
 |---|---|---|
@@ -479,8 +504,10 @@ lines):
   29 references at the head, 30 before, for that pin);
 - 2 `left`, with why: `src/tools/question.rs`'s `Cargo.toml:42` sits in a
   comment that says the crate does not enable serde_json's
-  `preserve_order`; the head's `Cargo.toml:46` enables it, so the claim,
-  not the number, is out of date ("Found on the way"); and
+  `preserve_order`; main's `:42` already enabled it (`content-dcfa5146.txt`),
+  so the claim is out of date, and at the head the number is too: `:42`
+  holds `"http2",` (`content-head.txt`) and serde_json's line is `:46`
+  ("Found on the way"); and
   `tests/session_compat.rs`' `src/session/event.rs:98-192` names commit
   `14ad04202fe5`'s file (`14ad04202fe5 src/session/event.rs:98-192`), whose
   98-192 are `SessionEvent` as it says -- the check reads it against the
@@ -692,23 +719,34 @@ within passing** (`compare-base.txt`):
   ranking): `p5-input-at` `at-st`, `at-st-down12`, `at-st-up6`, `at-stat`
   (`../at-rank/README.md`, §7).
 - **1 down: `workspace-index` `at-plan`**, normalized-identical ->
-  unresolved, row 13, attributes only -- **a flake: rerun 3 times on each
-  tree, it passes 3 of 3 at the head and 3 of 3 at the base**
-  (`reruns.txt`). Row 13 is the added folder by its absolute path, a
-  placeholder on both sides, the same text; what differs is which of its
-  letters are bold. AT-RANK's README (§7) gives why: `@plan` matches that
-  folder only through its whole path, so the letters fx's placement bolds
-  (and xfx's, the same rule since AT-RANK) depend on each capture's random
-  run directory name. LOCAL-PATHS' placeholder keeps a root's colours and
-  attributes where they were (`scripts/fxcap/roots.py`'s doc), so the bold
-  letters survive inside it. Of the head's six runs of it (the sweep, the
-  two TMPDIR runs of join check 1, the three reruns) four pass; of the
-  base's six, six (`reruns.txt`, `joins.txt`). Why the base's never flipped is
-  not traced here; its xfx bolds by main's ranking, which AT-RANK replaced
-  with fx's placement.
-  The cause written for it, AT-RANK's `at-plan-run-directory`, matched
-  only the absolute path and could not cover it here either (join check 5):
-  its deletion moved nothing (`anchor.txt`). A cause for it again is left to the dispatcher ("Decisions").
+  unresolved, row 13, attributes only -- **a flip that is older than the
+  train, traced, and owned by WORKSPACE-INDEX-AT-PLAN**. Rerun 3 times on
+  each tree it passes 3 of 3 at the head and 3 of 3 at the base
+  (`reruns.txt`); of the head's six runs of it here (the sweep, join check
+  1's two TMPDIR runs, the three reruns) four pass, of the base's six, six
+  (`reruns.txt`, `joins.txt`) -- too few runs to tell the trees apart. Row
+  13 is the added folder by its absolute path, one placeholder on both
+  sides, the same text; what differs is which of its letters are bold.
+  **The mechanism**, traced by WORKSPACE-INDEX-AT-PLAN's receipt (`fix/p5-workspace-index-at-plan` @ `495fbb40`, `.prd/tui-phase5/receipts/workspace-index-at-plan/README.md`,
+  §2): the sweep runs a unit's fx and xfx captures in one directory,
+  `<tmp>/fxsw.<8>/<NNN>`, and capture.sh makes each run its own
+  `fxcap.XXXXXX`, six random letters per side; `@plan` matches the folder
+  only through its whole lower-cased path, so whether its row is listed at
+  all, and which letters are bold, depends on which letters those random
+  names hold; and LOCAL-PATHS' placeholder keeps a root's colours and
+  attributes where they stood (`scripts/fxcap/roots.py`'s doc), so the bold
+  survives inside it. **On main's code too**: that receipt's twelve copies
+  of the scenario differ in 2 of 12 for xfx `8f921425` at a 24-byte TMPDIR
+  (its `red/8f921425-24.txt`) and 9 of 12 for `d2b2ca75` at the gate's
+  25-byte one (`red/d2b2ca75-25.txt`), both on main; and main's own CI sweep
+  at `d2b2ca75` read the pair unresolved (its first paragraph). Its fix, one run path for
+  both sides, is its PR's. The cause AT-RANK wrote for it,
+  `at-plan-run-directory`, matched only the absolute path, so on this
+  train it could not cover the row with or without its deletion: its rows
+  cannot match the placeholder row (join check 5). CI's sweep fails a snap
+  pair the base kept identical that the head does not, cause or no cause
+  (`.github/workflows/sweep.yml:8-11`), so no cause would change CI's
+  reading of this pair either.
 - **`settings-collapse-open` `after-esc`, normalized-identical ->
   identical**: fx's own screen moved, the same fx binary in both sweeps --
   its row 19's spinner frame (`•` or a blank) and elapsed clock (`4s`,
@@ -789,7 +827,8 @@ AT-LAUNCH-WALK swept read the wire alone and give no pair on either side
   and pass no fewer.
 
 **So no pair that passes on the base fails at the head but
-`workspace-index` `at-plan`, a flake that passes 3 of 3 on the rerun**, and
+`workspace-index` `at-plan`, main's own flip (WORKSPACE-INDEX-AT-PLAN's,
+above), which passes 3 of 3 on the rerun at both trees**, and
 against the units' own sweeps the pairs lower at the head are lower at the
 base too: main's version line. Every other move is a unit's change, or
 run-local text.
@@ -826,15 +865,18 @@ Each with its revert.
   **Revert**: `false`.
 - **`at-plan-run-directory` and `at-ranking-anchor` deleted** (join check
   5; the first as the brief has it). **Revert**: `git revert 8f622949
-  16fff02d`; both then cover nothing, as measured (`anchor.txt`). What
-  `at-plan-run-directory` was written for is still there: `workspace-index`
-  `at-plan` flips on the run directories' random names (4 of 6 head runs
-  pass, "Sweeps"), and nothing covers it, with the cause or without. **Not
-  done here, for the dispatcher**: the cause again with rows the
-  placeholder form matches (`^  <scratch[^>]*>/extra/notes/$`), or its
-  owner's fix (SWEEP-TEMPNAME-STYLE, a fixed run directory name), or the
-  cause's own other fix, a query the folder row matches in its own name
-  (`@plan.md`).
+  16fff02d`. `at-plan-run-directory`'s rows cannot match the placeholder
+  row, so it covers nothing back (join check 5; `anchor.txt` ran at
+  `04e4491d`, after its deletion, and shows the pair passing once without
+  it); `at-ranking-anchor`'s snap passes without it (`anchor.txt`, with the
+  cause still in the ledger). What `at-plan-run-directory` was written for
+  is still there: `workspace-index` `at-plan` flips on the run directories'
+  random names, on main as here ("Sweeps"). **Its owner is
+  WORKSPACE-INDEX-AT-PLAN** (one run path for both sides); its PR also
+  corrects the ledger comment where the cause stood
+  (`scripts/fxcap/parity-ledger.toml:664-672` still calls the snap
+  identical), which this receipt does not touch, so the code head stays
+  `b3dffdad`. The dispatcher's call: train 14 does not wait for it.
 - **Every WRONG reference re-pointed**, the 35 on main and the 2 on
   IMAGE-LOSS' head too, not only the 43 the merges moved (join check 6);
   and the two bare continuations `refs_bare.py` read MOVED (`b3dffdad`),
@@ -848,9 +890,10 @@ Each with its revert.
   every scenario named by a ledger entry a merge or a ledger commit changed,
   every scenario a merge added, the scenarios the re-point's entries name
   (train 13's extra), and every scenario the units' own head sweeps took;
-  `session-record`'s and `stats-bytes`' `*` left out. The head's two
-  sweeps ran at `6bc758a0` and `3a2830fb` (below). **Revert**: a sweep of
-  every scenario at the head and the base.
+  `session-record`'s and `stats-bytes`' `*` left out. Both of the head's
+  sweeps ran at the code head `b3dffdad` (`sweep-runs.txt`, each
+  `run.json`'s `repo_head`). **Revert**: a sweep of every scenario at the
+  head and the base.
 - **`check-merge.sh` without the suite lock**, as train 13. **Revert**:
   run it under the lock.
 - **No join test.** Each meeting is reached by a unit's own cases (join
@@ -861,8 +904,11 @@ Each with its revert.
 - **`src/tools/question.rs:301-305`** says "this crate does not enable
   serde_json's `preserve_order` (`Cargo.toml:42`)", and `Cargo.toml:46`
   enables it (`serde_json = { version = "1.0", features = ["preserve_order"] }`).
-  The claim is out of date, not the number; whether the struct it explains
-  is still needed is that code's owner's (not this train's).
+  The claim is out of date, and at the head the number is too: `:42` is
+  `"http2",` (`content-head.txt`; main's `:42` was serde_json's,
+  `content-dcfa5146.txt`). Both are
+  src after the code head: the re-point, and whether the struct it explains
+  is still needed, are queued as TRAIN14-FOLLOWUPS.
 - **`src/tui/shell.rs:24979-24980`** says a question's too-small refusal is
   read from `released()` "how the existing too-small assertions read it
   (`shell.rs:6178`, `:6384`)". Neither line is a too-small assertion: at
@@ -872,20 +918,58 @@ Each with its revert.
   as `:5816`, `:6004`), they named a `#[test]` line and a blank one there. The one such assertion at the head is
   `:23758-23762`, in `a_screen_too_small_to_show_the_question_refuses_it_and_says_so`;
   which two the comment meant is its writer's.
-- **At a 49-byte TMPDIR (CI's runner's length) three `workspace` pairs
-  fail, on main as at the head** (join check 1, `joins.txt`): the picker
-  cuts the added folder's path with `…` before the run root ends, so
-  `roots.py` finds only the TMPDIR root and leaves the cut run directory's
+- **At a 49-byte TMPDIR three `workspace` pairs fail, on main as at the
+  head** (join check 1; row 27 of each in `joins.txt`): the picker cuts the
+  added folder's path with `…` before the run directory ends, so `roots.py`
+  finds only the capture's TMPDIR root and leaves the cut `fxcap.` name's
   first letters, `/fx…`, which the ledger's `product-name` normalization
-  then reads as `xfx` on fx's side. A CI sweep of those three would read
-  them unresolved. Whose it is (the normalization inside a path, or the
-  root reading a cut path) is for the dispatcher.
+  then reads as `xfx` on fx's side. **Whether CI's sweep would meet it is
+  not known.** 49 bytes is CI's TMPDIR, but CI's sweep runs under
+  `--tmp "$RUNNER_TEMP"` (`.github/workflows/sweep.yml:167`), and
+  WORKSPACE-INDEX-AT-PLAN's receipt reads RUNNER_TEMP from CI's log as 24
+  bytes, which makes CI's run directory 55 wide (its §2,
+  `ci/runner-temp.txt`). Here the run directory is 62 wide at the 24-byte
+  TMPDIR, where the folder stands whole and the three pass, and at 49 bytes
+  the capture's TMPDIR alone is 74 (`joins.txt`). No CI sweep of these
+  three was read for this train. Whose it is (the normalization inside a
+  path, or the root reading a cut path) is for the dispatcher.
 - **The content check reads a bare `:N` on its path's own line only**
   (`refs_content.py`, "on the same line"), so a continuation on the next
   line is `refs_bare.py`'s alone; that is how `b3dffdad`'s two were found.
 - **`refs_content.py` reads `tests/session_compat.rs:57` WRONG** although
   it names commit `14ad04202fe5`'s file correctly: its pattern has no form
   for a commit written before the path.
+
+## Round 2: the reviews of `1a6278e8`
+
+Two gpt6 reviews and one opus review; no MUST. This round is receipt text
+only (this folder), so the code head stays `b3dffdad` and no gate is run
+again (`final-scan.txt` part 4: every commit after it touches this folder
+alone).
+- **opus S1**: the sentence naming `6bc758a0` and `3a2830fb` as the head
+  sweeps' revisions is gone; both ran at `b3dffdad` ("Decisions").
+- **S2**: the scans name both revisions: `final-scan.txt` reads through the
+  receipt's second-to-last commit, the last stores it alone (the opening,
+  the commit table, "Redaction").
+- **S3**: the `at-plan` flip's mechanism, traced by WORKSPACE-INDEX-AT-PLAN
+  on main's code too, and that unit as its owner ("Sweeps", join check 5,
+  "Decisions"). The ledger comment at `parity-ledger.toml:664-672` is that
+  unit's PR's to correct.
+- **S4**: row 27 of the three `workspace` pairs, both sides, both trees,
+  both lengths, is in `joins.txt` (`joins_txt.py`); the claim that CI's
+  sweep would read them unresolved is withdrawn: CI's sweep runs under
+  `$RUNNER_TEMP`, its run directory 55 wide (join check 1, "Found on the
+  way").
+- **S5**: join check 2 names AT-LAUNCH-WALK's three launch-walk cases as
+  the evidence the five sweep runs cannot give (`named.sh`, `named.txt`).
+- **NIT 1**: `question.rs`' `Cargo.toml:42` is wrong at the head in number
+  too. **NIT 4**: of the 790 references 289 are checked. **NIT 5**:
+  `input_row_limit` has 20 call lines (`pages.sh` reads every call now).
+  **NIT 6**: the unkept first `check-merge.sh` run's time is dropped.
+- **Not here, queued as TRAIN14-FOLLOWUPS** (src or tests after the code
+  head): `question.rs:303`'s re-point, the helper's mark assert after C-j
+  when `held`, `session_compat.rs:57`'s pin, `shell.rs:24979-24980`'s pair,
+  and `tests/tui.rs:2600`'s list.
 
 ## Redaction
 
@@ -904,9 +988,12 @@ check** before it was made (`pathcheck.sh`, under `set -o pipefail` and an
 explicit `if`): a merge as the combined diff `git show` prints of it, read
 from a probe commit of the staged tree (`git commit-tree`, on no branch),
 any other commit as its staged lines; and `shapes.py`'s three shapes over
-the staged lines and over every file of this folder. `final-scan.sh` at the
-receipt's last commit (`final-scan.txt`), and the file checks with the
-receipt in its final form (`gates-files.sh`, `gates-files.txt`).
+the staged lines and over every file of this folder. `final-scan.sh`
+through the receipt's second-to-last commit, the one that stores
+`gates-files.txt` (`final-scan.txt` names it; the last commit stores
+`final-scan.txt` alone), and the file checks with the receipt in its
+final form but those two files (`gates-files.sh`, `gates-files.txt`, which
+names the commit it read).
 
 ## Files
 

@@ -3,6 +3,8 @@
 # reads the gate's own two `cargo test` runs through named.py): each test
 # the join checks and the merges' fixes name, its result in each run.
 #   J1   INPUT-ROW-LIMIT's page and cap cases the `@` list meets (main)
+#   J2   (round 2, opus S5) AT-LAUNCH-WALK's own cases of the launch walk,
+#        which tell the head from the base where the sweep's pair cannot
 #   J3   the C-j/C-k meeting under the full transcript: CTRLO-AT-KEYS' cases
 #        (the `@` list), CTRLO-OTHER-PICKERS' (every other picker, the
 #        burst), PAGE-KEYS' (every other list), MCP-C's (`/mcp`'s menu)
@@ -20,6 +22,9 @@ python3 -I -B "$here/named.py" "$logs" \
   J1:at_41_rows_a_page_of_the_at_list_is_19_paths \
   J1:at_41_rows_the_composer_is_capped_at_19_rows_and_a_page_is_19_of_them \
   J1:on_an_eight_row_screen_a_page_and_the_composers_cap_are_one_row \
+  J2:the_launch_starts_the_index_walk_fresh_or_resumed \
+  J2:the_launch_walks_a_root_once_and_an_empty_root_never \
+  J2:a_fresh_sessions_first_at_after_the_launch_walk_is_whole_shows_its_rows_at_once \
   J3:c_j_under_the_full_transcript_is_a_new_line_and_closes_the_list \
   J3:c_k_under_the_full_transcript_kills_to_the_lines_end_and_keeps_the_list \
   J3:tab_under_the_full_transcript_chooses_nothing_and_keeps_the_list \
