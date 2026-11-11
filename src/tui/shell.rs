@@ -23780,6 +23780,56 @@ mod tests {
     }
 
     #[test]
+    fn a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape() {
+        // `ESC ESC` and an arrow is fx's meta-prefixed arrow
+        // (`escape_parser.zig:552-555`, `:561-568`, `:637-644@481104fd`), a
+        // composer move under Alt's arm (`:83-89`) and no Escape: at a
+        // choice it reaches the switch's `else => {}`
+        // (`input_approval_runtime.zig:128`) and the turn goes on, and at a
+        // question's choice Left's move is not `.word_left`, which alone goes
+        // back a question (`input_question_runtime.zig:190-195`).
+        let mut panel = shell(24, 80);
+        asking(&mut panel);
+        let on =
+            |fixture: &Fixture, choice: &str| fixture.marked().contains(&format!("❯ {choice}  "));
+        for key in [
+            &b"\x1b\x1b[A"[..],
+            b"\x1b\x1b[B",
+            b"\x1b\x1b[D",
+            b"\x1b\x1b[C",
+            b"\x1b\x1bOB",
+            b"\x1b\x1b[1;5D",
+        ] {
+            panel.route_bytes(key);
+            panel.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+            assert_eq!(panel.controlled(), None, "{key:?} cancelled the turn");
+            assert!(
+                on(&panel, "1"),
+                "{key:?} moved the choice: {:?}",
+                panel.marked()
+            );
+        }
+
+        let mut fixture = shell(24, 120);
+        asking_question(&mut fixture, a_batch());
+        let on = |fixture: &Fixture, text: &str| {
+            fixture.band_rows().iter().any(|row| row.contains(text))
+        };
+        fixture.route_bytes(b"\t");
+        assert!(on(&fixture, "Ship it?"), "Tab reached the second question");
+        for key in [&b"\x1b\x1b[D"[..], b"\x1b\x1b[A", b"\x1b\x1bOD"] {
+            fixture.route_bytes(key);
+            fixture.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+            assert_eq!(fixture.controlled(), None, "{key:?} cancelled the batch");
+            assert!(
+                on(&fixture, "Ship it?"),
+                "{key:?} moved off the question: {:?}",
+                fixture.band_rows()
+            );
+        }
+    }
+
+    #[test]
     fn a_draft_left_behind_is_not_painted_and_still_travels_with_its_choice() {
         // fx paints a draft only on the choice whose amendment is open
         // (`appendFileApprovalChoiceLabel`, `approval_ui.zig:1181-1193@481104fd`;
