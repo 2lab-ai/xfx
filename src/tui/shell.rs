@@ -25282,18 +25282,16 @@ mod tests {
                 "{name}"
             );
         }
-        // **Not fx's, and labelled so: APPROVAL-PASTE-SPACES' divergence.**
-        // A draft with a line break in it, which xfx's paste keeps and fx's
-        // turns into a space (`normalizeApprovalAmendmentPasteInPlace`,
-        // `input_paste_runtime.zig:19-25`), so fx's draft can never hold one.
-        // Ctrl-Home is the whole draft's start, as fx's `.cursor_home`.
-        // Super-Left is Home there, the caret line's start (`ab\nzcd`), where
-        // fx's `.cursor_home` would be 0 (`src/ui/input/runtime.zig:82`) --
-        // the two agree once APPROVAL-PASTE-SPACES takes the break out; the
-        // amendment's Home is older than this unit.
+        // A paste with a line break in it: fx's paste turns the break into a
+        // space (`normalizeApprovalAmendmentPasteInPlace`,
+        // `input_paste_runtime.zig:19-25`), and so does xfx's
+        // (APPROVAL-PASTE-SPACES), so the draft is one line and Ctrl-Home,
+        // Super-Left and Home all go to 0, as fx's `.cursor_home` does
+        // (`src/ui/input/runtime.zig:82`).
         for (name, key, feedback) in [
-            ("ctrl-home", &b"\x1b[1;5H"[..], "zab\ncd"),
-            ("super-left", b"\x1b[1;9D", "ab\nzcd"),
+            ("ctrl-home", &b"\x1b[1;5H"[..], "zab cd"),
+            ("super-left", b"\x1b[1;9D", "zab cd"),
+            ("home", b"\x1b[H", "zab cd"),
         ] {
             let mut shell = shell(24, 80);
             asking(&mut shell);
@@ -41756,6 +41754,57 @@ mod tests {
             format!("{before}!"),
             "a composer keystroke was swallowed by a question that has gone"
         );
+    }
+
+    #[test]
+    fn a_paste_into_an_amendment_is_one_line_on_either_plane_as_fxs() {
+        // fx's amendment paste turns CR LF, a lone CR, LF and Tab each into
+        // one space (`normalizeApprovalAmendmentPasteInPlace`,
+        // `input_paste_runtime.zig:19-25@481104fd`, for the
+        // `.approval_amendment` owner at `:242-245`), whichever plane the
+        // question is on: both answer through `approval::answered`. Through
+        // the decoder, markers and all, then a typed letter and Enter.
+        let paste = b"\x1b[200~ab\ncd\r\nef\tgh\rij\x1b[201~";
+        let band_shell = {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell
+        };
+        for (plane, mut shell) in [("band", band_shell), ("review", on_the_plane(100))] {
+            shell.route_bytes(b"\t");
+            shell.route_bytes(paste);
+            shell.route_bytes(b"z");
+            let rows = if plane == "band" {
+                shell.shell.band_rows()
+            } else {
+                shell.screen_rows()
+            };
+            assert!(
+                rows.iter().any(|row| row.contains("ab cd ef gh ijz")),
+                "{plane}: the draft is not one line: {rows:?}"
+            );
+            assert!(
+                rows.iter().all(|row| !row.contains(['\r', '\t'])),
+                "{plane}: a CR or a Tab reached a painted row: {rows:?}"
+            );
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some("ab cd ef gh ijz".to_string()),
+                }),
+                "{plane}"
+            );
+        }
+
+        // The composer keeps its paste's breaks and tabs, as fx's does
+        // (`normalizeLineEndingsInPlace` alone for `.composer`, `:238-241`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"\x1b[200~ab\ncd\r\nef\tgh\rij\x1b[201~");
+        assert_eq!(shell.editor.text(), "ab\ncd\nef\tgh\nij");
     }
 
     #[test]

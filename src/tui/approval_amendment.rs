@@ -588,7 +588,10 @@ mod tests {
         // reached the model as `[Pasted text #1, 40 lines]` would be a summary
         // standing in for text the user believes they sent, so a draft assembles
         // its own bytes and mints nothing.
+        // Its line break is a space in the draft
+        // (`a_paste_into_a_draft_is_one_line_as_fxs`).
         let pasted = "the diff is right but rename the flag\nand keep the old name as an alias";
+        let drafted = "the diff is right but rename the flag and keep the old name as an alias";
         let mut drafts = Drafts::default();
         drafts.enter(ALLOW).expect("an eligible choice");
         drafts.edit(Action::PasteStart, COLS);
@@ -597,10 +600,10 @@ mod tests {
         }
         drafts.edit(Action::PasteEnd, COLS);
 
-        assert_eq!(drafts.text(ALLOW), pasted, "the paste is not the draft");
+        assert_eq!(drafts.text(ALLOW), drafted, "the paste is not the draft");
         assert_eq!(
             drafts.blocks(|_| COLS)[0].caret,
-            Some((1, 33)),
+            Some((0, 71)),
             "the caret is not past the pasted text"
         );
         assert_eq!(
@@ -615,9 +618,130 @@ mod tests {
         );
         assert_eq!(
             drafts.submit(ApprovalAnswer::Once),
-            Some(pasted.to_string()),
+            Some(drafted.to_string()),
             "what travels is a summary rather than the text"
         );
+    }
+
+    /// `bytes` pasted into a fresh allow-side draft, byte by byte as the
+    /// decoder hands them on.
+    fn pasted_into(bytes: &[u8]) -> Drafts {
+        let mut drafts = Drafts::default();
+        drafts.enter(ALLOW).expect("an eligible choice");
+        paste(&mut drafts, bytes);
+        drafts
+    }
+
+    /// One bracketed paste of `bytes` into whatever draft has the keys.
+    fn paste(drafts: &mut Drafts, bytes: &[u8]) {
+        drafts.edit(Action::PasteStart, COLS);
+        for byte in bytes {
+            drafts.paste_byte(*byte);
+        }
+        drafts.edit(Action::PasteEnd, COLS);
+    }
+
+    #[test]
+    fn a_paste_into_a_draft_is_one_line_as_fxs() {
+        // fx normalizes an amendment's paste before it is inserted
+        // (`normalizeApprovalAmendmentPasteInPlace`,
+        // `input_paste_runtime.zig:19-25@481104fd`, called for the
+        // `.approval_amendment` owner at `:242-245`): CR LF and a lone CR
+        // become LF (`normalizeLineEndingsInPlace`, `text_utils.zig:82-98`),
+        // and then every LF and every Tab is a space. fx's own case first,
+        // byte for byte (`input_paste_runtime.zig:684-689`).
+        assert_eq!(
+            pasted_into(b"one\r\ntwo\rthree\n\tfour").text(ALLOW),
+            "one two three  four"
+        );
+        for (bytes, drafted) in [
+            (&b"ab\ncd"[..], "ab cd"),
+            (b"ab\r\ncd", "ab cd"),
+            (b"ab\rcd", "ab cd"),
+            (b"ab\tcd", "ab cd"),
+            // One space per break, as `normalizeLineEndingsInPlace` counts
+            // them (`text_utils.zig:1543-1562`): LF CR is two, CR CR LF two.
+            (b"ab\n\rcd", "ab  cd"),
+            (b"ab\r\r\ncd", "ab  cd"),
+            (b"\r\n\r\n", "  "),
+            (b"\t\tab\n", "  ab "),
+            ("é\r\n🙂\r尾\t".as_bytes(), "é 🙂 尾 "),
+            // The bytes between the markers that are not content are dropped
+            // as they arrive (`paste_framing.zig:122-129`: CR, LF, Tab and
+            // every byte from 0x20 up but 0x7f), before the rule above.
+            (b"a\x00b\x03c\x0bd\x0ce\x1bf\x7fg\x08h", "abcdefgh"),
+        ] {
+            let mut drafts = pasted_into(bytes);
+            assert_eq!(drafts.text(ALLOW), drafted, "{bytes:?}");
+            assert_eq!(drafts.take_notice(), None, "{bytes:?}");
+            assert_eq!(
+                caret(&drafts),
+                (0, crate::tui::wrap::width(drafted)),
+                "{bytes:?}: the caret is not past the paste on its one row"
+            );
+        }
+
+        // Pasted into the middle of a draft, at the caret, as any insertion
+        // is (`insertSlice`, `approval_amendment.zig:53-58`).
+        let mut drafts = typed_into(ALLOW, "keepthis");
+        for _ in 0..4 {
+            drafts.edit(Action::Left, COLS);
+        }
+        paste(&mut drafts, b"\r\nand\t");
+        assert_eq!(drafts.text(ALLOW), "keep and this");
+        assert_eq!(caret(&drafts), (0, 9));
+
+        // The deny side's draft is pasted into the same way.
+        let mut drafts = Drafts::default();
+        drafts.enter(DENY).expect("an eligible choice");
+        paste(&mut drafts, b"not\r\nthis");
+        assert_eq!(drafts.text(DENY), "not this");
+        assert_eq!(
+            drafts.submit(ApprovalAnswer::Deny),
+            Some("not this".to_string())
+        );
+    }
+
+    #[test]
+    fn a_paste_is_measured_against_the_budget_after_it_is_normalized() {
+        // fx captures an amendment's paste up to the composer's eight
+        // mebibytes (`beginPaste` gives `.approval_amendment` the
+        // `max_input_len` it is called with, `input_paste_runtime.zig:116-120`,
+        // and that is `input_limits.composer_bytes`,
+        // `app_input_runtime.zig:637-644`), normalizes it, and only then asks
+        // whether it fits the draft's 4096 (`insertAmendmentSlice`'s
+        // `canInsert`, `approval_decision.zig:178-194`; `finishPaste`
+        // is given `decision_bytes`, `app_input_runtime.zig:804-807`,
+        // `paste_framing.zig:28-33`). So a CR LF counts one byte.
+        let held = MAX_FEEDBACK_BYTES - 3;
+        let mut drafts = typed_into(ALLOW, &"x".repeat(held));
+        paste(&mut drafts, b"a\r\nb");
+        assert_eq!(
+            drafts.text(ALLOW).len(),
+            MAX_FEEDBACK_BYTES,
+            "a paste that fits once its CR LF is one space was refused"
+        );
+        assert!(drafts.text(ALLOW).ends_with("xa b"));
+        assert_eq!(drafts.take_notice(), None);
+        // Full now: the next character is refused, in fx's words.
+        drafts.typed('c');
+        assert_eq!(drafts.take_notice(), Some(INPUT_LIMIT));
+        assert_eq!(drafts.text(ALLOW).len(), MAX_FEEDBACK_BYTES);
+
+        // More raw bytes than the budget, fewer once normalized: taken.
+        let mut drafts = pasted_into(&b"\r\n".repeat(MAX_FEEDBACK_BYTES / 2 + 1));
+        assert_eq!(
+            drafts.text(ALLOW),
+            " ".repeat(MAX_FEEDBACK_BYTES / 2 + 1),
+            "a paste was refused on the bytes it arrived as"
+        );
+        assert_eq!(drafts.take_notice(), None);
+
+        // And one byte past it once normalized: refused whole, in fx's words.
+        let mut drafts = typed_into(ALLOW, &"x".repeat(held));
+        paste(&mut drafts, b"a\r\nbc");
+        assert_eq!(drafts.text(ALLOW), "x".repeat(held));
+        assert_eq!(drafts.take_notice(), Some(INPUT_LIMIT));
     }
 
     #[test]

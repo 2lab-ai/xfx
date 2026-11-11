@@ -1,0 +1,60 @@
+# APPROVAL-PASTE-SPACES at a permission question. fx v0.0.16 normalizes a
+# paste into an amendment before it is inserted: CR LF and a lone CR become
+# LF, then every LF and every Tab a space (normalizeApprovalAmendmentPasteInPlace,
+# input_paste_runtime.zig:19-25@481104fd, for the .approval_amendment owner
+# at :242-245). Choice 1's draft: a paste of `ab LF cd CR LF ef Tab gh CR ij`,
+# sent byte for byte with its markers by send-keys -H (tmux's paste-buffer
+# would turn the LF into a CR), then a letter; Super-Left, which is
+# .cursor_home there, and a letter; End and a paste through tmux's own
+# paste-buffer, whose LF arrives as a CR. Then choice 3's draft and the budget,
+# which is judged after the paste is normalized (insertAmendmentSlice,
+# approval_decision.zig:178-194): 4093 bytes, a paste of `a CR LF b` that fits
+# once its CR LF is one space, a letter past the budget, and a paste of a CR
+# LF past it, each refused in fx's words (input_limit_feedback.zig:35-41).
+# The turns, the workspace and the settings are approvals.cap's.
+fx: gateway approvals-fx.json
+xfx: gateway approvals-xfx.json
+work approvals-ws
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type edit the files
+key Enter
+wait 3
+snap asked
+key Tab
+wait 0.4
+key -H 1b 5b 32 30 30 7e 61 62 0a 63 64 0d 0a 65 66 09 67 68 0d 69 6a 1b 5b 32 30 31 7e
+wait 1
+snap amend-pasted
+type z
+wait 0.4
+snap amend-letter
+key -H 1b 5b 31 3b 39 44
+wait 0.4
+type y
+wait 0.4
+snap amend-super-left
+cursor amend-super-left
+key End
+wait 0.4
+paste  and\tthe\nrest
+wait 1
+snap amend-terminal-paste
+key Down Down
+wait 0.4
+key Tab
+wait 0.4
+pastex 4093
+wait 2
+snap deny-held
+key -H 1b 5b 32 30 30 7e 61 0d 0a 62 1b 5b 32 30 31 7e
+wait 1
+snap deny-fits
+type c
+wait 1
+snap deny-letter-refused
+key -H 1b 5b 32 30 30 7e 0d 0a 1b 5b 32 30 31 7e
+wait 1
+snap deny-paste-refused
