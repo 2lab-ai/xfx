@@ -1,0 +1,93 @@
+---- a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing stdout ----
+
+thread 'a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing' (58795) panicked at tests/support/pty.rs:409:13:
+timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal so far:
+␛[>4;2m␛[>1u␛[?2004h␛[?7l␛[?2031h␛[22;2t␛]11;?␛\␛[?996n␛[6n␛]2;xfx v0.2.0 | workspace␇␛]7501;state=idle:app=xfx␛\␛[?2026h␛[?25l␛[1;1H␛[1;38;5;255mx𝒇x␛[0m␛[38;5;245m v0.2.0 (debug 2026-11-11-0131-1012f4184171) · Run /help for commands␛[0m␛[K␛[2;1H␛[K␛[2;1H␛[K␛[3;1H␛[K␛[3;1H␛[38;5;252m! ␛[0m␛[38;5;252minput:␛[0m␛[38;5;250m Input that arrived right after the paste was ignored.␛[0m␛[K␛[4;1H␛[K␛[4;1H␛[K␛[5;1H␛[J␛[5;1H␛[38;5;255m┃␛[0m x␛[7;1H␛[38;5;252mauto␛[0m␛[38;5;245m · glm-5.2␛[0m␛[5;4H␛[?2026l␛[?25h␛[?2026h␛[?25l␛[5;1H␛[K␛[5;1H␛[38;5;252m! ␛[0m␛[38;5;252minput:␛[0m␛[38;5;250m Keys ignored until input stops.␛[0m␛[K␛[6;1H␛[K␛[6;1H␛[K␛[7;1H␛[38;5;255m┃␛[0m x␛[K␛[9;1H␛[38;5;252mauto␛[0m␛[38;5;245m · glm-5.2␛[0m␛[7;4H␛[?2026l␛[?25h␛[?2026h␛[?25l␛[7;1H␛[K␛[7;1H␛[38;5;252m! ␛[0m␛[38;5;252minput:␛[0m␛[38;5;250m Keys ignored until input stops.␛[0m␛[K␛[8;1H␛[K␛[8;1H␛[K␛[9;1H␛[38;5;255m┃␛[0m x␛[K␛[11;1H␛[38;5;252mauto␛[0m␛[38;5;245m · glm-5.2␛[0m␛[9;4H␛[?2026l␛[?25h␛[?2026h␛[?25l␛[9;1H␛[K␛[9;1H␛[38;5;252m! ␛[0m␛[38;5;252minput:␛[0m␛[38;5;250m Keys ignored until input stops.␛[0m␛[K␛[10;1H␛[K␛[10;1H␛[K␛[11;1H␛[38
+[... 202555 characters cut ...]
+␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020081␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020091␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020101␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020111␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020121␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020131␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020141␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020151␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020161␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020171␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020181␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020191␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020201␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020211␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020221␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020231␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020241␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020251␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020261␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020271␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020281␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020291␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020301␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020311␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020321␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020331␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020341␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020351␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020361␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020371␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020381␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020391␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020401␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020411␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020421␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020431␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020441␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020451␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[40;1H
+␛[33;1H␛[38;5;255m┃␛[0m ␛[1mK00020461␛[0m␛[K␛[40;1H
+␛[33;1H␛[K␛[34;1H␛[38;5;252m• Thinking (5s)␛[0m␛[38;5;245m (↑3 ↓0)␛[36;1H┋ K00019041␛[38;1H␛[0m␛[38;5;255m┃␛[0m z␛[40;1H␛[38;5;250mone prompt is already queued; this one was not sent␛[0m␛[38;4H␛[?2026l␛[?25h␛[?2026h␛[?25l␛[34;1H␛[38;5;252m⚠ Provider unavailable · HTTP 500: fake server: unscripted request · retrying request in 1s␛[0m␛[38;4H␛[?2026l␛[?25h␛[?2026h␛[?25l␛[34;1H␛[K␛[34;1H␛[38;5;252m✗ ␛[0m␛[38;5;252msystem:␛[0m␛[38;5;250m the Gateway returned HTTP 500: fake server: unscripted request␛[0m␛[K␛[35;1H␛[K␛[35;1H␛[K␛[40;1H
+␛[35;1H␛[38;5;255m┃␛[0m ␛[1mK00019041␛[0m␛[K␛[40;1H
+␛[35;1H␛[K␛[36;1H ␛[38;5;252m Thinking (0s)␛[0m␛[38;5;245m (↑3 ↓0)␛[38;1H␛[0m␛[38;5;255m┃␛[0m z␛[K␛[40;1H␛[38;5;250mone prompt is already queued; this one was not sent␛[0m␛[38;4H␛[?2026l␛[?25h␇␛[?2026h␛[?25l␛[36;1H␛[38;5;252m⚠ Provider unavailable · HTTP 500: fake server: unscripted request · retrying request in 1s␛[0m␛[38;4H␛[?2026l␛[?25h␛[?2026h␛[?25l␛[36;86H␛[K␛[38;4H␛[?2026l␛[?25h␛[?2026h␛[?25l␛[36;86H␛[38;5;252m in 1s␛[0m␛[38;4H␛[?2026l␛[?25h␛]7501;state=error:app=xfx␛\␛[?2026h␛[?25l␛[36;1H␛[K␛[36;1H␛[38;5;252m✗ ␛[0m␛[38;5;252msystem:␛[0m␛[38;5;250m the Gateway returned HTTP 500: fake server: unscripted request␛[0m␛[K␛[37;1H␛[K␛[37;1H␛[K␛[38;4H␛[?2026l␛[?25h␇
+
+---- the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out stdout ----
+
+thread 'the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out' (64133) panicked at tests/tui.rs:857:5:
+the keystroke's working went ahead of the frame that shows it: "␛[>4;2m␛[>1u␛[?2004h␛[?7l␛[?2031h␛[22;2t␛]11;?␛\\␛[?996n␛[6n␛]2;xfx v0.2.0 | workspace␇␛]7501;state=idle:app=xfx␛\\␛[?2026h␛[?25l␛[1;1H␛[1;38;5;255mx𝒇x␛[0m␛[38;5;245m v0.2.0 (debug 2026-11-11-0131-1012f4184171) · Run /help for commands␛[0m␛[K␛[2;1H␛[K␛[2;1H␛[K␛[3;1H␛[J␛[3;1H␛[38;5;255m┃␛[0m ␛[5;1H␛[38;5;252mauto␛[0m␛[38;5;245m · glm-5.2␛[0m␛[3;3H␛[?2026l␛[?25h␛[?2026h␛[?25l␛[3;1H␛[K␛[3;1H␛[38;5;255m┃␛[0m ␛[1msay the marker␛[0m␛[K␛[4;1H␛[K␛[4;1H␛[K␛[5;1H␛[38;5;255m┃␛[0m ␛[K␛[7;1H␛[38;5;252mauto␛[0m␛[38;5;245m · glm-5.2␛[0m␛[5;3H␛[?2026l␛[?25h␛[?2026h␛[?25l␛[5;1H␛[38;5;252m• Generating (0s)␛[0m␛[38;5;245m (↑4 ↓5)␛[7;1H␛[0m␛[38;5;255m┃␛[0m ␛[K␛[9;1H␛[38;5;252mauto␛[0m␛[38;5;245m · glm-5.2␛[0m␛[7;3H␛[?2026l␛[?25h␛]7501;state=working:app=xfx␛\\␛]7501;state=done:app=xfx␛\\␛]2;say the marker␇␛[?2026h␛[?25l␛[5;1H␛[K␛[5;1H  MARKER-STATUS␛[K␛[6;1H␛[K␛[6;1H␛[K␛[7;1H␛[K␛[7;1H␛[38;5;245m  0s (↑4 ↓5)␛[0m␛[K␛[8;1H␛[K␛[8;1H␛[K␛[9;1H␛[38;5;255m┃␛[0m ␛[K␛[11;1H␛[38;5;252mauto␛[0m␛[38;5;245m · glm-5.2␛[0m␛[9;3H␛[?2026l␛[?25h␇"
