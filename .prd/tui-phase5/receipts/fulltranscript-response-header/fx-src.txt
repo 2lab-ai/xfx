@@ -1432,7 +1432,7 @@
   192          } });
   193      }
 
-## src/core/app/app_commands.zig:2675-2690
+## src/core/app/app_commands.zig:2675-2747
  2675  noinline fn writeTranscriptTimeline(writer: *std.Io.Writer, alloc: std.mem.Allocator, entries: anytype) !void {
  2676      var emitted_any = false;
  2677      for (entries) |entry| {
@@ -1449,3 +1449,214 @@
  2688              .semantic_notice => "semantic notice",
  2689          };
  2690          const text: []const u8 = switch (entry) {
+ 2691              .raw_bytes => |e| e.bytes,
+ 2692              .user_turn => |e| e.turn.text,
+ 2693              .assistant_turn => |e| e.segments.text.items,
+ 2694              .assistant_table => |e| blk: {
+ 2695                  var table_text: std.ArrayList(u8) = .empty;
+ 2696                  errdefer table_text.deinit(alloc);
+ 2697                  try assistant_presentation.renderTablePayload(alloc, e.table, &table_text);
+ 2698                  rendered_payload = try table_text.toOwnedSlice(alloc);
+ 2699                  break :blk rendered_payload.?;
+ 2700              },
+ 2701              .assistant_code_block => |e| blk: {
+ 2702                  var code_text: std.ArrayList(u8) = .empty;
+ 2703                  errdefer code_text.deinit(alloc);
+ 2704                  try assistant_presentation.renderCodeBlockPayload(alloc, e.block, &code_text);
+ 2705                  rendered_payload = try code_text.toOwnedSlice(alloc);
+ 2706                  break :blk rendered_payload.?;
+ 2707              },
+ 2708              .assistant_thematic_rule => blk: {
+ 2709                  var rule_text: std.ArrayList(u8) = .empty;
+ 2710                  errdefer rule_text.deinit(alloc);
+ 2711                  try assistant_presentation.writeHorizontalRule(alloc, &rule_text);
+ 2712                  rendered_payload = try rule_text.toOwnedSlice(alloc);
+ 2713                  break :blk rendered_payload.?;
+ 2714              },
+ 2715              .semantic_notice => |e| blk: {
+ 2716                  const rendered = try transcript_blocks.renderSemanticNotice(
+ 2717                      alloc,
+ 2718                      .{
+ 2719                          .topic = e.topic,
+ 2720                          .tone = e.tone,
+ 2721                          .body = e.body,
+ 2722                          .visibility = e.visibility,
+ 2723                      },
+ 2724                      .{},
+ 2725                      std.math.maxInt(u16),
+ 2726                  );
+ 2727                  rendered_payload = rendered;
+ 2728                  break :blk rendered;
+ 2729              },
+ 2730          };
+ 2731          if (text.len == 0) continue;
+ 2732  
+ 2733          const body = switch (entry) {
+ 2734              .assistant_thematic_rule => try renderThematicRuleTimelineBody(alloc, text),
+ 2735              else => try renderTimelineEntryBody(alloc, text),
+ 2736          };
+ 2737          defer alloc.free(body);
+ 2738          if (body.len == 0) continue;
+ 2739  
+ 2740          if (emitted_any) try writer.writeByte('\n');
+ 2741          try writeTraceTimestampUtc(writer, ts);
+ 2742          try writer.print(" {s}\n", .{kind});
+ 2743          try writer.writeAll(body);
+ 2744          emitted_any = true;
+ 2745      }
+ 2746      if (!emitted_any) try writer.writeAll("(empty after filtering)\n");
+ 2747  }
+
+## src/core/agent/runtime/assistant_stream.zig:666-670
+  666  }
+  667  
+  668  fn isTrimmedAssistantPrefixByte(byte: u8) bool {
+  669      return byte == ' ' or byte == '\t' or byte == '\r' or byte == '\n';
+  670  }
+
+## src/core/agent/runtime/orchestrator.zig:7308-7325
+ 7308  
+ 7309          debug_trace.logf("agent", "step start step={d} limit={d} messages={d}", .{ current_step_index, config.agent_step_limit, gateway_instructions.items.len + gateway_messages.items.len });
+ 7310          debug_trace.eventf("agent", "step_begin", step_ctx, "step_index={d} step_limit={d} gateway_messages={d}", .{ current_step_index, config.agent_step_limit, gateway_instructions.items.len + gateway_messages.items.len });
+ 7311  
+ 7312          var stream_ctx = runtime_assistant_stream.StreamChunkContext{
+ 7313              .hooks = deps,
+ 7314              .flush_assistant_stream_per_content_chunk = deps.flush_assistant_stream_per_content_chunk,
+ 7315              .semantic_presentation = semantic_presentation,
+ 7316              .token_progress = &summary_accumulator,
+ 7317              .turn_id = turn_id,
+ 7318              .step_id = step_ctx.step_id,
+ 7319              .response_language_expected = response_language_expectation,
+ 7320              .response_language_hold_until_completion = response_language_hold_until_completion,
+ 7321              .provisional_statuses = .{
+ 7322                  .presentation_group_id = presentation_group_id,
+ 7323              },
+ 7324          };
+ 7325          defer stream_ctx.deinit();
+
+## src/ui/transcript/store.zig:1301-1323
+ 1301  fn appendSemanticNoticeEntry(
+ 1302      self: anytype,
+ 1303      alloc: Allocator,
+ 1304      notice: types.SemanticNotice,
+ 1305      pending_replacement: bool,
+ 1306  ) !u32 {
+ 1307      std.debug.assert(notice.body.len > 0);
+ 1308  
+ 1309      const owned = try types.dupeSemanticNotice(alloc, notice);
+ 1310      errdefer types.freeSemanticNotice(alloc, owned);
+ 1311      const entry_id = self.next_entry_id;
+ 1312      try self.entries.append(alloc, .{ .semantic_notice = .{
+ 1313          .id = entry_id,
+ 1314          .created_at_ms = io_mod.milliTimestamp(),
+ 1315          .topic = owned.topic,
+ 1316          .tone = owned.tone,
+ 1317          .body = owned.body,
+ 1318          .visibility = owned.visibility,
+ 1319          .pending_replacement = pending_replacement,
+ 1320      } });
+ 1321      self.next_entry_id +%= 1;
+ 1322      return entry_id;
+ 1323  }
+
+## src/ui/full_transcript_screen.zig:5886-5897
+ 5886  
+ 5887      fn skipEntry(
+ 5888          context: *anyopaque,
+ 5889          entry: transcript_blocks.TranscriptEntry,
+ 5890          entry_index: usize,
+ 5891      ) bool {
+ 5892          const self = fromOpaque(context);
+ 5893          self.entry_index = entry_index;
+ 5894          if (self.entryAction(entry) == .hide) return true;
+ 5895          if (self.source_index.renderableCommandBlockIndexForEntry(entry.id()) != null) return false;
+ 5896          if (self.source_index.commandSourceOwned(entry.id())) return true;
+ 5897          return false;
+
+## src/ui/transcript/tool_group_projection.zig:52-57
+   52      fn setOwnedGroup(self: *Projection, alloc: std.mem.Allocator, index: usize, group: GroupBlock) !void {
+   53          errdefer alloc.free(group.lines);
+   54          try self.setOwnedOverride(alloc, index, .tool_status, group.bytes);
+   55          self.owned_overrides.items[self.owned_overrides.items.len - 1].line_provenance = group.lines;
+   56          self.entry_actions.items[index].override.line_provenance = group.lines;
+   57      }
+
+## src/ui/transcript/tool_group_projection.zig:235-251
+  235  fn statusNamesAsk(entry: TranscriptEntry, detail: ?*const ToolDetailRecord) bool {
+  236      if (detail) |record| {
+  237          return record.activity_kind == .ask or
+  238              std.mem.eql(u8, record.tool_name, "ask_user_question");
+  239      }
+  240      return switch (entry) {
+  241          .raw_bytes => |raw| rawStatusNamesAskTool(raw.bytes),
+  242          else => false,
+  243      };
+  244  }
+  245  
+  246  fn isAttachedEntry(entry: TranscriptEntry) bool {
+  247      return switch (entry) {
+  248          .raw_bytes => |raw| raw.class == .command_output or raw.class == .diff_block,
+  249          else => false,
+  250      };
+  251  }
+
+## src/ui/transcript/tool_group_projection.zig:948-962
+  948  fn hideAttachedRows(
+  949      entries: []const TranscriptEntry,
+  950      entry_actions: []transcript_blocks.EntryRenderAction,
+  951      status_index: usize,
+  952  ) void {
+  953      var index = status_index + 1;
+  954      while (index < entries.len) : (index += 1) {
+  955          if (toolStatusEntryId(entries[index]) != null) break;
+  956          if (isAttachedEntry(entries[index])) {
+  957              entry_actions[index] = .hide;
+  958              continue;
+  959          }
+  960          if (!isTransparentCompactEntry(entries[index])) break;
+  961      }
+  962  }
+
+## src/ui/transcript/tool_group_projection.zig:1321-1335
+ 1321          if (presentation_group_indices[index]) |group_index| {
+ 1322              const group = &presentation_groups.items[group_index];
+ 1323              if (index != group.anchor_index) {
+ 1324                  projection.entry_actions.items[index] = .hide;
+ 1325                  index += 1;
+ 1326                  continue;
+ 1327              }
+ 1328              for (group.status_indices.items) |status_index| {
+ 1329                  projection.entry_actions.items[status_index] = .hide;
+ 1330                  hideAttachedRows(
+ 1331                      entries,
+ 1332                      projection.entry_actions.items,
+ 1333                      status_index,
+ 1334                  );
+ 1335              }
+
+## src/ui/transcript/tool_group_projection.zig:1355-1359
+ 1355          const detail = detailForEntry(details, &detail_indices, entry_id, stats);
+ 1356          if (statusNamesAsk(entries[index], detail)) {
+ 1357              index += 1;
+ 1358              continue;
+ 1359          }
+
+## src/ui/transcript/tool_group_projection.zig:1366-1383
+ 1366          while (index < entries.len) : (index += 1) {
+ 1367              try build_checkpoint.tick(checkpoint);
+ 1368              if (!transcript_blocks.isEntryVisibleInCompactPresentation(entries[index])) continue;
+ 1369              if (presentation_group_indices[index] != null) break;
+ 1370              if (toolStatusEntryId(entries[index])) |group_entry_id| {
+ 1371                  const group_detail = detailForEntry(details, &detail_indices, group_entry_id, stats);
+ 1372                  if (statusNamesAsk(entries[index], group_detail)) break;
+ 1373                  observeTool(&summary, group_detail);
+ 1374                  try status_indices.append(alloc, index);
+ 1375                  projection.entry_actions.items[index] = .hide;
+ 1376                  continue;
+ 1377              }
+ 1378              if (isAttachedEntry(entries[index])) {
+ 1379                  projection.entry_actions.items[index] = .hide;
+ 1380                  continue;
+ 1381              }
+ 1382              if (!isTransparentCompactEntry(entries[index])) break;
+ 1383          }

@@ -93,3 +93,15 @@ change p5-transcript-md-light/full-pgup: unresolved-defect -> unresolved-defect;
 base: 178 pairs, 111 pass, 5 with uncaused rows
 head: 178 pairs, 111 pass, 2 with uncaused rows
 drops: 0
+
+# Round 2: session-record-page-bottom's xfx_row without its `|^$` alternative (ledger.py classifies no blank text, :366-367; account covers none, :421). Each sweep rescored with round 1's final ledger and with round 2's; pairs.json byte-identical on both sides (cmp).
+## base: round 1's ledger against round 2's
+base: 178 pairs, 94 pass, 19 with uncaused rows
+head: 178 pairs, 94 pass, 19 with uncaused rows
+drops: 0
+pairs.json: byte-identical
+## head: round 1's ledger against round 2's
+base: 178 pairs, 111 pass, 2 with uncaused rows
+head: 178 pairs, 111 pass, 2 with uncaused rows
+drops: 0
+pairs.json: byte-identical

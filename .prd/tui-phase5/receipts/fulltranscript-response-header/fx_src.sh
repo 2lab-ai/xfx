@@ -65,8 +65,27 @@ ranges=(
   src/core/app/app_session_runtime.zig:4720-4805
   src/ui/transcript/resume_projection.zig:76-78
   src/ui/transcript/resume_projection.zig:150-193
-  # `/trace`'s names for the entries.
-  src/core/app/app_commands.zig:2675-2690
+  # `/trace`'s names for the entries, and the entries it lists (round 2:
+  # the whole function, its skip of an entry with no text).
+  src/core/app/app_commands.zig:2675-2747
+  # Round 2 (opus SHOULD 1): until a step shows visible text, fx skips the
+  # leading space, tab, CR and LF of each chunk and drops a chunk that is
+  # nothing else; the stream's context is built afresh for every step. A
+  # notice is an entry appended at the store's tail.
+  src/core/agent/runtime/assistant_stream.zig:666-670
+  src/core/agent/runtime/orchestrator.zig:7308-7325
+  src/ui/transcript/store.zig:1301-1323
+  # Round 2 (NIT 3): which entries the full projection skips (and marks):
+  # the entries the tool-group projection hides -- a group's later
+  # statuses, a call's attached output and diff rows -- and a command's
+  # owned source; a question's status is kept.
+  src/ui/full_transcript_screen.zig:5886-5897
+  src/ui/transcript/tool_group_projection.zig:52-57
+  src/ui/transcript/tool_group_projection.zig:235-251
+  src/ui/transcript/tool_group_projection.zig:948-962
+  src/ui/transcript/tool_group_projection.zig:1321-1335
+  src/ui/transcript/tool_group_projection.zig:1355-1359
+  src/ui/transcript/tool_group_projection.zig:1366-1383
 )
 {
   echo "# fx v0.0.16 ($pin), every line this receipt cites, as git show $pin:<path> prints it, numbered."

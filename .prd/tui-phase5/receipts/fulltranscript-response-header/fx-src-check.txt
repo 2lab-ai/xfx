@@ -1,2 +1,2 @@
-# { git diff 3f2d6e78 -- src tests scripts/fxcap/scenarios | grep "^+"; git diff --word-diff=porcelain 3f2d6e78 -- docs/parity.md | grep "^+"; } | fx_src.sh <fx checkout>   (README.md read too)
-61 citations checked, 0 outside fx-src.txt's ranges
+# { git diff 3f2d6e78 -- src tests scripts/fxcap/scenarios | grep "^+"; git diff --word-diff=porcelain 3f2d6e78 -- docs/parity.md | grep "^+"; } | fx_src.sh <fx checkout>   (README.md read too; round 2)
+105 citations checked, 0 outside fx-src.txt's ranges

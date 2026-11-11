@@ -277,10 +277,13 @@ ledger's refs into it (`ctrl-o-drawn-wider-named`, `answer-drawn-wider-named`,
 `answer-label-and-modifier-named`, `answer-modifier-sequence-wider`; the
 fifth, `ctrl-o-command-marks` at `fn detail_spelled`, stands above the
 change). MODIFIED-PAGE-KEYS' `refs.py`, with `full_transcript` among its
-files and those entries' texts, read 21 checked, 4 wrong; `--fix`
-re-pointed them, and it reads **21 checked, 0 wrong** (`refs.txt`). The
+files and those entries' texts, read 22 checked, 4 wrong; `--fix`
+re-pointed them, and it reads **22 checked, 0 wrong** (`refs.txt:23`). The
+22nd is new: `session-record-page-bottom`'s `src/tui/shell.rs:42649`, which
+has no base ref (`refs.txt:10`). (Round 1 wrote 21 here; opus r1 NIT 1.) The
 shell tests land below every ref into `src/tui/shell.rs`. `docs/parity.md`'s
-row stays on line 238.
+row stays on line 238. Round 2 moves the same four again (below,
+`refs-r2.txt`).
 
 ## `docs/parity.md`
 
@@ -291,16 +294,125 @@ first text after the block came, so an answer that is only a block has no
 `Response` header and one that ends in a block none after it, and `/trace`
 lists each block under fx's name.
 
+## Round 2 (opus r1's SHOULD 1 and NITs 1-6; both r1 reviews had no MUST)
+
+| commit | what |
+|---|---|
+| `92a8f9b3` | RED: the round's tests (the reading place, an indented and an unclosed block, the blank rows around a block, the shell test without its blank-row filter); no non-test change |
+| `58b7ee2b` | **round 2's code head**: `measure` marks no entry that lays out as nothing; `/trace`'s match names every `Event` variant; two citations at the pin (one in a test comment) |
+| `996011b2` | one test comment names the file of its bare `:2114`; comment only |
+| the commits after | `docs/parity.md`, the ledger (NIT 2, the four refs again), this folder; no `src/` change |
+
+**SHOULD 1, the open item, rewritten.** At the pin fx never stores a line
+break that opens a step: until a step's stream shows visible text it skips
+each chunk's leading space, tab, CR and LF and drops a chunk that is nothing
+else (`assistant_stream.zig:402-410`, the set at `:668-669`), and the stream's
+context is built inside the step loop (`orchestrator.zig:7312`), so a step
+after a call starts with nothing seen. xfx's return for line breaks after a
+non-answer entry (`presented`, `src/tui/full_transcript.rs:1645-1647`)
+matches it there. The case that remains: **mid-step, after visible text and
+then a notice**. The notice is an entry at the store's tail
+(`store.zig:1301-1322`); a chunk that renders only a line break -- the
+presenter holding nothing, as after a blank line or a list line (a blank
+line is `processLine` plus one `\n`, `assistant_presentation.zig:416-417`) --
+is pushed (`assistant_stream.zig:457-459`), reaches the store through the
+pacer (`main.zig:2552-2555`) and, finding no assistant entry at the tail,
+opens one stamped then (`store.zig:3088-3095`, `:3141-3143`); the prose after
+it joins it. xfx opens nothing for it and stamps the run with the prose. Only
+the moments differ: the rows are the same (the head's line breaks trimmed,
+`transcript_blocks.zig:2004`), the entry has no header while it holds only
+them (`:2114`), and the step's visible text already closed any tool group.
+It is "Left apart" below and in `docs/parity.md:238`. This also closes
+gpt6 r1's NTH (a call, a blank line, then text), which rested on the old
+paragraph: that case is the same on both.
+
+**NIT 1**: the refs paragraph above says 22, as `refs.txt:23` does, and names
+the new one.
+
+**NIT 2**: `session-record-page-bottom`'s `xfx_row` is
+`'^  A list that starts at nine:$'`, its `|^$` dropped: `classify` reads no
+blank text (`scripts/fxcap/ledger.py:366-367`) and `account` covers none
+(`:421`). Both sweeps rescored with round 1's final ledger and with round
+2's give byte-identical `pairs.json` (`sweep-compare.txt`, its round-2
+block).
+
+**NIT 3, the reading place of an entry that lays out as nothing.** fx's full
+presentation marks an entry where it writes its header, after the separator
+(`transcript_blocks.zig:2116-2117`), and an entry its projection skips, before
+the separator it skips (`:2087-2090`); an entry that renders nothing it
+passes over unmarked (`:2114`). `skipEntry` (`full_transcript_screen.zig:
+5886-5897`) skips what the tool-group projection hides and a command's owned
+source: a group's later statuses, which its first draws whole
+(`tool_group_projection.zig:1366-1383`, `:1321-1335`, `setOwnedGroup`
+`:52-57`), and a call's attached output and diff rows (`isAttachedEntry`
+`:246-251`, `hideAttachedRows` `:948-962`). In xfx none of those is an entry
+of its own: each call draws its own rows from its group's block, its output
+and diff with it. The xfx entries that lay out as nothing are line breaks
+alone after a block (fx's renders-nothing path), a question's call (fx keeps
+and draws its status, `tool_group_projection.zig:1355-1359`; its `● Asked`
+is under a `Tool` header, the ledger's `question-resume-ctrlo-detail`) and a
+file change while it runs (no row in fx yet, `src/tui/toolgroup.rs:297-303`,
+capture `fx-approvals-40x120-write-ask`). So xfx marks none of them now
+(`measure`, `src/tui/full_transcript.rs`, round 2's diff), within the brief's
+bound (+29/-12 in two files with the citations and doc, the mark itself
+-1 line).
+The RED test: a reader on the blank row under a block that re-wraps keeps
+fx's place across a width change, in the block that many rows down rather
+than on the separator, for the line breaks after a block and for a running
+write (`an_entry_that_lays_out_as_nothing_is_no_place_to_hold_a_reader_as_upstreams_is_not`).
+
+**NIT 4**: `/trace`'s label match names `Table`, `CodeBlock`, `ThematicRule`
+and `Text` (never made: prose is a `Response`) with no fallback, so a new
+`Event` variant does not compile until it is named.
+
+**NIT 5**: `src/trace.rs` `timeline` cites `writeTranscriptTimeline` at
+`app_commands.zig:2675-2747@481104fd` (it was c1db9191's `3475-3567`, no pin);
+`src/tui/full_transcript.rs`'s two `metadataKind` citations (in `content` and
+in a test comment) are `full_transcript_screen.zig:6028-6056@481104fd` (they
+were c1db9191's `5867-5895`).
+
+**NIT 6**: `an_indented_code_block_and_a_block_the_stream_ends_split_the_answer_as_fences_do`
+(an indented block completed by the line after it, which opens and stamps
+the next run, `assistant_presentation.zig:283-286`; a fence and a table the
+stream's end closes, `:254-256`); `the_rows_around_a_block_are_one_blank_row_each_as_the_document_has_them`
+(the record's rows, blank rows included, for lead, two blocks a blank line
+apart, prose and the summary); and the shell test now compares the record's
+rows with the document's without filtering blank rows.
+
+**RED → GREEN** (`red-r2.txt`, `green-r2.txt`): over round 1's code the
+reading-place test fails (`red-r2.txt`: the reader lands on `""`); the three
+other new or changed tests pass there, as they pin round 1's split, and
+fail under the base's reading (mutant M1, below). At round 2's code head all
+pass.
+
+**Mutants** (`mutants.py`, `mutants-r2.txt`): on a `git clone --no-local`
+at `58b7ee2b`, under the lock, **9 of 9 killed**, the clone's tree clean
+after the run: round 1's six again (M6 on the label match that now names
+every variant) and three for round 2's lines. M7 (every entry that lays out
+as nothing is a reading place again, round 1's code) and M8 (a call that
+lays out as nothing is one) are killed by the reading-place test alone --
+M8 by its running-write case, the line-breaks case having no call; M9
+(`/trace` names a rule `assistant`) by the `/trace` test. M1 (the base's
+reading) is now also killed by the indented/unclosed test and the
+blank-rows test, which pass over round 1's code: the RED those two need is
+against the base's reading.
+
+**Sweep** (`sweep-head2.md`, `sweep-compare.txt`): in the commit after the
+one that adds this section.
+
+**Gate** (`gate-r2.txt`): in the commit after the one that adds this
+section; it runs on that one.
+
 ## Left apart
 
-- **A line break after a call** still opens nothing, as
-  `answer_text_breaks_a_group_and_a_notice_does_not` pins: fx's store would
-  open an empty assistant entry there too, and the text after it would join
-  it, so fx's `Response` after a call carries the line break's moment and
-  xfx's the first prose's, a tick later [추론, from `store.zig:3088-3095`
-  and `:3141-3143`; no capture shows it, the moments being masked]. Not
-  copied here: the rule also keeps a tool group open across the break, and
-  whether fx's group survives an empty entry is not this unit's to read.
+- **A line break mid-step, after a notice** (round 2; see "Round 2"
+  below for the source): fx's store opens an assistant entry for it,
+  stamped then, and the prose after it joins that entry; xfx opens nothing
+  until the prose, so the `Response` over that prose carries a later moment
+  here. Only the moments differ: the entry renders the same rows (its head's
+  line breaks trimmed), has no header while it holds only them, and a step's
+  visible text has already closed any tool group before it. The moments are
+  masked in every pair, so no capture shows it.
 - **Where the pacer stands**: fx paces the rendered text between its
   presenter and its store, xfx paces the raw text before its presenter, so
   an entry's moment may differ by a pacer tick on the two; the moments are

@@ -9,7 +9,11 @@ could split an answer otherwise than fx's store does: M1 the base's reading
 entry headed `Response`, M3 a blank line after a block opening nothing (the
 run then stamped at its first prose), M4 a block opening a `Response` entry
 of its own, M5 a block's entry laid out as nothing, M6 `/trace` naming every
-block `assistant`."""
+block `assistant`.
+Round 2, at its code head: the six again (M6 on the label match that now
+names every variant) and three for the round's lines -- M7 every entry that
+lays out as nothing is a reading place again (round 1's code), M8 a call
+that lays out as nothing is one, M9 `/trace` names a rule `assistant`."""
 import os, subprocess, sys, time
 repo, out = sys.argv[1], sys.argv[2]
 mut = os.path.join(os.environ["TMPDIR"].rstrip("/"), "mut")
@@ -24,7 +28,9 @@ PUSHED = "            Body::Structure(event.clone())\n"
 LAID = "                written(answer(std::slice::from_ref(event), cols, palette)),\n"
 NAMES = ('                        Body::Structure(markdown::Event::Table(_)) => "assistant table",\n'
          '                        Body::Structure(markdown::Event::CodeBlock(_)) => "assistant code block",\n'
-         '                        Body::Structure(_) => "assistant thematic rule",\n')
+         '                        Body::Structure(markdown::Event::ThematicRule) => "assistant thematic rule",\n')
+RULE = '                        Body::Structure(markdown::Event::ThematicRule) => "assistant thematic rule",\n'
+EMPTY = "            if rows.is_empty() {\n                continue;\n            }\n            if total > 0 {\n"
 MUTANTS = [
     ("M1 a block joins the open run, and the text after it with it (the base's reading)", F, JOIN,
      "            }) => {\n                events.push(event.clone());\n"),
@@ -35,7 +41,15 @@ MUTANTS = [
      "            Body::Response(vec![event.clone()])\n"),
     ("M5 a block's entry lays out as nothing", F, LAID, "                written(Vec::new()),\n"),
     ("M6 /trace names every block assistant", F, NAMES,
-     '                        Body::Structure(_) => "assistant",\n'),
+     '                        Body::Structure(markdown::Event::Table(_) | markdown::Event::CodeBlock(_) | markdown::Event::ThematicRule) => "assistant",\n'),
+    # Round 2.
+    ("M7 every entry that lays out as nothing is a reading place (round 1's code)", F, EMPTY,
+     "            if rows.is_empty() {\n                items.push(ItemRow { id, row: total });\n                continue;\n            }\n            if total > 0 {\n"),
+    ("M8 a call that lays out as nothing is a reading place", F, EMPTY,
+     "            if rows.is_empty() {\n                if matches!(entry.body, Body::Tool(_)) {\n"
+     "                    items.push(ItemRow { id, row: total });\n                }\n                continue;\n            }\n            if total > 0 {\n"),
+    ("M9 /trace names a rule assistant", F, RULE,
+     '                        Body::Structure(markdown::Event::ThematicRule) => "assistant",\n'),
 ]
 TESTS = [
     ["cargo", "test", "--locked", "--lib", "--", "tui::full_transcript::tests",

@@ -1,0 +1,9 @@
+# Round 2 RED: the round's tests over round 1's code (07b00d43's src with only the tests added), cargo test --locked --lib
+
+test tui::full_transcript::tests::the_rows_around_a_block_are_one_blank_row_each_as_the_document_has_them ... ok
+test tui::full_transcript::tests::an_indented_code_block_and_a_block_the_stream_ends_split_the_answer_as_fences_do ... ok
+test tui::full_transcript::tests::an_entry_that_lays_out_as_nothing_is_no_place_to_hold_a_reader_as_upstreams_is_not ... FAILED
+test tui::shell::tests::an_answers_blocks_split_its_ctrl_o_record_and_leave_its_document_as_it_was ... ok
+thread 'tui::full_transcript::tests::an_entry_that_lays_out_as_nothing_is_no_place_to_hold_a_reader_as_upstreams_is_not' (530952273) panicked at src/tui/full_transcript.rs:5037:13:
+  left: ""
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 4795 filtered out; finished in 0.01s

@@ -12,7 +12,9 @@ MODIFIED-PAGE-KEYS' copy, run against this unit's base (3f2d6e78), with
 src/tui/full_transcript.rs among the files: this unit adds lines there (the
 record's block entry, `presented`, its tests) above five of the ledger's refs
 into it, and `--fix` writes their new numbers. The base ref's own text is
-printed beside each.
+printed beside each. Round 2 ran it against round 1's head (07b00d43): its
+lines in `measure` and `/trace`'s match move the same four again
+(`refs-r2.txt`).
 
 usage: python3 -I refs.py <base rev> [--fix]   (from the repo root)
 Prints one line per ref and `refs: N checked, M wrong`; --fix writes the
