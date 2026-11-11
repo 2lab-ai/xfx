@@ -75,6 +75,10 @@
 # GATE-ENV-MAINTLOCK-F adds: the decoy's own setup leaving git's
 # auto-maintenance running in the decoy, which a case then blamed on its gate.
 #
+# LOCAL-PATHS-EXIT-TRAP adds: check-xfx-identity.sh, test-check-no-secrets.sh
+# and test-preview-contract.sh stopped right after they install their EXIT
+# trap, which under bash 3.2 exited 0.
+#
 # Requires git, ruby (check-preview-contract.sh) and rustc (build.rs), and a
 # user that cannot read a mode-000 file (not root).
 
@@ -106,7 +110,16 @@ sg() {
 }
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-gate-env.XXXXXX")"
-trap 'rm -rf "$work"' EXIT HUP INT TERM
+# A run that stops before its last line fails: under bash 3.2 a script
+# stopped by an error of its own (an unset variable under `set -u`) leaves
+# through its EXIT trap with the trap's status, 0, and would read as a pass.
+# Any exit before `finished=1` keeps the status bash gives it, or is 1 where
+# bash gives 0.
+# No trap on HUP, INT or TERM: one there ran the cleanup and went on without
+# its scratch directory; without one the shell runs this trap and dies of the
+# signal.
+finished=0
+trap 'stopped=$?; rm -rf "$work"; [ "$finished" = 1 ] || exit "$((stopped == 0 ? 1 : stopped))"' EXIT
 
 failures=0
 passed=0
@@ -821,13 +834,13 @@ ruby -ryaml -e '
 	reached = Hash.new { |h, k| h[k] = [] }
 	job["steps"].each do |step|
 		run = step["run"].to_s
-		%w[test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths].each do |script|
+		%w[test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths test-early-stop].each do |script|
 			next unless run.include?("./scripts/#{script}.sh")
 			reached[script] |= runs_on.(step).map { |row| row["runner"] }
 			reached["test-check-no-secrets"] |= runs_on.(step).map { |row| row["runner"] } if script == "test-gate-env"
 		end
 	end
-	%w[test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths].each do |script|
+	%w[test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths test-early-stop].each do |script|
 		runners = reached[script]
 		state = runners.any? { |r| r.start_with?("macos") } && runners.any? { |r| r.start_with?("ubuntu") } ? "covers" : "MISSING"
 		puts "#{state}\t#{script}: #{runners.sort.join(", ")}"
@@ -955,8 +968,52 @@ if [ "$nested" != ok ]; then
 fi
 rm -f "${ran:?}"/* "${trace:?}"
 
+# --- a gate that stops early -------------------------------------------------
+#
+# A `trap` from BASH_ENV installs the gate's EXIT trap and then stops the gate
+# there: by reading a variable no one sets, under its `set -u`, or by sending
+# it SIGTERM. Under bash 3.2 the first left through the trap with status 0, a
+# pass that looked at nothing; a trap on TERM ran its cleanup and went on.
+# Each must exit with the status bash gives it (1, and 143 for the signal),
+# the stop must have fired, and no ok line may follow. The file unsets
+# BASH_ENV, so only the gate reads it. check-no-secrets.sh's and
+# check-preview-contract.sh's cases are in their own tests, this file's and
+# smoke.sh's in test-early-stop.sh.
+# shellcheck disable=SC2016 # the file's own expansions
+printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	: "$xfx_test_unset"' '}' >"$work/stop-unset.env"
+printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	printf "early stop: SIGTERM\n" >&2' \
+	'	kill -TERM $$' '	printf "early stop: still running\n" >&2' '}' >"$work/stop-term.env"
+for gate in check-xfx-identity test-check-no-secrets test-preview-contract; do
+	for row in "unset|1|xfx_test_unset: unbound variable" "term|143|early stop: SIGTERM"; do
+		stop="${row%%|*}"
+		want="${row#*|}"
+		fired="${want#*|}"
+		want="${want%%|*}"
+		name="$gate-stopped-$stop"
+		status=0
+		# Its stderr dropped: bash names the command a signal ended, paths and
+		# all.
+		{ env BASH_ENV="$work/stop-$stop.env" "./scripts/$gate.sh" </dev/null >"$work/$name.log" 2>&1 ||
+			status=$?; } 2>/dev/null
+		if [ "$status" -ne "$want" ]; then
+			problem "$name: the gate exited $status, expected $want; its last lines:"
+			tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
+		elif ! grep -q -F -e "$fired" "$work/$name.log"; then
+			problem "$name: the stop never fired: no '$fired'; its last lines:"
+			tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
+		elif grep -q -e "^$gate: ok" -e '^early stop: still running' "$work/$name.log"; then
+			problem "$name: the gate ran on past the stop; its last lines:"
+			tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
+		else
+			printf 'test-gate-env: ok %-30s %s\n' "$name" "exit $status"
+			passed=$((passed + 1))
+		fi
+	done
+done
+
 if [ "$failures" -ne 0 ]; then
 	printf 'test-gate-env: %d problem(s), %d case(s) passed\n' "$failures" "$passed" >&2
 	exit 1
 fi
 printf 'test-gate-env: ok (%d cases)\n' "$passed"
+finished=1

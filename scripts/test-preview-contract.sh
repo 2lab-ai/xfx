@@ -15,7 +15,9 @@
 # runs the contract check against the copy, and requires exit 1 together with
 # the problem that names that break: a mutant caught for some other reason is
 # not proof the check for this one works. An unbroken copy has to pass first,
-# or every "caught" mutant could be the harness failing everything.
+# or every "caught" mutant could be the harness failing everything. And the
+# unbroken copy, stopped right after the check installs its EXIT trap, must
+# fail: a check that stops early must not pass.
 #
 # Requires what the contract check requires: ruby and git.
 
@@ -32,7 +34,16 @@ cd "$repo_root"
 
 check="$repo_root/scripts/check-preview-contract.sh"
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-preview-mutants.XXXXXX")"
-trap 'rm -rf "$work"' EXIT HUP INT TERM
+# A run that stops before its last line fails: under bash 3.2 a script
+# stopped by an error of its own (an unset variable under `set -u`) leaves
+# through its EXIT trap with the trap's status, 0, and would read as a pass.
+# Any exit before `finished=1` keeps the status bash gives it, or is 1 where
+# bash gives 0.
+# No trap on HUP, INT or TERM: one there ran the cleanup and went on without
+# its scratch directory; without one the shell runs this trap and dies of the
+# signal.
+finished=0
+trap 'stopped=$?; rm -rf "$work"; [ "$finished" = 1 ] || exit "$((stopped == 0 ? 1 : stopped))"' EXIT
 
 failures=0
 caught=0
@@ -267,9 +278,44 @@ root="$(tree_for epoch-crlf)"
 printf 'phase4\r\n' >"$root/.github/preview-epoch"
 expect epoch-crlf "$root" '.github/preview-epoch is "phase4\r\n"'
 
+# --- a check that stops early ------------------------------------------------
+#
+# A `trap` from BASH_ENV installs the check's EXIT trap and then stops the
+# check there: by reading a variable no one sets, under its `set -u`, or by
+# sending it SIGTERM. Under bash 3.2 the first left through the trap with
+# status 0, a pass; the second ran the trap's cleanup and went on. Each must
+# exit with the status bash gives it (1, and 143 for the signal), the stop
+# must have fired, and nothing may run past it. The file unsets BASH_ENV, so
+# only the check reads it.
+# shellcheck disable=SC2016 # the file's own expansions
+printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	: "$xfx_test_unset"' '}' >"$work/stop-unset.env"
+printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	printf "early stop: SIGTERM\n" >&2' \
+	'	kill -TERM $$' '	printf "early stop: still running\n" >&2' '}' >"$work/stop-term.env"
+for row in "unset|1|xfx_test_unset: unbound variable" "term|143|early stop: SIGTERM"; do
+	stop="${row%%|*}"
+	want="${row#*|}"
+	fired="${want#*|}"
+	want="${want%%|*}"
+	status=0
+	# Its stderr dropped: bash names the command a signal ended, paths and all.
+	{ BASH_ENV="$work/stop-$stop.env" "$check" "$control/.github/workflows/preview.yml" "$control" \
+		>"$work/stopped-$stop.log" 2>&1 || status=$?; } 2>/dev/null
+	if [ "$status" -ne "$want" ] || ! grep -Fq -- "$fired" "$work/stopped-$stop.log" ||
+		grep -q -e '^check-preview-contract: ok' -e '^early stop: still running' "$work/stopped-$stop.log"; then
+		printf 'test-preview-contract: stopped-%s: the check exited %d, expected %d, with %s and nothing after the stop\n' \
+			"$stop" "$status" "$want" "'$fired'" >&2
+		sed 's/^/  /' "$work/stopped-$stop.log" >&2
+		failures=$((failures + 1))
+	else
+		printf 'test-preview-contract: caught %-28s exit %d\n' "stopped-$stop" "$status"
+		caught=$((caught + 1))
+	fi
+done
+
 if [ "$failures" -ne 0 ]; then
 	printf 'test-preview-contract: %d mutant(s) not caught, %d caught\n' "$failures" "$caught" >&2
 	exit 1
 fi
 
 printf 'test-preview-contract: ok (%d mutants caught; the unbroken copy passes)\n' "$caught"
+finished=1

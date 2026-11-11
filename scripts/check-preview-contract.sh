@@ -954,7 +954,16 @@ fi
 # --- the freshness comparator, executed rather than asserted -----------------
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-preview-contract.XXXXXX")"
-trap 'rm -rf "$work"' EXIT HUP INT TERM
+# A run that stops before its last line fails: under bash 3.2 a script
+# stopped by an error of its own (an unset variable under `set -u`) leaves
+# through its EXIT trap with the trap's status, 0, and would read as a pass.
+# Any exit before `finished=1` keeps the status bash gives it, or is 1 where
+# bash gives 0.
+# No trap on HUP, INT or TERM: one there ran the cleanup and went on without
+# its scratch directory; without one the shell runs this trap and dies of the
+# signal.
+finished=0
+trap 'stopped=$?; rm -rf "$work"; [ "$finished" = 1 ] || exit "$((stopped == 0 ? 1 : stopped))"' EXIT
 
 ruby -ryaml - "$workflow" >"$work/publish.sh" <<'RUBY'
 document = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: true)
@@ -1193,3 +1202,4 @@ if [ "$failures" -ne 0 ]; then
 fi
 
 printf 'check-preview-contract: ok (%s)\n' "$workflow"
+finished=1

@@ -51,7 +51,8 @@ jobs:
       #
       # `script_tests` marks one row per OS for the tests of the gate scripts
       # themselves (test-gate-env.sh, which runs test-check-no-secrets.sh,
-      # test-preview-contract.sh and test-check-no-local-paths.sh). They exercise the OS's bash, grep, git
+      # test-preview-contract.sh, test-check-no-local-paths.sh and
+      # test-early-stop.sh). They exercise the OS's bash, grep, git
       # and getconf -- bash 3.2 and BSD grep on macOS, GNU grep on Linux --
       # and build nothing for the target, so a second row of the same OS
       # repeats them on the same userland. On the x86_64 macOS row they would
@@ -212,6 +213,15 @@ jobs:
       - name: The preview contract catches every mutant it exists for
         if: matrix.script_tests
         run: ./scripts/test-preview-contract.sh
+
+      # Under bash 3.2, the macOS rows' bash, a gate script stopped by an
+      # error of its own left through its EXIT trap with status 0: a pass
+      # that looked at nothing. Every gate script with an EXIT trap now fails
+      # such a stop. This stops test-gate-env.sh and smoke.sh right after they
+      # install theirs; the other gates' cases are in their own tests.
+      - name: A gate script that stops early fails
+        if: matrix.script_tests
+        run: ./scripts/test-early-stop.sh
 
       # The TUI output check runs in front of every frame a released binary
       # writes, so its cost is a property of the product rather than a number in
