@@ -254,7 +254,8 @@ replaced, not added). No catalog-wait failure came up.
 
 The ledger's refs into the files this unit changes, checked by content
 against the base (`refs.py 3f2d6e78`): 11 of 16 moved and `--fix` re-pointed
-them; 16 checked, 0 wrong.
+them; 16 checked, 0 wrong. Round 2's tests moved six of them again, and
+`--fix` re-pointed those (`refs.txt` is the round-2 run: 16 checked, 0 wrong).
 
 ## Parity (`docs/parity.md`)
 
