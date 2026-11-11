@@ -17,8 +17,14 @@ Passing jobs' tests/tui.rs run time, seconds, by suite size (the suite grew 175 
 - failing jobs (PTY test failed): plain n=7, min 57.3, median 73.0, max 84.5; fault injector n=5, min 60.4, median 77.9, max 83.5
 - jobs read: 50 completed aarch64-apple-darwin gate jobs, 41 passing
 
-Added after the 50-job sweep, on the coordinator's word: the same test on another row.
+After the 50-job sweep: the 12 most recent CI runs again (`gh api .../actions/workflows/ci.yml/runs`,
+2026-11-11 09:40Z), every macOS gate job of the runs and attempts the sweep had not read. Of those that
+completed: aarch64-apple-darwin 7 passed, 2 failed, 2 cancelled; x86_64-apple-darwin checks 8 passed,
+1 failed, 3 cancelled (release: 10 passed, 1 failed on `The @ search still fits inside a frame` in
+run 42971215970, a step of the other rows' too and not a PTY test). The PTY failures:
 
-| run / attempt | job | head | failing step | test | what failed | tests/tui.rs run (fault injector) |
+| run / attempt | job | head | row, failing step | test | what failed | tests/tui.rs run |
 |---|---|---|---|---|---|---|
-| 42958837984 / 1 | 130320282880 | 88226763 | Tests, with the fault injector (x86_64-apple-darwin, checks) | `a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing` | 20 s wait for `┃ xz`: the paste body was typed as keys | 61.7 s (202 passed, 1 failed) |
+| 42958837984 / 1 | 130320282880 | 88226763 | x86_64-apple-darwin checks, Tests, with the fault injector | `a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing` | 20 s wait for `┃ xz`: the paste body was typed as keys | 61.7 s (202 passed, 1 failed) |
+| 42971215970 / 1 | 130359885817 | 12ea7867 | aarch64-apple-darwin, Tests | `the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out` | assert: reports were [idle, done], no `working` | 72.3 s (187 passed, 1 failed) |
+| 42986458620 / 1 | 130408681868 | 44c9d87f (release/v0.2.0, PR #96) | aarch64-apple-darwin, Tests | `the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out` | assert: reports were [idle, done], no `working` | 72.8 s (188 passed, 1 failed) |

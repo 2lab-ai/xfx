@@ -18,7 +18,7 @@ exposes, one is the harness pausing under load, and one is not timing at all.**
 
 | test | CI failures | cause | layer fixed |
 |---|---|---|---|
-| `the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out` | 5 of 50 jobs (PR #94: 3 of 3 attempts) | **product** (§2a): one drain could read a prompt's turn start, its answer and its end, so the session reported `idle`, `done` with no `working`, or wrote `working` behind a frame showing `Generating`. fx cannot do either: its keystroke holds the worker's start until it has reported `working`. | `src/tui/event_loop.rs`, `src/tui/shell.rs` |
+| `the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out` | 5 of 50 jobs (PR #94: 3 of 3 attempts), and 2 more since: PR #96 (release) and run 42971215970 (`ci/table.md`, last table) | **product** (§2a): one drain could read a prompt's turn start, its answer and its end, so the session reported `idle`, `done` with no `working`, or wrote `working` behind a frame showing `Generating`. fx cannot do either: its keystroke holds the worker's start until it has reported `working`. | `src/tui/event_loop.rs`, `src/tui/shell.rs` |
 | `a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing` | 1 of 50, and 1 on the x86_64-apple-darwin row (job 130320282880) | **harness under load** (§2b): the paste body was typed as keys (measured, `ci/hostile-keys.txt`). The TUI does that only after a 50 ms quiet inside the paste, and the harness is the terminal: its writer thread, when not scheduled for that long, writes that quiet. Recipe B reproduces it at base, with the writer's pause measured on every failing run. Which way it happened on CI is [inferred]: the CI logs do not show the writer's gap. | `tests/support/pty.rs`, `tests/tui.rs` |
 | `slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network` | 1 of 50 | **test, not timing** (§2c): `$foo` also searches each skill's path, and the sandbox root is `.tmp` plus 6 random letters and digits. A root whose name holds `foo` lists every skill. | `tests/tui.rs` |
 | `ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes` | 1 of 50 (2026-11-08, at `fdc5ac0b`) | not reproduced at base (§2d). `31b38c84` (2026-11-09) changed how a stopped compaction settles between that head and base; that this is the fix is [inferred]. | none |
@@ -47,8 +47,9 @@ exposes, one is the harness pausing under load, and one is not timing at all.**
 ### 2a. `working` skipped, or written before any `Thinking` frame: a product defect
 
 What the failures show (`ci/excerpts/`):
-- Jobs `128812788998`, `129416346998` and `130270115640` (tests/tui.rs:852):
-  the reports were `[idle, done]`, with no `working` at all.
+- Jobs `128812788998`, `129416346998` and `130270115640` (tests/tui.rs:852),
+  and since the sweep `130359885817` and `130408681868` (PR #96): the reports
+  were `[idle, done]`, with no `working` at all.
 - Jobs `130258279160` and `130276081022` (tests/tui.rs:857): the frame before
   `working` shows `• Generating (0s) (↑4 ↓5)`, no frame ever painted
   `Thinking`, and `working` and `done` came back to back.
@@ -213,18 +214,22 @@ load is the tests' own beside the machine's other suites.
   machine's other work comes first), 3 builds × 5 tests × 3 copies, so 45 at
   once, for 6 rounds. Base is the fault-injection binary at `dcfa5146`, head is
   at `a77fad76`. `local/recipe-b/`
-- **Recipe B, again**: the same recipe for 2 rounds, head at `7b524d78`.
-  `local/recipe-b2/`
+- **Recipe B, again (B2)**: the same recipe for 2 rounds, 2026-11-11
+  09:55–10:02Z, head = the test binary at `765f9170` (`c601ef29` adds docs
+  only). The machine's load averages at its end were 22.6 / 60.5 / 63.6
+  (`local/recipe-b2/failures.txt`, first line), several times recipe B's. In
+  every build, sessions then spent their 20 s budgets on the launch, the fake
+  gateway's answer or the permission panel. `local/recipe-b2/`
 
 Failures out of runs (`rates.md` in each folder):
 
-| test | A: base | A: head | B: base | B: head (`a77fad76`) | B2: base | B2: head (`7b524d78`) |
+| test | A: base | A: head | B: base | B: head (`a77fad76`) | B2: base | B2: head (`765f9170`) |
 |---|---|---|---|---|---|---|
-| status between frames | 0 / 20 | 0 / 20 | 0 / 18 | 0 / 18 | RUN4_STATUS |
-| hostile paste, types nothing | 0 / 20 | 0 / 20 | 18 / 18 (body typed as keys) | 18 / 18 (16 "no session tested the paste", 2 write bound) | RUN4_TYPES |
-| hostile paste, answers no approval | 0 / 20 | 0 / 20 | 18 / 18 (body typed as keys) | 18 / 18 ("no session tested the paste") | RUN4_APPROVAL |
-| slash skills | 0 / 20 | 0 / 20 | 0 / 18 | 0 / 18 | RUN4_SKILLS |
-| compaction Ctrl-C | 0 / 20 | 0 / 20 | 0 / 18 | 0 / 18 | RUN4_COMPACTION |
+| status between frames | 0 / 20 | 0 / 20 | 0 / 18 | 0 / 18 | 0 / 6 | 2 / 6 (both a 20 s wait for the answer, `MARKER-STATUS`; neither the :852 nor the :857 assert) |
+| hostile paste, types nothing | 0 / 20 | 0 / 20 | 18 / 18 (body typed as keys) | 18 / 18 (16 "no session tested the paste", 2 write bound) | 6 / 6 (5 write bound, 1 launch wait) | 6 / 6 (all "no session tested the paste") |
+| hostile paste, answers no approval | 0 / 20 | 0 / 20 | 18 / 18 (body typed as keys) | 18 / 18 ("no session tested the paste") | 6 / 6 (5 write bound, 1 wait for the permission panel) | 6 / 6 (5 waits for the permission panel, before any paste; 1 "no session tested the paste") |
+| slash skills | 0 / 20 | 0 / 20 | 0 / 18 | 0 / 18 | 0 / 6 | 0 / 6 |
+| compaction Ctrl-C | 0 / 20 | 0 / 20 | 0 / 18 | 0 / 18 | 5 / 6 (20 s waits for a turn's answer or the launch) | 4 / 6 (20 s waits for a turn's answer) |
 
 What the rates show:
 - **Hostile paste.** In recipe B, base fails every run with CI's symptom. Head
@@ -235,8 +240,15 @@ What the rates show:
   (§2a).
 - **Slash skills.** It is not a timing failure, so its RED is the foo-named
   `TMPDIR` (§2c), deterministic at base.
-- The breakdown of every recipe B failure is in
-  `local/recipe-b/failures.txt` (and `local/recipe-b2/failures.txt`).
+- **B2** discriminates nothing. Every failure, in every build, is a 20 s
+  budget spent on something no fix here touches -- the launch, a turn's answer,
+  the permission panel, the write bound -- or the harness's own "no session
+  tested the paste". None is the status test's :852 or :857 assert, and none
+  is head typing a paste that never paused. The study build, which carries the
+  product fix, failed the status test 2 / 6 waiting for its first frame.
+- The breakdown of every recipe B failure is in `local/recipe-b/failures.txt`;
+  B2's, with the panic location and message of each, in
+  `local/recipe-b2/failures.txt`.
 
 ## 4. Mutants — `mutants.txt`, `mutants.py`, `mutants-r1.txt`
 
@@ -257,9 +269,11 @@ What the rates show:
   the pause at the end. The two differ only in time and in the write bound,
   which no unit case observes.
 
-## 5. Gate — `gate.txt`, `gates.sh`
+## 5. Gate — `gate.txt`, `gates.sh` (and `gate-a70dcd89.txt`)
 
-`gates.sh` ran in the worktree at `a70dcd89`, under the suite lock, once:
+`gates.sh` ran once on a `git clone --no-local` snapshot at `c601ef29` (the
+product fix and every test commit; only the receipt changed after it), under
+the suite lock, 10:02–10:10Z (`gate.txt`):
 - fmt, clippy and clippy with the fault injector: clean.
 - `cargo test --no-fail-fast`, plain and with the fault injector: no failure
   (`tests/tui.rs` 192 and 206 cases). There was no catalog-wait failure to
@@ -267,11 +281,8 @@ What the rates show:
 - `check-xfx-identity.sh`, `check-no-stubs.sh`, `check-no-secrets.sh`,
   `check-no-local-paths.sh`: exit 0.
 
-Later commits:
-- `a77fad76` added one unit case; `gate.txt`'s tail has fmt, both clippys and
-  the `tui::shell` module rechecked at it.
-- `7b524d78` changed only `paste_unpaced` and its two callers. fmt, both
-  clippys and the five hostile-paste and harness cases pass at it.
+An earlier full gate, at `a70dcd89`, also passed (`gate-a70dcd89.txt`, with the
+subset rechecks made at `a77fad76` and `7b524d78`).
 
 ## Open questions
 

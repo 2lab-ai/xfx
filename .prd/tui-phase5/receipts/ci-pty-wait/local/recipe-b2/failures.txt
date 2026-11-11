@@ -1,0 +1,20 @@
+recipe B2 failures (run 2026-11-11 09:55-10:02Z, load averages at its end 22.60 60.46 63.59 by `uptime`),
+by build, test, panic location and message (from each run's own log):
+ 5  base   a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval  tests/support/pty.rs:368: the terminal never accepted input
+ 1  base   a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval  tests/support/pty.rs:409: timed out waiting for "Permission needed" on the terminal
+ 5  base   a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing  tests/support/pty.rs:368: the terminal never accepted input
+ 1  base   a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing  tests/support/pty.rs:409: timed out waiting for "\u{1b}[?2004h" on the terminal
+ 1  base   ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes  tests/support/pty.rs:409: timed out waiting for "MARKER-ONE" on the terminal
+ 3  base   ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes  tests/support/pty.rs:409: timed out waiting for "MARKER-THREE" on the terminal
+ 1  base   ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes  tests/support/pty.rs:409: timed out waiting for "\u{1b}[?2004h" on the terminal
+ 5  head   a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval  tests/support/pty.rs:427: timed out waiting for "Permission needed" on the terminal
+ 1  head   a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval  tests/tui.rs:3497: each of 3 pastes paused for 50ms or more (...): the harness was not scheduled while it wrote, and the TUI ends a paste's
+ 6  head   a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing  tests/tui.rs:3497: each of 3 pastes paused for 50ms or more (...): the harness was not scheduled while it wrote, and the TUI ends a paste's
+ 3  head   ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes  tests/support/pty.rs:427: timed out waiting for "MARKER-ONE" on the terminal
+ 1  head   ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes  tests/support/pty.rs:427: timed out waiting for "MARKER-THREE" on the terminal
+ 2  head   the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out  tests/support/pty.rs:427: timed out waiting for "MARKER-STATUS" on the terminal
+ 5  study  a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval  tests/support/pty.rs:385: the terminal never accepted input
+ 1  study  a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval  tests/support/pty.rs:427: timed out waiting for ["❯ 2  "] on the screen, [] off it
+ 6  study  a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing  tests/support/pty.rs:385: the terminal never accepted input
+ 3  study  ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes  tests/support/pty.rs:427: timed out waiting for "MARKER-THREE" on the terminal
+ 2  study  the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out  tests/support/pty.rs:427: timed out waiting for "\u{1b}[?2026l\u{1b}[?25h" on the terminal
