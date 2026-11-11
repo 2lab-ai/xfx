@@ -1,0 +1,43 @@
+# python3 -I scope.py red   (the base b3a19ed against fx v0.0.16)
+SAME  edit-ask              (22 rows compared)
+SAME  edit-ctrl-underscore  (22 rows compared)
+SAME  edit-ctrl-w           (22 rows compared)
+DIFF  edit-ctrl-y           1 rows differ
+      fx:  '  ❯ 1  Apply once, ab  '
+      xfx: '  ❯ 1  Apply once, ab cd '
+DIFF  edit-kitty-ctrl-y     1 rows differ
+      fx:  '  ❯ 1  Apply once, ab  '
+      xfx: '  ❯ 1  Apply once, ab cd '
+SAME  edit-super-shift-z    (22 rows compared)
+DIFF  edit-super-z          1 rows differ
+      fx:  '  ❯ 1  Apply once, ab  '
+      xfx: '  ❯ 1  Apply once, ab cd '
+DIFF  edit-tab-enter        20 rows differ
+      fx:  '● 1 tool call · 1 read'
+      xfx: '● 2 tool calls · 1 read · 1 edit'
+      fx:  '└ Read a.txt'
+      xfx: '├ Read a.txt'
+      fx:  ''
+      xfx: '└ Edited a.txt +1 / -1'
+SAME  edit-typed            (22 rows compared)
+DIFF  write-ask             20 rows differ
+      fx:  '● 2 tool calls · 1 read · 1 edit'
+      xfx: '● 4 tool calls · 1 read · 1 write · 1 edit · 1 command'
+      fx:  '└ Edited a.txt +1 / -1'
+      xfx: '├ Edited a.txt +1 / -1'
+      fx:  ''
+      xfx: '├ Wrote c.txt +2'
+5 of 10 pairs identical once the grant scope's rows are set aside
+
+# python3 -I scope.py xfx   (the head 09077f5 against fx v0.0.16)
+SAME  edit-ask              (22 rows compared)
+SAME  edit-ctrl-underscore  (22 rows compared)
+SAME  edit-ctrl-w           (22 rows compared)
+SAME  edit-ctrl-y           (22 rows compared)
+SAME  edit-kitty-ctrl-y     (22 rows compared)
+SAME  edit-super-shift-z    (22 rows compared)
+SAME  edit-super-z          (22 rows compared)
+SAME  edit-tab-enter        (22 rows compared)
+SAME  edit-typed            (22 rows compared)
+SAME  write-ask             (23 rows compared)
+10 of 10 pairs identical once the grant scope's rows are set aside

@@ -1,0 +1,50 @@
+# the brief's gate, once, under the machine suite lock (suite-lock.sh) with TMPDIR=<tmp> (a short dir), at the code head; each step's exit status and seconds
+  head 9dd02bc3 (want 9dd02bc3); src and tests vs HEAD: 0 changed
+  fmt exit 0 (2s)
+  clippy exit 0 (12s)
+  clippy-fi exit 0 (32s)
+  test exit 0 (162s)
+  test-fi exit 0 (229s)
+  identity exit 0 (1s)
+  stubs exit 0 (12s)
+  secrets exit 0 (71s)
+  after: src and tests vs HEAD: 0 changed
+
+# test: every 'test result' line
+test result: ok. 4654 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 59.33s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.90s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.63s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.75s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.19s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.32s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.32s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.46s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.59s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.16s
+test result: ok. 186 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.54s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+# total: 15 result lines; passed 5576, failed 0, ignored 7
+
+# test-fi: every 'test result' line
+test result: ok. 4677 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 70.95s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.72s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.05s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.98s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.13s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.56s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.63s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.13s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+test result: ok. 200 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.40s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+# total: 15 result lines; passed 5613, failed 0, ignored 7
+
+# after the receipt was staged (git ls-files lists the index): scripts/check-no-secrets.sh exit 0 (75s), "check-no-secrets: ok (18168 tracked file(s) scanned)"
+# at 88530fb6, the receipt committed: scripts/check-xfx-identity.sh exit 0 (1s), "check-xfx-identity: ok (18168 tracked file(s) scanned)"; scripts/check-no-stubs.sh exit 0 (11s), "check-no-stubs: ok"

@@ -1,0 +1,43 @@
+# python3 -I cmp_sweeps.py <base pairs.json> <head pairs.json>: sweep.sh --only '*approval*' --only composer-keys --only question-field, 40x120, --jobs 4, this branch's scenarios and ledger at round 2 (the scenario with its Down Up Enter step), base binary v0.1.0-a37a969 then round 2's head v0.1.0-c0300f1, one suite-lock slot
+change p5-approval-readiness-settled/cmd-ask: unresolved-defect -> unresolved-defect; causes ['tool-schema'] -> ['approval-grant-scope', 'tool-schema']; uncaused 25 -> 0
+change p5-approval-readiness-settled/cmd2-ask: unresolved-defect -> unresolved-defect; causes ['tool-schema'] -> ['approval-grant-scope', 'tool-schema']; uncaused 24 -> 0
+change p5-approval-readiness-settled/edit-down-enter: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 19 -> 0
+change p5-approval-readiness-settled/edit-down-up-enter: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope', 'tool-schema'] -> ['approval-grant-scope']; uncaused 25 -> 0
+change p5-approval-readiness-settled/edit-left-enter: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope', 'tool-schema'] -> ['approval-grant-scope']; uncaused 24 -> 0
+change p5-approval-readiness-settled/end: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 12 -> 0
+change p5-approval-readiness-settled/write-ask: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 21 -> 0
+change p5-approval-readiness-settled/write-letter-enter: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 25 -> 0
+change p5-approval-readiness-settled/write-super-up-enter: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 27 -> 0
+base: 109 pairs, 20 pass, 12 with uncaused rows
+head: 109 pairs, 21 pass, 3 with uncaused rows
+drops: 0
+
+# pairs with uncaused rows, per side, and every pair of the unit's scenario (scenario label verdict causes uncaused-count)
+base p5-approval-readiness-settled edit-ask unresolved-defect ['approval-grant-scope'] 0
+base p5-approval-readiness-settled edit-down-enter unresolved-defect ['approval-grant-scope'] 19
+base p5-approval-readiness-settled edit-left-enter unresolved-defect ['approval-grant-scope', 'tool-schema'] 24
+base p5-approval-readiness-settled edit-down-up-enter unresolved-defect ['approval-grant-scope', 'tool-schema'] 25
+base p5-approval-readiness-settled write-ask unresolved-defect ['approval-grant-scope'] 21
+base p5-approval-readiness-settled write-letter-enter unresolved-defect ['approval-grant-scope'] 25
+base p5-approval-readiness-settled write-super-up-enter unresolved-defect ['approval-grant-scope'] 27
+base p5-approval-readiness-settled cmd-ask unresolved-defect ['tool-schema'] 25
+base p5-approval-readiness-settled cmd2-ask unresolved-defect ['tool-schema'] 24
+base p5-approval-readiness-settled cmd2-down-enter unresolved-defect ['approval-settled-every-approval'] 0
+base p5-approval-readiness-settled end unresolved-defect [] 12
+base p5-input-approval cmd-ask unresolved-defect ['tool-schema'] 15
+base p5-input-approval edit-ask unresolved-defect ['approval-grant-scope'] 17
+base p5-input-approval after unresolved-defect [] 13
+head p5-approval-readiness-settled edit-ask unresolved-defect ['approval-grant-scope'] 0
+head p5-approval-readiness-settled edit-down-enter unresolved-defect ['approval-grant-scope'] 0
+head p5-approval-readiness-settled edit-left-enter unresolved-defect ['approval-grant-scope'] 0
+head p5-approval-readiness-settled edit-down-up-enter unresolved-defect ['approval-grant-scope'] 0
+head p5-approval-readiness-settled write-ask unresolved-defect ['approval-grant-scope'] 0
+head p5-approval-readiness-settled write-letter-enter unresolved-defect ['approval-grant-scope'] 0
+head p5-approval-readiness-settled write-super-up-enter unresolved-defect ['approval-grant-scope'] 0
+head p5-approval-readiness-settled cmd-ask unresolved-defect ['tool-schema', 'approval-grant-scope'] 0
+head p5-approval-readiness-settled cmd2-ask unresolved-defect ['tool-schema', 'approval-grant-scope'] 0
+head p5-approval-readiness-settled cmd2-down-enter unresolved-defect ['approval-settled-every-approval'] 0
+head p5-approval-readiness-settled end normalized-identical [] 0
+head p5-input-approval cmd-ask unresolved-defect ['tool-schema'] 15
+head p5-input-approval edit-ask unresolved-defect ['approval-grant-scope'] 17
+head p5-input-approval after unresolved-defect [] 13

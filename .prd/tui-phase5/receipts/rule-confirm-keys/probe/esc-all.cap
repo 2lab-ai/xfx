@@ -1,0 +1,12 @@
+fx: env FX_TRACE_LOG=<scratch>/trace-all.txt
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-permissions-early-read-turn.json
+work permissions-early-ws
+wait 2
+type /permissions remember deny read_file {"path":"a.txt"}
+key Enter
+until shown 1. Confirm
+wait 2
+key Escape
+wait 0.8
+snap esc

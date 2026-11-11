@@ -1,0 +1,71 @@
+# python3 -I scope.py red   (the base d7916178 against fx v0.0.16)
+DIFF  p5-approval-ctrl-j cmd-ask                       19 rows differ
+      fx:  '● 4 tool calls · 1 read · 1 write · 1 edit · 1 command'
+      xfx: '● 1 tool call · 1 read'
+      fx:  '├ Read a.txt'
+      xfx: '└ Read a.txt'
+      fx:  '├ Edited a.txt +1 / -1'
+      xfx: ''
+DIFF  p5-approval-ctrl-j cmd2-ask                      22 rows differ
+      fx:  '● 5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied'
+      xfx: '● 1 tool call · 1 read'
+      fx:  '├ Read a.txt'
+      xfx: '└ Read a.txt'
+      fx:  '├ Edited a.txt +1 / -1'
+      xfx: ''
+SAME  p5-approval-ctrl-j edit-ask                      (23 rows compared)
+SAME  p5-approval-ctrl-j edit-down-ctrl-j              (23 rows compared)
+SAME  p5-approval-ctrl-j edit-up-ctrl-j                (23 rows compared)
+DIFF  p5-approval-ctrl-j end                           17 rows differ
+      fx:  '● 5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied'
+      xfx: '● 1 tool call · 1 read'
+      fx:  '├ Read a.txt'
+      xfx: '└ Read a.txt'
+      fx:  '├ Edited a.txt +1 / -1'
+      xfx: ''
+DIFF  p5-approval-ctrl-j write-ask                     19 rows differ
+      fx:  '● 2 tool calls · 1 read · 1 edit'
+      xfx: '● 1 tool call · 1 read'
+      fx:  '├ Read a.txt'
+      xfx: '└ Read a.txt'
+      fx:  '└ Edited a.txt +1 / -1'
+      xfx: ''
+DIFF  p5-approval-ctrl-j write-letter-ctrl-j           19 rows differ
+      fx:  '● 2 tool calls · 1 read · 1 edit'
+      xfx: '● 1 tool call · 1 read'
+      fx:  '├ Read a.txt'
+      xfx: '└ Read a.txt'
+      fx:  '└ Edited a.txt +1 / -1'
+      xfx: ''
+SAME  p5-approval-ctrl-j-panel approval-arrives        (22 rows compared)
+DIFF  p5-approval-ctrl-j-panel approval-ctrl-j         18 rows differ
+      fx:  '└ Ran echo keys'
+      xfx: '└ Running echo keys'
+      fx:  '  Ran keys.'
+      xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+      fx:  ''
+      xfx: '  Permission needed · Choose one                                                                               Command'
+DIFF  p5-approval-ctrl-j-panel end                     18 rows differ
+      fx:  '└ Ran echo keys'
+      xfx: '└ Running echo keys'
+      fx:  '  Ran keys.'
+      xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+      fx:  ''
+      xfx: '  Permission needed · Choose one                                                                               Command'
+SAME  p5-approval-ctrl-j-panel open-before-approval    (20 rows compared)
+5 of 12 pairs identical once the entries' rows are set aside
+
+# python3 -I scope.py xfx   (the head 9dd02bc3 against fx v0.0.16)
+SAME  p5-approval-ctrl-j cmd-ask                       (25 rows compared)
+SAME  p5-approval-ctrl-j cmd2-ask                      (26 rows compared)
+SAME  p5-approval-ctrl-j edit-ask                      (23 rows compared)
+SAME  p5-approval-ctrl-j edit-down-ctrl-j              (23 rows compared)
+SAME  p5-approval-ctrl-j edit-up-ctrl-j                (23 rows compared)
+SAME  p5-approval-ctrl-j end                           (20 rows compared)
+SAME  p5-approval-ctrl-j write-ask                     (22 rows compared)
+SAME  p5-approval-ctrl-j write-letter-ctrl-j           (22 rows compared)
+SAME  p5-approval-ctrl-j-panel approval-arrives        (22 rows compared)
+SAME  p5-approval-ctrl-j-panel approval-ctrl-j         (27 rows compared)
+SAME  p5-approval-ctrl-j-panel end                     (27 rows compared)
+SAME  p5-approval-ctrl-j-panel open-before-approval    (20 rows compared)
+12 of 12 pairs identical once the entries' rows are set aside

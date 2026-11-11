@@ -563,6 +563,15 @@ fix = "build the frame that clears the composer against the band a running turn 
 why = "The frame that clears the composer (the card's preview) is built in the tick after the Enter is read, whatever the worker has said by then. When the turn's start reaches the shell a tick late, that frame's band has no activity row: the preview sits one row lower and the document does not scroll as fx's does, so frame 1, frame 2 and the card's frame are one row off fx's and the base's; the frame after the card's is the base's again. Seen once in seven captures of p5-transcript-submit-multi from one build, and in neither of two instrumented runs of the same commit (.prd/tui-phase5/receipts/submit-card-preview/round3/race.txt; round4/preview-room-log.txt:2 records the second's win, and the first, round 3's probe, has no file in the receipt); any previewed card can meet it. These are check.py's frame claims, not sweep snaps."
 
 [[cause]]
+id = "approval-settled-every-approval"
+kind = "decision"
+owner = "user decision approval readiness scope (the dispatcher's interim choice, 2026-11-10)"
+scenarios = ["p5-approval-readiness-settled"]
+snaps = ["cmd2-down-enter"]
+whole_snap = true
+why = "fx v0.0.16 holds an affirmative back while a modal frame is pending only at a file approval (`input_approval_runtime.zig:191-192@481104fd`; a run-command request has no `file`, `permission_request.zig:39-40`), so its Down and Enter in one read at the second command answer `Always` at once and the turn ends; xfx holds it back at every approval (`Shell::approval_changed`, `src/tui/approval_readiness.rs`'s `Readiness::changed`), so its question stays up with choice 2 marked. A grant widened past what the frame showed is a safety matter on any approval: the dispatcher's decision for APPROVAL-READINESS-SETTLED (reversible, kept for the user's veto), not the user's, so it approves nothing. Resolved when the user keeps it (written down as a lasting difference) or asks for fx's file-only check (`Shell::approval_changed` calling `changed` only for a path). Its scope includes the `/permissions` rule confirmation (RULE-CONFIRM-KEYS): a `remember allow` Confirm is a persisted grant, and a mark moved by Tab, Left, Right, Alt-b or Alt-f and answered by C-j or Enter in the same write confirms with no frame showing the move and no readiness check, as fx's does (a rule change is submitted before the file approval's check, `input_approval_runtime.zig:185-188@481104fd`); xfx keeps fx's behaviour there until the user decides."
+
+[[cause]]
 id = "diffctl-xfx-reads-first"
 kind = "scenario"
 owner = "T-U6"
@@ -871,6 +880,19 @@ xfx_row = '^$'
 xfx = ["src/tui/shell.rs:10947"]
 fx = ["src/core/app/app_worker_runtime.zig:1026@c1db9191"]
 why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`write_user_prompt`, the cited line), xfx rides it under the open group (`trailer_rows`, src/tui/shell.rs:10947, each card through `queue_card`, :1932, which ends it on a blank row). After Escape stops the turn the group's cancelled line is drawn above the card on both, and fx's document then ends on the card with the composer right under it -- `fx-approvals-40x120-after-esc` rows 14-15, `┃ use capitals` (bold) then the composer's `┃` -- where xfx's keeps the card's blank row (row 15) and its composer and hint row stand one row lower (rows 16, 18 against fx's 15, 17). fx's card carries no row under it: wherever fx's document ends on a cancelled line or an answer, one blank row stands before the composer (`p5-transcript-cancel` `esc` rows 5-7, `interrupt2` `esc2` rows 36-38), and the card here is the one entry after that blank, with none of its own. Already so at the base (e6cde019's sweep: xfx row 15 `(blank)` uncaused; the pair was counted under the deleted `cancelled-marker`). AMEND-CARD-ROW: end such a card as fx does when nothing follows it in the document (.prd/tui-phase5/receipts/cancel-marker/README.md)."
+
+[[cause]]
+id = "rule-confirm-card-after-stop"
+kind = ["unit", "defect"]
+owner = "AMEND-CARD-ROW the blank row xfx keeps under a card that ends the document"
+scenarios = ["p5-rule-confirm-keys-turn"]
+snaps = ["esc", "end"]
+rows = ["4-7"]
+fx_row = '^(┃|auto · model-a)?$'
+xfx_row = '^(┃|auto · model-a)?$'
+xfx = ["src/tui/shell.rs:1840"]
+fx = ["src/core/app/app_worker_runtime.zig:1026@c1db9191"]
+why = "A user-visible row, `amendment-card-after-stop`'s class. Escape at a rule confirmation over a running turn stops the turn on both and writes nothing after the prompt's card (RULE-CONFIRM-KEYS: fx's `cancelApprovalOperation` writes no cancellation row). fx's document then ends on the card with the composer right under it (row 3 `┃ say something`, row 4 the composer's `┃`); xfx's card keeps the blank row `queue_card` ends it on (src/tui/shell.rs:1840), so its composer and status row stand one row lower (rows 5 and 7 against fx's 4 and 6). Only those rows: the composer's `┃`, the status row and the blank rows between them, so a row of the turn left running (an activity row, the answer's text) stays uncaused. Already so wherever xfx's document ends on a card, and not this unit's to change: every card is queued that way. AMEND-CARD-ROW: end a card as fx does when nothing follows it (.prd/tui-phase5/receipts/rule-confirm-keys/README.md)."
 
 [[cause]]
 id = "call-row-page-edge"

@@ -1,0 +1,13 @@
+# GREEN at the code head 9dd02bc3 (src as committed): the unit's tests and their neighbours -- APPROVAL-DRAFT-KEYS' round-2 filter with `ctrl_j_` and `keys_fx_does_not_read_as_ctrl_j` added (`ctrl_j_` also matches two older menu tests)
+# TMPDIR=<tmp> cargo test --locked --lib -- approval amendment alt_b alt_f the_fold horizontal draft_left up_and_down_move the_arrows_leave leaving_a_filled_draft revokes vertical super_up_and_down one_read until_a_frame refusal_read a_walk_of_the_review enter_takes_the_marked writes_nothing ctrl_l undo_redo_and_yank tab_in_a_draft every_key_fxs the_word_deletes an_edit_then_a_key question:: input::tests editor::tests redraw damage recolour blind ctrl_j_ keys_fx_does_not_read_as_ctrl_j
+test tui::info_panel::tests::the_keys_it_binds_are_the_arrows_ctrl_j_and_k_escape_and_enter ... ok
+test tui::shell::tests::keys_fx_does_not_read_as_ctrl_j_still_do_nothing_at_a_question ... ok
+test tui::shell::tests::the_page_keys_and_ctrl_j_k_move_the_resume_pickers_mark_and_stop_at_the_ends ... ok
+test tui::shell::tests::ctrl_j_at_a_question_over_the_status_panel_answers_the_question_not_the_panel ... ok
+test tui::shell::tests::ctrl_j_at_deny_refuses_at_once_as_enter_does ... ok
+test tui::shell::tests::ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes ... ok
+test tui::shell::tests::ctrl_j_read_with_a_change_waits_for_the_frame_as_enter_does ... ok
+test result: ok. 488 passed; 0 failed; 1 ignored; 0 measured; 4172 filtered out; finished in 0.46s
+
+# cargo test --locked --test parity (the gate's own runs: gate.txt)
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.42s

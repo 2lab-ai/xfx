@@ -1,0 +1,25 @@
+# RULE-CONFIRM-KEYS: Escape at a `/permissions` rule confirmation asked
+# while a turn runs. fx v0.0.16 runs the command at once
+# (input_submit_runtime.zig:721-724@481104fd) and asks it in its approval
+# prompt; Escape there is `cancelApprovalOperation`
+# (app_input_runtime.zig:2689, :2712-2716): the turn is stopped and the
+# confirmation goes, saying nothing about the rule
+# (input_approval_runtime.zig:401-436). The stream is held mid-answer while
+# the confirmation is up, and let go after the Escape.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-rule-confirm-keys-turn.json
+work permissions-early-ws
+wait 2
+type say something
+key Enter
+held
+type /permissions remember deny read_file {"path":"a.txt"}
+key Enter
+until shown 1. Confirm
+snap prompt
+key Escape
+wait 1
+snap esc
+release
+wait 1.5
+snap end

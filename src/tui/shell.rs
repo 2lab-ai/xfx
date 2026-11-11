@@ -5360,9 +5360,12 @@ impl Shell {
     /// composer, and the turn's clock is stopped because the interval is
     /// measuring a person. [`Self::asking`] stays the narrower fact -- a
     /// permission question, on either plane -- because the plane and the
-    /// approval channel are its alone.
+    /// approval channel are its alone. A rule confirmation counts: upstream
+    /// asks it in the same approval prompt (`syncRuleManagement`,
+    /// `approval_prompt.zig:119-146@481104fd`), so a turn running under it has
+    /// no activity row either (`p5-rule-confirm-keys-turn`'s `prompt`).
     fn modal(&self) -> bool {
-        self.asking() || self.ask.is_some()
+        self.asking() || self.ask.is_some() || self.rule_confirm.is_some()
     }
 
     /// The alternate plane's rows, top first: as many as the screen has.
@@ -5758,6 +5761,32 @@ impl Shell {
     pub(crate) fn approval_ready(&self, id: ApprovalId) -> bool {
         self.readiness
             .ready(id, self.geometry.cols, self.geometry.rows)
+    }
+
+    /// Whether all that keeps `id` from an answer is a change the screen has
+    /// not shown yet ([`super::approval_readiness::Readiness::unshown`]).
+    fn approval_unshown(&self, id: ApprovalId) -> bool {
+        self.readiness
+            .unshown(id, self.geometry.cols, self.geometry.rows)
+    }
+
+    /// What the standing question shows changed: no affirmative is taken
+    /// until a frame shows it ([`super::approval_readiness::Readiness::changed`]).
+    ///
+    /// **Every approval**, the dispatcher's decision (2026-11-10, reversible):
+    /// fx v0.0.16 holds back only a file approval's
+    /// (`input_approval_runtime.zig:191-192@481104fd`), so its Down and Enter
+    /// in one read at a command grant `Always` under a frame that marked
+    /// `Apply once`. To restrict this condition to file approvals, as fx does,
+    /// call `changed` here only while the question's subject is a
+    /// `crate::permission::ApprovalSubject::Path`. That reverts the scope and
+    /// nothing else: fx's settled state also waits out a resize and external
+    /// damage (`reasonsAffectApproval`, `render_request.zig:367-370`) and its
+    /// claim has a resize interlock (`input_approval_runtime.zig:194`, `:222`),
+    /// which xfx's receipt answers in its own way (`Readiness::reconcile`,
+    /// `Readiness::invalidate`).
+    fn approval_changed(&mut self) {
+        self.readiness.changed();
     }
 
     /// Whether an amendment draft has the keys, on whichever surface is up.
@@ -8043,35 +8072,50 @@ impl Shell {
         self.edited(None);
     }
 
-    /// One keystroke, while the `/statusline` picker has the focus.
-    ///
-    /// One keystroke to a rule change waiting to be confirmed: `1` or Enter
-    /// on `Confirm` makes it and says how it went, `2` or Enter on `Cancel`
-    /// says it was cancelled, Escape closes it saying nothing
-    /// (`submitRuleManagementChoice`, `input_approval_runtime.zig:255-327`;
-    /// `cap/fx-permissions3-40x120-remember-esc`), and the arrows move the
-    /// mark. Everything else is swallowed, as the approval band swallows it.
-    fn offer_to_rule_confirm(&mut self, event: Input) {
-        use super::rule_confirm::{Key, Reply};
-        let key = match event {
-            Input::Text(character) => Key::Digit(character),
-            Input::Action(Action::Up | Action::ControlP) => Key::Up,
-            Input::Action(Action::Down | Action::HistoryNext) => Key::Down,
-            Input::Action(Action::Submit) => Key::Enter,
-            Input::Action(Action::Escape) => Key::Escape,
-            Input::Action(Action::Redraw) => {
-                self.external_damage();
-                return;
-            }
-            _ => return,
+    /// One keystroke to a rule change waiting to be confirmed, read as a
+    /// permission question with no draft reads it ([`Self::approval_action`]):
+    /// upstream asks the change in its approval prompt, confirmation-only
+    /// (`syncRuleManagement`, `approval_prompt.zig:119-146@481104fd`). `1`,
+    /// or Enter or C-j on `Confirm`, makes it and says how it went; `2`,
+    /// Enter or C-j on `Cancel`, and Ctrl-C say it was cancelled
+    /// (`submitRuleManagementChoice`, `input_approval_runtime.zig:257-328`);
+    /// the arrows, Tab, Left, Right, Alt-b and Alt-f move the mark
+    /// ([`RuleConfirm::apply`]). Escape closes it saying nothing
+    /// (`cancelApprovalOperation`, `:401-436`, which `resolveEscape` takes at
+    /// every Escape after the prompt's first frame, `app_input_runtime.zig:2689`,
+    /// `:2712-2716`), and over a running turn or compaction -- read as the
+    /// composer's Escape reads one -- stops that too
+    /// (`cancelApprovalTurn`, `worker_runtime.zig:777-791`: the worker's
+    /// cancel and its compaction's stop), writing no cancellation row: that
+    /// route writes none, where Ctrl-C's does
+    /// (`input_interrupt_runtime.zig:118-126`). A stop already asked for is
+    /// not asked again ([`Self::stop_owed`]). Everything else, Ctrl-L
+    /// included, is swallowed, as the approval swallows it.
+    fn offer_to_rule_confirm(&mut self, event: Input, now: Instant) {
+        use super::rule_confirm::Reply;
+        let Some(action) = Self::approval_action(event, false) else {
+            return;
         };
         let Some(confirm) = self.rule_confirm.as_mut() else {
             return;
         };
-        match confirm.apply(key) {
+        match confirm.apply(action) {
             Reply::Ignored => {}
             Reply::Moved => self.render.request(Reason::Modal),
-            Reply::Dismiss => self.close_rule_confirm(),
+            Reply::Dismiss => {
+                self.close_rule_confirm();
+                if self.activity.working() || self.compacting() {
+                    if self.stop_owed() {
+                        // `true`: this key writes no `▪ Cancelled` row of
+                        // its own and settles no group here; a running
+                        // command's report says it was cancelled, as fx's
+                        // does (`cancelApprovalOperation` presents no tool
+                        // cancellation, `input_approval_runtime.zig:401-436`).
+                        self.cancel_turn_with(true);
+                    }
+                    self.settle_band(now);
+                }
+            }
             Reply::Cancel => {
                 self.close_rule_confirm();
                 self.announce(notice::Notice::neutral(
@@ -9995,68 +10039,18 @@ impl Shell {
         ));
     }
 
-    /// One keystroke, while a question has the focus.
+    /// What one keystroke means to a permission question with the focus, or
+    /// `None` for a key it swallows; `drafting` is whether an amendment has the
+    /// keys ([`Self::drafting`]).
     ///
-    /// **Everything the panel does not bind is swallowed**, and that is the
-    /// difference between a panel and a hint: a `1` typed at a question is an
-    /// answer, not a character in a composer whose caret is somewhere else, and
-    /// a Ctrl-D at one does not end a session that is holding a turn open
-    /// waiting to be told what to do.
-    ///
-    /// **The two bail-out keys are upstream's** (`vercel-labs/fx@c1db919`,
-    /// pinned by its e2e `tests/e2e/tui-permissions.test.ts:1099`):
-    ///
-    /// * **Ctrl-C refuses this call and nothing else** (`src/ui/input/runtime.zig:61`,
-    ///   `3 => .deny`). The turn goes on, told no, exactly as if `3` had been
-    ///   pressed -- minus whatever the deny draft held, because a key that says
-    ///   nothing sends nothing (`approval_decision.zig:132-135`).
-    /// * **Escape cancels the turn** (`app_input_runtime.zig:3139-3143`,
-    ///   `cancelApprovalOperation`), and it is the whole of why this takes a
-    ///   clock: the question is refused *with* the interrupt rather than
-    ///   instead of it ([`Self::interrupt`]), because the prompter is the thing
-    ///   parked on that channel and it turns a cancellation into a `Deny` and
-    ///   hands the cancellation on to the loop that can act on it
-    ///   (`super::approval::TuiPrompter`). Answering `Deny` and stopping there
-    ///   would leave the user watching the turn they cancelled carry on, with
-    ///   the prompt they had queued behind it running next.
-    ///
-    /// Both are the reverse of what xfx's panel did before (Escape refused the
-    /// call, Ctrl-C stopped the turn): divergence 7 of `.prd/tui-phase4/ssot.md`.
-    fn decide(&mut self, event: Input, now: Instant) {
-        // A notice on the hint row is about the keystroke before this one; the
-        // question's own hint takes the row back unless this one earns another
-        // ([`Self::notice_at_the_question`]).
-        if self.notice.take().is_some() {
-            self.render.request(Reason::Footer);
-        }
-        // The two keys that walk a change too long for one screen, and they are
-        // bound **only** where there is one to walk: a bounded diff is up to
-        // 128 KiB (`crate::permission::ApprovalDiff`) and a screen is a few
-        // dozen rows, so a review surface with no way past its first screenful
-        // would be showing the head of a change and calling it the change. They
-        // are `C-p` and `C-n` -- "the line before this one" and "the line after
-        // it" everywhere else on this surface, and bound to nothing at all at a
-        // question until now. The arrows are deliberately not reused: they walk
-        // the choices, and a key that scrolled *and* chose would be a key that
-        // answers by accident.
-        if let Input::Action(Action::ControlP | Action::HistoryNext) = event {
-            let (cols, rows) = (self.geometry.cols, self.geometry.rows);
-            if let Some(screen) = self.alternate.as_mut() {
-                let delta = if matches!(event, Input::Action(Action::ControlP)) {
-                    -1
-                } else {
-                    1
-                };
-                screen.scroll_by(delta, cols, rows);
-                self.render.request(Reason::Modal);
-                return;
-            }
-        }
-        // Whether an amendment has the keys, taken before anything is
-        // translated: it is what turns a `1` from an answer into a character
-        // and an editing key from nothing into an edit
-        // ([`super::approval_amendment`]).
-        let drafting = self.drafting();
+    /// **A rule confirmation reads its keys here too, as no draft**
+    /// ([`Self::offer_to_rule_confirm`]): upstream asks a `/permissions` rule
+    /// change in its approval prompt, confirmation-only
+    /// (`syncRuleManagement`, `approval_prompt.zig:119-146@481104fd`), so the
+    /// keys are the approval's (`routeActiveModalInput`,
+    /// `app_input_runtime.zig:1161-1185`; `routeResolvedEscapeAction`,
+    /// `:964-971`), and one translation keeps the two from drifting apart.
+    fn approval_action(event: Input, drafting: bool) -> Option<approval::Action> {
         let action = match event {
             Input::Text(character) => approval::Action::Text(character),
             // **The plain arrows move the choice, whether or not a draft is
@@ -10136,17 +10130,37 @@ impl Shell {
                 | Action::DraftEnd { .. }
                 | Action::ControlP
                 | Action::HistoryNext,
-            ) => return,
+            ) => return None,
             Input::Action(Action::Tab) => approval::Action::Tab,
-            Input::Action(Action::Submit) => approval::Action::Submit,
+            // **C-j answers as Enter does**, at a choice and in a draft, on
+            // either plane: fx v0.0.16 makes `'\r', '\n'` an approval's
+            // `.submit` (`approvalActionFromByte`,
+            // `src/ui/input/runtime.zig:64@481104fd`), and the focused-editor
+            // route it asks first keeps no newline (`fromFocusedEditorControlByte`,
+            // `shortcuts.zig:26`, `:31-41`). A kitty or xterm Ctrl+J is the
+            // byte replayed (`escape_parser.zig:255-258`), which the decoder
+            // gives as the same key. So it is an affirmative where Enter is,
+            // and meets the same readiness check below; on choice 3 it is a
+            // refusal, answered at once. Ahead of the draft's arm, which would
+            // swallow it. A menu open under the question never sees it: the
+            // question has the keys ([`Self::consume_inputs`]), as fx's
+            // approval takes the byte before any menu
+            // (`app_input_runtime.zig:1161-1216`).
+            Input::Action(Action::Submit | Action::ControlJ) => approval::Action::Submit,
             Input::Action(Action::Escape) => approval::Action::Escape,
             Input::Action(Action::Cancel) => approval::Action::Cancel,
-            // The whole band is repainted every frame, so a redraw is a frame
-            // here as much as anywhere else.
-            Input::Action(Action::Redraw) => {
-                self.external_damage();
-                return;
-            }
+            // **Ctrl-L does nothing at a permission question**, as fx
+            // v0.0.16's does: a raw byte, `12`, which no approval action is
+            // made of
+            // (`approvalActionFromRawByte` and `approvalActionFromByte`,
+            // `src/ui/input/runtime.zig:98-108`, `:61-73@481104fd`; `.redraw`
+            // is no focused-editor key, `shortcuts.zig:24`, `:31-41`), so the
+            // question takes it and asks for nothing
+            // (`app_input_runtime.zig:1173-1184`) -- no repaint and no
+            // `.external_damage`, and the composer's redraw is never reached
+            // (`:873`). Swallowed, so the screen the receipt is about is not
+            // declared damaged under an Enter read with it.
+            Input::Action(Action::Redraw) => return None,
             // The draft's own keys, and **only while a draft has them**: with
             // no amendment open these stay what they have always been at a
             // question, which is swallowed. `Up` and `Down` are deliberately
@@ -10165,7 +10179,7 @@ impl Shell {
             // break (`super::approval_amendment`).
             Input::Action(editing) if drafting => match folded(Input::Action(editing)) {
                 Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),
-                _ => return,
+                _ => return None,
             },
             // Content, to the **draft's** assembler and never the composer's:
             // a modal surface that leaked paste bytes into the composer would
@@ -10173,10 +10187,80 @@ impl Shell {
             // delete. With no draft open they fall through to the swallow
             // below, exactly as they did before amendments existed.
             Input::PasteByte(byte) if drafting => approval::Action::PasteByte(byte),
-            Input::Action(_) | Input::PasteByte(_) => return,
+            Input::Action(_) | Input::PasteByte(_) => return None,
             // Answered before the focus is consulted ([`Self::consume`]), for
             // the reason the same arm in [`Self::answer`] gives.
-            Input::Report(_) => return,
+            Input::Report(_) => return None,
+        };
+        Some(action)
+    }
+
+    /// One keystroke, while a question has the focus.
+    ///
+    /// **Everything the panel does not bind is swallowed**, and that is the
+    /// difference between a panel and a hint: a `1` typed at a question is an
+    /// answer, not a character in a composer whose caret is somewhere else, and
+    /// a Ctrl-D at one does not end a session that is holding a turn open
+    /// waiting to be told what to do.
+    ///
+    /// **The two bail-out keys are upstream's** (`vercel-labs/fx@c1db919`,
+    /// pinned by its e2e `tests/e2e/tui-permissions.test.ts:1099`):
+    ///
+    /// * **Ctrl-C refuses this call and nothing else** (`src/ui/input/runtime.zig:61`,
+    ///   `3 => .deny`). The turn goes on, told no, exactly as if `3` had been
+    ///   pressed -- minus whatever the deny draft held, because a key that says
+    ///   nothing sends nothing (`approval_decision.zig:132-135`).
+    /// * **Escape cancels the turn** (`app_input_runtime.zig:3139-3143`,
+    ///   `cancelApprovalOperation`), and it is the whole of why this takes a
+    ///   clock: the question is refused *with* the interrupt rather than
+    ///   instead of it ([`Self::interrupt`]), because the prompter is the thing
+    ///   parked on that channel and it turns a cancellation into a `Deny` and
+    ///   hands the cancellation on to the loop that can act on it
+    ///   (`super::approval::TuiPrompter`). Answering `Deny` and stopping there
+    ///   would leave the user watching the turn they cancelled carry on, with
+    ///   the prompt they had queued behind it running next.
+    ///
+    /// Both are the reverse of what xfx's panel did before (Escape refused the
+    /// call, Ctrl-C stopped the turn): divergence 7 of `.prd/tui-phase4/ssot.md`.
+    fn decide(&mut self, event: Input, now: Instant) {
+        // A notice on the hint row is about the keystroke before this one; the
+        // question's own hint takes the row back unless this one earns another
+        // ([`Self::notice_at_the_question`]).
+        if self.notice.take().is_some() {
+            self.render.request(Reason::Footer);
+        }
+        // The two keys that walk a change too long for one screen, and they are
+        // bound **only** where there is one to walk: a bounded diff is up to
+        // 128 KiB (`crate::permission::ApprovalDiff`) and a screen is a few
+        // dozen rows, so a review surface with no way past its first screenful
+        // would be showing the head of a change and calling it the change. They
+        // are `C-p` and `C-n` -- "the line before this one" and "the line after
+        // it" everywhere else on this surface, and bound to nothing at all at a
+        // question until now. The arrows are deliberately not reused: they walk
+        // the choices, and a key that scrolled *and* chose would be a key that
+        // answers by accident.
+        if let Input::Action(Action::ControlP | Action::HistoryNext) = event {
+            let (cols, rows) = (self.geometry.cols, self.geometry.rows);
+            if let Some(screen) = self.alternate.as_mut() {
+                let delta = if matches!(event, Input::Action(Action::ControlP)) {
+                    -1
+                } else {
+                    1
+                };
+                if screen.scroll_by(delta, cols, rows) {
+                    self.approval_changed();
+                }
+                self.render.request(Reason::Modal);
+                return;
+            }
+        }
+        // Whether an amendment has the keys, taken before anything is
+        // translated: it is what turns a `1` from an answer into a character
+        // and an editing key from nothing into an edit
+        // ([`super::approval_amendment`]).
+        let drafting = self.drafting();
+        let Some(action) = Self::approval_action(event, drafting) else {
+            return;
         };
         // Whichever surface is holding the question, and there is never more
         // than one ([`Self::ask`]). Both answer with the same function
@@ -10196,9 +10280,11 @@ impl Shell {
             // repaint of an unchanged band is bytes that say nothing.
             approval::Reply::Ignored => return,
             approval::Reply::Moved => {
-                // The marker or a draft moved, which is a frame and nothing
-                // else: the panel is the same height, so the band's geometry
-                // and the receipt about it both still hold.
+                // The marker or a draft moved: the panel is the same height,
+                // so the band's geometry and the receipt about it both still
+                // hold, but no affirmative is taken until a frame shows the
+                // move ([`Self::approval_changed`]).
+                self.approval_changed();
                 self.render.request(Reason::Modal);
                 return;
             }
@@ -10228,6 +10314,16 @@ impl Shell {
         if matches!(answer, ApprovalAnswer::Once | ApprovalAnswer::Always)
             && !self.asked_id.is_some_and(|id| self.approval_ready(id))
         {
+            // **A change the frame has not shown yet** -- a move, a draft edit
+            // read with this key: spent, and nothing said, as fx says nothing
+            // (its refusal is a trace line, `input_approval_runtime.zig:207-217
+            // @481104fd`). The question is on the screen, so "not on the screen
+            // yet" would be false; the frame asked for here shows what the next
+            // Enter answers.
+            if self.asked_id.is_some_and(|id| self.approval_unshown(id)) {
+                self.render.request(Reason::Modal);
+                return;
+            }
             // **Said, not swallowed**, and which sentence it is matters: waiting
             // fixes one of these and only a bigger window fixes the other.
             let notice = if self.readiness.undisclosed() {
@@ -12816,24 +12912,25 @@ impl Shell {
                 self.decide(event, now);
                 continue;
             }
+            // A rule change waiting to be confirmed is asked in upstream's
+            // approval prompt, so it reads the event the approval reads and
+            // swallows what the approval does not bind
+            // ([`Self::offer_to_rule_confirm`]).
+            if self.rule_confirm.is_some() {
+                self.offer_to_rule_confirm(event, now);
+                continue;
+            }
             // Every spelling the decoder keeps apart means something apart
             // only to those three; to every surface below they are the keys
             // they always were -- but a held Up or Down, which the compact
             // menus below read as nothing, as fx's do (`else => return`,
-            // `app_input_runtime.zig:2259-2263@481104fd`; a rule change is
-            // fx's approval, `input_approval_runtime.zig:128`).
+            // `app_input_runtime.zig:2259-2263@481104fd`).
             let event = folded(event);
             // The `/statusline` picker has the focus whenever no question
             // does: everything is its, and what it does not bind it swallows
             // -- a letter, a Ctrl-C, a Ctrl-D -- as upstream's compact menus
             // do (`routeActiveModalInput`, `app_input_runtime.zig:1366-1395`).
             // Escape is the way out, and then the keys mean what they mean.
-            // A rule change waiting to be confirmed has the focus the same
-            // way, and swallows what it does not bind.
-            if self.rule_confirm.is_some() {
-                self.offer_to_rule_confirm(event);
-                continue;
-            }
             if self.statusline_menu.is_some() {
                 self.offer_to_statusline(event);
                 continue;
@@ -13609,10 +13706,18 @@ impl Shell {
     /// `auth_runtime.zig:2052-2056`), and would otherwise quote the count
     /// again and drop what was typed between the presses.
     fn cancel_turn(&mut self) {
-        if self.stop_requested && !self.work_typed_since_the_stop() {
+        if !self.stop_owed() {
             return;
         }
         self.cancel_turn_with(false);
+    }
+
+    /// Whether a keystroke that stops work owes a stop now: none is still
+    /// requested, or work it did not cover has been typed since
+    /// ([`Self::cancel_turn`]'s rule, which a rule confirmation's Escape
+    /// keeps too).
+    fn stop_owed(&self) -> bool {
+        !self.stop_requested || self.work_typed_since_the_stop()
     }
 
     /// Whether work a stop still requested did not cover is in hand: a
@@ -22721,12 +22826,34 @@ mod tests {
     /// A shell with a turn running and a question in front of the user, on a
     /// screen that has really shown it.
     fn asking(shell: &mut Fixture) -> Instant {
+        asking_for(shell, asked())
+    }
+
+    /// [`asking`], with `request` the question.
+    fn asking_for(shell: &mut Fixture, request: ApprovalRequest) -> Instant {
         let started = turn_running(shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(question(asked())));
+        shell.apply(UiEvent::Approval(question(request)));
         shell.settle_band(started);
         let _ = shell.document();
         delivered(shell);
         started
+    }
+
+    /// The question a scripted command puts to the user: no file in it, the
+    /// kind fx v0.0.16 does not gate (`input_approval_runtime.zig:191-192
+    /// @481104fd`).
+    fn asked_to_run() -> ApprovalRequest {
+        ApprovalRequest {
+            tool: "terminal",
+            target: "echo hi".to_string(),
+            summary: "run `echo hi`".to_string(),
+            always_scope: "allow every future run of exactly `echo hi` in .".to_string(),
+            diff: None,
+            subject: crate::permission::ApprovalSubject::Command {
+                command: "echo hi".to_string(),
+                cwd: ".".to_string(),
+            },
+        }
     }
 
     /// A question **`crate::permission` really built**, recorded or not.
@@ -23247,6 +23374,10 @@ mod tests {
         );
         shell.route_bytes(&[0x1b, 0x5b, 0x41]); // Up, back to the first
         shell.route_bytes(&[0x1b, 0x5b, 0x42]); // Down, forward again
+
+        // The frame that shows the marker there: an Enter before it answers
+        // nothing (`a_move_and_enter_in_one_read_at_an_edit_answer_nothing_until_a_frame_shows_the_move`).
+        delivered(&mut shell);
         shell.route_bytes(&[0x0d]);
 
         assert_eq!(
@@ -24552,46 +24683,1017 @@ mod tests {
                 );
             }
         }
-        // All twelve and `\r` in one buffer, at a choice and in an amendment:
-        // nothing moves, and Super-Up and -Down there move only the caret,
-        // which is not part of the receipt's identity
-        // (`super::approval_readiness::Intent`), so the draft is unchanged.
-        for amending in [false, true] {
-            let mut shell = shell(24, 80);
-            asking(&mut shell);
-            if amending {
-                open(&mut shell);
-            }
-            let mut all: Vec<u8> = VERTICAL_SPELLINGS
-                .iter()
-                .flat_map(|(_, key)| key.iter().copied())
-                .collect();
-            all.push(b'\r');
-            shell.route_bytes(&all);
-            answered(
-                &mut shell,
-                amending.then_some("ab cd"),
-                &format!("amending={amending}: the twelve and Enter in one read"),
-            );
-        }
-        // Super-Up or Super-Down in an amendment, then Enter at once. The
-        // caret moved, which is a frame (`Moved`) and not a new screen: a
-        // receipt is about the question, its plane, its size and its layout,
-        // never the caret (`super::approval_readiness::Intent`), so it holds,
-        // and the answer is the choice shown with the draft unchanged. fx
-        // refuses this Enter on a file approval like this one, until the
-        // frame the caret asked for is drawn (`input_approval_runtime.zig:191-218`);
-        // APPROVAL-READINESS-SETTLED flips this case.
-        for (name, key) in [
-            ("super-up", &b"\x1b[1;9A"[..]),
-            ("super-down", b"\x1b[1;9B"),
+        // All twelve and `\r` in one buffer at a choice: nothing moves, so the
+        // Enter answers the choice shown.
+        let all: Vec<u8> = VERTICAL_SPELLINGS
+            .iter()
+            .flat_map(|(_, key)| key.iter().copied())
+            .chain(*b"\r")
+            .collect();
+        let mut at_a_choice = shell(24, 80);
+        asking(&mut at_a_choice);
+        at_a_choice.route_bytes(&all);
+        answered(
+            &mut at_a_choice,
+            None,
+            "the twelve and Enter in one read at a choice",
+        );
+        // Super-Up or Super-Down in an amendment, alone or among the twelve,
+        // then Enter in the same read. The caret moved, which asks for a
+        // frame (`Moved`), so the Enter answers nothing until that frame is
+        // drawn, as fx's does (`input_approval_runtime.zig:86`, `:191-218`):
+        // the draft, then, is the one the next frame shows.
+        for (name, keys) in [
+            ("super-up", &b"\x1b[1;9A\r"[..]),
+            ("super-down", b"\x1b[1;9B\r"),
+            ("the twelve", &all),
         ] {
             let mut shell = shell(24, 80);
             asking(&mut shell);
             open(&mut shell);
-            shell.route_bytes(&[key, b"\r"].concat());
+            shell.route_bytes(keys);
+            assert_eq!(
+                shell.controlled(),
+                None,
+                "{name} and Enter in one read answered before the caret was drawn"
+            );
+            assert!(
+                shell.drafting(),
+                "{name}: the refused Enter ended the draft"
+            );
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
             answered(&mut shell, Some("ab cd"), name);
         }
+    }
+
+    #[test]
+    fn a_move_and_enter_in_one_read_at_an_edit_answer_nothing_until_a_frame_shows_the_move() {
+        // fx v0.0.16 takes no affirmative while a modal frame is pending
+        // (`settledForApproval`, `render_request.zig:172-177@481104fd`; the
+        // refusal, `input_approval_runtime.zig:207-218`), and every move of
+        // the choice asks for one (`:98`, `:108`, `:117`, `:125`): a move and
+        // the Enter after it in one read answer nothing, the refusal says
+        // nothing (fx's is a trace line, `:209-216`), and the Enter after the
+        // frame answers the choice that frame marks.
+        // `fx-p5-approval-readiness-settled-40x120-edit-down-enter`.
+        a_move_and_enter_in_one_read_answer_nothing_until_a_frame_shows_it("an edit", asked());
+    }
+
+    #[test]
+    fn a_move_and_enter_in_one_read_at_a_command_answer_nothing_until_a_frame_shows_the_move() {
+        // fx asks this of a file approval only (`input_approval_runtime.zig:191-192
+        // @481104fd`), so its Down and Enter at a command answer `Always` at
+        // once (`fx-p5-approval-readiness-settled-40x120-cmd2-down-enter`);
+        // xfx asks it of every approval (the dispatcher's decision,
+        // `docs/parity.md`).
+        a_move_and_enter_in_one_read_answer_nothing_until_a_frame_shows_it(
+            "a command",
+            asked_to_run(),
+        );
+    }
+
+    /// The cases of the two tests above, at the question `request`.
+    fn a_move_and_enter_in_one_read_answer_nothing_until_a_frame_shows_it(
+        what: &str,
+        request: ApprovalRequest,
+    ) {
+        // Every case is run before any is reported, so a failure names each
+        // move that was answered unseen rather than the first.
+        let mut unseen = Vec::new();
+        // The affirmative is Enter, or a digit: a digit answers without moving
+        // the marker, and it is an affirmative all the same.
+        for (name, keys, lands, key) in [
+            ("down", &b"\x1b[B"[..], "2", &b"\r"[..]),
+            ("right", b"\x1b[C", "2", b"\r"),
+            ("alt-f", b"\x1bf", "2", b"\r"),
+            ("down down up", b"\x1b[B\x1b[B\x1b[A", "2", b"\r"),
+            ("down down down", b"\x1b[B\x1b[B\x1b[B", "1", b"\r"),
+            ("down then 1", b"\x1b[B", "2", b"1"),
+            ("down then 2", b"\x1b[B", "2", b"2"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking_for(&mut shell, request.clone());
+            let _ = shell.released();
+            shell.route_bytes(&[keys, key].concat());
+            if let Some(answered) = shell.controlled() {
+                unseen.push(format!(
+                    "{what}, {name} and Enter in one read: {answered:?}"
+                ));
+                continue;
+            }
+            assert!(shell.asking(), "{what}, {name}: the question went down");
+            // `❯ 2  Apply …` at an edit, `❯ 2. Yes, …` at a command.
+            assert!(
+                shell.marked().contains(&format!("❯ {lands}")),
+                "{what}, {name}: {:?}",
+                shell.marked()
+            );
+            let said = unwrapped(&shell.released());
+            assert!(
+                !said.contains(&unwrapped(&[APPROVAL_NOT_READY.to_string()])),
+                "{what}, {name}: the refusal said the question was not shown: {said:?}"
+            );
+            // Nor in a second delivery, with no frame between.
+            shell.route_bytes(key);
+            assert_eq!(shell.controlled(), None, "{what}, {name}: second key");
+            delivered(&mut shell);
+            shell.route_bytes(key);
+            let shown = match (key, lands) {
+                (b"1", _) | (b"\r", "1") => ApprovalAnswer::Once,
+                _ => ApprovalAnswer::Always,
+            };
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: shown,
+                    feedback: None,
+                }),
+                "{what}, {name}: the key after the frame did not answer what it marks"
+            );
+        }
+        assert!(
+            unseen.is_empty(),
+            "answered before a frame showed the move: {unseen:#?}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_read_with_a_move_still_refuses_at_once() {
+        // fx gates the affirmatives only (`decision != .deny`,
+        // `input_approval_runtime.zig:191`): a refusal is answerable at
+        // every moment, a move read with it or not.
+        for (name, keys) in [
+            ("down down enter", &b"\x1b[B\x1b[B\r"[..]),
+            ("up enter", b"\x1b[A\r"),
+            ("down 3", b"\x1b[B3"),
+            ("down ctrl-c", b"\x1b[B\x03"),
+        ] {
+            for request in [asked(), asked_to_run()] {
+                let mut shell = shell(24, 80);
+                asking_for(&mut shell, request);
+                shell.route_bytes(keys);
+                assert_eq!(
+                    shell.controlled(),
+                    Some(TurnControl::Answer {
+                        id: ApprovalId(1),
+                        answer: ApprovalAnswer::Deny,
+                        feedback: None,
+                    }),
+                    "{name}: a refusal read with a move waited for a frame"
+                );
+            }
+        }
+        // Escape, through the decoder's own resolution of a lone `ESC`
+        // (`Decoder::ESC_TIMEOUT`): the turn's cancellation, at once.
+        for request in [asked(), asked_to_run()] {
+            let mut shell = shell(24, 80);
+            asking_for(&mut shell, request);
+            let accepted = shell.work.accepted();
+            shell.route_bytes(b"\x1b[B\x1b");
+            assert_eq!(shell.controlled(), None, "the lone ESC is not a key yet");
+            shell.settle_input(Instant::now() + Duration::from_millis(100));
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Cancel { through: accepted }),
+                "Escape read with a move waited for a frame"
+            );
+        }
+    }
+
+    #[test]
+    fn an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft() {
+        // The feedback text: a letter typed, or C-u or C-w, asks for a frame
+        // as a move does (fx's insert, `app_input_runtime.zig:1251-1255
+        // @481104fd`; its draft edits, `input_approval_runtime.zig:79-89`), so
+        // the Enter read with it sends nothing, and the Enter after the frame
+        // sends the draft that frame shows. C-y after C-w yanks nothing: fx's
+        // draft has no yank (APPROVAL-DRAFT-KEYS), so `ab ` is sent.
+        // `fx-p5-approval-readiness-settled-40x120-write-letter-enter`.
+        let mut unseen = Vec::new();
+        for (name, keys, sent) in [
+            ("a letter", &b"x\r"[..], "ab cdx"),
+            ("ctrl-u", b"\x15\r", ""),
+            ("ctrl-w", b"\x17\r", "ab "),
+            ("ctrl-w then ctrl-y", b"\x17\x19\r", "ab "),
+            // A digit in a draft is a character, not an answer.
+            ("a letter then a digit", b"x1\r", "ab cdx1"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell.route_bytes(b"\tab cd");
+            delivered(&mut shell);
+            shell.route_bytes(keys);
+            if let Some(answered) = shell.controlled() {
+                unseen.push(format!("{name} and Enter in one read: {answered:?}"));
+                continue;
+            }
+            assert!(
+                shell.drafting(),
+                "{name}: the refused Enter ended the draft"
+            );
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: (!sent.is_empty()).then(|| sent.to_string()),
+                }),
+                "{name}: the Enter after the frame did not send the draft it showed"
+            );
+        }
+        // A paste's end, then Enter in the next delivery with no frame
+        // between: a paste ends with its delivery (`Shell::end_delivery`), so
+        // bytes after its marker in the same one are not keys.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        delivered(&mut shell);
+        shell.route_bytes(b"\x1b[200~ zz\x1b[201~");
+        shell.route_bytes(b"\r");
+        if let Some(answered) = shell.controlled() {
+            unseen.push(format!(
+                "a paste, then Enter with no frame between: {answered:?}"
+            ));
+        }
+        assert!(
+            unseen.is_empty(),
+            "sent before a frame showed the draft: {unseen:#?}"
+        );
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("ab cd zz".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn a_frame_that_writes_nothing_settles_a_change_it_already_shows() {
+        // Down and Up in one read leave the marker where the last frame drew
+        // it, so the frame they ask for is the screen's own bytes and the band
+        // writes nothing (`Outcome::Unchanged`). That frame settles them: the
+        // Enter after it answers. Without that, a move undone in one read would
+        // hold every Enter until something else repainted.
+        // `fx-p5-approval-readiness-settled-40x120-edit-down-up-enter`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\x1b[B\x1b[A\r");
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the Enter read with the moves answered before any frame"
+        );
+        assert!(shell.marked().contains("❯ 1  "), "{:?}", shell.marked());
+        // The band's answer to a frame identical to the screen, and no
+        // reconcile: a repaint that wrote nothing keeps the receipt at once.
+        shell.intend_approval();
+        shell.approval_landed(Outcome::Unchanged);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            }),
+            "a frame that wrote nothing did not settle a change it already showed"
+        );
+    }
+
+    #[test]
+    fn ctrl_l_at_a_question_does_nothing_as_fxs_does() {
+        // fx v0.0.16 makes no approval action of the raw byte `12`
+        // (`approvalActionFromRawByte`, `src/ui/input/runtime.zig:98-108
+        // @481104fd`; `shortcuts.zig:24`, `:31-41`), so the question takes it
+        // and asks for nothing (`app_input_runtime.zig:1173-1184`): no
+        // repaint, no `.external_damage`. So the receipt stands, and an Enter
+        // read with it answers the choice shown -- at a choice, in a draft, and
+        // on the review plane. Before, xfx marked the screen damaged and kept
+        // the receipt until the next frame, so that Enter answered against a
+        // screen it had just called damaged.
+        let review = |shell: &mut Fixture| {
+            let started = turn_running(shell, b"edit the notes\r");
+            shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+            shell.settle_band(started);
+            assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+            delivered(shell);
+        };
+        for (what, draft) in [
+            ("a choice", false),
+            ("a draft", true),
+            ("the review plane", false),
+        ] {
+            let mut shell = shell(24, 80);
+            if what == "the review plane" {
+                review(&mut shell);
+            } else {
+                asking(&mut shell);
+            }
+            if draft {
+                shell.route_bytes(b"\tab cd");
+                delivered(&mut shell);
+            }
+            let receipt = format!("{:?}", shell.readiness);
+            shell.route_bytes(&[0x0c]);
+            assert!(
+                !shell.damage_untold,
+                "{what}: Ctrl-L marked the screen damaged"
+            );
+            assert_eq!(
+                format!("{:?}", shell.readiness),
+                receipt,
+                "{what}: Ctrl-L touched the receipt"
+            );
+            shell.route_bytes(&[0x0c, b'\r']);
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: draft.then(|| "ab cd".to_string()),
+                }),
+                "{what}: Ctrl-L and Enter in one read"
+            );
+        }
+    }
+
+    #[test]
+    fn a_walk_of_the_review_plane_and_enter_answer_nothing_until_it_is_drawn() {
+        // The part of a change in view is part of what the question shows
+        // (`reasonsAffectApproval`'s doc, `render_request.zig:363-366
+        // @481104fd`; fx's wheel asks for a frame, `input_approval_runtime.zig:173-176`):
+        // a walk that moved and the Enter after it answer nothing until it
+        // is drawn. A walk that cannot move -- `C-n` at the tail, where the
+        // plane opens -- changes nothing and does not hold the Enter.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+        delivered(&mut shell);
+        shell.route_bytes(&[0x0e, b'\r']);
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            }),
+            "a walk that moved nothing held the Enter"
+        );
+
+        let mut shell = self::shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        delivered(&mut shell);
+        shell.route_bytes(&[0x10, b'\r']);
+        assert_eq!(shell.controlled(), None, "an undrawn walk was answered");
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            })
+        );
+    }
+
+    /// Every spelling of the three keys xfx's draft took and fx v0.0.16's
+    /// does not: undo, redo and yank (APPROVAL-DRAFT-KEYS).
+    const DRAFT_KEYS_FX_DOES_NOT_TAKE: [(&str, &[u8]); 9] = [
+        ("ctrl-y", &[0x19]),
+        ("kitty ctrl-y", b"\x1b[121;5u"),
+        ("xterm ctrl-y", b"\x1b[27;5;121~"),
+        ("ctrl-_", &[0x1f]),
+        ("kitty ctrl-_", b"\x1b[95;5u"),
+        ("super-z", b"\x1b[122;9u"),
+        ("xterm super-z", b"\x1b[27;9;122~"),
+        ("super-shift-z", b"\x1b[122;10u"),
+        ("xterm super-shift-z", b"\x1b[27;10;122~"),
+    ];
+
+    /// A shell asking the edit question with `ab cd` typed into the first
+    /// choice's draft, then C-w (so the draft is `ab `, with something
+    /// killed and an edit to undo), and a frame that showed it. On the band,
+    /// or on the review plane.
+    fn drafting_ab_after_a_kill(review: bool) -> Fixture {
+        let mut shell = shell(24, 80);
+        if review {
+            let started = turn_running(&mut shell, b"edit the notes\r");
+            shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+            shell.settle_band(started);
+            assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+            delivered(&mut shell);
+        } else {
+            asking(&mut shell);
+        }
+        shell.route_bytes(b"\tab cd");
+        delivered(&mut shell);
+        shell.route_bytes(&[0x17]);
+        delivered(&mut shell);
+        assert!(shell.drafting(), "no draft has the keys");
+        assert!(shell.approval_ready(ApprovalId(1)), "no receipt was earned");
+        shell
+    }
+
+    #[test]
+    fn undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do() {
+        // fx v0.0.16's draft takes none of the three. A raw C-y or C-_ is
+        // no focused-editor key (`fromFocusedEditorControlByte`,
+        // `src/ui/input/shortcuts.zig:31-41@481104fd`, which keeps only the
+        // moves and three deletes of `fromControlByte`, `:11-29`) and no
+        // approval byte (`approvalActionFromByte`,
+        // `src/ui/input/runtime.zig:61-73`; `approvalActionFromRawByte`,
+        // `:103-108`), so the question takes it and asks for nothing
+        // (`app_input_runtime.zig:1173-1184`). A kitty or xterm Ctrl+Y and
+        // Ctrl+_ are remapped bytes (`escape_parser.zig:255-259`), replayed
+        // through the same raw route (`app_input_runtime.zig:647-650`,
+        // `:746-756`). Super+Z and Super+Shift+Z are a composer undo and
+        // redo (`escape_parser.zig:232-234`), no draft action
+        // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-96`),
+        // which the question's switch leaves to `else => {}`
+        // (`input_approval_runtime.zig:128`). So the draft is as it was,
+        // nothing is held back, and an Enter read with the key sends it --
+        // on the band and on the review plane.
+        let mut wrong = Vec::new();
+        for review in [false, true] {
+            let plane = if review {
+                "the review plane"
+            } else {
+                "the band"
+            };
+            for (name, key) in DRAFT_KEYS_FX_DOES_NOT_TAKE {
+                let sent = |shell: &mut Fixture| shell.controlled();
+                let want = Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some("ab ".to_string()),
+                });
+                // Alone: the receipt untouched, then the Enter sends `ab `.
+                let mut shell = drafting_ab_after_a_kill(review);
+                let receipt = format!("{:?}", shell.readiness);
+                shell.route_bytes(key);
+                if format!("{:?}", shell.readiness) != receipt {
+                    wrong.push(format!("{plane}, {name}: it touched the receipt"));
+                }
+                if !shell.drafting() {
+                    wrong.push(format!("{plane}, {name}: the draft lost the keys"));
+                }
+                shell.route_bytes(b"\r");
+                let answered = sent(&mut shell);
+                if answered != want {
+                    wrong.push(format!("{plane}, {name}, then Enter: {answered:?}"));
+                }
+                // With the Enter in one read: answered at once, `ab `.
+                let mut shell = drafting_ab_after_a_kill(review);
+                shell.route_bytes(&[key, b"\r"].concat());
+                let answered = sent(&mut shell);
+                if answered != want {
+                    wrong.push(format!(
+                        "{plane}, {name} and Enter in one read: {answered:?}"
+                    ));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn tab_in_a_draft_changes_nothing_and_holds_the_enter_until_a_frame_as_fxs_does() {
+        // fx v0.0.16's Tab in an open amendment changes nothing and answers
+        // `.redraw` (`approval_decision.zig:142-143@481104fd`), which asks for
+        // a modal frame (`input_approval_runtime.zig:59-61`), so a Tab and an
+        // Enter in one read meet a pending frame and the Enter is refused
+        // (`:191-218`): the rule a draft edit that changes nothing follows.
+        // The Enter after the frame sends the draft as it was.
+        for review in [false, true] {
+            let plane = if review {
+                "the review plane"
+            } else {
+                "the band"
+            };
+            let mut shell = drafting_ab_after_a_kill(review);
+            shell.route_bytes(b"\t\r");
+            assert_eq!(
+                shell.controlled(),
+                None,
+                "{plane}: Tab and Enter in one read answered before a frame"
+            );
+            assert!(shell.drafting(), "{plane}: Tab ended the draft");
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some("ab ".to_string()),
+                }),
+                "{plane}: the Enter after the frame did not send the draft as it was"
+            );
+        }
+    }
+
+    #[test]
+    fn every_key_fxs_draft_takes_still_edits_it_and_holds_the_enter_until_a_frame() {
+        // fx v0.0.16's draft keys (`approvalDraftActionFromShortcut`,
+        // `src/ui/input/runtime.zig:75-96@481104fd`): by the raw-byte route
+        // C-a, C-e, C-b, C-f, C-k, C-u and C-w (`fromFocusedEditorControlByte`,
+        // `shortcuts.zig:31-41`) and Backspace (`runtime.zig:66`), each
+        // `.redraw` while an amendment is open (`approval_decision.zig:152-155`,
+        // `:170-174`); by the decoded route the arrows, Home and End, the word
+        // moves, Delete and the word and line deletes in each spelling
+        // (`shortcuts.zig:43-65`; `escape_parser.zig:73-109`, `:149-180`,
+        // `:243-264`, `:528-551`, `:628-635`, `:694-737`), each asking for the
+        // frame whatever it changed (`input_approval_runtime.zig:79-89`). So
+        // each, read with an Enter, holds it; the draft it leaves is the one
+        // the next frame shows, and an `X` typed after shows where the caret
+        // went. From `ab ` with the caret at its end, or (`start`) after C-a.
+        let mut wrong = Vec::new();
+        for (name, start, key, sent) in [
+            ("ctrl-a", false, &[0x01][..], "Xab "),
+            ("home", false, b"\x1b[H", "Xab "),
+            ("home ~", false, b"\x1b[1~", "Xab "),
+            ("ss3 home", false, b"\x1bOH", "Xab "),
+            ("shift-home", false, b"\x1b[1;2H", "Xab "),
+            ("kitty ctrl-a", false, b"\x1b[97;5u", "Xab "),
+            ("super-up", false, b"\x1b[1;9A", "Xab "),
+            ("ctrl-e", true, &[0x05], "ab X"),
+            ("end", true, b"\x1b[F", "ab X"),
+            ("end ~", true, b"\x1b[4~", "ab X"),
+            ("super-down", true, b"\x1b[1;9B", "ab X"),
+            ("ctrl-e at the end", false, &[0x05], "ab X"),
+            ("ctrl-b", false, &[0x02], "abX "),
+            ("left", false, b"\x1b[D", "abX "),
+            ("shift-left", false, b"\x1b[1;2D", "abX "),
+            ("ctrl-f", true, &[0x06], "aXb "),
+            ("right", true, b"\x1b[C", "aXb "),
+            ("right at the end", false, b"\x1b[C", "ab X"),
+            ("alt-b", false, b"\x1bb", "Xab "),
+            ("alt-left", false, b"\x1b[1;3D", "Xab "),
+            ("ctrl-left", false, b"\x1b[1;5D", "Xab "),
+            ("alt-f", true, b"\x1bf", "abX "),
+            ("ctrl-right", true, b"\x1b[1;5C", "abX "),
+            ("backspace", false, &[0x7f], "abX"),
+            ("ctrl-h", false, &[0x08], "abX"),
+            ("backspace at the start", true, &[0x7f], "Xab "),
+            ("delete", true, b"\x1b[3~", "Xb "),
+            ("alt-d", true, b"\x1bd", "X"),
+            ("ctrl-delete", true, b"\x1b[3;5~", "X"),
+            ("ctrl-k", true, &[0x0b], "X"),
+            ("kitty ctrl-k", true, b"\x1b[107;5u", "X"),
+            ("super-delete", true, b"\x1b[3;9~", "X"),
+            ("ctrl-u", false, &[0x15], "X"),
+            ("super-backspace", false, b"\x1b[127;9u", "X"),
+            ("ctrl-u at the start", true, &[0x15], "Xab "),
+            ("ctrl-w", false, &[0x17], "X"),
+            ("kitty ctrl-w", false, b"\x1b[119;5u", "X"),
+            ("alt-backspace", false, b"\x1b\x7f", "X"),
+        ] {
+            kept_key(
+                drafting_ab_after_a_kill(false),
+                name,
+                start,
+                key,
+                sent,
+                &mut wrong,
+            );
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// One case of a key a draft keeps, at `shell`'s open draft: after C-a
+    /// when `start`, `key` read with an Enter must hold it; after the frame,
+    /// an `X` typed and an Enter must send `sent`. What is wrong is pushed to
+    /// `wrong`.
+    fn kept_key(
+        mut shell: Fixture,
+        name: &str,
+        start: bool,
+        key: &[u8],
+        sent: &str,
+        wrong: &mut Vec<String>,
+    ) {
+        if start {
+            shell.route_bytes(&[0x01]);
+            delivered(&mut shell);
+        }
+        shell.route_bytes(&[key, b"\r"].concat());
+        if let Some(answered) = shell.controlled() {
+            wrong.push(format!("{name} and Enter in one read: {answered:?}"));
+            return;
+        }
+        if !shell.drafting() {
+            wrong.push(format!("{name}: the draft lost the keys"));
+            return;
+        }
+        delivered(&mut shell);
+        shell.route_bytes(b"X");
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        let answered = shell.controlled();
+        let want = Some(TurnControl::Answer {
+            id: ApprovalId(1),
+            answer: ApprovalAnswer::Once,
+            feedback: Some(sent.to_string()),
+        });
+        if answered != want {
+            wrong.push(format!("{name}: {answered:?}, not {sent:?}"));
+        }
+    }
+
+    #[test]
+    fn the_word_deletes_and_moves_stop_where_fxs_draft_stops_them() {
+        // From `ab.cd` fx v0.0.16's three word deletes give three answers.
+        // C-w takes the run back to whitespace or the line's start
+        // (`deleteWhitespaceDelimitedWordLeft`, `approval_amendment.zig:117-126
+        // @481104fd`; `previousWhitespaceDelimitedTokenStart`,
+        // `text_boundaries.zig:149-167`), so all of `ab.cd`. Alt-Backspace takes
+        // the word characters before the caret (`deleteWordLeft`,
+        // `approval_amendment.zig:111-115`; `previousWordStart`,
+        // `text_boundaries.zig:34-47`; `isWordCharacter`, `:71-77`: `.` is
+        // none), so `cd`. Alt-d takes the word after the caret and the gap
+        // after it (`deleteWordRight`, `approval_amendment.zig:128-132`;
+        // `nextWordDeleteEnd`, `text_boundaries.zig:60-69`), so `ab.`. The word
+        // moves stop at the same word's edges (`approval_amendment.zig:94-102`;
+        // `nextWordEnd`, `text_boundaries.zig:49-58`), and C-k, unlike Alt-d,
+        // takes the rest of the line. From the end of `ab.cd`, or (`start`)
+        // after C-a.
+        let mut wrong = Vec::new();
+        for (name, start, key, sent) in [
+            ("ctrl-w", false, &[0x17][..], "X"),
+            ("kitty ctrl-w", false, b"\x1b[119;5u", "X"),
+            ("alt-backspace", false, b"\x1b\x7f", "ab.X"),
+            ("kitty alt-backspace", false, b"\x1b[127;3u", "ab.X"),
+            ("alt-b", false, b"\x1bb", "ab.Xcd"),
+            ("ctrl-left", false, b"\x1b[1;5D", "ab.Xcd"),
+            ("alt-d", true, b"\x1bd", "Xcd"),
+            ("kitty alt-d", true, b"\x1b[100;3u", "Xcd"),
+            ("ctrl-delete", true, b"\x1b[3;5~", "Xcd"),
+            ("alt-f", true, b"\x1bf", "abX.cd"),
+            ("ctrl-right", true, b"\x1b[1;5C", "abX.cd"),
+            ("ctrl-k", true, &[0x0b], "X"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell.route_bytes(b"\tab.cd");
+            delivered(&mut shell);
+            kept_key(shell, name, start, key, sent, &mut wrong);
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn an_edit_then_a_key_the_draft_does_not_take_and_enter_in_one_read_stay_held() {
+        // A swallowed key asks for no frame, and it does not settle the one an
+        // edit before it asked for: fx's draft edit leaves `.modal` pending
+        // (`input_approval_runtime.zig:59-61@481104fd`), and a key that is no
+        // approval action reaches nothing that commits a frame
+        // (`app_input_runtime.zig:1173-1184`, `input_approval_runtime.zig:128`).
+        // So a letter, each of the nine spellings and an Enter in one read
+        // send nothing, on the band and on the review plane, and the Enter
+        // after the frame sends the letter.
+        let mut wrong = Vec::new();
+        for review in [false, true] {
+            let plane = if review {
+                "the review plane"
+            } else {
+                "the band"
+            };
+            for (name, key) in DRAFT_KEYS_FX_DOES_NOT_TAKE {
+                let mut shell = drafting_ab_after_a_kill(review);
+                shell.route_bytes(&[&b"x"[..], key, b"\r"].concat());
+                if let Some(answered) = shell.controlled() {
+                    wrong.push(format!(
+                        "{plane}, x, {name} and Enter in one read: {answered:?}"
+                    ));
+                    continue;
+                }
+                delivered(&mut shell);
+                shell.route_bytes(b"\r");
+                let answered = shell.controlled();
+                if answered
+                    != Some(TurnControl::Answer {
+                        id: ApprovalId(1),
+                        answer: ApprovalAnswer::Once,
+                        feedback: Some("ab x".to_string()),
+                    })
+                {
+                    wrong.push(format!(
+                        "{plane}, {name}, the Enter after the frame: {answered:?}"
+                    ));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// A representative set, not the whole modifier matrix, of the Ctrl+J
+    /// spellings fx v0.0.16 turns back into `0x0a` (APPROVAL-CTRL-J): the
+    /// byte, and a kitty or xterm report of `j` or `J` with Ctrl and any
+    /// other modifier (`kittyUnicodeKeyAction`, `escape_parser.zig:255-258@481104fd`,
+    /// the lock bits masked first, `:187`), a press or a repeat (`:774-777`),
+    /// xterm's `CSI 27;<m>;<k>~` read into the same function (`:740-752`).
+    const CTRL_J: [(&str, &[u8]); 11] = [
+        ("c-j", &[0x0a]),
+        ("kitty ctrl+j", b"\x1b[106;5u"),
+        ("kitty ctrl+J", b"\x1b[74;5u"),
+        ("kitty ctrl+shift+j", b"\x1b[106;6u"),
+        ("kitty ctrl+alt+j", b"\x1b[106;7u"),
+        ("kitty ctrl+super+j", b"\x1b[106;13u"),
+        ("kitty ctrl+j, caps lock", b"\x1b[106;69u"),
+        ("kitty ctrl+j press", b"\x1b[106;5:1u"),
+        ("kitty ctrl+j repeat", b"\x1b[106;5:2u"),
+        ("xterm ctrl+j", b"\x1b[27;5;106~"),
+        ("xterm ctrl+shift+J", b"\x1b[27;6;74~"),
+    ];
+
+    /// A shell asking the edit question with a frame that showed it: on the
+    /// band, or on the review plane.
+    fn asking_on(review: bool) -> Fixture {
+        let mut shell = shell(24, 80);
+        if review {
+            let started = turn_running(&mut shell, b"edit the notes\r");
+            shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+            shell.settle_band(started);
+            assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+            delivered(&mut shell);
+        } else {
+            asking(&mut shell);
+        }
+        shell
+    }
+
+    /// The answer an Enter or a C-j gives under `id` 1.
+    fn answer_of(answer: ApprovalAnswer, feedback: Option<&str>) -> Option<TurnControl> {
+        Some(TurnControl::Answer {
+            id: ApprovalId(1),
+            answer,
+            feedback: feedback.map(str::to_string),
+        })
+    }
+
+    #[test]
+    fn ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes() {
+        // fx v0.0.16 makes `'\r', '\n'` an approval's `.submit`
+        // (`approvalActionFromByte`, `src/ui/input/runtime.zig:64@481104fd`):
+        // the focused-editor route, asked first, keeps no newline
+        // (`fromFocusedEditorControlByte` drops `fromControlByte`'s
+        // `.insert_newline`, `shortcuts.zig:26`, `:31-41`;
+        // `src/ui/input/runtime.zig:103-108`), so
+        // C-j answers the marked choice (`approval_decision.zig:141`) at a
+        // choice and in an open draft, which it sends. A kitty or xterm
+        // Ctrl+J is the byte replayed (`app_input_runtime.zig:950-953`,
+        // `:746-756`). Before, xfx's question swallowed every one of them.
+        let mut wrong = Vec::new();
+        for review in [false, true] {
+            let plane = if review {
+                "the review plane"
+            } else {
+                "the band"
+            };
+            for (name, key) in CTRL_J {
+                let mut shell = asking_on(review);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Once, None) {
+                    wrong.push(format!("{plane}, choice 1, {name}: {answered:?}"));
+                }
+                let mut shell = asking_on(review);
+                shell.route_bytes(b"\x1b[B");
+                delivered(&mut shell);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Always, None) {
+                    wrong.push(format!("{plane}, choice 2, {name}: {answered:?}"));
+                }
+                let mut shell = drafting_ab_after_a_kill(review);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Once, Some("ab ")) {
+                    wrong.push(format!("{plane}, a draft, {name}: {answered:?}"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_j_read_with_a_change_waits_for_the_frame_as_enter_does() {
+        // C-j is an affirmative where Enter is, so it meets the same check:
+        // fx takes none while a modal frame is pending
+        // (`input_approval_runtime.zig:191-218@481104fd`), and a move or a
+        // draft edit asks for one (`:117`, `:125`; `:79-89`;
+        // `app_input_runtime.zig:1251-1255`). A move, or a letter in a draft,
+        // and C-j in one read answer nothing; the C-j after the frame answers
+        // what it shows. At a command too: xfx holds every approval to it
+        // (the dispatcher's decision, `docs/parity.md`).
+        // `fx-p5-approval-ctrl-j-40x120-{edit-down-ctrl-j,write-letter-ctrl-j}`.
+        let mut wrong = Vec::new();
+        for (name, key) in CTRL_J {
+            for review in [false, true] {
+                let plane = if review {
+                    "the review plane"
+                } else {
+                    "the band"
+                };
+                let mut shell = asking_on(review);
+                shell.route_bytes(&[&b"\x1b[B"[..], key].concat());
+                if let Some(answered) = shell.controlled() {
+                    wrong.push(format!(
+                        "{plane}, down and {name} in one read: {answered:?}"
+                    ));
+                    continue;
+                }
+                if !shell.marked().contains("\u{276f} 2") {
+                    wrong.push(format!("{plane}, down and {name}: {:?}", shell.marked()));
+                }
+                delivered(&mut shell);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Always, None) {
+                    wrong.push(format!("{plane}, {name} after the frame: {answered:?}"));
+                }
+                let mut shell = drafting_ab_after_a_kill(review);
+                shell.route_bytes(&[&b"x"[..], key].concat());
+                if let Some(answered) = shell.controlled() {
+                    wrong.push(format!("{plane}, x and {name} in one read: {answered:?}"));
+                    continue;
+                }
+                if !shell.drafting() {
+                    wrong.push(format!("{plane}, x and {name}: the draft lost the keys"));
+                }
+                delivered(&mut shell);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Once, Some("ab x")) {
+                    wrong.push(format!(
+                        "{plane}, the draft's {name} after the frame: {answered:?}"
+                    ));
+                }
+            }
+            let mut shell = shell(24, 80);
+            asking_for(&mut shell, asked_to_run());
+            shell.route_bytes(&[&b"\x1b[B"[..], key].concat());
+            if let Some(answered) = shell.controlled() {
+                wrong.push(format!(
+                    "a command, down and {name} in one read: {answered:?}"
+                ));
+                continue;
+            }
+            delivered(&mut shell);
+            shell.route_bytes(key);
+            let answered = shell.controlled();
+            if answered != answer_of(ApprovalAnswer::Always, None) {
+                wrong.push(format!("a command, {name} after the frame: {answered:?}"));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_j_at_deny_refuses_at_once_as_enter_does() {
+        // fx gates the affirmatives only (`decision != .deny`,
+        // `input_approval_runtime.zig:191@481104fd`): C-j on choice 3 is a
+        // refusal, answered at once with a move read with it or a draft edit
+        // unseen, and the deny draft goes with it, as Enter's does.
+        // `fx-p5-approval-ctrl-j-40x120-cmd2-ask` follows Down Down C-j.
+        let mut wrong = Vec::new();
+        for (name, key) in CTRL_J {
+            for request in [asked(), asked_to_run()] {
+                let what = request.tool;
+                let mut shell = shell(24, 80);
+                asking_for(&mut shell, request);
+                shell.route_bytes(&[&b"\x1b[B\x1b[B"[..], key].concat());
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Deny, None) {
+                    wrong.push(format!("{what}, down down and {name}: {answered:?}"));
+                }
+            }
+            for review in [false, true] {
+                let mut shell = asking_on(review);
+                shell.route_bytes(b"\x1b[B\x1b[B");
+                delivered(&mut shell);
+                shell.route_bytes(b"\tno");
+                delivered(&mut shell);
+                shell.route_bytes(&[&b"x"[..], key].concat());
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Deny, Some("nox")) {
+                    wrong.push(format!(
+                        "review {review}, x and {name} in the deny draft: {answered:?}"
+                    ));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_j_at_a_question_over_the_status_panel_answers_the_question_not_the_panel() {
+        // fx's approval takes a raw byte before any menu does
+        // (`routeActiveModalInput`, `app_input_runtime.zig:1161-1185
+        // @481104fd`, ahead of the MCP menu and the compact menus --
+        // `/status`'s panel among them -- at `:1186-1216`, whose C-j is the
+        // next row, `:1205`); the picker's C-j yields to it
+        // (`composerPickerSurfaceVisible`, `:1110-1116`), and so does the
+        // full transcript (`screenOwnsInput`, `input_full_transcript_runtime.zig:30-34`).
+        // So with the panel open under the question C-j answers the question
+        // and the panel is where it was when the answer gives it back.
+        // `fx-p5-approval-ctrl-j-panel-40x120-approval-ctrl-j`.
+        let mut wrong = Vec::new();
+        for (name, key) in CTRL_J {
+            for review in [false, true] {
+                let mut shell = shell(20, 120);
+                let started = turn_running(&mut shell, b"edit the notes\r");
+                shell.open_info_panel(fx_status_panel());
+                shell.settle_band(started);
+                let top = from_the_rule(&shell.band_rows());
+                // The panel's key while no question is up: the next row.
+                shell.route_bytes(key);
+                shell.settle_band(started);
+                let before = from_the_rule(&shell.band_rows());
+                if before == top {
+                    wrong.push(format!("review {review}, {name}: the panel did not scroll"));
+                }
+                let request = if review {
+                    asked_about_a_large_change()
+                } else {
+                    asked()
+                };
+                shell.apply(UiEvent::Approval(question(request)));
+                shell.settle_band(started);
+                delivered(&mut shell);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Once, None) {
+                    wrong.push(format!("review {review}, {name}: {answered:?}"));
+                    continue;
+                }
+                if shell.info_panel.is_none() {
+                    wrong.push(format!(
+                        "review {review}, {name}: the answer closed the panel"
+                    ));
+                }
+                shell.settle_band(started);
+                if from_the_rule(&shell.band_rows()) != before {
+                    wrong.push(format!("review {review}, {name}: the panel moved"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn keys_fx_does_not_read_as_ctrl_j_still_do_nothing_at_a_question() {
+        // Not C-j to fx: a kitty key **release** (`escape_parser.zig:774-777
+        // @481104fd`, `.ignore`); Alt-C-j in the legacy spelling, `ESC LF`,
+        // which is `.insert_newline` (`:515-519`), no draft action
+        // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:94`)
+        // and nothing at the question (`input_approval_runtime.zig:128`); and
+        // Alt-j, no Ctrl, `.ignore` (`escape_parser.zig:265`). Each leaves the
+        // choice, the draft and the receipt as they were, so the Enter after
+        // it answers what the last frame showed.
+        let mut wrong = Vec::new();
+        for (name, key) in [
+            ("kitty ctrl+j release", &b"\x1b[106;5:3u"[..]),
+            ("esc lf", b"\x1b\n"),
+            ("kitty alt+j", b"\x1b[106;3u"),
+        ] {
+            for draft in [false, true] {
+                let mut shell = if draft {
+                    drafting_ab_after_a_kill(false)
+                } else {
+                    asking_on(false)
+                };
+                let receipt = format!("{:?}", shell.readiness);
+                shell.route_bytes(key);
+                if let Some(answered) = shell.controlled() {
+                    wrong.push(format!("draft {draft}, {name}: {answered:?}"));
+                    continue;
+                }
+                if format!("{:?}", shell.readiness) != receipt {
+                    wrong.push(format!("draft {draft}, {name}: it touched the receipt"));
+                }
+                shell.route_bytes(b"\r");
+                let want = answer_of(ApprovalAnswer::Once, draft.then_some("ab "));
+                let answered = shell.controlled();
+                if answered != want {
+                    wrong.push(format!("draft {draft}, {name}, then Enter: {answered:?}"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
     #[test]
@@ -30024,6 +31126,15 @@ mod tests {
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         assert!(shell.rule_confirm.is_none(), "Escape closes it");
         assert!(shell.document().is_empty(), "{:?}", shell.document());
+        // With no turn running it stops nothing (RULE-CONFIRM-KEYS: Escape
+        // stops a turn only over one).
+        while let Some(control) = shell.controlled() {
+            assert!(
+                !matches!(control, TurnControl::Cancel { .. }),
+                "an idle Escape sent a stop"
+            );
+        }
+        assert!(!shell.stop_requested, "an idle Escape asked for a stop");
         shell.route_bytes(b"/permissions remember deny create_folder {\"path\":\"d\"}\r");
         shell.route_bytes(b"2");
         assert_eq!(
@@ -30034,6 +31145,357 @@ mod tests {
             ]
         );
         assert!(!rules.exists(), "nothing was kept");
+    }
+
+    /// A `remember` that opens a rule confirmation in [`remembering_shell`].
+    const REMEMBER_A: &[u8] =
+        b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r";
+
+    /// Which choice a rule confirmation marks, as its rows say it.
+    fn rule_mark(shell: &Fixture) -> Option<&'static str> {
+        let rows = confirmation_rows(shell);
+        if rows.iter().any(|row| row == "  ❯ 1. Confirm") {
+            Some("Confirm")
+        } else if rows.iter().any(|row| row == "  ❯ 2. Cancel") {
+            Some("Cancel")
+        } else {
+            None
+        }
+    }
+
+    #[test]
+    fn ctrl_j_at_a_rule_confirmation_answers_as_enter_does_on_either_choice() {
+        // fx v0.0.16 asks a rule change in its approval prompt, confirmation-
+        // only (`syncRuleManagement`, `approval_prompt.zig:119-146@481104fd`),
+        // so the approval's byte map is its: `'\r', '\n' => .submit`
+        // (`approvalActionFromByte`, `src/ui/input/runtime.zig:64`), the marked
+        // choice's decision (`approval_decision.zig:141`, `:75-80`) -- Confirm
+        // makes the change, Cancel says it was cancelled
+        // (`submitRuleManagementChoice`, `input_approval_runtime.zig:257-328`).
+        // Every spelling APPROVAL-CTRL-J's question takes, on either choice.
+        let mut wrong = Vec::new();
+        for (name, bytes) in CTRL_J {
+            let (_home, _workspace, rules, mut shell) = remembering_shell();
+            shell.route_bytes(REMEMBER_A);
+            shell.route_bytes(b"\x1b[B");
+            shell.route_bytes(bytes);
+            let said = shell.document();
+            if shell.rule_confirm.is_some()
+                || said
+                    != [
+                        "* permissions: saved-session permission change cancelled".to_string(),
+                        String::new(),
+                    ]
+            {
+                wrong.push(format!("{name} on Cancel: {said:?}"));
+            }
+            shell.route_bytes(REMEMBER_A);
+            shell.route_bytes(bytes);
+            let said = shell.document();
+            let kept = crate::permission::session_rules::load(&rules)
+                .map(|state| state.rules.len())
+                .unwrap_or(0);
+            if shell.rule_confirm.is_some()
+                || kept != 1
+                || said
+                    != [
+                        "* permissions: saved-session permission rule updated".to_string(),
+                        String::new(),
+                    ]
+            {
+                wrong.push(format!("{name} on Confirm: {said:?}, {kept} kept"));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_c_at_a_rule_confirmation_cancels_it_and_arms_no_exit() {
+        // `3 => .deny` (`src/ui/input/runtime.zig:63@481104fd`): a refusal,
+        // which a rule confirmation answers by saying the change was
+        // cancelled (`input_approval_runtime.zig:267-275`); the approval took
+        // the byte, so no exit is armed. On either choice.
+        for down in [false, true] {
+            let (_home, _workspace, rules, mut shell) = remembering_shell();
+            shell.route_bytes(REMEMBER_A);
+            if down {
+                shell.route_bytes(b"\x1b[B");
+            }
+            shell.route_bytes(&[0x03]);
+            assert!(shell.rule_confirm.is_none(), "down {down}");
+            assert_eq!(
+                shell.document(),
+                vec![
+                    "* permissions: saved-session permission change cancelled".to_string(),
+                    String::new(),
+                ],
+                "down {down}"
+            );
+            assert!(!rules.exists(), "down {down}: nothing was kept");
+            let hint = sgr_free(shell.band_rows().last().expect("a hint row"));
+            assert_ne!(hint, EXIT_ARMED, "down {down}");
+        }
+    }
+
+    #[test]
+    fn tab_and_the_horizontal_keys_move_a_rule_confirmations_mark_wrapping() {
+        // Tab with no draft to open moves the mark (`.tab`,
+        // `approval_decision.zig:142-151@481104fd`: `amendment_allowed =
+        // false`, `app_commands.zig:691`), and Left, Alt-b, Right and Alt-f
+        // are the approval's `move_choice` (`routeApprovalEscapeAction`,
+        // `input_approval_runtime.zig:90-110`), wrapping over two choices
+        // (`moveChoice`, `optionCount`, `approval_decision.zig:214-229`).
+        let (_home, _workspace, _rules, mut shell) = remembering_shell();
+        shell.route_bytes(REMEMBER_A);
+        let mut marks = Vec::new();
+        for (name, bytes) in [
+            ("tab", &b"\t"[..]),
+            ("tab", b"\t"),
+            ("right", b"\x1b[C"),
+            ("right", b"\x1b[C"),
+            ("left", b"\x1b[D"),
+            ("left", b"\x1b[D"),
+            ("alt-f", b"\x1bf"),
+            ("alt-b", b"\x1bb"),
+        ] {
+            shell.route_bytes(bytes);
+            marks.push((name, rule_mark(&shell)));
+        }
+        assert_eq!(
+            marks,
+            vec![
+                ("tab", Some("Cancel")),
+                ("tab", Some("Confirm")),
+                ("right", Some("Cancel")),
+                ("right", Some("Confirm")),
+                ("left", Some("Cancel")),
+                ("left", Some("Confirm")),
+                ("alt-f", Some("Cancel")),
+                ("alt-b", Some("Confirm")),
+            ]
+        );
+        assert!(shell.document().is_empty(), "a move says nothing");
+        // And the next Enter answers the choice moved to.
+        shell.route_bytes(b"\t\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: saved-session permission change cancelled".to_string(),
+                String::new(),
+            ]
+        );
+    }
+
+    #[test]
+    fn keys_fx_reads_as_nothing_leave_a_rule_confirmation_as_it_was() {
+        // What fx's approval does nothing with, at a rule confirmation as at
+        // a question (`Shell::decide`'s reasons, each at the pin): C-p, a
+        // decoded `.open_model_catalog`, and C-n, a raw byte no approval
+        // action is made of; Shift-, Ctrl-, Alt- and Super-Up and -Down, a
+        // composer move (`input_approval_runtime.zig:128@481104fd`); a third
+        // digit, past `optionCount` (`approval_decision.zig:157-158`, `:227-229`);
+        // a letter with no draft (`:165`, `:202`); and Ctrl-L, which asks for
+        // no repaint (`src/ui/input/runtime.zig:98-108`, `:61-73`).
+        let mut wrong = Vec::new();
+        for (name, bytes) in [
+            ("c-p", &[0x10][..]),
+            ("c-n", &[0x0e]),
+            ("3", b"3"),
+            ("j", b"j"),
+            ("k", b"k"),
+            ("shift-up", b"\x1b[1;2A"),
+            ("shift-down", b"\x1b[1;2B"),
+            ("ctrl-up", b"\x1b[1;5A"),
+            ("ctrl-down", b"\x1b[1;5B"),
+            ("alt-up", b"\x1b[1;3A"),
+            ("alt-down", b"\x1b[1;3B"),
+            ("super-up", b"\x1b[1;9A"),
+            ("super-down", b"\x1b[1;9B"),
+            ("ctrl-l", &[0x0c]),
+        ] {
+            let (_home, _workspace, rules, mut shell) = remembering_shell();
+            shell.route_bytes(REMEMBER_A);
+            shell.damage_told();
+            shell.route_bytes(bytes);
+            let said = shell.document();
+            if shell.rule_confirm.is_none()
+                || rule_mark(&shell) != Some("Confirm")
+                || !said.is_empty()
+                || shell.damage_untold
+                || rules.exists()
+            {
+                wrong.push(format!(
+                    "{name}: up {}, mark {:?}, said {said:?}, damaged {}",
+                    shell.rule_confirm.is_some(),
+                    rule_mark(&shell),
+                    shell.damage_untold
+                ));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn() {
+        // With an operation in hand, fx's Escape at its approval prompt is
+        // `cancelApprovalOperation` (`resolveEscape`,
+        // `app_input_runtime.zig:2689`, `:2712-2716@481104fd`): the turn is
+        // stopped and the prompt -- here the rule confirmation, asked while
+        // the turn runs (a command runs at once, `input_submit_runtime.zig:
+        // 721-724`) -- is cleared, saying nothing about the rule
+        // (`input_approval_runtime.zig:401-436`) and nothing about the turn:
+        // that route writes no turn cancellation, where Ctrl-C's
+        // `cancelActiveOperation` does (`input_interrupt_runtime.zig:118-126`;
+        // `p5-rule-confirm-keys-turn`'s `esc`). While the confirmation is up
+        // the band has no activity row, as at any approval
+        // (`frameOwnedActivityProjection`; the same scenario's `prompt`).
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        let started = turn_running(&mut shell, b"ask something\r");
+        while shell.controlled().is_some() {}
+        shell.route_bytes(REMEMBER_A);
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        shell.settle_band(started);
+        assert_eq!(shell.geometry.activity, None, "an activity row under it");
+        let _ = shell.document();
+        escape(&mut shell);
+        assert!(shell.rule_confirm.is_none(), "Escape closed it");
+        let mut controls = Vec::new();
+        while let Some(control) = shell.controlled() {
+            controls.push(control);
+        }
+        assert!(
+            controls
+                .iter()
+                .any(|control| matches!(control, TurnControl::Cancel { .. })),
+            "the turn was not stopped: {controls:?}"
+        );
+        assert!(
+            !shell
+                .document()
+                .iter()
+                .any(|row| row.contains("permission") || row.contains("Cancelled")),
+            "nothing is said about the rule or the turn"
+        );
+        assert!(!rules.exists(), "nothing was kept");
+    }
+
+    /// A remembering shell with a turn running, as the runtime took it.
+    fn remembering_and_running(prompt: &str) -> (tempfile::TempDir, tempfile::TempDir, Fixture) {
+        let (home, workspace, _rules, mut shell) = remembering_shell();
+        shell.route_bytes(prompt.as_bytes());
+        shell.route_bytes(b"\r");
+        let _taken = shell.picks_up();
+        shell.start_turn();
+        shell.settle_band(Instant::now());
+        let _ = shell.take_pending();
+        (home, workspace, shell)
+    }
+
+    #[test]
+    fn escape_at_a_rule_confirmation_over_a_manual_compaction_stops_it() {
+        // fx's `cancelApprovalOperation` asks the worker to stop through
+        // `cancelApprovalTurn`, which stops a compaction as well as a turn
+        // (`stopCompactionActivityLocked`, `worker_runtime.zig:777-791
+        // @481104fd`), and a manual compaction is an operation in hand
+        // (`cancellationTarget`, `input_interrupt_runtime.zig:12-21`). So
+        // with no turn working, Escape at the confirmation stops the
+        // compaction.
+        let (_home, _workspace, _rules, mut shell) = remembering_shell();
+        shell.work.publish_status(a_status(1, 0));
+        shell.route_bytes(b"/compact\r");
+        assert_eq!(shell.picks_up(), TurnWork::Compact);
+        while shell.controlled().is_some() {}
+        assert!(!shell.activity.working(), "a turn is working");
+        assert!(shell.compacting(), "no compaction in hand");
+        shell.route_bytes(REMEMBER_A);
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        escape(&mut shell);
+        assert!(shell.rule_confirm.is_none());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { through: 1 }),
+            "the compaction was not stopped"
+        );
+    }
+
+    #[test]
+    fn escape_at_a_rule_confirmation_asks_no_second_stop_and_stops_work_typed_since() {
+        // fx's Escape there asks the worker again only for what is not
+        // already cancelled (`already_cancelled`, `input_approval_runtime.zig:
+        // 421-434@481104fd`), as its Ctrl-C does (`:94`); xfx's rule is
+        // `Shell::stop_owed`, its Ctrl-C's. A turn stopped while a read is
+        // still out keeps working until the read reports, and Escape then
+        // sends no second stop; a `/compact` typed after the stop is work the
+        // stop did not cover, and Escape stops it.
+        let now = Instant::now();
+        let (_home, _workspace, mut shell) = remembering_and_running("first");
+        shell.apply(tool_start(
+            "1",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        assert_eq!(shell.controlled(), Some(TurnControl::Cancel { through: 1 }));
+        assert!(shell.activity.working(), "the stopped turn stopped working");
+        shell.route_bytes(REMEMBER_A);
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        escape(&mut shell);
+        assert!(shell.rule_confirm.is_none());
+        assert_eq!(shell.controlled(), None, "a second stop was sent");
+
+        let (_home, _workspace, mut shell) = remembering_and_running("first");
+        shell.work.publish_status(a_status(1, 0));
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        let _ = shell.controlled();
+        shell.route_bytes(b"/compact\r");
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.work.give_back();
+        shell.settle_band(now);
+        while shell.controlled().is_some() {}
+        assert!(
+            shell.stop_requested,
+            "the first stop is no longer requested"
+        );
+        shell.route_bytes(REMEMBER_A);
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        escape(&mut shell);
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { through: 2 }),
+            "the /compact typed after the stop was not stopped"
+        );
+    }
+
+    #[test]
+    fn the_turns_clock_stops_while_a_rule_confirmation_is_up_over_it() {
+        // fx's `syncState` holds the turn's clock while an approval prompt is
+        // up (`syncWaitingClock(..., modal_active, ...)`,
+        // `app_worker_runtime.zig:729`, `:760@481104fd`), and a rule
+        // confirmation is one: answered either way, the turn is not charged
+        // for the time it was up.
+        for (answer, key) in [("Confirm", &b"\r"[..]), ("Cancel", b"2")] {
+            let (_home, _workspace, _rules, mut shell) = remembering_shell();
+            let started = turn_running(&mut shell, b"ask me\r");
+            shell.settle_band(started + Duration::from_secs(2));
+            let before = shell.activity_row.clone().expect("a running turn");
+            assert!(before.contains("2s"), "{answer}: {before:?}");
+            shell.route_bytes(REMEMBER_A);
+            assert!(shell.rule_confirm.is_some(), "{answer}");
+            shell.settle_band(started + Duration::from_secs(2));
+            shell.settle_band(started + Duration::from_secs(30));
+            assert_eq!(shell.activity_row, None, "{answer}: a row under it");
+            shell.route_bytes(key);
+            assert!(shell.rule_confirm.is_none(), "{answer}");
+            shell.settle_band(started + Duration::from_secs(30));
+            shell.settle_band(started + Duration::from_secs(33));
+            let after = shell.activity_row.clone().expect("the turn goes on");
+            assert!(
+                after.contains("5s"),
+                "{answer}: the turn was charged for the confirmation: {after:?}"
+            );
+        }
     }
 
     #[test]

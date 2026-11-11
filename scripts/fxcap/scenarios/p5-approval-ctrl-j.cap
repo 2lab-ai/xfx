@@ -1,0 +1,48 @@
+# C-j at a permission question (APPROVAL-CTRL-J). fx v0.0.16 makes byte
+# 0x0a an approval's `.submit`, as it makes `\r` (`approvalActionFromByte`,
+# src/ui/input/runtime.zig:64@481104fd; the focused-editor route takes no
+# newline, shortcuts.zig:26, :31-41), so C-j answers the marked choice at a
+# choice and in a draft, through the same readiness check as Enter
+# (input_approval_runtime.zig:191-218): a move or a letter and C-j in one
+# write leave the question up with the change drawn, and the next C-j
+# answers it. A refusal is never gated (`decision != .deny`): Down Down C-j
+# at the first command is a Deny on both. A kitty Ctrl+J is the byte
+# replayed (escape_parser.zig:255-259). The C-j typed after `x` in the
+# write's draft is the newline habit: it sends `Apply once` with `x`.
+# One `key` line is one tmux send-keys, one write. The turns, the workspace
+# and the settings are approvals.cap's.
+fx: gateway approvals-fx.json
+xfx: gateway approvals-xfx.json
+work approvals-ws
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type edit the files
+key Enter
+wait 3
+snap edit-ask
+key -H 1b 5b 42 0a
+wait 0.6
+snap edit-down-ctrl-j
+key -H 1b 5b 41 0a
+wait 0.6
+snap edit-up-ctrl-j
+key -H 0a
+wait 2.5
+snap write-ask
+key Tab
+wait 0.4
+key -H 78 0a
+wait 0.6
+snap write-letter-ctrl-j
+key -H 0a
+wait 2.5
+snap cmd-ask
+key -H 1b 5b 42 1b 5b 42 0a
+wait 2.5
+snap cmd2-ask
+key -H 1b 5b 31 30 36 3b 35 75
+wait 2.5
+snap end
+gwlog

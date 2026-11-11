@@ -4,8 +4,8 @@
 //! A separate module from [`super::approval`] because the two answer different
 //! questions and only one of them is about authority. `approval` owns what the
 //! panel asks and what the three answers mean; this owns the **draft** -- a text
-//! buffer with its own history, its own kill slot and its own paste assembler --
-//! and nothing here can widen, narrow or re-key a grant. Feedback is context:
+//! buffer and its own paste assembler -- and nothing here can widen, narrow or
+//! re-key a grant. Feedback is context:
 //! the call that ran is the call that was judged, whatever the sentence beside
 //! it says (`vercel-labs/fx@580a0c5d src/core/permissions/tool_admission.zig:2039-2050`).
 //!
@@ -17,20 +17,18 @@
 //! (`always_scope`); an amendment attached to it would read as a condition on a
 //! grant that is keyed by tool and target and cannot carry one.
 //!
-//! The two are **independent**, down to their histories: an undo typed at the
-//! deny side must not pull back a delta recorded at the allow side, and a user
-//! who typed a reason for refusing and then allowed does not send the refusal
-//! reason.
+//! The two are **independent**: a user who typed a reason for refusing and then
+//! allowed does not send the refusal reason.
 //!
-//! # Why [`super::editor::Editor`] is not the whole contract
+//! # No undo, no redo, no yank
 //!
-//! `Editor::apply` returns `None` for `Undo`, `Redo`, `Yank`, `PasteStart` and
-//! `PasteEnd` (`super::editor`'s own arm says so): those keys are the
-//! *session's*, answered by `super::shell` out of an `EditHistory` and a
-//! `Paste` rather than by the buffer. So "the draft edits like the composer, by
-//! construction" would be false for exactly the five keys that need the most
-//! care. [`Draft`] holds an `Editor` **and** an [`EditHistory`], and this module
-//! answers those five itself.
+//! fx v0.0.16's amendment is a buffer and a caret per side, with no history and
+//! no kill ring (`approval_amendment.zig:9-148@481104fd`), and none of its draft
+//! actions is one of the three (`approval_decision.zig:18-31`). So a draft here
+//! is an [`Editor`] and nothing more: a kill only deletes, and
+//! `super::approval::edits` never hands this module `Undo`, `Redo` or `Yank`
+//! (APPROVAL-DRAFT-KEYS). The paste's two keys, which `Editor::apply` does not
+//! answer either, are this module's own ([`DraftPaste`]).
 //!
 //! # Why the composer's paste assembler is the wrong tool here
 //!
@@ -44,7 +42,6 @@
 
 use crate::permission::ApprovalAnswer;
 
-use super::edit_history::EditHistory;
 use super::editor::Editor;
 use super::input::Action;
 
@@ -91,32 +88,25 @@ fn side(choice: usize) -> Option<usize> {
     }
 }
 
-/// One side's amendment: its text, its own undo history, and its own kill slot.
-///
-/// Per draft, not per panel: two drafts that shared a history would let an undo
-/// typed at the deny side pull back a delta recorded on the allow side.
+/// One side's amendment: its text and its caret.
 struct Draft {
     editor: Editor,
-    history: EditHistory,
 }
 
 impl Default for Draft {
     fn default() -> Self {
         Self {
             editor: Editor::new(),
-            history: EditHistory::new(),
         }
     }
 }
 
 impl Draft {
-    /// Puts `text` in at the caret and records the delta, if the budget admits
-    /// it whole.
+    /// Puts `text` in at the caret, if the budget admits it whole.
     ///
     /// **Whole or not at all**, which is the same rule the paste follows and
     /// for the same reason: half of a pasted line is text the user did not
-    /// write, and a draft that silently swallowed the tail of a yank would be a
-    /// sentence they cannot check by reading.
+    /// write, and a sentence they cannot check by reading.
     ///
     /// `false` is the budget's refusal; an empty `text` is no edit and no
     /// refusal.
@@ -127,52 +117,14 @@ impl Draft {
         if !fits(self.editor.text().len(), text.len()) {
             return false;
         }
-        if let Some(delta) = self.editor.insert(text) {
-            self.history.record(delta);
-        }
+        let _ = self.editor.insert(text);
         true
     }
 
-    /// One editing key, on a draft `cols` cells wide.
-    ///
-    /// The five the buffer does not answer are answered here; everything else
-    /// is `Editor::apply`'s, and its delta is recorded so that an undo has
-    /// something to take back.
-    ///
-    /// `false` is an edit the budget refused.
-    fn apply(&mut self, action: Action, cols: u16) -> bool {
-        match action {
-            // The history's, not the buffer's. The two fields are split at the
-            // call site, which is two disjoint borrows and what keeps the
-            // transfer atomic (`super::edit_history::EditHistory::undo`).
-            Action::Undo => {
-                let Self { editor, history } = self;
-                history.undo(|delta| editor.revert(delta));
-            }
-            Action::Redo => {
-                let Self { editor, history } = self;
-                history.redo(|delta| editor.replay(delta));
-            }
-            // Owned before the mutable borrow: `killed()` borrows the history
-            // immutably and `insert` needs the editor mutably. The spans are
-            // discarded, because a draft carries no entities -- there is
-            // nothing in it a block could be a span *of*.
-            Action::Yank => {
-                let killed = self.history.killed().map(|(text, _)| text.to_owned());
-                if let Some(text) = killed {
-                    return self.insert(&text);
-                }
-            }
-            // Everything the buffer really answers, kills included: those are
-            // `Editor::apply`'s own and they record normally, which is what
-            // keeps `C-y` yanking the last thing that was really killed.
-            other => {
-                if let Some(delta) = self.editor.apply(other, cols) {
-                    self.history.record(delta);
-                }
-            }
-        }
-        true
+    /// One editing key, on a draft `cols` cells wide: `Editor::apply`'s, its
+    /// delta dropped, because a draft has no history to record it in.
+    fn apply(&mut self, action: Action, cols: u16) {
+        let _ = self.editor.apply(action, cols);
     }
 
     /// The rows this draft would paint at `cols`, and the caret inside them.
@@ -436,7 +388,10 @@ impl Drafts {
                 Some(text) => draft.insert(&text),
                 None => false,
             },
-            other => draft.apply(other, cols),
+            other => {
+                draft.apply(other, cols);
+                true
+            }
         };
         self.settle(taken);
     }
@@ -525,15 +480,14 @@ mod tests {
     }
 
     #[test]
-    fn undo_redo_and_yank_work_inside_a_draft() {
-        // **Asserted on real behavior**, never by comparing against
-        // `Editor::apply`: that returns `None` for all three
-        // (`super::super::editor`'s own arm), so a comparison would pass on a
-        // draft that did nothing at all. What is checked is the text and the
-        // caret after each key, which is what the user sees.
+    fn a_draft_has_no_undo_redo_or_yank_as_fxs_has_none() {
+        // fx v0.0.16's amendment is a buffer and a caret per side, with no
+        // history and no kill ring (`approval_amendment.zig:9-148@481104fd`),
+        // and its draft actions name none of the three
+        // (`approval_decision.zig:18-31`). A kill there only deletes. So an
+        // undo, a redo and a yank leave the text and the caret where they
+        // were, even with something killed and an edit to take back.
         let mut drafts = typed_into(ALLOW, "hello world");
-        assert_eq!(drafts.text(ALLOW), "hello world");
-        assert_eq!(caret(&drafts), (0, 11));
         assert!(
             drafts.editing_at(ALLOW),
             "the allow side does not have the keys"
@@ -542,42 +496,26 @@ mod tests {
 
         drafts.edit(Action::Home, COLS);
         assert_eq!(caret(&drafts), (0, 0), "Home did not reach the left edge");
-
         drafts.edit(Action::KillToEnd, COLS);
         assert_eq!(drafts.text(ALLOW), "", "the kill took nothing");
-        assert_eq!(caret(&drafts), (0, 0));
-
-        drafts.edit(Action::Undo, COLS);
-        assert_eq!(
-            drafts.text(ALLOW),
-            "hello world",
-            "an undo inside a draft did nothing, so the draft has no history"
-        );
-
-        drafts.edit(Action::Redo, COLS);
-        assert_eq!(drafts.text(ALLOW), "", "a redo inside a draft did nothing");
-
-        drafts.edit(Action::Yank, COLS);
-        assert_eq!(
-            drafts.text(ALLOW),
-            "hello world",
-            "the kill slot is the draft's own, and `C-y` did not read it"
-        );
-        assert_eq!(caret(&drafts), (0, 11), "the yank left the caret behind it");
-
-        // And the histories are **per draft**: an undo typed at the deny side
-        // cannot pull back a delta recorded at the allow side.
+        drafts.typed('x');
+        for key in [Action::Undo, Action::Redo, Action::Yank] {
+            drafts.edit(key, COLS);
+            assert_eq!(drafts.text(ALLOW), "x", "{key:?} changed the draft");
+            assert_eq!(caret(&drafts), (0, 1), "{key:?} moved the caret");
+        }
+        // And the two sides stay independent: text typed at the deny side
+        // leaves the allow side's alone.
         drafts.leave();
         assert!(!drafts.editing(), "leaving kept the keys");
         drafts.enter(DENY).expect("an eligible choice");
         assert!(drafts.editing_at(DENY) && !drafts.editing_at(ALLOW));
         drafts.typed('n');
-        drafts.edit(Action::Undo, COLS);
-        assert_eq!(drafts.text(DENY), "", "the deny side undid its own edit");
+        assert_eq!(drafts.text(DENY), "n");
         assert_eq!(
             drafts.text(ALLOW),
-            "hello world",
-            "an undo at one side reached into the other side's history"
+            "x",
+            "the deny side reached the allow side"
         );
     }
 

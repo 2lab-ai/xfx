@@ -1,0 +1,12 @@
+# FX_TRACE_LOG of esc-all.cap's fx v0.0.16 run, every scope: lines 98-152 (the remember's submit to the Escape), timestamps cut, the frame/paint/render/scroll/cache lines left out
+[input] submit requested stream_active=false queued=0 input_bytes=53
+[permission] event=rule_management_begin action=remember
+[permission] event=rule_management_session_ready
+[permission] event=rule_management_snapshot_start
+[permission] event=rule_management_snapshot_done rules=0
+[permission] event=rule_management_prepare_start tool=read_file
+[permission] event=rule_management_prepare_done kind=structured_tool
+[permission] event=rule_management_prompt_published
+[program_status] report activity=blocked settled=idle
+[input] cancel approval operation queued=0
+[interrupt] event=cancel_requested source=input_approval stream_active=true active_streamed_text_response=false pending_tool_call=true approval_prompt=true running_tool=false stream_activity_count=0 last_activity_kind=none

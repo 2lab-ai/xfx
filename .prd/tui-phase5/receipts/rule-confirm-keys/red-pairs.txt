@@ -1,0 +1,87 @@
+# python3 -I scope.py red   (the base 1a0adaec against fx v0.0.16)
+DIFF     p5-rule-confirm-keys alt-b                   2 rows differ
+         fx:  '    1. Confirm'
+         xfx: '  ❯ 1. Confirm'
+         fx:  '  ❯ 2. Cancel'
+         xfx: '    2. Cancel'
+SAME     p5-rule-confirm-keys alt-f                   (15 rows compared)
+MISSING  p5-rule-confirm-keys ctrl-c                  (the run stopped before it)
+DIFF     p5-rule-confirm-keys ctrl-j-cancel           13 rows differ
+         fx:  '* permissions: saved-session permission change cancelled'
+         xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+         fx:  ''
+         xfx: '  Permission needed · Choose one                                                                       Permission rule'
+         fx:  '┃'
+         xfx: ''
+MISSING  p5-rule-confirm-keys ctrl-j                  (the run stopped before it)
+MISSING  p5-rule-confirm-keys esc                     (the run stopped before it)
+MISSING  p5-rule-confirm-keys kitty-ctrl-j            (the run stopped before it)
+DIFF     p5-rule-confirm-keys left                    2 rows differ
+         fx:  '    1. Confirm'
+         xfx: '  ❯ 1. Confirm'
+         fx:  '  ❯ 2. Cancel'
+         xfx: '    2. Cancel'
+DIFF     p5-rule-confirm-keys nothing-keys            2 rows differ
+         fx:  '    1. Confirm'
+         xfx: '  ❯ 1. Confirm'
+         fx:  '  ❯ 2. Cancel'
+         xfx: '    2. Cancel'
+SAME     p5-rule-confirm-keys prompt                  (15 rows compared)
+SAME     p5-rule-confirm-keys right                   (15 rows compared)
+DIFF     p5-rule-confirm-keys tab                     2 rows differ
+         fx:  '    1. Confirm'
+         xfx: '  ❯ 1. Confirm'
+         fx:  '  ❯ 2. Cancel'
+         xfx: '    2. Cancel'
+MISSING  p5-rule-confirm-keys turn                    (the run stopped before it)
+DIFF     p5-rule-confirm-keys-turn end                8 rows differ
+         fx:  '┃'
+         xfx: ''
+         fx:  ''
+         xfx: '  Working on it.'
+         fx:  'auto · model-a'
+         xfx: ''
+DIFF     p5-rule-confirm-keys-turn esc                6 rows differ
+         fx:  '┃'
+         xfx: ''
+         fx:  ''
+         xfx: '~ Generating (<s>) (↑4 ↓3)'
+         fx:  'auto · model-a'
+         xfx: ''
+DIFF     p5-rule-confirm-keys-turn prompt             15 rows differ
+         fx:  '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+         xfx: '~ Generating (<s>) (↑4 ↓3)'
+         fx:  '  Permission needed · Choose one                                                                       Permission rule'
+         xfx: ''
+         fx:  ''
+         xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+DIFF     p5-rule-confirm-keys-cmd done                7 rows differ
+         fx:  '● 1 tool call · 1 command · 1 cancelled'
+         xfx: '● 1 tool call · 1 command'
+         fx:  '└ Cancelled sleep 6'
+         xfx: '└ Ran sleep 6'
+         fx:  '▪ Cancelled sleep 6 · What can xfx do differently?'
+         xfx: '  post command answer.'
+DIFF     p5-rule-confirm-keys-cmd esc-2               3 rows differ
+         fx:  '● 1 tool call · 1 command · 1 cancelled'
+         xfx: '● 1 tool call · 1 command'
+         fx:  '└ Cancelled sleep 6'
+         xfx: '└ Running sleep 6'
+         fx:  '▪ Cancelled sleep 6 · What can xfx do differently?'
+         xfx: '~ Running (<s>) (↑2 ↓40)'
+DIFF     p5-rule-confirm-keys-cmd esc                 3 rows differ
+         fx:  '● 1 tool call · 1 command · 1 cancelled'
+         xfx: '● 1 tool call · 1 command'
+         fx:  '└ Cancelled sleep 6'
+         xfx: '└ Running sleep 6'
+         fx:  '▪ Cancelled sleep 6 · What can xfx do differently?'
+         xfx: '~ Running (<s>) (↑2 ↓40)'
+DIFF     p5-rule-confirm-keys-cmd prompt              15 rows differ
+         fx:  '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+         xfx: '~ Running (<s>) (↑2 ↓40)'
+         fx:  '  Permission needed · Choose one                                                                       Permission rule'
+         xfx: ''
+         fx:  ''
+         xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+3 of 20 pairs identical
+exit 1

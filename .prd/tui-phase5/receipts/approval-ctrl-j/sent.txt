@@ -1,0 +1,10 @@
+# python3 -I sent.py <side>/<bin>-p5-approval-ctrl-j-40x120-bodies, from the capture root (the bodies stay out of the receipt)
+## fx/fx-p5-approval-ctrl-j-40x120-bodies
+005-completion.json: after write_file, the user message ["x"]
+006-completion.json: after write_file, the user message ["x"]
+007-completion.json: after write_file, the user message ["x"]
+## red/xfx-p5-approval-ctrl-j-40x120-bodies
+## xfx/xfx-p5-approval-ctrl-j-40x120-bodies
+005-completion.json: after write_file, the user message ["x"]
+006-completion.json: after write_file, the user message ["x"]
+007-completion.json: after write_file, the user message ["x"]

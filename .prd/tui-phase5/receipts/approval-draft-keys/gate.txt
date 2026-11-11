@@ -1,0 +1,52 @@
+# the brief's gate, once, under the machine suite lock (suite-lock.sh) with TMPDIR=<tmp> (a short dir), at the code head; each step's exit status and seconds
+  head 09077f5f; src and tests vs HEAD: 0 changed
+  fmt exit 0 (1s)
+  clippy exit 0 (8s)
+  clippy-fi exit 0 (38s)
+  test exit 0 (135s)
+  test-fi exit 0 (167s)
+  identity exit 0 (2s)
+  stubs exit 0 (14s)
+  secrets exit 0 (78s)
+  after: src and tests vs HEAD: 0 changed
+
+# test: every 'test result' line
+test result: ok. 4647 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 51.71s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.49s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.02s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.03s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.74s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.17s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.04s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.62s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.72s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+test result: ok. 186 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.87s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+# total: 15 result lines; passed 5569, failed 0, ignored 7
+
+# test-fi: every 'test result' line
+test result: ok. 4670 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 50.26s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.72s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.93s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.75s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.13s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.06s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.33s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.93s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.41s
+test result: ok. 200 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.48s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+# total: 15 result lines; passed 5606, failed 0, ignored 7
+
+# the three checks' last line
+check-xfx-identity: ok (17996 tracked file(s) scanned)
+check-no-stubs: ok
+check-no-secrets: ok (17996 tracked file(s) scanned)
