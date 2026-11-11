@@ -662,14 +662,14 @@ xfx_row = '^$'
 why = "fx v0.0.16 hands each replayed `ask_user_question` call its saved detail (`attachHistoricalToolDetail`, `app_session_runtime.zig:4337`, `:4607@481104fd`), so its Ctrl-O shows the call's arguments and its result under the batch's resolutions (`│  questions: [...]`, `│  [{\"question\":...}]`) and under `● Asked`, which it heads `<ts> UTC · Tool`. xfx's replay writes both rows as blocks that carry no call (QUESTION-RESUME, .prd/tui-phase5/receipts/question-resume/), so its Ctrl-O shows the resolution and `● Asked` alone, and the rows after them stand higher. The rows themselves, on the screen and in Ctrl-O, match; the inline `resumed` pairs are identical."
 
 # at-ranking (I-U2) was closed by AT-RANK: xfx ranked `@` queries with c1db919's eight facts where fx v0.0.16
-# ranks by its placement score (`scoreBetter`, `choosePlacement`, `file_index.zig@481104fd`); the copy made the
-# five snaps it covered (`p5-input-at` at-st, at-st-down12, at-st-up6, at-stat; `workspace-index` at-plan)
-# identical on the head (.prd/tui-phase5/receipts/at-rank/pairs.txt).
-
-# at-plan-run-directory (AT-RANK, e2cba14b) was deleted by train 14: its fx_row and xfx_row
-# (`^  /\S+/fxcap\.XXXXXX/extra/notes/$`) read the run directory as an absolute path, and since LOCAL-PATHS
-# (train 12, main) capture.sh writes it as a placeholder as wide as the path (`<scratch___>`, scripts/fxcap/roots.py),
-# which neither row can match: the cause covered nothing (.prd/tui-phase5/receipts/train-14/README.md, "The ledger").
+# ranks by its placement score (`scoreBetter`, `choosePlacement`, `file_index.zig@481104fd`); AT-RANK's copy made
+# the four `p5-input-at` snaps it covered identical (.prd/tui-phase5/receipts/at-rank/pairs.txt). Its fifth,
+# `workspace-index` at-plan, was identical only when both runs' random run-directory names agreed: `@plan` reaches
+# the added folder only through its absolute path, so a side lists that row only if its own path holds p, l, a, n
+# in order (144 of 144 sides, .prd/tui-phase5/receipts/train-14/ci-08066ac9/read.txt). Since WORKSPACE-INDEX-AT-PLAN
+# a unit's two runs share one name (FXCAP_RUN, .prd/tui-phase5/receipts/workspace-index-at-plan/README.md): stable.
+# at-plan-run-directory (AT-RANK, e2cba14b), deleted by train 14, read that path as absolute (`/\S+/fxcap\.XXXXXX/`),
+# which no placeholder row matches (.prd/tui-phase5/receipts/train-14/README.md, "The ledger").
 
 # at-ranking-anchor (PAGE-KEYS-SETTINGS-COLUMN's `at-ranking` on `p5-page-keys-anchor` / file-one) was deleted by
 # train 14: AT-RANK closed its owner, I-U2, and the snap is normalized-identical at train 14's head at 24x60 and
