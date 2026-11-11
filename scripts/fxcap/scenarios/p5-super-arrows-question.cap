@@ -1,0 +1,94 @@
+# COMPOSER-SUPER-ARROWS at the model's question. fx v0.0.16 reads a held
+# Left, Right, Home or End through its composer move (modifiedArrowAction,
+# escape_parser.zig:73-108@481104fd): at a choice line_start, line_end,
+# draft_start and draft_end are no question action, and reach the switch's
+# `else` (src/ui/input/runtime.zig:178-197; input_question_runtime.zig:181-200);
+# in the field each is the field's start or end (`.cursor_home`/`.cursor_end`,
+# src/ui/input/runtime.zig:162-163), Shift held or not. Each key at a choice
+# on page 3, where going back a page would show; then a draft on page 3, each
+# key followed by its own letter, from two cells in from where the letter
+# before left the caret.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-input-question20-turns.json
+wait 4
+type ask twenty
+key Enter
+wait 3
+key Tab Tab
+wait 0.4
+snap p3
+key -H 1b 5b 31 3b 39 44
+wait 0.4
+snap super-left
+key -H 1b 5b 31 3b 31 33 44
+wait 0.4
+snap ctrl-super-left
+key -H 1b 5b 31 3b 39 43
+wait 0.4
+snap super-right
+key -H 1b 5b 31 3b 35 48
+wait 0.4
+snap ctrl-home
+key -H 1b 5b 31 3b 39 46
+wait 0.4
+snap super-end
+type 3
+wait 0.4
+type ab cd ef
+key Left Left Left Left
+wait 0.4
+key -H 1b 5b 31 3b 39 44
+wait 0.4
+type z
+wait 0.4
+snap field-super-left
+key -H 1b 5b 31 3b 39 43
+wait 0.4
+type y
+wait 0.4
+snap field-super-right
+key Left Left
+key -H 1b 5b 31 3b 31 33 44
+wait 0.4
+type x
+wait 0.4
+snap field-ctrl-super-left
+key Right Right
+key -H 1b 5b 31 3b 31 31 43
+wait 0.4
+type w
+wait 0.4
+snap field-alt-super-right
+key Left Left
+key -H 1b 5b 31 3b 35 48
+wait 0.4
+type v
+wait 0.4
+snap field-ctrl-home
+key -H 1b 5b 31 3b 35 46
+wait 0.4
+type u
+wait 0.4
+snap field-ctrl-end
+key Left Left
+key -H 1b 5b 31 3b 39 48
+wait 0.4
+type t
+wait 0.4
+snap field-super-home
+key -H 1b 5b 31 3b 39 46
+wait 0.4
+type s
+wait 0.4
+snap field-super-end
+key Left Left
+key -H 1b 5b 31 3b 32 48
+wait 0.4
+type r
+wait 0.4
+snap field-shift-home
+key -H 1b 5b 34 3b 35 7e
+wait 0.4
+type q
+wait 0.4
+snap field-tilde-ctrl-end

@@ -24294,6 +24294,16 @@ mod tests {
             ("shift-up", b"\x1b[1;2A"),
             ("ctrl-left", b"\x1b[1;5D"),
             ("alt-b", b"\x1bb"),
+            // And Home and End, bare or held, and Super-Left with Ctrl: fx's
+            // screen binds neither `.home` nor a composer move
+            // (`keyForAction`, `input_full_transcript_runtime.zig:156-178`).
+            ("home", b"\x1b[H"),
+            ("ctrl-super-left", b"\x1b[1;13D"),
+            ("ctrl-home", b"\x1b[1;5H"),
+            ("super-end", b"\x1b[1;9F"),
+            ("shift-home", b"\x1b[1;2H"),
+            ("alt-end", b"\x1b[1;3F"),
+            ("tilde ctrl-end", b"\x1b[4;5~"),
         ] {
             let mut closed = fixture(false);
             let start = caret(&closed);
@@ -24372,6 +24382,15 @@ mod tests {
             ("shift-right", b"\x1b[1;2C"),
             ("super-right", b"\x1b[1;9C"),
             ("ctrl-f", &[0x06]),
+            // COMPOSER-SUPER-ARROWS: Super-Left and -Right with Ctrl or Alt
+            // held too, and Home and End held, are fx's `line_*` and
+            // `draft_*`, which a choice leaves to the switch's `else`.
+            ("ctrl-super-left", b"\x1b[1;13D"),
+            ("alt-super-right", b"\x1b[1;11C"),
+            ("ctrl-home", b"\x1b[1;5H"),
+            ("super-end", b"\x1b[1;9F"),
+            ("shift-home", b"\x1b[1;2H"),
+            ("tilde ctrl-end", b"\x1b[4;5~"),
         ] {
             fixture.route_bytes(key);
             assert_eq!(
@@ -24431,17 +24450,59 @@ mod tests {
             (&[&b"\x1b[1;10A"[..]][..], b"t", "tzyaxb cduvw"),
             (&[&b"\x1b[1;2C"[..]][..], b"s", "tzsyaxb cduvw"),
             (&[&b"\x1b[1;10B"[..]][..], b"r", "tzsyaxb cduvwr"),
-            // Super-Left and -Right are the step here, where fx's jump to the
-            // line's edge (`line_start`/`line_end`, `src/ui/input/runtime.zig:162-163`): xfx's decoder
-            // reads Super on Left and Right as the step (COMPOSER-SUPER-ARROWS,
-            // which flips both cases). Super-Left from the end: fx's `q` would
-            // stand first. Super-Right from the start (Super-Up first): fx's
-            // `p` would stand last.
-            (&[&b"\x1b[1;9D"[..]][..], b"q", "tzsyaxb cduvwqr"),
+            // Super-Left and -Right are the field's start and end, with Ctrl
+            // or Alt held too (`line_start`/`line_end`, Super's arm first,
+            // `escape_parser.zig:74-78`; `.cursor_home`/`.cursor_end`,
+            // `src/ui/input/runtime.zig:162-163`), and so are Ctrl-, Super-
+            // and Shift-Home and -End (`draft_*` and `line_*`, `:95-96`,
+            // `:104-105`; the tilde's, `:699-707`). Super-Left from the end;
+            // Super-Right from the start (Super-Up first); the rest from two
+            // cells in from wherever the letter before left the caret.
+            (&[&b"\x1b[1;9D"[..]][..], b"q", "qtzsyaxb cduvwr"),
             (
                 &[&b"\x1b[1;9A"[..], b"\x1b[1;9C"][..],
                 b"p",
-                "tpzsyaxb cduvwqr",
+                "qtzsyaxb cduvwrp",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[1;13D"][..],
+                b"o",
+                "oqtzsyaxb cduvwrp",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[1;11C"][..],
+                b"n",
+                "oqtzsyaxb cduvwrpn",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[1;5H"][..],
+                b"m",
+                "moqtzsyaxb cduvwrpn",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[1;5F"][..],
+                b"l",
+                "moqtzsyaxb cduvwrpnl",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[1;9H"][..],
+                b"k",
+                "kmoqtzsyaxb cduvwrpnl",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[1;9F"][..],
+                b"j",
+                "kmoqtzsyaxb cduvwrpnlj",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[1;2H"][..],
+                b"i",
+                "ikmoqtzsyaxb cduvwrpnlj",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[4;5~"][..],
+                b"h",
+                "ikmoqtzsyaxb cduvwrpnljh",
             ),
         ] {
             for key in keys {
@@ -25030,6 +25091,219 @@ mod tests {
         assert!(StatuslineAction::of(Action::Down).is_some());
         assert!(InfoAction::of(Action::Down).is_some());
         assert!(WorkspaceAction::of(Action::Down).is_some());
+    }
+
+    #[test]
+    fn a_held_left_right_home_or_end_in_a_draft_is_fxs_move() {
+        // The rest of fx's `modifiedArrowAction` (`escape_parser.zig:73-108
+        // @481104fd`): Super first -- Left and Right `line_start`/`line_end`
+        // whatever else is held, Home and End `draft_start`/`draft_end` --
+        // then Alt, whose arm has no Home or End and so leaves the plain key
+        // (`:83-89`, `:163-167`, `:727-733`), then Ctrl (Home and End the
+        // draft's edges, `:95-96`), then Shift (the line's, `:104-105`). The
+        // tilde Home and End are the line's with any bit held and the draft's
+        // with Ctrl (`:699-707`), Super or not. The composer moves the caret
+        // there and nowhere else (`horizontal_navigation.zig:29-38`), the line
+        // being the one the line breaks delimit, not the screen row
+        // (`logicalLineStart`/`logicalLineEnd`, `text_boundaries.zig:79-89`).
+        // The draft `one two/<a line wrapped over rows>/the end`, the history
+        // holding `first`; from the middle of the wrapped line's second row,
+        // one key each.
+        let long = "abcd ".repeat(40);
+        let draft = format!("one two\n{long}\nthe end");
+        let (line, line_end, end) = (8, 8 + long.len(), draft.len());
+        let mid = line + 100;
+        for (name, key, from, to) in [
+            ("super-left", &b"\x1b[1;9D"[..], mid, line),
+            ("shift-super-left", b"\x1b[1;10D", mid, line),
+            ("alt-super-left", b"\x1b[1;11D", mid, line),
+            ("ctrl-super-left", b"\x1b[1;13D", mid, line),
+            ("keypad super-left", b"\x1b[57417;9u", mid, line),
+            ("super-right", b"\x1b[1;9C", mid, line_end),
+            ("ctrl-alt-super-right", b"\x1b[1;15C", mid, line_end),
+            ("keypad super-right", b"\x1b[57418;9u", mid, line_end),
+            ("super-left", b"\x1b[1;9D", 3, 0),
+            ("super-right", b"\x1b[1;9C", 3, 7),
+            ("home", b"\x1b[H", mid, line),
+            ("shift-home", b"\x1b[1;2H", mid, line),
+            ("alt-home", b"\x1b[1;3H", mid, line),
+            ("ctrl-alt-home", b"\x1b[1;7H", mid, line),
+            ("shift-alt-end", b"\x1b[1;4F", mid, line_end),
+            ("shift-end", b"\x1b[1;2F", mid, line_end),
+            ("alt-end", b"\x1b[1;3F", mid, line_end),
+            ("ctrl-home", b"\x1b[1;5H", mid, 0),
+            ("ctrl-shift-home", b"\x1b[1;6H", mid, 0),
+            ("super-home", b"\x1b[1;9H", mid, 0),
+            ("super-alt-home", b"\x1b[1;11H", mid, 0),
+            ("keypad ctrl-home", b"\x1b[57423;5u", mid, 0),
+            ("ctrl-end", b"\x1b[1;5F", mid, end),
+            ("super-end", b"\x1b[1;9F", mid, end),
+            ("keypad super-end", b"\x1b[57424;9u", mid, end),
+            ("tilde ctrl-home", b"\x1b[1;5~", mid, 0),
+            ("rxvt ctrl-home", b"\x1b[7;5~", mid, 0),
+            ("tilde ctrl-end", b"\x1b[4;5~", mid, end),
+            ("tilde super-home", b"\x1b[1;9~", mid, line),
+            ("tilde alt-end", b"\x1b[4;3~", mid, line_end),
+            ("rxvt shift-end", b"\x1b[8;2~", mid, line_end),
+            ("tilde caps-lock-home", b"\x1b[1;65~", mid, line),
+        ] {
+            let mut shell = shell(24, 80);
+            submitted(&mut shell, "first");
+            shell.route_bytes(draft.as_bytes());
+            for _ in from..end {
+                shell.route_bytes(b"\x1b[D");
+            }
+            assert_eq!(shell.editor.caret(), from, "{name} from {from}");
+            if from == mid {
+                let (row, column) = shell.editor.point(shell.text_cols());
+                assert!(
+                    row >= 2 && column > 0,
+                    "{name}: not mid-row ({row}, {column})"
+                );
+            }
+            shell.route_bytes(key);
+            assert_eq!(shell.editor.text(), draft, "{name} from {from}");
+            assert_eq!(shell.editor.caret(), to, "{name} from {from}");
+        }
+    }
+
+    #[test]
+    fn super_left_right_and_the_draft_edges_in_an_amendment_are_fxs() {
+        // fx's amendment reads `line_start` and `draft_start` as `.cursor_home`
+        // and `line_end` and `draft_end` as `.cursor_end`
+        // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-96
+        // @481104fd`), which set the caret to 0 and to the draft's length
+        // (`cursorHome`/`cursorEnd`, `approval_amendment.zig:84-92`), Shift
+        // held or not: Super-Left and -Right whatever else is held, Ctrl- and
+        // Super-Home and -End, Shift-Home and -End (`modifiedArrowAction`,
+        // `escape_parser.zig:73-108`). From `ab c|d ef`, one key and a letter.
+        for (name, key, feedback) in [
+            ("super-left", &b"\x1b[1;9D"[..], "zab cd ef"),
+            ("super-right", b"\x1b[1;9C", "ab cd efz"),
+            ("ctrl-super-left", b"\x1b[1;13D", "zab cd ef"),
+            ("alt-super-right", b"\x1b[1;11C", "ab cd efz"),
+            ("keypad super-left", b"\x1b[57417;9u", "zab cd ef"),
+            ("ctrl-home", b"\x1b[1;5H", "zab cd ef"),
+            ("ctrl-end", b"\x1b[1;5F", "ab cd efz"),
+            ("super-home", b"\x1b[1;9H", "zab cd ef"),
+            ("super-end", b"\x1b[1;9F", "ab cd efz"),
+            ("shift-home", b"\x1b[1;2H", "zab cd ef"),
+            ("alt-end", b"\x1b[1;3F", "ab cd efz"),
+            ("tilde ctrl-home", b"\x1b[1;5~", "zab cd ef"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell.route_bytes(b"\tab cd ef");
+            shell.route_bytes(b"\x1b[D\x1b[D\x1b[D\x1b[D");
+            shell.route_bytes(key);
+            shell.route_bytes(b"z");
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some(feedback.to_string()),
+                }),
+                "{name}"
+            );
+        }
+        // A draft with a line break in it, which xfx's paste keeps and fx's
+        // turns into a space (`normalizeApprovalAmendmentPasteInPlace`,
+        // `input_paste_runtime.zig:19-25`): Ctrl-Home is the whole draft's
+        // start, as fx's `.cursor_home`; Super-Left is Home there, the caret
+        // line's start, as fx treats the two alike.
+        for (name, key, feedback) in [
+            ("ctrl-home", &b"\x1b[1;5H"[..], "zab\ncd"),
+            ("super-left", b"\x1b[1;9D", "ab\nzcd"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell.route_bytes(b"\t");
+            shell.route_bytes(b"\x1b[200~ab\ncd\x1b[201~");
+            shell.route_bytes(key);
+            shell.route_bytes(b"z");
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some(feedback.to_string()),
+                }),
+                "{name}"
+            );
+        }
+        // At the choice, with no amendment open, each is a composer move fx's
+        // `else => {}` takes (`input_approval_runtime.zig:128`): nothing.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\x1b[B");
+        let marked = shell.marked();
+        for key in [
+            &b"\x1b[1;9D"[..],
+            b"\x1b[1;9C",
+            b"\x1b[1;13D",
+            b"\x1b[1;5H",
+            b"\x1b[1;9F",
+            b"\x1b[1;2H",
+            b"\x1b[1;5~",
+        ] {
+            shell.route_bytes(key);
+            assert_eq!(shell.marked(), marked, "{key:?} moved the choice");
+        }
+        assert_eq!(shell.controlled(), None, "a key at the choice answered");
+    }
+
+    #[test]
+    fn super_left_right_and_the_draft_edges_move_no_menu_and_drop_a_model_column() {
+        // To fx these are composer moves (`line_start`/`line_end`,
+        // `draft_start`/`draft_end`, `modifiedArrowAction`,
+        // `escape_parser.zig:73-108@481104fd`). A compact menu acts on the
+        // plain arrows alone (`routeCompactCommandMenuEscapeAction`,
+        // `app_input_runtime.zig:2228-2263`) and the settings menu on the
+        // plain Left and Right alone (`:984-992`); the composer's arm drops a
+        // later `/model` column and moves the caret (`abandonModelPickerOptions`,
+        // `:298-309`), as Home does (`shortcuts.zig:51-52`).
+        let keys: [&[u8]; 8] = [
+            b"\x1b[1;9D",
+            b"\x1b[1;9C",
+            b"\x1b[1;13D",
+            b"\x1b[1;11C",
+            b"\x1b[57417;9u",
+            b"\x1b[1;5H",
+            b"\x1b[1;9F",
+            b"\x1b[1;5~",
+        ];
+        let root = tempfile::tempdir().expect("a root");
+        let statusline = {
+            let mut shell = shell_at_home(root.path(), 40, 120);
+            shell.route_bytes(b"/statusline\r");
+            assert!(shell.statusline_menu.is_some());
+            shell
+        };
+        // (`/usage`, the other compact menu Left and Right move, has nothing
+        // to show a period change in with no sign-in; its reading of what the
+        // shell hands it is the fold table's.)
+        let settings = with_settings(root.path());
+        for (name, mut shell) in [("statusline", statusline), ("settings", settings)] {
+            let before = shell.band_rows();
+            for key in keys {
+                shell.route_bytes(key);
+                assert_eq!(shell.band_rows(), before, "{name}: {key:?} moved it");
+            }
+            shell.route_bytes(b"\x1b[D");
+            assert_ne!(shell.band_rows(), before, "{name}: Left");
+        }
+        for key in keys {
+            let mut shell = harness_shell();
+            shell.route_bytes(b"/model gpt\r");
+            assert!(shell.column.pending().is_some());
+            shell.route_bytes(key);
+            assert_eq!(shell.column.pending(), None, "{key:?} kept the column");
+        }
     }
 
     #[test]
