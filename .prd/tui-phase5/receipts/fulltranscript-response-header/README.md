@@ -13,7 +13,9 @@ This unit copies fx's split into xfx's record.
 |---|---|
 | `87779e3f` | RED: the unit's tests (`src/tui/full_transcript.rs`, `src/tui/shell.rs`) and the oracle scenario `fulltranscript-response-split` (`.cap` and turns); no non-test change |
 | `b9007bc3` | **the code head**: `Body::Structure` and `presented` (`src/tui/full_transcript.rs`), `/trace`'s names, the `trace::Entry` doc; no test change |
-| the commits after | `docs/parity.md`, the ledger (the cause deleted, refs re-pointed), this folder; no `src/` change |
+| `8bd5be58` | `docs/parity.md`, the ledger (the cause deleted, `full-transcript-shift`'s scenarios named, `session-record-page-bottom` added, refs re-pointed), this folder but its mutant, gate and `green.txt` records; no `src/` change. A first gate here failed `check-xfx-identity` on `captures.txt` (Gate, below) |
+| `e3e66b0b` | `captures.txt`'s placeholder without the retired name; no `src/` change. **The gate ran here** |
+| the commit after | `mutants.txt`, `gate.txt`, `green.txt` and this file's sections for them; no `src/` change |
 
 The code commit is +62/-23 lines in two files, none of them test lines
 (`git diff --stat 87779e3f b9007bc3`).
@@ -131,7 +133,7 @@ timeline lists them so; before, the whole answer was one `assistant` entry.
   (`shell.rs:43158`), past its pin of the inline document
   (`shell.rs:43123`), which holds over the base's code.
 - The scenario on the base's binary (`v0.1.0-3f2d6e7`, `red/`): the seven
-  inline snaps identical to fx's, cell for cell; the six full snaps differ,
+  inline snaps and `launch` identical to fx's, cell for cell; the six full snaps differ,
   with the moments masked too (`red-pairs.txt`: 8 of 14, 8 of 14 masked) --
   `full-block-only` and `full-block-first` head the block, `full-table`,
   `full-rule` have one `Response` where fx's have two.
@@ -165,8 +167,10 @@ timeline lists them so; before, the whole answer was one `assistant` entry.
   took all six of this unit's full snaps at the base with no row left to
   read (the base sweep before the rescore), though their tail pages show
   neither. Decision (reversible): the cause keeps every pair it covered
-  (`fulltranscript`'s, `fulltranscript-notice`'s, `links`' at the base),
-  and this unit's scenario is read row by row.
+  (`fulltranscript`'s, `fulltranscript-notice`'s, `links`' at the base:
+  no pair of theirs changes between each sweep's first scoring and its
+  rescore, `sweep-compare.txt`'s third block), and this unit's scenario is
+  read row by row.
 - **`session-record-page-bottom` added**: the three `full-pgup` snaps of
   the ledger's scenarios stay apart under `session-record`, as they did at
   the base, and two rows of each, xfx's blank and `A list that starts at
@@ -212,11 +216,53 @@ both rescored (`--rescore`) with this branch's final ledger. 30 scenarios,
 
 ## Mutants (`mutants.py`, `mutants.txt`)
 
-In the commit after this folder's first (`mutants.txt`).
+On a `git clone --no-local` (its remote removed) under `$TMPDIR/mut/`, at
+the code head `b9007bc3`, one at a time, the file restored after each, under
+the suite lock, each run the unit's tests (`tui::full_transcript::tests`,
+the two shell tests, `trace::`): **6 of 6 killed**, the clone's tree clean
+after the run (`mutants.txt`, each naming the first six failing tests):
+
+| mutant | killed by |
+|---|---|
+| M1 a block joins the open run, and the text after it with it (the base's reading) | the split, no-header, moment, chunking and `/trace` tests and the inline-pin shell test, 7 failing in all |
+| M2 a block's entry is headed `Response` | the no-header, moment, split and chunking tests, both shell tests |
+| M3 a line break after a block opens nothing, so the run is stamped at its first prose | the moment test alone (its stamps) |
+| M4 a block opens a `Response` entry of its own | the no-header, moment, split and `/trace` tests |
+| M5 a block's entry lays out as nothing | the no-header, `/trace` and inline-pin tests |
+| M6 `/trace` names every block `assistant` | the `/trace` test alone |
+
+M3 is the rule the oracle's `full-block-first` decides (the header's
+moment): the moments are masked in every pair, so only the test sees it.
 
 ## Gate (`gates.sh`, `gate.txt`)
 
-In the commit after this folder's first (`gate.txt`).
+Train 13's `gates.sh` (its body unchanged: `ci.yml` did not change between
+train 13's head and this unit's base), once, under the suite lock in one
+normal slot with a short `TMPDIR`, on a `git clone --no-local` at
+`e3e66b0b`, whose `src/` is the code head's (`gate.txt` carries the empty
+`git diff --stat`). **22 steps, 0 failed**, the tree clean before and after:
+
+| step | result |
+|---|---|
+| `cargo fmt --check`, both `clippy -D warnings` | clean |
+| `cargo test --locked --no-fail-fast` | 5713 passed, 0 failed, 7 ignored (15 result lines) |
+| `cargo test --locked --features fault-injection --no-fail-fast` | 5750 passed, 0 failed, 7 ignored (15 result lines) |
+| `check-xfx-identity`, `check-no-stubs`, `check-no-secrets`, `check-no-local-paths` and its test, `check-preview-contract`, `check-tui-preflight-cost`, `check-usage-clock`, `test-check-no-secrets`, `test-gate-env`, `test-preview-contract`, `fxcap/test-sweep`, `fxcap/test-capture`, both release builds, `smoke`, `smoke-tui` | exit 0 each |
+
+The base's own gate read 5706 and 5743 passed
+(`.prd/tui-phase5/receipts/modified-arrows-screens/gate.txt`); this unit
+adds 7 `#[test]`s (`red.txt`'s seven new ones) and removes none: 5713 and
+5750.
+
+**The first run**, at `8bd5be58` (the same `src/`), failed and was stopped
+after step 11 (`gate.txt`'s last block): `check-xfx-identity` refused
+`captures.txt`, whose placeholder for the oracle's directory spelled the
+retired product name, and so did its wrapper test in both suites;
+`e3e66b0b` renames the placeholder. Its plain suite's other 3 failures were
+the known catalog-wait class (`tui::worker::tests::a_stop_in_*catalog_wait*`);
+the rerun above has none.
+
+`green.txt`: the unit's 8 tests in both suites of that run, 16 of 16 ok.
 
 ## The citations (`fx-src-check.txt`)
 

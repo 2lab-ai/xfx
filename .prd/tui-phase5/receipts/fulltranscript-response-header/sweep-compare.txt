@@ -59,3 +59,37 @@ base p5-transcript-question/asked: unresolved-defect, 6 uncaused rows
 base p5-transcript-question/narrow: unresolved-defect, 27 uncaused rows
 head p5-transcript-question/asked: unresolved-defect, 6 uncaused rows
 head p5-transcript-question/narrow: unresolved-defect, 27 uncaused rows
+
+# the ledger's edits alone, on the same captures: each sweep as it first scored itself against its rescore with the final ledger
+# (in this block cmp_sweeps' `base:` line is the first scoring and its `head:` line the rescore; no pair of fulltranscript or fulltranscript-notice changes, so full-transcript-shift keeps every pair it covered)
+# base: first scored with the base's ledger, its refs re-pointed (refs.py --fix ran before it ended; scoreboard ledger sha256 9340bbd3455e...) -- every cause as at 3f2d6e78
+change fulltranscript-response-split/full-block-first: unresolved-defect -> unresolved-defect; causes ['full-transcript-shift'] -> []; uncaused 0 -> 4
+change fulltranscript-response-split/full-block-last: unresolved-defect -> unresolved-defect; causes ['full-transcript-shift'] -> []; uncaused 0 -> 2
+change fulltranscript-response-split/full-block-only: unresolved-defect -> unresolved-defect; causes ['full-transcript-shift'] -> []; uncaused 0 -> 4
+change fulltranscript-response-split/full-blocks: unresolved-defect -> unresolved-defect; causes ['full-transcript-shift'] -> []; uncaused 0 -> 4
+change fulltranscript-response-split/full-rule: unresolved-defect -> unresolved-defect; causes ['full-transcript-shift'] -> []; uncaused 0 -> 4
+change fulltranscript-response-split/full-table: unresolved-defect -> unresolved-defect; causes ['full-transcript-shift'] -> []; uncaused 0 -> 2
+change p5-modified-arrows-full/full: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-arrows-full/full-ctrl-b: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-arrows-full/full-ctrl-f: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-arrows-full/full-ctrl-up: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-arrows-full/full-super-left: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-page-keys/full: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-page-keys/full-ctrl-pgup: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-page-keys/full-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> ['session-record', 'session-record-page-bottom']; uncaused 2 -> 0
+change p5-modified-page-keys/full2: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-modified-page-keys/full2-kp-ctrl-pgdn: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-transcript-md/full: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-transcript-md/full-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> ['session-record', 'session-record-page-bottom']; uncaused 2 -> 0
+change p5-transcript-md-light/full: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> []; uncaused 0 -> 2
+change p5-transcript-md-light/full-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> ['session-record', 'session-record-page-bottom']; uncaused 2 -> 0
+base: 178 pairs, 94 pass, 5 with uncaused rows
+head: 178 pairs, 94 pass, 19 with uncaused rows
+drops: 0
+# head: first scored with the ledger as it stood when it ended (the cause deleted, full-transcript-shift's scenarios named; session-record-page-bottom not yet added)
+change p5-modified-page-keys/full-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> ['session-record', 'session-record-page-bottom']; uncaused 2 -> 0
+change p5-transcript-md/full-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> ['session-record', 'session-record-page-bottom']; uncaused 2 -> 0
+change p5-transcript-md-light/full-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> ['session-record', 'session-record-page-bottom']; uncaused 2 -> 0
+base: 178 pairs, 111 pass, 5 with uncaused rows
+head: 178 pairs, 111 pass, 2 with uncaused rows
+drops: 0
