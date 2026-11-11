@@ -3445,14 +3445,21 @@ fn hostile_paste(start_inside: bool) -> Vec<u8> {
 /// rest of a hostile paste would only be typed into a session that already
 /// proves nothing ([`unpaced_case`]) -- slowly enough, on a loaded machine,
 /// to outlast the write's own bound.
+///
+/// The longest pause is printed either way, so a failure later in the case
+/// carries it: a timeout behind a paste that never paused is the product's.
 fn paste_unpaced(session: &Session, bytes: &[u8]) -> Result<(), std::time::Duration> {
     let mut previous = None;
+    let mut longest = std::time::Duration::ZERO;
     for part in bytes.chunks(4096) {
         let gap = session.write_raw_measured(part, &mut previous);
+        longest = longest.max(gap);
         if gap >= PASTE_QUIET {
+            eprintln!("the paste paused for {gap:?}: this session tests nothing");
             return Err(gap);
         }
     }
+    eprintln!("the paste's longest pause: {longest:?}");
     std::thread::sleep(std::time::Duration::from_secs(1));
     Ok(())
 }
