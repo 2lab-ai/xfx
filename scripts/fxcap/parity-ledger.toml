@@ -25,7 +25,7 @@
 name = "c1db919"
 version = "0.0.13"
 sha256 = "7b76319a871163ada64d74539ebee592e0e216041cd28465127457500a9be969"
-note = "vercel-labs/fx c1db9191 (v0.0.13+33), built locally with zig 0.16.0: Phase 4's oracle (.prd/tui-phase4/ssot.md:6); rebuilt after fx's auto-upgrade overwrote the first build (.prd/07-fx-parity-program.md:19)"
+note = "vercel-labs/fx c1db9191 (v0.0.13+33), built locally with zig 0.16.0: Phase 4's oracle (.prd/tui-phase4/ssot.md:6); rebuilt after fx's auto-upgrade overwrote the first build (.prd/07-fx-parity-program.md:19@6bc31872)"
 
 [[pin]]
 name = "v0.0.16"
@@ -75,15 +75,15 @@ id = "run-directory"
 fx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 xfx = '(?<=fxcap\.)[A-Za-z0-9]{1,6}'
 mask = "X"
-why = "capture.sh runs each binary in its own `mktemp -d .../fxcap.XXXXXX`, so a path on screen (/status's workspace, a picker's root) carries a different random suffix on each side. capture.sh writes the whole run directory as `<scratch>` (or `<work>`) since LOCAL-PATHS, wherever a frame wraps or colours it, and refuses a capture that keeps any of its name; this rule reads the captures taken before it (`--rescore`). Masked to the same length, so nothing after it moves."
-source = ["scripts/fxcap/capture.sh:681"]
+why = "capture.sh ran each binary in its own `mktemp -d .../fxcap.XXXXXX`, so a path on screen (/status's workspace, a picker's root) carried a different random suffix on each side. capture.sh writes the whole run directory as `<scratch>` (or `<work>`) since LOCAL-PATHS, wherever a frame wraps or colours it, and refuses a capture that keeps any of its name; since WORKSPACE-INDEX-AT-PLAN a sweep unit's two runs share one name of six digits (FXCAP_RUN). This rule reads the captures taken before either (`--rescore`). Masked to the same length, so nothing after it moves."
+source = ["scripts/fxcap/capture.sh:446-478", "scripts/fxcap/capture.sh:822"]
 
 [[normalization]]
 id = "capture-tmpdir"
 fx = '(<scratch(?::real)?_*>/|fxcap\.XXXXXX/)fxtmp(?=/)'
 replace = '\1xfxtmp'
 why = "capture.sh gives each binary a TMPDIR inside its run named for the binary, fx `$run/fxtmp`, xfx `$run/xfxtmp`, so where `/trace` says it wrote names the driver's directory, not the product's. On fx's side, after run-directory, and only right after the run directory: as capture.sh writes it now, `<scratch___>` filled to its width (`<scratch:real___>` resolved), as units wrote it by hand before LOCAL-PATHS, `<scratch>`, or as a capture from before LOCAL-PATHS holds it, masked to `fxcap.XXXXXX`. The run directory, `$TMPDIR/fxcap.XXXXXX`, is 13 columns or more, never narrower than `<scratch>`, so its short form `<s__>` is not read (resolved, it is narrower than `<scratch:real>` only where the TMPDIR resolves to `/`, and `<S__>` is not read either); nor is an `fxtmp` under another placeholder (`<work___>/fxtmp` is a name in the workspace), an escaped literal (`<!scratch__>`) or other text. And only the name itself with a directory under it, `fxtmp/`: `/` is the one follower the tracked captures hold (w2's and w3's `/trace` reports and pasted images), and any other character can be part of a name, so `fxtmp-old`, `fxtmp,backup`, `fxtmp backup`, `fxtmp\u00e9` or the bare `fxtmp` before a quote is compared: the rule fails toward comparing. capture.sh's `dir` refuses a name that is or extends a binary's TMPDIR, so no scenario makes such a sibling beside them. This is not roots.py's EDGE: an over-wide rewrite there fails toward privacy (a sibling written as a placeholder), an over-wide normalization here toward false parity (a sibling read as the TMPDIR), so the ledger reads only the demonstrated form."
-source = ["scripts/fxcap/capture.sh:326-328", "scripts/fxcap/capture.sh:379-385", "scripts/fxcap/capture.sh:980", "scripts/fxcap/capture.sh:987"]
+source = ["scripts/fxcap/capture.sh:333-335", "scripts/fxcap/capture.sh:386-392", "scripts/fxcap/capture.sh:1121", "scripts/fxcap/capture.sh:1128"]
 
 # Each run's own clock and its own ids. The two binaries run one after the
 # other, so what a clock or a random id reads is the run's, not the product's;
@@ -105,7 +105,7 @@ xfx = '^[• ](?= (?:Generating|Running|Thinking|Compacting) \(\d)'
 replace = "~"
 attrs = "none"
 why = "The activity row's marker blinks (`•`, then a blank between pulses); a snap catches whichever phase its moment falls on. The marker cell only: the word, its clock and its counts are compared."
-source = [".prd/tui-phase4/receipts/d1/README.md:258", ".prd/tui-phase4/receipts/d2c/README.md:146", ".prd/tui-phase4/receipts/f4/README.md:8"]
+source = [".prd/tui-phase4/receipts/d1/README.md:259", ".prd/tui-phase4/receipts/d2c/README.md:146", ".prd/tui-phase4/receipts/f4/README.md:8"]
 
 [[normalization]]
 id = "activity-clock"
@@ -145,7 +145,7 @@ fx = '^(Pane is dead \(status \d+, ).*(\))$'
 xfx = '^(Pane is dead \(status \d+, ).*(\))$'
 replace = '\1<tmux clock>\2'
 why = "tmux's own line under a pane whose program has exited (capture.sh `keep`) ends with tmux's clock; the exit status before it is compared."
-source = [".prd/tui-phase4/receipts/d1/README.md:151", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:1157"]
+source = [".prd/tui-phase4/receipts/d1/README.md:151", ".prd/tui-phase4/receipts/p1/README.md:32", "scripts/fxcap/capture.sh:1301"]
 
 [[normalization]]
 id = "session-id"
@@ -489,7 +489,7 @@ reason = "fx v0.0.16 writes as itself, in a file's line on Ctrl-O, every scalar 
 owner = "CTRLO-WIDER"
 resolution = "fx names them in a file's line, or counts them as a terminal draws them, at this pin's line or a later pin's, so the rows are the same"
 expires = "date:2026-12-04"
-source = ["src/tui/full_transcript.rs:3010", "docs/parity.md:238"]
+source = ["src/tui/full_transcript.rs:3020", "docs/parity.md:238"]
 
 [[divergence]]
 id = "answer-drawn-wider-named"
@@ -503,7 +503,7 @@ reason = "fx v0.0.16 writes an answer's text as itself, and every scalar a termi
 owner = "CTRLO-WIDER"
 resolution = "fx names them in an answer and a prompt's row, or counts them as a terminal draws them, at this pin's line or a later pin's, so the rows are the same"
 expires = "date:2026-12-04"
-source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13864", "docs/parity.md:237"]
+source = ["src/tui/full_transcript.rs:3071", "src/tui/shell.rs:14355", "docs/parity.md:237"]
 
 [[divergence]]
 id = "answer-label-and-modifier-named"
@@ -517,7 +517,7 @@ reason = "`answer-drawn-wider-named`'s naming, on the two surfaces CTRLO-WIDER-F
 owner = "CTRLO-WIDER-F"
 resolution = "fx names them, or counts them as a terminal draws them, at this pin's line or a later pin's, so the rows are the same"
 expires = "date:2026-12-04"
-source = ["src/tui/full_transcript.rs:3061", "docs/parity.md:237"]
+source = ["src/tui/full_transcript.rs:3071", "docs/parity.md:237"]
 
 [[divergence]]
 id = "inline-band-row-anchor"
@@ -531,7 +531,7 @@ reason = "Observed in fx v0.0.16's wire, not traced through its presenter: the c
 owner = "CTRLO-WIDER"
 resolution = "fx stops anchoring over a glyph a terminal drew wider than its count, in a later pin, so the rows are the same"
 expires = "date:2026-12-04"
-source = ["src/tui/frame.rs:2757", "docs/parity.md:237"]
+source = ["src/tui/frame.rs:2765", "docs/parity.md:237"]
 
 # --- causes -----------------------------------------------------------------
 #
@@ -549,8 +549,8 @@ owner = "PROFILE-REFUSE-AT-LAUNCH (a new queue unit): xfx refuses a malformed us
 scenarios = ["p5-panels-badsettings"]
 snaps = ["launch"]
 whole_snap = true
-xfx = ["src/config.rs:850-851", "src/tui/shell.rs:3818-3835"]
-why = "fx v0.0.16 refuses a profile whose user layer is malformed, too large or names an invalid model id, under the default local auth mode (`src/core/auth/credentials.zig:29@481104fd`): `return error.InvalidProfileConfiguration` (`src/core/app/app_lifecycle.zig:690-701@481104fd`), so it exits 1 with `fx: InvalidProfileConfiguration` before a first frame, and the scenario's `keep` holds the dead pane as the snap. xfx never refuses (`ConfigError`: malformed content is never fatal, src/config.rs:850-851): it starts and announces `config: 1 configuration issue (ctrl+o to view)` (src/tui/shell.rs:3818-3835). Every row of the snap differs, so the cause is the whole snap (.prd/tui-phase5/receipts/train-12/ci-timeout/README.md)."
+xfx = ["src/config.rs:850-851", "src/tui/shell.rs:3823-3840"]
+why = "fx v0.0.16 refuses a profile whose user layer is malformed, too large or names an invalid model id, under the default local auth mode (`src/core/auth/credentials.zig:29@481104fd`): `return error.InvalidProfileConfiguration` (`src/core/app/app_lifecycle.zig:690-701@481104fd`), so it exits 1 with `fx: InvalidProfileConfiguration` before a first frame, and the scenario's `keep` holds the dead pane as the snap. xfx never refuses (`ConfigError`: malformed content is never fatal, src/config.rs:850-851): it starts and announces `config: 1 configuration issue (ctrl+o to view)` (src/tui/shell.rs:3823-3840). Every row of the snap differs, so the cause is the whole snap (.prd/tui-phase5/receipts/train-12/ci-timeout/README.md)."
 
 [[cause]]
 id = "preview-frame-before-the-turn-start"
@@ -651,34 +651,29 @@ xfx_row = '^✗ system: the Gateway returned HTTP 502: |^auto · model-a$'
 why = "Every request of the turn answers 502. fx backs off and is still retrying when Escape stops the turn (`⚠ Provider unavailable · HTTP 502 · … retrying request in Ns`), so its stop leaves `▪ Cancelled · What can fx do differently?`; xfx gives up after three attempts (`gateway::DEFAULT_MAX_ATTEMPTS`, src/gateway/mod.rs:59) before `r01` (2.1 s) and writes the failure, so its row 5 is `✗ system: the Gateway returned HTTP 502: …` from `r01` on, where fx's is the retry row and then the cancelled line, and the Escape that arms fx's `esc again to interrupt` finds no turn on xfx's (`r04a-esc-armed`). The retry budget K-recover owns for `interrupt-retry`. Named by T-U4: the deleted `cancelled-marker` took fx's `▪ Cancelled` row in `r04-after-esc` and `r05-after-esc-4.5s`, and these rows were otherwise uncaused (.prd/tui-phase5/receipts/cancel-marker/README.md)."
 
 [[cause]]
-id = "question-resume-replay"
+id = "question-resume-ctrlo-detail"
 kind = "unit"
-owner = "QUESTION-RESUME a resume replays a question batch's resolutions (docs/parity.md:162), not yet a branch"
-scenarios = ["p5-input-question20"]
-snaps = ["resumed", "resumed.full"]
-fx_row = '^  \d+\) Pick \d+\?$|^ +(?:Keep|Change) \d+$|^  Twenty done\.$|^  <wall> \(↑3 ↓80\)$|^┃(?: ask twenty)?$|^\* session resumed: ask twenty$|^auto · model-a$|^$'
-xfx_row = '^  \d+\) Pick \d+\?$|^ +(?:Keep|Change) \d+$|^  Twenty done\.$|^  <wall> \(↑3 ↓80\)$|^┃(?: ask twenty)?$|^\* session resumed: ask twenty$|^auto · model-a$|^$'
-# I-U6 receipt (.prd/tui-phase5/receipts/questions-20/): the batch's snaps match at 3 sizes.
-why = "fx v0.0.16 replays a resumed session's answered `ask_user_question` batch as its resolutions, `  N) <question>` with the answer under it, decoding the saved document of 1 to 20 questions (`writeAnsweredQuestionResult`, `app_session_runtime.zig:4589-4607`; `decodeJson`, `question_answer.zig:43-74@481104fd`). xfx's replay writes nothing for the call (src/tui/hydration.rs builds its ToolStart and ToolResult, and ToolGroup::start returns early for Activity::Ask, src/tui/toolgroup.rs:511-513), at any count: the receipt's two-question probe shows the same. So `resumed` lacks the twenty resolutions fx shows above `  Twenty done.`, and in `resumed.full` the first run's scrollback (resolutions 1 to 9, the same on both) is followed on xfx by the resume notice and the closing text alone, where fx replays all twenty."
+owner = "QUESTION-RESUME-CTRLO a resumed ask's saved detail in Ctrl-O (docs/parity.md:162), not yet a branch"
+scenarios = ["p5-question-resume-ctrlo"]
+snaps = ["resumed-ctrlo"]
+rows = ["1-40"]
+fx_row = '^│  (?:questions: |\[\{"question"|1","description"|\(ask_user_question: )|^  X+ UTC · Tool$|^$'
+xfx_row = '^$'
+why = "fx v0.0.16 hands each replayed `ask_user_question` call its saved detail (`attachHistoricalToolDetail`, `app_session_runtime.zig:4337`, `:4607@481104fd`), so its Ctrl-O shows the call's arguments and its result under the batch's resolutions (`│  questions: [...]`, `│  [{\"question\":...}]`) and under `● Asked`, which it heads `<ts> UTC · Tool`. xfx's replay writes both rows as blocks that carry no call (QUESTION-RESUME, .prd/tui-phase5/receipts/question-resume/), so its Ctrl-O shows the resolution and `● Asked` alone, and the rows after them stand higher. The rows themselves, on the screen and in Ctrl-O, match; the inline `resumed` pairs are identical."
 
+# at-ranking (I-U2) was closed by AT-RANK: xfx ranked `@` queries with c1db919's eight facts where fx v0.0.16
+# ranks by its placement score (`scoreBetter`, `choosePlacement`, `file_index.zig@481104fd`); AT-RANK's copy made
+# the four `p5-input-at` snaps it covered identical (.prd/tui-phase5/receipts/at-rank/pairs.txt). Its fifth,
+# `workspace-index` at-plan, was identical only when both runs' random run-directory names agreed: `@plan` reaches
+# the added folder only through its absolute path, so a side lists that row only if its own path holds p, l, a, n
+# in order (144 of 144 sides, .prd/tui-phase5/receipts/train-14/ci-08066ac9/read.txt). Since WORKSPACE-INDEX-AT-PLAN
+# a unit's two runs share one name (FXCAP_RUN, .prd/tui-phase5/receipts/workspace-index-at-plan/README.md): stable.
+# at-plan-run-directory (AT-RANK, e2cba14b), deleted by train 14, read that path as absolute (`/\S+/fxcap\.XXXXXX/`),
+# which no placeholder row matches (.prd/tui-phase5/receipts/train-14/README.md, "The ledger").
 
-[[cause]]
-id = "at-ranking"
-kind = "unit"
-owner = "I-U2 @ fzf-style ranking (input cluster I3), not yet a branch"
-scenarios = ["p5-input-at", "workspace-index"]
-snaps = ["at-st", "at-st-down12", "at-st-up6", "at-stat", "at-plan"]
-rows = ["5-14"]
-why = "fx v0.0.16 ranks `@st` and `@stat` with its placement score (55e13fad; `scoreBetter`, `file_index.zig:1884-1899@481104fd`), names that start with the query first (`start.sh`, `store.rs`, `STATUS.md`, ...); xfx still ranks with c1db919's eight facts (`score_order`, src/tui/file_index.rs) and lists `spikes/s-01-trace.txt` first. So the list's rows hold other paths. Its highlights are rebuilt from the placement that set the rank (`file_index.zig:1783-1829`), so `workspace-index`'s `@plan` on an added directory's long path bolds `p`, `l`, `a`, `n` where xfx bolds `p`, `la`, `n`: the same text, other attributes. Its shape is the same since AT-HEIGHT: ten rows, the rules and the hint row where fx has them, the bar on the same row, and each side's window the edge-scrolled one over its own ranking (.prd/tui-phase5/receipts/at-height/band.txt)."
-
-[[cause]]
-id = "at-folder-row"
-kind = "unit"
-owner = "I-U3 @ folders: Enter selects a folder, a listed folder is row 1 (input cluster I4), not yet a branch"
-scenarios = ["p5-input-at", "p5-input-at-dir", "filepicker"]
-snaps = ["at-src", "at-src-enter", "at-src-tab", "dir-enter", "at-dir", "at-dir-down", "at-dir-cj", "at-tab"]
-rows = ["3-16"]
-why = "fx v0.0.16 lists a folder query's folder as its first row and Enter on a folder row mentions it and closes the picker (7c8ef4a3; `path_completion.zig:82,135-145`, `input_completion_runtime.zig:993-1004@481104fd`): `@src/` shows `src/` first, Enter leaves `@src/`, Tab on it lists it again; `filepicker`'s `see @src/` lists `src/` above `src/deep/`, so its Down and C-j land one row higher and its Tab chooses `src/lib.rs`; `p5-input-at-dir`'s Enter on `src/store/` closes the picker at `@src/store/`. xfx lists the folder's entries alone, so Enter and Tab choose a file or open the folder. The list is ten rows on both since AT-HEIGHT (.prd/tui-phase5/receipts/at-height/)."
+# at-ranking-anchor (PAGE-KEYS-SETTINGS-COLUMN's `at-ranking` on `p5-page-keys-anchor` / file-one) was deleted by
+# train 14: AT-RANK closed its owner, I-U2, and the snap is normalized-identical at train 14's head at 24x60 and
+# 40x120 with no cause (.prd/tui-phase5/receipts/train-14/README.md, "The ledger").
 
 [[cause]]
 id = "at-resize-band-at-the-bottom"
@@ -687,18 +682,9 @@ owner = "RESIZE-REPAINT"
 scenarios = ["p5-input-at-resize"]
 snaps = ["short", "short-up1", "short-up7", "tall", "tall-down1"]
 whole_snap = true
-xfx = ["src/tui/shell.rs:16842"]
+xfx = ["src/tui/shell.rs:17389"]
 fx = ["src/ui/resize_runtime.zig:766-767@c1db9191"]
 why = "The resize answer `resize-document-repaint` names: fx clears the screen and writes the document again from the top, so its band stands under the banner; xfx keeps its rows and solves the band at the bottom of the screen. The band itself, from the composer row to the hint row, the @ list's rows and bar included, is the same cell for cell in every snap after the resize since AT-HEIGHT (.prd/tui-phase5/receipts/at-height/band.txt)."
-[[cause]]
-id = "P1-carry-notice"
-kind = "unit"
-owner = "P1 r3/r4 feat/tui-phase4-provider-session 8facfb6d"
-scenarios = ["provider*"]
-snaps = ["*"]
-xfx_row = '^! session: this session recorded reasoning on |^  (?:that )?reasoning was not carried over$'
-why = "After a switch back to the Gateway xfx says once that the llmux turn's reasoning was not carried (src/session/store.rs:1000); fx drops it silently (projectProviderReplay). xfx's own rule, P1's to settle."
-
 # (a) awaiting a user decision: what the approved rows push.
 
 [[cause]]
@@ -813,7 +799,7 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^  (?:system prompt: |skills: |tools: \d+ advertised|mcp: none$)|^  more\)$|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
 xfx_row = '^  tools: \d+ advertised|^  (?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill), )*(?:(?:[a-z]+_[a-z_]+|shell|subagent|terminal|skill),|\+\d+ more\))$'
-xfx = ["src/tui/shell.rs:41165"]
+xfx = ["src/tui/shell.rs:46711"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
 why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:238). The tool list's later rows are matched at any width: rows of tool names alone, each ending `,` or `+N more)` (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools`; `  edit_file, write_file, shell, subagent, capability_search,` / `  +6 more)` at 60, `p5-transcript-question`)."
 
@@ -824,7 +810,7 @@ owner = "unowned (follows tool-schema and session-record)"
 scenarios = ["p5-transcript-anchor", "p5-transcript-anchormid", "p5-transcript-resize", "p5-transcript-records", "p5-transcript-question"]
 snaps = ["full-*"]
 rows = ["1-2", "35-37"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41165"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:46711"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "Rows only one side has push the other side's rows off a Ctrl-O page by two: fx's command entry has two argument rows xfx's `terminal` has not (`tool-schema`), so a page counted from the tail starts two rows later on fx; fx's `* session:` record has two lines xfx's has not (`session-record`), so a page counted from the top ends two rows earlier, and a record shorter than the screen leaves xfx two more blank rows. Only the two rows at each edge of the record (and the footer's blank row under it); every other row of these pages is compared, cell by cell with its styles, against the other side's document joined from its windows (.prd/tui-phase5/receipts/transcript-wrap/check.py)."
 
@@ -836,7 +822,7 @@ scenarios = ["p5-toolgroup-ctrlo", "p5-toolgroup-ctrlo-tc"]
 snaps = ["full-*"]
 rows = ["34-37"]
 xfx_row = '^\s*$'
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41165"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:46711"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "TG-REDRAW's Ctrl-O pages hold the whole record, read from the top: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so xfx's record ends four rows higher and leaves rows 34-37 blank where fx's turn summary still stands. xfx's blank rows there only (`xfx_row`): no fx row and no xfx row with text is this cause's, and every other row of these pages is compared, the tool group's two rows among them (.prd/tui-phase5/receipts/toolgroup-redraw/)."
 
@@ -847,7 +833,7 @@ owner = "unowned (follows tool-schema and session-record)"
 scenarios = ["p5-transcript-safe", "p5-transcript-safetab"]
 snaps = ["full", "full-pgup"]
 rows = ["1-2", "33-36"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41165"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:46711"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "`transcript-page-offset` for `p5-transcript-safe` and `p5-transcript-safetab`, four rows deep: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`tool-schema`), so the tail page starts later on fx (xfx's top rows, the record's `+5 more)` and `mcp: none`, are above fx's) and the page at the top ends four rows earlier (xfx's rows 33-36, the read's heading and its two rows and the blank under them, are below fx's). The read's rows are compared on the tail page."
 
@@ -858,7 +844,7 @@ owner = "session-record and tool-schema's owners: the page offset those two caus
 scenarios = ["p5-transcript-cancel"]
 snaps = ["full"]
 rows = ["1-2"]
-xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41165"]
+xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:46711"]
 fx = ["src/core/execution/command_environment.zig:128@c1db9191", "src/core/app/app_bootstrap_runtime.zig:71@c1db9191"]
 why = "`transcript-page-offset` for `p5-transcript-cancel`'s Ctrl-O page, read from the tail: fx's `* session:` record has two lines xfx's has not (`session-record`) and its command entry two argument rows (`action: run`, `yield_time_ms: 30000`; `tool-schema`), so xfx's page starts at its record's `* session:` row where fx's starts lower in its record (`skills: loading`). Every other row of the page is compared. Named by T-U4, which gave the scenario xfx's own turns (.prd/tui-phase5/receipts/cancel-marker/README.md)."
 
@@ -870,9 +856,9 @@ scenarios = ["approvals"]
 snaps = ["after-esc", "after-esc.full"]
 rows = [15, 16]
 xfx_row = '^$'
-xfx = ["src/tui/shell.rs:10478"]
+xfx = ["src/tui/shell.rs:10947"]
 fx = ["src/core/app/app_worker_runtime.zig:1026@c1db9191"]
-why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`write_user_prompt`, the cited line), xfx rides it under the open group (`trailer_rows`, src/tui/shell.rs:10478, each card through `queue_card`, :1745, which ends it on a blank row). After Escape stops the turn the group's cancelled line is drawn above the card on both, and fx's document then ends on the card with the composer right under it -- `fx-approvals-40x120-after-esc` rows 14-15, `┃ use capitals` (bold) then the composer's `┃` -- where xfx's keeps the card's blank row (row 15) and its composer and hint row stand one row lower (rows 16, 18 against fx's 15, 17). fx's card carries no row under it: wherever fx's document ends on a cancelled line or an answer, one blank row stands before the composer (`p5-transcript-cancel` `esc` rows 5-7, `interrupt2` `esc2` rows 36-38), and the card here is the one entry after that blank, with none of its own. Already so at the base (e6cde019's sweep: xfx row 15 `(blank)` uncaused; the pair was counted under the deleted `cancelled-marker`). AMEND-CARD-ROW: end such a card as fx does when nothing follows it in the document (.prd/tui-phase5/receipts/cancel-marker/README.md)."
+why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`write_user_prompt`, the cited line), xfx rides it under the open group (`trailer_rows`, src/tui/shell.rs:10947, each card through `queue_card`, :1932, which ends it on a blank row). After Escape stops the turn the group's cancelled line is drawn above the card on both, and fx's document then ends on the card with the composer right under it -- `fx-approvals-40x120-after-esc` rows 14-15, `┃ use capitals` (bold) then the composer's `┃` -- where xfx's keeps the card's blank row (row 15) and its composer and hint row stand one row lower (rows 16, 18 against fx's 15, 17). fx's card carries no row under it: wherever fx's document ends on a cancelled line or an answer, one blank row stands before the composer (`p5-transcript-cancel` `esc` rows 5-7, `interrupt2` `esc2` rows 36-38), and the card here is the one entry after that blank, with none of its own. Already so at the base (e6cde019's sweep: xfx row 15 `(blank)` uncaused; the pair was counted under the deleted `cancelled-marker`). AMEND-CARD-ROW: end such a card as fx does when nothing follows it in the document (.prd/tui-phase5/receipts/cancel-marker/README.md)."
 
 [[cause]]
 id = "call-row-page-edge"
@@ -926,7 +912,7 @@ owner = "unowned (follows session-record and tool-schema)"
 scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
 snaps = ["*ctrl-o*", "full*"]
 whole_snap = true
-xfx = ["src/tui/shell.rs:41165", "src/tui/approval_view.rs:685"]
+xfx = ["src/tui/shell.rs:46711", "src/tui/approval_view.rs:685"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/execution/command_environment.zig:128@c1db9191"]
 why = "Every Ctrl-O row under fx's taller session record and its shell calls' argument rows stands lower than xfx's, so a page shows other entries; what else differs on these pages is read only once those two are fixed."
 
@@ -962,7 +948,7 @@ scenarios = ["*"]
 snaps = ["*"]
 fx_row = '^\* stats: ansi_bytes=\d+,'
 xfx_row = '^\* stats: ansi_bytes=\d+,'
-xfx = ["src/tui/shell.rs:1852"]
+xfx = ["src/tui/shell.rs:1857"]
 fx = ["src/core/app/app_commands.zig:1014@c1db9191"]
 why = "`/stats` counts each product's own bytes to the terminal (fx 3499, xfx 2675 for the same screen): equal only if the two wrote the same bytes."
 
@@ -996,7 +982,7 @@ owner = "RESIZE-REPAINT"
 scenarios = ["p5-ctrlo-wider-inline-fam", "h1-resize"]
 snaps = ["resized", "small", "large"]
 whole_snap = true
-xfx = ["src/tui/shell.rs:16842"]
+xfx = ["src/tui/shell.rs:17389"]
 fx = ["src/ui/resize_runtime.zig:766-767@c1db9191"]
 why = "fx v0.0.16 answers a resize that changes the screen's size by clearing the screen and its scrollback and writing the document again at the new width (`requestTerminalResetAfterResize`): the wire after `resize 40x140` opens `ESC[0m ESC[2J ESC[3J ESC[H` and writes every row again (`fx/p5-ctrlo-wider-inline-fam-40x120/fx-p5-ctrlo-wider-inline-fam-40x120-resized.wire`, .prd/tui-phase5/receipts/ctrlo-wider/). xfx solves the band and the unfinished line again and leaves every finished row to the terminal (`Shell::resize`: the band and the unfinished line, and nothing above them). So after the widening fx's answer stands at 140 columns -- 117 `w`, U+261D and `TAIL5678` on one row -- and xfx's at the 120 it was written at, and every row under it stands apart. Not the naming: a plain answer does the same, and `h1-resize`'s `small` and `large` are this too (xfx leaves the draft's old first row behind at row 2, fx repaints the band under the banner; .prd/tui-phase4/receipts/h1/README.md). RESIZE-REPAINT owns a decision, not only a defect: fx's repaint erases the user's scrollback (`ESC[3J`) on every resize, which xfx's terminal-owned scrollback keeps -- copy it, or keep the rows and diverge, with the reason (opus's review of CTRLO-WIDER round 2, item 4)."
 
@@ -1008,7 +994,7 @@ scenarios = ["p5-ctrlo-wider-mod"]
 snaps = ["more"]
 fx_row = '(?<![\u261d\u26f9\u270c\u270d\U0001f3cb\U0001f3cc\U0001f574\U0001f575\U0001f590])(?<=[\u261d-\u270d\U0001f385-\U0001faf8])[\U0001f3fb-\U0001f3ff]'
 xfx_row = '(?<![\u261d\u26f9\u270c\u270d\U0001f3cb\U0001f3cc\U0001f574\U0001f575\U0001f590])(?<=[\u261d-\u270d\U0001f385-\U0001faf8])[\U0001f3fb-\U0001f3ff]'
-xfx = ["src/tui/full_transcript.rs:3010", "src/tui/approval_view.rs:1224"]
+xfx = ["src/tui/full_transcript.rs:3020", "src/tui/approval_view.rs:1224"]
 fx = ["src/core/shared/display_width.zig:246-247@c1db9191"]
 why = "An RGI emoji modifier sequence -- a base and a skin-tone modifier, U+1F3FB-1F3FF -- is two cells to fx v0.0.16 and xfx (an RGI sequence, `displayUnitAt`), and tmux 3.7b draws 545 of the 2,030 that xfx's table holds as four or six, the modifier on a cell pair of its own, for bases old and new alike (measured for the review, `approval_view`'s `agreed_emoji`, which names a modifier past its base there). In an answer neither side names one whose base is outside the 43 (`drawn_wider_named` names those alone): `p5-ctrlo-wider-mod` `more`, 110 `w`, U+1F46F U+1F3FB (or U+1F93C U+1F3FB) and `TAIL5678`, loses `L` and `5` on tmux on fx and xfx alike, and reads whole on libghostty-vt (.prd/tui-phase5/receipts/ctrlo-wider/measure.txt, not checked). The two sides' rows are the same, so this covers no row a sweep leaves unresolved; it records the defect, which predates CTRLO-WIDER and is outside its surfaces (opus's review of round 2, new item 2). RI-COUNT owns it with `ri-run-pairing`: its scope is the sequences a terminal draws wider than they are counted (regional-indicator runs and modifier sequences on bases outside the 43), the count every consumer shares (the dispatcher's assignment, 2026-11-08, reversible). The nine bases of the family with a modifier are named past the base, `\\u{261d}` and the modifier, and read whole on both terminals in prose, at the margin, in a code panel and in a table's cell (the same file)."
 
@@ -1072,6 +1058,20 @@ xfx_row = '^\W*(?:(?:remote|web2?)\b.*|status\s+)\b(?:connecting|retrying)\b'
 fix = "point remote, web and web2 at a server whose state holds through the run (mcphttp `hang` with a long startup_timeout_ms, as p5-mcp-menu-profile.json does), and give `/mcp login remote` its refused failure some other way"
 why = "remote, web and web2 sit at a refused loopback port. Each try is a 10 s discover probe and the backoffs 1, 2, 4, 8 s, on both binaries, so a row naming one with `connecting` or `retrying` turns about 10, 11, 21, 23, 33, 37, 47 and 55 s after it started, and a snap near a turn reads one word on fx and the other on xfx (.prd/tui-phase5/receipts/train-12/ci-mcp-timing/README.md). The menu scenarios hold the word with a server that never answers; here that would make `/mcp login remote` wait instead of failing, which these snaps capture."
 
+# A `nondeterminism` cause where verbs-refused-port-word's is `scenario`: this
+# pair passes on a run that lands off the try (the base passed it in PR #90's
+# CI sweep), so the retries it buys can pass it.
+[[cause]]
+id = "mcp-fail-list-on-a-try"
+kind = "nondeterminism"
+owner = "scenario"
+scenarios = ["p5-mcp-fail"]
+snaps = ["list"]
+fx_row = '^\W*bad\b.*\b(?:connecting|retrying)\b'
+xfx_row = '^\W*bad\b.*\b(?:connecting|retrying)\b'
+fix = "draw the list between two tries, not on one: the first `wait` before `/mcp` shortened so the list is drawn near 11 s, between the tries near 7 and 15 s, and the `wait` after it lengthened by as much, so the screen's Enter still lands near the try at 15 s as server-1 needs"
+why = "The failing stdio server `bad` is `connecting` while a try runs and `retrying` between tries (xfx's src/mcp/runtime.rs:1336 and :1350; fx's two words read from the captures), and it is tried near 1, 3, 7, 15 and 31 s (1 s backoff doubling, src/mcp/runtime.rs:90). The list is drawn about 15 s in (`wait 13`, `/mcp`, `wait 2`), on the try at 15 s, so which word a run draws turns on how fast it got there: PR #90's CI sweep read `connecting` on fx and the base's xfx and `retrying` on the head's, one run each, and counted a regression; re-run locally, the head's and the base's xfx read `retrying` 3 of 3 each (.prd/tui-phase5/receipts/train-13/join-main/mcp-fail-ci-sweep.md, mcp-fail-reruns.txt)."
+
 # No cause for the catalog outage's window. `modelsdown <ms>` counted from the
 # fake gateway's start, and each binary launches a different time after it
 # (its first catalog read 1 to 17 s after the gateway started in train 11's
@@ -1083,6 +1083,16 @@ why = "remote, web and web2 sit at a refused loopback port. Each try is a 10 s d
 # scenarios that differs is a difference, on its first run.
 
 [[cause]]
+id = "model-column-clip"
+kind = "unit"
+owner = "MODEL-COLUMN-CLIP (a new queue unit): the /model column cuts a row too long for its room at the screen's edge, as fx does, with no ellipsis"
+scenarios = ["p5-page-keys-anchor"]
+snaps = ["model-wrapped"]
+fx_row = '^\s+fake/a-model-id-long-enough-to-wrap-the-composer-row-at-\S*$'
+xfx_row = '^\s+fake/a-model-id-long-enough-to-wrap-the-composer-row-at-\S*…$'
+why = "fx v0.0.16 paints the column's rows -- the kinds it marks by brightness, `.model_stage`, `.provider_stage`, `.models` and `.effort` (`src/ui/footer/picker_presentation.zig:834-836@481104fd`) -- in the band's last list branch (`src/ui/footer/paint_plan.zig:943-953`) with `composePickerOptionRowAnnotated`, which writes the label with `row_text.appendClipped` (`picker_presentation.zig:849`): it stops at the screen's edge and adds nothing (`src/ui/footer/row_text.zig:23-53`). xfx's `/model` column (its model, effort and speed stages, and the `/effort ` column) cuts a row with `picker::ellipsized` (src/tui/model_column.rs, `Column::rows`), which ends it with `…`. So `model-wrapped`'s id, 69 cells in a room of 58 (from the third column of 60 to the edge), ends `-at-si` in fx and `-at-s…` in xfx. The column only: fx's slash menu (`paint_plan.zig:851-924`; `composeSlashMenuRow` cuts with `appendSingleLineEllipsized`, `picker_presentation.zig:1408`) and its `@` list (`paint_plan.zig:925-942`; `appendFilePickerLabel`, `picker_presentation.zig:988-990`) write `…` themselves -- this scenario's fx `file-wrapped` and `slash-wrapped-up` end rows with it -- so the fix leaves theirs alone. Found by PAGE-KEYS-SETTINGS-COLUMN round 3 (.prd/tui-phase5/receipts/page-keys-settings-column/README.md); the column's anchor is fx's in that pair."
+
+[[cause]]
 id = "activity-tokens-before-request"
 kind = "unit"
 owner = "ACTIVITY-TOKENS (a new queue unit): the activity row's token suffix appears with the turn's first request"
@@ -1090,7 +1100,7 @@ scenarios = ["model-parked"]
 snaps = ["menu-loading"]
 fx_row = '^~ Thinking \(<s>\)$'
 xfx_row = '^~ Thinking \(<s>\) \(↑\d+ ↓\d+\)$'
-why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`, `src/core/agent/runtime/orchestrator.zig:7938-7941@481104fd`), after its wait of up to 2 s for the retry behind a failed catalog (`resolveForRequest`, `src/core/app/model_cache_runtime.zig:843-866`, from `orchestrator.zig:5885-5893`); xfx's band shows the prompt's own estimate from `TurnStarted` (`tally.begin`, src/tui/shell.rs:4539). Both turns wait out the retry since MODELS-REASK -- `Thinking` on both rows, where `main` said `Generating` -- and only the suffix differs, inside the wait (.prd/tui-phase5/receipts/models-reask/README.md)."
+why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`, `src/core/agent/runtime/orchestrator.zig:7938-7941@481104fd`), after its wait of up to 2 s for the retry behind a failed catalog (`resolveForRequest`, `src/core/app/model_cache_runtime.zig:843-866`, from `orchestrator.zig:5885-5893`); xfx's band shows the prompt's own estimate from `TurnStarted` (`tally.begin`, src/tui/shell.rs:4560). Both turns wait out the retry since MODELS-REASK -- `Thinking` on both rows, where `main` said `Generating` -- and only the suffix differs, inside the wait (.prd/tui-phase5/receipts/models-reask/README.md)."
 
 [[cause]]
 id = "idle-connection"

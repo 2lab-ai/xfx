@@ -1,0 +1,4 @@
+# workspace-index at-plan, row 12 as cells.py counts (from 1): the added folder, which `@plan` matches only through its whole path; bold letters in brackets.
+# fx: ../at-rank/fx/ (AT-RANK's capture; its whole run directory was already written <tmp> there). xfx: round 3's capture at f8daa194, the scratch root written <tmp> and the run directory's own name kept, since it is what the bold letters depend on (AT-RANK §7, the ledger cause at-plan-run-directory).
+fx   :   <tmp>/extra/[n]otes/
+xfx  :   <tmp>/fxcap.[n]bJCCJ/extra/notes/   (3 bold letters inside <tmp>)

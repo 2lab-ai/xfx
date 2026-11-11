@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-f8daa19 [debug] · Run /help for commands
+
+┃ @st
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  src/store/
+  style.css
+  stats.json
+  stream.zig
+  src/state.zig
+  string_utils.c
+  docs/strategy.md
+  spikes/s-01-trace.txt
+  spikes/s-02-trace.txt
+  spikes/s-03-trace.txt
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

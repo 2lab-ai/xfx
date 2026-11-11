@@ -1,0 +1,8 @@
+## the main pair
+# 389 shared snaps
+fx: .ansi moved 76 (compare.py's count); moved, by class: txt-masked 70, txt-other 0, ansi-only 7; 77 in all, 1 of them a .txt move whose .ansi did not move; snaps not read: 0
+xfx: .ansi moved 110 (compare.py's count); moved, by class: txt-masked 70, txt-other 32, ansi-only 8; 110 in all, 0 of them a .txt move whose .ansi did not move; snaps not read: 0
+## the units' pair
+# 544 shared snaps
+fx: .ansi moved 49 (compare.py's count); moved, by class: txt-masked 24, txt-other 20, ansi-only 5; 49 in all, 0 of them a .txt move whose .ansi did not move; snaps not read: 0
+xfx: .ansi moved 54 (compare.py's count); moved, by class: txt-masked 45, txt-other 9, ansi-only 0; 54 in all, 0 of them a .txt move whose .ansi did not move; snaps not read: 0

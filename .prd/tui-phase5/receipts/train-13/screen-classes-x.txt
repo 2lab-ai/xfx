@@ -1,0 +1,2 @@
+== screen-moves-base-x.txt: 3 listed lines
+  3  a saved session's id (resume ids, /status's Session row)

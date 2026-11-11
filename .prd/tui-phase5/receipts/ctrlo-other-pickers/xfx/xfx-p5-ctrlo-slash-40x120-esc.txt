@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-13646df [debug] · Run /help for commands
+
+┃ /
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 34 · type to filter                                                                                        1–6
+
+  /help     show available slash commands                                                                       General
+  /clear    start a fresh conversation while keeping managed processes                                          General
+  /new      start a fresh session                                                                               Session
+  /reset    reset the current session context                                                                   Session
+  /resume   resume a saved session                                                                              Session
+  /rename   rename the current session                                                                          Session
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

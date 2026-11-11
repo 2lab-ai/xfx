@@ -1,0 +1,62 @@
+M1 the replay's ask branch removed: its result goes to the group as a tool result, and its start, still filtered out (hydration.rs:251), is not there to settle, so nothing is drawn: KILLED
+    failed: tui::hydration::tests::a_step_that_asked_starts_each_of_its_calls_just_before_its_result
+    failed: tui::hydration::tests::an_ask_replays_its_decoded_batch_or_one_asked_row_and_never_a_tool_row
+    failed: tui::shell::tests::a_resumed_batch_that_left_no_answered_document_is_one_asked_row
+    failed: tui::shell::tests::a_hostile_answer_document_paints_no_sequence_of_its_own
+    failed: tui::shell::tests::a_resumed_step_that_asked_between_two_calls_settles_each_in_a_group_of_its_own
+    failed: tui::shell::tests::a_resumed_answered_batch_of_one_four_or_twenty_replays_its_resolutions
+    failed: tui::shell::tests::a_resumed_step_with_its_ask_last_or_first_keeps_the_reads_beside_it_in_one_group
+    failed: tui::worker::tests::a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker
+M2 the group's own early return removed: a question becomes a group row: KILLED
+    failed: tui::toolgroup::tests::a_question_is_never_part_of_a_group
+M3 the bound one past twenty: KILLED
+    failed: tools::question::tests::a_saved_document_of_one_to_twenty_questions_decodes_and_no_other_count_does
+    failed: tools::question::tests::the_twenty_first_element_is_refused_at_its_first_byte_unread
+    failed: tui::shell::tests::a_resumed_batch_that_left_no_answered_document_is_one_asked_row
+M4 the bound one short of twenty: KILLED
+    failed: tools::question::tests::a_saved_document_of_one_to_twenty_questions_decodes_and_no_other_count_does
+    failed: tui::shell::tests::a_resumed_answered_batch_of_one_four_or_twenty_replays_its_resolutions
+M5 the bound one below one (an empty batch): KILLED
+    failed: tools::question::tests::anything_but_an_answer_document_is_none_and_never_a_panic
+    failed: tools::question::tests::a_saved_document_of_one_to_twenty_questions_decodes_and_no_other_count_does
+    failed: tui::shell::tests::a_resumed_batch_that_left_no_answered_document_is_one_asked_row
+M6 the bound one above one: KILLED
+    failed: tools::question::tests::a_skipped_value_is_not_checked_as_upstreams_parse_checks_it
+    failed: tools::question::tests::a_saved_document_of_one_to_twenty_questions_decodes_and_no_other_count_does
+    failed: tools::question::tests::a_saved_answer_document_reads_back_in_order_with_its_escapes
+    failed: tools::question::tests::anything_but_an_answer_document_is_none_and_never_a_panic
+    failed: tui::shell::tests::a_hostile_answer_document_paints_no_sequence_of_its_own
+    failed: tui::shell::tests::a_resumed_answered_batch_of_one_four_or_twenty_replays_its_resolutions
+    failed: tui::worker::tests::a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker
+M7 a malformed document drawn as answered: a missing field defaults: KILLED
+    failed: tools::question::tests::anything_but_an_answer_document_is_none_and_never_a_panic
+M8 a failed call's document drawn as answered: `ok` ignored: KILLED
+    failed: tui::hydration::tests::an_ask_replays_its_decoded_batch_or_one_asked_row_and_never_a_tool_row
+    failed: tui::shell::tests::a_resumed_batch_that_left_no_answered_document_is_one_asked_row
+M9 a document that does not decode drawn as an (empty) answered batch: KILLED
+    failed: tui::hydration::tests::an_ask_replays_its_decoded_batch_or_one_asked_row_and_never_a_tool_row
+    failed: tui::hydration::tests::a_step_that_asked_starts_each_of_its_calls_just_before_its_result
+    failed: tui::shell::tests::a_resumed_batch_that_left_no_answered_document_is_one_asked_row
+    failed: tui::shell::tests::a_resumed_step_that_asked_between_two_calls_settles_each_in_a_group_of_its_own
+    failed: tui::shell::tests::a_resumed_step_with_its_ask_last_or_first_keeps_the_reads_beside_it_in_one_group
+M10 a step that asked starts its calls together: KILLED
+    failed: tui::hydration::tests::a_step_that_asked_starts_each_of_its_calls_just_before_its_result
+    failed: tui::shell::tests::a_resumed_step_that_asked_between_two_calls_settles_each_in_a_group_of_its_own
+    failed: tui::shell::tests::a_resumed_step_with_its_ask_last_or_first_keeps_the_reads_beside_it_in_one_group
+M11 the decoded texts not made inert at the bridge: KILLED
+    failed: tui::worker::tests::a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker
+M12 the derived struct put back: an element read by serde_derive, which also takes the positional form: KILLED
+    failed: tools::question::tests::anything_but_an_answer_document_is_none_and_never_a_panic
+    failed: tui::hydration::tests::an_ask_replays_its_decoded_batch_or_one_asked_row_and_never_a_tool_row
+    failed: tui::shell::tests::a_resumed_batch_that_left_no_answered_document_is_one_asked_row
+M13 the early count stop removed: any count past twenty decodes: KILLED
+    failed: tools::question::tests::a_saved_document_of_one_to_twenty_questions_decodes_and_no_other_count_does
+    failed: tools::question::tests::the_twenty_first_element_is_refused_at_its_first_byte_unread
+    failed: tui::shell::tests::a_resumed_batch_that_left_no_answered_document_is_one_asked_row
+M16 `IgnoredAny` put back for the twenty-first: its value is scanned before the count's refusal: KILLED
+    failed: tools::question::tests::the_twenty_first_element_is_refused_at_its_first_byte_unread
+M14 `question` or `answer` given twice accepted (the last one kept): KILLED
+    failed: tools::question::tests::anything_but_an_answer_document_is_none_and_never_a_panic
+M15 a key nobody reads given twice accepted: KILLED
+    failed: tools::question::tests::anything_but_an_answer_document_is_none_and_never_a_panic
+clone clean after the run: yes

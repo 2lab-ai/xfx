@@ -1,0 +1,35 @@
+# gates.sh <worktree> <tmp>/gatelog, TMPDIR=<tmp> (a short root), inside one suite-lock slot
+# head 81ee1733af1618d00be0fb4351d3a8917668d1a9, tree: 0 tracked changes
+# slot taken 2026-11-09T16:19:15Z
+00 false rc=1 0s
+01 fmt rc=0 4s
+02 clippy rc=0 23s
+03 clippy-fault rc=0 41s
+04 test rc=0 142s
+05 test-fault-tui rc=0 44s
+06 test-fault-lib rc=0 98s
+07 check-no-stubs rc=0 9s
+08 check-no-secrets rc=0 61s
+09 test-check-no-secrets rc=0 161s
+10 test-gate-env rc=0 406s
+11 check-xfx-identity rc=0 2s
+12 check-preview-contract rc=0 3s
+13 test-preview-contract rc=0 74s
+14 check-tui-preflight-cost rc=0 165s
+15 check-usage-clock rc=0 12s
+16 fxcap-test-sweep rc=0 84s
+17 fxcap-test-capture rc=0 478s
+18 build-release rc=0 19s
+19 build-faulty rc=0 44s
+20 smoke rc=0 4s
+21 smoke-tui rc=0 74s
+# slot released 2026-11-09T16:51:43Z
+# tree after: 0 tracked changes
+
+# count lines from the step logs (grep of each log, copied here)
+04 test: 5538 passed, 0 failed over 14 test binaries
+05 test-fault-tui: test result: ok. 200 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.19s
+06 test-fault-lib: test result: ok. 4640 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 62.34s
+16 fxcap-test-sweep: Ran 70 tests in 5.920s;Ran 27 tests in 67.531s;
+17 fxcap-test-capture: Ran 79 tests in 471.498s;
+21 smoke-tui: smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures

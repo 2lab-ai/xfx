@@ -1,0 +1,14 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ ask twenty
+
+────────────────────────────────────────────────────────────────────────
+  Pick 20?
+
+    1) Keep 20                       Leave it as it is.
+    2) Change 20                     Apply the change.
+    3) Other
+
+────────────────────────────────────────────────────────────────────────
+↑↓ options · tab questions · enter answer · esc cancel
+

@@ -42,3 +42,116 @@ show $P src/core/input/picker_state.zig 196 213 "invalidate on a new inline-pick
 show $P src/ui/resize_runtime.zig 657 662 "dimensions invalid: set on a resize no layout fits"
 show c1db9191 src/ui/footer/picker_presentation.zig 634 639 "the old height: the list picker's, at most six"
 show c1db9191 src/ui/footer/surface_frame.zig 636 641 "the old @ band rows: show_picker, so list_picker_rows"
+# --- added by AT-FOLDERS (2026-11-09): the lines AT-HEIGHT's round 3 cites
+# and did not quote (gpt6 r3, "Missing evidence"), and then AT-FOLDERS' own.
+# Appended after the lines above, so every line number before this keeps.
+show $P src/core/app/app_input_runtime.zig 310 330 "AT-HEIGHT r3: the arrows and page keys route, then ask for a frame (:330)"
+show $P src/core/app/app_input_runtime.zig 1013 1020 "AT-HEIGHT r3: plain Up and Down route, then ask for a frame"
+show $P src/core/app/app_input_runtime.zig 1317 1321 "AT-HEIGHT r3: Tab on a file query, then a frame whatever it did"
+show $P src/core/app/app_input_runtime.zig 1405 1410 "AT-HEIGHT r3: Enter the list answers, then a frame"
+show $P src/core/app/app_lifecycle.zig 1198 1212 "AT-HEIGHT r3: a job-control resume resets the terminal (:1210)"
+show $P src/ui/transcript/runtime.zig 7164 7168 "AT-HEIGHT r3: the reset sets terminal_reset_pending (:7167)"
+show $P src/ui/render_request.zig 196 200 "AT-FOLDERS: the resize signal asks for a frame of its own (:199)"
+show $P src/ui/render_request.zig 216 226 "AT-FOLDERS: resize pending, and a commit blocked while it is"
+show $P src/core/app/input_completion_runtime.zig 78 80 "AT-FOLDERS: FolderAction, open or select"
+show $P src/core/app/input_completion_runtime.zig 967 1032 "AT-FOLDERS: applyFilePickerSelection -- a selected folder is path + /, quote closed, a space"
+show $P src/core/workspace/path_completion.zig 44 143 "AT-FOLDERS: completeCancellable reserves row 0 for the listed folder; listedFolder"
+show $P src/core/workspace/path_completion.zig 171 190 "AT-FOLDERS: parseExplicitQuery, ~ . .. and a /"
+show $P src/core/workspace/path_completion.zig 307 330 "AT-FOLDERS: fx's test, . and .. list themselves first"
+show $P src/core/workspace/path_completion.zig 401 434 "AT-FOLDERS: fx's test, a folder first so it can be selected"
+show $P src/core/input/file_picker_path.zig 5 16 "AT-FOLDERS: needs_quotes, isRepresentable"
+show $P src/core/input/file_picker_path.zig 222 243 "AT-FOLDERS: encode"
+show $P src/core/input/file_completion_state.zig 7 7 "AT-FOLDERS: capacity, the rows a listing has"
+show $P src/core/app/app_input_runtime.zig 6708 6757 "AT-FOLDERS: fx's test, Tab opens a typed folder and Enter selects it"
+show $P src/core/app/input_completion_runtime.zig 2200 2235 "AT-FOLDERS: fx's test, a listed folder first and Enter selects it (a space in its name)"
+show $P src/core/input/picker_state.zig 99 139 "AT-FOLDERS: FileListingWait, hold_ms = 8"
+show $P src/core/input/picker_state.zig 172 172 "AT-FOLDERS: the wait lives in the picker's state"
+show $P src/core/input/picker_state.zig 1087 1112 "AT-FOLDERS: fx's test of the wait"
+show $P src/core/app/input_completion_runtime.zig 817 844 "AT-FOLDERS: holdFrameForFileListing, fileListingHoldPending"
+show $P src/core/app/input_completion_runtime.zig 2237 2282 "AT-FOLDERS: fx's tests, a held frame released with its rows; watched after a slow folder"
+show $P src/main.zig 173 207 "AT-FOLDERS: the loop's poll timeout, 1 ms while a listing is in its first tick"
+show $P src/main.zig 1131 1144 "AT-FOLDERS: the timeout asks fileListingHoldPending"
+show $P src/main.zig 2992 3012 "AT-FOLDERS: loopCommitFrame holds flushRequestedFrame while holdFrameForFileListing"
+# --- added by AT-FOLDERS round 2 (2026-11-09): what fx's held
+# flushRequestedFrame is, and what it writes outside it.
+show $P src/core/app/app_render_runtime.zig 924 936 "AT-FOLDERS r2: flushRequestedFrame writes nothing while a handoff is pending; the active surface's requests (the full transcript's too)"
+show $P src/ui/render_engine/terminal_diff.zig 601 646 "AT-FOLDERS r2: the wire frame carries the document movement bytes inside its update"
+show $P src/main.zig 2804 2844 "AT-FOLDERS r2: the theme query is written while facts are collected, not in the frame"
+show $P src/ui/transcript/runtime.zig 10402 10430 "AT-FOLDERS r2: the bell and the program status report, each a write of its own between frames"
+show $P src/core/app/app_session_runtime.zig 2958 2987 "AT-FOLDERS r2: the title is set by the provider when it changes, outside any frame"
+show $P src/core/workspace/directory_completion_job.zig 140 151 "AT-FOLDERS r2: an ineligible harvest stops the listing and drops the directory request"
+# --- added by AT-FOLDERS round 3 (2026-11-09): the bell inside the frame,
+# the report's caller, and the eligible harvest.
+show $P src/core/app/app_render_runtime.zig 1040 1065 "AT-FOLDERS r3: after the frame commits, flushRequestedFrame flushes the notifications (the bell) under .notification"
+show $P src/main.zig 785 790 "AT-FOLDERS r3: flushNotifications, whose only caller in src is flushRequestedFrame"
+show $P src/main.zig 2975 2990 "AT-FOLDERS r3: loopCollectFacts runs the worker tick"
+show $P src/core/app/app_worker_runtime.zig 809 827 "AT-FOLDERS r3: the worker tick drains the events and syncs the state"
+show $P src/core/app/app_worker_runtime.zig 657 665 "AT-FOLDERS r3: syncState"
+show $P src/core/app/app_worker_runtime.zig 758 791 "AT-FOLDERS r3: syncState reports the program status; reportProgramStatus writes it"
+show $P src/core/app/input_completion_runtime.zig 811 815 "AT-FOLDERS r3: collectFilePickerFacts harvests with filePickerEligible"
+show $P src/core/workspace/directory_completion_job.zig 191 217 "AT-FOLDERS r3: harvest drops an abandoned or superseded task's output"
+show $P src/builtins/hooks/notifications.zig 185 203 "AT-FOLDERS r3: the provider's flush delivers the ready notifications to the player"
+show $P src/builtins/hooks/notifications.zig 283 286 "AT-FOLDERS r3: the player's emit is the bell: writeNotificationBell's one caller"
+# --- added by AT-FOLDERS round 4 (2026-11-09): one eligibility predicate at
+# every acquisition site, and the listing's cooperative cancel.
+show $P src/core/app/input_completion_runtime.zig 754 786 "AT-FOLDERS r4: catalogMenuOwnsSurface and filePickerEligible, the predicate's terms"
+show $P src/core/app/input_completion_runtime.zig 846 866 "AT-FOLDERS r4: prepareFilePicker, the sole acquisition boundary, returns while not eligible; the episode's refresh after that"
+show $P src/core/app/input_completion_runtime.zig 946 958 "AT-FOLDERS r4: Tab returns before its retry while not eligible"
+show $P src/core/app/input_completion_runtime.zig 1034 1056 "AT-FOLDERS r4: Enter on the list and the list owning the surface, both behind filePickerEligible"
+show $P src/core/workspace/directory_completion_job.zig 63 111 "AT-FOLDERS r4: Task.stop sets the cancel flag; run and lookup check it"
+show $P src/core/workspace/path_completion.zig 43 147 "AT-FOLDERS r4: completeCancellable checks the cancel flag between steps; cooperative, cannot interrupt a filesystem call in flight"
+# --- added by AT-FOLDERS round 5 (2026-11-09): the index refresh follows the
+# query; the rule confirmation; fx's Enter order.
+show $P src/core/app/input_completion_runtime.zig 787 797 "AT-FOLDERS r5: reconcileFilePicker sets indexed from fileCompletionsDependOnIndex (a decoding failure counts as indexed)"
+show $P src/core/app/input_completion_runtime.zig 1065 1070 "AT-FOLDERS r5: fileCompletionsDependOnIndex"
+show $P src/core/app/app_workspace_runtime.zig 82 84 "AT-FOLDERS r5: the app's fileCompletionsDependOnIndex is queryMode == .workspace_index"
+show $P src/core/workspace/path_completion.zig 25 27 "AT-FOLDERS r5: queryMode: a parsed explicit query is a path, anything else the index"
+show $P src/core/input/file_completion_state.zig 147 168 "AT-FOLDERS r5: reconcile asks for the refresh on a new episode and on a change of indexed"
+show $P src/core/input/file_completion_state.zig 230 233 "AT-FOLDERS r5: retry asks for the refresh too"
+show $P src/core/app/app_workspace_runtime.zig 145 152 "AT-FOLDERS r5: startFileIndex and refreshFileIndex"
+show $P src/core/app/app_entry_runtime.zig 330 335 "AT-FOLDERS r5: the index is started at launch"
+show $P src/main.zig 2125 2127 "AT-FOLDERS r5: isFileIndexLoading"
+show $P src/core/workspace/file_index.zig 333 341 "AT-FOLDERS r5: currentState: loading only while the first generation loads"
+show $P src/core/workspace/file_index.zig 488 523 "AT-FOLDERS r5: a refresh during a walk is queued as pending roots"
+show $P src/core/app/app_input_runtime.zig 6997 7019 "AT-FOLDERS r5: fx's test: each episode refreshes after startup loading"
+show $P src/core/app/app_input_runtime.zig 7050 7070 "AT-FOLDERS r5: fx's test: the startup load is not duplicated"
+show $P src/core/permissions/approval_prompt.zig 61 63 "AT-FOLDERS r5: isActive is request != null"
+show $P src/core/permissions/approval_prompt.zig 119 146 "AT-FOLDERS r5: syncRuleManagement sets the request: a rule confirmation is an active approval prompt"
+show $P src/core/app/app_input_runtime.zig 1392 1411 "AT-FOLDERS r5: Enter asks the skills menu before the @ list"
+show $P src/core/app/app_input_runtime.zig 1998 2040 "AT-FOLDERS r5: submitSkillsMenuSelection: a marked skill binds; a mention menu with none closes and hands Enter on"
+# --- added by AT-FOLDERS round 6 (2026-11-09): fx's refresh queue, the
+# scope-epoch term, and the session-wide first-episode flag.
+show $P src/core/workspace/file_index.zig 284 288 "AT-FOLDERS r6: the index's one pending scope"
+show $P src/core/workspace/file_index.zig 386 389 "AT-FOLDERS r6: startLoad clears the first index's failure"
+show $P src/core/workspace/file_index.zig 407 461 "AT-FOLDERS r6: joinThreadIfDone starts the pending scope when a walk ends, ready or failed"
+show $P src/core/workspace/file_index.zig 463 472 "AT-FOLDERS r6: refresh: one coalesced replacement"
+show $P src/core/input/picker_state.zig 171 171 "AT-FOLDERS r6: file_picker_episode_seen, a picker-state field set once (input_completion_runtime.zig:858-859) and never reset"
+show $P src/core/app/app_workspace_runtime.zig 98 104 "AT-FOLDERS r6: invalidateScope moves the scope epoch and invalidates the open list"
+show $P src/core/app/app_workspace_runtime.zig 127 143 "AT-FOLDERS r6: install: a changed scope invalidates it and refreshes the index"
+# --- added by AT-FOLDERS round 7 (2026-11-09): fx's install on a changed
+# scope, and the interim the old scope's index leaves.
+show $P src/core/workspace/workspace_access.zig 176 189 "AT-FOLDERS r7: eql compares every entry's path, saved, command_line, available and active"
+show $P src/core/app/app_workspace_runtime.zig 70 72 "AT-FOLDERS r7: requestStop stops the folder listing (the directory completion job), not the index's walk"
+show $P src/core/input/file_completion_state.zig 130 139 "AT-FOLDERS r7: invalidate: inactive, untrusted, lookup dirty, the folder's request dropped"
+show $P src/core/input/picker_state.zig 249 252 "AT-FOLDERS r7: resetFilePickerIndex: the bar and the window to row 0"
+show $P src/core/workspace/file_index.zig 103 108 "AT-FOLDERS r7: ReadableRevision carries a scope epoch"
+show $P src/core/workspace/file_index.zig 572 583 "AT-FOLDERS r7: readableRevision: the searchable generation's scope epoch"
+show $P src/core/workspace/file_index.zig 647 654 "AT-FOLDERS r7: searchableGeneration: the active generation first, the old scope's included"
+show $P src/core/app/input_completion_runtime.zig 884 890 "AT-FOLDERS r7: prepareFilePicker stages unavailable when the readable scope is not the workspace's"
+# --- added by AT-FOLDERS round 8 (2026-11-09): the first-episode skip whole,
+# and the epoch check's whole branch.
+show $P src/core/app/input_completion_runtime.zig 853 866 "AT-FOLDERS r8: the refresh request taken: indexed only, and the session's first skipped while the index is loading"
+show $P src/core/app/input_completion_runtime.zig 867 890 "AT-FOLDERS r8: the indexed source is fileCompletionRevision; a source of another scope epoch is staged unavailable"
+show $P src/core/app/app_workspace_runtime.zig 74 80 "AT-FOLDERS r8: fileCompletionRevision is the index's readableRevision; the scope epoch is the workspace's"
+# --- added by AT-FOLDERS round 9 (2026-11-09): what keeps fx's index out of
+# `.loading` once one generation has been adopted.
+show $P src/core/workspace/file_index.zig 309 331 "AT-FOLDERS r9: deinit, the one place outside tests that clears active_generation (:325; the others are the tests at :2208 and :3205)"
+show $P src/core/workspace/file_index.zig 668 681 "AT-FOLDERS r9: buildFromSource, the other place a generation is adopted as active (:677; joinThreadIfDone :425 is quoted above)"
+# --- added by AT-FOLDERS round 10 (2026-11-10): a change of scope stops no walk.
+show $P src/core/workspace/file_index.zig 480 486 "AT-FOLDERS r10: refreshScopeEpoch snapshots the roots and hands them to refreshOwnedRoots, which queues them behind a running walk (quoted above, :488-523)"
+# --- added by AT-FOLDERS round 12 (2026-11-10): a query matches an added
+# root's absolute path anywhere, below every name match.
+show $P src/core/workspace/file_index.zig 957 959 "AT-FOLDERS r12: candidatesFromTrees: primary-root paths stay relative, added-root paths become absolute"
+show $P src/core/workspace/file_index.zig 1094 1099 "AT-FOLDERS r12: an added root's candidate is shown by its absolute path"
+show $P src/core/workspace/file_index.zig 1776 1819 "AT-FOLDERS r12: choosePlacement: inside the name, then crossing, then anywhere in the path"
+show $P src/core/workspace/file_index.zig 1884 1890 "AT-FOLDERS r12: scoreBetter: a name match ranks above a path-only one"

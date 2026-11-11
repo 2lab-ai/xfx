@@ -1,0 +1,8 @@
+# RED, round 3, at the round-3 RED commit (src = 56994078's, tests added), cargo test --lib
+test tools::question::tests::a_skipped_value_is_not_checked_as_upstreams_parse_checks_it ... ok
+test tools::question::tests::the_twenty_first_element_is_refused_at_its_first_byte_unread ... FAILED
+thread 'tools::question::tests::the_twenty_first_element_is_refused_at_its_first_byte_unread' panicked at src/tools/question.rs:949:13:
+assertion `left == right` failed: EOF while parsing a value at line 1 column 975
+  left: Eof
+ right: Data
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4635 filtered out; finished in 0.01s

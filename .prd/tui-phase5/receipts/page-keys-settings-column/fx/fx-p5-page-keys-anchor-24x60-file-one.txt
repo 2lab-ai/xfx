@@ -1,0 +1,24 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ see @a-fi
+────────────────────────────────────────────────────────────
+      items/a-file-name-long-enough-to-wrap-the-…mns-one.txt
+      items/a-file-name-long-enough-to-wrap-the-…mns-two.txt
+      skills/wrap-the-composer-past-its-first-r…ext-row-one/
+      skills/wrap-the-composer-past-its-first-r…ext-row-two/
+      skills…w-one/SKILL.md
+      skills…w-two/SKILL.md
+
+
+
+
+────────────────────────────────────────────────────────────
+auto · model-a
+
+
+
+
+
+
+
+

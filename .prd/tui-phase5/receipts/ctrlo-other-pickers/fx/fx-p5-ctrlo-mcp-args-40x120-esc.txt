@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ /mcp
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+       list    configured servers
+       show    connect to a server and list its tools
+       add     add a server
+       remove  remove a server and its login
+       login   sign in to an HTTP server
+       logout  sign out of an HTTP server
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

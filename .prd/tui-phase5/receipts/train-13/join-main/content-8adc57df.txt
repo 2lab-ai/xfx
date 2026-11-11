@@ -1,0 +1,58 @@
+## scripts/fxcap/parity-ledger.toml
+# scripts/fxcap/parity-ledger.toml at 8adc57df; blame ignoring nothing
+WRONG scripts/fxcap/parity-ledger.toml:28 .prd/07-fx-parity-program.md:19 (path; written by 6bc31872 as :19): the head's line holds ''; "5. A reference binary was replaced in place by fx'" -- its text is at 0 places; the head's line most like its first is :33 (ratio 0.28)
+SAME-LINES scripts/fxcap/parity-ledger.toml:419 .prd/07-fx-parity-program.md:45 (path; written by a1007a00 as :45): the cited text the same, a neighbour not
+WRONG scripts/fxcap/parity-ledger.toml:506 src/tui/shell.rs:13962 (path; written by e1e15efd as :13962): the head's line holds 'match event {'; 'let event = full_transcript::shown_event(event);' -- its text is at :13960
+WRONG scripts/fxcap/parity-ledger.toml:689 src/tui/shell.rs:16977 (path; written by e1e15efd as :16977): the head's line holds '/// (`super::event_loop::resolve_resize`), which i'; 'pub(crate) fn resize(&mut self, rows: u16, cols: u' -- its text is at :16979
+WRONG scripts/fxcap/parity-ledger.toml:806 src/tui/shell.rs:42431 (path; written by e1e15efd as :42431): the head's line holds '['; '"  tools: {} advertised ({},",' -- its text is at :42483
+WRONG scripts/fxcap/parity-ledger.toml:817 src/tui/shell.rs:42431 (path; written by e1e15efd as :42431): the head's line holds '['; '"  tools: {} advertised ({},",' -- its text is at :42483
+WRONG scripts/fxcap/parity-ledger.toml:829 src/tui/shell.rs:42431 (path; written by e1e15efd as :42431): the head's line holds '['; '"  tools: {} advertised ({},",' -- its text is at :42483
+WRONG scripts/fxcap/parity-ledger.toml:840 src/tui/shell.rs:42431 (path; written by e1e15efd as :42431): the head's line holds '['; '"  tools: {} advertised ({},",' -- its text is at :42483
+WRONG scripts/fxcap/parity-ledger.toml:851 src/tui/shell.rs:42431 (path; written by e1e15efd as :42431): the head's line holds '['; '"  tools: {} advertised ({},",' -- its text is at :42483
+WRONG scripts/fxcap/parity-ledger.toml:863 src/tui/shell.rs:10558 (path; written by e1e15efd as :10558): the head's line holds 'return Vec::new();'; 'fn trailer_rows(&self) -> Vec<String> {' -- its text is at :10556
+WRONG scripts/fxcap/parity-ledger.toml:865 src/tui/shell.rs:10558 (path; written by e1e15efd as :10558): the head's line holds 'return Vec::new();'; 'fn trailer_rows(&self) -> Vec<String> {' -- its text is at :10556
+WRONG scripts/fxcap/parity-ledger.toml:865 :1929 (bare; written by e1e15efd as :1929): the head's line holds 'transcript.queue_end_line();'; 'fn queue_card(transcript: &mut Transcript, text: &' -- its text is at :1927
+WRONG scripts/fxcap/parity-ledger.toml:919 src/tui/shell.rs:42431 (path; written by e1e15efd as :42431): the head's line holds '['; '"  tools: {} advertised ({},",' -- its text is at :42483
+WRONG scripts/fxcap/parity-ledger.toml:989 src/tui/shell.rs:16977 (path; written by e1e15efd as :16977): the head's line holds '/// (`super::event_loop::resolve_resize`), which i'; 'pub(crate) fn resize(&mut self, rows: u16, cols: u' -- its text is at :16979
+WRONG scripts/fxcap/parity-ledger.toml:1083 src/tui/shell.rs:4557 (path; written by e1e15efd as :4557): the head's line holds '// The waiting prompt is delivered: its card goes '; 'self.tally.begin(Instant::now(), estimate);' -- its text is at :4555
+# SAME 104; SAME-ROW 40; SAME-LINES 1; WRONG 14; other product 3; unread 0; refs 162
+# exit 1
+## docs/parity.md
+# docs/parity.md at 8adc57df; blame ignoring nothing
+# SAME 26; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 113; unread 0; refs 139
+# exit 0
+## scripts/fxcap/capfile.py
+# scripts/fxcap/capfile.py at 8adc57df; blame ignoring nothing
+WRONG scripts/fxcap/capfile.py:180 src/tui/shell.rs:15194-15219 (path; written by e1e15efd as :15194-15219): the head's line holds '}'; "fn warning_shown(&self) -> Option<&'static str> {" -- its text is at :15196-15221
+# SAME 4; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 1; unread 0; refs 6
+# exit 1
+## scripts/smoke-tui.sh
+# scripts/smoke-tui.sh at 8adc57df; blame ignoring nothing
+WRONG scripts/smoke-tui.sh:194 term.rs:32-52 (short; written by fe38df53 as :32-52): the head's line holds '/// (`terminal.zig:4-13`), the theme-change subscr'; 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.88)
+WRONG scripts/smoke-tui.sh:291 src/tui/term.rs:32-52 (path; written by fe38df53 as :32-52): the head's line holds '/// (`terminal.zig:4-13`), the theme-change subscr'; 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.88)
+WRONG scripts/smoke-tui.sh:4708 src/main.rs:44-49 (path; written by 9fdf7596 as :44-49): the head's line holds 'Ok(code) => code,'; 'fn fail(message: &str) -> ExitCode {' -- its text is at :50-55
+WRONG scripts/smoke-tui.sh:4977 src/tui/check.rs:1084 (path; written by 9acf15d1 as :1084): the head's line holds ''; 'pub(crate) const RECOVERY_CLEANUP: &str = "\\x18\\x1' -- its text is at :1683
+SAME-LINES scripts/smoke-tui.sh:5755 src/process.rs:24-43 (path; written by 878186b5 as :24): the cited text the same, a neighbour not
+SAME-LINES scripts/smoke-tui.sh:5840 process.rs:24-43 (short; written by 878186b5 as :24): the cited text the same, a neighbour not
+WRONG scripts/smoke-tui.sh:11208 editor.rs:351 (short; written by 060e2a4b as :351): the head's line holds '}'; 'Action::KillToStart => self.delete(self.line_start' -- its text is at :540
+# SAME 14; SAME-ROW 0; SAME-LINES 2; WRONG 5; other product 4; unread 0; refs 25
+# exit 1
+## src/tui/shell.rs
+# src/tui/shell.rs at 8adc57df; blame ignoring nothing
+WRONG src/tui/shell.rs:24557 shell.rs:6086 (short; written by e1e15efd as :6086): the head's line holds ''; 'true' -- its text is at :6084
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 67; unread 0; refs 69
+# exit 1
+## tests/tui.rs
+# tests/tui.rs at 8adc57df; blame ignoring nothing
+WRONG tests/tui.rs:591 src/tui/mod.rs:269-270 (path; written by 43b27001 as :269-270): the head's line holds '// the two lines above -- `term::shutdown` itself '; 'term::enter_raw(stdin.as_fd(), &current)?;' -- its text is at :741-742
+WRONG tests/tui.rs:2404 .prd/tui-phase3/ssot.md:43 (path; written by 3dd16a11 as :43): the head's line holds ''; '| P3-THEME | TUI ladder 23 | Live theme monitoring' -- its text is at :51
+WRONG tests/tui.rs:2483 tests/tui.rs:1191 (path; written by 3dd16a11 as :1191): the head's line holds '// log, a history or a lock kept under it would ch'; 'pty.resize(24, 80);' -- its text is at 2 places
+WRONG tests/tui.rs:3129 .prd/tui-phase3/loop.md:416 (path; written by 6c421313 as :416): the head's line holds ''; '- R125 installed WezTerm encoder receipt inspected' -- its text is at :441
+WRONG tests/tui.rs:9331 src/tui/shell.rs:16806 (path; written by 2e388ca8 as :16806): the head's line holds '.map(|geometry| self.placed(geometry));'; 'pub(crate) fn blind(&self) -> bool {' -- its text is at :16943
+WRONG tests/tui.rs:9371 src/tui/shell.rs:9667 (path; written by 2e388ca8 as :9667): the head's line holds '// move Up and Down make, wrapping at both ends (`'; 'Input::Action(Action::Redraw) => {' -- its text is at 2 places
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 6; other product 24; unread 0; refs 31
+# exit 1
+## tests/sessions.rs
+# tests/sessions.rs at 8adc57df; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 3
+# exit 0

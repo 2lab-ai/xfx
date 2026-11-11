@@ -1,0 +1,109 @@
+# Phase 5, QUESTION-WORD-LEFT: the word keys at a choice in the model's
+# question panel. fx v0.0.16 routes `.word_left` -- what Alt-b decodes to in
+# each of its spellings -- with Left to `retreatToPrevious`, the previous page
+# of the batch, stopping at the first (`input_question_runtime.zig:190-195`);
+# the modified arrows are a composer move there, which a choice leaves alone,
+# and so are Alt-f, Ctrl-Right and Right (`:196-199`), and Shift-Alt-b and
+# Shift-Alt-f, a composer move that extends a selection (escape_parser.zig:244,
+# :248). Each key is sent from page 4, reached the same way every time (Left
+# stops at page 1, then Tab x3), so no snap depends on what the key before it
+# did. Last, a draft: Alt-b, then Shift-Alt-b and Shift-Alt-f, each the
+# caret's word move, on the same page.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-input-question20-turns.json
+wait 4
+type ask twenty
+key Enter
+wait 3
+key Tab Tab Tab
+wait 0.4
+snap p4
+key M-b
+wait 0.4
+snap alt-b
+key Left Left Left Left
+key Tab Tab Tab
+wait 0.4
+key -H 1b 5b 39 38 3b 33 75
+wait 0.4
+snap kitty-alt-b
+key Left Left Left Left
+key Tab Tab Tab
+wait 0.4
+key -H 1b 5b 32 37 3b 33 3b 39 38 7e
+wait 0.4
+snap mok-alt-b
+key Left Left Left Left
+key Tab Tab Tab
+wait 0.4
+key C-Left
+wait 0.4
+snap ctrl-left
+key Left Left Left Left
+key Tab Tab Tab
+wait 0.4
+key M-Left
+wait 0.4
+snap alt-left
+key Left Left Left Left
+key Tab Tab Tab
+wait 0.4
+key -H 1b 5b 35 37 34 31 37 3b 35 75
+wait 0.4
+snap kitty-ctrl-left
+key Left Left Left Left
+key Tab Tab Tab
+wait 0.4
+key M-f
+wait 0.4
+snap alt-f
+key Left Left Left Left
+key Tab Tab Tab
+wait 0.4
+key C-Right
+wait 0.4
+snap ctrl-right
+key Left Left Left Left
+key Tab Tab Tab
+wait 0.4
+key Right
+wait 0.4
+snap right
+key Left Left Left Left
+key Tab Tab Tab
+wait 0.4
+key -H 1b 5b 39 38 3b 34 75
+wait 0.4
+snap shift-alt-b
+key Left Left Left Left
+key Tab Tab Tab
+wait 0.4
+key -H 1b 5b 31 30 32 3b 34 75
+wait 0.4
+snap shift-alt-f
+key Left Left Left Left
+wait 0.4
+key M-b
+wait 0.4
+snap alt-b-first
+key Tab
+wait 0.4
+type 3
+wait 0.4
+type ab cd
+wait 0.4
+key M-b
+wait 0.4
+type z
+wait 0.4
+snap draft-alt-b
+key -H 1b 5b 39 38 3b 34 75
+wait 0.4
+type y
+wait 0.4
+snap draft-shift-alt-b
+key -H 1b 5b 31 30 32 3b 34 75
+wait 0.4
+type x
+wait 0.4
+snap draft-shift-alt-f

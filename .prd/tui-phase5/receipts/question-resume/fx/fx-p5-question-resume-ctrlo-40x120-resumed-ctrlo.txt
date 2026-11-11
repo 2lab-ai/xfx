@@ -1,0 +1,40 @@
+  2026-11-09 18:09:34.033 UTC · Notice
+* session resumed: ask one
+
+  2026-11-09 18:09:22.420 UTC · Prompt
+┃ ask one
+
+  1) Solo 1?
+     Change 1
+│  questions: [{"question":"Solo 1?","options":[{"label":"Keep 1","description":"Leave it as it is."},{"label":"Change
+│  1","description":"Apply the change."}]}]
+│  [{"question":"Solo 1?","answer":"Change 1"}]
+
+  2026-11-09 18:09:25.755 UTC · Response
+  One done.
+
+  2026-11-09 18:09:25.755 UTC · Usage
+  3s (↑2 ↓80)
+
+  2026-11-09 18:09:28.453 UTC · Prompt
+┃ ask none
+
+  2026-11-09 18:09:28.468 UTC · Tool
+● Asked
+│  questions: []
+│  (ask_user_question: provide 1 to 20 questions)
+
+  2026-11-09 18:09:28.785 UTC · Response
+  None asked.
+
+  2026-11-09 18:09:28.785 UTC · Usage
+  0s (↑2 ↓80)
+
+
+
+
+
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

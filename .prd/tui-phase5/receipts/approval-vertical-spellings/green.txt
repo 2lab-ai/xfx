@@ -1,0 +1,89 @@
+# GREEN at the code head ed5ab8b9 (row 1 of every xfx/ capture: x𝒇x v0.1.0-ed5ab8b [debug]; binary sha256 a398ecbd8718…)
+
+# scope.py xfx: each pair cell by cell, styles included, the grant scope's rows set aside
+SAME  alt-down      (22 rows compared)
+SAME  alt-up        (22 rows compared)
+SAME  amend-alt-down (22 rows compared)
+SAME  amend-alt-up  (22 rows compared)
+SAME  amend-ctrl-down (22 rows compared)
+SAME  amend-ctrl-n  (22 rows compared)
+SAME  amend-ctrl-p  (22 rows compared)
+SAME  amend-ctrl-up (22 rows compared)
+SAME  amend-kitty-alt-down (22 rows compared)
+SAME  amend-kitty-alt-up (22 rows compared)
+SAME  amend-shift-down (22 rows compared)
+SAME  amend-shift-up (22 rows compared)
+SAME  amend-super-down (22 rows compared)
+SAME  amend-super-up (22 rows compared)
+SAME  answered      (23 rows compared)
+SAME  ask           (22 rows compared)
+SAME  choice-1      (22 rows compared)
+SAME  ctrl-down     (22 rows compared)
+SAME  ctrl-n        (22 rows compared)
+SAME  ctrl-p        (22 rows compared)
+SAME  ctrl-up       (22 rows compared)
+SAME  kitty-alt-down (22 rows compared)
+SAME  kitty-alt-up  (22 rows compared)
+SAME  shift-down    (22 rows compared)
+SAME  shift-up      (22 rows compared)
+SAME  super-down    (22 rows compared)
+SAME  super-up      (22 rows compared)
+27 of 27 pairs identical once the grant scope's rows are set aside
+
+# pairs.sh xfx: nothing set aside but row 1; the floor = ask's rows (the grant scope)
+floor  alt-down      rows: 19 21 22 23 24 25 
+floor  alt-up        rows: 19 21 22 23 24 25 
+floor  amend-alt-down rows: 19 21 22 23 24 25 
+floor  amend-alt-up  rows: 19 21 22 23 24 25 
+floor  amend-ctrl-down rows: 19 21 22 23 24 25 
+floor  amend-ctrl-n  rows: 19 21 22 23 24 25 
+floor  amend-ctrl-p  rows: 19 21 22 23 24 25 
+floor  amend-ctrl-up rows: 19 21 22 23 24 25 
+floor  amend-kitty-alt-down rows: 19 21 22 23 24 25 
+floor  amend-kitty-alt-up rows: 19 21 22 23 24 25 
+floor  amend-shift-down rows: 19 21 22 23 24 25 
+floor  amend-shift-up rows: 19 21 22 23 24 25 
+floor  amend-super-down rows: 19 21 22 23 24 25 
+floor  amend-super-up rows: 19 21 22 23 24 25 
+DIFF   answered      rows: 20 22 23 24 25 26 
+floor  ask           rows: 19 21 22 23 24 25 
+floor  choice-1      rows: 19 21 22 23 24 25 
+floor  ctrl-down     rows: 19 21 22 23 24 25 
+floor  ctrl-n        rows: 19 21 22 23 24 25 
+floor  ctrl-p        rows: 19 21 22 23 24 25 
+floor  ctrl-up       rows: 19 21 22 23 24 25 
+floor  kitty-alt-down rows: 19 21 22 23 24 25 
+floor  kitty-alt-up  rows: 19 21 22 23 24 25 
+floor  shift-down    rows: 19 21 22 23 24 25 
+floor  shift-up      rows: 19 21 22 23 24 25 
+floor  super-down    rows: 19 21 22 23 24 25 
+floor  super-up      rows: 19 21 22 23 24 25 
+floor (ask's rows): 19 21 22 23 24 25 
+floor (ask's rows): 19 21 22 23 24 25 
+26 of 27 pairs differ in no row but the floor's
+# answered: rows 20, 22-26 are the next question's grant-scope rows (c.txt's write), one row below ask's, under the card
+
+# the unit's tests and their neighbours at the code head:
+# cargo test --locked --lib -- approval amendment alt_b alt_f the_fold the_full_transcript_holds horizontal draft_left up_and_down_move the_arrows_leave vertical question:: input::tests editor::tests
+test agent::tokens::tests::every_separator_upstream_splits_on_ends_a_span_the_vertical_tab_included ... ok
+test markdown::tests::blocks::blockquote_gets_a_dim_vertical_rule_and_renders_inline_markdown ... ok
+test tui::approval_amendment::tests::super_up_and_down_are_the_whole_drafts_edges ... ok
+test tui::blocks::tests::unicode_display_units_remain_atomic_in_three_column_vertical_tables ... ok
+test tui::editor::tests::a_horizontal_move_forgets_the_column_a_vertical_run_was_aiming_for ... ok
+test tui::editor::tests::a_vertical_move_never_lands_inside_a_block ... ok
+test tui::editor::tests::a_vertical_move_under_a_wide_glyph_lands_in_front_of_it ... ok
+test tui::editor::tests::set_text_forgets_the_column_a_vertical_run_was_aiming_for ... ok
+test tui::editor::tests::vertical_motion_is_by_row_rather_than_by_line ... ok
+test tui::editor::tests::vertical_motion_keeps_a_sticky_preferred_column ... ok
+test tui::freeform::tests::vertical_moves_follow_soft_wrapped_rows_and_stop_at_the_edges ... ok
+test tui::freeform::tests::vertical_moves_keep_their_column_across_short_rows ... ok
+test tui::freeform::tests::vertical_moves_land_on_grapheme_boundaries ... ok
+test tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one ... ok
+test tui::input::tests::every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow_in_upstreams_order ... ok
+test tui::input::tests::the_keypad_decodes_as_the_main_row_it_mirrors ... ok
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+test tui::shell::tests::the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do ... ok
+test tui::shell::tests::the_vertical_spellings_at_an_approval_choice_move_nothing_and_the_arrows_still_do ... ok
+test tui::shell::tests::up_and_down_move_the_choice_whether_or_not_a_draft_is_open ... ok
+test tui::shell::tests::a_no_op_vertical_spelling_keeps_the_receipt_and_enter_answers_the_choice_shown ... ok
+test result: ok. 404 passed; 0 failed; 1 ignored; 0 measured; 4234 filtered out; finished in 0.36s

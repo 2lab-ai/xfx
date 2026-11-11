@@ -1,0 +1,94 @@
+## 714f6283:.prd/tui-phase5/receipts/history-notices-copy-fx/sweep-head.md
+scenarios: unit 26, head 77, shared 26
+  image: unit 17 / 17, head 17 / 17
+  image-composer: unit 8 / 8, head 8 / 8
+  image-inline: unit 5 / 5, head 5 / 5
+  image-nonnative: unit 1 / 3, head 1 / 3
+  image-paste: unit 7 / 7, head 7 / 7
+  image-readfile: unit 2 / 2, head 2 / 2
+  image-undo: unit 5 / 5, head 5 / 5
+  image-unknown: unit 3 / 3, head 3 / 3
+  image-withheld: unit 2 / 2, head 2 / 2
+  p5-lifecycle-relhome-image: unit 2 / 2, head 2 / 2
+  p5-lifecycle-relhome-resume: unit 0 / 1, head 0 / 1
+  p5-lifecycle-v1resume: unit 1 / 5, head 1 / 5
+  provider: unit 5 / 15, head 5 / 15
+  provider-carry: unit 2 / 8, head 2 / 8
+  provider-carry-back: unit 0 / 6, head 0 / 6
+  provider-carry-back-stop: unit 0 / 3, head 0 / 3
+  provider-resume: unit 2 / 6, head 2 / 6
+  provider-resume-missing: unit 0 / 3, head 0 / 3
+  provider-switch: unit 0 / 3, head 0 / 3
+  resume: unit 13 / 13, head 13 / 13
+  resume-empty: unit 4 / 4, head 4 / 4
+  resume-launch: unit 4 / 4, head 4 / 4
+  resume-paging: unit 3 / 8, head 2 / 8  MOVED
+  resume-tools: unit 7 / 18, head 7 / 18
+  resume-wire: unit 2 / 2, head 2 / 2
+  undo-resume: unit 1 / 1, head 1 / 1
+pass over the shared scenarios: unit 96, head 95
+passed on the unit, not on the head: 1
+    resume-paging 3 -> 2
+# exit 1
+## d0e08d8c:.prd/tui-phase5/receipts/question-resume/sweep-diff.txt
+pairs: unit 125, head 497, shared 125; the unit's not in the head's sweep: 0
+unit: pass 91 / 125; identical 11, normalized-identical 80, unresolved-defect 34
+head: pass 91 / 125; identical 12, normalized-identical 79, unresolved-defect 34
+moved: p5-question-resume live: normalized-identical -> identical
+passed on the unit, not on the head: 0
+# exit 0
+## a37a969e:.prd/tui-phase5/receipts/question-word-left/sweep-head.md
+scenarios: unit 15, head 77, shared 15
+  approvals: unit 0 / 10, head 0 / 10
+  approvals-amend-limit: unit 1 / 5, head 1 / 5
+  approvals-big: unit 1 / 3, head 1 / 3
+  filepicker-keys: unit 7 / 7, head 7 / 7
+  interrupt-next-question: unit 1 / 1, head 1 / 1
+  interrupt-question: unit 3 / 3, head 3 / 3
+  p5-input-approval: unit 0 / 3, head 0 / 3
+  p5-input-question: unit 6 / 6, head 6 / 6
+  p5-input-question20: unit 9 / 11, head 11 / 11  MOVED
+  p5-input-question21: unit 3 / 3, head 3 / 3
+  p5-question-word-left: unit 16 / 16, head 16 / 16
+  p5-transcript-question: unit 1 / 5, head 1 / 5
+  question: unit 9 / 9, head 9 / 9
+  question-field: unit 10 / 10, head 10 / 10
+  question-other: unit 7 / 7, head 7 / 7
+pass over the shared scenarios: unit 74, head 76
+passed on the unit, not on the head: 0
+# exit 0
+## a37a969e:.prd/tui-phase5/receipts/approval-horizontal-keys/sweep-head.md
+scenarios: unit 17, head 77, shared 17
+  approvals: unit 0 / 10, head 0 / 10
+  approvals-amend-limit: unit 1 / 5, head 1 / 5
+  approvals-big: unit 1 / 3, head 1 / 3
+  composer-keys: unit 8 / 11, head 8 / 11
+  filepicker-keys: unit 7 / 7, head 7 / 7
+  interrupt-next-question: unit 1 / 1, head 1 / 1
+  interrupt-question: unit 3 / 3, head 3 / 3
+  p5-approval-horizontal-keys: unit 0 / 29, head 0 / 29
+  p5-input-approval: unit 0 / 3, head 0 / 3
+  p5-input-question: unit 6 / 6, head 6 / 6
+  p5-input-question20: unit 9 / 11, head 11 / 11  MOVED
+  p5-input-question21: unit 3 / 3, head 3 / 3
+  p5-question-word-left: unit 16 / 16, head 16 / 16
+  p5-transcript-question: unit 1 / 5, head 1 / 5
+  question: unit 9 / 9, head 9 / 9
+  question-field: unit 10 / 10, head 10 / 10
+  question-other: unit 7 / 7, head 7 / 7
+pass over the shared scenarios: unit 82, head 84
+passed on the unit, not on the head: 0
+# exit 0
+## a37a969e:.prd/tui-phase5/receipts/approval-vertical-spellings/sweep-head.md
+scenarios: unit 8, head 77, shared 8
+  approvals: unit 0 / 10, head 0 / 10
+  approvals-amend-limit: unit 1 / 5, head 1 / 5
+  approvals-big: unit 1 / 3, head 1 / 3
+  composer-keys: unit 8 / 11, head 8 / 11
+  p5-approval-horizontal-keys: unit 0 / 29, head 0 / 29
+  p5-approval-vertical-keys: unit 0 / 27, head 0 / 27
+  p5-input-approval: unit 0 / 3, head 0 / 3
+  question-field: unit 10 / 10, head 10 / 10
+pass over the shared scenarios: unit 20, head 20
+passed on the unit, not on the head: 0
+# exit 0

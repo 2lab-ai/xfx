@@ -142,9 +142,10 @@ pub(crate) fn choice(index: usize) -> Option<ApprovalAnswer> {
 pub(crate) enum Action {
     /// A character the user typed. Only `1`, `2` and `3` mean anything.
     Text(char),
-    /// The previous choice.
+    /// The previous choice: Up, and Left and Alt-b while no draft is open
+    /// (`super::shell::Shell::decide`).
     Up,
-    /// The next one.
+    /// The next one: Down, and Right and Alt-f while no draft is open.
     Down,
     /// The next one, wrapping -- Tab is a cycle rather than a walk.
     Tab,
@@ -728,7 +729,12 @@ fn keyed(
 /// they are the panel's own keys and mean the same thing whether or not a draft
 /// is open, so a draft that took them would change what answering a question
 /// means. `InsertNewline`, `Eof`, `ControlP`, `HistoryNext`, `Redraw`
-/// and `Ignore` are the session's or the panel's and are not a draft's at all.
+/// and `Ignore` are the session's or the panel's and are not a draft's at all,
+/// and `SelectUp`, `ComposerUp` and their Down are composer moves an amendment
+/// leaves alone (`src/ui/input/runtime.zig:86@481104fd`). This reads a folded
+/// key, so `DraftStart` and `DraftEnd` -- Super-Up and -Down, the draft's
+/// edges -- never reach it: `super::shell::Shell::decide` hands them to the
+/// draft unfolded, ahead of it.
 pub(crate) fn edits(action: super::input::Action) -> bool {
     use super::input::Action as Key;
     matches!(
@@ -2610,22 +2616,35 @@ mod tests {
         let mut panel = Panel::new(request("edit_file"));
         panel.apply(Action::Tab, 80);
         type_into(&mut panel, "y");
-        assert_eq!(panel.apply(Action::Up, 80), Reply::Moved);
+        // The draft left behind is no longer painted, so the panel's shape
+        // changed and a readiness receipt about it is revoked.
+        assert_eq!(panel.apply(Action::Up, 80), Reply::Reshaped);
         assert!(!panel.drafting(), "the Up did not end the editing");
         panel.apply(Action::Tab, 80);
         type_into(&mut panel, "n");
 
-        // Each on its own choice's row, as upstream puts the one being typed
-        // (`approval_ui.zig:1559-1592`) -- and the one navigated away from
-        // stays shown, because it still travels if that choice is submitted.
+        // **Only the draft being typed is painted**, on its choice's row, as
+        // upstream paints it (`appendFileApprovalChoiceLabel`,
+        // `approval_ui.zig:1181-1193@481104fd`): the one navigated away from is
+        // kept but not shown, and Tab on its choice shows it again.
         let painted = panel.rows(80, 24).join("\n");
         assert!(
-            painted.contains("Apply once, y") && painted.contains("Don't apply, n"),
-            "the two drafts do not both survive on the panel: {painted:?}"
+            painted.contains("Don't apply, n") && !painted.contains("Apply once, y"),
+            "the draft left behind is painted, or the open one is not: {painted:?}"
         );
+        panel.apply(Action::Down, 80);
+        panel.apply(Action::Tab, 80);
+        let painted = panel.rows(80, 24).join("\n");
+        assert!(
+            painted.contains("Apply once, y") && !painted.contains("Don't apply, n"),
+            "Tab did not show the kept draft again: {painted:?}"
+        );
+        panel.apply(Action::Up, 80);
 
-        // And only the submitted side travels: the refusal carries `n`, and the
-        // reason typed at the allow side is discarded rather than sent.
+        // And only the submitted side travels, painted or not
+        // (`materializeResponse`, `approval_decision.zig:112-127`): the refusal
+        // carries `n`, and the reason typed at the allow side is discarded
+        // rather than sent.
         let answer = marked(&mut panel);
         assert_eq!(answer, ApprovalAnswer::Deny);
         assert_eq!(

@@ -1,0 +1,49 @@
+# anchor.sh <repo> 04e4491d <scratch> (one hold of the suite lock), then sweep-rerun.sh at SIZE=24x60 on the same build (another hold): the two causes' snaps swept with the ledger as it was at 04e4491d, both causes' scenarios' pairs below (pairs.json), and workspace-index at-plan's row 13 on each side as captured
+# build at 04e4491d: exit 0
+# anchor-p5-page-keys-anchor rerun 1 of p5-page-keys-anchor at 04e4491d; xfx sha256 40b7cc3f0d39f2e659facecf43eb27edec490d9448685461a596776fb7564d9f; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 11.37
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 9 / 9 = 100.0%; unresolved 0, failed 0, timeout 0
+# anchor-workspace-index rerun 1 of workspace-index at 04e4491d; xfx sha256 40b7cc3f0d39f2e659facecf43eb27edec490d9448685461a596776fb7564d9f; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 13.69
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+exit 0
+
+## SIZE=24x60
+# anchor24 rerun 1 of p5-page-keys-anchor (24x60) at 04e4491d; xfx sha256 40b7cc3f0d39f2e659facecf43eb27edec490d9448685461a596776fb7564d9f; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 13.26
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 8 / 9 = 88.9%; unresolved 1, failed 0, timeout 0
+exit 0
+
+## anchor-p5-page-keys-anchor-1: pairs.json
+    p5-page-keys-anchor model-one normalized-identical 
+    p5-page-keys-anchor model-wrapped normalized-identical 
+    p5-page-keys-anchor provider-one normalized-identical 
+    p5-page-keys-anchor provider-wrapped normalized-identical 
+    p5-page-keys-anchor file-one normalized-identical 
+    p5-page-keys-anchor file-wrapped normalized-identical 
+    p5-page-keys-anchor slash-one normalized-identical 
+    p5-page-keys-anchor slash-wrapped normalized-identical 
+    p5-page-keys-anchor slash-wrapped-up normalized-identical 
+   causes of its unresolved snaps:
+    
+
+## anchor24-1: pairs.json
+    p5-page-keys-anchor model-one normalized-identical 
+    p5-page-keys-anchor model-wrapped unresolved-defect rows [6]
+    p5-page-keys-anchor provider-one normalized-identical 
+    p5-page-keys-anchor provider-wrapped normalized-identical 
+    p5-page-keys-anchor file-one normalized-identical 
+    p5-page-keys-anchor file-wrapped normalized-identical 
+    p5-page-keys-anchor slash-one normalized-identical 
+    p5-page-keys-anchor slash-wrapped normalized-identical 
+    p5-page-keys-anchor slash-wrapped-up normalized-identical 
+   causes of its unresolved snaps:
+    | model-column-clip | b | 1 | 1 | `fx v0.0.16 paints the column's rows -- the kinds it marks by brightness, '.model_stag
+    
+
+## anchor-workspace-index-1: pairs.json
+    workspace-index at-plan normalized-identical 
+    workspace-index at-all normalized-identical 
+   causes of its unresolved snaps:
+    
+
+## workspace-index at-plan, row 13 of each side's capture (40x120)
+   fx:   <scratch___________________________________________________________________________>/extra/notes/
+   xfx:   <scratch___________________________________________________________________________>/extra/notes/

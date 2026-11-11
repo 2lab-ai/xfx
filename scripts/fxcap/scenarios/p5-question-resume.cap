@@ -1,0 +1,54 @@
+# Phase 5 QUESTION-RESUME: every way an ask_user_question batch can end,
+# then the session resumed. A batch of 1 and a batch of 4 answered by
+# ordinal, a batch of 21 and a batch of none refused before any panel opens,
+# one step of a failed read, an empty batch and another failed read, and a
+# batch of 2 cancelled with Escape, which stops its turn. fx v0.0.16 replays
+# an answered batch from its saved document (`writeAnsweredQuestionResult`,
+# app_session_runtime.zig:4589-4607@481104fd), every other ending through the
+# generic tool path, and each call of a step before the next
+# (`writeExecutionHistoryToSink`, :4120-4127); `live` is the screen the resume
+# replays.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-question-resume-turns.json
+wait 4
+type ask one
+key Enter
+wait 3
+type 2
+wait 3
+type ask four
+key Enter
+wait 3
+type 1212
+wait 3
+type ask too many
+key Enter
+wait 3
+type ask none
+key Enter
+wait 3
+type ask mixed
+key Enter
+wait 3
+type ask stop
+key Enter
+wait 3
+key Escape
+wait 3
+snap live
+snapfull live
+keep
+type /quit
+wait 0.5
+key Enter
+wait 2
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 5
+snap resumed
+snapfull resumed
+type /quit
+wait 0.5
+key Enter
+wait 2
+gwlog

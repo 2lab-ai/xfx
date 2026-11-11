@@ -1,0 +1,59 @@
+x𝒇x v0.1.0-63e8bbe [debug] · Run /help for commands
+
+┃ ask one
+
+  1) Solo 1?
+     Change 1
+
+  One done.
+
+  3s (↑2 ↓80)
+
+┃ ask four
+
+  1) Four 1?
+     Keep 1
+  2) Four 2?
+     Change 2
+  3) Four 3?
+     Keep 3
+  4) Four 4?
+     Change 4
+
+  Four done.
+
+  3s (↑2 ↓80)
+
+┃ ask too many
+
+  Too many.
+
+  0s (↑3 ↓80)
+
+┃ ask none
+
+  None asked.
+
+  0s (↑2 ↓80)
+
+┃ ask mixed
+
+● 2 tool calls · 2 read · 2 failed
+├ Failed gone.txt: Path not found: gone.txt
+└ Failed lost.txt: Path not found: lost.txt
+
+  Mixed done.
+
+  0s (↑3 ↓80)
+
+┃ ask stop
+
+▪ Cancelled
+
+┃
+
+auto · model-a
+
+
+
+

@@ -1,0 +1,15 @@
+# RED: the four shell tests at the RED commit (src = base 32afd307 + the tests), cargo test --lib
+test tui::shell::tests::a_resumed_step_that_asked_between_two_calls_settles_each_in_a_group_of_its_own ... FAILED
+test tui::shell::tests::a_resumed_answered_batch_of_one_four_or_twenty_replays_its_resolutions ... FAILED
+test tui::shell::tests::a_resumed_batch_the_stop_cut_off_is_the_turns_cancellation_line_alone ... ok
+test tui::shell::tests::a_resumed_batch_that_left_no_answered_document_is_one_asked_row ... FAILED
+test tui::shell::tests::a_hostile_answer_document_paints_no_sequence_of_its_own ... FAILED
+thread 'tui::shell::tests::a_resumed_step_that_asked_between_two_calls_settles_each_in_a_group_of_its_own' panicked at src/tui/shell.rs:29155:9:
+  left: ["", "● 2 tool calls · 2 read · 2 failed", "├ Failed gone.txt", "└ Failed lost.txt", "", "  0s (↑3 ↓0)", ""]
+ right: ["", "● 1 tool call · 1 read · 1 failed", "└ Failed gone.txt", "", "● Asked", "", "● 1 tool call · 1 read · 1 failed", "└ Failed lost.txt"]
+thread 'tui::shell::tests::a_resumed_answered_batch_of_one_four_or_twenty_replays_its_resolutions' panicked at src/tui/shell.rs:28992:40:
+thread 'tui::shell::tests::a_resumed_batch_that_left_no_answered_document_is_one_asked_row' panicked at src/tui/shell.rs:29047:13:
+  left: ["", "  Done.", "", "  0s (↑1 ↓2)"]
+ right: ["", "● Asked", "", "  Done."]
+thread 'tui::shell::tests::a_hostile_answer_document_paints_no_sequence_of_its_own' panicked at src/tui/shell.rs:29189:9:
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 4624 filtered out; finished in 0.31s

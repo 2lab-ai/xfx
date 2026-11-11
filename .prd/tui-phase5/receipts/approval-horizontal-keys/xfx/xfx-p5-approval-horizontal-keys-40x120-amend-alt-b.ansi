@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-09f94a3 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1medit the files[0m
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 read[39m
+[38;5;245m└ Read a.txt[39m
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m      [38;5;245m1[39m [38;5;245m [39m [38;5;245malpha line 1[39m
+      [38;5;245m2[39m [38;5;252m-[39m [38;5;252malpha line 2[39m
+      [38;5;245m2[39m [38;5;252m+[39m [38;5;252mALPHA LINE TWO[39m
+      [38;5;245m3[39m [38;5;245m [39m [38;5;245malpha line 3[39m
+[38;5;240m┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+[39m  [1mPermission needed · Review change[0m                                                                      [38;5;245mEdit[39m · [38;5;252m+1[39m  [38;5;252m-1[39m
+
+  [1ma.txt[0m  ·  Apply this change?
+
+  [1m[38;5;255m❯ 1  Apply once, ab z[7mc[0;1m[38;5;255md[0m
+    [38;5;245m2[39m  Apply + allow future edits to this file for this session
+    [38;5;245m3[39m  Don't apply
+  [38;5;245m2 = allow every future edit_file to `a.txt` for the rest of this session, whatever its contents, and in every later[39m
+  [38;5;245m`xfx ask --resume-id 1794253819992-6bacd9db42456add` of this saved session[39m
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [38;5;245m1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

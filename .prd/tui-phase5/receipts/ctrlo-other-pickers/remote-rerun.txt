@@ -1,0 +1,8 @@
+# p5-mcp-menu-new list-remote, the sweep's one dropped pair, again: scripts/fxcap/capture.sh xfx p5-mcp-menu-new 40x120, XFX_BIN the head's build and the base's in turn, three times each, TMPDIR <tmp>, the six runs in one hold of the suite lock; each line is list-remote's 'remote' row (spaces squeezed) and the banner it was captured under
+head run 1 (v0.1.0-91c4673): list-remote row:› remote retrying profile
+base run 1 (v0.1.0-cb7c9c1): list-remote row:› remote retrying profile
+head run 2 (v0.1.0-91c4673): list-remote row:› remote retrying profile
+base run 2 (v0.1.0-cb7c9c1): list-remote row:› remote retrying profile
+head run 3 (v0.1.0-91c4673): list-remote row:› remote retrying profile
+base run 3 (v0.1.0-cb7c9c1): list-remote row:› remote retrying profile
+# fx's row in the head sweep: › remote retrying profile (sweep-head.md, the pair's listing)

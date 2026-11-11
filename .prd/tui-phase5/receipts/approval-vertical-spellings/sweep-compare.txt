@@ -1,0 +1,27 @@
+change p5-approval-vertical-keys/alt-down: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/alt-up: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/amend-alt-down: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/amend-alt-up: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-vertical-keys/amend-ctrl-down: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/amend-ctrl-n: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/amend-ctrl-p: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-vertical-keys/amend-ctrl-up: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-vertical-keys/amend-kitty-alt-down: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/amend-kitty-alt-up: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-vertical-keys/amend-shift-down: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/amend-shift-up: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/amend-super-down: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-vertical-keys/amend-super-up: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/answered: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-vertical-keys/ctrl-down: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/ctrl-n: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/ctrl-up: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/kitty-alt-down: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/kitty-alt-up: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/shift-down: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/shift-up: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/super-down: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-vertical-keys/super-up: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+base: 98 pairs, 20 pass, 27 with uncaused rows
+head: 98 pairs, 20 pass, 3 with uncaused rows
+drops: 0

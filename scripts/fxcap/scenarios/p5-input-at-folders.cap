@@ -1,0 +1,37 @@
+# AT-FOLDERS (fx 7c8ef4a3): Enter on a folder row mentions the folder -- its
+# `/`, any quote closed, and a space -- and closes the list; Tab opens it, and
+# an opened folder is its own first row. The `x` typed after each Enter shows
+# the space and the closed list in a txt snap.
+fx: env FX_AUTO_UPGRADE=0
+work p5-input-at-folders-ws
+wait 4
+type @./space
+wait 1.2
+snap space-query
+key Tab
+wait 1
+snap space-open
+key Enter
+wait 0.6
+snap space-enter
+type x
+wait 0.6
+snap space-x
+key C-u
+type @src/sto
+wait 1.2
+snap sto-query
+key Enter
+wait 0.6
+type x
+wait 0.6
+snap sto-x
+key C-u
+type @src/
+wait 1.2
+snap src-open
+key Enter
+wait 0.6
+type x
+wait 0.6
+snap src-enter-x

@@ -1,0 +1,18 @@
+# The two TUI timing tests that missed their window in the GREEN slot, five times each at the same head, one suite-lock slot, the a-z TMPDIR (flake4.sh):
+#   cargo test --locked --lib -- a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop
+# head 023430f4; uptime: load averages: 49.40 54.30 53.54
+run 1 rc=0 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4630 filtered out; finished in 26.47s
+run 2 rc=0 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4630 filtered out; finished in 26.33s
+run 3 rc=0 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4630 filtered out; finished in 25.86s
+run 4 rc=0 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4630 filtered out; finished in 26.37s
+run 5 rc=0 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4630 filtered out; finished in 25.87s
+# uptime: load averages: 52.80 53.94 53.51
+
+# the GREEN slot's two failures (04-lib), each panic's place and its first line, cut at 400 characters
+thread 'tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop' (466294386) panicked at src/tui/worker.rs:18724:9:
+assertion `left == right` failed: each: whether stopped, the batches the band was shown (their sizes), the turn's end, whether it came when it should (with the stop: 300 ms to 1 s; without it: past 1.2 s), the model's requests, what the log says of the turn
+  left: [(true, [], [Some("the turn was cancelled")], false, 0, ["asked first", "1 image(s)", "interrupted cancelled"]), (false, [20], [None], true, 2, ["asked first", "1 image(s)", "final stop"])]
+--
+thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one' (466294381) panicked at src/tui/worker.rs:18496:9:
+assertion `left == right` failed: each: the starts, both turns' ends, whether the first came when it should (with the stop: 300 ms to 1 s; without it: past 1.2 s), what the log says of the turns
+  left: [(UltraRetry, true, [1, 2], [Some("the turn was cancelled"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], false, ["asked first", "interrupted cancelled"]), (UltraRetry, false, [1, 2], [Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"), Some("Ultra mode is unavailable for this mode

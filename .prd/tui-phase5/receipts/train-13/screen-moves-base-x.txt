@@ -1,0 +1,6 @@
+snaps whose screen differs only in clock-like or run-local text: 118; otherwise: 3
+  of them, snaps where fx's screen moved at the same rows as xfx's: 0 snaps
+  snaps where xfx's screen moved alone or at other rows than fx's: 3
+    xfx fulltranscript cmd-ask rows [23]: [('ume-id 1794280119145-0306246eba6ea1ae` of this saved session', 'ume-id 1794280027504-d4792771fd8cd740` of this saved session')]
+    xfx fulltranscript cmd-ask-ctrl-o rows [23]: [('ume-id 1794280119145-0306246eba6ea1ae` of this saved session', 'ume-id 1794280027504-d4792771fd8cd740` of this saved session')]
+    xfx fulltranscript edit-ask rows [25]: [('ume-id 1794280119145-0306246eba6ea1ae` of this saved session', 'ume-id 1794280027504-d4792771fd8cd740` of this saved session')]

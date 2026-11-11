@@ -1,0 +1,24 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Settings 14  [All]  Interface  Agent  Notifications  Advanced
+
+  Status line context      off  on
+  Status line session      off  on
+  Status line workspace    off  on
+  Slash menu categories    off  on
+  Collapse tool calls      off  on
+  Model                    openai/gpt-6-astra
+  Reasoning effort         default  low  medium  high  xhigh
+  Fast mode                off  on
+  Ultra mode               off  on
+  Permission mode          ask  auto  full access
+  Session titles           off  on
+  Sound level              off  on  max
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     ←→ change     esc close
+
+
+
+

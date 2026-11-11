@@ -1,0 +1,134 @@
+# The checks after the join, at 42935f45: the code since the gate, then checks.sh's own lines (one hold of the suite lock), checks_l.sh's (another), and checks_txt.py's reading of their step logs and sweeps.
+## git diff --stat b3dffdad 42935f45, outside .prd
+ scripts/fxcap/capture.sh         | 169 ++++++++++++++++++++++++++++--
+ scripts/fxcap/parity-ledger.toml |  24 ++---
+ scripts/fxcap/roots.py           |   8 +-
+ scripts/fxcap/sweep.py           |  62 ++++++++---
+ scripts/fxcap/test_capture.py    | 334 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-
+ scripts/fxcap/test_sweep.py      | 104 +++++++++++++++++++
+ 6 files changed, 660 insertions(+), 41 deletions(-)
+## checks.sh
+# test clone at 42935f45, tree clean: yes
+cargo-test: exit 0, 126 s, load 8.19
+test-sweep: exit 0, 17 s, load 12.01
+test-capture: exit 0, 557 s, load 11.56
+# sweep clone at 42935f45
+build: exit 0, 5 s, load 14.29
+# wi24-1: TMPDIR of 24 bytes, holding an l: no; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 13.86
+# wi24-1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# wi49-1: TMPDIR of 49 bytes, holding an l: no; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 10.93
+# wi49-1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# wi24-2: TMPDIR of 24 bytes, holding an l: no; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 9.93
+# wi24-2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# wi49-2: TMPDIR of 49 bytes, holding an l: no; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 15.14
+# wi49-2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# wi24-3: TMPDIR of 24 bytes, holding an l: no; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 10.26
+# wi24-3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# wi49-3: TMPDIR of 49 bytes, holding an l: no; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 10.72
+# wi49-3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 2 / 2 = 100.0%; unresolved 0, failed 0, timeout 0
+# rep24: TMPDIR of 24 bytes, holding an l: no; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 9.88
+# rep24: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 24 / 24 = 100.0%; unresolved 0, failed 0, timeout 0
+# rep49: TMPDIR of 49 bytes, holding an l: no; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 6.77
+# rep49: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 24 / 24 = 100.0%; unresolved 0, failed 0, timeout 0
+# checks.sh, under suite-lock.sh: exit 0
+## checks_l.sh
+# sweep clone at 42935f45, tree clean: yes
+# rep24l: TMPDIR of 24 bytes, holding an l: yes; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 9.47
+# rep24l: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 24 / 24 = 100.0%; unresolved 0, failed 0, timeout 0
+# checks_l.sh, under suite-lock.sh: exit 0
+## test-sweep: every suite's 'Ran' line and verdict
+  Ran 79 tests in 7.778s
+  OK
+  Ran 28 tests in 9.189s
+  OK
+## test-capture: every suite's 'Ran' line and verdict
+  Ran 130 tests in 556.620s
+  OK
+## cargo-test: each binary's 'test result' line, then the sums
+  test result: ok. 4927 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 52.94s
+  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.52s
+  test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+  test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.72s
+  test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.74s
+  test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.19s
+  test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.05s
+  test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.79s
+  test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.52s
+  test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+  test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.16s
+  test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+  test result: ok. 189 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.13s
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+# sum over 15 binaries: 5854 passed, 0 failed, 7 ignored
+## wi24-1: 2 pairs
+  at-plan              1 unit(s): normalized-identical 1; pass 1/1
+  at-all               1 unit(s): normalized-identical 1; pass 1/1
+    workspace-index at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+## wi24-2: 2 pairs
+  at-plan              1 unit(s): normalized-identical 1; pass 1/1
+  at-all               1 unit(s): normalized-identical 1; pass 1/1
+    workspace-index at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+## wi24-3: 2 pairs
+  at-plan              1 unit(s): normalized-identical 1; pass 1/1
+  at-all               1 unit(s): normalized-identical 1; pass 1/1
+    workspace-index at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+## wi49-1: 2 pairs
+  at-plan              1 unit(s): normalized-identical 1; pass 1/1
+  at-all               1 unit(s): normalized-identical 1; pass 1/1
+    workspace-index at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+## wi49-2: 2 pairs
+  at-plan              1 unit(s): normalized-identical 1; pass 1/1
+  at-all               1 unit(s): normalized-identical 1; pass 1/1
+    workspace-index at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+## wi49-3: 2 pairs
+  at-plan              1 unit(s): normalized-identical 1; pass 1/1
+  at-all               1 unit(s): normalized-identical 1; pass 1/1
+    workspace-index at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+## rep24: 24 pairs
+  at-plan              12 unit(s): normalized-identical 12; pass 12/12
+  at-all               12 unit(s): normalized-identical 12; pass 12/12
+    workspace-index-01 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-02 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-03 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-04 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-05 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-06 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-07 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-08 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-09 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-10 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-11 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-12 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+## rep49: 24 pairs
+  at-plan              12 unit(s): normalized-identical 12; pass 12/12
+  at-all               12 unit(s): normalized-identical 12; pass 12/12
+    workspace-index-01 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-02 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-03 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-04 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-05 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-06 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-07 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-08 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-09 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-10 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-11 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-12 at-plan: normalized-identical; row 13: neither; text the same: yes; attributes (.ansi row) the same: yes
+## rep24l: 24 pairs
+  at-plan              12 unit(s): normalized-identical 12; pass 12/12
+  at-all               12 unit(s): normalized-identical 12; pass 12/12
+    workspace-index-01 at-plan: normalized-identical; row 13: both list; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-02 at-plan: normalized-identical; row 13: both list; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-03 at-plan: normalized-identical; row 13: both list; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-04 at-plan: normalized-identical; row 13: both list; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-05 at-plan: normalized-identical; row 13: both list; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-06 at-plan: normalized-identical; row 13: both list; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-07 at-plan: normalized-identical; row 13: both list; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-08 at-plan: normalized-identical; row 13: both list; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-09 at-plan: normalized-identical; row 13: both list; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-10 at-plan: normalized-identical; row 13: both list; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-11 at-plan: normalized-identical; row 13: both list; text the same: yes; attributes (.ansi row) the same: yes
+    workspace-index-12 at-plan: normalized-identical; row 13: both list; text the same: yes; attributes (.ansi row) the same: yes
+# at-plan over every sweep: pass 42 of 42 units; row 13: both list 12, neither 30
+# checks_txt.py exit 0

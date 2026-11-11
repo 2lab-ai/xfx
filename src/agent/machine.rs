@@ -131,7 +131,7 @@ fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion, mode
         wire: (!completion.raw_content.is_empty()).then(|| completion.wire.clone()),
         // And the model the request named, beside the state as the wire is:
         // a state replays only to the model that sealed it
-        // (`ProviderReplay.matches`, `types.zig:1512-1515`).
+        // (`ProviderReplay.matches`, `types.zig:1609-1611@481104fd`).
         model: (!completion.raw_content.is_empty()).then(|| model.to_string()),
     });
 }
@@ -178,7 +178,8 @@ pub(crate) fn may_have_billed(err: &ProviderError) -> bool {
         | ProviderError::Request { .. }
         | ProviderError::InvalidHeader { .. }
         | ProviderError::Connect { .. }
-        | ProviderError::Status { .. } => false,
+        | ProviderError::Status { .. }
+        | ProviderError::Image(_) => false,
         ProviderError::Transport { .. }
         | ProviderError::Protocol(_)
         | ProviderError::Sink(_)

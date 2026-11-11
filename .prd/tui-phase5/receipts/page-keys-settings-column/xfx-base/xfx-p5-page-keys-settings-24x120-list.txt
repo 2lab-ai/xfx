@@ -1,0 +1,24 @@
+x𝒇x v0.1.0-3d3d56c [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Settings 14  [All]  Interface  Agent  Notifications  Advanced
+
+  Model                    openai/gpt-6-astra
+                           openai/gpt-6-astra
+                           anthropic/claude-opus-5
+                           fake/model-a
+                           fake/row-26
+                           xai/grok-4.7
+                           fake/row-25
+  Reasoning effort         default  low  medium  high  xhigh
+  Fast mode                off  on
+  Ultra mode               off  on
+  Permission mode          ask  auto  full access
+  Session titles           off  on
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     ←→ change     esc close
+
+
+
+

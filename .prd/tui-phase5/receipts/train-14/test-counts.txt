@@ -1,0 +1,17 @@
+# lines holding #[test] under src and tests (git grep -c '#\[test\]'), and '    def test_' under scripts/fxcap, per commit
+dcfa5146 Merge pull request #92 from 2lab-ai/train/p5-1110b           rust  5612  fxcap 212
+af2b6137 docs(receipt): AT-HEIGHT round 3 -- the two reviews' MUSTs,  rust  5384  fxcap 165
+4130f4ac docs(receipt): AT-RANK-PERF r4 -- Intel measured at 5.53 ms; rust  5489  fxcap 165
+cb7c9c18 docs(receipt): CTRLO-AT-KEYS -- README, gate, sweep, fx cita rust  5459  fxcap 165
+e7e1bcf6 docs(receipt): CTRLO-OTHER-PICKERS r3 -- the round's cases r rust  5486  fxcap 165
+3d3d56c8 docs(receipt,parity): INPUT-ROW-LIMIT round 2 -- refs.txt, / rust  5462  fxcap 176
+3ea16930 docs(receipt,fxcap): PAGE-KEYS-SETTINGS-COLUMN round 4 -- th rust  5474  fxcap 176
+714f6283 docs(receipt): HISTORY-NOTICES-COPY-FX round 3 -- the ask mu rust  5452  fxcap 176
+bde1ddfa test(image-loss): a copy cut short between the open and the  rust  5462  fxcap 177
+d548c078 merge: the `@` stack, AT-RANK-PERF (feat/p5-at-rank-perf @ 4 rust  5717  fxcap 212
+ecad8518 merge: CTRLO-OTHER-PICKERS (feat/p5-ctrlo-other-pickers @ e7 rust  5744  fxcap 212
+7a1773d9 merge: PAGE-KEYS-SETTINGS-COLUMN (fix/p5-page-keys-settings- rust  5756  fxcap 212
+fb6dfdb8 merge: IMAGE-LOSS-COPY-FX (fix/p5-image-loss-copy-fx @ bde1d rust  5766  fxcap 213
+594fddc8 fix(tui): train 14 join -- one C-j/C-k check under the full  rust  5766  fxcap 213
+725b3c90 test(tui): train 14 join -- C-j under the full transcript ad rust  5766  fxcap 213
+b3dffdad fix(refs): two bare continuations on the line after their pa rust  5766  fxcap 213

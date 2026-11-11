@@ -1,0 +1,22 @@
+=== ~/.xfx/history.jsonl (278 bytes)
+{"schema_version":1,"timestamp_ms":1794280365273,"workspace_root":"<scratch>/work","text":"/quit"}
+{"schema_version":1,"timestamp_ms":1794280371430,"workspace_root":"<scratch>/work","text":"what is it now?"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/events.jsonl (2721 bytes)
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":1,"event_id":"7fe49cf92c8726e41e0cf3f1417f9c9d","timestamp_ms":1794262601233,"event":{"kind":"session_started","id":"kH1xJ5Cm-oRk","origin_workspace_root":"/tmp/fx-v2-fixtures/work","workspace_root":"/tmp/fx-v2-fixtures/work","model":"spacexai/grok-4.7","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":2,"event_id":"240820bdec0e3ebfff53347401cfdd2b","timestamp_ms":1794262601246,"event":{"kind":"user_message","text":"[Image #1] first prompt alpha"}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":3,"event_id":"ed5d43d1d393c7c0c3f26098ab5afa35","timestamp_ms":1794262601251,"event":{"kind":"images_attached","images":[{"id":1,"path":"shot.png","media_type":"image/png","sha256":"3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0","bytes":73}]}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":4,"event_id":"df6438691e1c04bdc44fbac49fd0c6e9","timestamp_ms":1794262601256,"event":{"kind":"assistant_message","text":"ALPHA answer.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":5,"event_id":"77d15a8f3ea3be219b3bae078aba7759","timestamp_ms":1794262601260,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":6,"event_id":"58a83585909ca4443fbae5f0726d6d41","timestamp_ms":1794280367297,"event":{"kind":"workspace_rebound","previous_workspace_root":"/tmp/fx-v2-fixtures/work","workspace_root":"<scratch>/work"}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":7,"event_id":"212df89c091879951b525ba7a3e635a2","timestamp_ms":1794280371431,"event":{"kind":"preferences_changed","model":"fake/model-a","permission_mode":null}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":8,"event_id":"4463cdfc2b4a75dceff72218915718c8","timestamp_ms":1794280371463,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":9,"event_id":"aef3efe36df77658af4965317c6d7099","timestamp_ms":1794280371478,"event":{"kind":"user_message","text":"what is it now?"}}
+{"schema_version":1,"log_generation":"912e30986cd56ee634186a20686cbf7d","seq":10,"event_id":"18f6a28501fcc770715ae631fac1f23d","timestamp_ms":1794280371492,"event":{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"request failed: ImageSnapshotCorrupt","terminal_reason":"failed"}}}
+
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/images/image-1-3fd6e6be528c182d.bin (73 bytes)
+(binary)
+=== ~/.xfx/sessions/kH1xJ5Cm-oRk/session.json (609 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"kH1xJ5Cm-oRk","log_generation":"912e30986cd56ee634186a20686cbf7d","created_at_ms":1794262601233,"updated_at_ms":1794280371492,"origin_workspace_root":"/tmp/fx-v2-fixtures/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"[Image #1] first prompt alpha","history_turns":2,"permission_grants":0,"total_input_tokens":0,"total_output_tokens":0,"last_event_seq":10,"event_log_bytes":2721,"event_log_sha256":"32ed82bb6e773593b209d6ed1f98fb76bc6d4d4427fa4e07c3e4917e045f23fb"}
+

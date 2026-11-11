@@ -1,0 +1,30 @@
+# python3 -I cmp_sweeps.py <base pairs.json> <head pairs.json> (paste-after-end's, unchanged): every pair whose class, cause list or count of uncaused rows changed
+change p5-approval-horizontal-keys/alt-b: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/alt-f: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 6 -> 0
+change p5-approval-horizontal-keys/alt-left: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/alt-right: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/answered: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 6 -> 0
+change p5-approval-horizontal-keys/back: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-horizontal-keys/ctrl-b: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/ctrl-f: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/ctrl-left: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/ctrl-right: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/down: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/kitty-alt-b: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 6 -> 0
+change p5-approval-horizontal-keys/kitty-alt-f: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 6 -> 0
+change p5-approval-horizontal-keys/left: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-horizontal-keys/left-wrap: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 6 -> 0
+change p5-approval-horizontal-keys/mok-alt-b: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/mok-alt-f: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-horizontal-keys/right: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/right-wrap: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-horizontal-keys/shift-alt-f: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/shift-left: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/shift-right: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/super-left: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/super-right: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-approval-horizontal-keys/tab-back: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-horizontal-keys/unpainted: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+base: 139 pairs, 82 pass, 31 with uncaused rows
+head: 139 pairs, 82 pass, 5 with uncaused rows
+drops: 0

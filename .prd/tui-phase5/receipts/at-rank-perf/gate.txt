@@ -1,0 +1,53 @@
+# gates.sh at c8f41359 in a --no-local clone, the whole script in one hold of the suite lock, TMPDIR a short scratch directory; one line per step: exit, seconds, load (1-minute) at its start
+# head c8f41359; tree clean: yes
+01 fmt                                exit 0     2s  load 98.31
+02 clippy                             exit 0    61s  load 98.31
+03 clippy-fault                       exit 0    30s  load 97.13
+04 test                               exit 0   198s  load 105.78
+05 test-fault                         exit 0   171s  load 72.79
+06 check-xfx-identity                 exit 0     2s  load 80.78
+07 check-no-stubs                     exit 0    11s  load 80.78
+08 check-no-secrets                   exit 0    44s  load 72.18
+09 check-preview-contract             exit 0     3s  load 55.11
+10 check-tui-preflight-cost           exit 0   112s  load 53.34
+11 check-at-search-cost               exit 0     2s  load 73.43
+12 check-usage-clock                  exit 0     1s  load 70.99
+13 test-check-no-secrets              exit 0    86s  load 70.99
+14 test-gate-env                      exit 0   221s  load 49.10
+15 test-preview-contract              exit 0    91s  load 51.83
+16 fxcap-test-sweep                   exit 0    14s  load 54.38
+17 fxcap-test-capture                 exit 0   289s  load 55.20
+18 build-release                      exit 0    17s  load 37.39
+19 build-faulty                       exit 0    27s  load 42.18
+20 smoke                              exit 0     5s  load 42.96
+21 smoke-tui                          exit 0    63s  load 43.60
+# 21 steps, 0 failed; tree clean after: yes
+
+# 04-test.log: the test-result lines summed
+cargo test: 5570 passed, 0 failed
+# 05-test-fault.log: the test-result lines summed
+cargo test --features fault-injection: 5607 passed, 0 failed
+# 04-test.log: the cost test in the debug suite
+test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... ok
+# 11-check-at-search-cost.log, whole
+check-at-search-cost: before: load averages: 73.43 77.58 82.75
+check-at-search-cost: after:  load averages: 70.99 77.01 82.51
+test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... entries: 100000
+exact            33 keys  1 rows p50 241.167µs p95 4.316875ms max 5.490917ms
+boundary          5 keys 32 rows p50 577.084µs p95 1.188791ms max 1.325667ms
+low-selectivity   2 keys 32 rows p50 534.334µs p95 4.721916ms max 4.855875ms
+long-gap          4 keys 32 rows p50 1.890208ms p95 4.568291ms max 4.811792ms
+no-match         14 keys  0 rows p50 257.5µs p95 304.291µs max 389.917µs
+punctuation       9 keys  1 rows p50 842.375µs p95 2.370625ms max 6.415459ms
+unicode           3 keys  1 rows p50 222µs p95 231.959µs max 333.666µs
+unicode-fold      3 keys 32 rows p50 727.208µs p95 1.171042ms max 1.260458ms
+every keystroke: 1460 searches p50 328.292µs p95 4.316875ms p99 5.039291ms max 6.415459ms
+whole queries (fx's gate): 160 searches p50 498µs p95 4.654166ms
+check-at-search-cost: ok
+# 10-check-tui-preflight-cost.log, last line
+check-tui-preflight-cost: ok
+# 14-test-gate-env.log: this unit's case, and the total
+test-gate-env: ok at-search-cost         GREP_OPTIONS='-v'   the filter did not run the @ search's cost test
+test-gate-env: ok (63 cases)
+# 21-smoke-tui.log, its summary line
+smoke-tui: 37 scenarios + the oracle, 1168 checks, 0 failures

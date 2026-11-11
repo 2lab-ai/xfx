@@ -1,0 +1,45 @@
+# CI run 42817840118 on 3c4b519d, the x86_64-apple-darwin (macos-15-intel) row's step "The @ search still fits inside a frame", as the dispatcher handed it over (the whole step log; the other rows' figures are the dispatcher's table, README §12)
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	﻿2026-11-10T13:40:23.0611850Z ##[group]Run ./scripts/check-at-search-cost.sh
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:23.0613040Z ^[[36;1m./scripts/check-at-search-cost.sh^[[0m
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:23.0746950Z shell: /bin/bash -e {0}
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:23.0748130Z env:
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:23.0748510Z   CARGO_TERM_COLOR: never
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:23.0748920Z   RUST_BACKTRACE: 1
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:23.0749790Z   COMMIT_UNDER_TEST: 3c4b519df0d6d953a875884c49c273a8e13a6202
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:23.0750420Z ##[endgroup]
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.5758460Z check-at-search-cost: before: load averages: 5.84 4.99 4.28
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.5844640Z check-at-search-cost: after:  load averages: 5.77 4.99 4.29
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.5896090Z test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... entries: 100000
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.5898530Z exact            33 keys  1 rows p50 621.494µs p95 13.415917ms max 140.744997ms
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.5899820Z boundary          5 keys 32 rows p50 1.852148ms p95 2.465394ms max 2.604698ms
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.5901130Z low-selectivity   2 keys 32 rows p50 1.731597ms p95 10.380959ms max 10.789153ms
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.5902650Z long-gap          4 keys 32 rows p50 4.276287ms p95 9.880251ms max 10.447486ms
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.5904150Z no-match         14 keys  0 rows p50 597.075µs p95 917.459µs max 1.285083ms
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.5905460Z punctuation       9 keys  1 rows p50 1.975182ms p95 5.114414ms max 6.181666ms
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.5906860Z unicode           3 keys  1 rows p50 338.638µs p95 399.907µs max 426.985µs
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.5908080Z unicode-fold      3 keys 32 rows p50 1.519425ms p95 2.454566ms max 3.541917ms
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.5909740Z every keystroke: 1460 searches p50 974.334µs p95 9.819577ms p99 15.811893ms max 140.744997ms
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.5910970Z whole queries (fx's gate): 160 searches p50 1.034937ms p95 10.059197ms
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.5912140Z a keystroke's search took 9.819577ms at the 95th percentile, against an 8 ms frame
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6001890Z     | punctuation       9 keys  1 rows p50 1.975182ms p95 5.114414ms max 6.181666ms
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6003640Z     | unicode           3 keys  1 rows p50 338.638µs p95 399.907µs max 426.985µs
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6006000Z     | unicode-fold      3 keys 32 rows p50 1.519425ms p95 2.454566ms max 3.541917ms
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6007620Z     | every keystroke: 1460 searches p50 974.334µs p95 9.819577ms p99 15.811893ms max 140.744997ms
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6008850Z     | whole queries (fx's gate): 160 searches p50 1.034937ms p95 10.059197ms
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6009760Z     | 
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6011580Z     | thread 'tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame' (67978) panicked at src/tui/file_index.rs:3799:9:
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6013690Z     | a keystroke's search took 9.819577ms at the 95th percentile, against an 8 ms frame
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6014650Z     | stack backtrace:
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6015610Z     | note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6016630Z     | FAILED
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6017060Z     | 
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6017560Z     | failures:
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6018030Z     | 
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6018400Z     | failures:
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6019260Z     |     tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6020300Z     | 
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6021160Z     | test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4661 filtered out; finished in 4.16s
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6022380Z     | 
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6022910Z     | error: test failed, to rerun pass `--lib`
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6024020Z check-at-search-cost: the cargo test invocation failed (status 101); its last lines are above
+gate (x86_64-apple-darwin, release)	The @ search still fits inside a frame	2026-11-10T13:40:27.6041780Z ##[error]Process completed with exit code 1.

@@ -1,0 +1,32 @@
+# scripts/fxcap/parity-ledger.toml at a37a969e; blame ignoring nothing
+WRONG scripts/fxcap/parity-ledger.toml:28 .prd/07-fx-parity-program.md:19 (path; written by 6bc31872 as :19): the head's line holds ''; "5. A reference binary was replaced in place by fx'" -- its text is at 0 places; the head's line most like its first is :33 (ratio 0.28)
+SAME-LINES scripts/fxcap/parity-ledger.toml:418 .prd/07-fx-parity-program.md:45 (path; written by a1007a00 as :45): the cited text the same, a neighbour not
+WRONG scripts/fxcap/parity-ledger.toml:815 src/tui/shell.rs:39893 (path; written by 66a1ac97 as :39893): the head's line holds 'screen[at + 1..at + 4],'; '"  tools: {} advertised ({},",' -- its text is at :39896
+WRONG scripts/fxcap/parity-ledger.toml:826 src/tui/shell.rs:39893 (path; written by 66a1ac97 as :39893): the head's line holds 'screen[at + 1..at + 4],'; '"  tools: {} advertised ({},",' -- its text is at :39896
+WRONG scripts/fxcap/parity-ledger.toml:838 src/tui/shell.rs:39893 (path; written by 66a1ac97 as :39893): the head's line holds 'screen[at + 1..at + 4],'; '"  tools: {} advertised ({},",' -- its text is at :39896
+WRONG scripts/fxcap/parity-ledger.toml:849 src/tui/shell.rs:39893 (path; written by 66a1ac97 as :39893): the head's line holds 'screen[at + 1..at + 4],'; '"  tools: {} advertised ({},",' -- its text is at :39896
+WRONG scripts/fxcap/parity-ledger.toml:860 src/tui/shell.rs:39893 (path; written by 66a1ac97 as :39893): the head's line holds 'screen[at + 1..at + 4],'; '"  tools: {} advertised ({},",' -- its text is at :39896
+WRONG scripts/fxcap/parity-ledger.toml:928 src/tui/shell.rs:39893 (path; written by 66a1ac97 as :39893): the head's line holds 'screen[at + 1..at + 4],'; '"  tools: {} advertised ({},",' -- its text is at :39896
+# SAME 112; SAME-ROW 35; SAME-LINES 1; WRONG 7; other product 3; unread 0; refs 158
+# exit 1
+# docs/parity.md at a37a969e; blame ignoring nothing
+# SAME 19; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 101; unread 0; refs 120
+# exit 0
+# scripts/fxcap/capfile.py at a37a969e; blame ignoring nothing
+WRONG scripts/fxcap/capfile.py:165 src/tui/shell.rs:14687-14712 (path; written by 589248ac as :14687-14712): the head's line holds '}'; "fn warning_shown(&self) -> Option<&'static str> {" -- its text is at :14808-14833
+# SAME 4; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 1; unread 0; refs 6
+# exit 1
+# scripts/smoke-tui.sh at a37a969e; blame ignoring nothing
+WRONG scripts/smoke-tui.sh:194 term.rs:32-52 (short; written by fe38df53 as :32-52): the head's line holds '/// (`terminal.zig:4-13`), the theme-change subscr'; 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.88)
+WRONG scripts/smoke-tui.sh:291 src/tui/term.rs:32-52 (path; written by fe38df53 as :32-52): the head's line holds '/// (`terminal.zig:4-13`), the theme-change subscr'; 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.88)
+WRONG scripts/smoke-tui.sh:4687 src/main.rs:44-49 (path; written by 9fdf7596 as :44-49): the head's line holds 'Ok(code) => code,'; 'fn fail(message: &str) -> ExitCode {' -- its text is at :50-55
+WRONG scripts/smoke-tui.sh:4956 src/tui/check.rs:1084 (path; written by 9acf15d1 as :1084): the head's line holds ''; 'pub(crate) const RECOVERY_CLEANUP: &str = "\\x18\\x1' -- its text is at :1683
+SAME-LINES scripts/smoke-tui.sh:5734 src/process.rs:24-43 (path; written by 878186b5 as :24): the cited text the same, a neighbour not
+SAME-LINES scripts/smoke-tui.sh:5819 process.rs:24-43 (short; written by 878186b5 as :24): the cited text the same, a neighbour not
+WRONG scripts/smoke-tui.sh:11187 editor.rs:351 (short; written by 060e2a4b as :351): the head's line holds '}'; 'Action::KillToStart => self.delete(self.line_start' -- its text is at :540
+WRONG scripts/smoke-tui.sh:11192 input.rs:708 (short; written by 8120e9a4 as :708): the head's line holds 'self.stage = Stage::Ground;'; '/// that were read. **Nothing of the body is ever ' -- its text is at :797
+# SAME 13; SAME-ROW 0; SAME-LINES 2; WRONG 6; other product 4; unread 0; refs 25
+# exit 1
+# src/tui/shell.rs at a37a969e; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 64; unread 0; refs 66
+# exit 0

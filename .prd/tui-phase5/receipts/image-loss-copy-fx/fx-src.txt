@@ -1,0 +1,990 @@
+# fx v0.0.16 (pin 481104fd): every line image-loss-copy-fx cites. Read with git show; never checked out.
+
+== src/core/session/session_adapter.zig:2871-2893@481104fd -- decodeUser: each prompt image's blob path, or InvalidSessionFormat
+ 2871      fn decodeUser(src: Source, pa: Allocator, data: []const u8) !session_event.ConversationUser {
+ 2872          const wire = try std.json.parseFromSliceLeaky(WireUser, pa, data, .{ .allocate = .alloc_if_needed });
+ 2873          const images = try wire.toImages(pa);
+ 2874          for (wire.images, images) |image, *out| {
+ 2875              const hash = image.blob orelse continue;
+ 2876              out.blob_path = src.store.manager.blobPath(pa, src.id, hash) catch |err| return imageBlobFailed(src, image.id, err);
+ 2877          }
+ 2878          return .{ .text = wire.text, .images = images, .work_id = wire.work_id };
+ 2879      }
+ 2880  
+ 2881      /// An image blob the log names that is gone or misnamed damages the
+ 2882      /// session, as a piece's blob does (D39). One whose bytes were damaged is
+ 2883      /// found by `verify`, and by any reader, which checks them against the
+ 2884      /// image's digest (D89).
+ 2885      fn imageBlobFailed(src: Source, image_id: usize, err: sm.BlobError) (sm.BlobError || error{InvalidSessionFormat}) {
+ 2886          return switch (err) {
+ 2887              error.NotFound, error.Corrupt, error.InvalidArgument => {
+ 2888                  debug_trace.logf("session", "event=sessions_v2_prompt_image_unreadable session={s} image={d} err={s}", .{ src.id, image_id, @errorName(err) });
+ 2889                  return error.InvalidSessionFormat;
+ 2890              },
+ 2891              else => |e| e,
+ 2892          };
+ 2893      }
+
+== src/core/session/session_adapter.zig:4320-4327@481104fd -- the conversation is read through decodeUser
+ 4320                          continue;
+ 4321                      };
+ 4322                      const data = try src.pieceData(pa, piece);
+ 4323                      // The builder copies what it keeps, as it does for v1's
+ 4324                      // reader, so strings may point into the page.
+ 4325                      if (kind == .user) {
+ 4326                          try builder.begin(try src.withMovedImages(pa, try src.decodeUser(pa, data)));
+ 4327                          continue;
+
+== src/core/session_manager/api.zig:433-442@481104fd -- blobPath: the blob exists; its bytes are not read
+  433      /// The path of a durable blob of session `id`, for a tool that opens
+  434      /// files by path, such as a web-fetch download (D49). The file is
+  435      /// read-only; only `getBlob` checks its bytes. The caller frees it.
+  436      pub fn blobPath(m: *Manager, gpa: std.mem.Allocator, id: []const u8, hash: []const u8) BlobError![]u8 {
+  437          try checkId(id);
+  438          if (!schema.validBlobHash(hash)) return error.InvalidArgument;
+  439          if (!try readyToRead(m)) return error.NotFound;
+  440          try session_mod.blobExists(&m.env, id, hash);
+  441          return std.Io.Dir.path.join(gpa, &.{ m.root_path, id, "blobs", hash });
+  442      }
+
+== src/core/session_manager/session.zig:1666-1681@481104fd -- blobExists: stat without following; not a regular file is NotFound
+ 1666  /// Whether session `id_` holds a regular blob file named `hash`; its bytes
+ 1667  /// are not read (D49).
+ 1668  pub fn blobExists(env: *const Env, id_: []const u8, hash: []const u8) (error{NotFound} || storage.IoFault)!void {
+ 1669      const s = env.s;
+ 1670      if (!schema.validId(id_) or !schema.validBlobHash(hash)) return error.NotFound;
+ 1671      const dir = s.openDir(env.root, id_) catch |err| return notFoundOr(err);
+ 1672      defer s.closeDir(dir);
+ 1673      const blobs = s.openDir(dir, "blobs") catch |err| return notFoundOr(err);
+ 1674      defer s.closeDir(blobs);
+ 1675      const st = s.stat(blobs, hash) catch |err| return notFoundOr(err);
+ 1676      if (st.kind != .file) return error.NotFound;
+ 1677  }
+ 1678  
+ 1679  fn notFoundOr(err: storage.Error) (error{NotFound} || storage.IoFault) {
+ 1680      return if (err == error.NotFound) error.NotFound else error.Io;
+ 1681  }
+
+== src/core/session_manager/storage.zig:341-346@481104fd -- stat does not follow a symlink
+  341      /// Stats a name without following a symlink.
+  342      pub fn stat(s: Storage, dir: Dir, name: []const u8) Error!Stat {
+  343          try s.alive();
+  344          assertComponent(name);
+  345          const st = dir.handle.statFile(s.io, name, .{ .follow_symlinks = false }) catch |err|
+  346              return translate(err);
+
+== src/core/session_manager/storage.zig:135-143@481104fd -- openDir: opened for reading (iterate), without following a link
+  135      pub fn openDir(s: Storage, parent: Dir, name: []const u8) Error!Dir {
+  136          try s.alive();
+  137          assertComponent(name);
+  138          const handle = parent.handle.openDir(s.io, name, .{
+  139              .iterate = true,
+  140              .follow_symlinks = false,
+  141          }) catch |err| return translate(err);
+  142          return .{ .handle = handle };
+  143      }
+
+== src/core/session_manager/storage.zig:400-417@481104fd -- translate: a link, no permission, a wrong kind are Refused, which notFoundOr makes Io
+  400  fn translate(err: anyerror) Error {
+  401      return switch (err) {
+  402          error.FileNotFound => error.NotFound,
+  403          error.PathAlreadyExists, error.DirNotEmpty => error.AlreadyExists,
+  404          error.SymLinkLoop,
+  405          error.NotDir,
+  406          error.IsDir,
+  407          error.AccessDenied,
+  408          error.PermissionDenied,
+  409          error.BadPathName,
+  410          => error.Refused,
+  411          error.NoSpaceLeft, error.DiskQuota => error.NoSpace,
+  412          error.ReadOnlyFileSystem => error.ReadOnly,
+  413          error.FileTooBig => error.TooBig,
+  414          error.Canceled => error.Canceled,
+  415          else => error.Io,
+  416      };
+  417  }
+
+== src/core/app/app_entry_runtime.zig:222-224@481104fd -- initFailure: the launch's refusals
+  222  
+  223  /// The exit for an interactive launch whose app could not start.
+  224  fn initFailure(deps: RunDeps, launch: *cli_surface.InteractiveLaunch, alloc: Allocator, err: anyerror) anyerror!RunOutcome {
+
+== src/core/app/app_entry_runtime.zig:278-301@481104fd -- the launch: saved session is unreadable; any other error is printed by its name
+  278          error.InvalidSessionFormat => {
+  279              if (launch.resume_refusal) |reason| {
+  280                  const message = alloc.print("fx: this session can't be converted (InvalidSessionFormat): {s}\n", .{reason}) catch null;
+  281                  defer if (message) |text| alloc.free(text);
+  282                  writeStderr(deps, message orelse "fx: this session can't be converted (InvalidSessionFormat)\n");
+  283              } else writeStderr(deps, "fx: saved session is unreadable. Run `fx doctor`; if it is recoverable, use `fx session recover <id>`.\n");
+  284              return .{ .exit = 1 };
+  285          },
+  286          error.UnsupportedSessionSchema => {
+  287              writeStderr(deps, "fx: saved session uses an unsupported version and cannot be resumed by this fx build.\n");
+  288              return .{ .exit = 1 };
+  289          },
+  290          else => {
+  291              // A storage fault is named (D29).
+  292              if (v2StorageFaultMessage(err)) |message| {
+  293                  writeStderr(deps, message);
+  294                  return .{ .exit = 1 };
+  295              }
+  296              reportUnexpectedInteractiveError(deps, err);
+  297              return err;
+  298          },
+  299      }
+  300  }
+  301  
+
+== src/core/app/app_entry_runtime.zig:537-556@481104fd -- formatUnexpectedError: fx: <ErrorName>; Io is no storage fault with a sentence
+  537  fn formatUnexpectedError(buffer: []u8, err: anyerror) ![]const u8 {
+  538      return std.mem.print(buffer, "fx: {s}\n", .{config_runtime.modelNotSelectedMessage(err) orelse @errorName(err)});
+  539  }
+  540  
+  541  /// A v2 session that cannot be written at startup, in one sentence; null
+  542  /// for any other error.
+  543  fn v2StorageFaultMessage(err: anyerror) ?[]const u8 {
+  544      return switch (err) {
+  545          error.AccessDenied => "fx: this session cannot be opened for writing: permission denied. Check the permissions under ~/.fx/sessions/v2, then resume again.\n",
+  546          error.ReadOnlyFileSystem => "fx: this session cannot be opened for writing: the disk is read-only.\n",
+  547          error.NoSpaceLeft => "fx: this session cannot be saved: the disk is full. Free some space, then resume again.\n",
+  548          error.FileTooBig => "fx: this session cannot be saved: a file-size limit was reached.\n",
+  549          else => null,
+  550      };
+  551  }
+  552  
+  553  fn reportUnexpectedInteractiveError(deps: RunDeps, err: anyerror) void {
+  554      var buffer: [256]u8 = undefined;
+  555      const message = deps.format_unexpected_error(&buffer, err) catch return;
+  556      deps.write_stderr(deps.stderr_ctx, message) catch {};
+
+== src/core/app/app_input_runtime.zig:91-99@481104fd -- the picker: anything but busy or being updated is unavailable
+   91  fn classifyResumeFailure(err: anyerror) session_catalog.ResumeFailure {
+   92      return switch (err) {
+   93          error.SessionBusy => .open_elsewhere,
+   94          error.SessionAuthorityBoundaryUnavailable,
+   95          error.SessionCommitBoundaryUnavailable,
+   96          => .being_updated,
+   97          else => .unavailable,
+   98      };
+   99  }
+
+== src/core/app/app_input_runtime.zig:1644-1662@481104fd -- the picker's failed resume
+ 1644              _ = app.resumeSelectedSession() catch |err| {
+ 1645                  const picker = &app.session_persistence.session_picker;
+ 1646                  debug_trace.logf(
+ 1647                      "session",
+ 1648                      "picker resume failed err={s} picker_active={s}",
+ 1649                      .{ @errorName(err), if (picker.active) "true" else "false" },
+ 1650                  );
+ 1651                  if (picker.active) {
+ 1652                      picker.selection_failure = classifyResumeFailure(err);
+ 1653                  } else {
+ 1654                      try app.writeDomainNotice(.{
+ 1655                          .topic = "session",
+ 1656                          .tone = .@"error",
+ 1657                          .body = "Unable to resume selected session.",
+ 1658                      }, true);
+ 1659                  }
+ 1660                  app.shell.render_requests.request(.footer);
+ 1661                  return true;
+ 1662              };
+
+== src/ui/footer/resume_menu_presentation.zig:463-467@481104fd -- Unable to resume this session.
+  463      const message = switch (failure) {
+  464          .open_elsewhere => "This session is open in another fx. Close it there, then press enter to retry.",
+  465          .being_updated => "This session is being updated. Wait a moment, then press enter to retry.",
+  466          .unavailable => "Unable to resume this session.",
+  467      };
+
+== src/core/cli/cli_ask.zig:926-936@481104fd -- ask --resume: the resume's error goes up
+  926          const v2 = if (self.requested_resume) |target|
+  927              session_adapter.Session.resumeSession(self.alloc, store, switch (target) {
+  928                  .last => .last,
+  929                  .id => |id| .{ .id = id },
+  930              }, self.workspace_root, .ask) catch |err| {
+  931                  if (store.conversionProblem()) |problem| {
+  932                      self.writeStderr("fx ask: the session can't be converted: ") catch {};
+  933                      self.writeLine(problem) catch {};
+  934                  }
+  935                  return err;
+  936              }
+
+== src/core/cli/cli_ask.zig:1189-1197@481104fd -- askErrorNotice: no notice for these
+ 1189  fn askErrorNotice(err: anyerror) ?[]const u8 {
+ 1190      if (auth_runtime.preparationFailureNotice(err)) |notice| return notice;
+ 1191      if (config_runtime.modelNotSelectedMessage(err)) |message| return message;
+ 1192      return switch (err) {
+ 1193          error.ImagePreparationFailed => image_attachments.image_preparation_failed_notice,
+ 1194          error.ModelImageCapabilityUnavailable => image_attachments.model_image_capability_unavailable_notice,
+ 1195          else => null,
+ 1196      };
+ 1197  }
+
+== src/core/cli/cli_ask.zig:1306-1326@481104fd -- ask: no notice is return err; --json writes the error's name
+ 1306      }) catch |err| {
+ 1307          if (interrupt_scope.requested()) return headless_interrupt.exitCode();
+ 1308          if (err == error.OutOfMemory) return err;
+ 1309          if (err == error.OneOffSessionNotResumable and !options.json_output) {
+ 1310              try deps.write_stderr(
+ 1311                  deps.stderr_ctx,
+ 1312                  "fx ask: subagent child sessions cannot be resumed directly; message the named agent from its parent session\n",
+ 1313              );
+ 1314              return 1;
+ 1315          }
+ 1316          if (!options.json_output) {
+ 1317              const notice = askErrorNotice(err) orelse return err;
+ 1318              try deps.write_stderr(deps.stderr_ctx, "fx ask: ");
+ 1319              try deps.write_stderr(deps.stderr_ctx, notice);
+ 1320              try deps.write_stderr(deps.stderr_ctx, "\n");
+ 1321              return 1;
+ 1322          }
+ 1323          const json = try renderErrorJsonResult(alloc, @errorName(err));
+ 1324          defer alloc.free(json);
+ 1325          try deps.write_stdout(deps.stdout_ctx, json);
+ 1326          return 1;
+
+== src/core/cli/cli_ask.zig:8063-8079@481104fd -- fx's test: a resume's InvalidSessionFormat is the JSON error
+ 8063      defer stdout_capture.deinit(alloc);
+ 8064      var stderr_capture: TestCapture = .{};
+ 8065      defer stderr_capture.deinit(alloc);
+ 8066      var deps = testPromptRunDeps(&stdout_capture, &stderr_capture, testPresentKeyStartup);
+ 8067      deps.initialize_session_stores = testFailSessionStores;
+ 8068  
+ 8069      const exit_code = try runWithDeps(
+ 8070          alloc,
+ 8071          &.{ "--json", "--resume-id", "corrupt-session", "hello" },
+ 8072          testConfig(),
+ 8073          deps,
+ 8074      );
+ 8075  
+ 8076      try std.testing.expectEqual(@as(u8, 1), exit_code);
+ 8077      try std.testing.expect(std.mem.find(u8, stdout_capture.bytes.items, "\"exit_code\":1") != null);
+ 8078      try std.testing.expect(std.mem.find(u8, stdout_capture.bytes.items, "\"error\":\"InvalidSessionFormat\"") != null);
+ 8079  }
+
+== src/core/app/app_entry_runtime.zig:158-166@481104fd -- runBeforeInteractive: a command's error
+  158  pub fn runBeforeInteractive(alloc: Allocator, args: []const [:0]const u8, cfg: Config) !BeforeInteractiveResult {
+  159      const run_result = cli_surface.runIfRequested(alloc, args, cliSurfaceConfig(cfg)) catch |err| switch (err) {
+  160          error.UnknownCliCommand => return .{ .exit = 1 },
+  161          else => {
+  162              tryWriteErrorMessage(.{}, err);
+  163              return .{ .exit = 1 };
+  164          },
+  165      };
+  166  
+
+== src/core/app/app_entry_runtime.zig:563-567@481104fd -- tryWriteErrorMessage: fx: <ErrorName>
+  563  fn tryWriteErrorMessage(deps: RunDeps, err: anyerror) void {
+  564      writeStderr(deps, "fx: ");
+  565      writeStderr(deps, config_runtime.modelNotSelectedMessage(err) orelse @errorName(err));
+  566      writeStderr(deps, "\n");
+  567  }
+
+== src/core/images/image_attachments.zig:1132-1137@481104fd -- unsafeSnapshotPathError
+ 1132  fn unsafeSnapshotPathError(err: anyerror) anyerror {
+ 1133      return switch (err) {
+ 1134          error.SymLinkLoop, error.NotDir, error.IsDir => error.ImageSnapshotPathUnsafe,
+ 1135          else => err,
+ 1136      };
+ 1137  }
+
+== src/core/images/image_attachments.zig:1213-1243@481104fd -- ImageFile: a blob is opened without following; imageFile: none is no file
+ 1213  const ImageFile = struct {
+ 1214      path: []const u8,
+ 1215      /// A fork hard-links its source's blobs (D44), so a blob may have more
+ 1216      /// than one link. A snapshot in the shared temporary folder must have
+ 1217      /// only its own.
+ 1218      blob: bool,
+ 1219  
+ 1220      /// Whether `stat` is a file this source may be read from.
+ 1221      fn accepts(source: ImageFile, stat: std.Io.File.Stat) bool {
+ 1222          return stat.kind == .file and (source.blob or stat.nlink == 1);
+ 1223      }
+ 1224  
+ 1225      /// A blob is in fx's own private store, so the folders on its path are
+ 1226      /// opened as the path names them, symlinks and all. A snapshot in the
+ 1227      /// shared temporary folder has no symlink anywhere on its path. Neither
+ 1228      /// file may itself be a symlink.
+ 1229      fn open(source: ImageFile) !std.Io.File {
+ 1230          if (!source.blob) return openSnapshotFileNoFollow(source.path);
+ 1231          if (!std.Io.Dir.path.isAbsolute(source.path)) return error.ImageSnapshotPathUnsafe;
+ 1232          return std.Io.Dir.openFileAbsolute(io_mod.getIo(), source.path, .{
+ 1233              .allow_directory = false,
+ 1234              .follow_symlinks = false,
+ 1235          }) catch |err| return unsafeSnapshotPathError(err);
+ 1236      }
+ 1237  };
+ 1238  
+ 1239  fn imageFile(attachment: types.ImageAttachment) ?ImageFile {
+ 1240      if (attachment.blob_path) |path| return .{ .path = path, .blob = true };
+ 1241      if (attachment.snapshot_path) |path| return .{ .path = path, .blob = false };
+ 1242      return null;
+ 1243  }
+
+== src/core/images/image_attachments.zig:1260-1320@481104fd -- loadVerifiedSnapshot: MissingImageSnapshot, ImageTooLarge, ImageSnapshotCorrupt
+ 1260  pub fn loadVerifiedSnapshot(
+ 1261      alloc: std.mem.Allocator,
+ 1262      attachment: types.ImageAttachment,
+ 1263      budget: CaptureBudget,
+ 1264  ) !VerifiedSnapshot {
+ 1265      if (attachment.inline_data) |inline_bytes| {
+ 1266          const expected_inline = attachment.snapshot_sha256 orelse return error.MissingImageSnapshot;
+ 1267          if (expected_inline.len != snapshot_digest_hex_len) return error.InvalidImageSnapshotDigest;
+ 1268          try budget.check();
+ 1269          if (inline_bytes.len > max_image_bytes) return error.ImageTooLarge;
+ 1270          var actual: [Sha256.digest_length]u8 = undefined;
+ 1271          Sha256.hash(inline_bytes, &actual, .{});
+ 1272          const actual_hex = std.fmt.bytesToHex(actual, .lower);
+ 1273          if (!std.mem.eql(u8, actual_hex[0..], expected_inline)) return error.ImageSnapshotCorrupt;
+ 1274          const detected = detectMediaTypeFromBytes(inline_bytes) orelse
+ 1275              return error.UnsupportedImageType;
+ 1276          if (!std.mem.eql(u8, detected, attachment.media_type)) return error.ImageSnapshotMediaTypeMismatch;
+ 1277          return .{
+ 1278              .bytes = try alloc.dupe(u8, inline_bytes),
+ 1279              .media_type = detected,
+ 1280          };
+ 1281      }
+ 1282      const source = imageFile(attachment) orelse return error.MissingImageSnapshot;
+ 1283      const expected = attachment.snapshot_sha256 orelse return error.MissingImageSnapshot;
+ 1284      if (expected.len != snapshot_digest_hex_len) return error.InvalidImageSnapshotDigest;
+ 1285      try budget.check();
+ 1286  
+ 1287      var file = try source.open();
+ 1288      defer file.close(io_mod.getIo());
+ 1289      const stat = try file.stat(io_mod.getIo());
+ 1290      if (!source.accepts(stat)) return error.NotRegularFile;
+ 1291      const size = std.math.cast(usize, stat.size) orelse return error.ImageTooLarge;
+ 1292      if (size > max_image_bytes) return error.ImageTooLarge;
+ 1293  
+ 1294      var hasher = Sha256.init(.{});
+ 1295      var bytes: std.ArrayList(u8) = .empty;
+ 1296      errdefer bytes.deinit(alloc);
+ 1297      try bytes.ensureTotalCapacity(alloc, size);
+ 1298      var read_buf: [8192]u8 = undefined;
+ 1299      var reader = file.readerStreaming(io_mod.getIo(), &read_buf);
+ 1300      var transfer_buf: [transfer_buffer_bytes]u8 = undefined;
+ 1301      while (true) {
+ 1302          try budget.check();
+ 1303          const n = try reader.interface.readSliceShort(&transfer_buf);
+ 1304          if (n == 0) break;
+ 1305          if (n > max_image_bytes - bytes.items.len) return error.ImageTooLarge;
+ 1306          try bytes.appendSlice(alloc, transfer_buf[0..n]);
+ 1307          hasher.update(transfer_buf[0..n]);
+ 1308      }
+ 1309      var actual: [Sha256.digest_length]u8 = undefined;
+ 1310      hasher.final(&actual);
+ 1311      const actual_hex = std.fmt.bytesToHex(actual, .lower);
+ 1312      if (!std.mem.eql(u8, actual_hex[0..], expected)) return error.ImageSnapshotCorrupt;
+ 1313  
+ 1314      const detected = detectMediaTypeFromBytes(bytes.items) orelse
+ 1315          return error.UnsupportedImageType;
+ 1316      if (!std.mem.eql(u8, detected, attachment.media_type)) return error.ImageSnapshotMediaTypeMismatch;
+ 1317      return .{
+ 1318          .bytes = try bytes.toOwnedSlice(alloc),
+ 1319          .media_type = detected,
+ 1320      };
+
+== src/core/images/image_attachments.zig:1861-1877@481104fd -- writeImageFilePartJson(WithBudget): try loadVerifiedSnapshot
+ 1861  pub fn writeImageFilePartJson(
+ 1862      alloc: std.mem.Allocator,
+ 1863      writer: *std.Io.Writer,
+ 1864      attachment: types.ImageAttachment,
+ 1865  ) !void {
+ 1866      return writeImageFilePartJsonWithBudget(alloc, writer, attachment, .{});
+ 1867  }
+ 1868  
+ 1869  pub fn writeImageFilePartJsonWithBudget(
+ 1870      alloc: std.mem.Allocator,
+ 1871      writer: *std.Io.Writer,
+ 1872      attachment: types.ImageAttachment,
+ 1873      budget: CaptureBudget,
+ 1874  ) !void {
+ 1875      var snapshot = try loadVerifiedSnapshot(alloc, attachment, budget);
+ 1876      defer snapshot.deinit(alloc);
+ 1877      try writeVerifiedImageFilePartJsonWithBudget(writer, snapshot, budget);
+
+== src/gateway/vercel_protocol.zig:873-890@481104fd -- the encoder writes each history image with a try
+  873              } else {
+  874                  for (message.images) |image| {
+  875                      if (wrote_part) try writer.writeByte(',');
+  876                      if (budget) |active| {
+  877                          try image_attachments.writeImageFilePartJsonWithBudget(
+  878                              scratch_alloc,
+  879                              writer,
+  880                              image,
+  881                              .{
+  882                                  .deadline = active.deadline,
+  883                                  .cancel_flag = active.cancel_flag,
+  884                              },
+  885                          );
+  886                      } else {
+  887                          try image_attachments.writeImageFilePartJson(scratch_alloc, writer, image);
+  888                      }
+  889                      wrote_part = true;
+  890                  }
+
+== src/core/agent/runtime/request_image_budget.zig:94-107@481104fd -- the budget before the build counts an unreadable image as 0: no error there
+   94  /// Each image's serialized size, oldest first, allocated in `arena`.
+   95  fn imageSizes(arena: Allocator, messages: []const ChatMessage) Allocator.Error![]const usize {
+   96      var sizes: std.ArrayList(usize) = .empty;
+   97      for (messages) |message| {
+   98          for (message.images) |image| {
+   99              // An unreadable attachment cannot be serialized either; it
+  100              // still counts toward the image limit.
+  101              try sizes.append(arena, image_attachments.attachmentEncodedBytes(image) orelse 0);
+  102          }
+  103          if (message.tool_result_memory) |memory| {
+  104              for (memory.tool_images) |image| try sizes.append(arena, image.data.len);
+  105          }
+  106      }
+  107      return sizes.items;
+
+== src/core/agent/runtime/orchestrator.zig:7520-7525@481104fd -- the image route refuses a non-native model first
+ 7520                      return error.ModelImageCapabilityUnavailable;
+ 7521                  },
+ 7522                  .no_native_image => {
+ 7523                      diagnostics.recordModelCatalogEvent(true, .image_gate, "model={s} image_support=non_native err=SubscriptionNativeImageUnavailable", .{gateway_model});
+ 7524                      return error.SubscriptionNativeImageUnavailable;
+ 7525                  },
+
+== src/core/agent/runtime/orchestrator.zig:7712-7716@481104fd -- try buildRequest
+ 7712              if (try deps.agent_stream_provider.buildRequest(
+ 7713                  overlay_arena,
+ 7714                  request_data,
+ 7715              )) |built_request_body| {
+ 7716                  const request_body = try fitRequestImages(
+
+== src/core/app/app_process_runtime.zig:62-74@481104fd -- processQueuedWork: request failed, topic system, tone error
+   62              var failure_provenance: ?compaction_activity.ErrorProvenance = null;
+   63              app.processQueuedWork(work, &failure_provenance) catch |err| {
+   64                  settleCompactionWorkFailure(&app.worker, work, err);
+   65                  if (compactionErrorHandled(work, failure_provenance, err)) {
+   66                      compactor.traceLog(true, "interactive error retained err={s}", .{@errorName(err)});
+   67                  } else if (err != error.RouteRecoveryStopped) {
+   68                      const body = try formatErrorBody(std.heap.c_allocator, "request failed", err);
+   69                      defer std.heap.c_allocator.free(body);
+   70                      try app.worker.pushEvent(std.heap.c_allocator, .{ .error_text = .{
+   71                          .topic = "system",
+   72                          .tone = .@"error",
+   73                          .body = body,
+   74                      } });
+
+== src/core/app/app_process_runtime.zig:99-136@481104fd -- detailedErrorSummary and formatErrorBody: <context>: <detail> (<Name>), or <context>: <Name>
+   99          fn detailedErrorSummary(err: anyerror) ?[]const u8 {
+  100              return switch (err) {
+  101                  error.StreamInterrupted => "provider response ended before completion",
+  102                  error.UnexpectedEndOfInput => "incomplete JSON or internal response while parsing data",
+  103                  error.SyntaxError => "invalid JSON syntax while parsing data",
+  104                  error.MissingField => "required field missing while parsing data",
+  105                  error.InvalidEnumTag => "invalid enum value while parsing data",
+  106                  error.UnknownField => "unexpected field while parsing data",
+  107                  error.ImageTooLarge => image_attachments.image_too_large_notice,
+  108                  error.McpInputTimedOut => tool_result_errors.executionErrorMessage(err),
+  109                  else => null,
+  110              };
+  111          }
+  112  
+  113          fn suggestionForError(err: anyerror) ?[]const u8 {
+  114              return switch (err) {
+  115                  error.UnexpectedEndOfInput, error.SyntaxError => "Check that the tool arguments are valid JSON and retry with corrected input.",
+  116                  error.MissingField => "Add the required input field named by the tool schema, then retry.",
+  117                  error.InvalidEnumTag, error.UnknownField => "Compare the input fields with the tool schema and retry with supported values.",
+  118                  error.ImageTooLarge => "Use a smaller image or reduce the image before retrying.",
+  119                  error.McpInputTimedOut => tool_result_errors.executionErrorSuggestion(err),
+  120                  else => null,
+  121              };
+  122          }
+  123  
+  124          fn formatErrorBody(alloc: std.mem.Allocator, context: []const u8, err: anyerror) ![]u8 {
+  125              switch (err) {
+  126                  error.ConnectionSetupTimedOut => return alloc.dupe(u8, "Connection setup timed out after 30 seconds."),
+  127                  error.TlsInitializationFailed => return alloc.dupe(u8, "Connection setup failed: TLS could not be initialized."),
+  128                  error.ModelImageCapabilityUnavailable => return alloc.dupe(u8, image_attachments.model_image_capability_unavailable_notice),
+  129                  else => {},
+  130              }
+  131              if (detailedErrorSummary(err)) |detail| {
+  132                  return alloc.print("{s}: {s} ({s})", .{ context, detail, @errorName(err) });
+  133              }
+  134  
+  135              return alloc.print("{s}: {s}", .{ context, @errorName(err) });
+  136          }
+
+== src/core/cli/cli_ask.zig:1802-1823@481104fd -- ask: a turn's error goes up; --json keeps its name
+ 1802      }, job) catch |err| switch (err) {
+ 1803          error.NonInteractivePermissionRequired => {
+ 1804              const assistant_output = try alloc.dupe(u8, ctx.assistant_output.items);
+ 1805              errdefer alloc.free(assistant_output);
+ 1806              const tool_calls = try takeToolCallRecords(&ctx, alloc);
+ 1807              return .{
+ 1808                  .exit_code = 1,
+ 1809                  .assistant_output = assistant_output,
+ 1810                  .interrupted = ctx.processInterruptRequested(),
+ 1811                  .tool_calls = tool_calls,
+ 1812                  .error_code = "NonInteractivePermissionRequired",
+ 1813                  .usage = ctx.session.agent.turn_usage,
+ 1814              };
+ 1815          },
+ 1816          else => {
+ 1817              if (!options.output_mode.capturesJson()) return err;
+ 1818              var failed_result = try takePromptRunResult(&ctx, alloc);
+ 1819              failed_result.exit_code = 1;
+ 1820              failed_result.error_code = @errorName(err);
+ 1821              return failed_result;
+ 1822          },
+ 1823      };
+
+== src/core/shared/types.zig:1667-1682@481104fd -- projectProviderReplay: a replay state dropped without a word
+ 1667  /// Returns a caller-owned shallow projection only when incompatible replay exists.
+ 1668  pub fn projectProviderReplay(
+ 1669      alloc: std.mem.Allocator,
+ 1670      messages: []const ChatMessage,
+ 1671      source: @import("../config/model_provider.zig").ProviderSelection,
+ 1672  ) !?[]ChatMessage {
+ 1673      var projected: ?[]ChatMessage = null;
+ 1674      errdefer if (projected) |owned| alloc.free(owned);
+ 1675      for (messages, 0..) |message, index| {
+ 1676          const replay = message.provider_replay orelse continue;
+ 1677          if (replay.matches(source)) continue;
+ 1678          if (projected == null) projected = try alloc.dupe(ChatMessage, messages);
+ 1679          projected.?[index].provider_replay = null;
+ 1680      }
+ 1681      return projected;
+ 1682  }
+
+== src/core/images/image_attachments.zig:24-24@481104fd -- image_too_large_notice
+   24  pub const image_too_large_notice = "image exceeds the 20 MiB limit";
+
+== src/core/images/image_attachments.zig:805-850@481104fd -- the dimension cache (a turn's; the file size is checked again on each request), attachmentDimensions, probeSnapshotDimensions, attachmentRawBytes, attachmentFitsEncodedLimit: an open or a header that fails is no size
+  805  /// Reports whether a snapshot file is wider or taller than the model pixel
+  806  /// limit. Unreadable dimensions report false and keep the byte-limit path.
+  807  /// Cached header dimensions of immutable snapshots, keyed by snapshot digest.
+  808  /// File size is checked again on each request. Keys are owned by the allocator
+  809  /// passed alongside the cache.
+  810  pub const AttachmentDimensionCache = std.StringHashMapUnmanaged(?image_data.Dimensions);
+  811  
+  812  /// Pixel size of an attachment, or null when it cannot be read. Unreadable
+  813  /// snapshots are reported where the request loads them.
+  814  fn attachmentDimensions(
+  815      cache_alloc: std.mem.Allocator,
+  816      cache: *AttachmentDimensionCache,
+  817      attachment: types.ImageAttachment,
+  818  ) std.mem.Allocator.Error!?image_data.Dimensions {
+  819      if (attachment.inline_data) |bytes| return image_data.imageDimensions(bytes);
+  820      const source = imageFile(attachment) orelse return null;
+  821      const digest = attachment.snapshot_sha256 orelse return probeSnapshotDimensions(source);
+  822      if (cache.get(digest)) |cached| return cached;
+  823      const dimensions = probeSnapshotDimensions(source);
+  824      const key = try cache_alloc.dupe(u8, digest);
+  825      errdefer cache_alloc.free(key);
+  826      try cache.put(cache_alloc, key, dimensions);
+  827      return dimensions;
+  828  }
+  829  
+  830  fn probeSnapshotDimensions(source: ImageFile) ?image_data.Dimensions {
+  831      var file = source.open() catch return null;
+  832      defer file.close(io_mod.getIo());
+  833      const reader: SnapshotFileReader = .{ .file = file };
+  834      return reader.dimensions();
+  835  }
+  836  
+  837  fn attachmentRawBytes(attachment: types.ImageAttachment) ?usize {
+  838      if (attachment.inline_data) |bytes| return bytes.len;
+  839      const source = imageFile(attachment) orelse return null;
+  840      var file = source.open() catch return null;
+  841      defer file.close(io_mod.getIo());
+  842      const stat = file.stat(io_mod.getIo()) catch return null;
+  843      if (!source.accepts(stat)) return null;
+  844      return std.math.cast(usize, stat.size);
+  845  }
+  846  
+  847  fn attachmentFitsEncodedLimit(attachment: types.ImageAttachment) bool {
+  848      const size = attachmentRawBytes(attachment) orelse return false;
+  849      return image_data.fitsEncodedImageLimit(size);
+  850  }
+
+== src/core/images/image_data.zig:6-6@481104fd -- max_encoded_image_bytes: 5 MiB
+    6  pub const max_encoded_image_bytes: usize = 5 * 1024 * 1024;
+
+== src/core/images/image_data.zig:168-179@481104fd -- requestMaxDimension, countRequestImages: every image of the request, a tool result's with the user's
+  168  pub fn requestMaxDimension(image_count: usize) u32 {
+  169      return if (image_count > strict_image_count) max_image_dimension else max_single_image_dimension;
+  170  }
+  171  
+  172  pub fn countRequestImages(messages: []const types.ChatMessage) usize {
+  173      var count: usize = 0;
+  174      for (messages) |message| {
+  175          count +|= message.images.len;
+  176          if (message.tool_result_memory) |memory| count +|= memory.tool_images.len;
+  177      }
+  178      return count;
+  179  }
+
+== src/core/images/image_data.zig:186-190@481104fd -- fitsEncodedImageLimit: 5 MiB once encoded
+  186  
+  187  pub fn fitsEncodedImageLimit(raw_bytes: usize) bool {
+  188      const encoded = encodedImageBytes(raw_bytes) orelse return false;
+  189      return encoded <= max_encoded_image_bytes;
+  190  }
+
+== src/core/images/image_attachments.zig:960-988@481104fd -- writeWithheldAttachmentNotice
+  960  fn writeWithheldAttachmentNotice(
+  961      writer: *std.Io.Writer,
+  962      attachment: types.ImageAttachment,
+  963      dimensions: ?image_data.Dimensions,
+  964      max_dimension: u32,
+  965  ) std.Io.Writer.Error!void {
+  966      if (dimensions) |size| {
+  967          try writer.print("[Image #{d} not sent: {s} is {d}x{d} pixels. This request permits at most {d} per side and 5 MiB encoded per image. ", .{ attachment.id, attachment.media_type, size.width, size.height, max_dimension });
+  968      } else if (attachment.source_ref != null and attachment.inline_data == null and imageFile(attachment) == null) {
+  969          try writer.print("[Image #{d} not sent: only a host source reference was supplied. This request permits at most {d} per side and 5 MiB encoded per image. ", .{ attachment.id, max_dimension });
+  970      } else {
+  971          try writer.print("[Image #{d} not sent: its dimensions could not be verified. ", .{attachment.id});
+  972      }
+  973      if (attachment.source_ref) |source_ref| {
+  974          try image_data.writeHostImageRecoveryNotice(writer, source_ref, max_dimension);
+  975          return;
+  976      }
+  977      if (savedImagePath(attachment)) |path| {
+  978          try writer.print("The original is saved at {s}. Use an available image tool to save a smaller copy to a new file", .{path});
+  979          // Saved files are named .bin or by their hash, which hides the type
+  980          // from tools that choose a decoder by file name.
+  981          if (mediaTypeExtension(attachment.media_type)) |extension| {
+  982              try writer.print(" ending in {s}", .{extension});
+  983          }
+  984          try writer.writeAll(", then read_file the copy. If no image tool is available, ask the user before installing one.]\n");
+  985          return;
+  986      }
+  987      try writer.writeAll("No local image file is available; ask the user for a smaller copy.]\n");
+  988  }
+
+== src/core/images/image_attachments.zig:1011-1045@481104fd -- withholdOversizedAttachments: held back unless its size is known, within the limit, and 5 MiB encoded
+ 1011  pub fn withholdOversizedAttachments(
+ 1012      arena: std.mem.Allocator,
+ 1013      cache_alloc: std.mem.Allocator,
+ 1014      cache: *AttachmentDimensionCache,
+ 1015      messages: []const types.ChatMessage,
+ 1016      max_dimension: u32,
+ 1017  ) !AttachmentProjection {
+ 1018      var result: ?[]types.ChatMessage = null;
+ 1019      for (messages, 0..) |message, index| {
+ 1020          if (message.images.len == 0) continue;
+ 1021          var kept: ?std.ArrayList(types.ImageAttachment) = null;
+ 1022          var notice: std.Io.Writer.Allocating = .init(arena);
+ 1023          for (message.images, 0..) |image, image_index| {
+ 1024              const dimensions = try attachmentDimensions(cache_alloc, cache, image);
+ 1025              if (dimensions != null and !dimensions.?.exceeds(max_dimension) and attachmentFitsEncodedLimit(image)) {
+ 1026                  if (kept) |*list| list.appendAssumeCapacity(image);
+ 1027                  continue;
+ 1028              }
+ 1029              if (kept == null) {
+ 1030                  kept = try .initCapacity(arena, message.images.len);
+ 1031                  kept.?.appendSliceAssumeCapacity(message.images[0..image_index]);
+ 1032              }
+ 1033              debug_trace.logf("images", "event=attachment_withheld image_id={d} max_dimension={d} dimensions_known={s}", .{ image.id, max_dimension, if (dimensions != null) "true" else "false" });
+ 1034              writeWithheldAttachmentNotice(&notice.writer, image, dimensions, max_dimension) catch return error.OutOfMemory;
+ 1035          }
+ 1036          const kept_images = kept orelse continue;
+ 1037  
+ 1038          const projected = result orelse try arena.dupe(types.ChatMessage, messages);
+ 1039          result = projected;
+ 1040          projected[index].images = kept_images.items;
+ 1041          projected[index].content = try std.mem.concat(arena, u8, &.{ notice.written(), message.content orelse "" });
+ 1042      }
+ 1043      return .{ .messages = result orelse messages };
+ 1044  }
+ 1045  
+
+== src/core/images/image_attachments.zig:1050-1054@481104fd -- savedImagePath: the blob
+ 1050  pub fn savedImagePath(image: types.ImageAttachment) ?[]const u8 {
+ 1051      if (image.blob_path) |path| return path;
+ 1052      if (image.inline_data != null) return null;
+ 1053      return image.snapshot_path;
+ 1054  }
+
+== src/core/agent/runtime/request_image_budget.zig:1-22@481104fd -- the request budget: 30 MiB, so a 20 MiB image (28 MiB encoded) is not held back by it alone
+    1  //! Keeps the images re-sent with every request under the provider's request
+    2  //! size limit. Each request carries every earlier image, so its body grows
+    3  //! with every screenshot while its token estimate barely moves. The oldest
+    4  //! images leave the request first, each with a note for loading it again.
+    5  //! History is never changed.
+    6  const std = @import("std");
+    7  const types = @import("../../shared/types.zig");
+    8  const image_attachments = @import("../../images/image_attachments.zig");
+    9  const image_data = @import("../../images/image_data.zig");
+   10  const utf8PrefixLength = @import("../../config/context_limits.zig").utf8PrefixLength;
+   11  
+   12  const Allocator = std.mem.Allocator;
+   13  const ChatMessage = types.ChatMessage;
+   14  
+   15  /// Claude routes reject request bodies over 32 MiB, the strictest limit
+   16  /// measured through AI Gateway. Gemini and OpenAI routes accept larger ones.
+   17  pub const default_max_request_bytes: usize = 30 * 1024 * 1024;
+   18  /// Anthropic accepts at most 100 images in one request.
+   19  pub const default_max_request_images: usize = 100;
+   20  /// Planning allowance for the note that replaces each withheld image.
+   21  const notice_reserve_bytes: usize = 320;
+   22  
+
+== src/core/agent/runtime/request_image_budget.zig:76-92@481104fd -- withholdImagesPastLimit
+   76  /// can't carry by their serialized size alone, before the request is built.
+   77  /// A request re-sends every image the session keeps, so building it whole
+   78  /// would hold all of them, encoded, at once. A body is never smaller than
+   79  /// its images, so this withholds no image `withholdOldestImages` would keep
+   80  /// for a limit of at most `max_request_bytes`.
+   81  pub fn withholdImagesPastLimit(
+   82      arena: Allocator,
+   83      messages: []const ChatMessage,
+   84      max_request_bytes: usize,
+   85      tool_text_limit: usize,
+   86  ) Allocator.Error!Projection {
+   87      const sizes = try imageSizes(arena, messages);
+   88      var images_bytes: usize = 0;
+   89      for (sizes) |size| images_bytes +|= size;
+   90      const withheld = oldestImagesToWithhold(sizes, images_bytes, .{ .max_request_bytes = max_request_bytes });
+   91      return withhold(arena, messages, withheld, tool_text_limit);
+   92  }
+
+== src/core/agent/runtime/orchestrator.zig:7612-7632@481104fd -- the native route: stored tool images loaded, then unsafe attachments held back, before the build
+ 7612                  });
+ 7613              }
+ 7614              // Images the session dropped leave every request as notes.
+ 7615              const result_request_messages = try image_attachments.withholdDroppedImages(overlay_arena, try project_read_tool_result_request_messages(
+ 7616                  overlay_arena,
+ 7617                  request_unwrap,
+ 7618                  subagent_request_messages,
+ 7619              ));
+ 7620              const materialized_messages = if (image_choice.route == .native) native: {
+ 7621                  const loaded_messages = try runtime_execution_memory.materializeToolImages(overlay_arena, config, result_request_messages);
+ 7622                  const max_dimension = image_data.requestMaxDimension(image_data.countRequestImages(loaded_messages));
+ 7623                  const safe_tool_messages = try runtime_execution_memory.withholdRequestToolImages(overlay_arena, loaded_messages, max_dimension, config.max_tool_result_bytes);
+ 7624                  const projection = try image_attachments.withholdOversizedAttachments(
+ 7625                      overlay_arena,
+ 7626                      arena,
+ 7627                      &attachment_dimensions,
+ 7628                      safe_tool_messages,
+ 7629                      max_dimension,
+ 7630                  );
+ 7631                  break :native projection.messages;
+ 7632              } else result_request_messages;
+
+== src/core/agent/runtime/gateway_step.zig:256-283@481104fd -- projectToolImageMessages: the non-native routes' retained-images note
+  256  
+  257  pub const VisionToolMode = agent_stream_provider.VisionMode;
+  258  
+  259  pub const ToolImageProjection = struct {
+  260      messages: []const types.ChatMessage,
+  261      /// True when at least one stored tool image was withheld from the request.
+  262      stripped: bool,
+  263  };
+  264  
+  265  /// Projects stored tool images into the request as `disposition` says, which
+  266  /// the image route core decided (`src/core/images/image_route.zig`). Withheld
+  267  /// images stay in the session image store, and each tool message that held
+  268  /// one says why and what the model can do instead, so the next step is never
+  269  /// a dead end.
+  270  pub fn projectToolImageMessages(
+  271      alloc: Allocator,
+  272      messages: []const types.ChatMessage,
+  273      disposition: image_route.ToolImages,
+  274      text_limit: usize,
+  275  ) !ToolImageProjection {
+  276      const notice: []const u8 = switch (disposition) {
+  277          .none, .attached => return .{ .messages = messages, .stripped = false },
+  278          .withheld_fallback => "[Tool images were retained but not sent: this model receives image input through the vision tool, not inline. Call vision with the image file's local path to inspect it.]\n",
+  279          .withheld_dead_end => "[Tool images were retained but not sent: this model does not accept inline images and no vision fallback is available. Ask the user to attach the image directly or switch to a vision-capable model.]\n",
+  280          .withheld_unknown => "[Tool images were retained but not sent: fx could not confirm image input support for this model (the model is not listed in the model catalog, or the catalog is unavailable). This can recover later in the session, so a retry may succeed; otherwise ask the user to attach the image directly.]\n",
+  281      };
+  282      var projected: ?[]types.ChatMessage = null;
+  283      for (messages, 0..) |message, index| {
+
+== src/core/agent/runtime/execution_memory.zig:975-991@481104fd -- retainToolImages: one handle for every image of a result
+  975  /// Retains the original tool images so later requests can project a safe view.
+  976  pub fn retainToolImages(arena: Allocator, config: Config, call: ToolCall, prepared: *result_store.PreparedResult) !void {
+  977      const memory = &prepared.memory;
+  978      if (memory.tool_images.len == 0 or memory.tool_image_handle != null) return;
+  979      const capability = config.session_child_capability orelse return;
+  980      const handle = result_store.storeToolImages(arena, capability, call.id, call.name, memory.tool_images) catch |err| {
+  981          if (err == error.OutOfMemory) return error.OutOfMemory;
+  982          debug_trace.logf("session", "tool images remain inline because artifact storage failed call_id={s} err={s}", .{ call.id, @errorName(err) });
+  983          return;
+  984      };
+  985      memory.tool_image_handle = handle;
+  986      const notice = try arena.print("Saved images: {s}. Use read_tool_result with this handle to load them again.\n", .{handle});
+  987      const limit = config.max_tool_result_bytes -| notice.len;
+  988      const keep = @import("../../config/context_limits.zig").utf8PrefixLength(prepared.model_output, limit);
+  989      if (keep < prepared.model_output.len) memory.truncated = true;
+  990      prepared.model_output = try std.mem.concat(arena, u8, &.{ notice, prepared.model_output[0..keep] });
+  991  }
+
+== src/core/agent/runtime/execution_memory.zig:993-1022@481104fd -- materializeToolImages: the two notes
+  993  fn needsImageMaterialization(messages: []const ChatMessage) bool {
+  994      for (messages) |message| {
+  995          const memory = message.tool_result_memory orelse continue;
+  996          if (memory.tool_images.len == 0 and memory.tool_image_handle != null) return true;
+  997      }
+  998      return false;
+  999  }
+ 1000  
+ 1001  /// Loads stored tool images for a request without changing session history.
+ 1002  pub fn materializeToolImages(arena: Allocator, config: Config, messages: []const ChatMessage) ![]const ChatMessage {
+ 1003      if (!needsImageMaterialization(messages)) return messages;
+ 1004      const materialized = try arena.dupe(ChatMessage, messages);
+ 1005      for (materialized) |*message| {
+ 1006          if (message.tool_result_memory) |*memory| {
+ 1007              if (memory.tool_images.len == 0) {
+ 1008                  const handle = memory.tool_image_handle orelse continue;
+ 1009                  const capability = config.session_child_capability orelse {
+ 1010                      message.content = try prependImageNotice(arena, "[Stored tool image is unavailable in this session.]\n", message.content orelse "", config.max_tool_result_bytes);
+ 1011                      continue;
+ 1012                  };
+ 1013                  memory.tool_images = result_store.loadToolImages(arena, capability, handle) catch |err| {
+ 1014                      if (err == error.OutOfMemory) return error.OutOfMemory;
+ 1015                      const notice = try arena.print("[Stored tool image unavailable: {s}]\n", .{@errorName(err)});
+ 1016                      message.content = try prependImageNotice(arena, notice, message.content orelse "", config.max_tool_result_bytes);
+ 1017                      continue;
+ 1018                  };
+ 1019              }
+ 1020          }
+ 1021      }
+ 1022      return materialized;
+
+== src/core/agent/runtime/execution_memory.zig:1071-1076@481104fd -- prependImageNotice: the note, then the result cut to fit
+ 1071  fn prependImageNotice(alloc: Allocator, notice: []const u8, content: []const u8, limit: usize) Allocator.Error![]u8 {
+ 1072      const utf8_prefix_length = @import("../../config/context_limits.zig").utf8PrefixLength;
+ 1073      const notice_keep = utf8_prefix_length(notice, limit);
+ 1074      const keep = utf8_prefix_length(content, limit -| notice.len);
+ 1075      return std.mem.concat(alloc, u8, &.{ notice[0..notice_keep], content[0..keep] });
+ 1076  }
+
+== src/core/tooling/tool_result_limits.zig:7-7@481104fd -- the default result limit
+    7  pub const default_max_tool_result_bytes: usize = 64 * 1024;
+
+== src/core/session/result_store.zig:286-302@481104fd -- loadToolImages: the handle's artifact, whole or not at all
+  286  pub fn loadToolImages(alloc: Allocator, capability: *session_child_store.SessionChildCapability, handle: []const u8) ![]types.ToolImage {
+  287      if (!isImageHandle(handle)) return error.InvalidResultHandle;
+  288      var reader = try openReaderManaged(alloc, capability, handle);
+  289      defer reader.deinit();
+  290      if (reader.size > image_data.max_result_frame_bytes) return error.ResultTooLarge;
+  291      const bytes = try reader.readPage(alloc, 0, image_data.max_result_frame_bytes);
+  292      defer alloc.free(bytes);
+  293      var digest: [32]u8 = undefined;
+  294      std.crypto.hash.sha2.Sha256.hash(bytes, &digest, .{});
+  295      if (!handleMatchesContentDigest(handle, digest)) return error.ImageArtifactChanged;
+  296      var parsed = try std.json.parseFromSlice(std.json.Value, alloc, bytes, .{});
+  297      defer parsed.deinit();
+  298      if (parsed.value != .array) return error.InvalidImageArtifact;
+  299      const images = try session_codec.parsePersistedToolImages(alloc, parsed.value.array.items);
+  300      errdefer types.freeToolImages(alloc, images);
+  301      if (images.len != parsed.value.array.items.len) return error.InvalidImageArtifact;
+  302      return images;
+
+== src/core/session/result_store.zig:584-595@481104fd -- openReaderManaged: a v2 session reads it as a blob
+  584  pub fn openReaderManaged(
+  585      alloc: Allocator,
+  586      capability: *session_child_store.SessionChildCapability,
+  587      handle: []const u8,
+  588  ) !ResultReader {
+  589      try validateHandle(handle);
+  590      if (capability.holdsBlobs()) {
+  591          const data = try readStoredTextManaged(alloc, capability, handle);
+  592          return .{ .source = .{ .bytes = .{ .alloc = alloc, .data = data } }, .size = data.len };
+  593      }
+  594      var file = capability.openFileReadOnly(alloc, .tool_results, handle) catch |err| switch (err) {
+  595          error.FileNotFound => return error.ResultHandleNotFound,
+
+== src/core/session/result_store.zig:728-742@481104fd -- readStoredTextManaged: BlobNotFound is ResultHandleNotFound
+  728  fn readStoredTextManaged(
+  729      alloc: Allocator,
+  730      capability: *session_child_store.SessionChildCapability,
+  731      handle: []const u8,
+  732  ) ![]u8 {
+  733      if (capability.holdsBlobs()) {
+  734          // Every store's blobs share the session, found by hash alone, so
+  735          // only this store's own handles are its results, its compactor
+  736          // records among them: a command replay's is read by its own store
+  737          // (D44, D50).
+  738          if (!isStoredTextHandle(handle) and !isImageHandle(handle) and !isRecordHandle(handle)) return error.ResultHandleNotFound;
+  739          return capability.readBlob(alloc, .tool_results, handle, stored_text_max_bytes) catch |err| switch (err) {
+  740              error.BlobNotFound => error.ResultHandleNotFound,
+  741              error.BlobTooLarge => error.StreamTooLong,
+  742              else => err,
+
+== src/core/session/session_child_store.zig:61-76@481104fd -- BlobError
+   61  /// What a v2 session's blobs can fail with (D44).
+   62  pub const BlobError = error{
+   63      OutOfMemory,
+   64      /// This session holds no body under that name.
+   65      BlobNotFound,
+   66      /// The blob's bytes no longer match its name.
+   67      BlobDamaged,
+   68      BlobTooLarge,
+   69      /// The session has closed, so nothing more can be stored.
+   70      BlobStoreClosed,
+   71      SessionChildReadOnly,
+   72      BlobStoreFailed,
+   73      NoSpaceLeft,
+   74      AccessDenied,
+   75      ReadOnlyFileSystem,
+   76      FileTooBig,
+
+== src/core/session/session_child_store.zig:832-836@481104fd -- readBlob
+  832      pub fn readBlob(self: *SessionChildCapability, alloc: Allocator, kind: ManagedChildKind, name: []const u8, max_bytes: usize) BlobError![]u8 {
+  833          const blobs = self.impl.blobs orelse return error.BlobStoreFailed;
+  834          const hash = try blobs.vtable.resolve(blobs.ctx, kind, name);
+  835          return blobs.vtable.get(blobs.ctx, alloc, &hash, max_bytes);
+  836      }
+
+== src/core/session/session_adapter.zig:1134-1160@481104fd -- get and blobReadFailed: NotFound, Corrupt, Io
+ 1134      fn get(ctx: *anyopaque, alloc: Allocator, hash: []const u8, max_bytes: usize) session_child_store.BlobError![]u8 {
+ 1135          const host = from(ctx);
+ 1136          const bytes = host.store.manager.getBlob(alloc, host.id, hash) catch |err| return blobReadFailed(err);
+ 1137          if (bytes.len > max_bytes) {
+ 1138              alloc.free(bytes);
+ 1139              return error.BlobTooLarge;
+ 1140          }
+ 1141          return bytes;
+ 1142      }
+ 1143  
+ 1144      fn path(ctx: *anyopaque, alloc: Allocator, hash: []const u8) session_child_store.BlobError![]u8 {
+ 1145          const host = from(ctx);
+ 1146          return host.store.manager.blobPath(alloc, host.id, hash) catch |err| blobReadFailed(err);
+ 1147      }
+ 1148  
+ 1149      fn blobReadFailed(err: sm.BlobError) session_child_store.BlobError {
+ 1150          return switch (err) {
+ 1151              error.OutOfMemory => error.OutOfMemory,
+ 1152              error.InvalidArgument, error.NotFound => error.BlobNotFound,
+ 1153              error.Corrupt => error.BlobDamaged,
+ 1154              error.NoSpaceLeft => error.NoSpaceLeft,
+ 1155              error.AccessDenied => error.AccessDenied,
+ 1156              error.ReadOnlyFileSystem => error.ReadOnlyFileSystem,
+ 1157              error.FileTooBig => error.FileTooBig,
+ 1158              error.Io => error.BlobStoreFailed,
+ 1159          };
+ 1160      }
+
+== src/core/session_manager/session.zig:1642-1665@481104fd -- readBlob: Corrupt on the length or the hash; anything but NotFound is Io
+ 1642  pub const BlobError = error{ NotFound, Corrupt, OutOfMemory } || storage.IoFault;
+ 1643  
+ 1644  /// Reads a blob of any session without a lock. The bytes are checked
+ 1645  /// against their name, so a damaged blob is reported, never returned.
+ 1646  /// The caller owns the result.
+ 1647  pub fn readBlob(env: *const Env, gpa: std.mem.Allocator, id_: []const u8, hash: []const u8) BlobError![]u8 {
+ 1648      const s = env.s;
+ 1649      if (!schema.validId(id_) or !schema.validBlobHash(hash)) return error.NotFound;
+ 1650      const dir = s.openDir(env.root, id_) catch |err| return notFoundOr(err);
+ 1651      defer s.closeDir(dir);
+ 1652      const blobs = s.openDir(dir, "blobs") catch |err| return notFoundOr(err);
+ 1653      defer s.closeDir(blobs);
+ 1654      const file = s.openFile(blobs, hash, .read_only) catch |err| return notFoundOr(err);
+ 1655      defer s.closeFile(file);
+ 1656      const len = s.length(file) catch |io_err| return storage.ioFault(io_err);
+ 1657      if (len > max_blob_bytes) return error.Corrupt;
+ 1658      const bytes = try gpa.alloc(u8, @intCast(len));
+ 1659      errdefer gpa.free(bytes);
+ 1660      if ((s.readAt(file, bytes, 0) catch |io_err| return storage.ioFault(io_err)) != bytes.len) return error.Io;
+ 1661      const actual = schema.blobHash(bytes);
+ 1662      if (!std.mem.eql(u8, &actual, hash)) return error.Corrupt;
+ 1663      return bytes;
+ 1664  }
+ 1665  

@@ -4,7 +4,7 @@
 # default local auth mode, src/core/app/app_lifecycle.zig:690-701@481104fd)
 # -- and `keep` holds its dead pane as the snap. xfx starts and says
 # `config: 1 configuration issue` (src/config.rs:850-851,
-# src/tui/shell.rs:3820-3837): the ledger's `profile-refuse-at-launch`. The
+# src/tui/shell.rs:3823-3840): the ledger's `profile-refuse-at-launch`. The
 # panel's `Settings` row for a profile that goes bad after launch is
 # p5-panels-status-badsettings's; there is no TUI here to type `/status` into.
 keep

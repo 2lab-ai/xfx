@@ -151,7 +151,7 @@ def capture(cap, files=None, which="fx", binary="/bin/bash", size="30x200", scen
         write(os.path.join(out, name), text)
     extra = env
     env = dict(os.environ, FXCAP_SCENARIOS=scen, TMPDIR=d)
-    for k in ("TMUX", "TMUX_PANE", "FX_BIN", "XFX_BIN"):
+    for k in ("TMUX", "TMUX_PANE", "FX_BIN", "XFX_BIN", "FXCAP_RUN"):
         env.pop(k, None)
     env["FX_BIN" if which == "fx" else "XFX_BIN"] = link
     env.update(extra or {})
@@ -286,6 +286,338 @@ class Refusals(unittest.TestCase):
         r = capture("wait 1\nsnap a\n", scen_name="my scenarios")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
         self.assertIn("guards:", r.stdout)
+
+
+class RunDirectory(unittest.TestCase):
+    """The run directory's name (WORKSPACE-INDEX-AT-PLAN). A binary reads its
+    path's letters, not only its width: workspace-index's `@plan` matched the
+    added directory `<run>/extra/notes/` through its whole path, so on CI,
+    whose TMPDIR holds no `l` after its `p`, the row was there only on the
+    side whose random `fxcap.XXXXXX` had one -- and roots.py writes both runs'
+    paths as the same placeholder, so no capture showed why. A sweep unit's
+    two runs get one name (FXCAP_RUN, sweep.py `run_unit`), and every name is
+    six digits."""
+
+    # The stub prints a checksum of its working directory: a number, which
+    # roots.py has no reason to rewrite, so the two sides' paths are compared
+    # byte for byte where their placeholders would read the same.
+    CAP = "keep\nwait 1\ntype clear; echo \"sum=$(pwd | cksum)\"; echo DO\"\"NE\nkey Enter\nuntil shown DONE\nsnap a\n"
+
+    def sum_row(self, r):
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        rows = [row for row in r.file("a").split("\n") if row.startswith("sum=")]
+        self.assertEqual(len(rows), 1, r.file("a"))
+        return rows[0]
+
+    def test_a_sweep_units_two_runs_see_the_same_path(self):
+        # The sweep's way: both sides in one TMPDIR, one after the other, the
+        # directory emptied between them (sweep.py `run_unit`).
+        d = scratch()
+        name = "fxcap.%06d" % (os.getpid() % 1000000)
+        # Under a umask that would leave a plain `mkdir` group- and
+        # world-readable: the named directory is made owner-only all the same.
+        old = os.umask(0o022)
+        try:
+            fx = capture(self.CAP, d=d, env={"FXCAP_RUN": name})
+            runs = [os.path.basename(p) for p in glob.glob(os.path.join(d, "fxcap.*"))]
+            modes = [os.stat(os.path.join(d, run)).st_mode & 0o777 for run in runs]
+            for run in runs:
+                shutil.rmtree(os.path.join(d, run))
+            xfx = capture(self.CAP, which="xfx", d=d, env={"FXCAP_RUN": name})
+        finally:
+            os.umask(old)
+        self.assertEqual(self.sum_row(fx), self.sum_row(xfx), "the two binaries ran in different paths")
+        runs += [os.path.basename(p) for p in glob.glob(os.path.join(d, "fxcap.*"))]
+        modes.append(os.stat(os.path.join(d, name)).st_mode & 0o777)
+        self.assertEqual(runs, [name, name])
+        self.assertEqual(modes, [0o700, 0o700])
+
+    def test_a_run_of_its_own_is_six_digits_owner_only(self):
+        d = scratch()
+        for which in ("fx", "xfx"):
+            self.sum_row(capture(self.CAP, which=which, d=d))
+        runs = glob.glob(os.path.join(d, "fxcap.*"))
+        self.assertEqual(len(runs), 2, "two runs, two directories: neither reused the other's")
+        for run in runs:
+            self.assertRegex(os.path.basename(run), r"^fxcap\.[0-9]{6}$")
+            self.assertEqual(os.stat(run).st_mode & 0o777, 0o700)
+
+    def test_a_name_of_another_shape_or_already_there_is_refused(self):
+        # One level down, so the level above, where `../` would reach, is
+        # this test's own too.
+        d = os.path.join(scratch(), "in")
+        os.makedirs(d)
+        for name, needle in (
+            ("fxcap.abcdef", "FXCAP_RUN is `fxcap.` and six digits"),
+            ("fxcap.1234567", "FXCAP_RUN is `fxcap.` and six digits"),
+            ("../fxcap.123456", "FXCAP_RUN is `fxcap.` and six digits"),
+            ("fxcap.12345/", "FXCAP_RUN is `fxcap.` and six digits"),
+        ):
+            with self.subTest(name=name):
+                r = capture("wait 1\nsnap a\n", d=d, env={"FXCAP_RUN": name})
+                self.assertEqual(r.code, 2, r.stdout + r.stderr)
+                self.assertIn(needle, r.stderr)
+                self.assertEqual(r.stdout, "", "nothing ran: no roots line, no guards line")
+                self.assertEqual(glob.glob(os.path.join(d, "fxcap.*")) + glob.glob(os.path.join(os.path.dirname(d), "fxcap.*")), [])
+        os.mkdir(os.path.join(d, "fxcap.000001"))
+        r = capture("wait 1\nsnap a\n", d=d, env={"FXCAP_RUN": "fxcap.000001"})
+        self.assertEqual(r.code, 2, r.stdout + r.stderr)
+        self.assertIn("FXCAP_RUN names a run directory that is already there or cannot be made", r.stderr)
+        self.assertEqual(r.stdout, "")
+        self.assertEqual(os.listdir(os.path.join(d, "fxcap.000001")), [], "the directory there is left as it was")
+
+    def shim_od(self, d, numbers):
+        """A PATH directory whose `od` answers `numbers`, one a call, then the
+        last again: the random name's digits, chosen."""
+        shim = os.path.join(d, "shim")
+        write(os.path.join(shim, "od"),
+              "#!/bin/sh\nn=$(cat \"$0.n\" 2>/dev/null || echo 0)\necho $((n + 1)) > \"$0.n\"\n"
+              "set -- %s\nshift $(( n < $# - 1 ? n : $# - 1 ))\necho \" $1\"\n" % " ".join(str(x) for x in numbers))
+        os.chmod(os.path.join(shim, "od"), 0o755)
+        return {"PATH": shim + ":" + os.environ["PATH"]}
+
+    def test_a_random_name_already_there_is_passed_over(self):
+        # The first name drawn is taken by a directory that is not the run's:
+        # it is left as it was, and the run takes the next name drawn.
+        d = scratch()
+        os.mkdir(os.path.join(d, "fxcap.000123"))
+        write(os.path.join(d, "fxcap.000123", "mine"), "not the run's\n")
+        self.sum_row(capture(self.CAP, d=d, env=self.shim_od(d, [123, 124])))
+        self.assertEqual(os.listdir(os.path.join(d, "fxcap.000123")), ["mine"])
+        self.assertTrue(os.path.isdir(os.path.join(d, "fxcap.000124", "work")), "the run is the next name's")
+
+    def test_a_tmpdir_with_no_room_for_a_run_ends_at_once(self):
+        # No TMPDIR at all: the first failure says so, not a hundred tries.
+        d = scratch()
+        r = capture("wait 1\nsnap a\n", d=d, env=dict(self.shim_od(d, [5]), TMPDIR=os.path.join(d, "absent")))
+        self.assertEqual(r.code, 2, r.stdout + r.stderr)
+        self.assertIn("no run directory can be made under TMPDIR", r.stderr)
+        self.assertEqual(slurp(os.path.join(d, "shim", "od.n")).strip(), "1", "one name drawn")
+        self.assertEqual(r.stdout, "")
+
+    # The pane's process when the run ends (capture.sh `own_pane`, `await_pane`).
+    # tmux's kill-server hangs it up and returns at once; a binary still on
+    # its way out could write under the run directory after the run -- where
+    # the sweep's next run of the unit, under the same name, keeps its HOME.
+    # The run waits for it, its wait sends no signal, and it fails if the
+    # process stays or a look cannot tell (`unknown` is never gone). Each stub
+    # writes its pid, logs every HUP and TERM it is sent, and ends by itself:
+    # nothing here signals a process either.
+    STUB_HEAD = ("#!/bin/bash\necho $$ > \"$HOME/pid\"\necho $$ >> \"$HOME/pids\"\n"
+                 "trap 'echo HUP >> \"$HOME/sigs.$$\"; on_hup' HUP\ntrap 'echo TERM >> \"$HOME/sigs.$$\"' TERM\n")
+    # On a hangup, a second's last writing, then gone: inside the wait.
+    SLOW_EXIT = STUB_HEAD + ("on_hup() { sleep 1; mkdir \"$HOME/late.$$\"; exit 0; }\necho up\n"
+                             "while :; do sleep 0.05; done\n")
+    # Deaf to the hangup, gone by itself about 7 s after it starts: past the wait.
+    STAYS = STUB_HEAD + "on_hup() { :; }\necho up\nfor i in $(seq 140); do sleep 0.05; done\nexit 0\n"
+    # Gone on its own half a second in, under `keep`: the pane dead long before
+    # the run ends.
+    GONE = STUB_HEAD + "on_hup() { :; }\necho up\nsleep 0.5\nexit 0\n"
+    # Waits, a bounded time, until $run/pane -- capture.sh's copy of its
+    # record, which cleanup never reads -- says this process is recorded.
+    WAIT_REC = ("rec=\"$(dirname \"$HOME\")/pane\"\n"
+                "for i in $(seq 100); do [ \"$(head -1 \"$rec\" 2>/dev/null)\" = pid ] && break; sleep 0.02; done\nsleep 0.2\n")
+    # STAYS, once recorded, doing `act` to the record's copy: the binary can
+    # write the run directory, so cleanup must not decide from that file.
+    def stays_and(self, act):
+        return self.STAYS.replace("echo up\n", self.WAIT_REC + act + "echo up\n")
+
+    # Once the stub is recorded (it leaves @D@/ps-on), `ps` reports `start` for
+    # every start-time look; before, the real `ps` answers.
+    def ps_says(self, start):
+        return ('[ -e "$(dirname "$0")/../ps-on" ] || exec "$REAL" "$@"\n'
+                'for a; do [ "$a" = lstart= ] && { %s; exit $?; }; done\nexec "$REAL" "$@"\n' % start)
+
+    def stub_run(self, body, cap="wait 1\nsnap a\n", shims=None):
+        """`shims`: name -> shell body of a PATH shim for capture.sh itself
+        (the binary's PATH is /usr/bin:/bin), `$REAL` the real tool."""
+        d = scratch()
+        stub = os.path.join(d, "stub.sh")
+        write(stub, body.replace("@D@", d))
+        os.chmod(stub, 0o755)
+        env = None
+        if shims:
+            for name, shim in shims.items():
+                write(os.path.join(d, "shim", name), "#!/bin/bash\nREAL=%s\n%s" % (shutil.which(name), shim))
+                os.chmod(os.path.join(d, "shim", name), 0o755)
+            env = {"PATH": os.path.join(d, "shim") + ":" + os.environ["PATH"]}
+        r = capture(cap, which="xfx", binary=stub, d=d, env=env)
+        (run,) = glob.glob(os.path.join(d, "fxcap.*"))
+        pid = int(slurp(os.path.join(run, "home", "pid")))
+        return r, run, pid
+
+    def alive(self, pid):
+        state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+        return bool(state) and not state.startswith("Z")
+
+    def ends_by_itself(self, pid, seconds=15):
+        for _ in range(int(seconds / 0.1)):
+            if not self.alive(pid):
+                return
+            time.sleep(0.1)
+        self.fail("the stub %d did not end by itself" % pid)
+
+    def sigs(self, run, pid):
+        path = os.path.join(run, "home", "sigs.%d" % pid)
+        return slurp(path).split() if os.path.exists(path) else []
+
+    def looks(self, r):
+        m = re.search(r"^pane: the process the run started is gone \((\d+) looks\)$", r.stdout, re.M)
+        self.assertTrue(m, r.stdout + r.stderr)
+        return int(m.group(1))
+
+    def test_a_binary_on_its_way_out_is_waited_for(self):
+        r, run, pid = self.stub_run(self.SLOW_EXIT)
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.isdir(os.path.join(run, "home", "late.%d" % pid)), "the run ended before the binary's last write")
+        self.assertGreater(self.looks(r), 0)
+        self.assertFalse(self.alive(pid))
+        self.assertEqual(self.sigs(run, pid), ["HUP"], "tmux's hangup and no other signal")
+
+    def test_a_binary_that_stays_fails_the_run_and_is_sent_nothing(self):
+        # Also the same-start-second case: a pid and a start second are
+        # conservative evidence, not an exact identity, and cleanup cannot tell
+        # another process that has both from the one it started. Either way
+        # the run waits, fails, and sends nothing.
+        r, run, pid = self.stub_run(self.STAYS)
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("LIVE-WRITER GUARD: the process this run started in its pane, pid %d (started " % pid, r.stderr)
+        self.assertTrue(self.alive(pid), "capture.sh ended the process it waited for")
+        self.ends_by_itself(pid)
+        self.assertEqual(self.sigs(run, pid), ["HUP"], "tmux's hangup and no other signal")
+
+    def test_a_pane_already_dead_is_not_waited_for(self):
+        r, run, pid = self.stub_run(self.GONE, cap="keep\nwait 2\nsnap a\n")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertEqual(self.looks(r), 0)
+        self.assertEqual(self.sigs(run, pid), [])
+
+    def test_a_pid_that_is_another_process_now_is_not_waited_for_or_signalled(self):
+        # The recorded pid with another start time, as its reuse would show it
+        # (a `ps` shim): gone, at the first look, while the stub stays.
+        stub = self.stays_and("touch @D@/ps-on\n")
+        r, run, pid = self.stub_run(stub, shims={"ps": self.ps_says("echo 'Thu Jan  1 00:00:00 1970'")})
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertEqual(self.looks(r), 0)
+        self.assertTrue(self.alive(pid), "capture.sh ended a process that was not the one it recorded")
+        self.ends_by_itself(pid)
+        self.assertEqual(self.sigs(run, pid), ["HUP"], "tmux's hangup and no other signal")
+
+    # A look that fails is never read as gone (round 4): the stub stays past
+    # the wait, and the run must not pass behind it.
+    def test_a_pane_pid_that_cannot_be_read_fails_the_run(self):
+        shim = 'for a; do [ "$a" = "#{pane_pid}" ] && exit 1; done\nexec "$REAL" "$@"\n'
+        r, run, pid = self.stub_run(self.STAYS, shims={"tmux": shim})
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("LIVE-WRITER GUARD: the process this run started in its pane could not be recorded "
+                      "(the pane pid could not be read)", r.stderr)
+        self.assertEqual(slurp(os.path.join(run, "pane")), "unknown\n\n\nthe pane pid could not be read\n")
+        self.ends_by_itself(pid)
+        self.assertEqual(self.sigs(run, pid), ["HUP"], "tmux's hangup and no other signal")
+
+    def test_a_ps_that_fails_in_the_wait_fails_the_run(self):
+        # `ps` answers until the stub, once recorded, leaves @D@/ps-off; then
+        # every look at its start time fails, while the stub stays.
+        stays = self.stays_and("touch @D@/ps-on\n")
+        r, run, pid = self.stub_run(stays, shims={"ps": self.ps_says("false")})
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("LIVE-WRITER GUARD: the process this run started in its pane, pid %d (started " % pid, r.stderr)
+        self.assertIn("is in a state no look could read 3 s after its tmux server went", r.stderr)
+        self.ends_by_itself(pid)
+        self.assertEqual(self.sigs(run, pid), ["HUP"], "tmux's hangup and no other signal")
+
+    def test_a_ps_that_fails_at_launch_fails_the_run(self):
+        shim = 'for a; do [ "$a" = lstart= ] && exit 1; done\nexec "$REAL" "$@"\n'
+        r, run, pid = self.stub_run(self.STAYS, shims={"ps": shim})
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("could not be recorded (pid %d: its start time could not be read)" % pid, r.stderr)
+        self.ends_by_itself(pid)
+
+    # The binary in the pane can write its run directory, $run/pane among it:
+    # deleted or forged there, the record cleanup decides from is the same.
+    # Each stub stays past the wait, so each run fails (exit 4).
+    def forged(self, act):
+        r, run, pid = self.stub_run(self.stays_and(act))
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("LIVE-WRITER GUARD: the process this run started in its pane, pid %d (started " % pid, r.stderr)
+        self.assertIn("is still running 3 s after its tmux server went", r.stderr)
+        self.ends_by_itself(pid)
+        self.assertEqual(self.sigs(run, pid), ["HUP"], "tmux's hangup and no other signal")
+
+    def test_a_record_copy_the_binary_deletes_changes_nothing(self):
+        self.forged('rm -f "$rec"\n')
+
+    def test_a_record_copy_the_binary_writes_gone_changes_nothing(self):
+        self.forged("printf 'gone\\n' > \"$rec\"\n")
+
+    def test_a_record_copy_the_binary_writes_without_a_start_changes_nothing(self):
+        self.forged("printf 'pid\\n%s\\n' $$ > \"$rec\"\n")
+
+    # A run that ends on the way through a relaunch still owes the wait for
+    # the process the relaunch was replacing: cleanup waits for it too.
+    def relaunch_ends(self, shim):
+        r, run, pid = self.stub_run(self.FIRST_STAYS, cap="wait 1\nrelaunch\nwait 1\nsnap a\n", shims={"tmux": shim})
+        first = int(slurp(os.path.join(run, "home", "pids")).split()[0])
+        self.assertNotEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("LIVE-WRITER GUARD: the relaunched pane's process, pid %d (started " % first, r.stderr)
+        self.assertIn("could not be recorded (the pane was being remade)", r.stderr)
+        self.ends_by_itself(first)
+        self.assertEqual(self.sigs(run, first), ["HUP"], "tmux's hangup and no other signal")
+
+    def test_a_respawn_that_fails_leaves_cleanup_the_first_binary_to_wait_for(self):
+        self.relaunch_ends('for a; do [ "$a" = respawn-pane ] && exit 1; done\nexec "$REAL" "$@"\n')
+
+    def test_an_exit_after_the_respawn_leaves_cleanup_the_first_binary_to_wait_for(self):
+        self.relaunch_ends('"$REAL" "$@"; rc=$?\nfor a; do [ "$a" = respawn-pane ] && exit 1; done\nexit $rc\n')
+
+    def test_a_record_copy_the_binary_made_a_fifo_never_blocks_the_run(self):
+        # The copy is a file of mktemp's renamed over the name, so a FIFO the
+        # binary leaves at $run/pane is never opened.
+        stub = self.STAYS.replace("on_hup() { :; }", "on_hup() { exit 0; }").replace(
+            "echo up\n", 'rec="$(dirname "$HOME")/pane"\nrm -f "$rec"; mkfifo "$rec"\necho up\n')
+        r, run, pid = self.stub_run(stub, cap="wait 1\nrelaunch\nwait 1\nsnap a\n")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+
+    def test_a_relaunch_that_fails_after_respawning_says_the_pane_was_being_remade(self):
+        # The record is unknown from before `respawn-pane` until own_pane
+        # reads the new process: a tmux that respawns the pane and then
+        # fails leaves it unknown, never the old process's.
+        shim = '"$REAL" "$@"; rc=$?\nfor a; do [ "$a" = respawn-pane ] && exit 1; done\nexit $rc\n'
+        r, run, pid = self.stub_run(self.SLOW_EXIT, cap="wait 1\nrelaunch\nwait 1\nsnap a\n", shims={"tmux": shim})
+        self.assertNotEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("could not be recorded (the pane was being remade)", r.stderr)
+
+    def test_a_relaunched_binary_is_the_one_waited_for(self):
+        # `relaunch` replaces the pane's process: the one it replaced, hung up
+        # by respawn-pane, is waited for there (a second's last writing, then
+        # gone), and the record is the new one's, which cleanup waits for.
+        r, run, pid = self.stub_run(self.SLOW_EXIT, cap="wait 1\nrelaunch\nwait 1\nsnap a\n")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        old, new = [int(p) for p in slurp(os.path.join(run, "home", "pids")).split()]
+        self.assertEqual(new, pid)
+        for p in (old, new):
+            self.assertTrue(os.path.isdir(os.path.join(run, "home", "late.%d" % p)), "the run went on before %d's last write" % p)
+        m = re.search(r"^pane: the relaunched pane's process is gone \((\d+) looks\)$", r.stdout, re.M)
+        self.assertTrue(m and int(m.group(1)) > 0, r.stdout)
+        self.assertGreater(self.looks(r), 0)
+
+    # The first binary is deaf to the hangup and stays past both waits, the
+    # relaunch's and cleanup's (about 11 s); any one a relaunch starts goes on
+    # its own hangup.
+    FIRST_STAYS = STUB_HEAD.replace('echo $$ >> "$HOME/pids"\n', "") + (
+        'if [ -s "$HOME/pids" ]; then on_hup() { exit 0; }; else on_hup() { :; }; fi\n'
+        'echo $$ >> "$HOME/pids"\necho up\nfor i in $(seq 220); do sleep 0.05; done\nexit 0\n')
+
+    def test_a_relaunched_binary_whose_last_one_stays_fails_the_run(self):
+        # The run fails at the relaunch, naming the first, and sends it nothing.
+        r, run, pid = self.stub_run(self.FIRST_STAYS, cap="wait 1\nrelaunch\nwait 1\nsnap a\n")
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        old, new = [int(p) for p in slurp(os.path.join(run, "home", "pids")).split()]
+        self.assertIn("LIVE-WRITER GUARD: the relaunched pane's process, pid %d (started " % old, r.stderr)
+        self.assertIn("is still running 3 s after the relaunch replaced it", r.stderr)
+        self.assertTrue(self.alive(old), "capture.sh ended the process it waited for")
+        self.ends_by_itself(old)
+        self.assertEqual(self.sigs(run, old), ["HUP"], "the respawn's hangup and no other signal")
 
 
 class Placeholders(unittest.TestCase):
@@ -1085,6 +1417,40 @@ class Confinement(unittest.TestCase):
                 self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-never.txt")), "the run stopped there")
                 self.assertEqual(slurp(victim), "keep\n")
                 self.assertEqual(sorted(os.listdir(outside)), ["sentinel"])
+
+
+    def test_homemode_sets_a_mode_and_never_changes_one_through_a_link(self):
+        # `homemode` makes a folder in HOME one a resume cannot read, and back;
+        # a link on the way is refused, so a mode outside the run is never
+        # changed.
+        r = capture("homefile .fx/d/x c.json\nwait 0.5\nhomemode 500 .fx/d\n"
+                    "type [ -w ~/.fx/d ] && echo open-for-writing || printf 'locked-%s\\n' down\nkey Enter\nuntil shown locked-down\n"
+                    "homemode 700 .fx/d\nsnap a\n", {"c.json": "{}\n"})
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertIn("locked-down", r.screen("a"))
+        victim = self.sentinel("keep\n")
+        os.chmod(victim, 0o644)
+        for linked in (".linked", ".dir/x"):
+            with self.subTest(linked=linked):
+                target = victim if linked == ".linked" else os.path.dirname(victim)
+                r = capture("wait 0.5\ntype ln -s '%s' ~/%s; printf 'made-%%s\\n' it\nkey Enter\nuntil shown made-it\n"
+                            "homemode 000 %s\nsnap never\n" % (target, linked.split("/")[0], linked))
+                self.assertEqual(r.code, 2, r.stdout + r.stderr)
+                self.assertIn("homemode: refusing to change a mode through a link", r.stderr)
+                self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-never.txt")), "the run stopped there")
+                self.assertEqual(os.stat(victim).st_mode & 0o777, 0o644)
+                self.assertEqual(os.stat(os.path.dirname(victim)).st_mode & 0o700, 0o700)
+        # A file is refused: a hard link to one outside the run shares its
+        # inode, which a chmod would change.
+        for made in ("homefile .fx/f c.json\nwait 0.5\n",
+                     "wait 0.5\ntype ln '%s' ~/.fx-hard; printf 'made-%%s\\n' it\nkey Enter\nuntil shown made-it\n" % victim):
+            name = ".fx/f" if made.startswith("homefile") else ".fx-hard"
+            with self.subTest(file=name):
+                r = capture(made + "homemode 000 %s\nsnap never\n" % name, {"c.json": "{}\n"})
+                self.assertEqual(r.code, 2, r.stdout + r.stderr)
+                self.assertIn("homemode takes a folder, not ~/%s" % name, r.stderr)
+                self.assertFalse(os.path.exists(os.path.join(r.out, "fx-t-30x200-never.txt")), "the run stopped there")
+                self.assertEqual(os.stat(victim).st_mode & 0o777, 0o644)
 
 
 class Verbs(unittest.TestCase):

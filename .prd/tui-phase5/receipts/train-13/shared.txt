@@ -1,0 +1,36 @@
+# history-notices: 1 functions of src/tui/shell.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation` (base :22976): base dbf3446d1030 | history-notices 54fdbb93398e | head 54fdbb93398e; changed by this side alone, the head holds its text: True
+# question-resume: 1 functions of src/tui/shell.rs changed against 32afd307; 1 hunks in no function (base lines 28877 (an insertion after))
+    `fn replay_turn` (base :4005): base 2894301ecbb3 | question-resume 55993d3e67e4 | head 55993d3e67e4; changed by this side alone, the head holds its text: True
+# approval-stack: 6 functions of src/tui/shell.rs changed against 32afd307; 3 hunks in no function (base lines 13709, 13713-13718, 22331 (an insertion after))
+    `fn decide` (base :9404): base 398b2e902e0c | approval-stack 5fedc5badb25 | head 5fedc5badb25; changed by this side alone, the head holds its text: True
+    `fn consume_inputs` (base :11937): base 8af142324cf3 | approval-stack 711026e4ee5a | head 711026e4ee5a; changed by this side alone, the head holds its text: True
+    `fn act` (base :12327): base 299f7fab3ba3 | approval-stack 460b75fc0df8 | head 460b75fc0df8; changed by this side alone, the head holds its text: True
+    `fn unshifted` (base :13717): base 01be1f695d67 | approval-stack - | head -; changed by this side alone, the head holds its text: True
+    `fn up_and_down_move_the_choice_whether_or_not_a_draft_is_open` (base :37912): base 03e18d02569a | approval-stack 0590b947a7d6 | head 0590b947a7d6; changed by this side alone, the head holds its text: True
+    `fn the_arrows_leave_a_draft_on_the_review_plane_even_though_c_p_scrolls_it` (base :38482): base d23b43aa11e9 | approval-stack cdf57bf15d7c | head cdf57bf15d7c; changed by this side alone, the head holds its text: True
+## history-notices x question-resume: 0 functions both changed
+## history-notices x approval-stack: 0 functions both changed
+## question-resume x approval-stack: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+# question-resume: 1 functions of src/tui/question.rs changed against 32afd307; 2 hunks in no function (base lines 75, 1030 (an insertion after))
+    `fn answered_with` (base :745): base 543c6d9bb4d2 | question-resume 50ef0b3ec94d | head 50ef0b3ec94d; changed by this side alone, the head holds its text: True
+# approval-stack: 2 functions of src/tui/question.rs changed against 32afd307; 3 hunks in no function (base lines 197, 198 (an insertion after), 2857 (an insertion after))
+    `fn of` (base :218): base 896597adfd64 | approval-stack c9af2dcb27d8 | head c9af2dcb27d8; changed by this side alone, the head holds its text: True
+    `fn apply` (base :776): base ce67664472c0 | approval-stack 0910f27eacf8 | head 0910f27eacf8; changed by this side alone, the head holds its text: True
+## question-resume x approval-stack: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+# history-notices: 4 functions of src/tui/worker.rs changed against 32afd307; 2 hunks in no function (base lines 2850, 18761-18771)
+    `fn sealed_on_llmux` (base :18767): base 59485216612b | history-notices - | head -; changed by this side alone, the head holds its text: True
+    `fn a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn` (base :18835): base 0d8aba678fbb | history-notices edbb72a832d0 | head edbb72a832d0; changed by this side alone, the head holds its text: True
+    `fn the_history_notice_ledger_goes_with_its_conversation` (base :18887): base 4c8ad82e9de9 | history-notices 4abfb4e7edb5 | head 4abfb4e7edb5; changed by this side alone, the head holds its text: True
+    `fn a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs` (base :19002): base 4ae398d398a6 | history-notices 4e9f9404d583 | head 4e9f9404d583; changed by this side alone, the head holds its text: True
+# question-resume: 3 functions of src/tui/worker.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn a_hostile_session` (base :8708): base 760a8efcaeb0 | question-resume a5231a50a226 | head a5231a50a226; changed by this side alone, the head holds its text: True
+    `fn replayed_text` (base :8766): base fce3dfab1f34 | question-resume e92840c20222 | head e92840c20222; changed by this side alone, the head holds its text: True
+    `fn a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker` (base :8796): base 9ff244c75efd | question-resume fe3a82070125 | head fe3a82070125; changed by this side alone, the head holds its text: True
+## history-notices x question-resume: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0

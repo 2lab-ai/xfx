@@ -1,0 +1,138 @@
+# head b3dffdad; sides: main dcfa5146, at-stack 4130f4ac, ctrlo-other-pickers e7e1bcf6, page-keys 3ea16930, image-loss bde1ddfa
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1942-1948 (after src/tui/shell.rs)
+    main MOVED -> :1947-1953 | at-stack MOVED -> :2029-2035 | ctrlo-other-pickers MOVED -> :2029-2035 | page-keys MOVED -> :2034-2040 | image-loss MOVED -> :2034-2040
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1911 (after src/tui/shell.rs)
+    main MOVED -> :1916 | at-stack MOVED -> :1998 | ctrlo-other-pickers MOVED -> :1998 | page-keys MOVED -> :2003 | image-loss MOVED -> :2003
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :584 (after src/tui/shell.rs)
+    at-stack MOVED -> :643 | ctrlo-other-pickers MOVED -> :643 | page-keys MOVED -> :643 | image-loss MOVED -> :643
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2170 (after src/tui/shell.rs)
+    main MOVED -> :2175 | at-stack MOVED -> :2257 | ctrlo-other-pickers MOVED -> :2257 | page-keys MOVED -> :2262 | image-loss MOVED -> :2262
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2546 (after src/tui/shell.rs)
+    main MOVED -> :2551 | at-stack MOVED -> :2642 | ctrlo-other-pickers MOVED -> :2642 | page-keys MOVED -> :2647 | image-loss MOVED -> :2647
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2571 (after src/tui/shell.rs)
+    main MOVED -> :2576 | at-stack MOVED -> :2667 | ctrlo-other-pickers MOVED -> :2667 | page-keys MOVED -> :2672 | image-loss MOVED -> :2672
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2130 (after src/tui/shell.rs)
+    main MOVED -> :2135 | at-stack MOVED -> :2217 | ctrlo-other-pickers MOVED -> :2217 | page-keys MOVED -> :2222 | image-loss MOVED -> :2222
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2188 (after src/tui/shell.rs)
+    main MOVED -> :2193 | at-stack MOVED -> :2275 | ctrlo-other-pickers MOVED -> :2275 | page-keys MOVED -> :2280 | image-loss MOVED -> :2280
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2207 (after src/tui/shell.rs)
+    main MOVED -> :2212 | at-stack MOVED -> :2294 | ctrlo-other-pickers MOVED -> :2294 | page-keys MOVED -> :2299 | image-loss MOVED -> :2299
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2263 (after src/tui/shell.rs)
+    main MOVED -> :2268 | at-stack MOVED -> :2350 | ctrlo-other-pickers MOVED -> :2350 | page-keys MOVED -> :2355 | image-loss MOVED -> :2355
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2313 (after src/tui/shell.rs)
+    main MOVED -> :2318 | at-stack MOVED -> :2406 | ctrlo-other-pickers MOVED -> :2406 | page-keys MOVED -> :2411 | image-loss MOVED -> :2411
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:207: :2208 (after src/tui/shell.rs)
+    main MOVED -> :2213 | at-stack MOVED -> :2295 | ctrlo-other-pickers MOVED -> :2295 | page-keys MOVED -> :2300 | image-loss MOVED -> :2300
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:207: :2264 (after src/tui/shell.rs)
+    main MOVED -> :2269 | at-stack MOVED -> :2351 | ctrlo-other-pickers MOVED -> :2351 | page-keys MOVED -> :2356 | image-loss MOVED -> :2356
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:208: :2314 (after src/tui/shell.rs)
+    main MOVED -> :2319 | at-stack MOVED -> :2407 | ctrlo-other-pickers MOVED -> :2407 | page-keys MOVED -> :2412 | image-loss MOVED -> :2412
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:208: :2555 (after src/tui/shell.rs)
+    main MOVED -> :2560 | at-stack MOVED -> :2651 | ctrlo-other-pickers MOVED -> :2651 | page-keys MOVED -> :2656 | image-loss MOVED -> :2656
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:276: :4013 (after src/tui/shell.rs)
+    main MOVED -> :4018 | at-stack MOVED -> :4135 | ctrlo-other-pickers MOVED -> :4135 | page-keys MOVED -> :4141 | image-loss MOVED -> :4141
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:277: :4074 (after src/tui/shell.rs)
+    main MOVED -> :4079 | at-stack MOVED -> :4212 | ctrlo-other-pickers MOVED -> :4212 | page-keys MOVED -> :4218 | image-loss MOVED -> :4218
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:33: :2858 (after src/tui/shell.rs)
+    main MOVED -> :2864 | at-stack MOVED -> :2969 | ctrlo-other-pickers MOVED -> :2969 | page-keys MOVED -> :2975 | image-loss MOVED -> :2975
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:36: :634 (after src/output.rs)
+    at-stack MOVED -> :642 | ctrlo-other-pickers MOVED -> :642 | page-keys MOVED -> :642 | image-loss MOVED -> :642
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:631: :2585 (after src/tui/worker.rs)
+    at-stack MOVED -> :2586 | ctrlo-other-pickers MOVED -> :2586 | page-keys MOVED -> :2586 | image-loss MOVED -> :2586
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:631: :2820 (after src/tui/worker.rs)
+    at-stack MOVED -> :2821 | ctrlo-other-pickers MOVED -> :2821 | page-keys MOVED -> :2821 | image-loss MOVED -> :2821
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :349-367 (after src/tui/bridge.rs)
+    at-stack MOVED -> :351-369 | ctrlo-other-pickers MOVED -> :351-369 | page-keys MOVED -> :351-369 | image-loss MOVED -> :351-369
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :544-549 (after src/tui/shell.rs)
+    at-stack MOVED -> :556-608 | ctrlo-other-pickers MOVED -> :556-608 | page-keys MOVED -> :556-608 | image-loss MOVED -> :556-608
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :640-655 (after src/tui/shell.rs)
+    at-stack MOVED -> :699-714 | ctrlo-other-pickers MOVED -> :699-714 | page-keys MOVED -> :699-714 | image-loss MOVED -> :699-714
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :790-795 (after src/tui/shell.rs)
+    at-stack MOVED -> :849-854 | ctrlo-other-pickers MOVED -> :849-854 | page-keys MOVED -> :849-854 | image-loss MOVED -> :849-854
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1040-1060 (after src/tui/shell.rs)
+    at-stack MOVED -> :1104-1124 | ctrlo-other-pickers MOVED -> :1104-1124 | page-keys MOVED -> :1104-1124 | image-loss MOVED -> :1104-1124
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1220 (after src/tui/shell.rs)
+    at-stack MOVED -> :1284 | ctrlo-other-pickers MOVED -> :1284 | page-keys MOVED -> :1284 | image-loss MOVED -> :1284
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1792-1810 (after src/tui/shell.rs)
+    main MOVED -> :1797-1815 | at-stack MOVED -> :1879-1897 | ctrlo-other-pickers MOVED -> :1879-1897 | page-keys MOVED -> :1884-1902 | image-loss MOVED -> :1884-1902
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :2777 (after src/tui/shell.rs)
+    main MOVED -> :2783 | at-stack MOVED -> :2888 | ctrlo-other-pickers MOVED -> :2888 | page-keys MOVED -> :2894 | image-loss MOVED -> :2894
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:796: :7039 (after src/tui/shell.rs)
+    main MOVED -> :7247 | at-stack MOVED -> :7362 | ctrlo-other-pickers MOVED -> :7283 | page-keys MOVED -> :7432 | image-loss MOVED -> :7461
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:851: :6004 (after src/tui/shell.rs)
+    main MOVED -> :6098 | at-stack MOVED -> :6306 | ctrlo-other-pickers MOVED -> :6219 | page-keys MOVED -> :6312 | image-loss MOVED -> :6312
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:895: :588-600 (after src/tui/worker.rs)
+    at-stack MOVED -> :589-601 | ctrlo-other-pickers MOVED -> :589-601 | page-keys MOVED -> :589-601 | image-loss MOVED -> :589-601
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:895: :1287-1304 (after src/tui/worker.rs)
+    at-stack MOVED -> :1288-1305 | ctrlo-other-pickers MOVED -> :1288-1305 | page-keys MOVED -> :1288-1305 | image-loss MOVED -> :1288-1305
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md:295: :574 (after src/agent/machine.rs)
+    main MOVED -> :575 | at-stack MOVED -> :575 | ctrlo-other-pickers MOVED -> :575 | page-keys MOVED -> :575
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md:296: :588 (after src/agent/machine.rs)
+    main MOVED -> :589 | at-stack MOVED -> :589 | ctrlo-other-pickers MOVED -> :589 | page-keys MOVED -> :589
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md:428: :770-789 (after src/output.rs)
+    at-stack MOVED -> :778-797 | ctrlo-other-pickers MOVED -> :778-797 | page-keys MOVED -> :778-797 | image-loss MOVED -> :778-797
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md:429: :873-878 (after src/output.rs)
+    at-stack MOVED -> :881-886 | ctrlo-other-pickers MOVED -> :881-886 | page-keys MOVED -> :881-886 | image-loss MOVED -> :881-886
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :384-417 (after src/tui/bridge.rs)
+    at-stack MOVED -> :386-419 | ctrlo-other-pickers MOVED -> :386-419 | page-keys MOVED -> :386-419 | image-loss MOVED -> :386-419
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :1202-1266 (after src/tui/shell.rs)
+    at-stack MOVED -> :1266-1330 | ctrlo-other-pickers MOVED -> :1266-1330 | page-keys MOVED -> :1266-1335 | image-loss MOVED -> :1266-1335
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :1520-1533 (after src/tui/shell.rs)
+    main MOVED -> :1525-1538 | at-stack MOVED -> :1607-1620 | ctrlo-other-pickers MOVED -> :1607-1620 | page-keys MOVED -> :1612-1625 | image-loss MOVED -> :1612-1625
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:309: :242-244 (after src/tui/approval.rs)
+    at-stack MOVED -> :243-245 | ctrlo-other-pickers MOVED -> :243-245 | page-keys MOVED -> :243-245 | image-loss MOVED -> :243-245
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:309: :252-254 (after src/tui/approval.rs)
+    at-stack MOVED -> :253-255 | ctrlo-other-pickers MOVED -> :253-255 | page-keys MOVED -> :253-255 | image-loss MOVED -> :253-255
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:309: :225-235 (after src/tui/approval.rs)
+    at-stack MOVED -> :226-236 | ctrlo-other-pickers MOVED -> :226-236 | page-keys MOVED -> :226-236 | image-loss MOVED -> :226-236
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:309: :274-289 (after src/tui/approval.rs)
+    at-stack MOVED -> :275-290 | ctrlo-other-pickers MOVED -> :275-290 | page-keys MOVED -> :275-290 | image-loss MOVED -> :275-290
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:315: :374-375 (after src/tui/approval_screen.rs)
+    at-stack MOVED -> :448-449 | ctrlo-other-pickers MOVED -> :448-449 | page-keys MOVED -> :453-454 | image-loss MOVED -> :453-454
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:316: :372 (after src/tui/approval_screen.rs)
+    at-stack MOVED -> :446 | ctrlo-other-pickers MOVED -> :446 | page-keys MOVED -> :451 | image-loss MOVED -> :451
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:317: :339 (after src/tui/approval.rs)
+    at-stack MOVED -> :340 | ctrlo-other-pickers MOVED -> :340 | page-keys MOVED -> :340 | image-loss MOVED -> :340
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:318: :376-386 (after src/tui/approval.rs)
+    at-stack MOVED -> :370-380 | ctrlo-other-pickers MOVED -> :370-380 | page-keys MOVED -> :377-387 | image-loss MOVED -> :377-387
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:337: :743-754 (after src/tui/shell.rs)
+    at-stack MOVED -> :802-813 | ctrlo-other-pickers MOVED -> :802-813 | page-keys MOVED -> :802-813 | image-loss MOVED -> :802-813
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:337: :755 (after src/tui/shell.rs)
+    at-stack MOVED -> :814 | ctrlo-other-pickers MOVED -> :814 | page-keys MOVED -> :814 | image-loss MOVED -> :814
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:470: :1013-1112 (after src/tui/event_loop.rs)
+    main MOVED -> :1072-1194 | at-stack MOVED -> :1089-1195 | ctrlo-other-pickers MOVED -> :1089-1195 | page-keys MOVED -> :1136-1243 | image-loss MOVED -> :1136-1243
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:470: :619-622 (after src/tui/event_loop.rs)
+    main MOVED -> :662-665 | at-stack MOVED -> :635-638 | ctrlo-other-pickers MOVED -> :635-638 | page-keys MOVED -> :678-681 | image-loss MOVED -> :678-681
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:485: :1048-1076 (after src/tui/event_loop.rs)
+    main MOVED -> :1130-1158 | at-stack MOVED -> :1124-1152 | ctrlo-other-pickers MOVED -> :1124-1152 | page-keys MOVED -> :1178-1206 | image-loss MOVED -> :1178-1206
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:486: :1078-1108 (after src/tui/event_loop.rs)
+    main MOVED -> :1160-1190 | at-stack MOVED -> :1161-1191 | ctrlo-other-pickers MOVED -> :1161-1191 | page-keys MOVED -> :1208-1238 | image-loss MOVED -> :1208-1238
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:486: :1090-1093 (after src/tui/event_loop.rs)
+    main MOVED -> :1172-1175 | at-stack MOVED -> :1173-1176 | ctrlo-other-pickers MOVED -> :1173-1176 | page-keys MOVED -> :1220-1223 | image-loss MOVED -> :1220-1223
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:487: :1027-1045 (after src/tui/event_loop.rs)
+    main MOVED -> :1086-1127 | at-stack MOVED -> :1103-1121 | ctrlo-other-pickers MOVED -> :1103-1121 | page-keys MOVED -> :1150-1175 | image-loss MOVED -> :1150-1175
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:488: :619 (after src/tui/event_loop.rs)
+    main MOVED -> :662 | at-stack MOVED -> :635 | ctrlo-other-pickers MOVED -> :635 | page-keys MOVED -> :678 | image-loss MOVED -> :678
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:494: :3239 (after src/tui/shell.rs)
+    main MOVED -> :3245 | at-stack MOVED -> :3350 | ctrlo-other-pickers MOVED -> :3350 | page-keys MOVED -> :3356 | image-loss MOVED -> :3356
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:494: :3187 (after src/tui/shell.rs)
+    main MOVED -> :3193 | at-stack MOVED -> :3298 | ctrlo-other-pickers MOVED -> :3298 | page-keys MOVED -> :3304 | image-loss MOVED -> :3304
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1246 (after src/tui/approval.rs)
+    at-stack MOVED -> :1245 | ctrlo-other-pickers MOVED -> :1245 | page-keys MOVED -> :1252 | image-loss MOVED -> :1252
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1199-1218 (after src/tui/approval.rs)
+    at-stack MOVED -> :1198-1217 | ctrlo-other-pickers MOVED -> :1198-1217 | page-keys MOVED -> :1205-1224 | image-loss MOVED -> :1205-1224
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1180-1196 (after src/tui/approval.rs)
+    at-stack MOVED -> :1179-1195 | ctrlo-other-pickers MOVED -> :1179-1195 | page-keys MOVED -> :1186-1202 | image-loss MOVED -> :1186-1202
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:694: :4194 (after scripts/smoke-tui.sh)
+    at-stack MOVED -> :4215 | ctrlo-other-pickers MOVED -> :4215 | page-keys MOVED -> :4215 | image-loss MOVED -> :4215
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5577 (after src/tui/shell.rs)
+    main MOVED -> :5671 | at-stack MOVED -> :5879 | ctrlo-other-pickers MOVED -> :5792 | page-keys MOVED -> :5885 | image-loss MOVED -> :5885
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5590 (after src/tui/shell.rs)
+    main MOVED -> :5684 | at-stack MOVED -> :5892 | ctrlo-other-pickers MOVED -> :5805 | page-keys MOVED -> :5898 | image-loss MOVED -> :5898
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5600 (after src/tui/shell.rs)
+    main MOVED -> :5694 | at-stack MOVED -> :5902 | ctrlo-other-pickers MOVED -> :5815 | page-keys MOVED -> :5908 | image-loss MOVED -> :5908
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :1180-1218 (after src/tui/event_loop.rs)
+    main MOVED -> :1280-1318 | at-stack MOVED -> :1263-1303 | ctrlo-other-pickers MOVED -> :1263-1303 | page-keys MOVED -> :1330-1369 | image-loss MOVED -> :1330-1369
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :755 (after src/tui/approval.rs)
+    at-stack MOVED -> :754 | ctrlo-other-pickers MOVED -> :754 | page-keys MOVED -> :761 | image-loss MOVED -> :761
+# 123 bare continuations after a reference into a changed file; 68 moved or changed on some side that holds them

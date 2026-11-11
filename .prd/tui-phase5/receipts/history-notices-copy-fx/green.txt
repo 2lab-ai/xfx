@@ -1,0 +1,241 @@
+# fx row 1: 𝒇x v0.0.16 · Run /help for commands
+# base-xfx row 1: x𝒇x v0.1.0-32afd30 [debug] · Run /help for commands
+# xfx row 1: x𝒇x v0.1.0-3f96a4b [debug] · Run /help for commands
+## provider-carry-back/start fx: rows with the deleted line's words: none
+## provider-carry-back/start base-xfx: rows with the deleted line's words: none
+## provider-carry-back/start xfx: rows with the deleted line's words: none
+### provider-carry-back/start: base-xfx vs xfx, rows 2 on
+(identical)
+### provider-carry-back/start: fx vs base-xfx, rows 2 on
+@@ -4 +4 @@
+-auto · gpt-5.6-sol
++auto · model-a
+### provider-carry-back/start: fx vs xfx, rows 2 on
+@@ -4 +4 @@
+-auto · gpt-5.6-sol
++auto · model-a
+## provider-carry-back/turn1 fx: rows with the deleted line's words: none
+## provider-carry-back/turn1 base-xfx: rows with the deleted line's words: none
+## provider-carry-back/turn1 xfx: rows with the deleted line's words: none
+### provider-carry-back/turn1: base-xfx vs xfx, rows 2 on
+@@ -9 +9 @@
+-  1s (↑10 ↓80)
++  0s (↑10 ↓80)
+### provider-carry-back/turn1: fx vs base-xfx, rows 2 on
+@@ -9 +9 @@
+-  0s (↑10 ↓80)
++  1s (↑10 ↓80)
+@@ -13 +13 @@
+-auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
++auto · model-a · read the notes and tell me what  · 1k/200k 0%
+### provider-carry-back/turn1: fx vs xfx, rows 2 on
+@@ -13 +13 @@
+-auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
++auto · model-a · read the notes and tell me what  · 1k/200k 0%
+## provider-carry-back/open fx: rows with the deleted line's words: none
+## provider-carry-back/open base-xfx: rows with the deleted line's words: none
+## provider-carry-back/open xfx: rows with the deleted line's words: none
+### provider-carry-back/open: base-xfx vs xfx, rows 2 on
+@@ -9 +9 @@
+-  1s (↑10 ↓80)
++  0s (↑10 ↓80)
+### provider-carry-back/open: fx vs base-xfx, rows 2 on
+@@ -9 +9 @@
+-  0s (↑10 ↓80)
++  1s (↑10 ↓80)
+@@ -13,3 +13,3 @@
+-            vercel
+-            codex · current
+-            grok
++            gateway
++            llmux · current
++
+@@ -20 +20 @@
+-auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
++auto · model-a · read the notes and tell me what  · 1k/200k 0%
+### provider-carry-back/open: fx vs xfx, rows 2 on
+@@ -13,3 +13,3 @@
+-            vercel
+-            codex · current
+-            grok
++            gateway
++            llmux · current
++
+@@ -20 +20 @@
+-auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
++auto · model-a · read the notes and tell me what  · 1k/200k 0%
+## provider-carry-back/switched fx: rows with the deleted line's words: none
+## provider-carry-back/switched base-xfx: rows with the deleted line's words: none
+## provider-carry-back/switched xfx: rows with the deleted line's words: none
+### provider-carry-back/switched: base-xfx vs xfx, rows 2 on
+@@ -9 +9 @@
+-  1s (↑10 ↓80)
++  0s (↑10 ↓80)
+### provider-carry-back/switched: fx vs base-xfx, rows 2 on
+@@ -9,3 +9 @@
+-  0s (↑10 ↓80)
+-
+-* auth: Switched credential to AI_GATEWAY_API_KEY.
++  1s (↑10 ↓80)
+@@ -40,0 +39,2 @@
++
++
+### provider-carry-back/switched: fx vs xfx, rows 2 on
+@@ -10,2 +9,0 @@
+-
+-* auth: Switched credential to AI_GATEWAY_API_KEY.
+@@ -40,0 +39,2 @@
++
++
+## provider-carry-back/turn2 fx: rows with the deleted line's words: none
+## provider-carry-back/turn2 base-xfx: rows with the deleted line's words: [18, 19]
+## provider-carry-back/turn2 xfx: rows with the deleted line's words: none
+### provider-carry-back/turn2: base-xfx vs xfx, rows 2 on
+@@ -9 +9 @@
+-  1s (↑10 ↓80)
++  0s (↑10 ↓80)
+@@ -16,3 +15,0 @@
+-
+-! session: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that
+-  reasoning was not carried over
+@@ -40,0 +38,3 @@
++
++
++
+### provider-carry-back/turn2: fx vs base-xfx, rows 2 on
+@@ -9,3 +9 @@
+-  0s (↑10 ↓80)
+-
+-* auth: Switched credential to AI_GATEWAY_API_KEY.
++  1s (↑10 ↓80)
+@@ -17,0 +16,3 @@
++
++! session: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that
++  reasoning was not carried over
+@@ -40 +40,0 @@
+-
+### provider-carry-back/turn2: fx vs xfx, rows 2 on
+@@ -10,2 +9,0 @@
+-
+-* auth: Switched credential to AI_GATEWAY_API_KEY.
+@@ -40,0 +39,2 @@
++
++
+## provider-carry-back/turn3 fx: rows with the deleted line's words: none
+## provider-carry-back/turn3 base-xfx: rows with the deleted line's words: [18, 19]
+## provider-carry-back/turn3 xfx: rows with the deleted line's words: none
+### provider-carry-back/turn3: base-xfx vs xfx, rows 2 on
+@@ -9 +9 @@
+-  1s (↑10 ↓80)
++  0s (↑10 ↓80)
+@@ -16,3 +15,0 @@
+-
+-! session: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that
+-  reasoning was not carried over
+@@ -40,0 +38,3 @@
++
++
++
+### provider-carry-back/turn3: fx vs base-xfx, rows 2 on
+@@ -9,3 +9 @@
+-  0s (↑10 ↓80)
+-
+-* auth: Switched credential to AI_GATEWAY_API_KEY.
++  1s (↑10 ↓80)
+@@ -17,0 +16,3 @@
++
++! session: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that
++  reasoning was not carried over
+@@ -40 +40,0 @@
+-
+### provider-carry-back/turn3: fx vs xfx, rows 2 on
+@@ -10,2 +9,0 @@
+-
+-* auth: Switched credential to AI_GATEWAY_API_KEY.
+@@ -40,0 +39,2 @@
++
++
+## provider-carry-back-stop/turn1 fx: rows with the deleted line's words: none
+## provider-carry-back-stop/turn1 base-xfx: rows with the deleted line's words: none
+## provider-carry-back-stop/turn1 xfx: rows with the deleted line's words: none
+### provider-carry-back-stop/turn1: base-xfx vs xfx, rows 2 on
+(identical)
+### provider-carry-back-stop/turn1: fx vs base-xfx, rows 2 on
+@@ -13 +13 @@
+-auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
++auto · model-a · read the notes and tell me what  · 1k/200k 0%
+### provider-carry-back-stop/turn1: fx vs xfx, rows 2 on
+@@ -13 +13 @@
+-auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
++auto · model-a · read the notes and tell me what  · 1k/200k 0%
+## provider-carry-back-stop/stopped fx: rows with the deleted line's words: none
+## provider-carry-back-stop/stopped base-xfx: rows with the deleted line's words: none
+## provider-carry-back-stop/stopped xfx: rows with the deleted line's words: none
+### provider-carry-back-stop/stopped: base-xfx vs xfx, rows 2 on
+(identical)
+### provider-carry-back-stop/stopped: fx vs base-xfx, rows 2 on
+@@ -11 +11 @@
+-* auth: Switched credential to AI_GATEWAY_API_KEY.
++* provider: Preparing Vercel AI Gateway.
+@@ -13 +13 @@
+-* provider: Preparing Vercel AI Gateway.
++* provider: Switched to Vercel AI Gateway with fake/model-a.
+@@ -17 +17 @@
+-* provider: Provider preparation cancelled. The current provider is unchanged.
++▪ Cancelled · What can xfx do differently?
+### provider-carry-back-stop/stopped: fx vs xfx, rows 2 on
+@@ -11 +11 @@
+-* auth: Switched credential to AI_GATEWAY_API_KEY.
++* provider: Preparing Vercel AI Gateway.
+@@ -13 +13 @@
+-* provider: Preparing Vercel AI Gateway.
++* provider: Switched to Vercel AI Gateway with fake/model-a.
+@@ -17 +17 @@
+-* provider: Provider preparation cancelled. The current provider is unchanged.
++▪ Cancelled · What can xfx do differently?
+## provider-carry-back-stop/next fx: rows with the deleted line's words: none
+## provider-carry-back-stop/next base-xfx: rows with the deleted line's words: [22, 23]
+## provider-carry-back-stop/next xfx: rows with the deleted line's words: none
+### provider-carry-back-stop/next: base-xfx vs xfx, rows 2 on
+@@ -21,3 +20,0 @@
+-! session: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that
+-  reasoning was not carried over
+-
+@@ -40,0 +38,3 @@
++
++
++
+### provider-carry-back-stop/next: fx vs base-xfx, rows 2 on
+@@ -11 +11 @@
+-* auth: Switched credential to AI_GATEWAY_API_KEY.
++* provider: Preparing Vercel AI Gateway.
+@@ -13 +13 @@
+-* provider: Preparing Vercel AI Gateway.
++* provider: Switched to Vercel AI Gateway with fake/model-a.
+@@ -17 +17 @@
+-* provider: Provider preparation cancelled. The current provider is unchanged.
++▪ Cancelled · What can xfx do differently?
+@@ -19,0 +20,3 @@
++
++! session: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that
++  reasoning was not carried over
+@@ -27 +30 @@
+-auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
++auto · model-a · read the notes and tell me what  · 1k
+@@ -38,3 +40,0 @@
+-
+-
+-
+### provider-carry-back-stop/next: fx vs xfx, rows 2 on
+@@ -11 +11 @@
+-* auth: Switched credential to AI_GATEWAY_API_KEY.
++* provider: Preparing Vercel AI Gateway.
+@@ -13 +13 @@
+-* provider: Preparing Vercel AI Gateway.
++* provider: Switched to Vercel AI Gateway with fake/model-a.
+@@ -17 +17 @@
+-* provider: Provider preparation cancelled. The current provider is unchanged.
++▪ Cancelled · What can xfx do differently?
+@@ -27 +27 @@
+-auto · gpt-5.6-sol · read the notes and tell me what  · 1k/272k 0%
++auto · model-a · read the notes and tell me what  · 1k

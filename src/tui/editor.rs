@@ -437,11 +437,11 @@ impl Editor {
                 | Action::ControlK => {
                     return self.delete(range.start, range.end, DeltaKind::Kill);
                 }
-                Action::Left | Action::WordLeft => {
+                Action::Left | Action::ComposerLeft | Action::WordLeft | Action::AltB => {
                     self.move_to(range.start);
                     return None;
                 }
-                Action::Right | Action::WordRight => {
+                Action::Right | Action::ComposerRight | Action::WordRight | Action::AltF => {
                     self.move_to(range.end);
                     return None;
                 }
@@ -449,23 +449,26 @@ impl Editor {
             }
         }
         match action {
-            Action::Left => {
+            // A composer move on either arrow is the step to an editor
+            // (`super::input::Action::ComposerLeft`).
+            Action::Left | Action::ComposerLeft => {
                 self.move_to(self.left());
                 None
             }
-            Action::Right => {
+            Action::Right | Action::ComposerRight => {
                 self.move_to(self.right());
                 None
             }
             // Upstream's word moves (`moveWordLeft`/`moveWordRight`,
             // `horizontal_navigation.zig:85-141`): by word characters, not by
             // whitespace -- so `foo.bar` is two words to a move and one to
-            // `C-w` -- and over a block whole.
-            Action::WordLeft => {
+            // `C-w` -- and over a block whole. Alt-b and Alt-f are these moves
+            // to an editor (`super::input::Action::AltB`, `AltF`).
+            Action::WordLeft | Action::AltB => {
                 self.move_to(self.outside(self.word_move_left(), Direction::Backward));
                 None
             }
-            Action::WordRight => {
+            Action::WordRight | Action::AltF => {
                 self.move_to(self.outside(self.word_move_right(), Direction::Forward));
                 None
             }
@@ -477,13 +480,29 @@ impl Editor {
                 self.move_to(self.line_end());
                 None
             }
+            // Super on the vertical arrows is upstream's `draft_start` and
+            // `draft_end` (`super::input::Action::DraftStart`): the caret to
+            // the start of the whole text and to its end, as an approval's
+            // amendment takes them (`cursorHome`/`cursorEnd`,
+            // `approval_amendment.zig:84-92@481104fd`). The composer never
+            // reads them -- the shell folds them back to the arrows first.
+            Action::DraftStart { .. } => {
+                self.move_to(0);
+                None
+            }
+            Action::DraftEnd { .. } => {
+                self.move_to(self.text.len());
+                None
+            }
             // Shift on the vertical arrows is a question field's to bind
-            // (`super::input::Action::SelectUp`); to an editor it is the arrow.
-            Action::Up | Action::SelectUp => {
+            // (`super::input::Action::SelectUp`), and Ctrl or Alt an
+            // approval's to leave alone (`super::input::Action::ComposerUp`);
+            // to an editor each is the arrow.
+            Action::Up | Action::SelectUp | Action::ComposerUp => {
                 self.move_by_row(Step::Up, cols);
                 None
             }
-            Action::Down | Action::SelectDown => {
+            Action::Down | Action::SelectDown | Action::ComposerDown => {
                 self.move_by_row(Step::Down, cols);
                 None
             }

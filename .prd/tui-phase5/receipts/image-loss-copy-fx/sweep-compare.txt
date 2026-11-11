@@ -1,0 +1,36 @@
+# round 2: head = the binary built at f290f697 (f42a68ab after it changes tests only), base = 714f6283
+# python3 -I -B cmp_sweeps.py <base>/pairs.json <head>/pairs.json
+base: 86 / 110 pass; head: 86 / 110 pass; dropped: 0
+exit=0
+
+# python3 -I -B pair_rows.py <base>/pairs.json <head>/pairs.json
+pairs compared: 110; pairs whose rows or causes moved: 0
+exit=0
+
+# grep -rl 'ImageSnapshotCorrupt|Stored tool image|saved session is unreadable|InvalidSessionFormat|The original is saved at' <sweep>/runs
+base: files searched 608; captures with an image-loss line or note: 2
+  <sweep>/runs/image-withheld/fx/fx-image-withheld-40x120-bodies/002-completion.json
+  <sweep>/runs/image-withheld/xfx/xfx-image-withheld-40x120-bodies/002-completion.json
+head: files searched 608; captures with an image-loss line or note: 2
+  <sweep>/runs/image-withheld/fx/fx-image-withheld-40x120-bodies/002-completion.json
+  <sweep>/runs/image-withheld/xfx/xfx-image-withheld-40x120-bodies/002-completion.json
+(both: image-withheld's request bodies, upstream's note for an image held back before the build -- the same on base and head)
+positive control: the same pattern in this receipt's pair captures: 9 files, e.g. fx/fx-p5-image-loss-changed-40x120-failed.ansi
+ledger: base a02bb66d…, head e590f76f… -- the unit's only ledger change is round 1's six `src/tui/shell.rs:39046` -> `:39041` (the line moved; src/tui/shell.rs is unchanged since 0f0b6789, and `:39041` is the `  tools: {} advertised ({},` row both refs name)
+
+# round 2's head frames (x𝒇x v0.1.0-f290f69, the receipt's xfx/ at d079b843) against round 3's (x𝒇x v0.1.0-f273880), cell by cell, row 1 (the banner) not compared:
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py <round 2>/xfx-p5-image-loss-gone-40x120-quit.full.ansi <round 3>/xfx-p5-image-loss-gone-40x120-quit.full.ansi
+row 41: fx [(35, '0', ()), (36, '9', ()), (37, ':', ()), (38, '2', ())]
+row 41: xfx [(35, '1', ()), (36, '2', ()), (37, ':', ()), (38, '1', ())]
+1 rows differ in their cells (row 1 not compared)
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py <round 2>/xfx-p5-image-loss-gone-40x120-refused.full.ansi <round 3>/xfx-p5-image-loss-gone-40x120-refused.full.ansi
+row 42: fx [(35, '0', ()), (36, '9', ()), (37, ':', ()), (38, '2', ())]
+row 42: xfx [(35, '1', ()), (36, '2', ()), (37, ':', ()), (38, '1', ())]
+1 rows differ in their cells (row 1 not compared)
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py <round 2>/xfx-p5-image-loss-whole-40x120-resumed.ansi <round 3>/xfx-p5-image-loss-whole-40x120-resumed.ansi
+0 rows differ in their cells (row 1 not compared)
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py <round 2>/xfx-p5-image-loss-changed-40x120-resumed.ansi <round 3>/xfx-p5-image-loss-changed-40x120-resumed.ansi
+0 rows differ in their cells (row 1 not compared)
+# python3 -I .prd/tui-phase4/receipts/m1/cells.py <round 2>/xfx-p5-image-loss-changed-40x120-failed.ansi <round 3>/xfx-p5-image-loss-changed-40x120-failed.ansi
+0 rows differ in their cells (row 1 not compared)
+(the one row in the gone frames is tmux's dead-pane clock)

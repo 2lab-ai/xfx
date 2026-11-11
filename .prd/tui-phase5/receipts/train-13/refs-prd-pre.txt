@@ -1,0 +1,62 @@
+# head bbdde09c; sides: base f53606d1, history-notices 714f6283, question-resume d0e08d8c, approval-vs a37a969e
+.prd/01-spec.md:56	[docs/parity.md:241]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/04-providers.md:13-20	[scripts/fxcap/parity-ledger.toml:196]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/07-fx-parity-program.md:18	[scripts/fxcap/parity-ledger.toml:223]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/07-fx-parity-program.md:19	[scripts/fxcap/parity-ledger.toml:28]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/07-fx-parity-program.md:23	[scripts/fxcap/parity-ledger.toml:12]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/07-fx-parity-program.md:43	[scripts/fxcap/parity-ledger.toml:250]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/07-fx-parity-program.md:45	[scripts/fxcap/parity-ledger.toml:236, scripts/fxcap/parity-ledger.toml:418]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/07-fx-parity-program.md:57	[scripts/fxcap/parity-ledger.toml:182, scripts/fxcap/parity-ledger.toml:223]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/receipts/d1/README.md:151	[scripts/fxcap/parity-ledger.toml:147]
+    base* = | history-notices -> 157 | question-resume -> 157 | approval-vs -> 157
+.prd/tui-phase4/receipts/d1/README.md:258	[scripts/fxcap/parity-ledger.toml:107]
+    base* = | history-notices -> 264 | question-resume -> 264 | approval-vs -> 264
+.prd/tui-phase4/receipts/d2c/README.md:91	[scripts/fxcap/parity-ledger.toml:115]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/receipts/d2c/README.md:146	[scripts/fxcap/parity-ledger.toml:107]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/receipts/f3/README.md:101	[scripts/fxcap/parity-ledger.toml:98]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/receipts/f4/README.md:8	[scripts/fxcap/parity-ledger.toml:107]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/receipts/f5/README.md:38	[scripts/fxcap/parity-ledger.toml:131, scripts/fxcap/parity-ledger.toml:139]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/receipts/f5/README.md:49	[scripts/fxcap/parity-ledger.toml:139]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/receipts/m1/README.md:49-50	[scripts/fxcap/parity-ledger.toml:45]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/receipts/m1/README.md:51	[scripts/fxcap/parity-ledger.toml:98]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/receipts/m1/README.md:78-79	[scripts/fxcap/parity-ledger.toml:53]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/receipts/p1/README.md:32	[scripts/fxcap/parity-ledger.toml:147, scripts/fxcap/parity-ledger.toml:155]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/receipts/w4/README.md:19-20	[scripts/fxcap/capfile.py:10]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/ssot.md:6	[scripts/fxcap/parity-ledger.toml:28]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/ssot.md:26	[scripts/fxcap/parity-ledger.toml:45]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/ssot.md:62-63	[scripts/fxcap/parity-ledger.toml:182]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/ssot.md:64	[scripts/fxcap/parity-ledger.toml:196]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/ssot.md:77	[scripts/fxcap/parity-ledger.toml:209]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/ssot.md:111	[scripts/fxcap/parity-ledger.toml:209]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/ssot.md:115	[scripts/fxcap/parity-ledger.toml:34, scripts/fxcap/parity-ledger.toml:236]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/ssot.md:143	[scripts/fxcap/parity-ledger.toml:223]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+.prd/tui-phase4/ssot.md:146	[scripts/fxcap/parity-ledger.toml:223]
+    base* = | history-notices* = | question-resume* = | approval-vs* =
+# 30 references; 0 (side, reference) pairs MOVED; * = the side's own text cites it

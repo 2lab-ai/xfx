@@ -1,0 +1,115 @@
+# mutants.py on a git clone --no-local of 3f96a4b7 (<tmp>/mclone), one suite-lock slot, start 2026-11-09T16:04:24Z -> rc=0 end 2026-11-09T16:10:21Z
+# clone after the run: 0 changed files
+r1 reasoning-notice-back [lib]: killed
+    test session::store::carry_tests::a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed ... FAILED
+    test session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls ... FAILED
+    thread 'session::store::carry_tests::a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed' (422342264) panicked at src/session/store/carry_tests.rs:394:5:
+    thread 'session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls' (422342262) panicked at src/session/store/carry_tests.rs:444:5:
+    test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 4617 filtered out; finished in 0.01s
+    error: test failed, to rerun pass `--lib`
+r1 reasoning-notice-back [sessions]: killed
+    test a_legacy_record_is_dropped_without_a_word_on_any_other_wire ... FAILED
+    test a_wire_this_version_does_not_know_drops_rather_than_guessing ... FAILED
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+    thread 'responses_state_recorded_under_one_authority_is_never_sent_to_another' (422352818) panicked at tests/sessions.rs:2942:9:
+    thread 'a_wire_less_responses_state_record_drops_rather_than_replaying_under_active' (422352815) panicked at tests/sessions.rs:2987:5:
+    thread 'a_legacy_record_is_dropped_without_a_word_on_any_other_wire' (422352813) panicked at tests/sessions.rs:2916:5:
+    thread 'a_wire_this_version_does_not_know_drops_rather_than_guessing' (422352816) panicked at tests/sessions.rs:2965:5:
+    thread 'ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one' (422352817) panicked at tests/sessions.rs:1974:5:
+    test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 60 filtered out; finished in 2.14s
+    error: test failed, to rerun pass `--test sessions`
+r1 reasoning-notice-back [tui]: killed
+    test after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent ... FAILED
+    test a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind ... FAILED
+    thread 'after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent' (422355311) panicked at tests/tui.rs:9811:5:
+    thread 'a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind' (422355310) panicked at tests/tui.rs:9644:5:
+    test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 184 filtered out; finished in 3.32s
+    error: test failed, to rerun pass `--test tui`
+r1 reasoning-notice-back-wire-only [lib]: killed
+    test session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls ... FAILED
+    test session::store::carry_tests::a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed ... FAILED
+    thread 'session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls' (422366017) panicked at src/session/store/carry_tests.rs:444:5:
+    thread 'session::store::carry_tests::a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed' (422366019) panicked at src/session/store/carry_tests.rs:394:5:
+    test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 4617 filtered out; finished in 0.01s
+    error: test failed, to rerun pass `--lib`
+r1 reasoning-notice-back-wire-only [sessions]: killed
+    test a_legacy_record_is_dropped_without_a_word_on_any_other_wire ... FAILED
+    test a_wire_less_responses_state_record_drops_rather_than_replaying_under_active ... FAILED
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+    thread 'responses_state_recorded_under_one_authority_is_never_sent_to_another' (422371306) panicked at tests/sessions.rs:2942:9:
+    thread 'a_wire_this_version_does_not_know_drops_rather_than_guessing' (422371304) panicked at tests/sessions.rs:2965:5:
+    thread 'a_legacy_record_is_dropped_without_a_word_on_any_other_wire' (422371302) panicked at tests/sessions.rs:2916:5:
+    thread 'a_wire_less_responses_state_record_drops_rather_than_replaying_under_active' (422371303) panicked at tests/sessions.rs:2987:5:
+    thread 'ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one' (422371305) panicked at tests/sessions.rs:1974:5:
+    test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 60 filtered out; finished in 1.60s
+    error: test failed, to rerun pass `--test sessions`
+r1 reasoning-notice-back-wire-only [tui]: killed
+    test after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent ... FAILED
+    test a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind ... FAILED
+    thread 'after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent' (422373414) panicked at tests/tui.rs:9811:5:
+    thread 'a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind' (422373413) panicked at tests/tui.rs:9644:5:
+    test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 184 filtered out; finished in 1.83s
+    error: test failed, to rerun pass `--test tui`
+r1 reasoning-notice-back-model-only [lib]: killed
+    test session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls ... FAILED
+    thread 'session::store::carry_tests::a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls' (422385362) panicked at src/session/store/carry_tests.rs:444:5:
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 4617 filtered out; finished in 0.01s
+    error: test failed, to rerun pass `--lib`
+r1 reasoning-notice-back-model-only [sessions]: SURVIVED
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 60 filtered out; finished in 1.80s
+r1 reasoning-notice-back-model-only [tui]: killed
+    test after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent ... FAILED
+    thread 'after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent' (422397380) panicked at tests/tui.rs:9811:5:
+    test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 184 filtered out; finished in 2.87s
+    error: test failed, to rerun pass `--test tui`
+r1 line-shell-marks-after-every-line [lib]: killed
+    test interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write ... FAILED
+    thread 'interactive::tests::the_line_shell_leaves_unsaid_only_the_line_it_could_not_write' (422410921) panicked at src/interactive.rs:4051:9:
+    test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.48s
+    error: test failed, to rerun pass `--lib`
+r1 tui-said-when-found [lib]: killed
+    test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs' (422431406) panicked at src/tui/worker.rs:19097:9:
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (422431407) panicked at src/tui/worker.rs:18895:9:
+    test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.58s
+    error: test failed, to rerun pass `--lib`
+r1 tui-said-even-if-refused [lib]: killed
+    test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs' (422450179) panicked at src/tui/worker.rs:19097:9:
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (422450180) panicked at src/tui/worker.rs:18895:9:
+    test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.67s
+    error: test failed, to rerun pass `--lib`
+r1 tui-never-said [lib]: killed
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation' (422476409) panicked at src/tui/worker.rs:19009:9:
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (422476407) panicked at src/tui/worker.rs:18895:9:
+    test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.70s
+    error: test failed, to rerun pass `--lib`
+r1 no-dedup-in-one-rebuild [lib]: killed
+    test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... FAILED
+    test tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation ... FAILED
+    test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written' (422507920) panicked at src/interactive.rs:3985:9:
+    thread 'tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation' (422507924) panicked at src/tui/worker.rs:19013:9:
+    thread 'tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs' (422507922) panicked at src/tui/worker.rs:19101:9:
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (422507923) panicked at src/tui/worker.rs:18899:9:
+    test result: FAILED. 2 passed; 4 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.66s
+    error: test failed, to rerun pass `--lib`
+r1 ledger-outlives-its-conversation [lib]: killed
+    test interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written ... FAILED
+    test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... FAILED
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+    thread 'interactive::tests::the_line_shell_says_each_history_notice_once_and_only_once_it_is_written' (422533854) panicked at src/interactive.rs:3989:9:
+    thread 'tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs' (422533856) panicked at src/tui/worker.rs:19101:9:
+    thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (422533857) panicked at src/tui/worker.rs:18899:9:
+    test result: FAILED. 3 passed; 3 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.54s
+    error: test failed, to rerun pass `--lib`
+r1 screen-drops-notice-under-stop [lib]: killed
+    test tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation ... FAILED
+    thread 'tui::shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation' (422554018) panicked at src/tui/shell.rs:23012:9:
+    test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 4618 filtered out; finished in 10.54s
+    error: test failed, to rerun pass `--lib`

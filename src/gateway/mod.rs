@@ -616,6 +616,10 @@ pub enum ProviderError {
     Sink(io::Error),
     /// The turn was cancelled.
     Cancelled,
+    /// A history image's copy is not the image it was recorded as, so the
+    /// request was not built: upstream's name for it
+    /// ([`crate::session::store::CopiesChecked`]).
+    Image(&'static str),
 }
 
 impl ProviderError {
@@ -687,6 +691,13 @@ impl fmt::Display for ProviderError {
             Self::Protocol(err) => write!(f, "{err}"),
             Self::Sink(err) => write!(f, "cannot write assistant output: {err}"),
             Self::Cancelled => write!(f, "the turn was cancelled"),
+            // Upstream's `formatErrorBody`: its detail for `ImageTooLarge`, and
+            // the name alone for any other (`app_process_runtime.zig:99-136@481104fd`;
+            // `image_too_large_notice`, `image_attachments.zig:24`).
+            Self::Image("ImageTooLarge") => {
+                f.write_str("request failed: image exceeds the 20 MiB limit (ImageTooLarge)")
+            }
+            Self::Image(error) => write!(f, "request failed: {error}"),
         }
     }
 }

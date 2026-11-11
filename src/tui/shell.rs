@@ -1305,6 +1305,11 @@ pub(crate) struct Shell {
     /// no key reads it across words: a new word's keys wait for its first
     /// frame, which sets it ([`FilePicker::trust`]).
     file_rows_painted: u16,
+    /// The wait the frame of a keystroke that started a folder listing
+    /// makes for its rows ([`Self::hold_frame_for_file_listing`]), kept for
+    /// the list's life as fx keeps it in the picker's state
+    /// (`file_listing_wait`, `picker_state.zig:172@481104fd`).
+    listing_wait: file_picker::ListingWait,
     /// Where the picker's rows come from: the workspace index and the last
     /// directory browsed, each read on a worker thread
     /// ([`super::file_index::Files`]). Nothing is read until a picker opens.
@@ -2682,6 +2687,7 @@ impl Shell {
             dismissed: Dismissed::default(),
             file_picker: None,
             file_rows_painted: file_picker::MOST_ROWS,
+            listing_wait: file_picker::ListingWait::default(),
             files: {
                 // `~` is the profile's home, held to `HOME`'s one rule
                 // ([`crate::config::home_dir`]): an empty or relative
@@ -2691,7 +2697,7 @@ impl Shell {
                     config.workspace_root.clone(),
                     config.home().map(std::path::Path::to_path_buf),
                 );
-                files.set_extra_roots(index_roots(
+                files.change_scope(index_roots(
                     &config.workspace_root,
                     &WorkspaceAccess::load(&config.workspace_root, &config.additional_directories),
                 ));
@@ -3598,29 +3604,36 @@ impl Shell {
         self.picker.as_ref().map(Slot::Menu)
     }
 
-    /// The cell the `/provider` column is anchored at: under the first byte of
-    /// its argument, on the composer row that byte is on
-    /// (`projectedAnchorColumn`, `input_presentation.zig:368-370`).
-    ///
-    /// Measured by the composer's own wrap, so an argument that a wrapped
-    /// draft put at the start of its second row anchors at that row's start
-    /// rather than past the edge of the screen.
+    /// The cell the `/provider` column is anchored at: its argument's first
+    /// byte, as [`Self::anchor_at`] places a column (`picker_start_col`,
+    /// `input_presentation.zig:383-386@481104fd`).
     fn provider_anchor(&self, column: &ProviderPicker) -> u16 {
         self.anchor_at(column.token_start())
     }
 
     /// The cell under byte `start` of the composer, which a column hangs
-    /// under (`projectedAnchorColumn`): on the row that byte is on, past the
-    /// prompt.
+    /// under (`projectedAnchorColumn`, `visual_layout.zig:705-713@481104fd`):
+    /// past the prompt, under that byte -- measured by the composer's own
+    /// wrap -- while it is on the caret's row, and at the start of the
+    /// caret's row while it is not, so a column hangs under the row the eye
+    /// is on. The `/provider` and `/model` columns, `/mcp `'s argument
+    /// completions and the `@` list ([`Self::file_picker_column`]) all hang
+    /// from it: a line break after `/provider ` (`provider-ctrlo cj`,
+    /// `alt-enter`) or after a `/model` line
+    /// (`fx-fast-astra-40x120-model-change-clears`) puts the caret, and so
+    /// the column, a row below the argument.
     fn anchor_at(&self, start: usize) -> u16 {
-        let text = self.editor.text();
         // A column is rebuilt on every edit, so its offset is into this very
         // text and after an ASCII prefix; checked anyway, because
         // `cursor_point` panics on an offset that is not a `char` boundary.
-        if !text.is_char_boundary(start) {
+        if !self.editor.text().is_char_boundary(start) {
             return PROMPT_CELLS;
         }
-        let (_, at) = self.editor.point_of(start, self.text_cols());
+        let cols = self.text_cols();
+        let (row, at) = self.editor.point_of(start, cols);
+        if row != self.editor.point(cols).0 {
+            return PROMPT_CELLS;
+        }
         PROMPT_CELLS.saturating_add(at)
     }
 
@@ -3724,17 +3737,9 @@ impl Shell {
 
     /// The one-based column the file picker's rows start in: the `@`'s, when
     /// it is on the caret's row, and the composer's left edge otherwise
-    /// (`projectedAnchorColumn`, `visual_layout.zig:704-712`).
+    /// ([`Self::anchor_at`]).
     fn file_picker_column(&self, files: &FilePicker) -> u16 {
-        let cols = self.text_cols();
-        let (at_row, at_column) = self.editor.point_of(files.query().at, cols);
-        let column = if at_row == self.editor.point(cols).0 {
-            at_column
-        } else {
-            0
-        };
-        PROMPT_CELLS
-            .saturating_add(column)
+        self.anchor_at(files.query().at)
             .saturating_add(1)
             .min(self.geometry.cols)
     }
@@ -4180,6 +4185,22 @@ impl Shell {
                     outcome,
                     changes,
                 }),
+                // An answered batch: the record the panel left when it was
+                // answered ([`Self::answer`]), composed at this width, as
+                // upstream's replay composes it (`main.zig:2335-2346`).
+                HydratedStep::Answered(answers) => {
+                    let rows =
+                        question::resolution_rows(&answers, self.geometry.cols, &self.palette);
+                    self.run_mark(Mark::Block(rows, self.palette.mode));
+                }
+                // Any other batch: upstream's completed row for the call, on
+                // its own -- a block, so the group above it closes first, as
+                // upstream's projection ends a run of calls at an ask
+                // (`tool_group_projection.zig:1356-1359`, `:1372`).
+                HydratedStep::Asked => self.run_mark(Mark::Block(
+                    vec![(question::asked_row(&self.palette), DocumentRow::Plain)],
+                    self.palette.mode,
+                )),
                 // The card the live session wrote when it was delivered
                 // (`UiEvent::ToolFeedback` below), in the place the log keeps.
                 HydratedStep::Feedback(text) => self.run_mark(Mark::Amendment(text)),
@@ -5441,6 +5462,95 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
+    /// Closes it while a menu that takes the composer's keys is up, once a
+    /// tick and before the frame ([`Self::settle_band`]), as fx does before
+    /// every frame (`reconcileBeforeFrameRender`,
+    /// `app_render_runtime.zig:1206-1215@481104fd`): the settings menu, the
+    /// help catalog, the skills menu while it shows, `/model`'s menu, the
+    /// session picker, `/fork`'s and `/effort`'s (`:2001-2033`). So Ctrl-O
+    /// over one opens the screen and the frame shuts it -- the menu keeps the
+    /// plane and every key, `C-j` and `C-k` its moves and Escape its close --
+    /// and one that opens under the screen (`$` or `/help` typed there, a
+    /// session list arriving) takes the plane back the same way. The slash
+    /// menu, the `/provider` column, `/mcp `'s argument completions and the
+    /// `@` list are not on the list: the screen holds over them.
+    ///
+    /// fx's test also asks for no question and no approval up
+    /// (`!question_active and approval == null`, `:1206`); neither term is
+    /// needed here, because the screen is never up with one: a question or an
+    /// approval closes it as it arrives ([`Self::full_transcript_sees`]), and
+    /// a Ctrl-O while one is up never reaches [`Self::act`] -- the `ask` and
+    /// `asking` arms of [`Self::consume_inputs`] take every key first.
+    /// [`Self::open_full_transcript`]'s refusal while [`Self::modal`] is the
+    /// same rule written where the next edit reads it, not the barrier.
+    fn reconcile_full_transcript(&mut self) {
+        let menu = self.settings_menu.is_some()
+            || self.help_menu.is_some()
+            || self.skills_menu.as_ref().is_some_and(SkillsMenu::visible)
+            || self.model_menu.is_some()
+            || self.sessions.is_some()
+            || self.fork_menu.is_some()
+            || self.effort_menu.is_some();
+        if menu {
+            self.close_full_transcript();
+        }
+    }
+
+    /// `C-j` or `C-k` while the full transcript is up, which no picker takes:
+    /// fx's pickers move on them only while the composer's surface shows
+    /// (`routePickerControlByte`, `composerPickerSurfaceVisible`,
+    /// `app_input_runtime.zig:1093-1116@481104fd`), so they reach the
+    /// composer (`:881-893`) -- `C-j` its `insert_newline` (`:513-521`),
+    /// `C-k` a kill to the line's end (`:479-488`). [`Self::consume_inputs`]
+    /// sends them past every picker and past `/mcp`'s menu, whose fx
+    /// counterpart passes both bytes on (`routeMcpHostMenuByte`,
+    /// `:1812-1824`) and which swallows every other key while the screen
+    /// covers it ([`Self::offer_to_mcp`]: xfx's, over fx's, opus-C). Over the menus
+    /// the frame shuts the screen for, this is the burst the Ctrl-O came in
+    /// (`src/ui/event_loop.zig:90-120@481104fd`).
+    fn composer_control(&self, action: Action) -> bool {
+        self.full.is_open() && matches!(action, Action::ControlJ | Action::ControlK)
+    }
+
+    /// `C-j` the composer takes: fx's `insert_newline`
+    /// (`app_input_runtime.zig:513-521@481104fd`). Nothing while `/skills`'
+    /// menu, `/model`'s menu or the session picker is up (`:514`); otherwise
+    /// a line break, which closes `/fork`'s and `/effort`'s menus as any edit
+    /// does ([`Self::amended`]). It syncs no catalog menu, so the catalog and
+    /// the settings menu keep their marks over the search it changed.
+    ///
+    /// What reaches here with a menu up: under the full transcript, any
+    /// ([`Self::composer_control`]); with the screen closed, two -- the
+    /// settings menu over a search that lists nothing, whose move goes on
+    /// as fx's does when `Menu.move` answers `false` (`super::settings`,
+    /// PAGE-KEYS-SETTINGS-COLUMN), so its `keep` is for that too; and a `$`
+    /// menu that shows nothing, which fx's composer gives the same line
+    /// break. The help catalog, the settings menu over a list, `/model`'s
+    /// menu and its inline column, the session picker, `/fork`'s and
+    /// `/effort`'s menus and a shown skills menu take `C-j` themselves with
+    /// the screen closed. Alt-Enter's `InsertNewline` is
+    /// still `type_character('\n')` over them (INSERT-NEWLINE-MENUS).
+    fn composer_newline(&mut self) {
+        let held = self
+            .skills_menu
+            .as_ref()
+            .is_some_and(|menu| !menu.origin().is_mention())
+            || self.model_menu.is_some()
+            || self.sessions.is_some();
+        if held {
+            return;
+        }
+        let catalog = self.help_menu.as_ref().map(HelpMenu::mark);
+        let settings = self.settings_menu.as_ref().map(SettingsMenu::mark);
+        self.type_character('\n');
+        if let (Some(menu), Some(mark)) = (self.help_menu.as_mut(), catalog) {
+            menu.keep(mark);
+        }
+        if let (Some(menu), Some(mark)) = (self.settings_menu.as_mut(), settings) {
+            menu.keep(mark);
+        }
+    }
+
     /// One keystroke while the full transcript is up
     /// (`input_full_transcript_runtime.zig:147-198`), and whether the screen
     /// took it.
@@ -6214,9 +6324,14 @@ impl Shell {
     /// Offers one keystroke to the `/settings` menu, and says whether it was
     /// taken.
     ///
-    /// The eight keys [`SettingsAction::of`] names, and nothing else: a letter,
+    /// The keys [`SettingsAction::of`] names, and nothing else: a letter,
     /// a Backspace or a C-u edits the search and goes on to the composer with
-    /// the menu still up. Up and Down wrap; Tab and Shift-Tab change the tab,
+    /// the menu still up. Up and Down wrap, and so do `C-j` and `C-k`; PgDn and
+    /// PgUp move a page -- the composer's row cap -- and from past either end
+    /// land on the other (`routeSettingsMenuMove`,
+    /// `input_completion_runtime.zig:431-463@481104fd`, and `Menu.move`,
+    /// `settings_catalog.zig:225-241`); over an empty list none of them is
+    /// taken (`Menu.move` answers `false`, `:227`); Tab and Shift-Tab change the tab,
     /// and with it the menu's height, so the band is re-solved; Left and Right
     /// change the marked setting at once (`changeSettingsMenuSelection`,
     /// `app_input_runtime.zig:2489-2514`) -- on `Model`, Right opens the list
@@ -6225,8 +6340,9 @@ impl Shell {
     /// empties its search.
     ///
     /// **With the list open** the keys are its (`:2489-2552`;
-    /// `routeSettingsMenuMove`, `input_completion_runtime.zig:415-440`): Up
-    /// and Down move its mark, Left and Enter use the marked model and close
+    /// `routeSettingsMenuMove`, `input_completion_runtime.zig:440-455@481104fd`):
+    /// Up, Down, `C-j`, `C-k` and a page move its mark, Left and Enter use the
+    /// marked model and close
     /// it, Right does nothing, Tab and Shift-Tab close it with the tab change
     /// (`cycleSettingsMenuCategory`, `app_input_runtime.zig:3014-3018`).
     /// Escape closes the settings menu and only that
@@ -6247,6 +6363,18 @@ impl Shell {
         };
         let snapshot = self.settings_snapshot();
         let listing = snapshot.models.is_some();
+        // How far a move takes the mark: a row for the arrows, `C-j` and
+        // `C-k`, and the composer's row cap for a page -- whichever list has
+        // the keys (`routeComposerVertical` with `page`,
+        // `input_completion_runtime.zig:222-233@481104fd`, then
+        // `routeSettingsMenuMove`, `:431-463`).
+        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+        let delta = match request {
+            SettingsAction::Up | SettingsAction::Row(false) => Some(-1),
+            SettingsAction::Down | SettingsAction::Row(true) => Some(1),
+            SettingsAction::Page(down) => Some(if down { page } else { -page }),
+            _ => None,
+        };
         let mut change = None;
         let mut models = false;
         let mut use_model = false;
@@ -6255,13 +6383,16 @@ impl Shell {
         let mut refit = false;
         let mut repaint = false;
         match request {
-            SettingsAction::Up | SettingsAction::Down if listing => {
+            _ if listing && delta.is_some() => {
                 let visible = menu.visible_models(&snapshot, self.geometry.panel);
-                step_models = Some((request == SettingsAction::Down, visible));
+                step_models = delta.map(|delta| (delta, visible));
             }
-            SettingsAction::Up | SettingsAction::Down => {
+            SettingsAction::Up
+            | SettingsAction::Down
+            | SettingsAction::Row(_)
+            | SettingsAction::Page(_) => {
                 let visible = menu.visible_items(&snapshot, self.geometry.panel);
-                repaint = menu.step(request == SettingsAction::Down, visible, &snapshot);
+                repaint = menu.step_by(delta.unwrap_or_default(), visible, &snapshot);
             }
             SettingsAction::NextCategory | SettingsAction::PreviousCategory => {
                 menu.cycle(request == SettingsAction::NextCategory);
@@ -6288,13 +6419,21 @@ impl Shell {
             self.close_settings();
             return true;
         }
-        if let Some((down, visible)) = step_models {
+        if let Some((delta, visible)) = step_models {
+            // The list's move is spent whatever it did (`moveVisibleItems`'
+            // answer is dropped, `:441-455`).
             if let Some(list) = self.model_menu.as_mut() {
-                if list.step_by(if down { 1 } else { -1 }, visible.max(1)) {
+                if list.step_by(delta, visible.max(1)) {
                     self.render.request(Reason::Modal);
                 }
             }
             return true;
+        }
+        // Over an empty list a move goes on -- the arrows and a page to the
+        // caret, `C-j` and `C-k` to the composer -- as upstream's do when
+        // `Menu.move` answers `false` (`settings_catalog.zig:227`).
+        if delta.is_some() && !repaint {
+            return false;
         }
         if matches!(
             request,
@@ -6326,6 +6465,39 @@ impl Shell {
         true
     }
 
+    /// Whether the `@` list may start directory work, hold a frame for it,
+    /// and own the composer's surface: fx's `filePickerEligible`
+    /// (`input_completion_runtime.zig:775-786@481104fd`), term for term where
+    /// xfx has the surface -- no question ([`Self::ask`]), no approval on
+    /// either plane ([`Self::asking`]) and no rule change waiting to be
+    /// confirmed ([`Self::rule_confirm`]: fx's approval prompt is active for
+    /// one too, `isActive` and `syncRuleManagement`,
+    /// `approval_prompt.zig:61-63`, `:119-145`), not the full transcript, and no
+    /// catalog menu owning the surface (`catalogMenuOwnsSurface`, `:754-768`:
+    /// the catalog, the settings menu, the skills menu while it is shown,
+    /// `/model`'s menu, the session picker). fx's other two terms have nothing
+    /// here: its runtime profile always allows the file index in xfx, and xfx
+    /// has no auth picker (`/login` is deferred, `docs/parity.md`).
+    ///
+    /// Asked wherever xfx starts directory work for the list --
+    /// [`Self::refresh_file_picker`], which the index's and the listing's
+    /// results reach through [`Self::settle_files`]; Tab's retry; the list
+    /// opening in [`Self::reconcile_picker`] -- and by the frame hold
+    /// ([`Self::hold_frame_for_file_listing`]), as fx's one acquisition
+    /// boundary returns at once while it is false (`prepareFilePicker`,
+    /// `:848-853`) and its harvest is told it (`:814`, `:821`).
+    fn file_picker_eligible(&self) -> bool {
+        self.ask.is_none()
+            && !self.asking()
+            && self.rule_confirm.is_none()
+            && !self.full.is_open()
+            && self.help_menu.is_none()
+            && self.settings_menu.is_none()
+            && !self.skills_menu.as_ref().is_some_and(SkillsMenu::visible)
+            && self.model_menu.is_none()
+            && self.sessions.is_none()
+    }
+
     /// Offers one keystroke to the `@` file picker, and says whether it was
     /// taken.
     ///
@@ -6336,36 +6508,66 @@ impl Shell {
     /// nothing, rather than moving a caret the user is not looking at -- Tab
     /// and Enter choose, Escape closes. Everything else is an edit of the
     /// draft and goes on to the composer with the picker still up, which is
-    /// what makes it a search.
+    /// what makes it a search. Under the full transcript `C-j` and `C-k` are
+    /// the composer's too, and Tab chooses nothing (CTRLO-AT-KEYS).
     fn offer_to_files(&mut self, event: &Input) -> bool {
         let Input::Action(action) = event else {
             return false;
         };
+        let eligible = self.file_picker_eligible();
         let Some(files) = self.file_picker.as_mut() else {
             return false;
         };
         // From the screen's signal to the frame at its new size, the rows on
         // it are not the ones the keys would act on (`resizeLifecyclePending`,
-        // `input_completion_runtime.zig:803@481104fd`); and while the full
-        // transcript is up the list is not on the screen at all -- the keys
-        // it leaves unbound reach here, and fx's list takes none of them
-        // (`filePickerEligible`, `:775-786`, `:798-799`).
-        if self.render.resize_pending() || self.full.is_open() {
+        // `input_completion_runtime.zig:803@481104fd`); and while the list is
+        // not eligible -- under the full transcript it is not on the screen at
+        // all, and the keys the transcript leaves unbound reach here -- fx's
+        // list takes none of them and is distrusted (`filePickerEligible`,
+        // `:775-786`; `reconcileFilePicker`, `:798-799`).
+        //
+        // And a frame is asked for whatever the key turns out to be: fx's
+        // resize signal asks for one of its own (`observeResizeSignal`,
+        // `render_request.zig:196-200@481104fd`), whose commit trusts the
+        // list again (`app_render_runtime.zig:1022-1023`). xfx's signal asks
+        // for none, so a key the list hands on below -- an unbound one, a
+        // Redo with nothing to redo -- on a resize that comes back the same
+        // size would leave it distrusted with no frame coming, and spend the
+        // next arrow.
+        if self.render.resize_pending() || !eligible {
             files.distrust();
+            self.render.request(Reason::Modal);
         }
+        // `C-j` and `C-k` under the full transcript never get here
+        // ([`Self::composer_control`]): `C-k` kills to the line's end, and
+        // `C-j` is a new line, which ends the `@` word and so closes the
+        // list. A list not eligible for another reason keeps them: a catalog
+        // menu's move comes first, and with none the file query takes them
+        // and moves nothing (`routeNonSlashPickerMove`,
+        // `input_completion_runtime.zig:395-410@481104fd`).
         let page = i64::from(layout::input_row_limit(self.geometry.rows));
         let delta = match action {
             Action::Up | Action::ControlK => -1,
             Action::Down | Action::ControlJ => 1,
             Action::PageUp => -page,
             Action::PageDown => page,
+            // fx's Tab returns at the list's eligibility check, before it
+            // resolves a row or reads again (`autocompleteFilePickerSelection`,
+            // `input_completion_runtime.zig:946-956@481104fd`: `:949` before
+            // `:950` and `:953`). The frame it asks for
+            // (`app_input_runtime.zig:1321`) is asked for above.
+            Action::Tab if !eligible => return true,
             Action::Tab => {
                 match files.chosen().cloned() {
-                    Some(found) => self.complete_file(&found),
+                    Some(found) => self.complete_file(&found, file_picker::FolderAction::Open),
                     // Nothing to choose: a picker that could not read is
                     // asked to read again (`autocompleteFilePickerSelection`,
-                    // `input_completion_runtime.zig:877-889`).
+                    // `input_completion_runtime.zig:950-953@481104fd`).
                     None if files.shown() == file_picker::Shown::Unavailable => {
+                        // fx's retry asks for the index's refresh too
+                        // (`file_completion_state.zig:230-233`), which an
+                        // indexed query's lookup takes.
+                        files.request_refresh();
                         self.files.retry();
                         self.refresh_file_picker();
                     }
@@ -6377,15 +6579,16 @@ impl Shell {
                 self.render.request(Reason::Modal);
                 return true;
             }
-            // Under the full transcript the list does not own the surface:
-            // its Enter answers nothing, and Enter goes on to send the line
-            // (`submitFilePickerOnEnter`, `input_completion_runtime.zig:
-            // 1034-1037`; `filePickerOwnsSurface`, `:1054-1056`).
-            Action::Submit if self.full.is_open() => return false,
+            // While the list is not eligible -- under the full transcript --
+            // it does not own the surface: its Enter answers nothing, and
+            // Enter goes on to send the line (`submitFilePickerOnEnter`,
+            // `input_completion_runtime.zig:1034-1037`; `filePickerOwnsSurface`,
+            // `:1054-1056`).
+            Action::Submit if !eligible => return false,
             Action::Submit => {
                 return match files.enter() {
                     file_picker::Enter::Accept(found) => {
-                        self.complete_file(&found);
+                        self.complete_file(&found, file_picker::FolderAction::Select);
                         self.render.request(Reason::Modal);
                         true
                     }
@@ -6971,17 +7174,28 @@ impl Shell {
     }
 
     /// Puts a chosen path in the draft in place of the `@` word
-    /// ([`super::file_picker::completion`]).
+    /// ([`super::file_picker::completion`]): Tab passes
+    /// [`file_picker::FolderAction::Open`], Enter
+    /// [`file_picker::FolderAction::Select`].
     ///
     /// One edit, so one undo takes it back. Refused whole -- by the prompt's
     /// budget or because the word runs into a pasted block -- it changes
     /// nothing, exactly as a keystroke the budget refuses does.
-    fn complete_file(&mut self, found: &super::file_index::Found) {
+    fn complete_file(
+        &mut self,
+        found: &super::file_index::Found,
+        action: file_picker::FolderAction,
+    ) {
         let Some(files) = self.file_picker.as_ref() else {
             return;
         };
-        let chosen =
-            file_picker::completion(self.editor.text(), files.query(), found, files.indexed());
+        let chosen = file_picker::completion(
+            self.editor.text(),
+            files.query(),
+            found,
+            files.indexed(),
+            action,
+        );
         let removed = chosen.range.end - chosen.range.start;
         if !paste::fits(
             self.editor.text().len().saturating_sub(removed),
@@ -6998,19 +7212,29 @@ impl Shell {
         ) else {
             return;
         };
-        // A file's completion leaves the caret past its separator, so the
-        // picker closes on the way through; a directory's leaves it at the
-        // end of the path, so the picker goes on, listing that directory.
+        // A file's completion, and a folder's Enter mentions, leave the caret
+        // past its separator, so the picker closes on the way through; a
+        // folder Tab opens leaves it at the end of the path, so the picker
+        // goes on, listing that folder.
         self.amended(Some(delta));
         self.separator = chosen.separator;
     }
 
     /// Asks the source again for the open picker's rows, and owes a frame if
-    /// they changed.
+    /// they changed -- or, while the list is not eligible, asks nothing and
+    /// marks it to be asked once it is: fx's one acquisition boundary returns
+    /// before any lookup then (`prepareFilePicker`,
+    /// `input_completion_runtime.zig:848-853@481104fd`).
     fn refresh_file_picker(&mut self) {
+        let eligible = self.file_picker_eligible();
         let Some(files) = self.file_picker.as_mut() else {
             return;
         };
+        if !eligible {
+            files.mark_lookup_dirty();
+            return;
+        }
+        prepare_index(&mut self.files, files);
         let Some(lookup) = files.lookup().map(str::to_string) else {
             return;
         };
@@ -7292,7 +7516,7 @@ impl Shell {
         let Some(query) = self.column.active(text, &self.model) else {
             return Vec::new();
         };
-        let anchor = self.column_anchor(query.token_start);
+        let anchor = self.anchor_at(query.token_start);
         self.column.rows(
             &query,
             known(self.catalog_known, &self.catalog),
@@ -7303,29 +7527,14 @@ impl Shell {
         )
     }
 
-    /// The screen column under the composer's byte `offset`: past the prompt,
-    /// the cells to its left on the composer row it is on -- **when that is the
-    /// caret's row**, and the start of the caret's row otherwise, so a column
-    /// over a composer the caret has left the argument's row of hangs under the
-    /// row the eye is on (`projectedAnchorColumn`, `visual_layout.zig:704-712`;
-    /// `fx-fast-astra-40x120-model-change-clears`, a `/model` line with a line
-    /// break after it).
-    fn column_anchor(&self, offset: usize) -> u16 {
-        let cols = self.text_cols();
-        let (row, cells) = self.editor.point_of(offset, cols);
-        let (caret_row, _) = self.editor.point(cols);
-        if row != caret_row {
-            return PROMPT_CELLS;
-        }
-        PROMPT_CELLS.saturating_add(cells)
-    }
-
     /// Offers one keystroke to `/model`'s inline column, and says whether it
     /// was taken (`app_input_runtime.zig:262-340`, `:1490-1600`).
     ///
     /// Only while a column is open over a `/model ` line, and never while
     /// `/model`'s menu or the catalog has the composer as its search. Up and
-    /// Down walk the open column, wrapping; Tab writes the marked row into the
+    /// Down walk the open column, wrapping, and so do `C-j` and `C-k`; PgDn
+    /// and PgUp move a page -- the composer's row cap -- and from past either
+    /// end land on the other; Tab writes the marked row into the
     /// composer; Left steps back a column -- and is the caret's from the first;
     /// Escape puts the column away and leaves the text; Enter takes the marked
     /// row, or falls through to the composer's own submit when the column has
@@ -7353,6 +7562,10 @@ impl Shell {
                 | Input::Action(
                     Action::Up
                         | Action::Down
+                        | Action::ControlK
+                        | Action::ControlJ
+                        | Action::PageUp
+                        | Action::PageDown
                         | Action::Tab
                         | Action::Left
                         | Action::Escape
@@ -7406,11 +7619,30 @@ impl Shell {
             }
             // No column before an `/effort ` line's to step back into.
             Input::Action(Action::Left) if query.effort_command() => false,
-            Input::Action(Action::Up | Action::Down) => {
-                let down = matches!(event, Input::Action(Action::Down));
+            // The arrows, `C-j`/`C-k` and a page -- the composer's row cap --
+            // in whichever stage is open, spent whether or not there was a row
+            // to move to: `routeNonSlashPickerMove` answers `true` once
+            // `hasModelQuery` does (`input_completion_runtime.zig:411-414`,
+            // `:222-233@481104fd`; `routePickerControlByte`,
+            // `app_input_runtime.zig:1093-1108@481104fd`).
+            Input::Action(
+                action @ (Action::Up
+                | Action::Down
+                | Action::ControlK
+                | Action::ControlJ
+                | Action::PageUp
+                | Action::PageDown),
+            ) => {
+                let page = i64::from(layout::input_row_limit(self.geometry.rows));
+                let delta = match action {
+                    Action::Up | Action::ControlK => -1,
+                    Action::PageUp => -page,
+                    Action::PageDown => page,
+                    _ => 1,
+                };
                 if self
                     .column
-                    .step(&query, known(self.catalog_known, &self.catalog), down)
+                    .step_by(&query, known(self.catalog_known, &self.catalog), delta)
                 {
                     self.render.request(Reason::Modal);
                     self.render.request(Reason::Footer);
@@ -8541,17 +8773,60 @@ impl Shell {
     }
 
     /// The directories in force are now `access`: the band's copy, and the
-    /// roots the `@` index walks besides the workspace (`install`'s
-    /// `refreshFileIndex`, `app_workspace_runtime.zig:131-147`).
+    /// roots the `@` index walks besides the workspace.
+    ///
+    /// fx's `install` (`app_workspace_runtime.zig:127-143@481104fd`): the
+    /// scope changed when the access did -- any entry's path or state, not
+    /// only the active roots (`runtime_changed = !access.eql(replacement)`;
+    /// `eql`, `workspace_access.zig:176-189`, over the fields xfx's entries
+    /// hold, path and availability, `crate::workspace::access::Entry`). Then
+    /// `invalidateScope` (`:98-104`): the scope's epoch moves
+    /// ([`Files::change_scope`]), so an indexed list says `Files
+    /// unavailable` until a walk of the new scope is whole; the folder
+    /// listing in flight is stopped (`requestStop`, `:70-72`) -- the index's
+    /// walk is not -- and an open list invalidated -- bar to row 0, trust
+    /// dropped, a browsed folder read again, the index's refresh asked for
+    /// (`FilePicker::invalidate`). And `refreshFileIndex` (`:140`): the
+    /// index's own refresh, a list open or not and eligible or not, queued
+    /// behind a walk that runs; the list's refresh and lookup then wait, as
+    /// everywhere, for it to be eligible ([`Self::refresh_file_picker`]).
+    ///
+    /// An equal access changes nothing, as fx's does: its roots are not even
+    /// read again, since `index_roots` reads the filesystem and could find
+    /// them otherwise -- a directory gone since -- and drop the index with no
+    /// walk asked for.
     fn adopt_workspace(&mut self, access: WorkspaceAccess) {
-        self.files
-            .set_extra_roots(index_roots(&self.workspace, &access));
+        let changed = self.workspace_access != access;
+        if changed {
+            self.files
+                .change_scope(index_roots(&self.workspace, &access));
+        }
         self.workspace_access = access;
+        if changed {
+            self.files.abandon_listing();
+            self.files.begin_episode();
+            if let Some(files) = self.file_picker.as_mut() {
+                files.invalidate();
+            }
+            self.files.refresh_index();
+            self.refresh_file_picker();
+        }
         if self.workspace_menu.is_some() {
             // A list of another length is a picker of another height.
             self.refit();
             self.render.request(Reason::Modal);
         }
+    }
+
+    /// The `@` index's launch walk (`startFileIndex`,
+    /// `app_workspace_runtime.zig:145-148@481104fd`), which the launch
+    /// starts once the session is open and before its first frame
+    /// (`app_entry_runtime.zig:334`; `super::open`): the workspace and the
+    /// directories in force, with the scope's epoch now ([`Files::start_index`]).
+    /// Not the constructor's, as it is not fx's `App.init`'s: a shell a test
+    /// builds walks nothing unless the test starts it here.
+    pub(crate) fn start_file_index(&mut self) {
+        self.files.start_index();
     }
 
     /// Every pass while `/usage` is up, and only then
@@ -8757,9 +9032,80 @@ impl Shell {
     /// loop: an index or a directory listing arrives on its own thread's
     /// clock, so this is where the picker hears about it.
     fn settle_files(&mut self) {
+        // fx's harvest is told whether the list is eligible
+        // (`harvestDirectoryCompletion(filePickerEligible(app))`,
+        // `input_completion_runtime.zig:814`, `:821@481104fd`). Not eligible
+        // ([`Self::file_picker_eligible`]), a listing in flight is told to
+        // stop and its request dropped, and the lookup is marked to run again
+        // (`directory_completion_job.zig:140-151`); eligible again, it runs,
+        // once, with the index refresh a list asked for meanwhile
+        // (`prepareFilePicker`, `input_completion_runtime.zig:853-866`): the
+        // folder is listed fresh, and a late answer to the dropped listing is
+        // never taken. An index or a listing landing while it is not eligible
+        // looks nothing up ([`Self::refresh_file_picker`]).
+        if !self.file_picker_eligible() {
+            if self.files.abandon_listing() {
+                if let Some(files) = self.file_picker.as_mut() {
+                    files.mark_lookup_dirty();
+                }
+            }
+        } else if self
+            .file_picker
+            .as_mut()
+            .is_some_and(FilePicker::take_lookup_dirty)
+        {
+            self.refresh_file_picker();
+        }
         if self.files.poll() {
             self.refresh_file_picker();
         }
+    }
+
+    /// Whether this turn's frame waits for the rows of a folder listing a
+    /// keystroke started (`holdFrameForFileListing`,
+    /// `input_completion_runtime.zig:817-835@481104fd`): what the listing
+    /// worker has finished is taken first, so rows that landed since
+    /// [`Self::settle_band`] end the wait; a list that is not up forgets the
+    /// wait, slow folder and all; and a list browsing a path whose directory
+    /// is still being read is a listing in flight (`!state.indexed and
+    /// state.directory_request != null`, `:828`) -- the frame then waits, at
+    /// most [`file_picker::LISTING_HOLD`] ([`file_picker::ListingWait`]).
+    pub(crate) fn hold_frame_for_file_listing(&mut self, now: Instant) -> bool {
+        self.settle_files();
+        let Some(files) = self.file_picker.as_ref() else {
+            self.listing_wait = file_picker::ListingWait::default();
+            return false;
+        };
+        // Not while the list is not eligible -- the full transcript up, say:
+        // fx's harvest is told so (`filePickerEligible`, `:775-786`, `:821`),
+        // and an ineligible harvest drops the directory request
+        // (`directory_completion_job.zig:140-151@481104fd`), so nothing is in
+        // flight for its frames to wait on.
+        let in_flight = !files.indexed()
+            && files.shown() == file_picker::Shown::Loading
+            && self.file_picker_eligible();
+        self.listing_wait.hold(in_flight, now)
+    }
+
+    /// Whether the loop checks back every millisecond rather than every tick:
+    /// for the first tick of every folder listing, waited for or not, so one
+    /// that lands in time is seen at once and turns the wait back on after a
+    /// slow folder (`fileListingHoldPending`, `input_completion_runtime.zig:
+    /// 837-844@481104fd`; 6aa678d9).
+    pub(crate) fn file_listing_hold_pending(&self, now: Instant) -> bool {
+        self.listing_wait.measuring(now)
+    }
+
+    /// The `@` list's source, for a case to drive a listing by hand.
+    #[cfg(test)]
+    pub(crate) fn files_for_test(&mut self) -> &mut Files {
+        &mut self.files
+    }
+
+    /// `/sound` on or off for a case, with no settings file behind it.
+    #[cfg(test)]
+    pub(crate) fn sound_for_test(&mut self, on: bool) {
+        self.sound = Sound::new(crate::config::Notifications::both(on), None);
     }
 
     /// Offers one keystroke to the completion menu, and says whether it was
@@ -8781,6 +9127,18 @@ impl Shell {
         let Input::Action(action) = event else {
             return false;
         };
+        // The arrows and a page are a slash list's only while the composer is
+        // one row; on a taller one they are the caret's
+        // (`routeComposerVertical`, `input_completion_runtime.zig:255-260
+        // @481104fd`). `C-j` and `C-k` walk it at any height
+        // (`routeSlashCompletionMove`, `:175-180`).
+        if matches!(
+            action,
+            Action::Up | Action::Down | Action::PageUp | Action::PageDown
+        ) && self.composer_grown()
+        {
+            return false;
+        }
         // A page of the menu at a time (`routeComposerVertical` with `page`,
         // `input_completion_runtime.zig:209-262`): a page is the composer's
         // row cap, as it is for the caret.
@@ -9167,14 +9525,37 @@ impl Shell {
             {
                 return;
             }
-            // A picker opening is an episode, and an episode reads the
-            // workspace again (`prepareFilePicker`'s `refresh_requested`).
-            if self.file_picker.is_none() {
-                self.files.begin_episode();
-            }
+            // A picker opening is an episode, which reads a browsed folder
+            // fresh ([`Files::begin_episode`]). fx's reconcile keeps a request
+            // not yet taken and asks for the index's refresh on a new episode
+            // and on a change between an indexed and an explicit query
+            // (`refresh_requested or !active or indexed != indexed`,
+            // `file_completion_state.zig:164@481104fd`); its fourth term, a
+            // change of the workspace's scope (`scope_epoch != scope_epoch`),
+            // is [`Self::adopt_workspace`]'s.
             let mut files = FilePicker::open(query);
-            if let Some(lookup) = files.lookup().map(str::to_string) {
-                files.settle(self.files.lookup(&lookup));
+            match self.file_picker.as_ref() {
+                None => {
+                    self.files.begin_episode();
+                    files.request_refresh();
+                }
+                Some(open) if open.refresh_requested() || open.indexed() != files.indexed() => {
+                    files.request_refresh();
+                }
+                Some(_) => {}
+            }
+            if self.file_picker_eligible() {
+                prepare_index(&mut self.files, &mut files);
+                if let Some(lookup) = files.lookup().map(str::to_string) {
+                    files.settle(self.files.lookup(&lookup));
+                }
+            } else {
+                // fx's list takes the new query but prepares nothing while it
+                // is not eligible -- neither the index's refresh nor the
+                // lookup (`prepareFilePicker`, `input_completion_runtime.zig:
+                // 848-856@481104fd`); [`Self::settle_files`] runs both once it
+                // is.
+                files.mark_lookup_dirty();
             }
             self.file_picker = Some(files);
             return;
@@ -9252,6 +9633,9 @@ impl Shell {
 
     /// Offers one keystroke to `/mcp `'s argument completions, and says
     /// whether it was taken: Up, Down, `C-k` and `C-j` move the mark and wrap;
+    /// PgUp and PgDn move it a page -- the composer's row cap -- and from past
+    /// either end land on the other; on a composer taller than one row the
+    /// arrows and the pages are the caret's;
     /// Tab writes the marked line; Escape closes them until the draft stops
     /// being a `/mcp ` line. Enter writes the marked line and is **not**
     /// taken, so the composer submits it in place of what was typed
@@ -9264,13 +9648,36 @@ impl Shell {
         if !matches!(self.slot(), Some(Slot::McpArgs(_))) {
             return false;
         }
+        // A slash list in fx: the arrows and a page only while the composer
+        // is one row, `C-j`/`C-k` at any height ([`Self::offer_to_picker`]).
+        if matches!(
+            action,
+            Action::Up | Action::Down | Action::PageUp | Action::PageDown
+        ) && self.composer_grown()
+        {
+            return false;
+        }
         let Some(args) = self.mcp_args.as_mut() else {
             return false;
         };
+        let page = i64::from(layout::input_row_limit(self.geometry.rows));
         match action {
-            Action::Up | Action::ControlK | Action::Down | Action::ControlJ => {
-                let down = matches!(action, Action::Down | Action::ControlJ);
-                if args.step_by(if down { 1 } else { -1 }) {
+            Action::Up
+            | Action::ControlK
+            | Action::Down
+            | Action::ControlJ
+            | Action::PageUp
+            | Action::PageDown => {
+                // A page is the composer's row cap, as for the slash list
+                // these are in fx (`navigateSlashCompletion(picker_delta)`,
+                // `input_completion_runtime.zig:222-233`, `:255-260@481104fd`).
+                let delta = match action {
+                    Action::Up | Action::ControlK => -1,
+                    Action::PageUp => -page,
+                    Action::PageDown => page,
+                    _ => 1,
+                };
+                if args.step_by(delta) {
                     self.render.request(Reason::Modal);
                 }
                 true
@@ -9636,28 +10043,81 @@ impl Shell {
         let drafting = self.drafting();
         let action = match event {
             Input::Text(character) => approval::Action::Text(character),
+            // **The plain arrows move the choice, whether or not a draft is
+            // open** (`routeApprovalEscapeAction`,
+            // `input_approval_runtime.zig:111-126@481104fd`: the arrow's
+            // composer move, `visual_up`, is no draft key,
+            // `src/ui/input/runtime.zig:75-96`, so `.cursor_up` reaches the
+            // switch). Every other spelling of Up and Down is below.
             Input::Action(Action::Up) => approval::Action::Up,
             Input::Action(Action::Down) => approval::Action::Down,
-            // **`C-p` and `C-n` are the arrows here**, collapsed at the
-            // translation rather than given to the panel as two more keys
-            // (`input_approval_runtime.zig:127-141` maps `cursor_up` and
-            // `history_up` to one action).
+            // **Left and Alt-b mark the previous choice and Right and Alt-f the
+            // next, while no draft is open** -- fx's `.cursor_left`/`.word_left`
+            // and `.cursor_right`/`.word_right` (`routeApprovalEscapeAction`,
+            // `input_approval_runtime.zig:90-110@481104fd`): `move_choice`, the
+            // move Up and Down make, wrapping at both ends (`moveChoice`,
+            // `approval_decision.zig:214-225`). In a draft they are its caret's
+            // (below). Every other spelling of the four leaves the choice where
+            // it is: Ctrl-, Alt-, Shift- and Super-Left and -Right and
+            // Shift-Alt-b and -f are a composer move, which reaches fx's
+            // `else => {}` (`:128`); Ctrl-B and Ctrl-F never reach it -- they
+            // take fx's raw-byte route as `.edit_draft`, which `apply` answers
+            // with `.none` while no amendment is open
+            // (`src/ui/input/runtime.zig:103-108`,
+            // `approval_decision.zig:170-174`). The decoder keeps them apart
+            // ([`Action::ComposerLeft`], [`Action::WordLeft`]), and they reach
+            // the swallow.
+            Input::Action(Action::Left | Action::AltB) if !drafting => approval::Action::Up,
+            Input::Action(Action::Right | Action::AltF) if !drafting => approval::Action::Down,
+            // **Super-Up and Super-Down take a draft's caret to its start and
+            // its end** -- fx's `draft_start` and `draft_end`
+            // (`modifiedArrowAction`, `escape_parser.zig:74-76@481104fd`),
+            // which its amendment reads as `.cursor_home` and `.cursor_end`
+            // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:82-83`;
+            // `cursorHome`/`cursorEnd`, `approval_amendment.zig:84-92`: the
+            // whole draft's edges, not the line's). Ahead of the draft's arm
+            // below, which reads the folded key, and the fold makes these the
+            // arrows. With no draft open they are the swallow's.
+            Input::Action(edge @ (Action::DraftStart { .. } | Action::DraftEnd { .. }))
+                if drafting =>
+            {
+                approval::Action::Edit(edge)
+            }
+            // **Every other spelling of Up and Down moves nothing, with or
+            // without a draft open.** Shift-, Ctrl- and Alt-Up and -Down (and
+            // Super's with no draft) are composer moves, which reach fx's
+            // `else => {}` (`input_approval_runtime.zig:128`; `visual_up`,
+            // `paragraph_up` and their Down are no draft key,
+            // `src/ui/input/runtime.zig:86`). `C-p` is fx's decoded
+            // `.open_model_catalog` (`controlByteFeatureAction`,
+            // `escape_parser.zig:268-274`; `terminal_action_decoder.zig:118-122`),
+            // which carries no composer move (`shortcuts.zig:63`) and reaches
+            // the same `else`. `C-n` is a raw byte (`appendRaw`), no draft key
+            // (`fromFocusedEditorControlByte`, `shortcuts.zig:31-41`) and no
+            // approval byte (`approvalActionFromByte`,
+            // `src/ui/input/runtime.zig:61-73`, `:103-108`), so the question
+            // takes it and does nothing (`app_input_runtime.zig:1173-1184`).
+            // Swallowed here, before the panel is asked, so the choice, the
+            // draft, the frame and the readiness receipt are all exactly as
+            // they were: a key that does nothing cannot leave a choice marked
+            // that no frame has shown.
             //
-            // **A documented difference from that pin, on one surface.**
-            // Reached only with no review plane up: on the plane these two
-            // keys walk the change itself, and they are the only keys that do
-            // -- a bounded diff is up to 128 KiB
-            // (`crate::permission::ApprovalDiff`) and a screen is a few dozen
-            // rows, so a review surface with no way past its first screenful
-            // would be showing the head of a change and calling it the change.
-            // The arrows are unaffected on both surfaces: they move the choice
-            // and end editing everywhere, which is the property the pin exists
-            // for and which
-            // `up_and_down_move_the_choice_whether_or_not_a_draft_is_open`
-            // asserts in all four spellings. Upstream has no second surface to
-            // scroll, so this is a retention rather than a divergence.
-            Input::Action(Action::ControlP) => approval::Action::Up,
-            Input::Action(Action::HistoryNext) => approval::Action::Down,
+            // **`C-p` and `C-n` on the review plane are this surface's own**:
+            // they walk the change (above), the only keys that do -- a bounded
+            // diff is up to 128 KiB (`crate::permission::ApprovalDiff`) and a
+            // screen is a few dozen rows. Upstream's plane scrolls by the
+            // wheel (`handleApprovalWheel`), which xfx does not enable; a
+            // retention, recorded in `docs/parity.md`.
+            Input::Action(
+                Action::SelectUp
+                | Action::SelectDown
+                | Action::ComposerUp
+                | Action::ComposerDown
+                | Action::DraftStart { .. }
+                | Action::DraftEnd { .. }
+                | Action::ControlP
+                | Action::HistoryNext,
+            ) => return,
             Input::Action(Action::Tab) => approval::Action::Tab,
             Input::Action(Action::Submit) => approval::Action::Submit,
             Input::Action(Action::Escape) => approval::Action::Escape,
@@ -9674,9 +10134,18 @@ impl Shell {
             // not in the subset ([`approval::edits`]) -- they move the choice
             // and end editing, and routing them into the editor would take away
             // the only way out of a draft.
-            Input::Action(editing) if drafting && approval::edits(editing) => {
-                approval::Action::Edit(editing)
-            }
+            //
+            // Each spelling as the plain key it folds to ([`folded`]): in an
+            // amendment fx takes Alt-b and Alt-f as the word moves and
+            // Shift-Left and -Right and Ctrl-B and Ctrl-F as the caret's step
+            // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-108
+            // @481104fd`). Super-Left and -Right are its jump to the line's
+            // edge there (`:82-83`), which this draft takes as the step, as
+            // the composer does.
+            Input::Action(editing) if drafting => match folded(Input::Action(editing)) {
+                Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),
+                _ => return,
+            },
             // Content, to the **draft's** assembler and never the composer's:
             // a modal surface that leaked paste bytes into the composer would
             // leave text behind the panel that the user never sees and cannot
@@ -10846,6 +11315,10 @@ impl Shell {
             self.interrupt_armed = interrupt;
             self.render.request(Reason::Footer);
         }
+        // Which plane the frame paints, once the input, the events and the
+        // answers above have opened what they open, and before the rows below
+        // are measured against the band.
+        self.reconcile_full_transcript();
         // After the Escape: an armed one takes the slot the warning is in, and
         // the warning's clock must not run on a row that is not showing it.
         self.tick_warning(now);
@@ -12202,6 +12675,25 @@ impl Shell {
         }
     }
 
+    /// The catalog or the completion menu -- never both -- takes the keys it
+    /// binds, before the editor and before the gestures see them, and says
+    /// so. Everything else falls through with it still up, because each is a
+    /// view of the draft and typing is what the draft is made of.
+    fn offer_to_pickers(&mut self, event: &Input) -> bool {
+        self.offer_to_settings(event)
+            || self.offer_to_sessions(event)
+            || self.offer_to_fork(event)
+            || self.offer_to_catalog(event)
+            || self.offer_to_models(event)
+            || self.offer_to_effort(event)
+            || self.offer_to_skills(event)
+            || self.offer_to_column(event)
+            || self.offer_to_files(event)
+            || self.offer_to_picker(event)
+            || self.offer_to_provider_picker(event)
+            || self.offer_to_mcp_args(event)
+    }
+
     /// [`Self::consume`]'s inputs, one by one.
     fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {
         for event in events {
@@ -12269,6 +12761,11 @@ impl Shell {
             // be up with a question: a question closes it
             // ([`Self::full_transcript_sees`]) and it does not open over one
             // ([`Self::open_full_transcript`]).
+            //
+            // It reads the event with the approval's own spellings folded
+            // back, as the question does ([`unspelled`]); the approval below
+            // reads every spelling the decoder tells apart.
+            let (spelled, event) = (event.clone(), unspelled(event));
             if self.full.is_open() && self.view_full_transcript(&event) {
                 continue;
             }
@@ -12288,13 +12785,18 @@ impl Shell {
                 self.answer(event, now);
                 continue;
             }
-            // Shift on Up and Down means something only to a question's
-            // field; to every surface below it is the arrow it always was.
-            let event = unshifted(event);
+            // The approval reads the event before any fold: Left and Alt-b
+            // move its choice where a composer move and the word arrows do not
+            // ([`Self::decide`]).
             if self.asking() {
-                self.decide(event, now);
+                self.decide(spelled, now);
                 continue;
             }
+            // Shift on Up and Down means something only to a question's
+            // field, and Alt-b apart from the word arrows only to a question's
+            // choice and an approval's; to every surface below they are the
+            // keys they always were.
+            let event = folded(event);
             // The `/statusline` picker has the focus whenever no question
             // does: everything is its, and what it does not bind it swallows
             // -- a letter, a Ctrl-C, a Ctrl-D -- as upstream's compact menus
@@ -12325,50 +12827,28 @@ impl Shell {
                 self.offer_to_workspace(event);
                 continue;
             }
+            // `C-j` and `C-k` while the full transcript covers the composer
+            // ([`Self::composer_control`]) go past every list to the
+            // composer, a newline and a kill to the end, as fx's do: its
+            // modal routing passes both bytes on over `/mcp`'s menu
+            // (`routeMcpHostMenuByte`, `app_input_runtime.zig:1186`,
+            // `:1812-1824@481104fd`), and `routePickerControlByte` refuses
+            // them while the screen is up (`:879`; `composerPickerSurfaceVisible`,
+            // `:1094`, `:1110-1116`). The surfaces above take them first, as
+            // fx's modal surfaces do (`routeActiveModalInput`, `:873`). The `@`
+            // list's keys there are unit CTRLO-AT-KEYS's (`docs/parity.md`).
+            if matches!(event, Input::Action(action) if self.composer_control(action)) {
+                if let Input::Action(action) = event {
+                    self.act(action, now);
+                }
+                continue;
+            }
             // `/mcp`'s menu takes the keys it binds; the rest go to the
             // composer, which holds its filter, as fx v0.0.16's does.
             if self.offer_to_mcp(&event, held) {
                 continue;
             }
-            // And the catalog or the completion menu -- never both -- takes
-            // the keys it binds, before the editor and before the gestures see
-            // them. Everything else falls through with it still up, because
-            // each is a view of the draft and typing is what the draft is made
-            // of.
-            if self.offer_to_settings(&event) {
-                continue;
-            }
-            if self.offer_to_sessions(&event) {
-                continue;
-            }
-            if self.offer_to_fork(&event) {
-                continue;
-            }
-            if self.offer_to_catalog(&event) {
-                continue;
-            }
-            if self.offer_to_models(&event) {
-                continue;
-            }
-            if self.offer_to_effort(&event) {
-                continue;
-            }
-            if self.offer_to_skills(&event) {
-                continue;
-            }
-            if self.offer_to_column(&event) {
-                continue;
-            }
-            if self.offer_to_files(&event) {
-                continue;
-            }
-            if self.offer_to_picker(&event) {
-                continue;
-            }
-            if self.offer_to_provider_picker(&event) {
-                continue;
-            }
-            if self.offer_to_mcp_args(&event) {
+            if self.offer_to_pickers(&event) {
                 continue;
             }
             match event {
@@ -12665,12 +13145,20 @@ impl Shell {
             // wrap, so a row that did not change is the first row for an `Up`
             // and the last one for a `Down` -- the same fact, measured by the
             // module that owns the wrap instead of restated by this one.
-            // Never reaches here (`unshifted` folds them back before the
-            // composer sees an event); kept as the arrows they are, so a route
+            // Never reaches here (`folded` folds them back before the
+            // composer sees an event); kept as the moves they are, so a route
             // that skipped the fold would still move the caret rather than drop
             // the key.
-            Action::SelectUp => self.act(Action::Up, now),
-            Action::SelectDown => self.act(Action::Down, now),
+            Action::SelectUp | Action::ComposerUp | Action::DraftStart { .. } => {
+                self.act(Action::Up, now)
+            }
+            Action::SelectDown | Action::ComposerDown | Action::DraftEnd { .. } => {
+                self.act(Action::Down, now)
+            }
+            Action::AltB => self.act(Action::WordLeft, now),
+            Action::AltF => self.act(Action::WordRight, now),
+            Action::ComposerLeft => self.act(Action::Left, now),
+            Action::ComposerRight => self.act(Action::Right, now),
             Action::Up | Action::Down => {
                 let cols = self.text_cols();
                 let from = self.editor.point(cols).0;
@@ -12719,10 +13207,13 @@ impl Shell {
             }
             // **The one editing action that adds text**, so it goes the way a
             // typed character goes rather than the way the moves and the
-            // deletes do: through the budget. `C-j` inserts a newline and
-            // nothing else (`super::editor::Editor::apply`), so routing it
-            // here is the same edit with the same question asked first.
-            Action::InsertNewline | Action::ControlJ => self.type_character('\n'),
+            // deletes do: through the budget. `C-j` is fx's `insert_newline`
+            // ([`Self::composer_newline`]): the same line break through the
+            // same budget, except that it adds nothing while `/skills`',
+            // `/model`'s or the session menu is up, and puts the catalog's
+            // and the settings menu's marks back after it.
+            Action::InsertNewline => self.type_character('\n'),
+            Action::ControlJ => self.composer_newline(),
             // A backslash right before the caret is a line that goes on, not a
             // line to send (`app_input_runtime.zig:1612`): the Return turns it
             // into the line break, as one edit.
@@ -14072,18 +14563,59 @@ fn image_slash_prefix(text: &str) -> Option<usize> {
     })
 }
 
-/// `event` with Shift taken off Up and Down.
+/// `event` with the spellings only an approval tells apart made the keys they
+/// are everywhere else: a composer move on Left or Right
+/// (`super::input::Action::ComposerLeft`) the arrow, Alt-f
+/// (`super::input::Action::AltF`) the word move, Ctrl- and Alt-Up and -Down
+/// (`super::input::Action::ComposerUp`) the arrows, and Super-Up and -Down
+/// (`super::input::Action::DraftStart`) the arrow they were before -- the
+/// shifted one with Shift held.
+///
+/// An approval's choice moves on Left and Alt-f where fx's moves, and leaves
+/// Shift-Left, Ctrl-B and Ctrl-Right alone where fx's does, and every
+/// modified Up and Down (`input_approval_runtime.zig:90-128@481104fd`); its
+/// amendment takes Super-Up and -Down to the draft's edges
+/// (`src/ui/input/runtime.zig:82-83`). No other surface reads them apart. The
+/// approval reads the event as it came ([`Shell::decide`]); the full
+/// transcript, which holds Left and Right, and the question read what this
+/// gives, so they see exactly the keys they saw before these were kept apart.
+fn unspelled(event: Input) -> Input {
+    match event {
+        Input::Action(Action::ComposerLeft) => Input::Action(Action::Left),
+        Input::Action(Action::ComposerRight) => Input::Action(Action::Right),
+        Input::Action(Action::AltF) => Input::Action(Action::WordRight),
+        Input::Action(Action::ComposerUp | Action::DraftStart { shifted: false }) => {
+            Input::Action(Action::Up)
+        }
+        Input::Action(Action::ComposerDown | Action::DraftEnd { shifted: false }) => {
+            Input::Action(Action::Down)
+        }
+        Input::Action(Action::DraftStart { shifted: true }) => Input::Action(Action::SelectUp),
+        Input::Action(Action::DraftEnd { shifted: true }) => Input::Action(Action::SelectDown),
+        other => other,
+    }
+}
+
+/// `event` with every spelling the decoder keeps for a question or an
+/// approval made the key it is to every other surface: [`unspelled`], Shift
+/// taken off Up and Down, and Alt-b the word move.
 ///
 /// The decoder keeps Shift on the vertical arrows because a question's
 /// freeform field binds it -- the plain arrows walk the field's rows and the
-/// shifted ones choose (`super::input::Action::SelectUp`) -- and that is the
-/// only surface that does. Folded back here, once, before any other surface
-/// reads the event, so the composer, the approvals and the menus see exactly
-/// the keys they saw before Shift was kept.
-fn unshifted(event: Input) -> Input {
-    match event {
+/// shifted ones choose (`super::input::Action::SelectUp`) -- and Alt-b apart
+/// from Ctrl-Left and Alt-Left because a question's choice binds it -- the
+/// previous question, where the arrows do nothing -- and an approval's -- the
+/// previous choice (`super::input::Action::AltB`). Folded back here, once,
+/// after the full transcript, the question and the approval have read the
+/// event (the full transcript binds neither, so it takes them as unbound) and
+/// before the menus and the composer do, so those see exactly the keys they
+/// saw before any were kept apart. An approval's draft reads its keys through
+/// this too ([`Shell::decide`]).
+fn folded(event: Input) -> Input {
+    match unspelled(event) {
         Input::Action(Action::SelectUp) => Input::Action(Action::Up),
         Input::Action(Action::SelectDown) => Input::Action(Action::Down),
+        Input::Action(Action::AltB) => Input::Action(Action::WordLeft),
         other => other,
     }
 }
@@ -16547,6 +17079,26 @@ impl Shell {
         self.render.request(Reason::Resize);
     }
 
+    /// The composer's rows on a screen of `rows` x `cols`: the draft's wrapped
+    /// rows, at least one and at most the cap (`cappedInputRows`,
+    /// `input_presentation.zig:257-267@481104fd`).
+    fn composer_rows(&self, rows: u16, cols: u16) -> u16 {
+        let limit = layout::input_row_limit(rows);
+        let wrapped = self
+            .editor
+            .rows(cols.saturating_sub(PROMPT_CELLS).max(1))
+            .len();
+        u16::try_from(wrapped.clamp(1, usize::from(limit))).unwrap_or(limit)
+    }
+
+    /// Whether the composer is taller than one row on this screen -- fx's
+    /// `capped.input_extra != 0`, under which the arrows and a page are the
+    /// caret's and no slash list's (`routeComposerVertical`,
+    /// `input_completion_runtime.zig:250-260@481104fd`).
+    fn composer_grown(&self) -> bool {
+        self.composer_rows(self.geometry.rows, self.geometry.cols) > 1
+    }
+
     /// The band this shell wants on a screen of `rows` x `cols`, or `None` when
     /// no band fits on one.
     ///
@@ -16557,12 +17109,7 @@ impl Shell {
     /// so a re-solve that measured the draft against the old one would put the
     /// divider where the old wrap said it went.
     fn fit(&self, rows: u16, cols: u16) -> Option<Geometry> {
-        let limit = layout::input_row_limit(rows);
-        let wrapped = self
-            .editor
-            .rows(cols.saturating_sub(PROMPT_CELLS).max(1))
-            .len();
-        let wanted = u16::try_from(wrapped.clamp(1, usize::from(limit))).unwrap_or(limit);
+        let wanted = self.composer_rows(rows, cols);
         // The band's other height: whether the turn's row is above the divider.
         // Carried through every re-solve rather than defaulted, or a keystroke
         // typed while a turn ran would take that row away and the frame after
@@ -16934,6 +17481,18 @@ fn allowlist_notice(
         Tone::Neutral => notice::Notice::neutral(topic, body),
         Tone::Warning => notice::Notice::warning(topic, body),
         Tone::Error => notice::Notice::error(topic, body),
+    }
+}
+
+/// fx's `prepareFilePicker` taking the list's refresh request
+/// (`input_completion_runtime.zig:854-866@481104fd`): taken whatever the
+/// query, and the workspace walked again only for a query the index answers
+/// (`if (state.indexed)`), the session's first such request skipped while
+/// the index loads ([`Files::refresh_index_for_list`]). Called only while the
+/// list is eligible -- fx returns before it otherwise (`:853`).
+fn prepare_index(source: &mut Files, list: &mut FilePicker) {
+    if list.take_refresh_requested() && list.indexed() {
+        source.refresh_index_for_list();
     }
 }
 
@@ -23398,6 +23957,687 @@ mod tests {
     }
 
     #[test]
+    fn alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not() {
+        // fx routes `.word_left` with Left to `retreatToPrevious`, which stops
+        // at the first question (`input_question_runtime.zig:190-195`,
+        // `question_prompt.zig:609-615@481104fd`). `.word_left` is what Alt-b
+        // decodes to in each of its spellings -- `ESC b`, kitty's `CSI 98;3u`
+        // and xterm's `CSI 27;3;98~` (`escape_parser.zig:243-246`, `:528-533`)
+        // -- while Ctrl-Left and Alt-Left are a composer move (`:83-92`) that a
+        // choice leaves alone, as it does Alt-f and Ctrl-Right (`:196-199`),
+        // and Shift-Alt-b and Shift-Alt-f, a composer move too (`:244`, `:248`).
+        // `fx-p5-question-word-left-40x120-*`.
+        let mut fixture = shell(24, 120);
+        asking_question(&mut fixture, a_batch());
+        let on = |fixture: &Fixture, text: &str| {
+            fixture.band_rows().iter().any(|row| row.contains(text))
+        };
+        for alt_b in [&b"\x1bb"[..], b"\x1b[98;3u", b"\x1b[27;3;98~"] {
+            fixture.route_bytes(b"\t");
+            assert!(on(&fixture, "Ship it?"), "Tab reached the second question");
+            for word_key in [
+                &b"\x1b[1;5D"[..],
+                b"\x1b[1;3D",
+                b"\x1b[57417;5u",
+                b"\x1bf",
+                b"\x1b[1;5C",
+                b"\x1b[98;4u",
+                b"\x1b[102;4u",
+            ] {
+                fixture.route_bytes(word_key);
+                assert!(
+                    on(&fixture, "Ship it?"),
+                    "{word_key:?} moved off the question"
+                );
+            }
+            fixture.route_bytes(alt_b);
+            assert!(
+                on(&fixture, "Which depth?"),
+                "{alt_b:?} did not go back a question: {:?}",
+                fixture.band_rows()
+            );
+            fixture.route_bytes(alt_b);
+            assert!(on(&fixture, "Which depth?"), "{alt_b:?} at the first");
+        }
+        // Inside a draft Alt-b is the caret's word move, and the question
+        // stays where it is (`.edit_freeform = .cursor_word_left`,
+        // `src/ui/input/runtime.zig:155-197`).
+        fixture.route_bytes(b"\t");
+        fixture.route_bytes(b"3");
+        fixture.route_bytes(b"ab cd");
+        fixture.route_bytes(b"\x1bb");
+        fixture.route_bytes(b"z");
+        assert!(
+            on(&fixture, "Ship it?"),
+            "Alt-b in a draft left the question"
+        );
+        // The caret's cell is painted on its own, so the row is read unpainted
+        // (and, with the caret at the end, without the blank cell it sits on).
+        let draft = |fixture: &Fixture, text: &str| {
+            fixture
+                .band_rows()
+                .iter()
+                .any(|row| sgr_free(row).trim_end() == format!("    3) {text}"))
+        };
+        assert!(draft(&fixture, "ab zcd"), "{:?}", fixture.band_rows());
+        // So are Shift-Alt-b and Shift-Alt-f: the draft drops the Shift
+        // (`questionFreeformActionFromShortcut`, `src/ui/input/runtime.zig:155-176`;
+        // `fx-p5-question-word-left-40x120-draft-shift-alt-{b,f}`).
+        fixture.route_bytes(b"\x1b[98;4u");
+        fixture.route_bytes(b"y");
+        assert!(draft(&fixture, "ab yzcd"), "{:?}", fixture.band_rows());
+        fixture.route_bytes(b"\x1b[102;4u");
+        fixture.route_bytes(b"x");
+        assert!(draft(&fixture, "ab yzcdx"), "{:?}", fixture.band_rows());
+        // And Shift-Left and Alt-f, which the decoder keeps apart for an
+        // approval's choice, reach the draft as the step and the word move
+        // they always were (`unspelled`; `questionFreeformActionFromShortcut`
+        // reads only the move's kind, `src/ui/input/runtime.zig:155-176`).
+        fixture.route_bytes(b"\x1b[1;2D");
+        fixture.route_bytes(b"v");
+        fixture.route_bytes(b"\x1bf");
+        fixture.route_bytes(b"w");
+        assert!(draft(&fixture, "ab yzcdvxw"), "{:?}", fixture.band_rows());
+        assert!(on(&fixture, "Ship it?"), "a word move left the question");
+    }
+
+    #[test]
+    fn alt_b_in_an_approval_amendment_is_the_word_move() {
+        // The approval reads the event before the fold, and its draft reads
+        // each spelling as the plain key it folds to (`Shell::decide`); the
+        // word move and the step are what the draft binds (`approval::edits`),
+        // so a spelling that reached it unfolded would be a key it swallows.
+        // fx's amendment takes Alt-b and Alt-f as `.cursor_word_left/right`
+        // and Shift-Left/Right and Ctrl-B/F as `.cursor_left/right`
+        // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-108`,
+        // `input_approval_runtime.zig:79-88@481104fd`;
+        // `fx-p5-approval-horizontal-keys-40x120-amend-keys`), and none of them
+        // moves the choice there.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        shell.route_bytes(b"\x1bb");
+        shell.route_bytes(b"z");
+        shell.route_bytes(b"\x1b[1;2D");
+        shell.route_bytes(&[0x02]);
+        shell.route_bytes(b"y");
+        shell.route_bytes(&[0x06]);
+        shell.route_bytes(b"\x1b[1;2C");
+        shell.route_bytes(b"x");
+        shell.route_bytes(b"\x1bf");
+        shell.route_bytes(b"w");
+        shell.route_bytes(b"\x1b[D\x1b[D");
+        shell.route_bytes(b"v");
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("aby zxcvdw".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn the_horizontal_keys_at_an_approval_choice_are_fxs() {
+        // fx v0.0.16 at a choice with no amendment open: `.cursor_left` and
+        // `.word_left` mark the previous choice and `.cursor_right` and
+        // `.word_right` the next (`routeApprovalEscapeAction`,
+        // `input_approval_runtime.zig:90-110@481104fd`), wrapping at both ends
+        // (`moveChoice`, `approval_decision.zig:214-225`); every other key is
+        // `else => {}` (`:128`). The two words are Alt-b and Alt-f in each
+        // spelling (`escape_parser.zig:243-250`, `:528-539`). The modified
+        // arrows are composer moves (`modifiedArrowAction`, `:73-108`), and so
+        // are Shift-Alt-b and Shift-Alt-f (`:244`, `:248`); Ctrl-B and Ctrl-F
+        // are raw bytes only an amendment reads (`approvalActionFromRawByte`,
+        // `src/ui/input/runtime.zig:103-108`). `fx-p5-approval-horizontal-keys-40x120-*`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        let on = |shell: &Fixture, choice: &str| shell.marked().contains(&format!("❯ {choice}  "));
+        shell.route_bytes(b"\x1b[B");
+        assert!(on(&shell, "2"), "{:?}", shell.marked());
+        for (key, lands) in [
+            (&b"\x1b[D"[..], "1"),
+            (b"\x1b[D", "3"),
+            (b"\x1b[C", "1"),
+            (b"\x1b[C", "2"),
+            (b"\x1bf", "3"),
+            (b"\x1bb", "2"),
+            (b"\x1b[102;3u", "3"),
+            (b"\x1b[27;3;102~", "1"),
+            (b"\x1b[98;3u", "3"),
+            (b"\x1b[27;3;98~", "2"),
+            (b"\x1bOD", "1"),
+            (b"\x1b[57418u", "2"),
+        ] {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, lands),
+                "{key:?} did not mark choice {lands}: {:?}",
+                shell.marked()
+            );
+        }
+        for key in [
+            &b"\x1b[1;5C"[..],
+            b"\x1b[1;5D",
+            b"\x1b[1;3C",
+            b"\x1b[1;3D",
+            b"\x1b[1;2C",
+            b"\x1b[1;2D",
+            b"\x1b[1;9C",
+            b"\x1b[1;9D",
+            b"\x1b[1;10D",
+            b"\x1b[57417;2u",
+            b"\x1b[57418;9u",
+            &[0x06],
+            &[0x02],
+            b"\x1b[98;5u",
+            b"\x1b[102;5u",
+            b"\x1b[102;4u",
+            b"\x1b[98;4u",
+        ] {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, "2"),
+                "{key:?} moved the choice: {:?}",
+                shell.marked()
+            );
+        }
+    }
+
+    #[test]
+    fn a_draft_left_behind_is_not_painted_and_still_travels_with_its_choice() {
+        // fx paints a draft only on the choice whose amendment is open
+        // (`appendFileApprovalChoiceLabel`, `approval_ui.zig:1181-1193@481104fd`;
+        // `:1413-1418`, `:1688-1694`). Moving the choice ends the amendment and
+        // keeps its text (`moveChoice`'s `clearActive`, `approval_decision.zig:224`;
+        // `approval_amendment.zig:170-172`), Tab on that choice opens it again
+        // with the text in it (`:142-151`), and Enter sends the marked choice's
+        // draft, painted or not (`materializeResponse`, `:112-127`).
+        // `fx-p5-approval-horizontal-keys-40x120-{down,back,tab-back,unpainted,answered}`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        assert!(
+            band(&shell).contains("Apply once, ab cd"),
+            "{}",
+            band(&shell)
+        );
+        shell.route_bytes(b"\x1b[B");
+        let first = |shell: &Fixture| {
+            uncoloured_rows(&shell.shell.band_rows())
+                .into_iter()
+                .find(|row| row.contains("1  Apply once"))
+                .map(|row| row.trim_end().to_string())
+        };
+        assert_eq!(
+            first(&shell).as_deref(),
+            Some("    1  Apply once"),
+            "a draft that has not the keys is painted"
+        );
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(first(&shell).as_deref(), Some("  ❯ 1  Apply once"));
+        shell.route_bytes(b"\t");
+        assert!(
+            band(&shell).contains("Apply once, ab cd"),
+            "Tab did not open the draft again with its text: {}",
+            band(&shell)
+        );
+        shell.route_bytes(b"\x1b[B\x1b[A");
+        assert_eq!(first(&shell).as_deref(), Some("  ❯ 1  Apply once"));
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("ab cd".to_string()),
+            }),
+            "the draft did not travel with its choice"
+        );
+    }
+
+    #[test]
+    fn leaving_a_filled_draft_revokes_the_receipt_and_the_next_frame_earns_it_back() {
+        // Leaving a filled draft takes its rows off the panel, so the screen a
+        // readiness receipt was earned on is not the one the user now sees
+        // (`approval::answered` measures the shape: `Reshaped`, and
+        // `Shell::decide` calls `invalidate_approval`). An Enter before the
+        // next disclosed frame is refused and sends nothing; after it, Enter
+        // answers with the draft that choice carries.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        delivered(&mut shell);
+        assert!(
+            shell.approval_ready(ApprovalId(1)),
+            "no receipt was earned with the filled draft on screen, so this case proves nothing"
+        );
+        shell.route_bytes(b"\x1b[B\x1b[A");
+        assert!(
+            !shell.approval_ready(ApprovalId(1)),
+            "leaving a filled draft kept a receipt about the screen that showed it"
+        );
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "an affirmative was taken before the screen without the draft was disclosed"
+        );
+        assert!(shell.asking(), "the refused Enter took the question down");
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("ab cd".to_string()),
+            }),
+            "the answer after the next frame did not carry its choice's draft"
+        );
+    }
+
+    /// The ten vertical keys, in twelve spellings, that fx v0.0.16's approval
+    /// does not move its choice on (`p5-approval-vertical-keys`): Shift-,
+    /// Ctrl-, Super- and Alt-Down (Alt also as kitty's report of the arrow,
+    /// `CSI 57353;3u`) and `C-n`, then the same on Up and `C-p`.
+    const VERTICAL_SPELLINGS: [(&str, &[u8]); 12] = [
+        ("shift-down", b"\x1b[1;2B"),
+        ("ctrl-down", b"\x1b[1;5B"),
+        ("super-down", b"\x1b[1;9B"),
+        ("alt-down", b"\x1b[1;3B"),
+        ("kitty-alt-down", b"\x1b[57353;3u"),
+        ("ctrl-n", &[0x0e]),
+        ("shift-up", b"\x1b[1;2A"),
+        ("ctrl-up", b"\x1b[1;5A"),
+        ("super-up", b"\x1b[1;9A"),
+        ("alt-up", b"\x1b[1;3A"),
+        ("kitty-alt-up", b"\x1b[57352;3u"),
+        ("ctrl-p", &[0x10]),
+    ];
+
+    #[test]
+    fn the_vertical_spellings_at_an_approval_choice_move_nothing_and_the_arrows_still_do() {
+        // fx v0.0.16 at a choice with no amendment open. Every modified Up and
+        // Down is a composer move (`modifiedArrowAction`,
+        // `escape_parser.zig:73-108@481104fd`; the CSI modifier `:721-730`,
+        // kitty's arrow codes `:38-39` through `:208-217`), which reaches the
+        // switch's `else => {}` (`input_approval_runtime.zig:128`). So does
+        // `C-p`, decoded as `.open_model_catalog` (`escape_parser.zig:268-274`).
+        // `C-n` is a raw byte no approval action is made of
+        // (`approvalActionFromRawByte`, `src/ui/input/runtime.zig:61-73`,
+        // `:103-108`; `shortcuts.zig:11-41`), and the question takes it and
+        // does nothing (`app_input_runtime.zig:1173-1184`). Only the plain
+        // arrows move, wrapping (`input_approval_runtime.zig:111-126`).
+        // `fx-p5-approval-vertical-keys-40x120-*`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        let on = |shell: &Fixture, choice: &str| shell.marked().contains(&format!("❯ {choice}  "));
+        assert!(on(&shell, "1"), "{:?}", shell.marked());
+        for (name, key) in VERTICAL_SPELLINGS {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, "1"),
+                "{name} ({key:?}) moved the choice: {:?}",
+                shell.marked()
+            );
+        }
+        // The same keys by the other routes fx resolves through the one table:
+        // the kitty keypad arrows with a modifier (`escape_parser.zig:196-197`,
+        // then `:163-167`), the kitty arrows with Super or Shift, and two
+        // modifiers at once, Super first (`:74`) and then Alt, Ctrl and Shift
+        // (`:83`, `:90`, `:99`).
+        for key in [
+            &b"\x1b[57419;5u"[..],
+            b"\x1b[57420;2u",
+            b"\x1b[57419;9u",
+            b"\x1b[57352;9u",
+            b"\x1b[57353;2u",
+            b"\x1b[1;10A",
+            b"\x1b[1;6B",
+            b"\x1b[1;4A",
+            b"\x1b[1;16B",
+        ] {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, "1"),
+                "{key:?} moved the choice: {:?}",
+                shell.marked()
+            );
+        }
+        // The plain arrows, in each spelling, still move it and wrap.
+        for (key, lands) in [
+            (&b"\x1b[B"[..], "2"),
+            (b"\x1b[B", "3"),
+            (b"\x1b[B", "1"),
+            (b"\x1b[A", "3"),
+            (b"\x1b[57352u", "2"),
+            (b"\x1bOA", "1"),
+            (b"\x1b[57420u", "2"),
+            (b"\x1b[57353u", "3"),
+        ] {
+            shell.route_bytes(key);
+            assert!(
+                on(&shell, lands),
+                "{key:?} did not mark choice {lands}: {:?}",
+                shell.marked()
+            );
+        }
+    }
+
+    #[test]
+    fn the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do() {
+        // fx v0.0.16 in an amendment: the decoded action's composer move is
+        // the draft's only if `approvalDraftActionFromShortcut` names it
+        // (`src/ui/input/runtime.zig:75-96`, `:121-129`;
+        // `input_approval_runtime.zig:79-89`). Super-Up and Super-Down are
+        // `draft_start` and `draft_end` (`escape_parser.zig:74-76`), so the
+        // caret goes to the draft's start and its end
+        // (`src/ui/input/runtime.zig:82-83`; `cursorHome` and `cursorEnd`,
+        // `approval_amendment.zig:84-92`). Shift- and Ctrl-Up/Down are
+        // `visual_up`/`visual_down` and Alt-Up/Down `paragraph_up`/
+        // `paragraph_down` (`escape_parser.zig:84-85`, `:93-94`, `:100-101`),
+        // which it does not name (`src/ui/input/runtime.zig:86`): the switch's
+        // `else => {}` (`input_approval_runtime.zig:128`), nothing. `C-p` is
+        // `.open_model_catalog` (`escape_parser.zig:268-274`), with no
+        // composer move (`shortcuts.zig:63`): the same `else`. `C-n` is a raw
+        // byte, no draft key (`shortcuts.zig:31-41`) and no approval byte
+        // (`src/ui/input/runtime.zig:61-73`): nothing
+        // (`app_input_runtime.zig:1173-1184`). The amendment stays open and
+        // the choice where it is through all twelve; the letter after each
+        // pins where the caret was. `fx-p5-approval-vertical-keys-40x120-amend-*`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        let keys: [(&str, &[u8], &[u8]); 12] = [
+            ("shift-up", b"\x1b[1;2A", b"x"),
+            ("super-up", b"\x1b[1;9A", b"y"),
+            ("ctrl-p", &[0x10], b"w"),
+            ("shift-down", b"\x1b[1;2B", b"v"),
+            ("ctrl-up", b"\x1b[1;5A", b"u"),
+            ("ctrl-down", b"\x1b[1;5B", b"t"),
+            ("alt-up", b"\x1b[1;3A", b"s"),
+            ("alt-down", b"\x1b[1;3B", b"r"),
+            ("kitty-alt-up", b"\x1b[57352;3u", b"q"),
+            ("kitty-alt-down", b"\x1b[57353;3u", b"p"),
+            ("ctrl-n", &[0x0e], b"o"),
+            ("super-down", b"\x1b[1;9B", b"n"),
+        ];
+        for (name, key, letter) in keys {
+            shell.route_bytes(key);
+            assert!(shell.drafting(), "{name} ({key:?}) ended the amendment");
+            assert!(
+                shell.marked().contains("❯ 1  "),
+                "{name} ({key:?}) moved the choice: {:?}",
+                shell.marked()
+            );
+            shell.route_bytes(letter);
+        }
+        // fx's example (`ab cd`, Shift-Up, `x`, Super-Up, `y`, `C-p`, `w`
+        // gives `ywab cdx`), and the rest typed at the caret Super-Up left,
+        // until Super-Down takes it to the end for the last.
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("ywvutsrqpoab cdxn".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn a_no_op_vertical_spelling_keeps_the_receipt_and_enter_answers_the_choice_shown() {
+        // A key that leaves the choice and the amendment as they were changes
+        // nothing on the screen, so the readiness receipt about that screen is
+        // left exactly as it was, and Enter after it, with no frame between,
+        // answers the choice the last disclosed frame marked, with the draft
+        // that frame showed. When these keys moved the marker (a `Moved`
+        // reply, which keeps the receipt: all three choices are on every
+        // frame), such an Enter answered a choice no frame had shown marked --
+        // after Shift-Down, `Always`. Two deliveries here, so the receipt can
+        // be read between them; the one-read cases, key and Enter in one
+        // buffer, are `a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown`.
+        // Super-Up and Super-Down in an amendment move the caret, which is not
+        // nothing: they are that test's.
+        for open in [false, true] {
+            for (name, key) in VERTICAL_SPELLINGS {
+                if open && name.starts_with("super") {
+                    continue;
+                }
+                let mut shell = shell(24, 80);
+                asking(&mut shell);
+                if open {
+                    shell.route_bytes(b"\tab cd");
+                    delivered(&mut shell);
+                }
+                assert!(
+                    shell.approval_ready(ApprovalId(1)),
+                    "no receipt was earned, so this case proves nothing"
+                );
+                let receipt = format!("{:?}", shell.readiness);
+                shell.route_bytes(key);
+                assert_eq!(
+                    format!("{:?}", shell.readiness),
+                    receipt,
+                    "open={open} {name}: a key that moved nothing touched the receipt"
+                );
+                // No frame between the key and the Enter.
+                shell.route_bytes(b"\r");
+                assert_eq!(
+                    shell.controlled(),
+                    Some(TurnControl::Answer {
+                        id: ApprovalId(1),
+                        answer: ApprovalAnswer::Once,
+                        feedback: open.then(|| "ab cd".to_string()),
+                    }),
+                    "open={open} {name}: Enter did not answer the choice the last frame showed"
+                );
+            }
+        }
+        // And a key that still changes what the card shows still revokes it:
+        // the plain arrow out of a filled draft takes the draft's rows away.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        delivered(&mut shell);
+        shell.route_bytes(b"\x1b[B");
+        assert!(
+            !shell.approval_ready(ApprovalId(1)),
+            "the arrow out of a filled draft kept the receipt"
+        );
+    }
+
+    #[test]
+    fn a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown() {
+        // A terminal sends a key and the Enter after it in one write, and the
+        // decoder reads them from one buffer (`route_bytes` is one read). The
+        // answer must be the choice the last disclosed frame marked, with the
+        // draft that frame showed.
+        let answered = |shell: &mut Fixture, feedback: Option<&str>, what: &str| {
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: feedback.map(str::to_string),
+                }),
+                "{what}"
+            );
+        };
+        let open = |shell: &mut Fixture| {
+            shell.route_bytes(b"\tab cd");
+            delivered(shell);
+            assert!(shell.approval_ready(ApprovalId(1)), "no receipt was earned");
+        };
+        // Each spelling and `\r` in one buffer, at a choice and in an
+        // amendment (Super-Up and -Down there below).
+        for amending in [false, true] {
+            for (name, key) in VERTICAL_SPELLINGS {
+                if amending && name.starts_with("super") {
+                    continue;
+                }
+                let mut shell = shell(24, 80);
+                asking(&mut shell);
+                if amending {
+                    open(&mut shell);
+                }
+                shell.route_bytes(&[key, b"\r"].concat());
+                answered(
+                    &mut shell,
+                    amending.then_some("ab cd"),
+                    &format!("amending={amending} {name}"),
+                );
+            }
+        }
+        // All twelve and `\r` in one buffer, at a choice and in an amendment:
+        // nothing moves, and Super-Up and -Down there move only the caret,
+        // which is not part of the receipt's identity
+        // (`super::approval_readiness::Intent`), so the draft is unchanged.
+        for amending in [false, true] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            if amending {
+                open(&mut shell);
+            }
+            let mut all: Vec<u8> = VERTICAL_SPELLINGS
+                .iter()
+                .flat_map(|(_, key)| key.iter().copied())
+                .collect();
+            all.push(b'\r');
+            shell.route_bytes(&all);
+            answered(
+                &mut shell,
+                amending.then_some("ab cd"),
+                &format!("amending={amending}: the twelve and Enter in one read"),
+            );
+        }
+        // Super-Up or Super-Down in an amendment, then Enter at once. The
+        // caret moved, which is a frame (`Moved`) and not a new screen: a
+        // receipt is about the question, its plane, its size and its layout,
+        // never the caret (`super::approval_readiness::Intent`), so it holds,
+        // and the answer is the choice shown with the draft unchanged. fx
+        // refuses this Enter on a file approval like this one, until the
+        // frame the caret asked for is drawn (`input_approval_runtime.zig:191-218`);
+        // APPROVAL-READINESS-SETTLED flips this case.
+        for (name, key) in [
+            ("super-up", &b"\x1b[1;9A"[..]),
+            ("super-down", b"\x1b[1;9B"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            open(&mut shell);
+            shell.route_bytes(&[key, b"\r"].concat());
+            answered(&mut shell, Some("ab cd"), name);
+        }
+    }
+
+    #[test]
+    fn the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest() {
+        // `folded`'s own contract: `AltB` to `WordLeft`, Shift taken off Up
+        // and Down, the approval's spellings to their keys, and every other
+        // key as it came. And `unspelled`'s, which the full transcript and the
+        // question read: only the approval's spellings folded.
+        for (event, surfaces_see, transcript_and_question_see) in [
+            (Action::AltB, Action::WordLeft, Action::AltB),
+            (Action::SelectUp, Action::Up, Action::SelectUp),
+            (Action::SelectDown, Action::Down, Action::SelectDown),
+            (Action::AltF, Action::WordRight, Action::WordRight),
+            (Action::ComposerLeft, Action::Left, Action::Left),
+            (Action::ComposerRight, Action::Right, Action::Right),
+            // The vertical spellings only the approval tells apart: each is
+            // the key every other surface saw before -- Super with Shift the
+            // shifted arrow a question's field binds, without it the arrow.
+            (Action::ComposerUp, Action::Up, Action::Up),
+            (Action::ComposerDown, Action::Down, Action::Down),
+            (
+                Action::DraftStart { shifted: false },
+                Action::Up,
+                Action::Up,
+            ),
+            (
+                Action::DraftEnd { shifted: false },
+                Action::Down,
+                Action::Down,
+            ),
+            (
+                Action::DraftStart { shifted: true },
+                Action::Up,
+                Action::SelectUp,
+            ),
+            (
+                Action::DraftEnd { shifted: true },
+                Action::Down,
+                Action::SelectDown,
+            ),
+            (Action::WordLeft, Action::WordLeft, Action::WordLeft),
+            (Action::Left, Action::Left, Action::Left),
+            (Action::Up, Action::Up, Action::Up),
+            (Action::ControlP, Action::ControlP, Action::ControlP),
+        ] {
+            assert_eq!(
+                folded(Input::Action(event)),
+                Input::Action(surfaces_see),
+                "{event:?}"
+            );
+            assert_eq!(
+                unspelled(Input::Action(event)),
+                Input::Action(transcript_and_question_see),
+                "{event:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_full_transcript_holds_the_composer_spellings_of_the_arrows_as_it_holds_the_arrows() {
+        // The full transcript holds Left and Right (`full_transcript.rs`'s
+        // `key`, `Reply::Held`) and reads the event `unspelled`, so Shift- and
+        // Super-Left and -Right and Ctrl-B and Ctrl-F, which the decoder keeps
+        // apart for an approval's choice, are held too: none reaches the
+        // composer behind the screen. Each side on its own, from the end it
+        // would move away from, so a left and a right that got through cannot
+        // cancel out.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"ab");
+        for (home, keys, typed, text) in [
+            (
+                &b"\x05"[..],
+                [&b"\x1b[1;2D"[..], b"\x1b[1;9D", &[0x02]],
+                &b"z"[..],
+                "abz",
+            ),
+            (
+                &b"\x01"[..],
+                [&b"\x1b[1;2C"[..], b"\x1b[1;9C", &[0x06]],
+                &b"y"[..],
+                "yabz",
+            ),
+        ] {
+            shell.route_bytes(home);
+            shell.route_bytes(b"\x0f");
+            assert!(shell.full.is_open(), "Ctrl-O opened no full transcript");
+            for key in keys {
+                shell.route_bytes(key);
+                assert!(shell.full.is_open(), "{key:?} closed the full transcript");
+            }
+            shell.route_bytes(b"\x0f");
+            assert!(!shell.full.is_open(), "Ctrl-O did not close it");
+            shell.route_bytes(typed);
+            assert_eq!(
+                shell.editor.text(),
+                text,
+                "a key under the full transcript moved the composer's caret"
+            );
+        }
+    }
+
+    #[test]
     fn a_model_question_takes_the_composers_rows_and_gives_them_back() {
         // Upstream's question replaces the footer -- composer, blank and
         // statusline -- with its own rules, rows and hint
@@ -23736,8 +24976,8 @@ mod tests {
             Ok(TurnControl::QuestionCancelled { .. })
         ));
         // `released`, not `document`: the notice is behind the pacer, which is
-        // how the existing too-small assertions read it (`shell.rs:6068`,
-        // `:6256`). Concatenated rather than compared row by row, because a
+        // how the existing too-small assertions read it (`shell.rs:6178`,
+        // `:6384`). Concatenated rather than compared row by row, because a
         // twenty-column screen is exactly the one that wraps this sentence --
         // and what the case is about is that the refusal was said, not where the
         // wrap fell.
@@ -24041,21 +25281,15 @@ mod tests {
     }
 
     #[test]
-    fn a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation(
-    ) {
-        // HISTORY-NOTICE-STOP: the runtime records a history notice said once
-        // `send_ui` queues it (`worker::one_turn`) -- a queue, not a paint. That
-        // is sound because this screen paints every notice it takes, and the
-        // paths that drop one -- a reset (its drain, and `reset_session`'s
-        // clear) and a resume's or a fork's replay -- come with the runtime
-        // dropping the conversation that recorded it, ledger and all
-        // (`worker::tests::the_history_notice_ledger_goes_with_its_conversation`).
-        const CARRY: &str =
-            "this session recorded reasoning on the anthropic_messages wire and is \
-                             continuing on vercel_gateway, so that reasoning was not carried over";
+    fn a_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation() {
+        // A notice a turn queued is a queue, not a paint: this screen paints
+        // every notice it takes, a stopped turn's too, and drops one only on
+        // the paths that drop its conversation -- a reset (its drain, and
+        // `reset_session`'s clear) and a resume's or a fork's replay.
+        const CARRY: &str = "a notice the turn queued before it heard the stop";
         let said = |rows: &[String]| {
             rows.iter()
-                .filter(|row| row.contains("not carried over"))
+                .filter(|row| row.contains("before it heard the stop"))
                 .count()
         };
         let carry = || UiEvent::Notice(notice::Notice::warning("session", CARRY));
@@ -29993,6 +31227,459 @@ mod tests {
         );
     }
 
+    /// One `ask_user_question` call and what came back for it, as the log
+    /// keeps them, then the step that answered: QUESTION-RESUME's fixtures.
+    fn asked_turn(
+        user: &str,
+        ok: bool,
+        output: &str,
+        ending: Option<crate::session::ToolEnding>,
+    ) -> crate::session::HistoryTurn {
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "q".to_string(),
+                    name: "ask_user_question".to_string(),
+                    input: serde_json::json!({"questions": []}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            TurnStep::ToolResult {
+                images: Vec::new(),
+                call_id: "q".to_string(),
+                tool: "ask_user_question".to_string(),
+                ok,
+                output: output.to_string(),
+                ending,
+                lines: None,
+                change: None,
+            },
+            TurnStep::Assistant {
+                text: "Done.".to_string(),
+                tool_calls: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+        ];
+        logged_turn(
+            user,
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            },
+        )
+    }
+
+    /// The answer document the tool writes for `count` questions, `Q n?`
+    /// answered `A n`.
+    fn answer_document(count: usize) -> String {
+        let pairs: Vec<serde_json::Value> = (1..=count)
+            .map(|n| serde_json::json!({"question": format!("Q {n}?"), "answer": format!("A {n}")}))
+            .collect();
+        serde_json::to_string(&pairs).unwrap()
+    }
+
+    /// A resumed session's document, every SGR the palette wrote taken off.
+    fn resumed_rows(turns: Vec<crate::session::HistoryTurn>) -> (Fixture, Vec<String>) {
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(bridge::inert_hydration(logged(turns)), false);
+        let rows = resumed
+            .painted_document()
+            .iter()
+            .map(|row| without_sgr(row))
+            .collect();
+        (resumed, rows)
+    }
+
+    fn without_sgr(row: &str) -> String {
+        let mut out = String::new();
+        let mut rest = row;
+        while let Some(at) = rest.find("\u{1b}[") {
+            out.push_str(&rest[..at]);
+            let after = &rest[at + 2..];
+            match after.find('m') {
+                Some(end) if after[..end].chars().all(|c| c.is_ascii_digit() || c == ';') => {
+                    rest = &after[end + 1..];
+                }
+                _ => {
+                    out.push_str("\u{1b}[");
+                    rest = after;
+                }
+            }
+        }
+        out.push_str(rest);
+        out
+    }
+
+    #[test]
+    fn a_resumed_answered_batch_of_one_four_or_twenty_replays_its_resolutions() {
+        // QUESTION-RESUME, `fx-p5-question-resume-40x120-resumed` and
+        // `fx-p5-input-question20-40x120-resumed`: fx v0.0.16 decodes the
+        // saved document of a successful call (`writeAnsweredQuestionResult`,
+        // `app_session_runtime.zig:4589-4607@481104fd`) and writes the rows
+        // the panel left (`composeResolvedQuestionAnswers`, `main.zig:
+        // 2335-2346`): each question under its ordinal, the answer hung under
+        // it in the answer grey.
+        for count in [1, 4, 20] {
+            let (resumed, rows) =
+                resumed_rows(vec![asked_turn("ask", true, &answer_document(count), None)]);
+            for n in 1..=count {
+                let prefix = format!("  {n}) ");
+                let indent = " ".repeat(prefix.len());
+                let at = rows
+                    .iter()
+                    .position(|row| *row == format!("{prefix}Q {n}?"))
+                    .unwrap_or_else(|| panic!("{count}: no question {n} in {rows:#?}"));
+                assert_eq!(rows[at + 1], format!("{indent}A {n}"), "{count}: {rows:#?}");
+            }
+            assert!(!rows.iter().any(|row| row.contains("Asked")), "{rows:#?}");
+            let card = rows
+                .iter()
+                .position(|row| row == "┃ ask")
+                .expect("the card");
+            let done = rows
+                .iter()
+                .position(|row| row == "  Done.")
+                .expect("the answer");
+            let first = rows.iter().position(|row| row == "  1) Q 1?").unwrap();
+            assert!(card < first && first < done, "{rows:#?}");
+            // The answer's grey, as the live record paints it.
+            let mut painted = shell(40, 120);
+            painted.hydrate(
+                bridge::inert_hydration(logged(vec![asked_turn(
+                    "ask",
+                    true,
+                    &answer_document(count),
+                    None,
+                )])),
+                false,
+            );
+            let answer = format!(
+                "{}     A 1{}",
+                resumed.shell.palette.answer(),
+                PALETTE.reset()
+            );
+            assert!(
+                painted.painted_document().contains(&answer),
+                "{count}: no {answer:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_resumed_batch_that_left_no_answered_document_is_one_asked_row() {
+        // `fx-p5-question-resume-40x120-resumed`: a refused batch (fx's
+        // refusal is a successful call's text, xfx's a failed call's,
+        // `docs/parity.md`'s adaptation (7)) replays as the generic completed
+        // row `● Asked`, the marker in the system notice grey
+        // (`lifecycleTerminalLine`, `transcript/runtime.zig:613-671@481104fd`).
+        // So does every other result that is not an answered batch -- the
+        // generic path upstream's own test pins (`execution replay keeps
+        // invalid question results on the generic path`,
+        // `app_session_runtime.zig:7991-8035`): a declined batch's sentinel,
+        // a malformed document, a document past twenty, a failed call whose
+        // output is a valid document.
+        let refused = "(ask_user_question: provide 1 to 20 questions)";
+        let past = answer_document(21);
+        let valid = answer_document(1);
+        for (ok, output) in [
+            (false, refused),
+            (true, refused),
+            (true, crate::tools::question::CANCEL_SENTINEL),
+            (true, r#"[{"question":"Q"}]"#),
+            (true, r#"[{"question":"Q","answer":1}]"#),
+            (true, "[]"),
+            (true, past.as_str()),
+            (false, valid.as_str()),
+            // An array where an object should be (`question_answer.zig:63`).
+            (true, r#"[["Q","A"]]"#),
+            (true, r#"[{"question":"Q","answer":"A"},["Q","A"]]"#),
+        ] {
+            let (resumed, rows) = resumed_rows(vec![asked_turn("ask", ok, output, None)]);
+            let card = rows
+                .iter()
+                .position(|row| row == "┃ ask")
+                .expect("the card");
+            assert_eq!(
+                rows[card + 1..].iter().take(4).collect::<Vec<_>>(),
+                ["", "● Asked", "", "  Done."],
+                "{ok} {output}: {rows:#?}"
+            );
+            assert!(
+                !rows.iter().any(|row| row.starts_with("  1) ")),
+                "{ok} {output}: {rows:#?}"
+            );
+            let marker = format!(
+                "{}\u{25cf}{} Asked",
+                resumed.shell.palette.notice(),
+                PALETTE.reset()
+            );
+            let mut painted = shell(40, 120);
+            painted.hydrate(
+                bridge::inert_hydration(logged(vec![asked_turn("ask", ok, output, None)])),
+                false,
+            );
+            assert!(
+                painted.painted_document().contains(&marker),
+                "{ok} {output}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_resumed_batch_the_stop_cut_off_is_the_turns_cancellation_line_alone() {
+        // `fx-p5-question-resume-40x120-resumed`: Escape at the panel stops the
+        // turn, the call has no result to replay, and the turn's own line is
+        // all there is -- no `● Asked`, no `▪ Cancelled` of the question's.
+        use crate::session::{TerminalReason, TurnConclusion};
+        let mut turn = asked_turn(
+            "ask stop",
+            false,
+            crate::tools::question::ABORTED_OUTPUT,
+            Some(crate::session::ToolEnding::Cancelled),
+        );
+        turn.steps.truncate(2);
+        turn.outcome = Some(TurnConclusion::Interrupted {
+            reason: crate::agent::TurnError::Cancelled.to_string(),
+            terminal_reason: Some(TerminalReason::Cancelled),
+            cancellation_origin: Default::default(),
+        });
+        let (_, rows) = resumed_rows(vec![turn]);
+        let card = rows
+            .iter()
+            .position(|row| row == "┃ ask stop")
+            .expect("the card");
+        assert_eq!(
+            rows[card + 1..].iter().take(2).collect::<Vec<_>>(),
+            ["", "▪ Cancelled · What can xfx do differently?"],
+            "{rows:#?}"
+        );
+        assert!(!rows.iter().any(|row| row.contains("Asked")), "{rows:#?}");
+    }
+
+    #[test]
+    fn a_resumed_step_that_asked_between_two_calls_settles_each_in_a_group_of_its_own() {
+        // `fx-p5-question-resume-40x120-resumed`'s `ask mixed`: fx v0.0.16
+        // writes each call of a step and then its result
+        // (`writeExecutionHistoryToSink`, `app_session_runtime.zig:
+        // 4120-4127@481104fd`) and its projection ends a run of calls at an
+        // ask's row (`tool_group_projection.zig:1356-1359`, `:1372`): two
+        // groups of one, each read settled, the ask's row between them.
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let call = |id: &str, name: &str, input: serde_json::Value| RecordedToolCall {
+            id: id.to_string(),
+            name: name.to_string(),
+            input,
+        };
+        let result = |id: &str, tool: &str, output: &str| TurnStep::ToolResult {
+            images: Vec::new(),
+            call_id: id.to_string(),
+            tool: tool.to_string(),
+            ok: false,
+            output: output.to_string(),
+            ending: None,
+            lines: None,
+            change: None,
+        };
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![
+                    call("r1", "read_file", serde_json::json!({"path": "gone.txt"})),
+                    call(
+                        "q",
+                        "ask_user_question",
+                        serde_json::json!({"questions": []}),
+                    ),
+                    call("r2", "read_file", serde_json::json!({"path": "lost.txt"})),
+                ],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+                model: None,
+            },
+            result("r1", "read_file", "Path not found: gone.txt"),
+            result(
+                "q",
+                "ask_user_question",
+                "(ask_user_question: provide 1 to 20 questions)",
+            ),
+            result("r2", "read_file", "Path not found: lost.txt"),
+        ];
+        let (_, rows) = resumed_rows(vec![logged_turn(
+            "ask mixed",
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            },
+        )]);
+        let card = rows
+            .iter()
+            .position(|row| row == "┃ ask mixed")
+            .expect("the card");
+        assert_eq!(
+            rows[card + 1..].iter().take(8).collect::<Vec<_>>(),
+            [
+                "",
+                "● 1 tool call · 1 read · 1 failed",
+                "└ Failed gone.txt",
+                "",
+                "● Asked",
+                "",
+                "● 1 tool call · 1 read · 1 failed",
+                "└ Failed lost.txt",
+            ],
+            "{rows:#?}"
+        );
+    }
+
+    /// One step that called `calls` in that order -- `r…` a read of a missing
+    /// file, `q` an empty batch -- each result saved in call order, as xfx
+    /// runs a step's calls one at a time and records each result as it
+    /// comes back (`agent::machine`'s `execute_tool_calls`, the call loop
+    /// and its `SessionEvent::ToolResult`).
+    fn a_step_of(calls: &[&str]) -> crate::session::HistoryTurn {
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let recorded = calls
+            .iter()
+            .map(|id| RecordedToolCall {
+                id: id.to_string(),
+                name: if *id == "q" {
+                    "ask_user_question"
+                } else {
+                    "read_file"
+                }
+                .to_string(),
+                input: if *id == "q" {
+                    serde_json::json!({"questions": []})
+                } else {
+                    serde_json::json!({"path": format!("{id}.txt")})
+                },
+            })
+            .collect();
+        let mut steps = vec![TurnStep::Assistant {
+            text: String::new(),
+            tool_calls: recorded,
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+            model: None,
+        }];
+        steps.extend(calls.iter().map(|id| {
+            TurnStep::ToolResult {
+                images: Vec::new(),
+                call_id: id.to_string(),
+                tool: if *id == "q" {
+                    "ask_user_question"
+                } else {
+                    "read_file"
+                }
+                .to_string(),
+                ok: false,
+                output: if *id == "q" {
+                    "(ask_user_question: provide 1 to 20 questions)".to_string()
+                } else {
+                    format!("Path not found: {id}.txt")
+                },
+                ending: None,
+                lines: None,
+                change: None,
+            }
+        }));
+        logged_turn(
+            "ask",
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            },
+        )
+    }
+
+    #[test]
+    fn a_resumed_step_with_its_ask_last_or_first_keeps_the_reads_beside_it_in_one_group() {
+        // fx v0.0.16 writes call then result, call by call
+        // (`writeExecutionHistoryToSink`, `app_session_runtime.zig:
+        // 4120-4127@481104fd`), groups consecutive call rows, and ends a group
+        // at an ask's row (`tool_group_projection.zig:1355-1377`): two reads
+        // before the ask are one group of two, then `● Asked`; an ask before a
+        // read is `● Asked`, then a group of one.
+        for (calls, want) in [
+            (
+                &["r1", "r2", "q"][..],
+                &[
+                    "",
+                    "● 2 tool calls · 2 read · 2 failed",
+                    "├ Failed r1.txt",
+                    "└ Failed r2.txt",
+                    "",
+                    "● Asked",
+                ][..],
+            ),
+            (
+                &["q", "r1"][..],
+                &[
+                    "",
+                    "● Asked",
+                    "",
+                    "● 1 tool call · 1 read · 1 failed",
+                    "└ Failed r1.txt",
+                ][..],
+            ),
+        ] {
+            let (_, rows) = resumed_rows(vec![a_step_of(calls)]);
+            let card = rows
+                .iter()
+                .position(|row| row == "┃ ask")
+                .expect("the card");
+            assert_eq!(
+                rows[card + 1..].iter().take(want.len()).collect::<Vec<_>>(),
+                want,
+                "{calls:?}: {rows:#?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_hostile_answer_document_paints_no_sequence_of_its_own() {
+        // A saved document is file input: its question and its answer reach
+        // the screen through the inert step and the rows' own taming, as the
+        // panel's entries do (`bridge::inert_hydration`, `safe_rows`,
+        // `answer_safe`).
+        let hostile = "x\u{1b}]0;pwned\u{7}y\u{1b}[2Jz\u{9b}31m";
+        let document = serde_json::to_string(&serde_json::json!([
+            {"question": format!("Q {hostile}"), "answer": format!("A {hostile}\nnext")}
+        ]))
+        .unwrap();
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(
+            bridge::inert_hydration(logged(vec![asked_turn("ask", true, &document, None)])),
+            false,
+        );
+        let painted = resumed.painted_document();
+        let rows: Vec<String> = painted.iter().map(|row| without_sgr(row)).collect();
+        assert!(
+            rows.iter().any(|row| row.starts_with("  1) Q x")),
+            "{rows:#?}"
+        );
+        assert!(rows.iter().any(|row| row == "     next"), "{rows:#?}");
+        for row in &rows {
+            assert!(
+                !row.contains('\u{1b}') && !row.contains('\u{9b}') && !row.contains('\u{7}'),
+                "{row:?}"
+            );
+        }
+    }
+
     /// Upstream's stopped turn after a resume is its card and its
     /// cancellation line -- the call the stop cut off is not replayed -- and
     /// a failed one is `✗ system: failed` (`app_session_runtime.zig:4796-4803`;
@@ -35630,17 +37317,22 @@ mod tests {
         shell.route_bytes(b"see @src/");
         listed(&mut shell);
         // `fx-composer-40x120-at-dir.txt`: the `@` is in column 7, so the rows
-        // are six columns in, and `src/` is browsed rather than searched.
+        // are six columns in, and `src/` is browsed rather than searched --
+        // under the folder's own row since fx v0.0.16 (7c8ef4a3; `filepicker`
+        // `at-dir`, `at-dir-down`, `at-dir-cj`, `at-tab` at 481104fd).
         assert_eq!(
-            listed_rows(&shell)[..3],
+            listed_rows(&shell)[..4],
             [
-                file_row(6, "src/deep/", true),
+                file_row(6, "src/", true),
+                file_row(6, "src/deep/", false),
                 file_row(6, "src/lib.rs", false),
                 file_row(6, "src/main.rs", false),
             ]
         );
         shell.route_bytes(b"\x1b[B");
-        assert_eq!(listed_rows(&shell)[1], file_row(6, "src/lib.rs", true));
+        assert_eq!(listed_rows(&shell)[1], file_row(6, "src/deep/", true));
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(listed_rows(&shell)[2], file_row(6, "src/lib.rs", true));
         // `fx-composer-40x120-at-tab.txt`: Tab puts the path in, with the space
         // after it, and the list closes because the caret has left the word.
         shell.route_bytes(b"\t");
@@ -35702,7 +37394,1880 @@ mod tests {
         shell.route_bytes(b"\t");
         assert_eq!(shell.editor.text(), "@src/");
         listed(&mut shell);
-        assert_eq!(listed_rows(&shell)[0], file_row(2, "src/deep/", true));
+        // The folder it opened is the list's first row (`listedFolder`,
+        // `path_completion.zig:79-84`, `:124-128@481104fd`).
+        assert_eq!(
+            listed_rows(&shell)[..2],
+            [file_row(2, "src/", true), file_row(2, "src/deep/", false)]
+        );
+    }
+
+    #[test]
+    fn enter_on_a_folder_row_mentions_the_folder_and_closes_the_list() {
+        // fx v0.0.16 (7c8ef4a3): Enter selects a folder, its `/` and a space,
+        // and the caret past the space closes the list; nothing is sent
+        // (`submitFilePickerOnEnter` -> `.select`,
+        // `input_completion_runtime.zig:1042@481104fd`, `:993-1012`).
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@src");
+        listed(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "@src/ ");
+        assert!(shell.file_picker.is_none(), "the list stayed up");
+        assert!(shell.sent.try_recv().is_err(), "Enter sent the line");
+        // A listed folder's own row, as `p5-input-at`'s `at-src-enter`.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"@src/");
+        listed(&mut shell);
+        assert_eq!(listed_rows(&shell)[0], file_row(2, "src/", true));
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "@src/ ");
+        assert!(shell.file_picker.is_none(), "the list stayed up");
+        // A folder inside, as `p5-input-at-dir`'s `dir-enter`: the space
+        // is the one the next word follows.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"@src/de");
+        listed(&mut shell);
+        shell.route_bytes(b"\r");
+        shell.route_bytes(b"x");
+        assert_eq!(shell.editor.text(), "@src/deep/ x");
+        assert!(shell.file_picker.is_none());
+        assert!(shell.sent.try_recv().is_err());
+    }
+
+    #[test]
+    fn tab_on_the_folders_own_row_lists_it_again() {
+        // `p5-input-at`'s `at-src-tab`: Tab opens the marked folder, and
+        // the marked folder is the one listed, so the list stays on it
+        // (`.open`, `input_completion_runtime.zig:957@481104fd`, `:1029`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@src/");
+        listed(&mut shell);
+        let before = listed_rows(&shell);
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "@src/");
+        listed(&mut shell);
+        assert_eq!(listed_rows(&shell), before);
+        assert_eq!(listed_rows(&shell)[0], file_row(2, "src/", true));
+    }
+
+    #[test]
+    fn a_folder_with_a_space_is_mentioned_inside_its_quotes() {
+        // fx's "filesystem file picker lists an opened folder first and
+        // Enter selects it" (`input_completion_runtime.zig:2200-2235
+        // @481104fd`).
+        let workspace = tempfile::tempdir().expect("a workspace");
+        std::fs::create_dir(workspace.path().join("space dir")).expect("a folder");
+        std::fs::write(workspace.path().join("space dir/item.txt"), "inside").expect("a file");
+        let mut shell = shell_in(24, 80, workspace.path());
+        shell.route_bytes(b"@./space");
+        listed(&mut shell);
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "@\"./space dir/");
+        listed(&mut shell);
+        assert_eq!(
+            listed_rows(&shell)[..2],
+            [
+                file_row(2, "./space dir/", true),
+                file_row(2, "./space dir/item.txt", false)
+            ]
+        );
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "@\"./space dir/\" ");
+        assert!(shell.file_picker.is_none(), "the list stayed up");
+    }
+
+    #[test]
+    fn a_keystroke_that_lists_a_folder_holds_its_frame_until_the_rows_land() {
+        // fx's "filesystem file picker releases a held folder frame only with
+        // its rows" (`input_completion_runtime.zig:2237-2270@481104fd`), with
+        // the listing driven by the case and the clock given, so nothing
+        // waits on a thread: the frame waits while the listing is out, and
+        // goes the moment its rows are in.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let listing =
+            super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"@src/");
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        assert!(
+            shell.hold_frame_for_file_listing(t0),
+            "the frame did not wait for the folder's rows"
+        );
+        assert!(shell.file_listing_hold_pending(at(7)));
+        assert!(shell.hold_frame_for_file_listing(at(7)));
+        listing
+            .send(Ok(vec![(
+                "main.rs".to_string(),
+                super::super::file_index::Kind::File,
+            )]))
+            .expect("the listing");
+        assert!(
+            !shell.hold_frame_for_file_listing(at(7)),
+            "the rows landed and the frame still waited"
+        );
+        assert!(!shell.file_listing_hold_pending(at(7)));
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .expect("the list")
+                .rows_for_test()
+                .iter()
+                .map(|found| (found.path.as_str(), found.kind))
+                .collect::<Vec<_>>(),
+            [
+                ("src", super::super::file_index::Kind::Directory),
+                ("src/main.rs", super::super::file_index::Kind::File)
+            ]
+        );
+    }
+
+    #[test]
+    fn under_the_full_transcript_a_folder_listing_holds_no_frame() {
+        // Round 2 (opus r1 SHOULD 1): fx's hold harvests with
+        // `filePickerEligible` (`input_completion_runtime.zig:821@481104fd`),
+        // which is false while the full transcript is up (`:783`), and an
+        // ineligible harvest clears the directory request
+        // (`directory_completion_job.zig:140-151`). So with Ctrl-O open, a
+        // listing still out holds none of the transcript's frames.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let _listing =
+            super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"@src/");
+        let now = Instant::now();
+        assert!(
+            shell.hold_frame_for_file_listing(now),
+            "the listing held nothing, so this proves nothing"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Loading),
+            "the listing is not out any more"
+        );
+        assert!(
+            !shell.hold_frame_for_file_listing(now + Duration::from_millis(1)),
+            "the transcript's frame waited for the list's rows"
+        );
+        assert!(!shell.file_listing_hold_pending(now + Duration::from_millis(1)));
+        // And back on the composer's plane, the next folder holds again.
+        // Pasted, so `src/deep/` is the one lookup: typed, `d`, `e`, `e`, `p`
+        // each look `src/` up again, which replaces the driven listing with
+        // a real one -- and that one, landing before the hold is asked on a
+        // busy machine, made this case fail (round 8: two mutant runs).
+        shell.route_bytes(&[0x0f]);
+        let _next =
+            super::super::file_index::tests::driven_listing(shell.files_for_test(), "src/deep");
+        let driven = shell
+            .files_for_test()
+            .listing_stop_for_test()
+            .expect("the driven listing");
+        shell.route_bytes(b"\x1b[200~deep/\x1b[201~");
+        assert_eq!(shell.editor.text(), "@src/deep/");
+        // The driven listing itself is the one in flight -- the same job,
+        // known by its stop flag -- and it has not answered.
+        assert!(
+            shell
+                .files_for_test()
+                .listing_stop_for_test()
+                .is_some_and(|stop| std::sync::Arc::ptr_eq(&stop, &driven)),
+            "the driven listing was replaced"
+        );
+        assert!(shell.hold_frame_for_file_listing(now + Duration::from_millis(30)));
+    }
+
+    #[test]
+    fn a_listing_out_when_ctrl_o_opens_is_dropped_and_the_folder_listed_again() {
+        // Round 3 (gpt6 r2 MUST): fx's harvest with the list ineligible stops
+        // the listing, clears the request and marks the lookup dirty
+        // (`directory_completion_job.zig:140-151@481104fd`), and the lookup
+        // runs again once the list is eligible. So with Ctrl-O opened over
+        // `@src/`'s listing and closed with the query as it was, only a fresh
+        // listing's rows are taken: a late answer to the first is not. The
+        // index's walk is held by the case, so nothing but that lookup can
+        // list the folder again.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let _walk = super::super::file_index::tests::driven(shell.files_for_test());
+        let first = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"@src/");
+        let now = Instant::now();
+        shell.settle_band(now);
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Loading)
+        );
+        let stop = shell
+            .files_for_test()
+            .listing_stop_for_test()
+            .expect("the listing is out");
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
+        shell.settle_band(now);
+        // gpt6 r3 SHOULD 1: the dropped listing is told to stop, not only
+        // forgotten (`Task.stop`, `directory_completion_job.zig:68-78@481104fd`).
+        assert!(
+            stop.load(std::sync::atomic::Ordering::Relaxed),
+            "the abandoned listing was not told to stop"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        assert_eq!(shell.editor.text(), "@src/", "the query was edited");
+        shell.settle_band(now);
+        // The first listing answers late, with a row the folder never held.
+        let _ = first.send(Ok(vec![(
+            "late.txt".to_string(),
+            super::super::file_index::Kind::File,
+        )]));
+        // A listing of a three-entry folder, on a thread of its own.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while shell
+            .file_picker
+            .as_ref()
+            .is_some_and(|files| files.shown() == file_picker::Shown::Loading)
+        {
+            assert!(
+                Instant::now() < deadline,
+                "the folder was never listed again"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+            shell.settle_band(Instant::now());
+        }
+        let rows: Vec<String> = shell
+            .file_picker
+            .as_ref()
+            .expect("the list")
+            .rows_for_test()
+            .iter()
+            .map(|found| found.path.clone())
+            .collect();
+        assert_eq!(
+            rows,
+            ["src", "src/deep", "src/lib.rs", "src/main.rs"],
+            "the superseded listing's answer was taken"
+        );
+    }
+
+    #[test]
+    fn no_listing_starts_while_the_list_is_not_eligible() {
+        // Round 4 (opus r3 MUST): fx's one acquisition boundary,
+        // `prepareFilePicker`, returns at once while the list is not eligible
+        // (`input_completion_runtime.zig:848-853@481104fd`; `filePickerEligible`,
+        // `:775-786`). So the index's walk publishing while the full
+        // transcript is up starts no listing of `@src/`'s folder -- the
+        // lookup waits -- and closing the transcript starts exactly one.
+        // Listings are what is counted: walks are the index's own business
+        // and go on whatever the list is under (`joinThreadIfDone`,
+        // `file_index.zig:443-451`). Here the bare `@` is the session's first
+        // indexed episode and meets a loading index, so it asks for none
+        // (`input_completion_runtime.zig:857-861`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        let _first = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"@src/");
+        let now = Instant::now();
+        shell.settle_band(now);
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
+        shell.settle_band(now);
+        let listings = |shell: &mut Fixture| {
+            let files = shell.files_for_test();
+            files.started_for_test() - files.walks_for_test()
+        };
+        let base = listings(&mut shell);
+        // The walk publishes, and the session hears it, behind the transcript.
+        walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&["Cargo.toml", "src/", "src/main.rs"]),
+        ))
+        .expect("the walk");
+        walk.send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.settle_band(now);
+        shell.settle_band(now);
+        assert!(
+            !shell.files_for_test().listing_in_flight_for_test(),
+            "a listing started under the transcript"
+        );
+        assert_eq!(listings(&mut shell), base);
+        // Closed: one fresh listing, and the folder's rows from it.
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        shell.settle_band(now);
+        assert_eq!(
+            listings(&mut shell),
+            base + 1,
+            "not exactly one listing after the transcript closed"
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while shell
+            .file_picker
+            .as_ref()
+            .is_some_and(|files| files.shown() == file_picker::Shown::Loading)
+        {
+            assert!(
+                Instant::now() < deadline,
+                "the folder was never listed again"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+            shell.settle_band(Instant::now());
+        }
+        assert_eq!(
+            listed_paths(&shell),
+            ["src", "src/deep", "src/lib.rs", "src/main.rs"]
+        );
+        assert_eq!(listings(&mut shell), base + 1);
+    }
+
+    #[test]
+    fn an_at_word_typed_under_the_full_transcript_reads_nothing_until_it_closes() {
+        // Round 4: the keys the transcript leaves unbound reach the composer
+        // (`app_input_runtime.zig:973-994@481104fd`), so `@src/` can be typed
+        // under it. fx's list reconciles to that query but prepares nothing
+        // while it is not eligible -- neither the episode's index refresh nor
+        // the folder's listing (`prepareFilePicker`,
+        // `input_completion_runtime.zig:848-856`) -- and prepares both once
+        // the transcript closes.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
+        let base = shell.files_for_test().started_for_test();
+        let walks = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"@src/");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.editor.text(),
+            "@src/",
+            "the keys did not reach the composer"
+        );
+        assert!(shell.file_picker.is_some(), "no list for the query");
+        assert_eq!(
+            shell.files_for_test().started_for_test(),
+            base,
+            "a walk or a listing started under the transcript"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        shell.settle_band(Instant::now());
+        // Round 5 (gpt6 r4 MUST): the folder's listing and no walk -- fx
+        // refreshes the index only for a query the index answers
+        // (`prepareFilePicker`, `input_completion_runtime.zig:854-866@481104fd`).
+        assert_eq!(
+            shell.files_for_test().started_for_test(),
+            base + 1,
+            "not the folder's listing alone once it closed"
+        );
+        assert_eq!(shell.files_for_test().walks_for_test(), walks);
+        listed(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            ["src", "src/deep", "src/lib.rs", "src/main.rs"]
+        );
+    }
+
+    #[test]
+    fn a_folder_query_opens_with_its_listing_and_no_walk() {
+        // Round 5 (gpt6 r4 MUST): fx's episode asks for an index refresh,
+        // and `prepareFilePicker` takes it -- and walks the workspace -- only
+        // `if (state.indexed)` (`input_completion_runtime.zig:854-866@
+        // 481104fd`), which a browsed path is not (`fileCompletionsDependOnIndex`
+        // is `queryMode(query) == .workspace_index`,
+        // `app_workspace_runtime.zig:82-84`). So `@src/` reads its folder and
+        // walks nothing. Pasted, so the episode's first query is the folder's:
+        // typed, a bare `@` opens it, indexed, and walks.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let walks = shell.files_for_test().walks_for_test();
+        let base = shell.files_for_test().started_for_test();
+        shell.route_bytes(b"\x1b[200~@src/\x1b[201~");
+        assert_eq!(shell.editor.text(), "@src/");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks,
+            "a folder query walked the workspace"
+        );
+        assert_eq!(shell.files_for_test().started_for_test(), base + 1);
+        listed(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            ["src", "src/deep", "src/lib.rs", "src/main.rs"]
+        );
+    }
+
+    #[test]
+    fn an_indexed_query_opens_with_one_walk_or_none_while_one_runs() {
+        // An indexed query's episode walks the workspace once
+        // (`refreshFileIndex`); while a walk runs, none is started beside it.
+        // Here the episode is the session's first and the index is loading,
+        // so its refresh is skipped (`file_picker_episode_seen`,
+        // `input_completion_runtime.zig:857-861@481104fd`); a later one is
+        // queued behind the walk (`refreshOwnedRoots`, `file_index.zig:488-509`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let walks = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"@sch");
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 1);
+        let (_workspace, mut loading) = in_ws2(40, 120);
+        let _walk = super::super::file_index::tests::driven(loading.files_for_test());
+        let walks = loading.files_for_test().walks_for_test();
+        loading.route_bytes(b"@sch");
+        loading.settle_band(Instant::now());
+        assert_eq!(
+            loading.files_for_test().walks_for_test(),
+            walks,
+            "a second walk started beside the loading one"
+        );
+    }
+
+    #[test]
+    fn an_episode_opened_under_the_transcript_keeps_its_refresh_across_keys() {
+        // fx's refresh request stands until it is taken (`refresh_requested
+        // = refresh_requested or ...`, `file_completion_state.zig:164@
+        // 481104fd`), and nothing takes it while the list is not eligible
+        // (`input_completion_runtime.zig:853`). So `@sch` typed key by key
+        // under the full transcript -- an episode at the `@`, then three
+        // queries of the same kind -- walks once, when the transcript closes.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
+        let walks = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"@sch");
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.editor.text(), "@sch");
+        assert_eq!(shell.files_for_test().walks_for_test(), walks);
+        shell.route_bytes(&[0x0f]);
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the episode's refresh was lost to the keys after its `@`"
+        );
+    }
+
+    #[test]
+    fn tab_retries_a_failed_index_by_walking_it_and_a_failed_folder_without() {
+        // fx's Tab on a list that says it could not read asks for a lookup
+        // and for the index's refresh (`retry`, `file_completion_state.zig:
+        // 230-233@481104fd`), and the refresh walks only for an indexed query
+        // (`input_completion_runtime.zig:855-856`). So with the index's walk
+        // failed, Tab on `@sch` walks again, and Tab on an unreadable folder
+        // reads the folder again and walks nothing. The walk that fails is
+        // the episode's own, so no refresh waits for it.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@sch");
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        walk.send(super::super::file_index::Published::Failed)
+            .expect("the walk");
+        listed(&mut shell);
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Unavailable),
+            "the failed walk left the list with rows"
+        );
+        let walks = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"\t");
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "Tab did not walk the failed index again"
+        );
+        // A folder that cannot be read, with the index failed again.
+        let (_workspace, mut folder) = in_ws2(40, 120);
+        let walk = super::super::file_index::tests::driven(folder.files_for_test());
+        walk.send(super::super::file_index::Published::Failed)
+            .expect("the walk");
+        folder.settle_band(Instant::now());
+        let answer =
+            super::super::file_index::tests::driven_listing(folder.files_for_test(), "nope");
+        folder.route_bytes(b"\x1b[200~@nope/\x1b[201~");
+        answer.send(Err(())).expect("the listing");
+        listed(&mut folder);
+        assert_eq!(
+            folder.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Unavailable)
+        );
+        let walks = folder.files_for_test().walks_for_test();
+        let base = folder.files_for_test().started_for_test();
+        folder.route_bytes(b"\t");
+        assert_eq!(
+            folder.files_for_test().walks_for_test(),
+            walks,
+            "Tab on a folder walked the index"
+        );
+        assert_eq!(
+            folder.files_for_test().started_for_test(),
+            base + 1,
+            "Tab did not read the folder again"
+        );
+    }
+
+    /// Turns of the loop until the index's walks are done, and then the
+    /// list's rows.
+    fn walked(shell: &mut Fixture) {
+        let deadline = Instant::now() + START_PATIENCE;
+        while shell.files_for_test().busy() {
+            assert!(Instant::now() < deadline, "the walk never finished");
+            std::thread::sleep(Duration::from_millis(2));
+            shell.settle_band(Instant::now());
+        }
+        listed(shell);
+    }
+
+    #[test]
+    fn a_new_episode_during_a_walk_queues_one_walk_and_its_rows_show() {
+        // Round 6 (gpt6 r5 MUST): fx keeps a refresh asked for while a walk
+        // runs as one pending scope (`refreshOwnedRoots`,
+        // `replacePendingRoots`, `file_index.zig:488-523@481104fd`) and starts
+        // it when that walk ends (`joinThreadIfDone`, `:443-451`). So a file
+        // added while the index is walked, and an `@` opened during that
+        // walk, shows once the queued walk lands.
+        let (workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@sch");
+        // That episode's walk, driven by the case from here on.
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        std::fs::write(workspace.path().join("src/newmod.rs"), "").expect("a file");
+        shell.clear_composer();
+        let walks = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"@newm");
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks,
+            "a walk started beside the running one"
+        );
+        walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&["Cargo.toml", "src/", "src/main.rs"]),
+        ))
+        .expect("the walk");
+        walk.send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the refresh asked for during the walk never ran"
+        );
+        walked(&mut shell);
+        assert_eq!(listed_paths(&shell), ["src/newmod.rs"]);
+    }
+
+    #[test]
+    fn two_requests_during_one_walk_queue_one_walk() {
+        // fx coalesces: one pending scope however many requests come during a
+        // walk (`replacePendingRoots`, `file_index.zig:511-523@481104fd`). A
+        // kind change back to an indexed query and a new episode, both during
+        // one walk, make one walk after it, and none after that.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@sch");
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        let walks = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"/");
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(shell.editor.text(), "@sch");
+        shell.clear_composer();
+        shell.route_bytes(b"@sch");
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks,
+            "a request during the walk started one beside it"
+        );
+        walk.send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 1);
+        walked(&mut shell);
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "more than one walk was queued"
+        );
+        assert_eq!(listed_paths(&shell), ["src/deep/sched.rs"]);
+    }
+
+    #[test]
+    fn a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows() {
+        // fx starts the pending scope whatever the walk ended in, `.failed`
+        // included (`joinThreadIfDone`, `file_index.zig:432-451@481104fd`), and
+        // a load started clears the first index's failure (`startLoad`,
+        // `:389`). So an `@` opened while the first walk runs, and then that
+        // walk failing, shows `indexing files...` and then rows -- not `Files
+        // unavailable` until Tab.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@sch");
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.clear_composer();
+        shell.route_bytes(b"@sch");
+        let walks = shell.files_for_test().walks_for_test();
+        walk.send(super::super::file_index::Published::Failed)
+            .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the refresh queued during the failed walk never ran"
+        );
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Loading),
+            "the list said the files were unavailable"
+        );
+        walked(&mut shell);
+        assert_eq!(listed_paths(&shell), ["src/deep/sched.rs"]);
+    }
+
+    /// Turns of the loop until no walk is running, with or without a list.
+    fn walks_done(shell: &mut Fixture) {
+        let deadline = Instant::now() + START_PATIENCE;
+        while shell.files_for_test().busy() {
+            assert!(Instant::now() < deadline, "the walk never finished");
+            std::thread::sleep(Duration::from_millis(2));
+            shell.settle_band(Instant::now());
+        }
+        shell.settle_band(Instant::now());
+    }
+
+    /// A directory holding `plan.md`, and the access that adds it to the
+    /// shell's workspace.
+    fn extra_with_plan(
+        shell: &Fixture,
+    ) -> (tempfile::TempDir, std::path::PathBuf, WorkspaceAccess) {
+        let extra = tempfile::tempdir().expect("an extra root");
+        let path = extra.path().canonicalize().expect("canonical");
+        std::fs::write(path.join("plan.md"), "").expect("a file");
+        let access = WorkspaceAccess::load(&shell.workspace.clone(), &[path.display().to_string()]);
+        (extra, path, access)
+    }
+
+    fn adopt(shell: &mut Fixture, access: WorkspaceAccess) {
+        shell.apply(UiEvent::Workspace {
+            notice: notice::Notice::neutral("workspace", "changed"),
+            access: Some(access),
+        });
+    }
+
+    #[test]
+    fn a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once() {
+        // Round 7 (gpt6 r6 MUST 1): fx's install refreshes into the one pending
+        // scope while a walk runs (`refreshOwnedRoots`, `replacePendingRoots`,
+        // `file_index.zig:488-523@481104fd`), where the list's own refresh
+        // coalesces too; the walk that follows reads the new roots, and one
+        // walk is all a change of roots costs. A refresh queued before the
+        // change is satisfied by it -- not one walk more. AT-SCOPE-INTERIM:
+        // the walk the change finds runs on to its end (`refreshOwnedRoots`
+        // stops nothing, `file_index.zig:488-497`), and the new roots are
+        // walked after it.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, path, access) = extra_with_plan(&shell);
+        shell.route_bytes(b"@sch");
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.clear_composer();
+        shell.route_bytes(b"@sch");
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, access);
+        walk.send(super::super::file_index::Published::Ready)
+            .expect("the change stopped the walk");
+        walked(&mut shell);
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "not exactly one walk of the new roots"
+        );
+        // The list is the new roots' walk, the workspace's match first. It may
+        // hold the extra root's `plan.md` too, as fx's would: a path whose
+        // name does not match is matched anywhere in it (`choosePlacement`,
+        // `file_index.zig:1816-1818@481104fd`), an added root's path being
+        // absolute (`:957-958`, `:1098`), so whether `@sch` matches it hangs
+        // on the temp directory's letters. A name match ranks above it
+        // (`scoreBetter`, `:1884-1890`).
+        let rows = listed_paths(&shell);
+        assert_eq!(rows.first().map(String::as_str), Some("src/deep/sched.rs"));
+        let plan = path.join("plan.md").display().to_string();
+        assert!(rows[1..].iter().all(|row| *row == plan), "{rows:?}");
+        // With every walk over, the next episode's refresh starts at once.
+        let walks = shell.files_for_test().walks_for_test();
+        shell.clear_composer();
+        shell.route_bytes(b"@sch");
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 1);
+    }
+
+    #[test]
+    fn a_workspace_change_with_no_list_open_walks_the_new_roots_at_once() {
+        // Round 7 (gpt6 r6 MUST 2, opus r6 MUST): fx's install refreshes the
+        // index on a changed scope, a list open or not (`install`,
+        // `app_workspace_runtime.zig:127-143@481104fd`), so the next `@`
+        // finds the added directory's file at once. That `@` is an episode,
+        // and its refresh walks once more, privately, as fx's does
+        // (`prepareFilePicker`, `input_completion_runtime.zig:854-866`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, path, access) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, access);
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the workspace change walked nothing"
+        );
+        walks_done(&mut shell);
+        shell.route_bytes(b"@plan");
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Rows),
+            "the first `@` after the change was still indexing"
+        );
+        assert_eq!(
+            listed_paths(&shell),
+            [format!("{}/plan.md", path.display())]
+        );
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 2);
+    }
+
+    #[test]
+    fn a_workspace_change_that_moves_no_root_still_refreshes_the_index() {
+        // fx's trigger is any change of the access, not of the active roots:
+        // `eql` compares every entry's path, `saved`, `command_line`,
+        // `available` and `active` (`workspace_access.zig:176-189@481104fd`).
+        // A directory added that is not there is an entry, unavailable, and
+        // no root -- and still a changed scope.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let gone = tempfile::tempdir().expect("a parent");
+        let missing = gone
+            .path()
+            .canonicalize()
+            .expect("canonical")
+            .join("missing");
+        let access =
+            WorkspaceAccess::load(&shell.workspace.clone(), &[missing.display().to_string()]);
+        assert!(
+            super::index_roots(&shell.workspace, &access).is_empty(),
+            "the missing directory is a root, so this proves nothing"
+        );
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, access.clone());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "a change of the access that moved no root walked nothing"
+        );
+        walks_done(&mut shell);
+        // The same access again is no change.
+        adopt(&mut shell, access);
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 1);
+    }
+
+    #[test]
+    fn a_workspace_change_resets_an_open_list_and_reads_its_folder_again() {
+        // fx's `invalidateScope` invalidates the open list
+        // (`app_workspace_runtime.zig:98-104@481104fd`; `invalidate`,
+        // `file_completion_state.zig:130-139`): trust dropped, the folder's
+        // request dropped -- so it is read again -- and the next reconcile
+        // puts the bar and the window back on row 0 (`resetFilePickerIndex`,
+        // `input_completion_runtime.zig:797`, `picker_state.zig:249-252`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, _path, access) = extra_with_plan(&shell);
+        shell.route_bytes(b"\x1b[200~@src/\x1b[201~");
+        listed(&mut shell);
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(FilePicker::chosen)
+                .map(|found| found.path.as_str()),
+            Some("src/deep"),
+            "Down did not move the bar, so this proves nothing"
+        );
+        let listings = |shell: &mut Fixture| {
+            let files = shell.files_for_test();
+            files.started_for_test() - files.walks_for_test()
+        };
+        let base = listings(&mut shell);
+        adopt(&mut shell, access);
+        assert_eq!(
+            shell.file_picker.as_ref().and_then(FilePicker::chosen),
+            None,
+            "the list kept its trust across the change of scope"
+        );
+        assert_eq!(
+            listings(&mut shell),
+            base + 1,
+            "the folder was not read again"
+        );
+        listed(&mut shell);
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(FilePicker::chosen)
+                .map(|found| found.path.as_str()),
+            Some("src"),
+            "the bar did not go back to row 0"
+        );
+    }
+
+    #[test]
+    fn a_workspace_change_that_keeps_the_rows_still_resets_the_bar_and_the_trust() {
+        // The reset is the list's, whether its rows change or not: an access
+        // change that moves no root walks the same roots again, and fx's
+        // invalidated list is still a new episode -- untrusted until a frame
+        // shows it, its bar and window on row 0 (`invalidate`,
+        // `file_completion_state.zig:130-139@481104fd`; `resetFilePickerIndex`,
+        // `input_completion_runtime.zig:797`).
+        //
+        // AT-SCOPE-INTERIM flipped its first precondition: the rows are not
+        // kept meanwhile. Any access change moves fx's scope epoch
+        // (`invalidateScope`, `app_workspace_runtime.zig:98-104`), and an
+        // indexed list whose index is of another epoch says `Files
+        // unavailable. tab to retry; esc to dismiss.` until a walk of the new
+        // scope is adopted (`input_completion_runtime.zig:868-890`); then the
+        // same rows come back, the list still untrusted.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@");
+        walked(&mut shell);
+        shell.route_bytes(b"\x1b[B");
+        let second = listed_paths(&shell)[1].clone();
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(FilePicker::chosen)
+                .map(|found| found.path.clone()),
+            Some(second),
+            "Down did not move the bar, so this proves nothing"
+        );
+        let rows = listed_paths(&shell);
+        let gone = tempfile::tempdir().expect("a parent");
+        let missing = gone
+            .path()
+            .canonicalize()
+            .expect("canonical")
+            .join("missing");
+        let access =
+            WorkspaceAccess::load(&shell.workspace.clone(), &[missing.display().to_string()]);
+        adopt(&mut shell, access);
+        assert_eq!(
+            listed_rows(&shell)[0],
+            status_row(FILES_UNAVAILABLE),
+            "the rows were kept across the change of scope"
+        );
+        walks_done(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            rows,
+            "the same roots walked to other rows"
+        );
+        assert_eq!(
+            shell.file_picker.as_ref().and_then(FilePicker::chosen),
+            None,
+            "the list kept its trust across the change of scope"
+        );
+        shell.file_picker_landed();
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(FilePicker::chosen)
+                .map(|found| found.path.clone()),
+            Some(rows[0].clone()),
+            "the bar did not go back to row 0"
+        );
+    }
+
+    #[test]
+    fn the_first_indexed_episode_skips_its_refresh_while_the_index_loads() {
+        // Round 8 (gpt6 r7 MUST 1): fx's first indexed episode of the
+        // session skips its refresh while the index is loading
+        // (`file_picker_episode_seen`, `prepareFilePicker`,
+        // `input_completion_runtime.zig:854-861@481104fd`; the flag lasts the
+        // session, `picker_state.zig:171`), and every later one refreshes,
+        // loading or not. In a session the first `@` meets the launch's walk
+        // (`Shell::start_file_index`, AT-LAUNCH-WALK); this shell was never
+        // launched, and the walk a `/workspace` change starts stands in for
+        // it, so the first `@` can meet a loading index.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, _path, access) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, access);
+        // The install's walk, held by the case.
+        let first = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.route_bytes(b"@plan");
+        first
+            .send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the first episode refreshed behind the loading index"
+        );
+        // A later episode, the index loading again after another change:
+        // it refreshes, behind the walk.
+        shell.clear_composer();
+        let (_other, _path, access) = extra_with_plan(&shell);
+        adopt(&mut shell, access);
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 2);
+        let second = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.route_bytes(b"@plan");
+        second
+            .send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 3,
+            "a later episode skipped its refresh"
+        );
+    }
+
+    #[test]
+    fn the_first_episode_after_a_whole_index_refreshes_across_a_change_of_roots() {
+        // Round 9 (gpt6 r8 MUST, opus r8 MUST): fx's skip asks whether its
+        // index is loading -- `currentState() == .loading` (`main.zig:
+        // 2125-2127@481104fd`), which is `.ready` once any generation has been
+        // adopted (`file_index.zig:333-341`), and an adopted generation is
+        // kept across a change of scope (set at `:425`, `:677`; cleared only
+        // at shutdown, `:325`). So after one install's walk lands, another
+        // install of other roots, and then the session's first `@` during
+        // that walk: the index is not loading, and the `@` asks for its
+        // refresh, queued behind the walk -- three walks in all.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_a, _path, first) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, first);
+        walks_done(&mut shell);
+        let (_b, _path, other) = extra_with_plan(&shell);
+        adopt(&mut shell, other);
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 2);
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.route_bytes(b"@plan");
+        walk.send(super::super::file_index::Published::Ready)
+            .expect("the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 3,
+            "the first episode skipped its refresh after an index had been whole"
+        );
+    }
+
+    #[test]
+    fn an_equal_access_changes_nothing_even_where_its_directory_is_gone() {
+        // Round 8 (opus r7 note): fx does nothing when `eql` holds
+        // (`install`, `app_workspace_runtime.zig:134-141@481104fd`). xfx's
+        // roots are read from the filesystem (`index_roots`), so the same
+        // access again, after its directory went, would read other roots:
+        // they are not read at all then, and the index stays.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (extra, path, access) = extra_with_plan(&shell);
+        adopt(&mut shell, access.clone());
+        walks_done(&mut shell);
+        shell.route_bytes(b"@plan");
+        walked(&mut shell);
+        let rows = [format!("{}/plan.md", path.display())];
+        assert_eq!(listed_paths(&shell), rows);
+        let walks = shell.files_for_test().walks_for_test();
+        drop(extra);
+        adopt(&mut shell, access);
+        assert_eq!(shell.files_for_test().walks_for_test(), walks);
+        // The next lookup answers from the index it had.
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(shell.editor.text(), "@pla");
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Rows),
+            "the index was dropped with no walk asked for"
+        );
+        assert_eq!(listed_paths(&shell), rows);
+    }
+
+    /// A status row of the `@` list, two columns in under an `@` that starts
+    /// the composer, in the dim grey (`app_render_runtime.zig:
+    /// 647-654@481104fd`).
+    fn status_row(text: &str) -> String {
+        format!("  {}{text}{}", PALETTE.dim(), PALETTE.reset())
+    }
+
+    /// fx's interim (`app_render_runtime.zig:649@481104fd`).
+    const FILES_UNAVAILABLE: &str = "Files unavailable. tab to retry; esc to dismiss.";
+
+    #[test]
+    fn a_change_of_roots_under_an_open_indexed_list_says_files_unavailable_until_its_walk_is_whole()
+    {
+        // AT-SCOPE-INTERIM: any change of the access moves fx's scope epoch
+        // (`invalidateScope`, `app_workspace_runtime.zig:98-104@481104fd`),
+        // the index it has stays searchable with the old epoch until a walk
+        // of the new scope is adopted (`readableRevision`,
+        // `file_index.zig:572-583`; adopted only whole, `:425`), and an
+        // indexed list whose source is of another epoch is staged
+        // unavailable (`prepareFilePicker`, `input_completion_runtime.zig:
+        // 868-890`). The new walk's prefix is private meanwhile
+        // (`searchableGeneration`, `file_index.zig:647-654`). When it lands,
+        // the source moves and the list is looked up again: its rows, the bar
+        // on the first (`needsLookup`, `file_completion_state.zig:198-200`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, path, access) = extra_with_plan(&shell);
+        shell.route_bytes(b"@plan");
+        walked(&mut shell);
+        assert!(listed_paths(&shell).is_empty(), "the workspace has a plan");
+        adopt(&mut shell, access);
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.settle_band(Instant::now());
+        let at_once = listed_rows(&shell)[0].clone();
+        let plan = format!("{}/plan.md", path.display());
+        let _ = walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&[&plan]),
+        ));
+        shell.settle_band(Instant::now());
+        let published = listed_rows(&shell)[0].clone();
+        let _ = walk.send(super::super::file_index::Published::Ready);
+        shell.settle_band(Instant::now());
+        shell.file_picker_landed();
+        assert_eq!(
+            (at_once, published, listed_paths(&shell)),
+            (
+                status_row(FILES_UNAVAILABLE),
+                status_row(FILES_UNAVAILABLE),
+                vec![plan.clone()]
+            ),
+            "not fx's interim until the new scope's walk was whole"
+        );
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(FilePicker::chosen)
+                .map(|found| found.path.clone()),
+            Some(plan),
+            "the bar is not on the first row the walk brought"
+        );
+    }
+
+    #[test]
+    fn a_change_that_moves_no_root_says_files_unavailable_until_its_walk_is_whole() {
+        // The same for an access change that moves no root -- a directory
+        // added that is not there: fx's epoch moves all the same (`install`'s
+        // `!access.eql`, `app_workspace_runtime.zig:134-140@481104fd`), so a
+        // list open across the change and one opened before the walk is
+        // whole both say `Files unavailable` (`input_completion_runtime.zig:
+        // 887-888`), where the rows were and will be the same.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@");
+        walked(&mut shell);
+        assert_eq!(listed_paths(&shell)[0], "Cargo.toml");
+        let gone = tempfile::tempdir().expect("a parent");
+        let missing = gone
+            .path()
+            .canonicalize()
+            .expect("canonical")
+            .join("missing");
+        let access =
+            WorkspaceAccess::load(&shell.workspace.clone(), &[missing.display().to_string()]);
+        adopt(&mut shell, access);
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.settle_band(Instant::now());
+        let across = listed_rows(&shell)[0].clone();
+        shell.clear_composer();
+        shell.route_bytes(b"@");
+        shell.settle_band(Instant::now());
+        let opened = listed_rows(&shell)[0].clone();
+        let _ = walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&["Cargo.toml", "README.md"]),
+        ));
+        let _ = walk.send(super::super::file_index::Published::Ready);
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            (across, opened, listed_paths(&shell)),
+            (
+                status_row(FILES_UNAVAILABLE),
+                status_row(FILES_UNAVAILABLE),
+                vec!["Cargo.toml".to_string(), "README.md".to_string()]
+            ),
+            "not fx's interim until the same roots' walk was whole"
+        );
+    }
+
+    /// The trace gpt6 asked of AT-FOLDERS round 10 (r10-gpt6 NTH 1): the
+    /// session's first `@` after two changes of roots, A's walk -- the
+    /// launch's, which both changes find running -- held by the case, and
+    /// ended with `a_ends` before the `@` -- or, with `None`, still running at
+    /// the `@` and ended whole after it. The list's first row as the `@` left
+    /// it, the rows once every walk is done, and how many walks it all took.
+    ///
+    /// Its premise -- nothing adopted while A runs, A being the session's
+    /// first walk -- is fx's: A is the launch walk
+    /// (`app_entry_runtime.zig:334@481104fd`; [`Shell::start_file_index`]).
+    /// Until AT-LAUNCH-WALK xfx had none, and the first change's walk played
+    /// A's part.
+    fn first_at_after_two_changes(
+        a_ends: Option<super::super::file_index::Published>,
+    ) -> (String, Vec<String>, usize) {
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_a, _path, first) = extra_with_plan(&shell);
+        let (_b, path, other) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        shell.start_file_index();
+        let a_walk = super::super::file_index::tests::held(shell.files_for_test());
+        adopt(&mut shell, first);
+        adopt(&mut shell, other);
+        let held = match a_ends {
+            Some(end) => {
+                let _ = a_walk.send(end);
+                None
+            }
+            None => Some(a_walk),
+        };
+        shell.settle_band(Instant::now());
+        shell.route_bytes(b"@plan");
+        let row = listed_rows(&shell)[0].clone();
+        if let Some(a_walk) = held {
+            let _ = a_walk.send(super::super::file_index::Published::Ready);
+        }
+        walked(&mut shell);
+        let rows = listed_paths(&shell);
+        assert_eq!(rows, [format!("{}/plan.md", path.display())]);
+        (row, rows, shell.files_for_test().walks_for_test() - walks)
+    }
+
+    #[test]
+    fn the_first_at_while_the_old_roots_walk_runs_skips_its_refresh() {
+        // fx does not stop a walk on a change of scope: `refreshOwnedRoots`
+        // queues the new scope behind it (`file_index.zig:488-497`,
+        // `:511-523@481104fd`), and with no generation adopted yet the index
+        // is `.loading` until it ends (`currentState`, `:333-341`). So the
+        // session's first `@` skips its refresh (`input_completion_runtime.
+        // zig:857-861`), says `Files unavailable` -- A's prefix is of the old
+        // epoch -- and A, then B, are all the walks there are.
+        let (row, _rows, walks) = first_at_after_two_changes(None);
+        assert_eq!((row, walks), (status_row(FILES_UNAVAILABLE), 2));
+    }
+
+    #[test]
+    fn the_first_at_after_the_old_roots_walk_was_adopted_refreshes() {
+        // A whole before the `@` is adopted (`joinThreadIfDone`,
+        // `file_index.zig:425@481104fd`) and B starts behind it; from then
+        // on the index is `.ready`, so the first `@` asks for its refresh,
+        // queued behind B (`replacePendingRoots`, `:511-523`): three walks.
+        // A, adopted, is of the old epoch: `Files unavailable` until B is.
+        let (row, _rows, walks) =
+            first_at_after_two_changes(Some(super::super::file_index::Published::Ready));
+        assert_eq!((row, walks), (status_row(FILES_UNAVAILABLE), 3));
+    }
+
+    #[test]
+    fn the_first_at_after_the_old_roots_walk_failed_skips_its_refresh() {
+        // A failed with nothing adopted: B starts behind it and clears the
+        // failure (`joinThreadIfDone`, `file_index.zig:432-451@481104fd`;
+        // `startLoad`, `:389`), so the index is `.loading` again and the
+        // first `@` skips its refresh; B's prefix is of the new epoch and is
+        // searched as it is published: `indexing files...`, two walks.
+        let (row, _rows, walks) =
+            first_at_after_two_changes(Some(super::super::file_index::Published::Failed));
+        assert_eq!((row, walks), (status_row("indexing files..."), 2));
+    }
+
+    #[test]
+    fn tab_in_the_interim_retries_and_still_says_files_unavailable() {
+        // fx's Tab on `Files unavailable` retries (`autocompleteFilePicker
+        // Selection`, `input_completion_runtime.zig:950-953@481104fd`;
+        // `retry`, `file_completion_state.zig:230-233`): the index's refresh
+        // and a lookup, which finds the old epoch again. The refresh joins
+        // the one scope queued behind the running walk
+        // (`replacePendingRoots`, `file_index.zig:511-523`): with the list's
+        // own refresh already queued there it adds nothing; with nothing
+        // queued -- the first `@` skipped its refresh, and A's adoption
+        // started B with the queue -- it adds a walk after B. A is the launch
+        // walk, which both changes find running (the trace's premise,
+        // [`first_at_after_two_changes`]).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_a, _path, first) = extra_with_plan(&shell);
+        let (_b, path, other) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        shell.start_file_index();
+        let a_walk = super::super::file_index::tests::held(shell.files_for_test());
+        adopt(&mut shell, first);
+        adopt(&mut shell, other);
+        shell.settle_band(Instant::now());
+        shell.route_bytes(b"@plan");
+        let _ = a_walk.send(super::super::file_index::Published::Ready);
+        shell.settle_band(Instant::now());
+        let b_walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.file_picker_landed();
+        shell.route_bytes(b"\t");
+        let after_tab = listed_rows(&shell)[0].clone();
+        assert_eq!(shell.editor.text(), "@plan", "Tab put a path in");
+        let _ = b_walk.send(super::super::file_index::Published::Ready);
+        walked(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            [format!("{}/plan.md", path.display())]
+        );
+        assert_eq!(
+            (after_tab, shell.files_for_test().walks_for_test() - walks),
+            (status_row(FILES_UNAVAILABLE), 3),
+            "Tab in the interim did not queue its refresh behind B"
+        );
+        // A list open across the change: its refresh is queued already, and
+        // Tab adds none.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_c, path, access) = extra_with_plan(&shell);
+        shell.route_bytes(b"@plan");
+        walked(&mut shell);
+        let walks = shell.files_for_test().walks_for_test();
+        adopt(&mut shell, access);
+        let walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.file_picker_landed();
+        shell.route_bytes(b"\t");
+        let after_tab = listed_rows(&shell)[0].clone();
+        let _ = walk.send(super::super::file_index::Published::Ready);
+        walked(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            [format!("{}/plan.md", path.display())]
+        );
+        assert_eq!(
+            (after_tab, shell.files_for_test().walks_for_test() - walks),
+            (status_row(FILES_UNAVAILABLE), 2),
+            "Tab added a walk to the one queued"
+        );
+    }
+
+    #[test]
+    fn a_fresh_sessions_first_at_after_the_launch_walk_is_whole_shows_its_rows_at_once() {
+        // fx walks the index at launch, before its first frame
+        // (`app_entry_runtime.zig:334@481104fd`; `startFileIndex` ->
+        // `ensureScopeEpoch`, `app_workspace_runtime.zig:145-148`), so the
+        // session's first `@` can find it whole: adopted, so `.ready`
+        // (`file_index.zig:333-341`); the list asks for its refresh
+        // (`input_completion_runtime.zig:857-864`) and reads the adopted
+        // generation while that walk runs (`searchableGeneration`,
+        // `file_index.zig:647-654`) -- its rows at once, not `indexing
+        // files...`. The launch walk is a real one, over this case's own
+        // workspace.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.start_file_index();
+        walks_done(&mut shell);
+        shell.route_bytes(b"@sch");
+        assert_eq!(
+            (
+                shell.file_picker.as_ref().map(FilePicker::shown),
+                listed_paths(&shell)
+            ),
+            (
+                Some(file_picker::Shown::Rows),
+                vec!["src/deep/sched.rs".to_string()]
+            ),
+            "the first `@` after a whole launch walk did not list its rows at once"
+        );
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            2,
+            "not the launch walk and the first list's refresh"
+        );
+    }
+
+    #[test]
+    fn a_change_before_the_launch_walk_is_whole_says_files_unavailable_until_the_new_scopes_walk_is(
+    ) {
+        // AT-LAUNCH-WALK flipped this case, which pinned xfx's side of the
+        // gap as
+        // `a_change_before_any_walk_lists_the_first_walks_prefix_with_no_launch_walk`.
+        // fx walks at launch (`app_entry_runtime.zig:334@481104fd`;
+        // `startFileIndex` -> `ensureScopeEpoch`, `app_workspace_runtime.zig:
+        // 145-148`) with the launch's epoch, which the walk keeps
+        // (`file_index.zig:386`). A change of the access
+        // before that walk is whole moves the epoch and queues the new scope
+        // behind it (`:494-497`); the launch generation, loading and then
+        // adopted, is the searchable one, of the old epoch
+        // (`searchableGeneration`, `:647-654`), so an indexed list says
+        // `Files unavailable` (`input_completion_runtime.zig:887-888`) until
+        // the new scope's walk is adopted. The first `@` skips its refresh
+        // while the launch walk loads (`:857-861`): two walks in all.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, path, access) = extra_with_plan(&shell);
+        shell.start_file_index();
+        let launch = super::super::file_index::tests::held(shell.files_for_test());
+        adopt(&mut shell, access);
+        shell.route_bytes(b"@plan");
+        let at_once = listed_rows(&shell)[0].clone();
+        launch
+            .send(super::super::file_index::Published::More(
+                super::super::file_index::tests::candidates(&["notes/plan.md"]),
+            ))
+            .expect("the launch walk");
+        shell.settle_band(Instant::now());
+        let published = listed_rows(&shell)[0].clone();
+        launch
+            .send(super::super::file_index::Published::Ready)
+            .expect("the launch walk");
+        shell.settle_band(Instant::now());
+        let adopted = listed_rows(&shell)[0].clone();
+        let walk = super::super::file_index::tests::held(shell.files_for_test());
+        let plan = format!("{}/plan.md", path.display());
+        walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&[&plan]),
+        ))
+        .expect("the change's walk");
+        walk.send(super::super::file_index::Published::Ready)
+            .expect("the change's walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            (at_once, published, adopted, listed_paths(&shell)),
+            (
+                status_row(FILES_UNAVAILABLE),
+                status_row(FILES_UNAVAILABLE),
+                status_row(FILES_UNAVAILABLE),
+                vec![plan]
+            ),
+            "not fx's interim while the launch walk's epoch was the old one"
+        );
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            2,
+            "not the launch walk and then the change's"
+        );
+    }
+
+    #[test]
+    fn a_change_after_the_launch_walk_failed_lists_the_new_walks_prefix() {
+        // A launch walk that failed is no searchable generation
+        // (`searchableGeneration`, `file_index.zig:647-654@481104fd`;
+        // dropped at its join, `:432-440`), so the walk a change starts --
+        // clearing the failure (`startLoad`, `:389`) -- is the first index
+        // again, of the new epoch, searched as it is published: `indexing
+        // files...`, then its rows. What the case above expected before
+        // AT-LAUNCH-WALK, on the one premise fx gives it.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, path, access) = extra_with_plan(&shell);
+        shell.start_file_index();
+        super::super::file_index::tests::held(shell.files_for_test())
+            .send(super::super::file_index::Published::Failed)
+            .expect("the launch walk");
+        shell.settle_band(Instant::now());
+        adopt(&mut shell, access);
+        let walk = super::super::file_index::tests::held(shell.files_for_test());
+        shell.route_bytes(b"@plan");
+        let at_once = listed_rows(&shell)[0].clone();
+        let plan = format!("{}/plan.md", path.display());
+        walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&[&plan]),
+        ))
+        .expect("the change's walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            (
+                at_once,
+                shell.file_picker.as_ref().map(FilePicker::shown),
+                listed_paths(&shell)
+            ),
+            (
+                status_row("indexing files..."),
+                Some(file_picker::Shown::Rows),
+                vec![plan]
+            ),
+            "the change's walk after a failed launch walk was not the first index"
+        );
+    }
+
+    /// The session's first `@plan`, typed after a walk has ended with `end`
+    /// but before any poll has taken that end: the list's first row then,
+    /// its rows, the walks since the launch -- and the first row again after
+    /// the next pass's `settle_band`, which takes whatever the walk said and
+    /// paints from it. A walk the `@` starts is held, so that row is the
+    /// state's, not a race with a real walk.
+    ///
+    /// AT-LAUNCH-WALK flipped its premise. Without `change` the walk is the
+    /// launch's, the session's first -- the part the change's walk played
+    /// until then -- and it publishes `notes/plan.md`. With `change` the
+    /// launch walk is driven whole first, as AT-SCOPE-INTERIM's tripwire
+    /// asked, and the walk is the change's, which publishes the added
+    /// directory's `plan.md`.
+    fn first_at_before_the_poll(
+        end: super::super::file_index::Published,
+        change: bool,
+    ) -> (String, Vec<String>, usize, String) {
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, path, access) = extra_with_plan(&shell);
+        shell.start_file_index();
+        let launch = super::super::file_index::tests::held(shell.files_for_test());
+        let (walk, published) = if change {
+            launch
+                .send(super::super::file_index::Published::Ready)
+                .expect("the launch walk");
+            shell.settle_band(Instant::now());
+            adopt(&mut shell, access);
+            (
+                super::super::file_index::tests::held(shell.files_for_test()),
+                format!("{}/plan.md", path.display()),
+            )
+        } else {
+            (launch, "notes/plan.md".to_string())
+        };
+        walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&[&published]),
+        ))
+        .expect("the walk");
+        walk.send(end).expect("the walk");
+        let before = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"@plan");
+        let row = listed_rows(&shell)[0].clone();
+        let rows = listed_paths(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        let _refresh =
+            (walks > before).then(|| super::super::file_index::tests::held(shell.files_for_test()));
+        shell.settle_band(Instant::now());
+        (row, rows, walks, listed_rows(&shell)[0].clone())
+    }
+
+    #[test]
+    fn a_first_at_after_the_launch_walk_ended_whole_but_before_the_poll_refreshes() {
+        // fx's `currentState` reads the loading generation's own state, so a
+        // loader that has finished is `.ready` before the join takes it
+        // (`file_index.zig:336-340@481104fd`): the session's first `@` typed
+        // then is not loading and asks for its refresh
+        // (`input_completion_runtime.zig:857-864`), queued behind the
+        // unjoined loader (`refreshOwnedRoots`, `file_index.zig:494-497`) and
+        // started by the join (`:443-451`) -- two walks, the launch's and
+        // the refresh, and the finished generation's rows meanwhile
+        // (`searchableGeneration`, `:647-654`). xfx's decision takes the
+        // walk's end first (`Files::take_walk`).
+        let (_row, rows, walks, _settled) =
+            first_at_before_the_poll(super::super::file_index::Published::Ready, false);
+        assert_eq!(
+            (walks, rows.len()),
+            (2, 1),
+            "the first `@` skipped its refresh: {rows:?}"
+        );
+        assert!(rows[0].ends_with("/plan.md"), "{rows:?}");
+    }
+
+    #[test]
+    fn a_first_at_after_the_launch_walk_failed_but_before_the_poll_says_indexing() {
+        // The same with the launch walk failed (opus r2): fx's index is
+        // `.failed` before the join, so the first `@` asks for its refresh,
+        // which the join starts, clearing the failure (`startLoad`,
+        // `file_index.zig:389@481104fd`) -- two walks. xfx's decision takes
+        // the failure and starts that walk at once, and its lookup reads the
+        // new walk: `indexing files...` at the `@` itself; after the next
+        // `settle_band` the list is that walk's, never `Files unavailable`.
+        // Had the `@` skipped its refresh, that `settle_band` would take the
+        // failure with nothing queued, and the list would say `Files
+        // unavailable` until Tab.
+        let (row, rows, walks, settled) =
+            first_at_before_the_poll(super::super::file_index::Published::Failed, false);
+        // The screen first, so a skip dies on the row it paints.
+        assert_ne!(
+            settled,
+            status_row(FILES_UNAVAILABLE),
+            "the failed walk was shown, with no walk after it"
+        );
+        assert_eq!(
+            (row, rows, walks),
+            (status_row("indexing files..."), Vec::<String>::new(), 2),
+            "the first `@` after a failed launch walk skipped its refresh"
+        );
+    }
+
+    #[test]
+    fn a_first_at_after_a_change_whose_walk_ended_whole_before_the_poll_lists_its_rows() {
+        // Not fx's frame, a recorded decision (`docs/parity.md`, the `@`
+        // row's loop order): fx joins a finished loader at the top of a
+        // pass, then routes the keys, then prepares the list
+        // (`event_loop.zig:79-119@481104fd`; `main.zig:2851`, `:2998`). A new
+        // scope's walk that ends whole during the key wait, behind the
+        // adopted launch generation of the old epoch, is unjoined when the
+        // first `@` is prepared: that frame reads the launch generation and
+        // says `Files unavailable` (`input_completion_runtime.zig:887-888`;
+        // `searchableGeneration`, `file_index.zig:647-654`), and the next
+        // pass's join adopts the walk and lists its rows. xfx's decision
+        // takes the walk's end first (`Files::take_walk`), so the `@` itself
+        // lists the added directory's `plan.md`, and so does the next pass;
+        // three walks -- the launch's, the change's, the first list's refresh.
+        let (row, rows, walks, settled) =
+            first_at_before_the_poll(super::super::file_index::Published::Ready, true);
+        assert_eq!(
+            (rows.len(), walks),
+            (1, 3),
+            "not the change's walk adopted at the `@`: {rows:?}"
+        );
+        assert!(
+            rows[0].ends_with("/plan.md") && std::path::Path::new(&rows[0]).is_absolute(),
+            "not the added directory's `plan.md`: {rows:?}"
+        );
+        assert_ne!(
+            row,
+            status_row(FILES_UNAVAILABLE),
+            "xfx painted fx's one-frame interim"
+        );
+        assert_eq!(settled, row, "the next pass changed the list");
+    }
+
+    #[test]
+    fn a_first_at_after_a_change_whose_walk_failed_before_the_poll_says_files_unavailable() {
+        // The launch walk whole before the change: fx's adopted generation
+        // survives the change with the old epoch, and a walk that fails
+        // after it is dropped at its join, the adopted one kept
+        // (`joinThreadIfDone`, `file_index.zig:432-440@481104fd`). So the
+        // first `@` is `.ready`, not loading, and asks for its refresh,
+        // queued behind the unjoined walk (`:494-497`) and started at its
+        // join (`:443-451`); the list reads the launch generation, of the
+        // old epoch -- `Files unavailable` (`input_completion_runtime.zig:
+        // 887-888`) at the `@` and after the next pass, until that refresh
+        // is whole. Three walks: the launch's, the change's, the refresh.
+        // Before AT-LAUNCH-WALK xfx said `indexing files...` here.
+        let (row, rows, walks, settled) =
+            first_at_before_the_poll(super::super::file_index::Published::Failed, true);
+        assert_eq!(
+            (row, settled, rows, walks),
+            (
+                status_row(FILES_UNAVAILABLE),
+                status_row(FILES_UNAVAILABLE),
+                Vec::<String>::new(),
+                3
+            ),
+            "not fx's list after a failed change of scope behind the launch's index"
+        );
+    }
+
+    #[test]
+    fn a_path_list_in_the_interim_lists_its_folder() {
+        // A path list is not the index's: its source is the app's own epoch
+        // (`source = .{ .scope_epoch = fileScopeEpoch(app), ... }`,
+        // `input_completion_runtime.zig:867@481104fd`), so the epoch check
+        // never fails it, and `@src/` lists its folder while an indexed
+        // list says `Files unavailable`.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, _path, access) = extra_with_plan(&shell);
+        shell.route_bytes(b"@plan");
+        walked(&mut shell);
+        adopt(&mut shell, access);
+        let _walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.settle_band(Instant::now());
+        assert_eq!(listed_rows(&shell)[0], status_row(FILES_UNAVAILABLE));
+        shell.clear_composer();
+        shell.route_bytes(b"\x1b[200~@src/\x1b[201~");
+        listed(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            ["src", "src/deep", "src/lib.rs", "src/main.rs"]
+        );
+    }
+
+    #[test]
+    fn escape_in_the_interim_closes_the_list_and_keeps_the_word() {
+        // Escape dismisses the file picker whatever its status
+        // (`dismissVisibleInlinePicker`, `app_input_runtime.zig:2724-2729@
+        // 481104fd`), the draft as it was.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, _path, access) = extra_with_plan(&shell);
+        shell.route_bytes(b"@plan");
+        walked(&mut shell);
+        adopt(&mut shell, access);
+        let _walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.settle_band(Instant::now());
+        assert_eq!(listed_rows(&shell)[0], status_row(FILES_UNAVAILABLE));
+        escape(&mut shell);
+        assert!(shell.file_picker.is_none(), "Escape left the list up");
+        assert_eq!(shell.editor.text(), "@plan");
+    }
+
+    #[test]
+    fn a_workspace_change_drops_a_listing_in_flight() {
+        // fx's `invalidateScope` stops the folder listing in flight
+        // (`requestStop`, `app_workspace_runtime.zig:70-72@481104fd`), so its
+        // late answer is never taken and the folder is read again.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, _path, access) = extra_with_plan(&shell);
+        let late = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"\x1b[200~@src/\x1b[201~");
+        adopt(&mut shell, access);
+        let _ = late.send(Ok(vec![(
+            "late.txt".to_string(),
+            super::super::file_index::Kind::File,
+        )]));
+        listed(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            ["src", "src/deep", "src/lib.rs", "src/main.rs"],
+            "the listing from before the change was taken"
+        );
+    }
+
+    #[test]
+    fn a_workspace_change_behind_the_transcript_looks_nothing_up_until_it_closes() {
+        // Round 7 (gpt6 r6 SHOULD, opus r6 SHOULD 3): the install's walk is
+        // the index's, and starts under the full transcript too; the list's
+        // own refresh and lookup wait for it to be eligible (`prepareFilePicker`,
+        // `input_completion_runtime.zig:853@481104fd`), and then show the new
+        // root's rows at once.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_extra, path, access) = extra_with_plan(&shell);
+        shell.route_bytes(b"@plan");
+        walked(&mut shell);
+        assert!(listed_paths(&shell).is_empty(), "the workspace has a plan");
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
+        let walks = shell.files_for_test().walks_for_test();
+        let lookups = shell.files_for_test().lookups_for_test();
+        adopt(&mut shell, access);
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the install's walk waited for the list"
+        );
+        walks_done(&mut shell);
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the list's refresh walked under the transcript"
+        );
+        assert_eq!(
+            shell.files_for_test().lookups_for_test(),
+            lookups,
+            "the list was looked up under the transcript"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            listed_paths(&shell),
+            [format!("{}/plan.md", path.display())]
+        );
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 2,
+            "the list's refresh did not run once it was eligible"
+        );
+    }
+
+    #[test]
+    fn a_workspace_change_under_an_open_indexed_list_walks_the_new_roots() {
+        // Round 6 (opus r5 SHOULD 2): fx's reconcile asks for a refresh when
+        // the scope's epoch moved (`self.scope_epoch != scope_epoch`,
+        // `file_completion_state.zig:164@481104fd`), which a workspace change
+        // does (`invalidateScope`, `app_workspace_runtime.zig:98-104`). So an
+        // open `@plan` list, then a directory added that holds `plan.md`,
+        // walks the new roots and lists it. Round 7: two walks, as fx's --
+        // the install's own (`install`, `:140`), and the open list's refresh
+        // queued behind it (`replacePendingRoots`, `file_index.zig:511-523`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let extra = tempfile::tempdir().expect("an extra root");
+        let extra_path = extra.path().canonicalize().expect("canonical");
+        std::fs::write(extra_path.join("plan.md"), "").expect("a file");
+        shell.route_bytes(b"@plan");
+        walked(&mut shell);
+        assert!(listed_paths(&shell).is_empty(), "the workspace has a plan");
+        let walks = shell.files_for_test().walks_for_test();
+        let access = WorkspaceAccess::load(
+            &shell.workspace.clone(),
+            &[extra_path.display().to_string()],
+        );
+        shell.apply(UiEvent::Workspace {
+            notice: notice::Notice::neutral("workspace", "added"),
+            access: Some(access),
+        });
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the open list kept the old roots' rows"
+        );
+        walked(&mut shell);
+        assert_eq!(
+            listed_paths(&shell),
+            [format!("{}/plan.md", extra_path.display())]
+        );
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 2,
+            "not the install's walk and the list's refresh behind it"
+        );
+        // The same access again moves no scope (`install`'s
+        // `runtime_changed = !access.eql(replacement)`,
+        // `app_workspace_runtime.zig:134-141`): no walk.
+        let walks = shell.files_for_test().walks_for_test();
+        let same = WorkspaceAccess::load(
+            &shell.workspace.clone(),
+            &[extra_path.display().to_string()],
+        );
+        shell.apply(UiEvent::Workspace {
+            notice: notice::Notice::neutral("workspace", "unchanged"),
+            access: Some(same),
+        });
+        assert_eq!(shell.files_for_test().walks_for_test(), walks);
+    }
+
+    #[test]
+    fn a_folder_query_edited_into_an_indexed_one_asks_for_the_refresh() {
+        // fx's reconcile asks for the index refresh again when the query
+        // changes between an indexed and an explicit one (`refresh_requested
+        // = ... or self.indexed != indexed`, `file_completion_state.zig:164@
+        // 481104fd`); taken on an explicit query, the request walks nothing
+        // (`:855-856`). So `@sr` walks, `@src/` lists its folder, and `@src`
+        // -- indexed again, in the same episode -- walks again.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let walks = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"@sr");
+        assert_eq!(shell.files_for_test().walks_for_test(), walks + 1);
+        // The walk done, so a refresh would start another.
+        let deadline = Instant::now() + START_PATIENCE;
+        while shell.files_for_test().busy() {
+            assert!(Instant::now() < deadline, "the walk never finished");
+            std::thread::sleep(Duration::from_millis(2));
+            shell.settle_band(Instant::now());
+        }
+        shell.route_bytes(b"c/");
+        listed(&mut shell);
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 1,
+            "the folder query walked"
+        );
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(shell.editor.text(), "@src");
+        assert_eq!(
+            shell.files_for_test().walks_for_test(),
+            walks + 2,
+            "an explicit query turned indexed did not refresh the index"
+        );
+    }
+
+    /// The rows the `@` list holds, by path.
+    fn listed_paths(shell: &Fixture) -> Vec<String> {
+        shell
+            .file_picker
+            .as_ref()
+            .expect("the list")
+            .rows_for_test()
+            .iter()
+            .map(|found| found.path.clone())
+            .collect()
+    }
+
+    #[test]
+    fn tab_under_the_full_transcript_asks_for_no_read() {
+        // Round 4 (opus r3 MUST): fx's Tab returns before its retry while the
+        // list is not eligible (`autocompleteFilePickerSelection`,
+        // `input_completion_runtime.zig:946-958@481104fd`), so a folder that
+        // could not be read is not read again behind the transcript; once it
+        // is closed, Tab asks again.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let _walk = super::super::file_index::tests::driven(shell.files_for_test());
+        let answer =
+            super::super::file_index::tests::driven_listing(shell.files_for_test(), "nope");
+        shell.route_bytes(b"@nope/");
+        answer.send(Err(())).expect("the listing");
+        listed(&mut shell);
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Unavailable)
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O opened no transcript");
+        let base = shell.files_for_test().started_for_test();
+        shell.route_bytes(b"\t");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().started_for_test(),
+            base,
+            "Tab under the transcript read the folder again"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.files_for_test().started_for_test(),
+            base,
+            "the Tab under the transcript read the folder once it closed"
+        );
+        listed(&mut shell);
+        shell.route_bytes(b"\t");
+        assert_eq!(
+            shell.files_for_test().started_for_test(),
+            base + 1,
+            "Tab on the composer's plane did not ask again"
+        );
+    }
+
+    #[test]
+    fn only_a_folder_listing_holds_the_frame_not_the_index() {
+        // fx holds the frame for a directory request only (`!state.indexed
+        // and state.directory_request != null`, `input_completion_runtime.zig:
+        // 828@481104fd`): a word searched in the index while the index is
+        // still being built shows `indexing files...` at once.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let _walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.route_bytes(b"@sch");
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Loading)
+        );
+        let now = Instant::now();
+        assert!(
+            !shell.hold_frame_for_file_listing(now),
+            "the index's loading held the frame"
+        );
+        assert!(!shell.file_listing_hold_pending(now));
+    }
+
+    #[test]
+    fn after_a_slow_folder_the_frame_goes_at_once_until_a_fast_one() {
+        // fx's `FileListingWait` in the loop (`picker_state.zig:99-139`,
+        // `input_completion_runtime.zig:817-844@481104fd`; 6aa678d9): a
+        // listing that outlasts the 8 ms lets its frame go, the next one's
+        // frame goes at once but the loop still checks back every
+        // millisecond, and one that lands inside 8 ms turns the wait back on.
+        // A list that closes forgets the slow folder (`:824-826`).
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let none = || Ok(Vec::new());
+        // Slow.
+        let slow = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"@src/");
+        assert!(shell.hold_frame_for_file_listing(at(0)));
+        assert!(
+            !shell.hold_frame_for_file_listing(at(8)),
+            "the wait outlasted 8 ms"
+        );
+        slow.send(none()).expect("the listing");
+        assert!(!shell.hold_frame_for_file_listing(at(20)));
+        // Next, a new word in the same read: its frame goes at once, and it
+        // is still watched.
+        let next = super::super::file_index::tests::driven_listing(shell.files_for_test(), "docs");
+        shell.route_bytes(b"\x15@docs/");
+        assert!(
+            !shell.hold_frame_for_file_listing(at(30)),
+            "the frame waited after a slow folder"
+        );
+        assert!(
+            shell.file_listing_hold_pending(at(37)),
+            "the listing was not watched"
+        );
+        assert!(!shell.file_listing_hold_pending(at(38)));
+        next.send(none()).expect("the listing");
+        assert!(!shell.hold_frame_for_file_listing(at(31)));
+        // Fast, so the next folder's frame waits again.
+        let fast = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"\x15@src/");
+        assert!(
+            shell.hold_frame_for_file_listing(at(40)),
+            "a fast folder did not bring the wait back"
+        );
+        fast.send(none()).expect("the listing");
+        assert!(!shell.hold_frame_for_file_listing(at(41)));
+        // Slow again, and then the list closes: a list opened after it waits.
+        let slow = super::super::file_index::tests::driven_listing(shell.files_for_test(), "docs");
+        shell.route_bytes(b"\x15@docs/");
+        assert!(shell.hold_frame_for_file_listing(at(50)));
+        assert!(!shell.hold_frame_for_file_listing(at(60)));
+        slow.send(none()).expect("the listing");
+        assert!(!shell.hold_frame_for_file_listing(at(61)));
+        shell.route_bytes(&[0x15]);
+        assert!(!shell.hold_frame_for_file_listing(at(62)));
+        let after = super::super::file_index::tests::driven_listing(shell.files_for_test(), "src");
+        shell.route_bytes(b"@src/");
+        assert!(
+            shell.hold_frame_for_file_listing(at(70)),
+            "a closed list kept the slow folder"
+        );
+        after.send(none()).expect("the listing");
+        assert!(!shell.hold_frame_for_file_listing(at(71)));
     }
 
     #[test]
@@ -35952,7 +39517,1314 @@ mod tests {
                 Ok(TurnWork::Submit(prompt)) => assert_eq!(prompt, draft),
                 other => panic!("{draft}: Enter under Ctrl-O sent {other:?}"),
             }
+            // The line went, so the composer is empty and its list closed.
+            assert!(shell.file_picker.is_none(), "{draft}: the list stayed up");
         }
+    }
+
+    /// CTRLO-AT-KEYS: `draft` typed, its `@` list listed and shown, then
+    /// Ctrl-O over it -- each step of `p5-ctrlo-at-keys`.
+    fn under_ctrl_o(draft: &[u8]) -> (tempfile::TempDir, Fixture) {
+        let (workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(draft);
+        listed(&mut shell);
+        assert!(
+            shell
+                .file_picker
+                .as_ref()
+                .is_some_and(|files| files.marked().is_some()),
+            "no rows for the draft"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O did not open the transcript");
+        (workspace, shell)
+    }
+
+    fn marked_path(shell: &Fixture) -> Option<String> {
+        shell
+            .file_picker
+            .as_ref()
+            .and_then(FilePicker::marked)
+            .map(|found| found.path.clone())
+    }
+
+    #[test]
+    fn c_j_under_the_full_transcript_is_a_new_line_and_closes_the_list() {
+        // fx's transcript binds no C-j (`keyForByte`,
+        // `input_full_transcript_runtime.zig:147-154@481104fd`), and no picker
+        // takes it while the transcript is up (`routePickerControlByte`'s
+        // `composerPickerSurfaceVisible`, `app_input_runtime.zig:1093-1116`):
+        // the byte is the composer's `insert_newline` (`shortcuts.zig:26`;
+        // `app_input_runtime.zig:513-521`). The caret leaves the `@` word, so
+        // the list closes, and it is not there when the plane comes back
+        // (`p5-ctrlo-at-keys cj`).
+        let (_workspace, mut shell) = under_ctrl_o(b"@src");
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(
+            shell.editor.text(),
+            "@src\n",
+            "C-j did not reach the composer"
+        );
+        assert!(shell.file_picker.is_none(), "the list is still up");
+        assert!(shell.full.is_open(), "C-j closed the transcript");
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        assert!(shell.file_picker.is_none(), "the list came back");
+        assert!(shell.sent.try_recv().is_err(), "C-j sent the line");
+    }
+
+    #[test]
+    fn c_k_under_the_full_transcript_kills_to_the_lines_end_and_keeps_the_list() {
+        // C-k reaches fx's composer the same way, as `delete_to_line_end`
+        // (`shortcuts.zig:19@481104fd`): a kill of what follows the caret
+        // (`app_input_runtime.zig:479-488`), so C-y yanks it back. The `@`
+        // word before the caret stays, and so does its list
+        // (`p5-ctrlo-at-keys ck`).
+        let (_workspace, mut shell) = under_ctrl_o(b" tail\x1b[H@src");
+        assert_eq!(shell.editor.text(), "@src tail");
+        let marked = marked_path(&shell);
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(
+            shell.editor.text(),
+            "@src",
+            "C-k did not kill to the line's end"
+        );
+        assert_eq!(
+            shell.file_picker.as_ref().and_then(FilePicker::lookup),
+            Some("src"),
+            "the list went with the kill"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        shell.file_picker_landed();
+        assert_eq!(marked_path(&shell), marked, "the bar moved");
+        shell.route_bytes(&[0x19]);
+        assert_eq!(shell.editor.text(), "@src tail", "C-k killed nothing");
+    }
+
+    #[test]
+    fn tab_under_the_full_transcript_chooses_nothing_and_keeps_the_list() {
+        // A Tab with a file query reaches fx's `autocompleteFilePickerSelection`
+        // (`app_input_runtime.zig:1317-1321@481104fd`), which returns at its
+        // eligibility check before it resolves a row
+        // (`input_completion_runtime.zig:946-950`): nothing is put in, and
+        // the list and its bar stay (`p5-ctrlo-at-keys tab`).
+        let (_workspace, mut shell) = under_ctrl_o(b"@src");
+        let marked = marked_path(&shell);
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "@src", "Tab chose a row");
+        shell.route_bytes(&[0x0f]);
+        shell.file_picker_landed();
+        assert_eq!(marked_path(&shell), marked, "the list or its bar moved");
+    }
+
+    #[test]
+    fn the_arrows_and_page_keys_under_the_full_transcript_are_its_own() {
+        // fx's transcript binds Up, Down and the page keys (`keyForAction`,
+        // `input_full_transcript_runtime.zig:156-166@481104fd`) and scrolls
+        // itself with them (`routeKey`, `:181-197`): none reaches the list,
+        // and the bar is where it was when the plane comes back
+        // (`p5-ctrlo-at-keys down`). Over a record taller than the screen,
+        // so each key's scroll is measured (CTRLO-AT-KEYS gpt6 NTH): the
+        // screen opens at the tail, Up and PgUp move it toward the head, Down
+        // and PgDn back, and the bar stays put after every one of them.
+        let (_workspace, mut shell) = scrolled_under_ctrl_o(b"@src");
+        let marked = marked_path(&shell);
+        let tail = transcript_offset(&shell).expect("the transcript is up");
+        let mut offsets = Vec::new();
+        for key in [&b"\x1b[A"[..], b"\x1b[B", b"\x1b[5~", b"\x1b[6~"] {
+            shell.route_bytes(key);
+            assert!(shell.full.is_open(), "{key:?} closed the transcript");
+            assert_eq!(marked_path(&shell), marked, "{key:?} moved the bar");
+            offsets.push(transcript_offset(&shell).expect("the transcript is up"));
+        }
+        assert!(
+            offsets[0] < tail && offsets[2] < offsets[0],
+            "Up or PgUp did not scroll toward the head: {tail} then {offsets:?}"
+        );
+        assert_eq!(
+            (offsets[1], offsets[3]),
+            (tail, tail),
+            "Down or PgDn did not scroll back"
+        );
+        shell.route_bytes(&[0x0f]);
+        shell.file_picker_landed();
+        assert_eq!(shell.editor.text(), "@src");
+        assert_eq!(marked_path(&shell), marked, "an arrow moved the bar");
+    }
+
+    /// [`under_ctrl_o`] over a record the screen has to scroll: 60 answer
+    /// paragraphs before the draft, on a 40-row screen.
+    fn scrolled_under_ctrl_o(draft: &[u8]) -> (tempfile::TempDir, Fixture) {
+        let (workspace, mut shell) = in_ws2(40, 120);
+        let record: String = (0..60).map(|row| format!("answer row {row}\n\n")).collect();
+        shell.full.answer(&record);
+        shell.route_bytes(draft);
+        listed(&mut shell);
+        assert!(marked_path(&shell).is_some(), "no rows for the draft");
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O did not open the transcript");
+        (workspace, shell)
+    }
+
+    /// The first row the full transcript shows, `None` while it is closed.
+    fn transcript_offset(shell: &Fixture) -> Option<usize> {
+        shell
+            .full
+            .offset(shell.geometry.cols, shell.geometry.rows, shell.palette)
+    }
+
+    #[test]
+    fn shift_up_and_down_under_the_full_transcript_scroll_nothing_and_move_no_bar() {
+        // A shifted arrow is fx's composer move with `extend_selection`
+        // (`escape_parser.zig:66-71`, `:99-107@481104fd`), which the
+        // transcript's map does not bind (`keyForAction`,
+        // `input_full_transcript_runtime.zig:167-170`): it reaches
+        // `routeComposerVertical`, where the file query takes it
+        // (`input_completion_runtime.zig:230`) and, the list not eligible,
+        // moves nothing (`:407-410`). Here the transcript leaves both
+        // unbound, `unshifted` folds them to the arrows after it, and the
+        // distrusted list's step moves nothing (CTRLO-AT-KEYS opus NIT).
+        let (_workspace, mut shell) = scrolled_under_ctrl_o(b"@src");
+        let marked = marked_path(&shell);
+        let tail = transcript_offset(&shell);
+        for key in [&b"\x1b[1;2A"[..], b"\x1b[1;2B"] {
+            shell.route_bytes(key);
+            assert!(shell.full.is_open(), "{key:?} closed the transcript");
+            assert_eq!(transcript_offset(&shell), tail, "{key:?} scrolled it");
+            assert_eq!(marked_path(&shell), marked, "{key:?} moved the bar");
+            assert_eq!(shell.editor.text(), "@src", "{key:?} edited the draft");
+        }
+    }
+
+    #[test]
+    fn escape_under_the_full_transcript_closes_it_and_keeps_the_list() {
+        // fx's Escape is the transcript's close (`keyForAction`,
+        // `input_full_transcript_runtime.zig:163@481104fd`; `closeScreen`,
+        // `:129-145`) and goes no further (`app_input_runtime.zig:915-919`):
+        // the word and its list stay (`p5-ctrlo-at-keys esc`).
+        let (_workspace, mut shell) = under_ctrl_o(b"@src");
+        let marked = marked_path(&shell);
+        escape(&mut shell);
+        assert!(!shell.full.is_open(), "Escape left the transcript up");
+        assert_eq!(shell.editor.text(), "@src");
+        shell.file_picker_landed();
+        assert_eq!(marked_path(&shell), marked, "Escape took the list");
+    }
+
+    // CTRLO-OTHER-PICKERS. fx closes the full transcript before every frame
+    // while the settings menu, the help catalog, the skills menu it shows,
+    // `/model`'s menu, the session picker, `/fork`'s or `/effort`'s menu is
+    // up (`reconcileBeforeFrameRender`, `app_render_runtime.zig:1206-1215
+    // @481104fd`; its tests, `:2001-2033`), so no key ever reaches one of
+    // them under Ctrl-O: each is the menu's own. The slash menu, the
+    // `/provider` column and `/mcp `'s argument completions are not on the
+    // list, so the screen holds over them, and `C-j` and `C-k` reach the
+    // composer there (`routePickerControlByte`, `app_input_runtime.zig:
+    // 1093-1116`).
+
+    /// Ctrl-O, which opens the full transcript, then the loop's tick before
+    /// the frame ([`Shell::settle_band`]): whether the transcript is still up
+    /// for that frame.
+    fn ctrl_o_then_a_frame(shell: &mut Fixture) -> bool {
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O did not open the transcript");
+        shell.settle_band(Instant::now());
+        shell.full.is_open()
+    }
+
+    /// A menu the transcript does not hold over, driven as `p5-ctrlo-*`
+    /// drives it: Ctrl-O and its frame -- the transcript gone, the plane
+    /// the composer's -- then each key of `moves` after a Ctrl-O and its
+    /// frame, the mark where the menu's own key puts it (`marked` reads it),
+    /// then Escape after a Ctrl-O and its frame, which closes the menu (`up`
+    /// says whether it is there).
+    fn the_menus_keys_under_ctrl_o<T: PartialEq + std::fmt::Debug>(
+        shell: &mut Fixture,
+        marked: impl Fn(&Fixture) -> T,
+        moves: &[(&[u8], T)],
+        up: impl Fn(&Fixture) -> bool,
+    ) {
+        assert!(
+            !ctrl_o_then_a_frame(shell),
+            "the transcript held over the menu for a frame"
+        );
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert!(up(shell), "Ctrl-O took the menu down");
+        for (key, mark) in moves {
+            assert!(!ctrl_o_then_a_frame(shell), "{key:?}: the transcript held");
+            shell.route_bytes(key);
+            assert_eq!(&marked(shell), mark, "{key:?} was not the menu's");
+        }
+        assert!(!ctrl_o_then_a_frame(shell), "Escape: the transcript held");
+        escape(shell);
+        assert!(!up(shell), "Escape left the menu up");
+        assert!(!shell.full.is_open());
+    }
+
+    #[test]
+    fn ctrl_o_over_the_help_catalog_holds_no_frame_and_its_keys_stay_its() {
+        // `p5-ctrlo-help` `held`, `down`, `ck`, `cj`, `esc`; fx's trace in its
+        // `end` shows each Ctrl-O open the screen and the frame close it.
+        let mut shell = with_catalog(40, 120);
+        let marked = |shell: &Fixture| {
+            shell
+                .help_menu
+                .as_ref()
+                .and_then(HelpMenu::selected)
+                .map(|spec| spec.name)
+        };
+        assert_eq!(marked(&shell), Some("/help"));
+        the_menus_keys_under_ctrl_o(
+            &mut shell,
+            marked,
+            &[
+                (b"\x1b[B", Some("/clear")),
+                (&[0x0b], Some("/help")),
+                (&[0x0a], Some("/clear")),
+            ],
+            |shell| shell.help_menu.is_some(),
+        );
+    }
+
+    #[test]
+    fn ctrl_o_over_the_model_menu_holds_no_frame_and_its_keys_stay_its() {
+        // `p5-ctrlo-model`.
+        let mut shell = shell(40, 120);
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
+            provider: ProviderId::Gateway,
+            entries: vec![
+                entry("one", Some(400_000), &[]),
+                entry("two", Some(400_000), &[]),
+            ],
+        });
+        let _ = shell.document();
+        shell.route_bytes(b"/model\r");
+        let marked = |shell: &Fixture| {
+            shell
+                .model_menu
+                .as_ref()
+                .and_then(|menu| menu.selected().map(str::to_string))
+        };
+        let first = marked(&shell);
+        shell.route_bytes(b"\x1b[B");
+        let second = marked(&shell);
+        shell.route_bytes(b"\x1b[A");
+        assert_ne!(first, second);
+        the_menus_keys_under_ctrl_o(
+            &mut shell,
+            marked,
+            &[
+                (b"\x1b[B", second.clone()),
+                (&[0x0b], first.clone()),
+                (&[0x0a], second),
+            ],
+            |shell| shell.model_menu.is_some(),
+        );
+    }
+
+    #[test]
+    fn ctrl_o_over_the_session_picker_holds_no_frame_and_its_keys_stay_its() {
+        // `p5-ctrlo-sessions`.
+        use super::super::session_picker::{ListedSession, Listing};
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/resume\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        let session = |id: &str| ListedSession {
+            id: id.to_string(),
+            title: Some(format!("question {id}")),
+            workspace: "/x/work".to_string(),
+            updated_at_ms: 0,
+            turns: 1,
+        };
+        shell.apply(UiEvent::Sessions(Some(Listing {
+            current: vec![session("b"), session("a")],
+            all: Vec::new(),
+            now_ms: 0,
+        })));
+        let marked = |shell: &Fixture| shell.sessions.as_ref().and_then(SessionPicker::selected);
+        assert_eq!(marked(&shell).as_deref(), Some("b"));
+        the_menus_keys_under_ctrl_o(
+            &mut shell,
+            marked,
+            &[
+                (b"\x1b[B", Some("a".to_string())),
+                (&[0x0b], Some("b".to_string())),
+                (&[0x0a], Some("a".to_string())),
+            ],
+            |shell| shell.sessions.is_some(),
+        );
+    }
+
+    #[test]
+    fn ctrl_o_over_the_fork_menu_holds_no_frame_and_its_keys_stay_its() {
+        // `p5-ctrlo-fork`: the newest prompt marked, so Up first.
+        let mut shell = shell(40, 120);
+        forked_menu(&mut shell, three_points());
+        let marked = |shell: &Fixture| shell.fork_menu.as_ref().map(|menu| menu.selected().turn);
+        assert_eq!(marked(&shell), Some(3));
+        the_menus_keys_under_ctrl_o(
+            &mut shell,
+            marked,
+            &[(b"\x1b[A", Some(2)), (&[0x0b], Some(1)), (&[0x0a], Some(2))],
+            |shell| shell.fork_menu.is_some(),
+        );
+    }
+
+    #[test]
+    fn ctrl_o_over_the_effort_menu_holds_no_frame_and_its_keys_stay_its() {
+        // `p5-ctrlo-effort`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort\r");
+        let marked = |shell: &Fixture| {
+            shell
+                .effort_menu
+                .as_ref()
+                .map(|menu| menu.selected().clone())
+        };
+        let level = |name: &str| Some(Effort::Named(name.to_string()));
+        assert_eq!(marked(&shell), Some(Effort::Auto));
+        the_menus_keys_under_ctrl_o(
+            &mut shell,
+            marked,
+            &[
+                (b"\x1b[B", level("low")),
+                (&[0x0b], Some(Effort::Auto)),
+                (&[0x0a], level("low")),
+            ],
+            |shell| shell.effort_menu.is_some(),
+        );
+    }
+
+    #[test]
+    fn ctrl_o_over_the_skills_menu_holds_no_frame_and_its_keys_stay_its() {
+        // `skills-ctrlo`: `/skills`' menu, then a `$` word's
+        // (`skills-ctrlo-dollar`) -- the skills menu shown either way
+        // (`menuVisible`).
+        let marked = |shell: &Fixture| {
+            shell
+                .skills_menu
+                .as_ref()
+                .and_then(SkillsMenu::selected)
+                .map(|skill| skill.name.clone())
+        };
+        let name = |name: &str| Some(name.to_string());
+        let moves: [(&[u8], Option<String>); 3] = [
+            (b"\x1b[B", name("release-notes")),
+            (&[0x0b], name("demo")),
+            (&[0x0a], name("release-notes")),
+        ];
+        let mut command = skilled();
+        command.route_bytes(b"/skills\r");
+        skills_landed(&mut command);
+        assert_eq!(marked(&command), name("demo"));
+        the_menus_keys_under_ctrl_o(&mut command, marked, &moves, |shell| {
+            shell.skills_menu.is_some()
+        });
+        let mut mention = skilled();
+        mention.route_bytes(b"explain $");
+        assert_eq!(marked(&mention), name("demo"));
+        the_menus_keys_under_ctrl_o(&mut mention, marked, &moves, |shell| {
+            shell.skills_menu.is_some()
+        });
+    }
+
+    #[test]
+    fn ctrl_o_over_the_settings_menu_holds_no_frame() {
+        // The seventh menu fx's frame shuts the transcript for
+        // (`settingsMenuActive`, `app_render_runtime.zig:1206`).
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/settings\r");
+        assert!(shell.settings_menu.is_some(), "/settings opened nothing");
+        assert!(!ctrl_o_then_a_frame(&mut shell), "the transcript held");
+        assert!(shell.settings_menu.is_some(), "Ctrl-O took the menu down");
+    }
+
+    #[test]
+    fn a_menu_that_opens_under_the_full_transcript_takes_the_plane_back() {
+        // fx's frame closes the screen whichever way the menu came: `/help`
+        // sent from the composer under it (Enter is the composer's there,
+        // `app_input_runtime.zig:1392-1395`), a `$` typed, a `/fork`
+        // answered. A `$` word nothing matches shows no menu, and the screen
+        // holds over it (`menuVisible`).
+        let mut shell = shell(40, 120);
+        shell.route_bytes(&[0x0f]);
+        shell.route_bytes(b"/help\r");
+        assert!(shell.full.is_open() && shell.help_menu.is_some());
+        shell.settle_band(Instant::now());
+        assert!(!shell.full.is_open(), "the transcript held over /help");
+
+        let mut skilled = skilled();
+        skilled.route_bytes(&[0x0f]);
+        skilled.route_bytes(b"$zz");
+        skilled.settle_band(Instant::now());
+        assert!(
+            skilled
+                .skills_menu
+                .as_ref()
+                .is_some_and(|menu| !menu.visible()),
+            "the $ word matched a skill"
+        );
+        assert!(skilled.full.is_open(), "a menu nobody sees closed it");
+        skilled.route_bytes(&[0x7f, 0x7f]);
+        skilled.settle_band(Instant::now());
+        assert!(skilled
+            .skills_menu
+            .as_ref()
+            .is_some_and(SkillsMenu::visible));
+        assert!(
+            !skilled.full.is_open(),
+            "the transcript held over the $ menu"
+        );
+
+        let mut forked = super::tests::shell(40, 120);
+        forked.route_bytes(b"/fork\r");
+        assert_eq!(forked.picks_up(), TurnWork::ForkPoints);
+        forked.work.give_back();
+        forked.route_bytes(&[0x0f]);
+        forked.apply(UiEvent::ForkPoints(ForkPoints::Points(three_points())));
+        assert!(forked.full.is_open() && forked.fork_menu.is_some());
+        forked.settle_band(Instant::now());
+        assert!(
+            !forked.full.is_open(),
+            "the transcript held over /fork's menu"
+        );
+    }
+
+    #[test]
+    fn a_question_over_a_menu_closes_the_full_transcript_and_ctrl_o_opens_none_over_it() {
+        // fx's frame closes the screen over the seven menus only while no
+        // question and no approval is up (`!question_active and approval ==
+        // null`, `app_render_runtime.zig:1206@481104fd`). xfx's reconcile
+        // needs neither term (CTRLO-OTHER-PICKERS round 2, gpt6 MUST 1): an
+        // approval or a question closes the screen as it arrives
+        // ([`Shell::full_transcript_sees`]), and Ctrl-O opens none while one
+        // is up ([`Shell::open_full_transcript`] refuses while
+        // [`Shell::modal`]) -- so the reconcile never sees the screen up with
+        // one. Here with the catalog up under the screen.
+        for approval in [true, false] {
+            let mut shell = shell(24, 80);
+            let started = turn_running(&mut shell, b"edit the notes\r");
+            shell.route_bytes(b"/help\r");
+            assert!(shell.help_menu.is_some(), "/help opened no catalog");
+            shell.route_bytes(&[0x0f]);
+            assert!(shell.full.is_open(), "Ctrl-O did not open the transcript");
+            if approval {
+                shell.apply(UiEvent::Approval(question(asked())));
+            } else {
+                shell.apply(UiEvent::Question(a_batch()));
+            }
+            assert!(shell.modal(), "approval {approval}: no question is up");
+            assert!(
+                !shell.full.is_open(),
+                "approval {approval}: the question left the transcript up"
+            );
+            shell.route_bytes(&[0x0f]);
+            assert!(
+                !shell.full.is_open(),
+                "approval {approval}: Ctrl-O opened it over the question"
+            );
+            shell.settle_band(started);
+            assert!(!shell.full.is_open());
+        }
+    }
+
+    // CTRLO-OTHER-PICKERS round 2 (gpt6 MUST 2): Ctrl-O and C-j or C-k in
+    // one burst -- one read, before any frame. fx reads up to
+    // `max_input_reads_per_fact_collection` reads before a frame
+    // (`event_loop.zig:90-120@481104fd`), so the second key finds the screen
+    // still up: no picker takes it (`routePickerControlByte`,
+    // `app_input_runtime.zig:1093-1116`) and the composer does (`:881-893`).
+    // Then the frame closes the screen over whichever menu is still up.
+
+    /// Ctrl-O and `key` in one read, then the loop's tick before the frame.
+    fn one_burst_with_ctrl_o(shell: &mut Fixture, key: u8) {
+        shell.route_bytes(&[0x0f, key]);
+        shell.settle_band(Instant::now());
+    }
+
+    #[test]
+    fn c_j_and_c_k_in_ctrl_os_burst_over_the_catalog_edit_its_search_and_keep_its_mark() {
+        // `p5-ctrlo-help burst-ck`, `burst-cj`: C-k a kill of nothing
+        // (`app_input_runtime.zig:479-488@481104fd`), C-j a line break in the
+        // search (`:513-521`), which syncs no catalog menu, so the mark stays
+        // on `/clear`; a line break is no word of the search
+        // (`helpCatalogSpecMatches`, `command_specs.zig:460`), so the list is
+        // the same.
+        let marked = |shell: &Fixture| {
+            shell
+                .help_menu
+                .as_ref()
+                .and_then(HelpMenu::selected)
+                .map(|spec| spec.name)
+        };
+        for (key, text) in [(0x0b, ""), (0x0a, "\n")] {
+            let mut shell = with_catalog(40, 120);
+            shell.route_bytes(b"\x1b[B");
+            assert_eq!(marked(&shell), Some("/clear"));
+            one_burst_with_ctrl_o(&mut shell, key);
+            assert_eq!(shell.editor.text(), text, "{key:#x}: the composer");
+            assert_eq!(marked(&shell), Some("/clear"), "{key:#x} moved the mark");
+            assert!(!shell.full.is_open(), "{key:#x}: the frame left it up");
+        }
+        // The settings menu the same way: a catalog menu fx's line break
+        // leaves unsynced (it owns the byte, `app_input_runtime.zig:1610`,
+        // and is not one `:514` holds), so its mark stays where Down put it.
+        for (key, text) in [(0x0b, ""), (0x0a, "\n")] {
+            let mut shell = shell(40, 120);
+            shell.route_bytes(b"/settings\r\x1b[B\x1b[B");
+            let mark = shell.settings_menu.as_ref().map(SettingsMenu::mark);
+            assert_ne!(mark, Some((0, 0)), "Down did not move the mark");
+            one_burst_with_ctrl_o(&mut shell, key);
+            assert_eq!(
+                shell.editor.text(),
+                text,
+                "settings, {key:#x}: the composer"
+            );
+            assert_eq!(
+                shell.settings_menu.as_ref().map(SettingsMenu::mark),
+                mark,
+                "settings, {key:#x} moved the mark"
+            );
+            assert!(
+                !shell.full.is_open(),
+                "settings, {key:#x}: the frame left it up"
+            );
+        }
+    }
+
+    #[test]
+    fn c_j_in_ctrl_os_burst_over_model_session_and_skills_menus_does_nothing_and_c_k_kills_nothing()
+    {
+        // fx's `insert_newline` adds nothing while `/skills`' menu, `/model`'s
+        // or the session picker is up (`app_input_runtime.zig:514
+        // @481104fd`), and C-k kills nothing at the line's end (`:479-488`):
+        // the mark stays, the composer is empty, the frame closes the screen.
+        use super::super::session_picker::{ListedSession, Listing};
+        for key in [0x0a, 0x0b] {
+            let mut models = shell(40, 120);
+            models.shell.apply(UiEvent::CatalogLoaded {
+                due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
+                provider: ProviderId::Gateway,
+                entries: vec![
+                    entry("one", Some(400_000), &[]),
+                    entry("two", Some(400_000), &[]),
+                ],
+            });
+            let _ = models.document();
+            models.route_bytes(b"/model\r\x1b[B");
+            let marked = |shell: &Fixture| {
+                shell
+                    .model_menu
+                    .as_ref()
+                    .and_then(|menu| menu.selected().map(str::to_string))
+            };
+            let mark = marked(&models);
+            one_burst_with_ctrl_o(&mut models, key);
+            assert_eq!(marked(&models), mark, "/model, {key:#x} moved the mark");
+            assert_eq!(models.editor.text(), "", "/model, {key:#x}");
+            assert!(!models.full.is_open());
+
+            let mut sessions = shell(40, 120);
+            sessions.route_bytes(b"/resume\r");
+            let _ = sessions.picks_up();
+            sessions.work.give_back();
+            let session = |id: &str| ListedSession {
+                id: id.to_string(),
+                title: Some(format!("question {id}")),
+                workspace: "/x/work".to_string(),
+                updated_at_ms: 0,
+                turns: 1,
+            };
+            sessions.apply(UiEvent::Sessions(Some(Listing {
+                current: vec![session("b"), session("a")],
+                all: Vec::new(),
+                now_ms: 0,
+            })));
+            sessions.route_bytes(b"\x1b[B");
+            one_burst_with_ctrl_o(&mut sessions, key);
+            assert_eq!(
+                sessions
+                    .sessions
+                    .as_ref()
+                    .and_then(SessionPicker::selected)
+                    .as_deref(),
+                Some("a"),
+                "sessions, {key:#x} moved the mark"
+            );
+            assert_eq!(sessions.editor.text(), "", "sessions, {key:#x}");
+            assert!(!sessions.full.is_open());
+
+            let mut skills = skilled();
+            skills.route_bytes(b"/skills\r");
+            skills_landed(&mut skills);
+            skills.route_bytes(b"\x1b[B");
+            one_burst_with_ctrl_o(&mut skills, key);
+            assert_eq!(
+                skills
+                    .skills_menu
+                    .as_ref()
+                    .and_then(SkillsMenu::selected)
+                    .map(|skill| skill.name.as_str()),
+                Some("release-notes"),
+                "/skills, {key:#x} moved the mark"
+            );
+            assert_eq!(skills.editor.text(), "", "/skills, {key:#x}");
+            assert!(!skills.full.is_open());
+        }
+    }
+
+    #[test]
+    fn c_j_in_ctrl_os_burst_over_a_dollar_menu_is_a_new_line_after_its_word() {
+        // A `$` word's menu owns neither key (`activeCatalogMenuOwnsByte`,
+        // `app_input_runtime.zig:1609-1619@481104fd`) and is not `/skills`'
+        // (`:514`): C-j is a line break after the word, which still ends the
+        // word, so the menu and its mark stay; C-k kills nothing.
+        for (key, text) in [(0x0a, "explain $\n"), (0x0b, "explain $")] {
+            let mut shell = skilled();
+            shell.route_bytes(b"explain $\x1b[B");
+            one_burst_with_ctrl_o(&mut shell, key);
+            assert_eq!(shell.editor.text(), text, "{key:#x}: the composer");
+            assert_eq!(
+                shell
+                    .skills_menu
+                    .as_ref()
+                    .filter(|menu| menu.visible())
+                    .and_then(SkillsMenu::selected)
+                    .map(|skill| skill.name.as_str()),
+                Some("release-notes"),
+                "{key:#x}: the menu or its mark"
+            );
+            assert!(!shell.full.is_open(), "{key:#x}: the frame left it up");
+        }
+    }
+
+    #[test]
+    fn c_j_and_c_k_in_ctrl_os_burst_over_fork_close_the_menu_and_the_screen_stays() {
+        // `p5-ctrlo-fork burst-ck`, `burst-cj`: the key is a composer edit,
+        // which closes `/fork`'s and `/effort`'s menus
+        // (`dismissActiveMenusForComposerEdit`, `app_input_runtime.zig:
+        // 1984-1990@481104fd`); with no menu left the frame keeps the screen,
+        // and the line break C-j typed is in the composer behind it.
+        for (key, text) in [(0x0b, ""), (0x0a, "\n")] {
+            let mut forked = shell(40, 120);
+            forked_menu(&mut forked, three_points());
+            forked.route_bytes(b"\x1b[A");
+            one_burst_with_ctrl_o(&mut forked, key);
+            assert!(
+                forked.fork_menu.is_none(),
+                "/fork, {key:#x}: the menu stayed"
+            );
+            assert_eq!(forked.editor.text(), text, "/fork, {key:#x}");
+            assert!(forked.full.is_open(), "/fork, {key:#x}: the screen closed");
+        }
+    }
+
+    #[test]
+    fn c_j_and_c_k_in_ctrl_os_burst_over_effort_close_the_menu_and_the_screen_stays() {
+        // `/effort`'s menu the same way as `/fork`'s, on its own so that a
+        // break of `/effort`'s alone is seen failing here (CTRLO-OTHER-PICKERS
+        // round 3, opus NIT 2).
+        for (key, text) in [(0x0b, ""), (0x0a, "\n")] {
+            let root = tempfile::tempdir().expect("a root");
+            let mut effort = effort_shell(root.path());
+            effort.route_bytes(b"/effort\r\x1b[B");
+            assert!(effort.effort_menu.is_some());
+            one_burst_with_ctrl_o(&mut effort, key);
+            assert!(
+                effort.effort_menu.is_none(),
+                "/effort, {key:#x}: the menu stayed"
+            );
+            assert_eq!(effort.editor.text(), text, "/effort, {key:#x}");
+            assert!(
+                effort.full.is_open(),
+                "/effort, {key:#x}: the screen closed"
+            );
+        }
+    }
+
+    // CTRLO-OTHER-PICKERS round 3. A catalog menu's mark across `C-j` in
+    // Ctrl-O's burst with its window scrolled and the line break inside a
+    // search word (gpt6 SHOULD 1), and `C-k` in the burst with text after the
+    // caret (opus NIT 6): fx's kill syncs every catalog menu
+    // (`app_input_runtime.zig:479-488@481104fd`, `syncCatalogMenus` at
+    // `:485`), as a Backspace does.
+
+    /// The band's item rows of a catalog menu -- the catalog's or the
+    /// settings menu's, two cells in -- top first, each with whether it is
+    /// the marked one (painted in the subtitle colour where the rest are
+    /// dim).
+    fn menu_item_rows(shell: &Fixture) -> Vec<(String, bool)> {
+        let indent = "  ";
+        shell
+            .band_rows()
+            .iter()
+            .filter_map(|row| {
+                let marked = row.starts_with(&format!("{indent}{}", PALETTE.subtitle()));
+                let dim = row.starts_with(&format!("{indent}{}", PALETTE.dim()));
+                (marked || dim).then(|| (visible_text(row).trim().to_string(), marked))
+            })
+            .collect()
+    }
+
+    /// Down until the window has scrolled, then Up until the mark is the
+    /// window's first row: a mark and a window a reset would not give back.
+    fn scrolled_mark_at_the_windows_top(
+        shell: &mut Fixture,
+        mark: impl Fn(&Fixture) -> (usize, usize),
+    ) -> (usize, usize) {
+        for _ in 0..40 {
+            if mark(shell).1 > 0 {
+                break;
+            }
+            shell.route_bytes(b"\x1b[B");
+        }
+        let (selected, window_start) = mark(shell);
+        assert!(
+            window_start > 0,
+            "the window never scrolled: {selected}, {window_start}"
+        );
+        for _ in window_start..selected {
+            shell.route_bytes(b"\x1b[A");
+        }
+        let kept = mark(shell);
+        assert_eq!(kept.0, kept.1, "the mark is not the window's first row");
+        assert!(kept.1 > 0, "Up scrolled the window back to the top");
+        kept
+    }
+
+    #[test]
+    fn c_j_in_ctrl_os_burst_inside_a_search_word_keeps_a_scrolled_catalogs_mark_and_window() {
+        // `e`, Home, `s`: the search `se` with the caret between the two
+        // letters, so C-j splits the word into `s` and `e` -- a different
+        // search (`helpCatalogSpecMatches`, `command_specs.zig:460`), which fx's
+        // line break syncs no menu to (`app_input_runtime.zig:513-521`): the
+        // mark and the window stay where they were, over what is listed now.
+        let mut shell = with_catalog(16, 80);
+        shell.route_bytes(b"e\x01s");
+        assert_eq!(shell.editor.text(), "se");
+        let mark = |shell: &Fixture| {
+            shell
+                .help_menu
+                .as_ref()
+                .map(HelpMenu::mark)
+                .expect("the catalog")
+        };
+        let kept = scrolled_mark_at_the_windows_top(&mut shell, mark);
+        one_burst_with_ctrl_o(&mut shell, 0x0a);
+        assert_eq!(shell.editor.text(), "s\ne");
+        assert!(!shell.full.is_open(), "the frame left the transcript up");
+        assert_eq!(mark(&shell), kept, "the mark or the window moved");
+        // Drawn from there: the marked command is the one at the kept index
+        // of what `s` and `e` list, and it is the window's first row.
+        let mut probe = HelpMenu::open("s\ne");
+        probe.keep((kept.0, 0));
+        let name = probe.selected().expect("a command").name;
+        let rows = menu_item_rows(&shell);
+        assert!(!rows.is_empty(), "no catalog rows in the band");
+        assert!(
+            rows[0].1,
+            "the window's first row is not the marked one: {rows:?}"
+        );
+        assert!(
+            rows[0].0.starts_with(name),
+            "the marked row is not {name}: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn c_j_in_ctrl_os_burst_inside_a_search_word_keeps_a_scrolled_settings_mark_and_window() {
+        // The settings menu the same way: its search's words are split at
+        // spaces, tabs and line breaks too (`super::settings`), and fx's line
+        // break leaves its mark and window where they were.
+        let mut shell = shell(16, 80);
+        shell.route_bytes(b"/settings\r");
+        assert!(shell.settings_menu.is_some(), "/settings opened no menu");
+        shell.route_bytes(b"e\x01s");
+        assert_eq!(shell.editor.text(), "se");
+        let mark = |shell: &Fixture| {
+            shell
+                .settings_menu
+                .as_ref()
+                .map(SettingsMenu::mark)
+                .expect("the settings menu")
+        };
+        let kept = scrolled_mark_at_the_windows_top(&mut shell, mark);
+        one_burst_with_ctrl_o(&mut shell, 0x0a);
+        assert_eq!(shell.editor.text(), "s\ne");
+        assert!(!shell.full.is_open(), "the frame left the transcript up");
+        assert_eq!(mark(&shell), kept, "the mark or the window moved");
+        let rows = menu_item_rows(&shell);
+        assert!(!rows.is_empty(), "no settings rows in the band");
+        assert!(
+            rows[0].1,
+            "the window's first row is not the marked one: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn c_k_in_ctrl_os_burst_with_text_after_the_caret_kills_it_and_each_menus_search_follows() {
+        // fx's kill syncs the menus (`:485`): the catalog, the settings menu,
+        // `/model`'s menu and the session picker put the mark back on their
+        // first row for a search that changed (`resetForQuery`,
+        // `ModelMenu.setQuery`, `SessionPicker.setQuery`); the skills menu
+        // keeps its mark, held to what is listed (`setMenuQuery`,
+        // `skill_runtime.zig:2603-2623`). Each search is typed, the caret
+        // taken to its start (Home) and the mark moved, then Ctrl-O and C-k
+        // in one burst kill the whole search.
+        use super::super::session_picker::{ListedSession, Listing};
+
+        let mut catalog = with_catalog(40, 120);
+        catalog.route_bytes(b"e\x01\x1b[B\x1b[B");
+        assert_eq!(catalog.help_menu.as_ref().map(HelpMenu::mark), Some((2, 0)));
+        one_burst_with_ctrl_o(&mut catalog, 0x0b);
+        assert_eq!(catalog.editor.text(), "", "the catalog: the kill");
+        assert_eq!(
+            catalog.help_menu.as_ref().map(HelpMenu::mark),
+            Some((0, 0)),
+            "the catalog: the mark"
+        );
+        assert!(!catalog.full.is_open(), "the catalog: the frame left it up");
+
+        let mut settings = shell(40, 120);
+        settings.route_bytes(b"/settings\re\x01\x1b[B\x1b[B");
+        let marked = settings.settings_menu.as_ref().map(SettingsMenu::mark);
+        assert_ne!(marked, Some((0, 0)), "settings: Down did not move the mark");
+        one_burst_with_ctrl_o(&mut settings, 0x0b);
+        assert_eq!(settings.editor.text(), "", "settings: the kill");
+        assert_eq!(
+            settings.settings_menu.as_ref().map(SettingsMenu::mark),
+            Some((0, 0)),
+            "settings: the mark"
+        );
+        assert!(!settings.full.is_open(), "settings: the frame left it up");
+
+        let mut models = shell(40, 120);
+        models.shell.apply(UiEvent::CatalogLoaded {
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
+            provider: ProviderId::Gateway,
+            entries: vec![
+                entry("one", Some(400_000), &[]),
+                entry("two", Some(400_000), &[]),
+            ],
+        });
+        let _ = models.document();
+        models.route_bytes(b"/model\ro\x01\x1b[B");
+        let model = |shell: &Fixture| {
+            shell
+                .model_menu
+                .as_ref()
+                .and_then(|menu| menu.selected().map(str::to_string))
+        };
+        let second = model(&models);
+        one_burst_with_ctrl_o(&mut models, 0x0b);
+        assert_eq!(models.editor.text(), "", "/model: the kill");
+        assert_ne!(model(&models), second, "/model: the mark stayed");
+        assert!(
+            model(&models).is_some_and(|id| id.ends_with("one")),
+            "/model: not back on the first row: {:?}",
+            model(&models)
+        );
+        assert!(!models.full.is_open(), "/model: the frame left it up");
+
+        let mut sessions = shell(40, 120);
+        sessions.route_bytes(b"/resume\r");
+        let _ = sessions.picks_up();
+        sessions.work.give_back();
+        let session = |id: &str| ListedSession {
+            id: id.to_string(),
+            title: Some(format!("question {id}")),
+            workspace: "/x/work".to_string(),
+            updated_at_ms: 0,
+            turns: 1,
+        };
+        sessions.apply(UiEvent::Sessions(Some(Listing {
+            current: vec![session("b"), session("a")],
+            all: Vec::new(),
+            now_ms: 0,
+        })));
+        sessions.route_bytes(b"q\x01\x1b[B");
+        let picked = |shell: &Fixture| {
+            shell
+                .sessions
+                .as_ref()
+                .and_then(SessionPicker::selected)
+                .as_deref()
+                .map(str::to_string)
+        };
+        assert_eq!(picked(&sessions).as_deref(), Some("a"));
+        one_burst_with_ctrl_o(&mut sessions, 0x0b);
+        assert_eq!(sessions.editor.text(), "", "sessions: the kill");
+        assert_eq!(
+            picked(&sessions).as_deref(),
+            Some("b"),
+            "sessions: the mark"
+        );
+        assert!(!sessions.full.is_open(), "sessions: the frame left it up");
+
+        let skill = |shell: &Fixture| {
+            shell
+                .skills_menu
+                .as_ref()
+                .filter(|menu| menu.visible())
+                .and_then(SkillsMenu::selected)
+                .map(|skill| skill.name.clone())
+        };
+        // The skills menu's mark stays on its index: the second row of the
+        // empty search, as a Down from the top of that search gives it.
+        let second_of_all = |keys: &[u8]| {
+            let mut reference = skilled();
+            reference.route_bytes(keys);
+            skills_landed(&mut reference);
+            reference.route_bytes(b"\x1b[B");
+            skill(&reference).expect("a second skill")
+        };
+        let mut skills = skilled();
+        skills.route_bytes(b"/skills\r");
+        skills_landed(&mut skills);
+        skills.route_bytes(b"e\x01\x1b[B");
+        assert!(skill(&skills).is_some(), "/skills: no mark");
+        one_burst_with_ctrl_o(&mut skills, 0x0b);
+        assert_eq!(skills.editor.text(), "", "/skills: the kill");
+        assert_eq!(
+            skill(&skills),
+            Some(second_of_all(b"/skills\r")),
+            "/skills: the mark"
+        );
+        assert!(!skills.full.is_open(), "/skills: the frame left it up");
+
+        // A `$` word: the kill takes the word's tail, and the menu searches
+        // what is left of it.
+        let mut dollar = skilled();
+        dollar.route_bytes(b"explain $e\x1b[D\x1b[B");
+        assert!(skill(&dollar).is_some(), "$: no mark");
+        one_burst_with_ctrl_o(&mut dollar, 0x0b);
+        assert_eq!(dollar.editor.text(), "explain $", "$: the kill");
+        assert_eq!(
+            skill(&dollar),
+            Some(second_of_all(b"explain $")),
+            "$: the mark"
+        );
+        assert!(!dollar.full.is_open(), "$: the frame left it up");
+    }
+
+    /// Ctrl-O over a menu the transcript holds over, and the frame: it is
+    /// still up.
+    fn held_over(shell: &mut Fixture) {
+        assert!(ctrl_o_then_a_frame(shell), "the transcript closed over it");
+    }
+
+    /// `/` and a Down: the slash menu with its second row marked.
+    fn slash_menu_second_row() -> Fixture {
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/\x1b[B");
+        assert_eq!(shell.picker.as_ref().map(|menu| menu.marked().0), Some(1));
+        held_over(&mut shell);
+        shell
+    }
+
+    #[test]
+    fn c_k_under_the_full_transcript_over_the_slash_menu_moves_no_mark() {
+        // `p5-ctrlo-slash ck`: C-k reaches fx's composer, a kill of nothing
+        // with the caret at the end (`app_input_runtime.zig:479-488
+        // @481104fd`), and the mark is where it was.
+        let mut shell = slash_menu_second_row();
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.editor.text(), "/");
+        assert_eq!(
+            shell.picker.as_ref().map(|menu| menu.marked().0),
+            Some(1),
+            "C-k moved the mark"
+        );
+        assert!(shell.full.is_open());
+    }
+
+    #[test]
+    fn c_j_under_the_full_transcript_over_the_slash_menu_is_a_new_line() {
+        // `p5-ctrlo-slash cj`: `/` and a new line are no slash word, so the
+        // menu closes (`app_input_runtime.zig:513-521@481104fd`).
+        let mut shell = slash_menu_second_row();
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(shell.editor.text(), "/\n", "C-j did not reach the composer");
+        assert!(shell.picker.is_none(), "the menu is still up");
+        assert!(shell.full.is_open(), "C-j closed the transcript");
+        assert!(shell.sent.try_recv().is_err(), "C-j sent the line");
+    }
+
+    /// `/provider ` and a Down: the column with its second row marked.
+    fn provider_column_second_row() -> Fixture {
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/provider ");
+        let first = shell
+            .provider_picker
+            .as_ref()
+            .and_then(ProviderPicker::chosen);
+        shell.route_bytes(b"\x1b[B");
+        assert_ne!(
+            shell
+                .provider_picker
+                .as_ref()
+                .and_then(ProviderPicker::chosen),
+            first
+        );
+        held_over(&mut shell);
+        shell
+    }
+
+    #[test]
+    fn c_k_under_the_full_transcript_over_the_provider_column_moves_no_mark() {
+        // `provider-ctrlo ck`.
+        let mut shell = provider_column_second_row();
+        let chosen = shell
+            .provider_picker
+            .as_ref()
+            .and_then(ProviderPicker::chosen);
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.editor.text(), "/provider ");
+        assert_eq!(
+            shell
+                .provider_picker
+                .as_ref()
+                .and_then(ProviderPicker::chosen),
+            chosen,
+            "C-k moved the mark"
+        );
+        assert!(shell.full.is_open());
+    }
+
+    #[test]
+    fn c_j_under_the_full_transcript_over_the_provider_column_is_a_new_line() {
+        // `provider-ctrlo cj`: the line is still the column's, and its
+        // argument -- a new line -- matches no provider (fx's `no matching
+        // providers`).
+        let mut shell = provider_column_second_row();
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(
+            shell.editor.text(),
+            "/provider \n",
+            "C-j did not reach the composer"
+        );
+        assert!(shell.provider_picker.is_some(), "the column closed");
+        assert_eq!(
+            shell
+                .provider_picker
+                .as_ref()
+                .and_then(ProviderPicker::chosen),
+            None,
+            "a provider matched the new line"
+        );
+        assert!(shell.full.is_open(), "C-j closed the transcript");
+        assert!(shell.sent.try_recv().is_err(), "C-j sent the line");
+    }
+
+    #[test]
+    fn a_column_hangs_under_its_argument_only_on_the_carets_row() {
+        // fx hangs a column at its argument's column only while the argument
+        // starts on the caret's row; on any other row the column hangs from
+        // the start of the caret's (`projectedAnchorColumn`,
+        // `visual_layout.zig:705-713@481104fd`): after C-j `provider-ctrlo
+        // cj` shows `no matching providers` two cells in, under the empty
+        // second row -- as the `@` list's column already does
+        // ([`Shell::file_picker_column`]). The `/mcp ` completions hang from
+        // the same anchor.
+        let mut shell = provider_column_second_row();
+        let at = |shell: &Fixture| {
+            let column = shell.provider_picker.as_ref().expect("the column");
+            shell.provider_anchor(column)
+        };
+        assert_eq!(at(&shell), PROMPT_CELLS + 10, "not under the argument");
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(at(&shell), PROMPT_CELLS, "not at the caret's row's start");
+        // Back on the argument's row, under it again.
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(shell.editor.text(), "/provider ");
+        assert_eq!(at(&shell), PROMPT_CELLS + 10);
+    }
+
+    #[test]
+    fn the_at_lists_column_hangs_from_the_carets_row_once_its_word_has_wrapped() {
+        // The `@` list hangs from the one anchor too (`picker_start_col`,
+        // `input_presentation.zig:383-386@481104fd`; [`Shell::anchor_at`]):
+        // under the `@` while the word starts on the caret's row, from the
+        // start of the caret's row once the word has wrapped past it
+        // (CTRLO-OTHER-PICKERS round 3, opus NIT 4).
+        let (_workspace, mut shell) = in_ws2(40, 24);
+        shell.route_bytes(b"ab @src");
+        listed(&mut shell);
+        let column = |shell: &Fixture| {
+            shell
+                .file_picker
+                .as_ref()
+                .map(|files| shell.file_picker_column(files))
+        };
+        assert_eq!(column(&shell), Some(PROMPT_CELLS + 4), "not under the @");
+        shell.route_bytes(b"xxxxxxxxxxxxxxxxxxxxxxxx");
+        let at = shell
+            .file_picker
+            .as_ref()
+            .map(|files| files.query().at)
+            .expect("the list closed");
+        let cols = shell.text_cols();
+        let (at_row, at_cell) = shell.editor.point_of(at, cols);
+        assert_ne!(at_row, shell.editor.point(cols).0, "the word did not wrap");
+        assert!(
+            at_cell > 0,
+            "the @ starts its row, where both anchors agree"
+        );
+        assert_eq!(
+            column(&shell),
+            Some(PROMPT_CELLS + 1),
+            "not at the caret's row's start"
+        );
+    }
+
+    /// `/mcp ` and a Down: the argument completions with the second marked.
+    fn mcp_args_second_row() -> (Fixture, Arc<crate::mcp::McpRuntime>, tempfile::TempDir) {
+        let (mut shell, runtime, home) = mcp_args_shell();
+        shell.route_bytes(b"/mcp ");
+        let first = shell
+            .mcp_args
+            .as_ref()
+            .and_then(|args| args.chosen().map(str::to_string));
+        shell.route_bytes(b"\x1b[B");
+        assert_ne!(
+            shell
+                .mcp_args
+                .as_ref()
+                .and_then(|args| args.chosen().map(str::to_string)),
+            first
+        );
+        held_over(&mut shell);
+        (shell, runtime, home)
+    }
+
+    #[test]
+    fn c_k_under_the_full_transcript_over_the_mcp_arguments_moves_no_mark() {
+        // `p5-ctrlo-mcp-args ck`: fx's are the slash completion's
+        // (`verb_completions`, `app_mcp_runtime.zig:459-468@481104fd`).
+        let (mut shell, _runtime, _home) = mcp_args_second_row();
+        let chosen = shell
+            .mcp_args
+            .as_ref()
+            .and_then(|args| args.chosen().map(str::to_string));
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.editor.text(), "/mcp ");
+        assert_eq!(
+            shell
+                .mcp_args
+                .as_ref()
+                .and_then(|args| args.chosen().map(str::to_string)),
+            chosen,
+            "C-k moved the mark"
+        );
+        assert!(shell.full.is_open());
+    }
+
+    #[test]
+    fn c_j_under_the_full_transcript_over_the_mcp_arguments_is_a_new_line() {
+        // `p5-ctrlo-mcp-args cj`: no completion answers a new line, so none
+        // is shown.
+        let (mut shell, _runtime, _home) = mcp_args_second_row();
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(
+            shell.editor.text(),
+            "/mcp \n",
+            "C-j did not reach the composer"
+        );
+        assert!(
+            !shell.mcp_args.as_ref().is_some_and(McpArgs::visible),
+            "the completions are still shown"
+        );
+        assert!(shell.full.is_open(), "C-j closed the transcript");
+        assert!(shell.sent.try_recv().is_err(), "C-j sent the line");
+    }
+
+    #[test]
+    fn a_letter_under_the_full_transcript_is_typed_and_looked_up_once_it_closes() {
+        // A printable byte is fx's composer's (`handleComposerByte`,
+        // `app_input_runtime.zig:1442-1478@481104fd`): the query changes, and
+        // the list is prepared only once it is eligible again
+        // (`prepareFilePicker`, `input_completion_runtime.zig:848-853`) --
+        // `@f-z`'s `no matching files` (`p5-ctrlo-at-keys letter`).
+        let (_workspace, mut shell) = under_ctrl_o(b"@src");
+        let lookups = shell.files_for_test().lookups_for_test();
+        shell.route_bytes(b"z");
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.editor.text(), "@srcz");
+        assert_eq!(
+            shell.file_picker.as_ref().and_then(FilePicker::lookup),
+            Some("srcz")
+        );
+        assert_eq!(
+            shell.files_for_test().lookups_for_test(),
+            lookups,
+            "the new query was looked up under the transcript"
+        );
+        shell.route_bytes(&[0x0f]);
+        listed(&mut shell);
+        assert_eq!(
+            shell.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Empty)
+        );
+    }
+
+    #[test]
+    fn tab_under_the_full_transcript_over_files_unavailable_walks_nothing() {
+        // AT-HEIGHT r3 opus SHOULD 2: fx's Tab returns at its eligibility
+        // check (`input_completion_runtime.zig:949@481104fd`), before the
+        // retry that asks for the index's refresh (`:953`; `retry`,
+        // `file_completion_state.zig:230-233`). The first half of
+        // [`tab_in_the_interim_retries_and_still_says_files_unavailable`]
+        // with Ctrl-O around the Tab: nothing is queued behind B, so a retry
+        // would be a third walk once the list is eligible again -- and there
+        // are two.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        let (_a, _path, first) = extra_with_plan(&shell);
+        let (_b, path, other) = extra_with_plan(&shell);
+        let walks = shell.files_for_test().walks_for_test();
+        shell.start_file_index();
+        let a_walk = super::super::file_index::tests::held(shell.files_for_test());
+        adopt(&mut shell, first);
+        adopt(&mut shell, other);
+        shell.settle_band(Instant::now());
+        shell.route_bytes(b"@plan");
+        let _ = a_walk.send(super::super::file_index::Published::Ready);
+        shell.settle_band(Instant::now());
+        let b_walk = super::super::file_index::tests::driven(shell.files_for_test());
+        shell.file_picker_landed();
+        assert_eq!(listed_rows(&shell)[0], status_row(FILES_UNAVAILABLE));
+        shell.route_bytes(&[0x0f]);
+        assert!(shell.full.is_open(), "Ctrl-O did not open the transcript");
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "@plan", "Tab put a path in");
+        assert!(
+            !shell
+                .file_picker
+                .as_ref()
+                .is_some_and(FilePicker::refresh_requested),
+            "Tab under the transcript asked for the index's refresh"
+        );
+        shell.route_bytes(&[0x0f]);
+        assert!(!shell.full.is_open());
+        shell.settle_band(Instant::now());
+        let after = listed_rows(&shell)[0].clone();
+        // B is the case's own walk, so its index is what it is sent: the
+        // added directory's `plan.md`, by its absolute path.
+        let plan = format!("{}/plan.md", path.display());
+        let _ = b_walk.send(super::super::file_index::Published::More(
+            super::super::file_index::tests::candidates(&[plan.as_str()]),
+        ));
+        let _ = b_walk.send(super::super::file_index::Published::Ready);
+        walked(&mut shell);
+        assert_eq!(listed_paths(&shell), [plan]);
+        assert_eq!(
+            (after, shell.files_for_test().walks_for_test() - walks),
+            (status_row(FILES_UNAVAILABLE), 2),
+            "Tab under the transcript queued a walk"
+        );
     }
 
     #[test]
@@ -36404,6 +41276,624 @@ mod tests {
         shell.clear_composer();
         shell.route_bytes(b"one\x0atwo\x0athree\x0afour");
         assert_eq!(shell.geometry.input_rows(), 1, "the composer grew");
+    }
+
+    // --- PAGE-KEYS-SETTINGS-COLUMN: the three lists fx pages that xfx did not --
+
+    /// fx's page on a 24-row screen, written out: `inputRowLimit(24 - 4)` is
+    /// `20 / 2 + 1` (`input_presentation.zig:252-255@481104fd`). Under it a
+    /// page lands inside `/settings`' fourteen settings and inside a thirty-row
+    /// list (`fx-p5-page-keys-*-24x120-*`).
+    const FX_PAGE_AT_24: usize = 11;
+
+    /// Where fx leaves a mark at `from` of `count` rows after a move of
+    /// `delta`, written out from its lists' own moves rather than read from
+    /// xfx's: past the last row it is the first, before the first it is the
+    /// last, however far past (`advanceSelectionWithin`,
+    /// `list_window.zig:45-53@481104fd`; `Menu.move`,
+    /// `settings_catalog.zig:229-233`; `moveVisibleItems`,
+    /// `model_cache_runtime.zig:233-237`). Not taken round: 22 of 14 rows is
+    /// the first, not the ninth.
+    fn fx_moved(from: usize, count: usize, delta: i64) -> usize {
+        let next = i64::try_from(from).expect("an index") + delta;
+        let count_signed = i64::try_from(count).expect("a count");
+        if next < 0 {
+            count - 1
+        } else if next >= count_signed {
+            0
+        } else {
+            usize::try_from(next).expect("an index")
+        }
+    }
+
+    /// The rows a list's mark walks under Down, from where it is until it is
+    /// back there -- the list in order when it starts on its first row.
+    fn rows_walked<T: PartialEq + Clone + std::fmt::Debug>(
+        shell: &mut Fixture,
+        marked: &impl Fn(&Fixture) -> T,
+    ) -> Vec<T> {
+        let start = marked(shell);
+        let mut order = vec![start.clone()];
+        for _ in 0..64 {
+            shell.route_bytes(b"\x1b[B");
+            let now = marked(shell);
+            if now == start {
+                return order;
+            }
+            order.push(now);
+        }
+        panic!("Down never came back to {start:?}: {order:?}");
+    }
+
+    /// From `order[start]`, three PgDn and two PgUp, each landing where fx's
+    /// would -- at least one of them past each end -- and then `C-j` and
+    /// `C-k`, a row each; none of them an edit of the draft. `order` is the
+    /// list top to bottom.
+    fn pages_as_fx_does<T: PartialEq + Clone + std::fmt::Debug>(
+        shell: &mut Fixture,
+        order: &[T],
+        start: usize,
+        marked: &impl Fn(&Fixture) -> T,
+    ) {
+        assert_eq!(shell.geometry.rows, 24, "the cases here are at 24 rows");
+        assert_eq!(
+            usize::from(crate::tui::layout::input_row_limit(24)),
+            FX_PAGE_AT_24
+        );
+        assert_eq!(marked(shell), order[start], "not on row {start}");
+        let draft = shell.editor.text().to_string();
+        let page = i64::try_from(FX_PAGE_AT_24).expect("a page");
+        let count = order.len();
+        let mut at = start;
+        let (mut past_end, mut past_start) = (false, false);
+        for (key, name, delta) in [
+            (&b"\x1b[6~"[..], "PgDn", page),
+            (b"\x1b[6~", "PgDn", page),
+            (b"\x1b[6~", "PgDn", page),
+            (b"\x1b[5~", "PgUp", -page),
+            (b"\x1b[5~", "PgUp", -page),
+            (&[0x0a], "C-j", 1),
+            (&[0x0b], "C-k", -1),
+        ] {
+            let signed = i64::try_from(at).expect("an index") + delta;
+            past_end |= signed >= i64::try_from(count).expect("a count");
+            past_start |= signed < 0;
+            let from = order[at].clone();
+            at = fx_moved(at, count, delta);
+            shell.route_bytes(key);
+            assert_eq!(
+                marked(shell),
+                order[at],
+                "{name} from {from:?} of {count} rows (page {FX_PAGE_AT_24})"
+            );
+            assert_eq!(shell.editor.text(), draft, "{name} edited the draft");
+        }
+        assert!(past_end && past_start, "no move ran past both ends");
+    }
+
+    /// The marked row of the band's list, colours off and trimmed: the one
+    /// row drawn in the bold hint grey.
+    fn marked_row(shell: &Fixture) -> Option<String> {
+        menu(shell)
+            .iter()
+            .find(|row| row.contains(PALETTE.subtitle()))
+            .map(|row| visible_text(row).trim().to_string())
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end() {
+        // `routeSettingsMenuMove` (`input_completion_runtime.zig:431-463
+        // @481104fd`) under `routeComposerVertical`'s page (`:222-233`), and
+        // `C-j`/`C-k` (`routePickerControlByte`, `app_input_runtime.zig:
+        // 1093-1108`): fourteen settings, so PgDn lands on the twelfth and
+        // the next runs past the end to the first (`fx-p5-page-keys-settings-
+        // 24x120-menu-pgdn`, `-pgdn2`, `-pgup`, `-pgup2`, `-cj`, `-ck`).
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 24, 120);
+        shell.route_bytes(b"/settings\r");
+        let marked = |shell: &Fixture| {
+            shell
+                .settings_menu
+                .as_ref()
+                .and_then(|menu| menu.selected(&shell.settings_snapshot()))
+        };
+        let order = rows_walked(&mut shell, &marked);
+        assert_eq!(order.len(), 14, "{order:?}");
+        assert_eq!(order[0], Some(Setting::Statusline(StatusLineItem::Context)));
+        assert_eq!(order[11], Some(Setting::SoundLevel));
+        assert_eq!(order[13], Some(Setting::PromptHistory));
+        pages_as_fx_does(&mut shell, &order, 0, &marked);
+        // Nothing listed: `Menu.move` answers `false` (`settings_catalog.zig:
+        // 227`), so every move goes on, with the menu still up
+        // (`activeCatalogMenuOwnsByte`, `app_input_runtime.zig:1609-1610`).
+        // Up and Down are then the caret's, to the start and the end of a
+        // one-row search (`routeComposerVertical`, `input_completion_runtime.
+        // zig:272-288@481104fd`; `fx-p5-page-keys-settings-24x120-empty-up`);
+        // a page leaves the text alone; `C-k` from the start kills the search
+        // and `C-j` is a newline in it.
+        shell.route_bytes(b"zzz");
+        assert_eq!(marked(&shell), None, "the search found a setting");
+        let caret = |shell: &Fixture| shell.editor.point(shell.text_cols()).1;
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(caret(&shell), 0, "Up was spent on an empty list");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(caret(&shell), 3, "Down was spent on an empty list");
+        shell.route_bytes(b"\x1b[6~\x1b[5~");
+        assert_eq!(shell.editor.text(), "zzz");
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.editor.text(), "", "C-k was spent on an empty list");
+        assert_eq!(marked(&shell), order.first().cloned().flatten());
+        shell.route_bytes(b"zzz");
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(shell.editor.text(), "zzz\n");
+        // And a page is the caret's too: on a one-row search fx's leaves it
+        // where it is (`fx-p5-page-keys-settings-24x120-empty-pgup`), on a
+        // two-row one it moves it a row.
+        shell.route_bytes(b"zzz");
+        assert_eq!(caret_at(&shell), (1, 3));
+        shell.route_bytes(b"\x1b[5~");
+        assert_eq!(caret_at(&shell).0, 0, "PgUp was spent on an empty list");
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(caret_at(&shell).0, 1, "PgDn was spent on an empty list");
+        assert!(shell.settings_menu.is_some(), "a key closed the menu");
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_settings_model_list_is_11_models() {
+        // With the Model row's list open the moves are its
+        // (`moveVisibleItems`, `input_completion_runtime.zig:440-455
+        // @481104fd`; `fx-p5-page-keys-settings-24x120-list-*`).
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 24, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
+            provider: ProviderId::Gateway,
+            entries: (1..=30)
+                .map(|n| entry(&format!("m{n:02}"), Some(400_000), &[]))
+                .collect(),
+        });
+        let _ = shell.document();
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 5);
+        shell.route_bytes(RIGHT);
+        assert!(shell.model_menu.is_some(), "Right opened no list");
+        // The marked model, and whether it is drawn: the window it scrolls
+        // is the rows the list has under the Model row
+        // (`visibleModelItemsForBudget`, `settings_menu_presentation.zig:
+        // 52-71@481104fd`), not `/model`'s menu's.
+        let marked = |shell: &Fixture| {
+            let id = shell
+                .model_menu
+                .as_ref()
+                .and_then(ModelMenu::selected)
+                .map(str::to_string);
+            let drawn = id.as_ref().is_some_and(|id| {
+                let bright = format!("{}{id}{}", PALETTE.subtitle(), PALETTE.reset());
+                menu(shell).iter().any(|row| row.contains(&bright))
+            });
+            (id, drawn)
+        };
+        let order = rows_walked(&mut shell, &marked);
+        assert_eq!(order.len(), 30, "{order:?}");
+        assert_eq!(order[0], (Some("vendor/m01".to_string()), true));
+        assert!(order.iter().all(|(_, drawn)| *drawn), "{order:?}");
+        pages_as_fx_does(&mut shell, &order, 0, &marked);
+        assert!(
+            shell.settings_menu.is_some(),
+            "a key closed the settings menu"
+        );
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_model_column_is_11_models() {
+        // `navigateModelPicker`'s model stage
+        // (`input_completion_runtime.zig:1072-1075`, `:1098-1106@481104fd`)
+        // under a page or `C-j`/`C-k` (`fx-p5-page-keys-column-24x120-model-*`).
+        let mut shell = shell(24, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
+            provider: ProviderId::Gateway,
+            entries: (1..=30)
+                .map(|n| entry(&format!("m{n:02}"), Some(400_000), &[]))
+                .collect(),
+        });
+        let _ = shell.document();
+        shell.route_bytes(b"/model ");
+        let order = rows_walked(&mut shell, &marked_row);
+        assert_eq!(order.len(), 30, "{order:?}");
+        assert_eq!(order[0].as_deref(), Some("vendor/m01"));
+        pages_as_fx_does(&mut shell, &order, 0, &marked_row);
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end() {
+        // The effort and speed stages (`navigateModelPicker`,
+        // `input_completion_runtime.zig:1076-1094@481104fd`) and an `/effort`
+        // line's levels: astra's five levels and its three speeds, fewer than
+        // a page, so every page runs past an end -- PgDn from the first stays
+        // on it and PgUp is the last (`fx-p5-page-keys-column-24x120-effort-*`,
+        // `-speed-*`, `-levels-*`).
+        let mut shell = shell(24, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
+            provider: ProviderId::Gateway,
+            entries: speed_rows(),
+        });
+        let _ = shell.document();
+        shell.shell.model = "openai/gpt-6-astra".to_string();
+        for (line, rows) in [
+            ("/model openai/gpt-6-astra ", 5),
+            ("/model openai/gpt-6-astra high ", 3),
+            ("/effort ", 5),
+        ] {
+            shell.clear_composer();
+            shell.route_bytes(line.as_bytes());
+            // Fewer rows than the column's six, so all of them are drawn, top
+            // to bottom; the mark starts where the line or the session puts it.
+            let order: Vec<Option<String>> = column(&shell)
+                .into_iter()
+                .filter(|row| !row.is_empty())
+                .map(|row| Some(row.trim().to_string()))
+                .collect();
+            assert_eq!(order.len(), rows, "{line:?}: {order:?}");
+            assert_eq!(rows_walked(&mut shell, &marked_row).len(), rows, "{line:?}");
+            let start = order
+                .iter()
+                .position(|row| *row == marked_row(&shell))
+                .expect("a marked row");
+            pages_as_fx_does(&mut shell, &order, start, &marked_row);
+        }
+    }
+
+    #[test]
+    fn at_24_rows_a_page_of_the_mcp_arguments_is_11_servers() {
+        // fx's slash list, which `/mcp `'s arguments are (`slashCompletionCount`,
+        // `command_specs.zig:578-585@481104fd`), paged by `picker_delta`
+        // (`input_completion_runtime.zig:255-260`): one row per server under
+        // `/mcp show `, twenty-four of them (`fx-p5-page-keys-mcp-24x120-*`).
+        let servers: Vec<String> = (1..=24)
+            .map(|n| {
+                format!(r#""s{n:02}":{{"type":"http","url":"http://127.0.0.1:9/s{n:02}","enabled":false}}"#)
+            })
+            .collect();
+        let profile = format!(r#"{{"mcpServers":{{{}}}}}"#, servers.join(","));
+        let (mut shell, runtime, _home) = mcp_args_shell_over(&profile, 24);
+        shell.route_bytes(b"/mcp show ");
+        let marked = |shell: &Fixture| {
+            shell
+                .mcp_args
+                .as_ref()
+                .and_then(|args| args.chosen())
+                .map(str::to_string)
+        };
+        let order = rows_walked(&mut shell, &marked);
+        assert_eq!(order.len(), 24, "{order:?}");
+        assert_eq!(order[0].as_deref(), Some("/mcp show s01"));
+        pages_as_fx_does(&mut shell, &order, 0, &marked);
+        runtime.shutdown();
+    }
+
+    /// The composer's caret, as (row, cell) at its width.
+    fn caret_at(shell: &Fixture) -> (usize, usize) {
+        let (row, cells) = shell.editor.point(shell.text_cols());
+        (row, usize::from(cells))
+    }
+
+    /// On a composer of more than one row the arrows and a page are the
+    /// caret's and the slash list's mark stays; `C-j` still walks it.
+    /// fx gives a slash list those keys only while `capped.input_extra` is 0
+    /// (`routeComposerVertical`, `input_completion_runtime.zig:255-260
+    /// @481104fd`; the caret otherwise, `:262-291`), and `C-j`/`C-k` reach it
+    /// by `routeSlashCompletionMove` (`:175-180`), which asks no height.
+    /// `marked` reads the mark; the caret starts on the composer's last row.
+    fn a_slash_list_leaves_a_taller_composer_its_arrows<T: PartialEq + std::fmt::Debug>(
+        shell: &mut Fixture,
+        marked: &impl Fn(&Fixture) -> T,
+    ) {
+        let rows = shell.geometry.input_rows();
+        assert!(
+            rows > 1,
+            "the composer is one row: {:?} at {} columns",
+            shell.editor.rows(shell.text_cols()),
+            shell.text_cols()
+        );
+        let mark = marked(shell);
+        let (row, _) = caret_at(shell);
+        assert_eq!(
+            row + 1,
+            usize::from(rows),
+            "the caret is not on the last row"
+        );
+        // In an order where each key moves the caret to another row, so a key
+        // the list swallowed leaves the caret where it was: a page is the
+        // composer's row cap, past either edge (`scanInputCursorRows`,
+        // `input_completion_runtime.zig:235-243@481104fd`).
+        for (key, name, to) in [
+            (&b"\x1b[A"[..], "Up", row - 1),
+            (b"\x1b[B", "Down", row),
+            (b"\x1b[5~", "PgUp", 0),
+            (b"\x1b[6~", "PgDn", row),
+        ] {
+            shell.route_bytes(key);
+            assert_eq!(caret_at(shell).0, to, "{name} did not move the caret");
+            assert_eq!(marked(shell), mark, "{name} walked the list");
+        }
+        shell.route_bytes(&[0x0a]);
+        assert_ne!(marked(shell), mark, "C-j did not walk the list");
+    }
+
+    #[test]
+    fn mcp_arguments_on_a_taller_composer_leave_the_arrows_and_pages_to_the_caret() {
+        // Two newlines first, with no list up, so they are newlines; then the
+        // line `slashCompletionPrefix` trims them off (`command_specs.zig:
+        // 568-576@481104fd`), three rows in all
+        // (`fx-p5-page-keys-mcp-24x120-wrapped-*`).
+        let servers: Vec<String> = (1..=24)
+            .map(|n| {
+                format!(r#""s{n:02}":{{"type":"http","url":"http://127.0.0.1:9/s{n:02}","enabled":false}}"#)
+            })
+            .collect();
+        let profile = format!(r#"{{"mcpServers":{{{}}}}}"#, servers.join(","));
+        let (mut shell, runtime, _home) = mcp_args_shell_over(&profile, 24);
+        shell.route_bytes(&[0x0a, 0x0a]);
+        shell.route_bytes(b"/mcp show ");
+        let marked = |shell: &Fixture| {
+            shell
+                .mcp_args
+                .as_ref()
+                .and_then(|args| args.chosen())
+                .map(str::to_string)
+        };
+        assert_eq!(marked(&shell).as_deref(), Some("/mcp show s01"));
+        assert_eq!(shell.geometry.input_rows(), 3);
+        // The list hangs under the argument while the caret is on its row,
+        // and at the start of the caret's row otherwise (`projectedAnchorColumn`,
+        // `visual_layout.zig:705-713@481104fd`; `-wrapped-up`).
+        let first = |shell: &Fixture| visible_text(&menu(shell)[0]);
+        assert!(
+            first(&shell).starts_with("       show s01"),
+            "{:?}",
+            first(&shell)
+        );
+        shell.route_bytes(b"\x1b[A");
+        assert!(
+            first(&shell).starts_with("  show s01"),
+            "{:?}",
+            first(&shell)
+        );
+        shell.route_bytes(b"\x1b[B");
+        assert!(
+            first(&shell).starts_with("       show s01"),
+            "{:?}",
+            first(&shell)
+        );
+        a_slash_list_leaves_a_taller_composer_its_arrows(&mut shell, &marked);
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn a_slash_menu_on_a_taller_composer_leaves_the_arrows_and_pages_to_the_caret() {
+        // Two skills whose names outrun a 40-column composer: the slash word
+        // that lists both wraps.
+        let root = tempfile::tempdir().expect("a root");
+        let skills = root.path().join("work").join("skills");
+        for name in [
+            "wrap-the-composer-past-its-first-row-and-on-one",
+            "wrap-the-composer-past-its-first-row-and-on-two",
+        ] {
+            std::fs::create_dir_all(skills.join(name)).expect("a skill");
+            std::fs::write(
+                skills.join(name).join("SKILL.md"),
+                format!("---\nname: {name}\ndescription: a long name\n---\n\n# {name}\n"),
+            )
+            .expect("SKILL.md");
+        }
+        let mut skilled = skilled_over(root, 24, 40);
+        skilled.route_bytes(b"/wrap-the-composer-past-its-first-row-and-on-");
+        skills_landed(&mut skilled);
+        let marked = |shell: &Fixture| shell.picker.as_ref().map(|picker| picker.marked());
+        let (_, count) = marked(&skilled.shell).expect("a menu");
+        assert_eq!(count, 2, "the menu lists both skills");
+        a_slash_list_leaves_a_taller_composer_its_arrows(&mut skilled.shell, &marked);
+    }
+
+    /// While the full transcript is up, `C-k` and `C-j` are the composer's
+    /// -- a kill to the end and a newline -- and no list behind the screen
+    /// moves: fx's `routePickerControlByte` refuses them once
+    /// `composerPickerSurfaceVisible` is false (`app_input_runtime.zig:1094`,
+    /// `:1110-1116@481104fd`). The caret is at the end of the draft, so the
+    /// kill takes nothing. A list that no edit of the draft leaves up --
+    /// `/effort`'s and `/fork`'s, which read no search -- is closed by the
+    /// kill instead, as fx's are (`dismissActiveMenusForComposerEdit`,
+    /// `:881-886`, `:1984-1990`): `closes`. Over `/model`'s menu, the session
+    /// picker and `/skills`' menu fx's `insert_newline` adds nothing
+    /// (`app_input_runtime.zig:514@481104fd`; `Shell::composer_newline`,
+    /// CTRLO-OTHER-PICKERS), so the newline is not there: `held`.
+    fn row_keys_reach_the_composer_under_the_full_transcript<T: PartialEq + std::fmt::Debug>(
+        shell: &mut Fixture,
+        marked: &impl Fn(&Fixture) -> Option<T>,
+        closes: bool,
+        held: bool,
+    ) {
+        let draft = shell.editor.text().to_string();
+        let mark = marked(shell);
+        assert!(mark.is_some(), "no list is up");
+        shell.route_bytes(b"\x0f");
+        assert!(shell.full.is_open(), "C-o opened no full transcript");
+        shell.route_bytes(&[0x0b]);
+        if closes {
+            assert_eq!(marked(shell), None, "C-k left the list up");
+        } else {
+            assert_eq!(marked(shell), mark, "C-k walked a list behind the screen");
+        }
+        assert_eq!(shell.editor.text(), draft);
+        shell.route_bytes(&[0x0a]);
+        let newline = if held { draft } else { format!("{draft}\n") };
+        assert_eq!(
+            shell.editor.text(),
+            newline,
+            "C-j did not reach the composer as fx's `insert_newline`"
+        );
+        assert!(shell.full.is_open(), "C-j closed the full transcript");
+    }
+
+    #[test]
+    fn under_the_full_transcript_the_settings_menu_takes_no_row_key() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 24, 120);
+        shell.route_bytes(b"/settings\r");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut shell,
+            &|shell: &Fixture| {
+                shell
+                    .settings_menu
+                    .as_ref()
+                    .and_then(|menu| menu.selected(&shell.settings_snapshot()))
+            },
+            false,
+            false,
+        );
+        assert!(shell.settings_menu.is_some());
+    }
+
+    #[test]
+    fn under_the_full_transcript_the_model_column_takes_no_row_key() {
+        let mut shell = harness_shell();
+        shell.route_bytes(b"/model ");
+        assert_eq!(marked_row(&shell).as_deref(), Some("openai/gpt-6-astra"));
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut shell,
+            &marked_row,
+            false,
+            false,
+        );
+    }
+
+    #[test]
+    fn under_the_full_transcript_the_model_menu_takes_no_row_key() {
+        let mut shell = harness_shell();
+        shell.route_bytes(b"/model\r");
+        assert!(shell.model_menu.is_some(), "/model opened no menu");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut shell,
+            &|shell: &Fixture| {
+                shell
+                    .model_menu
+                    .as_ref()
+                    .and_then(ModelMenu::selected)
+                    .map(str::to_string)
+            },
+            false,
+            true,
+        );
+    }
+
+    #[test]
+    fn under_the_full_transcript_the_mcp_arguments_take_no_row_key() {
+        let (mut shell, runtime, _home) = mcp_args_shell();
+        shell.route_bytes(b"/mcp ");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut shell,
+            &|shell: &Fixture| {
+                shell
+                    .mcp_args
+                    .as_ref()
+                    .and_then(|args| args.chosen())
+                    .map(str::to_string)
+            },
+            false,
+            false,
+        );
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn under_the_full_transcript_no_other_list_takes_a_row_key() {
+        // The same refusal for the other lists that walk on `C-j`/`C-k`
+        // (`routeVisiblePickerMove`, `input_completion_runtime.zig:390-422`),
+        // by the same one check: here `/mcp`'s menu, the slash menu, `/help`'s
+        // catalog, `/provider`'s column, `/effort`'s menu and `/fork`'s menu.
+        // The `@` list's keys there -- these two, Tab and Enter -- are unit
+        // CTRLO-AT-KEYS's.
+        let mut slash = shell(24, 120);
+        slash.route_bytes(b"/");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut slash,
+            &|shell: &Fixture| shell.picker.as_ref().map(|picker| picker.marked()),
+            false,
+            false,
+        );
+        let mut catalog = with_catalog(24, 120);
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut catalog,
+            &|shell: &Fixture| {
+                shell
+                    .help_menu
+                    .as_ref()
+                    .and_then(HelpMenu::selected)
+                    .map(|spec| spec.name)
+            },
+            false,
+            false,
+        );
+        let mut provider = shell(24, 120);
+        provider.route_bytes(b"/provider ");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut provider,
+            &|shell: &Fixture| {
+                shell
+                    .provider_picker
+                    .as_ref()
+                    .and_then(|column| column.chosen())
+            },
+            false,
+            false,
+        );
+        let root = tempfile::tempdir().expect("a root");
+        let mut effort = effort_shell_at(root.path(), 24, 120);
+        effort.route_bytes(b"/effort\r");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut effort,
+            &|shell: &Fixture| {
+                shell
+                    .effort_menu
+                    .as_ref()
+                    .map(|menu| menu.selected().clone())
+            },
+            true,
+            false,
+        );
+        // `/mcp`'s menu, the first list the check must come before: its own
+        // handler takes every key while the full transcript covers it
+        // (`offer_to_mcp`), so a check below it would leave `C-j` there and
+        // the draft -- the menu's filter -- without its newline.
+        let (mut mcp, runtime, _home) = mcp_args_shell_over(
+            r#"{"mcpServers":{"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","enabled":false}}}"#,
+            24,
+        );
+        mcp.route_bytes(b"/mcp\r");
+        assert!(mcp.mcp_menu.is_some(), "/mcp opened no menu");
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut mcp,
+            &|shell: &Fixture| shell.mcp_menu.as_ref().map(|menu| menu.screen()),
+            false,
+            false,
+        );
+        runtime.shutdown();
+        let mut fork = shell(24, 120);
+        forked_menu(
+            &mut fork,
+            (1..=5)
+                .map(|turn| fork_point(turn, &format!("prompt {turn}")))
+                .collect(),
+        );
+        row_keys_reach_the_composer_under_the_full_transcript(
+            &mut fork,
+            &|shell: &Fixture| shell.fork_menu.as_ref().map(|menu| menu.selected().turn),
+            true,
+            false,
+        );
     }
 
     #[test]
@@ -37083,15 +42573,23 @@ mod tests {
     /// A shell over an MCP runtime whose profile has one server it never
     /// connects -- switched off -- so `/mcp `'s completions have a name.
     fn mcp_args_shell() -> (Fixture, Arc<crate::mcp::McpRuntime>, tempfile::TempDir) {
+        mcp_args_shell_over(
+            r#"{"mcpServers":{"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","enabled":false}}}"#,
+            40,
+        )
+    }
+
+    /// [`mcp_args_shell`] over the profile `profile`, on a screen `rows` tall
+    /// and 120 wide.
+    fn mcp_args_shell_over(
+        profile: &str,
+        rows: u16,
+    ) -> (Fixture, Arc<crate::mcp::McpRuntime>, tempfile::TempDir) {
         let home = tempfile::tempdir().expect("a home");
         let workspace = home.path().join("work");
         std::fs::create_dir_all(&workspace).expect("a workspace");
         crate::profile_home::made(&home.path().join(".xfx"));
-        std::fs::write(
-            home.path().join(".xfx").join("mcp.json"),
-            r#"{"mcpServers":{"remote":{"type":"http","url":"http://127.0.0.1:9/mcp","enabled":false}}}"#,
-        )
-        .expect("a profile");
+        std::fs::write(home.path().join(".xfx").join("mcp.json"), profile).expect("a profile");
         let runtime = crate::mcp::McpRuntime::new(crate::mcp::runtime::Paths {
             profile: Some(home.path().join(".xfx").join("mcp.json")),
             settings: Some(home.path().join(".xfx").join("settings.json")),
@@ -37102,7 +42600,7 @@ mod tests {
         let (work, sent, control) = WorkHandle::detached();
         let shell = Shell::new(
             &config(home.path(), &workspace),
-            crate::tui::layout::solve(40, 120, 1).expect("a band"),
+            crate::tui::layout::solve(rows, 120, 1).expect("a band"),
             PALETTE,
             false,
             work.with_mcp(Arc::clone(&runtime)),
@@ -39265,44 +44763,84 @@ mod tests {
 
     #[test]
     fn up_and_down_move_the_choice_whether_or_not_a_draft_is_open() {
-        // Four cases, because `input_approval_runtime.zig:127-141` maps
-        // `cursor_up`/`history_up` to one action and `cursor_down`/`history_down`
-        // to another **regardless of whether an amendment is open**. The shell
-        // collapses each pair at the translation rather than giving the panel
-        // four keys to keep in step -- and neither spelling may ever reach the
-        // editor, because they are the only way out of a draft.
+        // fx v0.0.16 maps `cursor_up` to the previous choice and `cursor_down`
+        // to the next **whether or not an amendment is open**
+        // (`input_approval_runtime.zig:111-126@481104fd`): the plain arrow's
+        // composer move, `visual_up`/`visual_down`, is no draft key
+        // (`src/ui/input/runtime.zig:75-96`), so the arrow reaches the switch.
+        // Neither may ever reach the editor, because they are the only way out
+        // of a draft. `C-p`, `C-n` and the modified arrows are not these keys
+        // there (`the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do`):
+        // with or without a draft they move nothing and type nothing.
         for open in [false, true] {
-            for (up, down) in [
-                (Action::Up, Action::Down),
-                (Action::ControlP, Action::HistoryNext),
-            ] {
-                let mut shell = shell(24, 80);
-                asking(&mut shell);
-                if open {
-                    shell.decide(Input::Action(Action::Tab), Instant::now());
-                    type_at_the_question(&mut shell, "y");
-                }
-                shell.decide(Input::Action(down), Instant::now());
-                assert!(
-                    shell.marked().contains("❯ 2  Apply + allow"),
-                    "open={open} {down:?}: the marker did not move: {:?}",
-                    shell.marked()
-                );
-                shell.decide(Input::Action(up), Instant::now());
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            if open {
+                shell.decide(Input::Action(Action::Tab), Instant::now());
+                type_at_the_question(&mut shell, "y");
+            }
+            // Super-Up and -Down are the draft's edges while one is open
+            // (`super::approval_amendment`'s
+            // `super_up_and_down_are_the_whole_drafts_edges`), and nothing
+            // at the choice.
+            let edges = [
+                Action::DraftStart { shifted: false },
+                Action::DraftEnd { shifted: true },
+            ];
+            let others = [
+                Action::ControlP,
+                Action::HistoryNext,
+                Action::SelectUp,
+                Action::SelectDown,
+                Action::ComposerUp,
+                Action::ComposerDown,
+            ];
+            let edges = if open { &[][..] } else { &edges[..] };
+            for &still in others.iter().chain(edges) {
+                shell.decide(Input::Action(still), Instant::now());
                 assert!(
                     shell.marked().contains("❯ 1  Apply once"),
-                    "open={open} {up:?}: the marker did not come back: {:?}",
+                    "open={open} {still:?}: the marker moved: {:?}",
                     shell.marked()
                 );
-                // And nothing of either key reached the draft: what was typed
-                // is still exactly what was typed.
-                if open {
-                    assert!(
-                        band(&shell).contains("Apply once, y "),
-                        "an arrow was routed into the editor: {:?}",
-                        band(&shell)
-                    );
-                }
+                assert_eq!(shell.drafting(), open, "open={open} {still:?}");
+            }
+            shell.decide(Input::Action(Action::Down), Instant::now());
+            assert!(
+                shell.marked().contains("❯ 2  Apply + allow"),
+                "open={open}: Down did not move the marker: {:?}",
+                shell.marked()
+            );
+            shell.decide(Input::Action(Action::Up), Instant::now());
+            assert!(
+                shell.marked().contains("❯ 1  Apply once"),
+                "open={open}: Up did not bring the marker back: {:?}",
+                shell.marked()
+            );
+            assert!(
+                !shell.drafting(),
+                "open={open}: an arrow kept the draft open"
+            );
+            // And nothing of any of these keys reached the draft: what was
+            // typed is still exactly what was typed, once Tab paints it again
+            // (only the draft that has the keys is painted).
+            if open {
+                shell.decide(Input::Action(Action::Tab), Instant::now());
+                assert!(
+                    band(&shell).contains("Apply once, y "),
+                    "a key was routed into the editor: {:?}",
+                    band(&shell)
+                );
+                // Up first out of the draft, as well as Down first: it ends
+                // the draft and marks the choice above, wrapping to the last.
+                assert!(shell.drafting(), "Tab did not open the draft again");
+                shell.decide(Input::Action(Action::Up), Instant::now());
+                assert!(
+                    shell.marked().contains("❯ 3  Don't apply"),
+                    "Up from a draft did not move the marker: {:?}",
+                    shell.marked()
+                );
+                assert!(!shell.drafting(), "Up from a draft kept it open");
             }
         }
     }
@@ -40626,7 +46164,9 @@ mod tests {
             "the plane's scroll keys ended the editing and took the only walk of the change with it"
         );
 
-        // The arrows do end it, and keep the text.
+        // The arrows do end it, and keep the text: not painted while its
+        // choice is not being amended, as on the band, and painted again by
+        // Tab on that choice.
         shell.decide(Input::Action(Action::Down), Instant::now());
         assert!(
             !shell.drafting(),
@@ -40634,11 +46174,17 @@ mod tests {
         );
         let painted = unwrapped(&shell.screen_rows());
         assert!(
-            painted.contains("rename the flag first"),
-            "leaving the draft threw its text away: {painted:?}"
+            !painted.contains("rename the flag first"),
+            "a draft that has not the keys is painted on the plane: {painted:?}"
         );
         shell.decide(Input::Action(Action::Up), Instant::now());
         assert!(!shell.drafting(), "an arrow re-opened a draft");
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+        let painted = unwrapped(&shell.screen_rows());
+        assert!(
+            painted.contains("rename the flag first"),
+            "leaving the draft threw its text away: {painted:?}"
+        );
     }
     // -----------------------------------------------------------------------
     // the terminal's own background, while the session runs
@@ -46239,6 +51785,114 @@ mod tests {
             .expect("a root")
     }
 
+    #[test]
+    fn an_at_word_under_a_shown_skills_menu_reads_nothing_until_it_goes() {
+        // Round 4: fx's list is not eligible while a catalog menu owns the
+        // surface, and the skills menu does while it is shown
+        // (`catalogMenuOwnsSurface`, `input_completion_runtime.zig:754-768@
+        // 481104fd`: `app.skills.menuVisible()`). A `$` typed and then
+        // `dem @src/` pasted keeps the mention menu on its `$` word -- the
+        // paste is not a typed space (`dismissMentionSkillsMenuForSpace`) --
+        // and opens the `@` list under it: nothing is read for that list
+        // until the menu goes.
+        let mut shell = skilled();
+        shell.route_bytes(b"$");
+        let base = shell.files_for_test().started_for_test();
+        let walks = shell.files_for_test().walks_for_test();
+        shell.route_bytes(b"\x1b[200~dem @src/\x1b[201~");
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.editor.text(), "$dem @src/");
+        assert!(
+            shell.skills_menu.as_ref().is_some_and(SkillsMenu::visible),
+            "no skills menu shown, so this proves nothing"
+        );
+        assert!(shell.file_picker.is_some(), "no list for the query");
+        assert_eq!(
+            shell.files_for_test().started_for_test(),
+            base,
+            "a walk or a listing started under the skills menu"
+        );
+        // Escape closes the menu; the list is the composer's again, and its
+        // episode and its folder are read once.
+        escape(&mut shell);
+        shell.settle_band(Instant::now());
+        assert!(shell.skills_menu.is_none());
+        assert!(shell.file_picker.is_some(), "Escape closed the list too");
+        // Round 5: the folder's listing, and no walk for a folder query.
+        assert_eq!(shell.files_for_test().started_for_test(), base + 1);
+        assert_eq!(shell.files_for_test().walks_for_test(), walks);
+    }
+
+    #[test]
+    fn enter_under_a_mention_menu_goes_to_the_menu_while_it_shows_and_then_to_the_list() {
+        // Round 5 (gpt6 r4 SHOULD 2): the keys' real route. fx's Enter asks
+        // the skills menu before the `@` list (`submitSkillsMenuSelection`
+        // then `submitFilePickerOnEnter`, `app_input_runtime.zig:1392-1411@
+        // 481104fd`); xfx's loop offers it to the skills menu before the list
+        // (`offer_to_skills`, then `offer_to_files`). A mention menu with a
+        // skill marked binds it (`:1998-2040`); one nothing matches closes
+        // and hands Enter on (`:2005-2009`), to a list that has been eligible
+        // and shown all along.
+        let skills = tempfile::tempdir().expect("a skills root");
+        let demo = skills.path().join(".xfx/skills/demo");
+        std::fs::create_dir_all(&demo).expect("a skill");
+        std::fs::write(
+            demo.join("SKILL.md"),
+            "---\nname: demo\ndescription: Demo skill\n---\n",
+        )
+        .expect("SKILL.md");
+        let open = |paste: &str| {
+            let (workspace, mut shell) = in_ws2(40, 120);
+            shell.skills = HeldSkills::new(skills.path(), None);
+            shell.skills.settle_now();
+            shell.route_bytes(b"$");
+            shell.route_bytes(format!("\x1b[200~{paste}\x1b[201~").as_bytes());
+            (workspace, shell)
+        };
+        // Shown: the menu takes Enter and binds `demo`; the list, not
+        // eligible under it, read nothing and closes with its word behind
+        // the caret; nothing is sent.
+        let (_workspace, mut shown) = open("dem @src/");
+        assert!(shown.skills_menu.as_ref().is_some_and(SkillsMenu::visible));
+        assert_eq!(
+            shown.file_picker.as_ref().map(FilePicker::shown),
+            Some(file_picker::Shown::Loading)
+        );
+        let base = shown.files_for_test().started_for_test();
+        shown.route_bytes(b"\r");
+        assert_eq!(shown.editor.text(), "demo @src/");
+        assert!(shown.skills_menu.is_none(), "the menu took no Enter");
+        assert!(shown.file_picker.is_none());
+        assert_eq!(shown.files_for_test().started_for_test(), base);
+        assert!(shown.sent.try_recv().is_err(), "Enter sent the line");
+        // Nothing matches `zz`: the menu is not shown, the list is eligible,
+        // its folder listed and shown. Enter closes the menu and goes on to
+        // the list, which mentions its marked folder and closes; nothing is
+        // sent.
+        let (_workspace, mut empty) = open("zz @src/");
+        assert!(
+            empty
+                .skills_menu
+                .as_ref()
+                .is_some_and(|menu| !menu.visible()),
+            "no mention menu with nothing to show"
+        );
+        listed(&mut empty);
+        assert_eq!(
+            empty
+                .file_picker
+                .as_ref()
+                .and_then(FilePicker::chosen)
+                .map(|found| found.path.as_str()),
+            Some("src")
+        );
+        empty.route_bytes(b"\r");
+        assert_eq!(empty.editor.text(), "$zz @src/ ");
+        assert!(empty.skills_menu.is_none(), "Enter left the menu");
+        assert!(empty.file_picker.is_none(), "the list took no Enter");
+        assert!(empty.sent.try_recv().is_err(), "Enter sent the line");
+    }
+
     fn a_dollar_word_becomes_a_token(mut shell: Skilled) {
         shell.route_bytes(b"$");
         let band = skills_band(&shell);
@@ -51792,5 +57446,55 @@ mod tests {
             None,
             "the batch went before its twenty answers"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // P5 train 13, join check 2: QUESTION-RESUME x QUESTION-WORD-LEFT
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_question_after_a_resume_that_replayed_a_batch_takes_alt_b_as_before() {
+        // A session resumed with an answered batch replayed
+        // (QUESTION-RESUME's resolutions, `resumed_rows`), then the model asks
+        // again: the new batch reads Alt-b as QUESTION-WORD-LEFT's head reads
+        // it on a fresh screen (`alt_b_at_a_choice_goes_back_a_question_and_
+        // the_word_arrows_do_not`) -- back a question at a choice, the word
+        // move in a draft, Shift-Alt-b and -f the word moves too
+        // (`input_question_runtime.zig:190-195`, `src/ui/input/runtime.zig:
+        // 155-197@481104fd`).
+        let (mut fixture, rows) =
+            resumed_rows(vec![asked_turn("ask", true, &answer_document(4), None)]);
+        assert!(rows.iter().any(|row| row == "  4) Q 4?"), "{rows:#?}");
+        asking_question(&mut fixture, a_batch());
+        let on = |fixture: &Fixture, text: &str| {
+            fixture.band_rows().iter().any(|row| row.contains(text))
+        };
+        fixture.route_bytes(b"\t");
+        assert!(on(&fixture, "Ship it?"), "Tab reached the second question");
+        fixture.route_bytes(b"\x1bb");
+        assert!(
+            on(&fixture, "Which depth?"),
+            "Alt-b did not go back a question: {:?}",
+            fixture.band_rows()
+        );
+        fixture.route_bytes(b"\t");
+        fixture.route_bytes(b"3");
+        fixture.route_bytes(b"ab cd");
+        fixture.route_bytes(b"\x1bb");
+        fixture.route_bytes(b"z");
+        let draft = |fixture: &Fixture, text: &str| {
+            fixture
+                .band_rows()
+                .iter()
+                .any(|row| sgr_free(row).trim_end() == format!("    3) {text}"))
+        };
+        assert!(draft(&fixture, "ab zcd"), "{:?}", fixture.band_rows());
+        fixture.route_bytes(b"\x1b[98;4u");
+        fixture.route_bytes(b"y");
+        assert!(draft(&fixture, "ab yzcd"), "{:?}", fixture.band_rows());
+        fixture.route_bytes(b"\x1b[102;4u");
+        fixture.route_bytes(b"x");
+        assert!(draft(&fixture, "ab yzcdx"), "{:?}", fixture.band_rows());
+        assert!(on(&fixture, "Ship it?"), "a word move left the question");
     }
 }

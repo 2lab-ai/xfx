@@ -1,0 +1,25 @@
+# the first gate, at 6bc758a0 (gates.sh, one hold of the suite lock), stopped after its fifth step: its own lines, then each test step's failure and result lines
+# head 6bc758a0; tree clean: yes
+01 fmt                                exit 0     3s  load 29.28
+02 clippy                             exit 0    11s  load 27.82
+03 clippy-fault                       exit 0     7s  load 24.61
+04 test                               exit 101   137s  load 22.57
+<local-path> line 24: 16216 Terminated: 15          "$@"
+## 04-test.log: the failing test and the lib's result
+test markdown::code_highlight_languages::tests::typescript_assertions_infer_the_canonical_typescript_label ... ok
+test tui::shell::tests::under_the_full_transcript_the_model_menu_takes_no_row_key ... FAILED
+test usage::clock::tests::the_pinned_clock_is_read_only_with_debug_assertions ... ok
+thread 'tui::shell::tests::under_the_full_transcript_the_model_menu_takes_no_row_key' (513729118) panicked at src/tui/shell.rs:41728:9:
+assertion `left == right` failed: C-j did not reach the composer
+  left: ""
+ right: "\n"
+test result: FAILED. 4926 passed; 1 failed; 7 ignored; 0 measured; 0 filtered out; finished in 55.52s
+## 05-test-fault.log: the failing test and the lib's result
+test markdown::code_highlight_languages::tests::typescript_assertions_infer_the_canonical_typescript_label ... ok
+test tui::shell::tests::under_the_full_transcript_the_model_menu_takes_no_row_key ... FAILED
+test usage::clock::tests::the_pinned_clock_is_read_only_with_debug_assertions ... ok
+thread 'tui::shell::tests::under_the_full_transcript_the_model_menu_takes_no_row_key' (514044041) panicked at src/tui/shell.rs:41728:9:
+assertion `left == right` failed: C-j did not reach the composer
+  left: ""
+ right: "\n"
+test result: FAILED. 4949 passed; 1 failed; 7 ignored; 0 measured; 0 filtered out; finished in 68.41s

@@ -1,0 +1,10 @@
+# RED: the new case's command against check-at-search-cost.sh at 7bc1d23c (the gate must exit 1 with "the @ search's cost test measured nothing")
+check-at-search-cost: before: load averages: <load>
+check-at-search-cost: after:  load averages: <load>
+check-at-search-cost: ok
+exit 0
+# GREEN: the same command against the fixed script
+check-at-search-cost: before: load averages: <load>
+check-at-search-cost: after:  load averages: <load>
+check-at-search-cost: the @ search's cost test measured nothing: no 'every keystroke: 1460 searches' line
+exit 1

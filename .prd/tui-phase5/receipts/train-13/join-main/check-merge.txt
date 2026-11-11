@@ -1,0 +1,8 @@
+# train 13's check-merge.sh on the join's staged tree (the merge in progress, before 8adc57df was committed), in the train's worktree; each exit from $? on the line after its command
+cargo check --locked --all-targets: exit 0, 15 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.45s
+cargo check --locked --all-targets --features fault-injection: exit 0, 18 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.30s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 18 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.36s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 17 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.54s
+# 0 failed
+# the ledger loaded (ledger.load): 2 pins, 14 normalizations, 26 divergences, 55 causes

@@ -1,0 +1,46 @@
+# head 4db582d8: the work count, debug build, alone
+test tui::file_index::tests::a_keystroke_places_no_more_than_its_cuts_allow ... src/core/workspace/file_index.zig       607118 searches, ceiling 607118
+scwfi                                    38703 searches, ceiling 38703
+ae                                      125252 searches, ceiling 125252
+ashr                                    212081 searches, ceiling 212081
+zzz-no-match-Ω                           31113 searches, ceiling 31113
+api-route                               189720 searches, ceiling 189720
+ärf                                          7 searches, ceiling 7
+Klv                                      58773 searches, ceiling 58773
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4662 filtered out; finished in 0.84s
+
+# the counts the ceilings came from, and the same count under each cut switched off: a --no-local clone at 7bc1d23c with round 2's diff applied, the ceilings not yet set (usize::MAX, taken out of these lines), one hold of the suite lock (count.sh: one sed edit, the one test, the file restored)
+== folder-true
+src/core/workspace/file_index.zig       679619 searches
+scwfi                                    47432 searches
+ae                                      156374 searches
+ashr                                    267657 searches
+zzz-no-match-Ω                           31113 searches
+api-route                               205896 searches
+ärf                                          7 searches
+Klv                                      88760 searches
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4662 filtered out; finished in 1.06s
+== crossing-true
+src/core/workspace/file_index.zig       607118 searches
+scwfi                                    40827 searches
+ae                                      125252 searches
+ashr                                    212081 searches
+zzz-no-match-Ω                           31113 searches
+api-route                               190141 searches
+ärf                                          7 searches
+Klv                                      58773 searches
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4662 filtered out; finished in 0.81s
+== limit-none
+src/core/workspace/file_index.zig       699504 searches
+scwfi                                   192991 searches
+ae                                      196659 searches
+ashr                                    283488 searches
+zzz-no-match-Ω                           31113 searches
+api-route                               306166 searches
+ärf                                          7 searches
+Klv                                      58773 searches
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4662 filtered out; finished in 0.93s
+M  scripts/check-at-search-cost.sh
+M  scripts/test-gate-env.sh
+M  src/tui/file_index.rs
+D  src/tui/file_index/reference.rs

@@ -1,0 +1,20 @@
+# probe/: p5-approval-vertical-keys, the marked choice (and an amendment's text) after each key, fx v0.0.16 / the base (red/, v0.1.0-f686b73) / the head (xfx/, v0.1.0-ca6fdfa)
+# amend-*: in an amendment on choice 1 holding 'ab cd' (key, then a letter typed). The rest from choice 1, in order, no amendment open.
+ask             fx: ❯ 1  Apply once            base: ❯ 1  Apply once            head: ❯ 1  Apply once            
+amend-shift-up  fx: ❯ 1  Apply once, ab cdx    base: ❯ 3  Don't apply           head: ❯ 3  Don't apply           
+amend-super-up  fx: ❯ 1  Apply once, yab cdx   base: ❯ 2  Apply + allow         head: ❯ 2  Apply + allow         
+amend-ctrl-p    fx: ❯ 1  Apply once, ywab cdx  base: ❯ 1  Apply once, ab cd     head: ❯ 1  Apply once            
+choice-1        fx: ❯ 1  Apply once            base: ❯ 1  Apply once, ab cd     head: ❯ 1  Apply once            
+shift-down      fx: ❯ 1  Apply once            base: ❯ 2  Apply + allow         head: ❯ 2  Apply + allow         
+ctrl-down       fx: ❯ 1  Apply once            base: ❯ 3  Don't apply           head: ❯ 3  Don't apply           
+super-down      fx: ❯ 1  Apply once            base: ❯ 1  Apply once, ab cd     head: ❯ 1  Apply once            
+alt-down        fx: ❯ 1  Apply once            base: ❯ 2  Apply + allow         head: ❯ 2  Apply + allow         
+kitty-alt-down  fx: ❯ 1  Apply once            base: ❯ 3  Don't apply           head: ❯ 3  Don't apply           
+ctrl-n          fx: ❯ 1  Apply once            base: ❯ 1  Apply once, ab cd     head: ❯ 1  Apply once            
+shift-up        fx: ❯ 1  Apply once            base: ❯ 3  Don't apply           head: ❯ 3  Don't apply           
+ctrl-up         fx: ❯ 1  Apply once            base: ❯ 2  Apply + allow         head: ❯ 2  Apply + allow         
+super-up        fx: ❯ 1  Apply once            base: ❯ 1  Apply once, ab cd     head: ❯ 1  Apply once            
+alt-up          fx: ❯ 1  Apply once            base: ❯ 3  Don't apply           head: ❯ 3  Don't apply           
+kitty-alt-up    fx: ❯ 1  Apply once            base: ❯ 2  Apply + allow         head: ❯ 2  Apply + allow         
+ctrl-p          fx: ❯ 1  Apply once            base: ❯ 1  Apply once, ab cd     head: ❯ 1  Apply once            
+esc-esc-up      fx: ❯ 1  Apply once            base: none                       head: none                       ▪ Cancelled file 

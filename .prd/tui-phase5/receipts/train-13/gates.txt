@@ -1,0 +1,159 @@
+# Train 13's gate: gates.sh (train 12's), every step of ci.yml's gate job and sweep.yml's two harness tests, in a git clone --no-local at e1e15efd, the whole script inside one hold of the suite lock (suite-lock.sh gates.sh), TMPDIR the harness scratch root itself; each step's exit from $? on the line after its command.
+# head e1e15efd; tree clean: yes
+01 fmt                                exit 0     2s  load 18.26
+02 clippy                             exit 0    24s  load 18.26
+03 clippy-fault                       exit 0    17s  load 15.03
+04 test                               exit 0   152s  load 13.60
+05 test-fault                         exit 0   158s  load 9.40
+06 check-xfx-identity                 exit 0     2s  load 9.91
+07 check-no-stubs                     exit 0    10s  load 9.91
+08 check-no-secrets                   exit 0    59s  load 9.31
+09 check-no-local-paths               exit 0     4s  load 8.69
+10 test-check-no-local-paths          exit 0     4s  load 8.55
+11 check-preview-contract             exit 0     2s  load 8.19
+12 check-tui-preflight-cost           exit 0   124s  load 8.19
+13 check-usage-clock                  exit 0     1s  load 35.22
+14 test-check-no-secrets              exit 0    70s  load 35.22
+15 test-gate-env                      exit 0   206s  load 28.25
+16 test-preview-contract              exit 0    54s  load 13.74
+17 fxcap-test-sweep                   exit 0    18s  load 11.64
+18 fxcap-test-capture                 exit 0   543s  load 10.82
+19 build-release                      exit 0    17s  load 15.93
+20 build-faulty                       exit 0    25s  load 18.17
+21 smoke                              exit 0     8s  load 17.24
+22 smoke-tui                          exit 0    70s  load 16.26
+# 22 steps, 0 failed; tree clean after: yes
+lock exit 0
+
+===== 01-fmt (last lines; test suites: every 'test result' line and every failure)
+
+===== 02-clippy (last lines; test suites: every 'test result' line and every failure)
+    Checking idna_adapter v1.2.2
+    Checking idna v1.1.0
+    Checking url v2.5.8
+    Checking tower-http v0.6.11
+    Checking reqwest v0.12.28
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 24.34s
+===== 03-clippy-fault (last lines; test suites: every 'test result' line and every failure)
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.89s
+===== 04-test (last lines; test suites: every 'test result' line and every failure)
+test result: ok. 4761 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 49.95s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.76s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.72s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.71s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.16s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.16s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.79s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.63s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.79s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+===== 05-test-fault (last lines; test suites: every 'test result' line and every failure)
+test result: ok. 4784 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 51.64s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.67s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.71s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.12s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.96s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.36s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.78s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.50s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+===== 06-check-xfx-identity (last lines; test suites: every 'test result' line and every failure)
+check-xfx-identity: ok (19856 tracked file(s) scanned)
+===== 07-check-no-stubs (last lines; test suites: every 'test result' line and every failure)
+check-no-stubs: ok
+===== 08-check-no-secrets (last lines; test suites: every 'test result' line and every failure)
+check-no-secrets: ok (19856 tracked file(s) scanned)
+===== 09-check-no-local-paths (last lines; test suites: every 'test result' line and every failure)
+check-no-local-paths: ok (19856 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+===== 10-test-check-no-local-paths (last lines; test suites: every 'test result' line and every failure)
+test-check-no-local-paths: ok env GIT_WORK_TREE          the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GREP_OPTIONS           the plant named, the decoy unchanged
+test-check-no-local-paths: ok env HOME                   the plant named, the decoy unchanged
+test-check-no-local-paths: ok skip-worktree              refused by name
+test-check-no-local-paths: ok deleted                    refused by name
+test-check-no-local-paths: ok (10 cases)
+===== 11-check-preview-contract (last lines; test suites: every 'test result' line and every failure)
+check-preview-contract: ok (.github/workflows/preview.yml)
+===== 12-check-tui-preflight-cost (last lines; test suites: every 'test result' line and every failure)
+preflight 200x300 full: 61292 bytes in 1.784737ms mean, 1.668459ms min, 1.676166ms median, 2.794667ms max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 820.002µs mean, 772.459µs min, 781.041µs median, 943.167µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 1.332089ms mean, 1.2ms min, 1.224792ms median, 3.450875ms max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 625.747µs mean, 618.25µs min, 621.458µs median, 674.375µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 2.147575ms mean, 1.967375ms min, 2.0215ms median, 3.35325ms max (budget 32 ms)
+check-tui-preflight-cost: ok
+===== 13-check-usage-clock (last lines; test suites: every 'test result' line and every failure)
+check-usage-clock: debug: honoured (debug assertions)
+check-usage-clock: release: ignored (release)
+check-usage-clock: release, fault injection: ignored (release)
+check-usage-clock: ok
+===== 14-test-check-no-secrets (last lines; test suites: every 'test result' line and every failure)
+test-check-no-secrets: ok grep-127           exit 1
+test-check-no-secrets: ok every-file         exit 1
+test-check-no-secrets: ok every-file-set     3472 of 3472 keys, each once
+test-check-no-secrets: ok nothing-tracked    exit 1
+test-check-no-secrets: ok only-a-symlink     exit 1
+test-check-no-secrets: ok (13 cases; 3473 tracked names past ARG_MAX 1048576)
+===== 15-test-gate-env (last lines; test suites: every 'test result' line and every failure)
+test-gate-env: ok ci-script-tests-per-os         test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths on macOS and Linux rows
+test-gate-env: ok ci-checkout-assertion          checked out
+test-gate-env: ok build-script                   stamps the checkout's HEAD (1d091c542217)
+test-gate-env: ok build-script-linked-worktree   stamps the worktree's HEAD (cc737badf2b1), watches its HEAD and ref
+test-gate-env: ok test-check-no-secrets          test-check-no-secrets: ok (13 cases; 3473 tracked names past
+test-gate-env: ok (64 cases)
+===== 16-test-preview-contract (last lines; test suites: every 'test result' line and every failure)
+test-preview-contract: caught other-workflow-whole-context report.yml: job report reads a secret
+test-preview-contract: caught secrets-inherit              call.yml: job call passes secrets
+test-preview-contract: caught epoch-absent                 there is no .github/preview-epoch
+test-preview-contract: caught epoch-two-lines              .github/preview-epoch is "phase4\nphase5\n"
+test-preview-contract: caught epoch-crlf                   .github/preview-epoch is "phase4\r\n"
+test-preview-contract: ok (24 mutants caught; the unbroken copy passes)
+===== 17-fxcap-test-sweep (last lines; test suites: every 'test result' line and every failure)
+OK
+...........................
+----------------------------------------------------------------------
+Ran 27 tests in 8.205s
+
+OK
+===== 18-fxcap-test-capture (last lines; test suites: every 'test result' line and every failure)
+...........................................................................................................
+----------------------------------------------------------------------
+Ran 107 tests in 542.637s
+
+OK
+===== 19-build-release (last lines; test suites: every 'test result' line and every failure)
+   Compiling rustix v1.1.4
+   Compiling xfx v0.1.0 (<repo>)
+    Finished `release` profile [optimized] target(s) in 16.70s
+===== 20-build-faulty (last lines; test suites: every 'test result' line and every failure)
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling tower-http v0.6.11
+   Compiling reqwest v0.12.28
+    Finished `release` profile [optimized] target(s) in 25.03s
+===== 21-smoke (last lines; test suites: every 'test result' line and every failure)
+
+6. what was sent, and what was written down
+  ok    every request carried exactly the provided credential, and nothing else leaked (scanned 52 file(s), 11 request(s))
+
+47 check(s), 0 failure(s)
+evidence: <smoke>/smoke
+===== 22-smoke-tui (last lines; test suites: every 'test result' line and every failure)
+  26-layout-stabilization               ok
+  26b-composer-yield-to-panel           ok
+  27-live-theme-retint                  ok
+
+smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures
+evidence: <smoke>/smoke-tui

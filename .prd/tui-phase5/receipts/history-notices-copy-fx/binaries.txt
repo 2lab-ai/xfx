@@ -1,0 +1,4 @@
+# the binaries of every capture and sweep in this folder (shasum -a 256; paths written as <scratch>, <reference-binaries>)
+fx    v0.0.16 release  8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2  <reference-binaries>/fx-v0.0.16/bin/fx
+base  built at 32afd307  8921f58784bb987f585a32f3f6b7386d4207c94e0fb35d2ec7e2ab890a496aee  <scratch>/bin/xfx-base (cargo build --locked, debug)
+head  built at 3f96a4b7  2cfda4c2db1b5b94d4215e1a5c27f527a58617022c928b7698923df8d3b084ec  <scratch>/bin/xfx-head (cargo build --locked, debug)

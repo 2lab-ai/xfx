@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-3f96a4b [debug] · Run /help for commands
+
+┃ read the notes and tell me what they say
+
+● 1 tool call · 1 read
+└ Read notes.txt
+
+  The notes say the meeting moved to Thursday.
+
+  0s (↑10 ↓80)
+
+* provider: Preparing Vercel AI Gateway.
+
+* provider: Switched to Vercel AI Gateway with fake/model-a.
+
+┃
+
+auto · model-a · read the notes and tell me what  · 1k
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

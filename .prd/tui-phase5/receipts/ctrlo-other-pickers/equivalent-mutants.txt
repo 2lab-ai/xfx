@@ -1,0 +1,40 @@
+# CTRLO-OTHER-PICKERS: the mutants that survive, and why each is equivalent
+# in every state that reaches the line it changes. Line numbers are
+# src/tui/shell.rs at 91c46731 (the mutants' clone). (The copy committed in
+# 76a5052d named a0634606 and its numbers, 7 short of these.)
+
+at-cj-ck-handed-on-whenever-ineligible
+  CTRLO-AT-KEYS' survivor, run again here: the `@` list's hand-on
+  (`Shell::offer_to_files`, :6266) keyed on `!eligible` instead of the full
+  transcript. The two differ only for an open `@` list that is not eligible
+  with the transcript closed, and no such list sees a key. CTRLO-AT-KEYS'
+  argument (`../ctrlo-at-keys/equivalent-mutants.txt`), with the citations
+  its review asked for (opus, point 17), at this head:
+  - a question, an approval or a rule change waiting takes every key before
+    any `offer_*` (`Shell::consume_inputs`: the `ask` arm at :12300,
+    `asking` at :12307, `rule_confirm` at :12318; `offer_to_files` at
+    :12375);
+  - each catalog menu takes the list down when it opens, with or without
+    an edit: the catalog (`Shell::help`, :14073-14074), the session picker
+    (:14125-14126), the settings menu (:14676-14677) and `/model`'s menu
+    (`Shell::open_models_with`, :15160-15161) each set `file_picker = None`;
+    and whenever the draft is reconciled while one is up, it is set again
+    (`Shell::reconcile_picker`, :9090; for `/mcp`'s menu :9098, `/skills`'
+    :9113, the catalog :9128, the settings menu :9143, `/model`'s :9156, the
+    session picker :9166);
+  - the skills menu is offered C-j and C-k before the list
+    (`Shell::offer_to_skills` maps them at :5862-5863; it is offered at
+    :12369, before `offer_to_files` at :12375), so a `$` mention's menu that
+    is up spends them first -- and a `$` word at the caret is no `@` word
+    (`file_picker::query_at`), so no list.
+  So under the mutant and the head alike only the transcript hands the
+  keys on. This unit adds a fourth reason for the catalog menus: none of
+  them is up under the transcript for a frame (`Shell::reconcile_full_transcript`).
+
+Round 2 (5d6c4cbb): the line this survivor changes -- the `@` list's
+inline hand-on in `Shell::offer_to_files` -- is gone. Round 2 put it, and
+the three per-picker guards, into one check in `Shell::consume_inputs`
+(`Shell::composer_control`, before `Shell::offer_to_pickers`), so no
+picker sees `C-j` or `C-k` with the full transcript up, eligible or not.
+Round 2's mutants (`mutants-r2.txt`) run none here; the one check's own
+mutants are `b-check-gone`, `b-cj-only` and `b-ck-only`.

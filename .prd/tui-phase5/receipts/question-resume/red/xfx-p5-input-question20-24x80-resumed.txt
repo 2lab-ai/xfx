@@ -1,0 +1,24 @@
+* session resumed: ask twenty
+
+┃ ask twenty
+
+  Twenty done.
+
+  5s (↑3 ↓80)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+

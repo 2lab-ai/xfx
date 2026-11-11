@@ -1,0 +1,5 @@
+# at caab9092; src changed since e1e15efd:  1 file changed, 10 insertions(+), 5 deletions(-)
+cargo fmt --check: exit 0; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 50.31s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 37.48s
+cargo test --locked --lib -- --exact tui::worker::tests::a_resumed_sealed_step_that_asked_replays_its_batch_and_says_nothing_of_its_reasoning: exit 0; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4767 filtered out; finished in 0.09s

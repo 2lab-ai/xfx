@@ -1,0 +1,167 @@
+# 1. Each side's run directory: the sweep's shared one, then each capture's own
+## the sweep's root, `fxsw.` and eight random letters, one a sweep -- scripts/fxcap/sweep.py:151-151@dcfa5146
+            self.root = tempfile.mkdtemp(prefix="fxsw.", dir=args.tmp)
+## a unit's runs one after the other in one TMPDIR, <root>/<NNN> -- scripts/fxcap/sweep.py:178-191@dcfa5146
+        def run_unit(self, jobs):
+            """A unit's runs, one after the other in one TMPDIR: each binary sees
+            a path to its run directory of the same length, which capture.sh
+            writes on both sides as the same placeholder of that width
+            (`<scratch___>`, `<work___>`, wherever a frame wraps or colours it:
+            roots.py), and the one run in it is the one whose socket is there."""
+            jobtmp = os.path.join(self.root, "%03d" % jobs[0]["n"])
+            out = []
+            for job in jobs:
+                shutil.rmtree(jobtmp, ignore_errors=True)
+                os.makedirs(jobtmp)
+                out.append(self.run(job, jobtmp))
+                self.report(job, out[-1])
+            shutil.rmtree(jobtmp, ignore_errors=True)
+## each capture's own run directory, `fxcap.` and six random letters, other for fx and for xfx -- scripts/fxcap/capture.sh:681-681@dcfa5146
+      run=$(mktemp -d "$tmpdir/fxcap.XXXXXX")
+## the sweep's root, `fxsw.` and eight random letters, one a sweep -- scripts/fxcap/sweep.py:151-151@b3dffdad
+            self.root = tempfile.mkdtemp(prefix="fxsw.", dir=args.tmp)
+## a unit's runs one after the other in one TMPDIR, <root>/<NNN> -- scripts/fxcap/sweep.py:178-191@b3dffdad
+        def run_unit(self, jobs):
+            """A unit's runs, one after the other in one TMPDIR: each binary sees
+            a path to its run directory of the same length, which capture.sh
+            writes on both sides as the same placeholder of that width
+            (`<scratch___>`, `<work___>`, wherever a frame wraps or colours it:
+            roots.py), and the one run in it is the one whose socket is there."""
+            jobtmp = os.path.join(self.root, "%03d" % jobs[0]["n"])
+            out = []
+            for job in jobs:
+                shutil.rmtree(jobtmp, ignore_errors=True)
+                os.makedirs(jobtmp)
+                out.append(self.run(job, jobtmp))
+                self.report(job, out[-1])
+            shutil.rmtree(jobtmp, ignore_errors=True)
+## each capture's own run directory, `fxcap.` and six random letters, other for fx and for xfx -- scripts/fxcap/capture.sh:685-685@b3dffdad
+      run=$(mktemp -d "$tmpdir/fxcap.XXXXXX")
+
+# 2. fx v0.0.16: an added root's entry is its absolute path; listed only if it holds the query's letters in order
+## fx: an added root's candidate is displayed (and matched) absolute -- src/core/workspace/file_index.zig:1095-1099@481104fd
+        const absolute = try std.Io.Dir.path.resolveAlloc(alloc, &.{ root_path, relative });
+        if (!pathing.pathInside(root_path, absolute)) return false;
+    
+        const display = if (root_index == 0) relative else absolute;
+        if (acceptedCandidate(.{ .path = display, .kind = kind }) == null) return false;
+## fx: no placement in the name and no subsequence -- not listed -- src/core/workspace/file_index.zig:1802-1804@481104fd
+        // Without a placement in the name, a path that does not hold the letters
+        // in order has no other placement either; one scan settles it.
+        if (best == null and query.len > 1 and !isSubsequence(T, text, query)) return null;
+## fx: else the best placement anywhere in the whole path -- src/core/workspace/file_index.zig:1815-1818@481104fd
+        if (best != null) return best;
+        if (!needed.folder) return null;
+        const anywhere = alignBest(T, text, path, byte_offsets, 0, 0, query, scratch) orelse return null;
+        return .{ .name_fit = false, .alignment = anywhere, .range_start = 0, .end_min = 0 };
+## fx: the subsequence test -- src/core/workspace/file_index.zig:1821-1830@481104fd
+    fn isSubsequence(comptime T: type, text: []const T, query: []const T) bool {
+        var query_index: usize = 0;
+        for (text) |item| {
+            if (item != query[query_index]) continue;
+            query_index += 1;
+            if (query_index == query.len) return true;
+        }
+        return false;
+    }
+    
+
+# 3. xfx at the code head b3dffdad (AT-RANK's placement, fx's rule)
+## an added root's entry is its absolute path -- src/tui/file_index.rs:1556-1563@b3dffdad
+                let absolute = added.join(&candidate.path);
+                let Some(path) = absolute.to_str().map(str::to_string) else {
+                    continue;
+                };
+                if !admissible(&path) || !seen.insert(absolute) {
+                    continue;
+                }
+                // Its facts are its absolute path's, not the relative one's.
+## its letters, from that path, lower-cased -- src/tui/file_index.rs:121-124@b3dffdad
+        /// The only way to make one, so its facts are always its own path's.
+        pub(crate) fn new(path: String, kind: Kind) -> Self {
+            let lower: Box<[u8]> = path.bytes().map(|byte| byte.to_ascii_lowercase()).collect();
+            let mask = letters(&lower) | if path.is_ascii() { 0 } else { NON_ASCII };
+## rejected unless every letter of the query is among the path's -- src/tui/file_index.rs:1178-1182@b3dffdad
+    /// Upstream's O(1) reject (`file_index.zig:1371-1373`): an ASCII path can
+    /// hold the query only if the query is ASCII too and every letter of it is
+    /// among the path's. A path with any other byte is always scored.
+    fn admits(entry: &Candidate, query: &Folded) -> bool {
+        entry.mask & NON_ASCII != 0 || (query.ascii.is_some() && entry.mask & query.mask == query.mask)
+## no placement in the name and no subsequence -- not listed -- src/tui/file_index.rs:1104-1110@b3dffdad
+        // With no placement in the name, a path that does not hold the letters
+        // in order has none anywhere: one scan settles it (`file_index.zig:1802-1804`).
+        // Only worth it where the search over the whole path would follow: a
+        // crossing search settles a path that holds no crossing alone.
+        if best.is_none() && query.len() > 1 && needed.folder && !is_subsequence(text, query) {
+            return None;
+        }
+## the subsequence test -- src/tui/file_index.rs:1132-1141@b3dffdad
+    /// Whether `text` holds `query` in order (`isSubsequence`, `file_index.zig:1821-1829`).
+    fn is_subsequence<T: Unit>(text: &[T], query: &[T]) -> bool {
+        let mut from = 0;
+        query.iter().all(|wanted| {
+            T::find(text, from, *wanted).is_some_and(|at| {
+                from = at + 1;
+                true
+            })
+        })
+    }
+
+# 4. xfx at the base dcfa5146 (main's ranking): the same test, by another road
+## an added root's entry is its absolute path -- src/tui/file_index.rs:838-846@dcfa5146
+                let absolute = added.join(&candidate.path);
+                let Some(path) = absolute.to_str().map(str::to_string) else {
+                    continue;
+                };
+                if !admissible(&path) || !seen.insert(absolute) {
+                    continue;
+                }
+                entries.push(Candidate {
+                    path,
+## the name first, then the whole path from its first letter -- src/tui/file_index.rs:547-575@dcfa5146
+    /// How well `query` matches `path` (`scoreAsciiMatch` / `scoreFoldedMatch`,
+    /// `file_index.zig:1309-1386`): the basename first, the whole path after.
+    fn score(path: &str, query: &Folded) -> Option<Score> {
+        if query.0.is_empty() || path.is_empty() {
+            return None;
+        }
+        let scalars = folded_scalars(path);
+        let base = basename_start(path);
+        let base_index = scalars
+            .iter()
+            .position(|(at, _)| *at >= base)
+            .unwrap_or(scalars.len());
+        let folded: Vec<char> = scalars.iter().map(|(_, scalar)| *scalar).collect();
+        let exact = folded == query.0 || folded[base_index..] == query.0[..];
+        if let Some(facts) = score_range(path, &scalars, base_index, &query.0) {
+            return Some(Score {
+                exact,
+                basename: true,
+                ..facts
+            });
+        }
+        let facts = score_range(path, &scalars, 0, &query.0)?;
+        Some(Score {
+            exact,
+            basename: false,
+            ..facts
+        })
+    }
+    
+## score_range: the query's letters in order from <start>, greedy -- src/tui/file_index.rs:576-586@dcfa5146
+    /// The subsequence facts of `query` in `scalars[start..]`
+    /// (`scoreAsciiRange`, `file_index.zig:1327-1363`), greedy left to right.
+    fn score_range(
+        path: &str,
+        scalars: &[(usize, char)],
+        start: usize,
+        query: &[char],
+    ) -> Option<Score> {
+        if query.len() > scalars.len().saturating_sub(start) {
+            return None;
+        }
+## ...and none when they are not all found in order -- src/tui/file_index.rs:612-615@dcfa5146
+            matched += 1;
+        }
+        (matched == query.len()).then_some(facts)
+    }

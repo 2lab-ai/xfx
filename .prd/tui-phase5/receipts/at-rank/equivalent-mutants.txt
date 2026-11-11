@@ -1,0 +1,17 @@
+# AT-RANK: the mutant that survives with the head's tests, and why it is
+# equivalent for every query and path. Lines are src/tui/file_index.rs at
+# dad8caa1.
+
+per-letter-dropped
+  `SCORE_MATCH` 0, the bonuses kept at 8 (they are written `SCORE_MATCH / 2`,
+  so the mutant writes them as numbers). Every placement of a query places
+  each of its letters once, so a placement's score has exactly m terms of
+  `SCORE_MATCH` (`score_alignment`: the first letter, then one per letter,
+  run or gap; `align_best`'s cells add it once per row, its gap move
+  `gap - j - 1 + SCORE_MATCH + bonus` too), and m is the query's length,
+  the same for every path one search scores. So dropping it takes 16 m from
+  every score: every comparison -- inside the name against through the
+  folder (`choose_placement`), its cut-off `max_crossing_quality`, which
+  loses the same 16 m, and the order (`score_order`) -- comes out the same.
+  The same holds in fx, whose `scoreAlignment` and `maxCrossingQuality` add
+  `score_match` m times (`file_index.zig:1498-1521`, `:1736-1743@481104fd`).

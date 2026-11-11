@@ -1,0 +1,36 @@
+# Phase 5 QUESTION-RESUME, the full transcript after a resume: a batch of 1
+# answered and a batch of none refused, then the session resumed and Ctrl-O
+# opened. fx v0.0.16 hands each replayed ask the call's saved detail
+# (`attachHistoricalToolDetail`, app_session_runtime.zig:4337, :4607@481104fd):
+# its arguments and its result under the resolution, and under `● Asked`
+# with a `Tool` header. xfx's Ctrl-O shows the two rows alone: ledger cause
+# `question-resume-ctrlo-detail`.
+fx: env FX_AUTO_UPGRADE=0
+env TZ=UTC
+gateway p5-question-resume-ctrlo-turns.json
+wait 4
+type ask one
+key Enter
+wait 3
+type 2
+wait 3
+type ask none
+key Enter
+wait 3
+keep
+type /quit
+wait 0.5
+key Enter
+wait 2
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 5
+key C-o
+wait 1.5
+snap resumed-ctrlo
+key C-o
+wait 1
+type /quit
+wait 0.5
+key Enter
+wait 2

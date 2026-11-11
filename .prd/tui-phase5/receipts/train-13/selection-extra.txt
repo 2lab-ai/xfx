@@ -1,0 +1,39 @@
+# train 13's extra selection: the scenarios the e1e15efd re-point's entries name that the first selection (the brief's globs; the merges' entries' provider* and p5-input-at-resize) did not take
+# *: every scenario (session-record): left out
+# approvals (amendment-card-after-stop): in the first selection
+# fulltranscript*: full-transcript-shift
+fulltranscript*
+# h1-resize: resize-document-repaint
+h1-resize
+# links: full-transcript-shift
+links
+# model-parked: activity-tokens-before-request
+model-parked
+# p5-ctrlo-wider-inline-fam: resize-document-repaint, answer-drawn-wider-named
+p5-ctrlo-wider-inline-fam
+# p5-input-at-resize (at-resize-band-at-the-bottom): in the first selection
+# p5-toolgroup-ctrlo: toolgroup-ctrlo-record-short
+p5-toolgroup-ctrlo
+# p5-toolgroup-ctrlo-tc: toolgroup-ctrlo-record-short
+p5-toolgroup-ctrlo-tc
+# p5-transcript-anchor: transcript-page-offset
+p5-transcript-anchor
+# p5-transcript-anchormid: transcript-page-offset
+p5-transcript-anchormid
+# p5-transcript-cancel: cancel-page-edge
+p5-transcript-cancel
+# p5-transcript-question: transcript-page-offset
+p5-transcript-question
+# p5-transcript-records: transcript-page-offset
+p5-transcript-records
+# p5-transcript-resize: transcript-page-offset
+p5-transcript-resize
+# p5-transcript-safe: safe-page-edge
+p5-transcript-safe
+# p5-transcript-safetab: safe-page-edge
+p5-transcript-safetab
+# read-failures: full-transcript-shift
+read-failures
+# resume-tools (full-transcript-shift): in the first selection
+# timeout: full-transcript-shift
+timeout

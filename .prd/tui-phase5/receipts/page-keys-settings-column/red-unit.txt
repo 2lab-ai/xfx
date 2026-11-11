@@ -1,0 +1,24 @@
+# RED: the five at_24_rows cases at 01d661ba (the tests over the base's code, 3d3d56c8),
+# `cargo test --locked --lib -- at_24_rows`, ulimit -v 16000000, timeout 900.
+test tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end ... FAILED
+test tui::shell::tests::at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end ... FAILED
+test tui::shell::tests::at_24_rows_a_page_of_the_model_column_is_11_models ... FAILED
+test tui::shell::tests::at_24_rows_a_page_of_the_mcp_arguments_is_11_servers ... FAILED
+test tui::shell::tests::at_24_rows_a_page_of_the_settings_model_list_is_11_models ... ok
+thread 'tui::shell::tests::at_24_rows_a_page_of_the_settings_menu_is_11_settings_and_runs_to_the_far_end' panicked at src/tui/shell.rs:35370:13:
+assertion `left == right` failed: PgDn from Some(Statusline(Context)) of 14 rows (page 11)
+  left: Some(Statusline(Context))
+ right: Some(SoundLevel)
+thread 'tui::shell::tests::at_24_rows_a_page_of_the_effort_and_speed_columns_runs_to_the_far_end' panicked at src/tui/shell.rs:35370:13:
+assertion `left == right` failed: PgUp from Some("default") of 5 rows (page 11)
+  left: Some("default")
+ right: Some("xhigh")
+thread 'tui::shell::tests::at_24_rows_a_page_of_the_model_column_is_11_models' panicked at src/tui/shell.rs:35370:13:
+assertion `left == right` failed: PgDn from Some("vendor/m01") of 30 rows (page 11)
+  left: Some("vendor/m01")
+ right: Some("vendor/m12")
+thread 'tui::shell::tests::at_24_rows_a_page_of_the_mcp_arguments_is_11_servers' panicked at src/tui/shell.rs:35370:13:
+assertion `left == right` failed: PgDn from Some("/mcp show s01") of 24 rows (page 11)
+  left: Some("/mcp show s01")
+ right: Some("/mcp show s12")
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 4634 filtered out; finished in 0.02s

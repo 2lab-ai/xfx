@@ -1,0 +1,187 @@
+# train 14's units' selection: the 93 scenarios the units' 9 committed head sweeps took (154 in all) that selection-all.txt does not
+# composer-keys: at-folders, page-keys-settings-column
+composer-keys
+# composer-wrap: at-folders
+composer-wrap
+# help: ctrlo-other-pickers
+help
+# model: ctrlo-other-pickers, page-keys-settings-column
+model
+# model-anchor: ctrlo-other-pickers
+model-anchor
+# model-busy: ctrlo-other-pickers
+model-busy
+# model-busy-known: ctrlo-other-pickers
+model-busy-known
+# model-effort: ctrlo-other-pickers, page-keys-settings-column
+model-effort
+# model-empty: ctrlo-other-pickers
+model-empty
+# model-floor: ctrlo-other-pickers
+model-floor
+# model-reask: ctrlo-other-pickers
+model-reask
+# model-router: ctrlo-other-pickers
+model-router
+# model-speed: ctrlo-other-pickers, page-keys-settings-column
+model-speed
+# p5-effort-fork-effort-backtab: ctrlo-other-pickers
+p5-effort-fork-effort-backtab
+# p5-effort-fork-effort-column: ctrlo-other-pickers, page-keys-settings-column
+p5-effort-fork-effort-column
+# p5-effort-fork-effort-ctrlc: ctrlo-other-pickers
+p5-effort-fork-effort-ctrlc
+# p5-effort-fork-effort-down: ctrlo-other-pickers
+p5-effort-fork-effort-down
+# p5-effort-fork-effort-loading: ctrlo-other-pickers
+p5-effort-fork-effort-loading
+# p5-effort-fork-effort-menu: ctrlo-other-pickers
+p5-effort-fork-effort-menu
+# p5-effort-fork-effort-nolevels: ctrlo-other-pickers
+p5-effort-fork-effort-nolevels
+# p5-effort-fork-effort-short: ctrlo-other-pickers
+p5-effort-fork-effort-short
+# p5-effort-fork-fork: ctrlo-other-pickers
+p5-effort-fork-fork
+# p5-effort-fork-fork-continue: ctrlo-other-pickers
+p5-effort-fork-fork-continue
+# p5-effort-fork-fork-edge: ctrlo-other-pickers
+p5-effort-fork-fork-edge
+# p5-effort-fork-fork-empty: ctrlo-other-pickers
+p5-effort-fork-fork-empty
+# p5-effort-fork-oldread-src: ctrlo-other-pickers
+p5-effort-fork-oldread-src
+# p5-effort-fork-oldread-v1: ctrlo-other-pickers
+p5-effort-fork-oldread-v1
+# p5-effort-fork-oldread-v2: ctrlo-other-pickers
+p5-effort-fork-oldread-v2
+# p5-effort-fork-slash-rank: ctrlo-other-pickers
+p5-effort-fork-slash-rank
+# p5-input-approval: at-folders
+p5-input-approval
+# p5-input-ctrlbs: at-folders
+p5-input-ctrlbs
+# p5-input-mcp: at-folders
+p5-input-mcp
+# p5-input-model: at-folders, page-keys-settings-column
+p5-input-model
+# p5-input-model-fail: at-folders, page-keys-settings-column
+p5-input-model-fail
+# p5-input-model-rank: page-keys-settings-column
+p5-input-model-rank
+# p5-input-model-swap: page-keys-settings-column
+p5-input-model-swap
+# p5-input-paste: at-folders
+p5-input-paste
+# p5-input-question: at-folders
+p5-input-question
+# p5-input-smoke: at-folders
+p5-input-smoke
+# p5-lifecycle-compactfail: at-launch-walk
+p5-lifecycle-compactfail
+# p5-lifecycle-compactok: at-launch-walk
+p5-lifecycle-compactok
+# p5-lifecycle-login: at-launch-walk
+p5-lifecycle-login
+# p5-lifecycle-login2: at-launch-walk
+p5-lifecycle-login2
+# p5-lifecycle-osc: at-launch-walk
+p5-lifecycle-osc
+# p5-lifecycle-osc-ask: at-launch-walk
+p5-lifecycle-osc-ask
+# p5-lifecycle-osc-autocompactfail: at-launch-walk
+p5-lifecycle-osc-autocompactfail
+# p5-lifecycle-osc-compact: at-launch-walk
+p5-lifecycle-osc-compact
+# p5-lifecycle-osc-compactfail: at-launch-walk
+p5-lifecycle-osc-compactfail
+# p5-lifecycle-osc-hostile: at-launch-walk
+p5-lifecycle-osc-hostile
+# p5-lifecycle-osc-hup: at-launch-walk
+p5-lifecycle-osc-hup
+# p5-lifecycle-osc-interrupt: at-launch-walk
+p5-lifecycle-osc-interrupt
+# p5-lifecycle-osc-interruptnext: at-launch-walk
+p5-lifecycle-osc-interruptnext
+# p5-lifecycle-osc-picker: at-launch-walk
+p5-lifecycle-osc-picker
+# p5-lifecycle-osc-retry: at-launch-walk
+p5-lifecycle-osc-retry
+# p5-lifecycle-osc-states: at-launch-walk
+p5-lifecycle-osc-states
+# p5-lifecycle-osc-stopnext: at-launch-walk
+p5-lifecycle-osc-stopnext
+# p5-lifecycle-osc-suspend: at-launch-walk
+p5-lifecycle-osc-suspend
+# p5-lifecycle-osc-term: at-launch-walk
+p5-lifecycle-osc-term
+# p5-lifecycle-relhome: at-launch-walk
+p5-lifecycle-relhome
+# p5-lifecycle-relhome-image: at-launch-walk, image-loss-copy-fx
+p5-lifecycle-relhome-image
+# p5-lifecycle-relhome-made: at-launch-walk
+p5-lifecycle-relhome-made
+# p5-lifecycle-relhome-resume: at-launch-walk, image-loss-copy-fx
+p5-lifecycle-relhome-resume
+# p5-lifecycle-relhome-unsaved: at-launch-walk
+p5-lifecycle-relhome-unsaved
+# p5-lifecycle-retry: at-launch-walk
+p5-lifecycle-retry
+# p5-lifecycle-retryok: at-launch-walk
+p5-lifecycle-retryok
+# p5-lifecycle-suspend: at-launch-walk
+p5-lifecycle-suspend
+# p5-lifecycle-update: at-launch-walk
+p5-lifecycle-update
+# p5-lifecycle-v1bad: at-launch-walk
+p5-lifecycle-v1bad
+# p5-lifecycle-v1resume: at-launch-walk, image-loss-copy-fx
+p5-lifecycle-v1resume
+# p5-mcp-config: at-folders
+p5-mcp-config
+# p5-mcp-menu-new: ctrlo-other-pickers
+p5-mcp-menu-new
+# p5-mcp-menu-old: ctrlo-other-pickers
+p5-mcp-menu-old
+# p5-mcp-verbs: at-folders, ctrlo-other-pickers, page-keys-settings-column
+p5-mcp-verbs
+# provider: ctrlo-other-pickers, page-keys-settings-column
+provider
+# provider-carry: ctrlo-other-pickers, page-keys-settings-column
+provider-carry
+# provider-carry-back: ctrlo-other-pickers, page-keys-settings-column
+provider-carry-back
+# provider-carry-back-stop: page-keys-settings-column
+provider-carry-back-stop
+# provider-resume: ctrlo-other-pickers, page-keys-settings-column
+provider-resume
+# provider-resume-missing: ctrlo-other-pickers, page-keys-settings-column
+provider-resume-missing
+# provider-switch: ctrlo-other-pickers, page-keys-settings-column
+provider-switch
+# resume: ctrlo-other-pickers, image-loss-copy-fx
+resume
+# resume-empty: ctrlo-other-pickers, image-loss-copy-fx
+resume-empty
+# resume-launch: ctrlo-other-pickers, image-loss-copy-fx
+resume-launch
+# resume-paging: ctrlo-other-pickers, image-loss-copy-fx
+resume-paging
+# resume-wire: ctrlo-other-pickers, image-loss-copy-fx
+resume-wire
+# skills: ctrlo-other-pickers
+skills
+# skills-ghost: ctrlo-other-pickers
+skills-ghost
+# skills-paste: ctrlo-other-pickers
+skills-paste
+# skills-slash: ctrlo-other-pickers
+skills-slash
+# slash: ctrlo-other-pickers, page-keys-settings-column
+slash
+# slash-filter: ctrlo-other-pickers, page-keys-settings-column
+slash-filter
+# startup: at-folders
+startup
+# undo-resume: image-loss-copy-fx
+undo-resume

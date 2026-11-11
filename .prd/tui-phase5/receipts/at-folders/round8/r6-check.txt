@@ -1,0 +1,7 @@
+# round8/r6-check.py, twice, each in a --no-local clone at 08ef8070 (round 6's head), under the suite lock, TMPDIR=<scratch>
+## run 1 -- inside the run of every set at 6710b846, beside this round's gate
+KILLED   prepare-index-from-adopt: tui::shell::tests::under_the_full_transcript_a_folder_listing_holds_no_frame
+mutants: 1 run, 1 killed
+## run 2 -- alone, after run 1's killing case passed five times by itself with and without the mutant
+SURVIVED prepare-index-from-adopt: every test passed
+mutants: 1 run, 0 killed
