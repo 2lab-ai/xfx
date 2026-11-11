@@ -1,0 +1,19 @@
+# CI run 42965949616 (main's push Sweep at 753b0a72), job 130343100571, macOS arm64: the tmux it installs and the failure.
+# Runner paths written <runner> and <runner-tmp>; ANSI colour codes removed.
+2026-11-11T05:28:43.2226190Z tmux -V
+2026-11-11T05:28:46.5926260Z tmux 3.8
+2026-11-11T05:28:57.1093940Z ==> Pouring tmux--3.8.arm64_sequoia.bottle.tar.gz
+2026-11-11T05:28:58.8733090Z tmux 3.8
+2026-11-11T05:39:48.5542910Z FAIL: test_a_binary_gone_at_once_is_final_under_keep_and_fails_the_run_without (__main__.LaunchWait.test_a_binary_gone_at_once_is_final_under_keep_and_fails_the_run_without)
+2026-11-11T05:39:48.5545010Z ----------------------------------------------------------------------
+2026-11-11T05:39:48.5545550Z Traceback (most recent call last):
+2026-11-11T05:39:48.5546370Z   File "/Users/<runner>/work/xfx/xfx/scripts/fxcap/test_capture.py", line 1905, in test_a_binary_gone_at_once_is_final_under_keep_and_fails_the_run_without
+2026-11-11T05:39:48.5547090Z     self.assertEqual(kept.code, 0, kept.stdout + kept.stderr)
+2026-11-11T05:39:48.5547450Z     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-11-11T05:39:48.5548190Z AssertionError: 4 != 0 : roots: <work>=82 <work:real>=90 <scratch>=77 <scratch:real>=85 <scenarios>=82 <bun>=38 <tmp>=64 <tmp:real>=72 <home>=13 bytes
+2026-11-11T05:39:48.5548850Z up: the pane is dead after 0.02 s (1 looks)
+2026-11-11T05:39:48.5549360Z <runner-tmp>/fxcapt.<8>/out/fx-t-30x200-a.txt
+2026-11-11T05:39:48.5550480Z guards: <runner-tmp>/fxcapt.<8>/bin/it sha256 8e6759445f53 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+2026-11-11T05:39:48.5551820Z LIVE-WRITER GUARD: the process this run started in its pane could not be recorded (the pane pid could not be read); this run fails, so the sweep does not run another binary in its directory
+2026-11-11T05:39:48.5555020Z /Users/<runner>/work/xfx/xfx/scripts/fxcap/capture.sh: line 1: 10243 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+2026-11-11T05:39:48.5556770Z 

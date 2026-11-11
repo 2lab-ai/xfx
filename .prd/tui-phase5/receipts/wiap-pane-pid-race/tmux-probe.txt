@@ -1,0 +1,6 @@
+# tmux's own report for a dead pane, on a private socket (never the user's server), tmux 3.7b here.
+# A pane running /bin/echo under remain-on-exit, looked at three times 0.2 s apart:
+look 1: pane_pid=[49224] pane_dead=[0] pane_dead_status=[] pane_dead_signal=[]
+look 2: pane_pid=[49224] pane_dead=[1] pane_dead_status=[0] pane_dead_signal=[]
+look 3: pane_pid=[49224] pane_dead=[1] pane_dead_status=[0] pane_dead_signal=[]
+# 3.7b keeps the pid of a dead pane; CI's 3.8 does not (tmux-source.txt). The status is set once tmux reaps the process.
