@@ -41829,6 +41829,58 @@ mod tests {
     }
 
     #[test]
+    fn a_c1_control_in_an_amendment_paste_reaches_the_draft_and_no_painted_row() {
+        // fx keeps valid UTF-8 from 0x80 up in an amendment's paste
+        // (`paste_framing.zig:122-126@481104fd`; `isModelSafeText`,
+        // `text_utils.zig:28-31`), C1 controls included, and so does xfx's
+        // draft. No frame writes one: every row goes to the terminal through
+        // `super::super::frame::row_text`, which drops a control character, on
+        // either plane.
+        let paste = "\x1b[200~a\u{85}b\u{9b}c\r\nd\x1b[201~";
+        let band_shell = {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell
+        };
+        for (plane, mut shell, cols) in
+            [("band", band_shell, 80), ("review", on_the_plane(100), 100)]
+        {
+            shell.route_bytes(b"\t");
+            shell.route_bytes(paste.as_bytes());
+            let rows = if plane == "band" {
+                shell.shell.band_rows()
+            } else {
+                shell.screen_rows()
+            };
+            let wire: Vec<String> = rows
+                .iter()
+                .map(|row| super::super::frame::row_text(row, cols).into_owned())
+                .collect();
+            assert!(
+                wire.iter().any(|row| row.contains("abc d")),
+                "{plane}: the draft is not painted: {wire:?}"
+            );
+            assert!(
+                wire.iter().all(|row| !row
+                    .chars()
+                    .any(|c| ('\u{80}'..='\u{9f}').contains(&c) || c == '\r')),
+                "{plane}: a C1 control or a CR reached the terminal: {wire:?}"
+            );
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some("a\u{85}b\u{9b}c d".to_string()),
+                }),
+                "{plane}: the draft did not keep the C1 controls fx's keeps"
+            );
+        }
+    }
+
+    #[test]
     fn an_oversized_paste_at_a_draft_is_refused_atomically_in_upstreams_words() {
         // Refused **whole**: the alternative -- the first 4096 bytes of
         // somebody's file, silently -- is a draft the user did not type. The

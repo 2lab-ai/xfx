@@ -795,6 +795,188 @@ mod tests {
     }
 
     #[test]
+    fn the_capture_holds_eight_mebibytes_as_fxs_and_refuses_the_next_byte() {
+        // fx's amendment paste is captured up to the composer's 8 MiB
+        // (`beginPaste`, `input_paste_runtime.zig:116-120@481104fd`;
+        // `app_input_runtime.zig:637-644`); a byte past it is counted as
+        // overflow and not kept (`paste_framing.zig:130-135`), and an
+        // overflow refuses the paste whole (`input_paste_runtime.zig:210-235`).
+        let cap = super::super::paste::MAX_PASTE_BYTES;
+        let mut paste = DraftPaste::default();
+        paste.begin();
+        for _ in 0..cap {
+            paste.byte(b'x');
+        }
+        assert_eq!(
+            paste.buffer.len(),
+            cap,
+            "the capture stopped short of 8 MiB"
+        );
+        assert!(
+            !paste.refused,
+            "a paste of exactly 8 MiB was refused as it arrived"
+        );
+        paste.byte(b'x');
+        assert_eq!(paste.buffer.len(), cap, "a byte past 8 MiB was kept");
+        assert!(paste.refused, "a byte past 8 MiB did not refuse the paste");
+        assert_eq!(paste.finish(0), None);
+        assert!(
+            paste.buffer.is_empty() && !paste.refused,
+            "the refused paste outlived its end"
+        );
+        // The next paste is a paste of its own.
+        paste.begin();
+        for byte in b"ok" {
+            paste.byte(*byte);
+        }
+        assert_eq!(paste.finish(0), Some("ok".to_string()));
+
+        // Through the draft: the paste one byte past the capture inserts
+        // nothing, and the refusal is said once, in fx's words.
+        let mut drafts = typed_into(ALLOW, "keep");
+        paste_into_open(&mut drafts, cap + 1, b'x');
+        assert_eq!(drafts.text(ALLOW), "keep");
+        assert_eq!(drafts.take_notice(), Some(INPUT_LIMIT));
+        assert_eq!(drafts.take_notice(), None, "the refusal was said twice");
+    }
+
+    /// One bracketed paste of `count` copies of `byte` into the open draft,
+    /// without building the paste first.
+    fn paste_into_open(drafts: &mut Drafts, count: usize, byte: u8) {
+        drafts.edit(Action::PasteStart, COLS);
+        for _ in 0..count {
+            drafts.paste_byte(byte);
+        }
+        drafts.edit(Action::PasteEnd, COLS);
+    }
+
+    #[test]
+    fn a_cr_lf_paste_of_twice_the_room_is_taken_as_spaces() {
+        // The capture keeps 8190 bytes where a bound anywhere from 4098 to
+        // 8191 would refuse them, and the budget then counts the 4095 spaces
+        // they become (`insertAmendmentSlice`, `approval_decision.zig:178-194`).
+        let drafts = pasted_into(&b"\r\n".repeat(4095));
+        assert_eq!(drafts.text(ALLOW), " ".repeat(4095));
+        // 8192 bytes are exactly twice the room and exactly the budget once
+        // they are spaces: taken.
+        let mut drafts = pasted_into(&b"\r\n".repeat(MAX_FEEDBACK_BYTES));
+        assert_eq!(drafts.text(ALLOW), " ".repeat(MAX_FEEDBACK_BYTES));
+        assert_eq!(drafts.take_notice(), None);
+        // The same paste with one byte held is one space too many: refused.
+        let mut drafts = typed_into(ALLOW, "k");
+        paste(&mut drafts, &b"\r\n".repeat(MAX_FEEDBACK_BYTES));
+        assert_eq!(drafts.text(ALLOW), "k");
+        assert_eq!(drafts.take_notice(), Some(INPUT_LIMIT));
+    }
+
+    #[test]
+    fn a_paste_refused_on_its_bytes_alone_is_said_as_one_refused_on_its_text() {
+        // `DraftPaste::finish` refuses a paste of more than twice the room
+        // before decoding it. That may only be the same answer sooner: the
+        // same draft, the same sentence, and the same once-per-run order
+        // (`input_limit_rejection.zig:12-25`; each paste begins a run,
+        // `input_paste_runtime.zig:127`). With three bytes of room, `abcdefg`
+        // is refused on its 7 bytes (more than 6) and `a` CR LF `bc` on the
+        // 4 bytes of its text (its 5 bytes are not more than 6).
+        let held = MAX_FEEDBACK_BYTES - 3;
+        let early: &[u8] = b"abcdefg";
+        let late: &[u8] = b"a\r\nbc";
+        assert!(early.len() > 2 * 3 && late.len() <= 2 * 3);
+        let script = |pasted: &[u8]| {
+            let mut drafts = typed_into(ALLOW, &"x".repeat(held));
+            let mut said = Vec::new();
+            paste(&mut drafts, pasted);
+            said.push(drafts.take_notice());
+            paste(&mut drafts, pasted);
+            said.push(drafts.take_notice());
+            drafts.typed('d');
+            said.push(drafts.take_notice());
+            for character in "efgh".chars() {
+                drafts.typed(character);
+                said.push(drafts.take_notice());
+            }
+            paste(&mut drafts, pasted);
+            said.push(drafts.take_notice());
+            (said, drafts.text(ALLOW).to_string())
+        };
+        let (early_said, early_text) = script(early);
+        let (late_said, late_text) = script(late);
+        assert_eq!(early_said, late_said);
+        assert_eq!(early_text, late_text);
+        assert_eq!(
+            early_said,
+            [
+                Some(INPUT_LIMIT),
+                Some(INPUT_LIMIT),
+                None,
+                None,
+                None,
+                Some(INPUT_LIMIT),
+                None,
+                Some(INPUT_LIMIT),
+            ],
+            "each paste is a run of its own, and a run is said once"
+        );
+        assert_eq!(early_text, format!("{}def", "x".repeat(held)));
+    }
+
+    #[test]
+    fn c1_controls_in_a_paste_are_kept_in_the_draft_as_fxs() {
+        // fx keeps every byte from 0x20 up but 0x7f as it arrives
+        // (`paste_framing.zig:122-126@481104fd`), and valid UTF-8 passes its
+        // check (`isModelSafeText`, `text_utils.zig:28-31`), so U+0085 and
+        // U+009B -- `C2 85`, `C2 9B` -- stay in its draft. They are never
+        // painted here: every row a frame writes goes through
+        // `super::frame::row_text`, which drops a control character
+        // (`a_c1_control_in_an_amendment_paste_reaches_the_draft_and_no_painted_row`).
+        let mut drafts = pasted_into("a\u{85}b\u{9b}c\r\nd".as_bytes());
+        assert_eq!(drafts.text(ALLOW), "a\u{85}b\u{9b}c d");
+        assert_eq!(drafts.take_notice(), None);
+    }
+
+    #[test]
+    fn home_and_end_in_a_draft_are_its_edges_as_fxs_cursor_home() {
+        // fx's amendment reads `line_start` and `draft_start` as
+        // `.cursor_home` and `line_end` and `draft_end` as `.cursor_end`
+        // (`src/ui/input/runtime.zig:82-83@481104fd`), which set the caret to
+        // 0 and to the draft's length (`cursorHome`/`cursorEnd`,
+        // `approval_amendment.zig:84-92`) whatever the draft holds. A paste
+        // leaves no line break in a draft, so this types one in, which no key
+        // does, to pin that the edges are the draft's and not a line's.
+        let mut drafts = typed_into(ALLOW, "ab cd\nef gh");
+        assert_eq!(caret(&drafts), (1, 5));
+        for (name, home, end) in [
+            ("home", Action::Home, Action::End),
+            (
+                "line edges",
+                Action::LineStart { shifted: false },
+                Action::LineEnd { shifted: false },
+            ),
+            (
+                "shifted line edges",
+                Action::LineStart { shifted: true },
+                Action::LineEnd { shifted: true },
+            ),
+        ] {
+            drafts.edit(Action::Left, COLS);
+            drafts.edit(home, COLS);
+            assert_eq!(
+                caret(&drafts),
+                (0, 0),
+                "{name}: Home is not the draft's start"
+            );
+            drafts.edit(Action::Right, COLS);
+            drafts.edit(end, COLS);
+            assert_eq!(caret(&drafts), (1, 5), "{name}: End is not the draft's end");
+        }
+        assert_eq!(
+            drafts.text(ALLOW),
+            "ab cd\nef gh",
+            "a caret move changed the text"
+        );
+    }
+
+    #[test]
     fn an_oversized_paste_is_refused_atomically_with_a_visible_notice() {
         // Atomic, because the alternative -- the first 4096 bytes of somebody's
         // file, silently -- is a draft the user did not type and has no reason
