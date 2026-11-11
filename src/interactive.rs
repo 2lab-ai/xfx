@@ -158,7 +158,7 @@ pub struct SlashSpec {
 /// sentences (`:464-466`). `/provider` is upstream's row whole -- name, `/setup`
 /// alias, sentence and category (`:472`) -- and is the one whose sentence
 /// promises more than xfx's picker shows: the provider column is there, the
-/// sign-in columns after it are gated (zbrain open-loop #88) and absent, as
+/// sign-in columns after it are deferred and absent, as
 /// `docs/parity.md` says.
 /// `/permissions` is upstream's sentence with this product's name in it
 /// (`:479`). `/stats` keeps upstream's sentence although what it prints is the
