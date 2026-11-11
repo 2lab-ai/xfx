@@ -5047,6 +5047,62 @@ mod tests {
         assert_eq!(read(apart), (true, vec![]));
     }
 
+    /// Every key xfx reads from a settings layer.
+    fn keys_xfx_reads() -> impl Iterator<Item = &'static str> {
+        PROFILE_ONLY_KEYS.iter().copied().chain([
+            "max_agent_steps",
+            "context_limits",
+            "providers",
+            crate::workspace::access::ADDITIONAL_DIRECTORIES_KEY,
+        ])
+    }
+
+    /// What each reader of a layer decides over `text` -- the profile's and
+    /// the project's parse, the permission table, fx's refusal (for the
+    /// workspace `/w`), the ignored-key notes, the saved directories -- its
+    /// notes aside; and the notes.
+    fn decisions(text: &str) -> (String, Vec<String>) {
+        let root = Path::new("/w");
+        let object = layer_json::object(text).expect("it reads");
+        let mut diagnostics = Vec::new();
+        let profile = parse_layer(
+            &object,
+            LayerKind::Profile,
+            ConfigLayer::User,
+            &mut diagnostics,
+        );
+        let project = parse_layer(
+            &object,
+            LayerKind::Project,
+            ConfigLayer::Project,
+            &mut diagnostics,
+        );
+        let table = permission_table(&object, &mut diagnostics).ok();
+        report_ignored_profile_keys(&object, &mut diagnostics);
+        let entry = exact_workspace_entry(&object, root, &mut diagnostics)
+            .map(|entry| entry.map(crate::workspace::access::saved_from_entry));
+        let causes: Vec<_> = diagnostics
+            .iter()
+            .map(|d| (d.layer, d.cause, d.setting_key.clone()))
+            .collect();
+        let decided = format!(
+            "{profile:?} {project:?} {table:?} {entry:?} {:?} {causes:?}",
+            fx_profile_refusal(&object, root)
+        );
+        let notes: Vec<_> = diagnostics.into_iter().filter_map(|d| d.note).collect();
+        (decided, notes)
+    }
+
+    /// Each key's value, in the global object and in `/w`'s entry: what each
+    /// reader decides, and the notes.
+    fn decisions_at(key: &str, value: &str) -> ((String, String), (Vec<String>, Vec<String>)) {
+        let global = decisions(&format!(r#"{{"{key}": {value}}}"#));
+        let entry = decisions(&format!(
+            r#"{{"workspaces": {{"/w": {{"{key}": {value}}}}}}}"#
+        ));
+        ((global.0, entry.0), (global.1, entry.1))
+    }
+
     /// No key xfx reads looks past the depth [`layer_json`] keeps: for every
     /// one, a value 200 deep -- kept 128 deep, the last container empty --
     /// decides what the same shape 8 deep does, in each reader of a layer:
@@ -5058,57 +5114,12 @@ mod tests {
     /// file says, the kept value's text being longer than that.
     #[test]
     fn no_key_xfx_reads_looks_past_the_depth_kept() {
-        let root = Path::new("/w");
         let arrays = |depth: usize| format!("{}1{}", "[".repeat(depth), "]".repeat(depth));
         let objects = |depth: usize| format!("{}1{}", r#"{"a": "#.repeat(depth), "}".repeat(depth));
-        // What each reader decides, its notes aside; and the notes.
-        let read = |text: String| {
-            let object = layer_json::object(&text).expect("it reads");
-            let mut diagnostics = Vec::new();
-            let profile = parse_layer(
-                &object,
-                LayerKind::Profile,
-                ConfigLayer::User,
-                &mut diagnostics,
-            );
-            let project = parse_layer(
-                &object,
-                LayerKind::Project,
-                ConfigLayer::Project,
-                &mut diagnostics,
-            );
-            let table = permission_table(&object, &mut diagnostics).ok();
-            report_ignored_profile_keys(&object, &mut diagnostics);
-            let entry = exact_workspace_entry(&object, root, &mut diagnostics)
-                .map(|entry| entry.map(crate::workspace::access::saved_from_entry));
-            let causes: Vec<_> = diagnostics
-                .iter()
-                .map(|d| (d.layer, d.cause, d.setting_key.clone()))
-                .collect();
-            let decided = format!(
-                "{profile:?} {project:?} {table:?} {entry:?} {:?} {causes:?}",
-                fx_profile_refusal(&object, root)
-            );
-            let notes: Vec<_> = diagnostics.into_iter().filter_map(|d| d.note).collect();
-            (decided, notes)
-        };
-        let keys = PROFILE_ONLY_KEYS.iter().copied().chain([
-            "max_agent_steps",
-            "context_limits",
-            "providers",
-            crate::workspace::access::ADDITIONAL_DIRECTORIES_KEY,
-        ]);
         let mut quoted = Vec::new();
-        for key in keys {
+        for key in keys_xfx_reads() {
             for nested in [&arrays as &dyn Fn(usize) -> String, &objects] {
-                let at = |depth| {
-                    let value = nested(depth);
-                    let global = read(format!(r#"{{"{key}": {value}}}"#));
-                    let entry = read(format!(
-                        r#"{{"workspaces": {{"/w": {{"{key}": {value}}}}}}}"#
-                    ));
-                    ((global.0, entry.0), (global.1, entry.1))
-                };
+                let at = |depth| decisions_at(key, &nested(depth));
                 let (deep, shallow) = (at(200), at(8));
                 assert_eq!(deep.0, shallow.0, "{key} {}", nested(1));
                 if deep.1 != shallow.1 {
@@ -5127,6 +5138,25 @@ mod tests {
         assert_eq!(quoted[0].1.len(), 1);
         assert!(quoted[0].1[0].len() > STARTUP_LINE_BYTES);
         assert_eq!(shown(&quoted[0].1[0]), shown(&says));
+    }
+
+    /// No key xfx reads takes a number past `f64` as anything but a number
+    /// that is no integer: for every one, `1e400` and a 400-digit integer
+    /// decide what `1.5` does and `-1e400` what `-1.5` does, notes and all.
+    /// fx's `.number_string` is the same to its readers as a `.float`: none
+    /// in `src/core/config` takes either (`fx-src.txt` section 4).
+    #[test]
+    fn no_key_xfx_reads_takes_a_number_past_f64_as_other_than_a_float() {
+        let huge = "7".repeat(400);
+        for key in keys_xfx_reads() {
+            for (past, float) in [("1e400", "1.5"), (huge.as_str(), "1.5"), ("-1e400", "-1.5")] {
+                assert_eq!(
+                    decisions_at(key, past),
+                    decisions_at(key, float),
+                    "{key}: {past}"
+                );
+            }
+        }
     }
 
     /// fx starts on a number past `f64` and on any nesting at a key nothing

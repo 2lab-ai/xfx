@@ -77,6 +77,9 @@ show $C 1934 1946 "max_agent_steps and max_tool_result_bytes: anything but .inte
 show $C 1645 1650 "auto_compact_percent: the same"
 show $X 193 199 "context_limits: .integer or .string, else InvalidContextLimitValue"
 
+echo "== every .float and .number_string in src/core/config@$rev: the two writers' (section 5), no reader's"
+git -C "$g" grep -n -E '\.(float|number_string)' "$rev" -- src/core/config | sed "s/^$rev://"
+
 echo "#### 5. The writers keep the number's text (not copied here: the parity row)"
 show $T 1818 1847 "settings_store's writer: .number_string written as read"
 

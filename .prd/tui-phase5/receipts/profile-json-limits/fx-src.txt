@@ -396,6 +396,11 @@ std/json/static.zig@0.17.0 sha256 6a5ebd3c69f615353fbc8df0fe7b439ffaa4418dad5ee3
    197	        else => error.InvalidContextLimitValue,
    198	    };
    199	}
+== every .float and .number_string in src/core/config@481104fd: the two writers' (section 5), no reader's
+src/core/config/config_runtime.zig:2094:        .float => |f| try writer.print("{d}", .{f}),
+src/core/config/config_runtime.zig:2117:        .number_string => |s| try writer.writeAll(s),
+src/core/config/settings_store.zig:1822:        .float => |float| try writer.print("{d}", .{float}),
+src/core/config/settings_store.zig:1845:        .number_string => |number| try writer.writeAll(number),
 #### 5. The writers keep the number's text (not copied here: the parity row)
 == src/core/config/settings_store.zig:1818-1847@481104fd (4166 lines) -- settings_store's writer: .number_string written as read
   1818	    switch (value) {
