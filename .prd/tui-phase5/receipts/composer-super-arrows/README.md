@@ -220,7 +220,8 @@ content, against the base (`refs.py 28bd1810`). 11 of 16 had moved, and
 - The approval paragraph says Super-Left is `Action::LineStart`, and that
   its amendment takes Super-Left/-Right as Home and End.
 - The paste-spaces paragraph names the new keys on each side of a line
-  break.
+  break, and a new "Also not changed, found by COMPOSER-SUPER-ARROWS"
+  sentence beside it records fx's missing caret cell (GREEN, Open).
 - The `ask_user_question` row's field sentence and the full transcript
   row's composer clause drop the gap.
 - No row names COMPOSER-SUPER-ARROWS as an owner. It appears only as
@@ -243,6 +244,12 @@ content, against the base (`refs.py 28bd1810`). 11 of 16 had moved, and
   line break, that is the line's start, where fx's is 0. fx's draft never
   holds a break (`input_paste_runtime.zig:19-25`), and fx treats the two
   alike; the break is APPROVAL-PASTE-SPACES' (parity).
+- **The editor's `LineStart`/`LineEnd` sit with `Home`/`End`**, not in its
+  session arm. No production caller hands them to it -- `folded` makes them
+  `Home`/`End` before `act` and an amendment's draft -- and only its own
+  test (`the_line_edge_moves_are_home_and_end`) reaches them. They are that
+  move, so a later caller that skipped the fold would still get fx's place,
+  where the session arm would make them nothing.
 - **`/usage` left the menus' band test.** With no sign-in it shows no
   period to change, so its reading is pinned on the folded actions instead
   (`UsageAction::of_action`).
@@ -252,8 +259,9 @@ content, against the base (`refs.py 28bd1810`). 11 of 16 had moved, and
 - **fx's amendment caret cell** (GREEN, `amend-super-right`). fx paints no
   caret cell after a letter appended at the end of a 10-character draft,
   in that scenario state, on two runs and with the plain End. It looks like
-  fx's frame damage, not this unit's key. It has no owner; it is not in the
-  ledger.
+  fx's frame damage, not this unit's key. Recorded in `docs/parity.md`'s
+  approval paragraph ("Also not changed, found by COMPOSER-SUPER-ARROWS");
+  unowned, and not in the ledger.
 - **kitty's Ctrl-Shift-a/-e/-b/-f** (`escape_parser.zig:235-242`) are
   `line_*` and `character_*` with the selection. xfx reads them as
   `Ignore`. They are now expressible (`LineStart{shifted: true}`), but they
