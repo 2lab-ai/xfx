@@ -43161,14 +43161,20 @@ mod tests {
             "{screen:#?}"
         );
         // Every row of the record but its headers is the document's, in the
-        // same order: the split adds a header and moves no row.
-        let record: Vec<&String> = screen[..36]
+        // same order, blank rows included: the split adds a header and moves
+        // no row, so each block keeps one blank row above it and one below.
+        // The record is shorter than the screen: the rows under it, before
+        // the footer, are the screen's own.
+        let shown = screen[..36]
+            .iter()
+            .rposition(|row| !row.is_empty())
+            .expect("the record's last row");
+        let record: Vec<&String> = screen[..=shown]
             .iter()
             .filter(|row| !row.contains(" UTC \u{b7} "))
-            .filter(|row| !row.is_empty())
             .collect();
-        let written: Vec<&String> = document.iter().filter(|row| !row.is_empty()).collect();
-        assert_eq!(record, written);
+        let written: Vec<&String> = document[..document.len() - 1].iter().collect();
+        assert_eq!(record, written, "{screen:#?}");
     }
 
     #[test]

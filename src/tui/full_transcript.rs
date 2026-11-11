@@ -4846,6 +4846,200 @@ mod tests {
     }
 
     #[test]
+    fn an_indented_code_block_and_a_block_the_stream_ends_split_the_answer_as_fences_do() {
+        // fx's presenter completes an indented code block on the first line
+        // that is neither blank nor indented, and hands that line on as
+        // text (`assistant_presentation.zig:283-286@481104fd`); at the
+        // stream's end it completes a table or a code block still open
+        // (`:254-256`). Each is an entry of its own, as a fenced block is.
+        let mut record = record();
+        record.prompt("go");
+        streamed(
+            &mut record,
+            &[
+                (AT, "Lead line.\n\n"),
+                (AT + 100, "    indented code\n\n"),
+                (AT + 200, "After the code.\n"),
+            ],
+        );
+        let rows = screen(&record);
+        assert_eq!(
+            header_kinds(&rows),
+            ["Prompt", "Response", "Response"],
+            "{rows:#?}"
+        );
+        let second = rows
+            .iter()
+            .rposition(|row| row.ends_with("\u{b7} Response"))
+            .expect("a second header");
+        // The block completes on the line after it, so the run after it
+        // opens, and is stamped, with that line.
+        assert_eq!(rows[second], header_at(AT + 200, "Response"));
+        assert_eq!(rows[second + 1], "  After the code.");
+        assert!(
+            rows[..second]
+                .iter()
+                .any(|row| row.contains("indented code")),
+            "{rows:#?}"
+        );
+        let (timeline, _) = record.traced(120, DARK);
+        let kinds: Vec<&str> = timeline
+            .iter()
+            .filter(|entry| entry.rows.iter().any(|row| !row.trim().is_empty()))
+            .map(|entry| entry.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            ["user", "assistant", "assistant code block", "assistant"]
+        );
+        // A fence the stream never closes, and a table the stream ends: each
+        // a block of its own at the finish, under the run before it, with
+        // nothing headed after it.
+        for (case, tail, kind) in [
+            ("code", "```sh\necho open", "assistant code block"),
+            (
+                "table",
+                "| a | b |\n|---|---|\n| 1 | 2 |",
+                "assistant table",
+            ),
+        ] {
+            let mut record = self::record();
+            record.prompt("go");
+            streamed(&mut record, &[(AT, "Lead line.\n\n"), (AT + 100, tail)]);
+            let rows = screen(&record);
+            assert_eq!(
+                header_kinds(&rows),
+                ["Prompt", "Response"],
+                "{case}: {rows:#?}"
+            );
+            let (timeline, _) = record.traced(120, DARK);
+            let kinds: Vec<&str> = timeline
+                .iter()
+                .filter(|entry| entry.rows.iter().any(|row| !row.trim().is_empty()))
+                .map(|entry| entry.kind)
+                .collect();
+            assert_eq!(kinds, ["user", "assistant", kind], "{case}");
+        }
+    }
+
+    #[test]
+    fn the_rows_around_a_block_are_one_blank_row_each_as_the_document_has_them() {
+        // Blank rows included: one between the lead and the block, one
+        // between the block and the next run's header, none doubled where an
+        // entry lays out as nothing (`renderedBlockHasContent`,
+        // `transcript_blocks.zig:2114@481104fd`), as in
+        // `fx-fulltranscript-response-split-40x120-full-block-first` rows
+        // 25-35 and `-full-blocks` rows 24-36.
+        let mut record = record();
+        record.prompt("go");
+        record
+            .answer("Lead line.\n\n```sh\necho one\n```\n\n```sh\necho two\n```\n\nLast line.\n\n");
+        // The summary as the shell hands it over, its gutter included.
+        record.usage("  0s (\u{2191}1 \u{2193}2)");
+        let rows = screen(&record);
+        let first = rows
+            .iter()
+            .position(|row| row.ends_with("\u{b7} Prompt"))
+            .expect("the prompt's header");
+        let rule = |n: usize| format!("  {}", "\u{2500}".repeat(n));
+        assert_eq!(
+            rows[first..first + 19],
+            [
+                header_at(AT, "Prompt"),
+                "\u{2503} go".to_string(),
+                String::new(),
+                header_at(AT, "Response"),
+                "  Lead line.".to_string(),
+                String::new(),
+                "  \u{2500} sh \u{2500}\u{2500}\u{2500}".to_string(),
+                "  echo one".to_string(),
+                rule(8),
+                String::new(),
+                "  \u{2500} sh \u{2500}\u{2500}\u{2500}".to_string(),
+                "  echo two".to_string(),
+                rule(8),
+                String::new(),
+                header_at(AT, "Response"),
+                "  Last line.".to_string(),
+                String::new(),
+                header_at(AT, "Usage"),
+                "  0s (\u{2191}1 \u{2193}2)".to_string(),
+            ],
+            "{rows:#?}"
+        );
+    }
+
+    #[test]
+    fn an_entry_that_lays_out_as_nothing_is_no_place_to_hold_a_reader_as_upstreams_is_not() {
+        // fx marks where an entry starts when it writes its header
+        // (`before_entry` after the separator, `transcript_blocks.zig:
+        // 2116-2117@481104fd`) and where its projection hides one, a call
+        // its group draws elsewhere (`:2087-2090`; `skipEntry`,
+        // `full_transcript_screen.zig:5886-5897`), but not where an entry
+        // renders nothing (`:2114`, `continue` before `before_entry`): the
+        // line breaks an answer ends on after a block. So a reader on the
+        // blank row under that block is in the block, that many rows down,
+        // and a width change that re-wraps the block keeps them there
+        // (`select_visual_offset`), not on the separator. A file change
+        // while it runs lays out as nothing here and has no row in fx yet
+        // (`super::toolgroup`'s `Call::visible`): no place either.
+        let wide = format!("```sh\n{}\n```\n\n", "echo wide words ".repeat(12));
+        for case in ["line breaks", "a running write"] {
+            let mut record = record();
+            record.prompt("go");
+            if case == "line breaks" {
+                record.answer(&format!("Lead line.\n\n{wide}"));
+            } else {
+                record.answer(&format!("Lead line.\n\n{}", wide.trim_end()));
+                let input = json!({"path": "a.txt", "content": "x"});
+                record.tool_started("w", &crate::tools::mutate::WRITE_FILE.shown(&input));
+            }
+            record.usage("  0s (\u{2191}1 \u{2193}2)");
+            record.prompt("more");
+            record.answer(
+                &(1..=60)
+                    .map(|n| format!("- filler {n}\n"))
+                    .collect::<String>(),
+            );
+            record.open();
+            let at_120 = plain(&record.all_rows(120, DARK));
+            let block = at_120
+                .iter()
+                .position(|row| row.starts_with("  \u{2500} sh "))
+                .expect("the block's top");
+            let tall = at_120[block..]
+                .iter()
+                .position(String::is_empty)
+                .expect("the blank row under the block");
+            let view = record.view.as_ref().expect("open");
+            view.reading.set(Reading {
+                scroll_rows: block + tall,
+                follow_tail: false,
+                ..Reading::default()
+            });
+            let before = screen(&record);
+            assert_eq!(before[0], "", "{case}: {before:#?}");
+            assert!(before[1].ends_with("\u{b7} Usage"), "{case}: {before:#?}");
+            let at_60 = plain(&record.all_rows(60, DARK));
+            let block_60 = at_60
+                .iter()
+                .position(|row| row.starts_with("  \u{2500} sh "))
+                .expect("the block's top at 60");
+            let tall_60 = at_60[block_60..]
+                .iter()
+                .position(String::is_empty)
+                .expect("the blank row under the block at 60");
+            assert!(
+                tall_60 > tall,
+                "{case}: the block re-wraps taller: {tall} -> {tall_60}"
+            );
+            let narrow = screen_at(&record, 60);
+            assert_eq!(narrow[0], at_60[block_60 + tall], "{case}: {narrow:#?}");
+            assert_ne!(narrow[0], "", "{case}: {narrow:#?}");
+        }
+    }
+
+    #[test]
     fn answer_text_breaks_a_group_and_a_notice_does_not() {
         let mut record = record();
         record.tool_started("a", &read("a.txt"));
