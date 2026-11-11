@@ -342,3 +342,44 @@ and gpt6's NTH 2 (the note).
 
   The plain run had no catalog-wait failures, so there was nothing to
   rerun.
+
+## 11. Round 3 (tests only)
+
+gpt6's round-2 check found no MUST and one gap: no test covered a live
+session whose saved choices become unreadable. Round 3 adds that reload
+regression and changes nothing outside tests. `git diff 0d5d1c75..HEAD --
+src` is one file, `src/mcp/command/tests.rs`, all of it test code.
+
+- **The test**: `a_reload_over_choices_that_stop_loading_retires_only_the_workspace_server`
+  (src/mcp/command/tests.rs:1042). It drives one live runtime through
+  four reloads. A profile server `p` and a workspace server `s` each write
+  their process id to a log, then run the stdio fixture.
+  1. `s` approved in the saved choices: both are ready. `/mcp list` shows
+     both rows, `ready, 1 tool`.
+  2. A `1e400` beside the choices: the layer reader reads it, so both
+     servers are the same `Arc<Server>` and the same process, and the
+     listing is unchanged.
+  3. `"workspaces": 5`, a load fx refuses (`config_runtime.zig:402-403@481104fd`):
+     - `s` is gone from the runtime and its process no longer runs;
+     - `p` is the same server, and its process and pid are unchanged;
+     - the listing shows `p` alone.
+  4. The choices restored: `s` is ready again, a new server and a new
+     process, and `p` is still unchanged. The listing shows both again.
+
+  It passes on the round-2 code, as written and three more times.
+- **Mutant** (`mutants-round3.txt`, by `mutants.py ... "keeps the old
+  workspace"`, on a `git clone --no-local` of `27d57d69`, under the lock):
+  `read_configuration` keeps the old workspace servers on a failed load,
+  by loading the workspace with the last choices that loaded instead of
+  none. It is **killed**, and the test above is the one that fails.
+- **Gate** (`gate-round3.txt`): `gates.sh` on a `git clone --no-local` of
+  `27d57d69`, under one hold of the lock, with a short TMPDIR. **22 of 22
+  steps exit 0** on the first plain run, the tree clean before and after.
+  The step logs give:
+  - `cargo test`: 5,690 passed, 0 failed (round 2's 5,689 and this test);
+  - the fault-injection run: 5,727 passed, 0 failed;
+  - `smoke.sh`: 47 checks, 0 failures;
+  - `smoke-tui.sh`: 37 scenarios plus the oracle, 1,167 checks, 0 failures.
+
+  The plain run had no catalog-wait failures, so there was nothing to
+  rerun.
