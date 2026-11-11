@@ -284,6 +284,19 @@ the suite lock, 10:02–10:10Z (`gate.txt`):
 An earlier full gate, at `a70dcd89`, also passed (`gate-a70dcd89.txt`, with the
 subset rechecks made at `a77fad76` and `7b524d78`).
 
+## 6. Merged with main — `merged.txt`
+
+`origin/main` (`35cb4c7a`, release v0.2.0) was merged into the branch as
+`5ddfbbc0`. One conflict, in `docs/parity.md`: main rewrote four TUI rows next
+to the OSC 7501 row. It was resolved as main's rows, with this branch's one
+sentence in the OSC 7501 row; that row is otherwise main's text unchanged.
+
+On a snapshot of the merge, under the suite lock (`merged.txt`):
+- fmt and both clippys: clean.
+- `cargo test --no-fail-fast`: no failure (`tests/tui.rs` 193 cases).
+- The two new unit cases and the touched PTY cases with the fault injector:
+  all passed. The hostile paste's longest pause was 4.7 ms.
+
 ## Open questions
 
 1. **The quarantine's clock is read after the readiness check.**

@@ -1,0 +1,41 @@
+merged-tests.sh steps on a git clone --no-local at the merge 5ddfbbc0 (origin/main 35cb4c7a merged into this branch), under the suite lock, once. The one 'panicked at' line is an_unpaced_case_whose_every_paste_paused_fails_saying_so, a should_panic case that passed.
+Steps: fmt; clippy plain and fault-injection (--all-targets -D warnings); cargo test --locked --no-fail-fast; the two new lib cases with the fault injector; the PTY cases this unit touches with the fault injector (--nocapture, so the paste's printed pause shows).
+
+tree: 5ddfbbc06b032fe094d433c9eb1b0a95cc5333d5
+fmt: exit 0
+clippy: exit 0
+clippy-fault: exit 0
+test: exit 0
+    test result: ok. 4929 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 60.12s
+    test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+    test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.39s
+    test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.23s
+    test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.08s
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+    test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.20s
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.11s
+    test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.77s
+    test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+    test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s
+    test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.74s
+    test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+    test result: ok. 193 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.28s
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+lib-fault-new: exit 0
+    test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4957 filtered out; finished in 0.02s
+tui-fault-pty: exit 0
+    thread 'an_unpaced_case_whose_every_paste_paused_fails_saying_so' (553844972) panicked at tests/tui.rs:3614:5:
+    test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 198 filtered out; finished in 6.49s
+    test an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused ... ok
+    test a_skills_sandbox_root_is_never_named_with_what_its_case_searches ... ok
+    test an_unpaced_case_whose_every_paste_paused_fails_saying_so - should panic ... ok
+    test the_harness_measures_a_pause_between_two_writes_of_one_paste ... ok
+    test slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network ... ok
+    test the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out ... ok
+    test a_dollar_token_sends_upstreams_catalog_and_the_skills_whole_instructions ... ok
+    test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... ok
+    test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... ok
+    the paste's longest pause: 4.686083ms
+    the paste's longest pause: 4.683666ms
+    test tui::shell::tests::a_turn_start_owes_its_frame_exactly_when_its_tick_writes_working_after_the_frame ... ok
+    test tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking ... ok
