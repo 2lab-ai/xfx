@@ -3437,17 +3437,24 @@ fn hostile_paste(start_inside: bool) -> Vec<u8> {
 /// Writes `bytes` as a terminal writes a paste, as fast as it is taken, in
 /// parts of 4 KiB ([`Session::write_raw`]: no pause before or after), and
 /// then leaves the terminal quiet for a second -- far past the paste's
-/// quarantine -- so that what follows is a key of the test's own. Returns the
-/// longest the terminal can have gone without a byte of the paste
-/// ([`Session::write_raw_measured`]).
-fn paste_unpaced(session: &Session, bytes: &[u8]) -> std::time::Duration {
+/// quarantine -- so that what follows is a key of the test's own.
+///
+/// Or stops at the first part behind which the terminal can have gone
+/// [`PASTE_QUIET`] without a byte ([`Session::write_raw_measured`]), and
+/// returns that pause: the TUI may have ended the quarantine there, and the
+/// rest of a hostile paste would only be typed into a session that already
+/// proves nothing ([`unpaced_case`]) -- slowly enough, on a loaded machine,
+/// to outlast the write's own bound.
+fn paste_unpaced(session: &Session, bytes: &[u8]) -> Result<(), std::time::Duration> {
     let mut previous = None;
-    let mut longest = std::time::Duration::ZERO;
     for part in bytes.chunks(4096) {
-        longest = longest.max(session.write_raw_measured(part, &mut previous));
+        let gap = session.write_raw_measured(part, &mut previous);
+        if gap >= PASTE_QUIET {
+            return Err(gap);
+        }
     }
     std::thread::sleep(std::time::Duration::from_secs(1));
-    longest
+    Ok(())
 }
 
 /// How long the input has to be quiet for a paste's quarantine to end
@@ -3469,8 +3476,8 @@ const UNPACED_ATTEMPTS: usize = 3;
 /// harness thread a loaded runner does not schedule for 50 ms writes exactly
 /// that pause (CI run 42939692388: the body typed as keys from its line
 /// `K0000822` on). A session whose paste paused proves nothing about the
-/// paste, so its `case` stops right after it with the pause (`Err`) and a new
-/// session runs; one whose paste went out unpaced makes every assertion
+/// paste, so its `case` stops at the pause (`Err`, [`paste_unpaced`]) and a
+/// new session runs; one whose paste went out unpaced makes every assertion
 /// (`Ok`). Every session paused is a failure that says so.
 fn unpaced_case(mut case: impl FnMut() -> Result<(), std::time::Duration>) {
     let mut paused = Vec::new();
@@ -3550,10 +3557,7 @@ fn a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothi
             Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
         session.wait_for(READY);
 
-        let gap = paste_unpaced(&session, &hostile_paste(false));
-        if gap >= PASTE_QUIET {
-            return Err(gap);
-        }
+        paste_unpaced(&session, &hostile_paste(false))?;
         // A key of the test's own, once the input has been quiet: the composer
         // holds the paste and that key, and nothing of the body. It is written
         // after the whole paste, so once it is on the screen the paste has all
@@ -3602,10 +3606,7 @@ fn a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval() {
         session.type_bytes(b"edit the notes\r");
         session.wait_for(PERMISSION_TITLE);
 
-        let gap = paste_unpaced(&session, &hostile_paste(true));
-        if gap >= PASTE_QUIET {
-            return Err(gap);
-        }
+        paste_unpaced(&session, &hostile_paste(true))?;
         // A barrier in the input's own order: Down, written after the whole
         // paste, moves the question's marker to its second choice. Once that is
         // on the screen every byte of the paste has been read, so a paste that
