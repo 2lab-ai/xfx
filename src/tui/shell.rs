@@ -27633,8 +27633,8 @@ mod tests {
             Ok(TurnControl::QuestionCancelled { .. })
         ));
         // `released`, not `document`: the notice is behind the pacer, which is
-        // how the existing too-small assertions read it (`shell.rs:6178`,
-        // `:6384`). Concatenated rather than compared row by row, because a
+        // how the existing too-small assertions read it (`shell.rs:6212`,
+        // `:6418`). Concatenated rather than compared row by row, because a
         // twenty-column screen is exactly the one that wraps this sentence --
         // and what the case is about is that the refusal was said, not where the
         // wrap fell.
