@@ -1,0 +1,59 @@
+# RED: the self-test at 252a20ea against the check at 48a163ed (git clone --no-local, the test file swapped in)
+48a163ed receipts(local-paths-selftest-flake): round 7, PR #95's x86_64 macOS refusal
+test-check-no-local-paths: ok self                       its own source matches none of its shapes
+test-check-no-local-paths: ok shapes                     31 planted, each named by file and line
+test-check-no-local-paths: ok passes                     placeholders, relative and derived paths, a marked fixture, a renamed report
+test-check-no-local-paths: ok env GIT_DIR                the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_INDEX_FILE         the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_WORK_TREE          the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GREP_OPTIONS           the plant named, the decoy unchanged
+test-check-no-local-paths: ok env HOME                   the plant named, the decoy unchanged
+test-check-no-local-paths: ok skip-worktree              refused by name
+test-check-no-local-paths: ok deleted                    refused by name
+test-check-no-local-paths: ok disagree                   refused, not counted as passing
+test-check-no-local-paths: ok vanished                   refused by name
+test-check-no-local-paths: ok badnum                     the scan stops
+test-check-no-local-paths: ok gitfail                    the check fails
+test-check-no-local-paths: FAIL omit: a line pass that left out a file the count pass has did not fail the check (exit 1):
+    | check-no-local-paths: two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1
+    | check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and none now (git exit 1); git grep -c gives 1 now: per tree, they disagree again
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: FAIL fewer: a line pass with one line of a file fewer than the count did not fail the check, naming both (exit 1):
+    | check-no-local-paths: two readings of the tree disagree: the line pass has plant.md with 1 line(s), git grep -c has plant.md with 2
+    | check-no-local-paths: a second look at plant.md: the line pass gave line(s) 1 the first time and 1 now (git exit 0); git grep -c gives 2 now: per tree, they disagree again
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: FAIL omitonce: a line pass that left out a file once did not fail the check, or the second look did not say it did not repeat (exit 1):
+    | check-no-local-paths: two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1
+    | check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and 1 now (git exit 0); git grep -c gives 1 now: per run, the readings agree now
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: FAIL threads: a grep of the tree ran on more than one thread (exit 1):
+    | check-no-local-paths: two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1
+    | check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and 1 now (git exit 0); git grep -c gives 1 now: per run, the readings agree now
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: FAIL lookfail: a second look that could not read the file read as a reading (exit 1):
+    | check-no-local-paths: two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1
+    | check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and none now (git exit 1); git grep -c gives 0 now: per run, the readings agree now
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: FAIL lookjunk: a second look that could not read the file read as a reading (exit 1):
+    | check-no-local-paths: two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1
+    | check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and JUNK-NUMBER now (git exit 0); git grep -c gives 1 now: per run, the readings agree now
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: FAIL lookjunkc: a second look that could not read the file read as a reading (exit 1):
+    | check-no-local-paths: two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1
+    | check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and 1 now (git exit 0); git grep -c gives 2JUNK-COUNT now: per tree, they disagree again
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: ok truncated                  the scan stops
+test-check-no-local-paths: ok cutlinks                   the scan stops
+test-check-no-local-paths: ok cuttracked                 the check stops
+test-check-no-local-paths: ok stopped                    the check fails
+test-check-no-local-paths: ok diagnosis                  keys by scope, no path
+test-check-no-local-paths: ok diagnosis-gone             no path, every line its shape
+test-check-no-local-paths: 7 of 27 case(s) failed
+exit=1

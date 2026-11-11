@@ -1,0 +1,13 @@
+# /opt/homebrew/bin/git, git version 2.56.0, /bin/bash 3.2.57(1)-release
+check-no-local-paths: ok (18981 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s); 0 symlink(s))
+exit=0
+seconds: 35
+# /usr/bin/git, git version 2.54.0 (Apple Git-157), /bin/bash 3.2.57(1)-release
+check-no-local-paths: ok (18981 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s); 0 symlink(s))
+exit=0
+seconds: 26
+# timing: the check at c5cf594b (git default threads) on the same tree, /opt/homebrew/bin/git
+check-no-local-paths: ok (18981 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s); 0 symlink(s))
+exit=0
+seconds: 6
+# clone changed files after: 0

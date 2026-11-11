@@ -1,0 +1,23 @@
+##[group]Runner Image
+Image: macos-15-arm64
+Version: 20261104.0514.1
+Included Software: https://github.com/actions/runner-images/blob/macos-15-arm64/20261104.0514/images/macos/macos-15-arm64-Readme.md
+##[group]Run ./scripts/test-check-no-local-paths.sh
+./scripts/test-check-no-local-paths.sh
+shell: /bin/bash -e {0}
+env:
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: 1
+  COMMIT_UNDER_TEST: 4ad6405e2dc84e75b46ada8eb2df6ee8b7ba4ca3
+##[endgroup]
+test-check-no-local-paths: ok shapes                     28 planted, each named by file and line
+test-check-no-local-paths: ok self                       its own source matches none of its shapes
+test-check-no-local-paths: ok passes                     placeholders, relative and derived paths, a marked fixture, a renamed report
+test-check-no-local-paths: ok env GIT_DIR                the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_INDEX_FILE         the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_WORK_TREE          the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GREP_OPTIONS           the plant named, the decoy unchanged
+test-check-no-local-paths: ok env HOME                   the plant named, the decoy unchanged
+test-check-no-local-paths: ok skip-worktree              refused by name
+test-check-no-local-paths: ok deleted                    refused by name
+test-check-no-local-paths: ok (10 cases)

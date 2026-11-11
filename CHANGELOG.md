@@ -9,89 +9,265 @@ upstream `fx`.** What is and is not implemented lives in
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-11
+
+The full-screen release. On a terminal, a bare `xfx` now opens a full-screen
+interface, and most of the work since 0.1.0 brings that interface, its commands
+and its tools to the behaviour of upstream `fx` v0.0.16. That work is recorded
+surface by surface in [`docs/parity.md`](docs/parity.md), which says what is
+implemented, what is partial and how, and what is absent; this version number
+says nothing about how close xfx is to fx. Around it: switching between the AI
+Gateway and llmux, MCP servers, skills, image input, saved permission rules, and
+a version line that says when a build is from.
+
+If you script against xfx, read **Changed** first. A bare `xfx` on a terminal
+now opens the full-screen interface, so a script that drives the line shell
+through a pseudoterminal must set `XFX_TUI=0`; and `xfx --version`, the
+`status`/`doctor` field names and the `xfx setup` report are different.
+
 ### Added
 
-- **`xfx setup <gateway|llmux>` switches providers.** `setup` now names the
-  provider it is configuring, and the profile records `provider` plus a
-  `models` object keyed by provider, so each provider keeps its own model across
-  a switch. The keys a v0.1.0 binary reads -- `backend` and `model` -- are
-  written alongside them and kept in sync, so an older binary reading the same
-  profile still resolves the endpoint the operator chose. `setup gateway` is a
-  selection, not credential onboarding: it reads no key and writes none.
-- **`scripts/check-no-local-paths.sh`**, a gate over the files a push publishes:
-  it refuses a path that belongs to one machine -- a home directory, a
-  harness's scratch root, macOS's per-user temporary folder -- by its shape,
-  with a short list of documented placeholders and a per-line mark for a
-  fixture that needs one. `scripts/fxcap/capture.sh` now writes a run's own
-  roots into every file it captures as placeholders (`<work>`, `<scratch>`,
-  `<tmp>`, `<home>`), the same way for fx and xfx.
+- **The full-screen interface.** It runs on the terminal's normal screen: the
+  conversation goes into your own scrollback, and a band at the bottom holds
+  the composer, a status row and whichever menu is open. It never turns on
+  mouse reporting, so the wheel and native selection keep working, and it
+  takes the alternate screen only for the full transcript and for reviewing a
+  change too large for the band. The terminal's settings are restored when xfx
+  exits, panics or is suspended with Ctrl-Z. If the terminal takes only part of
+  a frame, xfx repairs the band or ends the session cleanly and leaves a short
+  report in `~/.xfx/last-tui-error.json`.
+- **The composer.** Multi-line editing with undo, redo and a kill ring. A paste
+  is framed: its line breaks never submit and its control bytes are dropped,
+  and a long one shows as `[Pasted text #N, M lines]` while the whole text is
+  what is sent. Ctrl-P and Ctrl-N walk the prompt history, kept in
+  `~/.xfx/history.jsonl` and switchable in `/settings`. `/` opens command
+  completion and `@` a file picker over the workspace. Keys arrive correctly
+  from terminals that speak the kitty keyboard protocol, and under tmux.
+- **The full transcript.** Ctrl-O opens every entry of the conversation on its
+  own screen -- prompts, answers, notices, each tool call with its arguments,
+  result and diff, and the time of each entry in your local zone -- and puts
+  the conversation back exactly as it was when it closes.
+- **Answers and tool calls as they happen.** Answers are rendered as Markdown,
+  with highlighted code and tables, in a light or dark palette chosen from
+  `XFX_THEME` (`light` or `dark`) or else from the terminal's background, with
+  OSC 8 hyperlinks. Tool calls are grouped under their turn with a one-line
+  status each. A row above the divider says what a running turn is doing.
+- **Approvals and questions in the band.** A tool call that needs permission
+  shows what it will do and waits for allow once, always or deny; you can type
+  a note with the answer, and the model receives it. A change too large to show
+  in the band is reviewed on the full screen. The new `ask_user_question` tool
+  lets the model ask 1 to 20 multiple-choice questions, with a free-form answer
+  beside the choices, in one panel; outside the full-screen interface it
+  reports that it is unavailable. `ask --json` has a new `tool_feedback` event,
+  which carries a note given with an approval.
+- **Menus and panels.** `/help` is a searchable catalog by category. `/status`
+  and a bare `/permissions` open read-only panels. `/model`, `/effort`,
+  `/provider`, `/resume`, `/fork`, `/settings`, `/mcp` and `/skills` open
+  their menus under the composer.
+- **The status row.** It shows the permission mode, the model, the reasoning
+  effort when it is not the default, a Fast or Ultra marker when one is on, and
+  a missing credential, and `/statusline` adds a context meter, the session and
+  the workspace. Each of those three is off until you turn it on. The meter
+  appears once a turn has reported its token count: `12k/200k 6%` when the
+  catalog gives the model's window, `12k` alone when it does not.
+- **Telling the terminal what is happening.** The full-screen interface sends
+  OSC 7501 program status reports (`idle`, `working`, `blocked`, `error`) for
+  terminals that show them, and rings the terminal bell when a turn ends or
+  needs you. `/sound` switches the bell; `XFX_SOUND` sets it for one run; it
+  starts on for macOS and off elsewhere.
+- **Two providers, switched in place.** `xfx setup gateway` and `xfx setup
+  llmux` choose where prompts go, and `/provider` (or `/setup`) does the same
+  inside a session. Each provider keeps its own model, so switching back
+  restores it. `setup gateway` reads and writes no credential. Setup keeps
+  0.1.0's `backend` and `model` keys in step with the new `provider` and
+  `models`, so a 0.1.0 binary reading the same profile still reaches the
+  endpoint you chose. A provider setting xfx cannot read still refuses every
+  turn, and also keeps the catalog, title and `/credits` requests from sending
+  the Gateway key.
+- **The model menu.** `/model` lists the provider's catalog -- the Gateway's,
+  or the one a llmux daemon serves -- with each model's context window, output
+  limit and Fast or Ultra availability, ranked by your search; `/model <query>`
+  switches to the best match and saves it as that provider's model. The
+  catalog is read in the background at launch, again when `/model` asks for
+  it, and retried with backoff after a failure; a catalog bigger than 16 MiB or
+  slower than 30 seconds is refused whole. `/effort` chooses the reasoning
+  effort, and `/fast` and `/ultrafast` the speed, for models whose catalog
+  offers them.
+- **Usage and credits.** `/usage` is fx's AI Gateway usage dashboard for an
+  `AI_GATEWAY_API_KEY`: periods, budget and per-model tables, cached under
+  `~/.xfx/usage-cache/`; a fetch starts only while the screen is open. Other
+  sign-ins get a short "not shown yet" screen. `/credits` (or `/balance`) shows
+  the Gateway account's balance, usage and plan.
+- **Sessions you can come back to.** `xfx --resume <last|ID>` opens the
+  full-screen interface on a saved session, and `/resume` picks one from this
+  workspace or every workspace. `/rename` gives a session your own title, and
+  a fresh session can get a generated one. `/fork` starts a new session from
+  before one of this session's prompts and leaves the original as it was.
+  `/reset` joins `/new` and `/clear`. Leaving a session that had a
+  conversation prints the `xfx --resume <id>` command that reopens it.
+- **Working with the conversation.** In the full-screen interface, `/compact`
+  replaces older turns with a summary to free room, and a turn compacts on its
+  own when its next request reaches the compaction threshold or the provider
+  refuses one as too large. In both shells, `/undo`
+  takes back the newest change this conversation's `write_file` or `edit_file`
+  made. `/copy` puts the last reply on the clipboard, and `/trace` writes a
+  private diagnostic report about the session and, on macOS, puts the file on
+  the clipboard.
+- **Image input.** `/image <path>` (or `/img`), `/paste` and Ctrl-V attach a
+  PNG, JPEG, GIF or WebP image of up to 20 MiB to the prompt being written,
+  after the configured read rules allow the file; `/images` lists or clears
+  them. A model without image input is refused rather than sent the image.
+- **MCP servers.** The full-screen interface runs an MCP client for stdio
+  servers and streamable HTTP servers (with headers and a bearer token named by
+  an environment variable; there is no OAuth sign-in). Servers come from
+  `~/.xfx/mcp.json` and from a workspace's `.mcp.json`; a workspace's server
+  starts only once you approve it in `/mcp`, and the approval is bound to the
+  entry it showed you. `/mcp` lists, shows, adds, removes, approves and
+  rejects servers, and its menu shows each one's state. A server's tools reach
+  the model as `mcp_<server>_<tool>` through two new tools, `capability_search`
+  and `mcp_select_tool`, and every call to one goes through the permission
+  check. A stdio server starts with six basic environment variables plus the
+  ones its entry names, and a workspace's server never gets xfx's own
+  credentials.
+- **Skills.** A directory holding a `SKILL.md` under `.xfx/skills` or `skills/`
+  in the workspace and its parents, or under `~/.xfx/skills`, is offered to the
+  model, which loads it with the new `skill` tool -- in `xfx ask` and in both
+  shells. `/skills` lists, shows, creates and removes skills, and `add` or
+  `install` copies one from a local directory; nothing is fetched from the
+  network. Other agents' skill directories are not read.
+- **Settings from inside a session.** `/settings` browses and changes the
+  interface, agent, notification and advanced settings, such as session
+  titles, prompt history, startup scrollback and collapsed tool groups.
+  `/workspace` saves extra directories this workspace's turns may use, as
+  `ask --add-dir` does for one turn. These commands write
+  `~/.xfx/settings.json` and keep every key they did not change, and none of
+  these settings can come from a project's `.xfx.json`.
+- **Permission rules that are kept.** `/allowlist` manages rules for commands
+  and tools in `~/.xfx/settings.json`: a global table, and a table for this
+  workspace. A workspace's table, even an empty one, replaces the global table
+  in that workspace, its denies included. Changing a global rule while a
+  workspace table puts it out of force says so, and so does `/allowlist view`;
+  adding a rule to the workspace's own table does not. xfx reads the tables at
+  launch. A `~/.xfx/settings.json` that does not parse, or a table in it that
+  cannot be read, refuses every tool outside full access, rather than letting
+  xfx run without rules that may have been denies. `/permissions` switches
+  between `ask`, `auto` and `full access`, and `remember` and `revoke` save or
+  withdraw a rule for one exact call in the saved session. A fork keeps every
+  deny its source holds.
+- **For contributors.** `scripts/check-no-local-paths.sh` refuses a tracked
+  file that holds a path belonging to one machine, such as a home directory or
+  a temporary folder, and runs in CI.
 
 ### Changed
 
-- **Every version line says when the build is from.** `xfx --version`, the
-  shell's and the TUI's `/version`, the TUI's welcome line, `status` (a new
-  `version` field) and a `/trace` report say llmux's line, `xfx 0.2.0 (preview
-  2026-11-10-0019-ec40c7ad2e50)`: the version, the channel, and the build's id
-  -- on a preview the UTC minute of the run that published it and its commit
-  (`XFX_BUILD_ID`), on any other build the UTC minute its commit was made and
-  that commit, read from git. A build with neither says its channel alone.
-  This replaces upstream's bare `--version` and the welcome line's
-  `v<version>-<rev> [<channel>]`, at the user's request (`docs/parity.md`,
-  `version text`). `XFX_BUILD_REVISION` is gone; `build_revision` is the id's
-  commit. The version is 0.2.0.
-- **A preview is published per epic, not per push.** A push to `main`
-  publishes only when it changes `.github/preview-epoch`, a one-line file
-  naming the epic the preview closes, so the units of an epic can merge to
-  `main` one PR at a time without each of them reaching the tap. A path filter
-  keeps the workflow from starting on any other push. GitHub runs a filtered
-  workflow anyway for a push of more than 1,000 commits or one whose diff
-  times out, so `preflight` diffs the push's previous commit against the new
-  one itself, and `build` and `publish` are skipped, with the run green,
-  unless that diff names the file. `scripts/check-preview-contract.sh` fails if
-  the filter is dropped or widened, another filter or trigger is added, the
-  gate or the condition on either job is removed, or the file is missing or is
-  not one line; it runs the gate over real commits. The new
-  `scripts/test-preview-contract.sh`, run by CI, breaks each of those in a
-  scratch copy and requires the check to name the break.
-- **The tap key is an environment secret.** `TAP_PUSH_KEY` moved from a
-  repository secret into the `preview` environment, whose deployment branch
-  policy is `main` only, and `publish` names that environment. A workflow
-  pushed on another branch cannot read the key.
-  `scripts/check-preview-contract.sh` fails if `publish` stops naming the
-  environment, if any other job names it or reads a secret, if `publish` holds
-  any secret expression but `secrets.TAP_PUSH_KEY` in a `run` step's `env`, or
-  if another workflow names an environment, reads a secret in any form, passes
-  secrets to a reusable workflow, or mentions the key.
-- **`status` and `doctor` report `provider` where they reported `backend`.**
-  The fields are `provider`, `provider_url` and `provider_rejected`, and the
-  `doctor` check is named `provider`. The settings key that selects it is still
-  `backend` and is read exactly as before; what changed is that the product now
-  has one word for the axis instead of two, which is what lets a later release
-  report a disagreement between two keys without inventing a third name for the
-  thing they disagree about.
+- **A bare `xfx` on a terminal opens the full-screen interface.** In 0.1.0 it
+  opened the line-oriented shell, which is still there: `XFX_TUI=0` selects it.
+  The line shell now answers every command name the full-screen interface has;
+  the 13 that need the full screen (`/resume`, `/fork`, `/settings`, `/mcp`,
+  `/usage`, `/stats`, `/compact`, `/effort`, `/fast`, `/ultrafast`, `/image`,
+  `/images` and `/paste`) say so and point back to it. Without a terminal on
+  both ends, xfx still refuses to open either and points at `xfx ask`.
+- **Breaking for scripts: the version line.** `xfx --version` printed the bare
+  version; it now prints the version, the channel and the build's id, `xfx 0.2.0
+  (preview 2026-11-10-0019-ec40c7ad2e50)`. On a preview, the id is the UTC
+  minute of the run that published it and its commit. On any other build, it is
+  the UTC minute its commit was made and that commit, read from git. A build
+  with neither says its channel alone, `xfx 0.2.0 (debug)`. The shell's
+  `/version`, the full-screen welcome line, a new `version` field in `status`
+  and a `/trace` report say the same line. `status` still reports
+  `build_channel` and `build_revision` on their own.
+- **Breaking for scripts: `status` and `doctor` say `provider`.** The fields
+  `backend`, `backend_url` and `backend_rejected` are now `provider`,
+  `provider_url` and `provider_rejected`, and the `doctor` check `backend` is
+  now `provider`. The settings key `backend` still selects the provider, read
+  as before, and the new `provider` key selects it too: between two settings
+  layers the newer one's key wins, and within one layer `provider` wins over
+  `backend`. When the two keys disagree, `doctor` reports it as a `config`
+  check named `conflicting_provider_selection`.
+- **Breaking for scripts: `xfx setup`'s report says `provider`.** Its
+  `backend` line and JSON field are now `provider`; `url` and `models` appear
+  only for a provider that has them (`setup llmux` has both, `setup gateway`
+  neither); and a new `auth` field names the credential source.
+- **`~/.xfx` must be private for every writer.** The settings writers,
+  `xfx setup`, `/mcp add` and the skills commands now create a missing
+  `~/.xfx` as `0700`. They refuse an existing one that is a symbolic link,
+  that is not a directory, or that another account owns, saying which; and
+  one open to group or other, naming the `chmod 700 <path>` that makes it
+  private. In 0.1.0 only the session store refused such a directory.
+- **`HOME` is used only when it is an absolute path.** An empty or relative
+  `HOME` now counts as unset, and a `HOME` that names a missing directory is
+  refused rather than created. With no usable home, the full-screen interface
+  runs without saving anything.
+- **"Always" answers can be withdrawn.** As in 0.1.0, an "always" answer is
+  recorded with the session and a resume keeps it. `/permissions reset` now
+  withdraws a session's grants, and the log records that, so a later resume
+  does not bring them back. The full-screen interface records and restores
+  grants the same way; in a session that cannot be saved, an "always" lasts
+  only as long as the process.
+- **Sessions written by 0.2.0 may not open in an older xfx.** 0.2.0 records
+  seven event kinds 0.1.0 does not know: `session_renamed`, `images_attached`,
+  `tool_images_attached`, `steered`, `tool_feedback`,
+  `permission_grants_cleared` and `context_checkpoint`. An older xfx refuses a
+  whole session that holds one -- `xfx session` and `ask --resume` say it
+  cannot be trusted and exit 1 -- so go back to an older xfx only with
+  sessions it wrote.
+- **Previews are published per finished body of work, not on every push.** A
+  push to `main` publishes a preview only when it changes
+  `.github/preview-epoch`, and the key that updates the Homebrew tap can now be
+  read only by the publishing job on `main`.
 
 ### Fixed
 
-- **`read_file` no longer parks a turn on a FIFO.** Only directories were
-  refused before the read, so a named pipe with no writer passed the check and
-  blocked the whole turn inside `fs::read`, with no way out. Any target that is
-  not a regular file is now refused by name before it can be opened: a socket or
-  a device is refused for that same reason, though those usually fail fast
-  rather than hang. Upstream `fx` 0.0.5 refuses them all the same way.
-- **A session is much less often reported busy because something forked.** A
-  writer's `flock` lives on the open file description, and `fork` hands a copy
-  of that description to every child -- `O_CLOEXEC` closes the copy at `execve`,
-  not at `fork`. xfx forks for every `terminal` command, so a session closed
-  while some child was still on its way to `exec` stayed locked for that window,
-  and a resume landing inside it was told another xfx was writing a session
-  nobody was writing. Taking the lock now opens a bounded grace period of about
-  a quarter second instead of refusing on the first attempt: a window of that
-  kind is over long before the grace is, and short-lived contention is
-  serialized rather than refused. Two things it does not buy: a `Busy` that is
-  really warranted now arrives about a grace period later, and a forked child
-  descheduled past the grace can still produce one. This makes the race rare; it
-  cannot tell one holder from another, because `flock` reports that a lock is
-  held and never by whom.
+- **`read_file` no longer hangs a turn on a FIFO.** Only directories were
+  refused before, so a named pipe with no writer blocked the whole turn. Any
+  target that is not a regular file is now refused by name before it is
+  opened.
+- **A session is much less often reported busy because something forked.**
+  xfx forks for every `terminal` command, and a child that had not yet reached
+  `exec` briefly kept the session's lock, so a resume landing in that window
+  was told another xfx was writing. Taking the lock now retries for about a
+  quarter second; a lock that is really held is still refused, a little later.
+- **A stopped or timed-out command leaves nothing running.** Stopping signalled
+  the command's process group once, and on a loaded macOS machine a child the
+  command was still creating could miss the signal and keep running. xfx now
+  waits for the command to exit and signals its group until it is empty.
+- **The Gateway key no longer follows a redirect or a cleartext proxy.** The
+  completion client followed up to ten redirects, replaying the prompt
+  wherever a reply pointed and, on the same host, with the key. Every client
+  that sends the key now follows none, and uses a proxy from the environment
+  only over https.
+- **Model text on a terminal has its control characters blanked.** On a
+  terminal, `xfx ask` and the line shell wrote the answer's bytes as they came,
+  so an escape sequence in it could hide or redraw what came next, including the
+  approval question. Control characters other than the line break, carriage
+  return and tab are now written as spaces, a pipe or a file still gets the
+  answer byte for byte, and `ask --json` on a terminal escapes invisible and
+  bidirectional characters. The approval question in `ask` and the line shell
+  spells every control character in the command, pattern or path it quotes.
+- **`auto` asks before writing files that decide what runs next.** It used to
+  admit a write to a shell's startup file, `.ssh`, `.gitconfig`, `.mcp.json`
+  and similar files when they were inside the workspace -- for example when
+  xfx ran in the home directory. Those writes, and any write inside a git
+  directory, now ask, including spellings that a case-insensitive volume
+  folds onto those names. `auto`'s read-only `git` commands now also switch
+  off filter drivers, hooks and git's trace output, and ask when the
+  repository's configuration could still make git run something of its
+  choosing.
+- **A resumed `ask` uses the session's recorded model only when it is a name
+  xfx would write itself**; otherwise it uses the configured model, so an
+  edited session log cannot put arbitrary text into the request.
+- **Changing model on llmux no longer replays another model's reasoning.** A
+  step's signed reasoning is sent back only to the model that produced it; for
+  any other, the step is replayed as its text and tool calls.
+
+### Removed
+
+- **`XFX_BUILD_REVISION`**, the build-time variable that named the revision.
+  `XFX_BUILD_ID` replaces it; a value not of the form
+  `YYYY-MM-DD-HHMM-<12 hex>` fails the build.
+- **The `backend`, `backend_url` and `backend_rejected` report fields, and the
+  `backend` doctor check**, renamed as described under Changed.
+- No command, tool or shell command that 0.1.0 had was removed.
 
 ## [0.1.0] - 2026-08-24
 
