@@ -11114,6 +11114,25 @@ impl Shell {
         Keyed::AfterFrame
     }
 
+    /// Whether a turn's start read now is owed a frame of its own: the
+    /// `working` of a prompt held for its turn ([`Self::status_held`]), or
+    /// of one this tick's keys sent, goes after the frame that first shows
+    /// that turn ([`Keyed::AfterFrame`]). The drain stops behind such a start
+    /// (`super::event_loop`'s `drain_ui_events`), so that frame shows the
+    /// turn as it began -- `Thinking` -- and the report follows it, however
+    /// much more of the turn the runtime had sent by then: the rest is the
+    /// next tick's. Upstream's order has no race in it -- its keystroke holds
+    /// the worker's next start until the pass that reports `working` with the
+    /// prompt queued (`installPendingSubmission`,
+    /// `input_submit_runtime.zig:1123-1150@481104fd`;
+    /// `finalizePendingSubmission`, `main.zig:1245-1274`; the release,
+    /// `input_submit_runtime.zig:391-405`) -- where here the runtime starts the
+    /// prompt itself, and a UI thread that was not scheduled could read the
+    /// start, the answer and the end in one drain and report `done` alone.
+    pub(crate) fn turn_start_owes_its_frame(&self) -> bool {
+        self.status_held || self.status_moved_by_input
+    }
+
     /// Somebody else has had the terminal -- a stop, whose restore cleared
     /// the record -- so the next report is written whatever it says
     /// (`suspendToJobControl`'s `invalidate`, `main.zig:1050-1055@481104fd`).

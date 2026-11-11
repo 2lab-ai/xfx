@@ -361,7 +361,7 @@ fn take_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) {
 }
 
 /// [`take_ui_events`]' drain: whether it stopped because the channel was
-/// empty (or closed), rather than at one of its two bounds.
+/// empty (or closed), rather than at one of its three bounds.
 fn drain_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) -> bool {
     for _ in 0..bridge::UI_EVENTS {
         // And bounded a second way, which is where the pacer's queue gets its
@@ -386,7 +386,17 @@ fn drain_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) -> bool {
             return false;
         }
         match events.try_recv() {
-            Ok(event) => shell.apply(event),
+            Ok(event) => {
+                let starts = matches!(event, UiEvent::TurnStarted { .. });
+                shell.apply(event);
+                // And a third way: behind the start of a turn whose `working`
+                // waits for the frame that first shows it, so that frame shows
+                // the turn beginning and the report follows it
+                // ([`Shell::turn_start_owes_its_frame`]).
+                if starts && shell.turn_start_owes_its_frame() {
+                    return false;
+                }
+            }
             // Empty, or a runtime that is gone -- and a runtime that is gone
             // said so with a `Fatal` before its sender dropped, so there is
             // nothing here that has to be inferred from a closed channel.
@@ -15989,6 +15999,90 @@ mod tests {
             frame.is_some() && report.is_some() && frame < report,
             "{tick:?}"
         );
+    }
+
+    #[test]
+    fn a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking() {
+        // Upstream never sees a prompt's turn start and end within one pass:
+        // the keystroke holds the worker's next start (`installPendingSubmission`,
+        // `tryHoldTurnStart`, `input_submit_runtime.zig:1123-1150@481104fd`),
+        // its frame shows the prompt's `Thinking`, and the next pass reports
+        // `working` with the prompt queued (`finalizePendingSubmission` ->
+        // `syncState`, `main.zig:1263-1274`) before it lets the worker start
+        // (`markQueued`, `releaseTurnStartHold`, `input_submit_runtime.zig:
+        // 391-405`). So `working` always comes, after a frame showing
+        // `Thinking`, however fast the turn is (`osc/w01-working`). Here the
+        // runtime starts the prompt itself, and a UI thread that was not
+        // scheduled can find the turn's start, its answer and its end on the
+        // channel at once -- after the keystroke's tick, or in that tick's own
+        // drain, which follows its keys (`session`). CI saw both: `idle`,
+        // `done` and no `working`; and a `working` behind a frame that showed
+        // `Generating`, with no `Thinking` ever painted. The tick that reads
+        // the start reads what came before it, and nothing after it.
+        for same_tick in [false, true] {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut out = StatusScreen::default();
+            let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+            launch_title(&mut shell, &mut band);
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(b"go\r");
+            if !same_tick {
+                take_ui_events(&mut shell, &mut receiver);
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            for event in [
+                UiEvent::Notice(super::super::notice::Notice::neutral(
+                    "test",
+                    "NOTICE-BEFORE-THE-START",
+                )),
+                shell.turn_starts(),
+                UiEvent::Delta("ANSWER".to_string()),
+                UiEvent::TurnEnded { failure: None },
+            ] {
+                events.try_send(event).expect("room on the channel");
+            }
+            let mut ticks = Vec::new();
+            for _ in 0..3 {
+                let before = out.vectors.len();
+                take_ui_events(&mut shell, &mut receiver);
+                shell.flush_paced();
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+                ticks.push(out.vectors[before..].concat());
+            }
+            let shown = |tick: &[u8]| String::from_utf8_lossy(tick).into_owned();
+            let start = &ticks[0];
+            assert!(
+                holds(start, b"NOTICE-BEFORE-THE-START") && !holds(start, b"ANSWER"),
+                "same tick {same_tick}: the start's tick did not read up to the start and stop: {:?}",
+                shown(start)
+            );
+            let thinking = find(start, b"Thinking");
+            let working = find(start, WORKING.as_bytes());
+            assert!(
+                thinking.is_some() && working.is_some() && thinking < working,
+                "same tick {same_tick}: no working after a frame showing Thinking: {:?}",
+                shown(start)
+            );
+            assert!(
+                !holds(start, DONE.as_bytes()) && holds(&ticks[1], DONE.as_bytes()),
+                "same tick {same_tick}: the end was not the next tick's: {:?}",
+                ticks.iter().map(|tick| shown(tick)).collect::<Vec<_>>()
+            );
+            let reports: Vec<String> = ticks
+                .concat()
+                .split(|byte| *byte == 0x1b)
+                .filter(|piece| piece.starts_with(b"]7501;"))
+                .map(|piece| String::from_utf8_lossy(piece).into_owned())
+                .collect();
+            assert_eq!(
+                reports,
+                ["]7501;state=working:app=xfx", "]7501;state=done:app=xfx"],
+                "same tick {same_tick}"
+            );
+        }
     }
 
     #[test]
