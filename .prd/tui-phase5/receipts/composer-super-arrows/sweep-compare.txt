@@ -1,0 +1,38 @@
+# python3 -I ../approval-vertical-spellings/cmp_sweeps.py <scratch>/sweep-base/pairs.json <scratch>/sweep-head/pairs.json
+# base: xfx v0.1.0-28bd181 (sha256 28ac542d1e63...), head: v0.1.0-1fcf30b (sha256 1505d7990473...); fx v0.0.16 both; this branch's scenarios; the ledger at 30ba1d7c (sha256 be119e7324ba..., its refs re-pointed) for both
+# --only composer* p5-modified-* p5-paragraph-* question* p5-question* approval* p5-approval* fulltranscript* p5-input-* p5-super-arrows*, 40x120, --jobs 2, both in one suite-lock slot (929 s and 936 s)
+change p5-input-question20/q20-answered: identical -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-super-arrows/alt-home: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-super-arrows/alt-super-right: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-super-arrows/ctrl-alt-home: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-super-arrows/ctrl-home: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-super-arrows/ctrl-super-left: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-super-arrows/keypad-ctrl-end: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-super-arrows/statusline-super-left: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-super-arrows/super-end: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-super-arrows/super-left: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-super-arrows/super-right: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-super-arrows/tilde-ctrl-home: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-super-arrows/tilde-super-end: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-super-arrows-approval/amend-alt-super-right: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-super-arrows-approval/amend-ctrl-end: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-super-arrows-approval/amend-ctrl-home: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-super-arrows-approval/amend-ctrl-super-left: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-super-arrows-approval/amend-shift-home: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-super-arrows-approval/amend-super-end: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-super-arrows-approval/amend-super-home: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-super-arrows-approval/amend-super-left: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-super-arrows-approval/amend-tilde-ctrl-end: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 2 -> 0
+change p5-super-arrows-question/field-alt-super-right: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-super-arrows-question/field-ctrl-end: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-super-arrows-question/field-ctrl-home: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-super-arrows-question/field-ctrl-super-left: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-super-arrows-question/field-shift-home: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-super-arrows-question/field-super-end: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-super-arrows-question/field-super-home: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-super-arrows-question/field-super-left: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-super-arrows-question/field-super-right: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-super-arrows-question/field-tilde-ctrl-end: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+base: 432 pairs, 264 pass, 41 with uncaused rows
+head: 432 pairs, 286 pass, 10 with uncaused rows
+drops: 0

@@ -223,11 +223,60 @@ amendment).
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
 
-PENDING
+The command:
+
+```
+scripts/fxcap/sweep.sh --only 'composer*' --only 'p5-modified-*'
+  --only 'p5-paragraph-*' --only 'question*' --only 'p5-question*'
+  --only 'approval*' --only 'p5-approval*' --only 'fulltranscript*'
+  --only 'p5-input-*' --only 'p5-super-arrows*'
+```
+
+It ran at 40x120 with `--jobs 2`, on this branch's scenarios and its ledger
+with the refs re-pointed. It ran once with the base's binary
+(`v0.1.0-28bd181`) and once with the code head's (`v0.1.0-1fcf30b`), both
+in one suite-lock slot. That is 47 scenarios and 432 pairs.
+APPROVAL-VERTICAL-SPELLINGS' `cmp_sweeps.py` (unchanged, run from its
+folder) compares them pair by pair:
+
+- **base 264 / 432, head 286 / 432, drops 0.**
+- **This unit's three scenarios**: 10 of their 48 pairs pass at the base and
+  32 at the head, as `pairs.sh` counts them.
+  - The 16 that do not pass are the approval's pairs. The ledger's
+    `approval-grant-scope` cause leaves them unresolved on both sides.
+  - The head's approval pairs carry no uncaused row but
+    `amend-super-right`'s caret (GREEN).
+- **The other 44 scenarios' 384 pairs** pass 254 on both sides. One pair
+  changes class, `p5-input-question20/q20-answered`. It goes from identical
+  to normalized-identical, a pass on both sides, with no cause and no
+  uncaused row on either.
+- These held keys' pairs keep their class: `p5-modified-arrows-question`'s
+  `super-left`, `p5-approval-horizontal-keys`' `super-left` and
+  `super-right`, and `p5-modified-arrows-full`'s `full-super-left`. Each
+  has nothing at a choice, or the scope cause, on both sides.
+- **Uncaused rows**: 41 pairs have them at the base and 10 at the head.
+  - Nine of the head's ten have the same rows at the base: `p5-input-approval`'s
+    `cmd-ask`, `edit-ask` and `after`; `p5-input-paste-amend`'s `end`;
+    `p5-modified-page-keys`' `full-pgup`; `p5-paragraph-move`'s four
+    full-transcript screens. All are older than this unit.
+  - The tenth is `amend-super-right`'s caret row (Open).
+- No scenario was refused, failed or timed out.
 
 ## Gate (`gate.txt`)
 
-PENDING
+The brief's gate once, under the suite lock, on a `--no-local` clone at
+`5bc8f9dc` (its `src/` is `32969730`'s):
+- `cargo fmt --check` and both clippy runs pass;
+- `cargo test`: 5718 passed; with `fault-injection`: 5755 passed; 0 failed
+  and 7 ignored each;
+- the identity, stubs, secrets and local-paths checks all exit 0;
+- the clone is clean after.
+
+The base unit's gate was 5713 and 5750 (COMPOSER-PARAGRAPH-MOVE's
+`gate.txt`, round 2). That is +5 each: the three new shell tests, the
+decoder's Left/Right/Home/End table and the editor test. Every other
+changed test was rewritten or renamed, not added. No catalog-wait failure
+came up.
 
 ## Refs (`refs.txt`, `refs.py`)
 
