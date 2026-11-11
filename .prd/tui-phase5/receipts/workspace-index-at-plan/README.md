@@ -366,7 +366,7 @@ check of the file would make it trustworthy.
   the scenario loop reads `< "$file"`, not a pipe.
 - **`$run/pane` is a copy for the tests,** never read back. It is written as
   a new file (`rm -f`, then `set -C`), so a link the binary left at its name
-  is not followed.
+  is not followed (round 6, 8f, narrows this).
 - **Tests** (`tests/red5.txt`; each stub stays past the wait):
   - the binary deletes the copy: exit 4;
   - the binary writes `gone` into it: exit 4;
@@ -417,10 +417,17 @@ binary, and nothing waited for it.
   still leaves cleanup the first process to wait for. An earlier non-zero
   status is kept, as since round 3, so those runs end with their own failure
   status, not 4, and with the guard line.
-- **The copy** (`pane_set`, `:534-539`) is written into a mktemp file renamed
-  over `$run/pane`, so a FIFO or link the binary left there is never opened
-  (gpt6's NTH: `rm -f` then `set -C` still opened whatever was created in
-  between).
+- **The copy** (`pane_set`, `:534-539`) is written into a mktemp file and
+  renamed over `$run/pane`. What this holds: the published name `$run/pane`
+  is never opened, and cleanup never reads the copy. Round 5's `rm -f` then
+  `set -C` still opened whatever was created at that name in between
+  (gpt6's NTH).
+  - **Residual (gpt6's NTH on round 6):** the binary can still swap the
+    mktemp path between its creation and the `printf > "$t"`, or leave a
+    symlink to a directory at `$run/pane`, which `mv -f` moves into. Either
+    can block or redirect the copy's own write, and nothing else: no verdict
+    rests on the copy. A blocked write is caught by the sweep's per-run
+    timeout.
 - **Tests** (`tests/red6.txt`, at f8600318):
   - a first binary deaf to the respawn's hangup, past the wait: exit 4 naming
     it, alive when the run ends, sent only HUP (exit 0 at f8600318);
