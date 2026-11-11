@@ -174,14 +174,27 @@ diagnose_shapes() {
 	# is public, and a path (a tool's, a config file's, a value's) names a
 	# machine.
 	printf '    | ran: bash %s; %s\n' "$BASH_VERSION" "$(git --version 2>/dev/null || echo 'git: no version')" >&2
-	(cd "$t" && git config --show-scope --get-regexp '^(grep\.|core\.fsmonitor|index\.|feature\.)' 2>/dev/null || true) |
+	# Names only, never a value as text (a value can span lines, and its
+	# second line would read as a name): each name with its scope, both
+	# checked against what git can print (`<odd>` otherwise), and the value
+	# in effect only as git types it, a boolean or a number, `<set>` if not.
+	(cd "$t" && git config --show-scope --name-only --get-regexp '^(grep\.|core\.fsmonitor|index\.|feature\.)' 2>/dev/null || true) |
 		while IFS= read -r line; do
 			scope="${line%%$'\t'*}" key="${line#*$'\t'}"
-			value="${key#* }" key="${key%% *}"
-			[ "$value" != "$key" ] || value=""
+			case "$scope" in
+			system | global | local | worktree | command) ;;
+			*) scope='<odd>' ;;
+			esac
+			case "$key" in
+			'' | *[!A-Za-z0-9.-]*) key='<odd>' value='<set>' ;;
+			*) value="$(cd "$t" && git config --type=bool-or-int --get "$key" 2>/dev/null)" || value='<set>' ;;
+			esac
 			case "$value" in
-			'' | true | false | yes | no | on | off) ;;
-			*[!0-9]*) value='<set>' ;;
+			true | false | [0-9]* | -[0-9]*) ;;
+			*) value='<set>' ;;
+			esac
+			case "$value" in
+			*[!0-9a-z-]*) value='<set>' ;;
 			esac
 			printf '    | config: %s %s %s\n' "$scope" "$key" "$value"
 		done >&2
@@ -623,16 +636,21 @@ fi
 # names the keys and their scope, and neither path.
 home="$work/diag-home"
 mkdir -p "$home"
-printf '[grep]\n\tthreads = 2\n[core]\n\tfsmonitor = %shook\n[feature]\n\tmanyFiles = false\n' "$mac" >"$home/.gitconfig"
+# One value spans two lines, a home on its second (`feature.note`, a key git
+# does not read). Every line the diagnosis prints must have its own shape.
+printf '[grep]\n\tthreads = 2\n[core]\n\tfsmonitor = %shook\n[feature]\n\tmanyFiles = false\n\tnote = "x\\n%sy"\n' "$mac" "$mac" >"$home/.gitconfig"
 t="$work/shapes"
 missing=("w3/trace-report.md:1: $linux_shape")
 (HOME="$home" && export HOME && unset XDG_CONFIG_HOME && diagnose_shapes) 2>"$work/diag" || true
+shaped='^    \| (config: (system|global|local|worktree|command|<odd>) ([a-z0-9.-]+|<odd>) (true|false|-?[0-9]+|<set>)$|(ran|expected|actual|lost|second run): |per (run|tree): |[0-9]+ more not named )'
 if ! grep -q -x -F '    | config: global grep.threads 2' "$work/diag" ||
 	! grep -q -x -F '    | config: global core.fsmonitor <set>' "$work/diag" ||
 	! grep -q -x -F '    | config: global feature.manyfiles false' "$work/diag" ||
-	grep -q -F -e "$home" -e "$mac" "$work/diag" || grep -q -E '^    \| ran: .*/' "$work/diag"; then
-	problem "diagnosis: it does not name the config keys by scope, or it prints a path:"
-	sed 's/^/    | /' "$work/diag" >&2
+	! grep -q -x -F '    | config: global feature.note <set>' "$work/diag" ||
+	grep -q -F -e "$home" -e "$mac" "$work/diag" || grep -q -E '^    \| ran: .*/' "$work/diag" ||
+	grep -q -v -E "$shaped" "$work/diag"; then
+	# Its text may hold the planted paths: counts only.
+	problem "diagnosis: it does not name the config keys by scope, or it prints a path ($(grep -c -F -e "$home" -e "$mac" "$work/diag" || true) line(s) with one; $(grep -c -v -E "$shaped" "$work/diag" || true) line(s) of no known shape)"
 else
 	ok diagnosis "keys by scope, no path"
 fi
