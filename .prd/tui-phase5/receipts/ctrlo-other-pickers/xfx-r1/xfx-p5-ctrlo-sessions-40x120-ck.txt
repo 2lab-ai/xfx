@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-91c4673 [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Sessions 2  [Current workspace]  All workspaces
+
+  second question beta    work · now · 1 turn
+  first question alpha    work · now · 1 turn
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab scope     enter resume     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

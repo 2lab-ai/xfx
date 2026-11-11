@@ -1,0 +1,11 @@
+== screen-moves-base-u.txt: 29 listed lines
+  21  a saved session's id (resume ids, /status's Session row)
+  7  other
+  1  the build id: /status's Build row, and the banner where a `.full` snap keeps it below row 1
+    other: xfx help ctrl-c rows [3, 5]: [('* version: 0.2.0 (debug 2026-11-10-1858-dcfa5146b520)', '* version: 0.2.0 (debug 2026-11-10-2057-b3dffdad3e0b)'), ('* version: 0.2.0 (debug 2026-11-10-1858-dcfa5146b520
+    other: xfx help enter-exact rows [3, 5]: [('* version: 0.2.0 (debug 2026-11-10-1858-dcfa5146b520)', '* version: 0.2.0 (debug 2026-11-10-2057-b3dffdad3e0b)'), ('* version: 0.2.0 (debug 2026-11-10-1858-dcfa514
+    other: xfx help enter-row rows [3]: [('* version: 0.2.0 (debug 2026-11-10-1858-dcfa5146b520)', '* version: 0.2.0 (debug 2026-11-10-2057-b3dffdad3e0b)')]
+    other: xfx help esc-after-ctrlc rows [3, 5]: [('* version: 0.2.0 (debug 2026-11-10-1858-dcfa5146b520)', '* version: 0.2.0 (debug 2026-11-10-2057-b3dffdad3e0b)'), ('* version: 0.2.0 (debug 2026-11-10-1858-dcf
+    other: xfx help typed-exact rows [3]: [('* version: 0.2.0 (debug 2026-11-10-1858-dcfa5146b520)', '* version: 0.2.0 (debug 2026-11-10-2057-b3dffdad3e0b)')]
+    other: fx p5-lifecycle-compactok c02-compacting rows [18]: [('  Compacting (0s)', '• Compacting (1s)')]
+    other: xfx p5-lifecycle-relhome-unsaved u08-quit.full rows [16]: [('debug 2026-11-10-1858-dcfa5146b520) · Run /help for commands', 'debug 2026-11-10-2057-b3dffdad3e0b) · Run /help for commands')]

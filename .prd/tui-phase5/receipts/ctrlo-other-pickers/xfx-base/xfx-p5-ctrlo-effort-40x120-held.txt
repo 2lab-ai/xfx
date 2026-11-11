@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-cb7c9c1 [debug] · Run /help for commands
+
+  2026-11-10 21:32:13.321 KST · Notice
+* session: provider: gateway · model: openai/gpt-6-astra · effort: auto
+  tools: 12 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,
+  +4 more)
+  mcp: none
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · gpt-6-astra

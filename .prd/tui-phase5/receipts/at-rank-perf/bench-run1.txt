@@ -1,0 +1,62 @@
+# base 4a5dc3c7 (AT-RANK), release lib test binary, run 1
+# XFX_AT_BENCH_TREE=<scratch>/tree100k
+# before: load averages: 102.94 99.35 80.23 (18 cores)
+running 1 test
+test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... entries: 100000
+exact            33 keys  1 rows p50 4.70525ms p95 11.005167ms max 15.211375ms
+boundary          5 keys 32 rows p50 5.879875ms p95 15.508333ms max 15.782209ms
+low-selectivity   2 keys 32 rows p50 10.948375ms p95 17.10825ms max 17.544583ms
+long-gap          4 keys 32 rows p50 9.852375ms p95 19.075167ms max 20.041541ms
+no-match         14 keys  0 rows p50 4.24225ms p95 4.771791ms max 5.142917ms
+punctuation       9 keys  1 rows p50 4.701ms p95 11.404792ms max 13.501292ms
+unicode           3 keys  1 rows p50 4.153125ms p95 4.379584ms max 4.48125ms
+unicode-fold      3 keys 32 rows p50 5.419666ms p95 6.145959ms max 6.623083ms
+every keystroke: 1460 searches p50 4.650708ms p95 14.123916ms p99 17.1915ms max 20.041541ms
+whole queries (fx's gate): 160 searches p50 4.506209ms p95 16.880834ms
+thread 'tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame' panicked at src/tui/file_index.rs:3123:9:
+a keystroke's search took 14.123916ms at the 95th percentile, against an 8 ms frame
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+failures:
+failures:
+    tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4653 filtered out; finished in 14.85s
+# after: load averages: 106.56 100.21 80.86
+
+# head b47953e2 (AT-RANK-PERF), release lib test binary, run 1
+# XFX_AT_BENCH_TREE=<scratch>/tree100k
+# before: load averages: 106.56 100.21 80.86 (18 cores)
+running 1 test
+test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... entries: 100000
+exact            33 keys  1 rows p50 242.375µs p95 5.346958ms max 7.094208ms
+boundary          5 keys 32 rows p50 683.917µs p95 817.833µs max 907.458µs
+low-selectivity   2 keys 32 rows p50 765.375µs p95 4.7335ms max 5.16675ms
+long-gap          4 keys 32 rows p50 1.92775ms p95 4.495166ms max 5.030958ms
+no-match         14 keys  0 rows p50 246.292µs p95 537.417µs max 738.75µs
+punctuation       9 keys  1 rows p50 895.042µs p95 2.521917ms max 3.101542ms
+unicode           3 keys  1 rows p50 223.208µs p95 223.917µs max 231.541µs
+unicode-fold      3 keys 32 rows p50 586.959µs p95 897.25µs max 913.208µs
+every keystroke: 1460 searches p50 366µs p95 4.226791ms p99 5.855458ms max 7.094208ms
+whole queries (fx's gate): 160 searches p50 484.292µs p95 4.327791ms
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4658 filtered out; finished in 5.42s
+# after: load averages: 108.74 100.84 81.31
+
+# head b47953e2 (AT-RANK-PERF), release lib test binary, run 1
+# XFX_AT_BENCH_TREE unset (fx's inventory, in memory)
+# before: load averages: 108.74 100.84 81.31 (18 cores)
+running 1 test
+test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... entries: 100000
+exact            33 keys  1 rows p50 376µs p95 7.256792ms max 10.262209ms
+boundary          5 keys 32 rows p50 824.833µs p95 1.794334ms max 2.322333ms
+low-selectivity   2 keys 32 rows p50 906.458µs p95 7.43325ms max 7.668084ms
+long-gap          4 keys 32 rows p50 2.63225ms p95 6.387792ms max 7.211416ms
+no-match         14 keys  0 rows p50 348.208µs p95 541.5µs max 795.125µs
+punctuation       9 keys  1 rows p50 1.5235ms p95 3.1175ms max 4.323667ms
+unicode           3 keys  1 rows p50 336.667µs p95 766.042µs max 883.958µs
+unicode-fold      3 keys 32 rows p50 1.325875ms p95 2.734667ms max 3.6465ms
+every keystroke: 1460 searches p50 553.583µs p95 5.189375ms p99 8.294042ms max 10.262209ms
+whole queries (fx's gate): 160 searches p50 874.125µs p95 6.853459ms
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4658 filtered out; finished in 2.32s
+# after: load averages: 108.74 100.84 81.31

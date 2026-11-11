@@ -66,7 +66,7 @@ pub(crate) enum DeltaKind {
 /// Produced by [`super::editor::Editor`] and by nothing else: the offsets in it
 /// are the editor's own, widened where the editor widened them, and a second
 /// producer would be a second place that does arithmetic on them
-/// (`entity.rs:113-116`).
+/// (`entity.rs:138-141`).
 #[derive(Debug, Clone)]
 pub(crate) struct Delta {
     at: usize,
@@ -105,7 +105,7 @@ impl Delta {
     }
 
     /// Where the change begins -- the **widened** start, when an entity made the
-    /// editor take more than the keystroke asked for (`editor.rs:374-376`).
+    /// editor take more than the keystroke asked for (`editor.rs:570-572`).
     pub(crate) fn at(&self) -> usize {
         self.at
     }
@@ -124,9 +124,9 @@ impl Delta {
     /// that still held them.
     ///
     /// Whole [`Span`]s rather than `EntitySnapshot`s, which carry no id
-    /// (`entity.rs:468-484`): an undo has to put the *same* number back, because
+    /// (`entity.rs:686-710`): an undo has to put the *same* number back, because
     /// the summary on the screen says it out loud. The clone is cheap -- the
-    /// payload is an `Arc` (`entity.rs:91-96`).
+    /// payload is an `Arc` (`entity.rs:116-121`).
     pub(crate) fn removed_entities(&self) -> &[Span] {
         &self.removed_entities
     }

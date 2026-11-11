@@ -1,0 +1,10 @@
+src/agent/compact.rs: tests from line 3272: +4 -3
+src/app.rs: tests from line 1302: +32 -27
+src/interactive.rs: tests from line 2816: +5 -62
+src/session/store.rs: tests from line 3968: +260 -83
+src/session/store/carry_tests.rs: tests from line 0: +0 -0
+src/session/store/fork.rs: tests from line 605: +6 -2
+src/tui/full_transcript.rs: tests from line 3252: +2 -2
+src/tui/shell.rs: tests from line 16507: +0 -0
+src/tui/worker.rs: tests from line 6569: +14 -25
+outside tests: +323 -204 (527 lines changed, net +119)

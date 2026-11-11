@@ -1,0 +1,179 @@
+# functions.py: each function's sha256 (12 hex digits, and its length in lines) per commit; then the lines that differ between the named pairs
+| function | base-stack `af2b6137` | main `dcfa5146` | ctrlo-at-keys `cb7c9c18` | ctrlo-other-pickers `e7e1bcf6` | base-pk `3d3d56c8` | page-keys `3ea16930` | m1 `d548c078` | m2 `ecad8518` | m3 `7a1773d9` | m4 `fb6dfdb8` | join `594fddc8` | test-fix `725b3c90` | head `b3dffdad` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `src/tui/shell.rs` `consume_inputs` | 8af142324cf3 (186) | 711026e4ee5a (196) | 8af142324cf3 (186) | 80cbd38b718a (153) | 8af142324cf3 (186) | a832780c4e28 (203) | 711026e4ee5a (196) | b67cda0d785f (163) | 79c426df5828 (178) | 79c426df5828 (178) | c2b2a866d1b4 (174) | c2b2a866d1b4 (174) | c2b2a866d1b4 (174) |
+| `src/tui/shell.rs` `offer_to_pickers` | absent | absent | absent | 143cdcb42274 (14) | absent | absent | absent | 143cdcb42274 (14) | 143cdcb42274 (14) | 143cdcb42274 (14) | 143cdcb42274 (14) | 143cdcb42274 (14) | 143cdcb42274 (14) |
+| `src/tui/shell.rs` `composer_newline` | absent | absent | absent | 941de21453c3 (20) | absent | absent | absent | 941de21453c3 (20) | 941de21453c3 (20) | 941de21453c3 (20) | 941de21453c3 (20) | 941de21453c3 (20) | 941de21453c3 (20) |
+| `src/tui/shell.rs` `act` | 299f7fab3ba3 (347) | 460b75fc0df8 (355) | 299f7fab3ba3 (347) | 7b1df307736d (350) | 299f7fab3ba3 (347) | 299f7fab3ba3 (347) | 460b75fc0df8 (355) | 6e7f3b84f027 (358) | 6e7f3b84f027 (358) | 6e7f3b84f027 (358) | 6e7f3b84f027 (358) | 6e7f3b84f027 (358) | 6e7f3b84f027 (358) |
+| `src/tui/shell.rs` `composer_control` | absent | absent | absent | 67e20683c09d (3) | absent | absent | absent | 67e20683c09d (3) | 67e20683c09d (3) | 67e20683c09d (3) | 67e20683c09d (3) | 67e20683c09d (3) | 67e20683c09d (3) |
+| `src/tui/shell.rs` `offer_to_files` | 47430f9463b9 (79) | 47430f9463b9 (79) | 00d357d21109 (117) | 0d880d5c4301 (109) | 47430f9463b9 (79) | 47430f9463b9 (79) | 00d357d21109 (117) | 0d880d5c4301 (109) | 0d880d5c4301 (109) | 0d880d5c4301 (109) | 0d880d5c4301 (109) | 0d880d5c4301 (109) | 0d880d5c4301 (109) |
+| `src/tui/shell.rs` `anchor_at` | beb4582378cb (11) | beb4582378cb (11) | beb4582378cb (11) | 6fda9dadbda0 (15) | beb4582378cb (11) | 74483b376c58 (9) | beb4582378cb (11) | 6fda9dadbda0 (15) | a5d1c0c89ec5 (14) | a5d1c0c89ec5 (14) | a5d1c0c89ec5 (14) | a5d1c0c89ec5 (14) | a5d1c0c89ec5 (14) |
+| `src/tui/layout.rs` `input_row_limit` | f7ffc4bb11a6 (4) | 2d380a6191ba (9) | f7ffc4bb11a6 (4) | f7ffc4bb11a6 (4) | 2d380a6191ba (9) | 2d380a6191ba (9) | 2d380a6191ba (9) | 2d380a6191ba (9) | 2d380a6191ba (9) | 2d380a6191ba (9) | 2d380a6191ba (9) | 2d380a6191ba (9) | 2d380a6191ba (9) |
+
+## `consume_inputs`, ctrlo-at-keys -> ctrlo-other-pickers
+    -            // And the catalog or the completion menu -- never both -- takes
+    -            // the keys it binds, before the editor and before the gestures see
+    -            // them. Everything else falls through with it still up, because
+    -            // each is a view of the draft and typing is what the draft is made
+    -            // of.
+    -            if self.offer_to_settings(&event) {
+    -                continue;
+    -            }
+    -            if self.offer_to_sessions(&event) {
+    -                continue;
+    -            }
+    -            if self.offer_to_fork(&event) {
+    -                continue;
+    -            }
+    -            if self.offer_to_catalog(&event) {
+    -                continue;
+    -            }
+    -            if self.offer_to_models(&event) {
+    -                continue;
+    -            }
+    -            if self.offer_to_effort(&event) {
+    -                continue;
+    -            }
+    -            if self.offer_to_skills(&event) {
+    -                continue;
+    -            }
+    -            if self.offer_to_column(&event) {
+    -                continue;
+    -            }
+    -            if self.offer_to_files(&event) {
+    -                continue;
+    -            }
+    -            if self.offer_to_picker(&event) {
+    -                continue;
+    -            }
+    -            if self.offer_to_provider_picker(&event) {
+    -                continue;
+    -            }
+    -            if self.offer_to_mcp_args(&event) {
+    +            // `C-j` and `C-k` with the full transcript up go past every picker
+    +            // to the composer ([`Self::composer_control`]); every other key is
+    +            // offered to them first.
+    +            let to_the_composer =
+    +                matches!(event, Input::Action(action) if self.composer_control(action));
+    +            if !to_the_composer && self.offer_to_pickers(&event) {
+
+## `act`, ctrlo-at-keys -> ctrlo-other-pickers
+    -            // deletes do: through the budget. `C-j` inserts a newline and
+    -            // nothing else (`super::editor::Editor::apply`), so routing it
+    -            // here is the same edit with the same question asked first.
+    -            Action::InsertNewline | Action::ControlJ => self.type_character('\n'),
+    +            // deletes do: through the budget. `C-j` is fx's `insert_newline`
+    +            // ([`Self::composer_newline`]): the same line break through the
+    +            // same budget, except that it adds nothing while `/skills`',
+    +            // `/model`'s or the session menu is up, and puts the catalog's
+    +            // and the settings menu's marks back after it.
+    +            Action::InsertNewline => self.type_character('\n'),
+    +            Action::ControlJ => self.composer_newline(),
+
+## `offer_to_files`, ctrlo-at-keys -> ctrlo-other-pickers
+    -        let transcript = self.full.is_open();
+    -        // Under the full transcript no picker of fx's takes `C-j` or `C-k`:
+    -        // `routePickerControlByte` returns before any move while it is up
+    -        // (`composerPickerSurfaceVisible`, `app_input_runtime.zig:1093-1116
+    -        // @481104fd`), so the bytes reach the composer's shortcuts
+    -        // (`:1442-1445`; `shortcuts.zig:19`, `:26`): `C-k` kills to the
+    -        // line's end (`app_input_runtime.zig:479-488`), and `C-j` is a new
+    -        // line (`:513-521`), which ends the `@` word and so closes the list.
+    -        // A list not eligible for another reason keeps them: a catalog
+    +        // `C-j` and `C-k` under the full transcript never get here
+    +        // ([`Self::composer_control`]): `C-k` kills to the line's end, and
+    +        // `C-j` is a new line, which ends the `@` word and so closes the
+    +        // list. A list not eligible for another reason keeps them: a catalog
+    -        // `input_completion_runtime.zig:395-410`).
+    -        if transcript && matches!(action, Action::ControlJ | Action::ControlK) {
+    -            return false;
+    -        }
+    +        // `input_completion_runtime.zig:395-410@481104fd`).
+
+## `anchor_at`, ctrlo-at-keys -> ctrlo-other-pickers
+    -        let (_, at) = self.editor.point_of(start, self.text_cols());
+    +        let cols = self.text_cols();
+    +        let (row, at) = self.editor.point_of(start, cols);
+    +        if row != self.editor.point(cols).0 {
+    +            return PROMPT_CELLS;
+    +        }
+
+## `consume_inputs`, base-pk -> page-keys
+    +            // `C-j` and `C-k` while the full transcript covers the composer:
+    +            // fx's `routePickerControlByte` refuses them
+    +            // (`composerPickerSurfaceVisible`, `app_input_runtime.zig:1094`,
+    +            // `:1110-1116@481104fd`), so no list behind the screen moves and
+    +            // they go on to the composer, a newline and a kill to the end. The
+    +            // `@` list still sees them: its keys there are unit
+    +            // CTRLO-AT-KEYS's (`docs/parity.md`).
+    +            if self.full.is_open()
+    +                && matches!(event, Input::Action(Action::ControlJ | Action::ControlK))
+    +            {
+    +                if !self.offer_to_files(&event) {
+    +                    if let Input::Action(action) = event {
+    +                        self.act(action, now);
+    +                    }
+    +                }
+    +                continue;
+    +            }
+
+## `anchor_at`, base-pk -> page-keys
+    -        let text = self.editor.text();
+    -        if !text.is_char_boundary(start) {
+    +        if !self.editor.text().is_char_boundary(start) {
+    -        let (_, at) = self.editor.point_of(start, self.text_cols());
+    -        PROMPT_CELLS.saturating_add(at)
+    +        self.column_anchor(start)
+
+## `consume_inputs`, m2 -> m3
+    +            // `C-j` and `C-k` while the full transcript covers the composer:
+    +            // fx's `routePickerControlByte` refuses them
+    +            // (`composerPickerSurfaceVisible`, `app_input_runtime.zig:1094`,
+    +            // `:1110-1116@481104fd`), so no list behind the screen moves and
+    +            // they go on to the composer, a newline and a kill to the end --
+    +            // the `@` list's too, whose keys there are unit CTRLO-AT-KEYS's
+    +            // (`docs/parity.md`).
+    +            if self.full.is_open()
+    +                && matches!(event, Input::Action(Action::ControlJ | Action::ControlK))
+    +            {
+    +                if let Input::Action(action) = event {
+    +                    self.act(action, now);
+    +                }
+    +                continue;
+    +            }
+
+## `anchor_at`, m2 -> m3
+    -        let text = self.editor.text();
+    -        if !text.is_char_boundary(start) {
+    +        if !self.editor.text().is_char_boundary(start) {
+
+## `consume_inputs`, m4 -> join
+    -            // `C-j` and `C-k` while the full transcript covers the composer:
+    -            // fx's `routePickerControlByte` refuses them
+    -            // (`composerPickerSurfaceVisible`, `app_input_runtime.zig:1094`,
+    -            // `:1110-1116@481104fd`), so no list behind the screen moves and
+    -            // they go on to the composer, a newline and a kill to the end --
+    -            // the `@` list's too, whose keys there are unit CTRLO-AT-KEYS's
+    -            // (`docs/parity.md`).
+    -            if self.full.is_open()
+    -                && matches!(event, Input::Action(Action::ControlJ | Action::ControlK))
+    -            {
+    +            // `C-j` and `C-k` while the full transcript covers the composer
+    +            // ([`Self::composer_control`]) go past every list to the
+    +            // composer, a newline and a kill to the end, as fx's do: its
+    +            // modal routing passes both bytes on over `/mcp`'s menu
+    +            // (`routeMcpHostMenuByte`, `app_input_runtime.zig:1186`,
+    +            // `:1812-1824@481104fd`), and `routePickerControlByte` refuses
+    +            // them while the screen is up (`:879`; `composerPickerSurfaceVisible`,
+    +            // `:1094`, `:1110-1116`). The surfaces above take them first, as
+    +            // fx's modal surfaces do (`routeActiveModalInput`, `:873`). The `@`
+    +            // list's keys there are unit CTRLO-AT-KEYS's (`docs/parity.md`).
+    +            if matches!(event, Input::Action(action) if self.composer_control(action)) {
+    -            // `C-j` and `C-k` with the full transcript up go past every picker
+    -            // to the composer ([`Self::composer_control`]); every other key is
+    -            // offered to them first.
+    -            let to_the_composer =
+    -                matches!(event, Input::Action(action) if self.composer_control(action));
+    -            if !to_the_composer && self.offer_to_pickers(&event) {
+    +            if self.offer_to_pickers(&event) {
+# exit 0

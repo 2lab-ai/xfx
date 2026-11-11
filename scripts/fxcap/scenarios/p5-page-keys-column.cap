@@ -1,0 +1,77 @@
+# PAGE-KEYS-SETTINGS-COLUMN: PgDn and PgUp in the /model column's three
+# stages and in /effort's, at 24 rows, where a page is inputRowLimit(20) =
+# 11 (input_completion_runtime.zig:222-233@481104fd); each stage goes to
+# navigatePickerOptions, list_window.advanceSelection (:1072-1096,
+# list_window.zig:40-53): a page past either end goes to the other end.
+# The model stage lists thirty models, so a page lands inside it; the
+# effort stage lists astra's five levels and the speed stage three rows, so
+# a page there always runs past an end. C-j and C-k walk it one row
+# (routePickerControlByte, app_input_runtime.zig:1093-1108); they come last,
+# so a release that types them as a newline spoils no snap before them.
+fx: env FX_AUTO_UPGRADE=0
+models p5-input-row-limit-models.json
+seed p5-effort-fork-seed-astra.json
+nomodel
+wait 3
+xfx: wait 1
+type /model 
+wait 1.5
+snap model
+key NPage
+wait 0.6
+snap model-pgdn
+key NPage
+wait 0.6
+snap model-pgdn2
+key NPage
+wait 0.6
+snap model-pgdn3
+key PPage
+wait 0.6
+snap model-pgup
+key C-u
+wait 0.5
+type /model openai/gpt-6-astra 
+wait 1.5
+snap effort
+key NPage
+wait 0.6
+snap effort-pgdn
+key PPage
+wait 0.6
+snap effort-pgup
+key NPage
+wait 0.6
+snap effort-pgdn2
+key C-u
+wait 0.5
+type /model openai/gpt-6-astra high 
+wait 1.5
+snap speed
+key NPage
+wait 0.6
+snap speed-pgdn
+key PPage
+wait 0.6
+snap speed-pgup
+key C-u
+wait 0.5
+type /effort 
+wait 1.5
+snap levels
+key PPage
+wait 0.6
+snap levels-pgup
+key NPage
+wait 0.6
+snap levels-pgdn
+key C-u
+wait 0.5
+type /model 
+wait 1.5
+key C-j
+wait 0.5
+snap model-cj
+key C-k
+wait 0.5
+snap model-ck

@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 5  All  [General]  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  Product
+
+  /help       show available slash commands
+  /clear      start a fresh conversation while keeping managed processes
+  /status     show runtime configuration and the session ID
+  /version    show the fx version
+  /quit       exit the interactive shell
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

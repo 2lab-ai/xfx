@@ -1,0 +1,47 @@
+# the 13 cases alone at 23454d7f (the seam and the cases), TMPDIR=<scratch>, bounded (perl alarm 600):
+test tui::file_index::tests::the_launch_walks_a_root_once_and_an_empty_root_never ... FAILED
+test tui::file_index::tests::the_launch_walk_keeps_the_launch_epoch_through_a_change ... FAILED
+test tui::tests::the_launch_starts_the_index_walk_fresh_or_resumed ... FAILED
+test tui::shell::tests::the_first_at_while_the_old_roots_walk_runs_skips_its_refresh ... FAILED
+test tui::shell::tests::a_change_before_the_launch_walk_is_whole_says_files_unavailable_until_the_new_scopes_walk_is ... FAILED
+test tui::shell::tests::tab_in_the_interim_retries_and_still_says_files_unavailable ... FAILED
+test tui::shell::tests::a_first_at_after_the_launch_walk_ended_whole_but_before_the_poll_refreshes ... FAILED
+test tui::shell::tests::a_change_after_the_launch_walk_failed_lists_the_new_walks_prefix ... FAILED
+test tui::shell::tests::a_first_at_after_the_launch_walk_failed_but_before_the_poll_says_indexing ... FAILED
+test tui::shell::tests::the_first_at_after_the_old_roots_walk_failed_skips_its_refresh ... FAILED
+test tui::shell::tests::a_first_at_after_a_change_whose_walk_failed_before_the_poll_says_files_unavailable ... FAILED
+test tui::shell::tests::the_first_at_after_the_old_roots_walk_was_adopted_refreshes ... FAILED
+test tui::shell::tests::a_fresh_sessions_first_at_after_the_launch_walk_is_whole_shows_its_rows_at_once ... FAILED
+thread 'tui::file_index::tests::the_launch_walks_a_root_once_and_an_empty_root_never' (458238320) panicked at src/tui/file_index.rs:1615:9:
+assertion `left == right` failed: the launch walked nothing
+  left: 0
+ right: 1
+thread 'tui::file_index::tests::the_launch_walk_keeps_the_launch_epoch_through_a_change' (458238319) panicked at src/tui/file_index.rs:2195:29:
+no walk in flight
+thread 'tui::tests::the_launch_starts_the_index_walk_fresh_or_resumed' (458238331) panicked at src/tui/mod.rs:1240:13:
+assertion `left == right` failed: the launch's walks (fresh: true): none built, one opened
+  left: (0, 0)
+ right: (0, 1)
+thread 'tui::shell::tests::the_first_at_while_the_old_roots_walk_runs_skips_its_refresh' (458238330) panicked at src/tui/file_index.rs:2195:29:
+no walk in flight
+thread 'tui::shell::tests::a_change_before_the_launch_walk_is_whole_says_files_unavailable_until_the_new_scopes_walk_is' (458238322) panicked at src/tui/file_index.rs:2195:29:
+no walk in flight
+thread 'tui::shell::tests::tab_in_the_interim_retries_and_still_says_files_unavailable' (458238327) panicked at src/tui/file_index.rs:2195:29:
+no walk in flight
+thread 'tui::shell::tests::a_first_at_after_the_launch_walk_ended_whole_but_before_the_poll_refreshes' (458238324) panicked at src/tui/file_index.rs:2195:29:
+no walk in flight
+thread 'tui::shell::tests::a_change_after_the_launch_walk_failed_lists_the_new_walks_prefix' (458238321) panicked at src/tui/file_index.rs:2195:29:
+no walk in flight
+thread 'tui::shell::tests::a_first_at_after_the_launch_walk_failed_but_before_the_poll_says_indexing' (458238325) panicked at src/tui/file_index.rs:2195:29:
+no walk in flight
+thread 'tui::shell::tests::the_first_at_after_the_old_roots_walk_failed_skips_its_refresh' (458238328) panicked at src/tui/file_index.rs:2195:29:
+no walk in flight
+thread 'tui::shell::tests::a_first_at_after_a_change_whose_walk_failed_before_the_poll_says_files_unavailable' (458238323) panicked at src/tui/file_index.rs:2195:29:
+no walk in flight
+thread 'tui::shell::tests::the_first_at_after_the_old_roots_walk_was_adopted_refreshes' (458238329) panicked at src/tui/file_index.rs:2195:29:
+no walk in flight
+thread 'tui::shell::tests::a_fresh_sessions_first_at_after_the_launch_walk_is_whole_shows_its_rows_at_once' (458238326) panicked at src/tui/shell.rs:35981:9:
+assertion `left == right` failed: the first `@` after a whole launch walk did not list its rows at once
+  left: (Some(Loading), [])
+ right: (Some(Rows), ["src/deep/sched.rs"])
+test result: FAILED. 0 passed; 13 failed; 0 ignored; 0 measured; 4613 filtered out; finished in 0.02s

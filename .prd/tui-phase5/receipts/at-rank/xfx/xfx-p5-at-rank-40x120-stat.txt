@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ebe3875 [debug] · Run /help for commands
+
+┃ @stat
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  STATUS.md
+  contracts/fixtures/stats_response.json
+  src/test-stat.zig
+  src/beta.txt
+  src/zeta.txt
+  scripts/test-matrix.ts
+  src/components/card.tsx
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

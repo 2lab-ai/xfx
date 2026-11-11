@@ -787,9 +787,10 @@ enum Item {
 /// replays is not text the notes can use, so the turn is projected as the
 /// Gateway's wire sends it -- its text and its calls.
 fn items_of(turn: &HistoryTurn) -> Vec<Item> {
-    let mut ignored = Vec::new();
-    // No model: the Gateway's wire replays no state, so none could match.
-    let messages = turn_messages(turn, &Wire::VercelGateway, "", &mut ignored);
+    // No model: the Gateway's wire replays no state, so none could match. No
+    // copies read: what a request says of an image it cannot send is the
+    // request's, and the turn's text is the result's own.
+    let messages = turn_messages(turn, &Wire::VercelGateway, "", None);
     // The person's steers, in the words they typed, as the turn's steps
     // hold them.
     let mut steers: Vec<&str> = turn

@@ -1,0 +1,19 @@
+== screen-moves-base.txt: 32 listed lines
+  16  a saved session's id (resume ids, /status's Session row)
+  16  other
+    other: xfx filepicker at-dir rows [5, 6, 7, 8]: [('      src/deep/', '      src/'), ('      src/lib.rs', '      src/deep/')]
+    other: xfx filepicker at-dir-cj rows [5, 6, 7, 8]: [('      src/deep/', '      src/'), ('      src/lib.rs', '      src/deep/')]
+    other: xfx filepicker at-dir-down rows [5, 6, 7, 8]: [('      src/deep/', '      src/'), ('      src/lib.rs', '      src/deep/')]
+    other: xfx filepicker at-tab rows [3]: [('┃ see @src/main.rs', '┃ see @src/lib.rs')]
+    other: xfx fulltranscript-notice end rows [9]: [('* version: 0.2.0 (debug 2026-11-10-1858-dcfa5146b520)', '* version: 0.2.0 (debug 2026-11-10-2057-b3dffdad3e0b)')]
+    other: xfx fulltranscript-notice full rows [24]: [('* version: 0.2.0 (debug 2026-11-10-1858-dcfa5146b520)', '* version: 0.2.0 (debug 2026-11-10-2057-b3dffdad3e0b)')]
+    other: xfx fulltranscript-notice full-pgup rows [24]: [('* version: 0.2.0 (debug 2026-11-10-1858-dcfa5146b520)', '* version: 0.2.0 (debug 2026-11-10-2057-b3dffdad3e0b)')]
+    other: xfx fulltranscript-notice full-top rows [24]: [('* version: 0.2.0 (debug 2026-11-10-1858-dcfa5146b520)', '* version: 0.2.0 (debug 2026-11-10-2057-b3dffdad3e0b)')]
+    other: xfx p5-input-at at-src rows [5, 6, 7, 8, 9, 10]: [('  src/config.zig', '  src/'), ('  src/main.zig', '  src/config.zig')]
+    other: xfx p5-input-at at-src-enter rows [3]: [('┃ @src/config.zig', '┃ @src/')]
+    other: xfx p5-input-at at-src-tab rows [3, 4, 5, 6, 7, 8]: [('┃ @src/config.zig', '┃ @src/'), ('', '────────────────────────────────────────────────────────────')]
+    other: xfx p5-input-at at-st rows [5, 6, 7, 8, 9, 10]: [('  spikes/s-01-trace.txt', '  start.sh'), ('  spikes/s-02-trace.txt', '  store.rs')]
+    other: xfx p5-input-at at-st-down12 rows [5, 6, 7, 8, 9, 10]: [('  spikes/s-04-trace.txt', '  src/store/'), ('  spikes/s-05-trace.txt', '  style.css')]
+    other: xfx p5-input-at at-st-up6 rows [5, 6, 7, 8, 9, 10]: [('  spikes/s-04-trace.txt', '  src/store/'), ('  spikes/s-05-trace.txt', '  style.css')]
+    other: xfx p5-input-at at-stat rows [5, 6, 7, 8, 9, 10]: [('  spikes/s-01-trace.txt', '  STATUS.md'), ('  spikes/s-02-trace.txt', '  stats.json')]
+    other: xfx p5-input-at-dir dir-enter rows [4, 5, 6, 15, 16]: [('────────────────────────────────────────────────────────────', ''), ('  src/store/index.ts', 'auto · model-a')]

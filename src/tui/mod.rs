@@ -487,20 +487,7 @@ fn hold(
         colorterm.as_deref(),
         term_program.as_deref(),
     ));
-    // A resumed launch writes no welcome line, as upstream's does not
-    // (`app_bootstrap_runtime.zig:619`): the session's own notice and turns
-    // are the document, on the screen the launch's push left.
-    match replay {
-        Some(replay) => shell.hydrate(replay, false),
-        None => {
-            shell.welcome();
-            shell.session_assembled();
-        }
-    }
-    // Fresh or resumed, as upstream's launch says them either way
-    // (`app_bootstrap_runtime.zig:666-687`).
-    shell.config_issues(config);
-    shell.history_unavailable();
+    open(&mut shell, config, replay);
     let code = event_loop::run(
         &mut shell,
         band,
@@ -522,6 +509,37 @@ fn hold(
     // by the shell, because the palette and the width are its.
     let handoff = worker.resumable().map(|id| shell.resume_handoff(id));
     Ok(Exit { code, handoff })
+}
+
+/// The session as the launch hands it to the loop, before its first frame:
+/// the document it starts with, the launch's notices, and the `@` index's
+/// walk. Upstream's `runInteractiveWithDeps` (`app_entry_runtime.zig:
+/// 302-343@481104fd`) builds the app -- `App.init`, which resumes -- then
+/// starts the index's walk, and only then runs the loop that paints.
+fn open(
+    shell: &mut shell::Shell,
+    config: &crate::config::RuntimeConfig,
+    replay: Option<hydration::Hydration>,
+) {
+    // A resumed launch writes no welcome line, as upstream's does not
+    // (`app_bootstrap_runtime.zig:619`): the session's own notice and turns
+    // are the document, on the screen the launch's push left.
+    match replay {
+        Some(replay) => shell.hydrate(replay, false),
+        None => {
+            shell.welcome();
+            shell.session_assembled();
+        }
+    }
+    // Fresh or resumed, as upstream's launch says them either way
+    // (`app_bootstrap_runtime.zig:666-687`).
+    shell.config_issues(config);
+    shell.history_unavailable();
+    // The `@` index's walk, fresh or resumed, as upstream's launch starts it
+    // whatever `resume_requested` says (`startFileIndex`,
+    // `app_entry_runtime.zig:334`; that flag gates only the warmup, `:330`):
+    // the session's first `@` finds it under way or whole.
+    shell.start_file_index();
 }
 
 /// The one measurement a launch is computed from.
@@ -1180,5 +1198,175 @@ mod tests {
                 && refusal.contains(&layout::MIN_COLS.to_string()),
             "the refusal does not say what would be big enough: {refusal}"
         );
+    }
+
+    #[test]
+    fn the_launch_starts_the_index_walk_fresh_or_resumed() {
+        // fx's launch walks the `@` index once the app is built -- `App.init`,
+        // which resumes -- and before the loop paints: `startFileIndex` at
+        // `app_entry_runtime.zig:334@481104fd`, whatever `resume_requested`
+        // says (it gates only the warmup, `:330`). The shell's constructor
+        // walks nothing, as `App.init` does not; the launch's `open` does,
+        // over a workspace that is this case's own.
+        let resumed = hydration::Hydration {
+            title: None,
+            turns: Vec::new(),
+            model: None,
+            settings: None,
+            keeps_fast_binding: true,
+            provider: None,
+            unauthenticated: None,
+            model_replaced: false,
+            next_image: 1,
+        };
+        for replay in [None, Some(resumed)] {
+            let home = tempfile::tempdir().expect("a home");
+            let workspace = tempfile::tempdir().expect("a workspace");
+            let config = crate::config::RuntimeConfig::load_with(
+                &crate::config::Environment::new(
+                    Some(home.path().to_path_buf()),
+                    std::collections::BTreeMap::new(),
+                ),
+                workspace.path(),
+            )
+            .expect("a configuration");
+            let (work, _work, _control) = worker::WorkHandle::detached();
+            let mut shell = shell::Shell::new(
+                &config,
+                layout::solve(24, 80, 1).expect("a band"),
+                theme::Palette {
+                    mode: theme::Mode::Dark,
+                },
+                false,
+                work,
+            );
+            let built = shell.files_for_test().walks_for_test();
+            let fresh = replay.is_none();
+            open(&mut shell, &config, replay);
+            assert_eq!(
+                (built, shell.files_for_test().walks_for_test()),
+                (0, 1),
+                "the launch's walks (fresh: {fresh}): none built, one opened"
+            );
+        }
+    }
+
+    #[test]
+    fn the_launch_walk_covers_the_saved_directories_with_the_launch_epoch_fresh_or_resumed() {
+        // fx's launch applies the workspace's directories before it walks
+        // (`main.zig:682-686@481104fd`, `applyLaunch`, which moves the
+        // scope's epoch, `app_workspace_runtime.zig:112-124`), resumes
+        // (`main.zig:696-713`), and only then walks, with the epoch as it
+        // stands (`app_entry_runtime.zig:334`; `startFileIndex`,
+        // `app_workspace_runtime.zig:145-148`) -- so the launch walk's roots
+        // are the workspace and every active directory it was launched with
+        // (`activeRootsAlloc`, `file_index.zig:1041-1061`), and an indexed
+        // lookup once it is whole answers from it (`readableRevision`,
+        // `:572-583`). xfx's launch directories are the workspace's saved
+        // ones, read from the profile (`RuntimeConfig::additional_directories`).
+        // Here they are a directory holding `plan.md`, under this case's own
+        // temp home and roots; fresh, and resumed with a turn.
+        let resumed = hydration::Hydration {
+            title: Some("saved".to_string()),
+            turns: vec![hydration::HydratedTurn {
+                sent: "hello".to_string(),
+                steps: vec![hydration::HydratedStep::Text("hi".to_string())],
+                ending: hydration::Ending::Concluded {
+                    seconds: 1,
+                    output: None,
+                },
+                started_at_ms: 0,
+                concluded_at_ms: Some(1_000),
+                details: Vec::new(),
+                images: Vec::new(),
+            }],
+            model: None,
+            settings: None,
+            keeps_fast_binding: true,
+            provider: None,
+            unauthenticated: None,
+            model_replaced: false,
+            next_image: 2,
+        };
+        for replay in [None, Some(resumed)] {
+            let home = tempfile::tempdir().expect("a home");
+            let roots = tempfile::tempdir().expect("the roots");
+            let base = roots.path().canonicalize().expect("canonical");
+            let workspace = base.join("work");
+            let extra = base.join("extra");
+            std::fs::create_dir_all(&workspace).expect("the workspace");
+            std::fs::create_dir_all(&extra).expect("the directory");
+            std::fs::write(extra.join("plan.md"), "").expect("a file");
+            let profile = home.path().join(".xfx");
+            std::fs::create_dir_all(&profile).expect("a profile");
+            std::fs::write(
+                profile.join("settings.json"),
+                serde_json::json!({
+                    "workspaces": {
+                        workspace.display().to_string(): {
+                            "additional_directories": [extra.display().to_string()]
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .expect("the profile's settings");
+            let config = crate::config::RuntimeConfig::load_with(
+                &crate::config::Environment::new(
+                    Some(home.path().to_path_buf()),
+                    std::collections::BTreeMap::new(),
+                ),
+                &workspace,
+            )
+            .expect("a configuration");
+            assert_eq!(
+                config.additional_directories,
+                [extra.display().to_string()],
+                "the profile's directory was not the launch's"
+            );
+            let (work, _work, _control) = worker::WorkHandle::detached();
+            let mut shell = shell::Shell::new(
+                &config,
+                layout::solve(24, 80, 1).expect("a band"),
+                theme::Palette {
+                    mode: theme::Mode::Dark,
+                },
+                false,
+                work,
+            );
+            let fresh = replay.is_none();
+            open(&mut shell, &config, replay);
+            let files = shell.files_for_test();
+            // One change of scope before the walk -- the launch's, which
+            // applied its directories -- and the walk carries its epoch.
+            assert_eq!(
+                (files.walks_for_test(), files.epochs_for_test()),
+                (1, (1, Some(1))),
+                "not one launch walk with the launch's epoch (fresh: {fresh})"
+            );
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            while files.busy() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "the launch walk never finished"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                files.poll();
+            }
+            let plan = extra.join("plan.md").display().to_string();
+            let found = match files.lookup("plan") {
+                file_index::Lookup::Rows(found) => {
+                    found.into_iter().map(|found| found.path).collect()
+                }
+                other => {
+                    panic!("the launch walk's index did not answer (fresh: {fresh}): {other:?}")
+                }
+            };
+            assert_eq!(
+                (found, files.walks_for_test()),
+                (vec![plan], 1),
+                "the launch walk did not cover the saved directory (fresh: {fresh})"
+            );
+        }
     }
 }

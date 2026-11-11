@@ -1,0 +1,41 @@
+## the main pair
+p5-at-rank: 13 pairs, pass 13; normalized-identical 13
+p5-ctrlo-at-keys: 8 pairs, pass 8; normalized-identical 8
+p5-ctrlo-burst-help: 3 pairs, pass 0; unresolved-defect 3
+    unresolved 3: causes menu-count, menu-shift, C7-help-entries; a row no cause covers: no
+p5-ctrlo-burst-model: 3 pairs, pass 3; normalized-identical 3
+p5-ctrlo-burst-settings: 3 pairs, pass 0; unresolved-defect 3
+    unresolved 3: causes sound-max; a row no cause covers: no
+p5-ctrlo-effort: 7 pairs, pass 7; normalized-identical 7
+p5-ctrlo-fork: 9 pairs, pass 9; normalized-identical 9
+p5-ctrlo-help: 9 pairs, pass 2; normalized-identical 2, unresolved-defect 7
+    unresolved 7: causes menu-count, menu-shift, C7-help-entries; a row no cause covers: no
+p5-ctrlo-mcp-args: 5 pairs, pass 5; normalized-identical 5
+p5-ctrlo-model: 7 pairs, pass 7; normalized-identical 7
+p5-ctrlo-sessions: 7 pairs, pass 7; normalized-identical 7
+p5-ctrlo-slash: 5 pairs, pass 1; normalized-identical 1, unresolved-defect 4
+    unresolved 4: causes menu-count; a row no cause covers: no
+p5-image-loss-changed: 2 pairs, pass 0; unresolved-defect 2
+    unresolved 2: causes none; a row no cause covers: yes
+p5-image-loss-folder: 1 pairs, pass 0; unresolved-defect 1
+    unresolved 1: causes none; a row no cause covers: yes
+p5-image-loss-gone: 2 pairs, pass 1; normalized-identical 1, unresolved-defect 1
+    unresolved 1: causes none; a row no cause covers: yes
+p5-image-loss-whole: 1 pairs, pass 0; unresolved-defect 1
+    unresolved 1: causes none; a row no cause covers: yes
+p5-input-at-folders: 8 pairs, pass 8; normalized-identical 8
+p5-input-at-paste: 2 pairs, pass 2; normalized-identical 2
+p5-page-keys-anchor: 9 pairs, pass 9; normalized-identical 9
+p5-page-keys-column: 17 pairs, pass 17; normalized-identical 17
+p5-page-keys-mcp: 12 pairs, pass 12; normalized-identical 12
+p5-page-keys-settings: 19 pairs, pass 7; normalized-identical 7, unresolved-defect 12
+    unresolved 12: causes sound-max; a row no cause covers: no
+provider-ctrlo: 7 pairs, pass 2; normalized-identical 2, unresolved-defect 5
+    unresolved 5: causes provider-label; a row no cause covers: yes
+skills-ctrlo: 7 pairs, pass 1; normalized-identical 1, unresolved-defect 6
+    unresolved 6: causes none; a row no cause covers: yes
+skills-ctrlo-dollar: 6 pairs, pass 1; normalized-identical 1, unresolved-defect 5
+    unresolved 5: causes none; a row no cause covers: yes
+# 25 scenarios the reference did not take, 172 pairs, 122 pass
+## the units' pair
+# 0 scenarios the reference did not take, 0 pairs, 0 pass

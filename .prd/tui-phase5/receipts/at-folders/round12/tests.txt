@@ -1,0 +1,127 @@
+# TMPDIRs: AL = <scratch>/abcdefghijklmnopqrstuvwxyz, SP = <scratch>/with space, A6 = <scratch>/(a..z x6),
+#          SAL = <short>/abcdefghijklmnopqrstuvwxyz, SSP = <short>/with space (<short> = a 2-level dir under the sandbox tmp)
+
+## RED: cargo test --locked --lib -- --exact tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once, at da1c1ae2 (before the fix), TMPDIR=AL
+run 1: test result: FAILED. 0 passed; 1 failed
+run 2: test result: FAILED. 0 passed; 1 failed
+run 3: test result: FAILED. 0 passed; 1 failed
+run 4: test result: FAILED. 0 passed; 1 failed
+run 5: test result: FAILED. 0 passed; 1 failed
+thread 'tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once' panicked at src/tui/shell.rs:35391:9:
+assertion `left == right` failed
+  left: ["src/deep/sched.rs", "<scratch>/abcdefghijklmnopqrstuvwxyz/.tmpgoj5ud/plan.md"]
+ right: ["src/deep/sched.rs"]
+
+## after the fix (0cac3766), the same case 10 times each
+AL run 1: test result: ok. 1 passed; 0 failed
+AL run 2: test result: ok. 1 passed; 0 failed
+AL run 3: test result: ok. 1 passed; 0 failed
+AL run 4: test result: ok. 1 passed; 0 failed
+AL run 5: test result: ok. 1 passed; 0 failed
+AL run 6: test result: ok. 1 passed; 0 failed
+AL run 7: test result: ok. 1 passed; 0 failed
+AL run 8: test result: ok. 1 passed; 0 failed
+AL run 9: test result: ok. 1 passed; 0 failed
+AL run 10: test result: ok. 1 passed; 0 failed
+default run 1: test result: ok. 1 passed; 0 failed
+default run 2: test result: ok. 1 passed; 0 failed
+default run 3: test result: ok. 1 passed; 0 failed
+default run 4: test result: ok. 1 passed; 0 failed
+default run 5: test result: ok. 1 passed; 0 failed
+default run 6: test result: ok. 1 passed; 0 failed
+default run 7: test result: ok. 1 passed; 0 failed
+default run 8: test result: ok. 1 passed; 0 failed
+default run 9: test result: ok. 1 passed; 0 failed
+default run 10: test result: ok. 1 passed; 0 failed
+
+## look-ahead at 0cac3766 (the unit's filter = tui::file_index:: tui::file_picker:: tui::shell:: tui::event_loop:: tui::check:: tui::frame::)
+### --lib, TMPDIR=AL: test result: FAILED. 4591 passed; 12 failed
+  image::tests::a_fifo_named_like_an_image_is_refused_without_waiting_for_a_writer
+  tui::shell::tests::a_bare_workspace_opens_upstreams_picker_in_place_of_the_composer
+  tui::shell::tests::a_change_in_an_added_root_can_be_remembered_as_one_in_the_workspace_can
+  tui::shell::tests::a_saved_directory_is_listed_and_counted_from_the_profile_at_launch
+  tui::shell::tests::enter_on_a_choice_writes_its_command_into_the_composer_and_runs_nothing
+  tui::shell::tests::right_on_a_status_line_row_is_statusline_item_and_says_both_notices
+  tui::shell::tests::show_opens_on_the_skills_own_tab_and_the_other_forms_answer_in_upstreams_words
+  tui::shell::tests::the_branch_is_read_at_launch_and_again_at_the_end_of_a_turn
+  tui::shell::tests::the_segments_follow_the_model_in_upstreams_order_and_only_when_on
+  tui::shell::tests::trace_that_the_clipboard_refused_says_where_the_file_is_as_an_error
+  tui::shell::tests::what_a_change_to_the_managed_root_says_waits_for_the_list_that_holds_it
+  tui::shell::tests::workspace_list_says_the_snapshot_and_bad_words_say_the_usage
+### --test tui, TMPDIR=AL: test result: ok. 181 passed; 0 failed
+### unit filter, TMPDIR=A6: test result: FAILED. 1319 passed; 11 failed
+  tui::shell::tests::a_bare_workspace_opens_upstreams_picker_in_place_of_the_composer
+  tui::shell::tests::a_change_in_an_added_root_can_be_remembered_as_one_in_the_workspace_can
+  tui::shell::tests::a_saved_directory_is_listed_and_counted_from_the_profile_at_launch
+  tui::shell::tests::enter_on_a_choice_writes_its_command_into_the_composer_and_runs_nothing
+  tui::shell::tests::right_on_a_status_line_row_is_statusline_item_and_says_both_notices
+  tui::shell::tests::show_opens_on_the_skills_own_tab_and_the_other_forms_answer_in_upstreams_words
+  tui::shell::tests::the_branch_is_read_at_launch_and_again_at_the_end_of_a_turn
+  tui::shell::tests::the_segments_follow_the_model_in_upstreams_order_and_only_when_on
+  tui::shell::tests::trace_that_the_clipboard_refused_says_where_the_file_is_as_an_error
+  tui::shell::tests::what_a_change_to_the_managed_root_says_waits_for_the_list_that_holds_it
+  tui::shell::tests::workspace_list_says_the_snapshot_and_bad_words_say_the_usage
+### unit filter, TMPDIR=SP: test result: FAILED. 1318 passed; 12 failed
+  tui::shell::tests::a_bare_workspace_opens_upstreams_picker_in_place_of_the_composer
+  tui::shell::tests::a_change_in_an_added_root_can_be_remembered_as_one_in_the_workspace_can
+  tui::shell::tests::a_pasted_path_is_its_badge_at_once_and_says_nothing
+  tui::shell::tests::a_pasted_path_the_read_table_denies_stays_words_and_says_why
+  tui::shell::tests::a_saved_directory_is_listed_and_counted_from_the_profile_at_launch
+  tui::shell::tests::enter_on_a_choice_writes_its_command_into_the_composer_and_runs_nothing
+  tui::shell::tests::right_on_a_status_line_row_is_statusline_item_and_says_both_notices
+  tui::shell::tests::show_opens_on_the_skills_own_tab_and_the_other_forms_answer_in_upstreams_words
+  tui::shell::tests::the_branch_is_read_at_launch_and_again_at_the_end_of_a_turn
+  tui::shell::tests::the_segments_follow_the_model_in_upstreams_order_and_only_when_on
+  tui::shell::tests::what_a_change_to_the_managed_root_says_waits_for_the_list_that_holds_it
+  tui::shell::tests::workspace_list_says_the_snapshot_and_bad_words_say_the_usage
+### --test tui, TMPDIR=SP: test result: ok. 181 passed; 0 failed
+### --test tui, TMPDIR=SSP: test result: ok. 181 passed; 0 failed
+### unit filter, TMPDIR=SAL: test result: ok. 1330 passed; 0 failed
+### unit filter, TMPDIR=SSP: test result: FAILED. 1328 passed; 2 failed
+  tui::shell::tests::a_pasted_path_is_its_badge_at_once_and_says_nothing
+  tui::shell::tests::a_pasted_path_the_read_table_denies_stays_words_and_says_why
+
+## the same 14 at the base af2b6137 (a --no-local clone), --exact
+### TMPDIR=AL: test result: FAILED. 2 passed; 12 failed
+  image::tests::a_fifo_named_like_an_image_is_refused_without_waiting_for_a_writer
+  tui::shell::tests::a_bare_workspace_opens_upstreams_picker_in_place_of_the_composer
+  tui::shell::tests::a_change_in_an_added_root_can_be_remembered_as_one_in_the_workspace_can
+  tui::shell::tests::a_saved_directory_is_listed_and_counted_from_the_profile_at_launch
+  tui::shell::tests::enter_on_a_choice_writes_its_command_into_the_composer_and_runs_nothing
+  tui::shell::tests::right_on_a_status_line_row_is_statusline_item_and_says_both_notices
+  tui::shell::tests::show_opens_on_the_skills_own_tab_and_the_other_forms_answer_in_upstreams_words
+  tui::shell::tests::the_branch_is_read_at_launch_and_again_at_the_end_of_a_turn
+  tui::shell::tests::the_segments_follow_the_model_in_upstreams_order_and_only_when_on
+  tui::shell::tests::trace_that_the_clipboard_refused_says_where_the_file_is_as_an_error
+  tui::shell::tests::what_a_change_to_the_managed_root_says_waits_for_the_list_that_holds_it
+  tui::shell::tests::workspace_list_says_the_snapshot_and_bad_words_say_the_usage
+### TMPDIR=SP: test result: FAILED. 1 passed; 13 failed
+  image::tests::a_fifo_named_like_an_image_is_refused_without_waiting_for_a_writer
+  tui::shell::tests::a_bare_workspace_opens_upstreams_picker_in_place_of_the_composer
+  tui::shell::tests::a_change_in_an_added_root_can_be_remembered_as_one_in_the_workspace_can
+  tui::shell::tests::a_pasted_path_is_its_badge_at_once_and_says_nothing
+  tui::shell::tests::a_pasted_path_the_read_table_denies_stays_words_and_says_why
+  tui::shell::tests::a_saved_directory_is_listed_and_counted_from_the_profile_at_launch
+  tui::shell::tests::enter_on_a_choice_writes_its_command_into_the_composer_and_runs_nothing
+  tui::shell::tests::right_on_a_status_line_row_is_statusline_item_and_says_both_notices
+  tui::shell::tests::show_opens_on_the_skills_own_tab_and_the_other_forms_answer_in_upstreams_words
+  tui::shell::tests::the_branch_is_read_at_launch_and_again_at_the_end_of_a_turn
+  tui::shell::tests::the_segments_follow_the_model_in_upstreams_order_and_only_when_on
+  tui::shell::tests::what_a_change_to_the_managed_root_says_waits_for_the_list_that_holds_it
+  tui::shell::tests::workspace_list_says_the_snapshot_and_bad_words_say_the_usage
+
+## why each fails (TMPDIR=AL or SP at the head; first panic line, paths redacted)
+- image::tests::a_fifo_named_like_an_image_is_refused_without_waiting_for_a_writer: src/image.rs:1977:73: a socket: Error { kind: InvalidInput, message: "path must be shorter than SUN_LEN" }
+- tui::shell::tests::a_bare_workspace_opens_upstreams_picker_in_place_of_the_composer: src/tui/shell.rs:38072:9: assertion `left == right` failed
+- tui::shell::tests::a_change_in_an_added_root_can_be_remembered_as_one_in_the_workspace_can: src/tui/shell.rs:26886:9: ["────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────", "  Permission needed · Choose one                                          
+- tui::shell::tests::a_saved_directory_is_listed_and_counted_from_the_profile_at_launch: src/tui/shell.rs:38193:9: <scratch>/abcdefghijklmnopqrstuvwxyz/.tmpT9abEF/extra is too long for a 120-column picker to draw whole
+- tui::shell::tests::enter_on_a_choice_writes_its_command_into_the_composer_and_runs_nothing: src/tui/shell.rs:38128:13: /workspace remove <scratch>/abcdefghijklmnopqrstuvwxyz/.tmpsvz4Ml/extra: ["\u{1b}[38;5;255m┃\u{1b}[0m /wor
+- tui::shell::tests::right_on_a_status_line_row_is_statusline_item_and_says_both_notices: src/tui/shell.rs:43328:9: run `xfx setup` · auto · glm-5.2 · …<scratch>/abcdefghijklmnopqrstuvwxyz/.tmpagz7qs/work
+- tui::shell::tests::show_opens_on_the_skills_own_tab_and_the_other_forms_answer_in_upstreams_words: src/tui/shell.rs:45721:9: assertion `left == right` failed
+- tui::shell::tests::the_branch_is_read_at_launch_and_again_at_the_end_of_a_turn: src/tui/shell.rs:38610:9: assertion `left == right` failed: the profile's segment was not on at launch, or its branch unread
+- tui::shell::tests::the_segments_follow_the_model_in_upstreams_order_and_only_when_on: src/tui/shell.rs:38574:9: assertion `left == right` failed
+- tui::shell::tests::what_a_change_to_the_managed_root_says_waits_for_the_list_that_holds_it: src/tui/shell.rs:45980:9: []
+- tui::shell::tests::workspace_list_says_the_snapshot_and_bad_words_say_the_usage: src/tui/shell.rs:38216:9: assertion `left == right` failed
+- tui::shell::tests::trace_that_the_clipboard_refused_says_where_the_file_is_as_an_error: src/tui/shell.rs:25247:9: assertion `left == right` failed
+- tui::shell::tests::a_pasted_path_is_its_badge_at_once_and_says_nothing: src/tui/shell.rs:41533:9: assertion `left == right` failed
+- tui::shell::tests::a_pasted_path_the_read_table_denies_stays_words_and_says_why: src/tui/shell.rs:41644:9: assertion `left == right` failed

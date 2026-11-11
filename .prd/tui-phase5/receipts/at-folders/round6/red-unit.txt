@@ -1,0 +1,28 @@
+# round 6 RED at <this commit> (the cases on round 5's code, 6d1958df's src): cargo test --locked --lib -- --exact <the 4 cases>, TMPDIR=<scratch>
+running 4 tests
+test tui::shell::tests::two_requests_during_one_walk_queue_one_walk ... FAILED
+test tui::shell::tests::a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows ... FAILED
+test tui::shell::tests::a_new_episode_during_a_walk_queues_one_walk_and_its_rows_show ... FAILED
+test tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots ... FAILED
+thread 'tui::shell::tests::two_requests_during_one_walk_queue_one_walk' (401487014) panicked at src/tui/shell.rs:35236:9:
+assertion `left == right` failed
+  left: 1
+ right: 2
+thread 'tui::shell::tests::a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows' (401487011) panicked at src/tui/shell.rs:35263:9:
+assertion `left == right` failed: the refresh queued during the failed walk never ran
+  left: 1
+ right: 2
+thread 'tui::shell::tests::a_new_episode_during_a_walk_queues_one_walk_and_its_rows_show' (401487012) panicked at src/tui/shell.rs:35204:9:
+assertion `left == right` failed: the refresh asked for during the walk never ran
+  left: 1
+ right: 2
+thread 'tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots' (401487013) panicked at src/tui/shell.rs:35301:9:
+assertion `left == right` failed: the open list kept the old roots' rows
+  left: 1
+ right: 2
+    tui::shell::tests::a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows
+    tui::shell::tests::a_new_episode_during_a_walk_queues_one_walk_and_its_rows_show
+    tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots
+    tui::shell::tests::two_requests_during_one_walk_queue_one_walk
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 4592 filtered out; finished in 0.04s
+error: test failed, to rerun pass `--lib`

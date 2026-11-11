@@ -1,0 +1,254 @@
+# per unit: tree sweep unit | fxsw holds l | fx: own l, path holds plan, row 13 lists | xfx: the same | verdict
+head 1 01 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 1 02 | - | fx - no  blank | xfx l yes lists | unresolved-defect
+head 1 03 | - | fx l yes lists | xfx - no  blank | unresolved-defect
+head 1 04 | - | fx - no  blank | xfx l yes lists | unresolved-defect
+head 1 05 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 1 06 | - | fx - no  blank | xfx l yes lists | unresolved-defect
+head 1 07 | - | fx l yes lists | xfx - no  blank | unresolved-defect
+head 1 08 | - | fx l yes lists | xfx - no  blank | unresolved-defect
+head 1 09 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 1 10 | - | fx - no  blank | xfx l yes lists | unresolved-defect
+head 1 11 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 1 12 | - | fx - no  blank | xfx l yes lists | unresolved-defect
+head 2 01 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 2 02 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 2 03 | - | fx l yes lists | xfx l yes lists | unresolved-defect
+head 2 04 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 2 05 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 2 06 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 2 07 | - | fx l yes lists | xfx l yes lists | unresolved-defect
+head 2 08 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 2 09 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 2 10 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 2 11 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 2 12 | - | fx l yes lists | xfx - no  blank | unresolved-defect
+head 3 01 | - | fx - no  blank | xfx l yes lists | unresolved-defect
+head 3 02 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 3 03 | - | fx - no  blank | xfx l yes lists | unresolved-defect
+head 3 04 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 3 05 | - | fx l yes lists | xfx - no  blank | unresolved-defect
+head 3 06 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 3 07 | - | fx l yes lists | xfx - no  blank | unresolved-defect
+head 3 08 | - | fx l yes lists | xfx - no  blank | unresolved-defect
+head 3 09 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 3 10 | - | fx - no  blank | xfx - no  blank | normalized-identical
+head 3 11 | - | fx l yes lists | xfx - no  blank | unresolved-defect
+head 3 12 | - | fx l yes lists | xfx - no  blank | unresolved-defect
+base 1 01 | l | fx - yes lists | xfx - yes lists | unresolved-defect
+base 1 02 | l | fx l yes lists | xfx - yes lists | unresolved-defect
+base 1 03 | l | fx l yes lists | xfx - yes lists | unresolved-defect
+base 1 04 | l | fx - yes lists | xfx - yes lists | unresolved-defect
+base 1 05 | l | fx - yes lists | xfx - yes lists | unresolved-defect
+base 1 06 | l | fx - yes lists | xfx l yes lists | unresolved-defect
+base 1 07 | l | fx - yes lists | xfx - yes lists | unresolved-defect
+base 1 08 | l | fx - yes lists | xfx - yes lists | unresolved-defect
+base 1 09 | l | fx - yes lists | xfx - yes lists | unresolved-defect
+base 1 10 | l | fx - yes lists | xfx l yes lists | unresolved-defect
+base 1 11 | l | fx - yes lists | xfx - yes lists | unresolved-defect
+base 1 12 | l | fx - yes lists | xfx - yes lists | unresolved-defect
+base 2 01 | - | fx l yes lists | xfx l yes lists | unresolved-defect
+base 2 02 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 2 03 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 2 04 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 2 05 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 2 06 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 2 07 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 2 08 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 2 09 | - | fx l yes lists | xfx - no  blank | unresolved-defect
+base 2 10 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 2 11 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 2 12 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 3 01 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 3 02 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 3 03 | - | fx l yes lists | xfx l yes lists | unresolved-defect
+base 3 04 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 3 05 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 3 06 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 3 07 | - | fx - no  blank | xfx l yes lists | unresolved-defect
+base 3 08 | - | fx l yes lists | xfx - no  blank | unresolved-defect
+base 3 09 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 3 10 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 3 11 | - | fx - no  blank | xfx - no  blank | normalized-identical
+base 3 12 | - | fx - no  blank | xfx l yes lists | unresolved-defect
+
+# sides whose row 13 lists the folder exactly when its path holds p, l, a, n in order: 144 of 144
+# sides whose row 12 is the folder's `plan.md` (listed by its name, whatever the path): 144 of 144
+# head: both list 2 (unresolved-defect); fx only (CI's frame) 9 (unresolved-defect); neither 18 (normalized-identical); xfx only 7 (unresolved-defect)
+# base: both list 14 (unresolved-defect); fx only (CI's frame) 2 (unresolved-defect); neither 18 (normalized-identical); xfx only 2 (unresolved-defect)
+
+## rows 1-20 of at-plan, base sweep 1 workspace-index-01: both list -- fx | xfx
+ 1 𝒇x v0.0.16 · Run /help for commands                              | x𝒇x v0.2.0 (debug 2026-11-10-1858-dcfa5146b520) · Run /help for 
+ 2                                                                  | 
+ 3 * workspace: primary=<work~60>                                   | * workspace: primary=<work~60>
+ 4   saved_suppressed=false limit=16                                |   saved_suppressed=false limit=16
+ 5   add ../extra saved_changed=true runtime_changed=true launch_fl |   add ../extra saved_changed=true runtime_changed=true launch_fl
+ 6   additional directories:                                        |   additional directories:
+ 7    - <scratch~55>/extra saved=true command_line=false available= |    - <scratch~55>/extra saved=true command_line=false available=
+ 8   active=true                                                    |   active=true
+ 9                                                                  | 
+10 ┃ @plan                                                          | ┃ @plan
+11 ──────────────────────────────────────────────────────────────── | ────────────────────────────────────────────────────────────────
+12   <scratch~55>/extra/notes/plan.md                               |   <scratch~55>/extra/notes/plan.md
+13   <scratch~55>/extra/notes/                                      |   <scratch~55>/extra/notes/
+14                                                                  | 
+15                                                                  | 
+16                                                                  | 
+17                                                                  | 
+18                                                                  | 
+19                                                                  | 
+20                                                                  | 
+
+## rows 1-20 of at-plan, base sweep 2 workspace-index-09: fx only (CI's frame) -- fx | xfx
+ 1 𝒇x v0.0.16 · Run /help for commands                              | x𝒇x v0.2.0 (debug 2026-11-10-1858-dcfa5146b520) · Run /help for 
+ 2                                                                  | 
+ 3 * workspace: primary=<work~60>                                   | * workspace: primary=<work~60>
+ 4   saved_suppressed=false limit=16                                |   saved_suppressed=false limit=16
+ 5   add ../extra saved_changed=true runtime_changed=true launch_fl |   add ../extra saved_changed=true runtime_changed=true launch_fl
+ 6   additional directories:                                        |   additional directories:
+ 7    - <scratch~55>/extra saved=true command_line=false available= |    - <scratch~55>/extra saved=true command_line=false available=
+ 8   active=true                                                    |   active=true
+ 9                                                                  | 
+10 ┃ @plan                                                          | ┃ @plan
+11 ──────────────────────────────────────────────────────────────── | ────────────────────────────────────────────────────────────────
+12   <scratch~55>/extra/notes/plan.md                               |   <scratch~55>/extra/notes/plan.md
+13   <scratch~55>/extra/notes/                                      | 
+14                                                                  | 
+15                                                                  | 
+16                                                                  | 
+17                                                                  | 
+18                                                                  | 
+19                                                                  | 
+20                                                                  | 
+
+## rows 1-20 of at-plan, base sweep 2 workspace-index-02: neither -- fx | xfx
+ 1 𝒇x v0.0.16 · Run /help for commands                              | x𝒇x v0.2.0 (debug 2026-11-10-1858-dcfa5146b520) · Run /help for 
+ 2                                                                  | 
+ 3 * workspace: primary=<work~60>                                   | * workspace: primary=<work~60>
+ 4   saved_suppressed=false limit=16                                |   saved_suppressed=false limit=16
+ 5   add ../extra saved_changed=true runtime_changed=true launch_fl |   add ../extra saved_changed=true runtime_changed=true launch_fl
+ 6   additional directories:                                        |   additional directories:
+ 7    - <scratch~55>/extra saved=true command_line=false available= |    - <scratch~55>/extra saved=true command_line=false available=
+ 8   active=true                                                    |   active=true
+ 9                                                                  | 
+10 ┃ @plan                                                          | ┃ @plan
+11 ──────────────────────────────────────────────────────────────── | ────────────────────────────────────────────────────────────────
+12   <scratch~55>/extra/notes/plan.md                               |   <scratch~55>/extra/notes/plan.md
+13                                                                  | 
+14                                                                  | 
+15                                                                  | 
+16                                                                  | 
+17                                                                  | 
+18                                                                  | 
+19                                                                  | 
+20                                                                  | 
+
+## rows 1-20 of at-plan, base sweep 3 workspace-index-07: xfx only -- fx | xfx
+ 1 𝒇x v0.0.16 · Run /help for commands                              | x𝒇x v0.2.0 (debug 2026-11-10-1858-dcfa5146b520) · Run /help for 
+ 2                                                                  | 
+ 3 * workspace: primary=<work~60>                                   | * workspace: primary=<work~60>
+ 4   saved_suppressed=false limit=16                                |   saved_suppressed=false limit=16
+ 5   add ../extra saved_changed=true runtime_changed=true launch_fl |   add ../extra saved_changed=true runtime_changed=true launch_fl
+ 6   additional directories:                                        |   additional directories:
+ 7    - <scratch~55>/extra saved=true command_line=false available= |    - <scratch~55>/extra saved=true command_line=false available=
+ 8   active=true                                                    |   active=true
+ 9                                                                  | 
+10 ┃ @plan                                                          | ┃ @plan
+11 ──────────────────────────────────────────────────────────────── | ────────────────────────────────────────────────────────────────
+12   <scratch~55>/extra/notes/plan.md                               |   <scratch~55>/extra/notes/plan.md
+13                                                                  |   <scratch~55>/extra/notes/
+14                                                                  | 
+15                                                                  | 
+16                                                                  | 
+17                                                                  | 
+18                                                                  | 
+19                                                                  | 
+20                                                                  | 
+
+## rows 1-20 of at-plan, head sweep 2 workspace-index-03: both list -- fx | xfx
+ 1 𝒇x v0.0.16 · Run /help for commands                              | x𝒇x v0.2.0 (debug 2026-11-10-2057-b3dffdad3e0b) · Run /help for 
+ 2                                                                  | 
+ 3 * workspace: primary=<work~60>                                   | * workspace: primary=<work~60>
+ 4   saved_suppressed=false limit=16                                |   saved_suppressed=false limit=16
+ 5   add ../extra saved_changed=true runtime_changed=true launch_fl |   add ../extra saved_changed=true runtime_changed=true launch_fl
+ 6   additional directories:                                        |   additional directories:
+ 7    - <scratch~55>/extra saved=true command_line=false available= |    - <scratch~55>/extra saved=true command_line=false available=
+ 8   active=true                                                    |   active=true
+ 9                                                                  | 
+10 ┃ @plan                                                          | ┃ @plan
+11 ──────────────────────────────────────────────────────────────── | ────────────────────────────────────────────────────────────────
+12   <scratch~55>/extra/notes/plan.md                               |   <scratch~55>/extra/notes/plan.md
+13   <scratch~55>/extra/notes/                                      |   <scratch~55>/extra/notes/
+14                                                                  | 
+15                                                                  | 
+16                                                                  | 
+17                                                                  | 
+18                                                                  | 
+19                                                                  | 
+20                                                                  | 
+
+## rows 1-20 of at-plan, head sweep 1 workspace-index-03: fx only (CI's frame) -- fx | xfx
+ 1 𝒇x v0.0.16 · Run /help for commands                              | x𝒇x v0.2.0 (debug 2026-11-10-2057-b3dffdad3e0b) · Run /help for 
+ 2                                                                  | 
+ 3 * workspace: primary=<work~60>                                   | * workspace: primary=<work~60>
+ 4   saved_suppressed=false limit=16                                |   saved_suppressed=false limit=16
+ 5   add ../extra saved_changed=true runtime_changed=true launch_fl |   add ../extra saved_changed=true runtime_changed=true launch_fl
+ 6   additional directories:                                        |   additional directories:
+ 7    - <scratch~55>/extra saved=true command_line=false available= |    - <scratch~55>/extra saved=true command_line=false available=
+ 8   active=true                                                    |   active=true
+ 9                                                                  | 
+10 ┃ @plan                                                          | ┃ @plan
+11 ──────────────────────────────────────────────────────────────── | ────────────────────────────────────────────────────────────────
+12   <scratch~55>/extra/notes/plan.md                               |   <scratch~55>/extra/notes/plan.md
+13   <scratch~55>/extra/notes/                                      | 
+14                                                                  | 
+15                                                                  | 
+16                                                                  | 
+17                                                                  | 
+18                                                                  | 
+19                                                                  | 
+20                                                                  | 
+
+## rows 1-20 of at-plan, head sweep 1 workspace-index-01: neither -- fx | xfx
+ 1 𝒇x v0.0.16 · Run /help for commands                              | x𝒇x v0.2.0 (debug 2026-11-10-2057-b3dffdad3e0b) · Run /help for 
+ 2                                                                  | 
+ 3 * workspace: primary=<work~60>                                   | * workspace: primary=<work~60>
+ 4   saved_suppressed=false limit=16                                |   saved_suppressed=false limit=16
+ 5   add ../extra saved_changed=true runtime_changed=true launch_fl |   add ../extra saved_changed=true runtime_changed=true launch_fl
+ 6   additional directories:                                        |   additional directories:
+ 7    - <scratch~55>/extra saved=true command_line=false available= |    - <scratch~55>/extra saved=true command_line=false available=
+ 8   active=true                                                    |   active=true
+ 9                                                                  | 
+10 ┃ @plan                                                          | ┃ @plan
+11 ──────────────────────────────────────────────────────────────── | ────────────────────────────────────────────────────────────────
+12   <scratch~55>/extra/notes/plan.md                               |   <scratch~55>/extra/notes/plan.md
+13                                                                  | 
+14                                                                  | 
+15                                                                  | 
+16                                                                  | 
+17                                                                  | 
+18                                                                  | 
+19                                                                  | 
+20                                                                  | 
+
+## rows 1-20 of at-plan, head sweep 1 workspace-index-02: xfx only -- fx | xfx
+ 1 𝒇x v0.0.16 · Run /help for commands                              | x𝒇x v0.2.0 (debug 2026-11-10-2057-b3dffdad3e0b) · Run /help for 
+ 2                                                                  | 
+ 3 * workspace: primary=<work~60>                                   | * workspace: primary=<work~60>
+ 4   saved_suppressed=false limit=16                                |   saved_suppressed=false limit=16
+ 5   add ../extra saved_changed=true runtime_changed=true launch_fl |   add ../extra saved_changed=true runtime_changed=true launch_fl
+ 6   additional directories:                                        |   additional directories:
+ 7    - <scratch~55>/extra saved=true command_line=false available= |    - <scratch~55>/extra saved=true command_line=false available=
+ 8   active=true                                                    |   active=true
+ 9                                                                  | 
+10 ┃ @plan                                                          | ┃ @plan
+11 ──────────────────────────────────────────────────────────────── | ────────────────────────────────────────────────────────────────
+12   <scratch~55>/extra/notes/plan.md                               |   <scratch~55>/extra/notes/plan.md
+13                                                                  |   <scratch~55>/extra/notes/
+14                                                                  | 
+15                                                                  | 
+16                                                                  | 
+17                                                                  | 
+18                                                                  | 
+19                                                                  | 
+20                                                                  | 

@@ -1,0 +1,4 @@
+# clone at 47c2fc0b; tests: cargo test --locked --lib -- tui::file_index tui::file_picker tui::shell; limit 900 s each
+NO-BUILD name-start-not-kept: error[E0689]: can't call method `checked_sub` on ambiguous numeric type `{integer}`  []
+KILLED   backward-from-the-end-each-row: tui::file_index::tests::a_rows_window_ends_before_the_next_rows_last_place  [test result: FAILED. 946 passed; 1 failed; 0 ignored; 0 measured; 3717 filtered out; finished in 9.57s]
+mutants: 2 run, 1 killed, 1 did not build

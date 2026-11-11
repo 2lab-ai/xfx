@@ -1,0 +1,40 @@
+* session resumed: [Image #1] first prompt alpha
+
+┃ [Image 1] first prompt alpha
+
+  ALPHA answer.
+
+  0s (↑9 ↓4)
+
+┃ what is it now?
+
+! session: image #1 of this session could not be read back (its saved copy is not the file that was saved), so it was
+  not sent again
+
+  It is a small red square.
+
+  0s (↑4 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

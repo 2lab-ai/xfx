@@ -28,6 +28,10 @@ async-trait = "0.1"
 clap = { version = "4.5", features = ["derive"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 globset = "0.4"
+# The `@` picker's search finds a query's letters in each path's bytes once per
+# keystroke over up to 100,000 paths; a byte loop was half its cost. Already
+# built for `ignore`, `globset` and `serde_json`.
+memchr = "2"
 # ripgrep's walker: bounded, deterministic when sorted, does not follow
 # symlinks, and applies `.gitignore`, so glob and grep see the files a developer
 # considers part of the project rather than every build artifact.

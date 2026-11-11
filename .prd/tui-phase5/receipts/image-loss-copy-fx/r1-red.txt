@@ -1,0 +1,49 @@
+# RED: f61bcf1a (the base 714f6283 plus the tests only), in the worktree before the fix, TMPDIR a short scratch path:
+#   cargo test --locked --lib -- the_picker_cannot_resume a_prompt_images_copy a_tool_image_never_read_back a_tool_images_lost_copy a_tool_image_that_cannot_go a_resumed_prompt_image a_prompt_image_never
+#   cargo test --locked --test sessions -- ask_resume_of_a_session_a_prompt_images_copy_is_gone ask_resume_whose_prompt_images_copy_changed ask_resume_never_adopts_a_model
+#   cargo test --locked --test tui -- a_resume_of_a_session_a_prompt_images_copy_is_gone_from
+# Each test's verdict, then each panic's place and the assertion's first lines.
+test session::store::tests::a_tool_image_never_read_back_is_unavailable_in_this_session_and_the_note_fits_the_limit ... FAILED
+test session::store::tests::a_prompt_images_copy_gone_or_not_a_file_refuses_the_resume_in_upstreams_words_and_changes_nothing ... FAILED
+test session::store::tests::a_prompt_images_copy_with_other_bytes_resumes_and_is_not_sent ... ok
+test tui::worker::tests::the_picker_cannot_resume_a_session_a_prompt_images_copy_is_gone_from ... FAILED
+test tui::worker::tests::a_prompt_image_never_read_back_fails_the_turn_as_upstreams_with_no_file ... FAILED
+test tui::worker::tests::a_resumed_prompt_image_whose_copy_changed_fails_the_turn_in_upstreams_words_and_asks_nothing ... FAILED
+test session::store::tests::a_tool_images_lost_copy_is_told_to_the_model_in_front_of_its_result ... FAILED
+test tui::worker::tests::a_tool_image_that_cannot_go_is_told_to_the_model_and_the_screen_says_nothing ... FAILED
+thread 'session::store::tests::a_tool_image_never_read_back_is_unavailable_in_this_session_and_the_note_fits_the_limit' (445387140) panicked at src/session/store.rs:5777:13:
+thread 'session::store::tests::a_prompt_images_copy_gone_or_not_a_file_refuses_the_resume_in_upstreams_words_and_changes_nothing' (445387138) panicked at src/session/store.rs:5433:30:
+thread 'tui::worker::tests::the_picker_cannot_resume_a_session_a_prompt_images_copy_is_gone_from' (445387145) panicked at src/tui/worker.rs:18959:9:
+thread 'tui::worker::tests::a_prompt_image_never_read_back_fails_the_turn_as_upstreams_with_no_file' (445387142) panicked at src/tui/worker.rs:19015:9:
+assertion `left == right` failed
+  left: None
+ right: Some("request failed: MissingImageSnapshot")
+thread 'tui::worker::tests::a_resumed_prompt_image_whose_copy_changed_fails_the_turn_in_upstreams_words_and_asks_nothing' (445387143) panicked at src/tui/worker.rs:18936:13:
+assertion `left == right` failed: other bytes
+  left: None
+ right: Some("request failed: ImageSnapshotCorrupt")
+thread 'session::store::tests::a_tool_images_lost_copy_is_told_to_the_model_in_front_of_its_result' (445387141) panicked at src/session/store.rs:5706:9:
+assertion `left == right` failed
+  left: [("c1", "two images", 1), ("c2", "one image", 0), ("c3", "a whole one", 1)]
+ right: [("c1", "[Stored tool image unavailable: ResultHandleNotFound]\ntwo images", 0), ("c2", "[Stored tool image unavailable: BlobDamaged]\none image", 0), ("c3", "a whole one", 1)]
+thread 'tui::worker::tests::a_tool_image_that_cannot_go_is_told_to_the_model_and_the_screen_says_nothing' (445387144) panicked at src/tui/worker.rs:19077:9:
+assertion `left == right` failed: each: resumed, the turn's end, the notices, each result as the model is sent it
+  left: [(false, None, ["! session: an image `read_file` returned was not read back, so it was not sent again"], [("an image", 0), ("an image", 0)]), (true, None, ["! session: an image `read_file` returned could not be read back (its saved copy is missing), so it was not sent again"], [("an image", 0), ("an image", 0)])]
+ right: [(false, None, [], [("[Stored tool image is unavailable in this session.]\nan image", 0), ("[Stored tool image is unavailable in this session.]\nan image", 0)]), (true, None, [], [("[Stored tool image unavailable: ResultHandleNotFound]\nan image", 0), ("[Stored tool image unavailable: ResultHandleNotFound]\nan image", 0)])]
+test result: FAILED. 1 passed; 7 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 0.83s
+test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+test ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstreams_and_changes_nothing ... FAILED
+test ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams ... FAILED
+thread 'ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one' (445399140) panicked at tests/sessions.rs:2191:5:
+thread 'ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstreams_and_changes_nothing' (445399141) panicked at tests/sessions.rs:2044:13:
+assertion `left == right` failed
+  left: "xfx: image #1 of this session could not be read back (its saved copy is missing), so it was not sent again\nthe Gateway returned HTTP 500: fake server: unscripted request\n"
+ right: "xfx: InvalidSessionFormat\n"
+thread 'ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams' (445399142) panicked at tests/sessions.rs:2077:5:
+assertion `left == right` failed
+  left: "xfx: image #1 of this session could not be read back (its saved copy is not the file that was saved), so it was not sent again\nthe Gateway returned HTTP 500: fake server: unscripted request\n"
+ right: "xfx: ImageSnapshotCorrupt\n"
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 64 filtered out; finished in 9.86s
+test a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words ... FAILED
+thread 'a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words' (445443708) panicked at tests/support/pty.rs:388:21:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 186 filtered out; finished in 20.06s

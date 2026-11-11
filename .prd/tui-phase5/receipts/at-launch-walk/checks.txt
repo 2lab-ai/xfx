@@ -1,0 +1,24 @@
+# checks.sh at 286e1153 inside one hold of the suite lock, TMPDIR=<scratch>/abcdefghijklmnopqrstuvwxyz
+# head 286e1153; src clean: yes
+## unit: exit 0, 33 s
+test result: ok. 1357 passed; 0 failed; 3 ignored; 0 measured; 3266 filtered out; finished in 16.88s
+# exit: 0
+## parity: exit 0, 9 s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.42s
+# exit: 0
+## cases: exit 0, 1 s
+test tui::tests::the_launch_starts_the_index_walk_fresh_or_resumed ... ok
+test tui::shell::tests::a_first_at_after_a_change_whose_walk_failed_before_the_poll_says_files_unavailable ... ok
+test tui::file_index::tests::the_launch_walk_keeps_the_launch_epoch_through_a_change ... ok
+test tui::shell::tests::a_change_after_the_launch_walk_failed_lists_the_new_walks_prefix ... ok
+test tui::file_index::tests::the_launch_walks_a_root_once_and_an_empty_root_never ... ok
+test tui::shell::tests::a_change_before_the_launch_walk_is_whole_says_files_unavailable_until_the_new_scopes_walk_is ... ok
+test tui::shell::tests::a_first_at_after_the_launch_walk_failed_but_before_the_poll_says_indexing ... ok
+test tui::shell::tests::a_first_at_after_the_launch_walk_ended_whole_but_before_the_poll_refreshes ... ok
+test tui::shell::tests::a_fresh_sessions_first_at_after_the_launch_walk_is_whole_shows_its_rows_at_once ... ok
+test tui::shell::tests::the_first_at_while_the_old_roots_walk_runs_skips_its_refresh ... ok
+test tui::shell::tests::the_first_at_after_the_old_roots_walk_failed_skips_its_refresh ... ok
+test tui::shell::tests::the_first_at_after_the_old_roots_walk_was_adopted_refreshes ... ok
+test tui::shell::tests::tab_in_the_interim_retries_and_still_says_files_unavailable ... ok
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 4613 filtered out; finished in 0.18s
+# exit: 0

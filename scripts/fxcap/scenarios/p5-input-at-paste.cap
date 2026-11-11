@@ -1,0 +1,13 @@
+# AT-FOLDERS round 6: an `@` folder pasted whole, so the list's episode opens
+# on the folder's query -- its listing, no walk of the index -- and then a
+# Backspace turns it back into an indexed query, whose change of kind asks
+# for the index's refresh (fx `file_completion_state.zig:164@481104fd`).
+fx: env FX_AUTO_UPGRADE=0
+work p5-input-at-folders-ws
+wait 4
+paste @src/
+wait 1.2
+snap paste-src
+key BSpace
+wait 1.5
+snap paste-src-back

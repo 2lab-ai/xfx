@@ -1,0 +1,87 @@
+# Sampling profiles (macOS `sample`, 8 s, 1 ms interval) of the profiling harness: a test, never
+# committed (r3-profile-harness.py adds it), that searches the listed prefixes in turn over fx's
+# 100,000-entry inventory. Release build with symbols, the file_index functions below marked
+# #[inline(never)] so each keeps its own samples. Top of stack, main thread (the other threads
+# of the test binary wait, in semaphore_wait_trap, and are left out). Load varied by run: compare
+# the shares within a run, not the counts across runs.
+
+== before: 3c4b519d (round 2's head)
+# prefixes: s,sr,src,src/,a,ae,as,ash,ashr
+# PROFILE DONE 3726 searches, 3.763451ms each
+# main-thread samples: 4630
+  1697   36.7%  align_best::<u8>
+  1326   28.6%  is_subsequence::<u8>
+   307    6.6%  choose_placement::<u8>
+   295    6.4%  score_entry
+   169    3.7%  _platform_memcmp
+   142    3.1%  rank_top
+   120    2.6%  bonus_at
+   103    2.2%  admits
+    96    2.1%  better
+    92    2.0%  exact_fit::<u8>
+    90    1.9%  Vec::extend (align_best's column fill)
+    32    0.7%  _platform_memmove
+    31    0.7%  score_alignment
+    29    0.6%  _platform_memset_pattern16
+    22    0.5%  Align::offer
+    21    0.5%  _platform_memset
+    18    0.4%  DYLD-STUB$$memcmp
+     9    0.2%  DYLD-STUB$$memset_pattern16
+     9    0.2%  unicode_segmentation::Graphemes::next
+     9    0.2%  __bzero
+     7    0.2%  _RNvMs1_NtCs3vUkWdPtNor_5alloc3vecINtB5_3VecjE6resizeCs4TCh2uzfCAL_3xfx
+     6    0.1%  max_crossing_quality::<u8>
+
+== before: 3c4b519d (round 2's head), the exact class's slow prefixes
+# prefixes: sr,src,src/,src/c,src/co,src/cor,src/core,src/core/
+# PROFILE DONE 3520 searches, 3.410721ms each
+# main-thread samples: 4659
+  1853   39.8%  is_subsequence::<u8>
+  1460   31.3%  align_best::<u8>
+   303    6.5%  score_entry
+   245    5.3%  choose_placement::<u8>
+   116    2.5%  admits
+   116    2.5%  bonus_at
+   114    2.4%  rank_top
+   107    2.3%  Vec::extend (align_best's column fill)
+    97    2.1%  exact_fit::<u8>
+    92    2.0%  _platform_memcmp
+    47    1.0%  better
+    23    0.5%  DYLD-STUB$$memcmp
+    20    0.4%  _platform_memset_pattern16
+    17    0.4%  Align::offer
+    10    0.2%  unicode_segmentation::Graphemes::next
+    10    0.2%  _platform_memset
+     8    0.2%  DYLD-STUB$$memset_pattern16
+     8    0.2%  score_alignment
+     7    0.2%  _platform_memmove
+     6    0.1%  DYLD-STUB$$bzero
+
+== after: f8daa194 (round 3)
+# prefixes: sr,src,src/,src/c,src/co,src/cor,src/core,src/core/,ae,as,ash,ashr
+# PROFILE DONE 5268 searches, 2.280525ms each
+# main-thread samples: 3443
+  1023   29.7%  <u8 as Unit>::find
+   474   13.8%  align_best::<u8>
+   367   10.7%  score_entry
+   256    7.4%  choose_placement::<u8>
+   245    7.1%  <u8 as Unit>::rfind
+   176    5.1%  rank_top
+   172    5.0%  bonus_at
+   153    4.4%  admits
+   116    3.4%  Vec::extend (align_best's column fill)
+   106    3.1%  exact_fit::<u8>
+    82    2.4%  better
+    51    1.5%  _platform_memcmp
+    47    1.4%  is_subsequence::<u8>
+    43    1.2%  _platform_memset_pattern16
+    24    0.7%  score_alignment
+    22    0.6%  _platform_memmove
+    19    0.6%  Align::offer
+    17    0.5%  _platform_memset
+    14    0.4%  unicode_segmentation::Graphemes::next
+    10    0.3%  __bzero
+     7    0.2%  DYLD-STUB$$memset_pattern16
+     7    0.2%  align_best::<char>
+     7    0.2%  _RNvMs1_NtCs3vUkWdPtNor_5alloc3vecINtB5_3VecjE6resizeCsgBfOfl8fK3a_3xfx
+     5    0.1%  _xzm_xzone_malloc

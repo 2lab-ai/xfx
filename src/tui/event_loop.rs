@@ -259,7 +259,7 @@ fn session(
     loop {
         match signals::wait_for_input(
             &[stdin.as_fd(), launch.wakeup.read_fd()],
-            Some(TICK),
+            Some(wait_timeout(shell, Instant::now())),
             launch.held,
         ) {
             Ok(_) => {}
@@ -298,7 +298,7 @@ fn session(
         // was spent on the read, so this reconcile is not optional -- it is the
         // only way to have one.
         let reconciled = collect_facts(shell, band, launch, Instant::now())?;
-        commit_counted(
+        commit_or_hold(
             shell,
             band,
             &mut RawTty::stdout(),
@@ -320,6 +320,49 @@ fn session(
             return Ok(shell.exit_code());
         }
     }
+}
+
+/// How often the loop checks back while a folder listing is in its first
+/// tick (`focused_ui_worker_poll_timeout_ms`, `main.zig:175@481104fd`).
+const LISTING_POLL: Duration = Duration::from_millis(1);
+
+/// How long a turn's wait may last: the [`TICK`], or [`LISTING_POLL`] while a
+/// folder listing is in its first tick (`nativeLoopPollTimeoutMs`,
+/// `main.zig:191-207`, `:1140@481104fd`), so rows that land a millisecond
+/// after the keystroke are painted then, not a tick later. The listing's
+/// worker wakes nothing; this is what hears it.
+fn wait_timeout(shell: &Shell, now: Instant) -> Duration {
+    if shell.file_listing_hold_pending(now) {
+        LISTING_POLL.min(TICK)
+    } else {
+        TICK
+    }
+}
+
+/// The turn's writes ([`commit_counted`]), with its **frame** held while it
+/// waits for the rows of a folder listing a keystroke started: fx's loop
+/// skips `flushRequestedFrame` while `holdFrameForFileListing` says so
+/// (`loopCommitFrame`, `main.zig:3007@481104fd`), at most 8 ms
+/// ([`super::file_picker::ListingWait`]).
+///
+/// Held is what fx's `flushRequestedFrame` holds ([`commit_frame_led`] says
+/// what that is): the band's or the plane's update, the document rows it
+/// carries, the `/model` column's ask that comes with it, and the bells,
+/// which fx flushes inside that function after the frame
+/// (`app_render_runtime.zig:1059-1063`). The status report and the window
+/// title -- written on its own then -- go out on their tick, in their order,
+/// as fx writes them outside its frame. The frame and the bells stay owed, so
+/// the next turn that is not held commits the frame and then rings them.
+fn commit_or_hold(
+    shell: &mut Shell,
+    band: &mut Band,
+    out: &mut impl Sink,
+    failures: &mut FrameFailures,
+    now: Instant,
+    reconciled: Reconciled,
+) -> io::Result<()> {
+    let held = shell.hold_frame_for_file_listing(now);
+    commit_counted_held(shell, band, out, failures, now, reconciled, held)
 }
 
 /// Hands the band the window title the session starts with, before the
@@ -928,7 +971,16 @@ fn commit_frame(
     now: Instant,
     reconciled: Reconciled,
 ) -> io::Result<()> {
-    commit_frame_led(shell, band, out, failures, now, &reconciled, &mut None)
+    commit_frame_led(
+        shell,
+        band,
+        out,
+        failures,
+        now,
+        &reconciled,
+        &mut None,
+        false,
+    )
 }
 
 /// [`commit_frame`], with a program status report to ride the lead of the
@@ -936,7 +988,13 @@ fn commit_frame(
 /// Taken out of `lead` by the update that carries it ([`commit_primary`]);
 /// left there by a tick that wrote no such update. It borrows the token its
 /// caller took: [`commit_tick`]'s two frames, the preview's and its card's,
-/// are written against one reconcile, with no wait between them.
+/// are written against one reconcile, with no wait between them. With
+/// `held`, the frame waits for a folder listing's rows ([`commit_or_hold`])
+/// and only what is not the frame is written.
+// The frame's lead and whether the frame is held are the tick's to say, and
+// the rest is every commit's: a struct for two flags would be one more thing
+// for the other callers to build.
+#[allow(clippy::too_many_arguments)]
 fn commit_frame_led(
     shell: &mut Shell,
     band: &mut Band,
@@ -945,6 +1003,7 @@ fn commit_frame_led(
     now: Instant,
     _reconciled: &Reconciled,
     lead: &mut Option<super::program_status::Report>,
+    held: bool,
 ) -> io::Result<()> {
     // The window title the session wants now, handed to the band before any
     // frame below is built: the band writes it with whichever frame comes
@@ -1037,6 +1096,29 @@ fn commit_frame_led(
             };
         }
         shell.handed_off();
+    }
+    // **A frame held for a folder listing's rows** ([`commit_or_hold`]) stops
+    // here. What is above is not fx's frame: its theme query is written while
+    // it collects facts (`collectThemeFacts`, `main.zig:2830-2843@481104fd`),
+    // and its handoff is settled after the frame, held or not (`:3009`),
+    // which itself writes nothing while one is pending
+    // (`flushRequestedFrame`, `app_render_runtime.zig:925-927`). What is below
+    // is: the document rows ride the frame (`commit_primary`), as fx's
+    // scrollback rows ride its wire frame, and the other plane's frame is the
+    // same `flushRequestedFrame` on the full transcript's requests (`:934`).
+    // The title a primary frame would lead with goes out on its own, as fx's
+    // title is (`syncTerminalTitleWith`, `app_session_runtime.zig:2965-2987`).
+    // The bells are fx's frame's too (`flushNotifications` after the commit,
+    // `app_render_runtime.zig:1059-1063`): [`commit_tick`] leaves them owed.
+    if held {
+        let primary = !band.on_alternate()
+            && shell.screen_owner() == super::shell::ScreenOwner::Primary
+            && !shell.blind();
+        return if primary {
+            write_title_alone(band, out, failures, now)
+        } else {
+            Ok(())
+        };
     }
     // Whose screen it is, before anything is written onto it. A question the
     // band cannot show is reviewed on the terminal's other buffer, and both the
@@ -1157,6 +1239,7 @@ fn commit_frame_led(
 /// prefix of a torn frame is on the terminal whatever became of the frame.
 /// The exit's last frames (`shut_down`) are not counted: nothing can ask
 /// `/stats` after them.
+#[cfg(test)]
 fn commit_counted(
     shell: &mut Shell,
     band: &mut Band,
@@ -1165,14 +1248,31 @@ fn commit_counted(
     now: Instant,
     reconciled: Reconciled,
 ) -> io::Result<()> {
+    commit_counted_held(shell, band, out, failures, now, reconciled, false)
+}
+
+/// [`commit_counted`], with the tick's frame `held` for a folder listing's
+/// rows ([`commit_or_hold`]).
+fn commit_counted_held(
+    shell: &mut Shell,
+    band: &mut Band,
+    out: &mut impl Sink,
+    failures: &mut FrameFailures,
+    now: Instant,
+    reconciled: Reconciled,
+    held: bool,
+) -> io::Result<()> {
     // The frame about to be painted is the `/model` column's redraw, which
     // asks for a catalog that failed again, as upstream's render path does
-    // ([`Shell::settle_column`]); a tick that owes no frame asks nothing.
-    // On the catalog's clock, which counts sleep, not the frame's.
-    let catalog_now = shell.catalog_now();
-    shell.settle_column(catalog_now);
+    // ([`Shell::settle_column`]); a tick that owes no frame asks nothing, and
+    // neither does one whose frame is held. On the catalog's clock, which
+    // counts sleep, not the frame's.
+    if !held {
+        let catalog_now = shell.catalog_now();
+        shell.settle_column(catalog_now);
+    }
     let mut counted = Counted::new(out);
-    let committed = commit_tick(shell, band, &mut counted, failures, now, reconciled);
+    let committed = commit_tick(shell, band, &mut counted, failures, now, reconciled, held);
     shell.metrics.ansi_bytes += counted.delivered();
     committed
 }
@@ -1238,6 +1338,7 @@ fn commit_tick(
     failures: &mut FrameFailures,
     now: Instant,
     reconciled: Reconciled,
+    frame_held: bool,
 ) -> io::Result<()> {
     // A title a stopped turn's end gave the session is the band's before the
     // report is taken, so the report follows it ([`Shell::take_leading_title`]).
@@ -1266,15 +1367,36 @@ fn commit_tick(
             }
         }
     }
-    commit_frame_led(shell, band, out, failures, now, &reconciled, &mut lead)?;
+    // A held frame has no lead to ride: its title goes out on its own, ahead
+    // of the report here as it would be ahead of it there.
+    commit_frame_led(
+        shell,
+        band,
+        out,
+        failures,
+        now,
+        &reconciled,
+        &mut lead,
+        frame_held,
+    )?;
     // The card a preview's frame just showed, in the frame after it and in
     // this tick, as fx builds its card's frame once its preview's frame has
     // committed (`Shell::take_preview_shown`). Nothing is read and no resize
     // is taken between the two: the loop reads and takes a resize only in
     // `collect_facts` and `read_burst`, ahead of this commit (`run`). The
     // facts this tick reconciled are the ones the card is written against.
+    // A held frame lands no band, so it showed no preview.
     if shell.take_preview_shown() {
-        commit_frame_led(shell, band, out, failures, now, &reconciled, &mut None)?;
+        commit_frame_led(
+            shell,
+            band,
+            out,
+            failures,
+            now,
+            &reconciled,
+            &mut None,
+            frame_held,
+        )?;
     }
     if let Some(report) = lead {
         write_program_status(&report, out, failures, now)?;
@@ -1286,7 +1408,59 @@ fn commit_tick(
     }
     // A title held past this frame is the next tick's ([`Shell::tick_committed`]).
     shell.tick_committed();
+    // The bells wait with a held frame and ring after the one that releases
+    // it: fx flushes its notifications inside `flushRequestedFrame`, after
+    // the frame is committed (`flushNotifications`,
+    // `app_render_runtime.zig:1059-1063@481104fd`), so its hold holds them.
+    if frame_held {
+        return Ok(());
+    }
     commit_bells(shell, out, failures, now)
+}
+
+/// The window title the band owes, on its own: a primary tick whose frame is
+/// held for a folder listing's rows ([`commit_or_hold`]) still tells the
+/// terminal, as fx tells it outside any frame. The band's own bytes
+/// ([`Band::write_title_lead`]), through the output check like every other
+/// vector ([`check_title`]); refused without a byte taken it stays owed, for
+/// the next frame's lead; torn, the session ends.
+fn write_title_alone(
+    band: &mut Band,
+    out: &mut impl Sink,
+    failures: &mut FrameFailures,
+    now: Instant,
+) -> io::Result<()> {
+    let Some(title) = band.title_owed().map(str::to_string) else {
+        return Ok(());
+    };
+    let mut bytes = Vec::new();
+    band.write_title_lead(&mut bytes);
+    if let Err(emit) = check_title(&bytes, &title)
+        .map_err(Emit::rejected)
+        .and_then(|()| out.emit(&bytes))
+    {
+        return match disposed(emit, failures, now) {
+            Some(fatal) => Err(fatal),
+            None => Ok(()),
+        };
+    }
+    band.title_landed();
+    Ok(())
+}
+
+/// What a title on its own says it does: set this title, and nothing else --
+/// no cell, no caret, no mode. Seeded as the reports are.
+fn check_title(bytes: &[u8], title: &str) -> io::Result<()> {
+    let plane = super::check::PlaneKind::Primary;
+    super::check::preflight(
+        &super::check::TerminalModel::seed_modes(1, 1, super::check::ModeSet::fresh(), 0, plane),
+        bytes,
+        &super::check::Declared::new(
+            super::check::Intent::Title(title),
+            super::check::Footprint::none(plane),
+        ),
+    )?;
+    Ok(())
 }
 
 /// The report the session owes now, if it owes one, through the output check
@@ -1358,7 +1532,9 @@ fn check_program_status(report: &super::program_status::Report) -> io::Result<()
 /// because a bell carries no coordinates: it means the same on the borrowed
 /// plane, on a screen no band fits on, and after a frame the terminal refused
 /// -- the three states a session can wait in while it waits on the user, which
-/// is when a question's bell is for.
+/// is when a question's bell is for. Except a frame held for a folder
+/// listing's rows: the bells wait for the frame that releases it
+/// ([`commit_tick`]), as fx's wait inside its held `flushRequestedFrame`.
 ///
 /// Through the output check like every other vector ([`check_bells`]), and
 /// disposed of as the theme query is: refused without a byte taken, the bells
@@ -8230,7 +8406,7 @@ mod tests {
     // (`commit_document`), and a screen that narrowed in between got rows
     // wrapped for the screen it used to be -- which
     // `Band::append_document` -> `render_append` -> `place` -> `row_text` ->
-    // `clip` (`frame.rs:1533,1156,1626,1696,1758`) cuts to `geometry.cols`
+    // `clip` (`frame.rs:2631,1156,1626,1696,1758`) cuts to `geometry.cols`
     // **as it is now**. A row wrapped to 80 columns and clipped to 40 does not
     // get a second, narrower row for what fell off the end, and Phase 1 never
     // repaints a document row: the overhang was gone from the session rather
@@ -14046,10 +14222,10 @@ mod tests {
                 .any(|window| window == needle)
     }
 
-    /// `frame.rs`'s own `ERASE_LINE` (`frame.rs:61`) is private to that
+    /// `frame.rs`'s own `ERASE_LINE` (`frame.rs:102`) is private to that
     /// module, so this is a test-only copy of the same three bytes -- the
-    /// escape `place()` (`frame.rs:1615-1628`) writes once per document row,
-    /// and `grid.rs`'s band-diff painter (`grid.rs:41`) writes the identical
+    /// escape `place()` (`frame.rs:2734-2772`) writes once per document row,
+    /// and `grid.rs`'s band-diff painter (`grid.rs:47`) writes the identical
     /// bytes for its own reasons, so counting this in a sample's output
     /// bounds "rows repainted this tick" for the document *and* the band
     /// together, not the document alone.
@@ -14272,7 +14448,7 @@ mod tests {
     }
 
     /// How many rows one seed push holds the streamed line at: safely under
-    /// `transcript.rs:136`'s `MAX_TAIL_ROWS` (256, private to that module and
+    /// `transcript.rs:348`'s `MAX_TAIL_ROWS` (256, private to that module and
     /// pinned here as a literal for the reason every needle in this crate's
     /// tests is), and safely over either geometry's own document area, so the
     /// push a sample times always has more rows behind it than the screen can
@@ -14830,7 +15006,7 @@ mod tests {
             "the draft's caret (row {caret_row}) overlaps the document (band starts at row {})",
             rig.geometry.band_top()
         );
-        // Two `\n` (`InsertNewline`, `shell.rs:2815`) over three lines: this
+        // Two `\n` (`InsertNewline`, `shell.rs:2821`) over three lines: this
         // is really a *multirow* draft and not just a wide one-row composer.
         assert_eq!(
             rig.geometry.input_rows(),
@@ -14928,10 +15104,10 @@ mod tests {
     // What it is about is one join the controller already makes and nothing
     // here may loosen: the document's newest row is a function of the source
     // the transcript has **committed**, and a refused append commits nothing
-    // (`transcript.rs:505-531` adopts only on `Landed::All`). So an append the
+    // (`transcript.rs:1078-1104` adopts only on `Landed::All`). So an append the
     // terminal refused must leave the retained row reading exactly what the
     // last accepted vector put there -- and the frame that would have followed
-    // it must not run at all (`event_loop.rs:1046-1049`). Nothing here caches a
+    // it must not run at all (`event_loop.rs:1128-1131`). Nothing here caches a
     // source anywhere: the freshness is read off the screen the accepted bytes
     // make.
     //
@@ -18839,6 +19015,332 @@ mod tests {
     }
 
     #[test]
+    fn the_frame_of_a_keystroke_that_lists_a_folder_waits_for_its_rows() {
+        // fx's loop commits no frame while `holdFrameForFileListing` says so
+        // (`loopCommitFrame`, `main.zig:3007@481104fd`), and waits a
+        // millisecond rather than a tick while the listing is in its first
+        // tick (`nativeLoopPollTimeoutMs`, `main.zig:191-207`, `:1140`;
+        // `fileListingHoldPending`, `input_completion_runtime.zig:841-844`).
+        // So the `indexing files...` a listing shows before its rows never
+        // reaches the screen (09d2e934). The listing is driven by the case.
+        let mut fixture = shell_of(40, 120);
+        let listing =
+            super::super::file_index::tests::driven_listing(fixture.shell.files_for_test(), "tree");
+        let mut band = Band::new();
+        let mut out = screen();
+        let mut failures = FrameFailures::default();
+        fixture.shell.route_bytes(b"@tree/");
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        commit_or_hold(
+            &mut fixture.shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            t0,
+            Reconciled,
+        )
+        .expect("a turn");
+        // The frame waits; the launch's report does not (round 2: fx holds
+        // only `flushRequestedFrame`).
+        assert!(
+            !holds(&out.written, BEGIN_FRAME.as_bytes()),
+            "a frame went out before the folder's rows: {:?}",
+            String::from_utf8_lossy(&out.written)
+        );
+        assert_eq!(
+            wait_timeout(&fixture.shell, at(1)),
+            Duration::from_millis(1),
+            "the loop waits a tick for rows it is holding a frame for"
+        );
+        listing
+            .send(Ok(vec![(
+                "leaf.txt".to_string(),
+                super::super::file_index::Kind::File,
+            )]))
+            .expect("the listing");
+        commit_or_hold(
+            &mut fixture.shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            at(2),
+            Reconciled,
+        )
+        .expect("a turn");
+        let painted = String::from_utf8_lossy(&out.written);
+        assert!(painted.contains("tree/leaf.txt"), "{painted:?}");
+        assert!(!painted.contains("indexing files"), "{painted:?}");
+        assert_eq!(wait_timeout(&fixture.shell, at(2)), TICK);
+    }
+
+    #[test]
+    fn a_listing_still_out_at_8_ms_lets_the_owed_frame_go_and_its_rows_follow() {
+        // gpt6 r1 SHOULD 1: the wait ends at 8 ms whether the rows are in or
+        // not (`withinHold`, `picker_state.zig:135-138@481104fd`), so the
+        // frame owed since the keystroke goes out then, saying `indexing
+        // files...`, and the rows go out with the frame after they land.
+        let mut fixture = shell_of(40, 120);
+        let listing =
+            super::super::file_index::tests::driven_listing(fixture.shell.files_for_test(), "tree");
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        let mut failures = FrameFailures::default();
+        fixture.shell.route_bytes(b"@tree/");
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let mut turn = |shell: &mut Shell, out: &mut StatusScreen, now: Instant| {
+            let before = out.vectors.len();
+            commit_or_hold(shell, &mut band, out, &mut failures, now, Reconciled).expect("a turn");
+            out.vectors[before..].concat()
+        };
+        for ms in [0, 4, 7] {
+            let wrote = turn(&mut fixture.shell, &mut out, at(ms));
+            assert!(
+                !holds(&wrote, BEGIN_FRAME.as_bytes()),
+                "a frame went out at {ms} ms: {:?}",
+                String::from_utf8_lossy(&wrote)
+            );
+        }
+        let expired = turn(&mut fixture.shell, &mut out, at(8));
+        let expired = String::from_utf8_lossy(&expired).into_owned();
+        assert!(
+            expired.contains(BEGIN_FRAME) && expired.contains("indexing files"),
+            "the owed frame did not go out at 8 ms: {expired:?}"
+        );
+        assert!(!expired.contains("tree/leaf.txt"));
+        listing
+            .send(Ok(vec![(
+                "leaf.txt".to_string(),
+                super::super::file_index::Kind::File,
+            )]))
+            .expect("the listing");
+        let rows = turn(&mut fixture.shell, &mut out, at(20));
+        let rows = String::from_utf8_lossy(&rows).into_owned();
+        assert!(
+            rows.contains("tree/leaf.txt"),
+            "the rows did not follow: {rows:?}"
+        );
+    }
+
+    /// What a run of ticks published besides its frames, in order: each
+    /// report, each title (a frame's lead, or on its own) and each bell, and
+    /// `frame` for every vector that carries an update.
+    fn published(vectors: &[Vec<u8>]) -> Vec<String> {
+        let mut out = Vec::new();
+        for vector in vectors {
+            let mut rest = vector.as_slice();
+            if let Some(end) = after_title(rest) {
+                out.push(format!(
+                    "title {}",
+                    String::from_utf8_lossy(&rest[4..end - 1])
+                ));
+                rest = &rest[end..];
+            }
+            if let Some(at) = find(rest, REPORT) {
+                let end = find(&rest[at..], b"\x1b\\").map_or(rest.len(), |end| at + end + 2);
+                out.push(String::from_utf8_lossy(&rest[at..end]).into_owned());
+            }
+            if holds(rest, BEGIN_FRAME.as_bytes()) {
+                out.push("frame".to_string());
+            }
+            if rest.iter().all(|&byte| byte == BEL) && !rest.is_empty() {
+                out.push(format!("bell x{}", rest.len()));
+            }
+        }
+        out
+    }
+
+    /// A turn from its prompt to its end, with `/sound` on, while `@tree/`'s
+    /// listing is out: through the loop's hold when `held`, and through the
+    /// commit no listing holds otherwise. What the window's ticks published,
+    /// and then what the tick after the rows land does. The turn's bell is
+    /// owed where a session owes it, when the pacer has presented everything
+    /// (`Shell::settle_band`; this turn left it nothing to pace).
+    fn a_turn_inside_a_listing(held: bool) -> (Vec<String>, Vec<String>, Vec<String>) {
+        let mut fixture = shell_of(40, 120);
+        fixture.shell.sound_for_test(true);
+        // Sized before the first tick, as a session's is (`mod.rs:479`).
+        let mut band = Band::new();
+        band.invalidate(40, 120);
+        let mut out = StatusScreen::default();
+        let mut failures = FrameFailures::default();
+        launch_title(&mut fixture.shell, &mut band);
+        status_tick(&mut fixture.shell, &mut band, &mut out);
+        fixture.shell.route_bytes(b"go\r");
+        status_tick(&mut fixture.shell, &mut band, &mut out);
+        let listing =
+            super::super::file_index::tests::driven_listing(fixture.shell.files_for_test(), "tree");
+        fixture.shell.route_bytes(b"@tree/");
+        let t0 = Instant::now();
+        let before = out.vectors.len();
+        let mut tick = |shell: &mut Shell, out: &mut StatusScreen, ms: u64| {
+            let now = t0 + Duration::from_millis(ms);
+            // What the loop does before it commits: the workers' results in,
+            // and the pacer's drain, which owes the turn's bell.
+            shell.settle_band(now);
+            if held {
+                commit_or_hold(shell, &mut band, out, &mut failures, now, Reconciled)
+            } else {
+                commit_counted(shell, &mut band, out, &mut failures, now, Reconciled)
+            }
+            .expect("a tick");
+        };
+        tick(&mut fixture.shell, &mut out, 0);
+        fixture.shell.start_turn();
+        tick(&mut fixture.shell, &mut out, 2);
+        fixture.shell.apply(UiEvent::TurnEnded { failure: None });
+        tick(&mut fixture.shell, &mut out, 4);
+        listing
+            .send(Ok(vec![(
+                "leaf.txt".to_string(),
+                super::super::file_index::Kind::File,
+            )]))
+            .expect("the listing");
+        let window = out.vectors.len();
+        tick(&mut fixture.shell, &mut out, 6);
+        // gpt6 r3 SHOULD 2: and one idle tick after the release.
+        let released = out.vectors.len();
+        tick(&mut fixture.shell, &mut out, 8);
+        (
+            published(&out.vectors[before..window]),
+            published(&out.vectors[window..released]),
+            published(&out.vectors[released..]),
+        )
+    }
+
+    #[test]
+    fn a_frame_held_for_a_folder_holds_its_bell_but_no_report_or_title() {
+        // fx holds `flushRequestedFrame` only (`main.zig:3007@481104fd`). Its
+        // status reports are written while the worker's facts are collected
+        // (`reportProgramStatus` from `WorkerAppRuntime.tick`,
+        // `app_worker_runtime.zig:762-791`, `:809-815`; `main.zig:2983`) and
+        // its title when it changes (`syncTerminalTitleWith`,
+        // `app_session_runtime.zig:2965-2987`) -- outside the frame. Its bell
+        // is not: `flushNotifications` runs inside `flushRequestedFrame`,
+        // after the frame is committed (`app_render_runtime.zig:1059-1063`).
+        // So a turn that starts and ends inside a held window reports
+        // `working` and then `done`, and its title goes out, in the order an
+        // unheld run writes them; the frames and the bell wait, and the bell
+        // follows the frame that releases them -- the answer's rows first.
+        let (unheld, unheld_after, unheld_idle) = a_turn_inside_a_listing(false);
+        let (held, held_after, held_idle) = a_turn_inside_a_listing(true);
+        let neither = |run: &[String]| -> Vec<String> {
+            run.iter()
+                .filter(|e| *e != "frame" && !e.starts_with("bell"))
+                .cloned()
+                .collect()
+        };
+        assert!(
+            unheld.iter().any(|e| e.contains("state=working"))
+                && unheld.iter().any(|e| e.contains("state=done"))
+                && unheld.iter().any(|e| e.starts_with("title "))
+                && unheld.iter().any(|e| e == "bell x1"),
+            "the unheld run publishes too little to prove anything: {unheld:?}"
+        );
+        assert_eq!(
+            neither(&held),
+            neither(&unheld),
+            "held {held:?}\nunheld {unheld:?}"
+        );
+        assert!(
+            !held.iter().any(|e| e == "frame" || e.starts_with("bell")),
+            "a frame or a bell went out inside the hold: {held:?}"
+        );
+        // The rows land: the owed frame goes, its title already told, and the
+        // bell after it.
+        assert_eq!(held_after, ["frame", "bell x1"], "the tick after the hold");
+        assert_eq!(unheld_after, ["frame"]);
+        // Nothing doubled: the idle tick after rings no bell, held or not.
+        for idle in [&held_idle, &unheld_idle] {
+            assert!(
+                !idle.iter().any(|e| e.starts_with("bell")),
+                "the idle tick rang again: {idle:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_held_tick_that_owes_a_title_writes_the_title_then_the_report() {
+        // opus r2 SHOULD 2: the launch's title owed when the tick begins, and
+        // a typed-ahead `@tree/` whose listing holds the first frame. An
+        // unheld tick leads its update with the title and then the report
+        // (`the_launchs_report_follows_the_title_it_starts_with_…`); a held
+        // one writes the same two on their own, in that order, and the frame
+        // after the rows land does not lead with the title again.
+        let mut fixture = shell_of(40, 120);
+        let listing =
+            super::super::file_index::tests::driven_listing(fixture.shell.files_for_test(), "tree");
+        // opus r3 SHOULD 1: sized before the first tick, as a session's band
+        // is (`mod.rs:479`), not the unsized band no session runs.
+        let mut band = Band::new();
+        band.invalidate(40, 120);
+        let mut out = StatusScreen::default();
+        let mut failures = FrameFailures::default();
+        launch_title(&mut fixture.shell, &mut band);
+        fixture.shell.route_bytes(b"@tree/");
+        let t0 = Instant::now();
+        commit_or_hold(
+            &mut fixture.shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            t0,
+            Reconciled,
+        )
+        .expect("a tick");
+        let held = published(&out.vectors);
+        assert_eq!(held.len(), 2, "{held:?}");
+        assert!(held[0].starts_with("title xfx v"), "{held:?}");
+        assert_eq!(held[1], IDLE, "{held:?}");
+        listing
+            .send(Ok(vec![(
+                "leaf.txt".to_string(),
+                super::super::file_index::Kind::File,
+            )]))
+            .expect("the listing");
+        let before = out.vectors.len();
+        commit_or_hold(
+            &mut fixture.shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            t0 + Duration::from_millis(2),
+            Reconciled,
+        )
+        .expect("a tick");
+        assert_eq!(published(&out.vectors[before..]), ["frame"]);
+    }
+
+    #[test]
+    fn a_key_the_list_hands_on_mid_resize_asks_for_the_frame_too() {
+        // A key outside the list's arm -- an unbound C-g, a Redo with nothing
+        // to redo -- pressed while a resize is pending, on a resize that comes
+        // back the same size. fx's resize signal asks for a frame of its own
+        // (`observeResizeSignal`, `render_request.zig:196-200@481104fd`), and
+        // that frame's commit trusts the list again (`app_render_runtime.zig:
+        // 1022-1023`), so its next Down moves the bar. xfx's signal asks for
+        // none, so the key that distrusts the list asks for it. Each key on
+        // a list of its own, so each is measured alone.
+        let spent: Vec<&[u8]> = [b"\x07".as_slice(), b"\x1b[122;10u".as_slice()]
+            .into_iter()
+            .filter(|key| {
+                let mut list = AtList::open(40, 120);
+                list.shell.render.mark_resize(Instant::now());
+                list.shell.route_bytes(key);
+                assert!(list.shell.render.force_resize());
+                adopt_resize(&mut list.shell, &mut list.band, || (40, 120));
+                list.tick();
+                list.keys(DOWN) != at_window(1, 10, 2)
+            })
+            .collect();
+        assert!(
+            spent.is_empty(),
+            "after these keys were handed on mid-resize, the Down was spent: {spent:?}"
+        );
+    }
+
+    #[test]
     fn a_resume_spends_the_at_lists_keys_until_its_frame_lands() {
         // A job-control resume resets fx's terminal (`requestTerminalReset`,
         // `app_lifecycle.zig:1200-1211@481104fd`, which sets
@@ -18855,6 +19357,25 @@ mod tests {
             "a Down moved the bar after a resume"
         );
         assert_eq!(list.keys(DOWN), at_window(1, 10, 2));
+    }
+
+    #[test]
+    fn a_key_handed_on_under_the_full_transcript_writes_nothing() {
+        // The distrust block asks for a frame under the full transcript too.
+        // That frame paints nothing new: the transcript plane is unchanged,
+        // so not a byte goes out for an unbound key there.
+        let mut list = AtList::open(40, 120);
+        list.keys(b"\x0f");
+        assert!(list.band.on_alternate(), "Ctrl-O did not take the plane");
+        list.tick();
+        let before = list.out.written.len();
+        list.keys(b"\x07");
+        assert_eq!(
+            String::from_utf8_lossy(&list.out.written[before..]),
+            "",
+            "an unbound key under Ctrl-O wrote to the screen"
+        );
+        assert!(list.band.on_alternate());
     }
 
     #[test]
@@ -19481,5 +20002,49 @@ mod tests {
                 String::from_utf8_lossy(written)
             );
         }
+    }
+
+    #[test]
+    fn ctrl_o_over_the_catalog_writes_no_plane_change_in_its_turn() {
+        // CTRLO-OTHER-PICKERS (opus NIT 4): fx's frame closes the screen
+        // Ctrl-O opened over the catalog (`reconcileBeforeFrameRender`,
+        // `app_render_runtime.zig:1206-1215@481104fd`), and here the tick
+        // does before the frame ([`Shell::settle_band`]), so the turn's bytes
+        // hold no `?1049h` and no `?1049l`, and the band stays on the normal
+        // plane with the catalog in it.
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut out = screen();
+        let mut failures = FrameFailures::default();
+        let mut tick = |shell: &mut Fixture, band: &mut Band, out: &mut FlakyScreen| {
+            let now = Instant::now();
+            shell.settle_input(now);
+            shell.settle_band(now);
+            commit_frame(shell, band, out, &mut failures, now, Reconciled).expect("a frame");
+        };
+        tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"/help\r");
+        tick(&mut shell, &mut band, &mut out);
+        assert!(
+            shell.band_rows().join("\n").contains("Commands "),
+            "no catalog"
+        );
+        let before = out.written.len();
+        shell.route_bytes(b"\x0f");
+        tick(&mut shell, &mut band, &mut out);
+        let turn = String::from_utf8_lossy(&out.written[before..]).into_owned();
+        assert!(
+            !turn.contains(ENTERS_ALTERNATE),
+            "the turn took the plane: {turn:?}"
+        );
+        assert!(
+            !turn.contains(LEAVES_ALTERNATE),
+            "the turn gave a plane back: {turn:?}"
+        );
+        assert!(!band.on_alternate(), "the band is on the other plane");
+        assert!(
+            shell.band_rows().join("\n").contains("Commands "),
+            "the catalog went"
+        );
     }
 }
