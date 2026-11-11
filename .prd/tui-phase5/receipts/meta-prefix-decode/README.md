@@ -177,13 +177,16 @@ report is the Escape key.
 - `after_escape`: an `ESC` sets `meta`, with no event and the clock
   started again. `[` and `O` carry it. A control byte behind it is one
   `Ignore`.
+- `flush`: a lone `ESC` is one Escape, and a quiet prefix two, as fx's
+  monitor and decoder together deliver them.
 - The cursor keys read the prefix as Alt's bit (`prefixed`), through
   `cursor`, in the CSI and SS3 forms and on the keypad's arrows. That
   transcription is exact: fx's `modifiedArrowAction(b, m, true)` equals
   `modifiedArrowAction(b, m | 2, false)` for every letter and mask, since
-  the prefix is read only in Alt's condition (`:83`) and `composerMove`
-  reads only Shift (`:66-71`). The generated table checks it over all
-  4 x 256 cases per letter.
+  the prefix is read only in Alt's condition (`escape_parser.zig:83`) and
+  `composerMove` reads only Shift (`escape_parser.zig:66-71`). The
+  generated table checks it: 9,240 decodes, every mask with and without the
+  prefix on every form.
 - `kitty_key` reads `meta` in exactly fx's six places, not as Alt's bit.
   An Alt-bit shortcut would make `ESC ESC [ 98 u` Alt-b and `ESC ESC [ 13 u`
   a newline (mutant M15).
@@ -199,4 +202,113 @@ already had (`ParagraphUp`, `WordLeft`, `Home`, `LineStart`, ...), which
 earlier units ported surface by surface. The shell, the question, the
 approval, the full transcript and the menus are unchanged.
 
-TODO: the oracle, RED, GREEN, mutants, sweep, gate, decisions, open.
+## The oracle (`fx/`, `captures.txt`)
+
+Three scenarios, captured on fx, the base and the code head in one run
+under the suite lock:
+- `p5-cancel-double-escape` (6 snaps): at an idle draft, a person's two
+  presses (a) and a burst of two (b); `/he`'s menu, a person's three
+  presses (c) and a burst of two then one press (d).
+- `p5-cancel-double-escape-turn` (5 snaps): over a held answer,
+  `ESC ESC [ A` (a) and a burst of two (b); over the next held answer, a
+  person's two presses (c).
+- `p5-modified-meta-prefix` (14 snaps): the prefixed Up, Down, Left, Right,
+  Ctrl-Home, Super-Left and SS3 Up, each followed by a letter; then Ctrl
+  with Caps Lock on Home and End, Ctrl with Num Lock, Meta's bit alone,
+  Ctrl with Meta's bit and Hyper alone.
+
+What fx shows:
+- **The burst is two Escapes.** `b-burst-cleared`: the draft is gone.
+  `d-burst-cleared`: the menu closed and the press after it cleared the
+  draft. `-turn`'s `b-burst-cancelled`: `▪ Cancelled`.
+- **A person's presses** clear the draft (`a-person-cleared`), close the
+  menu and then clear (`c-person-closed`, `c-person-cleared`), and cancel the
+  second turn (`c-person-cancelled`).
+- **`ESC ESC [ A` over a turn** leaves it running with the composer empty
+  (`a-meta-up`: `• Generating`).
+- **In the composer**: a paragraph up to the paragraph's start (`Afive
+  six`), down to its end (`B`), a word left and right (`C`, `D`), the plain
+  Home for the prefixed Ctrl-Home (`E`, the line's start), the line's start
+  for the prefixed Super-Left (`F`) and SS3's Up (`G`); Ctrl and Caps Lock's
+  Home and End the draft's edges (`H`, `I`); Ctrl and Num Lock's Home the
+  draft's start (`J`); Meta's bit alone End (`K`); Ctrl with Meta's bit a
+  word left (`L`); Hyper alone Left (`M`).
+
+## RED (`red.txt`, `red/`, `red-pairs.txt`)
+
+- `red.txt` 1: the corrected tests (`47fccd97`'s) over the base's code. Six
+  of ten fail:
+  - the decoder: `ESC ESC b` gave `[Escape, AltB]` for `[AltB]`; `ESC ESC
+    [ A` `[Escape, Up]` for `[ParagraphUp]`; `1;17A` `Ignore` for `Up` (the
+    table's first mask past 16); the burst resolved before the quiet;
+  - the shell: over a running turn `ESC ESC [ A` recalled `stream lines`
+    into the composer; at an approval's choice it cancelled the turn
+    (`Some(Cancel { through: 1 })`).
+- Four pass on the base, and are pins: the report behind a prefix (the
+  base already read `ESC` and then the report), the exact-shapes test, and
+  the two shell burst tests (the base read a burst as two Escapes too).
+- `red.txt` 2 keeps the first runs, before each RED commit, with
+  `c76e5a51`'s wrong burst rows.
+- `red-pairs.txt` (`pairs.sh red`, banner `v0.1.0-df45025`): 7 of 25 pairs
+  identical.
+  - Identical: every burst and person snap at the idle draft and the menu
+    but `c-menu`, `-turn`'s `mid`, the composer's `draft`.
+  - Different: over the turn `ESC ESC [ A` put `stream please` in the
+    composer (`a-meta-up`), and every turn snap after it carries it; every
+    composer snap after the draft, the letters landing where Escape and
+    the plain key or nothing put the caret.
+
+## GREEN (`green-pairs.txt`, `green.txt`, `xfx/`)
+
+- `green-pairs.txt` (`pairs.sh xfx`, banner `v0.1.0-47fccd9`): 20 of 25
+  pairs identical, every composer snap among them. The other five differ
+  in rows this unit does not draw, the same rows on the base:
+  - `c-menu`, rows 5, 7 and 8: fx's `/he` lists `Commands 2`, `/help` and
+    `/shell`, and xfx has no `/shell`;
+  - `-turn`'s `b-burst-cancelled`, `c-person-cancelled` and `mid2`, row 5
+    (and 9): `▪ Cancelled · What can fx do differently?`, the product's
+    name, which the sweep's `product-name` normalization reads as xfx's;
+  - `-turn`'s `a-meta-up`, row 5: fx's `•` in front of `Generating`, where
+    xfx's row has the blank. The marker blinks (`docs/parity.md`, "The
+    marker blinks every 500 ms"), so the two snaps caught it in different
+    phases [inferred from the one cell; `mid`'s pair is identical].
+- `green.txt`: the unit's 10 tests at the code head, on both suites:
+  10 + 10 ok.
+
+## Mutants (`mutants.txt`, `mutants.py`)
+
+On a `--no-local` clone at `47fccd97` under the suite lock, one mutant at a
+time, each running `cargo test --lib -- tui::`: **22 of 22 killed**, the
+clone clean after the run.
+
+| mutant | killed by |
+|---|---|
+| M1 the second ESC the Escape key and a new ESC (the base) | the prefixed keys, the burst, the prefixed stage, the approval and question test (+more) |
+| M2 a third ESC emits an Escape | the prefixed keys (`ESC ESC ESC [ A`), the burst |
+| M3 the prefix's clock left at the first ESC | the burst (its clock case) |
+| M4 the prefix dropped at `[` | the prefixed keys, the report test, the generated table (+more) |
+| M5 the prefix dropped at `O` | the prefixed keys, the table, the approval and question test |
+| M6 the cursor table ignores the prefix | the prefixed keys, the table, the prefixed stage |
+| M7 SS3 ignores the prefix | the prefixed keys, the table, the approval and question test |
+| M8 a keypad arrow ignores the prefix | the table |
+| M9 kitty's Up and Down ignore the prefix | the table, the prefixed stage |
+| M10 kitty's Up with Hyper alone nothing behind the prefix | the table, the prefixed stage |
+| M11 a prefixed keypad digit typed | the prefixed stage |
+| M12 a prefixed Shift+Space a space | the prefixed stage |
+| M13 a prefixed `d` not the word on the right | the prefixed stage |
+| M14 a prefixed Ctrl+O opens the full transcript | the prefixed stage |
+| M15 a key report reads the prefix as Alt's bit | the prefixed stage |
+| M16 a control behind the prefix replayed after an Escape | the prefixed stage |
+| M17 an `OSC` behind the prefix loses the Escape | the report test |
+| M18 the background report behind the prefix loses the Escape | the report test |
+| M19 the modifier field stops at 16 | the prefixed keys, the table |
+| M20 the modifier field takes two digits | the prefixed keys, the table |
+| M21 a field past 256 read for its low byte | the exact-shapes test, the table |
+| M22 a quiet prefix one Escape (fx's decoder alone, `c76e5a51`'s reading) | the burst, the running-turn shell test |
+
+M8's list also names `tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_o...`,
+a catalog-wait test (the known flake class); the table kills M8 on its own.
+The first run, at `2fbe3e83` (before the correction), killed its 21 of 21
+too; it is not kept, since its code is not the head's.
+
+TODO: sweep, gate, parity, decisions, open.

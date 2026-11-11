@@ -1,0 +1,24 @@
+# Mutants on a --no-local clone at 47fccd97 (the code head) under the suite lock, one at a time, cargo test --locked --lib -- tui:: each; mutants.py
+M1 the second ESC is the Escape key and a new ESC (the base): KILLED (49s) a_prefixed_key_is_one_key_as_upstream_reads_it, two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst, what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it, every_modifier_on_left_right_home_and_end_is_upstreams_move, a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape, over_a_running_turn_a_burst_of_two_escapes_stops_it_and_a_prefixed_up_is_a_move
+M2 a third ESC emits the Escape the first two were: KILLED (45s) a_prefixed_key_is_one_key_as_upstream_reads_it, two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst
+M3 the prefix's clock is left at the first ESC: KILLED (47s) two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst
+M4 the prefix is dropped at `[`: KILLED (47s) a_prefixed_key_is_one_key_as_upstream_reads_it, a_report_behind_a_second_escape_gives_the_first_back_as_the_escape_key, every_modifier_on_left_right_home_and_end_is_upstreams_move, what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it, a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape, over_a_running_turn_a_burst_of_two_escapes_stops_it_and_a_prefixed_up_is_a_move
+M5 the prefix is dropped at `O`: KILLED (49s) a_prefixed_key_is_one_key_as_upstream_reads_it, every_modifier_on_left_right_home_and_end_is_upstreams_move, a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape
+M6 the cursor table ignores the prefix: KILLED (52s) a_prefixed_key_is_one_key_as_upstream_reads_it, every_modifier_on_left_right_home_and_end_is_upstreams_move, what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it, a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape, over_a_running_turn_a_burst_of_two_escapes_stops_it_and_a_prefixed_up_is_a_move
+M7 SS3 ignores the prefix: KILLED (52s) a_prefixed_key_is_one_key_as_upstream_reads_it, every_modifier_on_left_right_home_and_end_is_upstreams_move, a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape
+M8 a keypad arrow ignores the prefix: KILLED (71s) every_modifier_on_left_right_home_and_end_is_upstreams_move, tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one
+M9 kitty's Up and Down ignore the prefix: KILLED (57s) every_modifier_on_left_right_home_and_end_is_upstreams_move, what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it
+M10 kitty's Up with Hyper alone is nothing behind the prefix too: KILLED (47s) every_modifier_on_left_right_home_and_end_is_upstreams_move, what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it
+M11 a prefixed keypad digit is typed: KILLED (48s) what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it
+M12 a prefixed Shift+Space is a space: KILLED (60s) what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it
+M13 a prefixed `d` is not the word on the right: KILLED (50s) what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it
+M14 a prefixed Ctrl+O opens the full transcript: KILLED (63s) what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it
+M15 a key report reads the prefix as Alt's bit: KILLED (48s) what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it
+M16 a control behind the prefix is replayed after an Escape: KILLED (54s) what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it
+M17 an OSC behind the prefix loses the Escape: KILLED (51s) a_report_behind_a_second_escape_gives_the_first_back_as_the_escape_key
+M18 the background report behind the prefix loses the Escape: KILLED (49s) a_report_behind_a_second_escape_gives_the_first_back_as_the_escape_key
+M19 the modifier field stops at 16 again: KILLED (54s) a_prefixed_key_is_one_key_as_upstream_reads_it, every_modifier_on_left_right_home_and_end_is_upstreams_move
+M20 the modifier field takes two digits: KILLED (44s) a_prefixed_key_is_one_key_as_upstream_reads_it, every_modifier_on_left_right_home_and_end_is_upstreams_move
+M21 a field past 256 is read for its low byte: KILLED (46s) a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one, every_modifier_on_left_right_home_and_end_is_upstreams_move
+M22 a quiet prefix is one Escape (fx's decoder alone): KILLED (46s) two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst, over_a_running_turn_a_burst_of_two_escapes_stops_it_and_a_prefixed_up_is_a_move, two_escapes_in_one_burst_are_two_presses_as_a_person_s_two_are, two_escapes_in_one_burst_close_a_menu_and_arm_the_clear_as_two_presses_do
+22 of 22 killed; the clone's tree after the run: clean
