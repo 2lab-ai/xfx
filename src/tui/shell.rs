@@ -9772,8 +9772,8 @@ impl Shell {
             // End (`line_start`/`line_end` and `.home` are one
             // `.cursor_home` there, `approvalDraftActionFromShortcut`,
             // `src/ui/input/runtime.zig:75-108@481104fd`) -- the caret line's
-            // edge here, the whole draft's in fx, whose draft holds no line
-            // break (`super::approval_amendment`).
+            // edge, which is the whole draft's, since a draft holds no line
+            // break on either side (`super::approval_amendment`).
             Input::Action(editing) if drafting => match folded(Input::Action(editing)) {
                 Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),
                 _ => return,
@@ -44069,9 +44069,11 @@ mod tests {
             b"\x1b[27;3;57421~",
         ];
         // At an approval's choice and in its amendment, a draft of two lines
-        // pasted in (the caret at its end): no key moves the caret or the
-        // choice, the `Z` typed after them all lands where the caret was, and
-        // Enter answers the choice and that draft.
+        // pasted in, which the paste makes one, its break a space as fx's
+        // (`normalizeApprovalAmendmentPasteInPlace`, `input_paste_runtime.zig:19-25`;
+        // APPROVAL-PASTE-SPACES), the caret at its end: no key moves the caret
+        // or the choice, the `Z` typed after them all lands where the caret
+        // was, and Enter answers the choice and that draft.
         for amending in [false, true] {
             let mut shell = shell(24, 80);
             asking(&mut shell);
@@ -44099,7 +44101,7 @@ mod tests {
                 Some(TurnControl::Answer {
                     id: ApprovalId(1),
                     answer: ApprovalAnswer::Once,
-                    feedback: amending.then(|| "ab cd\nef ghZ".to_string()),
+                    feedback: amending.then(|| "ab cd ef ghZ".to_string()),
                 }),
                 "amending={amending}"
             );

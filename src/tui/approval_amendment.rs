@@ -41,6 +41,17 @@
 //! assembles the bytes itself -- reusing `super::paste::accepted`, because which
 //! bytes of a bracketed paste are *content* is one fact about the terminal
 //! rather than one fact per surface.
+//!
+//! # A draft is one line
+//!
+//! fx turns every line break and every Tab in an amendment's paste into a space
+//! (`normalizeApprovalAmendmentPasteInPlace`,
+//! `input_paste_runtime.zig:19-25@481104fd`), and no key types either into a
+//! draft: Enter answers, Tab is the panel's, and Ctrl-J is no draft key
+//! (`super::approval::edits`). So a draft holds no line break, and its Home and
+//! Super-Left reach the edge Ctrl-Home does (`super::shell::Shell::decide`).
+//! The composer keeps a paste's breaks and tabs, as fx's does (`:238-241`);
+//! that rule is `super::paste`'s.
 
 use crate::permission::ApprovalAnswer;
 
@@ -54,6 +65,8 @@ use super::input::Action;
 /// (`super::paste::MAX_PASTE_BYTES`): what this holds is a sentence about a
 /// decision, it is delivered as a user message after the tool result, and a
 /// four-kibibyte cap is the difference between an amendment and a payload.
+/// fx's `decision_bytes` (`paste_framing.zig:17-33@481104fd`). A paste is
+/// held to it once it is text ([`DraftPaste::finish`]), not as it arrives.
 pub(crate) const MAX_FEEDBACK_BYTES: usize = 4096;
 
 /// How many rows of one draft the panel ever paints.
@@ -208,9 +221,17 @@ fn fits(held: usize, more: usize) -> bool {
 
 /// Bytes arriving between the bracketed-paste markers, for one draft.
 ///
-/// Bounded at [`MAX_FEEDBACK_BYTES`], which is also the draft's own cap,
-/// because a feedback string has one budget rather than two. Refused
-/// **atomically**: an oversized paste inserts nothing and the panel says so.
+/// Two bounds, as fx has them. As the bytes arrive, the composer's eight
+/// mebibytes ([`super::paste::MAX_PASTE_BYTES`]): fx's `beginPaste` gives an
+/// amendment's paste the `max_input_len` it is called with
+/// (`input_paste_runtime.zig:116-120@481104fd`), which is
+/// `input_limits.composer_bytes` (`app_input_runtime.zig:637-644`). Once the
+/// paste is whole and normalized, the draft's [`MAX_FEEDBACK_BYTES`]
+/// (`insertAmendmentSlice`, `approval_decision.zig:178-194`), so a CR LF
+/// counts the one space it becomes. Either refusal is **atomic**: an oversized
+/// paste inserts nothing and the panel says so, in the one sentence fx says
+/// for both (`finishPaste`, `input_paste_runtime.zig:209-235`, `:321-327`;
+/// `input_limit_feedback.zig:35-41`).
 #[derive(Default)]
 struct DraftPaste {
     buffer: Vec<u8>,
@@ -233,7 +254,7 @@ impl DraftPaste {
         if !super::paste::accepted(byte) {
             return;
         }
-        if self.buffer.len() >= MAX_FEEDBACK_BYTES {
+        if self.buffer.len() >= super::paste::MAX_PASTE_BYTES {
             self.refused = true;
             return;
         }
@@ -242,18 +263,28 @@ impl DraftPaste {
 
     /// The finished text, or `None` when it was refused.
     ///
-    /// `from_utf8_lossy` **before** the length check, because that is where the
-    /// decoded size is first known: a non-UTF-8 byte becomes a three-byte
-    /// replacement scalar, so the encoded bound is not the decoded one and a
-    /// paste that fitted as bytes can overrun as text.
+    /// Decoded, then made one line ([`one_line`]), then measured: the length
+    /// check comes last because that is where the size fx measures is first
+    /// known. A non-UTF-8 byte becomes a three-byte replacement scalar, and a
+    /// CR LF becomes one space, so neither the bytes that arrived nor their
+    /// decoding is what the draft would hold.
     fn finish(&mut self, held: usize) -> Option<String> {
         let bytes = std::mem::take(&mut self.buffer);
         if std::mem::take(&mut self.refused) {
             return None;
         }
-        let text = String::from_utf8_lossy(&bytes).into_owned();
+        let text = one_line(&String::from_utf8_lossy(&bytes));
         fits(held, text.len()).then_some(text)
     }
+}
+
+/// A paste as an amendment takes it: CR LF and a lone CR are LF, as the
+/// composer's are ([`super::transcript::normalize`], fx's
+/// `normalizeLineEndingsInPlace`, `text_utils.zig:82-98@481104fd`), and then
+/// every LF and every Tab is a space (`normalizeApprovalAmendmentPasteInPlace`,
+/// `input_paste_runtime.zig:19-25`). One space per break, never a merged run.
+fn one_line(text: &str) -> String {
+    super::transcript::normalize(text).replace(['\n', '\t'], " ")
 }
 
 /// One draft's rows as the panel will paint them, and where the caret is.
@@ -936,11 +967,11 @@ mod tests {
         // (`src/ui/input/runtime.zig:82-83@481104fd`), which set the caret to
         // 0 and to the draft's length (`cursorHome`/`cursorEnd`,
         // `approval_amendment.zig:84-92`): the whole draft's edges, Shift held
-        // or not. fx's draft never holds a line break -- its paste turns each
-        // into a space (`normalizeApprovalAmendmentPasteInPlace`,
-        // `input_paste_runtime.zig:19-25`) -- and xfx's paste keeps them
-        // (`a_bracketed_paste_becomes_draft_text_and_never_an_entity`), so
-        // the edges are the draft's here even where Home is a line's.
+        // or not. Neither fx's draft nor xfx's holds a line break -- each
+        // paste turns it into a space (`normalizeApprovalAmendmentPasteInPlace`,
+        // `input_paste_runtime.zig:19-25`; `a_paste_into_a_draft_is_one_line_as_fxs`)
+        // -- so this case types one in, which no key does, to pin that these
+        // are the whole draft's edges and not a line's.
         let mut drafts = typed_into(ALLOW, "ab cd\nef gh");
         assert_eq!(caret(&drafts), (1, 5));
         for shifted in [false, true] {
