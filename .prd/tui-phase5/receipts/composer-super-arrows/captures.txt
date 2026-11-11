@@ -1,0 +1,10 @@
+# What fx/, red/ and xfx/ were captured with, at 40x120, each run under the suite lock:
+#   FX_BIN=<fx v0.0.16> TMPDIR=<tmp> scripts/fxcap/capture.sh fx <scenario> 40x120 fx
+#   XFX_BIN=<the base's build> TMPDIR=<tmp> scripts/fxcap/capture.sh xfx <scenario> 40x120 red
+#   XFX_BIN=<the code head's build> TMPDIR=<tmp> scripts/fxcap/capture.sh xfx <scenario> 40x120 xfx
+# then each run's gateway log and request bodies left out (no claim rests on them).
+fx    v0.0.16, sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2 (capture.sh's guard: unchanged before and after each run), FX_AUTO_UPGRADE=0
+red   xfx built at 28bd1810 (the base), XFX_BUILD_REVISION set to it, banner `v0.1.0-28bd181 [debug]`, sha256 28ac542d1e639106da991c8fa32308406dc5b266457273295c84561f5f69667a
+xfx   xfx built at 1fcf30b6 (the code head; 32969730 after it changes comments only), XFX_BUILD_REVISION set to it, banner `v0.1.0-1fcf30b [debug]`, sha256 1505d79904737799bddf65ec116004bf241756eac6bb71d2929506824738c17b
+scenarios: p5-super-arrows (16 snaps, 3 cursor lines), p5-super-arrows-question (16 snaps), p5-super-arrows-approval (16 snaps), scripts/fxcap/scenarios/ at this branch's head
+probe/: fx's p5-super-arrows-approval captured a second time (its amend-super-right snap), and probe-end.cap -- that scenario up to amend-super-right with the plain End in place of Super-Right, read from a scratch scenario directory (FXCAP_SCENARIOS) -- on fx once (README, Open)

@@ -89,10 +89,10 @@
 //! marker matched loosely would be a start no end could pair with: `CSI 0200 ~`
 //! and `CSI 200 ; 1 ~` parse as 200 and open a paste that only the exact
 //! `CSI 201 ~` closes, which latches the session into paste mode on a stream
-//! the terminal never framed. `csi` therefore compares raw parameter bytes, and
-//! the same strictness covers every other sequence it reads: the numbers in a
-//! key report are read only from their one canonical spelling, so no two
-//! spellings ever reach the same key.
+//! the terminal never framed. `csi` therefore compares the markers' raw
+//! parameter bytes before any number is read; the tilde keys after them read
+//! upstream's numbers, under which `CSI 0200 ~` is 200, no key, as upstream
+//! reads it too.
 //!
 //! The end marker is matched byte by byte, so its prefix has to be held back:
 //! typing `ESC`, `[`, `2` into the composer as they arrive would be wrong when
@@ -230,73 +230,132 @@ use std::time::{Duration, Instant};
 pub(crate) enum Action {
     Left,
     Right,
-    /// Left as upstream's composer move rather than its cursor key: Shift-Left,
-    /// Super-Left (`CSI 1;<mask> D` and the kitty keypad Left with either held,
-    /// but not Ctrl or Alt, which are [`Action::WordLeft`]) and Ctrl-B.
+    /// Left as upstream's composer move rather than its cursor key: Shift-Left
+    /// (`CSI 1;2 D` and the kitty keypad Left with Shift held, but not Ctrl or
+    /// Alt, which are [`Action::WordLeft`], nor Super, which is
+    /// [`Action::LineStart`]), Ctrl-B, and kitty's Ctrl-Shift-b
+    /// (`character_left` extending a selection, `escape_parser.zig:239
+    /// @481104fd`, the selection dropped).
     ///
     /// Upstream decodes the arrows to `composerMove` (`modifiedArrowAction`,
     /// `escape_parser.zig:73-108@481104fd`) and keeps Ctrl-B a raw byte
     /// (`shortcuts.zig:15`); its approval's choice moves on `.cursor_left`
     /// alone and leaves both where they are, while an amendment takes them as
     /// the caret's move (`input_approval_runtime.zig:79-128`,
-    /// `src/ui/input/runtime.zig:75-108`). The approval is the only xfx surface
-    /// that reads this: the shell folds it back to [`Action::Left`] before the
-    /// full transcript, the question and the rest see the event
-    /// (`super::shell::Shell`'s `unspelled`).
+    /// `src/ui/input/runtime.zig:75-108`). Its full transcript does not bind
+    /// a composer move or the byte, and they go on to the composer behind it
+    /// (`keyForAction`, `keyForByte`, `input_full_transcript_runtime.zig:147-178`);
+    /// its question's choice leaves them alone and its field takes them as
+    /// the step (`src/ui/input/runtime.zig:155-209`). Those three xfx surfaces
+    /// read this as it came; the shell folds it back to [`Action::Left`] for
+    /// the menus and the composer (`super::shell::Shell`'s `folded`).
     ComposerLeft,
-    /// Right as a composer move: Shift-Right, Super-Right and Ctrl-F, the
-    /// mirror of [`Action::ComposerLeft`].
+    /// Right as a composer move: Shift-Right, Ctrl-F and kitty's Ctrl-Shift-f,
+    /// the mirror of [`Action::ComposerLeft`].
     ComposerRight,
     Up,
     Down,
-    /// Up and Down with Ctrl or Alt held and neither Shift nor Super:
+    /// Up and Down with Ctrl held and neither Alt, Shift nor Super:
     /// `CSI 1;<mask> A/B`, kitty's arrow reports and the kitty keypad arrows.
     ///
-    /// Upstream decodes them to a composer move, `visual_up` under Ctrl and
-    /// `paragraph_up` under Alt (`modifiedArrowAction`,
-    /// `escape_parser.zig:83-98@481104fd`), which an approval's choice and its
-    /// amendment both leave alone (`input_approval_runtime.zig:79-128`,
-    /// `src/ui/input/runtime.zig:75-96`). The approval is the only xfx surface
-    /// that reads this; the shell folds it back to [`Action::Up`] for the full
-    /// transcript, the question and the rest (`super::shell::Shell`'s
-    /// `unspelled`).
+    /// Upstream decodes them to a composer move, `visual_up`
+    /// (`modifiedArrowAction`, `escape_parser.zig:90-94@481104fd`), which an
+    /// approval's choice and its amendment both leave alone
+    /// (`input_approval_runtime.zig:79-128`, `src/ui/input/runtime.zig:75-96`),
+    /// and so do its question's choice and field (`:155-197`), a compact menu
+    /// (`app_input_runtime.zig:2259-2263`) and its full transcript, which
+    /// leaves it to the composer behind it (`keyForAction`,
+    /// `input_full_transcript_runtime.zig:156-178`). To the pickers and the
+    /// composer it is the plain arrow, history included
+    /// (`routeComposerVertical`, `input_completion_runtime.zig:215-291`).
     ComposerUp,
     /// Down as a composer move, the mirror of [`Action::ComposerUp`].
     ComposerDown,
-    /// Up with Super held, whatever else is: upstream's `draft_start`
-    /// (`escape_parser.zig:74-75@481104fd`, the first arm, so Super wins over
-    /// Alt, Ctrl and Shift).
+    /// Up with Alt held and not Super, with Shift or Ctrl or neither:
+    /// upstream's `paragraph_up` (`escape_parser.zig:83-85@481104fd`), the
+    /// caret to the start of its paragraph, or of the one before from there
+    /// (`previousParagraphStart`, `text_boundaries.zig:104-130`), and nothing
+    /// else -- no picker move, no edge, no history (`routeComposerShortcutAction`,
+    /// `app_input_runtime.zig:298-309`). Every surface that leaves
+    /// [`Action::ComposerUp`] alone leaves this alone too.
+    ParagraphUp,
+    /// Down with Alt held: `paragraph_down`, the next paragraph's start or the
+    /// draft's end (`nextParagraphStart`, `text_boundaries.zig:132-147`).
+    ParagraphDown,
+    /// Up with Super held, whatever else is, and Home with Super held or with
+    /// Ctrl and not Alt: upstream's `draft_start` (`escape_parser.zig:74-75`,
+    /// `:79`, `:95@481104fd`; Super's arm is first, so Super wins over Alt,
+    /// Ctrl and Shift, and Alt's arm has no Home, so Home with Alt and without
+    /// Super is the plain key, `:83-89`, `:166`). The tilde Home with Ctrl in
+    /// its field is the same move (`:699-703`).
     ///
     /// In an approval's amendment it takes the caret to the draft's start
     /// (`.cursor_home`, `src/ui/input/runtime.zig:82`; `cursorHome`,
-    /// `approval_amendment.zig:84-87`); at its choice it does nothing. An
-    /// editor reads it as that move. `shifted` is whether Shift was held too,
-    /// because every surface but the approval sees the key it saw before this
-    /// was kept apart -- [`Action::SelectUp`] with Shift, [`Action::Up`]
-    /// without (`super::shell::Shell`'s `unspelled`).
+    /// `approval_amendment.zig:84-87`); at its choice it does nothing. A
+    /// question's field takes it to the answer's start, as Home, and its
+    /// choice does nothing (`src/ui/input/runtime.zig:162`, `:184-189`); the
+    /// full transcript leaves it to the composer behind it, Shift or not. No
+    /// menu reads it, and the composer goes to the draft's start and no
+    /// further (`horizontal_navigation.zig:29`, `app_input_runtime.zig:298-309`).
+    /// `shifted` is whether Shift was held too, which no xfx surface reads
+    /// (the selection it would extend is dropped).
     DraftStart {
         shifted: bool,
     },
-    /// Down with Super held: upstream's `draft_end` (`escape_parser.zig:76`),
-    /// the caret to the draft's end in an amendment (`.cursor_end`,
+    /// Down with Super held, and End with Super or Ctrl: upstream's
+    /// `draft_end` (`escape_parser.zig:76`, `:80`, `:96`, `:704-707`), the
+    /// caret to the draft's end in an amendment (`.cursor_end`,
     /// `src/ui/input/runtime.zig:83`; `cursorEnd`, `approval_amendment.zig:89-92`),
     /// the mirror of [`Action::DraftStart`].
     DraftEnd {
         shifted: bool,
     },
-    /// Up and Down with Shift held and not Super: `CSI 1;<mask> A/B` and the
-    /// kitty arrow reports with a mask that has Shift in it.
+    /// Left with Super held, whatever else is, Home with Shift held and none
+    /// of Super, Alt and Ctrl, and kitty's Ctrl-Shift-a: upstream's
+    /// `line_start` (`escape_parser.zig:78`, `:104`, `:238@481104fd`). The
+    /// tilde Home with any modifier but Ctrl is the same move, Super included
+    /// (`:699-703`).
     ///
-    /// Upstream reads them as a selection move (`extend_selection`), which
-    /// only a question's freeform field gives a meaning of its own -- the
-    /// choice above or below, where the plain arrows walk the field's rows
-    /// (`src/ui/input/runtime.zig:175-188`, `input_question_runtime.zig:150-185`,
-    /// `c1db919`). An approval leaves them alone, at its choice and in its
-    /// amendment (`visual_up` is no draft key, `src/ui/input/runtime.zig:86
-    /// @481104fd`). Everywhere else they are the arrows they always were here:
-    /// the shell folds them back once the full transcript, the question and
-    /// the approval have read the event, before the menus and the composer do
-    /// (`super::shell::Shell`'s `folded`).
+    /// To every surface the bare Home's move, as upstream's: its `.home` is
+    /// `line_start` to the composer (`fromEscapeAction`, `shortcuts.zig:51`),
+    /// both take the one arm there (`app_input_runtime.zig:298-309`, `.home`
+    /// being `unreachable` past it, `:1025`), and no surface reads `.home`
+    /// apart from the move -- the full transcript binds neither
+    /// (`input_full_transcript_runtime.zig:156-178`), a question's field and
+    /// an approval's amendment read the move's kind (`src/ui/input/runtime.zig:82`,
+    /// `:162`) and their choices neither, and a compact menu and the settings
+    /// menu act on the plain arrows only (`app_input_runtime.zig:984-992`,
+    /// `:2228-2263`). So the question reads it as Home, and the shell folds it
+    /// to [`Action::Home`] for the menus and the composer
+    /// (`super::shell::Shell`'s `folded`), after the full transcript and the
+    /// approval have read it. `shifted` is whether Shift was held, which no
+    /// xfx surface reads (COMPOSER-SELECTION-EXTEND).
+    LineStart {
+        shifted: bool,
+    },
+    /// Right with Super held, End with Shift alone and kitty's Ctrl-Shift-e:
+    /// upstream's `line_end` (`escape_parser.zig:77`, `:105`, `:240`,
+    /// `:704-707`), the mirror of
+    /// [`Action::LineStart`], folded to [`Action::End`].
+    LineEnd {
+        shifted: bool,
+    },
+    /// Up and Down with Shift held, with Ctrl or without, and neither Super
+    /// nor Alt: `CSI 1;<mask> A/B` and the kitty arrow reports with a mask that
+    /// has Shift in it (Shift with Alt is [`Action::ParagraphUp`]).
+    ///
+    /// Upstream reads them as `visual_up` extending a selection, which only a
+    /// question gives a meaning of its own -- the choice above or below, at a
+    /// choice and from its freeform field, where the plain arrows walk the
+    /// field's rows (`src/ui/input/runtime.zig:184-189@481104fd`,
+    /// `input_question_runtime.zig:149-178`). An approval leaves them alone, at
+    /// its choice and in its amendment (`visual_up` is no draft key,
+    /// `src/ui/input/runtime.zig:86@481104fd`), and the full transcript
+    /// leaves them to the composer behind it, and a compact menu reads them as
+    /// nothing (`app_input_runtime.zig:2259-2263`). The pickers read them as
+    /// the arrows; the composer moves one row and stops at the draft's first
+    /// and last row, with no edge and no history
+    /// (`input_completion_runtime.zig:262-270`).
     SelectUp,
     SelectDown,
     Home,
@@ -323,9 +382,11 @@ pub(crate) enum Action {
     /// (`escape_parser.zig:247-250`, `:534-539@481104fd`), the mirror of
     /// [`Action::AltB`]. An approval's choice reads it as the next choice, as
     /// Right is (`input_approval_runtime.zig:101-110`); Ctrl-Right and
-    /// Alt-Right are a composer move it leaves alone. A question's choice binds
-    /// neither, so the shell folds this to [`Action::WordRight`] for every
-    /// surface but the approval (`super::shell::Shell`'s `unspelled`).
+    /// Alt-Right are a composer move it leaves alone. A question binds the two
+    /// alike, nothing at a choice and the word move in its field
+    /// (`input_question_runtime.zig:196-199`), and the full transcript neither;
+    /// the shell folds this to [`Action::WordRight`] for the menus and the
+    /// composer (`super::shell::Shell`'s `folded`).
     AltF,
     Backspace,
     Delete,
@@ -357,8 +418,9 @@ pub(crate) enum Action {
     /// above in a menu while one is up -- the other half of `ControlJ`, for the
     /// same reason (Super-Delete kills to the end and walks no menu).
     ControlK,
-    /// Page Up: `CSI 5 ~`, kitty's keypad Page Up, and either with a modifier
-    /// (`escape_parser.zig` at `c1db919`, :169-173, :632, :708).
+    /// Page Up: `CSI 5 ~` and kitty's keypad Page Up, with no modifier held
+    /// (`.page_up`, `escape_parser.zig:172`, `:632`, `:715@481104fd`); held
+    /// with one it is [`Action::ComposerPageUp`].
     ///
     /// One key, routed by the surface it lands on: the full transcript pages
     /// itself (`keyForAction`, `input_full_transcript_runtime.zig:156-179`),
@@ -368,6 +430,22 @@ pub(crate) enum Action {
     PageUp,
     /// Page Down, the mirror of [`Action::PageUp`].
     PageDown,
+    /// A page key held with a modifier: upstream's composer move to a page
+    /// (`composerMove(.page_up, modifiers)`, `escape_parser.zig:708`, and the
+    /// keypad's `pageKeyAction`, `:169-173@481104fd`), not its `.page_up`.
+    ///
+    /// The full transcript is the one surface that tells the two apart: it
+    /// pages on the bare key alone (`keyForAction`,
+    /// `input_full_transcript_runtime.zig:156-178@481104fd`), and this goes on
+    /// to the composer behind it. Everywhere else the two are one move --
+    /// upstream gives the bare key the same composer move
+    /// (`shortcuts.zig:53-54`) -- so the shell folds this back to
+    /// [`Action::PageUp`] once the full transcript, the question and the
+    /// approval have read the event (`super::shell::Shell`'s `folded`). Shift's
+    /// selection extension is dropped, as the arrows drop it ([`cursor`]).
+    ComposerPageUp,
+    /// Page Down held with a modifier, the mirror of [`Action::ComposerPageUp`].
+    ComposerPageDown,
     /// The tab key. Bound by the approval panel, where it cycles the marked
     /// choice, and by the slash completion menu, where it takes the marked
     /// command (`super::picker`). With neither of those up it still does
@@ -1324,7 +1402,8 @@ fn control(byte: u8) -> Action {
     match byte {
         0x01 => Action::Home,
         // A raw byte to upstream rather than its cursor key: an approval's
-        // choice leaves it alone ([`Action::ComposerLeft`]).
+        // choice and a question's leave it alone, and the full transcript
+        // leaves it to the composer ([`Action::ComposerLeft`]).
         0x02 => Action::ComposerLeft,
         0x03 => Action::Cancel,
         0x04 => Action::Eof,
@@ -1351,19 +1430,22 @@ fn control(byte: u8) -> Action {
 
 /// What a completed `ESC [ <params> <final>` means.
 ///
-/// The parameters are matched **as bytes, in the exact shapes a terminal sends
-/// a key in**, and -- outside a key report -- never parsed into numbers that
-/// are then compared. A numeric comparison accepts spellings no terminal
-/// emits -- `CSI 0200 ~` and
+/// The paste markers are matched **as bytes**, before any number is read. A
+/// numeric comparison accepts spellings no terminal emits -- `CSI 0200 ~` and
 /// `CSI 200 ; 1 ~` both *parse* as 200 -- and the paste markers are where that
 /// stops being cosmetic: [`Decoder::pasted`] matches the end marker byte for
 /// byte, so a decoder that opened a paste on `CSI 0200 ~` could never be closed
 /// by the same spelling. A stream that opens one is latched into paste mode,
 /// and every keystroke after it is content. Exact both ways, or the two halves
-/// disagree. The one place numbers are read is a key report, whose key is any
-/// Unicode scalar and cannot be a table of spellings; there each field is
-/// accepted only in its canonical spelling first ([`decimal`]), which makes the
-/// reading one-to-one and keeps the same property.
+/// disagree; upstream's markers are exact too (`digit_count == 3`,
+/// `escape_parser.zig:625-626@481104fd`).
+///
+/// Every other tilde sequence is read as upstream reads it, each field a number
+/// ([`tilde_report`]). The rest are matched **in the exact shapes a terminal
+/// sends a key in**: a cursor key's modifier ([`modifier`]), and a kitty key
+/// report's fields, each accepted only in its canonical spelling ([`decimal`]),
+/// which makes that reading one-to-one -- stricter than upstream's numbers,
+/// recorded in `docs/parity.md`.
 ///
 /// Everything that is not one of these shapes is [`Action::Ignore`], which is
 /// the same answer the bounded discard gives and for the same reason: an input
@@ -1376,19 +1458,14 @@ fn control(byte: u8) -> Action {
 /// character: a keypad digit, or Shift+Space ([`replayed`]).
 fn csi(params: &[u8], final_byte: u8) -> Input {
     match final_byte {
-        // The tilde keys, each one exactly one spelling.
+        // The paste markers in their one spelling, then every tilde key --
+        // Home `1` and rxvt's `7`, Delete `3`, End `4` and rxvt's `8`, the
+        // page keys `5` and `6` (`escape_parser.zig:628-635@481104fd`), bare
+        // or with a modifier -- and xterm's `modifyOtherKeys` key report, as
+        // upstream reads them.
         b'~' => match params {
-            b"1" => Input::Action(Action::Home),
-            b"3" => Input::Action(Action::Delete),
-            b"4" => Input::Action(Action::End),
-            // The page keys (`escape_parser.zig` at `c1db919`, :632-633).
-            b"5" => Input::Action(Action::PageUp),
-            b"6" => Input::Action(Action::PageDown),
             b"200" => Input::Action(Action::PasteStart),
             b"201" => Input::Action(Action::PasteEnd),
-            // xterm's `modifyOtherKeys` spelling of a key report -- a
-            // **params shape** under a final byte that already carries five
-            // literal ones -- or a tilde key with a modifier.
             _ => tilde_report(params),
         },
         // The cursor keys, bare or with one modifier.
@@ -1414,33 +1491,42 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
 }
 
 /// What a cursor key means under a modifier mask: this decoder's main-row
-/// arrow table, and the one a keypad arrow is resolved through as well
-/// ([`kitty_key`]).
+/// table for the arrows, Home and End, and the one the keypad's are resolved
+/// through as well ([`kitty_key`]).
 ///
-/// On Left and Right "ctrl or alt means by word"; Shift or Super without them
-/// is upstream's composer move, which only an approval's choice tells apart
-/// from the cursor key ([`Action::ComposerLeft`]) -- the selection Shift would
-/// extend is dropped, and so is Super's jump to the line's edge. On Up and Down
-/// every modifier is kept apart from the arrow, in **this decoder's own
-/// classification**: Super first ([`Action::DraftStart`], with Shift
-/// remembered), then Shift ([`Action::SelectUp`]), then Ctrl or Alt
-/// ([`Action::ComposerUp`]). Upstream's table reads Super, then Alt, then
-/// Ctrl, then Shift (`modifiedArrowAction`, `escape_parser.zig:73-108
-/// @481104fd`). The only line an approval draws through those is Super's --
-/// `draft_start`/`draft_end` against every other composer move, which it
-/// leaves alone -- so any order with Super first gives upstream's result
-/// there; Shift before Ctrl and Alt is so `super::shell::Shell`'s
-/// `unspelled` can give every other surface the key it had (any Shift was
-/// [`Action::SelectUp`]). A mask with none of the four is the arrow, as
-/// upstream's table answers `null` and the plain arrow follows (`:727-733`).
+/// Every modifier is read in upstream's order (`modifiedArrowAction`,
+/// `escape_parser.zig:73-108@481104fd`), but for Shift beside Ctrl on Up and
+/// Down. Super first, whatever else is held: Up and Home the draft's start
+/// ([`Action::DraftStart`]), Down and End its end, Left and Right the line's
+/// edges ([`Action::LineStart`], `line_start`/`line_end`). Then Alt: Up and
+/// Down by paragraph ([`Action::ParagraphUp`]), Left and Right by word, and
+/// Home and End the plain keys -- the arm has no row for them, so the plain
+/// key follows (`:83-89`, `:166`, `:727-733`), Ctrl or Shift held too. Then
+/// Ctrl: Left and Right by word, Up and Down `visual_up`
+/// ([`Action::ComposerUp`]), Home and End the draft's edges (`:95-96`). Then
+/// Shift: Up and Down `visual_up` extending a selection ([`Action::SelectUp`],
+/// with Ctrl or without), Left and Right the step ([`Action::ComposerLeft`]),
+/// Home and End the line's edges (`:104-105`). Upstream reads Ctrl before
+/// Shift on Up and Down and gives both the one move, Shift's selection apart;
+/// the surface that tells the selection apart is a question's choice, which
+/// moves on it alone (`src/ui/input/runtime.zig:184-189`), and Shift-Alt-Up is
+/// `paragraph_up` to it, which it does not. The selection Shift would extend
+/// is dropped (COMPOSER-SELECTION-EXTEND), `shifted` remembering it. A mask
+/// with none of the four is the key, as upstream's table answers `null` and
+/// the plain key follows (`escape_parser.zig:727-733`).
 fn cursor(letter: u8, mask: u8) -> Action {
     let word = mask & (ALT | CTRL) != 0;
+    let alt = mask & ALT != 0;
+    let ctrl = mask & CTRL != 0;
     let shifted = mask & SHIFT != 0;
-    let draft = mask & SUPER != 0;
-    let composer = mask & (SHIFT | SUPER) != 0;
+    let held_super = mask & SUPER != 0;
     match letter {
-        b'A' if draft => Action::DraftStart { shifted },
-        b'B' if draft => Action::DraftEnd { shifted },
+        b'A' | b'H' if held_super => Action::DraftStart { shifted },
+        b'B' | b'F' if held_super => Action::DraftEnd { shifted },
+        b'D' if held_super => Action::LineStart { shifted },
+        b'C' if held_super => Action::LineEnd { shifted },
+        b'A' if alt => Action::ParagraphUp,
+        b'B' if alt => Action::ParagraphDown,
         b'A' if shifted => Action::SelectUp,
         b'B' if shifted => Action::SelectDown,
         b'A' if word => Action::ComposerUp,
@@ -1448,12 +1534,18 @@ fn cursor(letter: u8, mask: u8) -> Action {
         b'A' => Action::Up,
         b'B' => Action::Down,
         b'C' if word => Action::WordRight,
-        b'C' if composer => Action::ComposerRight,
+        b'C' if shifted => Action::ComposerRight,
         b'C' => Action::Right,
         b'D' if word => Action::WordLeft,
-        b'D' if composer => Action::ComposerLeft,
+        b'D' if shifted => Action::ComposerLeft,
         b'D' => Action::Left,
+        b'H' if alt => Action::Home,
+        b'H' if ctrl => Action::DraftStart { shifted },
+        b'H' if shifted => Action::LineStart { shifted },
         b'H' => Action::Home,
+        _ if alt => Action::End,
+        _ if ctrl => Action::DraftEnd { shifted },
+        _ if shifted => Action::LineEnd { shifted },
         _ => Action::End,
     }
 }
@@ -1497,64 +1589,121 @@ fn report(params: &[u8]) -> Input {
     }
 }
 
-/// `CSI 27 ; <modifier> ; <code> ~`, the other spelling of the same report,
-/// resolved by the same function (`escape_parser.zig` at `c1db919`, :746-752).
+/// `CSI <key> ~`, `CSI <key> ; <modifier> ~` or `CSI <a> ; <modifier> ;
+/// <code> ~`: a tilde key, bare or held with a modifier, or xterm's
+/// `modifyOtherKeys` spelling of a key report, read as upstream's tilde
+/// stages read it (`escape_parser.zig:583-636`, `:662-755@481104fd`).
 ///
-/// Upstream discards the first field (:606-611 and :668-674 overwrite it), so
-/// it would read `CSI 28 ; 10 ; 122 ~` as this key too; `27` is the only value
-/// a terminal sends there, and the only one this decoder accepts.
+/// Every field is a number ([`tilde_field`]): a leading zero is the number, an
+/// empty second or third field is `0`, a field past 65535 is 65535. The first
+/// needs a digit, which is what starts the stage (`:583-589`), and a fourth
+/// field is nothing (`:754`).
+///
+/// * One field is the key with no modifier (`:620-635`), and two are the key
+///   and one more than its modifiers, `0` and `1` alike holding none
+///   (`:694-718`): both are [`tilde_key`].
+/// * Three are a key report, resolved by the function kitty's `u` spelling is
+///   ([`kitty_key`], `:746-752`). The first field is overwritten whatever it
+///   holds (`:668-674`), so `CSI 28 ; 10 ; 122 ~` is Super+Shift+Z as
+///   `CSI 27 ; 10 ; 122 ~` is; and every bit past Meta is masked off there, as
+///   upstream masks it (`:186-187`), so the low byte is all it is handed.
+///
+/// The paste markers are not read here: [`csi`] matches them as bytes first, so
+/// `CSI 0200 ~` is the number 200, which is no key, as it is upstream
+/// (`digit_count == 3`, `:625-626`).
 fn tilde_report(params: &[u8]) -> Input {
     let ignore = Input::Action(Action::Ignore);
     let mut fields = params.split(|byte| *byte == b';');
-    match (fields.next(), fields.next(), fields.next(), fields.next()) {
-        (Some(b"27"), Some(mask), Some(code), None) => {
-            match (key_modifiers(mask), decimal(code, KEYCODE_DIGITS)) {
-                (Some(mask), Some(code)) => kitty_key(code, mask),
-                _ => ignore,
-            }
-        }
-        (Some(key), Some(mask), None, None) => match key_modifiers(mask) {
-            Some(mask) => modified_tilde(key, mask),
-            None => ignore,
-        },
-        _ => ignore,
+    let (Some(key), modifier, code, None) =
+        (fields.next(), fields.next(), fields.next(), fields.next())
+    else {
+        return ignore;
+    };
+    if key.is_empty() {
+        return ignore;
     }
+    let field = |field: Option<&[u8]>| field.map_or(Some(0), tilde_field);
+    let (Some(key), Some(modifier), Some(keycode)) =
+        (tilde_field(key), field(modifier), field(code))
+    else {
+        return ignore;
+    };
+    let modifiers = modifier.saturating_sub(1);
+    if code.is_some() {
+        let [low, _] = modifiers.to_le_bytes();
+        return kitty_key(u32::from(keycode), low);
+    }
+    tilde_key(key, modifiers)
 }
 
-/// `CSI <key> ; <modifier> ~`: a tilde key held with a modifier
-/// (`escape_parser.zig` at `c1db919`, :694-718).
+/// One field of a tilde sequence as upstream accumulates it: its digits as a
+/// number that stops at 65535 rather than wrapping (`appendCsiDigitSaturating`,
+/// `escape_parser.zig:19-23@481104fd`), an empty field `0`, and a field with
+/// anything but a digit in it no field at all.
+fn tilde_field(field: &[u8]) -> Option<u16> {
+    field.iter().try_fold(0u16, |value, byte| {
+        byte.is_ascii_digit().then(|| {
+            value
+                .saturating_mul(10)
+                .saturating_add(u16::from(byte - b'0'))
+        })
+    })
+}
+
+/// A tilde key and its modifiers, `0` for none, as upstream's stage after the
+/// `;` reads them (`escape_parser.zig:694-718@481104fd`); the bare key is the
+/// same reading with none (`:628-635`).
 ///
-/// Delete is upstream's `forwardDeleteKeyAction` (:175-180): Super kills to
-/// the end of the line, Alt or Ctrl deletes the word to the right, and Shift
-/// alone is nothing. The page keys are a page move with any modifier
-/// (`composerMove(.page_up, ...)`, :708-709) -- Shift's selection extension is
-/// dropped with the selection, as the arrows drop it ([`cursor`]). Home and End
-/// with a modifier are upstream's draft and line jumps, which this composer
-/// does not have, and stay [`Action::Ignore`].
+/// Delete is upstream's `forwardDeleteKeyAction` over **every** bit of the
+/// field (`:698`, `:175-180`): none is Delete, Super kills to the end of the
+/// line, Alt or Ctrl deletes the word to the right, and any other bit alone --
+/// Shift, Hyper, Meta, Caps Lock, Num Lock, a bit past eight -- is nothing.
 ///
-/// A modifier field of `1` -- no modifier at all -- is not a spelling any
-/// terminal sends for these keys, and is refused as the bare `CSI 1 ; 1 Z` is
-/// ([`csi`]): the bare key has its one spelling.
-fn modified_tilde(key: &[u8], mask: u8) -> Input {
-    let mods = mask & 0x3f;
-    if mask == 0 {
-        return Input::Action(Action::Ignore);
-    }
+/// Home and End -- `1` or rxvt's `7`, `4` or rxvt's `8` -- are the bare key with
+/// no modifier (`:712-714`), and with any are upstream's move to the line's
+/// edge, the draft's under Ctrl, extending a selection under Shift
+/// (`escape_parser.zig:699-707`), a lock bit, a bit past eight and Super counted as a modifier
+/// like any other and none of them read further: [`Action::DraftStart`] with
+/// Ctrl's bit in the field, and [`Action::LineStart`] without it, with
+/// Shift's bit remembered (the selection is dropped,
+/// COMPOSER-SELECTION-EXTEND). Not [`cursor`]'s rows, which give Super the
+/// draft's edge and Alt the bare key (`:79-89`).
+///
+/// The page keys are the composer's move to a page with any bit held, a lock
+/// bit and a bit past eight included (`composerMove(.page_up, ...)`,
+/// `escape_parser.zig:708-709`): [`Action::ComposerPageUp`], which the full
+/// transcript does not take. With none they are the page key
+/// (`escape_parser.zig:715-716`). Shift's selection
+/// extension is dropped with the selection, as the arrows drop it
+/// ([`cursor`]).
+fn tilde_key(key: u16, modifiers: u16) -> Input {
+    let held = modifiers != 0;
+    let shifted = modifiers & u16::from(SHIFT) != 0;
+    let draft = modifiers & u16::from(CTRL) != 0;
     Input::Action(match key {
-        b"3" => forward_delete(mods),
-        b"5" => Action::PageUp,
-        b"6" => Action::PageDown,
+        1 | 7 if !held => Action::Home,
+        1 | 7 if draft => Action::DraftStart { shifted },
+        1 | 7 => Action::LineStart { shifted },
+        3 => forward_delete(modifiers),
+        4 | 8 if !held => Action::End,
+        4 | 8 if draft => Action::DraftEnd { shifted },
+        4 | 8 => Action::LineEnd { shifted },
+        5 if held => Action::ComposerPageUp,
+        6 if held => Action::ComposerPageDown,
+        5 => Action::PageUp,
+        6 => Action::PageDown,
         _ => Action::Ignore,
     })
 }
 
 /// Delete under a modifier mask (`forwardDeleteKeyAction`,
-/// `escape_parser.zig` at `c1db919`, :175-180), shared by the legacy tilde
-/// spelling and the keypad's.
-fn forward_delete(mods: u8) -> Action {
-    if mods & SUPER != 0 {
+/// `escape_parser.zig:175-180@481104fd`), shared by the legacy tilde spelling,
+/// which hands it every bit of its field (`:698`), and the keypad's, which
+/// hands it what is left once the lock states are masked off (`:187`, `:205`).
+fn forward_delete(mods: u16) -> Action {
+    if mods & u16::from(SUPER) != 0 {
         Action::KillToEnd
-    } else if mods & (ALT | CTRL) != 0 {
+    } else if mods & u16::from(ALT | CTRL) != 0 {
         Action::DeleteWordRight
     } else if mods == 0 {
         Action::Delete
@@ -1659,24 +1808,30 @@ fn keypad_navigation(code: u32) -> Option<u8> {
 ///   behaves as its main-row key (:116-118), read against xfx's main row;
 /// * `escape`, `insert_newline`, `undo`/`redo`, `word_left`/`word_right`,
 ///   `delete_word_left`, `delete_word_right`,
-///   `delete_to_line_start`/`delete_to_line_end`, `delete_next` and the page
-///   keys are [`Action::Escape`], [`Action::InsertNewline`],
+///   `delete_to_line_start`/`delete_to_line_end`, `delete_next` and the bare
+///   page keys are [`Action::Escape`], [`Action::InsertNewline`],
 ///   [`Action::Undo`]/[`Action::Redo`], [`Action::AltB`]/[`Action::AltF`],
 ///   [`Action::DeleteWordBackward`], [`Action::DeleteWordRight`],
 ///   [`Action::KillToStart`]/[`Action::KillToEnd`], [`Action::Delete`] and
-///   [`Action::PageUp`]/[`Action::PageDown`], a page key with a modifier
-///   included -- upstream's `composerMove` to a page (:171), whose selection
-///   extension this composer does not have;
+///   [`Action::PageUp`]/[`Action::PageDown`];
+/// * a keypad page key with Shift, Alt, Ctrl or Super held is upstream's
+///   `composerMove` to a page (`escape_parser.zig:171@481104fd`),
+///   [`Action::ComposerPageUp`]/
+///   [`Action::ComposerPageDown`], whose selection extension this composer
+///   does not have;
 /// * `toggle_full_transcript` -- Ctrl+O and nothing else held (:111-114,
 ///   :252) -- is [`Action::ToggleTranscript`], and `select_all`,
 ///   `copy_selection` and `cut_selection` (:223-231) are
 ///   [`Action::SelectAll`], [`Action::CopySelection`] and
 ///   [`Action::CutSelection`].
 ///
+/// * a `composerMove` that extends a selection is its move with the selection
+///   dropped: Ctrl+Shift on `a`/`e` [`Action::LineStart`]/[`Action::LineEnd`]
+///   and on `b`/`f` [`Action::ComposerLeft`]/[`Action::ComposerRight`]
+///   (:235-242), Alt+Shift on `b`/`f` the word moves (:244, :248).
+///
 /// What has no action here is [`Action::Ignore`], each named where it falls:
-/// every `composerMove` that extends a selection (:238-241, :244,
-/// :248), an `o` under any other modifiers (:111-114) and
-/// `open_all_sessions` (:253). `toggle_permission_mode` (:254) is
+/// an `o` under any other modifiers (:111-114) and `open_all_sessions` (:253). `toggle_permission_mode` (:254) is
 /// [`Action::BackTab`], the key it is spelled with. Upstream's
 /// `meta_prefixed` -- a key report behind a second `ESC` -- has no counterpart:
 /// this decoder reads `ESC ESC` as the Escape key and then whatever follows,
@@ -1700,19 +1855,22 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
         } else if let Some(letter) = keypad_navigation(code) {
             return Input::Action(cursor(letter, mods));
         } else if code == KP_PAGE_UP || code == KP_PAGE_DOWN {
-            // `page_up`/`page_down`, or a `composerMove` to them with a
-            // modifier (:169-173): a page either way here, because the
-            // modifier's selection is one this composer does not have.
-            return Input::Action(if code == KP_PAGE_UP {
-                Action::PageUp
-            } else {
-                Action::PageDown
+            // `page_up`/`page_down` with nothing held once the lock bits are
+            // off, and a `composerMove` to them with a modifier
+            // (`pageKeyAction`, `escape_parser.zig:169-173@481104fd`), which
+            // the full transcript does not take.
+            let up = code == KP_PAGE_UP;
+            return Input::Action(match (up, mods != 0) {
+                (true, false) => Action::PageUp,
+                (false, false) => Action::PageDown,
+                (true, true) => Action::ComposerPageUp,
+                (false, true) => Action::ComposerPageDown,
             });
         } else if code == KP_ENTER {
             return kitty_key(13, modifiers);
         } else if code == KP_DELETE {
             // The main-row `ESC[3~` family (:175-180).
-            return Input::Action(forward_delete(mods));
+            return Input::Action(forward_delete(u16::from(mods)));
         }
     }
     if code == KITTY_UP || code == KITTY_DOWN {
@@ -1757,9 +1915,25 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
             });
         }
     }
-    // A `composerMove` that extends a selection (:235-242).
-    if mods & (SHIFT | CTRL) == (SHIFT | CTRL) && (is(b'a') || is(b'b') || is(b'e') || is(b'f')) {
-        return ignore;
+    // Ctrl and Shift on `a`, `b`, `e` or `f`: the `composerMove` to the
+    // line's start, a step left, the line's end, a step right, extending a
+    // selection (:235-242). The move, the selection dropped, as Shift-Home's
+    // and Shift-Left's are ([`cursor`]; COMPOSER-SELECTION-EXTEND).
+    if mods & (SHIFT | CTRL) == (SHIFT | CTRL) {
+        let held = if is(b'a') {
+            Some(Action::LineStart { shifted: true })
+        } else if is(b'b') {
+            Some(Action::ComposerLeft)
+        } else if is(b'e') {
+            Some(Action::LineEnd { shifted: true })
+        } else if is(b'f') {
+            Some(Action::ComposerRight)
+        } else {
+            None
+        };
+        if let Some(action) = held {
+            return Input::Action(action);
+        }
     }
     if mods & ALT != 0 && matches!(ascii, Some(b'b' | b'f')) {
         // With Shift, upstream's word move extending a selection (:244,
@@ -2008,15 +2182,22 @@ mod tests {
         assert_eq!(csi(b"122;10;3", b'u'), Action::Ignore, "a third parameter");
         assert_eq!(csi(b"", b'u'), Action::Ignore);
         assert_eq!(csi(b"27;10;121", b'~'), Action::Ignore, "y is not z");
-        assert_eq!(csi(b"28;10;122", b'~'), Action::Ignore, "27 is the family");
+        // The tilde spelling's first field is overwritten upstream
+        // (`escape_parser.zig:668-674`, `:746-752@481104fd`), so `28` there
+        // is the same report as `27`.
+        assert_eq!(
+            csi(b"28;10;122", b'~'),
+            Action::Redo,
+            "the first field is overwritten"
+        );
         assert_eq!(csi(b"27;10", b'~'), Action::Ignore, "no keycode");
         assert_eq!(
             csi(b"27;10;122;1", b'~'),
             Action::Ignore,
             "a fourth parameter"
         );
-        // And the five literal tilde spellings still decode, because the new
-        // arm is under the same final byte.
+        // And the tilde keys and the paste markers still decode under the
+        // same final byte.
         assert_eq!(csi(b"1", b'~'), Action::Home);
         assert_eq!(csi(b"3", b'~'), Action::Delete);
         assert_eq!(csi(b"4", b'~'), Action::End);
@@ -2044,7 +2225,10 @@ mod tests {
 
     #[test]
     fn a_ctrl_letter_is_upstreams_table_in_a_strict_spelling() {
-        // Bounded on every axis, not just the three captured letters.
+        // Bounded on every axis, not just the three captured letters. (The
+        // name is older than TILDE-EMPTY-MODIFIER: the tilde report's fields
+        // are upstream's numbers now, so "strict" is the table, not the
+        // spelling.)
 
         // The modifier parameter is `1 + mask` (shift 1, alt 2, ctrl 4,
         // super 8), and what a combination means is upstream's
@@ -2081,31 +2265,23 @@ mod tests {
         // the tilde spelling cannot stay refused while the other is bound.
         assert_eq!(csi(b"27;5;95", b'~'), Action::Undo, "Ctrl-_ is undo");
 
-        // Every spelling of Ctrl-C's code that is not the exact captured
-        // bytes `99`, refused for two different reasons. A leading zero
-        // (`099`) and an oversized leading zero (`0099`) are the genuine
-        // numeric-parse-leniency case: a numeric parse folds digits into a
-        // value and does not care how many leading zeros came first, so
-        // both would parse to `99` and be wrongly accepted -- the canonical-
-        // spelling check (`decimal`) is what refuses them here. A trailing
-        // digit (`990`), no
-        // code at all, and Kitty's colon-separated event-qualifier suffix
-        // for a release or a repeat (`99:2`) are not that: `990` parses to
-        // a different number than `99`, and an empty or suffixed field
-        // does not parse as `99` either, so a numeric parse would have
-        // refused these three on its own merits too. They are tested here
-        // for a different property -- that the match is exact-length and
-        // exact-shape, not just exact-value, so none of these is mistaken
-        // for a byte-string prefix or extension of the real code.
+        // Ctrl-C's code in the spellings upstream reads as the number 99 is
+        // Ctrl-C: a leading zero, one or two, is folded into the number
+        // (`appendCsiDigitSaturating`, `escape_parser.zig:19-23`, `:741-744
+        // @481104fd`). A trailing digit (`990`) is a different number, no
+        // code at all is `0`, and Kitty's colon-separated event-qualifier
+        // suffix for a release or a repeat (`99:2`) is no digit, which ends
+        // the report (`:754`): none of these is mistaken for a prefix or an
+        // extension of the real code.
         assert_eq!(
             csi(b"27;5;099", b'~'),
-            Action::Ignore,
-            "a leading zero is not the canonical spelling"
+            Action::Cancel,
+            "a leading zero is the number"
         );
         assert_eq!(
             csi(b"27;5;0099", b'~'),
-            Action::Ignore,
-            "a leading zero, oversized too"
+            Action::Cancel,
+            "two leading zeros are the number"
         );
         assert_eq!(
             csi(b"27;5;990", b'~'),
@@ -2176,7 +2352,8 @@ mod tests {
         ("super+z", b"\x1b[122;9u", Action::Undo),
         ("super+shift+z", b"\x1b[122;10u", Action::Redo),
         // Ctrl-B and Ctrl-F are their control bytes, which an approval's
-        // choice tells apart from the arrows ([`Action::ComposerLeft`]).
+        // choice, a question's choice and the full transcript tell apart
+        // from the arrows ([`Action::ComposerLeft`]).
         ("ctrl+b", b"\x1b[98;5u", Action::ComposerLeft),
         ("ctrl+f", b"\x1b[102;5u", Action::ComposerRight),
         ("ctrl+h", b"\x1b[104;5u", Action::Backspace),
@@ -2368,34 +2545,56 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_shift_a_b_e_f_are_upstreams_moves_the_selection_dropped() {
+        // Ctrl and Shift held on `a`, `b`, `e` or `f`, either case, are
+        // `composerMove(.line_start/.character_left/.line_end/.character_right,
+        // mods)` (`escape_parser.zig:235-242@481104fd`), the selection
+        // extended. Here the move with the selection dropped, as Shift-Home
+        // and Shift-Left are (`cursor`; COMPOSER-SELECTION-EXTEND): the line's
+        // start, the step left, the line's end, the step right. Alt or Super
+        // held too is the same arm; Super with `a` is `select_all` first
+        // (`:223-225`). xterm's `modifyOtherKeys` spelling reaches the same
+        // resolver (`:746-752`). Ignored before COMPOSER-SUPER-ARROWS round 2.
+        let start = Action::LineStart { shifted: true };
+        let end = Action::LineEnd { shifted: true };
+        for (bytes, expected) in [
+            (&b"\x1b[97;6u"[..], start),
+            (b"\x1b[65;6u", start),
+            (b"\x1b[98;6u", Action::ComposerLeft),
+            (b"\x1b[101;6u", end),
+            (b"\x1b[102;6u", Action::ComposerRight),
+            (b"\x1b[70;6u", Action::ComposerRight),
+            (b"\x1b[27;6;97~", start),
+            (b"\x1b[27;6;101~", end),
+            (b"\x1b[97;8u", start),
+            (b"\x1b[98;14u", Action::ComposerLeft),
+            (b"\x1b[101;70u", end),
+            (b"\x1b[97;14u", Action::SelectAll),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(expected)], "{bytes:?}");
+        }
+        // Ctrl alone is the letter's control byte, and Shift alone the letter.
+        assert_eq!(decode(b"\x1b[97;5u"), vec![Input::Action(Action::Home)]);
+        assert_eq!(
+            decode(b"\x1b[98;5u"),
+            vec![Input::Action(Action::ComposerLeft)]
+        );
+    }
+
+    #[test]
     fn what_upstream_resolves_to_a_key_xfx_does_not_have_is_ignored() {
         // Each of these is a real upstream result (`escape_parser.zig` at
         // `c1db919`) with no action in this session's vocabulary, and none is
         // invented for it.
         for (bytes, upstream) in [
             (
-                &b"\x1b[97;6u"[..],
-                "composerMove line_start + selection :238",
-            ),
-            (
-                b"\x1b[98;6u",
-                "composerMove character_left + selection :239",
-            ),
-            (b"\x1b[101;6u", "composerMove line_end + selection :240"),
-            (
-                b"\x1b[102;6u",
-                "composerMove character_right + selection :241",
-            ),
-            (
-                b"\x1b[111;6u",
+                &b"\x1b[111;6u"[..],
                 "ctrlOKeyAction with Shift beside Ctrl :111-114",
             ),
             (b"\x1b[111;3u", "ctrlOKeyAction with Alt :111-114"),
             (b"\x1b[114;9u", "open_all_sessions :253"),
             (b"\x1b[57426;2u", "forward delete with Shift :179"),
             (b"\x1b[3;2~", "main-row Delete with Shift alone :179, :697"),
-            (b"\x1b[1;5~", "composerMove draft_start :699-702"),
-            (b"\x1b[4;3~", "composerMove line_end :703-706"),
             (b"\x1b[57352;17u", "kitty Up with Hyper alone :214"),
         ] {
             assert_eq!(
@@ -2457,9 +2656,11 @@ mod tests {
         // `.word_left/right` alone (`input_approval_runtime.zig:90-128
         // @481104fd`). `.word_right` is Alt-f's (`escape_parser.zig:247-250`,
         // `:534-539`); `.cursor_left/right` is the bare arrow in every
-        // encoding (`plainNavigationAction`, `:146-167`) -- and Shift, Super
-        // and Ctrl-B/F are a composer move or a raw byte (`:73-108`,
-        // `shortcuts.zig:15-16`), which the choice leaves alone.
+        // encoding (`plainNavigationAction`, `:146-167`) -- and Shift and
+        // Ctrl-B/F are a composer move or a raw byte (`:73-108`,
+        // `shortcuts.zig:15-16`), which the choice leaves alone. Super is
+        // the move to the line's edge, whatever else is held
+        // (`escape_parser.zig:74-78`).
         for bytes in [&b"\x1bf"[..], b"\x1b[102;3u", b"\x1b[27;3;102~"] {
             assert_eq!(
                 decode(bytes),
@@ -2475,20 +2676,22 @@ mod tests {
             (b"\x1b[C", Action::Right),
             (b"\x1b[57418u", Action::Right),
             (b"\x1b[1;2D", Action::ComposerLeft),
-            (b"\x1b[1;9D", Action::ComposerLeft),
-            (b"\x1b[1;10D", Action::ComposerLeft),
+            (b"\x1b[1;9D", Action::LineStart { shifted: false }),
+            (b"\x1b[1;10D", Action::LineStart { shifted: true }),
             (b"\x1b[57417;2u", Action::ComposerLeft),
             (&[0x02], Action::ComposerLeft),
             (b"\x1b[98;5u", Action::ComposerLeft),
             (b"\x1b[1;2C", Action::ComposerRight),
-            (b"\x1b[1;9C", Action::ComposerRight),
-            (b"\x1b[57418;9u", Action::ComposerRight),
+            (b"\x1b[1;9C", Action::LineEnd { shifted: false }),
+            (b"\x1b[57418;9u", Action::LineEnd { shifted: false }),
             (&[0x06], Action::ComposerRight),
             (b"\x1b[102;5u", Action::ComposerRight),
             (b"\x1b[1;3C", Action::WordRight),
             (b"\x1b[1;5C", Action::WordRight),
             (b"\x1b[1;6D", Action::WordLeft),
-            (b"\x1b[1;11D", Action::WordLeft),
+            // Super with Alt: Super's arm first (`escape_parser.zig:74-78`),
+            // the line's start.
+            (b"\x1b[1;11D", Action::LineStart { shifted: false }),
         ] {
             assert_eq!(decode(bytes), vec![Input::Action(action)], "{bytes:?}");
         }
@@ -2522,16 +2725,20 @@ mod tests {
             ),
             (b"\x1b[5~", Action::PageUp, "page_up :632"),
             (b"\x1b[6~", Action::PageDown, "page_down :633"),
-            (b"\x1b[5;5~", Action::PageUp, "composerMove page_up :708"),
+            (
+                b"\x1b[5;5~",
+                Action::ComposerPageUp,
+                "composerMove page_up escape_parser.zig:708@481104fd",
+            ),
             (
                 b"\x1b[6;2~",
-                Action::PageDown,
+                Action::ComposerPageDown,
                 "composerMove page_down :709",
             ),
             (b"\x1b[57421u", Action::PageUp, "keypad page_up :169-173"),
             (
                 b"\x1b[57422;5u",
-                Action::PageDown,
+                Action::ComposerPageDown,
                 "composerMove page_down :171",
             ),
             (
@@ -2550,6 +2757,454 @@ mod tests {
         // Upper case is not the binding, as upstream reads it.
         assert_eq!(decode(b"\x1bB"), vec![Input::Action(Action::Ignore)]);
         assert_eq!(decode(b"\x1bD"), vec![Input::Action(Action::Ignore)]);
+    }
+
+    /// The modifier fields the tilde Home and End are tried with: one held key
+    /// of each kind, two and four at once, and the bits past Super, which
+    /// upstream's tilde stage counts as a modifier too (`modifiers != 0`,
+    /// `escape_parser.zig:699@481104fd`) -- each with whether it is the
+    /// draft's edge (Ctrl's bit in the field, `:701`, `:705`; Super is no bit
+    /// it reads) and whether Shift's bit is (`composerMove`, `:66-71`).
+    const TILDE_MODIFIERS: [(&str, &str, bool, bool); 9] = [
+        ("2", "Shift", false, true),
+        ("3", "Alt", false, false),
+        ("5", "Ctrl", true, false),
+        ("9", "Super", false, false),
+        ("6", "Ctrl+Shift", true, true),
+        ("13", "Ctrl+Super", true, false),
+        ("16", "Shift+Alt+Ctrl+Super", true, true),
+        ("17", "Hyper", false, false),
+        ("65", "Caps Lock", false, false),
+    ];
+
+    /// Home (`start`) or End as a move to the draft's edge or the line's.
+    fn edge(start: bool, draft: bool, shifted: bool) -> Action {
+        match (start, draft) {
+            (true, true) => Action::DraftStart { shifted },
+            (false, true) => Action::DraftEnd { shifted },
+            (true, false) => Action::LineStart { shifted },
+            (false, false) => Action::LineEnd { shifted },
+        }
+    }
+
+    /// `CSI <key> ~`, or `CSI <key> ; <modifier> ~`, as one delivery.
+    fn tilde(key: &str, modifier: Option<&str>) -> Vec<Input> {
+        let bytes = match modifier {
+            None => format!("\x1b[{key}~"),
+            Some(modifier) => format!("\x1b[{key};{modifier}~"),
+        };
+        decode(bytes.as_bytes())
+    }
+
+    /// Every modified spelling of one tilde Home (`start`) or End is upstream's
+    /// move ([`TILDE_MODIFIERS`]), and its `; 1` spelling is the bare key: a
+    /// modifier field that holds no modifier, which upstream reads as the bare
+    /// key (`escape_parser.zig:696`, `:712-718@481104fd`;
+    /// `a_modifier_field_of_1_is_the_bare_tilde_key`).
+    fn assert_modified_tilde(key: &str, start: bool) {
+        for (modifier, held, draft, shifted) in TILDE_MODIFIERS {
+            assert_eq!(
+                tilde(key, Some(modifier)),
+                vec![Input::Action(edge(start, draft, shifted))],
+                "CSI {key} ; {modifier} ~ ({held})"
+            );
+        }
+        let bare = if start { Action::Home } else { Action::End };
+        assert_eq!(
+            tilde(key, Some("1")),
+            vec![Input::Action(bare)],
+            "CSI {key} ; 1 ~"
+        );
+    }
+
+    #[test]
+    fn rxvts_home_csi_7_tilde_is_home() {
+        // `1, 7 => .home` (`escape_parser.zig:628-629@481104fd`), the spelling
+        // rxvt sends for Home; fx's own test pins it
+        // (`src/ui/input/runtime.zig:4774-4779@481104fd`).
+        assert_eq!(tilde("7", None), vec![Input::Action(Action::Home)]);
+    }
+
+    #[test]
+    fn rxvts_end_csi_8_tilde_is_end() {
+        // `4, 8 => .end` (`escape_parser.zig:631@481104fd`).
+        assert_eq!(tilde("8", None), vec![Input::Action(Action::End)]);
+    }
+
+    #[test]
+    fn home_with_a_modifier_csi_1_mod_tilde_is_the_line_or_the_drafts_start() {
+        // `1, 7 => composerMove(... .draft_start else .line_start, modifiers)`
+        // (`escape_parser.zig:699-703@481104fd`): the line's start, the
+        // draft's under Ctrl, a selection under Shift. Not [`cursor`]'s H row,
+        // where Super is the draft's start and Alt the bare key (`:79`, `:83-89`).
+        // Before COMPOSER-SUPER-ARROWS, Home whatever was held.
+        assert_modified_tilde("1", true);
+    }
+
+    #[test]
+    fn end_with_a_modifier_csi_4_mod_tilde_is_the_line_or_the_drafts_end() {
+        // `4, 8 => composerMove(... .draft_end else .line_end, modifiers)`
+        // (`escape_parser.zig:704-707@481104fd`).
+        assert_modified_tilde("4", false);
+    }
+
+    #[test]
+    fn rxvts_home_with_a_modifier_csi_7_mod_tilde_is_the_line_or_the_drafts_start() {
+        // The same arm as `1` (`escape_parser.zig:700@481104fd`).
+        assert_modified_tilde("7", true);
+    }
+
+    #[test]
+    fn rxvts_end_with_a_modifier_csi_8_mod_tilde_is_the_line_or_the_drafts_end() {
+        // The same arm as `4` (`escape_parser.zig:704@481104fd`).
+        assert_modified_tilde("8", false);
+    }
+
+    #[test]
+    fn every_modifier_field_on_the_tilde_home_and_end_is_upstreams_move() {
+        // `TILDE_MODIFIERS` names the cases that say what is meant; this walks
+        // the fields around them. Upstream's field is a number that saturates
+        // at 65535 (`appendCsiDigitSaturating`, `escape_parser.zig:19-23
+        // @481104fd`), `0` and `1` hold no modifier and are the bare key
+        // (`:696`, `:712-714`), and anything else is the move (`:699-707`):
+        // the draft's edge with Ctrl's bit (4) in one less than the field, the
+        // line's without it, Shift's bit (1) remembered -- past eight bits and
+        // past sixteen alike. Before COMPOSER-SUPER-ARROWS every field was the
+        // key.
+        let want = |start: bool, field: u32| {
+            let held = field.min(65535).saturating_sub(1);
+            match held {
+                0 if start => Action::Home,
+                0 => Action::End,
+                _ => edge(start, held & 4 != 0, held & 1 != 0),
+            }
+        };
+        for (key, start) in [("1", true), ("4", false), ("7", true), ("8", false)] {
+            for field in 0..=1024 {
+                assert_eq!(
+                    tilde(key, Some(&field.to_string())),
+                    vec![Input::Action(want(start, field))],
+                    "CSI {key} ; {field} ~"
+                );
+            }
+            for (field, number) in [
+                ("", 0),
+                ("65535", 65535),
+                ("65536", 65536),
+                ("99999", 99999),
+                ("4294967297", 65535),
+            ] {
+                assert_eq!(
+                    tilde(key, Some(field)),
+                    vec![Input::Action(want(start, number))],
+                    "CSI {key} ; {field} ~"
+                );
+            }
+        }
+        // Read off the table above: Ctrl alone (6, 1+5) and Super alone (9,
+        // 1+8) are the draft's and the line's start, and the saturated field
+        // (65534, every bit but Shift's) the draft's.
+        assert_eq!(want(true, 6), Action::DraftStart { shifted: true });
+        assert_eq!(want(true, 9), Action::LineStart { shifted: false });
+        assert_eq!(want(false, 65535), Action::DraftEnd { shifted: false });
+    }
+
+    /// Each tilde key with the action its bare spelling has: upstream's
+    /// `1, 7 => .home`, `3 => .delete_next`, `4, 8 => .end`, `5 => .page_up`
+    /// and `6 => .page_down` (`escape_parser.zig:628-635`, `:712-718
+    /// @481104fd`; Delete's `forwardDeleteKeyAction(0)`, `:179`, `:698`).
+    const TILDE_KEYS: [(&str, Action); 7] = [
+        ("1", Action::Home),
+        ("3", Action::Delete),
+        ("4", Action::End),
+        ("5", Action::PageUp),
+        ("6", Action::PageDown),
+        ("7", Action::Home),
+        ("8", Action::End),
+    ];
+
+    #[test]
+    fn a_modifier_field_of_1_is_the_bare_tilde_key() {
+        // `const modifiers = if (param.* > 0) param.* - 1 else 0`
+        // (`escape_parser.zig:696@481104fd`): `1` is one more than no
+        // modifier at all, and with none the stage reads the bare key --
+        // Delete through `forwardDeleteKeyAction(0)` (`:698`, `:179`), the
+        // others through the switch below the moves (`:712-718`).
+        for (key, want) in TILDE_KEYS {
+            assert_eq!(
+                tilde(key, Some("1")),
+                vec![Input::Action(want)],
+                "CSI {key} ; 1 ~"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_modifier_field_is_the_bare_tilde_key() {
+        // The `;` hands the key's number on and starts the next field at
+        // `0` (`escape_parser.zig:606-611@481104fd`); with no digit after it
+        // the `~` reads `0`, no modifier (`:694-696`), and the bare key.
+        for (key, want) in TILDE_KEYS {
+            assert_eq!(
+                tilde(key, Some("")),
+                vec![Input::Action(want)],
+                "CSI {key} ; ~"
+            );
+        }
+    }
+
+    #[test]
+    fn a_modifier_field_of_0_is_the_bare_tilde_key() {
+        // `if (param.* > 0) ... else 0` (`escape_parser.zig:696@481104fd`):
+        // `0` is no modifier, as an empty field is.
+        for (key, want) in TILDE_KEYS {
+            for field in ["0", "00"] {
+                assert_eq!(
+                    tilde(key, Some(field)),
+                    vec![Input::Action(want)],
+                    "CSI {key} ; {field} ~"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_leading_zero_in_a_tilde_field_is_the_number() {
+        // The key's first digit is its number (`escape_parser.zig:584
+        // @481104fd`) and every digit after it is appended to the number
+        // (`appendCsiDigitSaturating`,
+        // `escape_parser.zig:19-23`; `:600-602` for the key, `:663-665` for
+        // the modifier, `@481104fd`), so a zero in front changes nothing.
+        for (key, want) in TILDE_KEYS {
+            for spelling in [format!("0{key}"), format!("00{key}")] {
+                assert_eq!(
+                    tilde(&spelling, None),
+                    vec![Input::Action(want)],
+                    "CSI {spelling} ~"
+                );
+                assert_eq!(
+                    tilde(&spelling, Some("1")),
+                    vec![Input::Action(want)],
+                    "CSI {spelling} ; 1 ~"
+                );
+            }
+        }
+        for (key, modifier, want) in [
+            ("1", "05", Action::DraftStart { shifted: false }),
+            ("8", "05", Action::DraftEnd { shifted: false }),
+            ("3", "05", Action::DeleteWordRight),
+            ("03", "03", Action::DeleteWordRight),
+            ("3", "009", Action::KillToEnd),
+            ("05", "05", Action::ComposerPageUp),
+        ] {
+            assert_eq!(
+                tilde(key, Some(modifier)),
+                vec![Input::Action(want)],
+                "CSI {key} ; {modifier} ~"
+            );
+        }
+        // The paste markers are the one exception, upstream's too: they are
+        // three digits exactly (`digit_count == 3`, `:625-626`), so `0200`
+        // is the number 200, which is no key (`:634`), and opens nothing.
+        for spelling in ["0200", "0201", "00200"] {
+            assert_eq!(
+                tilde(spelling, None),
+                vec![Input::Action(Action::Ignore)],
+                "CSI {spelling} ~"
+            );
+        }
+    }
+
+    #[test]
+    fn a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits() {
+        // The field is a `u16` that saturates (`escape_parser.zig:19-23
+        // @481104fd`), and the tilde stage reads all of it: any bit is a
+        // modifier to the moves (`modifiers != 0`, `:699-711`), Ctrl's among
+        // them the draft's edge, and Delete reads the raw bits (`:698`,
+        // `forwardDeleteKeyAction`, `:176-180`), so a bit past eight is a
+        // modifier it has no case for -- nothing -- unless Super, Alt or Ctrl
+        // is among them.
+        for (key, modifier, want) in [
+            // 256: the ninth bit alone, the line's start.
+            ("1", "257", Action::LineStart { shifted: false }),
+            // 299: the ninth bit, Super, Alt and Shift; no Ctrl.
+            ("4", "300", Action::LineEnd { shifted: true }),
+            // 65534: Ctrl among the rest, Shift not.
+            ("7", "65535", Action::DraftStart { shifted: false }),
+            ("8", "99999", Action::DraftEnd { shifted: false }),
+            ("5", "257", Action::ComposerPageUp),
+            ("6", "300", Action::ComposerPageDown),
+            // 256 and 257 (Shift): nothing Delete reads.
+            ("3", "257", Action::Ignore),
+            ("3", "258", Action::Ignore),
+            // 258: Alt and the ninth bit.
+            ("3", "259", Action::DeleteWordRight),
+            // 264: Super and the ninth bit.
+            ("3", "265", Action::KillToEnd),
+            // 65535 once it saturates, so 65534: Super among the rest.
+            ("3", "65536", Action::KillToEnd),
+            ("3", "99999", Action::KillToEnd),
+        ] {
+            assert_eq!(
+                tilde(key, Some(modifier)),
+                vec![Input::Action(want)],
+                "CSI {key} ; {modifier} ~"
+            );
+        }
+    }
+
+    #[test]
+    fn the_key_and_the_keycode_saturate_rather_than_wrap() {
+        // Every field stops at 65535 rather than wrapping
+        // (`appendCsiDigitSaturating`, `escape_parser.zig:19-23@481104fd`),
+        // the key and a key report's keycode as much as the modifier
+        // (`a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits`).
+        // Wrapped to sixteen bits, 65537 would be 1, Home; saturated it is
+        // 65535, no key (`:628-635`).
+        assert_eq!(
+            decode(b"\x1b[65537~"),
+            vec![Input::Action(Action::Ignore)],
+            "CSI 65537 ~"
+        );
+        // Wrapped, 65635 would be 99, Ctrl-C under Ctrl; saturated it is
+        // 65535, which no branch of the key report names (`:185-266`).
+        assert_eq!(
+            decode(b"\x1b[27;5;65635~"),
+            vec![Input::Action(Action::Ignore)],
+            "CSI 27 ; 5 ; 65635 ~"
+        );
+    }
+
+    #[test]
+    fn a_tilde_sequence_past_the_csi_bound_is_read_as_every_csi_is() {
+        // Not upstream's: its accumulators read any number of leading zeros
+        // (`escape_parser.zig:600-603@481104fd`), and this decoder keeps a
+        // sequence's parameters up to `MOST_BYTES` only (`Decoder::in_csi`),
+        // the same bound for every `CSI`, recorded in `docs/parity.md`.
+        let delete = |zeros: usize| {
+            let mut bytes = b"\x1b[".to_vec();
+            bytes.extend(std::iter::repeat_n(b'0', zeros));
+            bytes.extend(b"3~");
+            decode(&bytes)
+        };
+        // Up to 31 parameter bytes, the number: Delete.
+        assert_eq!(delete(30), vec![Input::Action(Action::Delete)]);
+        // From 32, the sequence is discarded to its final byte: nothing.
+        assert_eq!(delete(31), vec![Input::Action(Action::Ignore)]);
+        assert_eq!(delete(61), vec![Input::Action(Action::Ignore)]);
+        // `delete(n)` is `n + 1` parameter bytes, the `3` counted: 63 are
+        // still discarded to the final, the last before the release.
+        assert_eq!(delete(62), vec![Input::Action(Action::Ignore)]);
+        // From 64 bytes before the final, the discard gives up at the 64th
+        // (`Decoder::discarding`), and every byte after it is typed: at 64
+        // exactly, the `3` is the 64th and only the `~` is left.
+        assert_eq!(
+            delete(63),
+            vec![Input::Action(Action::Ignore), Input::Text('~')]
+        );
+        assert_eq!(
+            delete(64),
+            vec![
+                Input::Action(Action::Ignore),
+                Input::Text('3'),
+                Input::Text('~')
+            ]
+        );
+    }
+
+    #[test]
+    fn delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it() {
+        // fx hands the tilde stage's raw modifiers to `forwardDeleteKeyAction`
+        // (`escape_parser.zig:694-698@481104fd`), which is `.delete_next`
+        // with no bit at all and nothing for a bit it has no case for --
+        // Caps Lock (64), Num Lock (128) or both (192) alone
+        // (`escape_parser.zig:176-180@481104fd`). Flipped from xfx's old
+        // reading, which took the lock bits out of Delete's mask and so read
+        // these three as Delete.
+        for field in ["65", "129", "193"] {
+            assert_eq!(
+                tilde("3", Some(field)),
+                vec![Input::Action(Action::Ignore)],
+                "CSI 3 ; {field} ~"
+            );
+        }
+        // With a modifier beside the lock bit, both read the modifier: Alt-
+        // or Ctrl-Delete is the word to the right, Super-Delete the rest of
+        // the line, and Shift or Hyper beside one is still nothing.
+        for (field, want) in [
+            ("67", Action::DeleteWordRight),
+            ("69", Action::DeleteWordRight),
+            ("73", Action::KillToEnd),
+            ("66", Action::Ignore),
+            ("81", Action::Ignore),
+        ] {
+            assert_eq!(
+                tilde("3", Some(field)),
+                vec![Input::Action(want)],
+                "CSI 3 ; {field} ~"
+            );
+        }
+        // The moves count a lock bit as a modifier too (`modifiers != 0`,
+        // `:699-711`), and a modifier with no Ctrl is the line's edge or the
+        // page: here the line's start or end, and on `5` and `6` the
+        // composer's page move, which the full transcript does not take
+        // (`a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page`).
+        for (key, want) in TILDE_KEYS {
+            let want = match want {
+                Action::Delete => continue,
+                Action::PageUp => Action::ComposerPageUp,
+                Action::PageDown => Action::ComposerPageDown,
+                Action::Home => Action::LineStart { shifted: false },
+                Action::End => Action::LineEnd { shifted: false },
+                other => other,
+            };
+            for field in ["65", "129", "193"] {
+                assert_eq!(
+                    tilde(key, Some(field)),
+                    vec![Input::Action(want)],
+                    "CSI {key} ; {field} ~"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_third_tilde_field_is_a_key_report_whatever_the_first_holds() {
+        // A second `;` hands the modifier on and starts the keycode
+        // (`escape_parser.zig:668-674@481104fd`), and its `~` resolves
+        // `kittyUnicodeKeyAction(keycode, modifiers)` (`:746-752`): the first
+        // field is overwritten, so any number there is the same report, and
+        // the other two are numbers as every tilde field is (`:741-744`;
+        // `:749` for the modifier, `0` and `1` alike holding none).
+        for (spelling, want) in [
+            ("1;5;99", Action::Cancel),
+            ("7;5;97", Action::Home),
+            ("4;5;101", Action::End),
+            ("3;;13", Action::Submit),
+            ("200;5;99", Action::Cancel),
+            ("027;5;99", Action::Cancel),
+            ("27;0;13", Action::Submit),
+            ("27;05;099", Action::Cancel),
+            // 260 is Ctrl (4) once the lock and higher bits are masked off,
+            // as `kittyUnicodeKeyAction` masks every report (`:186-187`).
+            ("27;261;99", Action::Cancel),
+        ] {
+            assert_eq!(
+                decode(format!("\x1b[{spelling}~").as_bytes()),
+                vec![Input::Action(want)],
+                "CSI {spelling} ~"
+            );
+        }
+        // Still nothing: a keycode no key has (`1`, an empty field), a fourth
+        // field (`:754`, a `;` is no digit), and an empty first field (a digit
+        // starts the stage, `:583-589`).
+        for spelling in ["7;5;1", "3;5;", "27;5;99;1", ";5;99", ";5"] {
+            assert_eq!(
+                decode(format!("\x1b[{spelling}~").as_bytes()),
+                vec![Input::Action(Action::Ignore)],
+                "CSI {spelling} ~"
+            );
+        }
     }
 
     #[test]
@@ -2586,10 +3241,103 @@ mod tests {
         ] {
             assert_eq!(decode(bytes), vec![Input::Action(action)], "{bytes:?}");
         }
-        // A spelling of the tilde key no terminal sends is not a page key, for
-        // the reason every tilde key is matched as bytes (`csi`).
-        assert_eq!(csi(b"05", b'~'), Action::Ignore);
-        assert_eq!(csi(b"5;1", b'~'), Action::Ignore);
+        // The tilde page key in the spellings upstream reads as its number
+        // with no modifier -- a leading zero, a modifier field of `1`
+        // (`escape_parser.zig:600-602`, `:696`, `:715@481104fd`) -- is the
+        // same page key.
+        assert_eq!(csi(b"05", b'~'), Action::PageUp);
+        assert_eq!(csi(b"5;1", b'~'), Action::PageUp);
+    }
+
+    #[test]
+    fn a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page() {
+        // The tilde page keys with any bit in the modifier field are
+        // `composerMove(.page_up/.page_down, modifiers)`
+        // (`escape_parser.zig:699`, `:708-709@481104fd`), every bit counted,
+        // the lock bits and the bits past eight too; `0`, `1` and an empty
+        // field are the bare key (`:696`, `:715-716`).
+        for (key, up) in [("5", true), ("6", false), ("05", true)] {
+            let (moved, bare) = if up {
+                (Action::ComposerPageUp, Action::PageUp)
+            } else {
+                (Action::ComposerPageDown, Action::PageDown)
+            };
+            for (modifier, held, _, _) in TILDE_MODIFIERS {
+                assert_eq!(
+                    tilde(key, Some(modifier)),
+                    vec![Input::Action(moved)],
+                    "CSI {key} ; {modifier} ~ ({held})"
+                );
+            }
+            for modifier in ["05", "129", "257", "65535", "99999"] {
+                assert_eq!(
+                    tilde(key, Some(modifier)),
+                    vec![Input::Action(moved)],
+                    "CSI {key} ; {modifier} ~"
+                );
+            }
+            for modifier in [None, Some("1"), Some(""), Some("0"), Some("01")] {
+                assert_eq!(
+                    tilde(key, modifier),
+                    vec![Input::Action(bare)],
+                    "CSI {key} ; {modifier:?} ~"
+                );
+            }
+        }
+        // The keypad's page keys mask the lock bits first (`:186-187`), so
+        // Caps Lock or Num Lock alone is the bare key; Shift, Alt, Ctrl or
+        // Super is the composer move (`pageKeyAction`, `:169-173`, reached at
+        // `:198-199`); Hyper or Meta among them is no keypad key at all, and
+        // nothing else of the report names it (`:191`, `:265`).
+        for (code, moved, bare) in [
+            (57421, Action::ComposerPageUp, Action::PageUp),
+            (57422, Action::ComposerPageDown, Action::PageDown),
+        ] {
+            for modifier in ["2", "3", "5", "9", "6", "16", "69", "137"] {
+                assert_eq!(
+                    decode(format!("\x1b[{code};{modifier}u").as_bytes()),
+                    vec![Input::Action(moved)],
+                    "CSI {code} ; {modifier} u"
+                );
+            }
+            for spelling in ["", ";1", ";65", ";129", ";193"] {
+                assert_eq!(
+                    decode(format!("\x1b[{code}{spelling}u").as_bytes()),
+                    vec![Input::Action(bare)],
+                    "CSI {code} {spelling} u"
+                );
+            }
+            for modifier in ["17", "33", "18", "21"] {
+                assert_eq!(
+                    decode(format!("\x1b[{code};{modifier}u").as_bytes()),
+                    vec![Input::Action(Action::Ignore)],
+                    "CSI {code} ; {modifier} u"
+                );
+            }
+            // A repeat is the key, as a press is; a release is nothing.
+            assert_eq!(
+                decode(format!("\x1b[{code};5:2u").as_bytes()),
+                vec![Input::Action(moved)],
+            );
+            assert_eq!(
+                decode(format!("\x1b[{code};5:3u").as_bytes()),
+                vec![Input::Action(Action::Ignore)],
+            );
+            // And the same report as a tilde's third field, whatever the
+            // first holds (`:746-752`).
+            for (spelling, want) in [
+                (format!("27;5;{code}"), moved),
+                (format!("1;3;{code}"), moved),
+                (format!("27;1;{code}"), bare),
+                (format!("27;65;{code}"), bare),
+            ] {
+                assert_eq!(
+                    decode(format!("\x1b[{spelling}~").as_bytes()),
+                    vec![Input::Action(want)],
+                    "CSI {spelling} ~"
+                );
+            }
+        }
     }
 
     #[test]
@@ -2835,17 +3583,21 @@ mod tests {
             &b"\x1b[1;C"[..],
             &b"\x1b[1;5:3C"[..],
             &b"\x1b[1;17C"[..],
-            // The tilde keys are exact in the same way, and for the same
-            // reason the paste markers are: one spelling each, so a stream
-            // cannot reach a binding by a route the rest of the decoder does
-            // not recognize.
-            &b"\x1b[01~"[..],
-            &b"\x1b[03~"[..],
-            &b"\x1b[04~"[..],
-            &b"\x1b[1;1~"[..],
-            &b"\x1b[3;05~"[..],
+            // The tilde keys read upstream's numbers instead
+            // (`a_leading_zero_in_a_tilde_field_is_the_number` and the tests
+            // beside it), and these are no key there either: a third field
+            // whose keycode no key has, a code no key has (Insert's `2`
+            // among them), a parameter that is no digit, and no field at
+            // all (`escape_parser.zig:583-589`, `:620`, `:634`, `:746-754`;
+            // a colon moves the report to the event-type stage, `:676-684`,
+            // whose `~` is discarded, `:779`, `:349-351@481104fd`).
+            &b"\x1b[7;5;1~"[..],
             &b"\x1b[3;5;1~"[..],
             &b"\x1b[30~"[..],
+            &b"\x1b[2~"[..],
+            &b"\x1b[1;5:1~"[..],
+            &b"\x1b[?1~"[..],
+            &b"\x1b[ 1~"[..],
             &b"\x1b[~"[..],
         ] {
             assert_eq!(
@@ -2873,8 +3625,15 @@ mod tests {
             vec![Input::Action(Action::ComposerUp)]
         );
         assert_eq!(decode(b"\x1b[1;5C"), vec![Input::Action(Action::WordRight)]);
-        assert_eq!(decode(b"\x1b[1;16D"), vec![Input::Action(Action::WordLeft)]);
-        assert_eq!(decode(b"\x1b[1;5H"), vec![Input::Action(Action::Home)]);
+        // Super with every other modifier: Super's arm, the line's start.
+        assert_eq!(
+            decode(b"\x1b[1;16D"),
+            vec![Input::Action(Action::LineStart { shifted: true })]
+        );
+        assert_eq!(
+            decode(b"\x1b[1;5H"),
+            vec![Input::Action(Action::DraftStart { shifted: false })]
+        );
         assert_eq!(decode(b"\x1b[1~"), vec![Input::Action(Action::Home)]);
         assert_eq!(decode(b"\x1b[3~"), vec![Input::Action(Action::Delete)]);
         assert_eq!(decode(b"\x1b[4~"), vec![Input::Action(Action::End)]);
@@ -2890,9 +3649,11 @@ mod tests {
         // kitty's arrow codes (`:38-39`) and keypad arrows (`:196-197`) take the
         // same table (`:163-167`, `:208-214`). This decoder's own
         // classification (`cursor`): Super is `DraftStart`/`DraftEnd` with
-        // Shift remembered, Shift without Super `SelectUp`/`SelectDown` (which
-        // a question's field binds), Ctrl or Alt without either
-        // `ComposerUp`/`ComposerDown`.
+        // Shift remembered, Alt without Super `ParagraphUp`/`ParagraphDown`
+        // (fx's paragraph move, Shift or Ctrl or not), Shift with neither
+        // `SelectUp`/`SelectDown` (fx's `visual_up` extending a selection,
+        // the one move a question's choice binds, `src/ui/input/runtime.zig:184-189`),
+        // and Ctrl alone `ComposerUp`/`ComposerDown`.
         let start = |shifted| Action::DraftStart { shifted };
         let end = |shifted| Action::DraftEnd { shifted };
         for (bytes, expected) in [
@@ -2900,30 +3661,51 @@ mod tests {
             (&b"\x1b[1;2B"[..], Action::SelectDown),
             (b"\x1b[1;5B", Action::ComposerDown),
             (b"\x1b[1;9B", end(false)),
-            (b"\x1b[1;3B", Action::ComposerDown),
-            (b"\x1b[57353;3u", Action::ComposerDown),
+            (b"\x1b[1;3B", Action::ParagraphDown),
+            (b"\x1b[57353;3u", Action::ParagraphDown),
             (&[0x0e], Action::HistoryNext),
             (b"\x1b[1;2A", Action::SelectUp),
             (b"\x1b[1;5A", Action::ComposerUp),
             (b"\x1b[1;9A", start(false)),
-            (b"\x1b[1;3A", Action::ComposerUp),
-            (b"\x1b[57352;3u", Action::ComposerUp),
+            (b"\x1b[1;3A", Action::ParagraphUp),
+            (b"\x1b[57352;3u", Action::ParagraphUp),
             (&[0x10], Action::ControlP),
-            // Two modifiers at once: Super wins over all, Shift over Ctrl and
-            // Alt (whose composer moves an approval leaves alone either way).
+            // Two modifiers at once: Super wins over all, then Alt over Ctrl
+            // and Shift (`escape_parser.zig:83`), then Shift over Ctrl --
+            // Ctrl-Shift-Up is fx's `visual_up` extending a selection
+            // (`escape_parser.zig:90-94`), a question's choice move, and
+            // Shift-Alt-Up its `paragraph_up`, which no choice takes.
             (b"\x1b[1;10A", start(true)),
             (b"\x1b[1;15B", end(false)),
             (b"\x1b[1;16B", end(true)),
             (b"\x1b[1;6A", Action::SelectUp),
-            (b"\x1b[1;4B", Action::SelectDown),
-            (b"\x1b[1;7A", Action::ComposerUp),
+            (b"\x1b[1;4B", Action::ParagraphDown),
+            (b"\x1b[1;4A", Action::ParagraphUp),
+            (b"\x1b[1;8A", Action::ParagraphUp),
+            (b"\x1b[57419;4u", Action::ParagraphUp),
+            (b"\x1b[57353;8u", Action::ParagraphDown),
+            (b"\x1b[1;7A", Action::ParagraphUp),
+            (b"\x1b[1;6B", Action::SelectDown),
+            (b"\x1b[1;8B", Action::ParagraphDown),
+            // Super with two more held, masks 11-14 (`CSI 1;12` to `1;15`):
+            // Super's arm, Shift remembered.
+            (b"\x1b[1;12A", start(true)),
+            (b"\x1b[1;12B", end(true)),
+            (b"\x1b[1;13A", start(false)),
+            (b"\x1b[1;13B", end(false)),
+            (b"\x1b[1;14A", start(true)),
+            (b"\x1b[1;14B", end(true)),
+            (b"\x1b[1;15A", start(false)),
             // The kitty arrows and keypad arrows, through the same table.
             (b"\x1b[57352;9u", start(false)),
             (b"\x1b[57353;10u", end(true)),
             (b"\x1b[57352;2u", Action::SelectUp),
             (b"\x1b[57419;5u", Action::ComposerUp),
+            // Ctrl with Alt is Alt's (`escape_parser.zig:83` before :90).
+            (b"\x1b[1;7B", Action::ParagraphDown),
+            (b"\x1b[57420;7u", Action::ParagraphDown),
             (b"\x1b[57420;9u", end(false)),
-            (b"\x1b[57420;3u", Action::ComposerDown),
+            (b"\x1b[57420;3u", Action::ParagraphDown),
             // No modifier the table reads: the arrow.
             (b"\x1b[A", Action::Up),
             (b"\x1b[1;1B", Action::Down),
@@ -2933,6 +3715,271 @@ mod tests {
         ] {
             assert_eq!(decode(bytes), vec![Input::Action(expected)], "{bytes:?}");
         }
+    }
+
+    #[test]
+    fn every_modifier_on_left_right_home_and_end_is_upstreams_move() {
+        // The rest of `modifiedArrowAction` (`escape_parser.zig:73-108
+        // @481104fd`), in its order. Super first, whatever else is held: Left
+        // and Right `line_start`/`line_end`, Home and End
+        // `draft_start`/`draft_end` (`:74-82`). Then Alt: Left and Right by
+        // word (`:86-87`), and no Home or End -- the arm answers `null` and
+        // the plain key follows (`:88`, `:166`, `:727-733`), Ctrl or Shift
+        // held too. Then Ctrl: by word, and Home and End the draft's edges
+        // (`:91-96`). Then Shift: the step, and Home and End the line's edges
+        // (`:102-105`). Shift is remembered in each move's `shifted`
+        // (`composerMove`, `:66-71`). The keypad's Left, Right, Home and End
+        // take the same table (`navigationKeyAction`, `:163-167`, `:196-197`).
+        let line_start = |shifted| Action::LineStart { shifted };
+        let line_end = |shifted| Action::LineEnd { shifted };
+        let start = |shifted| Action::DraftStart { shifted };
+        let end = |shifted| Action::DraftEnd { shifted };
+        for (bytes, expected) in [
+            // Super on Left and Right, alone and with each other modifier
+            // (masks 8-15, `CSI 1;9` to `1;16`).
+            (&b"\x1b[1;9D"[..], line_start(false)),
+            (b"\x1b[1;10D", line_start(true)),
+            (b"\x1b[1;11D", line_start(false)),
+            (b"\x1b[1;12D", line_start(true)),
+            (b"\x1b[1;13D", line_start(false)),
+            (b"\x1b[1;14D", line_start(true)),
+            (b"\x1b[1;15D", line_start(false)),
+            (b"\x1b[1;16D", line_start(true)),
+            (b"\x1b[1;9C", line_end(false)),
+            (b"\x1b[1;11C", line_end(false)),
+            (b"\x1b[1;13C", line_end(false)),
+            (b"\x1b[1;16C", line_end(true)),
+            (b"\x1b[57417;13u", line_start(false)),
+            (b"\x1b[57418;10u", line_end(true)),
+            // Without Super: Alt or Ctrl by word, Shift the step.
+            (b"\x1b[1;3D", Action::WordLeft),
+            (b"\x1b[1;5D", Action::WordLeft),
+            (b"\x1b[1;8C", Action::WordRight),
+            (b"\x1b[1;2D", Action::ComposerLeft),
+            (b"\x1b[1;2C", Action::ComposerRight),
+            (b"\x1b[D", Action::Left),
+            // Super on Home and End: the draft's edges.
+            (b"\x1b[1;9H", start(false)),
+            (b"\x1b[1;10H", start(true)),
+            (b"\x1b[1;11H", start(false)),
+            (b"\x1b[1;13H", start(false)),
+            (b"\x1b[1;16H", start(true)),
+            (b"\x1b[1;9F", end(false)),
+            (b"\x1b[1;15F", end(false)),
+            (b"\x1b[1;16F", end(true)),
+            (b"\x1b[57423;9u", start(false)),
+            (b"\x1b[57424;10u", end(true)),
+            // Alt, with Ctrl or Shift or both and no Super: the plain key.
+            (b"\x1b[1;3H", Action::Home),
+            (b"\x1b[1;4H", Action::Home),
+            (b"\x1b[1;7H", Action::Home),
+            (b"\x1b[1;8H", Action::Home),
+            (b"\x1b[1;3F", Action::End),
+            (b"\x1b[1;7F", Action::End),
+            (b"\x1b[57423;7u", Action::Home),
+            (b"\x1b[57424;3u", Action::End),
+            // Ctrl, with Shift or without: the draft's edges.
+            (b"\x1b[1;5H", start(false)),
+            (b"\x1b[1;6H", start(true)),
+            (b"\x1b[1;5F", end(false)),
+            (b"\x1b[1;6F", end(true)),
+            (b"\x1b[57423;5u", start(false)),
+            (b"\x1b[57424;6u", end(true)),
+            // Shift alone: the line's edges.
+            (b"\x1b[1;2H", line_start(true)),
+            (b"\x1b[1;2F", line_end(true)),
+            (b"\x1b[57423;2u", line_start(true)),
+            (b"\x1b[57424;2u", line_end(true)),
+            // Nothing the table reads: the key.
+            (b"\x1b[H", Action::Home),
+            (b"\x1b[F", Action::End),
+            (b"\x1b[1;1H", Action::Home),
+            (b"\x1bOH", Action::Home),
+            (b"\x1b[57423u", Action::Home),
+            (b"\x1b[57424u", Action::End),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(expected)], "{bytes:?}");
+        }
+
+        // And every mask, generated: fx's tables transcribed once, arm by arm
+        // and in their order, then mapped to the action xfx spells each
+        // result with. The rows above are the same table's named cases, a
+        // check on this transcription as much as on the decoder.
+        #[derive(Clone, Copy)]
+        enum Move {
+            LineStart,
+            LineEnd,
+            DraftStart,
+            DraftEnd,
+            ParagraphUp,
+            ParagraphDown,
+            WordLeft,
+            WordRight,
+            VisualUp,
+            VisualDown,
+            CharacterLeft,
+            CharacterRight,
+        }
+        const SHIFT_BIT: u16 = 0x01;
+        const ALT_BIT: u16 = 0x02;
+        const CTRL_BIT: u16 = 0x04;
+        const SUPER_BIT: u16 = 0x08;
+        // `modifiedArrowAction` (`escape_parser.zig:73-108@481104fd`), with
+        // `meta_prefixed` false (META-PREFIX-DECODE's): `None` is its `null`.
+        fn modified_arrow_action(byte: u8, modifiers: u16) -> Option<(Move, bool)> {
+            let shift = modifiers & SHIFT_BIT != 0;
+            let held = |kind: Move| Some((kind, shift));
+            if modifiers & SUPER_BIT != 0 {
+                return match byte {
+                    b'A' => held(Move::DraftStart),
+                    b'B' => held(Move::DraftEnd),
+                    b'C' => held(Move::LineEnd),
+                    b'D' => held(Move::LineStart),
+                    b'H' => held(Move::DraftStart),
+                    b'F' => held(Move::DraftEnd),
+                    _ => None,
+                };
+            }
+            if modifiers & ALT_BIT != 0 {
+                return match byte {
+                    b'A' => held(Move::ParagraphUp),
+                    b'B' => held(Move::ParagraphDown),
+                    b'C' => held(Move::WordRight),
+                    b'D' => held(Move::WordLeft),
+                    _ => None,
+                };
+            }
+            if modifiers & CTRL_BIT != 0 {
+                return match byte {
+                    b'C' => held(Move::WordRight),
+                    b'D' => held(Move::WordLeft),
+                    b'A' => held(Move::VisualUp),
+                    b'B' => held(Move::VisualDown),
+                    b'H' => held(Move::DraftStart),
+                    b'F' => held(Move::DraftEnd),
+                    _ => None,
+                };
+            }
+            if modifiers & SHIFT_BIT != 0 {
+                return match byte {
+                    b'A' => held(Move::VisualUp),
+                    b'B' => held(Move::VisualDown),
+                    b'C' => held(Move::CharacterRight),
+                    b'D' => held(Move::CharacterLeft),
+                    b'H' => held(Move::LineStart),
+                    b'F' => held(Move::LineEnd),
+                    _ => None,
+                };
+            }
+            None
+        }
+        // The tilde Home and End with a modifier field (`:694-718`): the
+        // bare key with none, else the draft's edge under Ctrl and the line's
+        // otherwise, Shift extending.
+        fn tilde_home_end(home: bool, modifiers: u16) -> Option<(Move, bool)> {
+            if modifiers == 0 {
+                return None;
+            }
+            let draft = modifiers & CTRL_BIT != 0;
+            let kind = match (home, draft) {
+                (true, true) => Move::DraftStart,
+                (true, false) => Move::LineStart,
+                (false, true) => Move::DraftEnd,
+                (false, false) => Move::LineEnd,
+            };
+            Some((kind, modifiers & SHIFT_BIT != 0))
+        }
+        // What xfx spells each result with; `None` is the plain key
+        // (`plainNavigationAction`, `:149-159`). The selection Shift extends
+        // is dropped where xfx has no action to remember it in
+        // (COMPOSER-SELECTION-EXTEND): the word moves and the step.
+        fn spelled(letter: u8, upstream: Option<(Move, bool)>) -> Action {
+            let Some((kind, shifted)) = upstream else {
+                return match letter {
+                    b'A' => Action::Up,
+                    b'B' => Action::Down,
+                    b'C' => Action::Right,
+                    b'D' => Action::Left,
+                    b'H' => Action::Home,
+                    _ => Action::End,
+                };
+            };
+            match kind {
+                Move::LineStart => Action::LineStart { shifted },
+                Move::LineEnd => Action::LineEnd { shifted },
+                Move::DraftStart => Action::DraftStart { shifted },
+                Move::DraftEnd => Action::DraftEnd { shifted },
+                Move::ParagraphUp => Action::ParagraphUp,
+                Move::ParagraphDown => Action::ParagraphDown,
+                Move::WordLeft => Action::WordLeft,
+                Move::WordRight => Action::WordRight,
+                Move::VisualUp if shifted => Action::SelectUp,
+                Move::VisualDown if shifted => Action::SelectDown,
+                Move::VisualUp => Action::ComposerUp,
+                Move::VisualDown => Action::ComposerDown,
+                Move::CharacterLeft => Action::ComposerLeft,
+                Move::CharacterRight => Action::ComposerRight,
+            }
+        }
+        let mut checked = 0;
+        for letter in *b"ABCDHF" {
+            // The keypad's code for the letter, and kitty's own arrow codes
+            // for Up and Down (`:134-144`, `:208-217`).
+            let keypad: u32 = match letter {
+                b'A' => 57419,
+                b'B' => 57420,
+                b'C' => 57418,
+                b'D' => 57417,
+                b'H' => 57423,
+                _ => 57424,
+            };
+            for modifiers in 0..16u16 {
+                let want = spelled(letter, modified_arrow_action(letter, modifiers));
+                let field = modifiers + 1;
+                let csi = format!("\x1b[1;{field}{}", char::from(letter));
+                assert_eq!(decode(csi.as_bytes()), vec![Input::Action(want)], "{csi:?}");
+                let report = format!("\x1b[{keypad};{field}u");
+                assert_eq!(
+                    decode(report.as_bytes()),
+                    vec![Input::Action(want)],
+                    "{report:?}"
+                );
+                checked += 2;
+                if matches!(letter, b'A' | b'B') {
+                    let code = if letter == b'A' { KITTY_UP } else { KITTY_DOWN };
+                    let report = format!("\x1b[{code};{field}u");
+                    assert_eq!(
+                        decode(report.as_bytes()),
+                        vec![Input::Action(want)],
+                        "{report:?}"
+                    );
+                    checked += 1;
+                }
+                if matches!(letter, b'H' | b'F') {
+                    let home = letter == b'H';
+                    let want = spelled(letter, tilde_home_end(home, modifiers));
+                    let keys: [&str; 2] = if home { ["1", "7"] } else { ["4", "8"] };
+                    for key in keys {
+                        let tilde = format!("\x1b[{key};{field}~");
+                        assert_eq!(
+                            decode(tilde.as_bytes()),
+                            vec![Input::Action(want)],
+                            "{tilde:?}"
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        // 6 letters x 16 masks in the CSI and keypad forms, kitty's Up and
+        // Down, and four tilde keys.
+        assert_eq!(checked, 6 * 16 * 2 + 2 * 16 + 4 * 16);
+        // Not here: a `CSI 1;m X` modifier past 16 -- Meta (32), Hyper (16)
+        // and the lock bits -- which this decoder refuses (`modifier`) where
+        // fx reads the four bits above, and the `ESC ESC` prefix fx reads as
+        // `meta_prefixed`. Both are META-PREFIX-DECODE's and are left as they
+        // are; the tilde fields past 16 are
+        // `every_modifier_field_on_the_tilde_home_and_end_is_upstreams_move`'s.
     }
 
     #[test]

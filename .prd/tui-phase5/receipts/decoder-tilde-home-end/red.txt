@@ -1,0 +1,41 @@
+# RED: the unit's tests at the base afd891af (src/ unchanged but for the tests), one thread:
+#   cargo test --locked --lib -- --test-threads 1 rxvts home_with_a_modifier end_with_a_modifier a_sequence_is_a_key_only what_upstream_resolves
+# Lines kept: each test's verdict, each panic with its assertion, the result line (thread ids dropped).
+test tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one ... ok
+test tui::input::tests::end_with_a_modifier_csi_4_mod_tilde_is_end ... FAILED
+test tui::input::tests::home_with_a_modifier_csi_1_mod_tilde_is_home ... FAILED
+test tui::input::tests::rxvts_end_csi_8_tilde_is_end ... FAILED
+test tui::input::tests::rxvts_end_with_a_modifier_csi_8_mod_tilde_is_end ... FAILED
+test tui::input::tests::rxvts_home_csi_7_tilde_is_home ... FAILED
+test tui::input::tests::rxvts_home_with_a_modifier_csi_7_mod_tilde_is_home ... FAILED
+test tui::input::tests::what_upstream_resolves_to_a_key_xfx_does_not_have_is_ignored ... ok
+test tui::shell::tests::rxvts_csi_7_tilde_reaches_the_composer_as_home_and_csi_8_as_end ... FAILED
+thread 'tui::input::tests::end_with_a_modifier_csi_4_mod_tilde_is_end' panicked at src/tui/input.rs:2586:13:
+assertion `left == right` failed: CSI 4 ; 2 ~ (Shift)
+  left: [Action(Ignore)]
+ right: [Action(End)]
+thread 'tui::input::tests::home_with_a_modifier_csi_1_mod_tilde_is_home' panicked at src/tui/input.rs:2586:13:
+assertion `left == right` failed: CSI 1 ; 2 ~ (Shift)
+  left: [Action(Ignore)]
+ right: [Action(Home)]
+thread 'tui::input::tests::rxvts_end_csi_8_tilde_is_end' panicked at src/tui/input.rs:2610:9:
+assertion `left == right` failed
+  left: [Action(Ignore)]
+ right: [Action(End)]
+thread 'tui::input::tests::rxvts_end_with_a_modifier_csi_8_mod_tilde_is_end' panicked at src/tui/input.rs:2586:13:
+assertion `left == right` failed: CSI 8 ; 2 ~ (Shift)
+  left: [Action(Ignore)]
+ right: [Action(End)]
+thread 'tui::input::tests::rxvts_home_csi_7_tilde_is_home' panicked at src/tui/input.rs:2604:9:
+assertion `left == right` failed
+  left: [Action(Ignore)]
+ right: [Action(Home)]
+thread 'tui::input::tests::rxvts_home_with_a_modifier_csi_7_mod_tilde_is_home' panicked at src/tui/input.rs:2586:13:
+assertion `left == right` failed: CSI 7 ; 2 ~ (Shift)
+  left: [Action(Ignore)]
+ right: [Action(Home)]
+thread 'tui::shell::tests::rxvts_csi_7_tilde_reaches_the_composer_as_home_and_csi_8_as_end' panicked at src/tui/shell.rs:37308:9:
+assertion `left == right` failed: CSI 7 ~ was not Home
+  left: "abc defX"
+ right: "Xabc def"
+test result: FAILED. 2 passed; 7 failed; 0 ignored; 0 measured; 4766 filtered out; finished in 0.00s

@@ -1,0 +1,4 @@
+# python3 -I trim_scan.py <repo root> <scratch>/sweep-base <scratch>/sweep-head   (round 1's sweeps, the 47 scenarios)
+sweep-base: 419 pairs, 0 shrink, 0 grow
+  p5-super-arrows-approval-40x120-amend-super-right: rows [18, 19, 21, 22, 23, 24, 25] -> [19, 21, 22, 23, 24, 25]
+sweep-head: 419 pairs, 1 shrink, 0 grow

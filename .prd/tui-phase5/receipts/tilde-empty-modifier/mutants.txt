@@ -1,0 +1,29 @@
+# Round 2, on a --no-local clone at 782c3752 (round 2's code head), M12-M13 new:
+M1 a modifier field of 1 is no key (the old `mask == 0` guard): KILLED (32s) a_modifier_field_of_1_is_the_bare_tilde_key, a_leading_zero_in_a_tilde_field_is_the_number, end_with_a_modifier_csi_4_mod_tilde_is_end, ctrl_o_and_the_page_keys_are_the_full_transcripts_in_every_spelling_upstream_reads, every_modifier_field_on_the_tilde_home_and_end_is_the_key, home_with_a_modifier_csi_1_mod_tilde_is_home (+2 more)
+M2 an empty field is no field: KILLED (27s) a_third_tilde_field_is_a_key_report_whatever_the_first_holds, an_empty_modifier_field_is_the_bare_tilde_key, every_modifier_field_on_the_tilde_home_and_end_is_the_key
+M3 a field of 0 is no field: KILLED (8s) a_third_tilde_field_is_a_key_report_whatever_the_first_holds, a_modifier_field_of_0_is_the_bare_tilde_key, every_modifier_field_on_the_tilde_home_and_end_is_the_key
+M4 a leading zero is no number (the old canonical spelling): KILLED (11s) a_tilde_sequence_past_the_csi_bound_is_read_as_every_csi_is, a_third_tilde_field_is_a_key_report_whatever_the_first_holds, a_ctrl_letter_is_upstreams_table_in_a_strict_spelling, a_modifier_field_of_0_is_the_bare_tilde_key, a_leading_zero_in_a_tilde_field_is_the_number, ctrl_o_and_the_page_keys_are_the_full_transcripts_in_every_spelling_upstream_reads
+M5 a modifier field past 256 is no key (the old eight bits): KILLED (9s) a_third_tilde_field_is_a_key_report_whatever_the_first_holds, a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits, every_modifier_field_on_the_tilde_home_and_end_is_the_key
+M6 a field past 65535 wraps instead of saturating: KILLED (10s) a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits, the_key_and_the_keycode_saturate_rather_than_wrap
+M7 Delete reads its field with the lock bits masked off (the old reading): KILLED (9s) delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it, a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits
+M8 Delete reads only the field's low byte: KILLED (7s) a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits
+M9 a third field is a key report only under 27 (the old family): KILLED (10s) a_third_tilde_field_is_a_key_report_whatever_the_first_holds, everything_else_under_the_two_families_is_ignored
+M10 an empty first field is read as 0: KILLED (11s) a_third_tilde_field_is_a_key_report_whatever_the_first_holds
+M11 the number 200 opens a paste (the markers on the numeric path): KILLED (29s) a_leading_zero_in_a_tilde_field_is_the_number, the_paste_markers_are_matched_by_their_exact_spelling, the_cumulative_bound_holds_at_every_prefix_of_deterministic_noise
+M12 the key field wraps past 65535: KILLED (12s) the_key_and_the_keycode_saturate_rather_than_wrap
+M13 a key report's keycode field wraps past 65535: KILLED (10s) the_key_and_the_keycode_saturate_rather_than_wrap
+13 of 13 killed; the clone's tree after the run: clean
+
+# Round 1, on a --no-local clone at ce4f9c6b:
+M1 a modifier field of 1 is no key (the old `mask == 0` guard): KILLED (56s) a_modifier_field_of_1_is_the_bare_tilde_key, a_leading_zero_in_a_tilde_field_is_the_number, end_with_a_modifier_csi_4_mod_tilde_is_end, ctrl_o_and_the_page_keys_are_the_full_transcripts_in_every_spelling_upstream_reads, home_with_a_modifier_csi_1_mod_tilde_is_home, every_modifier_field_on_the_tilde_home_and_end_is_the_key (+2 more)
+M2 an empty field is no field: KILLED (15s) a_third_tilde_field_is_a_key_report_whatever_the_first_holds, an_empty_modifier_field_is_the_bare_tilde_key, every_modifier_field_on_the_tilde_home_and_end_is_the_key
+M3 a field of 0 is no field: KILLED (11s) a_modifier_field_of_0_is_the_bare_tilde_key, a_third_tilde_field_is_a_key_report_whatever_the_first_holds, every_modifier_field_on_the_tilde_home_and_end_is_the_key
+M4 a leading zero is no number (the old canonical spelling): KILLED (16s) a_modifier_field_of_0_is_the_bare_tilde_key, a_ctrl_letter_is_upstreams_table_in_a_strict_spelling, a_leading_zero_in_a_tilde_field_is_the_number, a_third_tilde_field_is_a_key_report_whatever_the_first_holds, ctrl_o_and_the_page_keys_are_the_full_transcripts_in_every_spelling_upstream_reads
+M5 a modifier field past 256 is no key (the old eight bits): KILLED (14s) a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits, a_third_tilde_field_is_a_key_report_whatever_the_first_holds, every_modifier_field_on_the_tilde_home_and_end_is_the_key
+M6 a field past 65535 wraps instead of saturating: KILLED (13s) a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits
+M7 Delete reads its field with the lock bits masked off (the old reading): KILLED (18s) a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits, delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it
+M8 Delete reads only the field's low byte: KILLED (13s) a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits
+M9 a third field is a key report only under 27 (the old family): KILLED (11s) everything_else_under_the_two_families_is_ignored, a_third_tilde_field_is_a_key_report_whatever_the_first_holds
+M10 an empty first field is read as 0: KILLED (12s) a_third_tilde_field_is_a_key_report_whatever_the_first_holds
+M11 the number 200 opens a paste (the markers on the numeric path): KILLED (14s) a_leading_zero_in_a_tilde_field_is_the_number, the_paste_markers_are_matched_by_their_exact_spelling, the_cumulative_bound_holds_at_every_prefix_of_deterministic_noise
+11 of 11 killed; the clone's tree after the run: clean

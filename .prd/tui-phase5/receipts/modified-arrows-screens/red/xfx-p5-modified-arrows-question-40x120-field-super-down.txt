@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-c77a77c [debug] · Run /help for commands
+
+┃ ask twenty
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Pick 5?
+
+    1) Keep 5                        Leave it as it is.
+    2) Change 5                      Apply the change.
+    3) 3ab cdw
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+type answer    ↑↓←→ cursor    shift+↑↓ options    tab questions    enter answer    esc cancel           Question 5 of 20
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

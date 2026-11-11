@@ -661,6 +661,17 @@ fx_row = '^│  (?:questions: |\[\{"question"|1","description"|\(ask_user_questi
 xfx_row = '^$'
 why = "fx v0.0.16 hands each replayed `ask_user_question` call its saved detail (`attachHistoricalToolDetail`, `app_session_runtime.zig:4337`, `:4607@481104fd`), so its Ctrl-O shows the call's arguments and its result under the batch's resolutions (`│  questions: [...]`, `│  [{\"question\":...}]`) and under `● Asked`, which it heads `<ts> UTC · Tool`. xfx's replay writes both rows as blocks that carry no call (QUESTION-RESUME, .prd/tui-phase5/receipts/question-resume/), so its Ctrl-O shows the resolution and `● Asked` alone, and the rows after them stand higher. The rows themselves, on the screen and in Ctrl-O, match; the inline `resumed` pairs are identical."
 
+[[cause]]
+id = "fulltranscript-response-header"
+kind = "unit"
+owner = "FULLTRANSCRIPT-RESPONSE-HEADER fx's second Response record in one answer's full transcript, not yet a branch"
+scenarios = ["p5-modified-page-keys", "p5-modified-arrows-full", "p5-transcript-md", "p5-transcript-md-light"]
+snaps = ["full", "full-ctrl-pgup", "full2", "full2-kp-ctrl-pgdn", "full-super-left", "full-ctrl-up", "full-ctrl-b", "full-ctrl-f"]
+rows = ["1-40"]
+fx_row = '^  X+ \S+ · Response$'
+xfx_row = '^$'
+why = "fx v0.0.16 writes p5-transcript-md's one answer into its full transcript as two Response records: one over the answer's start and one over `Done with everything.`, the line after the closed code block (`.prd/tui-phase5/receipts/modified-page-keys/fx/fx-p5-modified-page-keys-40x120-full.txt` rows 1 and 32, `18:21:30.977` and `18:21:32.081 UTC · Response`). xfx's document heads the whole answer once (`xfx/xfx-p5-modified-page-keys-40x120-full.txt` row 2, and `Done with everything.` at row 33 with no header over it), so its tail page is one row shorter and stands one row apart: the two rows left over are fx's second header and xfx's blank first row. The same on every tail page of those scenarios, before any key and after a held page key or a held arrow, Ctrl-B or Ctrl-F (`p5-modified-arrows-full`), none of which pages it. Where fx's splits a response record, and whether the split is fixed for one stream of chunks, is the owner's to read in fx's source (the review of MODIFIED-PAGE-KEYS round 1, SHOULD 2)."
+
 # at-ranking (I-U2) was closed by AT-RANK: xfx ranked `@` queries with c1db919's eight facts where fx v0.0.16
 # ranks by its placement score (`scoreBetter`, `choosePlacement`, `file_index.zig@481104fd`); AT-RANK's copy made
 # the four `p5-input-at` snaps it covered identical (.prd/tui-phase5/receipts/at-rank/pairs.txt). Its fifth,

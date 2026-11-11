@@ -1,0 +1,73 @@
+# MODIFIED-ARROWS-SCREENS: a held arrow, and Ctrl-B and Ctrl-F, under the full
+# transcript. fx v0.0.16's screen binds the plain arrows only (keyForAction,
+# input_full_transcript_runtime.zig:156-178@481104fd); every Super, Alt, Ctrl
+# and Shift arrow is a composer move (modifiedArrowAction,
+# escape_parser.zig:73-108), and Ctrl-B and Ctrl-F are bytes its keyForByte
+# does not bind (:147-154). Each goes on to the composer behind the screen
+# (app_input_runtime.zig:930, :872, :997-1001) and moves the caret there.
+# p5-transcript-md's answer makes the document taller than the screen; a
+# four-row draft waits, the caret at the end of its last row, `f`, one cell
+# in. Each key on its own, each followed by Escape and a letter typed where
+# the caret is: Super-Left (`Y`: the row's start, where fx's jump to the
+# line's start and xfx's one-cell step land alike), Ctrl-Up (`X`: the row
+# above, one cell in), Ctrl-B (`W`: one cell left), Ctrl-F (`V`: one right).
+gateway p5-transcript-md-turns.json
+fx: env FX_AUTO_UPGRADE=0
+env TZ=UTC
+wait 4
+type show me the list
+wait 1
+key Enter
+wait 12
+snap answered
+type one
+key C-j
+type two
+key C-j
+type three
+key C-j
+type f
+wait 0.5
+snap draft
+key C-o
+wait 2
+snap full
+key -H 1b 5b 31 3b 39 44
+wait 1
+snap full-super-left
+key Escape
+wait 1
+type Y
+wait 0.5
+snap typed
+key C-o
+wait 2
+key -H 1b 5b 31 3b 35 41
+wait 1
+snap full-ctrl-up
+key Escape
+wait 1
+type X
+wait 0.5
+snap typed2
+key C-o
+wait 2
+key -H 02
+wait 1
+snap full-ctrl-b
+key Escape
+wait 1
+type W
+wait 0.5
+snap typed3
+key C-o
+wait 2
+key -H 06
+wait 1
+snap full-ctrl-f
+key Escape
+wait 1
+type V
+wait 0.5
+snap typed4
+gwlog

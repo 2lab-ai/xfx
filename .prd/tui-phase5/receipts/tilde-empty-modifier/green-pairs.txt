@@ -1,0 +1,47 @@
+SAME ctrl-a-7-5-97     rows: none
+       fx:  ┃ MGHIJKabc defBDFL
+       xfx: ┃ MGHIJKabc defBDFL
+SAME ctrl-e-4-5-101    rows: none
+       fx:  ┃ GHIJKabc defBDFL
+       xfx: ┃ GHIJKabc defBDFL
+SAME delete-03         rows: none
+       fx:  ┃ GHIJKabc defBDF
+       xfx: ┃ GHIJKabc defBDF
+SAME delete-3-1        rows: none
+       fx:  ┃ GHCAabc defBDF
+       xfx: ┃ GHCAabc defBDF
+SAME delete-3-99999    rows: none
+       fx:  ┃ MN
+       xfx: ┃ MN
+SAME delete-3-caps     rows: none
+       fx:  ┃ GHIJAabc defBDF
+       xfx: ┃ GHIJAabc defBDF
+SAME delete-3-empty    rows: none
+       fx:  ┃ GHIAabc defBDF
+       xfx: ┃ GHIAabc defBDF
+SAME end-08            rows: none
+       fx:  ┃ CAabc defBD
+       xfx: ┃ CAabc defBD
+SAME end-4-259         rows: none
+       fx:  ┃ ECAabc defBDF
+       xfx: ┃ ECAabc defBDF
+SAME end-4-empty       rows: none
+       fx:  ┃ Aabc defB
+       xfx: ┃ Aabc defB
+SAME home-01-03        rows: none
+       fx:  ┃ ECAabc defBD
+       xfx: ┃ ECAabc defBD
+SAME home-1-1          rows: none
+       fx:  ┃ Aabc def
+       xfx: ┃ Aabc def
+SAME home-1-257        rows: none
+       fx:  ┃ GECAabc defBDF
+       xfx: ┃ GECAabc defBDF
+SAME home-7-0          rows: none
+       fx:  ┃ CAabc defB
+       xfx: ┃ CAabc defB
+SAME typed             rows: none
+       fx:  ┃ abc def
+       xfx: ┃ abc def
+banners: fx 𝒇x v0.0.16 · Run /help for commands / xfx x𝒇x v0.1.0-ce4f9c6 [debug] · Run /help for commands
+15 of 15 pairs identical

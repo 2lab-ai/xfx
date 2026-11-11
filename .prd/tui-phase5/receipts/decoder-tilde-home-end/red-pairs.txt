@@ -1,0 +1,29 @@
+DIFF alt-end-4         rows: 3 
+       fx:  ┃ CAabc defBD
+       xfx: ┃ abc defABCD
+DIFF alt-home-1        rows: 3 
+       fx:  ┃ GECAabc defBDF
+       xfx: ┃ abc defABCDEFG
+DIFF ctrl-end-8        rows: 3 
+       fx:  ┃ ECAabc defBDF
+       xfx: ┃ abc defABCDEF
+DIFF ctrl-home-1       rows: 3 
+       fx:  ┃ CAabc defB
+       xfx: ┃ abc defABC
+DIFF ctrl-super-end-4  rows: 3 
+       fx:  ┃ GECAabc defBDFH
+       xfx: ┃ abc defABCDEFGH
+DIFF end-8             rows: 3 
+       fx:  ┃ Aabc defB
+       xfx: ┃ abc defAB
+DIFF home-7            rows: 3 
+       fx:  ┃ Aabc def
+       xfx: ┃ abc defA
+DIFF super-home-7      rows: 3 
+       fx:  ┃ ECAabc defBD
+       xfx: ┃ abc defABCDE
+SAME typed             rows: none
+       fx:  ┃ abc def
+       xfx: ┃ abc def
+banners: fx 𝒇x v0.0.16 · Run /help for commands / red x𝒇x v0.1.0-afd891a [debug] · Run /help for commands
+1 of 9 pairs identical
