@@ -235,10 +235,11 @@ const MCP_ENTER_TOO_SOON: &str =
 
 /// Every Enter while `/mcp`'s menu is up, whatever takes it -- the menu, the
 /// model's question panel, a permission question, the composer -- and the
-/// last one ([`MCP_ENTER_HELD`]). A C-j the model's question panel takes is
-/// one too: it answers the panel as Enter does (QUESTION-CTRL-J), so the
-/// Enter typed after it is as soon after an answering key; a C-j the menu
-/// takes is its Down and is not counted ([`Shell::consume_inputs`]). A
+/// last one ([`MCP_ENTER_HELD`]). A C-j the model's question panel or a
+/// permission question takes is one too: it answers either as Enter does
+/// (QUESTION-CTRL-J, APPROVAL-CTRL-J), so the Enter typed after it is as soon
+/// after an answering key; a C-j the menu takes is its Down and is not
+/// counted ([`Shell::consume_inputs`]). A
 /// swallowed Enter counts too: timing cannot tell a slow key repeat from a
 /// second tap, and on a question that removes, rejects or approves the safe
 /// reading wins (opus-Md R2).
@@ -12872,14 +12873,16 @@ impl Shell {
             // it, is one the menu's held rule counts (opus-Y): an Enter the
             // model's panel took, then a second tap once the question is
             // painted again, is a double tap, not an answer. So is a C-j the
-            // model's panel takes, which answers it as Enter does
-            // (QUESTION-CTRL-J): the window is how soon after the last
-            // answering key a person can have read the question painted
-            // again, whichever key that was. A C-j the menu takes is its Down,
-            // no answer, and counts for nothing.
+            // model's panel or a permission question takes, which answers
+            // either as Enter does (QUESTION-CTRL-J, APPROVAL-CTRL-J): the
+            // window is how soon after the last answering key a person can
+            // have read the question painted again, whichever key that was --
+            // and a C-j the approval's readiness check holds back counts too,
+            // as a swallowed Enter does. A C-j the menu takes is its Down, no
+            // answer, and counts for nothing.
             let answers = match event {
                 Input::Action(Action::Submit) => true,
-                Input::Action(Action::ControlJ) => self.ask.is_some(),
+                Input::Action(Action::ControlJ) => self.ask.is_some() || self.asking(),
                 _ => false,
             };
             let held = answers && self.mcp_menu.is_some() && self.mcp_enter.enter(now);
@@ -19212,6 +19215,78 @@ mod tests {
             assert!(case.written().contains(MCP_ENTER_TOO_SOON), "{key:?}");
             let _ = case.screen();
             // A moment after the swallowed one, which counts too (opus-Md R2).
+            one_read(
+                &mut case,
+                Duration::from_millis(600),
+                vec![Input::Action(Action::Submit)],
+            );
+            assert!(case.drained().is_empty());
+            assert_ne!(
+                case.files(),
+                before,
+                "{key:?}: an Enter past the window took no answer"
+            );
+        }
+    }
+
+    #[test]
+    fn a_ctrl_j_a_permission_question_took_counts_for_the_held_rule() {
+        // Train 15's join of QUESTION-CTRL-J and APPROVAL-CTRL-J (the former's
+        // opus review, "MUST, at the train join"): a permission question over
+        // `/mcp`'s Remove takes C-j as Enter (`approvalActionFromByte`,
+        // `src/ui/input/runtime.zig:64@481104fd`), so the Enter typed 200 ms
+        // after it lands on Remove painted again as soon after an answering
+        // key as after the model's question's (the case above): swallowed,
+        // and said once; a moment later it answers. Enter at the question,
+        // which always counted, is the control. And a C-j the question's
+        // readiness check holds back -- its frame not yet landed -- counts
+        // too, as a swallowed Enter does.
+        for (key, landed) in [
+            (Action::Submit, true),
+            (Action::ControlJ, true),
+            (Action::ControlJ, false),
+        ] {
+            let (mut case, before) = asked_to_remove_keep();
+            case.shell.apply(UiEvent::Approval(question(asked())));
+            assert!(case.shell.asking(), "no permission question");
+            let _ = case.screen();
+            if landed {
+                case.shell.intend_approval();
+                case.shell.approval_landed(Outcome::Painted);
+                case.shell.reconcile_approval();
+            }
+            let _ = case.written();
+            one_read(&mut case, Duration::from_secs(1), vec![Input::Action(key)]);
+            assert_eq!(
+                case.shell.asking(),
+                !landed,
+                "{key:?} (frame landed: {landed}): the question's answer"
+            );
+            if !landed {
+                // Held back. The frame lands, and `3` -- the refusal, which
+                // no readiness holds and no held rule counts -- takes the
+                // question away 100 ms later, so the Enter below meets the
+                // menu's question 300 ms after the held-back C-j.
+                case.shell.intend_approval();
+                case.shell.approval_landed(Outcome::Painted);
+                case.shell.reconcile_approval();
+                one_read(
+                    &mut case,
+                    Duration::from_millis(100),
+                    vec![Input::Text('3')],
+                );
+                assert!(!case.shell.asking(), "`3` did not refuse the question");
+            }
+            let _ = case.screen();
+            one_read(
+                &mut case,
+                Duration::from_millis(200),
+                vec![Input::Action(Action::Submit)],
+            );
+            assert!(case.drained().is_empty());
+            assert_eq!(case.files(), before, "{key:?} then Enter answered Remove");
+            assert!(case.written().contains(MCP_ENTER_TOO_SOON), "{key:?}");
+            let _ = case.screen();
             one_read(
                 &mut case,
                 Duration::from_millis(600),
@@ -27270,6 +27345,53 @@ mod tests {
             assert_eq!(shell.editor.caret(), caret, "{name}");
             assert_eq!(shell.editor.selection(), None, "{name} kept the selection");
             assert_eq!(shell.editor.text(), "ab\ncd", "{name}");
+        }
+    }
+
+    #[test]
+    fn the_tilde_edges_and_ctrl_shift_letters_in_an_amendment_are_fxs() {
+        // Train 15's join of APPROVAL-DRAFT-KEYS with the decoder line:
+        // APPROVAL-DRAFT-KEYS found these spellings apart in a draft -- fx
+        // moves its caret on each, xfx's decoder read them as nothing -- and
+        // DECODER-TILDE-HOME-END, TILDE-EMPTY-MODIFIER and
+        // COMPOSER-SUPER-ARROWS made them fx's moves in the decoder. fx's
+        // amendment takes every move by its kind, the selection's flag
+        // dropped: `character_left`/`_right` the step, `line_start`,
+        // `draft_start` the start and `line_end`, `draft_end` the end
+        // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-96
+        // @481104fd`); rxvt's `CSI 7 ~` and `CSI 8 ~` are Home and End, and a
+        // tilde key with Ctrl's bit the draft's edge (`escape_parser.zig:628-635`,
+        // `:699-707`); Ctrl+Shift+A, B, E and F are `line_start`,
+        // `character_left`, `line_end` and `character_right` extending the
+        // selection (`:235-242`). From `ab c|d ef`, one key and a letter.
+        for (name, key, feedback) in [
+            ("rxvt home", &b"\x1b[7~"[..], "zab cd ef"),
+            ("rxvt end", b"\x1b[8~", "ab cd efz"),
+            ("rxvt ctrl-home", b"\x1b[7;5~", "zab cd ef"),
+            ("tilde ctrl-end", b"\x1b[4;5~", "ab cd efz"),
+            ("kitty ctrl-shift-a", b"\x1b[97;6u", "zab cd ef"),
+            ("kitty ctrl-shift-e", b"\x1b[101;6u", "ab cd efz"),
+            ("kitty ctrl-shift-b", b"\x1b[98;6u", "ab zcd ef"),
+            ("kitty ctrl-shift-f", b"\x1b[102;6u", "ab cdz ef"),
+            ("xterm ctrl-shift-a", b"\x1b[27;6;97~", "zab cd ef"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell.route_bytes(b"\tab cd ef");
+            shell.route_bytes(b"\x1b[D\x1b[D\x1b[D\x1b[D");
+            shell.route_bytes(key);
+            shell.route_bytes(b"z");
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some(feedback.to_string()),
+                }),
+                "{name}"
+            );
         }
     }
 
