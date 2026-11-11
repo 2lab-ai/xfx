@@ -31,7 +31,9 @@ tree), without printing a path.
 | `f133ce6c` | round 3's README and records |
 | `4e2bdacb` | review round 2: listings cut inside their last entry fail; the diagnosis prints no path; `stopped`, `diagnosis`, `cutlinks`, `cuttracked`; a directory link -- **the code head** |
 | `dbb15990` | the listing guards' mutants -- **round 4's gate head** (`gate4.txt`, on a clone; `mutants4.txt`) |
-| (this one) | this README and round 4's records |
+| `7f97d7e3` | round 4's README and records |
+| `f9a4b0db` | the diagnosis reads config names, never values -- **the code head and round 5's gate head** (`gate5.txt`, on a clone) |
+| (this one) | this README and round 5's records |
 
 `3ee1766f` added `repro/harness-shapes.sh`, `repro/harness2.sh` and
 `repro/stageA.sh`, copies of the self-test's fixture lines; `1f6e5345` drops
@@ -154,11 +156,20 @@ refused, 2 in 2 binary file(s), 3 marked, 11 placeholder`, from the plants
 and the `self` case's counts), and on a failure prints:
 
 - `ran:` the bash and git versions, never their paths, and `config:` the
-  `grep.*`, `core.fsmonitor`, `index.*` and `feature.*` keys with their scope
-  (`--show-scope`: global, system, local), each value only when it is a
-  boolean or a number and `<set>` otherwise, never the whole config or a
-  file's path (the `diagnosis` case plants a global config whose origin and
-  value are paths and requires neither in the output);
+  `grep.*`, `core.fsmonitor`, `index.*` and `feature.*` keys with their scope.
+  It prints no path by construction: it never reads a value as text. It
+  lists names only (`git config --show-scope --name-only --get-regexp`), a
+  name cannot hold a newline or a tab, and it still prints a scope only if
+  it is one of git's scope words and a name only if it matches
+  `[A-Za-z0-9.-]+` (`<odd>` otherwise); a value is printed only as `git
+  config --type=bool-or-int --get` types it, a boolean or a number, `<set>`
+  if not, git's stderr dropped. The round-4 version read `--get-regexp`'s
+  `scope<TAB>key value` lines, and a value that spans lines printed its
+  second line raw as a scope and a key (`red5.txt`). The `diagnosis` case
+  plants a global config whose origin is a path, one value a path and one
+  value two lines with a home on the second, and requires that no line holds
+  a path and that every line the diagnosis prints has a known shape; on a
+  failure it prints counts, not the text;
 - `expected:` against `actual:` accounting;
 - for each plant not named that the failing pass did not refuse, `lost:`
   what that pass gave of it (from the trace: `line 1 placeholder`, or `no
@@ -197,9 +208,12 @@ same tree.
   (round 3's head): 5 of 20 fail. `cutlinks` and `cuttracked` exit 0 with
   the plant in the tree, the fail-opens fixed; `self`, `shapes` and `passes`
   fail on the ok line's new symlink count only.
-- `green.txt`, `green2.txt`, `green3.txt`, `green4.txt`: the same clone at
-  `54581752` (12 cases), `a72b738a` (14), `b0fd5157` (16) and `4e2bdacb`
-  (20): all pass.
+- `red5.txt`: the self-test at `f9a4b0db` with `7f97d7e3`'s
+  `diagnose_shapes`, against the check at `7f97d7e3`: `diagnosis` fails (1
+  line with a path, 1 line of no known shape); the other 19 pass.
+- `green.txt` to `green5.txt`: the same clone at `54581752` (12 cases),
+  `a72b738a` (14), `b0fd5157` (16), `4e2bdacb` (20) and `f9a4b0db` (20): all
+  pass.
 - `forced.txt`: the three forced paths: exit 0 at `d2b2ca75`, exit 1 and the
   plant named at `373811b0`.
 
@@ -248,9 +262,11 @@ judged these three not worth a test):
   `b0fd5157`): 22 of 22 steps, the tree clean before and after, in one
   suite-lock slot after `mutants3.txt`.
 - Round 4, `gate4.txt` (`gates.sh`), at `dbb15990` (the scripts of
-  `4e2bdacb`, the code head), on a `git clone --no-local`: 22 of 22 steps,
-  the clone clean before and after, in one suite-lock slot after
-  `mutants4.txt`.
+  `4e2bdacb`), on a `git clone --no-local`: 22 of 22 steps, the clone clean
+  before and after, in one suite-lock slot after `mutants4.txt`.
+- Round 5, `gate5.txt` (`gates.sh`), at `f9a4b0db` (the code head), on a
+  `git clone --no-local`: 22 of 22 steps, the clone clean before and after. Round 5 changes the test's diagnosis only,
+  not the check, so `mutants4.txt` still holds for the check.
 - The brief's path grep over `git diff d2b2ca75..HEAD` prints 0, and the
   dispatcher's per-commit rule prints 0 for every commit but `3ee1766f`
   (6, above).

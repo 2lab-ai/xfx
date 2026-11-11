@@ -1,0 +1,24 @@
+# RED: the self-test at the head with 7f97d7e3's diagnose_shapes (the round-4 config block reverted), against the check at 7f97d7e3, in the clone
+7f97d7e3 receipts(local-paths-selftest-flake): review round 2's README, gate, mutants, RED/GREEN
+test-check-no-local-paths: ok self                       its own source matches none of its shapes
+test-check-no-local-paths: ok shapes                     31 planted, each named by file and line
+test-check-no-local-paths: ok passes                     placeholders, relative and derived paths, a marked fixture, a renamed report
+test-check-no-local-paths: ok env GIT_DIR                the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_INDEX_FILE         the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_WORK_TREE          the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GREP_OPTIONS           the plant named, the decoy unchanged
+test-check-no-local-paths: ok env HOME                   the plant named, the decoy unchanged
+test-check-no-local-paths: ok skip-worktree              refused by name
+test-check-no-local-paths: ok deleted                    refused by name
+test-check-no-local-paths: ok disagree                   refused, not counted as passing
+test-check-no-local-paths: ok vanished                   refused by name
+test-check-no-local-paths: ok badnum                     the scan stops
+test-check-no-local-paths: ok gitfail                    the check fails
+test-check-no-local-paths: ok omit                       the two readings disagree; the check fails
+test-check-no-local-paths: ok truncated                  the scan stops
+test-check-no-local-paths: ok cutlinks                   the scan stops
+test-check-no-local-paths: ok cuttracked                 the check stops
+test-check-no-local-paths: ok stopped                    the check fails
+test-check-no-local-paths: FAIL diagnosis: it does not name the config keys by scope, or it prints a path (1 line(s) with one; 1 line(s) of no known shape)
+test-check-no-local-paths: 1 of 20 case(s) failed
+exit=1
