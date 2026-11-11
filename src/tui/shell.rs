@@ -25169,6 +25169,15 @@ mod tests {
             ("tilde alt-end", b"\x1b[4;3~", mid, line_end),
             ("rxvt shift-end", b"\x1b[8;2~", mid, line_end),
             ("tilde caps-lock-home", b"\x1b[1;65~", mid, line),
+            // kitty's Ctrl-Shift-a, -e, -b and -f: `line_start`, `line_end`,
+            // `character_left` and `character_right` with the selection
+            // (`escape_parser.zig:235-242`), the selection dropped
+            // (COMPOSER-SELECTION-EXTEND).
+            ("kitty ctrl-shift-a", b"\x1b[97;6u", mid, line),
+            ("kitty ctrl-shift-e", b"\x1b[101;6u", mid, line_end),
+            ("kitty ctrl-shift-b", b"\x1b[98;6u", mid, mid - 1),
+            ("kitty ctrl-shift-f", b"\x1b[102;6u", mid, mid + 1),
+            ("xterm ctrl-shift-a", b"\x1b[27;6;97~", mid, line),
         ] {
             let mut shell = shell(24, 80);
             submitted(&mut shell, "first");
@@ -25187,6 +25196,46 @@ mod tests {
             shell.route_bytes(key);
             assert_eq!(shell.editor.text(), draft, "{name} from {from}");
             assert_eq!(shell.editor.caret(), to, "{name} from {from}");
+        }
+    }
+
+    #[test]
+    fn a_line_edge_key_over_a_live_selection_moves_from_the_caret_and_ends_it() {
+        // fx's `line_start`/`draft_start` with no selection to extend are
+        // `moveCursorTo(target, false)`, `setCursor`: the caret to the target,
+        // measured from the caret, and the anchor gone
+        // (`horizontal_navigation.zig:29-34`, `editor_state.zig:123-138
+        // @481104fd`) -- not the selection's collapse a step makes
+        // (`moveCharacterLeft`, `:53-58`). `select_all` leaves the caret at
+        // the end (`editor_state.zig:140-146`), so on `ab\ncd` Super-Left
+        // is 3 and Ctrl-Home 0. Shift-Home is fx's `line_start` extending
+        // the selection, 0..3 there; here the selection is dropped
+        // (COMPOSER-SELECTION-EXTEND) and the caret is fx's, 3.
+        for (name, key, caret) in [
+            ("super-left", &b"\x1b[1;9D"[..], 3),
+            ("ctrl-super-left", b"\x1b[1;13D", 3),
+            ("shift-home", b"\x1b[1;2H", 3),
+            ("home", b"\x1b[H", 3),
+            ("ctrl-home", b"\x1b[1;5H", 0),
+            ("super-end", b"\x1b[1;9F", 5),
+            ("super-right", b"\x1b[1;9C", 5),
+            ("kitty ctrl-shift-a", b"\x1b[97;6u", 3),
+        ] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(b"ab\ncd");
+            shell.route_bytes(b"\x1b[97;9u");
+            assert_eq!(
+                shell
+                    .editor
+                    .selection()
+                    .map(|range| (range.start, range.end)),
+                Some((0, 5))
+            );
+            assert_eq!(shell.editor.caret(), 5);
+            shell.route_bytes(key);
+            assert_eq!(shell.editor.caret(), caret, "{name}");
+            assert_eq!(shell.editor.selection(), None, "{name} kept the selection");
+            assert_eq!(shell.editor.text(), "ab\ncd", "{name}");
         }
     }
 
@@ -25232,11 +25281,15 @@ mod tests {
                 "{name}"
             );
         }
+        // **Not fx's, and labelled so: APPROVAL-PASTE-SPACES' divergence.**
         // A draft with a line break in it, which xfx's paste keeps and fx's
         // turns into a space (`normalizeApprovalAmendmentPasteInPlace`,
-        // `input_paste_runtime.zig:19-25`): Ctrl-Home is the whole draft's
-        // start, as fx's `.cursor_home`; Super-Left is Home there, the caret
-        // line's start, as fx treats the two alike.
+        // `input_paste_runtime.zig:19-25`), so fx's draft can never hold one.
+        // Ctrl-Home is the whole draft's start, as fx's `.cursor_home`.
+        // Super-Left is Home there, the caret line's start (`ab\nzcd`), where
+        // fx's `.cursor_home` would be 0 (`src/ui/input/runtime.zig:82`) --
+        // the two agree once APPROVAL-PASTE-SPACES takes the break out; the
+        // amendment's Home is older than this unit.
         for (name, key, feedback) in [
             ("ctrl-home", &b"\x1b[1;5H"[..], "zab\ncd"),
             ("super-left", b"\x1b[1;9D", "ab\nzcd"),

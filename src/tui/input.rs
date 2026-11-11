@@ -2522,26 +2522,50 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_shift_a_b_e_f_are_upstreams_moves_the_selection_dropped() {
+        // Ctrl and Shift held on `a`, `b`, `e` or `f`, either case, are
+        // `composerMove(.line_start/.character_left/.line_end/.character_right,
+        // mods)` (`escape_parser.zig:235-242@481104fd`), the selection
+        // extended. Here the move with the selection dropped, as Shift-Home
+        // and Shift-Left are (`cursor`; COMPOSER-SELECTION-EXTEND): the line's
+        // start, the step left, the line's end, the step right. Alt or Super
+        // held too is the same arm; Super with `a` is `select_all` first
+        // (`:223-225`). xterm's `modifyOtherKeys` spelling reaches the same
+        // resolver (`:746-752`). Ignored before COMPOSER-SUPER-ARROWS round 2.
+        let start = Action::LineStart { shifted: true };
+        let end = Action::LineEnd { shifted: true };
+        for (bytes, expected) in [
+            (&b"\x1b[97;6u"[..], start),
+            (b"\x1b[65;6u", start),
+            (b"\x1b[98;6u", Action::ComposerLeft),
+            (b"\x1b[101;6u", end),
+            (b"\x1b[102;6u", Action::ComposerRight),
+            (b"\x1b[70;6u", Action::ComposerRight),
+            (b"\x1b[27;6;97~", start),
+            (b"\x1b[27;6;101~", end),
+            (b"\x1b[97;8u", start),
+            (b"\x1b[98;14u", Action::ComposerLeft),
+            (b"\x1b[101;70u", end),
+            (b"\x1b[97;14u", Action::SelectAll),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(expected)], "{bytes:?}");
+        }
+        // Ctrl alone is the letter's control byte, and Shift alone the letter.
+        assert_eq!(decode(b"\x1b[97;5u"), vec![Input::Action(Action::Home)]);
+        assert_eq!(
+            decode(b"\x1b[98;5u"),
+            vec![Input::Action(Action::ComposerLeft)]
+        );
+    }
+
+    #[test]
     fn what_upstream_resolves_to_a_key_xfx_does_not_have_is_ignored() {
         // Each of these is a real upstream result (`escape_parser.zig` at
         // `c1db919`) with no action in this session's vocabulary, and none is
         // invented for it.
         for (bytes, upstream) in [
             (
-                &b"\x1b[97;6u"[..],
-                "composerMove line_start + selection :238",
-            ),
-            (
-                b"\x1b[98;6u",
-                "composerMove character_left + selection :239",
-            ),
-            (b"\x1b[101;6u", "composerMove line_end + selection :240"),
-            (
-                b"\x1b[102;6u",
-                "composerMove character_right + selection :241",
-            ),
-            (
-                b"\x1b[111;6u",
+                &b"\x1b[111;6u"[..],
                 "ctrlOKeyAction with Shift beside Ctrl :111-114",
             ),
             (b"\x1b[111;3u", "ctrlOKeyAction with Alt :111-114"),
@@ -3753,6 +3777,186 @@ mod tests {
         ] {
             assert_eq!(decode(bytes), vec![Input::Action(expected)], "{bytes:?}");
         }
+
+        // And every mask, generated: fx's tables transcribed once, arm by arm
+        // and in their order, then mapped to the action xfx spells each
+        // result with. The rows above are the same table's named cases, a
+        // check on this transcription as much as on the decoder.
+        #[derive(Clone, Copy)]
+        enum Move {
+            LineStart,
+            LineEnd,
+            DraftStart,
+            DraftEnd,
+            ParagraphUp,
+            ParagraphDown,
+            WordLeft,
+            WordRight,
+            VisualUp,
+            VisualDown,
+            CharacterLeft,
+            CharacterRight,
+        }
+        const SHIFT_BIT: u16 = 0x01;
+        const ALT_BIT: u16 = 0x02;
+        const CTRL_BIT: u16 = 0x04;
+        const SUPER_BIT: u16 = 0x08;
+        // `modifiedArrowAction` (`escape_parser.zig:73-108@481104fd`), with
+        // `meta_prefixed` false (META-PREFIX-DECODE's): `None` is its `null`.
+        fn modified_arrow_action(byte: u8, modifiers: u16) -> Option<(Move, bool)> {
+            let shift = modifiers & SHIFT_BIT != 0;
+            let held = |kind: Move| Some((kind, shift));
+            if modifiers & SUPER_BIT != 0 {
+                return match byte {
+                    b'A' => held(Move::DraftStart),
+                    b'B' => held(Move::DraftEnd),
+                    b'C' => held(Move::LineEnd),
+                    b'D' => held(Move::LineStart),
+                    b'H' => held(Move::DraftStart),
+                    b'F' => held(Move::DraftEnd),
+                    _ => None,
+                };
+            }
+            if modifiers & ALT_BIT != 0 {
+                return match byte {
+                    b'A' => held(Move::ParagraphUp),
+                    b'B' => held(Move::ParagraphDown),
+                    b'C' => held(Move::WordRight),
+                    b'D' => held(Move::WordLeft),
+                    _ => None,
+                };
+            }
+            if modifiers & CTRL_BIT != 0 {
+                return match byte {
+                    b'C' => held(Move::WordRight),
+                    b'D' => held(Move::WordLeft),
+                    b'A' => held(Move::VisualUp),
+                    b'B' => held(Move::VisualDown),
+                    b'H' => held(Move::DraftStart),
+                    b'F' => held(Move::DraftEnd),
+                    _ => None,
+                };
+            }
+            if modifiers & SHIFT_BIT != 0 {
+                return match byte {
+                    b'A' => held(Move::VisualUp),
+                    b'B' => held(Move::VisualDown),
+                    b'C' => held(Move::CharacterRight),
+                    b'D' => held(Move::CharacterLeft),
+                    b'H' => held(Move::LineStart),
+                    b'F' => held(Move::LineEnd),
+                    _ => None,
+                };
+            }
+            None
+        }
+        // The tilde Home and End with a modifier field (`:694-718`): the
+        // bare key with none, else the draft's edge under Ctrl and the line's
+        // otherwise, Shift extending.
+        fn tilde_home_end(home: bool, modifiers: u16) -> Option<(Move, bool)> {
+            if modifiers == 0 {
+                return None;
+            }
+            let draft = modifiers & CTRL_BIT != 0;
+            let kind = match (home, draft) {
+                (true, true) => Move::DraftStart,
+                (true, false) => Move::LineStart,
+                (false, true) => Move::DraftEnd,
+                (false, false) => Move::LineEnd,
+            };
+            Some((kind, modifiers & SHIFT_BIT != 0))
+        }
+        // What xfx spells each result with; `None` is the plain key
+        // (`plainNavigationAction`, `:149-159`). The selection Shift extends
+        // is dropped where xfx has no action to remember it in
+        // (COMPOSER-SELECTION-EXTEND): the word moves and the step.
+        fn spelled(letter: u8, upstream: Option<(Move, bool)>) -> Action {
+            let Some((kind, shifted)) = upstream else {
+                return match letter {
+                    b'A' => Action::Up,
+                    b'B' => Action::Down,
+                    b'C' => Action::Right,
+                    b'D' => Action::Left,
+                    b'H' => Action::Home,
+                    _ => Action::End,
+                };
+            };
+            match kind {
+                Move::LineStart => Action::LineStart { shifted },
+                Move::LineEnd => Action::LineEnd { shifted },
+                Move::DraftStart => Action::DraftStart { shifted },
+                Move::DraftEnd => Action::DraftEnd { shifted },
+                Move::ParagraphUp => Action::ParagraphUp,
+                Move::ParagraphDown => Action::ParagraphDown,
+                Move::WordLeft => Action::WordLeft,
+                Move::WordRight => Action::WordRight,
+                Move::VisualUp if shifted => Action::SelectUp,
+                Move::VisualDown if shifted => Action::SelectDown,
+                Move::VisualUp => Action::ComposerUp,
+                Move::VisualDown => Action::ComposerDown,
+                Move::CharacterLeft => Action::ComposerLeft,
+                Move::CharacterRight => Action::ComposerRight,
+            }
+        }
+        let mut checked = 0;
+        for letter in [b'A', b'B', b'C', b'D', b'H', b'F'] {
+            // The keypad's code for the letter, and kitty's own arrow codes
+            // for Up and Down (`:134-144`, `:208-217`).
+            let keypad: u32 = match letter {
+                b'A' => 57419,
+                b'B' => 57420,
+                b'C' => 57418,
+                b'D' => 57417,
+                b'H' => 57423,
+                _ => 57424,
+            };
+            for modifiers in 0..16u16 {
+                let want = spelled(letter, modified_arrow_action(letter, modifiers));
+                let field = modifiers + 1;
+                let csi = format!("\x1b[1;{field}{}", char::from(letter));
+                assert_eq!(decode(csi.as_bytes()), vec![Input::Action(want)], "{csi:?}");
+                let report = format!("\x1b[{keypad};{field}u");
+                assert_eq!(
+                    decode(report.as_bytes()),
+                    vec![Input::Action(want)],
+                    "{report:?}"
+                );
+                checked += 2;
+                if matches!(letter, b'A' | b'B') {
+                    let code = if letter == b'A' { KITTY_UP } else { KITTY_DOWN };
+                    let report = format!("\x1b[{code};{field}u");
+                    assert_eq!(
+                        decode(report.as_bytes()),
+                        vec![Input::Action(want)],
+                        "{report:?}"
+                    );
+                    checked += 1;
+                }
+                if matches!(letter, b'H' | b'F') {
+                    let home = letter == b'H';
+                    let want = spelled(letter, tilde_home_end(home, modifiers));
+                    let keys: [&str; 2] = if home { ["1", "7"] } else { ["4", "8"] };
+                    for key in keys {
+                        let tilde = format!("\x1b[{key};{field}~");
+                        assert_eq!(
+                            decode(tilde.as_bytes()),
+                            vec![Input::Action(want)],
+                            "{tilde:?}"
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        // 6 letters x 16 masks in the CSI and keypad forms, kitty's Up and
+        // Down, and four tilde keys.
+        assert_eq!(checked, 6 * 16 * 2 + 2 * 16 + 4 * 16);
+        // Not here: a `CSI 1;m X` modifier past 16 -- Meta (32), Hyper (16)
+        // and the lock bits -- which this decoder refuses (`modifier`) where
+        // fx reads the four bits above, and the `ESC ESC` prefix fx reads as
+        // `meta_prefixed`. Both are META-PREFIX-DECODE's and are left as they
+        // are; the tilde fields past 16 are
+        // `every_modifier_field_on_the_tilde_home_and_end_is_upstreams_move`'s.
     }
 
     #[test]
