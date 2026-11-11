@@ -1,0 +1,37 @@
+# Excerpts from verdicts.sh's logs at dcfa5146, /bin/bash 3.2.57 (verdicts-base-bash32.txt), each path written <path>.
+
+## check-no-secrets.sh, set-u: the whole log (2 lines), then exit 0
+xfx-early-stop: set-u fired
+<path>: line 5: xfx_test_unset: unbound variable
+
+## test-check-no-secrets.sh, term: the whole log (3 lines), then exit 1
+xfx-early-stop: term fired
+xfx-early-stop: still running after SIGTERM
+<path>: line 87: <path>: No such file or directory
+
+## check-preview-contract.sh, term: the whole log (3 lines), then exit 1
+xfx-early-stop: term fired
+xfx-early-stop: still running after SIGTERM
+<path>: line 959: <path>: No such file or directory
+
+## the base lines those two name
+test-check-no-secrets.sh:87: printf '%s\n' "$fake_key" >"$work/stdin"
+check-preview-contract.sh:959: ruby -ryaml - "$workflow" >"$work/publish.sh" <<'RUBY'
+
+## test-preview-contract.sh, term: its first 3 lines and its last, of 31, then exit 0
+xfx-early-stop: term fired
+xfx-early-stop: still running after SIGTERM
+test-preview-contract: caught paths-dropped                the push trigger's paths are nil
+...
+test-preview-contract: ok (28 mutants caught; the unbroken copy passes)
+
+## test-gate-env.sh, term: its first 3 lines and its last, of 68, then exit 0
+xfx-early-stop: term fired
+xfx-early-stop: still running after SIGTERM
+test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
+...
+test-gate-env: ok (64 cases)
+
+## where those two write under the deleted directory first (base lines)
+test-preview-contract.sh:44 (tree_for): mkdir -p "$root/.github/workflows"
+test-gate-env.sh:152: mkdir -p "$stubs/scripts" "$stubs/docs"
