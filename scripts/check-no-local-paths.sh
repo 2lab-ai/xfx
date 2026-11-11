@@ -229,12 +229,19 @@ is_capture() {
 # `core.fsmonitor` runs a program; a checkout-local `core.worktree` reads
 # another tree (`--work-tree=.` names this one); `grep.column`,
 # `grep.fullName` and `color.grep` change what a line of output looks like;
-# `submodule.recurse` reads other repositories.
+# `submodule.recurse` reads other repositories. And `grep.threads=1`: one
+# thread reads the tree, in order. A run on a macOS CI runner (git 2.55.0,
+# 2026-11-11) had git's line pass give one line fewer of a file than its
+# count of the same tree; the two passes run the same matching code
+# (grep.c, the same in 2.55.0 and 2.56.0), so that reading varied with the
+# run, and git's threads are what varies most between runs. Whether they
+# were the cause is not shown; the second look below says, next time.
 scan_git() {
 	local root="$1"
 	shift
 	git -c core.fsmonitor=false -c grep.column=false -c grep.fullName=false \
-		-c color.grep=never -c submodule.recurse=false -C "$root" --work-tree=. "$@"
+		-c color.grep=never -c submodule.recurse=false -c grep.threads=1 \
+		-C "$root" --work-tree=. "$@"
 }
 
 # Git for the throwaway control repository: no global or system config.
@@ -246,6 +253,28 @@ grep_args=()
 for entry in "${patterns[@]}"; do
 	grep_args+=(-e "${entry#*:}")
 done
+
+# On a disagreement of the two readings, after the scan has failed: a second
+# look at file $2, both readings of it again, beside the line numbers the
+# first line pass gave of it (never its text). It decides nothing; it says
+# whether the disagreement repeats (`per tree`) or not (`per run`).
+second_look() {
+	local root="$1" f="$2" path number text first="" again="" lines=0 count="" status=0
+	while IFS= read -r -d '' path && IFS= read -r -d '' number && IFS= read -r text; do
+		[ "$path" != "$f" ] || first="${first:+$first, }$number"
+	done <"$work/given"
+	scan_git "$root" grep -a --no-color -n -z -E "${grep_args[@]}" -- ":(literal)$f" >"$work/look" 2>/dev/null || status=$?
+	while IFS= read -r -d '' path && IFS= read -r -d '' number && IFS= read -r text; do
+		again="${again:+$again, }$number"
+		lines=$((lines + 1))
+	done <"$work/look"
+	scan_git "$root" grep -a --no-color -c -z -E "${grep_args[@]}" -- ":(literal)$f" 2>/dev/null |
+		{ IFS= read -r -d '' path && IFS= read -r count && printf '%s' "$count"; } >"$work/lookc" || true
+	count="$(cat "$work/lookc")"
+	printf 'check-no-local-paths: a second look at %s: the line pass gave line(s) %s the first time and %s now (git exit %s); git grep -c gives %s now: %s\n' \
+		"$f" "${first:-none}" "${again:-none}" "$status" "${count:-0}" \
+		"$([ "$lines" = "${count:-0}" ] && echo 'per run, the readings agree now' || echo 'per tree, they disagree again')" >&2
+}
 
 # Counts of the last scan's lines: every line git gave, those its exceptions
 # excused (for the line that says it passed), those it refused and those in
@@ -419,6 +448,8 @@ scan_tree() {
 		exec 3<&- 4<&-
 		printf 'check-no-local-paths: two readings of the tree disagree: the line pass has %s with %s line(s), git grep -c has %s with %s\n' \
 			"${p1:-(nothing)}" "${c1:-0}" "${p2:-(nothing)}" "${c2:-0}" >&2
+		[ -z "$p1" ] || second_look "$root" "$p1"
+		[ -z "$p2" ] || [ "$p2" = "$p1" ] || second_look "$root" "$p2"
 		return 1
 	fi
 	# Each tracked symlink's target, which is what it publishes.

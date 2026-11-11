@@ -62,7 +62,9 @@
 # counting it as one that passed; a line with no number, a stream that ends
 # inside a record, an index listing cut inside its last entry (the symlink
 # listing and the tracked one), a `git grep` that fails without a word, and a
-# line pass that leaves out a file the count pass has stop the scan (a `git`
+# line pass that leaves out a file the count pass has stop the scan, saying
+# whether a second look sees the same (`per tree`) or not (`per run`, and the
+# check still fails); and each grep of the tree runs on one thread (a `git`
 # on PATH in front of the real one makes each happen on demand). And a check
 # stopped by an error of its own (a BASH_ENV function under `set -u`) fails.
 #
@@ -492,9 +494,27 @@ badnum:*' -C . '*' grep '*' -n '*)
 	printf 'clean.md\000%s\000%s\n' x 'nothing here'
 	exit 0
 	;;
-# The tree's line pass gives nothing, as if it found no line.
+# The tree's line pass gives nothing, as if it found no line: every time,
+# or only the first time (the second look then finds the line).
 omit:*' -C . '*' grep '*' -n '*)
 	exit 1
+	;;
+omitonce:*' -C . '*' grep '*' -n '*)
+	if [ ! -e "$SHIM_TMP/omitted" ]; then
+		: >"$SHIM_TMP/omitted"
+		exit 1
+	fi
+	;;
+# A grep of the tree on more than one thread is refused, so the check passes
+# only if each of its passes runs on one.
+threads:*' -C . '*' grep '*)
+	case " $* " in
+	*' grep.threads=1 '*) ;;
+	*)
+		echo 'git grep of the tree on more than one thread' >&2
+		exit 2
+		;;
+	esac
 	;;
 # The tree's line pass ends inside a record.
 truncated:*' -C . '*' grep '*' -n '*)
@@ -576,11 +596,43 @@ new_tree "$t"
 printf '%s\n' "$mac" >"$t/plant.md"
 track "$t"
 run_check "$t" "${shim_env[@]}" SHIM_MODE=omit
-if [ "$status" -ne 1 ] || ! grep -q 'two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1' "$work/out" || ! grep -q 'the scan could not finish' "$work/out"; then
+if [ "$status" -ne 1 ] || ! grep -q 'two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1' "$work/out" ||
+	! grep -q -x -F 'check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and none now (git exit 1); git grep -c gives 1 now: per tree, they disagree again' "$work/out" ||
+	! grep -q 'the scan could not finish' "$work/out"; then
 	problem "omit: a line pass that left out a file the count pass has did not fail the check (exit $status):"
 	show
 else
 	ok omit "the two readings disagree; the check fails"
+fi
+
+# The line pass leaves the file out once: the second look finds it, and the
+# check still fails, having said the disagreement did not repeat.
+t="$work/omitonce"
+new_tree "$t"
+printf '%s\n' "$mac" >"$t/plant.md"
+track "$t"
+rm -f "$work/omitted"
+run_check "$t" "${shim_env[@]}" SHIM_MODE=omitonce
+if [ "$status" -ne 1 ] || [ ! -e "$work/omitted" ] ||
+	! grep -q -x -F 'check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and 1 now (git exit 0); git grep -c gives 1 now: per run, the readings agree now' "$work/out" ||
+	! grep -q 'the scan could not finish' "$work/out" || grep -q '^check-no-local-paths: ok' "$work/out"; then
+	problem "omitonce: a line pass that left out a file once did not fail the check, or the second look did not say per run (exit $status):"
+	show
+else
+	ok omitonce "per run, and the check fails"
+fi
+
+# Each grep of the tree runs on one thread (the shim refuses any other).
+t="$work/threads"
+new_tree "$t"
+printf '%s\n' "$mac" >"$t/plant.md"
+track "$t"
+run_check "$t" "${shim_env[@]}" SHIM_MODE=threads
+if [ "$status" -ne 1 ] || ! named "plant.md:1: $home_shape" || [ "$(hits)" -ne 1 ] || grep -q 'more than one thread' "$work/out"; then
+	problem "threads: a pass of the tree ran on more than one thread (exit $status):"
+	show
+else
+	ok threads "both passes on one thread"
 fi
 
 t="$work/truncated"
