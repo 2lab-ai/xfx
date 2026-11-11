@@ -1953,11 +1953,26 @@ impl FullTranscript {
     /// The welcome line is entry [`WELCOME`], a record [`RECORD`] and the
     /// document's `i`th entry `i + FIRST_ENTRY`, so the ids rise in the order
     /// they are shown, as upstream's do. An entry starts at its header, below
-    /// the blank row that parts it from the one above; one that lays out as
-    /// nothing starts where the next one's blank row is, as upstream marks a
-    /// hidden entry before the separator it skips
-    /// (`renderEntriesForFullPresentationInterruptible`,
-    /// `transcript_blocks.zig:2084-2096@481104fd`).
+    /// the blank row that parts it from the one above
+    /// (`renderEntriesForFullPresentationInterruptible`, `before_entry` after
+    /// the separator, `transcript_blocks.zig:2116-2117@481104fd`).
+    ///
+    /// An entry that lays out as nothing starts nowhere: a reader on the
+    /// blank row under the entry above reads that entry. Upstream passes an
+    /// entry that renders nothing -- the line breaks an answer ends on after
+    /// a block -- unmarked (`transcript_blocks.zig:2114`), and marks, where
+    /// the next one's blank row is, only those its projection hides
+    /// (`:2087-2090`; `skipEntry`,
+    /// `full_transcript_screen.zig:5886-5897@481104fd`): the statuses of a
+    /// group's later calls, which its first draws whole, and a call's output
+    /// and diff rows (`tool_group_projection.zig:1375-1381`, `:1321-1335`;
+    /// `isAttachedEntry`, `:246-251`; `hideAttachedRows`, `:948-960`). Here
+    /// none of those is an entry of its own -- each call draws its own rows
+    /// from its group's block and carries its output and diff -- and the
+    /// calls that lay out as nothing are not them: a question, whose status
+    /// upstream keeps and draws (`:1355-1359`), and a file change while it
+    /// runs, which has no row there yet (`super::toolgroup`'s
+    /// `Call::visible`).
     fn measure(&self, cols: u16, palette: Palette) -> (usize, Vec<ItemRow>) {
         let mut items = Vec::with_capacity(1 + self.records.len() + self.entries.len());
         let mut total = 0;
@@ -1973,7 +1988,6 @@ impl FullTranscript {
         for (id, entry) in ids.zip(self.shown()) {
             let rows = self.laid_out(entry, cols, palette);
             if rows.is_empty() {
-                items.push(ItemRow { id, row: total });
                 continue;
             }
             if total > 0 {
@@ -2106,8 +2120,8 @@ impl FullTranscript {
                 written(line(text, Role::Dim, cols, palette)),
             ),
             Body::Tool(call) => (Some(Kind::Tool), self.tool_rows(call, cols, palette)),
-            // Upstream heads only the entries it has a kind for
-            // (`metadataKind`, `full_transcript_screen.zig:5867-5895`), and a
+            // Upstream heads only the entries it has a kind for (`metadataKind`,
+            // `full_transcript_screen.zig:6028-6056@481104fd`), and a
             // question's resolution is not one of them. Its rows are the ones
             // written at the width of the moment; one wider than this screen
             // runs on to the next row, as upstream's row walker lets it. In
@@ -2160,7 +2174,9 @@ impl FullTranscript {
                         Body::Response(_) => "assistant",
                         Body::Structure(markdown::Event::Table(_)) => "assistant table",
                         Body::Structure(markdown::Event::CodeBlock(_)) => "assistant code block",
-                        Body::Structure(_) => "assistant thematic rule",
+                        Body::Structure(markdown::Event::ThematicRule) => "assistant thematic rule",
+                        // Never made: `presented` keeps prose in a `Response`.
+                        Body::Structure(markdown::Event::Text(_)) => "assistant",
                         Body::Notice(_) => "semantic notice",
                         Body::Usage(_) => "raw",
                         Body::Tool(_) => "tool",
@@ -5522,7 +5538,8 @@ mod tests {
     #[test]
     fn a_questions_resolution_is_shown_as_the_document_has_it_under_no_header() {
         // Upstream's `question_resolution` entries have no metadata kind
-        // (`metadataKind`, `full_transcript_screen.zig:5867-5895`), so no header.
+        // (`metadataKind`, `full_transcript_screen.zig:6028-6056@481104fd`),
+        // so no header.
         let mut record = record();
         record.prompt("ask me");
         record.block(

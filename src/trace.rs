@@ -1126,8 +1126,8 @@ fn network_calls(out: &mut String, records: &[Entry]) {
 }
 
 /// `## Transcript Timeline` (`writeTranscriptTimeline`,
-/// `app_commands.zig:3475-3567`): what the screen was given, each entry under
-/// its moment and its kind, colour stripped and secrets masked.
+/// `app_commands.zig:2675-2747@481104fd`): what the screen was given, each
+/// entry under its moment and its kind, colour stripped and secrets masked.
 fn timeline(out: &mut String, entries: &[Entry]) {
     out.push_str("\n## Transcript Timeline\n");
     if entries.is_empty() {
