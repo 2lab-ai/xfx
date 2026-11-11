@@ -1,4 +1,4 @@
-# every merge redone by this folder's scripts in a clone (reproduce.sh), each resolver's lines under it
+# every merge redone by this folder's scripts in a clone (reproduce.sh), each resolver's lines under it; the join of main is the fifth
 d548c078 (4130f4ac): resolve exit 0; against the merge commit's tree: no difference
     # docs/parity.md: row '`@` file picker': 6 edits of ours, 32 of theirs (ours and theirs)
     # docs/parity.md: 1 blocks resolved
@@ -108,4 +108,9 @@ fb6dfdb8 (bde1ddfa): resolve exit 0; against the merge commit's tree: no differe
     merge 4: build fix: src/tui/worker.rs: 1 place(s), 5 lines -> 4: '// `types.zig:1668-1682@481104fd`) -- `ReplayedHistory::notices`, the' ...
     merge 4: build fix: src/tui/worker.rs: 1 place(s), 5 lines -> 0: 'assert!(' ...
     # merge 4: 2 fixes
+583cc13a (3570a182): resolve exit 0; against the merge commit's tree: no difference
+    scripts/fxcap/parity-ledger.toml:78: rewrite -- theirs taken (2 base lines -> 2); ours had moved only :681 -> :685
+    scripts/fxcap/parity-ledger.toml:86: numbers, 1 line(s); line 86: base :326-328 / ours :330-332 / theirs :329-331 -> :330-332 (both); line 86: base :379-385 / ours :383-389 / theirs :382-388 -> :383-389 (both); line 86: base :980 / ours :984 / theirs :1117 -> :984 (both); line 86: base :987 / ours :991 / theirs :1124 -> :991 (both)
+    scripts/fxcap/parity-ledger.toml:148: numbers, 1 line(s); line 148: base :1157 / ours :1161 / theirs :1297 -> :1161 (both)
+    # scripts/fxcap/parity-ledger.toml: 3 blocks resolved
 # exit 0

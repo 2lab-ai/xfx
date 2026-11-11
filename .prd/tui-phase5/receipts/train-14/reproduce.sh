@@ -9,6 +9,7 @@
 # (empty: the same tree). docs/parity.md is put back in git's plain style
 # first (`checkout --conflict=merge`), which rowsmerge.py reads. Each
 # resolver's own lines (one per block or row) are printed under its merge.
+# The join of main (583cc13a) is the fifth, redone the same way.
 # usage: reproduce.sh <repo> <scratch-dir>
 set -u
 repo=$1 dir=$2
@@ -45,4 +46,8 @@ one d548c078 4130f4ac m1
 one ecad8518 e7e1bcf6 m2
 one 7a1773d9 3ea16930 m3
 one fb6dfdb8 bde1ddfa m4
+# The join of main (PR #94, WORKSPACE-INDEX-AT-PLAN), added with it: main
+# 3570a182 into the train at 08066ac9; one conflicting file, the ledger.
+j1() { $P/blocks.py scripts/fxcap/parity-ledger.toml; }
+one 583cc13a 3570a182 j1
 cd / && rm -rf "$dir/repro"

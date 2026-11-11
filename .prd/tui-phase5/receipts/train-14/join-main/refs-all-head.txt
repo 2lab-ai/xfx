@@ -1,0 +1,20 @@
+# head 42935f45; sides: main 3570a182, train 08066ac9
+docs/superpowers/plans/2026-08-24-provider-frame.md: src/session/store.rs:2322
+    main MOVED -> 2608
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: docs/parity.md:96-99
+    main CHANGED
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/app.rs:434-436
+    main MOVED -> 444-446
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:3108
+    main MOVED -> 3114
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/agent/machine.rs:470-475
+    main MOVED -> 471-476
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/agent/machine.rs:546-588
+    main MOVED -> 547-589
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/session/store.rs:1774
+    main MOVED -> 2053
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/shell.rs:1593
+    main MOVED -> 1598
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.rs:889-923
+    main MOVED -> 932-966
+# 199 references in 629 files; 9 moved or changed on some side that cites them

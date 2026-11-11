@@ -109,5 +109,5 @@ and the ranking AT-RANK changed keeps main's listing rule.
   169, `sweep.py` 62, `roots.py` 8 and the ledger 8 lines changed, tests
   334 + 104, no `src` (`wiap.txt`, `git diff --stat` against
   `dcfa5146`). Train 14 needed no change of its own: the join of main
-  brought the fix, and at the joined head the pair is identical on every
-  run (`../join-main/`).
+  brought the fix, and at the joined head the pair passes on every run,
+  its row 13 the same on both sides (`../join-main/checks.txt`).

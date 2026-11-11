@@ -66,8 +66,13 @@ After the merges, in order (`git log --first-parent dcfa5146..`):
 | `6bc758a0` | one re-point of `04e4491d` corrected (`repointed.py` found it) |
 | `725b3c90` | **tests**: PAGE-KEYS' case over `/model`'s menu under the full transcript takes fx's expectation, C-j adds nothing (join check 3; the first gate, at `6bc758a0`, failed it) |
 | `3a2830fb` | the six ledger references `725b3c90`'s 19 lines moved, re-pointed |
-| `b3dffdad` | two bare continuations on the line after their path, re-pointed (`refs_bare.py` read them MOVED; join check 6): **the code head. The gate, the sweeps and every job ran here** |
-| the receipt's commits | this folder only (`final-scan.txt` part 4, through the second-to-last of them; the last stores `final-scan.txt` alone) |
+| `b3dffdad` | two bare continuations on the line after their path, re-pointed (`refs_bare.py` read them MOVED; join check 6): **the code head the gate, the sweeps and every job of the assembly ran at** |
+| the receipt's commits, rounds 1 and 2 | this folder only |
+| `583cc13a` | **the join of main** `3570a182` (PR #94, WORKSPACE-INDEX-AT-PLAN): its harness, tests and receipt; one conflicting file, the ledger, three blocks by `blocks.py` ("The join of main") |
+| `3e073a96` | the seven `capture.sh` references the join moved, re-pointed, numbers only |
+| `d765f057` | this folder: PR #93's CI Sweep red read (`ci-08066ac9/`); the path scans read subfolders |
+| `42935f45` | the ledger's at-plan comment rewritten (comments only, the same nine lines): **the code head since the join**; no `src` changed after `b3dffdad` (`join-main/checks.txt`) |
+| the receipt's commits after it | this folder only (`final-scan.txt` part 4, through the second-to-last of them; the last stores `final-scan.txt` alone) |
 
 The first gate ran at `6bc758a0` and failed one case (join check 3); the
 head's first main sweep and join checks 1 and 2 read a build of
@@ -720,7 +725,9 @@ within passing** (`compare-base.txt`):
   (`../at-rank/README.md`, §7).
 - **1 down: `workspace-index` `at-plan`**, normalized-identical ->
   unresolved, row 13, attributes only -- **a flip that is older than the
-  train, traced, and owned by WORKSPACE-INDEX-AT-PLAN**. Rerun 3 times on
+  train, traced, and owned by WORKSPACE-INDEX-AT-PLAN; fixed on main by
+  PR #94 and joined here in `583cc13a`; at the joined head it passes on
+  every run, row 13 the same on both sides ("The join of main")**. Rerun 3 times on
   each tree it passes 3 of 3 at the head and 3 of 3 at the base
   (`reruns.txt`); of the head's six runs of it here (the sweep, join check
   1's two TMPDIR runs, the three reruns) four pass, of the base's six, six
@@ -872,11 +879,10 @@ Each with its revert.
   cause still in the ledger). What `at-plan-run-directory` was written for
   is still there: `workspace-index` `at-plan` flips on the run directories'
   random names, on main as here ("Sweeps"). **Its owner is
-  WORKSPACE-INDEX-AT-PLAN** (one run path for both sides); its PR also
-  corrects the ledger comment where the cause stood
-  (`scripts/fxcap/parity-ledger.toml:664-672` still calls the snap
-  identical), which this receipt does not touch, so the code head stays
-  `b3dffdad`. The dispatcher's call: train 14 does not wait for it.
+  WORKSPACE-INDEX-AT-PLAN** (one run path for both sides), merged as PR
+  #94 and joined here in `583cc13a`; the ledger comment where the cause
+  stood (`scripts/fxcap/parity-ledger.toml:664-672`, which called the snap
+  identical) is rewritten in `42935f45`, the same nine lines.
 - **Every WRONG reference re-pointed**, the 35 on main and the 2 on
   IMAGE-LOSS' head too, not only the 43 the merges moved (join check 6);
   and the two bare continuations `refs_bare.py` read MOVED (`b3dffdad`),
@@ -953,8 +959,9 @@ alone).
   the commit table, "Redaction").
 - **S3**: the `at-plan` flip's mechanism, traced by WORKSPACE-INDEX-AT-PLAN
   on main's code too, and that unit as its owner ("Sweeps", join check 5,
-  "Decisions"). The ledger comment at `parity-ledger.toml:664-672` is that
-  unit's PR's to correct.
+  "Decisions"). The ledger comment at `parity-ledger.toml:664-672` was left
+  for that unit's PR in round 2; after the join it is rewritten here
+  (`42935f45`, "The join of main").
 - **S4**: row 27 of the three `workspace` pairs, both sides, both trees,
   both lengths, is in `joins.txt` (`joins_txt.py`); the claim that CI's
   sweep would read them unresolved is withdrawn: CI's sweep runs under
@@ -970,6 +977,81 @@ alone).
   head): `question.rs:303`'s re-point, the helper's mark assert after C-j
   when `held`, `session_compat.rs:57`'s pin, `shell.rs:24979-24980`'s pair,
   and `tests/tui.rs:2600`'s list.
+
+## The join of main (`join-main/`, `resolutions.txt`)
+
+PR #93's CI Sweep at `08066ac9` read one regression, `workspace-index`
+`at-plan`; `ci-08066ac9/` shows it is the flip WORKSPACE-INDEX-AT-PLAN
+traced on main (144 of 144 sides list the folder exactly when their own
+path holds `p`, `l`, `a`, `n` in order, which the random run-directory
+names decided, on the head and on the base alike). That unit merged as PR #94 (main `3570a182`), and
+the train takes main in:
+
+- **`583cc13a`, an ordinary merge** of `3570a182` into `08066ac9` (no
+  rebase). main brings `scripts/fxcap/` (`capture.sh`, `sweep.py`,
+  `roots.py`, their tests, the ledger) and WORKSPACE-INDEX-AT-PLAN's
+  receipt; no `src`. **One conflicting file, the ledger, three blocks,
+  each resolved by `blocks.py`** (`resolutions.txt`, its fifth merge):
+  `run-directory`'s `why` and `source` by `rewrite` (main's new text and
+  its two refs; ours had moved only `:681 -> :685`); `capture-tmpdir`'s and
+  `tmux-dead-pane`'s `source` by `numbers` (the five `capture.sh` numbers
+  both sides moved keep ours'). `reproduce.sh` redoes the join to the
+  same tree, as it does the four merges.
+- **The keep-check** (`join-main/token-check.txt`): `token_check.py`
+  (train 7's, byte for byte) over the join, **OK, exit 0** -- every parity
+  row and ledger entry either side changed is in the merge, the three
+  conflicted entries read as above, the ledger's 11 comment lines added as
+  expected. Its self-test finds 24 of 25 planted cases; the one it misses,
+  "a numbers-only entry with a word changed", plants nothing: it writes
+  `owner = "X`, and a `[[normalization]]` has no `owner`. `word_control.py`
+  plants the word in `why` instead, on both numbers-only entries: **2 of 2
+  found**. `token_control.py`: no `docs/parity.md` row both sides changed.
+- **`3e073a96`, the seven references the join moved** (the content check
+  at the join, `join-main/content-583cc13a.txt`: 9 WRONG, the seven and the
+  two left on purpose): run-directory's `capture.sh:442-474` and `:818`
+  (main's) to `:446-478` and `:822`; capture-tmpdir's `:330-332`,
+  `:383-389`, `:984`, `:991` (ours) to `:333-335`, `:386-392`, `:1121`,
+  `:1128`; tmux-dead-pane's `:1161` to `:1301`. Each line's text at the
+  head is in `join-main/repointed.txt`; 3 lines out, 3 in, the same once
+  numbers are masked. `:386-392` is the paragraph main rewrote two lines
+  of; main's own number for it, `:382-388`, moved by the train's four
+  `homemode` comment lines, agrees.
+- **After it** (`join-main/content-42935f45.txt`, `refs-*-head.txt`, at
+  the code head against main `3570a182` and the train's `08066ac9`): the
+  content check **2 WRONG**, the two left on purpose, 791 references;
+  `refs.py` 0 MOVED; outside the historical plans `refs_all.py`,
+  `refs_short.py`, `refs_bare.py` 0; `refs_prd.py` 0.
+- **`42935f45`, the ledger's at-plan comment** (`parity-ledger.toml:664-672`,
+  comments only): it said AT-RANK made all five of its snaps identical,
+  at-plan among them; it now says at-plan was identical only when both
+  runs' names agreed, with `ci-08066ac9/read.txt` and WORKSPACE-INDEX-AT-PLAN's
+  receipt, and that since that unit a sweep unit's two runs share one name.
+  Written in the same nine lines, so no later ledger line moves.
+- **The checks at `42935f45`** (`join-main/checks.sh`, `checks.txt`, its
+  first lines the code since `b3dffdad`: the join's six harness files; one
+  hold of the suite lock; no `src` changed since the gate's `b3dffdad`, so
+  not the full gate), in a `git clone --no-local` at `42935f45`, tree
+  clean, **each exit 0**: `cargo test --locked`, 5854 passed, 0 failed, 7
+  ignored over 15 binaries, the gate's plain count at `b3dffdad`
+  (`gate-counts.txt`); `scripts/fxcap/test-sweep.sh`, 79 and 28 tests OK
+  (the gate's 76 and 28: `test_sweep.py`'s three new tests from main);
+  `scripts/fxcap/test-capture.sh`, 130 tests OK (the gate's 109:
+  `test_capture.py`'s 21 new tests from main).
+- **`workspace-index` at the joined head** (the same hold, then
+  `checks_l.sh` in another; `checks.txt`, read by `checks_txt.py`): the
+  scenario as the Sweep selects it (`--only workspace-index`), three runs
+  at a 24-byte TMPDIR and three at a 49-byte one, each directly under the
+  system's `/private/tmp` and, like CI's RUNNER_TEMP, holding no `l`; then
+  its twelve copies at each length (`rep24`, `rep49`); then twelve at a
+  24-byte TMPDIR holding an `l` (`rep24l`). **`at-plan` passes in 42 of 42
+  units** (normalized-identical), `at-all` in 42 of 42, fx's sha256 the pin
+  before and after every sweep. Since WORKSPACE-INDEX-AT-PLAN the sweep's
+  root and every run directory are named by digits (`sweep.py`
+  `digit_dir`, `capture.sh` `make_run`) and a unit's two runs share one
+  (FXCAP_RUN), so row 13 follows the TMPDIR alone and is the same on both
+  sides: with no `l` the folder is listed on neither side in all 30 units,
+  with one on both sides in all 12, and row 13 is the same text and the
+  same attributes (its `.ansi` row) on both sides in all 42.
 
 ## Redaction
 
@@ -1033,3 +1115,12 @@ names the commit it read).
   `sweep-rerun.sh`, `reruns.sh`, `rerun_verdicts.py`, `reruns_txt.sh`,
   `reruns.txt`.
 - `final-scan.sh`, `midbranch_scan.py`, `final-scan.txt`; `redacted.py`.
+- PR #93's CI Sweep red at `08066ac9`, read: `ci-08066ac9/` (its own
+  README names its files).
+- The join of main: `join-main/` -- `merge-checks.sh` (writes
+  `token-check.txt`, `content-583cc13a.txt`, `content-42935f45.txt`,
+  `refs-head.txt`, `refs-all-head.txt`, `refs-short-head.txt`,
+  `refs-bare-head.txt`, `refs-prd-head.txt`, `repointed.txt`),
+  `word_control.py`; `checks.sh`, `checks_l.sh`, `checks_txt.py`,
+  `checks-txt.sh` / `checks.txt`;
+  `reproduce.sh`'s fifth merge and `resolutions.txt`.
