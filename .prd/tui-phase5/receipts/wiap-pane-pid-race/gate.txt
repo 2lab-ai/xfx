@@ -28,3 +28,14 @@ cd "$1" || exit 2
 echo "# head $(git rev-parse --short HEAD); tmux $(tmux -V)"
 s=$SECONDS; ./scripts/fxcap/test-sweep.sh > "$2/test-sweep.log" 2>&1; echo "test-sweep exit $? $((SECONDS - s))s"
 s=$SECONDS; ./scripts/fxcap/test-capture.sh > "$2/test-capture.log" 2>&1; echo "test-capture exit $? $((SECONDS - s))s"
+
+## at fc5e4523 (round 2)
+# head fc5e4523; tmux tmux 3.7b
+test-sweep exit 0 14s
+test-capture exit 0 521s
+Ran 134 tests in 519.465s
+OK
+Ran 79 tests in 6.180s
+OK
+Ran 28 tests in 7.863s
+OK

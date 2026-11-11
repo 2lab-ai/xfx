@@ -30,7 +30,7 @@ Every claim below names the file in this folder it rests on.
 - **Here,** tmux 3.7b keeps the pid of a dead pane (`tmux-probe.txt`), so
   the local gate could not see it.
 
-## 2. The fix (99421b1a; `own_pane`, `scripts/fxcap/capture.sh:551-582`)
+## 2. The fix (99421b1a, worded in fc5e4523; `own_pane`, `scripts/fxcap/capture.sh:551-586@fc5e4523`)
 
 The guard's rule stands: a process not confirmed gone fails the run. What
 changes is what counts as confirmed.
@@ -45,21 +45,34 @@ changes is what counts as confirmed.
   (`tmux-source.txt`, both at 3.8). A real run of the formats is in
   `tmux-probe.txt`: no status while the pane is alive, `0` once it is dead.
 - **Neither:** the pty is closed but the process is not yet reaped, or it
-  lives on with its pty closed. `own_pane` looks again, 20 times 0.05 s,
-  then records `unknown`, which fails the run as before.
+  lives on with its pty closed. `own_pane` looks again: 20 looks, 0.05 s
+  apart. That is 1 s of sleeps plus the looks' own time, not a wall-clock
+  deadline; a look that hangs is caught by the sweep's per-run timeout
+  (round 2). Then it records `unknown`, which fails the run as before.
+- **A status cannot outlive its process** (round 2, `tmux-source.txt`):
+  - a respawn closes the old pty and clears PANE_STATUSREADY (spawn.c:349
+    at 3.8, :265 at 3.7b) before it forks the new process (:478, :391);
+  - `server_child_exited` sets the status only for the pane's current
+    `wp->pid` (server.c:498-500 at 3.8);
+  - tmux runs one command at a time, so no look falls between the clearing
+    and the fork. After a relaunch a look sees the new pid, never the old
+    process's status. A failed fork shows neither, which reads `unknown`.
 - The ledger's four `capture.sh` references are re-pointed.
 
 ## 3. RED and GREEN
 
-Three `LaunchWait` tests (`scripts/fxcap/test_capture.py:1917-1969`) use a
-`tmux` shim on capture.sh's PATH to make this machine's tmux answer as 3.8
-does, at a moment the test chooses:
+The `LaunchWait` tests (`scripts/fxcap/test_capture.py:1917-1996@fc5e4523`)
+use a `tmux` shim on capture.sh's PATH that makes this machine's tmux answer
+as 3.8 does: no pid once the pane is dead. The shim waits for that before
+answering, and logs every answer to a look at the pid. Since round 2 the
+tests assert those answers.
 
-| test | the shim | 753b0a72 | 99421b1a |
+| test | the shim's answers | 753b0a72 | fc5e4523 |
 |---|---|---|---|
-| a pane dead before its pid is read | waits for `#{pane_dead}`, then blanks the pid | exit 4, CI's own line | exit 0 |
-| a pane not yet reaped | blanks the pid and the status for three looks | exit 4 | exit 0 |
-| neither, ever | blanks both for every look | exit 4 | exit 4 |
+| a pane dead before its pid is read | `:0` | exit 4, CI's own line | exit 0, record `gone` |
+| a pane not yet reaped | `:`, `:`, `:`, then 3.8's `:0` | exit 4 | exit 0, record `gone` |
+| neither, ever | `:` on every look | exit 4 | exit 4 |
+| a relaunch after a dead pane (pin) | `:0`, then the new pid with no status | -- | exit 0, record the new pid |
 
 The third test pins the safety rule, which held before as well.
 `red.txt` has the run at 753b0a72.
@@ -70,8 +83,10 @@ that asks for the pid (27d28fef), and its intent is unchanged.
 
 ## 4. Mutants
 
-4 / 4 killed (`mutants.sh`, `mutants.txt`), on a `git clone --no-local` at
-99421b1a:
+Round 1: 4 / 4 killed (`mutants.sh`, `mutants.txt`), on a `git clone
+--no-local` at 99421b1a. Round 2: the same four against the new tests, and
+one more, the record after a relaunch dropped, at fc5e4523
+(`mutants2.sh`, `mutants2.txt`). The four are:
 - a reaped pane read as unknown;
 - no second look;
 - no exit read as gone;
@@ -84,6 +99,7 @@ suite lock, on clones (`gate.txt`):
 - **At 99421b1a:** test-sweep 79 + 28 OK. test-capture had 1 failure in 133:
   round 4's shim, which 27d28fef corrects.
 - **At 27d28fef:** test-sweep 79 + 28 OK, test-capture 133 OK.
+- **At fc5e4523 (round 2):** test-sweep 79 + 28 OK, test-capture 134 OK.
 
 No other script changed.
 
