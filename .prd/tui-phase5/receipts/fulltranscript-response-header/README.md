@@ -417,6 +417,47 @@ in this run. `green-r2.txt`: the unit's 11 tests and the two
 reading-position tests the mark change touches, 13 tests, 26 of 26 ok
 across both suites.
 
+## Round 3 (gpt6 r2's two test gaps; tests only)
+
+| commit | what |
+|---|---|
+| `9a1bbf37` | the two reading-position tests and the shell test's assertion; no non-test change (`git diff --stat 41af67e1 9a1bbf37 -- src` names only test hunks) |
+| the commits after | this folder |
+
+**An entry that lays out as nothing becomes visible.** Round 2's
+reading-position test laid the page out once. fx's rule for a rebuild: pin
+the reader to the marked entry the old page shows at its offset, and how far
+into it (`pin_reading_position`, `transcript_presentation.zig:144-164`), and
+find it again on the new page (`select_visual_offset`, `:166-202`); a
+bookmark whose entry has no mark takes the nearest marked entry before it,
+else the one after (`resolve_bookmark_row`, `:278-298@481104fd`;
+`src/tui/full_transcript/position.rs:168-188`).
+`a_reader_near_an_entry_that_lays_out_as_nothing_holds_when_it_becomes_visible`
+(`src/tui/full_transcript.rs:6781`), three cases:
+1. a reader on the blank row under a block, a running write between the
+   block and the summary; the write finishes: the reader is on the same
+   blank row, now over the write's `Tool` header (the block above held it);
+2. a bookmark naming a whitespace-only run under a 52-row block, one row in;
+   the run has no mark, so the reader stands a row into the block; prose
+   joins the run: the page is the same;
+3. a bookmark naming a running write that is the first entry, nothing marked
+   before it: the reader stands on the prompt after it; the write finishes
+   above it: still on the prompt.
+
+`a_reader_at_the_tail_follows_an_entry_that_lays_out_as_nothing_when_it_becomes_visible`
+(`:6907`): at the tail, the run's prose and the finished write's rows are on
+the screen, which keeps following.
+
+**The shell test's dropped row**: it asserts the document's last row is
+blank before leaving it out (`src/tui/shell.rs:43179-43183`).
+
+Both new tests pass on `41af67e1`'s code, as the dispatcher's check expected
+(the marks are sparse by design): a coverage gap, not a defect.
+
+**Mutants** (`mutants-r3.py`, `mutants-r3.txt`): MUTANTS_R3
+
+**Gate** (`gate-r3.txt`): GATE_R3
+
 ## Left apart
 
 - **A line break mid-step, after a notice** (round 2; see "Round 2"

@@ -86,6 +86,10 @@ ranges=(
   src/ui/transcript/tool_group_projection.zig:1321-1335
   src/ui/transcript/tool_group_projection.zig:1355-1359
   src/ui/transcript/tool_group_projection.zig:1366-1383
+  # Round 3: the reader across a rebuild -- the pin, the selection, the
+  # bookmark's resolution (the nearest marked entry before, else after).
+  src/core/output/transcript_presentation.zig:144-202
+  src/core/output/transcript_presentation.zig:278-298
 )
 {
   echo "# fx v0.0.16 ($pin), every line this receipt cites, as git show $pin:<path> prints it, numbered."

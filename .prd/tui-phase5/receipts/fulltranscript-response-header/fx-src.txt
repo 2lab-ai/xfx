@@ -1660,3 +1660,87 @@
  1381              }
  1382              if (!isTransparentCompactEntry(entries[index])) break;
  1383          }
+
+## src/core/output/transcript_presentation.zig:144-202
+  144      /// Pins the reading position to the entry it shows on the page that
+  145      /// `item_rows` measured, so the next selection keeps that entry in view.
+  146      /// `scroll_rows` counts rows of that page; a rebuilt page whose earlier
+  147      /// entries changed height would show other content at the same offset.
+  148      pub fn pin_reading_position(self: State, item_rows: []const ItemRow) State {
+  149          if (self.follow_tail or self.bookmark_pending or self.anchor_pending) return self;
+  150          var containing: ?ItemRow = null;
+  151          for (item_rows) |item| {
+  152              if (item.row > self.scroll_rows) break;
+  153              containing = item;
+  154          }
+  155          const item = containing orelse return self;
+  156          // Synthetic full-detail records share the never-issued id 0 and cannot
+  157          // be found again; only those records precede them, so the offset holds.
+  158          if (item.entry_id == 0) return self;
+  159          var next = self;
+  160          next.bookmark_entry_id = item.entry_id;
+  161          next.bookmark_intra_row = self.scroll_rows - item.row;
+  162          next.bookmark_pending = true;
+  163          return next;
+  164      }
+  165  
+  166      pub fn select_visual_offset(
+  167          self: State,
+  168          total_rows: u32,
+  169          visible_rows: u16,
+  170          item_rows: []const ItemRow,
+  171      ) OffsetSelection {
+  172          var next = self;
+  173          const max_offset = total_rows -| visible_rows;
+  174          const anchor_rows = resolve_bookmark_row(item_rows, next.anchor_entry_id);
+  175          const offset = if (next.bookmark_pending) blk: {
+  176              next.bookmark_pending = false;
+  177              next.follow_tail = false;
+  178              const item_row = resolve_bookmark_row(
+  179                  item_rows,
+  180                  next.bookmark_entry_id,
+  181              ) orelse break :blk @min(next.scroll_rows, max_offset);
+  182              const item_end = next_bookmark_item_row(item_rows, item_row) orelse
+  183                  total_rows;
+  184              const max_intra_row = item_end -| item_row -| 1;
+  185              break :blk @min(
+  186                  item_row +| @min(next.bookmark_intra_row, max_intra_row),
+  187                  max_offset,
+  188              );
+  189          } else if (next.anchor_pending and anchor_rows != null) blk: {
+  190              next.anchor_pending = false;
+  191              next.follow_tail = false;
+  192              break :blk @min(anchor_rows.?, max_offset);
+  193          } else if (next.follow_tail)
+  194              max_offset
+  195          else
+  196              @min(next.scroll_rows, max_offset);
+  197  
+  198          next.scroll_rows = offset;
+  199          next.follow_tail = offset == max_offset;
+  200          next = next.refresh_bookmark(item_rows, offset);
+  201          return .{ .state = next, .offset = offset };
+  202      }
+
+## src/core/output/transcript_presentation.zig:278-298
+  278  fn resolve_bookmark_row(item_rows: []const ItemRow, entry_id: ?u32) ?u32 {
+  279      const target = entry_id orelse return null;
+  280      var preceding: ?ItemRow = null;
+  281      var following: ?ItemRow = null;
+  282      for (item_rows) |item| {
+  283          if (item.entry_id == target) return item.row;
+  284          if (item.entry_id < target) {
+  285              if (preceding == null or item.entry_id > preceding.?.entry_id) {
+  286                  preceding = item;
+  287              }
+  288          } else if (following == null or item.entry_id < following.?.entry_id) {
+  289              following = item;
+  290          }
+  291      }
+  292      return if (preceding) |item|
+  293          item.row
+  294      else if (following) |item|
+  295          item.row
+  296      else
+  297          null;
+  298  }
