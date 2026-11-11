@@ -59,18 +59,20 @@
 //! @481104fd`): no event, the clock started again, and the sequence behind it
 //! read as that key with Alt -- `ESC ESC [ A` a paragraph up, `ESC ESC [ C` a
 //! word right, `ESC ESC [ 1 ; 5 H` the plain Home, since Alt's row has none
-//! ([`prefixed`], [`kitty_key`] for a key report). Alone, the pair is one
-//! Escape once the quiet comes, as upstream's flush reads a prefixed lone ESC
-//! (`escape_parser.zig:327-329`, `terminal_action_decoder.zig:174-183`).
-//! Nothing here reads
-//! which read a byte came off: the quiet alone tells a person's two presses,
-//! which are two Escapes and the gesture's two taps ([`super::gesture`]),
-//! from two ESC bytes in one burst, which are one. The quiet is
-//! [`Decoder::ESC_TIMEOUT`], 50 ms, where upstream's is 30 ms
-//! (`main.zig:187`): a second press 30 to 50 ms after the first is a prefix
-//! here and a press there (`docs/parity.md`). A report behind the prefix --
-//! an `OSC`, the background notification -- gives the first ESC back as the
-//! Escape key it was: upstream's key decoder never sees a report there.
+//! ([`prefixed`], [`kitty_key`] for a key report). With nothing behind it the
+//! pair is **two** Escapes once the quiet comes, as fx delivers it: its theme
+//! monitor, started at every launch, holds the first ESC and hands the second
+//! to the key decoder at once, so the decoder resolves the second, and the
+//! held one, after its 75 ms, on its own (`theme_monitor.zig:7`, `:82-93`,
+//! `:150-164`; `app_bootstrap_runtime.zig:481-483`) -- the same two a person's
+//! presses a quiet apart are, the gesture's two taps ([`super::gesture`]).
+//! Nothing here reads which read a byte came off: the quiet alone tells a
+//! prefix from a press. Its length differs from fx's, where the monitor holds
+//! a lone ESC 75 ms and the decoder 30 ms more (`main.zig:187`): here one
+//! quiet of [`Decoder::ESC_TIMEOUT`], 50 ms, for both (`docs/parity.md`). A
+//! report behind the prefix -- an `OSC`, the background notification --
+//! gives the first ESC back as the Escape key it was: fx's monitor keeps the
+//! report and hands the decoder a lone ESC.
 //!
 //! # The control policy
 //!
@@ -630,8 +632,8 @@ enum Stage {
     /// An ESC with nothing after it yet, and when it arrived. `meta` when a
     /// second ESC came before the first had gone quiet: upstream's meta
     /// prefix, a bit of its stage (`escape_parser.zig:25`, `:552-555
-    /// @481104fd`), and the pair is still one Escape once the quiet comes
-    /// (`isBareEscapeStage`, `:327-329`).
+    /// @481104fd`); with nothing behind it, the pair is two Escapes once the
+    /// quiet comes ([`Decoder::flush`]).
     Esc { at: Instant, meta: bool },
     /// `ESC [`, reading parameters into [`Decoder::params`]; `meta` behind a
     /// prefix, which the stage keeps (`setBaseEscapeStage`, `:291-293`).
@@ -1034,15 +1036,25 @@ impl Decoder {
     /// Resolves what only the passage of time can resolve.
     ///
     /// Exactly one thing: a bare ESC older than
-    /// [`ESC_TIMEOUT`](Self::ESC_TIMEOUT) is the Escape key. An unfinished
-    /// `CSI` is deliberately **not** resolved here -- it is a sequence still
-    /// arriving, and a clock that cut it in half would turn an arrow key under
-    /// load into two events the user never typed.
+    /// [`ESC_TIMEOUT`](Self::ESC_TIMEOUT) is the Escape key -- and a meta
+    /// prefix with nothing behind it is two, as fx delivers the pair: its
+    /// theme monitor, started at every launch, holds the first ESC and
+    /// hands the second to the key decoder at once (`theme_monitor.zig:82-93`,
+    /// `app_bootstrap_runtime.zig:481-483@481104fd`), which resolves it (and
+    /// any ESC after it) as one Escape (`escape_parser.zig:327-329`,
+    /// `terminal_action_decoder.zig:174-183`); the held one follows on its own
+    /// once its 75 ms run out (`theme_monitor.zig:7`, `:150-164`) and is the
+    /// second. An unfinished `CSI` is deliberately **not** resolved here -- it
+    /// is a sequence still arriving, and a clock that cut it in half would
+    /// turn an arrow key under load into two events the user never typed.
     pub(crate) fn flush(&mut self, now: Instant, out: &mut Vec<Input>) {
-        if let Stage::Esc { at, .. } = self.stage {
+        if let Stage::Esc { at, meta } = self.stage {
             if now.saturating_duration_since(at) >= Self::ESC_TIMEOUT {
                 self.stage = Stage::Ground;
                 out.push(Input::Action(Action::Escape));
+                if meta {
+                    out.push(Input::Action(Action::Escape));
+                }
             }
         }
     }
@@ -1146,9 +1158,10 @@ impl Decoder {
             b'O' => self.stage = Stage::Ss3 { meta },
             // A second ESC before the first has gone quiet: the meta prefix,
             // and no event (`terminal_action_decoder.zig:84-88`, which starts
-            // the clock again from this byte). A third keeps it. Alone, the
-            // pair is one Escape once the quiet comes ([`Self::flush`]); a
-            // person's two presses, a quiet apart, are two.
+            // the clock again from this byte). A third keeps it. With nothing
+            // behind it, the pair is two Escapes once the quiet comes, as fx
+            // delivers it ([`Self::flush`]), and so are a person's two
+            // presses a quiet apart: the gesture's two taps either way.
             0x1b => {
                 self.stage = Stage::Esc {
                     at: now,
@@ -4153,14 +4166,19 @@ mod tests {
     }
 
     #[test]
-    fn two_escapes_a_person_pressed_are_two_and_two_in_one_burst_are_one() {
+    fn two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst() {
         // fx's rule for a second `ESC`: in front of anything it is the meta
         // prefix, a bit of the stage with no event (`escape_parser.zig:552-555`;
         // `terminal_action_decoder.zig:84-88@481104fd`, which also restarts
-        // the clock), and a prefixed lone `ESC` is still the bare stage
-        // (`isBareEscapeStage`, `escape_parser.zig:327-329`) that the quiet resolves as one
-        // Escape (`terminal_action_decoder.zig:174-183`). There is no rule per
-        // read: the quiet alone tells two presses from one prefix.
+        // the clock). With nothing behind it, fx delivers the pair as two
+        // Escapes: its theme monitor, started at every launch
+        // (`app_bootstrap_runtime.zig:481-483`), holds the first ESC and hands
+        // the second to the key decoder at once (`theme_monitor.zig:82-93`),
+        // which resolves it as one Escape (`escape_parser.zig:327-329`,
+        // `terminal_action_decoder.zig:174-183`), and the held one follows on
+        // its own after 75 ms (`theme_monitor.zig:7`, `:150-164`). fx's
+        // captures show it: `p5-cancel-double-escape`'s burst clears a draft
+        // and `-turn`'s cancels a turn. There is no rule per read.
         //
         // First the person: each Escape on its own, the quiet between them --
         // two Escapes, the gesture's two presses (`super::gesture`).
@@ -4189,8 +4207,9 @@ mod tests {
             vec![Input::Action(Action::Escape), Input::Action(Action::Escape)],
             "an Escape that had gone quiet was read as the next one's prefix"
         );
-        // Two in one burst are one key, and nothing comes out until the
-        // quiet after the second.
+        // Two in one burst are two Escapes, and so are three, as fx's
+        // decoder resolves every ESC behind the monitor's held one as one:
+        // nothing comes out until the quiet after the last.
         for burst in [&b"\x1b\x1b"[..], b"\x1b\x1b\x1b"] {
             let mut decoder = Decoder::new();
             let mut out = Vec::new();
@@ -4204,8 +4223,8 @@ mod tests {
             decoder.flush(start + Decoder::ESC_TIMEOUT, &mut out);
             assert_eq!(
                 out,
-                vec![Input::Action(Action::Escape)],
-                "{burst:?} was not one Escape"
+                vec![Input::Action(Action::Escape), Input::Action(Action::Escape)],
+                "{burst:?} was not two Escapes"
             );
         }
         // The clock starts again at the second `ESC`: a flush a timeout after
@@ -4221,7 +4240,10 @@ mod tests {
             "the prefix's clock ran from the first ESC: {out:?}"
         );
         decoder.flush(second + Decoder::ESC_TIMEOUT, &mut out);
-        assert_eq!(out, vec![Input::Action(Action::Escape)]);
+        assert_eq!(
+            out,
+            vec![Input::Action(Action::Escape), Input::Action(Action::Escape)]
+        );
         // And a prefix that went quiet is the Escape key whatever follows:
         // the byte after it is its own (`an_escape_that_went_quiet_...`).
         let mut decoder = Decoder::new();
@@ -4231,7 +4253,11 @@ mod tests {
         decoder.feed(b'[', start + Decoder::ESC_TIMEOUT, &mut out);
         assert_eq!(
             out,
-            vec![Input::Action(Action::Escape), Input::Text('[')],
+            vec![
+                Input::Action(Action::Escape),
+                Input::Action(Action::Escape),
+                Input::Text('[')
+            ],
             "a quiet prefix swallowed the keystroke after it"
         );
     }
