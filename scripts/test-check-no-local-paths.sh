@@ -62,7 +62,8 @@
 # counting it as one that passed; a line with no number, a stream that ends
 # inside a record, an index listing cut inside its last entry (the symlink
 # listing and the tracked one), a `git grep` that fails without a word, and a
-# line pass that leaves out a file the count pass has stop the scan, saying
+# line pass that leaves out a file the count pass has, or gives one line of a
+# file fewer (the shape a CI run showed), stop the scan, saying
 # whether a second look sees the same (`per tree`) or not (`per run`, and the
 # check still fails); and each grep of the tree runs on one thread (a `git`
 # on PATH in front of the real one makes each happen on demand). And a check
@@ -499,6 +500,17 @@ badnum:*' -C . '*' grep '*' -n '*)
 omit:*' -C . '*' grep '*' -n '*)
 	exit 1
 	;;
+# The tree's line pass gives one line of a file fewer than its count does,
+# the shape CI showed: plant.md's second line is dropped from it.
+fewer:*' -C . '*' grep '*' -n '*)
+	"$SHIM_REAL" "$@" >"$SHIM_TMP/fewer.out"
+	s=$?
+	if [ "$s" -gt 1 ]; then exit "$s"; fi
+	while IFS= read -r -d '' p && IFS= read -r -d '' n && IFS= read -r text; do
+		[ "$p:$n" = plant.md:2 ] || printf '%s\0%s\0%s\n' "$p" "$n" "$text"
+	done <"$SHIM_TMP/fewer.out"
+	exit "$s"
+	;;
 omitonce:*' -C . '*' grep '*' -n '*)
 	if [ ! -e "$SHIM_TMP/omitted" ]; then
 		: >"$SHIM_TMP/omitted"
@@ -603,6 +615,23 @@ if [ "$status" -ne 1 ] || ! grep -q 'two readings of the tree disagree: the line
 	show
 else
 	ok omit "the two readings disagree; the check fails"
+fi
+
+# The line pass gives one line of a file fewer than the count (CI's shape):
+# the check fails, naming the file and both counts, and the second look says
+# it repeats.
+t="$work/fewer"
+new_tree "$t"
+printf '%s\n%s\n' "$mac" "$linux" >"$t/plant.md"
+track "$t"
+run_check "$t" "${shim_env[@]}" SHIM_MODE=fewer
+if [ "$status" -ne 1 ] || ! grep -q -x -F 'check-no-local-paths: two readings of the tree disagree: the line pass has plant.md with 1 line(s), git grep -c has plant.md with 2' "$work/out" ||
+	! grep -q -x -F 'check-no-local-paths: a second look at plant.md: the line pass gave line(s) 1 the first time and 1 now (git exit 0); git grep -c gives 2 now: per tree, they disagree again' "$work/out" ||
+	! grep -q 'the scan could not finish' "$work/out"; then
+	problem "fewer: a line pass with one line of a file fewer than the count did not fail the check, naming both (exit $status):"
+	show
+else
+	ok fewer "the two readings disagree; the check fails"
 fi
 
 # The line pass leaves the file out once: the second look finds it, and the
