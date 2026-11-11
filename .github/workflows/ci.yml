@@ -54,10 +54,10 @@ jobs:
       # whole), test-preview-contract.sh, test-check-no-local-paths.sh and
       # test-early-stop.sh. They exercise the OS's bash, grep, git and getconf
       # -- BSD grep on macOS, GNU grep on Linux -- and build nothing for the
-      # target, so a second row of the same OS
-      # repeats them on the same userland. On the x86_64 macOS row they would
-      # have cost minutes against its 60-minute timeout (PR #80: 47m29s). The
-      # gates themselves (every check-*.sh) still run on every row.
+      # target, so a second row of the same OS repeats them on the same
+      # userland. On the x86_64 macOS row they would have cost minutes against
+      # its 60-minute timeout (PR #80: 47m29s). The gates themselves (every
+      # check-*.sh) still run on every row.
       #
       # `part` splits one target's gate over two jobs on two runners of the
       # same label, both on the commit under test: `checks` runs the steps up
