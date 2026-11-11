@@ -1,0 +1,25 @@
+# cmp_sweeps.py (APPROVAL-VERTICAL-SPELLINGS', unchanged, run from its folder) over sweep-base's and sweep-head's pairs.json
+# base: xfx-base sha256 6ca5732b40c5b75b58ae808f307b0a71f26ac3f27d9e901beb7fafca8e5111d1 (df45025c); head: xfx-head sha256 91d446f5d2130b66fe87d93c49daa1665293dfbc8bda62bb9ec70512c2b32dd7 (47fccd97)
+# oracle before the two runs: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+# base 11:29:13Z-11:40:31Z, head 11:40:31Z-11:51:57Z, one suite-lock slot, --jobs 2, 40x120
+change p5-cancel-double-escape-turn/a-meta-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-cancel-double-escape-turn/b-burst-cancelled: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-cancel-double-escape-turn/c-person-cancelled: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-cancel-double-escape-turn/mid2: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-input-question20/q20-answered: normalized-identical -> identical; causes [] -> []; uncaused 0 -> 0
+change p5-modified-meta-prefix/caps-ctrl-end: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-modified-meta-prefix/caps-ctrl-home: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-modified-meta-prefix/ctrl-meta-bit-left: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-modified-meta-prefix/hyper-left: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-modified-meta-prefix/meta-bit-end: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-modified-meta-prefix/meta-ctrl-home: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-modified-meta-prefix/meta-down: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-modified-meta-prefix/meta-left: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-modified-meta-prefix/meta-right: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-modified-meta-prefix/meta-ss3-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-modified-meta-prefix/meta-super-left: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-modified-meta-prefix/meta-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-modified-meta-prefix/num-ctrl-home: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+base: 317 pairs, 238 pass, 27 with uncaused rows
+head: 317 pairs, 255 pass, 10 with uncaused rows
+drops: 0

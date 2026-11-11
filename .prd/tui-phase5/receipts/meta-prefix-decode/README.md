@@ -311,4 +311,131 @@ a catalog-wait test (the known flake class); the table kills M8 on its own.
 The first run, at `2fbe3e83` (before the correction), killed its 21 of 21
 too; it is not kept, since its code is not the head's.
 
-TODO: sweep, gate, parity, decisions, open.
+## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
+
+The command, at 40x120 with `--jobs 2`, on this branch's scenarios and
+ledger:
+
+```
+scripts/fxcap/sweep.sh --only 'composer*' --only 'p5-modified-*'
+  --only 'p5-paragraph-*' --only 'p5-super-arrows*' --only 'p5-input-*'
+  --only 'p5-page-keys*' --only 'cancel*' --only 'p5-cancel*'
+```
+
+It ran once with the base's binary (`v0.1.0-df45025`) and once with the
+code head's (`v0.1.0-47fccd9`), both in one suite-lock slot, at load 27 to
+48. That is 37 scenarios and 317 pairs; `p5-page-keys*` and `cancel*` match
+no scenario (the page keys are `p5-modified-page-keys`, in
+`p5-modified-*`). The oracle's sha256 was `8e6cda2e…` before and after
+(`sweep-compare.txt`'s header). APPROVAL-VERTICAL-SPELLINGS' `cmp_sweeps.py`
+(unchanged, run from its folder) compares them pair by pair:
+
+- **base 238 / 317, head 255 / 317, drops 0.** No scenario failed or timed
+  out on either side.
+- **The 17 pairs that change to a pass are this unit's**: the composer's 13
+  prefixed and lock-bit snaps (all but `draft`), and the turn's four after
+  `mid` (`a-meta-up`, `b-burst-cancelled`, `mid2`, `c-person-cancelled`).
+  On the base, `ESC ESC [ A` put the last prompt back in the composer, and
+  every snap after it carried it.
+- **This unit's three scenarios** pass 24 of 25 at the head. The 25th,
+  `c-menu`, is unresolved on both sides under the ledger's existing causes
+  (`menu-count`, `menu-shift`, `C8-shell`: fx lists `/shell`, which xfx
+  does not have), with no uncaused row.
+- **One other pair changes class**, `p5-input-question20/q20-answered`,
+  from normalized-identical to identical: a pass both ways. It is the
+  same pair COMPOSER-SUPER-ARROWS' sweep saw change, through the
+  `turn-wall-time` normalization of its turn's seconds.
+- **Uncaused rows**: 27 pairs have them at the base and 10 at the head.
+  All ten have the same rows at the base: `p5-input-approval`'s `after`,
+  `cmd-ask` and `edit-ask`; `p5-input-paste-amend`'s `end`;
+  `p5-modified-page-keys`' `full-pgup`; `p5-paragraph-move`'s four
+  full-transcript screens; `p5-super-arrows-approval`'s
+  `amend-super-right` (its trimmed caret blank). All are older than this
+  unit.
+- **A person's double Escape**: `p5-cancel-double-escape`'s
+  `a-person-cleared`, `c-person-closed` and `c-person-cleared` pass on both
+  sides, and so do its bursts (`b-burst-cleared`, `d-burst-cleared`).
+  `-turn`'s `c-person-cancelled` passes at the head only: on the base its
+  composer still held the prompt `a-meta-up` recalled, and its two presses
+  cancelled the turn on both sides (`red-pairs.txt`).
+
+## Gate
+
+GATE: dispatcher
+
+## Refs (`refs.txt`, `refs.py`)
+
+`refs.py` is COMPOSER-SUPER-ARROWS', with its paragraph re-pointed at this
+unit. It checks the ledger's refs into the files this unit changes, by
+content, against the base (`refs.py df45025c`). 6 of 16 had moved (the new
+shell tests sit above them), and `--fix` re-pointed them (`2fbe3e83`);
+`refs.txt` reads 16 checked, 0 wrong.
+
+## Parity (`docs/parity.md`)
+
+- **The full-screen TUI row, the decoder sentence**: after "a lone `ESC`
+  resolved as the Escape key only after 50 ms of quiet" it now states the
+  copied rule. A second `ESC` before that quiet is fx's meta prefix, and
+  the key behind it is that key with Alt (the cursor keys, a key report
+  where `kittyUnicodeKeyAction` reads it, the tilde keys, the paste markers
+  and Shift-Tab without it). A control byte behind it is one keystroke with
+  no binding. A report behind it gives the first `ESC` back as the Escape
+  key. The pair with nothing behind it is two Escapes, as fx's theme
+  monitor delivers it. It names the one part **not copied**: the lengths of
+  the quiet (fx's monitor 75 ms, then its decoder 30 ms; here one 50 ms).
+- **The same row, the cursor-key grammar sentence**: a modifier field is
+  read for every bit a terminal sends, `1` to `256`, its four bits only;
+  any modifier is Shift-Tab; a field past 256 is no key, where fx reads
+  the low bits, as kitty's field is.
+- **The `ask_user_question` row** and **the approval's "Not changed"
+  sentence**: both said `ESC ESC [ D` (and `[ A`/`[ B` at a choice)
+  cancelled the batch or the turn, owner META-PREFIX-DECODE (proposed). Both
+  now say the prefixed arrows leave the question and the choice, as fx's
+  do. **META-PREFIX-DECODE is no longer an owner anywhere**: `grep -c
+  'META-PREFIX-DECODE\*\* (proposed\|owner \*\*META-PREFIX-DECODE'
+  docs/parity.md` prints 0.
+- `scripts/fxcap/scenarios/p5-approval-vertical-keys.cap`'s note about
+  `ESC ESC [ A` names the test that now pins it.
+
+## Decisions
+
+- **A quiet prefix is two Escapes, not one** (`47fccd97`). fx's key decoder
+  alone gives one, and its tests feed the decoder alone. The fx binary gives
+  two, because its theme monitor sits in front at every launch. Copied the
+  binary's behaviour: the user sees the binary, and the capture is the
+  oracle. This also keeps what the base did for a burst, so a person's
+  double Escape is unchanged in every timing.
+- **The quiet stays 50 ms** (`Decoder::ESC_TIMEOUT`). fx's lone Escape
+  lands after about 105 ms (75 + 30). Copying that would slow every
+  Escape xfx resolves, and change a bound pty tests outside this unit rest
+  on. It is recorded as not copied in the parity row.
+- **A report behind the prefix gives the first `ESC` back** (an `OSC`, the
+  background notification). fx's monitor keeps the report and hands the
+  decoder a lone `ESC`, so the user's Escape survives there. Reading the
+  report as a prefixed key would lose it.
+- **A control byte behind the prefix is one `Ignore`**, as fx's decoder
+  reads `ESC ESC` and a control (`terminal_action_decoder.zig:92-101`).
+- **A modifier field stops at 256.** fx reads any number and uses the low
+  bits. 256 is every bit a terminal sends (kitty's eight), and the
+  cursor-key grammar is already stricter than fx's, one canonical spelling
+  per field, as `key_modifiers` is for kitty's field.
+- **The prefix is Alt's bit for the cursor keys only** (`prefixed`). For a
+  key report it is read branch by branch, as fx reads it. Mutant M15 shows
+  that an Alt-bit shortcut there would make `ESC ESC [ 98 u` Alt-b.
+- **The burst shell tests are pins, not RED.** The base already read a
+  burst as two Escapes; they guard the change from turning it into one
+  (mutant M22).
+
+## Open
+
+- **The `ESC`-to-`ESC` gap at which fx's monitor still splits a pair** is
+  75 ms by its code (`theme_monitor.zig:85-88`). xfx's is 50 ms. Two
+  presses 50 to 75 ms apart are two Escapes on both: here because the first
+  has gone quiet, in fx because the monitor still holds it and hands the
+  second on. Not measured on the binary.
+- **A control byte behind the prefix**: fx's monitor hands `ESC` and the
+  control on together, so its decoder sees `ESC ESC ^C` and ignores it.
+  This is read from the code [inferred], not captured.
+- **`a-meta-up`'s one-cell difference** (fx's `•` in front of
+  `Generating`) is read as the marker's blink phase [inferred]; not
+  reproduced.
