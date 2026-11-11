@@ -34,9 +34,10 @@ four native target archives with their checksums and the `2lab-ai/tap/xfx`
 Homebrew formula, which selects and installs the archive matching your OS and
 architecture.
 
-The **preview channel** runs alongside that. A preview is cut per epic, not per
-push: a merge to `main` that bumps `.github/preview-epoch` (one line naming the
-epic it closes) publishes a prerelease of that exact commit -- four native
+The **preview channel** runs alongside that. A preview is cut when a body of
+work is finished, not on every push: a merge to `main` that bumps
+`.github/preview-epoch` (one line naming what the preview closes) publishes a
+prerelease of that exact commit -- four native
 binaries and their checksums -- and each binary reports `build_channel=preview`
 along with the twelve characters of the commit it was compiled from, so what you
 are running can be tied back to a source revision; a build from a tag answers
@@ -49,7 +50,7 @@ are running can be tied back to a source revision; a build from a tag answers
 |---|---|
 | **Ask** | `xfx ask "..."` runs one bounded, multi-step turn: streamed assistant text, tool calls executed locally, then exactly one terminal event. `--json` gives you JSONL. |
 | **Shell** | `XFX_TUI=0` on a bare `xfx` opens the line-oriented shell instead of the TUI. It never takes the alternate screen, so your scrollback survives. It knows the same thirty-four commands -- `/help` lists them -- and the ones that need the full screen (`/resume`, `/fork`, `/settings`, `/mcp`, `/usage`, `/stats`, `/compact`, `/effort`, `/fast`, `/ultrafast`, `/image`, `/images`, `/paste`) say so and point back to it. |
-| **TUI** | A bare `xfx` with a terminal on both ends opens a full-screen band: a divider, the composer and a status row at the bottom of the terminal's **normal** buffer, with a slash-completion menu, an `@` file picker, prompt history, framed paste and all thirty-four commands, their menus and panels among them. It borrows the alternate screen for two things only -- reviewing a change too large for the band, and the full transcript Ctrl-O opens -- and gives it straight back. `XFX_TUI=0` opts out to the line shell; a pipe on either end and every subcommand behave as before. The default, and narrower than upstream's: [`docs/parity.md`](docs/parity.md)'s `full-screen TUI` row is the whole contract. |
+| **TUI** | A bare `xfx` with a terminal on both ends opens a full-screen band: a divider, the composer and a status row at the bottom of the terminal's **normal** buffer, with a slash-completion menu, an `@` file picker, prompt history, framed paste and all thirty-four commands, their menus and panels among them. It borrows the alternate screen for two things only -- reviewing a change too large for the band, and the full transcript Ctrl-O opens -- and gives it straight back. `XFX_TUI=0` opts out to the line shell. Subcommands never open the TUI (what changed in their output is in [`CHANGELOG.md`](CHANGELOG.md)'s Breaking items), and a bare `xfx` with a pipe on either end opens neither shell and points at `xfx ask`. The default, and narrower than upstream's: [`docs/parity.md`](docs/parity.md)'s `full-screen TUI` row is the whole contract. |
 | **Models** | `/model` opens a menu of the provider's models -- the Gateway's catalog or a llmux daemon's -- with their context window, output ceiling and Fast/Ultra facts; `/model <query>` switches to the model the query names best (or to the id as typed) from the next turn on, records it in the session and saves it as the provider's model in `~/.xfx/settings.json`. `/setup <gateway\|llmux>` switches which backend a prompt goes to. |
 | **Tools** | `list_files`, `glob_files`, `grep_files`, `read_file`, `write_file`, `edit_file`, `create_folder`, `terminal` (one action: `exec`), `capability_search`, `skill`, `mcp_select_tool` and `ask_user_question`. The two MCP tools are offered only where an MCP client runs, the TUI, and `ask_user_question` is answered only there. Reads are bounded; writes are canonicalized inside the workspace, staged in the same directory, and renamed atomically. |
 | **Permissions** | `ask` asks you on the terminal, `auto` admits bounded reversible changes and a reporting-only command grammar, `yolo` skips the checks and says so on stderr. |
@@ -78,9 +79,9 @@ setup` -- which switches providers and proves a llmux daemon, but is **not**
 interactive credential onboarding for the Gateway; that part is still absent.
 The setup targets are `gateway` and `llmux`; see [Backends](#backends).
 
-Provider *switching* is `xfx setup <provider>` and `/setup <provider>`, which is
-where upstream moved it in 0.0.5; the standalone `provider` command name is not
-advertised.
+Provider *switching* is `xfx setup <provider>`, and in a session
+`/provider <provider>`, with `/setup` as its alias, as fx v0.0.16 has them; the
+standalone `provider` subcommand is not advertised.
 
 **xfx does not claim parity with `fx`, and it never will claim it in a version
 number.** If a claim in this file disagrees with `docs/parity.md`, the ledger is
@@ -95,13 +96,21 @@ Read this before using `--auto` or `--yolo` on a repository you care about.
   that is true. A command xfx agrees to run runs with your privileges, with your
   environment, with your network. The permission modes decide *what xfx agrees
   to start*; they cannot constrain what a started process then does.
-- **`ask` (the safest mode)** requires a real terminal approval for every change
-  and every command. With no terminal -- in a pipe, in CI -- it refuses instead of
-  asking, so a scripted `xfx ask` fails closed.
-- **`auto` (the default)** runs reads directly, runs bounded reversible
-  workspace writes after structural validation, and admits only a narrow
-  reporting command grammar: no `&&`, no shell, no package-manager build or test
-  families, nothing that compiles or runs your project's code. A directory added
+- **Your own rules come first, in every mode but `yolo`.** An allow rule from
+  `/allowlist`, a saved session's rule from `/permissions remember`, and a
+  resumed session's "always" grants admit a call before the mode is asked; a
+  deny rule refuses it, and a rule that asks makes even `auto` ask. Only your
+  profile can hold these rules: `permission` is profile-only, so a
+  repository's `.xfx.json` cannot add one.
+- **`ask` (the safest mode)** asks on the terminal before every change and every
+  command that no rule of yours has decided. With no terminal -- in a pipe, in
+  CI -- it refuses instead of asking, so a scripted `xfx ask` with no matching
+  rule fails closed.
+- **`auto` (the default)**, after your rules, runs reads directly, runs
+  bounded reversible workspace writes after structural validation, and admits
+  only a narrow reporting command grammar: no `&&`, no shell, no
+  package-manager build or test families, nothing that compiles or runs your
+  project's code. A directory added
   with `--add-dir` or `/workspace add` is a root like the workspace, and `auto`
   writes there as it does in the workspace -- except the files that decide what
   runs later (`.zshrc`, `.zshenv` and the other shell startup files, all of
@@ -142,8 +151,8 @@ Read this before using `--auto` or `--yolo` on a repository you care about.
 
 ### Homebrew, from the stable channel
 
-Once a stable release is published, one command adds the `2lab-ai/tap` tap and
-installs the newest `v*` release from it:
+One command adds the `2lab-ai/tap` tap and installs the newest `v*` release
+from it:
 
 ```bash
 brew install 2lab-ai/tap/xfx
@@ -287,7 +296,7 @@ groups of scenarios:
 
 - the scenarios the change adds or edits, including any scenario that uses a
   file the change edits;
-- the scenarios the change's receipts name;
+- every scenario named in a test-evidence note the change adds or edits;
 - the core set in [`ci-core.txt`](scripts/fxcap/ci-core.txt), which covers
   the composer, a turn, an approval, a menu and a resize.
 
@@ -297,8 +306,8 @@ pair that the change adds is reported, not failed. A pair that a
 `nondeterminism` cause in the ledger covers is run up to three more times, on
 each build, before it counts. [`ci_sweep.py`](scripts/fxcap/ci_sweep.py) is the manual.
 
-When a push bumps `.github/preview-epoch` (an epic's preview), or when someone
-starts it by hand, [`sweep-full.yml`](.github/workflows/sweep-full.yml) runs
+When a push bumps `.github/preview-epoch`, which publishes a preview, or when
+someone starts it by hand, [`sweep-full.yml`](.github/workflows/sweep-full.yml) runs
 every scenario and keeps the scoreboard as an artifact. That run reports the
 numbers and never fails on them. A green CI run does not replace the local
 sweep.
@@ -314,8 +323,8 @@ reasons:
   check that reads it. Timing on the runner would then show up as false
   regressions, unless every update were regenerated in CI and copied back by
   hand.
-- The 0.0.16 delta merges up to seven unit pull requests per epic in
-  parallel. Each one would rewrite the same file, so they would conflict.
+- Several pull requests are often open at once, and each one would rewrite
+  the same file, so they would conflict.
 - A change could lower the list in the same diff that causes the regression.
 
 The cost is a second debug build, about a minute, and a base run of every
@@ -399,11 +408,14 @@ permission mode, or the endpoint your prompt is sent to.
 A settings file that exists but cannot be parsed is reported by `xfx doctor`,
 not silently ignored. So is a value that cannot be read: a `backend` xfx does
 not recognize does not fall back to a default, because falling back would send
-your prompt somewhere you did not choose.
+your prompt somewhere you did not choose. A `~/.xfx/settings.json` that cannot
+be parsed also refuses every tool outside full access, because the permission
+rules it may hold, denies among them, cannot be read.
 
 ## Backends
 
-Two, chosen by the profile-only `backend` setting.
+Two, chosen by the profile-only `provider` setting or, as in 0.1.0, `backend`;
+when one settings layer has both, `provider` wins.
 
 `gateway` is the default: Vercel AI Gateway over its own wire, authenticated by
 the bearer credential above.
@@ -419,8 +431,9 @@ That finds the daemon -- the url a previous setup recorded, else
 `http://127.0.0.1:3456`, else the `proxy.port` in llmux's own config -- and
 proves it really is llmux before recording anything: `GET /` must answer exactly
 `llmux` and `GET /models` must answer a non-empty catalog. It then writes
-`backend`, `llmux_url` and a model from that catalog into
-`~/.xfx/settings.json`, preserving every other key. It sends **no** completion
+`provider`, `backend`, `llmux_url`, and a model from that catalog as both
+`models.llmux` and `model`, into `~/.xfx/settings.json`, preserving every other
+key. It sends **no** completion
 request, so it costs nothing to run, and it reads exactly one field of llmux's
 own configuration -- `proxy.port` -- and no credential.
 
@@ -457,9 +470,11 @@ is the only thing that writes bytes.
 
 ## Upstream and attribution
 
-xfx is an independent reimplementation pinned to `vercel-labs/fx` at
-`580a0c5da9386317251968c09c1cee69e763487a`. No Zig source is copied. Every
-behavioral claim in the ledger cites a file and line at that commit.
+xfx is an independent reimplementation of `vercel-labs/fx`. No Zig source is
+copied. Every behavioral claim in the ledger cites a file and line in upstream:
+fx v0.0.16 (`481104fd`) for the current work, and the earlier pins `c1db9191`
+(fx 0.0.13) and the original `580a0c5da9386317251968c09c1cee69e763487a` for the
+rows and citations written against them.
 
 - Upstream: `vercel-labs/fx`, Apache-2.0, Copyright 2025 Vercel, Inc.
 - xfx: Apache-2.0, Copyright 2026 2lab.ai.
