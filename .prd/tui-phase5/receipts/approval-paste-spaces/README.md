@@ -193,7 +193,8 @@ this unit copies.
     as here, the row ends at it. xfx's is three rows windowed on it. So xfx has two
     more rows, and every row under them moves (the rows `cells.py` lists for
     each: the draft, the scope rows, the divider and the hint).
-- `green.txt`: the unit's tests at the head.
+- `green.txt`: the unit's 15 tests at `f438a5b6`, the last `src/` commit, on
+  both suites: 15 + 15 ok.
 
 ## Mutants (`mutants.txt`, `mutants.py`)
 
@@ -324,4 +325,9 @@ this unit's new shell test. `--fix` re-pointed them, and `refs.txt` reads
   the field's 4096 bytes is refused silently. fx's says
   `That edit exceeds the input limit and was not applied.`
   (`input_paste_runtime.zig:285-290`; `app_input_runtime.zig:1156`). The
-  unbounded buffer is a memory hole a terminal can feed.
+  unbounded buffer is more than a parity gap: it is a memory hole a
+  terminal can feed, the class the composer's and the draft's capture
+  bounds exist for (`super::paste`'s module doc). So this one should be
+  queued as a defect, not only filed [추론: no run fed it; the code path is
+  `QuestionPanel::apply`'s `Act::PasteByte` arm, `held.push(byte)` with no
+  check].
