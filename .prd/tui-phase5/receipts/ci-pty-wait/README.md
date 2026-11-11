@@ -1,9 +1,10 @@
 # CI-PTY-WAIT — receipt
 
-Unit: CI-PTY-WAIT. Base `dcfa5146` (main). Branch `fix/p5-ci-pty-wait`, five
-commits: `f79f5e5b` (product), `f311ad79`, `a70dcd89`, `a77fad76`, `7b524d78`
-(tests), and this receipt. Every figure below comes from a file in this folder;
-paths are scrubbed (`<runner>`, `<tmp>`, `<home>`).
+Unit: CI-PTY-WAIT. Base `dcfa5146` (main). Branch `fix/p5-ci-pty-wait`: one
+product commit, `f79f5e5b`; five test commits, `f311ad79`, `a70dcd89`,
+`a77fad76`, `7b524d78` and `765f9170`; and the receipt commits. Every figure
+below comes from a file in this folder; paths are scrubbed (`<runner>`,
+`<tmp>`, `<home>`).
 
 ## The question
 
@@ -157,6 +158,10 @@ was, with no retry.
 - A session whose paste went out unpaced makes every assertion it made before.
   `PASTE_QUIET` itself is untouched.
 - The harness's own cases (`a70dcd89`) hold the measurement and the retry.
+- `paste_unpaced` prints the paste's longest pause (`765f9170`). The test
+  captures it and shows it only on failure, so a CI failure says which way it
+  went: the "no session tested the paste" panic is the harness pausing, and a
+  20 s timeout after a paste that never paused is the product's.
 - The early stop exists because, at `a77fad76`, a paused session went on
   writing the rest of the body, which was being typed as keys by then. That
   slowed reading enough that, in 2 of 18 head runs, one part outlasted the
