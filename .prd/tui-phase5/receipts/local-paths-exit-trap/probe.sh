@@ -20,8 +20,8 @@ run() {
 	[ "$out" = reached-the-end ] && end=yes
 }
 
-printf '\n## each early stop, under each trap shape (no trap; rm; rm on EXIT HUP INT TERM; a cleanup function)\n'
-for trap in none rm rm-sig func; do
+printf '\n## each early stop, under each trap shape (no trap; rm; rm on EXIT HUP INT TERM; a cleanup function;\n## the guarded EXIT trap this unit installs)\n'
+for trap in none rm rm-sig func guarded; do
 	for stop in unset-top unset-array unset-func unset-local unset-cmdsubst colon-q false-top false-func pipefail exit3-top exit3-func arith sigterm-self; do
 		{
 			printf '%s\n' 'set -euo pipefail' 'f="$(mktemp "${TMPDIR:-/tmp}/probe.XXXXXX")"'
@@ -30,6 +30,7 @@ for trap in none rm rm-sig func; do
 			rm) printf '%s\n' "trap 'rm -f \"\$f\"' EXIT" ;;
 			rm-sig) printf '%s\n' "trap 'rm -f \"\$f\"' EXIT HUP INT TERM" ;;
 			func) printf '%s\n' 'cleanup() { rm -f "$f"; }' 'trap cleanup EXIT' ;;
+			guarded) printf '%s\n' 'finished=0' "trap 'stopped=\$?; rm -f \"\$f\"; [ \"\$finished\" = 1 ] || exit \"\$((stopped == 0 ? 1 : stopped))\"' EXIT" ;;
 			esac
 			case $stop in
 			unset-top) printf '%s\n' 'echo "$nope"' ;;
@@ -47,6 +48,7 @@ for trap in none rm rm-sig func; do
 			sigterm-self) printf '%s\n' 'kill -TERM $$' 'sleep 0' ;;
 			esac
 			printf '%s\n' 'echo reached-the-end'
+			[ "$trap" = guarded ] && printf '%s\n' 'finished=1'
 		} >"$dir/m-$trap-$stop.sh"
 		run "m-$trap-$stop"
 		printf '%-7s %-15s exit=%-3s reached-end=%s\n' "$trap" "$stop" "$rc" "$end"

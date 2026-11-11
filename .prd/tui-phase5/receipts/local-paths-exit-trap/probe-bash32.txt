@@ -1,6 +1,7 @@
 # bash 3.2.57(1)-release
 
-## each early stop, under each trap shape (no trap; rm; rm on EXIT HUP INT TERM; a cleanup function)
+## each early stop, under each trap shape (no trap; rm; rm on EXIT HUP INT TERM; a cleanup function;
+## the guarded EXIT trap this unit installs)
 none    unset-top       exit=1   reached-end=no
 none    unset-array     exit=1   reached-end=no
 none    unset-func      exit=1   reached-end=no
@@ -53,6 +54,19 @@ func    exit3-top       exit=3   reached-end=no
 func    exit3-func      exit=3   reached-end=no
 func    arith           exit=0   reached-end=yes
 func    sigterm-self    exit=143 reached-end=no
+guarded unset-top       exit=1   reached-end=no
+guarded unset-array     exit=1   reached-end=no
+guarded unset-func      exit=1   reached-end=no
+guarded unset-local     exit=1   reached-end=no
+guarded unset-cmdsubst  exit=1   reached-end=no
+guarded colon-q         exit=1   reached-end=no
+guarded false-top       exit=1   reached-end=no
+guarded false-func      exit=1   reached-end=no
+guarded pipefail        exit=1   reached-end=no
+guarded exit3-top       exit=3   reached-end=no
+guarded exit3-func      exit=3   reached-end=no
+guarded arith           exit=0   reached-end=yes
+guarded sigterm-self    exit=143 reached-end=no
 
 ## what $? the EXIT trap sees, after an unset variable and after exit 3 in a function
 entry-unset  exit=0 trap sees 0

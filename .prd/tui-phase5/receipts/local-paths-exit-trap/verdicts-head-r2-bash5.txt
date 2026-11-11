@@ -1,0 +1,36 @@
+# bash 5.2.37(1)-release in ruby:3.4-trixie, head 401b3fb2
+check-no-secrets.sh        set-u  exit=1   fired=1 unbound-msg=1 ran-on-after-signal=0 finished-line=no 0s
+test-check-no-secrets.sh   set-u  exit=1   fired=1 unbound-msg=1 ran-on-after-signal=0 finished-line=no 0s
+check-xfx-identity.sh      set-u  exit=1   fired=1 unbound-msg=1 ran-on-after-signal=0 finished-line=no 0s
+check-preview-contract.sh  set-u  exit=1   fired=1 unbound-msg=1 ran-on-after-signal=0 finished-line=no 0s
+test-preview-contract.sh   set-u  exit=1   fired=1 unbound-msg=1 ran-on-after-signal=0 finished-line=no 0s
+test-gate-env.sh           set-u  exit=1   fired=1 unbound-msg=1 ran-on-after-signal=0 finished-line=no 0s
+smoke.sh                   set-u  exit=1   fired=1 unbound-msg=1 ran-on-after-signal=0 finished-line=no 0s
+check-no-secrets.sh        set-e  exit=1   fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+test-check-no-secrets.sh   set-e  exit=1   fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+check-xfx-identity.sh      set-e  exit=1   fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+check-preview-contract.sh  set-e  exit=1   fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+test-preview-contract.sh   set-e  exit=1   fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+test-gate-env.sh           set-e  exit=1   fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+smoke.sh                   set-e  exit=1   fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+check-no-secrets.sh        exit7  exit=7   fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+test-check-no-secrets.sh   exit7  exit=7   fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+check-xfx-identity.sh      exit7  exit=7   fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+check-preview-contract.sh  exit7  exit=7   fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+test-preview-contract.sh   exit7  exit=7   fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+test-gate-env.sh           exit7  exit=7   fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+smoke.sh                   exit7  exit=7   fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+Terminated
+check-no-secrets.sh        term   exit=143 fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+Terminated
+test-check-no-secrets.sh   term   exit=143 fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+Terminated
+check-xfx-identity.sh      term   exit=143 fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+Terminated
+check-preview-contract.sh  term   exit=143 fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+Terminated
+test-preview-contract.sh   term   exit=143 fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+Terminated
+test-gate-env.sh           term   exit=143 fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s
+Terminated
+smoke.sh                   term   exit=143 fired=1 unbound-msg=0 ran-on-after-signal=0 finished-line=no 0s

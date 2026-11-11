@@ -1,4 +1,4 @@
-# bash 5.2.37(1)-release in ruby:3.4-trixie, head dcfa5146
+# bash 5.2.37(1)-release in ruby:3.4-trixie, base dcfa5146 (this line said "head" until round 2: verdicts.sh printed the clone's HEAD, the base)
 check-no-secrets.sh        set-u  exit=1   fired=1 unbound-msg=1 ran-on-after-signal=0 finished-line=no 0s
 test-check-no-secrets.sh   set-u  exit=1   fired=1 unbound-msg=1 ran-on-after-signal=0 finished-line=no 0s
 check-xfx-identity.sh      set-u  exit=1   fired=1 unbound-msg=1 ran-on-after-signal=0 finished-line=no 0s
