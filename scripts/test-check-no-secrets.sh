@@ -28,8 +28,9 @@
 #   - a distinct key in every file is reported once each, the set compared
 #     whole: no batch dropped or read twice, no name at a batch's edge lost.
 #   - a tree with nothing to scan is refused, not passed;
-#   - a check stopped right after it installs its EXIT trap, by an error of
-#     its own or by SIGTERM, fails rather than passing having scanned nothing.
+#   - a check stopped early -- by an error of its own, an `exit`, or SIGTERM,
+#     right after it installs its EXIT trap or just before its ok line --
+#     fails with that stop's status and leaves no scratch file behind.
 # Most of the names carry a tab, a newline and a byte that is not UTF-8 --
 # a valid two-byte character where the filesystem refuses that (macOS) -- so
 # every batch boundary is between two of them.
@@ -387,20 +388,44 @@ verdict only-a-symlink 1 "check-no-secrets: no files to scan; the check would pa
 
 # --- a check that stops early ------------------------------------------------
 
-# A `trap` from BASH_ENV installs the check's EXIT trap and then stops the
-# check there: by reading a variable no one sets, under its `set -u`, or by
-# sending it SIGTERM. Under bash 3.2 the first left through the trap with
+# A file for BASH_ENV stops the check: a `trap` that installs the check's
+# EXIT trap and then reads a variable no one sets, under the check's `set -u`
+# (`unset`); runs `exit 7` (`exit7`); or sends the check SIGTERM (`term`);
+# and a `printf` that reads that variable just before the check prints its ok
+# line (`late`), once every scratch file is made and every trap installed.
+# Under bash 3.2 a stop by an unset variable left through the trap with
 # status 0 and no output but bash's own line, so CI read the step as a pass
-# that scanned nothing. Each must exit with the status bash gives it (1, and
-# 143 for the signal), the stop must have fired, and nothing may run past it.
-# The file unsets BASH_ENV, so only the check reads it.
-# shellcheck disable=SC2016 # the file's own expansions
-printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	: "$xfx_test_unset"' '}' >"$work/stop-unset.env"
-printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	printf "early stop: SIGTERM\n" >&2' \
-	'	kill -TERM $$' '	printf "early stop: still running\n" >&2' '}' >"$work/stop-term.env"
-# stops_early <case> <expected status> <the line that shows the stop fired>
-stops_early() {
-	local name="$1" want="$2" fired="$3" bad=""
+# that scanned nothing. Each must exit with the status bash gives that stop
+# (1, 7, 143), the stop must have fired, nothing may run past it, and the
+# check's TMPDIR must be empty after it. Each file unsets BASH_ENV, so only
+# the check reads it.
+small="$work/small"
+mkdir -p "$small/scripts"
+sg -C "$small" init -q
+cp "$check" "$small/scripts/check-no-secrets.sh"
+printf 'clean\n' >"$small/a.txt"
+sg -C "$small" add -f -- a.txt scripts/check-no-secrets.sh
+# shellcheck disable=SC2016 # the files' own expansions
+{
+	printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	: "$xfx_test_unset"' '}' >"$work/stop-unset.env"
+	printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	printf "early stop: exit 7\n" >&2' '	exit 7' \
+		'}' >"$work/stop-exit7.env"
+	printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	printf "early stop: SIGTERM\n" >&2' \
+		'	kill -TERM $$' '	printf "early stop: still running\n" >&2' '}' >"$work/stop-term.env"
+	printf '%s\n' 'unset BASH_ENV' 'printf() {' '	case "${1:-}" in' "	'check-no-secrets: ok'*) : \"\$xfx_test_unset\" ;;" \
+		'	esac' '	builtin printf "$@"' '}' >"$work/stop-late.env"
+}
+for row in "unset|1|xfx_test_unset: unbound variable" "exit7|7|early stop: exit 7" \
+	"term|143|early stop: SIGTERM" "late|1|xfx_test_unset: unbound variable"; do
+	stop="${row%%|*}"
+	want="${row#*|}"
+	fired="${want#*|}"
+	want="${want%%|*}"
+	tmp="$work/tmp-$stop"
+	mkdir "$tmp"
+	# Its stderr dropped: bash names the command a signal ended, paths and all.
+	run_check "$small" "BASH_ENV=$work/stop-$stop.env" "TMPDIR=$tmp" 2>/dev/null
+	bad=""
 	if [ "$status" -ne "$want" ]; then
 		bad="the check exited $status, expected $want"
 	fi
@@ -410,19 +435,18 @@ stops_early() {
 	if search -q -e '^check-no-secrets: ok' -e '^early stop: still running' "$work/out"; then
 		bad="${bad:+$bad; }it ran on past the stop"
 	fi
+	left="$(find "$tmp" -mindepth 1 -print | wc -l | tr -d ' ')"
+	if [ "$left" -ne 0 ]; then
+		bad="${bad:+$bad; }it left $left file(s) in its TMPDIR"
+	fi
 	if [ -n "$bad" ]; then
-		problem "$name: $bad; the first lines it printed:"
+		problem "stopped-$stop: $bad; the first lines it printed:"
 		LC_ALL=C sed -n '1,12p' "$work/out" | LC_ALL=C cut -c 1-200 >&2
 	else
-		printf 'test-check-no-secrets: ok %-18s exit %d\n' "$name" "$status"
+		printf 'test-check-no-secrets: ok %-18s exit %d\n' "stopped-$stop" "$status"
 		passed=$((passed + 1))
 	fi
-}
-run_check "$links" "BASH_ENV=$work/stop-unset.env"
-stops_early stopped-unset 1 "xfx_test_unset: unbound variable"
-# Its stderr dropped: bash names the command a signal ended, paths and all.
-run_check "$links" "BASH_ENV=$work/stop-term.env" 2>/dev/null
-stops_early stopped-sigterm 143 "early stop: SIGTERM"
+done
 
 if [ "$failures" -ne 0 ]; then
 	printf 'test-check-no-secrets: %d problem(s), %d case(s) passed\n' "$failures" "$passed" >&2

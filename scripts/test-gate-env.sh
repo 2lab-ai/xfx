@@ -971,20 +971,23 @@ rm -f "${ran:?}"/* "${trace:?}"
 # --- a gate that stops early -------------------------------------------------
 #
 # A `trap` from BASH_ENV installs the gate's EXIT trap and then stops the gate
-# there: by reading a variable no one sets, under its `set -u`, or by sending
-# it SIGTERM. Under bash 3.2 the first left through the trap with status 0, a
-# pass that looked at nothing; a trap on TERM ran its cleanup and went on.
-# Each must exit with the status bash gives it (1, and 143 for the signal),
-# the stop must have fired, and no ok line may follow. The file unsets
+# there: by reading a variable no one sets, under its `set -u`; by `exit 7`;
+# or by sending it SIGTERM. Under bash 3.2 the first left through the trap
+# with status 0, a pass that looked at nothing; a trap on TERM ran its cleanup
+# and went on. Each must exit with the status bash gives that stop (1, 7,
+# 143), the stop must have fired, and no ok line may follow. Each file unsets
 # BASH_ENV, so only the gate reads it. check-no-secrets.sh's and
 # check-preview-contract.sh's cases are in their own tests, this file's and
 # smoke.sh's in test-early-stop.sh.
 # shellcheck disable=SC2016 # the file's own expansions
 printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	: "$xfx_test_unset"' '}' >"$work/stop-unset.env"
+printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	printf "early stop: exit 7\n" >&2' '	exit 7' \
+	'}' >"$work/stop-exit7.env"
 printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	printf "early stop: SIGTERM\n" >&2' \
 	'	kill -TERM $$' '	printf "early stop: still running\n" >&2' '}' >"$work/stop-term.env"
 for gate in check-xfx-identity test-check-no-secrets test-preview-contract; do
-	for row in "unset|1|xfx_test_unset: unbound variable" "term|143|early stop: SIGTERM"; do
+	for row in "unset|1|xfx_test_unset: unbound variable" "exit7|7|early stop: exit 7" \
+		"term|143|early stop: SIGTERM"; do
 		stop="${row%%|*}"
 		want="${row#*|}"
 		fired="${want#*|}"

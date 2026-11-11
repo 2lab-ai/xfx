@@ -13,11 +13,11 @@
 # before its last line, and keeps the status bash gives it.
 #
 # Each case here stops a script right after it installs its EXIT trap, by a
-# `trap` from BASH_ENV that installs it and then stops: once by reading a
-# variable no one sets, under the script's `set -u`, and once by sending the
-# script SIGTERM. It requires the status bash gives that stop (1, and 143 for
-# the signal), the stop seen in the output, and nothing past it. The file
-# unsets BASH_ENV, so only the script under test reads it.
+# `trap` from BASH_ENV that installs it and then stops: by reading a variable
+# no one sets, under the script's `set -u`; by `exit 7`; or by sending the
+# script SIGTERM. It requires the status bash gives that stop (1, 7, 143), the
+# stop seen in the output, and nothing past it. Each file unsets BASH_ENV, so
+# only the script under test reads it.
 #
 # The other gate scripts with an EXIT trap have these cases in their own
 # tests: check-no-secrets.sh in test-check-no-secrets.sh,
@@ -45,6 +45,8 @@ passed=0
 
 # shellcheck disable=SC2016 # the file's own expansions
 printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	: "$xfx_test_unset"' '}' >"$work/stop-unset.env"
+printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	printf "early stop: exit 7\n" >&2' '	exit 7' \
+	'}' >"$work/stop-exit7.env"
 printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	printf "early stop: SIGTERM\n" >&2' \
 	'	kill -TERM $$' '	printf "early stop: still running\n" >&2' '}' >"$work/stop-term.env"
 
@@ -56,7 +58,8 @@ chmod 755 "$work/xfx"
 for script in "test-gate-env.sh|^test-gate-env: ok" "smoke.sh|^[0-9]+ check\(s\), 0 failure\(s\)$"; do
 	done_re="${script#*|}"
 	script="${script%%|*}"
-	for row in "unset|1|xfx_test_unset: unbound variable" "term|143|early stop: SIGTERM"; do
+	for row in "unset|1|xfx_test_unset: unbound variable" "exit7|7|early stop: exit 7" \
+		"term|143|early stop: SIGTERM"; do
 		stop="${row%%|*}"
 		want="${row#*|}"
 		fired="${want#*|}"
@@ -84,7 +87,7 @@ for script in "test-gate-env.sh|^test-gate-env: ok" "smoke.sh|^[0-9]+ check\(s\)
 			tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
 			failures=$((failures + 1))
 		else
-			printf 'test-early-stop: ok %-26s exit %d\n' "$name" "$status"
+			printf 'test-early-stop: ok %-28s exit %d\n' "$name" "$status"
 			passed=$((passed + 1))
 		fi
 	done

@@ -281,17 +281,20 @@ expect epoch-crlf "$root" '.github/preview-epoch is "phase4\r\n"'
 # --- a check that stops early ------------------------------------------------
 #
 # A `trap` from BASH_ENV installs the check's EXIT trap and then stops the
-# check there: by reading a variable no one sets, under its `set -u`, or by
-# sending it SIGTERM. Under bash 3.2 the first left through the trap with
-# status 0, a pass; the second ran the trap's cleanup and went on. Each must
-# exit with the status bash gives it (1, and 143 for the signal), the stop
-# must have fired, and nothing may run past it. The file unsets BASH_ENV, so
-# only the check reads it.
+# check there: by reading a variable no one sets, under its `set -u`; by
+# `exit 7`; or by sending it SIGTERM. Under bash 3.2 the first left through
+# the trap with status 0, a pass; the third ran the trap's cleanup and went
+# on. Each must exit with the status bash gives that stop (1, 7, 143), the
+# stop must have fired, and nothing may run past it. Each file unsets
+# BASH_ENV, so only the check reads it.
 # shellcheck disable=SC2016 # the file's own expansions
 printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	: "$xfx_test_unset"' '}' >"$work/stop-unset.env"
+printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	printf "early stop: exit 7\n" >&2' '	exit 7' \
+	'}' >"$work/stop-exit7.env"
 printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	printf "early stop: SIGTERM\n" >&2' \
 	'	kill -TERM $$' '	printf "early stop: still running\n" >&2' '}' >"$work/stop-term.env"
-for row in "unset|1|xfx_test_unset: unbound variable" "term|143|early stop: SIGTERM"; do
+for row in "unset|1|xfx_test_unset: unbound variable" "exit7|7|early stop: exit 7" \
+	"term|143|early stop: SIGTERM"; do
 	stop="${row%%|*}"
 	want="${row#*|}"
 	fired="${want#*|}"
