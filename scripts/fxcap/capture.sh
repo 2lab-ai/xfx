@@ -552,9 +552,13 @@ pane_set() {
 # `format_cb_pane_pid`, `wp->fd != -1`, at tmux's 3.8 tag; 3.7b printed it),
 # so a binary gone at once can leave no pid to read. Its exit is then tmux's
 # own word: `#{pane_dead_status}` (or `_signal`) is set only once tmux has
-# reaped that very process (server.c `server_child_exited`,
-# PANE_STATUSREADY). Neither yet -- the pty closed, the reaping not done, or
-# the process alive with its pty closed -- and it looks again, 1 s at most,
+# reaped that very process (server.c `server_child_exited`, which matches the
+# pane's current `wp->pid`, sets PANE_STATUSREADY), and a respawn clears it
+# before it forks the new process (spawn.c, PANE_STATUSREADY cleared, then
+# `fdforkpty`), so no status outlives the process it is for. Neither yet --
+# the pty closed, the reaping not done, or the process alive with its pty
+# closed -- and it looks again: 20 looks, 0.05 s apart, 1 s of sleeps plus
+# the looks' own time (a look that hangs is the sweep's per-run timeout's),
 # then records `unknown`.
 own_pane() {
   local sock=$1 pid='' exit='' out start i
