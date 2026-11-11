@@ -76,14 +76,15 @@ So in fx `working` is always written, and always after a frame showing
 `Thinking`, however fast the turn: the worker cannot start the turn before the
 report. The test states fx's rule, and xfx broke it under load.
 
-**xfx's path at base:**
+**xfx's path at base** (line refs at round 2's head, where the same steps
+live):
 - Nothing holds the runtime: it starts the prompt as soon as it is sent.
-- Each tick reads the keys (`read_burst`, `src/tui/event_loop.rs:279`), then
-  drains the runtime (`take_ui_events`, `:289`; `drain_ui_events`, `:365`),
-  taking everything on the channel.
+- Each tick reads the keys, then drains the runtime, taking everything on the
+  channel (the loop's turn, `loop_turn`, `src/tui/event_loop.rs:357`: the keys
+  at `:366`, the drain at `:376`; `drain_ui_events`, `:427`).
 - A prompt's `working` waits for the frame that first shows its turn
-  (`take_status_moved_by_input`, `src/tui/shell.rs:11092`; `Keyed::NotYet` at
-  `:11108`).
+  (`take_status_moved_by_input`, `src/tui/shell.rs:11487`; `Keyed::NotYet` at
+  `:11516`).
 - So when one drain held the turn's start, its answer and its end, that tick
   reported the settled `done` and nothing else. When it held the start and the
   first answer bytes, the turn's first frame showed `Generating`.
@@ -92,13 +93,21 @@ report. The test states fx's rule, and xfx broke it under load.
 - The drain stops right after a turn start whose `working` is owed after the
   frame that first shows the turn. That is a prompt held for its turn, or one
   this tick's keys sent (`Shell::turn_start_owes_its_frame`,
-  `src/tui/shell.rs:11132`; the stop, `src/tui/event_loop.rs:396`).
+  `src/tui/shell.rs:11542`; the stop, `src/tui/event_loop.rs:458`). Since
+  round 2 the predicate is the tick's own answer, `keyed()` (`:11501`), which
+  `take_status_moved_by_input` takes: §7.
 - That tick's frame shows the turn beginning (`Thinking`) and `working` follows
   it. The rest of the turn is read on the next tick.
 - The OSC 7501 row in `docs/parity.md` says so.
 - `a_turn_start_owes_its_frame_exactly_when_its_tick_writes_working_after_the_frame`
-  (`a77fad76`) holds the drain's stop to the tick's own `Keyed::AfterFrame`, for
-  all four combinations of held and keyed.
+  (`src/tui/shell.rs:22274`; `a77fad76`, widened in round 2) holds the drain's
+  stop to the tick's own `Keyed::AfterFrame`: for the four combinations of held
+  and keyed, and for a held prompt whose start a stop's count covers
+  (`cancelling`) or a reset's drain drops (`draining`). At round 1 the stop was
+  the two flags alone, which a covered or dropped start with no key behind it
+  stopped for while the tick wrote nothing after its frame (opus r1 NIT 1: one
+  extra tick, no report moved). Since round 2 both ask one `keyed()`, so
+  "exactly" holds by construction and the case pins that it stays so.
 
 **RED:** `local/red-unit-base.txt` shows the new unit case
 `a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking`
@@ -152,10 +161,15 @@ was, with no retry.
   the longest the terminal can have gone without a byte of the paste: from one
   write attempt's start to the next attempt's return, carried across the
   4 KiB parts.
-- `paste_unpaced` (`tests/tui.rs:3448`, `7b524d78`) stops writing at the first
-  pause of `PASTE_QUIET` or more and returns it.
-- `unpaced_case` (`tests/tui.rs:3482`) then runs a new session, at most 3 in
-  all, and fails saying so when every session paused.
+- `paste_unpaced` (`tests/tui.rs:3572`, `7b524d78`) stops writing at the first
+  pause of `PASTE_QUIET` or more. That session is **timing-indeterminate**:
+  the measure is an upper bound on how long the input queue can have been
+  empty, not a reading of it, so the session neither proves nor disproves the
+  quarantine. Since round 2 it keeps its evidence -- the pause, and the
+  screen a second later -- printed and handed back.
+- `unpaced_case` (`tests/tui.rs:3658`) then runs a new session, at most 3 in
+  all, and fails saying so when every session paused, with what each screen
+  held.
 - A session whose paste went out unpaced makes every assertion it made before.
   `PASTE_QUIET` itself is untouched.
 - The harness's own cases (`a70dcd89`) hold the measurement and the retry.
@@ -184,10 +198,15 @@ was, with no retry.
   skill-search cases (`foo`, and `dem` in `a_dollar_token_*`). That is an
   estimate: no log shows this run's sandbox name.
 
-**Fix** (`f311ad79`): `skills_sandbox` (`tests/tui.rs:14257`) draws the root's
-name again while it holds a word the case searches, as `src/tui/shell.rs`'s own
-`skilled_in` fixture does. `a_skills_sandbox_root_is_never_named_with_what_its_case_searches`
-pins `names_a_search`.
+**Fix** (`f311ad79`, widened in round 2 `d4f660f7`): `skills_sandbox`
+(`tests/tui.rs:14483`) reads the sandbox's whole `home` and `workspace` paths,
+case folded (`found_in_sandbox`, `:14513`). A word in the root's random name
+draws the root again, as `src/tui/shell.rs`'s own `skilled_in` fixture does; a
+word above the root -- the machine's `TMPDIR`, which no draw changes -- fails
+at once, saying so, where the case used to time out
+(`local/skills-foo-tmpdir-round2.txt`: 21 s at `c601ef29`, at once at round 2).
+`a_skills_sandbox_path_never_holds_what_its_case_searches` (`:14536`) pins
+`found_in_sandbox`.
 
 ### 2d. The 2026-11-08 compaction case
 
@@ -252,7 +271,9 @@ What the rates show:
 
 ## 4. Mutants — `mutants.txt`, `mutants.py`, `mutants-r1.txt`
 
-`mutants.py` runs on a `git clone --no-local` copy, never the worktree.
+`mutants.py` runs on a `git clone --no-local` copy, never the worktree. The
+file now holds review round 2's set (§7); the two runs below were made with
+the set as it stood at their commits.
 
 - **Round 2, at `a77fad76`** (`mutants.txt`): 9 of 9 killed.
   - The drain never stops; or it stops after any event, not just a start.
@@ -297,12 +318,43 @@ On a snapshot of the merge, under the suite lock (`merged.txt`):
 - The two new unit cases and the touched PTY cases with the fault injector:
   all passed. The hostile paste's longest pause was 4.7 ms.
 
+## 7. Review round 2 — `round2/`
+
+`origin/main` `e2fc7e94` (#97, fxcap scripts only) was merged first, as
+`67e709c4`. Then the items from the two round-1 reviews
+(`CI-PTY-WAIT/reviews/r1-gpt6.md`, `r1-opus.md`):
+
+| item | change | where (at `62ea9f56`) | RED → GREEN |
+|---|---|---|---|
+| gpt6 SHOULD 1: keys between the consumed start and the queued end, and a sustained stream, through the real loop | `loop_turn` is `session`'s turn after its first reconcile, and `session` runs it. The equivalence case: typing, a stop, two stops, Escape, Ctrl-D and `/quit`, read between a split turn's start and its queued end, come to the same reports, screen, exit and runtime messages as when the end lands right after the start's drain. The sustained case: three channels of text behind the start; the start's tick reads nothing past it, and every later tick reads its keys and empties the channel. | `src/tui/event_loop.rs:357` (`loop_turn`), `:16512`, `:16565` | RED by `drain-never-stops` (both); `drain-stops-after-every-event` (sustained) |
+| gpt6 SHOULD 2: a rejected sample | Described as **timing-indeterminate** in the code and here (§2b): the measure bounds how long the queue can have been empty and does not read it. Each rejected session keeps its pause and its screen a second later, printed, and the every-paused failure lists them. | `tests/tui.rs:3572-3680`; `:3725` | RED by `rejected-screens-unsaid` |
+| …a quarantine regression cannot go green only through rejection and retry | `round2/quarantine.txt`: 3 quarantine mutants × 3 cases × 3 runs. **No run of any case rejected a session.** The new paced case (20 ms between parts: a loop turn and more, under `PASTE_QUIET`) is red on every mutant run, on an accepted session. The two unpaced cases stay green under the mutants. That is not the retry: their refill gaps at idle (3–10 ms) are under one loop turn, so the quarantine's threshold never comes into play, which the first pass found (`round2/quarantine-first-pass.txt`) and the paced case was added for. | `tests/tui.rs:3756` (paced), `:3579` (`paste_with_pauses`) | baseline 9/9 green; each mutant 3/3 red on the paced case |
+| opus NIT 1: predicate | `keyed()` works out the take's answer, taking nothing, and both the take and the drain's stop ask it. A held start a stop covers (`cancelling`) or a reset's drain drops (`draining`), with no key behind it, owes no frame. "Exactly" now holds by construction, and the name keeps it. | `src/tui/shell.rs:11501`, `:11542`; case `:22274` | RED by `predicate-by-flags-alone` (round 1's predicate), `owed-only-when-held`, `owed-only-when-keyed` |
+| opus NIT 3: the drain reads past a start that owes no frame | A prompt queued behind a running turn; and a tick whose keys owe a report (a question answered) with no start among its events. | `src/tui/event_loop.rs:16704`, `:16743` | RED by `drain-stops-at-every-start`, `drain-stops-after-any-event` |
+| opus NIT 4: whole path | `found_in_sandbox` checks `home` and `workspace` whole, case folded. A word in the root's name draws again; one above it fails at once, saying so. | `tests/tui.rs:14483`, `:14513`; case `:14536` | RED by `search-check-root-name-only`, `search-check-case-sensitive`; `local/skills-foo-tmpdir-round2.txt` (21 s timeout at `c601ef29`, a clear panic at round 2) |
+| opus NIT 5: `PASTE_QUIET` | Kept as a copy. The product's is `pub(crate)`, out of this suite's reach, and the comment names its line, `src/tui/input.rs:674`. | `tests/tui.rs:3630` | — |
+| opus NIT 6: line refs | Every ref in this README is refreshed against `62ea9f56`. | — | — |
+| opus NIT 2: no frame between `working` and `done` when starved | Not fixed; recorded as open question 4. | — | — |
+
+- **Mutants** (`round2/mutants.txt`, on a `--no-local` clone at `62ea9f56`,
+  under the lock): the round-1 nine, re-aimed where the code moved, and five
+  new. All 14 killed, with both baselines green (unit 6, harness 4).
+- The first pass at `d4f660f7` (`round2/mutants-first-pass.txt`) had 2
+  survivors, `drain-stops-after-any-event` and `owed-only-when-keyed`;
+  `62ea9f56` adds the cases that kill them.
+- **Touched test files** (`round2/touched-tests.txt`, on a snapshot at
+  `62ea9f56`, under the lock): `--lib`, `--test tui` and `--test interactive`,
+  plain and with the fault injector, all passed (lib 4933/4956, tui 194/208,
+  interactive 79).
+- **Paths:** the per-commit grep over
+  `git rev-list --no-merges HEAD --not origin/main` prints 0.
+
 ## Open questions
 
 1. **The quarantine's clock is read after the readiness check.**
    - `burst` calls `shell.end_delivery()` once its check finds nothing
-     (`src/tui/event_loop.rs:688-689`).
-   - That reads `Instant::now()` (`src/tui/shell.rs:10732-10733`).
+     (`src/tui/event_loop.rs:750-751`).
+   - That reads `Instant::now()` (`src/tui/shell.rs:11123-11124`).
    - The decoder compares it with the quiet's start (`src/tui/input.rs:822`).
    - A UI thread preempted between a check that found nothing and that clock
      read stretches a short refill gap into a "50 ms quiet". So the quarantine
@@ -313,9 +365,20 @@ On a snapshot of the merge, under the suite lock (`merged.txt`):
    - It is a candidate follow-up in PASTE-GAP's security area: compare against
      a clock read before the check, and stamp the quiet's start with one read
      after it.
-   - Not changed in this unit.
+   - Not changed in this unit: it is the queued PASTE-QUARANTINE-CLOCK unit
+     (opus r1 §2, with a deterministic RED recipe through `burst`'s `ready`).
 2. **xfx's keystroke frame shows no `Thinking`, and fx's does.** xfx paints
    `Thinking` only once the turn starts. That is the documented divergence in
    the OSC 7501 row, unchanged here: the fix keeps xfx's frame and makes the
    turn's first frame show `Thinking`.
 3. **CI's test parallelism is unchanged.** None of the three causes needed it.
+4. **Open parity note: no frame between `working` and `done` when the turn ran
+   whole** (opus r1 NIT 2). The start's tick writes `working` after its frame
+   (`commit_tick`, `src/tui/event_loop.rs:1433-1436`); the next tick reads the
+   answer and the end, and writes `done` ahead of its frame (`:1385-1398`),
+   because the result is recorded at `TurnEnded`. fx's wire
+   has `Generating` frames between the two (`fx-p5-lifecycle-osc-40x120-w02-done.wire`
+   on the research branch: `working`, the `(0s)` and `Generating` frames, then
+   `done`). It shows only in a starved schedule, and moves no report: both are
+   written, in fx's order. Not fixed here; its own unit if fx's frame between
+   them is to be matched.
