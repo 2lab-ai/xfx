@@ -51,6 +51,8 @@ EXPECT = {
     "stats-bytes": '"ansi_bytes={}, redraws={}, debounced_resizes={}, footer_updates=0, stream_chunks=0",',
     "resize-document-repaint": RESIZE,
     "activity-tokens-before-request": "self.tally.begin(Instant::now(), estimate);",
+    # Round 2: this unit's own cause.
+    "amend-draft-window": ["pub(crate) const MAX_DRAFT_ROWS: usize = 3;"] * 2,
 }
 
 

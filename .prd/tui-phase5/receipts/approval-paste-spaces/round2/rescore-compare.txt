@@ -1,0 +1,9 @@
+$ sweep.sh --rescore --out <copy of the round-1 head sweep>   (its captures; the ledger at sha256 3f065387..., amend-draft-window added), then
+$ python3 -I ../approval-vertical-spellings/cmp_sweeps.py <round-1 head>/pairs.json <rescored>/pairs.json
+change p5-approval-paste-spaces/deny-fits: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['amend-draft-window', 'approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-paste-spaces/deny-held: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['amend-draft-window', 'approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-paste-spaces/deny-letter-refused: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['amend-draft-window', 'approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-paste-spaces/deny-paste-refused: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['amend-draft-window', 'approval-grant-scope']; uncaused 4 -> 0
+base: 211 pairs, 107 pass, 6 with uncaused rows
+head: 211 pairs, 107 pass, 2 with uncaused rows
+drops: 0

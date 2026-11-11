@@ -1,0 +1,5 @@
+$ scripts/fxcap/test-sweep.sh   (round 2, the ledger with amend-draft-window)
+Ran 72 tests in 9.766s
+OK
+Ran 27 tests in 15.949s
+OK
