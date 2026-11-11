@@ -43,6 +43,31 @@ trap 'stopped=$?; rm -rf "$work"; [ "$finished" = 1 ] || exit "$((stopped == 0 ?
 failures=0
 passed=0
 
+# The generator itself: its `trap` stops on the EXIT trap, not on the first
+# trap a script sets. A script that traps PIPE first, then EXIT, must stop
+# with that EXIT trap installed and run it. (Its status is bash's: this
+# script's EXIT trap has no guard, so bash 3.2 gives 0 and bash 5 gives 1.)
+cat >"$work/pipe-first.sh" <<'EOF'
+set -euo pipefail
+trap '' PIPE
+trap 'printf "the EXIT trap ran\n" >&2' EXIT
+printf 'past the EXIT trap\n' >&2
+EOF
+./scripts/early-stop-env.sh unset >"$work/pipe-first.env"
+status=0
+env BASH_ENV="$work/pipe-first.env" bash "$work/pipe-first.sh" </dev/null >"$work/pipe-first.log" 2>&1 || status=$?
+# shellcheck disable=SC2016 # the trap's own text
+if ! grep -q -x -F -e "early stop: trap -- 'printf \"the EXIT trap ran\\n\" >&2' EXIT" "$work/pipe-first.log" ||
+	! grep -q -x -F -e 'the EXIT trap ran' "$work/pipe-first.log" ||
+	grep -q -F -e 'past the EXIT trap' "$work/pipe-first.log"; then
+	printf 'test-early-stop: generator-exit-only: a script that traps PIPE first did not stop at its EXIT trap (exit %d):\n' "$status" >&2
+	sed 's/^/  /' "$work/pipe-first.log" | cut -c 1-200 >&2
+	failures=$((failures + 1))
+else
+	printf 'test-early-stop: ok %-32s exit %d\n' generator-exit-only "$status"
+	passed=$((passed + 1))
+fi
+
 # smoke.sh takes a binary, which it never runs before its trap.
 printf '#!/bin/sh\nexit 0\n' >"$work/xfx"
 chmod 755 "$work/xfx"
