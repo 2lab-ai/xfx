@@ -1,4 +1,4 @@
-## 1. each commit this train adds, first-parent dcfa5146..9cd65922: the brief's count; a merge also as everything it brings
+## 1. each commit this train adds, first-parent 3570a182..663c6753: the brief's count; a merge also as everything it brings
 d548c078 0; as everything it brings (git diff ^1): 9  merge: the `@` stack, AT-RANK-PERF (feat/p5-at-rank-perf @ 4130f4ac), 
 ecad8518 0; as everything it brings (git diff ^1): 0  merge: CTRLO-OTHER-PICKERS (feat/p5-ctrlo-other-pickers @ e7e1bcf6) in
 7a1773d9 0; as everything it brings (git diff ^1): 0  merge: PAGE-KEYS-SETTINGS-COLUMN (fix/p5-page-keys-settings-column @ 3
@@ -19,13 +19,20 @@ ee803eb4 0  docs(receipt): train 14 -- the file checks with the receipt in its f
 1a6278e8 0  docs(receipt): train 14 -- the final scan at the receipt's last commit
 91d5b566 0  docs(receipt): train 14 round 2 -- the reviews' SHOULDs and NITs, rece
 9cd65922 0  docs(receipt): train 14 round 2 -- the file checks again, at 91d5b566
+08066ac9 0  docs(receipt): train 14 round 2 -- the final scan through 9cd65922
+583cc13a 0; as everything it brings (git diff ^1): 0  merge: main 3570a182 (WORKSPACE-INDEX-AT-PLAN, PR #94) into train 14
+3e073a96 0  fix(refs): the seven capture.sh references the join of main moved, re-
+d765f057 0  docs(receipt): train 14 -- PR #93's CI Sweep red at 08066ac9, read (ci
+42935f45 0  fxcap ledger: the at-plan comment -- identical only when the two runs'
+04c10753 0  docs(receipt): train 14 -- the join of main 3570a182 (join-main/), at-
+663c6753 0  docs(receipt): train 14 -- the file checks at 04c10753, after the join
 # the brief's count, summed over this train's commits: 0
-# the brief's count over the range, git diff dcfa5146..9cd65922: 0
+# the brief's count over the range, git diff 3570a182..663c6753: 0
 # shapes.py over the range's added lines (not gating; the brief's count is the first): brief 0; run-name 29; uid-tail 0
 #   the run-name lines by file: .prd/tui-phase5/receipts/at-rank-perf/README.md 1; .prd/tui-phase5/receipts/at-rank/README.md 2; .prd/tui-phase5/receipts/at-rank/at-plan-sweep/bold.txt 1; .prd/tui-phase5/receipts/at-rank/at-plan-sweep/fx-workspace-index-40x120-at-plan.ansi 3; .prd/tui-phase5/receipts/at-rank/at-plan-sweep/fx-workspace-index-40x120-at-plan.txt 4; .prd/tui-phase5/receipts/at-rank/at-plan-sweep/redact.py 1; .prd/tui-phase5/receipts/at-rank/at-plan-sweep/xfx-workspace-index-40x120-at-plan.ansi 4; .prd/tui-phase5/receipts/at-rank/at-plan-sweep/xfx-workspace-index-40x120-at-plan.txt 4; .prd/tui-phase5/receipts/at-scope-interim/README.md 2; .prd/tui-phase5/receipts/at-scope-interim/samepair.txt 6; src/tui/file_index.rs 1
 
 ## 2. every commit of the range, and the range (midbranch_scan.py)
-# commits per unit since its base: af2b6137..4130f4ac 146; cb7c9c18..e7e1bcf6 24; 3d3d56c8..3ea16930 15; 714f6283..bde1ddfa 19; the range dcfa5146..9cd65922 224
+# commits per unit since its base: af2b6137..4130f4ac 146; cb7c9c18..e7e1bcf6 24; 3d3d56c8..3ea16930 15; 714f6283..bde1ddfa 19; the range 3570a182..663c6753 231
 # the check's documented homes at HEAD: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
 6310d5c3 lines 2 (the brief's count), matches 4  docs(receipt): AT-FOLDERS -- RED, 23 pairs identical, 31 of 31 m
     SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-folders/sweep-base.md)
@@ -42,21 +49,17 @@ ee803eb4 0  docs(receipt): train 14 -- the file checks with the receipt in its f
 db6fcd9c lines 2 (the brief's count), matches 2  docs(receipt): AT-SCOPE-INTERIM round 2 -- AT-LAUNCH-WALK named,
     SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-scope-interim/samepair.txt)
     SCRATCH     a sweep run directory's name  (.prd/tui-phase5/receipts/at-scope-interim/samepair.txt)
-# 224 commits scanned; 9 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 12, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
+# 231 commits scanned; 9 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 12, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
 
-## the range, git diff dcfa5146..HEAD
+## the range, git diff 3570a182..HEAD
 # the range: 0 lines hit (the brief's count); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0
 # midbranch_scan.py exit 0
 
 ## 3. files of this directory holding the pattern: 0
-shapes.py over this directory: brief 0; run-name 0; uid-tail 0 (over 134 files)
+shapes.py over this directory: brief 0; run-name 0; uid-tail 0 (over 163 files)
 
-## 4. each commit after the code head b3dffdad, and the files it touches outside this directory
-41a82093 outside: 0; inside: 113 file(s)
-ab640b82 outside: 0; inside: 3 file(s)
-eb52b1c0 outside: 0; inside: 18 file(s)
-ee803eb4 outside: 0; inside: 1 file(s)
-1a6278e8 outside: 0; inside: 1 file(s)
-91d5b566 outside: 0; inside: 7 file(s)
-9cd65922 outside: 0; inside: 1 file(s)
+## 4. each commit after the code head 42935f45, and the files it touches outside this directory
+04c10753 outside: 0; inside: 20 file(s)
+663c6753 outside: 0; inside: 1 file(s)
 # files outside this directory touched after the code head: 0
+# final-scan.sh exit 0
