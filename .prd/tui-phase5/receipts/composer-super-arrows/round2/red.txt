@@ -1,0 +1,22 @@
+# Round 2 RED: the tests at the RED commit over a0e8a223's code, one run:
+#   TMPDIR=<tmp> cargo test --locked --lib -- --exact <the six below>
+# 3 fail, each at its kitty Ctrl-Shift row (the rows before it pass: N1's line-edge keys and the selection, a0e8a223's moves); 3 pass (N3's label and N5's table pin a0e8a223's code).
+test tui::input::tests::what_upstream_resolves_to_a_key_xfx_does_not_have_is_ignored ... ok
+test tui::input::tests::ctrl_shift_a_b_e_f_are_upstreams_moves_the_selection_dropped ... FAILED
+test tui::input::tests::every_modifier_on_left_right_home_and_end_is_upstreams_move ... ok
+test tui::shell::tests::a_line_edge_key_over_a_live_selection_moves_from_the_caret_and_ends_it ... FAILED
+test tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs ... ok
+test tui::shell::tests::a_held_left_right_home_or_end_in_a_draft_is_fxs_move ... FAILED
+thread 'tui::input::tests::ctrl_shift_a_b_e_f_are_upstreams_moves_the_selection_dropped' (534043438) panicked at src/tui/input.rs:2551:13:
+assertion `left == right` failed: [27, 91, 57, 55, 59, 54, 117]
+  left: [Action(Ignore)]
+ right: [Action(LineStart { shifted: true })]
+thread 'tui::shell::tests::a_line_edge_key_over_a_live_selection_moves_from_the_caret_and_ends_it' (534043442) panicked at src/tui/shell.rs:25236:13:
+assertion `left == right` failed: kitty ctrl-shift-a
+  left: 5
+ right: 3
+thread 'tui::shell::tests::a_held_left_right_home_or_end_in_a_draft_is_fxs_move' (534043441) panicked at src/tui/shell.rs:25198:13:
+assertion `left == right` failed: kitty ctrl-shift-a from 108
+  left: 108
+ right: 8
+test result: FAILED. 3 passed; 3 failed; 0 ignored; 0 measured; 4797 filtered out; finished in 1.62s

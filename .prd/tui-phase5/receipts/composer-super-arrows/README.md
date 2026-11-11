@@ -145,17 +145,17 @@ Shift-Home and Shift-End are the exception (see below).
     saved session's id. Those are the rows APPROVAL-HORIZONTAL-KEYS'
     receipt read its pairs against too. `pairs.sh` calls a pair SCOPE when
     its rows are exactly `down`'s.
-  - **`amend-super-right`** differs in row 18 as well. Its text is
-    identical (`zab cd efy`). fx's captured frame has no reverse-video
-    caret cell after the `y`, and xfx's does. fx's capture is the same:
-    - when captured a second time
-      (`probe/fx-rerun-p5-super-arrows-approval-40x120-amend-super-right.ansi`);
-    - with the **plain End** in place of Super-Right (`probe/probe-end.cap`,
-      `probe/fx-probe-end-40x120-amend-super-right.ansi`).
-
-    So the difference is not the key's effect. Whether fx or the capture
-    leaves the cell out is not traced [inferred: fx's frame] (Open).
-- `green.txt`: the unit's 19 tests at the head, on both suites: 19 + 19 ok.
+  - **`amend-super-right`** differs in row 18 as well, and that row is a
+    **capture artifact** (round 2, opus S1). Both binaries write exactly
+    one reverse-video blank after the `y`, and fx writes nothing to row 18
+    after it (`round2/caret-wire.txt`, read off each binary's wire). fx's
+    `capture-pane -e` row ends `efy\x1b[7m`: the blank is trimmed, and
+    the reset is carried to row 19. xfx's ends `efy\x1b[7m \x1b[0m`.
+    `cells.py`'s `parse` adds a cell only for a character, so fx's side
+    has none. The round-1 probes (`probe/`: a second fx run, and the plain
+    End) show the same trim. Round 1 read this as fx's frame [wrong].
+- `green.txt`: the unit's 19 tests at the head, on both suites: 19 + 19 ok
+  (round 2: `round2/green.txt`, 22 + 22).
 
 ## The readers, and what changed for each
 
@@ -245,11 +245,20 @@ folder) compares them pair by pair:
   - The 16 that do not pass are the approval's pairs. The ledger's
     `approval-grant-scope` cause leaves them unresolved on both sides.
   - The head's approval pairs carry no uncaused row but
-    `amend-super-right`'s caret (GREEN).
+    `amend-super-right`'s trimmed caret blank (GREEN; a capture artifact).
 - **The other 44 scenarios' 384 pairs** pass 254 on both sides. One pair
   changes class, `p5-input-question20/q20-answered`. It goes from identical
   to normalized-identical, a pass on both sides, with no cause and no
   uncaused row on either.
+  - Why (round 2, opus N4; `round2/q20-answered-row36.txt`): its row 36
+    is the turn's summary, `  6s (↑3 ↓80)`. That is fx's and xfx's at the
+    base, and xfx's at the head. fx's head run took a second longer:
+    `  7s (↑3 ↓80)`. The ledger's `turn-wall-time` normalization reads
+    those seconds as `<wall>`: "the wall time of that run's turn against
+    the fake gateway". So the pair is identical once normalized.
+  - Neither binary's change touches that row: the fx binary is the same
+    on both sides. The load during the head sweep peaked at 27.8
+    (`sweep-head.md`).
 - These held keys' pairs keep their class: `p5-modified-arrows-question`'s
   `super-left`, `p5-approval-horizontal-keys`' `super-left` and
   `super-right`, and `p5-modified-arrows-full`'s `full-super-left`. Each
@@ -259,7 +268,8 @@ folder) compares them pair by pair:
     `cmd-ask`, `edit-ask` and `after`; `p5-input-paste-amend`'s `end`;
     `p5-modified-page-keys`' `full-pgup`; `p5-paragraph-move`'s four
     full-transcript screens. All are older than this unit.
-  - The tenth is `amend-super-right`'s caret row (Open).
+  - The tenth is `amend-super-right`'s trimmed caret blank, a capture
+    artifact (GREEN).
 - No scenario was refused, failed or timed out.
 
 ## Gate (`gate.txt`)
@@ -295,8 +305,8 @@ content, against the base (`refs.py 28bd1810`). 11 of 16 had moved, and
 - The approval paragraph says Super-Left is `Action::LineStart`, and that
   its amendment takes Super-Left/-Right as Home and End.
 - The paste-spaces paragraph names the new keys on each side of a line
-  break, and a new "Also not changed, found by COMPOSER-SUPER-ARROWS"
-  sentence beside it records fx's missing caret cell (GREEN, Open).
+  break. Beside it, a sentence records the `amend-super-right` caret cell as
+  a capture artifact (round 2; round 1 had it as fx's).
 - The `ask_user_question` row's field sentence and the full transcript
   row's composer clause drop the gap.
 - No row names COMPOSER-SUPER-ARROWS as an owner. It appears only as
@@ -331,16 +341,80 @@ content, against the base (`refs.py 28bd1810`). 11 of 16 had moved, and
 
 ## Open
 
-- **fx's amendment caret cell** (GREEN, `amend-super-right`). fx's
-  captured frame shows no caret cell after a letter appended at the end of
-  a 10-character draft, in that scenario state, on two runs and with the
-  plain End. Not this unit's key; fx's frame or the capture, not traced. Recorded in `docs/parity.md`'s
-  approval paragraph ("Also not changed, found by COMPOSER-SUPER-ARROWS");
-  unowned, and not in the ledger.
-- **kitty's Ctrl-Shift-a/-e/-b/-f** (`escape_parser.zig:235-242`) are
-  `line_*` and `character_*` with the selection. xfx reads them as
-  `Ignore`. They are now expressible (`LineStart{shifted: true}`), but they
-  are not `modifiedArrowAction`'s, so this unit leaves them.
+- **The capture-trim class** (GREEN, `amend-super-right`; round 2). It is
+  a row whose `capture-pane -e` text ends in an SGR that leaves reverse
+  video, a background or an underline on, with its blank trimmed.
+  `cells.py` sees no cell there. It is not a divergence, and the
+  comparison is left as it is:
+  - over this unit's sweeps (47 scenarios, 419 pairs per side) the class
+    touches that one pair and no other (`round2/trim-scan.txt`,
+    `round2/trim_scan.py`);
+  - changing the shared comparator for one pair would need a sweep of
+    every family.
+
+  Proposed: a unit that gives such a row-final SGR its one styled blank in
+  `parse`, with that sweep.
 - The meta-prefixed `ESC ESC [ C/D` word moves stay META-PREFIX-DECODE's.
   Shift-Left still flips `/statusline`, which is COMPACT-MENU-HELD-KEYS'
   (unchanged).
+
+## Round 2 (opus r1 S1, N1-N5)
+
+| commit | what |
+|---|---|
+| `e1b52234` | RED, tests only: a live-selection test; kitty Ctrl-Shift rows in the composer test and a decoder test (the four out of the ignored list); the amendment's pasted-break block labelled; the decoder table generated over every mask |
+| `1bdbfc4f` | **the code head**: `kitty_key`'s Ctrl+Shift arm, and the docs that name it (`input.rs` +38/-15 outside the tests, `srcsize.py . a0e8a223 2d38fbf9`) |
+| `7033c151`, `2d38fbf9` | the test module only: clippy's byte string, a comment's fx file |
+| the commits after | `docs/parity.md`, the ledger's refs, this folder |
+
+- **S1, the caret cell, a capture artifact.** See GREEN, Open and
+  `round2/caret-wire.txt`.
+  - Each binary was captured through the approval scenario to
+    `amend-super-right`, with `wire` added (`round2/probe-wire.cap`).
+  - fx painted **one** reverse-video blank after the `y` and nothing to
+    row 18 after it. xfx painted one too.
+  - The comparison is left as it is. The class shows on one pair in this
+    unit's sweeps (`round2/trim-scan.txt`), so `cells.py` is unchanged and
+    no extra sweep was run.
+  - `docs/parity.md`'s round-1 sentence ("fx's captured frame shows no
+    caret cell") is now the artifact, the wire, and the proposal.
+- **N1, a live selection** (`a_line_edge_key_over_a_live_selection_moves_from_the_caret_and_ends_it`).
+  The test runs on `ab\ncd` after Super-A (`select_all`: anchor 0, caret
+  5, `editor_state.zig:140-146`). Each key gives a caret and no selection:
+  - Super-Left, Ctrl-Super-Left, Shift-Home, Home and kitty Ctrl-Shift-a
+    give 3;
+  - Ctrl-Home gives 0;
+  - Super-End and Super-Right give 5.
+
+  This is fx's `moveCursorTo(target, false)`, `setCursor`, measured from
+  the caret (`editor_state.zig:123-138`). It is not a step's collapse
+  (`moveCharacterLeft`, `horizontal_navigation.zig:53-58`). fx's
+  Shift-Home extends the selection to 0..3; xfx drops it
+  (COMPOSER-SELECTION-EXTEND) and keeps fx's caret. The test passed at
+  `a0e8a223` up to its kitty row.
+- **N2, kitty's Ctrl-Shift-a/e/b/f** (`escape_parser.zig:235-242`): the
+  line's start, a step left, the line's end, a step right, the selection
+  dropped. That is `LineStart`/`LineEnd{shifted: true}` and
+  `ComposerLeft`/`ComposerRight`, as Shift-Home and Shift-Left are.
+  - Either case, Alt or Super held too, and xterm's `CSI 27;6;97~` all
+    take the same arm. Super-a is still `select_all` first.
+  - RED (`round2/red.txt`, the tests at `e1b52234` over `a0e8a223`'s
+    code): three tests fail at their kitty row, each with `Ignore`.
+  - `docs/parity.md`'s "Ctrl+Shift+A/B/E/F bind nothing" now states the
+    moves.
+- **N3**: the `ab\nzcd` block in
+  `super_left_right_and_the_draft_edges_in_an_amendment_are_fxs` is
+  labelled as APPROVAL-PASTE-SPACES' divergence: fx's `.cursor_home`
+  would be 0, but fx's draft cannot hold the break.
+- **N4**: see Sweep: `q20-answered`'s change of class is fx's turn
+  taking 7 s instead of 6.
+- **N5**: `every_modifier_on_left_right_home_and_end_is_upstreams_move`
+  now also checks against a transcription of `modifiedArrowAction`
+  (`escape_parser.zig:73-108`) and of the tilde rule (`:694-718`),
+  written once in the test and then generated. It covers all 16 masks ×
+  A, B, C, D, H and F, in the `CSI 1;m X` and keypad forms, kitty's Up
+  and Down, and the four tilde Home/End keys: 320 decodes, counted.
+  - Masks past 16 (Meta, Hyper, the lock bits) and the `ESC ESC` prefix
+    are left as they are and named in the test as META-PREFIX-DECODE's.
+- `round2/green.txt`: the unit's 22 tests, on both suites, 22 + 22 ok.
+- `round2/refs.txt`: 6 ledger refs re-pointed, 16 checked, 0 wrong.

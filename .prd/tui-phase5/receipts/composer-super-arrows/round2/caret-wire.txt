@@ -1,0 +1,16 @@
+# The amend-super-right caret, read off the wire (capture.sh's `wire` verb: every byte each binary wrote to its pty, tmux pipe-pane),
+# p5-super-arrows-approval up to its amend-super-right snap plus `wire amend-super-right` (probe-wire.cap beside this file), captured once per binary under the suite lock.
+# fx v0.0.16 sha256 8e6cda2efddb... (guarded); xfx the code head's build v0.1.0-1fcf30b (sha256 1505d7990473...).
+
+## fx: the last write of row 18 (the only one holding `efy`), from the cursor move before it to the move to row 19
+b'\x1b[18;1H\x1b[0m\x1b[K  \x1b[1;38;5;255m\xe2\x9d\xaf 1  Apply once, zab cd efy\x1b[7m \x1b[0m\x1b[0m\x1b[0m\x1b[19;1H'
+blanks painted in reverse video after `y`: 1
+later writes to row 18 before the snap: 0
+
+## xfx: the last write of row 18 (the typed `y` and the caret after it)
+b'\x1b[18;29H\x1b[1m\x1b[38;5;255my\x1b[0m\x1b[1m\x1b[38;5;255m\x1b[7m \x1b[0m\x1b[18;30H'
+blanks painted in reverse video after `y`: 1
+
+## the captures' row 18 (capture-pane -e), as the pair compares them
+fx row 18 ends Apply once, zab cd efy\x1b[7m'; row 19 starts '\x1b[0m    
+xfx row 18 ends ce, zab cd efy\x1b[7m \x1b[0m'; row 19 starts '    \x1b[38

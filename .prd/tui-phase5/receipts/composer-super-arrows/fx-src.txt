@@ -56,6 +56,13 @@
   107      };
   108      return null;
 
+## src/ui/input/escape_parser.zig:110-114
+  110  
+  111  fn ctrlOKeyAction(meta_prefixed: bool, modifiers: u16) InputEscapeAction {
+  112      if (!meta_prefixed and modifiers == 0x04) return .toggle_full_transcript;
+  113      return .ignore;
+  114  }
+
 ## src/ui/input/escape_parser.zig:134-180
   134  fn keypadNavigationKey(keycode: u16) ?u8 {
   135      return switch (keycode) {
@@ -1183,7 +1190,7 @@
  2265              app.shell.render_requests.request(.footer);
  2266          }
 
-## src/core/input/horizontal_navigation.zig:19-51
+## src/core/input/horizontal_navigation.zig:19-67
    19  pub fn moveIntent(
    20      intent: input_action.MoveIntent,
    21      edit: *editor_state.State,
@@ -1217,6 +1224,22 @@
    49          .visual_up, .visual_down, .page_up, .page_down => false,
    50      };
    51  }
+   52  
+   53  fn moveCharacterLeft(
+   54      edit: *editor_state.State,
+   55      entities: *const registered_entities.State,
+   56      extend_selection: bool,
+   57  ) bool {
+   58      if (!extend_selection and edit.collapseSelection(.start)) return true;
+   59      if (edit.cursor == 0) return false;
+   60      if (entities.entityEndingAt(edit.input.items, edit.cursor)) |entity| {
+   61          return edit.moveCursorTo(entity.span.raw_start, extend_selection);
+   62      }
+   63      return edit.moveCursorTo(
+   64          text_boundaries.previousCharacterStart(edit.input.items, edit.cursor),
+   65          extend_selection,
+   66      );
+   67  }
 
 ## src/core/input/text_boundaries.zig:79-89
    79  pub fn logicalLineStart(text: []const u8, cursor: usize) usize {
@@ -1231,7 +1254,7 @@
    88      return end;
    89  }
 
-## src/core/input/editor_state.zig:123-138
+## src/core/input/editor_state.zig:123-146
   123      pub fn setCursor(self: *State, raw_offset: usize) bool {
   124          const offset = @min(raw_offset, self.input.items.len);
   125          const changed = self.cursor != offset or self.selection_anchor != null;
@@ -1248,3 +1271,11 @@
   136          self.cursor = offset;
   137          return true;
   138      }
+  139  
+  140      pub fn selectAll(self: *State) bool {
+  141          if (self.input.items.len == 0) return self.clearSelection();
+  142          const changed = self.selection_anchor != 0 or self.cursor != self.input.items.len;
+  143          self.selection_anchor = 0;
+  144          self.cursor = self.input.items.len;
+  145          return changed;
+  146      }

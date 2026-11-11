@@ -1,3 +1,3 @@
 $ { git diff 28bd1810 -- src tests scripts/fxcap/scenarios | grep '^+'; git diff --word-diff=porcelain 28bd1810 -- docs/parity.md | grep '^+'; } | fx_src.sh <fx checkout>
-183 citations checked, 0 outside fx-src.txt's ranges
+213 citations checked, 0 outside fx-src.txt's ranges
 exit 0

@@ -27,6 +27,7 @@ ranges=(
   # and modifier stages.
   src/ui/input/escape_parser.zig:56-71
   src/ui/input/escape_parser.zig:73-108
+  src/ui/input/escape_parser.zig:110-114
   src/ui/input/escape_parser.zig:134-180
   src/ui/input/escape_parser.zig:182-266
   src/ui/input/escape_parser.zig:620-661
@@ -56,9 +57,9 @@ ranges=(
   src/core/app/app_input_runtime.zig:2223-2266
   # The caret moves: line_start/end and draft_start/end, the logical line's
   # edges, moveCursorTo.
-  src/core/input/horizontal_navigation.zig:19-51
+  src/core/input/horizontal_navigation.zig:19-67
   src/core/input/text_boundaries.zig:79-89
-  src/core/input/editor_state.zig:123-138
+  src/core/input/editor_state.zig:123-146
 )
 {
   echo "# fx v0.0.16 ($pin), every line this receipt cites, as git show $pin:<path> prints it, numbered."

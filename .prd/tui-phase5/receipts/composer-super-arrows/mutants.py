@@ -9,7 +9,10 @@ End's arms broken one rule at a time -- Alt's missing null, Ctrl's draft,
 Super's draft, Shift's remembered selection (M3-M6); the tilde rule read
 through the cursor table, without Ctrl's draft, or with the lock bits
 dropped (M7-M9); each reader's half undone -- the fold, the question, the
-editor (M10-M12). Mutant names after <out.txt> run those alone."""
+editor (M10-M12). Round 2: kitty's Ctrl-Shift letters ignored again, or
+a and b swapped (M13, M14); the editor's Home collapsing a live selection
+to its start, as a step does (M15). Mutant names after <out.txt> run those
+alone."""
 import os, subprocess, sys, time
 repo, out = sys.argv[1], sys.argv[2]
 mut = os.path.join(os.environ["TMPDIR"].rstrip("/"), "mut")
@@ -44,6 +47,11 @@ FOLD = ("        Input::Action(Action::LineStart { .. }) => Input::Action(Action
 QUESTION = ("            Action::DraftStart { .. } | Action::LineStart { .. } => Some(Self::Home),\n"
             "            Action::DraftEnd { .. } | Action::LineEnd { .. } => Some(Self::End),\n")
 EDITOR = "            Action::Home | Action::LineStart { .. } => {\n"
+KITTY = ("        let held = if is(b'a') {\n"
+         "            Some(Action::LineStart { shifted: true })\n"
+         "        } else if is(b'b') {\n"
+         "            Some(Action::ComposerLeft)\n")
+COLLAPSE = "                Action::Left | Action::ComposerLeft | Action::WordLeft | Action::AltB => {\n"
 MUTANTS = [
     ("M1 Super-Left and -Right are the step (the base's ComposerLeft)", [(I, SUPER_LR,
      "        b'D' if held_super => Action::ComposerLeft,\n        b'C' if held_super => Action::ComposerRight,\n")]),
@@ -68,6 +76,15 @@ MUTANTS = [
      "            Action::DraftStart { .. } => Some(Self::Home),\n            Action::DraftEnd { .. } => Some(Self::End),\n")]),
     ("M12 the editor's line start is the line's end", [(E, EDITOR,
      "            Action::LineStart { .. } => {\n                self.move_to(self.line_end());\n                None\n            }\n            Action::Home => {\n")]),
+    ("M13 kitty's Ctrl-Shift-a/e/b/f are nothing (a0e8a223's Ignore)", [(I, "        if let Some(action) = held {\n            return Input::Action(action);\n",
+     "        if let Some(_action) = held {\n            return ignore;\n")]),
+    ("M14 kitty's Ctrl-Shift-a is the step and Ctrl-Shift-b the line's start", [(I, KITTY,
+     "        let held = if is(b'a') {\n"
+     "            Some(Action::ComposerLeft)\n"
+     "        } else if is(b'b') {\n"
+     "            Some(Action::LineStart { shifted: true })\n")]),
+    ("M15 Home over a live selection collapses it to its start, as a step does", [(E, COLLAPSE,
+     "                Action::Left | Action::ComposerLeft | Action::WordLeft | Action::AltB | Action::Home => {\n")]),
 ]
 only = sys.argv[3:]
 if only:
