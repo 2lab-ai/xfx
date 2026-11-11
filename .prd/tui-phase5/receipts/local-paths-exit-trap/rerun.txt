@@ -1,0 +1,4 @@
+# head 6071c6f8; cargo test --locked --features fault-injection --lib tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop -- --exact
+run 1: exit 0, load 15.26, test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4804 filtered out; finished in 3.43s
+run 2: exit 0, load 17.80, test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4804 filtered out; finished in 3.70s
+run 3: exit 0, load 17.26, test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4804 filtered out; finished in 3.69s

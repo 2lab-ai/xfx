@@ -75,6 +75,11 @@
 # GATE-ENV-MAINTLOCK-F adds: the decoy's own setup leaving git's
 # auto-maintenance running in the decoy, which a case then blamed on its gate.
 #
+# LOCAL-PATHS-EXIT-TRAP adds: check-xfx-identity.sh, test-check-no-secrets.sh,
+# test-preview-contract.sh and test-early-stop.sh stopped right after they
+# install their EXIT trap, which under bash 3.2 exited 0; and the macOS
+# script-test row held to /bin/bash.
+#
 # Requires git, ruby (check-preview-contract.sh) and rustc (build.rs), and a
 # user that cannot read a mode-000 file (not root).
 
@@ -106,7 +111,16 @@ sg() {
 }
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-gate-env.XXXXXX")"
-trap 'rm -rf "$work"' EXIT HUP INT TERM
+# A run that stops before its last line fails: under bash 3.2 a script
+# stopped by an error of its own (an unset variable under `set -u`) leaves
+# through its EXIT trap with the trap's status, 0, and would read as a pass.
+# Any exit before `finished=1` keeps the status bash gives it, or is 1 where
+# bash gives 0.
+# No trap on HUP, INT or TERM: one there ran the cleanup and went on without
+# its scratch directory; without one the shell runs this trap and dies of the
+# signal.
+finished=0
+trap 'stopped=$?; rm -rf "$work"; [ "$finished" = 1 ] || exit "$((stopped == 0 ? 1 : stopped))"' EXIT
 
 failures=0
 passed=0
@@ -186,7 +200,7 @@ expect preview-contract -v "does not document the qualified install command" \
 contract="$work/contract"
 mkdir -p "$contract/scripts"
 preview_tree contract >/dev/null
-cp scripts/test-preview-contract.sh "$contract/scripts/"
+cp scripts/test-preview-contract.sh scripts/early-stop-env.sh "$contract/scripts/"
 ruby -e '
 	path, from, to = ARGV
 	text = File.read(path)
@@ -833,13 +847,13 @@ ruby -ryaml -e '
 	reached = Hash.new { |h, k| h[k] = [] }
 	job["steps"].each do |step|
 		run = step["run"].to_s
-		%w[test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths].each do |script|
+		%w[test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths test-early-stop].each do |script|
 			next unless run.include?("./scripts/#{script}.sh")
 			reached[script] |= runs_on.(step).map { |row| row["runner"] }
 			reached["test-check-no-secrets"] |= runs_on.(step).map { |row| row["runner"] } if script == "test-gate-env"
 		end
 	end
-	%w[test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths].each do |script|
+	%w[test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths test-early-stop].each do |script|
 		runners = reached[script]
 		state = runners.any? { |r| r.start_with?("macos") } && runners.any? { |r| r.start_with?("ubuntu") } ? "covers" : "MISSING"
 		puts "#{state}\t#{script}: #{runners.sort.join(", ")}"
@@ -853,6 +867,53 @@ elif grep -q '^MISSING' "$work/script-tests"; then
 	grep '^MISSING' "$work/script-tests" | cut -f2 >&2
 else
 	printf 'test-gate-env: ok %-30s %s\n' ci-script-tests-per-os "$(cut -f2 "$work/script-tests" | cut -d: -f1 | tr '\n' ' ')on macOS and Linux rows"
+	passed=$((passed + 1))
+fi
+
+# The script tests' subjects start `#!/usr/bin/env bash`, so they run the
+# first bash on PATH. The bash 3.2 class (an EXIT trap turning a stop into
+# exit 0) shows only under 3.2, so the macOS script-test rows run them under
+# /bin/bash: every such row has `bash32`, a step under `matrix.bash32` puts a
+# directory holding a `bash` link to /bin/bash on GITHUB_PATH, and a step on
+# the script-test rows prints the bash `#!/usr/bin/env bash` then runs, both
+# before the first script test.
+ruby -ryaml -e '
+	doc = YAML.safe_load(File.read(".github/workflows/ci.yml"), aliases: true)
+	job = doc["jobs"]["gate"] or abort "ci.yml has no gate job"
+	rows = job.dig("strategy", "matrix", "include") or abort "the gate job has no matrix rows"
+	steps = job["steps"] || []
+	cond = lambda { |step| step["if"].to_s.strip.sub(/\A\$\{\{\s*/, "").sub(/\s*\}\}\z/, "") }
+	first = steps.index { |step| step["run"].to_s.match?(%r{\./scripts/test-[a-z-]+\.sh}) }
+	pin = steps.index do |step|
+		run = step["run"].to_s
+		cond.(step) == "matrix.bash32" && run.include?("ln -sf /bin/bash ") && run.include?("GITHUB_PATH")
+	end
+	show = steps.index do |step|
+		run = step["run"].to_s
+		cond.(step) == "matrix.script_tests" && run.include?("#!/usr/bin/env bash") && run.include?("bash --version")
+	end
+	problems = []
+	rows.each do |row|
+		next unless row["script_tests"] && row["runner"].to_s.start_with?("macos")
+		problems << "the #{row["runner"]} script-test row has no bash32" unless row["bash32"] == true
+	end
+	problems << "no script test runs in the gate job" if first.nil?
+	problems << "no step under matrix.bash32 puts /bin/bash first on GITHUB_PATH" if pin.nil?
+	problems << "no step on the script-test rows prints the bash #!/usr/bin/env bash runs" if show.nil?
+	if first && pin && show
+		problems << "the /bin/bash step comes after the first script test" unless pin < first
+		problems << "the bash it prints is not the one the script tests run (#{pin} #{show} #{first})" unless pin < show && show < first
+	end
+	puts(problems.empty? ? "covers" : problems.map { |p| "MISSING\t#{p}" })
+' >"$work/bash32" 2>&1 || true
+if ! grep -q -x covers "$work/bash32" && ! grep -q '^MISSING	' "$work/bash32"; then
+	problem "ci-bash32: ci.yml could not be read as expected:"
+	cut -c 1-200 "$work/bash32" >&2
+elif grep -q '^MISSING	' "$work/bash32"; then
+	problem "ci-bash32: the macOS script-test rows are not held to /bin/bash:"
+	grep '^MISSING' "$work/bash32" | cut -f2 >&2
+else
+	printf 'test-gate-env: ok %-30s %s\n' ci-bash32 "the macOS script-test rows run /bin/bash, and the log says which bash"
 	passed=$((passed + 1))
 fi
 
@@ -967,8 +1028,63 @@ if [ "$nested" != ok ]; then
 fi
 rm -f "${ran:?}"/* "${trace:?}"
 
+# --- a gate that stops early -------------------------------------------------
+#
+# scripts/early-stop-env.sh writes a BASH_ENV file that stops the gate right
+# after it installs its EXIT trap: by an unset variable under its `set -u`,
+# `exit 7`, a `( exit 5 )` that `set -e` carries out, SIGTERM, SIGHUP or
+# SIGINT sent to it alone, or SIGINT sent to it and a child it waits for.
+# Under bash 3.2 the first left through the trap with status 0, a pass that
+# looked at nothing; a trap on a signal ran its cleanup and went on. Each must
+# exit with the status bash gives that stop, the stop must have fired with
+# the gate's EXIT trap installed, no ok line may follow, and its TMPDIR must
+# be empty after it. check-no-secrets.sh's and check-preview-contract.sh's
+# cases are in their own tests, this file's and smoke.sh's in
+# test-early-stop.sh, which is held here too.
+# The `early stop:` line prints before the stop, so an `unset` stop must
+# also show bash's own `xfx_test_unset: unbound variable`: another stop with
+# status 1 after the marker would pass without it.
+for gate in check-xfx-identity test-check-no-secrets test-preview-contract test-early-stop; do
+	for row in unset:1 exit7:7 subshell:5 term:143 hup:129 int:130 int-group:130; do
+		stop="${row%%:*}"
+		want="${row#*:}"
+		name="$gate-stopped-$stop"
+		tmp="$work/tmp-$name"
+		mkdir "$tmp"
+		./scripts/early-stop-env.sh "$stop" >"$work/$name.env"
+		status=0
+		# Its stderr dropped: bash names the command a signal ended, paths and
+		# all.
+		{ env BASH_ENV="$work/$name.env" TMPDIR="$tmp" "./scripts/$gate.sh" </dev/null >"$work/$name.log" 2>&1 ||
+			status=$?; } 2>/dev/null
+		left="$(find "$tmp" -mindepth 1 -print | wc -l | tr -d ' ')"
+		if [ "$status" -ne "$want" ]; then
+			problem "$name: the gate exited $status, expected $want; its last lines:"
+			tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
+		elif ! grep -q -x -F -e "early stop: $stop" "$work/$name.log"; then
+			problem "$name: the stop never fired: no 'early stop: $stop'; its last lines:"
+			tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
+		elif ! grep -q -x -e '^early stop: trap -- .* EXIT$' "$work/$name.log"; then
+			problem "$name: no EXIT trap was installed when it stopped; its last lines:"
+			tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
+		elif [ "$stop" = unset ] && ! grep -q -F -e 'xfx_test_unset: unbound variable' "$work/$name.log"; then
+			problem "$name: no 'xfx_test_unset: unbound variable': it stopped some other way; its last lines:"
+			tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
+		elif grep -q -e "^$gate: ok" -e '^early stop: still running' "$work/$name.log"; then
+			problem "$name: the gate ran on past the stop; its last lines:"
+			tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
+		elif [ "$left" -ne 0 ]; then
+			problem "$name: the gate left $left file(s) in its TMPDIR"
+		else
+			printf 'test-gate-env: ok %-30s %s\n' "$name" "exit $status"
+			passed=$((passed + 1))
+		fi
+	done
+done
+
 if [ "$failures" -ne 0 ]; then
 	printf 'test-gate-env: %d problem(s), %d case(s) passed\n' "$failures" "$passed" >&2
 	exit 1
 fi
 printf 'test-gate-env: ok (%d cases)\n' "$passed"
+finished=1

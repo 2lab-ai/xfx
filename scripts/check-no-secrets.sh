@@ -58,7 +58,23 @@ fail() {
 # Where a listing is staged, so its producer's exit status is read rather than
 # lost inside a process substitution.
 listing="$(mktemp "${TMPDIR:-/tmp}/xfx-secret-listing.XXXXXX")"
-trap 'rm -f "$listing"' EXIT
+# One EXIT trap for every scratch file here, each removed once it exists. And
+# a run that stops before its last line fails: under bash 3.2 a script stopped
+# by an error of its own (an unset variable under `set -u`) leaves through its
+# EXIT trap with the trap's status, 0, so this check would pass having scanned
+# nothing. Any exit before `finished=1` keeps the status bash gives it, or is
+# 1 where bash gives 0. No trap on a signal: the shell runs this one on its way
+# out and dies of the signal.
+finished=0
+on_exit() {
+	local stopped=$?
+	rm -f "$listing" ${control:+"$control"}
+	if [ -n "${sample_dir:-}" ]; then
+		rm -rf "$sample_dir"
+	fi
+	[ "$finished" = 1 ] || exit "$((stopped == 0 ? 1 : stopped))"
+}
+trap on_exit EXIT
 
 # Reads the NUL-separated names in "$listing" into the array named by $1.
 read_listing() {
@@ -114,6 +130,7 @@ list_files() {
 		done
 		files=(${relative[@]+"${relative[@]}"})
 	fi
+	listing_done=1
 }
 
 # Whether $1, missing from the working tree, is really gone: one of the names
@@ -141,7 +158,17 @@ is_deleted() {
 	return 0
 }
 
+# An error bash does not stop on -- an arithmetic one -- drops the whole
+# command it is in and goes on to the next. In `list_files` or `scan` that is
+# a listing cut short or a scan that never reached its last batch, and the
+# check would pass over the files it never read: each sets its marker as its
+# last statement, and the check requires it.
+listing_done=0
 list_files "$repo_root"
+if [ "$listing_done" != 1 ]; then
+	fail "the listing did not finish; the check would pass for the wrong reason"
+	exit 1
+fi
 
 if [ "${#files[@]}" -eq 0 ]; then
 	fail "no files to scan; the check would pass for the wrong reason"
@@ -174,7 +201,6 @@ patterns=(
 # script is itself a tracked file that the scan below reads. A literal sample
 # would be a finding.
 control="$(mktemp "${TMPDIR:-/tmp}/xfx-secret-control.XXXXXX")"
-trap 'rm -f "$control" "$listing"' EXIT
 
 filler="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 digits="1234567890123456"
@@ -347,6 +373,7 @@ scan() {
 		fi
 	done
 	grep_names ${operands[@]+"${operands[@]}"}
+	scan_done=1
 }
 
 # The bytecode rule's positive control, as the patterns have theirs: it must
@@ -383,7 +410,6 @@ fi
 # `scripts/test-check-no-secrets.sh` does the same over a tree that does not
 # fit on one command line.
 sample_dir="$(mktemp -d "${TMPDIR:-/tmp}/xfx-secret-names.XXXXXX")"
-trap 'rm -f "$control" "$listing"; rm -rf "$sample_dir"' EXIT
 odd_text="$(printf 'caf\303\251\tkey.txt')"
 odd_bytecode="$(printf 'caf\303\251\tcache.pyc')"
 printf 'sk-%s\n' "$filler" >"$sample_dir/$odd_text"
@@ -449,7 +475,11 @@ case "$sample_report" in
 *) fail "a key in the batch after one grep could not read was not printed; this scan is not working" ;;
 esac
 
+scan_done=0
 scan "${files[@]}" </dev/null
+if [ "$scan_done" != 1 ]; then
+	fail "the scan did not finish; the check would pass for the wrong reason"
+fi
 
 if [ "$failures" -ne 0 ]; then
 	printf 'check-no-secrets: %d problem(s) found\n' "$failures" >&2
@@ -457,3 +487,4 @@ if [ "$failures" -ne 0 ]; then
 fi
 
 printf 'check-no-secrets: ok (%d tracked file(s) scanned)\n' "${#files[@]}"
+finished=1

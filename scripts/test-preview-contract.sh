@@ -15,7 +15,9 @@
 # runs the contract check against the copy, and requires exit 1 together with
 # the problem that names that break: a mutant caught for some other reason is
 # not proof the check for this one works. An unbroken copy has to pass first,
-# or every "caught" mutant could be the harness failing everything.
+# or every "caught" mutant could be the harness failing everything. And the
+# unbroken copy, stopped right after the check installs its EXIT trap, must
+# fail: a check that stops early must not pass.
 #
 # Requires what the contract check requires: ruby and git.
 
@@ -32,7 +34,16 @@ cd "$repo_root"
 
 check="$repo_root/scripts/check-preview-contract.sh"
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-preview-mutants.XXXXXX")"
-trap 'rm -rf "$work"' EXIT HUP INT TERM
+# A run that stops before its last line fails: under bash 3.2 a script
+# stopped by an error of its own (an unset variable under `set -u`) leaves
+# through its EXIT trap with the trap's status, 0, and would read as a pass.
+# Any exit before `finished=1` keeps the status bash gives it, or is 1 where
+# bash gives 0.
+# No trap on HUP, INT or TERM: one there ran the cleanup and went on without
+# its scratch directory; without one the shell runs this trap and dies of the
+# signal.
+finished=0
+trap 'stopped=$?; rm -rf "$work"; [ "$finished" = 1 ] || exit "$((stopped == 0 ? 1 : stopped))"' EXIT
 
 failures=0
 caught=0
@@ -267,9 +278,52 @@ root="$(tree_for epoch-crlf)"
 printf 'phase4\r\n' >"$root/.github/preview-epoch"
 expect epoch-crlf "$root" '.github/preview-epoch is "phase4\r\n"'
 
+# --- a check that stops early ------------------------------------------------
+#
+# scripts/early-stop-env.sh writes a BASH_ENV file that stops the check right
+# after it installs its EXIT trap: by an unset variable under its `set -u`,
+# `exit 7`, a `( exit 5 )` that `set -e` carries out, SIGTERM, SIGHUP or
+# SIGINT sent to it alone, or SIGINT sent to it and a child it waits for.
+# Under bash 3.2 the first left through the trap with status 0, a pass; a
+# signal ran the trap's cleanup and went on. Each must exit with the status
+# bash gives that stop, the stop must have fired with the check's EXIT trap
+# installed, nothing may run past it, and its TMPDIR must be empty after it.
+# The `early stop:` line prints before the stop, so an `unset` stop must
+# also show bash's own `xfx_test_unset: unbound variable`: another stop with
+# status 1 after the marker would pass without it.
+for row in unset:1 exit7:7 subshell:5 term:143 hup:129 int:130 int-group:130; do
+	stop="${row%%:*}"
+	want="${row#*:}"
+	log="$work/stopped-$stop.log"
+	tmp="$work/tmp-$stop"
+	mkdir "$tmp"
+	"$repo_root/scripts/early-stop-env.sh" "$stop" >"$work/stop-$stop.env"
+	status=0
+	# Its stderr dropped: bash names the command a signal ended, paths and all.
+	{ BASH_ENV="$work/stop-$stop.env" TMPDIR="$tmp" "$check" "$control/.github/workflows/preview.yml" "$control" \
+		>"$log" 2>&1 || status=$?; } 2>/dev/null
+	left="$(find "$tmp" -mindepth 1 -print | wc -l | tr -d ' ')"
+	unbound=yes
+	if [ "$stop" = unset ] && ! grep -q -F -e 'xfx_test_unset: unbound variable' "$log"; then
+		unbound=no
+	fi
+	if [ "$status" -ne "$want" ] || ! grep -q -x -F -e "early stop: $stop" "$log" || [ "$unbound" = no ] ||
+		! grep -q -x -e '^early stop: trap -- .* EXIT$' "$log" ||
+		grep -q -e '^check-preview-contract: ok' -e '^early stop: still running' "$log" || [ "$left" -ne 0 ]; then
+		printf 'test-preview-contract: stopped-%s: the check exited %d and left %d file(s) in its TMPDIR; expected exit %d, its stop and EXIT trap shown (for unset, the unbound-variable line too), nothing after the stop, no file left\n' \
+			"$stop" "$status" "$left" "$want" >&2
+		sed 's/^/  /' "$log" >&2
+		failures=$((failures + 1))
+	else
+		printf 'test-preview-contract: caught %-28s exit %d\n' "stopped-$stop" "$status"
+		caught=$((caught + 1))
+	fi
+done
+
 if [ "$failures" -ne 0 ]; then
 	printf 'test-preview-contract: %d mutant(s) not caught, %d caught\n' "$failures" "$caught" >&2
 	exit 1
 fi
 
 printf 'test-preview-contract: ok (%d mutants caught; the unbroken copy passes)\n' "$caught"
+finished=1

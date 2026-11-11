@@ -1,0 +1,10 @@
+# bash 3.2.57(1)-release
+a: exit=0 out=[after f: n=3 g ran end] err=[line 3: 1 / 0: division by 0 (error token is "0") ]
+b: exit=0 out=[shadowed yes]
+int-group: exit=130 out=[] scratch-removed=yes
+subshell: exit=5 out=[] scratch-removed=yes
+# bash 5.3.20(1)-release
+a: exit=0 out=[after f: n=3 g ran end] err=[line 3: 1 / 0: division by 0 (error token is "0") ]
+b: exit=0 out=[shadowed yes]
+int-group: exit=130 out=[] scratch-removed=yes
+subshell: exit=5 out=[] scratch-removed=yes

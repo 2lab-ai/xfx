@@ -1,0 +1,9 @@
+# mutants-r3.py <clone at 704c489b> SL1 SL2 SS1 SS2 P7 G7 X7, under the suite lock, /bin/bash 3.2.57
+SL1 scripts/check-no-secrets.sh: listing_done=1 dropped: killed (test-check-no-secrets.sh exit 1, failing skipped-scan, stopped-late)
+SL2 scripts/check-no-secrets.sh: the listing marker not checked: killed (test-check-no-secrets.sh exit 1, failing skipped-listing)
+SS1 scripts/check-no-secrets.sh: scan_done=1 dropped: killed (test-check-no-secrets.sh exit 1, failing stopped-late)
+SS2 scripts/check-no-secrets.sh: the scan marker not checked: killed (test-check-no-secrets.sh exit 1, failing skipped-scan)
+P7 scripts/check-preview-contract.sh: its trap does not remove its scratch directory: killed (test-preview-contract.sh exit 1, failing stopped-exit7, stopped-hup, stopped-int, stopped-int-group, stopped-subshell, stopped-term, stopped-unset)
+X7 scripts/check-xfx-identity.sh: its trap does not remove its scratch directory: killed (test-gate-env.sh exit 1, failing check-xfx-identity-stopped-exit7, check-xfx-identity-stopped-hup, check-xfx-identity-stopped-int, check-xfx-identity-stopped-int-group, check-xfx-identity-stopped-subshell, check-xfx-identity-stopped-term, check-xfx-identity-stopped-unset)
+G7 scripts/test-gate-env.sh: its trap does not remove its scratch directory: killed (test-early-stop.sh exit 1, failing test-gate-env-stopped-exit7, test-gate-env-stopped-hup, test-gate-env-stopped-int, test-gate-env-stopped-int-group, test-gate-env-stopped-subshell, test-gate-env-stopped-term, test-gate-env-stopped-unset)
+# clone clean after: yes

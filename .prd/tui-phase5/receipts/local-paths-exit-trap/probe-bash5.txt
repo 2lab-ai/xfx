@@ -1,0 +1,100 @@
+# bash 5.3.20(1)-release
+
+## each early stop, under each trap shape (no trap; rm; rm on EXIT HUP INT TERM; a cleanup function;
+## the guarded EXIT trap this unit installs)
+none    unset-top       exit=1   reached-end=no
+none    unset-array     exit=0   reached-end=yes
+none    unset-func      exit=1   reached-end=no
+none    unset-local     exit=1   reached-end=no
+none    unset-cmdsubst  exit=1   reached-end=no
+none    colon-q         exit=1   reached-end=no
+none    false-top       exit=1   reached-end=no
+none    false-func      exit=1   reached-end=no
+none    pipefail        exit=1   reached-end=no
+none    exit3-top       exit=3   reached-end=no
+none    exit3-func      exit=3   reached-end=no
+none    arith           exit=0   reached-end=yes
+none    sigterm-self    exit=143 reached-end=no
+Terminated
+rm      unset-top       exit=1   reached-end=no
+rm      unset-array     exit=0   reached-end=yes
+rm      unset-func      exit=1   reached-end=no
+rm      unset-local     exit=1   reached-end=no
+rm      unset-cmdsubst  exit=1   reached-end=no
+rm      colon-q         exit=1   reached-end=no
+rm      false-top       exit=1   reached-end=no
+rm      false-func      exit=1   reached-end=no
+rm      pipefail        exit=1   reached-end=no
+rm      exit3-top       exit=3   reached-end=no
+rm      exit3-func      exit=3   reached-end=no
+rm      arith           exit=0   reached-end=yes
+Terminated
+rm      sigterm-self    exit=143 reached-end=no
+rm-sig  unset-top       exit=1   reached-end=no
+rm-sig  unset-array     exit=0   reached-end=yes
+rm-sig  unset-func      exit=1   reached-end=no
+rm-sig  unset-local     exit=1   reached-end=no
+rm-sig  unset-cmdsubst  exit=1   reached-end=no
+rm-sig  colon-q         exit=1   reached-end=no
+rm-sig  false-top       exit=1   reached-end=no
+rm-sig  false-func      exit=1   reached-end=no
+rm-sig  pipefail        exit=1   reached-end=no
+rm-sig  exit3-top       exit=3   reached-end=no
+rm-sig  exit3-func      exit=3   reached-end=no
+rm-sig  arith           exit=0   reached-end=yes
+rm-sig  sigterm-self    exit=0   reached-end=yes
+func    unset-top       exit=1   reached-end=no
+func    unset-array     exit=0   reached-end=yes
+func    unset-func      exit=1   reached-end=no
+func    unset-local     exit=1   reached-end=no
+func    unset-cmdsubst  exit=1   reached-end=no
+func    colon-q         exit=1   reached-end=no
+func    false-top       exit=1   reached-end=no
+func    false-func      exit=1   reached-end=no
+func    pipefail        exit=1   reached-end=no
+func    exit3-top       exit=3   reached-end=no
+func    exit3-func      exit=3   reached-end=no
+func    arith           exit=0   reached-end=yes
+func    sigterm-self    exit=143 reached-end=no
+Terminated
+guarded unset-top       exit=1   reached-end=no
+guarded unset-array     exit=0   reached-end=yes
+guarded unset-func      exit=1   reached-end=no
+guarded unset-local     exit=1   reached-end=no
+guarded unset-cmdsubst  exit=1   reached-end=no
+guarded colon-q         exit=1   reached-end=no
+guarded false-top       exit=1   reached-end=no
+guarded false-func      exit=1   reached-end=no
+guarded pipefail        exit=1   reached-end=no
+guarded exit3-top       exit=3   reached-end=no
+guarded exit3-func      exit=3   reached-end=no
+guarded arith           exit=0   reached-end=yes
+Terminated
+guarded sigterm-self    exit=143 reached-end=no
+
+## what $? the EXIT trap sees, after an unset variable and after exit 3 in a function
+entry-unset  exit=1 trap sees 1
+entry-exit3  exit=3 trap sees 3
+
+## a signal sent to the script itself, between commands and while a child runs
+## (traps: rm on EXIT only; the guarded EXIT trap this unit installs, with no trap on a signal)
+Terminated
+exit-only between TERM exit=143 reached-end=no  exit-trap-ran=1 scratch-removed=yes
+exit-only between INT  exit=130 reached-end=no  exit-trap-ran=1 scratch-removed=yes
+Hangup
+exit-only between HUP  exit=129 reached-end=no  exit-trap-ran=1 scratch-removed=yes
+Terminated
+exit-only child   TERM exit=143 reached-end=no  exit-trap-ran=1 scratch-removed=yes
+exit-only child   INT  exit=0   reached-end=yes exit-trap-ran=1 scratch-removed=yes
+Hangup
+exit-only child   HUP  exit=129 reached-end=no  exit-trap-ran=1 scratch-removed=yes
+Terminated
+guarded   between TERM exit=143 reached-end=no  exit-trap-ran=1 scratch-removed=yes
+guarded   between INT  exit=130 reached-end=no  exit-trap-ran=1 scratch-removed=yes
+Hangup
+guarded   between HUP  exit=129 reached-end=no  exit-trap-ran=1 scratch-removed=yes
+Terminated
+guarded   child   TERM exit=143 reached-end=no  exit-trap-ran=1 scratch-removed=yes
+guarded   child   INT  exit=0   reached-end=yes exit-trap-ran=1 scratch-removed=yes
+Hangup
+guarded   child   HUP  exit=129 reached-end=no  exit-trap-ran=1 scratch-removed=yes

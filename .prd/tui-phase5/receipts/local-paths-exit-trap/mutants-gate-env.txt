@@ -1,0 +1,18 @@
+# mutants.py <clone at 6071c6f8> gate-env, under the suite lock, /bin/bash 3.2.57
+T1 test-check-no-secrets.sh: the original trap back: killed (test-gate-env.sh exit 1, failing test-check-no-secrets-stopped-term, test-check-no-secrets-stopped-unset)
+T2 test-check-no-secrets.sh: the guard dropped, the signals untrapped: killed (test-gate-env.sh exit 1, failing test-check-no-secrets-stopped-unset)
+T3 test-check-no-secrets.sh: the guard kept, the signals trapped again: killed (test-gate-env.sh exit 1, failing test-check-no-secrets-stopped-term)
+T4 test-check-no-secrets.sh: the status not kept (exit 1): killed (test-gate-env.sh exit 1, failing test-check-no-secrets-stopped-exit7)
+T5 test-check-no-secrets.sh: finished=0 dropped: killed (test-gate-env.sh exit 1, failing test-check-no-secrets-stopped-exit7, test-check-no-secrets-stopped-term)
+T6 test-check-no-secrets.sh: finished=1 dropped: killed (test-gate-env.sh exit 1)
+X1 check-xfx-identity.sh: the original trap back: killed (test-gate-env.sh exit 1, failing check-xfx-identity-stopped-unset)
+X4 check-xfx-identity.sh: the status not kept (exit 1): killed (test-gate-env.sh exit 1, failing check-xfx-identity-stopped-exit7)
+X5 check-xfx-identity.sh: finished=0 dropped: killed (test-gate-env.sh exit 1, failing check-xfx-identity-stopped-exit7, check-xfx-identity-stopped-term)
+X6 check-xfx-identity.sh: finished=1 dropped: killed (test-gate-env.sh exit 0; check-xfx-identity.sh exit 1)
+R1 test-preview-contract.sh: the original trap back: killed (test-gate-env.sh exit 1, failing test-preview-contract-stopped-term, test-preview-contract-stopped-unset)
+R2 test-preview-contract.sh: the guard dropped, the signals untrapped: killed (test-gate-env.sh exit 1, failing test-preview-contract-stopped-unset)
+R3 test-preview-contract.sh: the guard kept, the signals trapped again: killed (test-gate-env.sh exit 1, failing test-preview-contract-stopped-term)
+R4 test-preview-contract.sh: the status not kept (exit 1): killed (test-gate-env.sh exit 1, failing test-preview-contract-stopped-exit7)
+R5 test-preview-contract.sh: finished=0 dropped: killed (test-gate-env.sh exit 1, failing test-preview-contract-stopped-exit7, test-preview-contract-stopped-term)
+R6 test-preview-contract.sh: finished=1 dropped: killed (test-gate-env.sh exit 0; test-preview-contract.sh exit 1)
+# clone clean after: yes

@@ -1,0 +1,36 @@
+# gates.sh <clone at 401b3fb2> <logs> <smoke>, one hold of the suite lock, /bin/bash 3.2.57
+# head 401b3fb2; tree clean: yes
+01 fmt                                exit 0     2s  load 15.52
+02 clippy                             exit 0    49s  load 14.68
+03 clippy-fault                       exit 0    32s  load 14.44
+04 test                               exit 0   192s  load 17.23
+05 test-fault                         exit 0   178s  load 13.43
+06 check-xfx-identity                 exit 0     2s  load 15.47
+07 check-no-stubs                     exit 0    22s  load 15.47
+08 check-no-secrets                   exit 0    82s  load 17.10
+09 check-no-local-paths               exit 0     6s  load 14.07
+10 test-check-no-local-paths          exit 0    16s  load 16.31
+11 check-preview-contract             exit 0     4s  load 14.77
+12 check-tui-preflight-cost           exit 0   131s  load 15.11
+13 check-usage-clock                  exit 0     2s  load 18.64
+14 test-check-no-secrets              exit 0   102s  load 18.43
+15 test-gate-env                      exit 0   205s  load 12.02
+16 test-preview-contract              exit 0    89s  load 11.44
+17 test-early-stop                    exit 0     1s  load 11.89
+18 fxcap-test-sweep                   exit 0    19s  load 11.89
+19 fxcap-test-capture                 exit 0   375s  load 12.01
+20 build-release                      exit 0    18s  load 8.57
+21 build-faulty                       exit 0    34s  load 12.27
+22 smoke                              exit 0     1s  load 12.91
+23 smoke-tui                          exit 0    66s  load 12.91
+# 23 steps, 0 failed; tree clean after: yes
+
+# the totals of 04, 05 and of the script-test and smoke steps
+04-test: 15 test binaries, 5699 passed, 0 failed
+05-test-fault: 15 test binaries, 5736 passed, 0 failed
+14-test-check-no-secrets: test-check-no-secrets: ok (23 cases; 3473 tracked names past ARG_MAX 1048576)
+15-test-gate-env: test-gate-env: ok (93 cases)
+16-test-preview-contract: test-preview-contract: ok (35 mutants caught; the unbroken copy passes)
+17-test-early-stop: test-early-stop: ok (15 cases)
+22-smoke: 47 check(s), 0 failure(s)
+23-smoke-tui: smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures

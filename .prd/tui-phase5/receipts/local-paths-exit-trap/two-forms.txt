@@ -1,0 +1,18 @@
+# head 03cd1e67; /bin/bash 3.2.57(1)-release
+check-no-local-paths.sh    unset     exit=1   stopped-with-EXIT-trap=yes
+check-no-local-paths.sh    exit7     exit=1   stopped-with-EXIT-trap=yes
+check-no-local-paths.sh    subshell  exit=1   stopped-with-EXIT-trap=yes
+check-no-local-paths.sh    term      exit=143 stopped-with-EXIT-trap=yes
+test-check-no-local-paths.sh unset     exit=1   stopped-with-EXIT-trap=yes
+test-check-no-local-paths.sh exit7     exit=1   stopped-with-EXIT-trap=yes
+test-check-no-local-paths.sh subshell  exit=1   stopped-with-EXIT-trap=yes
+test-check-no-local-paths.sh term      exit=143 stopped-with-EXIT-trap=yes
+check-no-secrets.sh        unset     exit=1   stopped-with-EXIT-trap=yes
+check-no-secrets.sh        exit7     exit=7   stopped-with-EXIT-trap=yes
+check-no-secrets.sh        subshell  exit=5   stopped-with-EXIT-trap=yes
+check-no-secrets.sh        term      exit=143 stopped-with-EXIT-trap=yes
+check-xfx-identity.sh      unset     exit=1   stopped-with-EXIT-trap=yes
+check-xfx-identity.sh      exit7     exit=7   stopped-with-EXIT-trap=yes
+check-xfx-identity.sh      subshell  exit=5   stopped-with-EXIT-trap=yes
+check-xfx-identity.sh      term      exit=143 stopped-with-EXIT-trap=yes
+# tree clean after: yes

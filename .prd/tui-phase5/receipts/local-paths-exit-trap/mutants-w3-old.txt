@@ -1,0 +1,3 @@
+# mutants-r3.py <clone at 1fad3ed6, round 2's head, before the unbound-variable assertion> W3, under the suite lock, /bin/bash 3.2.57. SURVIVED here is the RED.
+W3 scripts/early-stop-env.sh: an unset stop by `false`, not an unset variable: SURVIVED (test-early-stop.sh exit 0; test-preview-contract.sh exit 0; test-check-no-secrets.sh exit 0; test-gate-env.sh exit 0)
+# clone clean after: yes

@@ -1,0 +1,9 @@
+# mutants-r2.py <clone at 401b3fb2> SL1 SL2 SS1 SS2 W1 W2 PIPE, under the suite lock, /bin/bash 3.2.57. A killer named <script>@<rev> is that script at <rev>, run for comparison; it does not kill.
+SL1 scripts/check-no-secrets.sh: listed=1 dropped: killed (test-check-no-secrets.sh exit 1, failing skipped-scan, stopped-late)
+SL2 scripts/check-no-secrets.sh: the listing marker not checked: killed (test-check-no-secrets.sh exit 1, failing skipped-listing)
+SS1 scripts/check-no-secrets.sh: scanned=1 dropped: killed (test-check-no-secrets.sh exit 1, failing stopped-late)
+SS2 scripts/check-no-secrets.sh: the scan marker not checked: killed (test-check-no-secrets.sh exit 1, failing skipped-scan)
+W1 scripts/early-stop-env.sh: its trap stops on any trap: killed (test-early-stop.sh exit 1, failing generator-exit-only)
+W2 scripts/early-stop-env.sh: the EXIT trap not printed: killed (test-early-stop.sh exit 1, failing generator-exit-only, smoke-stopped-exit7, smoke-stopped-hup, smoke-stopped-int, smoke-stopped-int-group, smoke-stopped-subshell, smoke-stopped-term, smoke-stopped-unset, test-gate-env-stopped-exit7, test-gate-env-stopped-hup, test-gate-env-stopped-int, test-gate-env-stopped-int-group, test-gate-env-stopped-subshell, test-gate-env-stopped-term, test-gate-env-stopped-unset)
+PIPE scripts/smoke.sh: a trap '' PIPE above the EXIT trap, the guard reverted: killed (test-early-stop.sh exit 1, failing smoke-stopped-unset; test-early-stop.sh@ef4e74ea exit 0)
+# clone clean after: yes

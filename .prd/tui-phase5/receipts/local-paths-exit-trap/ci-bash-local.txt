@@ -1,0 +1,10 @@
+# ci.yml's two new steps (at 401b3fb2), run on this Mac as a runner would: RUNNER_TEMP and GITHUB_PATH set, then the second step with GITHUB_PATH's entry first on PATH. <tmp> is RUNNER_TEMP.
+$ bash -e <the step "The gate scripts run /bin/bash">
+/bin/bash is bash 3.2.57(1)-release
+exit 0
+GITHUB_PATH: <tmp>/bash32
+$ bash -e <the step "Which bash the gate scripts run">
+#!/usr/bin/env bash runs <tmp>/bash32/bash, bash 3.2.57(1)-release
+command -v bash: <tmp>/bash32/bash
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+exit 0
