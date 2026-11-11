@@ -25206,9 +25206,10 @@ mod tests {
         // measured from the caret, and the anchor gone
         // (`horizontal_navigation.zig:29-34`, `editor_state.zig:123-138
         // @481104fd`) -- not the selection's collapse a step makes
-        // (`moveCharacterLeft`, `:53-58`). `select_all` leaves the caret at
-        // the end (`editor_state.zig:140-146`), so on `ab\ncd` Super-Left
-        // is 3 and Ctrl-Home 0. Shift-Home is fx's `line_start` extending
+        // (`moveCharacterLeft`, `horizontal_navigation.zig:53-58`).
+        // `select_all` leaves the caret at the end
+        // (`editor_state.zig:140-146`), so on `ab\ncd` Super-Left is 3 and
+        // Ctrl-Home 0. Shift-Home is fx's `line_start` extending
         // the selection, 0..3 there; here the selection is dropped
         // (COMPOSER-SELECTION-EXTEND) and the caret is fx's, 3.
         for (name, key, caret) in [
