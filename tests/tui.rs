@@ -3557,23 +3557,47 @@ fn hostile_paste(start_inside: bool) -> Vec<u8> {
 /// quarantine -- so that what follows is a key of the test's own.
 ///
 /// Or stops at the first part behind which the terminal can have gone
-/// [`PASTE_QUIET`] without a byte ([`Session::write_raw_measured`]), and
-/// returns that pause: the TUI may have ended the quarantine there, and the
-/// rest of a hostile paste would only be typed into a session that already
-/// proves nothing ([`unpaced_case`]) -- slowly enough, on a loaded machine,
-/// to outlast the write's own bound.
+/// [`PASTE_QUIET`] without a byte ([`Session::write_raw_measured`]): that
+/// session is **timing-indeterminate**. The measure is an upper bound on how
+/// long the input queue can have been empty, not a reading of it -- the queue
+/// may have held bytes all the while -- so such a session neither proves nor
+/// disproves the quarantine: the TUI may have ended it there by design, or
+/// not. Its rest is not written (a hostile body typed as keys can outlast the
+/// write's own bound on a loaded machine), and what it came to is kept: the
+/// pause, and the screen a second later, printed and handed back
+/// ([`Rejected`]) for [`unpaced_case`] to say.
 ///
 /// The longest pause is printed either way, so a failure later in the case
 /// carries it: a timeout behind a paste that never paused is the product's.
-fn paste_unpaced(session: &Session, bytes: &[u8]) -> Result<(), std::time::Duration> {
+fn paste_unpaced(
+    session: &Session,
+    bytes: &[u8],
+    (rows, cols): (usize, usize),
+) -> Result<(), Rejected> {
     let mut previous = None;
     let mut longest = std::time::Duration::ZERO;
     for part in bytes.chunks(4096) {
         let gap = session.write_raw_measured(part, &mut previous);
         longest = longest.max(gap);
         if gap >= PASTE_QUIET {
-            eprintln!("the paste paused for {gap:?}: this session tests nothing");
-            return Err(gap);
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let text = session.text();
+            let screen: Vec<String> = match Screen::painted(&text, rows, cols) {
+                Some(screen) => (1..=rows)
+                    .map(|row| screen.row_text(row))
+                    .filter(|row| !row.trim().is_empty())
+                    .collect(),
+                None => vec![format!(
+                    "(no whole frame; the terminal's last bytes) {:?}",
+                    &text[text.len() - text.len().min(400)..]
+                )],
+            };
+            eprintln!(
+                "a timing-indeterminate session: the paste paused for {gap:?}; \
+                 a second later the screen held:\n{}",
+                screen.join("\n")
+            );
+            return Err(Rejected { gap, screen });
         }
     }
     eprintln!("the paste's longest pause: {longest:?}");
@@ -3581,9 +3605,17 @@ fn paste_unpaced(session: &Session, bytes: &[u8]) -> Result<(), std::time::Durat
     Ok(())
 }
 
-/// How long the input has to be quiet for a paste's quarantine to end
-/// (`Decoder::PASTE_QUIET` in `src/tui/input.rs`, not visible from here, so
-/// spelled out).
+/// A session [`paste_unpaced`] stopped at a pause: the pause, and the screen's
+/// non-blank rows a second after it.
+struct Rejected {
+    gap: std::time::Duration,
+    screen: Vec<String>,
+}
+
+/// How long the input has to be quiet for a paste's quarantine to end:
+/// `Decoder::PASTE_QUIET` at `src/tui/input.rs:674`. That constant is
+/// `pub(crate)`, so this suite cannot name it; a copy, kept beside the
+/// product's in the same change.
 const PASTE_QUIET: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// How many sessions a case about an unpaced paste runs before it gives up on
@@ -3593,28 +3625,46 @@ const UNPACED_ATTEMPTS: usize = 3;
 /// Runs `case` -- one whole session about an unpaced paste -- until one of
 /// them wrote its paste with no pause of [`PASTE_QUIET`] inside it.
 ///
-/// A pause that long is a terminal that paused inside its paste, and the TUI
-/// ends a paste's quarantine there by design: what follows it is keys
-/// (`src/tui/input.rs`'s module doc, "a terminal that pauses that long inside
-/// one paste ends the quarantine there"). The harness is that terminal, and a
-/// harness thread a loaded runner does not schedule for 50 ms writes exactly
-/// that pause (CI run 42939692388: the body typed as keys from its line
-/// `K0000822` on). A session whose paste paused proves nothing about the
-/// paste, so its `case` stops at the pause (`Err`, [`paste_unpaced`]) and a
-/// new session runs; one whose paste went out unpaced makes every assertion
-/// (`Ok`). Every session paused is a failure that says so.
-fn unpaced_case(mut case: impl FnMut() -> Result<(), std::time::Duration>) {
+/// A pause that long is a terminal that may have paused inside its paste,
+/// and the TUI ends a paste's quarantine at such a pause by design: what
+/// follows it is keys (`src/tui/input.rs`'s module doc, "a terminal that
+/// pauses that long inside one paste ends the quarantine there"). The harness
+/// is that terminal, and a harness thread a loaded runner does not schedule
+/// for 50 ms writes exactly that pause (CI run 42939692388: the body typed as
+/// keys from its line `K0000822` on). Such a session is timing-indeterminate
+/// ([`paste_unpaced`]), so its `case` stops at the pause (`Err`) and a new
+/// session runs; one whose paste went out unpaced makes every assertion
+/// (`Ok`), and an assertion that fails there fails the case at once -- no
+/// retry runs after it. Every session paused is a failure that says so, with
+/// what each one held.
+///
+/// The measure is the writer's own clock and nothing the TUI does: a reader
+/// that falls behind keeps the queue full, and every attempt the writer makes
+/// against a full queue is one more reading of it, 2 ms apart
+/// ([`IDLE_POLL`]). So a product that breaks the quarantine cannot steer its
+/// sessions into this retry; the receipt's quarantine mutants (CI-PTY-WAIT
+/// round 2) show they fail on a session the writer did not pause.
+fn unpaced_case(mut case: impl FnMut() -> Result<(), Rejected>) {
     let mut paused = Vec::new();
     for _ in 0..UNPACED_ATTEMPTS {
         match case() {
             Ok(()) => return,
-            Err(gap) => paused.push(gap),
+            Err(rejected) => paused.push(rejected),
         }
     }
+    let held: Vec<String> = paused
+        .iter()
+        .map(|rejected| format!("after {:?}: {}", rejected.gap, rejected.screen.join(" | ")))
+        .collect();
     panic!(
-        "each of {UNPACED_ATTEMPTS} pastes paused for {PASTE_QUIET:?} or more ({paused:?}): \
+        "each of {UNPACED_ATTEMPTS} pastes paused for {PASTE_QUIET:?} or more ({:?}): \
          the harness was not scheduled while it wrote, and the TUI ends a paste's \
-         quarantine at such a pause by design, so no session tested the paste"
+         quarantine at such a pause by design, so no session tested the paste; what \
+         each screen held a second later: {held:#?}",
+        paused
+            .iter()
+            .map(|rejected| rejected.gap)
+            .collect::<Vec<_>>()
     );
 }
 
@@ -3643,7 +3693,10 @@ fn an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused() {
     unpaced_case(|| {
         runs += 1;
         if runs < UNPACED_ATTEMPTS {
-            Err(PASTE_QUIET)
+            Err(Rejected {
+                gap: PASTE_QUIET,
+                screen: Vec::new(),
+            })
         } else {
             Ok(())
         }
@@ -3658,9 +3711,24 @@ fn an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused() {
 }
 
 #[test]
-#[should_panic(expected = "no session tested the paste")]
 fn an_unpaced_case_whose_every_paste_paused_fails_saying_so() {
-    unpaced_case(|| Err(PASTE_QUIET));
+    // With what each timing-indeterminate session held: its pause and its
+    // screen, so a red run shows whether the body was typed in any of them.
+    let caught = std::panic::catch_unwind(|| {
+        unpaced_case(|| {
+            Err(Rejected {
+                gap: PASTE_QUIET,
+                screen: vec!["K00000011".to_string()],
+            })
+        })
+    });
+    let message = caught
+        .expect_err("a case whose every paste paused passed")
+        .downcast::<String>()
+        .expect("a formatted message");
+    for said in ["no session tested the paste", "50ms", "K00000011"] {
+        assert!(message.contains(said), "{said:?} is not said: {message}");
+    }
 }
 
 #[test]
@@ -3681,7 +3749,7 @@ fn a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothi
             Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
         session.wait_for(READY);
 
-        paste_unpaced(&session, &hostile_paste(false))?;
+        paste_unpaced(&session, &hostile_paste(false), (40, 120))?;
         // A key of the test's own, once the input has been quiet: the composer
         // holds the paste and that key, and nothing of the body. It is written
         // after the whole paste, so once it is on the screen the paste has all
@@ -3730,7 +3798,7 @@ fn a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval() {
         session.type_bytes(b"edit the notes\r");
         session.wait_for(PERMISSION_TITLE);
 
-        paste_unpaced(&session, &hostile_paste(true))?;
+        paste_unpaced(&session, &hostile_paste(true), (24, 80))?;
         // A barrier in the input's own order: Down, written after the whole
         // paste, moves the question's marker to its second choice. Once that is
         // on the screen every byte of the paste has been read, so a paste that
@@ -14370,51 +14438,89 @@ fn a_title_the_gateway_is_slow_to_name_never_holds_up_the_turn() {
 
 // -- /skills and `$` -----------------------------------------------------------
 
-/// A sandbox for a case that searches the skills for `searched`, its root's
-/// name holding none of them. A search reads each skill's path too
-/// (`skillMatchRank`; `src/tui/skills_menu.rs`'s `rank`), and the root is
-/// `.tmp` and six random letters and digits, so a root that happens to be
-/// named `.tmpqFOo7z` lists every skill for `$foo` -- about one in 7 400 for a
-/// given three-letter word, and CI drew one (run 42942450215: `Skills 3`
-/// under `$foo`). Only the name is drawn again; the directory it is in is the
-/// machine's, the same on every run.
+/// A sandbox for a case that searches the skills for `searched`, whose whole
+/// path holds none of them. A search reads each skill's path too
+/// (`skillMatchRank`; `src/tui/skills_menu.rs`'s `rank`), so a sandbox whose
+/// path holds the word lists every skill for it. The root is `.tmp` and six
+/// random letters and digits, and a root that happens to be named
+/// `.tmpqFOo7z` lists every skill for `$foo` -- about one in 7 400 for a given
+/// three-letter word, and CI drew one (run 42942450215: `Skills 3` under
+/// `$foo`): that name is drawn again. The directory it is made in is the
+/// machine's (`TMPDIR`), the same on every draw, so a word there is a
+/// failure that says so rather than a case that times out on every run.
 fn skills_sandbox(searched: &[&str]) -> Sandbox {
     for _ in 0..100 {
         let sandbox = Sandbox::new();
-        let name = sandbox
-            .workspace
-            .parent()
-            .and_then(std::path::Path::file_name)
-            .expect("the sandbox root's name")
-            .to_string_lossy()
-            .into_owned();
-        if !names_a_search(&name, searched) {
-            return sandbox;
+        let root = sandbox.workspace.parent().expect("the sandbox root");
+        match found_in_sandbox(root, searched) {
+            Found::Nowhere => return sandbox,
+            Found::InTheRootsName => continue,
+            Found::AboveTheRoot => panic!(
+                "the directory the sandboxes are made in, {:?}, holds one of {searched:?}: \
+                 a `$` search reads every skill's path, so it would list every skill; \
+                 run with a TMPDIR whose path holds none of them",
+                root.parent().unwrap_or(root)
+            ),
         }
     }
     panic!("a hundred sandbox roots named with one of {searched:?}");
 }
 
-/// Whether a search for one of `searched` finds `name`, as the skills menu's
-/// does: ASCII case folded.
-fn names_a_search(name: &str, searched: &[&str]) -> bool {
-    let name = name.to_ascii_lowercase();
-    searched
+/// Where a search for one of `searched` finds the paths of a sandbox at
+/// `root` -- its `home` and its `workspace`, whole and with ASCII case folded,
+/// as the skills menu's search reads them.
+#[derive(Debug, PartialEq)]
+enum Found {
+    Nowhere,
+    /// In the root's own name, which a new sandbox draws again.
+    InTheRootsName,
+    /// Above the root, where no draw changes it.
+    AboveTheRoot,
+}
+
+fn found_in_sandbox(root: &std::path::Path, searched: &[&str]) -> Found {
+    let holds = |text: &str| {
+        let text = text.to_ascii_lowercase();
+        searched
+            .iter()
+            .any(|word| text.contains(&word.to_ascii_lowercase()))
+    };
+    let found = ["home", "workspace"]
         .iter()
-        .any(|word| name.contains(&word.to_ascii_lowercase()))
+        .any(|below| holds(&root.join(below).to_string_lossy()));
+    if !found {
+        Found::Nowhere
+    } else if root
+        .file_name()
+        .is_some_and(|name| holds(&name.to_string_lossy()))
+    {
+        Found::InTheRootsName
+    } else {
+        Found::AboveTheRoot
+    }
 }
 
 #[test]
-fn a_skills_sandbox_root_is_never_named_with_what_its_case_searches() {
-    assert!(names_a_search(".tmpqFOo7z", &["foo"]));
-    assert!(names_a_search(".tmpdEMx1a", &["zz", "dem"]));
-    assert!(!names_a_search(".tmpfo0o1a", &["foo"]));
+fn a_skills_sandbox_path_never_holds_what_its_case_searches() {
+    use std::path::Path;
+    let found = |root: &str, searched: &[&str]| found_in_sandbox(Path::new(root), searched);
+    assert_eq!(
+        found("some/dir/.tmpqFOo7z", &["foo"]),
+        Found::InTheRootsName
+    );
+    assert_eq!(
+        found("some/dir/.tmpdEMx1a", &["zz", "dem"]),
+        Found::InTheRootsName
+    );
+    assert_eq!(found("some/dir/.tmpfo0o1a", &["foo"]), Found::Nowhere);
+    assert_eq!(found("some/FOOD/.tmpab12cd", &["foo"]), Found::AboveTheRoot);
+    assert_eq!(
+        found("some/condemn/.tmpab12cd", &["dem"]),
+        Found::AboveTheRoot
+    );
     let sandbox = skills_sandbox(&["foo"]);
     let root = sandbox.workspace.parent().expect("a root");
-    assert!(!names_a_search(
-        &root.file_name().expect("a name").to_string_lossy(),
-        &["foo"]
-    ));
+    assert_eq!(found_in_sandbox(root, &["foo"]), Found::Nowhere);
 }
 
 /// The capture's workspace (`research/media-ext/scenarios/skills-ws`) on xfx's
