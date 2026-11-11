@@ -1,0 +1,40 @@
+
+  Above the rule.
+
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  Below the rule.
+
+  0s (↑2 ↓40)
+
+┃ only a block
+
+  ─ sh ────
+  echo only
+  ─────────
+
+  0s (↑4 ↓40)
+
+┃ ends in a block
+
+  Lead line.
+
+  ─ sh ───
+  echo end
+  ────────
+
+  0s (↑5 ↓40)
+
+┃ opens with a block
+
+  ─ sh ─────
+  echo first
+  ──────────
+
+  Then text.
+
+  0s (↑6 ↓40)
+
+┃
+
+auto · model-a

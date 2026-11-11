@@ -1,0 +1,9 @@
+# The scenario's captures (40x120), each binary's sha checked by capture.sh;
+# <scratch> is the session's scratch directory, <tmp> a short TMPDIR.
+# fx/   the oracle, fx v0.0.16 (sha256 8e6cda2e...), FX_AUTO_UPGRADE=0 (capture.sh sets it)
+FX_BIN=<fxref>/fx-v0.0.16/bin/fx TMPDIR=<tmp> scripts/fxcap/capture.sh fx fulltranscript-response-split 40x120 <scratch>/fx
+# red/  the base's binary, built at 3f2d6e78 (banner v0.1.0-3f2d6e7, `launch` row 1)
+TMPDIR=<tmp> XFX_BIN=<scratch>/xfx-base scripts/fxcap/capture.sh xfx fulltranscript-response-split 40x120 <scratch>/red
+# xfx/  the code head's binary, built at b9007bc3 after its commit (banner v0.1.0-b9007bc, `launch` row 1)
+TMPDIR=<tmp> XFX_BIN=<scratch>/xfx-head scripts/fxcap/capture.sh xfx fulltranscript-response-split 40x120 <scratch>/xfx
+# Each run exited 0 and left the .ansi and .txt of its 14 snaps; only those are kept here.

@@ -1,0 +1,40 @@
+
+  2026-11-10 23:37:22.476 UTC · Prompt
+┃ only a block
+
+  ─ sh ────
+  echo only
+  ─────────
+
+  2026-11-10 23:37:22.671 UTC · Usage
+  0s (↑4 ↓40)
+
+  2026-11-10 23:37:30.662 UTC · Prompt
+┃ ends in a block
+
+  2026-11-10 23:37:30.673 UTC · Response
+  Lead line.
+
+  ─ sh ───
+  echo end
+  ────────
+
+  2026-11-10 23:37:30.791 UTC · Usage
+  0s (↑5 ↓40)
+
+  2026-11-10 23:37:38.821 UTC · Prompt
+┃ opens with a block
+
+  ─ sh ─────
+  echo first
+  ──────────
+
+  2026-11-10 23:37:38.833 UTC · Response
+  Then text.
+
+  2026-11-10 23:37:39.026 UTC · Usage
+  0s (↑6 ↓40)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

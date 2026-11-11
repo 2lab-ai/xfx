@@ -1,0 +1,40 @@
+  Lead line.
+
+  ─ sh ───
+  echo end
+  ────────
+
+  2026-11-10 23:38:34.926 UTC · Usage
+  0s (↑5 ↓40)
+
+  2026-11-10 23:38:42.387 UTC · Prompt
+┃ opens with a block
+
+  2026-11-10 23:38:42.483 UTC · Response
+  ─ sh ─────
+  echo first
+  ──────────
+
+  Then text.
+
+  2026-11-10 23:38:42.587 UTC · Usage
+  0s (↑6 ↓40)
+
+  2026-11-10 23:38:50.558 UTC · Prompt
+┃ two blocks
+
+  2026-11-10 23:38:50.637 UTC · Response
+  ─ sh ───
+  echo one
+  ────────
+
+  ─ sh ───
+  echo two
+  ────────
+
+  2026-11-10 23:38:50.749 UTC · Usage
+  0s (↑3 ↓40)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

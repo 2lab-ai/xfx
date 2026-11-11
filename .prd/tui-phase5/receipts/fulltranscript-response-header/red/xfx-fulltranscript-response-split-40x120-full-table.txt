@@ -1,0 +1,40 @@
+  23. Filler item 23 of the long first answer
+  24. Filler item 24 of the long first answer
+  25. Filler item 25 of the long first answer
+  26. Filler item 26 of the long first answer
+  27. Filler item 27 of the long first answer
+  28. Filler item 28 of the long first answer
+  29. Filler item 29 of the long first answer
+  30. Filler item 30 of the long first answer
+  31. Filler item 31 of the long first answer
+  32. Filler item 32 of the long first answer
+  33. Filler item 33 of the long first answer
+  34. Filler item 34 of the long first answer
+  35. Filler item 35 of the long first answer
+  36. Filler item 36 of the long first answer
+
+  2026-11-10 23:38:03.837 UTC · Usage
+  0s (↑3 ↓40)
+
+  2026-11-10 23:38:09.734 UTC · Prompt
+┃ the table
+
+  2026-11-10 23:38:09.809 UTC · Response
+  Before the table.
+
+  ┌───────┬──────┐
+  │ name  │ size │
+  ├───────┼──────┤
+  │ alpha │ 1    │
+  ├───────┼──────┤
+  │ beta  │ 2    │
+  └───────┴──────┘
+
+  After the table.
+
+  2026-11-10 23:38:09.999 UTC · Usage
+  0s (↑3 ↓40)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

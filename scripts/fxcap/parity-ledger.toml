@@ -488,7 +488,7 @@ reason = "fx v0.0.16 writes as itself, in a file's line on Ctrl-O, every scalar 
 owner = "CTRLO-WIDER"
 resolution = "fx names them in a file's line, or counts them as a terminal draws them, at this pin's line or a later pin's, so the rows are the same"
 expires = "date:2026-12-04"
-source = ["src/tui/full_transcript.rs:3010", "docs/parity.md:238"]
+source = ["src/tui/full_transcript.rs:3048", "docs/parity.md:238"]
 
 [[divergence]]
 id = "answer-drawn-wider-named"
@@ -502,7 +502,7 @@ reason = "fx v0.0.16 writes an answer's text as itself, and every scalar a termi
 owner = "CTRLO-WIDER"
 resolution = "fx names them in an answer and a prompt's row, or counts them as a terminal draws them, at this pin's line or a later pin's, so the rows are the same"
 expires = "date:2026-12-04"
-source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13966", "docs/parity.md:237"]
+source = ["src/tui/full_transcript.rs:3099", "src/tui/shell.rs:13966", "docs/parity.md:237"]
 
 [[divergence]]
 id = "answer-label-and-modifier-named"
@@ -516,7 +516,7 @@ reason = "`answer-drawn-wider-named`'s naming, on the two surfaces CTRLO-WIDER-F
 owner = "CTRLO-WIDER-F"
 resolution = "fx names them, or counts them as a terminal draws them, at this pin's line or a later pin's, so the rows are the same"
 expires = "date:2026-12-04"
-source = ["src/tui/full_transcript.rs:3061", "docs/parity.md:237"]
+source = ["src/tui/full_transcript.rs:3099", "docs/parity.md:237"]
 
 [[divergence]]
 id = "inline-band-row-anchor"
@@ -660,17 +660,6 @@ rows = ["1-40"]
 fx_row = '^│  (?:questions: |\[\{"question"|1","description"|\(ask_user_question: )|^  X+ UTC · Tool$|^$'
 xfx_row = '^$'
 why = "fx v0.0.16 hands each replayed `ask_user_question` call its saved detail (`attachHistoricalToolDetail`, `app_session_runtime.zig:4337`, `:4607@481104fd`), so its Ctrl-O shows the call's arguments and its result under the batch's resolutions (`│  questions: [...]`, `│  [{\"question\":...}]`) and under `● Asked`, which it heads `<ts> UTC · Tool`. xfx's replay writes both rows as blocks that carry no call (QUESTION-RESUME, .prd/tui-phase5/receipts/question-resume/), so its Ctrl-O shows the resolution and `● Asked` alone, and the rows after them stand higher. The rows themselves, on the screen and in Ctrl-O, match; the inline `resumed` pairs are identical."
-
-[[cause]]
-id = "fulltranscript-response-header"
-kind = "unit"
-owner = "FULLTRANSCRIPT-RESPONSE-HEADER fx's second Response record in one answer's full transcript, not yet a branch"
-scenarios = ["p5-modified-page-keys", "p5-modified-arrows-full", "p5-transcript-md", "p5-transcript-md-light"]
-snaps = ["full", "full-ctrl-pgup", "full2", "full2-kp-ctrl-pgdn", "full-super-left", "full-ctrl-up", "full-ctrl-b", "full-ctrl-f"]
-rows = ["1-40"]
-fx_row = '^  X+ \S+ · Response$'
-xfx_row = '^$'
-why = "fx v0.0.16 writes p5-transcript-md's one answer into its full transcript as two Response records: one over the answer's start and one over `Done with everything.`, the line after the closed code block (`.prd/tui-phase5/receipts/modified-page-keys/fx/fx-p5-modified-page-keys-40x120-full.txt` rows 1 and 32, `18:21:30.977` and `18:21:32.081 UTC · Response`). xfx's document heads the whole answer once (`xfx/xfx-p5-modified-page-keys-40x120-full.txt` row 2, and `Done with everything.` at row 33 with no header over it), so its tail page is one row shorter and stands one row apart: the two rows left over are fx's second header and xfx's blank first row. The same on every tail page of those scenarios, before any key and after a held page key or a held arrow, Ctrl-B or Ctrl-F (`p5-modified-arrows-full`), none of which pages it. Where fx's splits a response record, and whether the split is fixed for one stream of chunks, is the owner's to read in fx's source (the review of MODIFIED-PAGE-KEYS round 1, SHOULD 2)."
 
 [[cause]]
 id = "at-ranking"
@@ -819,6 +808,18 @@ fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bo
 why = "Ctrl-O's `* session:` record: fx's has `system prompt: ready · N bytes`, `skills: loading` and 15 tools (shell, subagent, capability_search, …), xfx's 13 tools and neither line (docs/parity.md:238). The tool list's later rows are matched at any width: rows of tool names alone, each ending `,` or `+N more)` (`  write_file, shell, …, +6 more)` at 80 columns, `p5-transcript-tools`; `  edit_file, write_file, shell, subagent, capability_search,` / `  +6 more)` at 60, `p5-transcript-question`)."
 
 [[cause]]
+id = "session-record-page-bottom"
+kind = "defect"
+owner = "unowned (follows session-record)"
+scenarios = ["p5-transcript-md", "p5-transcript-md-light", "p5-modified-page-keys"]
+snaps = ["full-pgup"]
+rows = ["34-36"]
+xfx_row = '^  A list that starts at nine:$|^$'
+xfx = ["src/tui/shell.rs:42649"]
+fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/app/app_bootstrap_runtime.zig:90@c1db9191"]
+why = "The document's head page, a page up from the tail (`full-pgup`): fx's `* session:` record is two rows taller (`system prompt:` and `skills:`, `session-record`), so the page holds two rows fewer of the answer, and xfx's ends with the blank and `A list that starts at nine:` that fx's has below its last row. Named by FULLTRANSCRIPT-RESPONSE-HEADER, whose sweep left these two rows of each pair the only ones no cause covered, at its base and at its head alike (`.prd/tui-phase5/receipts/fulltranscript-response-header/`); MODIFIED-PAGE-KEYS saw them first (its README, Sweep, round 2)."
+
+[[cause]]
 id = "transcript-page-offset"
 kind = "defect"
 owner = "unowned (follows tool-schema and session-record)"
@@ -924,12 +925,12 @@ why = "The scenario records what fx v0.0.16 prints for `fx update --help`, `fx u
 id = "full-transcript-shift"
 kind = "defect"
 owner = "unowned (follows session-record and tool-schema)"
-scenarios = ["fulltranscript*", "links", "read-failures", "resume-tools", "timeout"]
+scenarios = ["fulltranscript", "fulltranscript-notice", "links", "read-failures", "resume-tools", "timeout"]
 snaps = ["*ctrl-o*", "full*"]
 whole_snap = true
 xfx = ["src/tui/shell.rs:42649", "src/tui/approval_view.rs:685"]
 fx = ["src/core/app/app_bootstrap_runtime.zig:71@c1db9191", "src/core/execution/command_environment.zig:128@c1db9191"]
-why = "Every Ctrl-O row under fx's taller session record and its shell calls' argument rows stands lower than xfx's, so a page shows other entries; what else differs on these pages is read only once those two are fixed."
+why = "Every Ctrl-O row under fx's taller session record and its shell calls' argument rows stands lower than xfx's, so a page shows other entries; what else differs on these pages is read only once those two are fixed. Its scenarios are named rather than `fulltranscript*` since FULLTRANSCRIPT-RESPONSE-HEADER: `fulltranscript-response-split`'s tail pages show no session record and no shell call, so this cause has nothing to say of them, and as a whole-snap cause it would have hidden every row of them (at that unit's base it took all six of its full snaps)."
 
 [[cause]]
 id = "sound-max"
@@ -1009,7 +1010,7 @@ scenarios = ["p5-ctrlo-wider-mod"]
 snaps = ["more"]
 fx_row = '(?<![\u261d\u26f9\u270c\u270d\U0001f3cb\U0001f3cc\U0001f574\U0001f575\U0001f590])(?<=[\u261d-\u270d\U0001f385-\U0001faf8])[\U0001f3fb-\U0001f3ff]'
 xfx_row = '(?<![\u261d\u26f9\u270c\u270d\U0001f3cb\U0001f3cc\U0001f574\U0001f575\U0001f590])(?<=[\u261d-\u270d\U0001f385-\U0001faf8])[\U0001f3fb-\U0001f3ff]'
-xfx = ["src/tui/full_transcript.rs:3010", "src/tui/approval_view.rs:1224"]
+xfx = ["src/tui/full_transcript.rs:3048", "src/tui/approval_view.rs:1224"]
 fx = ["src/core/shared/display_width.zig:246-247@c1db9191"]
 why = "An RGI emoji modifier sequence -- a base and a skin-tone modifier, U+1F3FB-1F3FF -- is two cells to fx v0.0.16 and xfx (an RGI sequence, `displayUnitAt`), and tmux 3.7b draws 545 of the 2,030 that xfx's table holds as four or six, the modifier on a cell pair of its own, for bases old and new alike (measured for the review, `approval_view`'s `agreed_emoji`, which names a modifier past its base there). In an answer neither side names one whose base is outside the 43 (`drawn_wider_named` names those alone): `p5-ctrlo-wider-mod` `more`, 110 `w`, U+1F46F U+1F3FB (or U+1F93C U+1F3FB) and `TAIL5678`, loses `L` and `5` on tmux on fx and xfx alike, and reads whole on libghostty-vt (.prd/tui-phase5/receipts/ctrlo-wider/measure.txt, not checked). The two sides' rows are the same, so this covers no row a sweep leaves unresolved; it records the defect, which predates CTRLO-WIDER and is outside its surfaces (opus's review of round 2, new item 2). RI-COUNT owns it with `ri-run-pairing`: its scope is the sequences a terminal draws wider than they are counted (regional-indicator runs and modifier sequences on bases outside the 43), the count every consumer shares (the dispatcher's assignment, 2026-11-08, reversible). The nine bases of the family with a modifier are named past the base, `\\u{261d}` and the modifier, and read whole on both terminals in prose, at the margin, in a code panel and in a table's cell (the same file)."
 
