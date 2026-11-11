@@ -2712,10 +2712,10 @@ fn read_opened(file: fs::File, layer: ConfigLayer, diagnostics: &mut Vec<Diagnos
     if metadata.len() > MAX_SETTINGS_BYTES as u64 {
         return reject(diagnostics, DiagnosticCause::SettingsTooLarge);
     }
-    let mut text = String::new();
+    let mut bytes = Vec::new();
     match (&file)
         .take(MAX_SETTINGS_BYTES as u64 + 1)
-        .read_to_string(&mut text)
+        .read_to_end(&mut bytes)
     {
         Ok(read) if read > MAX_SETTINGS_BYTES => {
             return reject(diagnostics, DiagnosticCause::SettingsTooLarge)
@@ -2723,11 +2723,35 @@ fn read_opened(file: fs::File, layer: ConfigLayer, diagnostics: &mut Vec<Diagnos
         Ok(_) => {}
         Err(_) => return reject(diagnostics, DiagnosticCause::UnreadableSettings),
     }
+    // Bytes that are not UTF-8 are a parse error to fx, as any bad byte
+    // (`std.json`'s scanner takes valid UTF-8 only): the file read, and is
+    // malformed.
+    let Ok(text) = String::from_utf8(bytes) else {
+        return reject(diagnostics, DiagnosticCause::MalformedSettings);
+    };
     // fx's parse, not serde_json's: no depth limit, a number past `f64`
     // kept, a key twice refused at any depth ([`layer_json`]).
     match layer_json::object(&text) {
         Some(object) => LayerRead::loaded(object),
         None => reject(diagnostics, DiagnosticCause::MalformedSettings),
+    }
+}
+
+/// The object the profile settings file at `path` holds, read the way a
+/// launch reads a layer ([`read_layer`]): `Ok(None)` when there is no file,
+/// and the cause when it is there and does not read. For a reader that only
+/// reads -- the saved MCP choices ([`crate::mcp::config::load_choices`]):
+/// what [`layer_json`] keeps of a number past `f64`, or of a value nested past
+/// 127, is no value to write back.
+pub fn read_profile_object(
+    path: &Path,
+) -> Result<Option<serde_json::Map<String, Value>>, DiagnosticCause> {
+    let mut diagnostics = Vec::new();
+    let read = read_layer(path, ConfigLayer::User, &mut diagnostics);
+    match (read.object, diagnostics.first()) {
+        (Some(object), _) => Ok(Some(object)),
+        (None, Some(diagnostic)) => Err(diagnostic.cause),
+        (None, None) => Ok(None),
     }
 }
 
@@ -5103,15 +5127,41 @@ mod tests {
         ((global.0, entry.0), (global.1, entry.1))
     }
 
+    /// Bytes that are not UTF-8 are a file fx's parse refuses, as any bad
+    /// byte: `std.json`'s scanner takes valid UTF-8 only (`Scanner.zig:16-34@0.17.0`),
+    /// so it is `malformed_settings` in either layer -- not
+    /// `unreadable_settings`, which is a file that would not open or read.
+    #[test]
+    fn bytes_that_are_not_utf8_are_malformed_settings_in_either_layer() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let path = dir.path().join("settings.json");
+        for layer in [ConfigLayer::User, ConfigLayer::Project] {
+            for bytes in [&b"{\"zzz\": \"\xff\"}"[..], b"{\"a\": 1}\xc3", b"\xef\xbb"] {
+                fs::write(&path, bytes).expect("a file");
+                let mut diagnostics = Vec::new();
+                let read = read_layer(&path, layer, &mut diagnostics);
+                let causes: Vec<_> = diagnostics.iter().map(|d| d.cause).collect();
+                assert_eq!(
+                    (read.object.is_some(), causes),
+                    (false, vec![DiagnosticCause::MalformedSettings]),
+                    "{layer:?} {bytes:?}"
+                );
+            }
+        }
+    }
+
     /// No key xfx reads looks past the depth [`layer_json`] keeps: for every
     /// one, a value 200 deep -- kept 128 deep, the last container empty --
     /// decides what the same shape 8 deep does, in each reader of a layer:
     /// the profile's and the project's parse, the permission table, fx's
     /// refusal (in the global object and this workspace's entry), the
     /// ignored-key notes and the saved directories. One reader quotes the
-    /// value it cannot read, a permission action's (`TableError::BadAction`):
-    /// what a line shows of it, at most [`STARTUP_LINE_BYTES`], is what the
-    /// file says, the kept value's text being longer than that.
+    /// value it cannot read, a permission action's (`TableError::BadAction`),
+    /// and it quotes the value as read, not the file's text: an action that
+    /// starts 4 deep is kept 125 deep, its last container empty, where the
+    /// file has 200 levels and a `1` -- an object chain and an array chain
+    /// alike. fx quotes nothing there: its launch refuses the file
+    /// (`.prd/tui-phase5/receipts/profile-json-limits/permission-note.txt`).
     #[test]
     fn no_key_xfx_reads_looks_past_the_depth_kept() {
         let arrays = |depth: usize| format!("{}1{}", "[".repeat(depth), "]".repeat(depth));
@@ -5127,17 +5177,28 @@ mod tests {
                 }
             }
         }
-        // `{"permission": {"a": {"a": <the action>}}}`: the action is the
-        // chain 198 deep, which the file spells `{"a":` 198 times, `1`, and
-        // as many `}`.
-        let action = format!("{}1{}", r#"{"a":"#.repeat(198), "}".repeat(198));
-        let says = format!("`{action}` is not a permission action; use allow, ask or deny");
-        let shown = |note: &str| crate::output::safe_one_line(note, STARTUP_LINE_BYTES);
+        let says =
+            |action: &str| format!("`{action}` is not a permission action; use allow, ask or deny");
+        // `{"permission": {"a": {"a": <the action>}}}`: the file's action is
+        // 198 objects and a `1`; the one read starts 4 deep, so it is 125
+        // objects, the last empty.
+        let kept = format!("{}{{}}{}", r#"{"a":"#.repeat(124), "}".repeat(124));
         assert_eq!(quoted.len(), 1, "{quoted:?}");
         assert_eq!(quoted[0].0, PERMISSION_KEY);
-        assert_eq!(quoted[0].1.len(), 1);
-        assert!(quoted[0].1[0].len() > STARTUP_LINE_BYTES);
-        assert_eq!(shown(&quoted[0].1[0]), shown(&says));
+        assert_eq!(quoted[0].1, [says(&kept)]);
+        // A pattern's action that is an array chain (`{"permission": {"bash":
+        // {"*": <the action>}}}`): it decides what 8 deep does, and the note
+        // quotes 125 `[` and as many `]`, where the file has 200 and a `1`.
+        let action = |depth| {
+            format!(
+                r#"{{"permission": {{"bash": {{"*": {}}}}}}}"#,
+                arrays(depth)
+            )
+        };
+        let (deep, shallow) = (decisions(&action(200)), decisions(&action(8)));
+        assert_eq!(deep.0, shallow.0);
+        let kept = format!("{}{}", "[".repeat(125), "]".repeat(125));
+        assert_eq!(deep.1, [says(&kept)]);
     }
 
     /// No key xfx reads takes a number past `f64` as anything but a number

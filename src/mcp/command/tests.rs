@@ -958,6 +958,76 @@ fn shows_next_login_line_says_a_name_only_as_far_as_its_equals_sign() {
     runtime.shutdown();
 }
 
+/// The saved choices are read as fx reads them: the profile's own parse,
+/// `std.json`'s (`loadProjectMcpChoicesFromHome`,
+/// `config_runtime.zig:384-414@481104fd`), so an approval beside a number
+/// past `f64` or a value 128 deep admits its server and starts it, as one
+/// beside neither does. Where that load fails -- a choice list that is not
+/// one (`parseChoices`, `project_config.zig:1339-1366`), a profile that does
+/// not read -- fx's callers load none of the workspace's servers
+/// (`mcp.zig:58-63`, `:240-248`, `acp/sessions.zig:1035-1046`): the entry
+/// is not even read. An entry with no choices in it is the control: read,
+/// and pending (no view: its `${...}` type is expanded only once approved).
+#[test]
+fn saved_choices_are_read_as_fxs_parse_reads_them() {
+    #[derive(Debug, PartialEq)]
+    enum Seen {
+        Approved,
+        Pending,
+        NotRead,
+    }
+    let scratch = Scratch::new();
+    scratch.write_profile("{}");
+    std::fs::write(scratch.project(), late_entry("A")).unwrap();
+    let digest = {
+        let runtime = scratch.runtime();
+        let digest = runtime.loaded_digest("late").expect("read");
+        runtime.shutdown();
+        digest
+    };
+    let key = serde_json::to_string(scratch.root.join("work").to_str().unwrap()).unwrap();
+    let approval = format!(
+        r#""enabledMcpjsonServers": ["late"], "enabledMcpjsonServerDigests": {{"late": "{digest}"}}"#
+    );
+    let deep = format!("{}{}", "[".repeat(127), "]".repeat(127));
+    let seen = |settings: String| {
+        std::fs::write(scratch.settings(), settings).unwrap();
+        let runtime = scratch.runtime();
+        let admission = runtime
+            .views()
+            .into_iter()
+            .find(|view| view.name == "late")
+            .and_then(|view| view.admission);
+        let seen = match (runtime.loaded_digest("late"), admission) {
+            (None, _) => Seen::NotRead,
+            (Some(_), Some(Admission::Approved)) => {
+                ready(&runtime, "late");
+                Seen::Approved
+            }
+            (Some(_), _) => Seen::Pending,
+        };
+        runtime.shutdown();
+        seen
+    };
+    for beside in ["", r#""zzz": 1e400, "#, &format!(r#""zzz": {deep}, "#)] {
+        let settings = format!(r#"{{{beside}"workspaces": {{{key}: {{{approval}}}}}}}"#);
+        assert_eq!(seen(settings), Seen::Approved, "{beside}");
+    }
+    assert_eq!(
+        seen(format!(r#"{{"workspaces": {{{key}: {{}}}}}}"#)),
+        Seen::Pending
+    );
+    for choices in [
+        r#""enabledMcpjsonServers": "late""#.to_string(),
+        format!(r#"{approval}, "enableAllProjectMcpServers": "yes""#),
+    ] {
+        let settings = format!(r#"{{"workspaces": {{{key}: {{{choices}}}}}}}"#);
+        assert_eq!(seen(settings), Seen::NotRead, "{choices}");
+    }
+    let twice = format!(r#"{{"zzz": 1, "zzz": 2, "workspaces": {{{key}: {{{approval}}}}}}}"#);
+    assert_eq!(seen(twice), Seen::NotRead);
+}
+
 #[test]
 fn an_entry_rewritten_after_its_approval_was_saved_stays_pending() {
     // The producer's half of an approval's binding: what a reload admits is
@@ -991,7 +1061,8 @@ fn an_entry_rewritten_after_its_approval_was_saved_stays_pending() {
         runtime.loaded_digest("late").as_deref(),
         Some(approved.as_str())
     );
-    let choices = config::load_choices(Some(&scratch.settings()), &scratch.root.join("work"));
+    let choices = config::load_choices(Some(&scratch.settings()), &scratch.root.join("work"))
+        .expect("the choices load");
     assert_eq!(choices.admission("late", &approved), Admission::Approved);
     let view = runtime
         .views()
@@ -1009,7 +1080,8 @@ fn an_entry_rewritten_after_its_approval_was_saved_stays_pending() {
     runtime.reload(Origin::Transcript);
     let now = runtime.loaded_digest("late").expect("read again");
     assert_ne!(now, approved, "the rewrite has the approved digest");
-    let choices = config::load_choices(Some(&scratch.settings()), &scratch.root.join("work"));
+    let choices = config::load_choices(Some(&scratch.settings()), &scratch.root.join("work"))
+        .expect("the choices load");
     assert_eq!(choices.admission("late", &now), Admission::Pending);
     let view = runtime
         .views()
