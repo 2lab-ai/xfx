@@ -1,4 +1,4 @@
-"""usage: TMPDIR=<short dir> python3 -I mutants.py "$TMPDIR/mut/repo" <out.txt>
+"""usage: TMPDIR=<short dir> python3 -I mutants.py "$TMPDIR/mut/repo" <out.txt> [M<n>...]
 Applies each mutant to the clone alone, runs the TUI's unit tests there
 (`cargo test --lib -- tui::`) under a per-mutant timeout, and restores the
 files. A mutant is killed when a test fails. Never run against the worktree:
@@ -9,7 +9,9 @@ and more than one edit to a mutant: the base's fold and decoder put back
 (M3-M7); the paragraph boundaries' three rules broken one at a time
 (M8-M10); the `/model` column kept (M11); the pickers' fold wrong three ways
 (M12-M14); a compact menu reading the pickers' fold (M15); the full
-transcript and the question reading Alt-Up as Up (M16, M17)."""
+transcript and the question reading Alt-Up as Up (M16, M17); round 2's
+Shift forgetting the run's column on every move, not only where there is no
+row (M18). Mutant names after <out.txt> run those alone."""
 import os, subprocess, sys, time
 repo, out = sys.argv[1], sys.argv[2]
 mut = os.path.join(os.environ["TMPDIR"].rstrip("/"), "mut")
@@ -73,7 +75,15 @@ MUTANTS = [
     ("M15 the compact menus and a rule confirmation read the pickers' fold", [(S, FOLD, "            let event = arrow_to_pickers(&folded(event));\n")]),
     ("M16 the full transcript scrolls on Alt-Up", [(F, SCREEN, SCREEN.replace("Action::Up =>", "Action::Up | Action::ParagraphUp =>"))]),
     ("M17 a question moves its choice on Alt-Up", [(Q, QUESTION, QUESTION.replace("Action::Up =>", "Action::Up | Action::ParagraphUp =>"))]),
+    ("M18 Shift-Up forgets the run's column on every move", [(S, ROW,
+     "                if self.editor.move_rows(step, 1, self.text_cols()) {\n"
+     "                    self.moved();\n"
+     "                }\n"
+     "                self.editor.forget_column();\n")]),
 ]
+only = sys.argv[3:]
+if only:
+    MUTANTS = [m for m in MUTANTS if m[0].split()[0] in only]
 TESTS = [["cargo", "test", "--locked", "--lib", "--", "tui::"]]
 env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(mut, "target"), TMPDIR=os.path.join(mut, "tmp"))
 os.makedirs(env["TMPDIR"], exist_ok=True)

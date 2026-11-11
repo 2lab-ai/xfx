@@ -18,7 +18,9 @@ fx".
 | `f9995dd5` | RED: five byte-level shell tests (the test that pinned Shift-Up's recall, `shift_on_the_arrows_is_the_arrow_everywhere_but_a_question`, inverted), the scenarios `p5-paragraph-move` and `p5-paragraph-move-menus`. Tests and scenarios only |
 | `45d9ad1f` | **the code head**: the decoder's Alt arm (`Action::ParagraphUp`/`ParagraphDown`), `folded` without the vertical arms, `arrow_to_pickers`, the compact menus reading the event unfolded, `act`'s arms, the editor's paragraph moves and fx's boundaries, `forget_column`, the `/model` column's drop, the approval's list; the decoder table, the fold table, the editor tests and the approval list as tests |
 | `3df0b24d` | one more test (Shift-Up's forgotten column, a unit case and `p5-paragraph-move-column`) and a scenario comment; no `src/` change outside the test modules |
-| the commits after | `docs/parity.md`, the ledger's refs, this folder; no `src/` change |
+| `faf071b7`, `bd1d2266` | `docs/parity.md`, the ledger's refs, this folder; no `src/` change |
+| `61010585` | round 2 (Round 2 below): tests, and the editor's unreached `SelectUp`/`ComposerUp` arms moved to its session arm; no reachable behaviour change |
+| the commits after | round 2's records; no `src/` change |
 
 The source change outside the test modules is +240/-69 lines over four files
 (`git diff -U0 3f2d6e78 3df0b24d -- src`, the hunks above each file's
@@ -62,9 +64,13 @@ return`, `app_input_runtime.zig:2259-2263`); everything else reaches the compose
   row, `:70-73`), then `if (page or extend_selection) return;`
   (`input_completion_runtime.zig:270`), then the draft's edge, the steer and
   the history (`:272-291`).
-- A rule change's confirmation is an approval (`submitRuleManagementChoice`
-  clears the approval prompt, `input_approval_runtime.zig:71-130`), whose
-  `else => {}` (`:128`) takes every composer move.
+- A rule change's confirmation is an approval: its decision is the approval
+  prompt's own, with `rule_management` set (`submitPermissionChoice`,
+  `input_approval_runtime.zig:185-187`; `submitRuleManagementChoice`,
+  `:257-275`, which clears the approval prompt, `:268`), so its keys are
+  `routeApprovalEscapeAction`'s (`:71-130`), whose `else => {}` (`:128`)
+  takes every composer move. (Round 2: this cited `:71-130` for
+  `submitRuleManagementChoice`, opus NIT 1.)
 
 | key | composer, mid-draft | first / last row | empty draft | a picker open | a compact menu, a rule confirmation | approval choice / amendment | question choice / field | full transcript |
 |---|---|---|---|---|---|---|---|---|
@@ -125,8 +131,8 @@ key twice cannot cancel).
   back to `Context` (the snaps before and after it differ). Every other
   held-key snap differs: at an empty composer each recalled `hello`
   (`helloa` ...); in the draft each was a row, then the edge, then the
-  history (`oneD`, `tBhree`, `YhelloX`), and nine of the ten `cursor` lines
-  are off fx's; `x/st` was `/stx` (the mark walked, the caret stayed); the
+  history (`oneD`, `tBhree`, `YhelloX`), and nine of the twelve `cursor`
+  lines are off fx's; `x/st` was `/stx` (the mark walked, the caret stayed); the
   effort column walked (`high`, `low`) where fx's goes back to the models;
   `/statusline`'s mark walked on Ctrl-Down (`Session`); the column
   scenario's `Babcdef` (Shift-Up went to the edge). The base's full
@@ -143,7 +149,7 @@ key twice cannot cancel).
   ledger's `session-record` cause). Within each side the four hash alike
   (`pairs.sh`'s last table), so no held key moved either screen, and the
   three snaps typed after Escape are identical.
-- `green.txt`: the unit's twelve tests on both suites, 12 + 12 ok.
+- `green.txt`: the unit's thirteen tests at `61010585` on both suites, 13 + 13 ok (round 1: twelve, at `3df0b24d`).
 
 ## The readers, and what changed for each
 
@@ -159,7 +165,7 @@ key twice cannot cancel).
 | the pickers (`offer_to_mcp`, `_settings`, `_sessions`, `_fork`, `_catalog`, `_models`, `_effort`, `_skills`, `_column`, `_files`, `_picker`, `_provider_picker`, `_mcp_args`) | the folded arrow | Ctrl's and Shift's the arrow (`arrow_to_pickers`); Alt's and Super's no key of theirs, as Home is | `routeNonSlashPickerMove` and the slash completion see `visual_*` only (`input_completion_runtime.zig:230-259`) |
 | `/model`'s column (`offer_to_column`) | Up/Down walked it | Alt and Super drop a later column, as Home does | `abandonModelPickerOptions` (`app_input_runtime.zig:307`) |
 | the composer (`act`) | every one `act(Up)` | Ctrl `act(Up)`; Shift a row and no further (`move_rows(.., 1, ..)`, `forget_column`); Alt and Super the caret move with Home's | `app_input_runtime.zig:298-327` |
-| the editor (`Editor::apply`) | `ComposerUp` a row | `ParagraphUp`/`Down` fx's boundaries; `ComposerUp` a row | `text_boundaries.zig:104-147` |
+| the editor (`Editor::apply`) | `ComposerUp`, `SelectUp` a row | `ParagraphUp`/`Down` fx's boundaries; `ComposerUp`, `SelectUp` nothing, the session's (round 2) | `text_boundaries.zig:104-147`; no caller hands the editor the other two (Round 2) |
 
 **The rows and the fallbacks that locked the old behaviour in**:
 - the fold table (`the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest`):
@@ -284,20 +290,53 @@ them; 16 checked, 0 wrong.
 
 ## Open
 
-- Pinned and not pinned: of the five readers that now swallow a held Up or
-  Down, `/statusline` (the capture and `no_held_up_or_down_moves_a_compact_menu_or_a_rule_confirmation`)
-  and a rule confirmation (the same test) are pinned; the read-only panel,
-  `/usage` and `/workspace` swallow them by the same code -- each `of()`
-  answers `None` for them and its offer returns without a move
-  (`InfoAction::of`, `UsageAction::of_action`, `WorkspaceAction::of`) --
-  with no capture or test of their own. [code]
-
-- `folded` still runs before the compact menus for the held Left and Right
-  (`ComposerLeft` to `Left`) and the held page keys (`ComposerPageUp` to
-  `PageUp`), so `/statusline` flips on Shift-Left (`StatuslineAction::of`,
+- COMPACT-MENU-HELD-KEYS (queued by the dispatcher, round 2): `folded` still
+  runs before the compact menus for the held Left and Right (`ComposerLeft`
+  to `Left`), so `/statusline` flips on Shift-Left (`StatuslineAction::of`,
   `src/tui/statusline.rs`) and `/usage` changes period on it
   (`UsageAction::of_action`, `src/tui/usage_menu.rs`), where fx's compact
   menus act on `.cursor_left`/`.cursor_right` only and take a composer move
-  as nothing (`app_input_runtime.zig:2228-2263`). [code, no capture] Not
-  this unit's keys (held Up/Down); an owner for the horizontal and page
-  halves is the dispatcher's call.
+  as nothing (`app_input_runtime.zig:2228-2263`). [code, no capture] The
+  held page keys' half is refuted: no compact menu's reading names a page
+  key (opus r1).
+
+## Round 2 (opus r1 NITs 1-5, gpt6 r1 NTH; `61010585`)
+
+- **The compact readers, table-driven** (gpt6 NTH):
+  `no_held_up_or_down_moves_a_compact_menu_or_a_rule_confirmation` now
+  presses nine held spellings at each of `/statusline`, a rule
+  confirmation, the read-only panel (short enough to scroll), `/usage` and
+  `/workspace` (with a directory, so it has choices to mark), the band
+  unchanged after each; a plain Down then moves each but `/usage`'s, which
+  with no sign-in has no row to mark; and each menu's own reading
+  (`StatuslineAction::of`, `InfoAction::of`, `UsageAction::of_action`,
+  `WorkspaceAction::of`) answers `None` for the eight held actions and a
+  move for `Down`.
+- **The rule confirmation's citation** (NIT 1): the bullet above, with
+  `input_approval_runtime.zig:179-188` and `:257-275` added to `fx_src.sh`.
+- **The editor's dead arms** (NIT 2): `Editor::apply`'s callers are
+  `Shell::act` (`src/tui/shell.rs`), whose `ComposerUp` arm calls `act(Up)`
+  and whose `SelectUp` arm calls `move_rows` before any `apply`, and an
+  amendment (`src/tui/approval_amendment.rs`), whose keys are
+  `approval::edits` (which names neither) and `DraftStart`/`DraftEnd`
+  (`Shell::decide`). The four arms moved to the editor's session arm (its
+  match names every action, no wildcard), and
+  `shifts_and_ctrls_held_up_and_down_are_the_sessions_not_the_editors` pins
+  them as the editor's no-op and `approval::edits`' refusal; the draft
+  test's Shift and Ctrl rows, which go through `act`, pass unchanged.
+- **The fold table** (NIT 3): `DraftStart{shifted:true}` and
+  `DraftEnd{shifted:false}` are back, each folding to itself.
+- **The decoder table** (NIT 4): `1;6B`, `1;8B`, and `1;12`-`1;15` both
+  ways (masks 11-14, Super's arm, Shift remembered); `1;15B` was there.
+- **Shift's kept column** (NIT 5): a Shift-Up that moves keeps the run's
+  column (`vertical_navigation.zig:76`): a unit case (`abcdef/x/abcdef`,
+  two Shift-Ups from the end land at offset 6) and
+  `p5-paragraph-move-column`'s third part, a `cursor` line (`shift-up-twice`:
+  fx, the base and the head all at `8,2`, column 6 of the first row; no
+  letter, because fx's Shift-Ups select what they cross and a letter
+  replaces it, COMPOSER-SELECTION-EXTEND). The column scenario was
+  recaptured on all three sides (`captures.txt`); its two snaps are as they
+  were in round 1, and the pairs are 47 of 51 and 13 of 51 as before, with
+  every one of the twelve `cursor` lines at fx's place on the head (nine
+  off it on the base). M18, "forget on every Shift move", is killed by the draft test's kept-column case (`mutants.txt`, its round-2 lines, on a clone at `61010585`).
+- Gate: on a clone at the final head (`gate.txt`, its round-2 part), in the commit after the records.

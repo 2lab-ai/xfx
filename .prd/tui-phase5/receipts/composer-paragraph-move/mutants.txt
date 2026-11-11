@@ -18,3 +18,7 @@ M15 the compact menus and a rule confirmation read the pickers' fold: KILLED (47
 M16 the full transcript scrolls on Alt-Up: KILLED (42s) a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen
 M17 a question moves its choice on Alt-Up: KILLED (60s) a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move
 17 of 17 killed; the clone's tree after the run: clean
+
+# Round 2: on a --no-local clone at 61010585 under <tmp>/mut/, the run under the suite lock: TMPDIR=<tmp> python3 -I mutants.py <tmp>/mut/repo <out> M18
+M18 Shift-Up forgets the run's column on every move: KILLED (75s) a_held_up_or_down_in_a_draft_is_fxs_move_and_only_ctrls_reaches_the_edge_or_history
+1 of 1 killed; the clone's tree after the run: clean

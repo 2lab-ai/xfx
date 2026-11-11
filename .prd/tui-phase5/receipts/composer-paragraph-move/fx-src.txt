@@ -673,6 +673,39 @@
   129              }
   130          }
 
+## src/core/app/input_approval_runtime.zig:179-188
+  179          fn submitPermissionChoice(app: *App, decision: ToolPermissionDecision) !void {
+  180              debug_trace.logf(
+  181                  "permission",
+  182                  "approval response submitted request_id={d} decision={s}",
+  183                  .{ app.approval_prompt.request.?.id, @tagName(decision) },
+  184              );
+  185              if (app.approval_prompt.rule_management != null) {
+  186                  try submitRuleManagementChoice(app, decision);
+  187                  return;
+  188              }
+
+## src/core/app/input_approval_runtime.zig:257-275
+  257          fn submitRuleManagementChoice(
+  258              app: *App,
+  259              decision: ToolPermissionDecision,
+  260          ) !void {
+  261              if (comptime !@hasField(App, "session") or
+  262                  !@hasField(App, "session_persistence") or
+  263                  !@hasDecl(App, "writeDomainNotice"))
+  264              {
+  265                  return error.RuleManagementUnavailable;
+  266              } else {
+  267                  if (decision == .deny) {
+  268                      clearApprovalPromptAfterSubmission(app);
+  269                      try app.writeDomainNotice(.{
+  270                          .topic = "permissions",
+  271                          .tone = .neutral,
+  272                          .body = "saved-session permission change cancelled",
+  273                      }, true);
+  274                      requestActiveSurfaceFrame(app);
+  275                      return;
+
 ## src/core/permissions/approval_amendment.zig:84-92
    84      pub fn cursorHome(self: *State) void {
    85          const slot = self.activeSlot() orelse return;

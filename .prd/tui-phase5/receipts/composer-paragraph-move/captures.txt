@@ -5,5 +5,6 @@
 # then each run's gateway log and request bodies removed (no claim rests on them).
 fx    v0.0.16, sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2 (capture.sh's guard: unchanged before and after each run), FX_AUTO_UPGRADE=0
 red   xfx built at 3f2d6e78 (the base), banner `v0.1.0-3f2d6e7 [debug]`, sha256 ffc659e9fda175bf071b63a76723173d2b52594908d48c58363f870f438bbdc9
-xfx   xfx built at 45d9ad1f (the code head; 3df0b24d changes no src/ outside the test modules), banner `v0.1.0-45d9ad1 [debug]`, sha256 a13a00514dc42088be0a3c73dcf666c7fc1c4502f065972243a8afe8895cbf1d
-scenarios: p5-paragraph-move (28 snaps, 10 cursor lines), p5-paragraph-move-menus (21 snaps), p5-paragraph-move-column (2 snaps, 1 cursor line), scripts/fxcap/scenarios/ at this branch's head
+xfx   p5-paragraph-move and -menus: xfx built at 45d9ad1f (the code head; 3df0b24d changes no src/ outside the test modules), banner `v0.1.0-45d9ad1 [debug]`, sha256 a13a00514dc42088be0a3c73dcf666c7fc1c4502f065972243a8afe8895cbf1d
+xfx   p5-paragraph-move-column (round 2, all three sides recaptured): xfx built at 49dbeaac (61010585's src/: round 2's editor arms moved, no reachable change), banner `v0.1.0-49dbeaa [debug]`, sha256 2a34a0a6b37da6d170b0cefe40caae7c0d650be361ce4aa5483682446eef9026
+scenarios: p5-paragraph-move (28 snaps, 10 cursor lines), p5-paragraph-move-menus (21 snaps), p5-paragraph-move-column (2 snaps, 2 cursor lines), scripts/fxcap/scenarios/ at this branch's head

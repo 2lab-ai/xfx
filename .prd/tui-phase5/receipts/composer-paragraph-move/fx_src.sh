@@ -35,6 +35,10 @@ ranges=(
   src/ui/input/runtime.zig:60-259
   src/core/app/input_question_runtime.zig:139-201
   src/core/app/input_approval_runtime.zig:71-130
+  # Round 2: a rule change's confirmation is the approval prompt's decision
+  # with `rule_management` set.
+  src/core/app/input_approval_runtime.zig:179-188
+  src/core/app/input_approval_runtime.zig:257-275
   src/core/permissions/approval_amendment.zig:84-92
   # The route: the full transcript's keys, the decoded action's route (the
   # screen, the question, the approval, the compact menus, the composer

@@ -168,6 +168,7 @@ p5-paragraph-move-40x120-alt-up7         fx 2,10  xfx 2,10
 p5-paragraph-move-40x120-shift-up-start  fx 2,10  xfx 2,10
 p5-paragraph-move-40x120-super-up2       fx 2,10  xfx 2,10
 p5-paragraph-move-40x120-super-up3       fx 2,10  xfx 2,10
+p5-paragraph-move-column-40x120-shift-up-twice fx 8,2  xfx 8,2
 p5-paragraph-move-column-40x120-up       fx 3,2  xfx 3,2
 
 ## p5-paragraph-move: each side against itself, rows 2-40 of each full-transcript snap, sha256
