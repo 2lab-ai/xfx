@@ -130,6 +130,7 @@ list_files() {
 		done
 		files=(${relative[@]+"${relative[@]}"})
 	fi
+	listed=1
 }
 
 # Whether $1, missing from the working tree, is really gone: one of the names
@@ -157,7 +158,17 @@ is_deleted() {
 	return 0
 }
 
+# An error bash does not stop on -- an arithmetic one -- drops the whole
+# command it is in and goes on to the next. In `list_files` or `scan` that is
+# a listing cut short or a scan that never reached its last batch, and the
+# check would pass over the files it never read: each sets its marker as its
+# last statement, and the check requires it.
+listed=0
 list_files "$repo_root"
+if [ "$listed" != 1 ]; then
+	fail "the listing did not finish; the check would pass for the wrong reason"
+	exit 1
+fi
 
 if [ "${#files[@]}" -eq 0 ]; then
 	fail "no files to scan; the check would pass for the wrong reason"
@@ -362,6 +373,7 @@ scan() {
 		fi
 	done
 	grep_names ${operands[@]+"${operands[@]}"}
+	scanned=1
 }
 
 # The bytecode rule's positive control, as the patterns have theirs: it must
@@ -463,7 +475,11 @@ case "$sample_report" in
 *) fail "a key in the batch after one grep could not read was not printed; this scan is not working" ;;
 esac
 
+scanned=0
 scan "${files[@]}" </dev/null
+if [ "$scanned" != 1 ]; then
+	fail "the scan did not finish; the check would pass for the wrong reason"
+fi
 
 if [ "$failures" -ne 0 ]; then
 	printf 'check-no-secrets: %d problem(s) found\n' "$failures" >&2
