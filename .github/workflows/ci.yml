@@ -159,7 +159,7 @@ jobs:
           chmod 755 "$RUNNER_TEMP/which-bash"
           "$RUNNER_TEMP/which-bash"
           printf 'command -v bash: %s\n' "$(command -v bash)"
-          bash --version | head -n 1
+          bash --version | sed -n 1p
 
       - name: Formatting
         if: matrix.part != 'release'
