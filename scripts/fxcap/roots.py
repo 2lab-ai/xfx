@@ -33,7 +33,7 @@ Its spellings are the same root: JSON-escaped (`\\/`), the percent-encoding
 `urllib.parse.quote(root, safe="/~")` produces (a space, a `%`, a byte past
 ASCII; the separators and `~` as they are), and the root with `//` and `/./`
 collapsed (`os.path.normpath`: a TMPDIR with a trailing slash puts `//` in a
-path mktemp names). Each placeholder is as wide as the spelling it stands in.
+path made under it). Each placeholder is as wide as the spelling it stands in.
 
 **Where a root is found.** In the text a reader of the file sees, not only in
 its bytes:
@@ -77,9 +77,9 @@ reading (`--check`). Conservative, on purpose: a root that ends in a gutter
 run is refused even where it stands whole inside a row (`/tmp/fxt ` before
 `/notes`), as its reading without the run ends whole there too, and the view
 cannot tell that from the run lost at a row's edge. A root with more than
-MAX_GUTTER_RUNS runs is refused outright. So does the run directory's own name (`--suffix`, mktemp's random
-tail) anywhere at all: it names no other path, and a root a binary cut
-short (`.../fxcap.Ab12Cd/wo...`) or whose head scrolled off a frame keeps
+MAX_GUTTER_RUNS runs is refused outright. So does the run directory's own name (`--suffix`, `fxcap.` and six
+digits) anywhere at all: it names no other path, and a root a binary cut
+short (`.../fxcap.123456/wo...`) or whose head scrolled off a frame keeps
 it. The file is named on standard error with what survived or why it was
 refused, by placeholder, never the root's path, and the exit status is 3. A fragment of a root above the run
 directory (the harness's TMPDIR or HOME) holds no run name;

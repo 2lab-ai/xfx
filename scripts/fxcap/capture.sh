@@ -4,8 +4,11 @@
 #
 # usage: scripts/fxcap/capture.sh <fx|xfx> <scenario> <rows>x<cols> [out-dir]
 #
-#   FX_BIN   the reference fx binary (required for `fx`), e.g. a c1db919 build
-#   XFX_BIN  the xfx binary (default: target/debug/xfx in this checkout)
+#   FX_BIN     the reference fx binary (required for `fx`), e.g. a c1db919 build
+#   XFX_BIN    the xfx binary (default: target/debug/xfx in this checkout)
+#   FXCAP_RUN  the run directory's name under TMPDIR, `fxcap.` and six digits
+#              (default: six random ones); the sweep gives a unit's two runs
+#              one (make_run, below)
 #
 # Each run gets its own tmux server on its own socket (never the user's), its
 # own empty HOME, a fake key, and a loopback fake gateway (fakegw.ts) fed the
@@ -377,8 +380,8 @@
 # name anywhere -- refuses the file. roots.py's docstring is the whole rule.
 #
 # fx's side and xfx's are rewritten by the same rule, so a pair compares as it
-# did: the two runs of a sweep unit share one TMPDIR, so each root is as long
-# on both sides. The two binaries' own TMPDIRs are no roots of their own:
+# did: the two runs of a sweep unit share one run directory (FXCAP_RUN), so
+# each root is the same path on both. The binaries' own TMPDIRs are no roots:
 # each is written as the run directory's placeholder and its own name,
 # `<scratch___>/fxtmp` and `<scratch___>/xfxtmp`, so a row that names one is
 # a column wider on xfx's side, as it was on the screen, and the ledger's
@@ -416,6 +419,14 @@ for_this() {
 # three are set once fx's chime names are made, so a run that never launched fx
 # is not checked for what it could not have done.
 gateway='' sock='' mcphttp='' guard_run='' guard_bin='' guard_sha=''
+# The record of the pane's process (pane_set): its kind -- `pid`, `gone`,
+# `unknown`, or empty, no pane made -- pid, start time and why. It lives in
+# this shell, out of the binary's reach, and cleanup decides from it alone;
+# $pane_rec (main sets it) is a copy for the tests, never read back.
+pane_kind='' pane_pid='' pane_start='' pane_why='' pane_rec=''
+# The record of the process a relaunch replaced, until it is confirmed gone
+# (kind empty then): cleanup waits for it as well.
+old_kind='' old_pid='' old_start='' old_why=''
 # The paths `@SCENARIOS@` and `@BUN@` stand for (main sets them), what
 # `fill` and `fill_text` write for each, and the one line `fill_text` leaves
 # its text in.
@@ -427,6 +438,40 @@ writable='^/[A-Za-z0-9._/+-]+$'
 # is written to before the out directory sees it, roots.py itself, and what
 # the exit's check reads (main sets them once the run directory exists).
 root_args=() stage='' roots_py='' net_out='' net_prefix='' net_since=''
+
+# Makes the run directory under $1, owner-only, and prints its path: the name
+# FXCAP_RUN gives (`fxcap.` and six digits), refused if it is another shape or
+# already there, or else `fxcap.` and six random digits, never one that
+# exists. Digits, not mktemp's letters: a binary reads its path's letters --
+# workspace-index's `@plan` matched the added `<run>/extra/notes/` through the
+# whole path, so mktemp's letters decided whether that row was there at all
+# (WORKSPACE-INDEX-AT-PLAN) -- and digits leave every run the same letters.
+# The sweep gives a unit's two runs one FXCAP_RUN (sweep.py `run_unit`), so fx
+# and xfx see the same path, byte for byte.
+make_run() {
+  local tmpdir=$1 name n try
+  if [[ -n ${FXCAP_RUN:-} ]]; then
+    [[ $FXCAP_RUN =~ ^fxcap\.[0-9]{6}$ ]] || { echo "FXCAP_RUN is \`fxcap.\` and six digits" >&2; return 1; }
+    mkdir -m 700 "$tmpdir/$FXCAP_RUN" 2> /dev/null ||
+      { echo "FXCAP_RUN names a run directory that is already there or cannot be made" >&2; return 1; }
+    printf '%s\n' "$tmpdir/$FXCAP_RUN"
+    return 0
+  fi
+  for (( try = 0; try < 100; try++ )); do
+    n=$(od -An -N4 -tu4 /dev/urandom | tr -d ' \n')
+    name=fxcap.$(printf '%06d' $(( n % 1000000 )))
+    if mkdir -m 700 "$tmpdir/$name" 2> /dev/null; then
+      printf '%s\n' "$tmpdir/$name"
+      return 0
+    fi
+    # A name already there is tried again; any other failure (no TMPDIR, no
+    # permission) ends here, as sweep.py's digit_dir does.
+    [[ -e $tmpdir/$name || -L $tmpdir/$name ]] ||
+      { echo "no run directory can be made under TMPDIR" >&2; return 1; }
+  done
+  echo "no run directory could be made under TMPDIR in 100 tries" >&2
+  return 1
+}
 
 # Each root's length on this run, in bytes (the C locale's `${#}`), for a
 # claim about a path's width: its placeholder is that many columns wide for
@@ -483,10 +528,102 @@ guards() {
   echo "guards: $guard_bin sha256 ${guard_sha:0:12} unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories"
 }
 
-# Every process the run started, by the pid it started, and then the guards.
+# Sets the record (kind, pid, start, why), and writes its copy: into a file
+# of mktemp's, renamed over the name, so nothing the binary left there -- a
+# link, a FIFO -- is ever opened.
+pane_set() {
+  local t
+  pane_kind=$1 pane_pid=$2 pane_start=$3 pane_why=$4
+  [[ -n $pane_rec ]] && t=$(mktemp "$pane_rec.XXXXXX" 2> /dev/null) || return 0
+  { printf '%s\n' "$@" > "$t" && mv -f "$t" "$pane_rec"; } 2> /dev/null || rm -f "$t"
+}
+
+# Records the process this script just started in its pane -- at launch and
+# at each `relaunch`, never later: `pid`, the pid and its start time (`ps
+# lstart`, which an exec keeps: the pane runs `sh`, `env`, then the binary in
+# one process); `gone`, already; or `unknown` and why, when a look failed --
+# which cleanup never reads as gone.
+own_pane() {
+  local sock=$1 pid start
+  if ! pid=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_pid}' 2>/dev/null) || [[ ! $pid =~ ^[0-9]+$ ]]; then
+    pane_set unknown '' '' 'the pane pid could not be read'
+  elif ! kill -0 "$pid" 2>/dev/null; then
+    pane_set gone "$pid" '' ''
+  elif start=$(start_of "$pid") && [[ -n $start ]]; then
+    pane_set pid "$pid" "$start" ''
+  elif ! kill -0 "$pid" 2>/dev/null; then
+    pane_set gone "$pid" '' ''
+  else
+    pane_set unknown "$pid" '' "pid $pid: its start time could not be read"
+  fi
+}
+
+# A pid's start time as `ps` prints it, without the padding around it; a
+# failure when `ps` fails.
+start_of() {
+  local out start=''
+  out=$(ps -o lstart= -p "$1" 2>/dev/null) || return 1
+  read -r start <<< "$out" || true
+  printf '%s' "$start"
+}
+
+# The recorded process now: `there` (the pid runs with the recorded start
+# time), `gone` (no process of ours has the pid, or its start time is
+# another: the pid was reused), or `unknown` (a look failed). `kill -0` sends
+# no signal; it fails only when no process has the pid or another user's
+# does, and either way ours is gone. A pid and a start second are
+# conservative evidence, not an exact identity: another process started in
+# the same second under the same pid reads as `there`, and is waited for.
+pane_state() {
+  local pid=$1 start=$2 now
+  kill -0 "$pid" 2>/dev/null || { echo gone; return 0; }
+  if ! now=$(start_of "$pid") || [[ -z $now ]]; then echo unknown
+  elif [[ $now == "$start" ]]; then echo there
+  else echo gone; fi
+}
+
+# Once a pane's process is hung up -- by kill-server at the end, or by a
+# relaunch's respawn-pane -- waits, 3 s at most, while the process recorded as
+# kind $1, pid $2, start $3 (why $4) is there or a look cannot tell. Gone, or
+# no pane was ever made (no kind), and it returns 0. A record that could not
+# be made, or anything but gone at the end, and it says so -- $5 names the
+# process, $6 when it was hung up -- and returns 1. It reads the record in
+# this shell only, and sends no signal: ending that process is tmux's.
+await_pane() {
+  local kind=$1 pid=$2 start=$3 why=$4 what=$5 when=$6 i state=unknown
+  case $kind in
+    ''|gone) return 0 ;;
+    pid) ;;
+    *)
+      echo "LIVE-WRITER GUARD: $what could not be recorded ($why); this run fails, so the sweep does not run another binary in its directory" >&2
+      return 1 ;;
+  esac
+  for (( i = 0; i < 60; i++ )); do
+    state=$(pane_state "$pid" "$start")
+    if [[ $state == gone ]]; then
+      echo "pane: ${what/#the process this run started in its pane/the process the run started} is gone ($i looks)"
+      return 0
+    fi
+    sleep 0.05
+  done
+  echo "LIVE-WRITER GUARD: $what, pid $pid (started $start), is $([[ $state == there ]] && echo still running || echo 'in a state no look could read') 3 s after $when; this run fails, so the sweep does not run another binary in its directory" >&2
+  return 1
+}
+
 cleanup() {
   local code=$?
-  [[ -z $sock ]] || tmux -f /dev/null -S "$sock" kill-server 2>/dev/null || true
+  # kill-server hangs the pane's process up and returns at once, and a
+  # binary still on its way out could write under $run after the run has
+  # ended -- where a sweep unit's next run, under the same name (FXCAP_RUN),
+  # keeps its HOME. So the run waits for it, and fails if it stays.
+  if [[ -n $sock ]]; then
+    tmux -f /dev/null -S "$sock" kill-server 2>/dev/null || true
+    local gone=1
+    await_pane "$old_kind" "$old_pid" "$old_start" "$old_why" "the relaunched pane's process" 'the relaunch replaced it' || gone=0
+    await_pane "$pane_kind" "$pane_pid" "$pane_start" "$pane_why" \
+      'the process this run started in its pane' 'its tmux server went' || gone=0
+    if (( ! gone && code == 0 )); then code=4; fi
+  fi
   [[ -z $gateway ]] || kill "$gateway" 2>/dev/null || true
   [[ -z $mcphttp ]] || kill "$mcphttp" 2>/dev/null || true
   if [[ -n $guard_run ]]; then guards || code=3; fi
@@ -664,8 +801,8 @@ main() {
   if [[ $path_bun =~ $writable ]]; then fill_bun=$path_bun; fi
 
   local run port='' bin tmpdir=${TMPDIR:-/tmp}
-  # Without its trailing slashes (macOS's own TMPDIR ends in one): mktemp
-  # would name `<TMPDIR>//fxcap.XXXXXX`, a path a binary that normalizes it
+  # Without its trailing slashes (macOS's own TMPDIR ends in one): the run
+  # would be `<TMPDIR>//fxcap.XXXXXX`, a path a binary that normalizes it
   # prints otherwise.
   while [[ $tmpdir == */ && $tmpdir != / ]]; do tmpdir=${tmpdir%/}; done
   # The run's tmux socket is $run/s, and tmux takes a socket path of at most
@@ -678,13 +815,13 @@ main() {
     echo "TMPDIR is too long for this run's tmux socket: <TMPDIR>/fxcap.XXXXXX/s would be $((sock_len)) bytes, and a socket path holds at most 103 (macOS's sun_path is 104 bytes with its NUL): a TMPDIR of at most $((tmp_len - sock_len + 103)) bytes, not $((tmp_len))" >&2
     exit 2
   fi
-  run=$(mktemp -d "$tmpdir/fxcap.XXXXXX")
+  run=$(make_run "$tmpdir") || exit 2
   mkdir -p "$run/home" "$run/work"
   # What roots.py writes each of this run's roots as (the list at the top),
   # and the run directory's own name, which no file may keep. A shared system
   # TMPDIR names no one and is left as it is: fx's help text says /tmp, and
   # keeps saying it.
-  stage=$run/stage roots_py=$here/roots.py
+  stage=$run/stage roots_py=$here/roots.py pane_rec=$run/pane
   mkdir -p "$stage"
   : > "$run/started"
   net_out=$out net_prefix=$which-$scenario-$size- net_since=$run/started
@@ -999,11 +1136,14 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
   # with it.
   local hold=()
   [[ -z $keep ]] || hold=(set-option -gw remain-on-exit on ';')
+  # Until own_pane reads it, the pane's process is unknown, never gone.
+  pane_set unknown '' '' 'the pane was being made'
   tmux -f /dev/null -S "$sock" start-server \; \
     set-hook -g alert-bell "run-shell 'echo bell >> $run/bells'" \; \
     ${hold[@]+"${hold[@]}"} \
     new-session -d -s cap -x "$cols" -y "$rows" "cd $run/work && exec $launch" \; \
     pipe-pane -o -t cap "cat >> $run/wire"
+  own_pane "$sock"
   # The texts an `until` has seen on the screen since the binary was last
   # launched, and the labels this run's snaps wrote (`expect` reads no other).
   : > "$run/seen"
@@ -1187,7 +1327,16 @@ $xfx_model ${clockfile:+XFX_E2E_USAGE_CLOCK_FILE=$clockfile} $extra_env $runner"
         ;;
       relaunch)
         fill_text "$port" "$run/home" "$mcpport" "$rest"
+        # The process it replaces is hung up and waited for as cleanup waits
+        # for the last: one that stays would write beside the new binary. Its
+        # record is kept until it is confirmed gone, so an exit on the way
+        # (a respawn that fails) leaves cleanup to wait for it.
+        old_kind=$pane_kind old_pid=$pane_pid old_start=$pane_start old_why=$pane_why
+        pane_set unknown '' '' 'the pane was being remade'
         tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $filled"
+        own_pane "$sock"
+        await_pane "$old_kind" "$old_pid" "$old_start" "$old_why" "the relaunched pane's process" 'the relaunch replaced it' || exit 4
+        old_kind=''
         # A new binary on a cleared screen: what an `until` saw before says
         # nothing of what this one showed.
         : > "$run/seen"

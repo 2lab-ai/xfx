@@ -1,0 +1,15 @@
+# GREEN: the same tests at 2a721846 (a clone of this branch at the fix commit).
+## python3 -I scripts/fxcap/test_capture.py RunDirectory
+...
+----------------------------------------------------------------------
+Ran 3 tests in 21.034s
+
+OK
+exit 0
+## python3 -I scripts/fxcap/test_sweep.py Sweep.test_a_units_two_runs_share_one_run_directory_named_by_digits
+.
+----------------------------------------------------------------------
+Ran 1 test in 2.140s
+
+OK
+exit 0

@@ -21,8 +21,9 @@ usage: sweep.sh --fx <bin> --pin-sha <sha256> [--xfx <bin>] [--size 40x120]
 
 Each scenario is one capture.sh run per binary, used as it is, `--jobs`
 scenarios at a time, longest first. A scenario's two runs share a TMPDIR of
-their own under --tmp (default $TMPDIR), one after the other, so a path on
-screen is the same path on both sides, and the one socket in it is the run's:
+their own under --tmp (default $TMPDIR) and one run directory name in it
+(FXCAP_RUN), one after the other, so a path on screen is the same path on
+both sides, byte for byte, and the one socket in it is the run's:
 if the run outlives its deadline -- 60 s plus 1.5 times the scenario's waits
 for that binary -- its tmux server is stopped through that socket, then the
 run and what it started, each by PID.
@@ -59,11 +60,11 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 
@@ -148,7 +149,7 @@ class Runner:
         self.out = out
         self.say = say
         self.capture = os.environ.get("FXCAP_SWEEP_CAPTURE") or os.path.join(HERE, "capture.sh")
-        self.root = tempfile.mkdtemp(prefix="fxsw.", dir=args.tmp)
+        self.root = digit_dir(args.tmp, "fxsw.", 8)
         self.lock = threading.Lock()
         self.running = {}
         self.done = 0
@@ -164,11 +165,12 @@ class Runner:
         while not self._stop.wait(5):
             self.peak_load = max(self.peak_load, os.getloadavg()[0])
 
-    def env(self, jobtmp, scenarios):
+    def env(self, jobtmp, scenarios, run):
         env = dict(os.environ)
         for k in ("TMUX", "TMUX_PANE", "FXCAP_SCENARIOS"):
             env.pop(k, None)
         env["TMPDIR"] = jobtmp
+        env["FXCAP_RUN"] = run
         env["FX_BIN"] = self.args.fx
         env["XFX_BIN"] = self.args.xfx
         if scenarios:
@@ -176,19 +178,35 @@ class Runner:
         return env
 
     def run_unit(self, jobs):
-        """A unit's runs, one after the other in one TMPDIR: each binary sees
-        a path to its run directory of the same length, which capture.sh
-        writes on both sides as the same placeholder of that width
-        (`<scratch___>`, `<work___>`, wherever a frame wraps or colours it:
-        roots.py), and the one run in it is the one whose socket is there."""
+        """A unit's runs, one after the other in one TMPDIR and one run
+        directory, `fxcap.` and six digits (capture.sh FXCAP_RUN): each binary
+        sees the same path, byte for byte, which capture.sh writes on both
+        sides as the same placeholder (`<scratch___>`, `<work___>`, wherever a
+        frame wraps or colours it: roots.py), and the one run in it is the one
+        whose socket is there. The same bytes, not only the same width: a
+        binary reads a path's letters -- `@plan` matched an added directory
+        through its whole path, so two runs whose random names differed in
+        one letter differed by a row (WORKSPACE-INDEX-AT-PLAN)."""
         jobtmp = os.path.join(self.root, "%03d" % jobs[0]["n"])
+        run = "fxcap.%06d" % secrets.randbelow(10**6)
+        used = [jobtmp]
         out = []
         for job in jobs:
+            if out and (out[-1]["exit"] != 0 or out[-1]["timed_out"]):
+                # A run that failed may have left its binary writing under its
+                # path (capture.sh's `cleanup` fails one whose pane process
+                # outlived its wait, exit 4): the next side runs elsewhere, in
+                # its own job's number. The unit is failed either way
+                # (`unit_status`), so its pair is not compared.
+                jobtmp = os.path.join(self.root, "%03d" % job["n"])
+                run = "fxcap.%06d" % secrets.randbelow(10**6)
+                used.append(jobtmp)
             shutil.rmtree(jobtmp, ignore_errors=True)
             os.makedirs(jobtmp)
-            out.append(self.run(job, jobtmp))
+            out.append(self.run(job, jobtmp, run))
             self.report(job, out[-1])
-        shutil.rmtree(jobtmp, ignore_errors=True)
+        for d in used:
+            shutil.rmtree(d, ignore_errors=True)
         return out
 
     def report(self, job, st):
@@ -198,14 +216,14 @@ class Runner:
         what = "timeout" if st["timed_out"] else ("ran" if st["exit"] == 0 else "failed exit %d" % st["exit"])
         self.say("[%d/%d] %s %s: %s (%.0fs)" % (done, self.total, job["side"], job["unit"], what, st["seconds"]))
 
-    def run(self, job, jobtmp):
+    def run(self, job, jobtmp, run):
         os.makedirs(job["outdir"], exist_ok=True)
         started = time.time()
         with open(job["log"], "wb") as log:
             p = subprocess.Popen(
                 ["bash", self.capture, job["side"], job["scenario"], self.args.size, job["outdir"]],
                 cwd=REPO,
-                env=self.env(jobtmp, job.get("scenarios")),
+                env=self.env(jobtmp, job.get("scenarios"), run),
                 stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=subprocess.STDOUT,
@@ -287,6 +305,22 @@ class Runner:
     def close(self):
         self._stop.set()
         shutil.rmtree(self.root, ignore_errors=True)
+
+
+def digit_dir(parent, prefix, digits):
+    """Makes `<parent>/<prefix><digits random digits>`, owner-only, never one
+    that exists, and returns it: the sweep's root. Digits, not mkdtemp's
+    letters, for the reason capture.sh's run directory has them: every path
+    under it then holds the same letters on every sweep, so a base and a head
+    sweep, or a re-run, read the same letters (WORKSPACE-INDEX-AT-PLAN)."""
+    for _ in range(100):
+        path = os.path.join(parent, "%s%0*d" % (prefix, digits, secrets.randbelow(10**digits)))
+        try:
+            os.mkdir(path, 0o700)
+        except FileExistsError:
+            continue
+        return path
+    raise Refusal("no %s directory could be made under --tmp in 100 tries" % prefix)
 
 
 def kill(pid, sig):
