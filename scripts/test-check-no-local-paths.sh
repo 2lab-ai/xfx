@@ -64,8 +64,10 @@
 # listing and the tracked one), a `git grep` that fails without a word, and a
 # line pass that leaves out a file the count pass has, or gives one line of a
 # file fewer (the shape a CI run showed), stop the scan, saying
-# whether a second look sees the same (`per tree`) or not (`per run`, and the
-# check still fails); and each grep of the tree runs on one thread (a `git`
+# whether the disagreement repeated on a second look (the check fails
+# either way), or that the second look could not read the file when its
+# greps fail or give fields that are not numbers; and each grep of the
+# tree, the second look's too, runs on one thread (a `git`
 # on PATH in front of the real one makes each happen on demand). And a check
 # stopped by an error of its own (a BASH_ENV function under `set -u`) fails.
 #
@@ -527,6 +529,31 @@ threads:*' -C . '*' grep '*)
 		exit 2
 		;;
 	esac
+	# And the tree's first line pass leaves the file out, so the second
+	# look's greps run too, under the same rule.
+	case " $* " in
+	*' -n '*' -- ') exit 1 ;;
+	esac
+	;;
+# The first line pass leaves the file out; then the second look's greps
+# give nothing and fail (`lookfail`), or give fields that are not numbers
+# (`lookjunk`).
+lookfail:*' -C . '*' grep '*' -n '* | lookjunk:*' -C . '*' grep '*' -n '*' -- ')
+	exit 1
+	;;
+lookfail:*' -C . '*' grep '*' -n '*':(literal)'*)
+	exit 1
+	;;
+lookfail:*' -C . '*' grep '*' -c '*':(literal)'*)
+	exit 128
+	;;
+lookjunk:*' -C . '*' grep '*' -n '*':(literal)'*)
+	printf 'plant.md\000%s\000%s\n' JUNK-NUMBER 'text'
+	exit 0
+	;;
+lookjunk:*' -C . '*' grep '*' -c '*':(literal)'*)
+	printf 'plant.md\000%s\n' JUNK-COUNT
+	exit 0
 	;;
 # The tree's line pass ends inside a record.
 truncated:*' -C . '*' grep '*' -n '*)
@@ -609,7 +636,7 @@ printf '%s\n' "$mac" >"$t/plant.md"
 track "$t"
 run_check "$t" "${shim_env[@]}" SHIM_MODE=omit
 if [ "$status" -ne 1 ] || ! grep -q 'two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1' "$work/out" ||
-	! grep -q -x -F 'check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and none now (git exit 1); git grep -c gives 1 now: per tree, they disagree again' "$work/out" ||
+	! grep -q -x -F 'check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and none now; git grep -c gives 1 now: the disagreement repeated on a second look' "$work/out" ||
 	! grep -q 'the scan could not finish' "$work/out"; then
 	problem "omit: a line pass that left out a file the count pass has did not fail the check (exit $status):"
 	show
@@ -619,14 +646,14 @@ fi
 
 # The line pass gives one line of a file fewer than the count (CI's shape):
 # the check fails, naming the file and both counts, and the second look says
-# it repeats.
+# it repeated.
 t="$work/fewer"
 new_tree "$t"
 printf '%s\n%s\n' "$mac" "$linux" >"$t/plant.md"
 track "$t"
 run_check "$t" "${shim_env[@]}" SHIM_MODE=fewer
 if [ "$status" -ne 1 ] || ! grep -q -x -F 'check-no-local-paths: two readings of the tree disagree: the line pass has plant.md with 1 line(s), git grep -c has plant.md with 2' "$work/out" ||
-	! grep -q -x -F 'check-no-local-paths: a second look at plant.md: the line pass gave line(s) 1 the first time and 1 now (git exit 0); git grep -c gives 2 now: per tree, they disagree again' "$work/out" ||
+	! grep -q -x -F 'check-no-local-paths: a second look at plant.md: the line pass gave line(s) 1 the first time and 1 now; git grep -c gives 2 now: the disagreement repeated on a second look' "$work/out" ||
 	! grep -q 'the scan could not finish' "$work/out"; then
 	problem "fewer: a line pass with one line of a file fewer than the count did not fail the check, naming both (exit $status):"
 	show
@@ -643,26 +670,50 @@ track "$t"
 rm -f "$work/omitted"
 run_check "$t" "${shim_env[@]}" SHIM_MODE=omitonce
 if [ "$status" -ne 1 ] || [ ! -e "$work/omitted" ] ||
-	! grep -q -x -F 'check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and 1 now (git exit 0); git grep -c gives 1 now: per run, the readings agree now' "$work/out" ||
+	! grep -q -x -F 'check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and 1 now; git grep -c gives 1 now: the disagreement did not repeat on a second look' "$work/out" ||
 	! grep -q 'the scan could not finish' "$work/out" || grep -q '^check-no-local-paths: ok' "$work/out"; then
-	problem "omitonce: a line pass that left out a file once did not fail the check, or the second look did not say per run (exit $status):"
+	problem "omitonce: a line pass that left out a file once did not fail the check, or the second look did not say it did not repeat (exit $status):"
 	show
 else
-	ok omitonce "per run, and the check fails"
+	ok omitonce "not repeated, and the check fails"
 fi
 
-# Each grep of the tree runs on one thread (the shim refuses any other).
+# Each grep of the tree runs on one thread (the shim refuses any other), the
+# second look's too: the first line pass leaves the file out, and the second
+# look must read it.
 t="$work/threads"
 new_tree "$t"
 printf '%s\n' "$mac" >"$t/plant.md"
 track "$t"
 run_check "$t" "${shim_env[@]}" SHIM_MODE=threads
-if [ "$status" -ne 1 ] || ! named "plant.md:1: $home_shape" || [ "$(hits)" -ne 1 ] || grep -q 'more than one thread' "$work/out"; then
-	problem "threads: a pass of the tree ran on more than one thread (exit $status):"
+if [ "$status" -ne 1 ] || grep -q 'more than one thread' "$work/out" ||
+	! grep -q -x -F 'check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and 1 now; git grep -c gives 1 now: the disagreement did not repeat on a second look' "$work/out"; then
+	problem "threads: a grep of the tree ran on more than one thread (exit $status):"
 	show
 else
-	ok threads "both passes on one thread"
+	ok threads "every grep on one thread, the second look's too"
 fi
+
+# The second look's greps fail, or give fields that are not numbers: it says
+# it could not read the file and prints no field, and the check still fails.
+for mode in lookfail lookjunk; do
+	t="$work/$mode"
+	new_tree "$t"
+	printf '%s\n' "$mac" >"$t/plant.md"
+	track "$t"
+	run_check "$t" "${shim_env[@]}" SHIM_MODE=$mode
+	case "$mode" in
+	lookfail) want_look='check-no-local-paths: a second look at plant.md could not read the file (git exit 1 / 128)' ;;
+	lookjunk) want_look='check-no-local-paths: a second look at plant.md could not read the file (git exit 0 / 0)' ;;
+	esac
+	if [ "$status" -ne 1 ] || ! grep -q -x -F "$want_look" "$work/out" || grep -q -e 'JUNK' -e 'did not repeat' "$work/out" ||
+		! grep -q 'the scan could not finish' "$work/out"; then
+		problem "$mode: a second look that could not read the file read as a reading (exit $status):"
+		show
+	else
+		ok "$mode" "could not read it, no field printed"
+	fi
+done
 
 t="$work/truncated"
 new_tree "$t"

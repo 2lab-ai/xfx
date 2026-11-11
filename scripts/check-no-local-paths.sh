@@ -229,13 +229,15 @@ is_capture() {
 # `core.fsmonitor` runs a program; a checkout-local `core.worktree` reads
 # another tree (`--work-tree=.` names this one); `grep.column`,
 # `grep.fullName` and `color.grep` change what a line of output looks like;
-# `submodule.recurse` reads other repositories. And `grep.threads=1`: one
-# thread reads the tree, in order. A run on a macOS CI runner (git 2.55.0,
-# 2026-11-11) had git's line pass give one line fewer of a file than its
-# count of the same tree; the two passes run the same matching code
-# (grep.c, the same in 2.55.0 and 2.56.0), so that reading varied with the
-# run, and git's threads are what varies most between runs. Whether they
-# were the cause is not shown; the second look below says, next time.
+# `submodule.recurse` reads other repositories. And `grep.threads=1`, a
+# mitigation under a hypothesis nothing has confirmed: a run on a macOS CI
+# runner (git 2.55.0, 2026-11-11) had git's line pass give one line of a
+# file fewer than its count of the same tree, where both passes run the
+# same matching code in git's source (grep.c is the same in 2.55.0 and
+# 2.56.0, which does not rule out a difference in that build or in the
+# system's regex library). Git's threads are one thing that varies between
+# runs, so the scan runs on one. A run on a macOS 15 Intel host, or the
+# second look below the next time CI disagrees, would show more.
 scan_git() {
 	local root="$1"
 	shift
@@ -256,24 +258,66 @@ done
 
 # On a disagreement of the two readings, after the scan has failed: a second
 # look at file $2, both readings of it again, beside the line numbers the
-# first line pass gave of it (never its text). It decides nothing; it says
-# whether the disagreement repeats (`per tree`) or not (`per run`).
+# first line pass gave of it (never its text). It decides nothing, and says
+# only what it saw: whether the disagreement repeated on this second look.
+# A field it prints is digits it checked; a git that fails, or gives a record
+# that does not parse, makes it say only that it could not read the file.
 second_look() {
-	local root="$1" f="$2" path number text first="" again="" lines=0 count="" status=0
+	local root="$1" f="$2" path number text first="" again="" lines=0 count="" s1=0 s2=0 ok=yes
 	while IFS= read -r -d '' path && IFS= read -r -d '' number && IFS= read -r text; do
-		[ "$path" != "$f" ] || first="${first:+$first, }$number"
+		[ "$path" = "$f" ] || continue
+		case "$number" in
+		'' | *[!0-9]*) ok=no ;;
+		*) first="${first:+$first, }$number" ;;
+		esac
 	done <"$work/given"
-	scan_git "$root" grep -a --no-color -n -z -E "${grep_args[@]}" -- ":(literal)$f" >"$work/look" 2>/dev/null || status=$?
-	while IFS= read -r -d '' path && IFS= read -r -d '' number && IFS= read -r text; do
-		again="${again:+$again, }$number"
+	scan_git "$root" grep -a --no-color -n -z -E "${grep_args[@]}" -- ":(literal)$f" >"$work/look" 2>/dev/null || s1=$?
+	path=""
+	while IFS= read -r -d '' path; do
+		if ! IFS= read -r -d '' number || ! IFS= read -r text || [ "$path" != "$f" ]; then
+			ok=no
+			break
+		fi
+		case "$number" in
+		'' | *[!0-9]*) ok=no ;;
+		*) again="${again:+$again, }$number" ;;
+		esac
 		lines=$((lines + 1))
+		path=""
 	done <"$work/look"
-	scan_git "$root" grep -a --no-color -c -z -E "${grep_args[@]}" -- ":(literal)$f" 2>/dev/null |
-		{ IFS= read -r -d '' path && IFS= read -r count && printf '%s' "$count"; } >"$work/lookc" || true
-	count="$(cat "$work/lookc")"
-	printf 'check-no-local-paths: a second look at %s: the line pass gave line(s) %s the first time and %s now (git exit %s); git grep -c gives %s now: %s\n' \
-		"$f" "${first:-none}" "${again:-none}" "$status" "${count:-0}" \
-		"$([ "$lines" = "${count:-0}" ] && echo 'per run, the readings agree now' || echo 'per tree, they disagree again')" >&2
+	[ -z "$path" ] || ok=no
+	scan_git "$root" grep -a --no-color -c -z -E "${grep_args[@]}" -- ":(literal)$f" >"$work/lookc" 2>/dev/null || s2=$?
+	path=""
+	if IFS= read -r -d '' path <"$work/lookc"; then
+		count="$(tail -c +"$((${#path} + 2))" "$work/lookc")"
+		[ "$path" = "$f" ] || ok=no
+	elif [ -s "$work/lookc" ]; then
+		ok=no
+	else
+		count=0
+	fi
+	case "$count" in
+	'' | *[!0-9]*) ok=no ;;
+	esac
+	# A reading is git's exit 0 with records, or 1 with none; anything else,
+	# from either grep, is none.
+	case "$s1:$lines" in
+	1:0) ;;
+	0:0 | 0:*[!0-9]*) ok=no ;;
+	0:*) ;;
+	*) ok=no ;;
+	esac
+	case "$s2:$count" in
+	1:0 | 0:[1-9]*) ;;
+	*) ok=no ;;
+	esac
+	if [ "$ok" != yes ]; then
+		printf 'check-no-local-paths: a second look at %s could not read the file (git exit %d / %d)\n' "$f" "$s1" "$s2" >&2
+		return 0
+	fi
+	printf 'check-no-local-paths: a second look at %s: the line pass gave line(s) %s the first time and %s now; git grep -c gives %d now: %s\n' \
+		"$f" "${first:-none}" "${again:-none}" "$count" \
+		"$([ "$lines" -eq "$count" ] && echo 'the disagreement did not repeat on a second look' || echo 'the disagreement repeated on a second look')" >&2
 }
 
 # Counts of the last scan's lines: every line git gave, those its exceptions
