@@ -211,12 +211,12 @@ install -m 0755 xfx-macos-aarch64 ~/.local/bin/xfx
 Each `v*` tag carries one archive per target -- `x86_64-unknown-linux-gnu`,
 `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin`, `aarch64-apple-darwin` --
 each with its own `.sha256`, and one `SHA256SUMS` covering all four. The example
-below is `v0.1.0` for Apple Silicon macOS; substitute the tag you want and the
+below is `v0.2.0` for Apple Silicon macOS; substitute the tag you want and the
 one of those four targets that matches your machine:
 
 ```bash
-curl -LO https://github.com/2lab-ai/xfx/releases/download/v0.1.0/xfx-aarch64-apple-darwin.tar.gz
-curl -LO https://github.com/2lab-ai/xfx/releases/download/v0.1.0/xfx-aarch64-apple-darwin.tar.gz.sha256
+curl -LO https://github.com/2lab-ai/xfx/releases/download/v0.2.0/xfx-aarch64-apple-darwin.tar.gz
+curl -LO https://github.com/2lab-ai/xfx/releases/download/v0.2.0/xfx-aarch64-apple-darwin.tar.gz.sha256
 ```
 
 The archive is verified before it is installed:
