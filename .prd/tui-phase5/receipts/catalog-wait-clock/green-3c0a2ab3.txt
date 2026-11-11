@@ -1,0 +1,135 @@
+# GREEN, head 3c0a2ab3: the three tests at 3c0a2ab3 with turn-stall.patch applied, one run per stall, each bounded at 600 s
+stall     0 ms  A next-start         ok
+stall     0 ms  B records-one        ok
+stall     0 ms  C twenty-questions   ok
+stall     0 ms  exit 0; test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 22.08s
+stall  1200 ms  A next-start         FAILED
+stall  1200 ms  B records-one        FAILED
+stall  1200 ms  C twenty-questions   ok
+stall  1200 ms  exit 101; test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 43.92s
+stall  1600 ms  A next-start         FAILED
+stall  1600 ms  B records-one        FAILED
+stall  1600 ms  C twenty-questions   ok
+stall  1600 ms  exit 101; test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 51.96s
+stall  2500 ms  A next-start         FAILED
+stall  2500 ms  B records-one        FAILED
+stall  2500 ms  C twenty-questions   ok
+stall  2500 ms  exit 101; test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 70.68s
+
+===== stall 0 ms =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 3 tests
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 22.08s
+
+
+===== stall 1200 ms =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 3 tests
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... FAILED
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+
+failures:
+
+---- tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number stdout ----
+
+thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number' (490958511) panicked at src/tui/worker.rs:18818:9:
+assertion `left == right` failed: each: the starts, the first turn's end, whether it came when it should (with the stop: inside the wait's own 2 s, counted from before the loop began; without it: past the wait's 1.9 s), the ends, the second turn's end
+  left: [("the turn's start", true, [1, 2], Some(Some("the turn was cancelled")), false, 2, Some(None)), ("the turn's start", false, [1, 2], Some(None), true, 2, Some(None)), ("the image route", true, [1, 2], Some(Some("the turn was cancelled")), false, 2, Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image."))), ("the image route", false, [1, 2], Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")), true, 2, Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")))]
+ right: [("the turn's start", true, [1, 2], Some(Some("the turn was cancelled")), true, 2, Some(None)), ("the turn's start", false, [1, 2], Some(None), true, 2, Some(None)), ("the image route", true, [1, 2], Some(Some("the turn was cancelled")), true, 2, Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image."))), ("the image route", false, [1, 2], Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")), true, 2, Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")))]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one stdout ----
+
+thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one' (490958510) panicked at src/tui/worker.rs:19212:9:
+assertion `left == right` failed: each: the starts, both turns' ends, whether the first came when it should (with the stop: at all while a first load was held, or inside a retry's own 2 s counted from before the loop began; without it: past 1.2 s), what the log says of the turns
+  left: [(UltraRetry, true, [1, 2], [Some("the turn was cancelled"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], false, ["asked first", "interrupted cancelled"]), (UltraRetry, false, [1, 2], [Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, []), (UltraFirstLoad, true, [1, 2], [Some("the turn was cancelled"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, ["asked first", "interrupted cancelled"]), (UltraFirstLoad, false, [1, 2], [Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, []), (PromptImageRetry, true, [1, 2], [Some("the turn was cancelled"), Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")], false, ["asked first", "1 image(s)", "interrupted cancelled"]), (PromptImageRetry, false, [1, 2], [Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image."), None], true, ["asked second", "final stop"]), (PromptImageFirstLoad, true, [1, 2], [Some("the turn was cancelled"), None], true, ["asked first", "1 image(s)", "interrupted cancelled", "asked second", "final stop"]), (PromptImageFirstLoad, false, [1, 2], [None, None], true, ["asked first", "1 image(s)", "final stop", "asked second", "final stop"]), (WindowRetry, true, [1, 2], [Some("the turn was cancelled"), None], false, ["asked first", "interrupted cancelled", "asked second", "final stop"]), (WindowRetry, false, [1, 2], [None, None], true, ["asked first", "final stop", "asked second", "final stop"])]
+ right: [(UltraRetry, true, [1, 2], [Some("the turn was cancelled"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, ["asked first", "interrupted cancelled"]), (UltraRetry, false, [1, 2], [Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, []), (UltraFirstLoad, true, [1, 2], [Some("the turn was cancelled"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, ["asked first", "interrupted cancelled"]), (UltraFirstLoad, false, [1, 2], [Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, []), (PromptImageRetry, true, [1, 2], [Some("the turn was cancelled"), Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")], true, ["asked first", "1 image(s)", "interrupted cancelled"]), (PromptImageRetry, false, [1, 2], [Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image."), None], true, ["asked second", "final stop"]), (PromptImageFirstLoad, true, [1, 2], [Some("the turn was cancelled"), None], true, ["asked first", "1 image(s)", "interrupted cancelled", "asked second", "final stop"]), (PromptImageFirstLoad, false, [1, 2], [None, None], true, ["asked first", "1 image(s)", "final stop", "asked second", "final stop"]), (WindowRetry, true, [1, 2], [Some("the turn was cancelled"), None], true, ["asked first", "interrupted cancelled", "asked second", "final stop"]), (WindowRetry, false, [1, 2], [None, None], true, ["asked first", "final stop", "asked second", "final stop"])]
+
+
+failures:
+    tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one
+    tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 43.92s
+
+error: test failed, to rerun pass `--lib`
+
+===== stall 1600 ms =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 3 tests
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... FAILED
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+
+failures:
+
+---- tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number stdout ----
+
+thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number' (490979541) panicked at src/tui/worker.rs:18818:9:
+assertion `left == right` failed: each: the starts, the first turn's end, whether it came when it should (with the stop: inside the wait's own 2 s, counted from before the loop began; without it: past the wait's 1.9 s), the ends, the second turn's end
+  left: [("the turn's start", true, [1, 2], Some(Some("the turn was cancelled")), false, 2, Some(None)), ("the turn's start", false, [1, 2], Some(None), true, 2, Some(None)), ("the image route", true, [1, 2], Some(Some("the turn was cancelled")), false, 2, Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image."))), ("the image route", false, [1, 2], Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")), true, 2, Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")))]
+ right: [("the turn's start", true, [1, 2], Some(Some("the turn was cancelled")), true, 2, Some(None)), ("the turn's start", false, [1, 2], Some(None), true, 2, Some(None)), ("the image route", true, [1, 2], Some(Some("the turn was cancelled")), true, 2, Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image."))), ("the image route", false, [1, 2], Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")), true, 2, Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")))]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one stdout ----
+
+thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one' (490979540) panicked at src/tui/worker.rs:19212:9:
+assertion `left == right` failed: each: the starts, both turns' ends, whether the first came when it should (with the stop: at all while a first load was held, or inside a retry's own 2 s counted from before the loop began; without it: past 1.2 s), what the log says of the turns
+  left: [(UltraRetry, true, [1, 2], [Some("the turn was cancelled"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], false, ["asked first", "interrupted cancelled"]), (UltraRetry, false, [1, 2], [Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, []), (UltraFirstLoad, true, [1, 2], [Some("the turn was cancelled"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, ["asked first", "interrupted cancelled"]), (UltraFirstLoad, false, [1, 2], [Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, []), (PromptImageRetry, true, [1, 2], [Some("the turn was cancelled"), Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")], false, ["asked first", "1 image(s)", "interrupted cancelled"]), (PromptImageRetry, false, [1, 2], [Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image."), None], true, ["asked second", "final stop"]), (PromptImageFirstLoad, true, [1, 2], [Some("the turn was cancelled"), None], true, ["asked first", "1 image(s)", "interrupted cancelled", "asked second", "final stop"]), (PromptImageFirstLoad, false, [1, 2], [None, None], true, ["asked first", "1 image(s)", "final stop", "asked second", "final stop"]), (WindowRetry, true, [1, 2], [Some("the turn was cancelled"), None], false, ["asked first", "interrupted cancelled", "asked second", "final stop"]), (WindowRetry, false, [1, 2], [None, None], true, ["asked first", "final stop", "asked second", "final stop"])]
+ right: [(UltraRetry, true, [1, 2], [Some("the turn was cancelled"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, ["asked first", "interrupted cancelled"]), (UltraRetry, false, [1, 2], [Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, []), (UltraFirstLoad, true, [1, 2], [Some("the turn was cancelled"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, ["asked first", "interrupted cancelled"]), (UltraFirstLoad, false, [1, 2], [Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, []), (PromptImageRetry, true, [1, 2], [Some("the turn was cancelled"), Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")], true, ["asked first", "1 image(s)", "interrupted cancelled"]), (PromptImageRetry, false, [1, 2], [Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image."), None], true, ["asked second", "final stop"]), (PromptImageFirstLoad, true, [1, 2], [Some("the turn was cancelled"), None], true, ["asked first", "1 image(s)", "interrupted cancelled", "asked second", "final stop"]), (PromptImageFirstLoad, false, [1, 2], [None, None], true, ["asked first", "1 image(s)", "final stop", "asked second", "final stop"]), (WindowRetry, true, [1, 2], [Some("the turn was cancelled"), None], true, ["asked first", "interrupted cancelled", "asked second", "final stop"]), (WindowRetry, false, [1, 2], [None, None], true, ["asked first", "final stop", "asked second", "final stop"])]
+
+
+failures:
+    tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one
+    tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 51.96s
+
+error: test failed, to rerun pass `--lib`
+
+===== stall 2500 ms =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 3 tests
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... FAILED
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one has been running for over 60 seconds
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+
+failures:
+
+---- tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number stdout ----
+
+thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number' (491025896) panicked at src/tui/worker.rs:18818:9:
+assertion `left == right` failed: each: the starts, the first turn's end, whether it came when it should (with the stop: inside the wait's own 2 s, counted from before the loop began; without it: past the wait's 1.9 s), the ends, the second turn's end
+  left: [("the turn's start", true, [1, 2], Some(Some("the turn was cancelled")), false, 2, Some(None)), ("the turn's start", false, [1, 2], Some(None), true, 2, Some(None)), ("the image route", true, [1, 2], Some(Some("the turn was cancelled")), false, 2, Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image."))), ("the image route", false, [1, 2], Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")), true, 2, Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")))]
+ right: [("the turn's start", true, [1, 2], Some(Some("the turn was cancelled")), true, 2, Some(None)), ("the turn's start", false, [1, 2], Some(None), true, 2, Some(None)), ("the image route", true, [1, 2], Some(Some("the turn was cancelled")), true, 2, Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image."))), ("the image route", false, [1, 2], Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")), true, 2, Some(Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")))]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one stdout ----
+
+thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one' (491025895) panicked at src/tui/worker.rs:19212:9:
+assertion `left == right` failed: each: the starts, both turns' ends, whether the first came when it should (with the stop: at all while a first load was held, or inside a retry's own 2 s counted from before the loop began; without it: past 1.2 s), what the log says of the turns
+  left: [(UltraRetry, true, [1, 2], [Some("the turn was cancelled"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], false, ["asked first", "interrupted cancelled"]), (UltraRetry, false, [1, 2], [Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, []), (UltraFirstLoad, true, [1, 2], [Some("the turn was cancelled"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, ["asked first", "interrupted cancelled"]), (UltraFirstLoad, false, [1, 2], [Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, []), (PromptImageRetry, true, [1, 2], [Some("the turn was cancelled"), Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")], false, ["asked first", "1 image(s)", "interrupted cancelled"]), (PromptImageRetry, false, [1, 2], [Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image."), None], true, ["asked second", "final stop"]), (PromptImageFirstLoad, true, [1, 2], [Some("the turn was cancelled"), None], true, ["asked first", "1 image(s)", "interrupted cancelled", "asked second", "final stop"]), (PromptImageFirstLoad, false, [1, 2], [None, None], true, ["asked first", "1 image(s)", "final stop", "asked second", "final stop"]), (WindowRetry, true, [1, 2], [Some("the turn was cancelled"), None], false, ["asked first", "interrupted cancelled", "asked second", "final stop"]), (WindowRetry, false, [1, 2], [None, None], true, ["asked first", "final stop", "asked second", "final stop"])]
+ right: [(UltraRetry, true, [1, 2], [Some("the turn was cancelled"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, ["asked first", "interrupted cancelled"]), (UltraRetry, false, [1, 2], [Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, []), (UltraFirstLoad, true, [1, 2], [Some("the turn was cancelled"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, ["asked first", "interrupted cancelled"]), (UltraFirstLoad, false, [1, 2], [Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"), Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it")], true, []), (PromptImageRetry, true, [1, 2], [Some("the turn was cancelled"), Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image.")], true, ["asked first", "1 image(s)", "interrupted cancelled"]), (PromptImageRetry, false, [1, 2], [Some("Unable to verify image support for this model, so the image was not sent. Try again later, choose another model, or remove the image."), None], true, ["asked second", "final stop"]), (PromptImageFirstLoad, true, [1, 2], [Some("the turn was cancelled"), None], true, ["asked first", "1 image(s)", "interrupted cancelled", "asked second", "final stop"]), (PromptImageFirstLoad, false, [1, 2], [None, None], true, ["asked first", "1 image(s)", "final stop", "asked second", "final stop"]), (WindowRetry, true, [1, 2], [Some("the turn was cancelled"), None], true, ["asked first", "interrupted cancelled", "asked second", "final stop"]), (WindowRetry, false, [1, 2], [None, None], true, ["asked first", "final stop", "asked second", "final stop"])]
+
+
+failures:
+    tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one
+    tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 70.68s
+
+error: test failed, to rerun pass `--lib`

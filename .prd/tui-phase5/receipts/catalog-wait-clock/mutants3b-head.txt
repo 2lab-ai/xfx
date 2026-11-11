@@ -1,0 +1,26 @@
+# head: mutants.py on a git clone --no-local at 9d2e7f3c; the catalog-wait tests (A, B, C, D, E) per mutant -- the whole lib suite for ['image-route-read-ignores-stop', 'window-first-load-ignores-stop'] -- bounded at 900 s
+head first-load-late-turn-read-thread: SURVIVED
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 7.64s
+head first-load-late-turn-read-thread-6000: SURVIVED
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 18.15s
+head first-load-late-turn-read-thread-12000: killed (failed: B E)
+    test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 13.82s
+head first-load-late-turn-read-xthread-700: SURVIVED
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 7.48s
+head first-load-late-turn-read-xthread-6000: SURVIVED
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 17.95s
+head first-load-late-turn-read-xthread-12000: killed (failed: B E)
+    test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 13.76s
+head retry-wait-stop-late-thread-500: SURVIVED
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 8.05s
+head retry-wait-stop-late-thread-6000: SURVIVED
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 24.21s
+head retry-wait-stop-late-thread-12000: killed (failed: B A E)
+    test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 12.57s
+head retry-wait-stop-late-xthread-500: SURVIVED
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 7.34s
+head retry-wait-stop-late-xthread-6000: SURVIVED
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 24.32s
+head retry-wait-stop-late-xthread-12000: killed (failed: B A E)
+    test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 12.50s
+clone after: clean

@@ -1,0 +1,199 @@
+# GREEN, head 6073cdc5: the catalog-wait tests at 6073cdc5 with stall_patch.py's points planted, one run per stall spec, each bounded at 600 s
+none                               A next-start         ok
+none                               B records-one        ok
+none                               C twenty-questions   ok
+none                               D compaction-join    ok
+none                               E history-notice     ok
+none                               F watcher-unwind     ok
+none                               G watcher-late       ok
+none                               exit 0; test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 14.28s
+turn=1200                          A next-start         ok
+turn=1200                          B records-one        ok
+turn=1200                          C twenty-questions   ok
+turn=1200                          D compaction-join    ok
+turn=1200                          E history-notice     ok
+turn=1200                          F watcher-unwind     ok
+turn=1200                          G watcher-late       ok
+turn=1200                          exit 0; test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 31.84s
+turn=2500                          A next-start         ok
+turn=2500                          B records-one        ok
+turn=2500                          C twenty-questions   ok
+turn=2500                          D compaction-join    ok
+turn=2500                          E history-notice     ok
+turn=2500                          F watcher-unwind     ok
+turn=2500                          G watcher-late       ok
+turn=2500                          exit 0; test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 62.81s
+select=1200                        A next-start         ok
+select=1200                        B records-one        ok
+select=1200                        C twenty-questions   ok
+select=1200                        D compaction-join    ok
+select=1200                        E history-notice     ok
+select=1200                        F watcher-unwind     ok
+select=1200                        G watcher-late       ok
+select=1200                        exit 0; test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 17.25s
+start=1200                         A next-start         ok
+start=1200                         B records-one        ok
+start=1200                         C twenty-questions   ok
+start=1200                         D compaction-join    ok
+start=1200                         E history-notice     ok
+start=1200                         F watcher-unwind     ok
+start=1200                         G watcher-late       ok
+start=1200                         exit 0; test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 20.61s
+turn=1200,select=1200,start=1200   A next-start         ok
+turn=1200,select=1200,start=1200   B records-one        ok
+turn=1200,select=1200,start=1200   C twenty-questions   ok
+turn=1200,select=1200,start=1200   D compaction-join    ok
+turn=1200,select=1200,start=1200   E history-notice     ok
+turn=1200,select=1200,start=1200   F watcher-unwind     ok
+turn=1200,select=1200,start=1200   G watcher-late       ok
+turn=1200,select=1200,start=1200   exit 0; test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 59.44s
+turn=5000                          A next-start         ok
+turn=5000                          B records-one        ok
+turn=5000                          C twenty-questions   ok
+turn=5000                          D compaction-join    ok
+turn=5000                          E history-notice     ok
+turn=5000                          F watcher-unwind     ok
+turn=5000                          G watcher-late       ok
+turn=5000                          exit 0; test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 121.83s
+turn=12000                         A next-start         ok
+turn=12000                         B records-one        ok
+turn=12000                         C twenty-questions   ok
+turn=12000                         D compaction-join    ok
+turn=12000                         E history-notice     ok
+turn=12000                         F watcher-unwind     ok
+turn=12000                         G watcher-late       ok
+turn=12000                         exit 0; test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 290.04s
+
+===== stall none =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 7 tests
+test tui::worker::tests::the_place_watcher_ends_when_the_run_it_watches_panics ... ok
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+test tui::worker::tests::a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 14.28s
+
+
+===== stall turn=1200 =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 7 tests
+test tui::worker::tests::the_place_watcher_ends_when_the_run_it_watches_panics ... ok
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 31.84s
+
+
+===== stall turn=2500 =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 7 tests
+test tui::worker::tests::the_place_watcher_ends_when_the_run_it_watches_panics ... ok
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one has been running for over 60 seconds
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 62.81s
+
+
+===== stall select=1200 =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 7 tests
+test tui::worker::tests::the_place_watcher_ends_when_the_run_it_watches_panics ... ok
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 17.25s
+
+
+===== stall start=1200 =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 7 tests
+test tui::worker::tests::the_place_watcher_ends_when_the_run_it_watches_panics ... ok
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 20.61s
+
+
+===== stall turn=1200,select=1200,start=1200 =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 7 tests
+test tui::worker::tests::the_place_watcher_ends_when_the_run_it_watches_panics ... ok
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 59.44s
+
+
+===== stall turn=5000 =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 7 tests
+test tui::worker::tests::the_place_watcher_ends_when_the_run_it_watches_panics ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound ... ok
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one has been running for over 60 seconds
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number has been running for over 60 seconds
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 121.83s
+
+
+===== stall turn=12000 =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 7 tests
+test tui::worker::tests::the_place_watcher_ends_when_the_run_it_watches_panics ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+test tui::worker::tests::a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one has been running for over 60 seconds
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number has been running for over 60 seconds
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn has been running for over 60 seconds
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 290.04s
+

@@ -1,0 +1,48 @@
+diff --git a/src/tui/worker.rs b/src/tui/worker.rs
+index 9037eab9..5327ee86 100644
+--- a/src/tui/worker.rs
++++ b/src/tui/worker.rs
+@@ -3297,6 +3297,10 @@ async fn turn_loop(
+     // Whether the UI can still send a change. A closed channel answers `recv`
+     // at once, every time, so an arm left on it would spin this loop.
+     let mut changes_open = true;
++    // SCRATCH ONLY (catalog-wait-clock RED/GREEN): XFX_SCRATCH_SELECT_STALL_MS.
++    if let Some(ms) = std::env::var("XFX_SCRATCH_SELECT_STALL_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
++        std::thread::sleep(std::time::Duration::from_millis(ms));
++    }
+     loop {
+         // A compaction a stop dropped before it began is told first, whatever
+         // dropped it -- this loop's own read of the stop, or a race's while
+@@ -3869,6 +3873,10 @@ async fn run_turn(
+         submission: queue.taken,
+     };
+     let _ = bridge::send_ui(events, &turn.token, started).await;
++    // SCRATCH ONLY (catalog-wait-clock RED/GREEN): XFX_SCRATCH_TURN_STALL_MS.
++    if let Some(ms) = std::env::var("XFX_SCRATCH_TURN_STALL_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
++        std::thread::sleep(std::time::Duration::from_millis(ms));
++    }
+     // The title answers, held by the turn while it holds the runtime: the
+     // first prompt's question is asked as it is submitted, and an answer that
+     // waited for the turn to end would keep the window on the workspace's
+@@ -18705,6 +18713,10 @@ mod tests {
+             stop: bool,
+             run: impl FnOnce(Option<tokio::sync::oneshot::Sender<()>>, Instant) -> F,
+         ) -> T {
++            // SCRATCH ONLY (catalog-wait-clock RED/GREEN): XFX_SCRATCH_START_STALL_MS.
++            if let Some(ms) = std::env::var("XFX_SCRATCH_START_STALL_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
++                std::thread::sleep(std::time::Duration::from_millis(ms));
++            }
+             let begun = Instant::now();
+             match self {
+                 Self::Retry(open) => {
+@@ -19596,6 +19608,10 @@ mod tests {
+             drop(work_tx);
+             let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+             let outstanding = AtomicUsize::new(1);
++            // SCRATCH ONLY (catalog-wait-clock RED/GREEN): XFX_SCRATCH_START_STALL_MS.
++            if let Some(ms) = std::env::var("XFX_SCRATCH_START_STALL_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
++                std::thread::sleep(std::time::Duration::from_millis(ms));
++            }
+             // Before the opener: a thread held between them cannot make the
+             // load look early.
+             let started = Instant::now();
