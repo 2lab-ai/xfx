@@ -8,12 +8,16 @@ deep, starts fx v0.0.16 (Zig `std.json`) and locked xfx out at every launch
   head). Commits: `e0ad88a9` (the fix), `c70991ae` (one test pinned to
   serde_json's bound), `bbc4d657` (the parity row and this receipt's
   inputs), `78c0d164` (a test: a number past `f64` decides at every key
-  what a float does). The receipt's outputs and this README follow, docs
-  only. Every xfx run named "head" below is a binary built at `78c0d164`:
-  each of its 29 `status` runs says `build_revision=78c0d1640b56`
-  (`xfx-head-fixtures.txt`). The base's say `f74d2fd507da`
-  (`xfx-base-fixtures.txt`). The gate and the mutants ran on clones of
-  `78c0d164`.
+  what a float does). Round 1's receipt outputs follow, docs only, to
+  `4fc3b373`. Round 2 (section 10): `6a198b9d` (the code), then `45009bc7`
+  and the receipt's docs.
+- Round 1's "head" runs (`mutants.txt`, `gate.txt`, `unit-tests.txt`, and
+  the first `xfx-head-fixtures.txt`) are of `78c0d164`. Round 2's are of
+  `6a198b9d`: `xfx-head-fixtures.txt` and `outcomes-head.txt` are now its
+  rerun, with each of the 29 `status` runs saying
+  `build_revision=6a198b9dd056`, as are `pairs-xfx-head.txt`,
+  `unit-tests-round2.txt`, `mutants-round2.txt` and `gate-round2.txt`. The
+  base's runs say `f74d2fd507da` (`xfx-base-fixtures.txt`).
 - Depth N means N containers one inside another, the settings object
   counted. serde_json reads 127 and refuses 128.
 
@@ -162,8 +166,14 @@ re-read. `KeysOnce` is now only a test oracle.
   `additional_directories`), in the global object and in this workspace's
   entry. A value 200 deep reaches the same decision in every reader as the
   same shape 8 deep. Only one note quotes the value it cannot read (a
-  `permission` action), and what a line shows of it, 256 bytes, is the
-  file's own text.
+  `permission` action), and it quotes the value as read, not the file's
+  text. An action that starts 4 deep is kept 125 deep with its last
+  container empty, where the file has 200 levels and a `1`. That holds for
+  an object chain and for an array chain as a pattern's action (125 `[`
+  and as many `]`); round 2 pins both exactly. fx quotes nothing there:
+  its launch refuses the file (`permission-note.txt`). [Round 1 said the
+  note's first 256 bytes were the file's own text. That held only for an
+  object chain and was the wrong claim: opus r1 N1, gpt6 NTH 2.]
 - `no_key_xfx_reads_takes_a_number_past_f64_as_other_than_a_float`: for the
   same keys, `1e400` and a 400-digit integer reach the same decisions and
   notes as `1.5`, and `-1e400` the same as `-1.5`. fx's readers treat a
@@ -213,27 +223,111 @@ before and after. The step logs give:
 
 The plain run had no catalog-wait failures, so there was nothing to rerun.
 
-## 9. Parity (`docs/parity.md`, the config diagnostics row)
+## 9. Parity (`docs/parity.md`, the config diagnostics row and the MCP project servers row)
 
-The row now says each layer is read as fx's `std.json` reads it: at any
-depth, without recursion, with only the 64 KiB cap bounding nesting, and a
-number past `f64` read as one no integer key takes. PROFILE-JSON-LIMITS is
-gone from its owners. Recorded as not copied:
+The config diagnostics row says each layer is read as fx's `std.json`
+reads it: at any depth, without recursion, with only the 64 KiB cap
+bounding nesting, and a number past `f64` read as one no integer key
+takes. PROFILE-JSON-LIMITS is gone from its owners. Round 2 adds three
+things to that row: the note quotes a value as read, bytes that are not
+UTF-8 are `malformed_settings`, and the saved MCP choices are read the
+same way (section 10). Recorded as not copied:
 
 - A settings write still reads the file with serde_json
-  (`provider/profile.rs`, `read_existing`). Over such a file it fails and says
-  why (`it is not valid JSON: number out of range`), where fx's writer keeps
-  the `.number_string`.
-- The MCP approvals saved in the profile are read the same way
-  (`mcp::config::load_choices`, `read_existing(path).ok()`). Over such a file
-  none is read, where fx's `loadProjectMcpChoicesFromHome` reads them
-  (`config_runtime.zig:399`).
+  (`provider/profile.rs`, `read_existing`). Over such a file it fails and
+  says why (`it is not valid JSON: number out of range`), where fx's writer
+  keeps the `.number_string`. Queued: **SETTINGS-JSON-WRITERS**, a lossless
+  read for `read_existing` and its writers. The layer reader keeps neither
+  value as written, so no writer may use it.
 - `max_agent_steps` past `u32` is `invalid_value` here, where fx takes it
-  (`steps-i64-max`; older than this unit).
-- A permission pattern's action past `f64` refuses the launch on both.
-  xfx's own note quotes it as the placeholder, `1.7976931348623157e+308`
-  (`permission-note.txt`).
+  (`steps-i64-max`; older than this unit). Queued: **AGENT-STEPS-RANGE**.
+- A permission pattern's action past `f64`, or nested past 127, refuses the
+  launch on both. xfx's own note quotes it as read: the placeholder
+  `1.7976931348623157e+308`, or what is kept of the chain
+  (`permission-note.txt`, section 6).
 
-The writer and the MCP choices fall outside "settings layers only". Making
-them read like the layers needs a lossless read: the writer would write the
-placeholder back.
+## 10. Round 2
+
+Both round-1 reviews had no MUST. Round 2 takes opus r1's S1-S3 and N1-N2,
+and gpt6's NTH 2 (the note).
+
+- **S1, the saved MCP choices, read as fx reads them.**
+  - fx: `loadProjectMcpChoicesFromHome` (`config_runtime.zig:384-414@481104fd`)
+    parses the profile with the same default `parseFromSlice` as the layers
+    (`:399`). It fails when the file does not read, when the root or
+    `workspaces` is not an object (`:401-403`), or when `parseChoices`
+    refuses a choice. `parseChoices` takes only an object for the entry
+    (`project_config.zig:842`), lists that are arrays of non-empty strings
+    (`:1339-1366`), and a bool for the switch (`:856-859`).
+  - fx's three callers all go on without the workspace's servers when that
+    load fails. `loadNativeConfigs` (`src/builtins/mcp.zig:58-63`) loads the
+    profile's servers only and leaves a debug trace. The inspection
+    (`:240-248`) lists the profile's only. ACP (`src/acp/sessions.zig:1035-1046`)
+    adds no project server. Nothing reaches the user.
+  - fx's oracle (`pairs-fx.txt`): an approval of `s` beside `1e400`, or 128
+    deep, lists `s` as `not started`, as a plain approval does. An entry
+    with no choices lists it `waiting for approval`. A list that is a
+    string, a list holding `""`, or a switch `"yes"` lists no server:
+    `No MCP servers configured`, `mcp_servers=0`.
+  - xfx now (`src/mcp/config.rs`, `load_choices` and `fx_takes_choices`):
+    - the profile is read by `config::read_profile_object`, the layer
+      reader, read only;
+    - the load is `None` wherever fx's fails;
+    - the runtime then loads none of the workspace's servers
+      (`src/mcp/runtime.rs`, `read_configuration`).
+
+    xfx has no `mcp` command, so its side of the pair is the runtime test
+    `saved_choices_are_read_as_fxs_parse_reads_them`:
+    - an approval beside `1e400` or 128 deep is approved and the server
+      starts;
+    - the control, an entry with no choices, is read and pending;
+    - a list that is a string, a switch `"yes"`, and a profile with a key
+      twice leave the entry unread.
+
+    The unit test `the_saved_choices_load_where_fxs_load_does` takes each of
+    fx's failure cases one by one.
+  - Where xfx still differs: an approval is bound to a digest, and the
+    switch admits nothing. Both are on the MCP row already.
+- **S2 and S3**: the parity row names SETTINGS-JSON-WRITERS and
+  AGENT-STEPS-RANGE (section 9). There is no code for either here.
+- **N1**: section 6 and the test's docstring are corrected. The test now
+  pins both chains' notes exactly (`config::tests::no_key_xfx_reads_looks_past_the_depth_kept`).
+- **N2, invalid UTF-8.** `read_opened` (`src/config.rs`) reads the file's
+  bytes. Bytes that are not UTF-8 are `malformed_settings`, fx's parse
+  error. A read that fails stays `unreadable_settings`.
+  - fx (`pairs-fx.txt`): `config user: malformed_settings` and
+    `config project: malformed_settings`.
+  - The round-1 xfx (`pairs-xfx-round1.txt`): `unreadable_settings` in
+    both, from `doctor` for the profile and `ask` for the project file.
+  - The head (`pairs-xfx-head.txt`): `malformed_settings` in both.
+  - The profile refuses the launch in all three.
+- **RED** (`red-round2.txt`): the round-2 tests over the code at
+  `4fc3b373`, with only test code changed.
+  - `bytes_that_are_not_utf8_are_malformed_settings_in_either_layer` fails
+    with `(false, [UnreadableSettings])` against `[MalformedSettings]`.
+  - `saved_choices_are_read_as_fxs_parse_reads_them` fails with `Pending`
+    against `Approved`, beside `1e400`.
+  - The N1 test passes there: it pins notes the base already gave.
+  - The `load_choices` unit test is written for the new
+    `Option<Choices>` return, so it has no base to compile against.
+- **GREEN** (`unit-tests-round2.txt`, at `6a198b9d`'s code): 17 pass and 0
+  fail. That is every round-1 and round-2 test this unit added or changed,
+  the `load_choices` neighbour `an_entry_rewritten_after_its_approval_was_saved_stays_pending`,
+  and the four `cli ask_*`. The 29-fixture probe re-run on the round-2
+  binary still matches fx at 29 of 29 on refusal and on how every entry
+  ended (`outcomes-head.txt`).
+- **Mutants** (`mutants-round2.txt`, on a `git clone --no-local` of
+  `45009bc7`): **36 of 36 killed**, none unbuilt (round 2's `mutants.py`
+  counts a mutant that does not build as no kill). They are round 1's 22
+  and 14 new ones, one for each new line:
+  - `load_choices` read by serde_json again;
+  - a failed load treated as no choice;
+  - fx's checks skipped;
+  - `workspaces` or the entry not required to be an object;
+  - a list not required to be an array, a name not required to be a
+    string, an empty name allowed;
+  - the rejections unchecked, the switch unchecked;
+  - a profile that does not read treated as none;
+  - the runtime loading the workspace anyway, killed by the runtime test;
+  - not-UTF-8 labelled unreadable again, or decoded lossily.
+- **Gate** (`gate-round2.txt`): the full gate on a clone of `45009bc7`, under the lock, is running as this is committed; the next commit fills this in.

@@ -1,205 +1,205 @@
-binary sha256 before: 64f05b0fd85f
+binary sha256 before: 5f01a31205e1
 == deep-127 (profile 261 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=480B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=397B stderr=
   line shell   still running after 6 s exit= tty=278B stderr=xfx: cannot write output: Input/output error (os error 5)|
 == deep-128 (profile 263 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=480B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=397B stderr=
-  line shell   still running after 6 s exit= tty=278B stderr=xfx: cannot write output: Input/output error (os error 5)|
+  line shell   still running after 6 s exit= tty=278B stderr=xfx: 
 == deep-129 (profile 265 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=480B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=397B stderr=
-  line shell   still running after 6 s exit= tty=278B stderr=xfx: cannot write output: Input/output error (os error 5)|
+  line shell   still running after 6 s exit= tty=278B stderr=xfx: 
 == deep-1000 (profile 2007 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=481B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=397B stderr=
   line shell   still running after 6 s exit= tty=279B stderr=xfx: cannot write output: Input/output error (os error 5)|
 == deep-max (profile 65535 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=480B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=397B stderr=
-  line shell   still running after 6 s exit= tty=278B stderr=
+  line shell   still running after 6 s exit= tty=278B stderr=xfx: 
 == deep-100000 (profile 200007 bytes)
   ask          exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
   status       exit=0 stdout=483B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
   line shell   exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
 == deep-objects-1000 (profile 6996 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=489B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=397B stderr=
-  line shell   still running after 6 s exit= tty=287B stderr=xfx: cannot write output: Input/output error (os error 5)|
+  line shell   still running after 6 s exit= tty=287B stderr=xfx: 
 == deep-entry (profile 474 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=482B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=397B stderr=
   line shell   still running after 6 s exit= tty=280B stderr=xfx: cannot write output: Input/output error (os error 5)|
 == deep-steps (profile 421 bytes)
   ask          exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
   status       exit=0 stdout=482B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
   line shell   exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
 == deep-dup (profile 425 bytes)
   ask          exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
   status       exit=0 stdout=480B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
   line shell   exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
 == deep-torn (profile 408 bytes)
   ask          exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
   status       exit=0 stdout=481B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
   line shell   exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
 == num-big (profile 14 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=479B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=397B stderr=
-  line shell   still running after 6 s exit= tty=277B stderr=xfx: cannot write output: Input/output error (os error 5)|
+  line shell   still running after 6 s exit= tty=277B stderr=xfx: 
 == num-neg-big (profile 15 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=483B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=397B stderr=
-  line shell   still running after 6 s exit= tty=281B stderr=xfx: cannot write output: Input/output error (os error 5)|
+  line shell   still running after 6 s exit= tty=281B stderr=xfx: 
 == num-int-30 (profile 39 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=482B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=397B stderr=
   line shell   still running after 6 s exit= tty=280B stderr=xfx: 
 == num-neg-int-30 (profile 40 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=486B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=397B stderr=
-  line shell   still running after 6 s exit= tty=284B stderr=xfx: 
+  line shell   still running after 6 s exit= tty=284B stderr=xfx: cannot write output: Input/output error (os error 5)|
 == num-int-400 (profile 409 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=483B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=397B stderr=
   line shell   still running after 6 s exit= tty=281B stderr=xfx: 
 == num-tiny (profile 15 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=480B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=397B stderr=
   line shell   still running after 6 s exit= tty=278B stderr=xfx: cannot write output: Input/output error (os error 5)|
 == num-neg-zero (profile 11 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=484B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=397B stderr=
-  line shell   still running after 6 s exit= tty=282B stderr=xfx: 
+  line shell   still running after 6 s exit= tty=282B stderr=xfx: cannot write output: Input/output error (os error 5)|
 == steps-big (profile 26 bytes)
   ask          exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
   status       exit=0 stdout=481B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
   line shell   exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
 == steps-neg-big (profile 27 bytes)
   ask          exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
   status       exit=0 stdout=485B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
   line shell   exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
 == steps-int-30 (profile 51 bytes)
   ask          exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
   status       exit=0 stdout=484B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
   line shell   exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
 == steps-tiny (profile 27 bytes)
   ask          exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
   status       exit=0 stdout=482B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
   line shell   exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
 == steps-neg-zero (profile 23 bytes)
   ask          exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
   status       exit=0 stdout=486B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
   line shell   exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration|
 == steps-i64-max (profile 40 bytes)
   ask          exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=max_agent_steps|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=485B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=526B stderr=
-  line shell   still running after 6 s exit= tty=283B stderr=xfx: config user: invalid_value; key=max_agent_steps|
+  line shell   still running after 6 s exit= tty=283B stderr=xfx: config user: invalid_value; key=max_agent_steps|xfx: 
 == steps-ok (profile 445 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=479B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=3
   interactive  still running after 6 s exit= tty=397B stderr=
-  line shell   still running after 6 s exit= tty=278B stderr=xfx: 
+  line shell   still running after 6 s exit= tty=278B stderr=xfx: cannot write output: Input/output error (os error 5)|
 == proj-big (profile 27 bytes, project 36 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=479B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=3
   interactive  still running after 6 s exit= tty=397B stderr=
   line shell   still running after 6 s exit= tty=278B stderr=xfx: cannot write output: Input/output error (os error 5)|
 == proj-deep (profile 27 bytes, project 431 bytes)
   ask          exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=480B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=3
   interactive  still running after 6 s exit= tty=397B stderr=
   line shell   still running after 6 s exit= tty=279B stderr=xfx: 
 == proj-steps-big (profile 27 bytes, project 26 bytes)
   ask          exit=1 stdout=0B stderr=xfx ask: config project: invalid_value; key=max_agent_steps|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=486B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=526B stderr=
-  line shell   still running after 6 s exit= tty=284B stderr=xfx: config project: invalid_value; key=max_agent_steps|xfx: cannot write output: Input/output error (os error 5)|
+  line shell   still running after 6 s exit= tty=284B stderr=xfx: config project: invalid_value; key=max_agent_steps|xfx: 
 == proj-steps-float (profile 27 bytes, project 24 bytes)
   ask          exit=1 stdout=0B stderr=xfx ask: config project: invalid_value; key=max_agent_steps|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
   status       exit=0 stdout=488B stderr= | touched: 
-    | [status] build_revision=78c0d1640b56
+    | [status] build_revision=6a198b9dd056
     | [status] agent_step_limit=25
   interactive  still running after 6 s exit= tty=526B stderr=
   line shell   still running after 6 s exit= tty=286B stderr=xfx: config project: invalid_value; key=max_agent_steps|xfx: cannot write output: Input/output error (os error 5)|
-binary sha256 after: 64f05b0fd85f
+binary sha256 after: 5f01a31205e1
