@@ -1,0 +1,25 @@
+# RED: the self-test at the head with 6194f1a5's diagnose_shapes (this round's stderr handling reverted), against the check at 6194f1a5, in the clone
+6194f1a5 receipts(local-paths-selftest-flake): round 5's README, gate, RED/GREEN
+test-check-no-local-paths: ok self                       its own source matches none of its shapes
+test-check-no-local-paths: ok shapes                     31 planted, each named by file and line
+test-check-no-local-paths: ok passes                     placeholders, relative and derived paths, a marked fixture, a renamed report
+test-check-no-local-paths: ok env GIT_DIR                the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_INDEX_FILE         the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_WORK_TREE          the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GREP_OPTIONS           the plant named, the decoy unchanged
+test-check-no-local-paths: ok env HOME                   the plant named, the decoy unchanged
+test-check-no-local-paths: ok skip-worktree              refused by name
+test-check-no-local-paths: ok deleted                    refused by name
+test-check-no-local-paths: ok disagree                   refused, not counted as passing
+test-check-no-local-paths: ok vanished                   refused by name
+test-check-no-local-paths: ok badnum                     the scan stops
+test-check-no-local-paths: ok gitfail                    the check fails
+test-check-no-local-paths: ok omit                       the two readings disagree; the check fails
+test-check-no-local-paths: ok truncated                  the scan stops
+test-check-no-local-paths: ok cutlinks                   the scan stops
+test-check-no-local-paths: ok cuttracked                 the check stops
+test-check-no-local-paths: ok stopped                    the check fails
+test-check-no-local-paths: ok diagnosis                  keys by scope, no path
+test-check-no-local-paths: FAIL diagnosis-gone: over a tree that is gone it prints a path or a line of no known shape (2 line(s) with a path; 2 of no known shape)
+test-check-no-local-paths: 1 of 21 case(s) failed
+exit=1

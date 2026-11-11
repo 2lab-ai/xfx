@@ -1,0 +1,13 @@
+# /bin/bash 3.2.57(1)-release: a run stopped by its own error (an unset array under set -u), with and without an EXIT trap
+$ /bin/bash -c 'set -euo pipefail; trap ":" EXIT; a=(); for x in "${a[@]}"; do :; done; echo after'
+a[@]: unbound variable
+exit=0
+$ /bin/bash -c 'set -euo pipefail; a=(); for x in "${a[@]}"; do :; done; echo after'
+a[@]: unbound variable
+exit=1
+$ /bin/bash -c 'set -euo pipefail; finished=0; trap "[ \"\$finished\" = 1 ] || exit 1" EXIT; a=(); for x in "${a[@]}"; do :; done; finished=1'
+a[@]: unbound variable
+exit=1
+$ /bin/bash -c 'set -euo pipefail; finished=0; trap "[ \"\$finished\" = 1 ] || exit 1" EXIT; echo fine; finished=1'
+fine
+exit=0

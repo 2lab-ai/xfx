@@ -1,0 +1,20 @@
+--- a/scripts/check-no-local-paths.sh (d2b2ca75)
++++ b/scripts/check-no-local-paths.sh (instrumented, repro only)
+@@ -217,7 +217,9 @@
+ 		cat "$errors" >&2
+ 		return 1
+ 	fi
++	if [ -n "${LPSF_DEBUG:-}" ]; then scan_no=$(( ${scan_no:-0} + 1 )); cp "$listing" "$LPSF_DEBUG/listing.$scan_no"; fi
+ 	while IFS= read -r -d '' path; do
++		if [ -n "${LPSF_DEBUG:-}" ]; then printf "read %s\n" "$path" >>"$LPSF_DEBUG/trace.$scan_no"; fi
+ 		markable=yes
+ 		if is_capture "$path"; then
+ 			markable=no
+@@ -237,6 +239,7 @@
+ 			cat "$errors" >&2
+ 			return 1
+ 		fi
++		if [ -n "${LPSF_DEBUG:-}" ]; then printf "grep %s status=%s lines=%s\n" "$path" "$status" "$(wc -l <"$lines" | tr -d " ")" >>"$LPSF_DEBUG/trace.$scan_no"; fi
+ 		while IFS= read -r line || [ -n "$line" ]; do
+ 			number="${line%%:*}"
+ 			text="${line#*:}"

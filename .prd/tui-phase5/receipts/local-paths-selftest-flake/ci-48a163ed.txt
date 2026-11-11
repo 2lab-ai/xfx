@@ -1,0 +1,10 @@
+# PR #95 at 48a163ed: GitHub's runs and jobs API (gh api repos/2lab-ai/xfx/actions/runs?head_sha=48a163ed..., .../runs/42964022476/jobs), read 2026-11-11
+run 42964022403 Sweep attempt 1: completed success
+run 42964022476 CI attempt 1: completed success
+
+# the CI run's jobs, and the step 'No path of one machine in tracked files' (started_at to completed_at)
+job 130336936994 gate (aarch64-apple-darwin): success; step success, 2026-11-11T05:27:57Z to 2026-11-11T05:28:25Z, 28 s
+job 130336937277 gate (x86_64-apple-darwin, checks): success; step success, 2026-11-11T05:29:21Z to 2026-11-11T05:30:07Z, 46 s
+job 130336937306 gate (x86_64-apple-darwin, release): success; step skipped
+job 130336937349 gate (x86_64-unknown-linux-gnu): success; step success, 2026-11-11T05:18:42Z to 2026-11-11T05:18:45Z, 3 s
+job 130336937363 gate (aarch64-unknown-linux-gnu): success; step success, 2026-11-11T05:21:13Z to 2026-11-11T05:21:18Z, 5 s

@@ -1,0 +1,27 @@
+# round 3's full gate, at 836ef942 (gates.sh), in one hold of the suite lock after mutants3.txt
+# gate start 2026-11-10T22:53:16Z
+# head 836ef942; tree clean: yes
+01 fmt                                exit 0     1s  load 6.40
+02 clippy                             exit 0     6s  load 6.40
+03 clippy-fault                       exit 0     5s  load 6.61
+04 test                               exit 0   115s  load 6.64
+05 test-fault                         exit 0   138s  load 7.20
+06 check-xfx-identity                 exit 0     1s  load 10.34
+07 check-no-stubs                     exit 0     8s  load 10.34
+08 check-no-secrets                   exit 0    52s  load 9.60
+09 check-no-local-paths               exit 0     9s  load 7.36
+10 test-check-no-local-paths          exit 0    19s  load 8.20
+11 check-preview-contract             exit 0     2s  load 7.95
+12 check-tui-preflight-cost           exit 0    82s  load 7.95
+13 check-usage-clock                  exit 0     0s  load 9.82
+14 test-check-no-secrets              exit 0    86s  load 9.82
+15 test-gate-env                      exit 0   179s  load 8.60
+16 test-preview-contract              exit 0    57s  load 7.30
+17 fxcap-test-sweep                   exit 0    14s  load 7.58
+18 fxcap-test-capture                 exit 0   380s  load 7.34
+19 build-release                      exit 0    13s  load 6.57
+20 build-faulty                       exit 0    14s  load 6.15
+21 smoke                              exit 0     2s  load 8.04
+22 smoke-tui                          exit 0    73s  load 8.04
+# 22 steps, 0 failed; tree clean after: yes
+gate exit 0

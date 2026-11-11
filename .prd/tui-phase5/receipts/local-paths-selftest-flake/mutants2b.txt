@@ -1,0 +1,3 @@
+# the binary mutant, its anchor moved to round 2's code, at a72b738a, under the suite lock
+binary lines read as text: killed (exit 1; failing: shapes, self, passes)
+# clone after: 0 changed file(s)
