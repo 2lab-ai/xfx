@@ -32,8 +32,10 @@ tree), without printing a path.
 | `4e2bdacb` | review round 2: listings cut inside their last entry fail; the diagnosis prints no path; `stopped`, `diagnosis`, `cutlinks`, `cuttracked`; a directory link -- **the code head** |
 | `dbb15990` | the listing guards' mutants -- **round 4's gate head** (`gate4.txt`, on a clone; `mutants4.txt`) |
 | `7f97d7e3` | round 4's README and records |
-| `f9a4b0db` | the diagnosis reads config names, never values -- **the code head and round 5's gate head** (`gate5.txt`, on a clone) |
-| (this one) | this README and round 5's records |
+| `f9a4b0db` | the diagnosis reads config names, never values -- **round 5's gate head** (`gate5.txt`, on a clone) |
+| `6194f1a5` | round 5's README and records |
+| `d7bc404c` | the diagnosis writes to fd 3 and every command in it drops its stderr; `diagnosis-gone`; every line shape anchored whole -- **the code head and round 6's gate head** (`gate6.txt`, on a clone) |
+| (this one) | this README and round 6's records |
 
 `3ee1766f` added `repro/harness-shapes.sh`, `repro/harness2.sh` and
 `repro/stageA.sh`, copies of the self-test's fixture lines; `1f6e5345` drops
@@ -169,7 +171,14 @@ and the `self` case's counts), and on a failure prints:
   plants a global config whose origin is a path, one value a path and one
   value two lines with a home on the second, and requires that no line holds
   a path and that every line the diagnosis prints has a known shape; on a
-  failure it prints counts, not the text;
+  failure it prints counts, not the text. Nor can a command's own error
+  print one: the diagnosis writes its lines to fd 3, every `cd`, git call
+  and file read in it drops its own stderr (a `cd` that fails names its
+  directory, which round 5's did: `red6.txt`), and the caller drops fd 2.
+  The `diagnosis-gone` case runs it over a tree that does not exist, its
+  fd 2 and fd 3 captured together. Each kind of line is matched whole; the
+  free text in them by design is a plant's relative name and the bash and
+  git version strings, none allowed to start a word with `/`;
 - `expected:` against `actual:` accounting;
 - for each plant not named that the failing pass did not refuse, `lost:`
   what that pass gave of it (from the trace: `line 1 placeholder`, or `no
@@ -211,9 +220,12 @@ same tree.
 - `red5.txt`: the self-test at `f9a4b0db` with `7f97d7e3`'s
   `diagnose_shapes`, against the check at `7f97d7e3`: `diagnosis` fails (1
   line with a path, 1 line of no known shape); the other 19 pass.
-- `green.txt` to `green5.txt`: the same clone at `54581752` (12 cases),
-  `a72b738a` (14), `b0fd5157` (16), `4e2bdacb` (20) and `f9a4b0db` (20): all
-  pass.
+- `red6.txt`: the self-test at `d7bc404c` with `6194f1a5`'s
+  `diagnose_shapes`, against the check at `6194f1a5`: `diagnosis-gone` fails
+  (2 lines with a path, 2 of no known shape); the other 20 pass.
+- `green.txt` to `green6.txt`: the same clone at `54581752` (12 cases),
+  `a72b738a` (14), `b0fd5157` (16), `4e2bdacb` (20), `f9a4b0db` (20) and
+  `d7bc404c` (21): all pass.
 - `forced.txt`: the three forced paths: exit 0 at `d2b2ca75`, exit 1 and the
   plant named at `373811b0`.
 
@@ -267,6 +279,8 @@ judged these three not worth a test):
 - Round 5, `gate5.txt` (`gates.sh`), at `f9a4b0db` (the code head), on a
   `git clone --no-local`: 22 of 22 steps, the clone clean before and after. Round 5 changes the test's diagnosis only,
   not the check, so `mutants4.txt` still holds for the check.
+- Round 6, `gate6.txt` (`gates.sh`), at `d7bc404c` (the code head), on a
+  `git clone --no-local`: 22 of 22 steps, the clone clean before and after. Round 6 also changes the test only.
 - The brief's path grep over `git diff d2b2ca75..HEAD` prints 0, and the
   dispatcher's per-commit rule prints 0 for every commit but `3ee1766f`
   (6, above).
