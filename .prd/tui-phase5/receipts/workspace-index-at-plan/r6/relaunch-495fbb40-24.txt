@@ -1,0 +1,15 @@
+# r6-relaunch-495fbb40-24: the round-6 harness (495fbb40), xfx 495fbb40, TMPDIR of 24 bytes.
+#    4 pane: the process the run started is gone (0 looks)
+#    4 pane: the relaunched pane's process is gone (0 looks)
+# sweep: pass = 8 / 9 = 88.9%; unresolved 1, failed 0, timeout 0
+rename                   quit     normalized-identical                             
+rename                   relaunched unresolved-defect                                first row 1: text differs
+rename                   rename-empty normalized-identical                             
+rename                   rename-title normalized-identical                             
+rename                   too-long normalized-identical                             
+resume-launch            continued identical                                        
+resume-launch            quit     normalized-identical                             
+resume-launch            resumed  identical                                        
+resume-launch            resumed.full normalized-identical                             
+totals: {"identical": 2, "normalized-identical": 6, "unresolved-defect": 1}
+# rename/relaunched was unresolved-defect at main's CI base too (8f921425, run 42844785959: 'xfx: no saved sessions ...' / '* session resumed: My Title'); both scenarios' runs exit 0.

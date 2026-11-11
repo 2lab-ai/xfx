@@ -191,7 +191,7 @@ pair as a no-op would report a diff painted on the other plane as a diff painted
 over the user's document, and would report a restore that never happened as a
 band that came back.
 * `CSI 6 n` (the launch's cursor query) and the three `>`/`<` keyboard-protocol
-  sequences of `term.rs:32-52`
+  sequences of `term.rs:56-113`
 * `OSC 2` (the window title, remembered rather than drawn; `BEL`-terminated and
   free of control characters, as `check.rs` spells one), `OSC 11` (the
   background query, `11;?` and `ST`-terminated -- the reply is the terminal's
@@ -288,7 +288,7 @@ MAX_URI_BYTES = 2083
 # stack, so a session gives the terminal's title back the way it found it.
 KNOWN_WINDOW_OPS = {"22;2", "23;2"}
 
-# The keyboard-protocol sequences of `src/tui/term.rs:32-52`, spelled out:
+# The keyboard-protocol sequences of `src/tui/term.rs:56-113`, spelled out:
 # `>4;2m`/`>4;0m` are modifyOtherKeys on and off, `>1u` pushes the kitty
 # keyboard flags and `<u` pops them. `?996n` (`src/tui/theme.rs:105`) is the
 # outright "which way round are you now?" query a launch asks once, paired
@@ -4705,7 +4705,7 @@ def scenario_3b(run):
         timeout=20,
     )
     # One, and not merely non-zero: `ExitCode::FAILURE` is what the give-up
-    # path returns (`src/main.rs:44-49`, through `tui::run_blocking`'s `fail`),
+    # path returns (`src/main.rs:50-55`, through `tui::run_blocking`'s `fail`),
     # and a panic on the way out would leave with 101 and satisfy "non-zero"
     # while proving the opposite of what this row is about.
     run.require(
@@ -4974,7 +4974,7 @@ def scenario_3c(run):
 # ---------------------------------------------------------------------------
 
 # The fixed vector `Band::recover_primary` emits and `check::RECOVERY_CLEANUP`
-# licenses (`src/tui/check.rs:1084`), spelled out rather than imported for the
+# licenses (`src/tui/check.rs:1689`), spelled out rather than imported for the
 # same reason every other needle in this suite is.
 RECOVERY_CLEANUP_BYTES = b"\x18\x1b]8;;\x07\x1b[0m\x1b[?2026l\x1b[?7l\x1b[?25h"
 
@@ -11205,12 +11205,12 @@ def scenario_26(run):
         "the growth did not disturb the earlier document: %r" % (grown.document_text(),),
     )
 
-    # Not `C-u`: `Action::KillToStart` (`editor.rs:351`) kills to the start of
+    # Not `C-u`: `Action::KillToStart` (`editor.rs:540`) kills to the start of
     # the *line* the caret sits on -- one of the paste's three, delimited by
     # the real newlines it carried -- not the whole draft, so it would leave
     # the first two rows standing. The paste that grew this draft went in
-    # through one `editor.insert()` call (`shell.rs:2703`), which is one
-    # history entry, so `C-_` (`Action::Undo`, `input.rs:1152`) reverses the
+    # through one `editor.insert()` call (`shell.rs:13043`), which is one
+    # history entry, so `C-_` (`Action::Undo`, `input.rs:1347`) reverses the
     # whole paste in the one step a shrink is supposed to be -- and is what a
     # person who pasted the wrong thing would actually reach for.
     trial.send(b"\x1f")  # C-_: undo the paste as the one edit it was

@@ -1,0 +1,18 @@
+# round 8: python3 -I refs.py af2b6137, after --fix at <this commit>
+ok    src/tui/shell.rs:187 (base 187)  "{}x\u{1d487}x{}{} {label} \u{b7} Run /help for commands{}",
+ok    src/tui/shell.rs:187 (base 187)  "{}x\u{1d487}x{}{} {label} \u{b7} Run /help for commands{}",
+ok    src/tui/shell.rs:13708 (base 13506)  let event = full_transcript::shown_event(event);
+ok    src/tui/shell.rs:13397 (base 13195)  fn send(&mut self, prompt: String, text: &str) -> bool {
+ok    src/tui/shell.rs:16614 (base 16412)  pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Res
+ok    src/tui/shell.rs:40363 (base 38921)  "  tools: {} advertised ({},",
+ok    src/tui/shell.rs:40363 (base 38921)  "  tools: {} advertised ({},",
+ok    src/tui/shell.rs:40363 (base 38921)  "  tools: {} advertised ({},",
+ok    src/tui/shell.rs:40363 (base 38921)  "  tools: {} advertised ({},",
+ok    src/tui/shell.rs:40363 (base 38921)  "  tools: {} advertised ({},",
+ok    src/tui/shell.rs:10479 (base 10277)  fn trailer_rows(&self) -> Vec<String> {
+ok    src/tui/shell.rs:10479 (base 10277)  fn trailer_rows(&self) -> Vec<String> {
+ok    src/tui/shell.rs:40363 (base 38921)  "  tools: {} advertised ({},",
+ok    src/tui/shell.rs:1770 (base 1765)  "ansi_bytes={}, redraws={}, debounced_resizes={}, footer_upd
+ok    src/tui/shell.rs:16614 (base 16412)  pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Res
+ok    src/tui/shell.rs:4349 (base 4343)  self.tally.begin(Instant::now(), estimate);
+refs: 16 checked, 0 wrong

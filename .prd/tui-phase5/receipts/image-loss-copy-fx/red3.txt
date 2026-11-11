@@ -1,0 +1,40 @@
+# Round 3 RED: de9a1b93's tests on d079b843's code (a git clone --no-local at d079b843, the three test files copied in), one suite-lock slot, TMPDIR a short scratch path. The files run here differ from de9a1b93's by one comment's line range, corrected after the run (`image_data.zig:187-190`):
+#   cargo test --locked --lib -- each_request_sends_a_copy a_resumed_prompt_images_copy_is_read_when_the_history_is_built a_prompt_images_copy_the_resume_cannot_stat a_resumed_copy_is_checked_again_at_each_request a_resumed_copy_is_held_back_past_each_limit a_copy_a_request_cannot_carry a_resumed_prompt_images_copy_is_read_at_each_request
+#   cargo test --locked --test sessions -- ask_resume_of_a_session_a_prompt_images_copy_is_gone ask_resume_whose_prompt_images_copy_changed
+# Each test's verdict, each panic's place and its first lines (cut at 300 characters).
+test session::store::tests::a_prompt_images_copy_the_resume_cannot_stat_refuses_it_with_io_and_one_it_cannot_open_does_not ... FAILED
+test session::store::tests::each_request_sends_a_copy_upstream_has_just_checked_holds_it_back_or_fails ... FAILED
+test session::store::tests::a_resumed_prompt_images_copy_is_read_when_the_history_is_built_and_resumes_whatever_its_bytes ... FAILED
+test tui::worker::tests::a_resumed_prompt_images_copy_is_read_at_each_request_and_one_changed_fails_its_turn ... ok
+test tui::worker::tests::a_copy_a_request_cannot_carry_is_held_back_with_upstreams_note_and_the_turn_goes_on ... ok
+test tui::worker::tests::a_resumed_copy_is_checked_again_at_each_request_of_one_turn ... FAILED
+test tui::worker::tests::a_resumed_copy_is_held_back_past_each_limit_and_sent_at_it_with_upstreams_whole_note ... ok
+test result: FAILED. 3 passed; 4 failed; 0 ignored; 0 measured; 4625 filtered out; finished in 2.98s
+test ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams ... ok
+test ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstreams_and_changes_nothing ... FAILED
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 65 filtered out; finished in 1.40s
+
+thread 'session::store::tests::a_prompt_images_copy_the_resume_cannot_stat_refuses_it_with_io_and_one_it_cannot_open_does_not' (462764191) panicked at src/session/store.rs:6311:29:
+assertion `left == right` failed: 0
+  left: "saved session is unreadable."
+ right: "Io"
+--
+thread 'session::store::tests::each_request_sends_a_copy_upstream_has_just_checked_holds_it_back_or_fails' (462764193) panicked at src/session/store.rs:5949:13:
+assertion `left == right` failed: changed, then gone
+  left: ["sent 73 bytes"]
+ right: ["[Image #1 not sent: image/png is 4x4 pixels. This request permits at most 8000 per side and 5 MiB encoded per image. The original is saved at <tmp>/.tmp6KmvHW/profile/sessions/1794278113636-b16a1f76eb35449c/images/image-1-3fd6e6be528c182d.bin. Use an available image tool to save a smaller 
+--
+thread 'session::store::tests::a_resumed_prompt_images_copy_is_read_when_the_history_is_built_and_resumes_whatever_its_bytes' (462764192) panicked at src/session/store.rs:5779:13:
+assertion `left == right` failed: past what one request carries
+  left: 20971521
+ right: 3932161
+--
+thread 'tui::worker::tests::a_resumed_copy_is_checked_again_at_each_request_of_one_turn' (462764195) panicked at src/tui/worker.rs:19197:9:
+assertion `left == right` failed: each: the turn's end, and each request's prompt images and text
+  left: [("changed", Some("request failed: ImageSnapshotCorrupt"), [(1, "[Image #1] what is it")]), ("gone", None, [(1, "[Image #1] what is it"), (1, "[Image #1] what is it")]), ("grown past the limit", Some("request failed: ImageSnapshotCorrupt"), [(1, "[Image #1] what is it")])]
+ right: [("changed", Some("request failed: ImageSnapshotCorrupt"), [(1, "[Image #1] what is it")]), ("gone", None, [(1, "[Image #1] what is it"), (0, "[Image #1 not sent: image/png is 4x4 pixels. This request permits at most 8000 per side and 5 MiB encoded per image. The original is saved at <tmp>/.
+--
+thread 'ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstreams_and_changes_nothing' (462771922) panicked at tests/sessions.rs:2079:17:
+assertion `left == right` failed: unreadable folder
+  left: "xfx: InvalidSessionFormat\n"
+ right: "xfx: Io\n"

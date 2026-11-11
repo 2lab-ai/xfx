@@ -1,0 +1,12 @@
+# the first run of round7/mutants.py (17), in a --no-local clone at 1a39356e, under the suite lock, TMPDIR=<scratch>; stopped after its 10th mutant, once two had survived
+## round7/mutants.py
+KILLED   start-keeps-the-pending: tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once, tui::shell::tests::a_failed_walk_with_a_refresh_queued_walks_again_and_shows_rows, tui::shell::tests::a_new_episode_during_a_walk_queues_one_walk_and_its_rows_show, tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots, tui::shell::tests::two_requests_during_one_walk_queue_one_walk
+KILLED   superseded-never-set: tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once
+KILLED   superseded-never-cleared: tui::shell::tests::a_change_of_roots_during_a_walk_with_a_refresh_queued_walks_the_new_roots_once
+KILLED   no-install-refresh: tui::shell::tests::a_workspace_change_that_moves_no_root_still_refreshes_the_index, tui::shell::tests::a_workspace_change_with_no_list_open_walks_the_new_roots_at_once, tui::shell::tests::a_workspace_change_behind_the_transcript_looks_nothing_up_until_it_closes, tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots
+KILLED   no-invalidation: tui::shell::tests::a_workspace_change_behind_the_transcript_looks_nothing_up_until_it_closes, tui::shell::tests::a_workspace_change_under_an_open_indexed_list_walks_the_new_roots
+KILLED   trigger-on-the-roots-only: tui::shell::tests::a_workspace_change_that_moves_no_root_still_refreshes_the_index
+KILLED   listing-not-stopped: tui::shell::tests::a_workspace_change_drops_a_listing_in_flight
+KILLED   folder-not-read-again: tui::shell::tests::a_workspace_change_resets_an_open_list_and_reads_its_folder_again
+SURVIVED invalidate-keeps-the-bar: every test passed
+SURVIVED invalidate-keeps-trust: every test passed

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-cb7c9c1 [debug] · Run /help for commands
+
+┃ @scm
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  src/use-comparison.ts
+  scripts/test-matrix.ts
+  src/main.rs
+  src/Main.zig
+  src/core/main.zig
+  src/components/
+  src/components/card.tsx
+  misc/scattered/memo.zig
+  docs/vercel-json/clean-urls.mdx
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

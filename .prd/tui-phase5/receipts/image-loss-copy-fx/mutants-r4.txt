@@ -1,0 +1,176 @@
+# clone at 023430f4
+r4 notice-kept-tui [lib]: killed
+    test tui::worker::tests::a_tool_image_that_cannot_go_is_told_to_the_model_and_the_screen_says_nothing ... FAILED
+    src/tui/worker.rs:19424:9:
+      assertion `left == right` failed: each: resumed, the turn's end, the notices, each result as the model is sent it
+r4 notice-kept-ask [sessions]: killed
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+    tests/sessions.rs:2269:5:
+      stderr spoke of the image: "xfx: an image a tool returned could not be read back, so it was not sent again\n"
+r4 resume-goes-on [lib]: killed
+    test session::store::tests::a_prompt_images_copy_the_resume_cannot_stat_refuses_it_with_io_and_one_it_cannot_open_does_not ... FAILED
+    test session::store::tests::a_prompt_images_copy_gone_or_not_a_file_refuses_the_resume_in_upstreams_words_and_changes_nothing ... FAILED
+    test tui::worker::tests::the_picker_cannot_resume_a_session_a_prompt_images_copy_is_gone_from ... FAILED
+    src/session/store.rs:6483:26:
+      0: a copy the resume cannot stat let it go on
+    src/session/store.rs:5800:30:
+      removed, waiting: true: the resume went on
+    src/tui/worker.rs:19292:9:
+      the picker resumed it
+r4 resume-goes-on [sessions]: killed
+    test ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstreams_and_changes_nothing ... FAILED
+    tests/sessions.rs:2080:17:
+      assertion `left == right` failed: gone
+r4 resume-goes-on [tui]: killed
+    test a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words ... FAILED
+    tests/support/pty.rs:388:21:
+      xfx did not exit; terminal so far:
+r4 refusal-after-truncate [lib]: killed
+    test session::store::tests::a_prompt_images_copy_gone_or_not_a_file_refuses_the_resume_in_upstreams_words_and_changes_nothing ... FAILED
+    src/session/store.rs:5803:17:
+      assertion `left == right` failed: removed, waiting: true: a refused resume changed the session
+r4 refusal-after-truncate [sessions]: killed
+    test ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstreams_and_changes_nothing ... FAILED
+    tests/sessions.rs:2087:13:
+      assertion `left == right` failed: gone, json: false: the refusal changed the session
+r4 refusal-after-truncate [tui]: killed
+    test a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words ... FAILED
+    tests/tui.rs:1177:5:
+      assertion `left == right` failed: a refused resume changed the session
+r4 stat-failure-resumed [lib]: killed
+    test session::store::tests::a_prompt_images_copy_the_resume_cannot_stat_refuses_it_with_io_and_one_it_cannot_open_does_not ... FAILED
+    src/session/store.rs:6483:26:
+      0: a copy the resume cannot stat let it go on
+r4 stat-failure-named-invalid [lib]: killed
+    test session::store::tests::a_prompt_images_copy_the_resume_cannot_stat_refuses_it_with_io_and_one_it_cannot_open_does_not ... FAILED
+    src/session/store.rs:6482:29:
+      assertion `left == right` failed: 0
+r4 stat-failure-named-invalid [sessions]: killed
+    test ask_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_as_upstreams_and_changes_nothing ... FAILED
+    tests/sessions.rs:2080:17:
+      assertion `left == right` failed: unreadable folder
+r4 folder-followed [lib]: killed
+    test session::store::tests::a_prompt_images_copy_the_resume_cannot_stat_refuses_it_with_io_and_one_it_cannot_open_does_not ... FAILED
+    src/session/store.rs:6499:22:
+      a linked folder let it go on
+r4 folder-not-opened [lib]: killed
+    test session::store::tests::a_prompt_images_copy_the_resume_cannot_stat_refuses_it_with_io_and_one_it_cannot_open_does_not ... FAILED
+    src/session/store.rs:6483:26:
+      100: a copy the resume cannot stat let it go on
+r4 read-at-resume [lib]: killed
+    test session::store::tests::a_resumed_prompt_images_copy_is_read_when_the_history_is_built_and_resumes_whatever_its_bytes ... FAILED
+    test session::store::tests::each_request_sends_a_copy_upstream_has_just_checked_holds_it_back_or_fails ... FAILED
+    test tui::worker::tests::a_resumed_prompt_images_copy_is_read_at_each_request_and_one_changed_fails_its_turn ... FAILED
+    test tui::worker::tests::a_resumed_copy_is_checked_again_at_each_request_of_one_turn ... FAILED
+    src/session/store.rs:5898:13:
+      assertion `left == right` failed: whole
+    src/session/store.rs:6108:13:
+      assertion `left == right` failed: whole, then grown past the limit
+    src/tui/worker.rs:18980:9:
+      assertion `left == right` failed: each turn: its end, the images each request it sent carried, the prompt the log recorded last
+    src/tui/worker.rs:19198:9:
+      assertion `left == right` failed: each: the turn's end, and each request's prompt images and text
+r4 read-at-resume [sessions]: SURVIVED
+r4 build-reads-past-a-request [lib]: killed
+    test session::store::tests::a_resumed_prompt_images_copy_is_read_when_the_history_is_built_and_resumes_whatever_its_bytes ... FAILED
+    src/session/store.rs:5892:13:
+      assertion `left == right` failed: past what one request carries
+r4 oversized-without-detail [lib]: killed
+    test tui::worker::tests::a_copy_a_request_cannot_carry_is_held_back_with_upstreams_note_and_the_turn_goes_on ... FAILED
+    test tui::worker::tests::a_resumed_copy_is_held_back_past_each_limit_and_sent_at_it_with_upstreams_whole_note ... FAILED
+    src/tui/worker.rs:19087:9:
+      assertion `left == right` failed: each: the turn's end, the requests, the prompt's images, whether upstream's note is in front of it and names the copy
+    src/tui/worker.rs:19268:9:
+      assertion `left == right` failed: each: the turn's end, and the image bytes and prompt the request carried
+r4 request-goes-on [lib]: killed
+    test session::store::tests::each_request_sends_a_copy_upstream_has_just_checked_holds_it_back_or_fails ... FAILED
+    test tui::worker::tests::a_resumed_prompt_images_copy_is_read_at_each_request_and_one_changed_fails_its_turn ... FAILED
+    test tui::worker::tests::a_resumed_copy_is_checked_again_at_each_request_of_one_turn ... FAILED
+    src/session/store.rs:6104:13:
+      assertion `left == right` failed: whole, then changed
+    src/tui/worker.rs:18980:9:
+      assertion `left == right` failed: each turn: its end, the images each request it sent carried, the prompt the log recorded last
+    src/tui/worker.rs:19198:9:
+      assertion `left == right` failed: each: the turn's end, and each request's prompt images and text
+r4 request-goes-on [sessions]: killed
+    test ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams ... FAILED
+    tests/sessions.rs:2126:5:
+      assertion `left == right` failed
+r4 catch-all-sends [lib]: killed
+    test session::store::tests::each_request_sends_a_copy_upstream_has_just_checked_holds_it_back_or_fails ... FAILED
+    test tui::worker::tests::a_resumed_copy_is_checked_again_at_each_request_of_one_turn ... FAILED
+    src/session/store.rs:6104:13:
+      assertion `left == right` failed: changed, then gone
+    src/tui/worker.rs:19198:9:
+      assertion `left == right` failed: each: the turn's end, and each request's prompt images and text
+r4 catch-all-sends [sessions]: SURVIVED
+r4 growth-accepted [lib]: killed
+    test session::store::tests::each_request_sends_a_copy_upstream_has_just_checked_holds_it_back_or_fails ... FAILED
+    src/session/store.rs:6104:13:
+      assertion `left == right` failed: whole, then a byte more in the read
+r4 growth-accepted [sessions]: SURVIVED
+r4 too-large-as-changed [lib]: killed
+    test session::store::tests::each_request_sends_a_copy_upstream_has_just_checked_holds_it_back_or_fails ... FAILED
+    src/session/store.rs:6104:13:
+      assertion `left == right` failed: whole, then past the limit in the read
+r4 too-large-as-changed [sessions]: SURVIVED
+r4 read-failure-goes-on [lib]: killed
+    test session::store::tests::each_request_sends_a_copy_upstream_has_just_checked_holds_it_back_or_fails ... FAILED
+    src/session/store.rs:6104:13:
+      assertion `left == right` failed: whole, then a read that fails
+r4 read-failure-goes-on [sessions]: SURVIVED
+r4 homemode-on-a-file [capture]: killed
+    FAIL: test_homemode_sets_a_mode_and_never_changes_one_through_a_link (__main__.Confinement.test_homemode_sets_a_mode_and_never_changes_one_through_a_link) (file='.fx/f')
+    AssertionError: 0 != 2 : up: a first frame after 0.08 s (2 looks)
+    FAIL: test_homemode_sets_a_mode_and_never_changes_one_through_a_link (__main__.Confinement.test_homemode_sets_a_mode_and_never_changes_one_through_a_link) (file='.fx-hard')
+    AssertionError: 0 != 2 : up: a first frame after 0.09 s (2 looks)
+r4 swap-in-deleted [lib]: killed
+    test session::store::tests::each_request_sends_a_copy_upstream_has_just_checked_holds_it_back_or_fails ... FAILED
+    test tui::worker::tests::a_resumed_copy_is_held_back_past_each_limit_and_sent_at_it_with_upstreams_whole_note ... FAILED
+    src/session/store.rs:6104:13:
+      assertion `left == right` failed: changed, repaired, then gone
+    src/tui/worker.rs:19268:9:
+      assertion `left == right` failed: each: the turn's end, and the image bytes and prompt the request carried
+r4 swap-in-deleted [sessions]: SURVIVED
+r4 request-goes-on-tui [lib]: killed
+    test tui::worker::tests::a_resumed_prompt_images_copy_is_read_at_each_request_and_one_changed_fails_its_turn ... FAILED
+    test tui::worker::tests::a_resumed_copy_is_checked_again_at_each_request_of_one_turn ... FAILED
+    src/tui/worker.rs:18983:9:
+      assertion `left == right` failed: each turn: its end, the images each request it sent carried, the prompt the log recorded last
+    src/tui/worker.rs:19201:9:
+      assertion `left == right` failed: each: the turn's end, and each request's prompt images and text
+r4 ask-name-not-copied [sessions]: killed
+    test ask_resume_whose_prompt_images_copy_changed_fails_its_request_as_upstreams ... FAILED
+    tests/sessions.rs:2126:5:
+      assertion `left == right` failed
+r4 tool-note-missing [lib]: killed
+    test session::store::tests::a_tool_image_never_read_back_is_unavailable_in_this_session_and_the_note_fits_the_limit ... FAILED
+    test session::store::tests::a_tool_images_lost_copy_is_told_to_the_model_in_front_of_its_result ... FAILED
+    test tui::worker::tests::a_tool_image_that_cannot_go_is_told_to_the_model_and_the_screen_says_nothing ... FAILED
+    src/session/store.rs:6320:13:
+      "an image"
+    src/session/store.rs:6244:9:
+      assertion `left == right` failed
+    src/tui/worker.rs:19418:9:
+      assertion `left == right` failed: each: resumed, the turn's end, the notices, each result as the model is sent it
+r4 tool-note-missing [sessions]: killed
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+    tests/sessions.rs:2264:5:
+      the model was not told in front of the result: ["user", "text", "first question", "assistant", "tool-call", "call-1", "read\u{1b}[2Jfile\u{9b}31m\u{7}\nxfx: forged\r\u{7f}line", "shot.png", "tool", "t
+r4 tool-note-changed [lib]: killed
+    test session::store::tests::a_tool_images_lost_copy_is_told_to_the_model_in_front_of_its_result ... FAILED
+    test tui::worker::tests::a_tool_image_that_cannot_go_is_told_to_the_model_and_the_screen_says_nothing ... FAILED
+    src/session/store.rs:6243:9:
+      assertion `left == right` failed
+    src/tui/worker.rs:19418:9:
+      assertion `left == right` failed: each: resumed, the turn's end, the notices, each result as the model is sent it
+r4 tool-note-changed [sessions]: killed
+    test ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one ... FAILED
+    tests/sessions.rs:2264:5:
+      the model was not told in front of the result: ["user", "text", "first question", "assistant", "tool-call", "call-1", "read\u{1b}[2Jfile\u{9b}31m\u{7}\nxfx: forged\r\u{7f}line", "shot.png", "tool", "t
+r4 tool-images-kept [lib]: killed
+    test session::store::tests::a_tool_images_lost_copy_is_told_to_the_model_in_front_of_its_result ... FAILED
+    src/session/store.rs:6243:9:
+      assertion `left == right` failed
+r4 tool-images-kept [sessions]: SURVIVED
+# changed files in the clone after the run: 0

@@ -69,7 +69,7 @@ use crate::provider::model::CatalogEntry;
 
 use super::effort_menu;
 use super::model_search;
-use super::picker::{edge_start, ellipsized};
+use super::picker::{advanced, edge_start, ellipsized};
 use super::theme::Palette;
 
 /// What a `/model` line begins with once it has an argument
@@ -711,18 +711,23 @@ impl Column {
         }
     }
 
-    /// Up or Down in the open column, wrapping (`advanceSelection`,
-    /// `list_window.zig:38-47`). Says whether the mark moved.
-    pub(crate) fn step(&mut self, query: &Query<'_>, catalog: Known<'_>, down: bool) -> bool {
+    /// The mark `delta` rows on in the open column, whichever stage it is --
+    /// one for Up and Down, a page for PgUp and PgDn. Past either end it goes
+    /// to the **other** end, however far past it was asked to go, so a page
+    /// from the last row is the first (`navigateModelPicker`,
+    /// `input_completion_runtime.zig:1072-1096@481104fd`, into
+    /// `list_window.advanceSelection`, `list_window.zig:40-53`). Says whether
+    /// there was a row to move to.
+    pub(crate) fn step_by(&mut self, query: &Query<'_>, catalog: Known<'_>, delta: i64) -> bool {
         if query.stage == Stage::Speed {
             // Walked over the rows listed, and kept as the speed the new row
-            // names (`navigateModelPicker`, `:1001-1013`).
+            // names (`navigateModelPicker`, `:1080-1094@481104fd`).
             let listed = self.speeds(query.query, catalog);
             if listed.is_empty() {
                 return false;
             }
             let mut row = self.speed_row(&listed);
-            advance(&mut row, &mut self.speed_window, listed.len(), down);
+            advance(&mut row, &mut self.speed_window, listed.len(), delta);
             self.speed_index = listed[row].index();
             return true;
         }
@@ -737,7 +742,7 @@ impl Column {
             Stage::Model => (&mut self.model_index, &mut self.model_window),
             Stage::Effort | Stage::Speed => (&mut self.effort_index, &mut self.effort_window),
         };
-        advance(index, window, count, down);
+        advance(index, window, count, delta);
         true
     }
 
@@ -920,16 +925,11 @@ fn level_index(entry: &CatalogEntry, effort: &Effort) -> usize {
         .unwrap_or(0)
 }
 
-/// One step of a mark over `count` rows, wrapping, and the window kept over
-/// it (`advanceSelection`, `list_window.zig:38-47`).
-fn advance(index: &mut usize, window: &mut usize, count: usize, down: bool) {
-    let current = *index % count;
-    *index = match (down, current) {
-        (true, last) if last + 1 == count => 0,
-        (true, current) => current + 1,
-        (false, 0) => count - 1,
-        (false, current) => current - 1,
-    };
+/// A move of `delta` rows of a mark over `count` rows -- past either end to
+/// the other end -- and the window kept over it (`advanceSelection`,
+/// `list_window.zig:40-53@481104fd`).
+fn advance(index: &mut usize, window: &mut usize, count: usize, delta: i64) {
+    *index = advanced(*index, count, delta);
     *window = edge_start(*window, count, *index, MOST_ROWS);
 }
 
@@ -1191,8 +1191,8 @@ mod tests {
         let query = column
             .query("/model openai/gpt-6-astra ", "")
             .expect("query");
-        assert!(column.step(&query, known, true));
-        assert!(column.step(&query, known, true));
+        assert!(column.step_by(&query, known, 1));
+        assert!(column.step_by(&query, known, 1));
         assert_eq!(
             column.complete(&query, known),
             Some("/model openai/gpt-6-astra medium".to_string())
@@ -1206,14 +1206,14 @@ mod tests {
         let known = Known::Rows(&rows);
         let mut column = Column::default();
         let query = column.query("/model ", "").expect("query");
-        assert!(column.step(&query, known, false));
+        assert!(column.step_by(&query, known, -1));
         assert_eq!(
             column
                 .chosen_model(&query, known)
                 .map(|entry| entry.id.as_str()),
             Some("xai/grok-4.7")
         );
-        assert!(column.step(&query, known, true));
+        assert!(column.step_by(&query, known, 1));
         assert_eq!(
             column
                 .chosen_model(&query, known)
@@ -1221,7 +1221,7 @@ mod tests {
             Some("openai/gpt-6-astra")
         );
         let none = column.query("/model zzz", "").expect("query");
-        assert!(!column.step(&none, known, true), "nothing to move over");
+        assert!(!column.step_by(&none, known, 1), "nothing to move over");
     }
 
     #[test]
@@ -1301,7 +1301,7 @@ mod tests {
             column.preview(&query, known),
             preview(Effort::Auto, Speed::Fast)
         );
-        column.step(&query, known, true);
+        column.step_by(&query, known, 1);
         assert_eq!(
             column.preview(&query, known),
             preview(Effort::Named("low".to_string()), Speed::Fast)
@@ -1451,9 +1451,9 @@ mod tests {
         let ultra = at(&column, "/model openai/gpt-6-astra low ULTRAFAST");
         assert_eq!(column.chosen_speed(&ultra, known), Some(Speed::Ultrafast));
         let open = at(&column, "/model openai/gpt-6-astra low ");
-        assert!(column.step(&open, known, true));
+        assert!(column.step_by(&open, known, 1));
         assert_eq!(column.chosen_speed(&open, known), Some(Speed::Ultrafast));
-        assert!(column.step(&open, known, true));
+        assert!(column.step_by(&open, known, 1));
         assert_eq!(
             column.chosen_speed(&open, known),
             Some(Speed::Normal),
@@ -1553,7 +1553,7 @@ mod tests {
         let query = column
             .query("/model openai/gpt-6-astra medium ", "")
             .expect("query");
-        assert!(column.step(&query, known, true));
+        assert!(column.step_by(&query, known, 1));
         assert_eq!(
             column.complete(&query, known),
             Some("/model openai/gpt-6-astra medium ultrafast".to_string())
@@ -1660,7 +1660,7 @@ mod tests {
         );
         // The mark moved: Enter takes the spelled level, the footer the marked one.
         let typed = at("/effort high");
-        assert!(column.step(&typed, known, true));
+        assert!(column.step_by(&typed, known, 1));
         assert_eq!(column.chosen_effort(&typed, known), Some(named("high")));
         assert_eq!(column.marked_level(&typed, known), Some(named("xhigh")));
         let partial = at("/effort hi");
@@ -1715,7 +1715,7 @@ mod tests {
         let mut column = Column::default();
         column.open_levels(known.row_for(ASTRA), &named("medium"));
         let open = column.query("/effort ", ASTRA).expect("query");
-        assert!(column.step(&open, known, true));
+        assert!(column.step_by(&open, known, 1));
         assert_eq!(
             column.complete(&open, known),
             Some("/effort high".to_string())
@@ -1869,7 +1869,7 @@ mod tests {
             Some("anthropic/claude-sonnet-4.5")
         );
         // Down from acme/gpt5-lite is openai/gpt-5, the second rank's.
-        assert!(column.step(&typed("gpt5"), known, true));
+        assert!(column.step_by(&typed("gpt5"), known, 1));
         assert_eq!(chosen(&column, "gpt5").as_deref(), Some("openai/gpt-5"));
         // The id spelled out is still the one Enter takes.
         assert_eq!(
@@ -1889,7 +1889,7 @@ mod tests {
         let rows = ranked();
         let known = Known::Rows(&rows);
         let mut column = Column::default();
-        assert!(column.step(&typed("gpt5"), known, true));
+        assert!(column.step_by(&typed("gpt5"), known, 1));
         assert_eq!(
             column.complete(&typed("gpt5"), known),
             Some("/model openai/gpt-5".to_string())

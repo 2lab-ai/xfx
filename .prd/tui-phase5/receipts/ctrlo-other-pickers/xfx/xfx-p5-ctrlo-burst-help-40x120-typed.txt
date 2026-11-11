@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-13646df [debug] · Run /help for commands
+
+┃ se
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 19  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  …
+
+  /clear          start a fresh conversation while keeping managed processes
+  /status         show runtime configuration and the session ID
+  /new            start a fresh session
+  /reset          reset the current session context
+  /resume         resume a saved session
+  /rename         rename the current session
+  /fork           fork the session before a prompt
+  /undo           undo the latest tracked file operation
+  /copy           copy the last assistant response
+  /compact        summarize context into a fresh window
+  /provider       choose the model provider and how it signs in
+  /model          show the model, or `/model <id>` to use another one from now on
+  /effort         choose the reasoning effort for the current model
+  /settings       browse and update settings
+  /statusline     toggle status line segments
+  /permissions    choose what xfx is allowed to do
+  /allowlist      manage trusted commands, tools, and URLs
+  /mcp            manage MCP servers and their logins
+  /skills         browse and manage skills
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+

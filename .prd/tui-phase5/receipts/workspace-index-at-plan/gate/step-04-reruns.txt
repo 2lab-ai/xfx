@@ -1,0 +1,13 @@
+# Step 04's two failures, from its log (<gate>/logs/04-test.log): the test result line and each panic's location.
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+thread 'tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn' (502951094) panicked at src/tui/worker.rs:19479:9:
+thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one' (502950584) panicked at src/tui/worker.rs:19109:9:
+test result: FAILED. 4742 passed; 2 failed; 7 ignored; 0 measured; 0 filtered out; finished in 57.57s
+# Each run alone three times in the same clone, while the gate went on with its later steps (cargo test --locked --lib -- --exact <name>, TMPDIR the gate's):
+run 1 a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4750 filtered out; finished in 11.04s
+run 1 a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4750 filtered out; finished in 29.38s
+run 2 a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4750 filtered out; finished in 10.05s
+run 2 a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4750 filtered out; finished in 26.85s
+run 3 a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4750 filtered out; finished in 10.00s
+run 3 a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4750 filtered out; finished in 30.61s

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-13646df [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 34  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  …
+
+  /help           show available slash commands
+  /clear          start a fresh conversation while keeping managed processes
+  /status         show runtime configuration and the session ID
+  /version        show the xfx version
+  /quit           exit the interactive shell
+  /new            start a fresh session
+  /reset          reset the current session context
+  /resume         resume a saved session
+  /rename         rename the current session
+  /fork           fork the session before a prompt
+  /undo           undo the latest tracked file operation
+  /copy           copy the last assistant response
+  /compact        summarize context into a fresh window
+  /provider       choose the model provider and how it signs in
+  /stats          show token and turn statistics
+  /usage          show your provider's usage and spend
+  /credits        show gateway credits balance
+  /model          show the model, or `/model <id>` to use another one from now on
+  /effort         choose the reasoning effort for the current model
+  /fast           toggle Fast mode when supported
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+

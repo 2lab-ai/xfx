@@ -1,0 +1,32 @@
+# CTRLO-OTHER-PICKERS round 3: /model's menu (the model scenario's catalog
+# and profiles) with a search typed, then Ctrl-O and an edit key in one
+# burst (`key -H`, one send-keys).
+# `o`, C-a: the search `o`, the caret before it; Down moves the mark
+# (`typed`).
+# Ctrl-O and C-j: the composer's insert_newline adds nothing while /model's
+# menu is up (app_input_runtime.zig:514@481104fd), so nothing moves
+# (`burst-cj`).
+# Ctrl-O and C-k: a kill of the `o`, which syncs the menu
+# (delete_to_line_end, app_input_runtime.zig:479-488, :485): the search is
+# empty and the mark back on the first row (`burst-ck`).
+fx: env FX_AUTO_UPGRADE=0
+models models.json
+fx: seed model-seed-fx.json
+xfx: seed model-seed-xfx.json
+nomodel
+wait 2.5
+type /model
+key Enter
+wait 1.5
+type o
+key C-a
+wait 0.4
+key Down
+wait 0.5
+snap typed
+key -H 0f 0a
+wait 0.8
+snap burst-cj
+key -H 0f 0b
+wait 0.8
+snap burst-ck

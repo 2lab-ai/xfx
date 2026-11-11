@@ -588,7 +588,7 @@ fn assert_raw(state: TerminalState) {
 ///
 /// Every other raw-mode assertion in this suite waits on a byte that the child
 /// writes *after* the `tcsetattr` in question -- the mode set, which `resume`
-/// emits only once raw mode is back (`src/tui/mod.rs:269-270`). That works
+/// emits only once raw mode is back (`src/tui/mod.rs:759-760`). That works
 /// whenever the wire says which mode set is which. After a stop whose timing
 /// the test does not control, it does not: a session stopped *after* it
 /// announced itself has already put one mode set on the wire, so waiting for
@@ -1058,6 +1058,123 @@ fn a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken() {
     assert_no_mode_bytes(&text);
     assert_eq!(before, modes(&pty), "a refused resume touched the terminal");
     assert_eq!(sandbox.session_ids(), Vec::<String>::new());
+}
+
+#[test]
+fn a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words() {
+    // Upstream's launch reads the conversation, finds a prompt image's blob
+    // gone -- `InvalidSessionFormat` (`decodeUser`,
+    // `session_adapter.zig:2871-2893@481104fd`) -- and says
+    // `fx: saved session is unreadable. …` once it has given the terminal
+    // back (`initFailure`, `app_entry_runtime.zig:278-285`; it takes it
+    // first, `wire.txt` of the receipt). xfx refuses before it takes the
+    // terminal, as every launch refusal of its own does. Nothing of the
+    // session changes: not its log, whose unpublished tail stays, nor any
+    // file under it, a nested one included, nor their modes.
+    use xfx::session::{
+        NewSession, RecordedImage, SessionEvent, SessionId, SessionStore, TurnConclusion,
+    };
+    let sandbox = Sandbox::new();
+    let store = SessionStore::open(&sandbox.home.join(".xfx")).expect("open the store");
+    let id = SessionId::parse("gone-image").expect("an id");
+    let mut session = store
+        .create(
+            id.clone(),
+            NewSession {
+                origin_workspace_root: sandbox.workspace.clone(),
+                workspace_root: sandbox.workspace.clone(),
+                model: "test/model".to_string(),
+                permission_mode: xfx::config::PermissionMode::Auto,
+                provider: Some(xfx::provider::ProviderId::Gateway),
+            },
+        )
+        .expect("create");
+    for event in [
+        SessionEvent::UserMessage {
+            text: "[Image #1] what is it".to_string(),
+        },
+        SessionEvent::ImagesAttached {
+            images: vec![RecordedImage {
+                id: 1,
+                path: "shot.png".to_string(),
+                media_type: "image/png".to_string(),
+                sha256: xfx::image::digest(SHOT_PNG),
+                bytes: SHOT_PNG.len() as u64,
+            }],
+        },
+        SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        },
+    ] {
+        store.append(&mut session, event).expect("append");
+    }
+    store.publish(&mut session).expect("publish");
+    drop(session);
+    let dir = store.session_dir(&id);
+    {
+        use std::io::Write as _;
+        let mut log = OpenOptions::new()
+            .append(true)
+            .open(dir.join("events.jsonl"))
+            .expect("the log");
+        log.write_all(b"{\"seq\":99,\"torn\":").expect("a tail");
+    }
+    let nested = dir.join("images");
+    std::fs::create_dir(&nested).expect("a nested folder");
+    std::fs::write(nested.join("sentinel"), b"left alone").expect("a nested sentinel");
+    fn files(dir: &std::path::Path) -> Vec<(String, u32, Vec<u8>)> {
+        use std::os::unix::fs::PermissionsExt;
+        let mut out = Vec::new();
+        let mut pending = vec![dir.to_path_buf()];
+        while let Some(at) = pending.pop() {
+            for entry in std::fs::read_dir(&at).expect("a listing") {
+                let path = entry.expect("an entry").path();
+                let meta = std::fs::symlink_metadata(&path).expect("metadata");
+                let name = path
+                    .strip_prefix(dir)
+                    .expect("inside")
+                    .display()
+                    .to_string();
+                let mode = meta.permissions().mode();
+                if meta.is_dir() {
+                    out.push((name, mode, Vec::new()));
+                    pending.push(path);
+                } else {
+                    out.push((name, mode, std::fs::read(&path).expect("bytes")));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+    let before = files(&dir);
+    assert!(
+        before.iter().any(|(name, _, _)| name == "images/sentinel"),
+        "the snapshot misses the nested file: {before:?}"
+    );
+
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let modes_before = modes(&pty);
+    let mut command = tui(&sandbox);
+    command.arg("--resume").arg("gone-image");
+    let mut launched = Session::spawn_without_taking_the_terminal(&pty, command);
+    assert_eq!(launched.wait_exit().code(), Some(1));
+    let text = launched.settled_text();
+    assert!(
+        text.contains("xfx: saved session is unreadable.\r\n"),
+        "the refusal is not upstream's: {text:?}"
+    );
+    assert_no_mode_bytes(&text);
+    assert_eq!(
+        modes_before,
+        modes(&pty),
+        "a refused resume touched the terminal"
+    );
+    assert_eq!(files(&dir), before, "a refused resume changed the session");
 }
 
 #[test]
@@ -2401,7 +2518,7 @@ fn the_terminal_is_asked_for_its_background_and_a_light_answer_changes_the_palet
     );
 }
 
-/// P3-THEME (`.prd/tui-phase3/ssot.md:43`) -- the band's palette tracks the
+/// P3-THEME (`.prd/tui-phase3/ssot.md:51`) -- the band's palette tracks the
 /// terminal's live background for the whole life of the session, not only
 /// its start: a `CSI ?997;2n` notification -- upstream's spelling for "the
 /// background just went light" (`.prd/research/tui-core.md:47`) -- repaints
@@ -2480,7 +2597,7 @@ fn a_live_theme_notification_repaints_the_band_without_losing_the_draft() {
 
     // `C-u` before `C-d`: the composer holds the draft this case typed into
     // it, and `C-d` on a non-empty draft is not the tested exit gesture
-    // (`tests/tui.rs:1191,1654,1777,2103,4607,4803` all clear the line
+    // (`tests/tui.rs:1809,2191,2766,3113,3236,3928,7648,7722,8515,9216,9412` all clear the line
     // first). The kill takes the line the caret is on.
     session.type_bytes(&[0x15, 0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -3126,7 +3243,7 @@ fn captured_ctrl_c_d_u_tilde_chords_replay_on_a_real_terminal() {
     // sending Ctrl-C, Ctrl-D and Ctrl-U as `ESC[27;5;<code>~` rather than the
     // bare control byte the rest of this file types -- driven through the
     // terminal's own `SendKey` action, not a physical keypress, and logged
-    // raw in `.prd/tui-phase3/loop.md:416` (R125). Replayed here
+    // raw in `.prd/tui-phase3/loop.md:441` (R125). Replayed here
     // literal-for-literal against a real pty: what this proves is that the
     // captured **encoding** decodes to the same actions the bare byte already
     // reaches elsewhere in this file, not that any particular terminal sends
@@ -9328,7 +9445,7 @@ fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it
     // tells the child -- and a real terminal has the same gap: the kernel
     // raises `SIGWINCH` after the size has already changed, and no process can
     // withhold a frame for a size nobody has told it about. `Shell::blind`
-    // (`src/tui/shell.rs:16943`) is `resize_pending || screen != geometry`, and
+    // (`src/tui/shell.rs:17353`) is `resize_pending || screen != geometry`, and
     // neither is true until the handler has run. So a frame composed in that
     // gap is composed for the screen the session still believes in, and it is
     // not a frame written *while blind*.
@@ -9368,7 +9485,7 @@ fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it
     // the too-small screen has been observed and resolved, so `blind` is
     // established, and Ctrl-L asks for a frame the session cannot paint.
     // `Action::Redraw` inside the approval panel raises
-    // `Reason::ExternalDamage` (`src/tui/shell.rs:9736`) and answers nothing,
+    // `Reason::ExternalDamage` (`src/tui/shell.rs:10127`) and answers nothing,
     // which makes this a frame that is genuinely owed rather than a stretch of
     // time in which nothing happened to want one. The old assertion could pass
     // on a session with nothing to say; this one cannot.

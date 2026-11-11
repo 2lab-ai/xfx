@@ -1,0 +1,62 @@
+# base 4a5dc3c7 (AT-RANK), release lib test binary, run 2
+# XFX_AT_BENCH_TREE=<scratch>/tree100k
+# before: load averages: 42.10 47.77 60.95 (18 cores)
+running 1 test
+test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... entries: 100000
+exact            33 keys  1 rows p50 3.077583ms p95 9.01875ms max 13.394416ms
+boundary          5 keys 32 rows p50 3.702375ms p95 9.620375ms max 24.272458ms
+low-selectivity   2 keys 32 rows p50 7.281458ms p95 10.766833ms max 10.82575ms
+long-gap          4 keys 32 rows p50 5.686458ms p95 11.25425ms max 12.923667ms
+no-match         14 keys  0 rows p50 2.675334ms p95 2.92475ms max 5.664833ms
+punctuation       9 keys  1 rows p50 2.928791ms p95 7.378166ms max 11.577208ms
+unicode           3 keys  1 rows p50 2.642041ms p95 2.733541ms max 2.742291ms
+unicode-fold      3 keys 32 rows p50 3.706333ms p95 3.8385ms max 4.017208ms
+every keystroke: 1460 searches p50 3.049542ms p95 9.563625ms p99 12.376834ms max 24.272458ms
+whole queries (fx's gate): 160 searches p50 2.903708ms p95 10.67425ms
+thread 'tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame' panicked at src/tui/file_index.rs:3123:9:
+a keystroke's search took 9.563625ms at the 95th percentile, against an 8 ms frame
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+failures:
+failures:
+    tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4653 filtered out; finished in 9.75s
+# after: load averages: 47.30 48.70 61.13
+
+# head b47953e2 (AT-RANK-PERF), release lib test binary, run 2
+# XFX_AT_BENCH_TREE=<scratch>/tree100k
+# before: load averages: 47.30 48.70 61.13 (18 cores)
+running 1 test
+test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... entries: 100000
+exact            33 keys  1 rows p50 178.75µs p95 4.00875ms max 4.747084ms
+boundary          5 keys 32 rows p50 478.875µs p95 562.959µs max 583µs
+low-selectivity   2 keys 32 rows p50 858.792µs p95 3.727708ms max 3.782667ms
+long-gap          4 keys 32 rows p50 1.579708ms p95 3.594625ms max 3.643292ms
+no-match         14 keys  0 rows p50 188.875µs p95 253.542µs max 294.125µs
+punctuation       9 keys  1 rows p50 574.917µs p95 1.789125ms max 1.884125ms
+unicode           3 keys  1 rows p50 164.542µs p95 166.833µs max 170.583µs
+unicode-fold      3 keys 32 rows p50 357.042µs p95 566.375µs max 635.334µs
+every keystroke: 1460 searches p50 249.542µs p95 3.481709ms p99 4.368709ms max 4.747084ms
+whole queries (fx's gate): 160 searches p50 279.875µs p95 3.655125ms
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4658 filtered out; finished in 2.86s
+# after: load averages: 48.48 48.92 61.13
+
+# head b47953e2 (AT-RANK-PERF), release lib test binary, run 2
+# XFX_AT_BENCH_TREE unset (fx's inventory, in memory)
+# before: load averages: 48.48 48.92 61.13 (18 cores)
+running 1 test
+test tui::file_index::tests::a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame ... entries: 100000
+exact            33 keys  1 rows p50 181.958µs p95 4.175791ms max 4.922ms
+boundary          5 keys 32 rows p50 495.542µs p95 904.583µs max 991.583µs
+low-selectivity   2 keys 32 rows p50 445.708µs p95 3.585292ms max 3.758375ms
+long-gap          4 keys 32 rows p50 1.607042ms p95 3.481875ms max 3.657209ms
+no-match         14 keys  0 rows p50 194.209µs p95 264.042µs max 278.459µs
+punctuation       9 keys  1 rows p50 612.541µs p95 1.846542ms max 2.011333ms
+unicode           3 keys  1 rows p50 166.708µs p95 168.209µs max 177.083µs
+unicode-fold      3 keys 32 rows p50 455µs p95 810.625µs max 1.046375ms
+every keystroke: 1460 searches p50 263.292µs p95 3.411125ms p99 4.647625ms max 4.922ms
+whole queries (fx's gate): 160 searches p50 375.125µs p95 3.534583ms
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4658 filtered out; finished in 1.32s
+# after: load averages: 48.48 48.92 61.13
