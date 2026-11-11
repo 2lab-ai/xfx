@@ -288,6 +288,9 @@ expect epoch-crlf "$root" '.github/preview-epoch is "phase4\r\n"'
 # signal ran the trap's cleanup and went on. Each must exit with the status
 # bash gives that stop, the stop must have fired with the check's EXIT trap
 # installed, nothing may run past it, and its TMPDIR must be empty after it.
+# The `early stop:` line prints before the stop, so an `unset` stop must
+# also show bash's own `xfx_test_unset: unbound variable`: another stop with
+# status 1 after the marker would pass without it.
 for row in unset:1 exit7:7 subshell:5 term:143 hup:129 int:130 int-group:130; do
 	stop="${row%%:*}"
 	want="${row#*:}"
@@ -300,10 +303,14 @@ for row in unset:1 exit7:7 subshell:5 term:143 hup:129 int:130 int-group:130; do
 	{ BASH_ENV="$work/stop-$stop.env" TMPDIR="$tmp" "$check" "$control/.github/workflows/preview.yml" "$control" \
 		>"$log" 2>&1 || status=$?; } 2>/dev/null
 	left="$(find "$tmp" -mindepth 1 -print | wc -l | tr -d ' ')"
-	if [ "$status" -ne "$want" ] || ! grep -q -x -F -e "early stop: $stop" "$log" ||
+	unbound=yes
+	if [ "$stop" = unset ] && ! grep -q -F -e 'xfx_test_unset: unbound variable' "$log"; then
+		unbound=no
+	fi
+	if [ "$status" -ne "$want" ] || ! grep -q -x -F -e "early stop: $stop" "$log" || [ "$unbound" = no ] ||
 		! grep -q -x -e '^early stop: trap -- .* EXIT$' "$log" ||
 		grep -q -e '^check-preview-contract: ok' -e '^early stop: still running' "$log" || [ "$left" -ne 0 ]; then
-		printf 'test-preview-contract: stopped-%s: the check exited %d and left %d file(s) in its TMPDIR; expected exit %d, its stop and EXIT trap shown, nothing after the stop, no file left\n' \
+		printf 'test-preview-contract: stopped-%s: the check exited %d and left %d file(s) in its TMPDIR; expected exit %d, its stop and EXIT trap shown (for unset, the unbound-variable line too), nothing after the stop, no file left\n' \
 			"$stop" "$status" "$left" "$want" >&2
 		sed 's/^/  /' "$log" >&2
 		failures=$((failures + 1))

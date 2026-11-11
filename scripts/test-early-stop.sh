@@ -16,8 +16,12 @@
 # its `set -u`, `exit 7`, a `( exit 5 )` that `set -e` carries out, SIGTERM,
 # SIGHUP or SIGINT sent to it alone, or SIGINT sent to it and a child it
 # waits for. It requires the status bash gives that stop, the stop seen in
-# the output with the script's EXIT trap installed, nothing past it, and the
-# script's TMPDIR empty after it.
+# the output with the script's EXIT trap installed (for `unset`, bash's own
+# `xfx_test_unset: unbound variable` too: the `early stop:` line prints before
+# the stop, and another stop with status 1 after it would pass without it),
+# nothing past it, and the script's TMPDIR empty after it. smoke.sh makes no
+# file in its TMPDIR (its evidence directory is given), so its TMPDIR check
+# is vacuous; test-gate-env.sh's is not.
 #
 # The other gate scripts with an EXIT trap have these cases in their own
 # tests: check-no-secrets.sh in test-check-no-secrets.sh,
@@ -103,6 +107,10 @@ for script in "test-gate-env.sh|^test-gate-env: ok" "smoke.sh|^[0-9]+ check\(s\)
 			failures=$((failures + 1))
 		elif ! grep -q -x -e '^early stop: trap -- .* EXIT$' "$work/$name.log"; then
 			printf 'test-early-stop: %s: no EXIT trap was installed when it stopped; its last lines:\n' "$name" >&2
+			tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
+			failures=$((failures + 1))
+		elif [ "$stop" = unset ] && ! grep -q -F -e 'xfx_test_unset: unbound variable' "$work/$name.log"; then
+			printf "test-early-stop: %s: no 'xfx_test_unset: unbound variable': it stopped some other way; its last lines:\n" "$name" >&2
 			tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
 			failures=$((failures + 1))
 		elif grep -q -E -e "$done_re" -e '^early stop: still running' "$work/$name.log"; then

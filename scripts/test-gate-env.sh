@@ -1041,6 +1041,9 @@ rm -f "${ran:?}"/* "${trace:?}"
 # be empty after it. check-no-secrets.sh's and check-preview-contract.sh's
 # cases are in their own tests, this file's and smoke.sh's in
 # test-early-stop.sh, which is held here too.
+# The `early stop:` line prints before the stop, so an `unset` stop must
+# also show bash's own `xfx_test_unset: unbound variable`: another stop with
+# status 1 after the marker would pass without it.
 for gate in check-xfx-identity test-check-no-secrets test-preview-contract test-early-stop; do
 	for row in unset:1 exit7:7 subshell:5 term:143 hup:129 int:130 int-group:130; do
 		stop="${row%%:*}"
@@ -1063,6 +1066,9 @@ for gate in check-xfx-identity test-check-no-secrets test-preview-contract test-
 			tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
 		elif ! grep -q -x -e '^early stop: trap -- .* EXIT$' "$work/$name.log"; then
 			problem "$name: no EXIT trap was installed when it stopped; its last lines:"
+			tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
+		elif [ "$stop" = unset ] && ! grep -q -F -e 'xfx_test_unset: unbound variable' "$work/$name.log"; then
+			problem "$name: no 'xfx_test_unset: unbound variable': it stopped some other way; its last lines:"
 			tail -n 6 "$work/$name.log" | cut -c 1-200 >&2
 		elif grep -q -e "^$gate: ok" -e '^early stop: still running' "$work/$name.log"; then
 			problem "$name: the gate ran on past the stop; its last lines:"

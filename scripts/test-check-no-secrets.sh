@@ -400,6 +400,9 @@ verdict only-a-symlink 1 "check-no-secrets: no files to scan; the check would pa
 # line: a pass that scanned nothing. Each must exit with the status bash gives
 # that stop, the stop must have fired with the check's EXIT trap installed,
 # nothing may run past it, and the check's TMPDIR must be empty after it.
+# And the `early stop:` line prints before the stop, so an `unset` stop must
+# also show bash's own `xfx_test_unset: unbound variable`: another stop with
+# status 1 after the marker would pass without it.
 #
 # And an arithmetic error, which bash does not stop on: it drops the command
 # that holds it and goes on. One in the listing (`skipped-listing`, the
@@ -433,11 +436,11 @@ printf 'clean\n' >"$skip/a.txt"
 printf 'A=1\n' >"$skip/.env.zz-planted"
 sg -C "$skip" add -f -- a.txt .env.zz-planted scripts/check-no-secrets.sh
 # <case>|<tree>|<stop>|<hook>|<status>|<text the output must hold, or ->
-for row in "stopped-unset|$small|unset|trap-exit|1|-" "stopped-exit7|$small|exit7|trap-exit|7|-" \
+for row in "stopped-unset|$small|unset|trap-exit|1|xfx_test_unset: unbound variable" "stopped-exit7|$small|exit7|trap-exit|7|-" \
 	"stopped-subshell|$small|subshell|trap-exit|5|-" "stopped-term|$small|term|trap-exit|143|-" \
 	"stopped-hup|$small|hup|trap-exit|129|-" "stopped-int|$small|int|trap-exit|130|-" \
 	"stopped-int-group|$small|int-group|trap-exit|130|-" \
-	"stopped-late|$small|unset|printf=check-no-secrets: ok*|1|-" \
+	"stopped-late|$small|unset|printf=check-no-secrets: ok*|1|xfx_test_unset: unbound variable" \
 	"skipped-listing|$skiplist|arith|read=2|1|check-no-secrets: the listing did not finish" \
 	"skipped-scan|$skip|arith|printf=*zz-planted*|1|check-no-secrets: the scan did not finish"; do
 	IFS='|' read -r name root stop hook want needle <<<"$row"
