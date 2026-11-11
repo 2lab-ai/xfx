@@ -38,7 +38,10 @@ tree), without printing a path.
 | `c5cf594b` | round 6's README and records (PR #95's head) |
 | `de4dbd19` | after PR #95's x86_64 macOS refusal: every grep of the tree on one thread; a second look on a disagreement; `omitonce`, `threads` |
 | `d22eeb74` | the thread and second-look mutants |
-| `f8ab5be4` | `fewer`, the shape CI showed -- **the code head and round 7's gate head** (`gate7.txt`, on a clone; `mutants7.txt`) |
+| `f8ab5be4` | `fewer`, the shape CI showed -- **round 7's gate head** (`gate7.txt`, on a clone; `mutants7.txt`) |
+| `48a163ed` | round 7's README and records |
+| `1eee9723` | round 8: the second look says only what it read (exit statuses kept, digits only, "could not read the file"), observations not causes; `lookfail`, `lookjunk`; `threads` with a disagreement |
+| `252a20ea` | `lookjunkc`; one junk field per case; the second look's mutants -- **the code head and round 8's gate head** (`gate8.txt`, on a clone; `mutants8.txt`) |
 | (this one) | this README and round 7's records |
 
 `3ee1766f` added `repro/harness-shapes.sh`, `repro/harness2.sh` and
@@ -70,20 +73,42 @@ readings of one file disagreed, so it could not vouch for the tree.
   byte-identical in v2.55.0 and v2.56.0; `builtin/grep.c` differs only in
   submodule and object-store code. The line pass (`-n`) and the count
   (`-c`) run the same matching loop and differ only after a hit
-  (`grep.c:1696-1705`). So the version does not decide which lines match,
-  and the two passes in one run disagreeing means git's reading varied with
-  the run there. Also, git takes a regexec error on a line as no match,
-  without a word (`grep.c:958-961`). Which cause it was is not shown.
-- **The fix**: every grep of the tree runs with `grep.threads=1`, so no
-  threads vary between runs or passes; the disagreement still fails the
-  scan; and the check now takes a second look at the file named, both
-  readings of it again beside the line numbers the first line pass gave
-  (never its text), and says `per run` or `per tree`. If the CI row
-  disagrees again, that line says what kind of fault it is. The cost is the
+  (`grep.c:1696-1705`). Identical source does not rule out a difference in
+  that build of git or in the system's regex library, so what made the two
+  passes of one run disagree there is not known. Also, git takes a regexec
+  error on a line as no match, without a word (`grep.c:958-961`).
+- **The change**: every grep of the tree runs with `grep.threads=1`, a
+  mitigation under a hypothesis nothing has confirmed (git's threads are
+  one thing that varies between runs). A disagreement still fails the scan.
+  The check then takes a second look at the file named: both readings of it
+  again, beside the line numbers the first line pass gave (never its text).
+  It reports only what it saw: "the disagreement repeated on a second look"
+  or "did not repeat"; if either grep fails, or gives a record that does
+  not parse or a field that is not digits, it says only that it "could not
+  read the file (git exit N / M)" and prints no field (round 8). What would
+  settle the cause: a run on a macOS 15 Intel host, or that line the next
+  time CI disagrees. The cost is the
   scan's time: on this machine (18 cores, loaded) 35 s with git 2.56.0 and
   26 s with Apple's 2.54.0, against 6 s for `c5cf594b`'s threaded check
-  (`r6/treeruns.txt`); on CI's x86_64 macOS runner the threaded step took
-  52 s (`ci-pr95-x86.txt`), so expect a few minutes there.
+  (`r6/treeruns.txt`). On CI at `48a163ed` (run 42964022476, GitHub's jobs
+  API, `ci-48a163ed.txt`) the step "No path of one machine in tracked
+  files" took 28 s on aarch64-apple-darwin, 46 s on x86_64-apple-darwin
+  (`checks`), 3 s on x86_64-linux and 5 s on aarch64-linux; the threaded
+  check had taken 52 s on that x86_64 macOS row (`ci-pr95-x86.txt`).
+- **CI at `48a163ed`** (`ci-48a163ed.txt`): run 42964022476 (CI) and run
+  42964022403 (Sweep) both succeeded, every job green. The x86_64 macOS
+  `checks` row passed, the first run on that row since the refusal. That
+  is one observation: one green run does not show what caused the
+  refusal, or that one thread prevents it.
+- **Round 8 RED** (`red8.txt`): the self-test at `252a20ea` against the
+  check at `48a163ed`: 7 of 27 fail. `lookfail` (the second look's greps
+  give nothing, the count one exit 128): `48a163ed` printed "per run, the
+  readings agree now". `lookjunk` and `lookjunkc` (a line number, or a
+  count, that is not digits): it printed `JUNK-NUMBER` and `2JUNK-COUNT` as
+  read. `threads` now also leaves the file out of the first line pass, so
+  the second look's greps run under the one-thread rule; it and `omit`,
+  `fewer`, `omitonce` fail on the old wording. **GREEN** (`green8.txt`): 27
+  of 27.
 - **RED** (`red7.txt`): the round-7 self-test (`f8ab5be4`) against the
   check at `c5cf594b`: 4 of 24 fail. `fewer` plants CI's shape (a shim
   drops a file's second matching line from the line pass only): `c5cf594b`
@@ -307,6 +332,12 @@ same tree.
   before `fewer`, had *no second look* survive: every case that disagreed
   named the file on the count side only, which the other call covers;
   `fewer` (`f8ab5be4`) names it on both.
+- `mutants8.txt` (27, at `252a20ea`): 24 killed, 3 survive (the three older
+  ones below). The five round-8 guards are killed: a second look that
+  could not read taken as one (`lookfail`, `lookjunk`, `lookjunkc`), its
+  line number and its count printed unchecked (`lookjunk`, `lookjunkc`),
+  its count's exit status ignored (`lookfail`), and a second-look grep that
+  bypasses `scan_git` (`lookfail`, `lookjunkc`; the `threads` rule).
 
 The three older survivors are guards the tree fixtures do not exercise,
 with the patterns fixed and a correct regex engine assumed; an
@@ -343,7 +374,10 @@ judged these three not worth a test):
   not the check, so `mutants4.txt` still holds for the check.
 - Round 6, `gate6.txt` (`gates.sh`), at `d7bc404c` (the code head), on a
   `git clone --no-local`: 22 of 22 steps, the clone clean before and after. Round 6 also changes the test only.
-- Round 7, `gate7.txt` (`gates.sh`), at `f8ab5be4` (the code head), on a
+- Round 8, `gate8.txt` (`gates.sh`), at `252a20ea` (the code head), on a
+  `git clone --no-local`: 22 of 22 steps, the clone clean before and after,
+  in one suite-lock slot after `mutants8.txt`.
+- Round 7, `gate7.txt` (`gates.sh`), at `f8ab5be4`, on a
   `git clone --no-local`: 22 of 22 steps, the clone clean before and after,
   in one suite-lock slot after `mutants7.txt`; step 09, the check on its
   own tree with one grep thread, took 24 s.
@@ -367,7 +401,7 @@ pattern): bash 3.2.57 returns 2 for a pattern it cannot compile, and an
   `f133ce6c`: `git show f133ce6c:scripts/<file> | grep -n 'trap .* EXIT'`).
 - Bash 5 has not run this code; the Linux CI row is its first run.
 - PR #95's x86_64 macOS refusal: its cause on that runner is not shown
-  (above). If it comes again with one grep thread, the second look's
-  `per run` or `per tree` is the next fact to read; git 2.55.0 itself, or
-  that image, is devops-engineer work.
+  (above), and one grep thread is a mitigation, not a fix shown to work. If
+  it comes again, the second look's line ("repeated" or "did not repeat")
+  is the next fact to read; a macOS 15 Intel host is devops-engineer work.
 - The trigger: a macOS 15 host looping the repro is devops-engineer work.
