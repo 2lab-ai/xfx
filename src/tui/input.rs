@@ -3922,7 +3922,7 @@ mod tests {
             }
         }
         let mut checked = 0;
-        for letter in [b'A', b'B', b'C', b'D', b'H', b'F'] {
+        for letter in *b"ABCDHF" {
             // The keypad's code for the letter, and kitty's own arrow codes
             // for Up and Down (`:134-144`, `:208-217`).
             let keypad: u32 = match letter {
