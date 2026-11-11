@@ -41821,7 +41821,8 @@ mod tests {
         );
 
         // The composer keeps its paste's breaks and tabs, as fx's does
-        // (`normalizeLineEndingsInPlace` alone for `.composer`, `:238-241`).
+        // (`normalizeLineEndingsInPlace` alone for `.composer`,
+        // `input_paste_runtime.zig:238-241`).
         let mut shell = shell(24, 80);
         shell.route_bytes(b"\x1b[200~ab\ncd\r\nef\tgh\rij\x1b[201~");
         assert_eq!(shell.editor.text(), "ab\ncd\nef\tgh\nij");

@@ -6,3 +6,7 @@ $ python3 -I srcsize.py . a5cf9567 4a8f0a6c   (with the comment-only commit)
 src/tui/approval_amendment.rs: +42/-9
 src/tui/shell.rs: +2/-2
 total: +44/-11
+$ python3 -I srcsize.py . a5cf9567 2804b108   (the last src/ commit: test modules only)
+src/tui/approval_amendment.rs: +42/-9
+src/tui/shell.rs: +2/-2
+total: +44/-11

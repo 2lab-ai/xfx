@@ -17,12 +17,15 @@ question's field keep their own rules, which are already fx's.
 | `b9afbe3b` | tests only: an image path and a long paste in a draft; the scenario's `cursor` line dropped (it read where each binary parks the terminal's cursor) |
 | `1f5d32a3`, `bf518f5f` | `docs/parity.md`; this folder |
 | `4a8f0a6c` | a comment only: the module doc names the decoder's half of "no key types a break into a draft" (`Input::Text` is never a control character, `src/tui/input.rs`) |
-| the commits after | this folder; no `src/` change |
+| `2804b108` | tests only: Super-A in a draft makes no selection a paste replaces; the multibyte test's comment names the bound it now meets (round 1, advisor) |
+| `13f1436f` | the ledger's six refs into `shell.rs` re-pointed (Refs) |
+| the commits after | `docs/parity.md`, this folder; no `src/` change |
 
 The source change outside the test modules is +42/-11 over two files
 (`srcsize.txt`, `srcsize.py`): approval_amendment.rs +40/-9 (most of it
-comments), shell.rs +2/-2; +44/-11 with `4a8f0a6c`'s comment. That is under
-the brief's 300.
+comments), shell.rs +2/-2; +44/-11 with `4a8f0a6c`'s comment, and the same at
+`2804b108`, whose change is inside the test modules. That is under the
+brief's 300.
 
 ## fx's rule, paste form by paste form (`fx-src.txt`, written by `fx_src.sh`: every line read with `git show 481104fd:<path>`)
 
@@ -255,6 +258,16 @@ folder) compares them pair by pair (`sweep-compare.txt`):
 ## Gate (`gate.txt`)
 
 GATE-PENDING
+
+## Refs (`refs.txt`, `refs.py`)
+
+`refs.py` is COMPOSER-SUPER-ARROWS', with its paragraph about this unit's
+files. It checks the ledger's refs into the files this unit changes, by
+content, against the base (`refs.py df45025c`). Of 16, 6 had moved: the
+`tools: {} advertised` line in `shell.rs`' tests, 43422 to 43492, below
+this unit's new shell test. `--fix` re-pointed them, and `refs.txt` reads
+16 checked, 0 wrong. (`13f1436f` wrote 43471, the number before
+`2804b108`'s test block above it; the commit after re-points them again.) No ledger ref points into `approval_amendment.rs`.
 
 ## Parity (`docs/parity.md`)
 
