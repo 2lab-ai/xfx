@@ -15,11 +15,14 @@ question's field keep their own rules, which are already fx's.
 | `a5cf9567` | RED: the unit tests and the shell test, the COMPOSER-SUPER-ARROWS amendment block flipped to fx's 0, scenario `p5-approval-paste-spaces`. Tests and the scenario only |
 | `9a73d0ba` | **the code head**: `DraftPaste` (the 8 MiB capture bound, `one_line`, the budget after it), the module's and `MAX_FEEDBACK_BYTES`' docs, one comment in `Shell::decide`; MODIFIED-PAGE-KEYS' page-key test pastes a one-line draft now |
 | `b9afbe3b` | tests only: an image path and a long paste in a draft; the scenario's `cursor` line dropped (it read where each binary parks the terminal's cursor) |
-| the commits after | `docs/parity.md`, this folder; no `src/` change |
+| `1f5d32a3`, `bf518f5f` | `docs/parity.md`; this folder |
+| `4a8f0a6c` | a comment only: the module doc names the decoder's half of "no key types a break into a draft" (`Input::Text` is never a control character, `src/tui/input.rs`) |
+| the commits after | this folder; no `src/` change |
 
 The source change outside the test modules is +42/-11 over two files
 (`srcsize.txt`, `srcsize.py`): approval_amendment.rs +40/-9 (most of it
-comments), shell.rs +2/-2. That is under the brief's 300.
+comments), shell.rs +2/-2; +44/-11 with `4a8f0a6c`'s comment. That is under
+the brief's 300.
 
 ## fx's rule, paste form by paste form (`fx-src.txt`, written by `fx_src.sh`: every line read with `git show 481104fd:<path>`)
 

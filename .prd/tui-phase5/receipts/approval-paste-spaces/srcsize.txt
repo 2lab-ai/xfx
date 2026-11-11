@@ -2,3 +2,7 @@ $ python3 -I srcsize.py . a5cf9567 9a73d0ba   (RED commit to the code head)
 src/tui/approval_amendment.rs: +40/-9
 src/tui/shell.rs: +2/-2
 total: +42/-11
+$ python3 -I srcsize.py . a5cf9567 4a8f0a6c   (with the comment-only commit)
+src/tui/approval_amendment.rs: +42/-9
+src/tui/shell.rs: +2/-2
+total: +44/-11
