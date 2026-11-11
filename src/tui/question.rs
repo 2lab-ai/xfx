@@ -185,22 +185,25 @@ pub(crate) enum Act {
     /// **question** (`retreatToPrevious`, `input_question_runtime.zig:186-192`).
     Left,
     /// The draft's caret left, as [`Act::Left`] -- and nothing at a choice:
-    /// Shift-Left, Super-Left and Ctrl-B ([`super::input::Action::ComposerLeft`]).
-    /// Upstream's two arrows are a composer move its choice leaves to the
-    /// switch's `else` and its field reads as the step (`.character_left`) or
-    /// the line's start (`.line_start`, which xfx's decoder does not tell
-    /// from the step: COMPOSER-SUPER-ARROWS), and Ctrl-B a byte that is the
-    /// field's step and no question action at a choice
-    /// (`src/ui/input/runtime.zig:135-176`, `:199-209`;
+    /// Shift-Left and Ctrl-B ([`super::input::Action::ComposerLeft`]).
+    /// Upstream's Shift-Left is a composer move its choice leaves to the
+    /// switch's `else` and its field reads as the step (`.character_left`),
+    /// and Ctrl-B a byte that is the field's step and no question action at a
+    /// choice (`src/ui/input/runtime.zig:135-176`, `:199-209`;
     /// `input_question_runtime.zig:181-200@481104fd`).
     StepLeft,
     /// The draft's caret right. Nothing at a choice: Enter is what moves on,
     /// and a key that skipped a question would skip an answer
-    /// (`input_question_runtime.zig:196-198@481104fd`). Shift-Right, Super-Right and
-    /// Ctrl-F too, which upstream's choice leaves alone as it leaves Right
+    /// (`input_question_runtime.zig:196-198@481104fd`). Shift-Right and Ctrl-F
+    /// too, which upstream's choice leaves alone as it leaves Right
     /// ([`Act::StepLeft`]).
     Right,
-    /// The start and the end of the whole answer (`question_prompt.zig:455-466`).
+    /// The start and the end of the whole answer (`question_prompt.zig:455-466`),
+    /// and nothing at a choice. Home and End, bare or held, and Super-Left and
+    /// -Right whatever else is held: upstream's `line_start`, `draft_start` and
+    /// their ends, which its field reads as `.cursor_home` and `.cursor_end`
+    /// (`src/ui/input/runtime.zig:162-163@481104fd`) and its choice leaves to
+    /// the switch's `else` (`input_question_runtime.zig:181-200`).
     Home,
     End,
     /// The grapheme after the caret (`freeformDeleteNext`).
@@ -243,12 +246,14 @@ impl Act {
             Action::Down => Some(Self::Down),
             Action::SelectUp => Some(Self::SelectUp),
             Action::SelectDown => Some(Self::SelectDown),
-            // Super-Up and -Down, with Shift or without: upstream's
-            // `draft_start`/`draft_end`, the field's edges, as its Home and End
+            // Super-Up and -Down with Shift or without, Ctrl- and Super-Home
+            // and -End, Super-Left and -Right whatever else is held, and
+            // Shift-Home and -End: upstream's `draft_start`/`draft_end` and
+            // `line_start`/`line_end`, the field's edges, as its Home and End
             // are (`src/ui/input/runtime.zig:162-163@481104fd`), and nothing at
             // a choice -- no `visual_up` -- where they are not the arrows.
-            Action::DraftStart { .. } => Some(Self::Home),
-            Action::DraftEnd { .. } => Some(Self::End),
+            Action::DraftStart { .. } | Action::LineStart { .. } => Some(Self::Home),
+            Action::DraftEnd { .. } | Action::LineEnd { .. } => Some(Self::End),
             Action::ComposerLeft => Some(Self::StepLeft),
             Action::ComposerRight => Some(Self::Right),
             Action::Delete => Some(Self::Delete),

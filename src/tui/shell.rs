@@ -9692,19 +9692,20 @@ impl Shell {
             // with `.none` while no amendment is open
             // (`src/ui/input/runtime.zig:103-108`,
             // `approval_decision.zig:170-174`). The decoder keeps them apart
-            // ([`Action::ComposerLeft`], [`Action::WordLeft`]), and they reach
-            // the swallow.
+            // ([`Action::ComposerLeft`], [`Action::WordLeft`],
+            // [`Action::LineStart`]), and they reach the swallow.
             Input::Action(Action::Left | Action::AltB) if !drafting => approval::Action::Up,
             Input::Action(Action::Right | Action::AltF) if !drafting => approval::Action::Down,
-            // **Super-Up and Super-Down take a draft's caret to its start and
-            // its end** -- fx's `draft_start` and `draft_end`
-            // (`modifiedArrowAction`, `escape_parser.zig:74-76@481104fd`),
-            // which its amendment reads as `.cursor_home` and `.cursor_end`
+            // **Super-Up and Super-Down, and Ctrl- and Super-Home and -End,
+            // take a draft's caret to its start and its end** -- fx's
+            // `draft_start` and `draft_end` (`modifiedArrowAction`,
+            // `escape_parser.zig:74-80`, `:95-96@481104fd`), which its
+            // amendment reads as `.cursor_home` and `.cursor_end`
             // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:82-83`;
             // `cursorHome`/`cursorEnd`, `approval_amendment.zig:84-92`: the
             // whole draft's edges, not the line's). Ahead of the draft's arm
-            // below, which reads the folded key, and the fold makes these the
-            // arrows. With no draft open they are the swallow's.
+            // below, whose keys (`approval::edits`) name neither. With no
+            // draft open they are the swallow's.
             Input::Action(edge @ (Action::DraftStart { .. } | Action::DraftEnd { .. }))
                 if drafting =>
             {
@@ -9765,12 +9766,14 @@ impl Shell {
             // the only way out of a draft.
             //
             // Each spelling as the plain key it folds to ([`folded`]): in an
-            // amendment fx takes Alt-b and Alt-f as the word moves and
-            // Shift-Left and -Right and Ctrl-B and Ctrl-F as the caret's step
-            // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-108
-            // @481104fd`). Super-Left and -Right are its jump to the line's
-            // edge there (`:82-83`), which this draft takes as the step, as
-            // the composer does.
+            // amendment fx takes Alt-b and Alt-f as the word moves,
+            // Shift-Left and -Right and Ctrl-B and Ctrl-F as the caret's step,
+            // and Super-Left and -Right and Shift-Home and -End as Home and
+            // End (`line_start`/`line_end` and `.home` are one
+            // `.cursor_home` there, `approvalDraftActionFromShortcut`,
+            // `src/ui/input/runtime.zig:75-108@481104fd`) -- the caret line's
+            // edge here, the whole draft's in fx, whose draft holds no line
+            // break (`super::approval_amendment`).
             Input::Action(editing) if drafting => match folded(Input::Action(editing)) {
                 Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),
                 _ => return,
@@ -12818,6 +12821,8 @@ impl Shell {
             Action::ComposerRight => self.act(Action::Right, now),
             Action::ComposerPageUp => self.act(Action::PageUp, now),
             Action::ComposerPageDown => self.act(Action::PageDown, now),
+            Action::LineStart { .. } => self.act(Action::Home, now),
+            Action::LineEnd { .. } => self.act(Action::End, now),
             Action::Up | Action::Down => {
                 let cols = self.text_cols();
                 let from = self.editor.point(cols).0;
@@ -14222,10 +14227,17 @@ fn image_slash_prefix(text: &str) -> Option<usize> {
 /// `event` with every spelling the decoder keeps apart made the key it is to
 /// the menus and the composer: a composer move on Left or Right
 /// (`super::input::Action::ComposerLeft`, Ctrl-B and Ctrl-F among them) the
-/// arrow, Alt-b and Alt-f (`super::input::Action::AltB`) the word moves, and
-/// a page key held with a modifier (`super::input::Action::ComposerPageUp`)
-/// the page key. A held Up or Down is not folded: it is a move of its own to
-/// the menus and the composer too ([`arrow_to_pickers`]).
+/// arrow, Alt-b and Alt-f (`super::input::Action::AltB`) the word moves, a
+/// page key held with a modifier (`super::input::Action::ComposerPageUp`)
+/// the page key, and a move to the line's edge -- Super-Left and -Right,
+/// Shift-Home and -End, a held tilde Home or End without Ctrl
+/// (`super::input::Action::LineStart`) -- Home or End, which is that move to
+/// upstream's every surface (`.home` is `line_start`, `shortcuts.zig:51-52`,
+/// `app_input_runtime.zig:298-309`, `:1025`). A held Up or Down is not
+/// folded: it is a move of its own to the menus and the composer too
+/// ([`arrow_to_pickers`]), and so is a move to the draft's edge
+/// (`super::input::Action::DraftStart`), which a `/model` column drops as
+/// Home does ([`Shell::offer_to_column`]).
 ///
 /// The three surfaces that tell them apart read the event before this, as it
 /// came: the full transcript binds the plain arrows and the bare page keys
@@ -14235,8 +14247,9 @@ fn image_slash_prefix(text: &str) -> Option<usize> {
 /// question on Left and Alt-b, and reads the rest as its field's moves
 /// (`src/ui/input/runtime.zig:155-197`, `input_question_runtime.zig:139-201`);
 /// an approval moves its choice on the arrows and Alt-b and Alt-f, and takes
-/// Super-Up and -Down to its amendment's edges
-/// (`input_approval_runtime.zig:90-128`, `src/ui/input/runtime.zig:82-83`).
+/// a move to the draft's edge (Super-Up and -Down, Ctrl- and Super-Home and
+/// -End) to its amendment's edges (`input_approval_runtime.zig:90-128`,
+/// `src/ui/input/runtime.zig:82-83`).
 /// Folded here, once, before the menus and the composer read the event, so
 /// those see exactly the keys they saw before any was kept apart -- as
 /// upstream's composer moves are the bare keys' own to them (`shortcuts.zig:43-65`,
@@ -14250,6 +14263,8 @@ fn folded(event: Input) -> Input {
         Input::Action(Action::AltF) => Input::Action(Action::WordRight),
         Input::Action(Action::ComposerPageUp) => Input::Action(Action::PageUp),
         Input::Action(Action::ComposerPageDown) => Input::Action(Action::PageDown),
+        Input::Action(Action::LineStart { .. }) => Input::Action(Action::Home),
+        Input::Action(Action::LineEnd { .. }) => Input::Action(Action::End),
         other => other,
     }
 }
@@ -24197,6 +24212,14 @@ mod tests {
             // A page key held with a modifier: the page key.
             (Action::ComposerPageUp, Action::PageUp),
             (Action::ComposerPageDown, Action::PageDown),
+            // A move to the line's edge -- Super-Left and -Right, Shift-Home
+            // and -End -- the bare Home and End, fx's `.home` being
+            // `line_start` (COMPOSER-SUPER-ARROWS).
+            (Action::LineStart { shifted: false }, Action::Home),
+            (Action::LineStart { shifted: true }, Action::Home),
+            (Action::LineEnd { shifted: false }, Action::End),
+            (Action::LineEnd { shifted: true }, Action::End),
+            (Action::Home, Action::Home),
             (Action::PageUp, Action::PageUp),
             (Action::WordLeft, Action::WordLeft),
             (Action::Left, Action::Left),
@@ -25303,6 +25326,25 @@ mod tests {
             assert!(shell.column.pending().is_some());
             shell.route_bytes(key);
             assert_eq!(shell.column.pending(), None, "{key:?} kept the column");
+        }
+        // What the menus are handed, once folded: Home, End or a move to the
+        // draft's edge, none of them a key of a compact menu's or the
+        // settings menu's -- `/usage`'s included, which with no sign-in shows
+        // no period to change.
+        for action in [
+            Action::LineStart { shifted: false },
+            Action::LineEnd { shifted: true },
+            Action::DraftStart { shifted: false },
+            Action::DraftEnd { shifted: true },
+        ] {
+            let Input::Action(folded) = folded(Input::Action(action)) else {
+                unreachable!("an action folds to an action");
+            };
+            assert_eq!(UsageAction::of_action(folded), None, "{action:?}");
+            assert_eq!(StatuslineAction::of(folded), None, "{action:?}");
+            assert_eq!(SettingsAction::of(folded), None, "{action:?}");
+            assert_eq!(WorkspaceAction::of(folded), None, "{action:?}");
+            assert_eq!(InfoAction::of(folded), None, "{action:?}");
         }
     }
 

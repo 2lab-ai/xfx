@@ -472,18 +472,23 @@ impl Editor {
                 self.move_to(self.outside(self.word_move_right(), Direction::Forward));
                 None
             }
-            Action::Home => {
+            // Super-Left and -Right and Shift-Home and -End are upstream's
+            // `line_start` and `line_end`, its bare Home's and End's move
+            // (`super::input::Action::LineStart`; `logicalLineStart`/
+            // `logicalLineEnd`, `text_boundaries.zig:79-89@481104fd`).
+            Action::Home | Action::LineStart { .. } => {
                 self.move_to(self.line_start());
                 None
             }
-            Action::End => {
+            Action::End | Action::LineEnd { .. } => {
                 self.move_to(self.line_end());
                 None
             }
-            // Super on the vertical arrows is upstream's `draft_start` and
-            // `draft_end` (`super::input::Action::DraftStart`): the caret to
-            // the start of the whole text and to its end, as an approval's
-            // amendment takes them (`cursorHome`/`cursorEnd`,
+            // Super on the vertical arrows, and Ctrl and Super on Home and
+            // End, are upstream's `draft_start` and `draft_end`
+            // (`super::input::Action::DraftStart`): the caret to the start of
+            // the whole text and to its end, as an approval's amendment takes
+            // them (`cursorHome`/`cursorEnd`,
             // `approval_amendment.zig:84-92@481104fd`), and as the composer
             // takes them (`horizontal_navigation.zig:29-30`).
             Action::DraftStart { .. } => {
@@ -2657,6 +2662,25 @@ mod tests {
         assert_eq!(editor.point(6), (0, 0), "the first line, not the row above");
         editor.apply(Action::End, 6);
         assert_eq!(&editor.text()[..editor.cursor], "alpha bravo");
+    }
+
+    #[test]
+    fn the_line_edge_moves_are_home_and_end() {
+        // Super-Left and -Right and Shift-Home and -End
+        // (`super::input::Action::LineStart`) are upstream's `line_start` and
+        // `line_end`, its bare Home's and End's move
+        // (`horizontal_navigation.zig:31-38@481104fd`): the line the breaks
+        // delimit, not the row, Shift held or not (its selection is dropped).
+        for shifted in [false, true] {
+            let mut editor = editor("alpha bravo\nsecond");
+            editor.apply(Action::LineStart { shifted }, 6);
+            assert_eq!(editor.point(6), (2, 0), "shifted={shifted}");
+            editor.apply(Action::Left, 6);
+            editor.apply(Action::LineStart { shifted }, 6);
+            assert_eq!(editor.point(6), (0, 0), "shifted={shifted}");
+            editor.apply(Action::LineEnd { shifted }, 6);
+            assert_eq!(&editor.text()[..editor.cursor], "alpha bravo");
+        }
     }
 
     #[test]

@@ -733,9 +733,11 @@ fn keyed(
 /// and `SelectUp`, `ComposerUp`, `ParagraphUp` and their Down are composer
 /// moves an amendment leaves alone (`src/ui/input/runtime.zig:86@481104fd`),
 /// which `super::shell::Shell::decide` swallows before this. This reads a folded
-/// key, so `DraftStart` and `DraftEnd` -- Super-Up and -Down, the draft's
-/// edges -- never reach it: `super::shell::Shell::decide` hands them to the
-/// draft unfolded, ahead of it.
+/// key: `LineStart` and `LineEnd` -- Super-Left and -Right, Shift-Home and
+/// -End -- reach it as `Home` and `End`, and `DraftStart` and `DraftEnd` --
+/// Super-Up and -Down, Ctrl- and Super-Home and -End, the draft's edges --
+/// never reach it: `super::shell::Shell::decide` hands them to the draft
+/// unfolded, ahead of it.
 pub(crate) fn edits(action: super::input::Action) -> bool {
     use super::input::Action as Key;
     matches!(
