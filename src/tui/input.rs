@@ -1509,7 +1509,7 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
 /// `paragraph_up` to it, which it does not. The selection Shift would extend
 /// is dropped (COMPOSER-SELECTION-EXTEND), `shifted` remembering it. A mask
 /// with none of the four is the key, as upstream's table answers `null` and
-/// the plain key follows (`:727-733`).
+/// the plain key follows (`escape_parser.zig:727-733`).
 fn cursor(letter: u8, mask: u8) -> Action {
     let word = mask & (ALT | CTRL) != 0;
     let alt = mask & ALT != 0;
@@ -1658,7 +1658,7 @@ fn tilde_field(field: &[u8]) -> Option<u16> {
 /// Home and End -- `1` or rxvt's `7`, `4` or rxvt's `8` -- are the bare key with
 /// no modifier (`:712-714`), and with any are upstream's move to the line's
 /// edge, the draft's under Ctrl, extending a selection under Shift
-/// (`:699-707`), a lock bit, a bit past eight and Super counted as a modifier
+/// (`escape_parser.zig:699-707`), a lock bit, a bit past eight and Super counted as a modifier
 /// like any other and none of them read further: [`Action::DraftStart`] with
 /// Ctrl's bit in the field, and [`Action::LineStart`] without it, with
 /// Shift's bit remembered (the selection is dropped,
@@ -2612,7 +2612,8 @@ mod tests {
         // encoding (`plainNavigationAction`, `:146-167`) -- and Shift and
         // Ctrl-B/F are a composer move or a raw byte (`:73-108`,
         // `shortcuts.zig:15-16`), which the choice leaves alone. Super is
-        // the move to the line's edge, whatever else is held (`:74-78`).
+        // the move to the line's edge, whatever else is held
+        // (`escape_parser.zig:74-78`).
         for bytes in [&b"\x1bf"[..], b"\x1b[102;3u", b"\x1b[27;3;102~"] {
             assert_eq!(
                 decode(bytes),
@@ -2641,7 +2642,8 @@ mod tests {
             (b"\x1b[1;3C", Action::WordRight),
             (b"\x1b[1;5C", Action::WordRight),
             (b"\x1b[1;6D", Action::WordLeft),
-            // Super with Alt: Super's arm first (`:74-78`), the line's start.
+            // Super with Alt: Super's arm first (`escape_parser.zig:74-78`),
+            // the line's start.
             (b"\x1b[1;11D", Action::LineStart { shifted: false }),
         ] {
             assert_eq!(decode(bytes), vec![Input::Action(action)], "{bytes:?}");

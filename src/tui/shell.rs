@@ -24474,11 +24474,11 @@ mod tests {
             (&[&b"\x1b[1;2C"[..]][..], b"s", "tzsyaxb cduvw"),
             (&[&b"\x1b[1;10B"[..]][..], b"r", "tzsyaxb cduvwr"),
             // Super-Left and -Right are the field's start and end, with Ctrl
-            // or Alt held too (`line_start`/`line_end`, Super's arm first,
-            // `escape_parser.zig:74-78`; `.cursor_home`/`.cursor_end`,
-            // `src/ui/input/runtime.zig:162-163`), and so are Ctrl-, Super-
-            // and Shift-Home and -End (`draft_*` and `line_*`, `:95-96`,
-            // `:104-105`; the tilde's, `:699-707`). Super-Left from the end;
+            // or Alt held too, and so are Ctrl-, Super- and Shift-Home and
+            // -End: `line_*` and `draft_*` (`escape_parser.zig:74-80`,
+            // `:95-96`, `:104-105`, the tilde's `:699-707`), which the field
+            // reads as `.cursor_home`/`.cursor_end`
+            // (`src/ui/input/runtime.zig:162-163`). Super-Left from the end;
             // Super-Right from the start (Super-Up first); the rest from two
             // cells in from wherever the letter before left the caret.
             (&[&b"\x1b[1;9D"[..]][..], b"q", "qtzsyaxb cduvwr"),
