@@ -536,10 +536,14 @@ threads:*' -C . '*' grep '*)
 	esac
 	;;
 # The first line pass leaves the file out; then the second look's greps
-# give nothing and fail (`lookfail`), or give fields that are not numbers
-# (`lookjunk`).
-lookfail:*' -C . '*' grep '*' -n '* | lookjunk:*' -C . '*' grep '*' -n '*' -- ')
+# give nothing and fail (`lookfail`), or one gives a field that is not a
+# number: the line number (`lookjunk`) or the count (`lookjunkc`).
+lookfail:*' -C . '*' grep '*' -n '* | lookjunk:*' -C . '*' grep '*' -n '*' -- ' | lookjunkc:*' -C . '*' grep '*' -n '*' -- ')
 	exit 1
+	;;
+lookjunkc:*' -C . '*' grep '*' -c '*':(literal)'*)
+	printf 'plant.md\000%s\n' 2JUNK-COUNT
+	exit 0
 	;;
 lookfail:*' -C . '*' grep '*' -n '*':(literal)'*)
 	exit 1
@@ -551,10 +555,7 @@ lookjunk:*' -C . '*' grep '*' -n '*':(literal)'*)
 	printf 'plant.md\000%s\000%s\n' JUNK-NUMBER 'text'
 	exit 0
 	;;
-lookjunk:*' -C . '*' grep '*' -c '*':(literal)'*)
-	printf 'plant.md\000%s\n' JUNK-COUNT
-	exit 0
-	;;
+
 # The tree's line pass ends inside a record.
 truncated:*' -C . '*' grep '*' -n '*)
 	"$SHIM_REAL" "$@"
@@ -696,7 +697,7 @@ fi
 
 # The second look's greps fail, or give fields that are not numbers: it says
 # it could not read the file and prints no field, and the check still fails.
-for mode in lookfail lookjunk; do
+for mode in lookfail lookjunk lookjunkc; do
 	t="$work/$mode"
 	new_tree "$t"
 	printf '%s\n' "$mac" >"$t/plant.md"
@@ -704,7 +705,7 @@ for mode in lookfail lookjunk; do
 	run_check "$t" "${shim_env[@]}" SHIM_MODE=$mode
 	case "$mode" in
 	lookfail) want_look='check-no-local-paths: a second look at plant.md could not read the file (git exit 1 / 128)' ;;
-	lookjunk) want_look='check-no-local-paths: a second look at plant.md could not read the file (git exit 0 / 0)' ;;
+	lookjunk | lookjunkc) want_look='check-no-local-paths: a second look at plant.md could not read the file (git exit 0 / 0)' ;;
 	esac
 	if [ "$status" -ne 1 ] || ! grep -q -x -F "$want_look" "$work/out" || grep -q -e 'JUNK' -e 'did not repeat' "$work/out" ||
 		! grep -q 'the scan could not finish' "$work/out"; then

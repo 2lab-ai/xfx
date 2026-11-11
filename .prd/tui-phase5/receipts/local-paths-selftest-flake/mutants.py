@@ -67,6 +67,18 @@ MUTANTS = [
      '\t\t[ -z "$p2" ] || [ "$p2" = "$p1" ] || second_look "$root" "$p2"\n\t\treturn 1\n', '\t\t[ -z "$p2" ] || [ "$p2" = "$p1" ] || second_look "$root" "$p2"\n\t\treturn 0\n', 1),
     ("no second look",
      '\t\t[ -z "$p1" ] || second_look "$root" "$p1"\n', '', 1),
+    # Round 8: the second look's line.
+    ("a second look that could not read reads as one",
+     'if [ "$ok" != yes ]; then', 'if false; then', 1),
+    ("a second look's line number printed unchecked",
+     "\t\t'' | *[!0-9]*) ok=no ;;\n\t\t*) again=", "\t\t'') ok=no ;;\n\t\t*) again=", 1),
+    ("a second look's count printed unchecked",
+     "\tcase \"$count\" in\n\t'' | *[!0-9]*) ok=no ;;\n\tesac\n", "", 1),
+    ("a second look's count exit status ignored",
+     "\t1:0 | 0:[1-9]*) ;;\n\t*) ok=no ;;\n", "\t1:0 | 0:[1-9]*) ;;\n\t*) ;;\n", 1),
+    ("a second look's grep bypasses scan_git",
+     'scan_git "$root" grep -a --no-color -c -z -E "${grep_args[@]}" -- ":(literal)$f" >"$work/lookc"',
+     'git -C "$root" grep -a --no-color -c -z -E "${grep_args[@]}" -- ":(literal)$f" >"$work/lookc"', 1),
     ("a stream that ends inside a record accepted",
      '\tif [ -n "$path" ]; then\n\t\tprintf \'check-no-local-paths: git grep ended inside', '\tif false; then\n\t\tprintf \'check-no-local-paths: git grep ended inside', 1),
 ]
