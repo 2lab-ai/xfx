@@ -4992,8 +4992,8 @@ mod tests {
         // 2116-2117@481104fd`) and where its projection hides one, a call
         // its group draws elsewhere (`:2087-2090`; `skipEntry`,
         // `full_transcript_screen.zig:5886-5897`), but not where an entry
-        // renders nothing (`:2114`, `continue` before `before_entry`): the
-        // line breaks an answer ends on after a block. So a reader on the
+        // renders nothing (`transcript_blocks.zig:2114`, `continue` before
+        // `before_entry`): the line breaks an answer ends on after a block. So a reader on the
         // blank row under that block is in the block, that many rows down,
         // and a width change that re-wraps the block keeps them there
         // (`select_visual_offset`), not on the separator. A file change
