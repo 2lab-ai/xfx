@@ -21,8 +21,7 @@ deep, starts fx v0.0.16 (Zig `std.json`) and locked xfx out at every launch
 
 `fx_src.sh` quotes fx at `481104fd` and `lib/std/json` at Zig 0.17.0, the
 version fx builds with. The three std.json files are fetched from the tag and
-checked against the sha256s the script pins; Zig 0.16.0's `dynamic.zig` is
-the same bytes.
+checked against the sha256s the script pins.
 
 - **The parse** (fx-src section 1): both layers are
   `std.json.parseFromSlice(std.json.Value, alloc, bytes, .{})`. That is the
@@ -138,9 +137,10 @@ re-read. `KeysOnce` is now only a test oracle.
 
 - `a_layer_nested_at_any_depth_is_read_without_recursion` reads depth 127,
   128, 129, 1,000, 32,764 and 100,000, as arrays and as objects. It runs on
-  a `std::thread::spawn` thread with the default stack: no `stack_size`, and
-  `RUST_MIN_STACK` unset, so 2 MiB. Each read is checked for being 128 deep at
-  most, and for equalling serde_json's value wherever serde_json reads it
+  a `std::thread::spawn` thread with the default stack (no `stack_size`).
+  The same test on the recursive mutant below crashes, so that stack is
+  bounded. Each read is checked for being 128 deep at most, and for
+  equalling serde_json's value wherever serde_json reads it
   (`unit-tests.txt`).
 - The mutant "a recursive reader" puts recursion where the explicit stack
   is. It crashes that test with a stack overflow (`mutants.txt`). So does
