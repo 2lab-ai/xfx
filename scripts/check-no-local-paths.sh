@@ -263,7 +263,7 @@ done
 # A field it prints is digits it checked; a git that fails, or gives a record
 # that does not parse, makes it say only that it could not read the file.
 second_look() {
-	local root="$1" f="$2" path number text first="" again="" lines=0 count="" s1=0 s2=0 ok=yes
+	local root="$1" f="$2" path number text first="" again="" lines=0 count="" size s1=0 s2=0 ok=yes
 	while IFS= read -r -d '' path && IFS= read -r -d '' number && IFS= read -r text; do
 		[ "$path" = "$f" ] || continue
 		case "$number" in
@@ -287,28 +287,32 @@ second_look() {
 	done <"$work/look"
 	[ -z "$path" ] || ok=no
 	scan_git "$root" grep -a --no-color -c -z -E "${grep_args[@]}" -- ":(literal)$f" >"$work/lookc" 2>/dev/null || s2=$?
-	path=""
-	if IFS= read -r -d '' path <"$work/lookc"; then
-		count="$(tail -c +"$((${#path} + 2))" "$work/lookc")"
+	# The count file, read as the line pass is, never through a command
+	# substitution (which drops NULs and trailing newlines): git's exit 0
+	# with exactly one record `<file>NUL<count>LF`, its size to the byte,
+	# or exit 1 with an empty file.
+	size="$(wc -c <"$work/lookc" | tr -d ' ')"
+	path="" count=""
+	case "$s2" in
+	0)
+		{ IFS= read -r -d '' path && IFS= read -r count; } <"$work/lookc" || ok=no
 		[ "$path" = "$f" ] || ok=no
-	elif [ -s "$work/lookc" ]; then
-		ok=no
-	else
+		case "$count" in
+		'' | *[!0-9]* | 0*) ok=no ;;
+		esac
+		[ "$size" = "$((${#f} + 1 + ${#count} + 1))" ] || ok=no
+		;;
+	1)
+		[ "$size" = 0 ] || ok=no
 		count=0
-	fi
-	case "$count" in
-	'' | *[!0-9]*) ok=no ;;
+		;;
+	*) ok=no ;;
 	esac
-	# A reading is git's exit 0 with records, or 1 with none; anything else,
-	# from either grep, is none.
+	# The line pass's reading: git's exit 0 with records, or 1 with none.
 	case "$s1:$lines" in
 	1:0) ;;
 	0:0 | 0:*[!0-9]*) ok=no ;;
 	0:*) ;;
-	*) ok=no ;;
-	esac
-	case "$s2:$count" in
-	1:0 | 0:[1-9]*) ;;
 	*) ok=no ;;
 	esac
 	if [ "$ok" != yes ]; then

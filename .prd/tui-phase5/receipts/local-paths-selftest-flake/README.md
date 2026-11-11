@@ -85,9 +85,11 @@ readings of one file disagreed, so it could not vouch for the tree.
   It reports only what it saw: "the disagreement repeated on a second look"
   or "did not repeat"; if either grep fails, or gives a record that does
   not parse or a field that is not digits, it says only that it "could not
-  read the file (git exit N / M)" and prints no field (round 8). What would
-  settle the cause: a run on a macOS 15 Intel host, or that line the next
-  time CI disagrees. The cost is the
+  read the file (git exit N / M)" and prints no field (round 8; round 9
+  reads the count file with `read`, not a command substitution, and checks
+  its size to the byte). What would provide more evidence: a run on a
+  macOS 15 Intel host, or that line the next time CI disagrees. The cost is
+  the
   scan's time: on this machine (18 cores, loaded) 35 s with git 2.56.0 and
   26 s with Apple's 2.54.0, against 6 s for `c5cf594b`'s threaded check
   (`r6/treeruns.txt`). On CI at `48a163ed` (run 42964022476, GitHub's jobs
