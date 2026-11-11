@@ -34,14 +34,69 @@ tree), without printing a path.
 | `7f97d7e3` | round 4's README and records |
 | `f9a4b0db` | the diagnosis reads config names, never values -- **round 5's gate head** (`gate5.txt`, on a clone) |
 | `6194f1a5` | round 5's README and records |
-| `d7bc404c` | the diagnosis writes to fd 3 and every command in it drops its stderr; `diagnosis-gone`; every line shape anchored whole -- **the code head and round 6's gate head** (`gate6.txt`, on a clone) |
-| (this one) | this README and round 6's records |
+| `d7bc404c` | the diagnosis writes to fd 3 and every command in it drops its stderr; `diagnosis-gone`; every line shape anchored whole -- **round 6's gate head** (`gate6.txt`, on a clone) |
+| `c5cf594b` | round 6's README and records (PR #95's head) |
+| `de4dbd19` | after PR #95's x86_64 macOS refusal: every grep of the tree on one thread; a second look on a disagreement; `omitonce`, `threads` |
+| `d22eeb74` | the thread and second-look mutants |
+| `f8ab5be4` | `fewer`, the shape CI showed -- **the code head and round 7's gate head** (`gate7.txt`, on a clone; `mutants7.txt`) |
+| (this one) | this README and round 7's records |
 
 `3ee1766f` added `repro/harness-shapes.sh`, `repro/harness2.sh` and
 `repro/stageA.sh`, copies of the self-test's fixture lines; `1f6e5345` drops
 them (`git show 3ee1766f:<path>` reads them). Under the dispatcher's
 per-commit rule `3ee1766f` alone prints 6, for those lines; every other
 commit prints 0.
+
+## PR #95's x86_64 macOS refusal (round 7)
+
+`ci-pr95-x86.txt`: on the x86_64 macOS row (image `macos-15`
+`20260824.0482.1`, git 2.55.0), the check at `c5cf594b` refused the real
+tree: `two readings of the tree disagree: the line pass has
+.prd/tui-phase5/receipts/train-6/linux.sh with 1 line(s), git grep -c has
+... with 2`. The file has two lines with a home shape (15 and 18, both
+`/home/runner`, a documented placeholder); the count is right, the line
+pass gave one line too few. The check did what it is for: git's two
+readings of one file disagreed, so it could not vouch for the tree.
+
+- **Not reproduced here.** `r6/twopass.py` runs the check's two greps over
+  the tree and compares their per-file counts: 300 times with Homebrew git
+  2.56.0, 300 with Apple git 2.54.0, 100 with 64 grep threads: 0
+  disagreements in 700 (`r6/loop-local.txt`; 17 files, 88 lines every time).
+  The raw bytes of both greps for `linux.sh` under 2.56.0 are in
+  `r6/raw-linux-sh.txt`: two records each way. Git 2.55.0 did not run here:
+  its source tarball matched kernel.org's checksum, but building it was
+  refused by the session's command classifier (`r6/git-sources.txt`).
+- **What git's code says** (`r6/git-sources.txt`): `grep.c` and `grep.h` are
+  byte-identical in v2.55.0 and v2.56.0; `builtin/grep.c` differs only in
+  submodule and object-store code. The line pass (`-n`) and the count
+  (`-c`) run the same matching loop and differ only after a hit
+  (`grep.c:1696-1705`). So the version does not decide which lines match,
+  and the two passes in one run disagreeing means git's reading varied with
+  the run there. Also, git takes a regexec error on a line as no match,
+  without a word (`grep.c:958-961`). Which cause it was is not shown.
+- **The fix**: every grep of the tree runs with `grep.threads=1`, so no
+  threads vary between runs or passes; the disagreement still fails the
+  scan; and the check now takes a second look at the file named, both
+  readings of it again beside the line numbers the first line pass gave
+  (never its text), and says `per run` or `per tree`. If the CI row
+  disagrees again, that line says what kind of fault it is. The cost is the
+  scan's time: on this machine (18 cores, loaded) 35 s with git 2.56.0 and
+  26 s with Apple's 2.54.0, against 6 s for `c5cf594b`'s threaded check
+  (`r6/treeruns.txt`); on CI's x86_64 macOS runner the threaded step took
+  52 s (`ci-pr95-x86.txt`), so expect a few minutes there.
+- **RED** (`red7.txt`): the round-7 self-test (`f8ab5be4`) against the
+  check at `c5cf594b`: 4 of 24 fail. `fewer` plants CI's shape (a shim
+  drops a file's second matching line from the line pass only): `c5cf594b`
+  prints exactly CI's lines (`the line pass has plant.md with 1 line(s),
+  git grep -c has plant.md with 2`) and fails, so it refused as it must;
+  the case fails for the missing second look. `omit` and `omitonce` (a file
+  left out every time or once) fail the same way, and `threads` (a shim
+  refuses any grep of the tree without `grep.threads=1`) fails because
+  `c5cf594b` uses git's default threads. **GREEN** (`green7.txt`): 24 of 24.
+- **The whole tree** (`r6/treeruns.txt`, the check at `de4dbd19`, `/bin/bash`
+  3.2.57) passes with Homebrew git 2.56.0 and Apple git 2.54.0: 18981 files,
+  8 marked, 80 placeholder lines, 0 symlinks, in a `git clone --no-local`
+  at `d22eeb74`. Not under 2.55.0 (above).
 
 ## The failure, and that it varies
 
@@ -245,6 +300,13 @@ same tree.
 - `mutants4.txt` (19, at `dbb15990`, whose scripts are `4e2bdacb`'s): 16
   killed, 3 survive. The early-exit guard is killed now (`stopped`), and
   so are both listing guards (`cutlinks`, `cuttracked`).
+- `mutants7.txt` (22, at `f8ab5be4`): 19 killed, 3 survive (the three
+  older ones below). The round-7 guards are all killed: one thread
+  (`threads`), the disagreement still failing after the second look
+  (`omit`, `fewer`, `omitonce`), and the second look itself (`fewer`). A first run at `d22eeb74`,
+  before `fewer`, had *no second look* survive: every case that disagreed
+  named the file on the count side only, which the other call covers;
+  `fewer` (`f8ab5be4`) names it on both.
 
 The three older survivors are guards the tree fixtures do not exercise,
 with the patterns fixed and a correct regex engine assumed; an
@@ -281,6 +343,10 @@ judged these three not worth a test):
   not the check, so `mutants4.txt` still holds for the check.
 - Round 6, `gate6.txt` (`gates.sh`), at `d7bc404c` (the code head), on a
   `git clone --no-local`: 22 of 22 steps, the clone clean before and after. Round 6 also changes the test only.
+- Round 7, `gate7.txt` (`gates.sh`), at `f8ab5be4` (the code head), on a
+  `git clone --no-local`: 22 of 22 steps, the clone clean before and after,
+  in one suite-lock slot after `mutants7.txt`; step 09, the check on its
+  own tree with one grep thread, took 24 s.
 - The brief's path grep over `git diff d2b2ca75..HEAD` prints 0, and the
   dispatcher's per-commit rule prints 0 for every commit but `3ee1766f`
   (6, above).
@@ -300,4 +366,8 @@ pattern): bash 3.2.57 returns 2 for a pattern it cannot compile, and an
   `smoke.sh` (`:413`) and `fxcap/capture.sh` (`:849`) (line numbers at
   `f133ce6c`: `git show f133ce6c:scripts/<file> | grep -n 'trap .* EXIT'`).
 - Bash 5 has not run this code; the Linux CI row is its first run.
+- PR #95's x86_64 macOS refusal: its cause on that runner is not shown
+  (above). If it comes again with one grep thread, the second look's
+  `per run` or `per tree` is the next fact to read; git 2.55.0 itself, or
+  that image, is devops-engineer work.
 - The trigger: a macOS 15 host looping the repro is devops-engineer work.
