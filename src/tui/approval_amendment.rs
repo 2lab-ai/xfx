@@ -712,6 +712,23 @@ mod tests {
             );
         }
 
+        // The composer's other paste forms are not an amendment's: a paste
+        // naming an image and one past the composer's collapse are text,
+        // made one line like any other (fx's image path and placeholder are
+        // `.composer`'s alone, `finalizePastedBlock`,
+        // `input_paste_runtime.zig:373-408`).
+        for (bytes, drafted) in [
+            (
+                b"see shot.png\nnow".to_vec(),
+                "see shot.png now".to_string(),
+            ),
+            (b"line\n".repeat(300), "line ".repeat(300)),
+        ] {
+            let drafts = pasted_into(&bytes);
+            assert_eq!(drafts.text(ALLOW), drafted);
+            assert_eq!(drafts.sides[0].editor.entities().len(), 0);
+        }
+
         // Pasted into the middle of a draft, at the caret, as any insertion
         // is (`insertSlice`, `approval_amendment.zig:53-58`).
         let mut drafts = typed_into(ALLOW, "keepthis");

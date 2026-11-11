@@ -36,7 +36,6 @@ wait 0.4
 type y
 wait 0.4
 snap amend-super-left
-cursor amend-super-left
 key End
 wait 0.4
 paste  and\tthe\nrest
