@@ -1,0 +1,24 @@
+# GREEN: the self-test and check at 4e2bdacb (same clone)
+4e2bdacb fix(check-no-local-paths): listings cut short fail; the diagnosis names no path
+test-check-no-local-paths: ok self                       its own source matches none of its shapes
+test-check-no-local-paths: ok shapes                     31 planted, each named by file and line
+test-check-no-local-paths: ok passes                     placeholders, relative and derived paths, a marked fixture, a renamed report
+test-check-no-local-paths: ok env GIT_DIR                the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_INDEX_FILE         the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_WORK_TREE          the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GREP_OPTIONS           the plant named, the decoy unchanged
+test-check-no-local-paths: ok env HOME                   the plant named, the decoy unchanged
+test-check-no-local-paths: ok skip-worktree              refused by name
+test-check-no-local-paths: ok deleted                    refused by name
+test-check-no-local-paths: ok disagree                   refused, not counted as passing
+test-check-no-local-paths: ok vanished                   refused by name
+test-check-no-local-paths: ok badnum                     the scan stops
+test-check-no-local-paths: ok gitfail                    the check fails
+test-check-no-local-paths: ok omit                       the two readings disagree; the check fails
+test-check-no-local-paths: ok truncated                  the scan stops
+test-check-no-local-paths: ok cutlinks                   the scan stops
+test-check-no-local-paths: ok cuttracked                 the check stops
+test-check-no-local-paths: ok stopped                    the check fails
+test-check-no-local-paths: ok diagnosis                  keys by scope, no path
+test-check-no-local-paths: ok (20 cases)
+exit=0

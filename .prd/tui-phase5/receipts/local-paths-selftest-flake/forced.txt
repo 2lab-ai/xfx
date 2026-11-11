@@ -1,0 +1,15 @@
+# forced.sh against the check at d2b2ca75
+per-file-empty: exit 0; named: 
+    check-no-local-paths: ok (2 tracked file(s) scanned; 2 marked fixture line(s), 11 placeholder line(s))
+per-file-shapeless: exit 0; named: 
+    check-no-local-paths: ok (2 tracked file(s) scanned; 2 marked fixture line(s), 12 placeholder line(s))
+late-nul: exit 0; named: 
+    check-no-local-paths: ok (2 tracked file(s) scanned; 2 marked fixture line(s), 12 placeholder line(s))
+
+# forced.sh against the check at 373811b0
+per-file-empty: exit 1; named: plant.md:1: a Linux home directory 
+    check-no-local-paths: git gave 14 line(s): 1 refused, 0 in 0 binary file(s), 2 marked, 11 placeholder
+per-file-shapeless: exit 1; named: plant.md:1: a Linux home directory 
+    check-no-local-paths: git gave 14 line(s): 1 refused, 0 in 0 binary file(s), 2 marked, 11 placeholder
+late-nul: exit 1; named: plant.md: (a binary file, which cannot be marked): a local path 
+    check-no-local-paths: git gave 14 line(s): 0 refused, 1 in 1 binary file(s), 2 marked, 11 placeholder

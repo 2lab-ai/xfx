@@ -1,0 +1,51 @@
+# RED: the self-test at 8f083d79 against the check at 12ea7867 (git clone --no-local, the test file swapped in)
+12ea7867 receipts(local-paths-selftest-flake): round 8, CI green at 48a163ed
+test-check-no-local-paths: ok self                       its own source matches none of its shapes
+test-check-no-local-paths: ok shapes                     31 planted, each named by file and line
+test-check-no-local-paths: ok passes                     placeholders, relative and derived paths, a marked fixture, a renamed report
+test-check-no-local-paths: ok env GIT_DIR                the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_INDEX_FILE         the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_WORK_TREE          the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GREP_OPTIONS           the plant named, the decoy unchanged
+test-check-no-local-paths: ok env HOME                   the plant named, the decoy unchanged
+test-check-no-local-paths: ok skip-worktree              refused by name
+test-check-no-local-paths: ok deleted                    refused by name
+test-check-no-local-paths: ok disagree                   refused, not counted as passing
+test-check-no-local-paths: ok vanished                   refused by name
+test-check-no-local-paths: ok badnum                     the scan stops
+test-check-no-local-paths: ok gitfail                    the check fails
+test-check-no-local-paths: ok omit                       the two readings disagree; the check fails
+test-check-no-local-paths: ok fewer                      the two readings disagree; the check fails
+test-check-no-local-paths: ok omitonce                   not repeated, and the check fails
+test-check-no-local-paths: ok threads                    every grep on one thread, the second look's too
+test-check-no-local-paths: ok lookfail                   could not read it, no field printed
+test-check-no-local-paths: ok lookjunk                   could not read it, no field printed
+test-check-no-local-paths: ok lookjunkc                  could not read it, no field printed
+test-check-no-local-paths: FAIL countexit1: a second look that could not read the file read as a reading, or printed more (exit 1):
+    | check-no-local-paths: two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1
+    | check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and 1 now; git grep -c gives 0 now: the disagreement repeated on a second look
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: FAIL countnul: a second look that could not read the file read as a reading, or printed more (exit 1):
+    | check-no-local-paths: two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1
+    | check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and 1 now; git grep -c gives 3 now: the disagreement repeated on a second look
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: FAIL counttwo: a second look that could not read the file read as a reading, or printed more (exit 1):
+    | check-no-local-paths: two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1
+    | check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and 1 now; git grep -c gives 1 now: the disagreement did not repeat on a second look
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: FAIL countnonl: a second look that could not read the file read as a reading, or printed more (exit 1):
+    | check-no-local-paths: two readings of the tree disagree: the line pass has (nothing) with 0 line(s), git grep -c has plant.md with 1
+    | check-no-local-paths: a second look at plant.md: the line pass gave line(s) none the first time and 1 now; git grep -c gives 1 now: the disagreement did not repeat on a second look
+    | check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+    | check-no-local-paths: 1 problem(s) found
+test-check-no-local-paths: ok truncated                  the scan stops
+test-check-no-local-paths: ok cutlinks                   the scan stops
+test-check-no-local-paths: ok cuttracked                 the check stops
+test-check-no-local-paths: ok stopped                    the check fails
+test-check-no-local-paths: ok diagnosis                  keys by scope, no path
+test-check-no-local-paths: ok diagnosis-gone             no path, every line its shape
+test-check-no-local-paths: 4 of 31 case(s) failed
+exit=1

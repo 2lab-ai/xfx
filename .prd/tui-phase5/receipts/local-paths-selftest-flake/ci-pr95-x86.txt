@@ -1,0 +1,19 @@
+CI run 42942450215 (PR #95, c5cf594b), job 130267239039, gate (x86_64-apple-darwin, checks)
+Image: macos-15
+Version: 20260824.0482.1
+Included Software: https://github.com/actions/runner-images/blob/macos-15/20260824.0482/images/macos/macos-15-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/macos-15%2F20260824.0482
+[command]/usr/local/bin/git version
+git version 2.55.0
+##[group]Run ./scripts/check-no-local-paths.sh
+./scripts/check-no-local-paths.sh
+shell: /bin/bash -e {0}
+env:
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: 1
+  COMMIT_UNDER_TEST: c5cf594b6a3bfcb0c09074e6cedac677496492ae
+##[endgroup]
+check-no-local-paths: two readings of the tree disagree: the line pass has .prd/tui-phase5/receipts/train-6/linux.sh with 1 line(s), git grep -c has .prd/tui-phase5/receipts/train-6/linux.sh with 2
+check-no-local-paths: the scan could not finish, so it found nothing it can vouch for
+check-no-local-paths: 1 problem(s) found
+##[error]Process completed with exit code 1.

@@ -1,0 +1,66 @@
+# RED: the self-test at 4e2bdacb run against the check at f133ce6c (round 2's head; git clone --no-local, the test file swapped in)
+f133ce6c receipts(local-paths-selftest-flake): round 3's README, gate, mutants, RED/GREEN
+test-check-no-local-paths: FAIL self: the check does not pass on a tree holding only itself (exit 0):
+    | check-no-local-paths: ok (1 tracked file(s) scanned; 2 marked fixture line(s), 11 placeholder line(s))
+test-check-no-local-paths: FAIL shapes: exit 1; 31 of 31 named; not named: none
+    | check-no-local-paths: a path that belongs to one machine is in tracked content (write it as a placeholder such as <tmp>, <home> or <work>, derive it from $TMPDIR or $HOME at run time, or mark a fixture's line local-path-ok):
+    | -:1: a Linux home directory
+    | -x/last.txt:3: a harness scratch root
+    | accented.md:1: a harness scratch root, broken after its tmp/
+    | at-sign.md:1: a harness scratch root, broken after its tmp/
+    | bare.md:1: a macOS home directory
+    | bare.md:2: a Linux home directory
+    | blob.bin: (a binary file, which cannot be marked): a local path
+    | body.json:1: a macOS per-user temporary root
+    | both.rs:1: a Linux home directory
+    | café	name.md:1: a macOS home directory
+    | colour.ansi:1: a macOS home directory
+    | docs/fx-guide-40x120-notes.md:1: a Linux home directory
+    | fx-x-40x120-bodies/001-completion.json:1: a Linux home directory
+    | harness.py:1: a harness scratch root
+    | late-nul.md: (a binary file, which cannot be marked): a local path
+    | link.ansi:1: a macOS per-user temporary root
+    | linux-harness.txt:2: a harness scratch root
+    | linux.sh:1: a Linux home directory
+    | mac.md:1: a macOS home directory
+    | marked.rs:2: a macOS per-user temporary root
+    | midline.md:1: a macOS home directory
+    | notes.txt:1: a macOS home directory
+    | redirect.sh:1: a Linux home directory
+    | sentinel.sh:1: a Linux home directory
+    | tag.html:1: a macOS home directory
+    | ticked.md:1: a harness scratch root, broken after its tmp/
+    | w3/trace-report.md:1: a Linux home directory
+    | w3/xfx-trace-40x120-report-1.md:1: a Linux home directory
+    | wrapped.ansi:1: a harness scratch root, broken after its tmp/
+    | home-link: (a symlink, whose target is published): a Linux home directory
+    | sub/dir-link: (a symlink, whose target is published): a macOS home directory
+    | check-no-local-paths: git gave 43 line(s): 27 refused, 2 in 2 binary file(s), 3 marked, 11 placeholder
+    | check-no-local-paths: 1 problem(s) found
+    | ran: bash 3.2.57(1)-release; git version 2.56.0
+    | expected: check-no-local-paths: git gave 30 line(s): 27 refused, 2 in 2 binary file(s), 1 marked, 0 placeholder
+    | actual:   check-no-local-paths: git gave 43 line(s): 27 refused, 2 in 2 binary file(s), 3 marked, 11 placeholder
+    | second run: 31 named; check-no-local-paths: git gave 43 line(s): 27 refused, 2 in 2 binary file(s), 3 marked, 11 placeholder
+test-check-no-local-paths: FAIL passes: the check passed without counting the two marked lines and the two placeholder lines:
+    | check-no-local-paths: ok (3 tracked file(s) scanned; 4 marked fixture line(s), 13 placeholder line(s))
+test-check-no-local-paths: ok env GIT_DIR                the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_INDEX_FILE         the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GIT_WORK_TREE          the plant named, the decoy unchanged
+test-check-no-local-paths: ok env GREP_OPTIONS           the plant named, the decoy unchanged
+test-check-no-local-paths: ok env HOME                   the plant named, the decoy unchanged
+test-check-no-local-paths: ok skip-worktree              refused by name
+test-check-no-local-paths: ok deleted                    refused by name
+test-check-no-local-paths: ok disagree                   refused, not counted as passing
+test-check-no-local-paths: ok vanished                   refused by name
+test-check-no-local-paths: ok badnum                     the scan stops
+test-check-no-local-paths: ok gitfail                    the check fails
+test-check-no-local-paths: ok omit                       the two readings disagree; the check fails
+test-check-no-local-paths: ok truncated                  the scan stops
+test-check-no-local-paths: FAIL cutlinks: a symlink listing cut inside its last entry did not stop the scan (exit 0):
+    | check-no-local-paths: ok (2 tracked file(s) scanned; 2 marked fixture line(s), 11 placeholder line(s))
+test-check-no-local-paths: FAIL cuttracked: a tracked listing cut inside its last entry did not stop the check (exit 0):
+    | check-no-local-paths: ok (1 tracked file(s) scanned; 2 marked fixture line(s), 11 placeholder line(s))
+test-check-no-local-paths: ok stopped                    the check fails
+test-check-no-local-paths: ok diagnosis                  keys by scope, no path
+test-check-no-local-paths: 5 of 20 case(s) failed
+exit=1

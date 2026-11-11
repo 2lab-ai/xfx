@@ -1,0 +1,70 @@
+# git's grep sources, v2.55.0 against v2.56.0 (https://raw.githubusercontent.com/git/git/<tag>/<file>, fetched 2026-11-11)
+grep.c: byte-identical (50691 bytes)
+grep.h: byte-identical (6788 bytes)
+builtin/grep.c: differs:
+    < #include "object-file.h"
+    > #include "odb/source.h"
+    < #include "packfile.h"
+    < 	 * NEEDSWORK: repo_read_gitmodules() might call
+    < 	 * odb_add_to_alternates_memory() via config_from_gitmodules(). This
+    < 	 * operation causes a race condition with concurrent object readings
+    < 	 * performed by the worker threads. That's why we need obj_read_lock()
+    < 	 * here. It should be removed once it's no longer necessary to add the
+    < 	 * subrepo's odbs to the in-memory alternates list.
+    < 	 */
+    < 	obj_read_lock();
+    < 
+    < 	/*
+    > 	 *
+    > 	 * NEEDSWORK: initializing the subrepository is not thread-safe,
+    > 	 * either, as it may cause us to race around `get_main_ref_store()`. We
+    > 	 * thus need to hold the object-read lock to serialize all readers with
+    > 	 * one another.
+    > 	obj_read_lock();
+    < 
+    < 	/*
+    < 	 * All code paths tested by test code no longer need submodule ODBs to
+    < 	 * be added as alternates, but add it to the list just in case.
+    < 	 * Submodule ODBs added through add_submodule_odb_by_path() will be
+    < 	 * lazily registered as alternates when needed (and except in an
+    < 	 * unexpected code interaction, it won't be needed).
+    < 	 */
+    < 	odb_add_submodule_source_by_path(the_repository->objects,
+    < 					 subrepo->objects->sources->path);
+    < 			gitmodules_config_oid(&real_obj->oid);
+    > 			gitmodules_config_oid(the_repository, &real_obj->oid);
+    < 		if (startup_info->have_repository) {
+    < 			struct odb_source *source;
+    > 		if (startup_info->have_repository)
+    > 			odb_prepare(the_repository->objects, 0);
+    < 			odb_prepare_alternates(the_repository->objects);
+    < 			for (source = the_repository->objects->sources; source; source = source->next) {
+    < 				struct odb_source_files *files = odb_source_files_downcast(source);
+    < 				packfile_store_prepare(files->packed);
+    < 			}
+    < 		}
+    < 
+
+# grep.c at v2.56.0: the -n and -c passes run the same loop; only what happens after a hit differs (count++ / show_line)
+  1696			if (hit && (opt->max_count < 0 || count < opt->max_count)) {
+  1697				count++;
+  1698				if (opt->status_only)
+  1699					return 1;
+  1700				if (opt->name_only) {
+  1701					show_name(opt, gs->name);
+  1702					return 1;
+  1703				}
+  1704				if (opt->count)
+  1705					goto next_line;
+
+# grep.c at v2.56.0: a regexec error on a line is taken as no match, without a word
+   958	 again:
+   959		hit = patmatch(p, bol, eol, pmatch, eflags);
+   960		if (hit < 0)
+   961			hit = 0;
+
+# the git 2.55.0 source tarball (https://www.kernel.org/pub/software/scm/git/git-2.55.0.tar.xz), sha256, against kernel.org's sha256sums.asc (its signature not checked: no gpg here)
+computed: 457fdb04dc8728e007d4688695e6912e6f680727920f2a40bf11eacc17505357
+listed:   457fdb04dc8728e007d4688695e6912e6f680727920f2a40bf11eacc17505357
+its grep.c equals the v2.55.0 tag's: yes
+building it was refused here by the session's command classifier, so no git 2.55.0 ran.
