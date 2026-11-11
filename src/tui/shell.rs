@@ -11485,6 +11485,20 @@ impl Shell {
     /// written again. Only a prompt still waiting, while the runtime still
     /// holds a place: one a stop covered is no work ([`Self::waiting_prompts`]).
     pub(crate) fn take_status_moved_by_input(&mut self) -> Keyed {
+        let keyed = self.keyed();
+        if keyed == Keyed::NotYet {
+            self.status_held = true;
+        } else {
+            self.status_held = false;
+            self.status_moved_by_input = false;
+        }
+        keyed
+    }
+
+    /// What [`Self::take_status_moved_by_input`] answers now, taking nothing:
+    /// the one place the answer is worked out, so the drain's stop
+    /// ([`Self::turn_start_owes_its_frame`]) cannot disagree with it.
+    fn keyed(&self) -> Keyed {
         let compacting = self
             .compaction
             .as_ref()
@@ -11499,20 +11513,21 @@ impl Shell {
                 .next()
                 .is_some_and(|prompt| prompt.queued_at_once);
         if working && !self.activity.working() && !compacting && !behind_a_turn {
-            self.status_held = true;
             return Keyed::NotYet;
         }
-        let started = std::mem::take(&mut self.status_held) && working;
-        if !std::mem::take(&mut self.status_moved_by_input) && !started {
-            return Keyed::No;
+        if self.status_moved_by_input || (self.status_held && working) {
+            Keyed::AfterFrame
+        } else {
+            Keyed::No
         }
-        Keyed::AfterFrame
     }
 
-    /// Whether a turn's start read now is owed a frame of its own: the
-    /// `working` of a prompt held for its turn ([`Self::status_held`]), or
-    /// of one this tick's keys sent, goes after the frame that first shows
-    /// that turn ([`Keyed::AfterFrame`]). The drain stops behind such a start
+    /// Whether a turn's start read now is owed a frame of its own: whether
+    /// this tick writes its report after its frame ([`Keyed::AfterFrame`],
+    /// asked through [`Self::keyed`]) -- a prompt held for its turn
+    /// ([`Self::status_held`]) whose turn this is, or one this tick's keys
+    /// sent; not a start a stop covered, which shows nothing of its turn, nor
+    /// one a reset's drain dropped. The drain stops behind such a start
     /// (`super::event_loop`'s `drain_ui_events`), so that frame shows the
     /// turn as it began -- `Thinking` -- and the report follows it, however
     /// much more of the turn the runtime had sent by then: the rest is the
@@ -11525,7 +11540,7 @@ impl Shell {
     /// prompt itself, and a UI thread that was not scheduled could read the
     /// start, the answer and the end in one drain and report `done` alone.
     pub(crate) fn turn_start_owes_its_frame(&self) -> bool {
-        self.status_held || self.status_moved_by_input
+        self.keyed() == Keyed::AfterFrame
     }
 
     /// Somebody else has had the terminal -- a stop, whose restore cleared
@@ -22274,6 +22289,43 @@ mod tests {
                 shell.take_status_moved_by_input() == Keyed::AfterFrame,
                 "held {held}, keyed {keyed}"
             );
+        }
+        // And a held prompt whose start shows nothing of its turn, in the two
+        // ways one can: a start the stop's count covers, which the band reads
+        // as the stop's (`cancelling`), and a start a reset's drain drops
+        // (`draining`). Held is still set for both. With no key of this tick
+        // behind it -- `keyed` false, the state the round-1 review named -- it
+        // is no report after a frame, and does not stop the drain; with one,
+        // the tick's report goes after its frame and the drain stops for it.
+        for covered in [true, false] {
+            for keyed in [false, true] {
+                let mut shell = shell(24, 80);
+                shell.route_bytes(b"ask something\r");
+                assert_eq!(shell.take_status_moved_by_input(), Keyed::NotYet);
+                let start = shell.turn_starts();
+                if covered {
+                    shell.route_bytes(&[0x03]);
+                } else {
+                    shell.route_bytes(b"/new\r");
+                    assert!(shell.draining.is_some(), "the reset is not draining");
+                }
+                shell.status_moved_by_input = keyed;
+                shell.apply(start);
+                assert!(shell.status_held, "covered {covered}: the hold is gone");
+                if covered {
+                    assert!(shell.cancelling, "the stop does not cover the start");
+                }
+                assert_eq!(
+                    shell.turn_start_owes_its_frame(),
+                    keyed,
+                    "covered {covered}, keyed {keyed}"
+                );
+                assert_eq!(
+                    shell.take_status_moved_by_input() == Keyed::AfterFrame,
+                    keyed,
+                    "covered {covered}, keyed {keyed}"
+                );
+            }
         }
     }
 
