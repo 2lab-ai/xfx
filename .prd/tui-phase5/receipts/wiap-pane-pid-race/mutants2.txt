@@ -1,0 +1,17 @@
+# mutants2.sh on a git clone --no-local at fc5e4523 (scratch), one edit at a time, LaunchWait's tests, the clone restored after each (git status empty at the end).
+P1-reaped-read-as-unknown: KILLED by scripts/fxcap/test_capture.py (AssertionError: 4 != 0 : roots: <work>=66 <scratch>=61 <scenarios>=58 <bun>=21 <bun:real>=39 <tmp>=48 <home>=16 bytes)
+    diff: -      pane_set gone '' '' "tmux reaped it ($exit)" +      pane_set unknown '' '' "tmux reaped it ($exit)" 
+    failing: test_a_pane_dead_before_its_pid_is_read_is_gone_as_tmux_says test_a_pane_not_yet_reaped_is_looked_at_again test_a_relaunch_after_a_dead_pane_records_the_new_process_not_the_old_status 
+P2-no-look-again: KILLED by scripts/fxcap/test_capture.py (AssertionError: 4 != 0 : roots: <work>=66 <scratch>=61 <scenarios>=58 <bun>=21 <bun:real>=39 <tmp>=48 <home>=16 bytes)
+    diff: -  for (( i = 0; i < 20; i++ )); do +  for (( i = 0; i < 1; i++ )); do 
+    failing: test_a_pane_not_yet_reaped_is_looked_at_again 
+P3-no-exit-read-as-gone: KILLED by scripts/fxcap/test_capture.py (AssertionError: 0 != 4 : roots: <work>=66 <scratch>=61 <scenarios>=58 <bun>=21 <bun:real>=39 <tmp>=48 <home>=16 bytes)
+    diff: -    if [[ -z $pid && -n $exit ]]; then +    if [[ -z $pid ]]; then 
+    failing: test_a_pane_with_neither_a_pid_nor_an_exit_stays_unknown_and_fails_the_run 
+P4-pid-only-asked: KILLED by scripts/fxcap/test_capture.py (AssertionError: 4 != 0 : roots: <work>=66 <scratch>=61 <scenarios>=58 <bun>=21 <bun:real>=39 <tmp>=48 <home>=16 bytes)
+    diff: -    out=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_pid}:#{pane_dead_status}#{pane_dead_signal}' 2>/dev/null) || break +    out=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_pid}:
+    failing: test_a_pane_dead_before_its_pid_is_read_is_gone_as_tmux_says test_a_pane_not_yet_reaped_is_looked_at_again test_a_relaunch_after_a_dead_pane_records_the_new_process_not_the_old_status 
+P5-no-record-at-relaunch: KILLED by scripts/fxcap/test_capture.py (AssertionError: 4 != 0 : roots: <work>=66 <scratch>=61 <scenarios>=58 <bun>=21 <bun:real>=39 <tmp>=48 <home>=16 bytes)
+    diff: -        own_pane "$sock" +        : 
+    failing: test_a_relaunch_after_a_dead_pane_records_the_new_process_not_the_old_status test_a_relaunch_waits_for_its_first_frame_too test_nodraw_runs_a_stub_that_draws_nothing_at_once 
+exit 0

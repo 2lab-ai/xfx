@@ -1,0 +1,41 @@
+# gate.sh (below) under the suite lock, on git clones --no-local.
+## at 99421b1a
+# head 99421b1a; tmux tmux 3.7b
+test-sweep exit 0 14s
+test-capture exit 1 515s
+Ran 133 tests in 514.232s
+FAILED (failures=1)
+Ran 79 tests in 5.717s
+OK
+Ran 28 tests in 7.498s
+OK
+FAIL: test_a_pane_pid_that_cannot_be_read_fails_the_run
+  (round 4's shim matched only the bare #{pane_pid} argument: fixed at 27d28fef)
+## at 27d28fef
+# head 27d28fef; tmux tmux 3.7b
+test-sweep exit 0 14s
+test-capture exit 0 510s
+Ran 79 tests in 5.783s
+OK
+Ran 28 tests in 6.988s
+OK
+Ran 133 tests in 510.072s
+OK
+## gate.sh
+#!/bin/bash
+# WIAP-PANE-PID-RACE's gate: the two harness suites the brief names, on a clone.
+cd "$1" || exit 2
+echo "# head $(git rev-parse --short HEAD); tmux $(tmux -V)"
+s=$SECONDS; ./scripts/fxcap/test-sweep.sh > "$2/test-sweep.log" 2>&1; echo "test-sweep exit $? $((SECONDS - s))s"
+s=$SECONDS; ./scripts/fxcap/test-capture.sh > "$2/test-capture.log" 2>&1; echo "test-capture exit $? $((SECONDS - s))s"
+
+## at fc5e4523 (round 2)
+# head fc5e4523; tmux tmux 3.7b
+test-sweep exit 0 14s
+test-capture exit 0 521s
+Ran 134 tests in 519.465s
+OK
+Ran 79 tests in 6.180s
+OK
+Ran 28 tests in 7.863s
+OK

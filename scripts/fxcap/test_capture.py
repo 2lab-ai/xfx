@@ -506,7 +506,8 @@ class RunDirectory(unittest.TestCase):
     # A look that fails is never read as gone (round 4): the stub stays past
     # the wait, and the run must not pass behind it.
     def test_a_pane_pid_that_cannot_be_read_fails_the_run(self):
-        shim = 'for a; do [ "$a" = "#{pane_pid}" ] && exit 1; done\nexec "$REAL" "$@"\n'
+        # Any look whose format asks for the pane's pid fails.
+        shim = 'for a; do case $a in *"#{pane_pid}"*) exit 1 ;; esac; done\nexec "$REAL" "$@"\n'
         r, run, pid = self.stub_run(self.STAYS, shims={"tmux": shim})
         self.assertEqual(r.code, 4, r.stdout + r.stderr)
         self.assertIn("LIVE-WRITER GUARD: the process this run started in its pane could not be recorded "
@@ -1912,6 +1913,87 @@ class LaunchWait(unittest.TestCase):
         self.assertIn("up: the pane is gone", gone.stderr)
         self.assertFalse(os.path.exists(os.path.join(gone.out, "fx-t-30x200-h.files")), "the run went on")
         self.assertIn("guards:", gone.stdout, "the guards still ran")
+
+    # tmux 3.8 prints no `#{pane_pid}` once a pane's pty is closed (format.c
+    # `format_cb_pane_pid`, `wp->fd != -1`, at its 3.8 tag); 3.7b printed it.
+    # CI's runner has 3.8 and a binary gone at once lost the race to be read
+    # (WIAP-PANE-PID-RACE). These shims make each tmux answer as 3.8 does, at
+    # a moment of the test's choosing, and log every answer to a look at the
+    # pid ($0.log). `$REAL` is the real tmux.
+    def tmux_shim(self, body):
+        d = scratch()
+        shim = os.path.join(d, "shim", "tmux")
+        write(shim, "#!/bin/bash\nREAL=%s\n%s" % (shutil.which("tmux"), body))
+        os.chmod(shim, 0o755)
+        return d, shim, {"PATH": os.path.dirname(shim) + ":" + os.environ["PATH"]}
+
+    # The shim's tail: the real tmux's answer to the rewritten look, logged.
+    ANSWER = ('  out=$("$REAL" "${a[@]}"); rc=$?; printf "%s\\n" "$out" >> "$0.log"; printf "%s\\n" "$out"; exit $rc ;;\n'
+              'esac\nexec "$REAL" "$@"\n')
+    # Waits until tmux has reaped the pane's process (`#{pane_dead}`), then
+    # answers as 3.8 does for a closed pty: no pid.
+    AS_38 = ('  for i in $(seq 150); do [ "$("$REAL" "${@:1:4}" display-message -p -t cap "#{pane_dead}")" = 1 ] && break; sleep 0.02; done\n'
+             '  for i in "${!a[@]}"; do a[i]=${a[i]//"#{pane_pid}"/"#{?pane_dead,,#{pane_pid}}"}; done\n')
+
+    def shim_38(self, blanks=0):
+        """3.8's answer to every look at the pid, the first `blanks` of them
+        with neither pid nor status (the pty closed, the reaping not done)."""
+        return ('a=("$@")\ncase "$*" in *"#{pane_pid}"*)\n'
+                '  c=$(cat "$0.n" 2>/dev/null || echo 0); echo $((c + 1)) > "$0.n"\n'
+                '  if [ "$c" -lt %d ]; then for i in "${!a[@]}"; do\n'
+                '    a[i]=${a[i]//"#{pane_pid}"/}; a[i]=${a[i]//"#{pane_dead_status}"/}; a[i]=${a[i]//"#{pane_dead_signal}"/}\n'
+                '  done; else\n' % blanks + self.AS_38 + '  fi\n' + self.ANSWER)
+
+    def run_38(self, cap, binary, blanks=0):
+        d, shim, env = self.tmux_shim(self.shim_38(blanks))
+        r = capture(cap, binary=binary, d=d, env=env)
+        (run,) = glob.glob(os.path.join(d, "fxcap.*"))
+        return r, run, slurp(shim + ".log").split("\n")[:-1]
+
+    def test_a_pane_dead_before_its_pid_is_read_is_gone_as_tmux_says(self):
+        r, run, answers = self.run_38("keep\nsnap a\n", "/bin/echo")
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertRegex(r.stdout, r"up: the pane is dead after \d+\.\d\d s \(\d+ looks\)\n")
+        self.assertNotIn("LIVE-WRITER GUARD", r.stderr)
+        self.assertEqual(answers, [":0"], "one look: no pid, exit status 0")
+        self.assertEqual(slurp(os.path.join(run, "pane")), "gone\n\n\ntmux reaped it (0)\n")
+
+    def test_a_pane_not_yet_reaped_is_looked_at_again(self):
+        # Three looks with neither, then 3.8's own answer: no pid, status 0.
+        r, run, answers = self.run_38("keep\nsnap a\n", "/bin/echo", blanks=3)
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertNotIn("LIVE-WRITER GUARD", r.stderr)
+        self.assertEqual(answers, [":", ":", ":", ":0"])
+        self.assertEqual(slurp(os.path.join(run, "pane")), "gone\n\n\ntmux reaped it (0)\n")
+
+    def test_a_relaunch_after_a_dead_pane_records_the_new_process_not_the_old_status(self):
+        # Pinned, not RED: a respawn clears PANE_STATUSREADY before it forks
+        # (tmux spawn.c, 3.7b and 3.8), so the first binary's exit status is
+        # not read as the second's. The first exits at once; the second
+        # stays until cleanup's hangup. Its pid is the record, and cleanup
+        # waits for it.
+        stub = os.path.join(scratch(), "twice")
+        write(stub, '#!/bin/sh\nif [ -e "$HOME/ran" ]; then echo $$ > "$HOME/pid"; echo up; exec /bin/cat; fi\n'
+                    ': > "$HOME/ran"\nexit 0\n')
+        os.chmod(stub, 0o755)
+        r, run, answers = self.run_38("keep\nwait 1\nrelaunch\nwait 1\nsnap a\n", stub)
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        second = slurp(os.path.join(run, "home", "pid")).strip()
+        self.assertEqual(answers, [":0", second + ":"], "the first look: gone at status 0; the second: the new pid, no status")
+        self.assertEqual(slurp(os.path.join(run, "pane")).split("\n")[:2], ["pid", second])
+        self.assertRegex(r.stdout, r"pane: the process the run started is gone \(\d+ looks\)")
+
+    def test_a_pane_with_neither_a_pid_nor_an_exit_stays_unknown_and_fails_the_run(self):
+        # The safety rule stands: nothing tmux says confirms the process gone,
+        # so the run fails (exit 4), whatever the binary did.
+        stub = os.path.join(scratch(), "up")
+        write(stub, "#!/bin/sh\necho up\nexec /bin/cat\n")
+        os.chmod(stub, 0o755)
+        d, shim, env = self.tmux_shim(self.shim_38(blanks=10**6))
+        r = capture("keep\nwait 1\nsnap a\n", binary=stub, d=d, env=env)
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("LIVE-WRITER GUARD: the process this run started in its pane could not be recorded "
+                      "(the pane pid could not be read)", r.stderr)
 
     def test_nodraw_runs_a_stub_that_draws_nothing_at_once(self):
         r = capture("nodraw\nkeep\nsnap a\nrelaunch\nsnap b\n", binary="/bin/cat")

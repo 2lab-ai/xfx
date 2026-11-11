@@ -1,0 +1,39 @@
+# RED: 99421b1a's test_capture.py in a clone at 753b0a72 (origin/main), on this machine's tmux.
+# The tmux shims answer as 3.8 does; the first test fails with CI's own line, the second likewise; the third pins the rule that already held.
+## the three new LaunchWait tests at 753b0a72's capture.sh (tmux tmux 3.7b)
+FF.
+======================================================================
+FAIL: test_a_pane_dead_before_its_pid_is_read_is_gone_as_tmux_says (__main__.LaunchWait.test_a_pane_dead_before_its_pid_is_read_is_gone_as_tmux_says)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red/scripts/fxcap/test_capture.py", line 1939, in test_a_pane_dead_before_its_pid_is_read_is_gone_as_tmux_says
+    self.assertEqual(r.code, 0, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 4 != 0 : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: the pane is dead after 0.02 s (1 looks)
+<tmp>/wpr/t/fxcapt.e2w291kj/out/fx-t-30x200-a.txt
+guards: <tmp>/wpr/t/fxcapt.e2w291kj/bin/it sha256 a0cb6e8834d3 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+LIVE-WRITER GUARD: the process this run started in its pane could not be recorded (the pane pid could not be read); this run fails, so the sweep does not run another binary in its directory
+<scratch>/red/scripts/fxcap/capture.sh: line 1: 37909 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+======================================================================
+FAIL: test_a_pane_not_yet_reaped_is_looked_at_again (__main__.LaunchWait.test_a_pane_not_yet_reaped_is_looked_at_again)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<scratch>/red/scripts/fxcap/test_capture.py", line 1956, in test_a_pane_not_yet_reaped_is_looked_at_again
+    self.assertEqual(r.code, 0, r.stdout + r.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 4 != 0 : roots: <work>=63 <scratch>=58 <scenarios>=55 <bun>=21 <bun:real>=39 <tmp>=45 <home>=16 bytes
+up: the pane is dead after 0.02 s (1 looks)
+<tmp>/wpr/t/fxcapt.a524r46h/out/fx-t-30x200-a.txt
+guards: <tmp>/wpr/t/fxcapt.a524r46h/bin/it sha256 a0cb6e8834d3 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+LIVE-WRITER GUARD: the process this run started in its pane could not be recorded (the pane pid could not be read); this run fails, so the sweep does not run another binary in its directory
+<scratch>/red/scripts/fxcap/capture.sh: line 1: 38253 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS_UP=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_MODELS_PAD=$modelspad FAKEGW_MODELS_STALL_MS=$modelsstall FAKEGW_MODELS2=$run/models2.json FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled FAKEGW_USAGE=$run/usage.json bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1
+
+
+----------------------------------------------------------------------
+Ran 3 tests in 4.963s
+
+FAILED (failures=2)
+exit 1
