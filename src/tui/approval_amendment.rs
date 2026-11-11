@@ -858,18 +858,20 @@ mod tests {
 
     #[test]
     fn a_multibyte_paste_is_not_cut_mid_character() {
-        // Two claims, and they are about two different bounds. The first: a
-        // paste whose byte count crosses the cap in the middle of a multi-byte
-        // scalar is refused whole, so no half-scalar reaches the draft. The
-        // second: the check is on the **decoded** size, because
-        // `from_utf8_lossy` turns one non-UTF-8 byte into a three-byte
-        // replacement scalar and a paste that fitted as bytes can overrun as
-        // text.
+        // Two claims, both about the budget, which is judged on the whole
+        // paste once it is text (`DraftPaste::finish`) -- the bytes are kept
+        // up to the composer's 8 MiB as they arrive, so no bound falls inside
+        // a scalar there. The first: a paste whose text would cross the 4096
+        // in the middle of a multi-byte scalar is refused whole, so no
+        // half-scalar reaches the draft. The second: the check is on the
+        // **decoded** size, because `from_utf8_lossy` turns one non-UTF-8 byte
+        // into a three-byte replacement scalar and a paste that fitted as
+        // bytes can overrun as text.
         let mut drafts = Drafts::default();
         drafts.enter(ALLOW).expect("an eligible choice");
         drafts.edit(Action::PasteStart, COLS);
-        // Three-byte scalars, so the cap at 4096 falls inside one of them:
-        // 4096 = 3 * 1365 + 1.
+        // Three-byte scalars, so the 4096 falls inside one of them:
+        // 4096 = 3 * 1365 + 1, and 1366 of them are 4098 bytes.
         for _ in 0..1366 {
             for byte in "가".as_bytes() {
                 drafts.paste_byte(*byte);
@@ -887,8 +889,8 @@ mod tests {
         );
         assert_eq!(drafts.take_notice(), Some(INPUT_LIMIT));
 
-        // The decoded bound. Every byte here is accepted and within the encoded
-        // cap, and every one of them is invalid UTF-8 -- so the text is three
+        // The decoded bound. Every byte here is accepted and within the
+        // budget, and every one of them is invalid UTF-8 -- so the text is three
         // times the bytes and the paste must be refused on what it decodes to.
         let mut drafts = Drafts::default();
         drafts.enter(ALLOW).expect("an eligible choice");

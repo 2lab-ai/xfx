@@ -41800,6 +41800,26 @@ mod tests {
             );
         }
 
+        // A draft has no selection for a paste to replace, as fx's has none
+        // (`DraftAction`, `approval_decision.zig:18-31`): Super-A in it is no
+        // draft key (`approval::edits`), so the paste goes in at the caret.
+        let mut drafting = shell(24, 80);
+        asking(&mut drafting);
+        drafting.route_bytes(b"\tkeep");
+        drafting.route_bytes(b"\x1b[97;9u");
+        drafting.route_bytes(b"\x1b[200~\r\nthis\x1b[201~");
+        delivered(&mut drafting);
+        drafting.route_bytes(b"\r");
+        assert_eq!(
+            drafting.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("keep this".to_string()),
+            }),
+            "Super-A made a selection the paste replaced"
+        );
+
         // The composer keeps its paste's breaks and tabs, as fx's does
         // (`normalizeLineEndingsInPlace` alone for `.composer`, `:238-241`).
         let mut shell = shell(24, 80);
