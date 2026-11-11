@@ -280,34 +280,32 @@ expect epoch-crlf "$root" '.github/preview-epoch is "phase4\r\n"'
 
 # --- a check that stops early ------------------------------------------------
 #
-# A `trap` from BASH_ENV installs the check's EXIT trap and then stops the
-# check there: by reading a variable no one sets, under its `set -u`; by
-# `exit 7`; or by sending it SIGTERM. Under bash 3.2 the first left through
-# the trap with status 0, a pass; the third ran the trap's cleanup and went
-# on. Each must exit with the status bash gives that stop (1, 7, 143), the
-# stop must have fired, and nothing may run past it. Each file unsets
-# BASH_ENV, so only the check reads it.
-# shellcheck disable=SC2016 # the file's own expansions
-printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	: "$xfx_test_unset"' '}' >"$work/stop-unset.env"
-printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	printf "early stop: exit 7\n" >&2' '	exit 7' \
-	'}' >"$work/stop-exit7.env"
-printf '%s\n' 'unset BASH_ENV' 'trap() {' '	builtin trap "$@"' '	printf "early stop: SIGTERM\n" >&2' \
-	'	kill -TERM $$' '	printf "early stop: still running\n" >&2' '}' >"$work/stop-term.env"
-for row in "unset|1|xfx_test_unset: unbound variable" "exit7|7|early stop: exit 7" \
-	"term|143|early stop: SIGTERM"; do
-	stop="${row%%|*}"
-	want="${row#*|}"
-	fired="${want#*|}"
-	want="${want%%|*}"
+# scripts/early-stop-env.sh writes a BASH_ENV file that stops the check right
+# after it installs its EXIT trap: by an unset variable under its `set -u`,
+# `exit 7`, a `( exit 5 )` that `set -e` carries out, SIGTERM, SIGHUP or
+# SIGINT sent to it alone, or SIGINT sent to it and a child it waits for.
+# Under bash 3.2 the first left through the trap with status 0, a pass; a
+# signal ran the trap's cleanup and went on. Each must exit with the status
+# bash gives that stop, the stop must have fired with the check's EXIT trap
+# installed, nothing may run past it, and its TMPDIR must be empty after it.
+for row in unset:1 exit7:7 subshell:5 term:143 hup:129 int:130 int-group:130; do
+	stop="${row%%:*}"
+	want="${row#*:}"
+	log="$work/stopped-$stop.log"
+	tmp="$work/tmp-$stop"
+	mkdir "$tmp"
+	"$repo_root/scripts/early-stop-env.sh" "$stop" >"$work/stop-$stop.env"
 	status=0
 	# Its stderr dropped: bash names the command a signal ended, paths and all.
-	{ BASH_ENV="$work/stop-$stop.env" "$check" "$control/.github/workflows/preview.yml" "$control" \
-		>"$work/stopped-$stop.log" 2>&1 || status=$?; } 2>/dev/null
-	if [ "$status" -ne "$want" ] || ! grep -Fq -- "$fired" "$work/stopped-$stop.log" ||
-		grep -q -e '^check-preview-contract: ok' -e '^early stop: still running' "$work/stopped-$stop.log"; then
-		printf 'test-preview-contract: stopped-%s: the check exited %d, expected %d, with %s and nothing after the stop\n' \
-			"$stop" "$status" "$want" "'$fired'" >&2
-		sed 's/^/  /' "$work/stopped-$stop.log" >&2
+	{ BASH_ENV="$work/stop-$stop.env" TMPDIR="$tmp" "$check" "$control/.github/workflows/preview.yml" "$control" \
+		>"$log" 2>&1 || status=$?; } 2>/dev/null
+	left="$(find "$tmp" -mindepth 1 -print | wc -l | tr -d ' ')"
+	if [ "$status" -ne "$want" ] || ! grep -q -x -F -e "early stop: $stop" "$log" ||
+		! grep -q -x -e '^early stop: trap -- .* EXIT$' "$log" ||
+		grep -q -e '^check-preview-contract: ok' -e '^early stop: still running' "$log" || [ "$left" -ne 0 ]; then
+		printf 'test-preview-contract: stopped-%s: the check exited %d and left %d file(s) in its TMPDIR; expected exit %d, its stop and EXIT trap shown, nothing after the stop, no file left\n' \
+			"$stop" "$status" "$left" "$want" >&2
+		sed 's/^/  /' "$log" >&2
 		failures=$((failures + 1))
 	else
 		printf 'test-preview-contract: caught %-28s exit %d\n' "stopped-$stop" "$status"
