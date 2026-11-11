@@ -90,7 +90,9 @@ said once per run of refusals, and every paste starts a run
   (`finalizePastedBlock`, `input_paste_runtime.zig:373-450`). In an
   amendment both are text, normalized like any other.
 - **A selection**: a draft has none. fx's `DraftAction` has no selection
-  (`approval_decision.zig:18-31`), so a paste goes in at the caret.
+  (`approval_decision.zig:18-31`), so a paste goes in at the caret. Nor
+  does xfx's: `approval::edits` admits no `SelectAll`, so `Shell::decide`
+  swallows Super-A in a draft, and nothing else makes a selection there.
 
 **Every other field fx shows:**
 - **A question's field** keeps its breaks. Its Tab is a space from the
@@ -183,8 +185,9 @@ this unit copies.
   - **WINDOW**: the four `deny-*` pairs. Each side says the refusal the same
     number of times (0, 0, 1, 2), and the draft's last painted row ends in
     the same 12 characters (`xxxxxxxxxa b` from `deny-fits` on). What differs
-    is how a 4093-byte draft is painted (Found below). fx's draft is one row
-    ending at the caret. xfx's is three rows windowed on it. So xfx has two
+    is how a 4093-byte draft is painted (Found below). fx's draft is one row,
+    scrolled sideways to keep the caret in view; with the caret at the end,
+    as here, the row ends at it. xfx's is three rows windowed on it. So xfx has two
     more rows, and every row under them moves (the rows `cells.py` lists for
     each: the draft, the scope rows, the divider and the hint).
 - `green.txt`: the unit's tests at the head.
@@ -292,8 +295,11 @@ GATE-PENDING
 ## Found, not changed (recorded in `docs/parity.md`, owners proposed)
 
 - **AMEND-DRAFT-WINDOW.** A draft longer than its row is painted on up to
-  three rows windowed on the caret (`MAX_DRAFT_ROWS`). fx's is one row that
-  ends at the caret (`approvalDraftWindow`, `approval_ui.zig:1601-1650`).
+  three rows windowed on the caret (`MAX_DRAFT_ROWS`). fx's is one row
+  scrolled sideways to keep the caret in view, with what follows the caret
+  after it while there is room (`approvalDraftWindow`,
+  `approval_ui.zig:1601-1650`: `before` cut from the left until the caret
+  fits, `after` cut to the width left, `:1626-1640`).
   This scenario's `deny-*` pairs show it. Before this unit a pasted break
   could make a draft that tall too; now only its length can.
 - **PASTE-UNSUPPORTED-BYTES.** A paste that is not UTF-8 is decoded with its
