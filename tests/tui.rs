@@ -3437,12 +3437,54 @@ fn hostile_paste(start_inside: bool) -> Vec<u8> {
 /// Writes `bytes` as a terminal writes a paste, as fast as it is taken, in
 /// parts of 4 KiB ([`Session::write_raw`]: no pause before or after), and
 /// then leaves the terminal quiet for a second -- far past the paste's
-/// quarantine -- so that what follows is a key of the test's own.
-fn paste_unpaced(session: &Session, bytes: &[u8]) {
+/// quarantine -- so that what follows is a key of the test's own. Returns the
+/// longest the terminal can have gone without a byte of the paste
+/// ([`Session::write_raw_measured`]).
+fn paste_unpaced(session: &Session, bytes: &[u8]) -> std::time::Duration {
+    let mut previous = None;
+    let mut longest = std::time::Duration::ZERO;
     for part in bytes.chunks(4096) {
-        session.write_raw(part);
+        longest = longest.max(session.write_raw_measured(part, &mut previous));
     }
     std::thread::sleep(std::time::Duration::from_secs(1));
+    longest
+}
+
+/// How long the input has to be quiet for a paste's quarantine to end
+/// (`Decoder::PASTE_QUIET` in `src/tui/input.rs`, not visible from here, so
+/// spelled out).
+const PASTE_QUIET: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// How many sessions a case about an unpaced paste runs before it gives up on
+/// a write the terminal never paused inside ([`unpaced_case`]).
+const UNPACED_ATTEMPTS: usize = 3;
+
+/// Runs `case` -- one whole session about an unpaced paste -- until one of
+/// them wrote its paste with no pause of [`PASTE_QUIET`] inside it.
+///
+/// A pause that long is a terminal that paused inside its paste, and the TUI
+/// ends a paste's quarantine there by design: what follows it is keys
+/// (`src/tui/input.rs`'s module doc, "a terminal that pauses that long inside
+/// one paste ends the quarantine there"). The harness is that terminal, and a
+/// harness thread a loaded runner does not schedule for 50 ms writes exactly
+/// that pause (CI run 42939692388: the body typed as keys from its line
+/// `K0000822` on). A session whose paste paused proves nothing about the
+/// paste, so its `case` stops right after it with the pause (`Err`) and a new
+/// session runs; one whose paste went out unpaced makes every assertion
+/// (`Ok`). Every session paused is a failure that says so.
+fn unpaced_case(mut case: impl FnMut() -> Result<(), std::time::Duration>) {
+    let mut paused = Vec::new();
+    for _ in 0..UNPACED_ATTEMPTS {
+        match case() {
+            Ok(()) => return,
+            Err(gap) => paused.push(gap),
+        }
+    }
+    panic!(
+        "each of {UNPACED_ATTEMPTS} pastes paused for {PASTE_QUIET:?} or more ({paused:?}): \
+         the harness was not scheduled while it wrote, and the TUI ends a paste's \
+         quarantine at such a pause by design, so no session tested the paste"
+    );
 }
 
 #[test]
@@ -3452,42 +3494,48 @@ fn a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothi
     // (`event_loop.zig:94-119@481104fd`) -- the receipt's `measure.txt` has
     // the base submitting it. Here the paste's first part is kept and nothing
     // after its embedded end marker is a key, however the deliveries fall.
-    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
-        support::fake_gateway::content_only(&["MARKER-UNPACED"]),
-    )]);
-    let sandbox = Sandbox::new();
-    let pty = Pty::open();
-    pty.resize(40, 120);
-    let mut session =
-        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
-    session.wait_for(READY);
+    unpaced_case(|| {
+        let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+            support::fake_gateway::content_only(&["MARKER-UNPACED"]),
+        )]);
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(40, 120);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+        session.wait_for(READY);
 
-    paste_unpaced(&session, &hostile_paste(false));
-    // A key of the test's own, once the input has been quiet: the composer
-    // holds the paste and that key, and nothing of the body. It is written
-    // after the whole paste, so once it is on the screen the paste has all
-    // been read -- the barrier the request count below is read behind.
-    session.type_bytes(b"z");
-    on_screen(
-        &session,
-        (40, 120),
-        &[
-            "\u{2503} xz",
-            "! input: Input that arrived right after the paste was ignored.",
-        ],
-        &["K0000"],
-    );
-    assert_eq!(
-        gateway.request_count(),
-        0,
-        "the clipboard behind the end marker submitted the composer"
-    );
-    session.type_bytes(b"\r");
-    session.wait_for("MARKER-UNPACED");
-    assert_eq!(user_messages(&gateway.only_request().json()), ["xz"]);
+        let gap = paste_unpaced(&session, &hostile_paste(false));
+        if gap >= PASTE_QUIET {
+            return Err(gap);
+        }
+        // A key of the test's own, once the input has been quiet: the composer
+        // holds the paste and that key, and nothing of the body. It is written
+        // after the whole paste, so once it is on the screen the paste has all
+        // been read -- the barrier the request count below is read behind.
+        session.type_bytes(b"z");
+        on_screen(
+            &session,
+            (40, 120),
+            &[
+                "\u{2503} xz",
+                "! input: Input that arrived right after the paste was ignored.",
+            ],
+            &["K0000"],
+        );
+        assert_eq!(
+            gateway.request_count(),
+            0,
+            "the clipboard behind the end marker submitted the composer"
+        );
+        session.type_bytes(b"\r");
+        session.wait_for("MARKER-UNPACED");
+        assert_eq!(user_messages(&gateway.only_request().json()), ["xz"]);
 
-    session.type_bytes(&[0x04]);
-    assert_eq!(session.wait_exit().code(), Some(0));
+        session.type_bytes(&[0x04]);
+        assert_eq!(session.wait_exit().code(), Some(0));
+        Ok(())
+    });
 }
 
 #[test]
@@ -3496,39 +3544,45 @@ fn a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval() {
     // its newline the Enter on it. Nothing after the embedded end marker is a
     // key -- a second paste's start marker in it included -- so the question
     // is still waiting when the test answers it itself.
-    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
-    let sandbox = Sandbox::new();
-    let notes = support::sandbox::with_notes(&sandbox);
-    let pty = Pty::open();
-    pty.resize(24, 80);
-    let mut command = tui_with(&sandbox, &gateway);
-    command.env("XFX_PERMISSION_MODE", "ask");
-    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
-    session.wait_for(READY);
-    session.type_bytes(b"edit the notes\r");
-    session.wait_for(PERMISSION_TITLE);
+    unpaced_case(|| {
+        let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+        let sandbox = Sandbox::new();
+        let notes = support::sandbox::with_notes(&sandbox);
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let mut command = tui_with(&sandbox, &gateway);
+        command.env("XFX_PERMISSION_MODE", "ask");
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        session.wait_for(READY);
+        session.type_bytes(b"edit the notes\r");
+        session.wait_for(PERMISSION_TITLE);
 
-    paste_unpaced(&session, &hostile_paste(true));
-    // A barrier in the input's own order: Down, written after the whole
-    // paste, moves the question's marker to its second choice. Once that is
-    // on the screen every byte of the paste has been read, so a paste that
-    // had answered would have taken the question down before it.
-    session.type_bytes(b"\x1b[B");
-    on_screen(&session, (24, 80), &["\u{276f} 2  "], &[]);
-    assert_eq!(
-        std::fs::read_to_string(&notes).expect("read back"),
-        "alpha\n",
-        "the clipboard behind the end marker approved the edit"
-    );
-    // Still asking: the test's own `1` is the answer, and the edit runs.
-    session.type_bytes(b"1");
-    session.wait_for("the edit is done");
-    assert_eq!(
-        std::fs::read_to_string(&notes).expect("read back"),
-        "beta\n"
-    );
-    session.type_bytes(&[0x04]);
-    assert_eq!(session.wait_exit().code(), Some(0));
+        let gap = paste_unpaced(&session, &hostile_paste(true));
+        if gap >= PASTE_QUIET {
+            return Err(gap);
+        }
+        // A barrier in the input's own order: Down, written after the whole
+        // paste, moves the question's marker to its second choice. Once that is
+        // on the screen every byte of the paste has been read, so a paste that
+        // had answered would have taken the question down before it.
+        session.type_bytes(b"\x1b[B");
+        on_screen(&session, (24, 80), &["\u{276f} 2  "], &[]);
+        assert_eq!(
+            std::fs::read_to_string(&notes).expect("read back"),
+            "alpha\n",
+            "the clipboard behind the end marker approved the edit"
+        );
+        // Still asking: the test's own `1` is the answer, and the edit runs.
+        session.type_bytes(b"1");
+        session.wait_for("the edit is done");
+        assert_eq!(
+            std::fs::read_to_string(&notes).expect("read back"),
+            "beta\n"
+        );
+        session.type_bytes(&[0x04]);
+        assert_eq!(session.wait_exit().code(), Some(0));
+        Ok(())
+    });
 }
 
 #[test]
@@ -14146,6 +14200,53 @@ fn a_title_the_gateway_is_slow_to_name_never_holds_up_the_turn() {
 
 // -- /skills and `$` -----------------------------------------------------------
 
+/// A sandbox for a case that searches the skills for `searched`, its root's
+/// name holding none of them. A search reads each skill's path too
+/// (`skillMatchRank`; `src/tui/skills_menu.rs`'s `rank`), and the root is
+/// `.tmp` and six random letters and digits, so a root that happens to be
+/// named `.tmpqFOo7z` lists every skill for `$foo` -- about one in 7 400 for a
+/// given three-letter word, and CI drew one (run 42942450215: `Skills 3`
+/// under `$foo`). Only the name is drawn again; the directory it is in is the
+/// machine's, the same on every run.
+fn skills_sandbox(searched: &[&str]) -> Sandbox {
+    for _ in 0..100 {
+        let sandbox = Sandbox::new();
+        let name = sandbox
+            .workspace
+            .parent()
+            .and_then(std::path::Path::file_name)
+            .expect("the sandbox root's name")
+            .to_string_lossy()
+            .into_owned();
+        if !names_a_search(&name, searched) {
+            return sandbox;
+        }
+    }
+    panic!("a hundred sandbox roots named with one of {searched:?}");
+}
+
+/// Whether a search for one of `searched` finds `name`, as the skills menu's
+/// does: ASCII case folded.
+fn names_a_search(name: &str, searched: &[&str]) -> bool {
+    let name = name.to_ascii_lowercase();
+    searched
+        .iter()
+        .any(|word| name.contains(&word.to_ascii_lowercase()))
+}
+
+#[test]
+fn a_skills_sandbox_root_is_never_named_with_what_its_case_searches() {
+    assert!(names_a_search(".tmpqFOo7z", &["foo"]));
+    assert!(names_a_search(".tmpdEMx1a", &["zz", "dem"]));
+    assert!(!names_a_search(".tmpfo0o1a", &["foo"]));
+    let sandbox = skills_sandbox(&["foo"]);
+    let root = sandbox.workspace.parent().expect("a root");
+    assert!(!names_a_search(
+        &root.file_name().expect("a name").to_string_lossy(),
+        &["foo"]
+    ));
+}
+
 /// The capture's workspace (`research/media-ext/scenarios/skills-ws`) on xfx's
 /// roots: `demo` in `.xfx/skills`, `release-notes` in `skills/`, and a local
 /// source directory holding `foo`.
@@ -14199,7 +14300,7 @@ fn a_dollar_token_sends_upstreams_catalog_and_the_skills_whole_instructions() {
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
         support::fake_gateway::content_only(&["Used ", "the skill."]),
     )]);
-    let sandbox = Sandbox::new();
+    let sandbox = skills_sandbox(&["dem"]);
     skills_workspace(&sandbox);
     let pty = Pty::open();
     pty.resize(40, 120);
@@ -14316,7 +14417,7 @@ If a skill cannot be followed, state the blocker instead of silently substitutin
 fn slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network() {
     // `cap/fx-skills-40x120-menu`, `-add-local`, `-path`; a source that is not
     // a directory is the failed install upstream says for a clone that failed.
-    let sandbox = Sandbox::new();
+    let sandbox = skills_sandbox(&["foo"]);
     skills_workspace(&sandbox);
     let pty = Pty::open();
     pty.resize(40, 120);

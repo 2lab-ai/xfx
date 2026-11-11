@@ -358,10 +358,27 @@ impl Session {
     /// quarantine. Bounded as `type_bytes` is: [`WAIT`] for the terminal to
     /// take each part of it.
     pub fn write_raw(&self, bytes: &[u8]) {
+        self.write_raw_measured(bytes, &mut None);
+    }
+
+    /// [`Self::write_raw`], and the longest the terminal can have gone
+    /// without a byte from this writer: from the start of one write attempt
+    /// to the return of the next, `previous` carrying the last attempt's start
+    /// from one call to the next. Every attempt finds the input queue holding
+    /// something -- one that took bytes has just put them there, one that
+    /// would block found it full -- so it was empty, if ever, only between two
+    /// attempts, and never for longer than this.
+    pub fn write_raw_measured(&self, bytes: &[u8], previous: &mut Option<Instant>) -> Duration {
         let deadline = Instant::now() + WAIT;
+        let mut longest = Duration::ZERO;
         let mut rest = bytes;
         while !rest.is_empty() {
-            match (&*self.master).write(rest) {
+            let started = Instant::now();
+            let wrote = (&*self.master).write(rest);
+            if let Some(before) = previous.replace(started) {
+                longest = longest.max(before.elapsed());
+            }
+            match wrote {
                 Ok(0) => panic!("the terminal accepted nothing"),
                 Ok(written) => rest = &rest[written..],
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
@@ -375,6 +392,7 @@ impl Session {
                 Err(err) => panic!("write to the terminal: {err}"),
             }
         }
+        longest
     }
 
     /// Types a line and presses Return. Return is a carriage return on a
