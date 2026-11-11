@@ -8,9 +8,11 @@ file in this folder.
 
 **The trigger is not found.** This unit does not claim to stop the flake. It
 closes the check's fail-opens (a late NUL, a file gone mid-scan, a tracked
-symlink, a run that stops early and exits 0 under bash 3.2), hardens the scan (two readings that must agree, every line
-accounted for), and makes the next failure decisive (the failing run's own
-evidence, the expected accounting, a second run on the same tree).
+symlink, an index listing cut inside its last entry, a run that stops early
+and exits 0 under bash 3.2), hardens the scan (two readings that must agree,
+every line accounted for), and makes the next failure decisive (the failing
+run's own evidence, the expected accounting, a second run on the same
+tree), without printing a path.
 
 | commit | what |
 |---|---|
@@ -24,9 +26,12 @@ evidence, the expected accounting, a second run on the same tree).
 | `4743a479` | round 3: the second reading (`git grep -c`, file by file); tracked symlinks; a record cut short; the trace; the pinned accounting and the decisive diagnosis; `omit`, `truncated` |
 | `1f6e5345` | receipts: the copies of the self-test's lines dropped, round-3 mutants, `bash-regex-status.txt` fixed |
 | `2ddf7d88` | the diagnosis against a check that writes no trace |
-| `b0fd5157` | a run that stops early fails, in the check and its test (bash 3.2 exits 0 through an EXIT trap) -- **the code head** |
+| `b0fd5157` | a run that stops early fails, in the check and its test (bash 3.2 exits 0 through an EXIT trap) |
 | `836ef942` | the early-exit guard's mutant -- **round 3's gate head** (`gate3.txt`, `mutants3.txt`) |
-| (this one) | this README and round 3's records |
+| `f133ce6c` | round 3's README and records |
+| `4e2bdacb` | review round 2: listings cut inside their last entry fail; the diagnosis prints no path; `stopped`, `diagnosis`, `cutlinks`, `cuttracked`; a directory link -- **the code head** |
+| `dbb15990` | the listing guards' mutants -- **round 4's gate head** (`gate4.txt`, on a clone; `mutants4.txt`) |
+| (this one) | this README and round 4's records |
 
 `3ee1766f` added `repro/harness-shapes.sh`, `repro/harness2.sh` and
 `repro/stageA.sh`, copies of the self-test's fixture lines; `1f6e5345` drops
@@ -114,7 +119,12 @@ and the symlink every time, and by the others whenever their trigger fires.
   name; the positive control and `shapes` plant one.
 - Missing files are looked for after the scan; a regex bash cannot compile,
   a line with no number and a stream that ends inside a record (`truncated`)
-  fail the scan.
+  fail the scan, and so does an index listing that ends inside its last
+  entry: the symlink listing (`cutlinks`) and the tracked one
+  (`cuttracked`). Both used to read that entry and drop it, so a symlink or
+  a skip-worktree entry listed last went unexamined (`red4.txt`: exit 0 at
+  `f133ce6c`). The ok line counts symlinks (main tracks none,
+  `main-tree.txt`).
 - The limit, now in the header: a line from which a placeholder was taken
   out passes if the shell then finds no shape in it, so a real path beside a
   placeholder that the shell's matcher misses and git's does not would pass.
@@ -128,10 +138,12 @@ and the symlink every time, and by the others whenever their trigger fires.
   with status 0 (`bash-exit-trap.txt`). The round-3 mutant run found it: the
   self-test's diagnosis looped over an empty array, stopped, and two
   mutants read as survivors while their cases failed. The check and the
-  test now fail any exit before their last line.
+  test now fail any exit before their last line; the `stopped` case makes
+  the check stop so (a BASH_ENV `cmp` that reads an unset variable) and
+  requires exit 1 with no ok line.
 
-Source change (`git diff --numstat d2b2ca75 b0fd5157 -- scripts/`): the
-check 255 lines in, 68 out; its test 244 in, 31 out.
+Source change (`git diff --numstat d2b2ca75 4e2bdacb -- scripts/`): the
+check 270 lines in, 70 out; its test 351 in, 32 out.
 
 ## The diagnosis
 
@@ -141,13 +153,19 @@ accounting the check must print for its tree (`git gave 43 line(s): 27
 refused, 2 in 2 binary file(s), 3 marked, 11 placeholder`, from the plants
 and the `self` case's counts), and on a failure prints:
 
-- `ran:` the bash and git the test found on PATH, and `config:` the `grep.*`,
-  `core.fsmonitor`, `index.*` and `feature.*` keys with their origin, never
-  the whole config;
+- `ran:` the bash and git versions, never their paths, and `config:` the
+  `grep.*`, `core.fsmonitor`, `index.*` and `feature.*` keys with their scope
+  (`--show-scope`: global, system, local), each value only when it is a
+  boolean or a number and `<set>` otherwise, never the whole config or a
+  file's path (the `diagnosis` case plants a global config whose origin and
+  value are paths and requires neither in the output);
 - `expected:` against `actual:` accounting;
-- for each plant not named, `lost:` what the failing run's own git pass gave
-  of it (from the trace: `line 1 refused`, or `no line of it`), then what the
-  tree holds after it: in the index, on disk, and a later `git grep -c`;
+- for each plant not named that the failing pass did not refuse, `lost:`
+  what that pass gave of it (from the trace: `line 1 placeholder`, or `no
+  line of it`), then what the tree holds after it: in the index and on disk,
+  and a later `git grep -c`, each with its exit status, git's stderr
+  dropped; and one count of the plants the failing pass refused before the
+  scan failed (so a "two readings disagree" line stands out);
 - a second run over the same tree: `per tree` or `per run`.
 
 A plant in the index and on disk, which a later grep matches and of which
@@ -173,8 +191,15 @@ same tree.
 - `red3.txt`: the self-test at `b0fd5157`: 7 of 16 fail (`shapes`, its late
   NUL and its symlink; `disagree`, `vanished`, `badnum`, `gitfail`, `omit`,
   `truncated`), and the diagnosis says the old check wrote no trace.
-- `green.txt`, `green2.txt`, `green3.txt`: the same clone at `54581752` (12
-  cases), `a72b738a` (14) and `b0fd5157` (16): all pass.
+  `gitfail`'s is about the message only: the old check also exits 1 there,
+  naming `./plant.md` where the case wants `.`.
+- `red4.txt`: the self-test at `4e2bdacb` against the check at `f133ce6c`
+  (round 3's head): 5 of 20 fail. `cutlinks` and `cuttracked` exit 0 with
+  the plant in the tree, the fail-opens fixed; `self`, `shapes` and `passes`
+  fail on the ok line's new symlink count only.
+- `green.txt`, `green2.txt`, `green3.txt`, `green4.txt`: the same clone at
+  `54581752` (12 cases), `a72b738a` (14), `b0fd5157` (16) and `4e2bdacb`
+  (20): all pass.
 - `forced.txt`: the three forced paths: exit 0 at `d2b2ca75`, exit 1 and the
   plant named at `373811b0`.
 
@@ -183,15 +208,22 @@ same tree.
 - `mutants-round1.txt` (9 mutants, at `54581752`); `mutants2.txt` and
   `mutants2b.txt` (13, at `a72b738a`).
 - `mutants3.txt` (17, the old and the new, at `836ef942`, whose scripts are
-  `b0fd5157`'s): 13 killed, 4 survive. The round-3 guards are all killed:
-  the second reading (`omit`), symlinks (`shapes` and the positive
-  control), a record cut short (`truncated`). In a first run, at
+  `b0fd5157`'s): 13 killed, 4 survive. Three of the four round-3 guards are
+  killed: the second reading (`omit`), symlinks (`shapes` and the positive
+  control), a record cut short (`truncated`); the fourth, the early-exit
+  guard, survived (below). In a first run, at
   `2ddf7d88`, two placeholder mutants read as survivors while their cases
   failed: that is how the bash 3.2 exit status was found, fixed in
   `b0fd5157`.
 
-The survivors are guards no input can reach, so each is narrowed rather
-than given a test (opus judged none worth one):
+- `mutants4.txt` (19, at `dbb15990`, whose scripts are `4e2bdacb`'s): 16
+  killed, 3 survive. The early-exit guard is killed now (`stopped`), and
+  so are both listing guards (`cutlinks`, `cuttracked`).
+
+The three older survivors are guards the tree fixtures do not exercise,
+with the patterns fixed and a correct regex engine assumed; an
+instrumented copy of the check could, and each is narrowed instead (opus
+judged these three not worth a test):
 
 - *a pattern the shell cannot compile ignored*: the patterns are fixed, and
   the positive control, which runs every one of them, is the guard that
@@ -202,8 +234,10 @@ than given a test (opus judged none worth one):
 - *the count not checked*: it fires only if this file's code loses a line;
   the mutant that drops one is killed by the `shapes` and `passes`
   expectations whether or not the count is checked.
-- *a run that stops early passes*: no input makes the check stop on its own
-  error; `bash-exit-trap.txt` shows the guard doing its work.
+- *a run that stops early passes*, round 3's survivor: the `stopped` case now
+  makes the check stop on its own error from the environment (BASH_ENV), as
+  the PATH-shim cases do for git, and kills this mutant (`mutants4.txt`;
+  under bash 3.2, which this ran; not run under bash 5).
 
 ## Gate (each figure with its head)
 
@@ -211,8 +245,12 @@ than given a test (opus judged none worth one):
 - Round 2, `gate2.txt` (`gates-round2.sh`), at `25336ee5`: the 8 steps that
   read what it changed.
 - Round 3, `gate3.txt` (`gates.sh`), at `836ef942` (the scripts of
-  `b0fd5157`, the code head): 22 of 22 steps, the tree clean before and
-  after, in one suite-lock slot after `mutants3.txt`.
+  `b0fd5157`): 22 of 22 steps, the tree clean before and after, in one
+  suite-lock slot after `mutants3.txt`.
+- Round 4, `gate4.txt` (`gates.sh`), at `dbb15990` (the scripts of
+  `4e2bdacb`, the code head), on a `git clone --no-local`: 22 of 22 steps,
+  the clone clean before and after, in one suite-lock slot after
+  `mutants4.txt`.
 - The brief's path grep over `git diff d2b2ca75..HEAD` prints 0, and the
   dispatcher's per-commit rule prints 0 for every commit but `3ee1766f`
   (6, above).
@@ -220,3 +258,16 @@ than given a test (opus judged none worth one):
 `bash-regex-status.txt` (fixed in `1f6e5345`: both commands now set the
 pattern): bash 3.2.57 returns 2 for a pattern it cannot compile, and an
 `if` reads that as "no match".
+
+## Open
+
+- **LOCAL-PATHS-EXIT-TRAP (queued):** eight more scripts install an EXIT
+  trap, and whether each exits 0 after a `set -u` stop depends on its
+  options and its trap's last status: `check-no-secrets.sh` (`:61`,
+  `:177`, `:386`; a public-repo guard, so first), `check-xfx-identity.sh`
+  (`:171`), `check-preview-contract.sh` (`:957`), `test-check-no-secrets.sh`
+  (`:69`), `test-preview-contract.sh` (`:35`), `test-gate-env.sh` (`:109`),
+  `smoke.sh` (`:413`) and `fxcap/capture.sh` (`:849`) (line numbers at
+  `f133ce6c`: `git show f133ce6c:scripts/<file> | grep -n 'trap .* EXIT'`).
+- Bash 5 has not run this code; the Linux CI row is its first run.
+- The trigger: a macOS 15 host looping the repro is devops-engineer work.

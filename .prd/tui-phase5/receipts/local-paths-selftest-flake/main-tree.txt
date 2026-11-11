@@ -13,3 +13,7 @@ exit=0
 # the check at 4743a479 (round 3) on the same tree, its own file swapped in
 check-no-local-paths: ok (18935 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
 exit=0
+
+# the check at 4e2bdacb (review round 2's fixes) on the same tree, its own file swapped in: main tracks no symlink
+check-no-local-paths: ok (18935 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s); 0 symlink(s))
+exit=0
