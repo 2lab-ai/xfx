@@ -1913,6 +1913,60 @@ class LaunchWait(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(gone.out, "fx-t-30x200-h.files")), "the run went on")
         self.assertIn("guards:", gone.stdout, "the guards still ran")
 
+    # tmux 3.8 prints no `#{pane_pid}` once a pane's pty is closed (format.c
+    # `format_cb_pane_pid`, `wp->fd != -1`, at its 3.8 tag); 3.7b printed it.
+    # CI's runner has 3.8 and a binary gone at once lost the race to be read
+    # (WIAP-PANE-PID-RACE). These shims make each tmux answer as 3.8 does, at
+    # a moment of the test's choosing. `$REAL` is the real tmux.
+    def tmux_shim(self, body):
+        d = scratch()
+        shim = os.path.join(d, "shim", "tmux")
+        write(shim, "#!/bin/bash\nREAL=%s\n%s" % (shutil.which("tmux"), body))
+        os.chmod(shim, 0o755)
+        return {"PATH": os.path.dirname(shim) + ":" + os.environ["PATH"]}
+
+    # A look at the pane's pid waits until tmux has reaped the pane's process
+    # (`#{pane_dead}`), then answers as 3.8 does for a closed pty: no pid.
+    AS_38_DEAD = (
+        'a=("$@")\n'
+        'case "$*" in *"#{pane_pid}"*)\n'
+        '  for i in $(seq 150); do [ "$("$REAL" "${@:1:4}" display-message -p -t cap "#{pane_dead}")" = 1 ] && break; sleep 0.02; done\n'
+        '  for i in "${!a[@]}"; do a[i]=${a[i]//"#{pane_pid}"/"#{?pane_dead,,#{pane_pid}}"}; done ;;\n'
+        'esac\nexec "$REAL" "${a[@]}"\n')
+
+    def test_a_pane_dead_before_its_pid_is_read_is_gone_as_tmux_says(self):
+        r = capture("keep\nsnap a\n", binary="/bin/echo", env=self.tmux_shim(self.AS_38_DEAD))
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertRegex(r.stdout, r"up: the pane is dead after \d+\.\d\d s \(\d+ looks\)\n")
+        self.assertNotIn("LIVE-WRITER GUARD", r.stderr)
+
+    # The pty closed and the process not yet reaped: no pid and no status, for
+    # the first `n` looks; then tmux's real answer.
+    def blank_for(self, n):
+        return ('a=("$@")\n'
+                'case "$*" in *"#{pane_pid}"*)\n'
+                '  c=$(cat "$0.n" 2>/dev/null || echo 0); echo $((c + 1)) > "$0.n"\n'
+                '  if [ "$c" -lt %d ]; then for i in "${!a[@]}"; do\n'
+                '    a[i]=${a[i]//"#{pane_pid}"/}; a[i]=${a[i]//"#{pane_dead_status}"/}; a[i]=${a[i]//"#{pane_dead_signal}"/}\n'
+                '  done; fi ;;\n'
+                'esac\nexec "$REAL" "${a[@]}"\n' % n)
+
+    def test_a_pane_not_yet_reaped_is_looked_at_again(self):
+        r = capture("keep\nsnap a\n", binary="/bin/echo", env=self.tmux_shim(self.blank_for(3)))
+        self.assertEqual(r.code, 0, r.stdout + r.stderr)
+        self.assertNotIn("LIVE-WRITER GUARD", r.stderr)
+
+    def test_a_pane_with_neither_a_pid_nor_an_exit_stays_unknown_and_fails_the_run(self):
+        # The safety rule stands: nothing tmux says confirms the process gone,
+        # so the run fails (exit 4), whatever the binary did.
+        stub = os.path.join(scratch(), "up")
+        write(stub, "#!/bin/sh\necho up\nexec /bin/cat\n")
+        os.chmod(stub, 0o755)
+        r = capture("keep\nwait 1\nsnap a\n", binary=stub, env=self.tmux_shim(self.blank_for(10**6)))
+        self.assertEqual(r.code, 4, r.stdout + r.stderr)
+        self.assertIn("LIVE-WRITER GUARD: the process this run started in its pane could not be recorded "
+                      "(the pane pid could not be read)", r.stderr)
+
     def test_nodraw_runs_a_stub_that_draws_nothing_at_once(self):
         r = capture("nodraw\nkeep\nsnap a\nrelaunch\nsnap b\n", binary="/bin/cat")
         self.assertEqual(r.code, 0, r.stdout + r.stderr)
