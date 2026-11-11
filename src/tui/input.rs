@@ -61,7 +61,8 @@
 //! word right, `ESC ESC [ 1 ; 5 H` the plain Home, since Alt's row has none
 //! ([`prefixed`], [`kitty_key`] for a key report). Alone, the pair is one
 //! Escape once the quiet comes, as upstream's flush reads a prefixed lone ESC
-//! (`:327-329`, `terminal_action_decoder.zig:174-183`). Nothing here reads
+//! (`escape_parser.zig:327-329`, `terminal_action_decoder.zig:174-183`).
+//! Nothing here reads
 //! which read a byte came off: the quiet alone tells a person's two presses,
 //! which are two Escapes and the gesture's two taps ([`super::gesture`]),
 //! from two ESC bytes in one burst, which are one. The quiet is
@@ -4157,7 +4158,7 @@ mod tests {
         // prefix, a bit of the stage with no event (`escape_parser.zig:552-555`;
         // `terminal_action_decoder.zig:84-88@481104fd`, which also restarts
         // the clock), and a prefixed lone `ESC` is still the bare stage
-        // (`isBareEscapeStage`, `:327-329`) that the quiet resolves as one
+        // (`isBareEscapeStage`, `escape_parser.zig:327-329`) that the quiet resolves as one
         // Escape (`terminal_action_decoder.zig:174-183`). There is no rule per
         // read: the quiet alone tells two presses from one prefix.
         //
@@ -4296,7 +4297,8 @@ mod tests {
             (b"\x1b\x1b\x03", Action::Ignore),
             (b"\x1b\x1b\x02", Action::Ignore),
             (b"\x1b\x1b\x09", Action::Ignore),
-            // The tilde stages read no prefix (`:620-635`, `:694-719`).
+            // The tilde stages read no prefix (`escape_parser.zig:620-635`,
+            // `:694-719`).
             (b"\x1b\x1b[1~", Action::Home),
             (b"\x1b\x1b[5~", Action::PageUp),
             (b"\x1b\x1b[6;5~", Action::ComposerPageDown),
@@ -4304,7 +4306,7 @@ mod tests {
             (b"\x1b\x1b[3;5~", Action::DeleteWordRight),
             (b"\x1b\x1b[7;5~", Action::DraftStart { shifted: false }),
             // A key report reads it where `kittyUnicodeKeyAction` does
-            // (`:185-266`): Escape is Escape (`:188`); a keypad digit is not
+            // (`escape_parser.zig:185-266`): Escape is Escape (`:188`); a keypad digit is not
             // typed (`:195`) and nothing after reads its code (`:265`); the
             // keypad's Enter is Enter's (`:203`), and Enter with Ctrl Enter
             // still, through the bare Enter (`:218`, `:262`); Shift-Space is
@@ -4336,10 +4338,11 @@ mod tests {
             (b"\x1b[57352;17u", Action::Ignore),
             (b"\x1b\x1b[57352;17u", Action::ParagraphUp),
             (b"\x1b\x1b[57353;33u", Action::ParagraphDown),
-            // A release is never a key, prefixed or not (`:774-777`).
+            // A release is never a key, prefixed or not
+            // (`escape_parser.zig:774-777`).
             (b"\x1b\x1b[100;1:3u", Action::Ignore),
             // An unknown sequence is one `.ignore`, the prefix with it
-            // (`:589`, `:349-351`).
+            // (`escape_parser.zig:589`, `:349-351`).
             (b"\x1b\x1b[>4;2m", Action::Ignore),
             (b"\x1b\x1b[999C", Action::Ignore),
         ] {
@@ -4347,7 +4350,8 @@ mod tests {
         }
         // Shift+Space under the prefix, and a keypad digit: nothing typed.
         assert_eq!(typed(b"\x1b\x1b[32;2u\x1b\x1b[57400u"), "");
-        // A paste's start marker behind the prefix is the marker (`:625`):
+        // A paste's start marker behind the prefix is the marker
+        // (`escape_parser.zig:625`):
         // the paste opens, and its bytes are content.
         let mut decoder = Decoder::new();
         let now = Instant::now();
