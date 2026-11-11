@@ -170,5 +170,26 @@ for p in d["pairs"]:
        RunDirectory.test_a_relaunch_that_fails_after_respawning_says_the_pane_was_being_remade || true)
     git clone --no-local -q "$XFX" "$SCRATCH/mut5"; git -C "$SCRATCH/mut5" checkout -q -b mut5 80486812
     SCRATCH=$SCRATCH MUT_TMP=$GATE_TMP/mut5 $LOCK "$(dirname "$0")/mutants5.sh" ;;
+  r6)
+    # Round 6: the pairs and two real relaunch scenarios with 495fbb40's
+    # harness, the new tests at f8600318 (RED), the mutants. The gate is
+    # gates.sh on a clone at 495fbb40.
+    git clone --no-local -q "$XFX" "$SCRATCH/h6"; git -C "$SCRATCH/h6" checkout -q -b h6 495fbb40
+    H=$SCRATCH/h6
+    $LOCK bash -c "
+      $(declare -f sweep); FX=$FX SHA=$SHA
+      sweep $H $SCRATCH/scen-rep8 'workspace-index-*' $SCRATCH/xbin/xfx-495fbb40 $TMP24 $SCRATCH/sw/r6-495fbb40-24
+      sweep $H $SCRATCH/scen-rep8 'workspace-index-*' $SCRATCH/xbin/xfx-495fbb40 $TMP49 $SCRATCH/sw/r6-495fbb40-49
+      sweep $H $H/scripts/fxcap/scenarios 'resume-launch,rename' $SCRATCH/xbin/xfx-495fbb40 $TMP24 $SCRATCH/sw/r6-relaunch-495fbb40-24"
+    git clone --no-local -q "$XFX" "$SCRATCH/red6"; git -C "$SCRATCH/red6" checkout -q -b red6 f8600318
+    git -C "$XFX" show 495fbb40:scripts/fxcap/test_capture.py > "$SCRATCH/red6/scripts/fxcap/test_capture.py"
+    (cd "$SCRATCH/red6" && TMPDIR=$GATE_TMP python3 -I scripts/fxcap/test_capture.py \
+       RunDirectory.test_a_relaunched_binary_whose_last_one_stays_fails_the_run \
+       RunDirectory.test_a_relaunched_binary_is_the_one_waited_for \
+       RunDirectory.test_a_respawn_that_fails_leaves_cleanup_the_first_binary_to_wait_for \
+       RunDirectory.test_an_exit_after_the_respawn_leaves_cleanup_the_first_binary_to_wait_for \
+       RunDirectory.test_a_record_copy_the_binary_made_a_fifo_never_blocks_the_run || true)
+    git clone --no-local -q "$XFX" "$SCRATCH/mut6"; git -C "$SCRATCH/mut6" checkout -q -b mut6 495fbb40
+    SCRATCH=$SCRATCH MUT_TMP=$GATE_TMP/mut6 $LOCK "$(dirname "$0")/mutants6.sh" ;;
   *) echo "no step $1" >&2; exit 2 ;;
 esac

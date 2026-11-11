@@ -390,10 +390,61 @@ check of the file would make it trustworthy.
   `r5/80486812-49.txt`).
 - **Gate** at 80486812, on a clone, under the lock: 22 / 22; the capture
   harness ran 125 tests (`gate/gates-80486812.txt`).
-- **Not covered:** the first process a `relaunch` replaces is not waited
-  for. `respawn-pane -k` hangs it up, and the record moves to the new one.
+- **Not covered (closed in round 6, 8f):** the first process a `relaunch`
+  replaces is not waited for. `respawn-pane -k` hangs it up, and the record moves to the new one.
   It writes, if at all, into the same side's own run, while the scenario
   goes on.
+
+## 8f. Round 6 (495fbb40; the relaunch gap, and gpt6's MUST on round 5)
+
+`respawn-pane -k` hangs up the process it replaces and starts the new one at
+once. One that outlived the hangup kept writing in `$run` beside the new
+binary, and nothing waited for it.
+
+- **One wait, two moments.** `await_pane` (`scripts/fxcap/capture.sh:592-611@495fbb40`)
+  takes the record as arguments (kind, pid, start, why) and names the process
+  and when it was hung up. Its rule is unchanged: there / gone / unknown, 3 s,
+  no signal.
+- **At a relaunch** (`:1330-1339`):
+  - the current record is kept as `old_*` (`:429`) before `respawn-pane`;
+  - then `own_pane` records the new process;
+  - then the old record is waited for. Not gone: a `LIVE-WRITER GUARD: the
+    relaunched pane's process ...` line and exit 4;
+  - gone: `old_kind` is cleared.
+- **The obligation survives an exit.** Until it is confirmed gone, the old
+  record stays, and cleanup (`:613-625`) waits for it as well as for the
+  current one. A respawn that fails, or an exit just after the respawn,
+  still leaves cleanup the first process to wait for. An earlier non-zero
+  status is kept, as since round 3, so those runs end with their own failure
+  status, not 4, and with the guard line.
+- **The copy** (`pane_set`, `:534-539`) is written into a mktemp file renamed
+  over `$run/pane`, so a FIFO or link the binary left there is never opened
+  (gpt6's NTH: `rm -f` then `set -C` still opened whatever was created in
+  between).
+- **Tests** (`tests/red6.txt`, at f8600318):
+  - a first binary deaf to the respawn's hangup, past the wait: exit 4 naming
+    it, alive when the run ends, sent only HUP (exit 0 at f8600318);
+  - a first binary that exits within the wait: waited for at the relaunch
+    (`pane: the relaunched pane's process is gone (N looks)`, N > 0), and the
+    new one at cleanup (no such line at f8600318);
+  - a respawn that fails, and an exit just after the respawn: cleanup names
+    the first binary (at f8600318 it named only the unknown new record);
+  - a FIFO at the copy's name does not block the run. This passes at
+    f8600318 too: its `rm -f` removed a FIFO left before it, and the race
+    between `rm` and the open cannot be made deterministic here.
+- **Mutants:** 4 / 4 killed at 495fbb40 (`mutants6.sh`, `mutants6.txt`):
+  - no wait at the relaunch;
+  - the old record taken after the respawn instead of before;
+  - cleanup forgetting the old record;
+  - the copy opened in place (the FIFO test's run then never ends).
+- **The pairs again,** with xfx 495fbb40, eight units a leg: 24 bytes 16 /
+  16, 49 bytes 16 / 16 (`r6/495fbb40-24.txt`, `r6/495fbb40-49.txt`).
+- **Two real relaunch scenarios** (`resume-launch`, `rename`) at 24 bytes:
+  every run exits 0, and the process each relaunch replaced was gone at the
+  first look (4 of 4). `rename`/`relaunched` differs, as it did at main's CI
+  base (`r6/relaunch-495fbb40-24.txt`).
+- **Gate** at 495fbb40, on a clone, under the lock: 22 / 22; the capture
+  harness ran 129 tests (`gate/gates-495fbb40.txt`).
 
 ## 9. Open
 
