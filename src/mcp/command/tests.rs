@@ -1028,6 +1028,98 @@ fn saved_choices_are_read_as_fxs_parse_reads_them() {
     assert_eq!(seen(twice), Seen::NotRead);
 }
 
+/// A live session whose saved choices stop loading, then load again (gpt6
+/// r2): each reload reads them as fx does ([`config::load_choices`]). A
+/// profile server `p` and a workspace server `s`, approved in the saved
+/// choices, both run. A `1e400` beside the choices is read, so the reload
+/// keeps both as they are. `"workspaces": 5` is a load fx refuses
+/// (`config_runtime.zig:402-403@481104fd`), so the reload loads none of the
+/// workspace's servers (`src/builtins/mcp.zig:58-63`): `s` is retired and
+/// its process stopped, and `p` is kept -- the same server, the same
+/// process. The choices restored, `s` starts again, a new process. `/mcp
+/// list` says so at each step.
+#[test]
+fn a_reload_over_choices_that_stop_loading_retires_only_the_workspace_server() {
+    let scratch = Scratch::new();
+    let (p_log, s_log) = (scratch.root.join("p.pid"), scratch.root.join("s.pid"));
+    // A stdio server that writes its process id to `log`, then is the fixture.
+    let logged = |log: &Path| {
+        let script = r#"echo $$ > "$1"; exec /bin/sh "$2""#;
+        serde_json::json!({
+            "command": "/bin/sh",
+            "args": ["-c", script, "logged", log.to_str().unwrap(), fixture()],
+        })
+        .to_string()
+    };
+    let pid_in = |log: &Path| -> i32 {
+        std::fs::read_to_string(log)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap()
+    };
+    let running = |pid: i32| {
+        rustix::process::test_kill_process(rustix::process::Pid::from_raw(pid).expect("pid"))
+            .is_ok()
+    };
+    scratch.write_profile(&format!(r#"{{"mcpServers":{{"p":{}}}}}"#, logged(&p_log)));
+    std::fs::write(
+        scratch.project(),
+        format!(r#"{{"mcpServers":{{"s":{}}}}}"#, logged(&s_log)),
+    )
+    .unwrap();
+    let runtime = scratch.runtime();
+    ready(&runtime, "p");
+    let digest = runtime.loaded_digest("s").expect("read");
+    let key = serde_json::to_string(scratch.root.join("work").to_str().unwrap()).unwrap();
+    let choices = |beside: &str| {
+        format!(
+            r#"{{{beside}"workspaces": {{{key}: {{"enabledMcpjsonServers": ["s"], "enabledMcpjsonServerDigests": {{"s": "{digest}"}}}}}}}}"#
+        )
+    };
+    let header = "* NAME  SOURCE           TRANSPORT  STATUS";
+    let p_row = "p     ~/.xfx/mcp.json  stdio      ready, 1 tool";
+    let s_row = "s     .mcp.json        stdio      ready, 1 tool";
+    let both = [format!("{header}\n{p_row}\n{s_row}")];
+
+    // Approved: both run.
+    std::fs::write(scratch.settings(), choices("")).unwrap();
+    runtime.reload(Origin::Transcript);
+    ready(&runtime, "s");
+    assert_eq!(said(&runtime, "list"), both);
+    let (p, p_pid) = (runtime.server("p").expect("p"), pid_in(&p_log));
+    let (s, s_pid) = (runtime.server("s").expect("s"), pid_in(&s_log));
+
+    // A number past `f64` beside the choices: read, so both are kept.
+    std::fs::write(scratch.settings(), choices(r#""zzz": 1e400, "#)).unwrap();
+    runtime.reload(Origin::Transcript);
+    assert!(Arc::ptr_eq(&runtime.server("p").expect("p"), &p));
+    assert!(Arc::ptr_eq(&runtime.server("s").expect("s"), &s));
+    assert!(running(p_pid) && running(s_pid));
+    assert_eq!(said(&runtime, "list"), both);
+
+    // Choices fx's load refuses: `s` retired and stopped, `p` as it was.
+    std::fs::write(scratch.settings(), r#"{"workspaces": 5}"#).unwrap();
+    runtime.reload(Origin::Transcript);
+    assert!(runtime.server("s").is_none(), "s is still loaded");
+    assert!(!running(s_pid), "the retired server's process still runs");
+    assert!(Arc::ptr_eq(&runtime.server("p").expect("p"), &p));
+    assert!(running(p_pid));
+    assert_eq!(pid_in(&p_log), p_pid);
+    assert_eq!(said(&runtime, "list"), [format!("{header}\n{p_row}")]);
+
+    // The choices restored: `s` starts again, a new process; `p` as it was.
+    std::fs::write(scratch.settings(), choices("")).unwrap();
+    runtime.reload(Origin::Transcript);
+    ready(&runtime, "s");
+    assert!(!Arc::ptr_eq(&runtime.server("s").expect("s"), &s));
+    assert_ne!(pid_in(&s_log), s_pid);
+    assert!(Arc::ptr_eq(&runtime.server("p").expect("p"), &p));
+    assert_eq!(pid_in(&p_log), p_pid);
+    assert_eq!(said(&runtime, "list"), both);
+    runtime.shutdown();
+}
+
 #[test]
 fn an_entry_rewritten_after_its_approval_was_saved_stays_pending() {
     // The producer's half of an approval's binding: what a reload admits is

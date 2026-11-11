@@ -3,7 +3,8 @@
 see it run, the edit undone. A mutant is killed when a test fails, and
 survives when every one passes; one that does not build is UNBUILT, no kill.
 
-usage: python3 -I mutants.py <head repo> <clone dir>
+usage: python3 -I mutants.py <head repo> <clone dir> [name part]
+  With a third argument, only the mutants whose name holds it run.
   Each test run bounded at 900 s. Prints no path: the clone is <clone>.
 """
 
@@ -21,6 +22,7 @@ CLI = ["--test", "cli", "ask_"]
 M = "src/mcp/config.rs"
 RT = "src/mcp/runtime.rs"
 CHOICES_RT = ["--lib", "mcp::command::tests::saved_choices_are_read_as_fxs_parse_reads_them"]
+RELOAD_RT = ["--lib", "mcp::command::tests::a_reload_over_choices_that_stop_loading_retires_only_the_workspace_server"]
 
 # (name, file, old, new, test runs)
 MUTANTS = [
@@ -123,6 +125,12 @@ MUTANTS = [
      "    let Ok(text) = String::from_utf8(bytes) else {",
      "    let Ok(text) = Ok::<String, ()>(String::from_utf8_lossy(&bytes).into_owned()) else {",
      [LIB]),
+    # Round 3: a reload over choices that stop loading keeps the last good
+    # choices' workspace servers instead of loading none.
+    ("a reload keeps the old workspace servers", RT,
+     "            _ => config::WorkspaceServers::default(),",
+     "            _ => config::load_workspace(&self.paths.workspace, &self.state().choices.clone(), &*self.environment),",
+     [RELOAD_RT]),
     # Recursion where the reader keeps its own stack: the 100,000-deep read
     # runs the default thread's stack out (a crash is a kill).
     ("a recursive reader", J,
@@ -151,6 +159,8 @@ def run(clone, args):
 
 def main():
     head, clone = sys.argv[1:3]
+    only = sys.argv[3] if len(sys.argv) > 3 else None
+    mutants = [m for m in MUTANTS if only is None or only in m[0]]
     if os.path.realpath(clone).startswith(os.path.realpath(head)):
         sys.exit("the clone must not be inside the worktree")
     subprocess.run(["rm", "-rf", clone], check=True)
@@ -158,7 +168,7 @@ def main():
     rev = subprocess.run(["git", "-C", clone, "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
     print(f"clone of {rev}")
     killed = 0
-    for name, path, old, new, runs in MUTANTS:
+    for name, path, old, new, runs in mutants:
         file = os.path.join(clone, path)
         text = open(file).read()
         if text.count(old) != 1:
@@ -182,7 +192,7 @@ def main():
         killed += bool(why) and not unbuilt
         verdict = "UNBUILT" if unbuilt else "KILLED" if why else "SURVIVED"
         print(f"{verdict} {name}: {'; '.join(why) or 'every test passed'}")
-    print(f"== {killed}/{len(MUTANTS)} killed")
+    print(f"== {killed}/{len(mutants)} killed")
 
 
 if __name__ == "__main__":
