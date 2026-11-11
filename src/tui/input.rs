@@ -233,7 +233,9 @@ pub(crate) enum Action {
     /// Left as upstream's composer move rather than its cursor key: Shift-Left
     /// (`CSI 1;2 D` and the kitty keypad Left with Shift held, but not Ctrl or
     /// Alt, which are [`Action::WordLeft`], nor Super, which is
-    /// [`Action::LineStart`]) and Ctrl-B.
+    /// [`Action::LineStart`]), Ctrl-B, and kitty's Ctrl-Shift-b
+    /// (`character_left` extending a selection, `escape_parser.zig:239
+    /// @481104fd`, the selection dropped).
     ///
     /// Upstream decodes the arrows to `composerMove` (`modifiedArrowAction`,
     /// `escape_parser.zig:73-108@481104fd`) and keeps Ctrl-B a raw byte
@@ -248,8 +250,8 @@ pub(crate) enum Action {
     /// read this as it came; the shell folds it back to [`Action::Left`] for
     /// the menus and the composer (`super::shell::Shell`'s `folded`).
     ComposerLeft,
-    /// Right as a composer move: Shift-Right and Ctrl-F, the mirror of
-    /// [`Action::ComposerLeft`].
+    /// Right as a composer move: Shift-Right, Ctrl-F and kitty's Ctrl-Shift-f,
+    /// the mirror of [`Action::ComposerLeft`].
     ComposerRight,
     Up,
     Down,
@@ -308,10 +310,11 @@ pub(crate) enum Action {
     DraftEnd {
         shifted: bool,
     },
-    /// Left with Super held, whatever else is, and Home with Shift held and
-    /// none of Super, Alt and Ctrl: upstream's `line_start`
-    /// (`escape_parser.zig:78`, `:104@481104fd`). The tilde Home with any
-    /// modifier but Ctrl is the same move, Super included (`:699-703`).
+    /// Left with Super held, whatever else is, Home with Shift held and none
+    /// of Super, Alt and Ctrl, and kitty's Ctrl-Shift-a: upstream's
+    /// `line_start` (`escape_parser.zig:78`, `:104`, `:238@481104fd`). The
+    /// tilde Home with any modifier but Ctrl is the same move, Super included
+    /// (`:699-703`).
     ///
     /// To every surface the bare Home's move, as upstream's: its `.home` is
     /// `line_start` to the composer (`fromEscapeAction`, `shortcuts.zig:51`),
@@ -330,8 +333,9 @@ pub(crate) enum Action {
     LineStart {
         shifted: bool,
     },
-    /// Right with Super held, and End with Shift alone: upstream's `line_end`
-    /// (`escape_parser.zig:77`, `:105`, `:704-707`), the mirror of
+    /// Right with Super held, End with Shift alone and kitty's Ctrl-Shift-e:
+    /// upstream's `line_end` (`escape_parser.zig:77`, `:105`, `:240`,
+    /// `:704-707`), the mirror of
     /// [`Action::LineStart`], folded to [`Action::End`].
     LineEnd {
         shifted: bool,
@@ -1821,10 +1825,13 @@ fn keypad_navigation(code: u32) -> Option<u8> {
 ///   [`Action::SelectAll`], [`Action::CopySelection`] and
 ///   [`Action::CutSelection`].
 ///
+/// * a `composerMove` that extends a selection is its move with the selection
+///   dropped: Ctrl+Shift on `a`/`e` [`Action::LineStart`]/[`Action::LineEnd`]
+///   and on `b`/`f` [`Action::ComposerLeft`]/[`Action::ComposerRight`]
+///   (:235-242), Alt+Shift on `b`/`f` the word moves (:244, :248).
+///
 /// What has no action here is [`Action::Ignore`], each named where it falls:
-/// every `composerMove` that extends a selection (:238-241, :244,
-/// :248), an `o` under any other modifiers (:111-114) and
-/// `open_all_sessions` (:253). `toggle_permission_mode` (:254) is
+/// an `o` under any other modifiers (:111-114) and `open_all_sessions` (:253). `toggle_permission_mode` (:254) is
 /// [`Action::BackTab`], the key it is spelled with. Upstream's
 /// `meta_prefixed` -- a key report behind a second `ESC` -- has no counterpart:
 /// this decoder reads `ESC ESC` as the Escape key and then whatever follows,
@@ -1908,9 +1915,25 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
             });
         }
     }
-    // A `composerMove` that extends a selection (:235-242).
-    if mods & (SHIFT | CTRL) == (SHIFT | CTRL) && (is(b'a') || is(b'b') || is(b'e') || is(b'f')) {
-        return ignore;
+    // Ctrl and Shift on `a`, `b`, `e` or `f`: the `composerMove` to the
+    // line's start, a step left, the line's end, a step right, extending a
+    // selection (:235-242). The move, the selection dropped, as Shift-Home's
+    // and Shift-Left's are ([`cursor`]; COMPOSER-SELECTION-EXTEND).
+    if mods & (SHIFT | CTRL) == (SHIFT | CTRL) {
+        let held = if is(b'a') {
+            Some(Action::LineStart { shifted: true })
+        } else if is(b'b') {
+            Some(Action::ComposerLeft)
+        } else if is(b'e') {
+            Some(Action::LineEnd { shifted: true })
+        } else if is(b'f') {
+            Some(Action::ComposerRight)
+        } else {
+            None
+        };
+        if let Some(action) = held {
+            return Input::Action(action);
+        }
     }
     if mods & ALT != 0 && matches!(ascii, Some(b'b' | b'f')) {
         // With Shift, upstream's word move extending a selection (:244,
