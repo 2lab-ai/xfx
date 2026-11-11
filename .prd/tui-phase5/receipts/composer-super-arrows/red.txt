@@ -21,7 +21,7 @@ assertion `left == right` failed: statusline: [27, 91, 49, 59, 57, 68] moved it
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4798 filtered out; finished in 0.02s
 test tui::shell::tests::a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move ... FAILED
 thread 'tui::shell::tests::a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move' (530245925) panicked at src/tui/shell.rs:24512:13:
-qtzsyaxb cduvwr: the field row reads `3) tzsyaxb cduvwqr` (the step)
+# (the panic message is the band's rows; its field row, read from that output by hand: `3) tzsyaxb cduvwqr`, the step, for `qtzsyaxb cduvwr`)
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4798 filtered out; finished in 0.02s
 test tui::shell::tests::a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4798 filtered out; finished in 0.10s

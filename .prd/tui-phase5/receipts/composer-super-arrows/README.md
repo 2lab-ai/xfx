@@ -146,15 +146,15 @@ Shift-Home and Shift-End are the exception (see below).
     receipt read its pairs against too. `pairs.sh` calls a pair SCOPE when
     its rows are exactly `down`'s.
   - **`amend-super-right`** differs in row 18 as well. Its text is
-    identical (`zab cd efy`). fx's frame has no reverse-video caret cell
-    after the `y`, and xfx's does. fx's frame is the same:
+    identical (`zab cd efy`). fx's captured frame has no reverse-video
+    caret cell after the `y`, and xfx's does. fx's capture is the same:
     - when captured a second time
       (`probe/fx-rerun-p5-super-arrows-approval-40x120-amend-super-right.ansi`);
     - with the **plain End** in place of Super-Right (`probe/probe-end.cap`,
       `probe/fx-probe-end-40x120-amend-super-right.ansi`).
 
-    So the difference is fx's caret paint in that state, not the key's
-    effect (Open).
+    So the difference is not the key's effect. Whether fx or the capture
+    leaves the cell out is not traced [inferred: fx's frame] (Open).
 - `green.txt`: the unit's 19 tests at the head, on both suites: 19 + 19 ok.
 
 ## The readers, and what changed for each
@@ -193,7 +193,33 @@ and Shift bits.
 
 ## Mutants (`mutants.txt`, `mutants.py`)
 
-PENDING
+On a `--no-local` clone at `32969730` under the suite lock, one mutant at a
+time, each running `cargo test --lib -- tui::`: **12 of 12 killed**, the
+clone clean after the run.
+
+| mutant | killed by |
+|---|---|
+| M1 Super-Left/-Right the step (the base's `ComposerLeft`) | the decoder tables, the composer, question and amendment tests (+1) |
+| M2 Ctrl and Alt read before Super on Left/Right (the base's order) | the decoder tables, the composer, question and amendment tests |
+| M3 Alt's Home/End fall through to Ctrl's (no `null`) | the Left/Right/Home/End table, the composer test |
+| M4 Ctrl-Home/-End the line's edges | the decoder tables, the composer and amendment tests |
+| M5 Super-Home/-End the line's edges | the Left/Right/Home/End table, the composer test |
+| M6 Shift-Home the bare Home (its Shift forgotten) | the Left/Right/Home/End table |
+| M7 the tilde Home/End through `cursor`'s rows | the tilde tests (past-256, lock-bit, the four `assert_modified_tilde`, the field sweep) |
+| M8 the tilde Home/End the line's edges under Ctrl | the tilde tests (leading-zero, past-256, the four, the field sweep, +2) |
+| M9 the tilde keys read a lock bit alone as nothing | past-256, the page-key test, the lock-bit test |
+| M10 no fold of the line's edges | the amendment test, the menu test, the fold table |
+| M11 a question reads the line's edges as nothing | the question test |
+| M12 the editor's line start the line's end | the editor test |
+
+M11's list also names `tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop`,
+a catalog-wait test (the known flake class); the question test kills M11 on
+its own.
+
+Not mutated: `act`'s `LineStart => act(Home)` fallback, which `folded`
+makes unreachable (an equivalent mutant while the fold stands; M10 removes
+the fold and the fallback alone does not save the menus' column or the
+amendment).
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
 
@@ -256,10 +282,10 @@ content, against the base (`refs.py 28bd1810`). 11 of 16 had moved, and
 
 ## Open
 
-- **fx's amendment caret cell** (GREEN, `amend-super-right`). fx paints no
-  caret cell after a letter appended at the end of a 10-character draft,
-  in that scenario state, on two runs and with the plain End. It looks like
-  fx's frame damage, not this unit's key. Recorded in `docs/parity.md`'s
+- **fx's amendment caret cell** (GREEN, `amend-super-right`). fx's
+  captured frame shows no caret cell after a letter appended at the end of
+  a 10-character draft, in that scenario state, on two runs and with the
+  plain End. Not this unit's key; fx's frame or the capture, not traced. Recorded in `docs/parity.md`'s
   approval paragraph ("Also not changed, found by COMPOSER-SUPER-ARROWS");
   unowned, and not in the ledger.
 - **kitty's Ctrl-Shift-a/-e/-b/-f** (`escape_parser.zig:235-242`) are

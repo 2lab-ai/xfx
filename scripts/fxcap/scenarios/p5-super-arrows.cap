@@ -12,7 +12,7 @@
 # First `/statusline`, a compact menu, which acts on the plain arrows alone
 # (app_input_runtime.zig:2228-2263): Super-Left, Super-Right and Ctrl-Home
 # leave its mark and its values. Then the draft
-# `one two/<a line of 250 cells, wrapped over three rows>/the end`, the caret
+# `one two/<a line of 249 cells, wrapped over three rows>/the end`, the caret
 # on the wrapped line's last row, seven cells in (Up from the end of `the
 # end`), and each key on its own, each followed by its own letter. Shift-Home
 # and Shift-End select what they cross in fx (COMPOSER-SELECTION-EXTEND): a
