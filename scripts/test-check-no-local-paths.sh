@@ -172,13 +172,15 @@ diagnose_shapes() {
 	# Versions only, and only the config keys that change a scan, each with
 	# its scope and a value only when it is a boolean or a number: this log
 	# is public, and a path (a tool's, a config file's, a value's) names a
-	# machine.
-	printf '    | ran: bash %s; %s\n' "$BASH_VERSION" "$(git --version 2>/dev/null || echo 'git: no version')" >&2
+	# machine. Its lines go to fd 3 and nothing else does: every command
+	# below drops its own stderr (a `cd` that fails names the directory),
+	# and the caller drops fd 2 as well.
+	printf '    | ran: bash %s; %s\n' "$BASH_VERSION" "$(git --version 2>/dev/null || echo 'git: no version')" >&3
 	# Names only, never a value as text (a value can span lines, and its
 	# second line would read as a name): each name with its scope, both
 	# checked against what git can print (`<odd>` otherwise), and the value
 	# in effect only as git types it, a boolean or a number, `<set>` if not.
-	(cd "$t" && git config --show-scope --name-only --get-regexp '^(grep\.|core\.fsmonitor|index\.|feature\.)' 2>/dev/null || true) |
+	{ (cd "$t" && git config --show-scope --name-only --get-regexp '^(grep\.|core\.fsmonitor|index\.|feature\.)') 2>/dev/null || true; } |
 		while IFS= read -r line; do
 			scope="${line%%$'\t'*}" key="${line#*$'\t'}"
 			case "$scope" in
@@ -187,7 +189,7 @@ diagnose_shapes() {
 			esac
 			case "$key" in
 			'' | *[!A-Za-z0-9.-]*) key='<odd>' value='<set>' ;;
-			*) value="$(cd "$t" && git config --type=bool-or-int --get "$key" 2>/dev/null)" || value='<set>' ;;
+			*) value="$( (cd "$t" && git config --type=bool-or-int --get "$key") 2>/dev/null)" || value='<set>' ;;
 			esac
 			case "$value" in
 			true | false | [0-9]* | -[0-9]*) ;;
@@ -197,8 +199,8 @@ diagnose_shapes() {
 			*[!0-9a-z-]*) value='<set>' ;;
 			esac
 			printf '    | config: %s %s %s\n' "$scope" "$key" "$value"
-		done >&2
-	printf '    | expected: %s\n    | actual:   %s\n' "$accounting" "$(grep -E '^check-no-local-paths: git gave ' "$work/out" || echo none)" >&2
+		done >&3
+	printf '    | expected: %s\n    | actual:   %s\n' "$accounting" "$(grep -E '^check-no-local-paths: git gave ' "$work/out" 2>/dev/null || echo none)" >&3
 	for line in ${missing[@]+"${missing[@]}"}; do
 		plant="${line%%: *}"
 		plant="${plant%:[0-9]*}"
@@ -206,11 +208,13 @@ diagnose_shapes() {
 		if [ ! -f "$work/trace" ]; then
 			gave="no trace written"
 		else
-			while IFS= read -r -d '' class && IFS= read -r -d '' number && IFS= read -r -d '' path; do
-				if [ "$path" = "$plant" ]; then
-					gave="${gave:+$gave, }line $number $class"
-				fi
-			done <"$work/trace" || true
+			{
+				while IFS= read -r -d '' class && IFS= read -r -d '' number && IFS= read -r -d '' path; do
+					if [ "$path" = "$plant" ]; then
+						gave="${gave:+$gave, }line $number $class"
+					fi
+				done <"$work/trace"
+			} 2>/dev/null || true
 			# Refused in the failing pass and not printed: the scan failed
 			# after it (its own message says why), so this plant says nothing
 			# more.
@@ -233,26 +237,26 @@ diagnose_shapes() {
 			bytes="${bytes:+$bytes byte(s)}"
 		fi
 		probe_status=0
-		probe="$(cd "$t" && git -c core.fsmonitor=false -c grep.column=false -c grep.fullName=false -c color.grep=never \
+		probe="$( (cd "$t" && git -c core.fsmonitor=false -c grep.column=false -c grep.fullName=false -c color.grep=never \
 			-c submodule.recurse=false --work-tree=. grep -a --no-color -c -E -e '/hom[e]/' -e '/User[s]/' \
-			-e 'claud[e]-[0-9]' -e '/var/folder[s]/' -- ":(literal)$plant" 2>/dev/null)" || probe_status=$?
+			-e 'claud[e]-[0-9]' -e '/var/folder[s]/' -- ":(literal)$plant") 2>/dev/null)" || probe_status=$?
 		printf '    | lost: %s: in the failing pass: %s; after it: in the index %s time(s) (ls-files exit %s), %s on disk, a later git grep -c: %s (exit %s)\n' \
-			"$plant" "${gave:-no line of it}" "$indexed" "$ls_status" "${bytes:-no file}" "$(printf '%s' "${probe:-no line}" | tr '\n' ' ')" "$probe_status" >&2
+			"$plant" "${gave:-no line of it}" "$indexed" "$ls_status" "${bytes:-no file}" "$(printf '%s' "${probe:-no line}" | tr '\n' ' ')" "$probe_status" >&3
 	done
 	[ "$refused_only" -eq 0 ] ||
-		printf '    | %s more not named were refused in the failing pass (its trace), before the scan failed\n' "$refused_only" >&2
-	cp "$work/out" "$work/out.first"
-	run_check "$t"
+		printf '    | %s more not named were refused in the failing pass (its trace), before the scan failed\n' "$refused_only" >&3
+	cp "$work/out" "$work/out.first" 2>/dev/null || true
+	run_check "$t" 2>/dev/null
 	for line in ${missing[@]+"${missing[@]}"}; do
-		named "$line" || again=$((again + 1))
+		named "$line" 2>/dev/null || again=$((again + 1))
 	done
 	if [ "${#missing[@]}" -ne 0 ] && [ "$again" -eq 0 ]; then
-		printf '    | per run: a second run over the same tree (exit %s) named every one\n' "$status" >&2
+		printf '    | per run: a second run over the same tree (exit %s) named every one\n' "$status" >&3
 	elif [ "${#missing[@]}" -ne 0 ]; then
-		printf '    | per tree: a second run over the same tree (exit %s) missed %s of them too\n' "$status" "$again" >&2
+		printf '    | per tree: a second run over the same tree (exit %s) missed %s of them too\n' "$status" "$again" >&3
 	fi
-	printf '    | second run: %s named; %s\n' "$(hits)" "$(grep -E '^check-no-local-paths: git gave ' "$work/out" || echo 'no accounting')" >&2
-	cp "$work/out.first" "$work/out"
+	printf '    | second run: %s named; %s\n' "$(hits 2>/dev/null)" "$(grep -E '^check-no-local-paths: git gave ' "$work/out" 2>/dev/null || echo 'no accounting')" >&3
+	cp "$work/out.first" "$work/out" 2>/dev/null || true
 }
 
 # --- each shape, in each kind of file ----------------------------------------
@@ -350,7 +354,7 @@ done
 if [ "$status" -ne 1 ] || [ "${#missing[@]}" -ne 0 ] || [ "$(hits)" -ne "${#want[@]}" ] || ! grep -q -x -F "$accounting" "$work/out"; then
 	problem "shapes: exit $status; $(hits) of ${#want[@]} named; not named: ${missing[*]:-none}"
 	show
-	diagnose_shapes
+	diagnose_shapes 3>&2 2>/dev/null
 else
 	ok shapes "${#want[@]} planted, each named by file and line"
 fi
@@ -641,8 +645,15 @@ mkdir -p "$home"
 printf '[grep]\n\tthreads = 2\n[core]\n\tfsmonitor = %shook\n[feature]\n\tmanyFiles = false\n\tnote = "x\\n%sy"\n' "$mac" "$mac" >"$home/.gitconfig"
 t="$work/shapes"
 missing=("w3/trace-report.md:1: $linux_shape")
-(HOME="$home" && export HOME && unset XDG_CONFIG_HOME && diagnose_shapes) 2>"$work/diag" || true
-shaped='^    \| (config: (system|global|local|worktree|command|<odd>) ([a-z0-9.-]+|<odd>) (true|false|-?[0-9]+|<set>)$|(ran|expected|actual|lost|second run): |per (run|tree): |[0-9]+ more not named )'
+# Its fd 3 and its fd 2 both go to the file: nothing it says, on purpose or
+# not, may hold a path.
+(HOME="$home" && export HOME && unset XDG_CONFIG_HOME && diagnose_shapes) 3>"$work/diag" 2>&3 || true
+# Each line the diagnosis prints, whole. The free text in it by design is a
+# plant's name (relative, the test's own) and git's and bash's version
+# strings; none may start a word with `/`.
+gave_re='line [0-9]+ [a-z]+'
+accounting_re='check-no-local-paths: git gave [0-9]+ line\(s\): [0-9]+ refused, [0-9]+ in [0-9]+ binary file\(s\), [0-9]+ marked, [0-9]+ placeholder'
+shaped="^    \\| (ran: bash [0-9][^ /]*; (git version [0-9][^/]*|git: no version)|config: (system|global|local|worktree|command|<odd>) ([a-z0-9.-]+|<odd>) (true|false|-?[0-9]+|<set>)|expected: $accounting_re|actual:   ($accounting_re|none)|lost: [^ /][^ ]*: in the failing pass: (no trace written|no line of it|$gave_re(, $gave_re)*); after it: in the index [0-9]+ time\\(s\\) \\(ls-files exit [0-9]+\\), ([0-9]+ byte\\(s\\)|a symlink|no file) on disk, a later git grep -c: ([^ /][^ ]*:[0-9]+|no line) ?\\(exit [0-9]+\\)|[0-9]+ more not named were refused in the failing pass \\(its trace\\), before the scan failed|per run: a second run over the same tree \\(exit [0-9]+\\) named every one|per tree: a second run over the same tree \\(exit [0-9]+\\) missed [0-9]+ of them too|second run: [0-9]+ named; ($accounting_re|no accounting))$"
 if ! grep -q -x -F '    | config: global grep.threads 2' "$work/diag" ||
 	! grep -q -x -F '    | config: global core.fsmonitor <set>' "$work/diag" ||
 	! grep -q -x -F '    | config: global feature.manyfiles false' "$work/diag" ||
@@ -653,6 +664,21 @@ if ! grep -q -x -F '    | config: global grep.threads 2' "$work/diag" ||
 	problem "diagnosis: it does not name the config keys by scope, or it prints a path ($(grep -c -F -e "$home" -e "$mac" "$work/diag" || true) line(s) with one; $(grep -c -v -E "$shaped" "$work/diag" || true) line(s) of no known shape)"
 else
 	ok diagnosis "keys by scope, no path"
+fi
+
+# The diagnosis over a tree that is gone: a `cd` that fails names its
+# directory, and the diagnosis may not say it. One plant the trace refused,
+# one it never saw (so its probes run, in the gone tree).
+t="$work/gone-tree"
+missing=("w3/trace-report.md:1: $linux_shape" "nowhere.md:1: $linux_shape")
+(HOME="$home" && export HOME && unset XDG_CONFIG_HOME && diagnose_shapes) 3>"$work/diag" 2>&3 || true
+if grep -q -F -e "$work" -e "$home" -e "$mac" "$work/diag" || grep -q -v -E "$shaped" "$work/diag" ||
+	! grep -q -x -F '    | 1 more not named were refused in the failing pass (its trace), before the scan failed' "$work/diag" ||
+	! grep -q -x -F '    | lost: nowhere.md: in the failing pass: no line of it; after it: in the index 0 time(s) (ls-files exit 128), no file on disk, a later git grep -c: no line (exit 1)' "$work/diag" ||
+	! grep -q -x -F '    | per tree: a second run over the same tree (exit 1) missed 2 of them too' "$work/diag"; then
+	problem "diagnosis-gone: over a tree that is gone it prints a path or a line of no known shape ($(grep -c -F -e "$work" -e "$home" -e "$mac" "$work/diag" || true) line(s) with a path; $(grep -c -v -E "$shaped" "$work/diag" || true) of no known shape)"
+else
+	ok diagnosis-gone "no path, every line its shape"
 fi
 
 if [ "$failed" -ne 0 ]; then
