@@ -1,0 +1,102 @@
+# META-PREFIX-DECODE in the composer: a cursor key behind a second ESC, and a
+# legacy modifier field past 16, as fx v0.0.16 decodes them. The prefix is a
+# bit of the stage (escape_parser.zig:25, :552-555@481104fd) that the CSI and
+# SS3 stages keep (:291-293, :561-568, :637-644) and modifiedArrowAction
+# reads beside Alt's bit (:83): Up and Down a paragraph, Left and Right a
+# word, Home the plain Home whatever Ctrl adds (Alt's arm has no Home row,
+# :83-89, :727-733), Super still first (:74-82). A field is one more than its
+# modifiers (:722) and only four of their bits are read (:73-108): Hyper (16),
+# Meta's bit (32), Caps Lock (64) and Num Lock (128) are not, so Ctrl with
+# Caps Lock is Ctrl. Each key on its own, then a letter where the caret is;
+# the prefixed keys a second apart, past the clear's 500 ms window
+# (gesture_state.zig:4), as a reader of a prefix as Escape would arm it.
+type one two
+key C-j
+key C-j
+type three four
+key C-j
+key C-j
+type five six
+wait 0.5
+snap draft
+# ESC ESC [ A: a paragraph up (`A`).
+key -H 1b 1b 5b 41
+wait 0.4
+type A
+wait 0.6
+snap meta-up
+# ESC ESC [ B: a paragraph down (`B`).
+key -H 1b 1b 5b 42
+wait 0.4
+type B
+wait 0.6
+snap meta-down
+# ESC ESC [ D: a word left (`C`).
+key -H 1b 1b 5b 44
+wait 0.4
+type C
+wait 0.6
+snap meta-left
+# ESC ESC [ C: a word right (`D`).
+key -H 1b 1b 5b 43
+wait 0.4
+type D
+wait 0.6
+snap meta-right
+# ESC ESC [ 1;5H: Ctrl-Home behind the prefix, the plain Home (`E`).
+key -H 1b 1b 5b 31 3b 35 48
+wait 0.4
+type E
+wait 0.6
+snap meta-ctrl-home
+# ESC ESC [ 1;9D from the line's end: Super wins, the line's start (`F`).
+key End
+key -H 1b 1b 5b 31 3b 39 44
+wait 0.4
+type F
+wait 0.6
+snap meta-super-left
+# ESC ESC O A: SS3's Up behind the prefix, a paragraph up (`G`).
+key -H 1b 1b 4f 41
+wait 0.4
+type G
+wait 0.6
+snap meta-ss3-up
+# ESC [ 1;69H: Ctrl with Caps Lock, the draft's start (`H`).
+key -H 1b 5b 31 3b 36 39 48
+wait 0.4
+type H
+wait 0.6
+snap caps-ctrl-home
+# ESC [ 1;70F: Ctrl and Shift with Caps Lock, the draft's end (`I`).
+key -H 1b 5b 31 3b 37 30 46
+wait 0.4
+type I
+wait 0.6
+snap caps-ctrl-shift-end
+# ESC [ 1;133H from the line's middle (Up, Left Left): Ctrl with Num Lock,
+# the draft's start (`J`).
+key Up Left Left
+key -H 1b 5b 31 3b 31 33 33 48
+wait 0.4
+type J
+wait 0.6
+snap num-ctrl-home
+# ESC [ 1;33F: Meta's bit alone, the plain End (`K`).
+key -H 1b 5b 31 3b 33 33 46
+wait 0.4
+type K
+wait 0.6
+snap meta-bit-end
+# ESC [ 1;37D: Ctrl with Meta's bit, a word left (`L`).
+key -H 1b 5b 31 3b 33 37 44
+wait 0.4
+type L
+wait 0.6
+snap ctrl-meta-bit-left
+# ESC [ 1;17D: Hyper alone, the plain Left (`M`).
+key -H 1b 5b 31 3b 31 37 44
+wait 0.4
+type M
+wait 0.6
+snap hyper-left

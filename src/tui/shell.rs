@@ -27286,6 +27286,86 @@ mod tests {
     }
 
     #[test]
+    fn two_escapes_in_one_burst_are_one_press_and_a_person_s_two_are_two() {
+        // fx reads a second `ESC` before the quiet as the first's meta prefix
+        // and the pair as one Escape once the quiet comes
+        // (`escape_parser.zig:552-555`, `terminal_action_decoder.zig:84-88`,
+        // `:174-183@481104fd`): at an idle draft that arms the clear and
+        // keeps the draft. The person's next press, on its own, is the
+        // second of the gesture's two (`app_input_runtime.zig:2788-2799`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"a draft worth keeping");
+        shell.route_bytes(&[0x1b, 0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(
+            shell.editor.text(),
+            "a draft worth keeping",
+            "two ESC bytes in one burst were two presses"
+        );
+        assert_eq!(shell.hint(), armed_hint(80), "the one press armed nothing");
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(
+            shell.editor.is_empty(),
+            "the person's second press did not clear"
+        );
+    }
+
+    #[test]
+    fn two_escapes_in_one_burst_close_a_menu_and_arm_nothing_else() {
+        // A menu's Escape closes it and disarms the clear
+        // (`app_input_runtime.zig:2775-2779@481104fd`), and the pair in one
+        // burst is that one Escape: the draft's clear is not armed. A person's
+        // second press, on its own, arms it.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/he");
+        assert!(shell.geometry.panel > 0, "there is no menu to dismiss");
+        shell.route_bytes(&[0x1b, 0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(shell.geometry.panel, 0, "the menu is still taking rows");
+        assert_eq!(shell.editor.text(), "/he");
+        assert_eq!(shell.hint(), IDLE_HINT, "the burst was a second press");
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(
+            shell.hint(),
+            armed_hint(80),
+            "the person's press armed nothing"
+        );
+        assert_eq!(shell.editor.text(), "/he");
+    }
+
+    #[test]
+    fn over_a_running_turn_a_burst_of_two_escapes_arms_and_a_prefixed_up_is_a_move() {
+        // Over running work the one Escape arms the interrupt
+        // (`app_input_runtime.zig:2740-2758@481104fd`), and the person's
+        // second press stops the turn. `ESC ESC [ A` is no Escape at all but
+        // the paragraph move (`escape_parser.zig:561-568`, `:83-89`), which
+        // in an empty composer moves nothing and recalls nothing.
+        let mut shell = running("stream lines");
+        shell.route_bytes(b"\x1b\x1b[A");
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        let now = Instant::now();
+        shell.settle_band(now);
+        assert_eq!(shell.controlled(), None, "a prefixed Up stopped the turn");
+        assert!(!shell.interrupt_armed, "a prefixed Up armed the interrupt");
+        assert_eq!(shell.editor.text(), "", "a prefixed Up recalled a prompt");
+
+        shell.route_bytes(&[0x1b, 0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "two ESC bytes in one burst stopped the turn"
+        );
+        assert!(shell.interrupt_armed, "the one press armed nothing");
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(shell.controlled(), Some(TurnControl::Cancel { through: 1 }));
+    }
+
+    #[test]
     fn two_alt_backspaces_delete_two_words_instead_of_clearing_the_draft() {
         // The hazard the decoder's one carve-out exists for, asserted from the
         // surface that would have paid for it: `ESC 0x7f` replayed would be two

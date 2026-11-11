@@ -3582,7 +3582,7 @@ mod tests {
             &b"\x1b[;5C"[..],
             &b"\x1b[1;C"[..],
             &b"\x1b[1;5:3C"[..],
-            &b"\x1b[1;17C"[..],
+            &b"\x1b[1;257C"[..],
             // The tilde keys read upstream's numbers instead
             // (`a_leading_zero_in_a_tilde_field_is_the_number` and the tests
             // beside it), and these are no key there either: a third field
@@ -3804,7 +3804,11 @@ mod tests {
         // And every mask, generated: fx's tables transcribed once, arm by arm
         // and in their order, then mapped to the action xfx spells each
         // result with. The rows above are the same table's named cases, a
-        // check on this transcription as much as on the decoder.
+        // check on this transcription as much as on the decoder. Every mask
+        // a modifier field holds (`1` to `256`), each with and without the
+        // meta prefix: a second `ESC` in front of the sequence, which fx
+        // keeps as a bit of the stage (`escape_parser.zig:25`, `:552-555`)
+        // and its CSI and SS3 stages carry (`setBaseEscapeStage`, `:291-293`).
         #[derive(Clone, Copy)]
         enum Move {
             LineStart,
@@ -3820,13 +3824,23 @@ mod tests {
             CharacterLeft,
             CharacterRight,
         }
+        // What fx resolves a key to: its plain key (`plainNavigationAction`,
+        // `:149-159`), a composer move with its Shift, or `.ignore`.
+        #[derive(Clone, Copy)]
+        enum Fx {
+            Plain,
+            Moved(Move, bool),
+            Ignore,
+        }
         const SHIFT_BIT: u16 = 0x01;
         const ALT_BIT: u16 = 0x02;
         const CTRL_BIT: u16 = 0x04;
         const SUPER_BIT: u16 = 0x08;
-        // `modifiedArrowAction` (`escape_parser.zig:73-108@481104fd`), with
-        // `meta_prefixed` false (META-PREFIX-DECODE's): `None` is its `null`.
-        fn modified_arrow_action(byte: u8, modifiers: u16) -> Option<(Move, bool)> {
+        // `modifiedArrowAction` (`escape_parser.zig:73-108@481104fd`): `None`
+        // is its `null`. Only the four bits are read, so Hyper (16), Meta's
+        // bit (32) and the lock bits (64, 128) change nothing, and
+        // `meta_prefixed` is read once, beside Alt's bit (`:83`).
+        fn modified_arrow_action(byte: u8, modifiers: u16, meta: bool) -> Option<(Move, bool)> {
             let shift = modifiers & SHIFT_BIT != 0;
             let held = |kind: Move| Some((kind, shift));
             if modifiers & SUPER_BIT != 0 {
@@ -3840,7 +3854,7 @@ mod tests {
                     _ => None,
                 };
             }
-            if modifiers & ALT_BIT != 0 {
+            if meta || modifiers & ALT_BIT != 0 {
                 return match byte {
                     b'A' => held(Move::ParagraphUp),
                     b'B' => held(Move::ParagraphDown),
@@ -3873,12 +3887,50 @@ mod tests {
             }
             None
         }
+        fn or_plain(upstream: Option<(Move, bool)>) -> Fx {
+            upstream.map_or(Fx::Plain, |(kind, shifted)| Fx::Moved(kind, shifted))
+        }
+        // A cursor key's final byte. Bare (`ESC [ X`, `:561-568`) and in SS3
+        // (`ESC O X`, `:637-644`): Up, Down, Left and Right the table's with
+        // no modifier under the prefix, and the plain key without it; Home
+        // and End the plain key either way. Held (`ESC [ 1 ; m X`,
+        // `:721-737`): the table's, the plain key where it answers `null`.
+        // The modifiers are one less than the field (`:722`).
+        fn cursor_key(letter: u8, modifiers: u16, meta: bool) -> Fx {
+            or_plain(modified_arrow_action(letter, modifiers, meta))
+        }
+        // A kitty report of a keypad key or of kitty's own Up and Down
+        // (`kittyUnicodeKeyAction`, `:185-217`): the lock bits masked off
+        // (`:187`); a keypad key with Hyper or Meta's bit is not the keypad,
+        // and nothing after it reads a keypad code (`:191`, `:265`); a
+        // keypad key otherwise `navigationKeyAction` (`:163-167`, `:196-197`);
+        // kitty's Up and Down the table's, or `.ignore` where it answers
+        // `null`, held or prefixed, and the plain key with neither
+        // (`:208-217`).
+        fn kitty_navigation(letter: u8, arrow: bool, modifiers: u16, meta: bool) -> Fx {
+            let mods = modifiers & 0x3f;
+            if !arrow {
+                if mods & !(SHIFT_BIT | ALT_BIT | CTRL_BIT | SUPER_BIT) != 0 {
+                    return Fx::Ignore;
+                }
+                if !meta && mods == 0 {
+                    return Fx::Plain;
+                }
+                return or_plain(modified_arrow_action(letter, mods, meta));
+            }
+            if meta || mods != 0 {
+                return modified_arrow_action(letter, mods, meta)
+                    .map_or(Fx::Ignore, |(kind, shifted)| Fx::Moved(kind, shifted));
+            }
+            Fx::Plain
+        }
         // The tilde Home and End with a modifier field (`:694-718`): the
         // bare key with none, else the draft's edge under Ctrl and the line's
-        // otherwise, Shift extending.
-        fn tilde_home_end(home: bool, modifiers: u16) -> Option<(Move, bool)> {
+        // otherwise, Shift extending. Neither tilde stage reads the prefix
+        // (`:620-635`, `:694-719`).
+        fn tilde_home_end(home: bool, modifiers: u16) -> Fx {
             if modifiers == 0 {
-                return None;
+                return Fx::Plain;
             }
             let draft = modifiers & CTRL_BIT != 0;
             let kind = match (home, draft) {
@@ -3887,22 +3939,25 @@ mod tests {
                 (false, true) => Move::DraftEnd,
                 (false, false) => Move::LineEnd,
             };
-            Some((kind, modifiers & SHIFT_BIT != 0))
+            Fx::Moved(kind, modifiers & SHIFT_BIT != 0)
         }
-        // What xfx spells each result with; `None` is the plain key
-        // (`plainNavigationAction`, `:149-159`). The selection Shift extends
-        // is dropped where xfx has no action to remember it in
+        // What xfx spells each result with. The selection Shift extends is
+        // dropped where xfx has no action to remember it in
         // (COMPOSER-SELECTION-EXTEND): the word moves and the step.
-        fn spelled(letter: u8, upstream: Option<(Move, bool)>) -> Action {
-            let Some((kind, shifted)) = upstream else {
-                return match letter {
-                    b'A' => Action::Up,
-                    b'B' => Action::Down,
-                    b'C' => Action::Right,
-                    b'D' => Action::Left,
-                    b'H' => Action::Home,
-                    _ => Action::End,
-                };
+        fn spelled(letter: u8, upstream: Fx) -> Action {
+            let (kind, shifted) = match upstream {
+                Fx::Ignore => return Action::Ignore,
+                Fx::Plain => {
+                    return match letter {
+                        b'A' => Action::Up,
+                        b'B' => Action::Down,
+                        b'C' => Action::Right,
+                        b'D' => Action::Left,
+                        b'H' => Action::Home,
+                        _ => Action::End,
+                    };
+                }
+                Fx::Moved(kind, shifted) => (kind, shifted),
             };
             match kind {
                 Move::LineStart => Action::LineStart { shifted },
@@ -3921,65 +3976,313 @@ mod tests {
                 Move::CharacterRight => Action::ComposerRight,
             }
         }
+        // One key, one action, and no `Escape` in front of it: the prefix is
+        // part of the key, not a key of its own.
+        let check = |bytes: String, want: Action| {
+            assert_eq!(
+                decode(bytes.as_bytes()),
+                vec![Input::Action(want)],
+                "{bytes:?}"
+            );
+        };
         let mut checked = 0;
-        for letter in *b"ABCDHF" {
-            // The keypad's code for the letter, and kitty's own arrow codes
-            // for Up and Down (`:134-144`, `:208-217`).
-            let keypad: u32 = match letter {
-                b'A' => 57419,
-                b'B' => 57420,
-                b'C' => 57418,
-                b'D' => 57417,
-                b'H' => 57423,
-                _ => 57424,
-            };
-            for modifiers in 0..16u16 {
-                let want = spelled(letter, modified_arrow_action(letter, modifiers));
-                let field = modifiers + 1;
-                let csi = format!("\x1b[1;{field}{}", char::from(letter));
-                assert_eq!(decode(csi.as_bytes()), vec![Input::Action(want)], "{csi:?}");
-                let report = format!("\x1b[{keypad};{field}u");
-                assert_eq!(
-                    decode(report.as_bytes()),
-                    vec![Input::Action(want)],
-                    "{report:?}"
-                );
+        for meta in [false, true] {
+            let prefix = if meta { "\x1b" } else { "" };
+            for letter in *b"ABCDHF" {
+                let key = char::from(letter);
+                // The keypad's code for the letter, and kitty's own arrow
+                // codes for Up and Down (`:134-144`, `:208-217`).
+                let keypad: u32 = match letter {
+                    b'A' => 57419,
+                    b'B' => 57420,
+                    b'C' => 57418,
+                    b'D' => 57417,
+                    b'H' => 57423,
+                    _ => 57424,
+                };
+                let bare = spelled(letter, cursor_key(letter, 0, meta));
+                check(format!("{prefix}\x1b[{key}"), bare);
+                check(format!("{prefix}\x1bO{key}"), bare);
                 checked += 2;
-                if matches!(letter, b'A' | b'B') {
-                    let code = if letter == b'A' { KITTY_UP } else { KITTY_DOWN };
-                    let report = format!("\x1b[{code};{field}u");
-                    assert_eq!(
-                        decode(report.as_bytes()),
-                        vec![Input::Action(want)],
-                        "{report:?}"
-                    );
-                    checked += 1;
-                }
-                if matches!(letter, b'H' | b'F') {
-                    let home = letter == b'H';
-                    let want = spelled(letter, tilde_home_end(home, modifiers));
-                    let keys: [&str; 2] = if home { ["1", "7"] } else { ["4", "8"] };
-                    for key in keys {
-                        let tilde = format!("\x1b[{key};{field}~");
-                        assert_eq!(
-                            decode(tilde.as_bytes()),
-                            vec![Input::Action(want)],
-                            "{tilde:?}"
-                        );
+                for modifiers in 0..256u16 {
+                    let field = modifiers + 1;
+                    let want = spelled(letter, cursor_key(letter, modifiers, meta));
+                    check(format!("{prefix}\x1b[1;{field}{key}"), want);
+                    let want = spelled(letter, kitty_navigation(letter, false, modifiers, meta));
+                    check(format!("{prefix}\x1b[{keypad};{field}u"), want);
+                    checked += 2;
+                    if matches!(letter, b'A' | b'B') {
+                        let code = if letter == b'A' { KITTY_UP } else { KITTY_DOWN };
+                        let want = spelled(letter, kitty_navigation(letter, true, modifiers, meta));
+                        check(format!("{prefix}\x1b[{code};{field}u"), want);
                         checked += 1;
+                    }
+                    if matches!(letter, b'H' | b'F') {
+                        let home = letter == b'H';
+                        let want = spelled(letter, tilde_home_end(home, modifiers));
+                        let keys: [&str; 2] = if home { ["1", "7"] } else { ["4", "8"] };
+                        for tilde in keys {
+                            check(format!("{prefix}\x1b[{tilde};{field}~"), want);
+                            checked += 1;
+                        }
                     }
                 }
             }
         }
-        // 6 letters x 16 masks in the CSI and keypad forms, kitty's Up and
-        // Down, and four tilde keys.
-        assert_eq!(checked, 6 * 16 * 2 + 2 * 16 + 4 * 16);
-        // Not here: a `CSI 1;m X` modifier past 16 -- Meta (32), Hyper (16)
-        // and the lock bits -- which this decoder refuses (`modifier`) where
-        // fx reads the four bits above, and the `ESC ESC` prefix fx reads as
-        // `meta_prefixed`. Both are META-PREFIX-DECODE's and are left as they
-        // are; the tilde fields past 16 are
-        // `every_modifier_field_on_the_tilde_home_and_end_is_upstreams_move`'s.
+        // Each form with the prefix and without it: 6 letters bare and in
+        // SS3, and with each of 256 masks in the CSI and keypad forms,
+        // kitty's Up and Down, and four tilde keys.
+        assert_eq!(checked, 2 * (6 * 2 + 256 * (6 * 2 + 2 + 4)));
+        // And a field past 256 is no key here, where fx reads its low byte
+        // (`appendCsiDigitSaturating`, `:19-23`; `:722`): the grammar's one
+        // spelling per field, which kitty's field keeps too (`key_modifiers`),
+        // recorded in `docs/parity.md`. The tilde keys read upstream's
+        // numbers (`a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits`).
+        for stream in [&b"\x1b[1;257C"[..], b"\x1b[1;300H", b"\x1b\x1b[1;257A"] {
+            assert_eq!(
+                decode(stream),
+                vec![Input::Action(Action::Ignore)],
+                "{stream:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn two_escapes_a_person_pressed_are_two_and_two_in_one_burst_are_one() {
+        // fx's rule for a second `ESC`: in front of anything it is the meta
+        // prefix, a bit of the stage with no event (`escape_parser.zig:552-555`;
+        // `terminal_action_decoder.zig:84-88@481104fd`, which also restarts
+        // the clock), and a prefixed lone `ESC` is still the bare stage
+        // (`isBareEscapeStage`, `:327-329`) that the quiet resolves as one
+        // Escape (`terminal_action_decoder.zig:174-183`). There is no rule per
+        // read: the quiet alone tells two presses from one prefix.
+        //
+        // First the person: each Escape on its own, the quiet between them --
+        // two Escapes, the gesture's two presses (`super::gesture`).
+        let mut decoder = Decoder::new();
+        let start = Instant::now();
+        let mut out = Vec::new();
+        decoder.feed(0x1b, start, &mut out);
+        decoder.flush(start + Decoder::ESC_TIMEOUT, &mut out);
+        let later = start + Decoder::ESC_TIMEOUT * 3;
+        decoder.feed(0x1b, later, &mut out);
+        decoder.flush(later + Decoder::ESC_TIMEOUT, &mut out);
+        assert_eq!(
+            out,
+            vec![Input::Action(Action::Escape), Input::Action(Action::Escape)],
+            "a person's two Escapes were not two"
+        );
+        // The same with no flush between them: the second byte, a quiet
+        // later, finds the first already the Escape key (`feed`'s flush).
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        decoder.feed(0x1b, start, &mut out);
+        decoder.feed(0x1b, start + Decoder::ESC_TIMEOUT, &mut out);
+        decoder.flush(start + Decoder::ESC_TIMEOUT * 2, &mut out);
+        assert_eq!(
+            out,
+            vec![Input::Action(Action::Escape), Input::Action(Action::Escape)],
+            "an Escape that had gone quiet was read as the next one's prefix"
+        );
+        // Two in one burst are one key, and nothing comes out until the
+        // quiet after the second.
+        for burst in [&b"\x1b\x1b"[..], b"\x1b\x1b\x1b"] {
+            let mut decoder = Decoder::new();
+            let mut out = Vec::new();
+            for byte in burst {
+                decoder.feed(*byte, start, &mut out);
+            }
+            assert!(
+                out.is_empty(),
+                "{burst:?} resolved before the quiet: {out:?}"
+            );
+            decoder.flush(start + Decoder::ESC_TIMEOUT, &mut out);
+            assert_eq!(
+                out,
+                vec![Input::Action(Action::Escape)],
+                "{burst:?} was not one Escape"
+            );
+        }
+        // The clock starts again at the second `ESC`: a flush a timeout after
+        // the first and not after the second resolves nothing.
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        let second = start + Decoder::ESC_TIMEOUT / 2;
+        decoder.feed(0x1b, start, &mut out);
+        decoder.feed(0x1b, second, &mut out);
+        decoder.flush(start + Decoder::ESC_TIMEOUT, &mut out);
+        assert!(
+            out.is_empty(),
+            "the prefix's clock ran from the first ESC: {out:?}"
+        );
+        decoder.flush(second + Decoder::ESC_TIMEOUT, &mut out);
+        assert_eq!(out, vec![Input::Action(Action::Escape)]);
+        // And a prefix that went quiet is the Escape key whatever follows:
+        // the byte after it is its own (`an_escape_that_went_quiet_...`).
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        decoder.feed(0x1b, start, &mut out);
+        decoder.feed(0x1b, start, &mut out);
+        decoder.feed(b'[', start + Decoder::ESC_TIMEOUT, &mut out);
+        assert_eq!(
+            out,
+            vec![Input::Action(Action::Escape), Input::Text('[')],
+            "a quiet prefix swallowed the keystroke after it"
+        );
+    }
+
+    #[test]
+    fn a_prefixed_key_is_one_key_as_upstream_reads_it() {
+        // The brief's three and their kin, each one key and no `Escape`: the
+        // prefix is read where Alt's bit is (`escape_parser.zig:83@481104fd`),
+        // so a prefixed Up is a paragraph, a prefixed Ctrl-Home the plain
+        // Home (Alt's arm has no Home row, `:83-89`, `:727-733`), and Super
+        // still wins (`:74-82`). A modifier field past 16 is read for its four
+        // bits (`:73-108`, `:722`): Meta's bit (32) alone is the key, and
+        // Ctrl with Caps Lock (`1;69`) the draft's start.
+        for (bytes, expected) in [
+            (&b"\x1b\x1b[A"[..], Action::ParagraphUp),
+            (b"\x1b\x1b[B", Action::ParagraphDown),
+            (b"\x1b\x1b[C", Action::WordRight),
+            (b"\x1b\x1b[D", Action::WordLeft),
+            (b"\x1b\x1bOA", Action::ParagraphUp),
+            (b"\x1b\x1bOD", Action::WordLeft),
+            (b"\x1b\x1b[H", Action::Home),
+            (b"\x1b\x1bOF", Action::End),
+            (b"\x1b\x1b[1;5H", Action::Home),
+            (b"\x1b\x1b[1;9D", Action::LineStart { shifted: false }),
+            (b"\x1b\x1b[1;2D", Action::WordLeft),
+            (b"\x1b\x1b[1;5A", Action::ParagraphUp),
+            (b"\x1b\x1b\x1b[A", Action::ParagraphUp),
+            (b"\x1b[1;33H", Action::Home),
+            (b"\x1b[1;69H", Action::DraftStart { shifted: false }),
+            (b"\x1b[1;17C", Action::Right),
+            (b"\x1b[1;129D", Action::Left),
+            (b"\x1b[1;37C", Action::WordRight),
+            (b"\x1b[1;256A", Action::DraftStart { shifted: true }),
+            // Shift-Tab with any modifier at all (`:723-725`), the prefix
+            // read by neither of its stages (`:569`).
+            (b"\x1b[1;17Z", Action::BackTab),
+            (b"\x1b[1;256Z", Action::BackTab),
+            (b"\x1b\x1b[Z", Action::BackTab),
+            (b"\x1b\x1b[1;2Z", Action::BackTab),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(expected)], "{bytes:?}");
+        }
+    }
+
+    #[test]
+    fn what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it() {
+        // The bytes the bare stage reads (`escape_parser.zig:501-560
+        // @481104fd`) read the same behind the prefix: Alt-b, Alt-f, Alt-d,
+        // Alt-Backspace and Alt-Enter. Anything else is `.ignore` and the
+        // byte goes with it -- a control too: the replay is only for a bare
+        // ESC (`prior_stage == 1`, `terminal_action_decoder.zig:92-101`), and
+        // the prefixed stage is `0x81`.
+        for (bytes, expected) in [
+            (&b"\x1b\x1bb"[..], Action::AltB),
+            (b"\x1b\x1bf", Action::AltF),
+            (b"\x1b\x1bd", Action::DeleteWordRight),
+            (b"\x1b\x1b\x7f", Action::DeleteWordBackward),
+            (b"\x1b\x1b\x08", Action::DeleteWordBackward),
+            (b"\x1b\x1b\r", Action::InsertNewline),
+            (b"\x1b\x1b\n", Action::InsertNewline),
+            (b"\x1b\x1bx", Action::Ignore),
+            (b"\x1b\x1bo", Action::Ignore),
+            (b"\x1b\x1b\x03", Action::Ignore),
+            (b"\x1b\x1b\x02", Action::Ignore),
+            (b"\x1b\x1b\x09", Action::Ignore),
+            // The tilde stages read no prefix (`:620-635`, `:694-719`).
+            (b"\x1b\x1b[1~", Action::Home),
+            (b"\x1b\x1b[5~", Action::PageUp),
+            (b"\x1b\x1b[6;5~", Action::ComposerPageDown),
+            (b"\x1b\x1b[3~", Action::Delete),
+            (b"\x1b\x1b[3;5~", Action::DeleteWordRight),
+            (b"\x1b\x1b[7;5~", Action::DraftStart { shifted: false }),
+            // A key report reads it where `kittyUnicodeKeyAction` does
+            // (`:185-266`): Escape is Escape (`:188`); a keypad digit is not
+            // typed (`:195`) and nothing after reads its code (`:265`); the
+            // keypad's Enter is Enter's (`:203`), and Enter with Ctrl Enter
+            // still, through the bare Enter (`:218`, `:262`); Shift-Space is
+            // not a space (`:222`); `d` deletes the word on its right with
+            // anything held (`:251`), before Ctrl could make it `0x04`; `o`
+            // is nothing (`:111-114`); `b` with nothing held is no Alt-b
+            // (`:243`); the keypad's page keys and Delete read no prefix
+            // (`:169-180`, `:198-205`).
+            (b"\x1b\x1b[27u", Action::Escape),
+            (b"\x1b\x1b[57399u", Action::Ignore),
+            (b"\x1b\x1b[57399;2u", Action::Ignore),
+            (b"\x1b\x1b[57414u", Action::Submit),
+            (b"\x1b\x1b[13;5u", Action::Submit),
+            (b"\x1b\x1b[13;2u", Action::InsertNewline),
+            (b"\x1b\x1b[32;2u", Action::Ignore),
+            (b"\x1b\x1b[100u", Action::DeleteWordRight),
+            (b"\x1b\x1b[100;5u", Action::DeleteWordRight),
+            (b"\x1b\x1b[27;5;100~", Action::DeleteWordRight),
+            (b"\x1b\x1b[111;5u", Action::Ignore),
+            (b"\x1b\x1b[27;5;111~", Action::Ignore),
+            (b"\x1b\x1b[98u", Action::Ignore),
+            (b"\x1b\x1b[98;3u", Action::AltB),
+            (b"\x1b\x1b[57421u", Action::PageUp),
+            (b"\x1b\x1b[57426u", Action::Delete),
+            (b"\x1b\x1b[97;9u", Action::SelectAll),
+            (b"\x1b\x1b[99;5u", Action::Cancel),
+            // kitty's Up and Down with Hyper alone: `.ignore` bare
+            // (`:208-217`), a paragraph under the prefix (`:209`, `:83`).
+            (b"\x1b[57352;17u", Action::Ignore),
+            (b"\x1b\x1b[57352;17u", Action::ParagraphUp),
+            (b"\x1b\x1b[57353;33u", Action::ParagraphDown),
+            // A release is never a key, prefixed or not (`:774-777`).
+            (b"\x1b\x1b[100;1:3u", Action::Ignore),
+            // An unknown sequence is one `.ignore`, the prefix with it
+            // (`:589`, `:349-351`).
+            (b"\x1b\x1b[>4;2m", Action::Ignore),
+            (b"\x1b\x1b[999C", Action::Ignore),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(expected)], "{bytes:?}");
+        }
+        // Shift+Space under the prefix, and a keypad digit: nothing typed.
+        assert_eq!(typed(b"\x1b\x1b[32;2u\x1b\x1b[57400u"), "");
+        // A paste's start marker behind the prefix is the marker (`:625`):
+        // the paste opens, and its bytes are content.
+        let mut decoder = Decoder::new();
+        let now = Instant::now();
+        let mut out = Vec::new();
+        for byte in b"\x1b\x1b[200~\x03" {
+            decoder.feed(*byte, now, &mut out);
+        }
+        assert!(
+            decoder.pasting(),
+            "the prefixed start marker opened no paste"
+        );
+        assert_eq!(
+            out,
+            vec![Input::Action(Action::PasteStart), Input::PasteByte(0x03)]
+        );
+    }
+
+    #[test]
+    fn a_report_behind_a_second_escape_gives_the_first_back_as_the_escape_key() {
+        // A report is not a key, and fx's key decoder never sees one behind
+        // a prefix: with theme reports on, the monitor sees every byte first
+        // (`terminalInputOwner`, `src/ui/input/runtime.zig:46-55`;
+        // `main.zig:3127-3134@481104fd`), hands a lone `ESC` on when a second
+        // arrives (`theme_monitor.zig:85-88`) and keeps the report
+        // (`:96-105`, `:123-146`). So the user's Escape in front of a report
+        // is the Escape key, and the report is the report: here the
+        // background notification and a string a terminal volunteers.
+        assert_eq!(
+            decode(b"\x1b\x1b[?997;1n"),
+            vec![
+                Input::Action(Action::Escape),
+                Input::Report(super::super::theme::Mode::Dark)
+            ]
+        );
+        assert_eq!(
+            decode(b"\x1b\x1b]11;rgb:0000/0000/0000\x07"),
+            vec![Input::Action(Action::Escape), Input::Action(Action::Ignore)]
+        );
+        assert_eq!(typed(b"\x1b\x1b]11;rgb:0000/0000/0000\x07"), "");
     }
 
     #[test]

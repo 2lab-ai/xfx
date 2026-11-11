@@ -1,0 +1,50 @@
+# META-PREFIX-DECODE: a person's two Escapes, and two Escape bytes in one
+# burst, at an idle draft and with a menu open. fx v0.0.16 reads a second
+# ESC that comes before the first's quiet as its meta prefix: no event, and
+# the pair is one Escape when the quiet comes (escape_parser.zig:552-555,
+# terminal_action_decoder.zig:84-88, :139, :174-183@481104fd). A person's
+# presses, a quiet apart, are two and do what two do: at a draft the second
+# clears it (app_input_runtime.zig:2788-2799), and a menu's Escape closes the
+# menu and arms nothing (:2775-2779). `key Escape Escape` is one tmux write,
+# so the binary reads both bytes at once; the person's presses are two
+# writes, the second sent once the first's hint is on the screen.
+# (a) An idle draft, the person's two presses: the draft is cleared.
+type alpha one
+until shown alpha one
+key Escape
+until shown esc again to clear
+key Escape
+until gone esc again to clear
+snap a-person-cleared
+# (b) The two bytes in one burst: one press, which arms the clear and keeps
+# the draft; snapped past the clear's 500 ms (gesture_state.zig:4).
+type beta two
+until shown beta two
+key Escape Escape
+wait 1
+snap b-burst-kept
+# (c) A menu, `/he`'s completions. The person's first press closes it and
+# arms nothing; the second, at the draft, arms the clear; the third clears.
+key C-u
+type /he
+wait 1
+snap c-menu
+key Escape
+wait 0.7
+snap c-person-closed
+key Escape
+until shown esc again to clear
+key Escape
+until gone esc again to clear
+snap c-person-cleared
+# (d) The menu again, and the two bytes in one burst: one press, which closes
+# it. A person's press 0.3 s later is then the first at the draft, which
+# arms and keeps it -- where a burst read as two presses would have armed
+# the clear already, and this press would clear the draft.
+type /he
+wait 1
+key Escape Escape
+wait 0.3
+key Escape
+wait 1
+snap d-burst-kept
