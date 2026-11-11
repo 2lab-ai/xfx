@@ -22284,9 +22284,18 @@ mod tests {
             shell.status_held = held;
             shell.status_moved_by_input = keyed;
             shell.start_turn();
+            // A live start: its report goes after its frame when either flag
+            // owes it -- held for the turn (a prompt no key of this tick sent,
+            // one handed on or held behind other work) or sent by this tick's
+            // keys.
             assert_eq!(
                 shell.turn_start_owes_its_frame(),
+                held || keyed,
+                "held {held}, keyed {keyed}"
+            );
+            assert_eq!(
                 shell.take_status_moved_by_input() == Keyed::AfterFrame,
+                held || keyed,
                 "held {held}, keyed {keyed}"
             );
         }

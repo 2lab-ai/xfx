@@ -16740,6 +16740,70 @@ mod tests {
     }
 
     #[test]
+    fn the_drain_stops_behind_a_start_only_and_not_on_a_tick_whose_keys_owe_a_report() {
+        // The stop is behind a turn's start that owes its frame, and nowhere
+        // else. A tick whose keys move the status to work -- here the model's
+        // question answered while the turn runs -- owes its report after its frame too
+        // (`Keyed::AfterFrame`), so the predicate is true for the whole tick;
+        // but no start is among what the drain reads, and it reads them all.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.start_turn();
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        use super::super::question::{QuestionId, QuestionRequest};
+        use crate::tools::question::{QuestionEntry, QuestionOption};
+        shell.apply(UiEvent::Question(QuestionRequest {
+            id: QuestionId(1),
+            entries: vec![QuestionEntry {
+                question: "Proceed?".to_string(),
+                options: vec![
+                    QuestionOption {
+                        label: "Go ahead".to_string(),
+                        description: None,
+                    },
+                    QuestionOption {
+                        label: "Stop".to_string(),
+                        description: None,
+                    },
+                ],
+            }],
+        }));
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        assert!(
+            out.reports()
+                .last()
+                .is_some_and(|report| report.contains("blocked:kind=question")),
+            "{:?}",
+            out.reports()
+        );
+        shell.route_bytes(b"1");
+        assert!(
+            shell.turn_start_owes_its_frame(),
+            "the answer owes no report after its frame, so this proves nothing: {:?}",
+            shell.band_rows()
+        );
+        for word in ["ONE ", "TWO ", "THREE "] {
+            events
+                .try_send(UiEvent::Delta(word.to_string()))
+                .expect("room on the channel");
+        }
+        take_ui_events(&mut shell, &mut receiver);
+        assert!(
+            receiver.is_empty(),
+            "the drain stopped where no start was: {} left",
+            receiver.len()
+        );
+    }
+
+    #[test]
     fn a_stop_a_keystroke_asked_for_is_reported_ahead_of_the_frame_that_shows_it() {
         // The other half: upstream's stop is on its screen only when the turn
         // says it has stopped (`osc/i01-after-esc`: `idle`, then the
