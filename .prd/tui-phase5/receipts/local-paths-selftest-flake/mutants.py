@@ -61,6 +61,12 @@ MUTANTS = [
      """\tif [ -n "$entry" ]; then\n\t\tprintf 'check-no-local-paths: git ls-files ended inside""", """\tif false; then\n\t\tprintf 'check-no-local-paths: git ls-files ended inside""", 1),
     ("a tracked listing cut inside its last entry accepted",
      """if [ -n "$entry" ]; then\n\tfail "git ls-files ended inside""", """if false; then\n\tfail "git ls-files ended inside""", 1),
+    ("the passes run on many threads",
+     "\t\t-c color.grep=never -c submodule.recurse=false -c grep.threads=1 \\\n", "\t\t-c color.grep=never -c submodule.recurse=false \\\n", 1),
+    ("a disagreement passes after the second look",
+     '\t\t[ -z "$p2" ] || [ "$p2" = "$p1" ] || second_look "$root" "$p2"\n\t\treturn 1\n', '\t\t[ -z "$p2" ] || [ "$p2" = "$p1" ] || second_look "$root" "$p2"\n\t\treturn 0\n', 1),
+    ("no second look",
+     '\t\t[ -z "$p1" ] || second_look "$root" "$p1"\n', '', 1),
     ("a stream that ends inside a record accepted",
      '\tif [ -n "$path" ]; then\n\t\tprintf \'check-no-local-paths: git grep ended inside', '\tif false; then\n\t\tprintf \'check-no-local-paths: git grep ended inside', 1),
 ]
