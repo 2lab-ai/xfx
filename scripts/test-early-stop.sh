@@ -4,11 +4,10 @@
 #
 #   scripts/test-early-stop.sh
 #
-# Under bash 3.2 -- macOS's /bin/bash, which the macOS CI rows run these
-# scripts with -- a script stopped by an error of its own (an unset variable
-# under `set -u`) leaves through its EXIT trap with the trap's status. A trap
-# whose last command succeeds makes that 0, so a gate that stopped before it
-# looked at anything read as a pass. And a trap on HUP, INT or TERM ran its
+# Under bash 3.2 -- macOS's /bin/bash -- a script stopped by an error of its
+# own (an unset variable under `set -u`) leaves through its EXIT trap with
+# the trap's status. A trap whose last command succeeds makes that 0, so a
+# gate that stopped before it looked at anything read as a pass. And a trap on HUP, INT or TERM ran its
 # cleanup and went on. Each gate script with an EXIT trap now fails any exit
 # before its last line, and keeps the status bash gives it.
 #

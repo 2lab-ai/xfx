@@ -394,11 +394,10 @@ verdict only-a-symlink 1 "check-no-secrets: no files to scan; the check would pa
 # and a `printf` that reads that variable just before the check prints its ok
 # line (`late`), once every scratch file is made and every trap installed.
 # Under bash 3.2 a stop by an unset variable left through the trap with
-# status 0 and no output but bash's own line, so CI read the step as a pass
-# that scanned nothing. Each must exit with the status bash gives that stop
-# (1, 7, 143), the stop must have fired, nothing may run past it, and the
-# check's TMPDIR must be empty after it. Each file unsets BASH_ENV, so only
-# the check reads it.
+# status 0 and no output but bash's own line: a pass that scanned nothing.
+# Each must exit with the status bash gives that stop (1, 7, 143), the stop
+# must have fired, nothing may run past it, and the check's TMPDIR must be
+# empty after it. Each file unsets BASH_ENV, so only the check reads it.
 small="$work/small"
 mkdir -p "$small/scripts"
 sg -C "$small" init -q
