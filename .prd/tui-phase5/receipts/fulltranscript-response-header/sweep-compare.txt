@@ -105,3 +105,11 @@ base: 178 pairs, 111 pass, 2 with uncaused rows
 head: 178 pairs, 111 pass, 2 with uncaused rows
 drops: 0
 pairs.json: byte-identical
+
+# Round 2's head sweep: the same families plus links and p5-ctrlo-wider-fence (186 pairs), xfx v0.1.0-58b7ee2 (round 2's code head), fx v0.0.16, 40x120, --jobs 2, one suite-lock slot, rescored with 615c2bdb's ledger;
+# against round 1's head sweeps (sw-head + swx-head, v0.1.0-b9007bc), rescored with the same ledger (their pairs unchanged by it)
+change p5-transcript-tallfirst/tall: identical -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+base: 186 pairs, 116 pass, 2 with uncaused rows
+head: 186 pairs, 116 pass, 2 with uncaused rows
+drops: 0
+# p5-transcript-tallfirst/tall: each run's turn time (fx 0s, xfx 1s; turn-wall-time), the inline document

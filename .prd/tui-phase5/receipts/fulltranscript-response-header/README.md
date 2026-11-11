@@ -397,11 +397,25 @@ reading) is now also killed by the indented/unclosed test and the
 blank-rows test, which pass over round 1's code: the RED those two need is
 against the base's reading.
 
-**Sweep** (`sweep-head2.md`, `sweep-compare.txt`): in the commit after the
-one that adds this section.
+**Sweep** (`sweep-head2.md`, `sweep-compare.txt`'s last block): round 1's
+families plus `links` and `p5-ctrlo-wider-fence`, 186 pairs, with round
+2's code head's binary (`v0.1.0-58b7ee2`), rescored with this branch's
+ledger, against round 1's head sweeps rescored with the same ledger:
+**116 / 186 at both, drops 0**, 2 pairs with uncaused rows at both (the
+`p5-transcript-question` pair of round 1). The one pair that moves,
+`p5-transcript-tallfirst` `tall`, goes from identical to
+normalized-identical: each run's own turn time (fx `0s`, xfx `1s`).
 
-**Gate** (`gate-r2.txt`): in the commit after the one that adds this
-section; it runs on that one.
+**Gate** (`gate-r2.txt`, `green-r2.txt`): `gates.sh` once, under the suite
+lock in one normal slot with a short `TMPDIR`, on a `git clone --no-local`
+at `615c2bdb`, whose `src/` is round 2's code head with `996011b2`'s test
+comment (`gate-r2.txt` carries the empty `git diff --stat`): **22 steps, 0
+failed**, the tree clean before and after; 5716 and 5753 passed, 0 failed,
+7 ignored each -- round 1's 5713 and 5750 and round 2's 3 new
+`#[test]`s (`git diff 07b00d43 615c2bdb -- src`). No catalog-wait failure
+in this run. `green-r2.txt`: the unit's 11 tests and the two
+reading-position tests the mark change touches, 13 tests, 26 of 26 ok
+across both suites.
 
 ## Left apart
 
