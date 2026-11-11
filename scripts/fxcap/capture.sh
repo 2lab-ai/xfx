@@ -547,10 +547,33 @@ pane_set() {
 # lstart`, which an exec keeps: the pane runs `sh`, `env`, then the binary in
 # one process); `gone`, already; or `unknown` and why, when a look failed --
 # which cleanup never reads as gone.
+#
+# tmux 3.8 prints no `#{pane_pid}` once the pane's pty is closed (format.c
+# `format_cb_pane_pid`, `wp->fd != -1`, at tmux's 3.8 tag; 3.7b printed it),
+# so a binary gone at once can leave no pid to read. Its exit is then tmux's
+# own word: `#{pane_dead_status}` (or `_signal`) is set only once tmux has
+# reaped that very process (server.c `server_child_exited`, which matches the
+# pane's current `wp->pid`, sets PANE_STATUSREADY), and a respawn clears it
+# before it forks the new process (spawn.c, PANE_STATUSREADY cleared, then
+# `fdforkpty`), so no status outlives the process it is for. Neither yet --
+# the pty closed, the reaping not done, or the process alive with its pty
+# closed -- and it looks again: 20 looks, 0.05 s apart, 1 s of sleeps plus
+# the looks' own time (a look that hangs is the sweep's per-run timeout's),
+# then records `unknown`.
 own_pane() {
-  local sock=$1 pid start
-  if ! pid=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_pid}' 2>/dev/null) || [[ ! $pid =~ ^[0-9]+$ ]]; then
-    pane_set unknown '' '' 'the pane pid could not be read'
+  local sock=$1 pid='' exit='' out start i
+  for (( i = 0; i < 20; i++ )); do
+    out=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_pid}:#{pane_dead_status}#{pane_dead_signal}' 2>/dev/null) || break
+    pid=${out%%:*} exit=${out#*:}
+    [[ -z $pid && -z $exit ]] || break
+    sleep 0.05
+  done
+  if [[ ! $pid =~ ^[0-9]+$ ]]; then
+    if [[ -z $pid && -n $exit ]]; then
+      pane_set gone '' '' "tmux reaped it ($exit)"
+    else
+      pane_set unknown '' '' 'the pane pid could not be read'
+    fi
   elif ! kill -0 "$pid" 2>/dev/null; then
     pane_set gone "$pid" '' ''
   elif start=$(start_of "$pid") && [[ -n $start ]]; then

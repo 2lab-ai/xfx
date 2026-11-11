@@ -1,0 +1,87 @@
+# tmux's source at its 3.7b and 3.8 tags (github.com/tmux/tmux, fetched through the GitHub API), the lines this unit rests on.
+## format.c format_cb_pane_pid, 3.7b
+2282:format_cb_pane_pid(struct format_tree *ft)
+2283-{
+2284-	if (ft->wp != NULL)
+2285-		return (format_printf("%ld", (long)ft->wp->pid));
+2286-	return (NULL);
+2287-}
+## format.c format_cb_pane_pid, 3.8 -- no pid once the pane's fd is closed
+2580:format_cb_pane_pid(struct format_tree *ft)
+2581-{
+2582-	if (ft->wp != NULL && ft->wp->fd != -1)
+2583-		return (format_printf("%ld", (long)ft->wp->pid));
+2584-	return (NULL);
+2585-}
+## format.c format_cb_pane_dead_status, 3.8 -- set only once the exit status is ready
+2288:format_cb_pane_dead_status(struct format_tree *ft)
+2289-{
+2290-	struct window_pane	*wp = ft->wp;
+2291-
+2292-	if (wp != NULL) {
+2293-		if ((wp->flags & PANE_STATUSREADY) && WIFEXITED(wp->status))
+2294-			return (format_printf("%d", WEXITSTATUS(wp->status)));
+2295-		return (NULL);
+2296-	}
+2297-	return (NULL);
+2298-}
+## server.c server_child_exited, 3.8 -- PANE_STATUSREADY set when tmux reaps the pane's own pid
+   489	/* Handle exited children. */
+   490	static void
+   491	server_child_exited(pid_t pid, int status)
+   492	{
+   493		struct window		*w, *w1;
+   494		struct window_pane	*wp;
+   495	
+   496		RB_FOREACH_SAFE(w, windows, &windows, w1) {
+   497			TAILQ_FOREACH(wp, &w->panes, entry) {
+   498				if (wp->pid == pid) {
+   499					wp->status = status;
+   500					wp->flags |= PANE_STATUSREADY;
+   501	
+   502					log_debug("%%%u exited", wp->id);
+   503					wp->flags |= PANE_EXITED;
+
+## spawn.c spawn_pane, 3.8 -- a respawn (SPAWN_RESPAWN) closes the old pty and clears the status before it forks the new process
+   307		/*
+   308		 * If we are respawning then get rid of the old process. Otherwise
+   309		 * either create a new cell or assign to the one we are given.
+   310		 */
+   311		hlimit = options_get_number(s->options, "history-limit");
+   312		if (sc->flags & SPAWN_RESPAWN) {
+   313			if (sc->wp0->fd != -1 && (~sc->flags & SPAWN_KILL)) {
+   314				window_pane_index(sc->wp0, &idx);
+   315				xasprintf(cause, "pane %s:%d.%u still active",
+   316				    s->name, sc->wl->idx, idx);
+   317				free(cwd);
+   318				return (NULL);
+   319			}
+   320			if (sc->wp0->event != NULL) {
+   321				bufferevent_free(sc->wp0->event);
+   322				sc->wp0->event = NULL;
+   323			}
+   324			if (sc->wp0->fd != -1) {
+   325				close(sc->wp0->fd);
+   326				sc->wp0->fd = -1;
+   327			}
+   ...
+   348			new_wp = sc->wp0;
+   349			new_wp->flags &= ~(PANE_STATUSREADY|PANE_STATUSDRAWN);
+   ...
+   477		/* Fork the new process. */
+   478		new_wp->pid = fdforkpty(ptm_fd, &new_wp->fd, new_wp->tty, NULL, &ws);
+## spawn.c, 3.7b -- the same clearing, before the same fork
+   265			new_wp->flags &= ~(PANE_STATUSREADY|PANE_STATUSDRAWN);
+   391		new_wp->pid = fdforkpty(ptm_fd, &new_wp->fd, new_wp->tty, NULL, &ws);
+## server.c server_child_exited, 3.8 -- the status is set only for the pane whose current wp->pid exited
+   491	server_child_exited(pid_t pid, int status)
+   492	{
+   493		struct window		*w, *w1;
+   494		struct window_pane	*wp;
+   495	
+   496		RB_FOREACH_SAFE(w, windows, &windows, w1) {
+   497			TAILQ_FOREACH(wp, &w->panes, entry) {
+   498				if (wp->pid == pid) {
+   499					wp->status = status;
+   500					wp->flags |= PANE_STATUSREADY;
+# tmux handles one command at a time, so no look runs between spawn.c:349 and :478: after a respawn, a look sees the new pid (or, if the fork failed, neither a pid nor a status), never the old process's status. The old process's own exit later matches no pane's wp->pid.

@@ -1,0 +1,14 @@
+# mutants.sh on a git clone --no-local at 99421b1a (scratch), one edit at a time, LaunchWait's tests, the clone restored after each (git status empty at the end).
+P1-reaped-read-as-unknown: KILLED by scripts/fxcap/test_capture.py (AssertionError: 4 != 0 : roots: <work>=65 <scratch>=60 <scenarios>=57 <bun>=21 <bun:real>=39 <tmp>=47 <home>=16 bytes)
+    diff: -      pane_set gone '' '' "tmux reaped it ($exit)" +      pane_set unknown '' '' "tmux reaped it ($exit)" 
+    failing: test_a_pane_dead_before_its_pid_is_read_is_gone_as_tmux_says 
+P2-no-look-again: KILLED by scripts/fxcap/test_capture.py (AssertionError: 4 != 0 : roots: <work>=65 <scratch>=60 <scenarios>=57 <bun>=21 <bun:real>=39 <tmp>=47 <home>=16 bytes)
+    diff: -  for (( i = 0; i < 20; i++ )); do +  for (( i = 0; i < 1; i++ )); do 
+    failing: test_a_pane_not_yet_reaped_is_looked_at_again 
+P3-no-exit-read-as-gone: KILLED by scripts/fxcap/test_capture.py (AssertionError: 0 != 4 : roots: <work>=65 <scratch>=60 <scenarios>=57 <bun>=21 <bun:real>=39 <tmp>=47 <home>=16 bytes)
+    diff: -    if [[ -z $pid && -n $exit ]]; then +    if [[ -z $pid ]]; then 
+    failing: test_a_pane_with_neither_a_pid_nor_an_exit_stays_unknown_and_fails_the_run 
+P4-pid-only-asked: KILLED by scripts/fxcap/test_capture.py (AssertionError: 4 != 0 : roots: <work>=65 <scratch>=60 <scenarios>=57 <bun>=21 <bun:real>=39 <tmp>=47 <home>=16 bytes)
+    diff: -    out=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_pid}:#{pane_dead_status}#{pane_dead_signal}' 2>/dev/null) || break +    out=$(tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_pid}:
+    failing: test_a_pane_dead_before_its_pid_is_read_is_gone_as_tmux_says 
+exit 0
