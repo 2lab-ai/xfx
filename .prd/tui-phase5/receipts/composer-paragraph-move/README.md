@@ -340,4 +340,8 @@ them; 16 checked, 0 wrong. Round 2's tests moved six of them again, and
   were in round 1, and the pairs are 47 of 51 and 13 of 51 as before, with
   every one of the twelve `cursor` lines at fx's place on the head (nine
   off it on the base). M18, "forget on every Shift move", is killed by the draft test's kept-column case (`mutants.txt`, its round-2 lines, on a clone at `61010585`).
-- Gate: on a clone at the final head (`gate.txt`, its round-2 part), in the commit after the records.
+- Gate (`gate.txt`, its round-2 part): on a `--no-local` clone at
+  `4d7820d1` under the suite lock, fmt, both clippy runs, `cargo test` 5713
+  and with `fault-injection` 5750 passed (round 1 +1: the editor's new
+  test), 0 failed and 7 ignored each, then the identity, stubs, secrets and
+  local-paths checks, all exit 0, the clone clean after.
