@@ -47,8 +47,10 @@
 //! fx turns every line break and every Tab in an amendment's paste into a space
 //! (`normalizeApprovalAmendmentPasteInPlace`,
 //! `input_paste_runtime.zig:19-25@481104fd`), and no key types either into a
-//! draft: Enter answers, Tab is the panel's, and Ctrl-J is no draft key
-//! (`super::approval::edits`). So a draft holds no line break, and its Home and
+//! draft: Enter answers, Tab is the panel's, Ctrl-J is no draft key
+//! (`super::approval::edits`), and the decoder's `Input::Text` is never a
+//! control character (a printing byte, or a scalar that is not `is_control`,
+//! `super::input`). So a draft holds no line break, and its Home and
 //! Super-Left reach the edge Ctrl-Home does (`super::shell::Shell::decide`).
 //! The composer keeps a paste's breaks and tabs, as fx's does (`:238-241`);
 //! that rule is `super::paste`'s.
