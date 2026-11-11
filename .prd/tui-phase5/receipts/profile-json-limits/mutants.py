@@ -1,7 +1,7 @@
 """Mutants of this unit's rules, each on a throwaway clone (`git clone
 --no-local`), never the worktree: one edit at a time, the tests that should
-see it run, the edit undone. A mutant is killed when a test fails (or the
-build does), and survives when every one passes.
+see it run, the edit undone. A mutant is killed when a test fails, and
+survives when every one passes; one that does not build is UNBUILT, no kill.
 
 usage: python3 -I mutants.py <head repo> <clone dir>
   Each test run bounded at 900 s. Prints no path: the clone is <clone>.
@@ -18,6 +18,9 @@ C = "src/config.rs"
 
 LIB = ["--lib", "config::"]
 CLI = ["--test", "cli", "ask_"]
+M = "src/mcp/config.rs"
+RT = "src/mcp/runtime.rs"
+CHOICES_RT = ["--lib", "mcp::command::tests::saved_choices_are_read_as_fxs_parse_reads_them"]
 
 # (name, file, old, new, test runs)
 MUTANTS = [
@@ -62,6 +65,64 @@ MUTANTS = [
      "                    if reader.eat(b',') {\n                        reader.skip_space();\n                        if reader.eat(b']') { open.pop(); done = Value::Array(Vec::new()); continue; }\n                        break;\n                    }\n                    if !reader.eat(b']') {",
      [LIB]),
     ("no colon needed", J, "        self.eat(b':').then_some(key)", "        self.eat(b':');\n        Some(key)", [LIB]),
+    # Round 2: the saved MCP choices (S1) and the label of bytes that are not
+    # UTF-8 (N2).
+    ("choices read by serde_json again", M,
+     "    let document = match crate::config::read_profile_object(path) {",
+     "    let document = match crate::provider::profile::read_existing(path).map(Some).map_err(|_| ()) {",
+     [LIB, CHOICES_RT]),
+    ("a failed load is no choice (the base's swallow)", M,
+     "        Err(_) => return None,\n    };\n    fx_takes_choices",
+     "        Err(_) => return Some(Choices::default()),\n    };\n    fx_takes_choices",
+     [LIB, CHOICES_RT]),
+    ("fx's checks skipped", M,
+     "    fx_takes_choices(&document, root).then(|| choices_in(&document, root))",
+     "    Some(choices_in(&document, root))",
+     [LIB, CHOICES_RT]),
+    ("workspaces need not be an object", M,
+     "        Some(Value::Object(workspaces)) => root.to_str().and_then(|key| workspaces.get(key)),\n        Some(_) => return false,",
+     "        Some(Value::Object(workspaces)) => root.to_str().and_then(|key| workspaces.get(key)),\n        Some(_) => return true,",
+     [LIB]),
+    ("the entry need not be an object", M,
+     "        Some(Value::Object(entry)) => entry,\n        Some(_) => return false,",
+     "        Some(Value::Object(entry)) => entry,\n        Some(_) => return true,",
+     [LIB]),
+    ("a list need not be an array", M,
+     "            list.as_array().is_some_and(|names| {",
+     "            list.as_array().is_none_or(|names| {",
+     [LIB, CHOICES_RT]),
+    ("a name need not be a string", M,
+     ".all(|name| name.as_str().is_some_and(|name| !name.is_empty()))",
+     ".all(|name| name.as_str().is_none_or(|name| !name.is_empty()))",
+     [LIB]),
+    ("a name may be empty", M,
+     ".all(|name| name.as_str().is_some_and(|name| !name.is_empty()))",
+     ".all(|name| name.as_str().is_some())",
+     [LIB]),
+    ("the rejections unchecked", M,
+     "    names(ENABLED_KEY)\n        && names(DISABLED_KEY)\n",
+     "    names(ENABLED_KEY)\n",
+     [LIB]),
+    ("the switch unchecked", M,
+     "        && entry.get(ENABLE_ALL_KEY).is_none_or(Value::is_boolean)\n",
+     "\n",
+     [LIB, CHOICES_RT]),
+    ("a profile that does not read is none", "src/config.rs",
+     "        (None, Some(diagnostic)) => Err(diagnostic.cause),",
+     "        (None, Some(_)) => Ok(None),",
+     [LIB, CHOICES_RT]),
+    ("the runtime loads the workspace anyway", RT,
+     "        let choices = config::load_choices(self.paths.settings.as_deref(), &self.paths.workspace);\n",
+     "        let choices = Some(config::load_choices(self.paths.settings.as_deref(), &self.paths.workspace).unwrap_or_default());\n",
+     [CHOICES_RT]),
+    ("not UTF-8 is unreadable again", "src/config.rs",
+     "    let Ok(text) = String::from_utf8(bytes) else {\n        return reject(diagnostics, DiagnosticCause::MalformedSettings);",
+     "    let Ok(text) = String::from_utf8(bytes) else {\n        return reject(diagnostics, DiagnosticCause::UnreadableSettings);",
+     [LIB]),
+    ("not UTF-8 decoded lossily", "src/config.rs",
+     "    let Ok(text) = String::from_utf8(bytes) else {",
+     "    let Ok(text) = Ok::<String, ()>(String::from_utf8_lossy(&bytes).into_owned()) else {",
+     [LIB]),
     # Recursion where the reader keeps its own stack: the 100,000-deep read
     # runs the default thread's stack out (a crash is a kill).
     ("a recursive reader", J,
@@ -116,8 +177,11 @@ def main():
             if why:
                 break
         open(file, "w").write(text)
-        killed += bool(why)
-        print(f"{'KILLED' if why else 'SURVIVED'} {name}: {'; '.join(why) or 'every test passed'}")
+        # A mutant that does not build was not seen by a test: no kill.
+        unbuilt = any(w.endswith("does not build") for w in why)
+        killed += bool(why) and not unbuilt
+        verdict = "UNBUILT" if unbuilt else "KILLED" if why else "SURVIVED"
+        print(f"{verdict} {name}: {'; '.join(why) or 'every test passed'}")
     print(f"== {killed}/{len(MUTANTS)} killed")
 
 
