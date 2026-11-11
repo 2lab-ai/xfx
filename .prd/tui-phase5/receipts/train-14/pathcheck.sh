@@ -59,6 +59,7 @@ echo "shapes over $what$(git rev-parse -q --verify MERGE_HEAD > /dev/null && ech
 own | python3 -I -B "$here/shapes.py" lines > /dev/null
 lines=${PIPESTATUS[1]}
 rm -f "${units:-}"
-python3 -I -B "$here/shapes.py" files "$here"/* | sed '1s/^/shapes over this folder: /'
-folder=${PIPESTATUS[0]}
+# every file of this folder and its subfolders (join of main: ci-08066ac9/ is the first subfolder)
+find "$here" -type f -print0 | xargs -0 python3 -I -B "$here/shapes.py" files | sed '1s/^/shapes over this folder: /'
+folder=${PIPESTATUS[1]}
 [ "$n" = 0 ] && [ "$lines" = 0 ] && [ "$folder" = 0 ]

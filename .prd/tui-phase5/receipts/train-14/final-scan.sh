@@ -60,10 +60,10 @@ python3 -I -B "$here/midbranch_scan.py" "$repo" "$base" "$head"
 rc=$?
 echo "# midbranch_scan.py exit $rc"
 echo
-f=$(grep -lE "$P" "$here"/* | wc -l | tr -d ' ')
+f=$(find "$here" -type f -print0 | xargs -0 grep -lE "$P" | wc -l | tr -d ' ')
 echo "## 3. files of this directory holding the pattern: $f"
-python3 -I -B "$here/shapes.py" files "$here"/* | sed '1s/^/shapes.py over this directory: /'
-sh=${PIPESTATUS[0]}
+find "$here" -type f -print0 | xargs -0 python3 -I -B "$here/shapes.py" files | sed '1s/^/shapes.py over this directory: /'
+sh=${PIPESTATUS[1]}
 out=0
 if [ -n "$code" ]; then
   echo
