@@ -33,6 +33,9 @@
 //!   Escapes inside the double-Esc window and would clear the whole composer
 //!   ([`super::gesture`]), which is the opposite of what a delete-one-word or a
 //!   newline key can have meant -- and the Alt-Enter would submit besides.
+//!   **Behind the meta prefix there is no replay**: `ESC ESC` and a control
+//!   byte is one [`Action::Ignore`], as upstream's prefixed stage reads it
+//!   (below).
 //! * **An unknown sequence resolves to [`Action::Ignore`], never to a phantom
 //!   `Escape`.** A decoder that gives up on `CSI > 4 ; 2 m` by emitting the ESC
 //!   it swallowed cancels whatever `Escape` cancels, on input the user did not
@@ -48,6 +51,25 @@
 //! an unfinished `CSI` waits for its final byte however long the terminal
 //! takes, because a `CSI` split across two reads is an ordinary arrow key under
 //! load.
+//!
+//! # The meta prefix
+//!
+//! **A second ESC before the first has gone quiet is upstream's meta prefix**
+//! (`escape_parser.zig:552-555`, `terminal_action_decoder.zig:84-88
+//! @481104fd`): no event, the clock started again, and the sequence behind it
+//! read as that key with Alt -- `ESC ESC [ A` a paragraph up, `ESC ESC [ C` a
+//! word right, `ESC ESC [ 1 ; 5 H` the plain Home, since Alt's row has none
+//! ([`prefixed`], [`kitty_key`] for a key report). Alone, the pair is one
+//! Escape once the quiet comes, as upstream's flush reads a prefixed lone ESC
+//! (`:327-329`, `terminal_action_decoder.zig:174-183`). Nothing here reads
+//! which read a byte came off: the quiet alone tells a person's two presses,
+//! which are two Escapes and the gesture's two taps ([`super::gesture`]),
+//! from two ESC bytes in one burst, which are one. The quiet is
+//! [`Decoder::ESC_TIMEOUT`], 50 ms, where upstream's is 30 ms
+//! (`main.zig:187`): a second press 30 to 50 ms after the first is a prefix
+//! here and a press there (`docs/parity.md`). A report behind the prefix --
+//! an `OSC`, the background notification -- gives the first ESC back as the
+//! Escape key it was: upstream's key decoder never sees a report there.
 //!
 //! # The control policy
 //!
@@ -604,12 +626,18 @@ struct Partial {
 enum Stage {
     /// Between sequences: the next byte is a character, a binding, or an ESC.
     Ground,
-    /// An ESC with nothing after it yet, and when it arrived.
-    Esc { at: Instant },
-    /// `ESC [`, reading parameters into [`Decoder::params`].
-    Csi,
-    /// `ESC O`, waiting for the one byte that names the key.
-    Ss3,
+    /// An ESC with nothing after it yet, and when it arrived. `meta` when a
+    /// second ESC came before the first had gone quiet: upstream's meta
+    /// prefix, a bit of its stage (`escape_parser.zig:25`, `:552-555
+    /// @481104fd`), and the pair is still one Escape once the quiet comes
+    /// (`isBareEscapeStage`, `:327-329`).
+    Esc { at: Instant, meta: bool },
+    /// `ESC [`, reading parameters into [`Decoder::params`]; `meta` behind a
+    /// prefix, which the stage keeps (`setBaseEscapeStage`, `:291-293`).
+    Csi { meta: bool },
+    /// `ESC O`, waiting for the one byte that names the key; `meta` as
+    /// [`Stage::Csi`]'s.
+    Ss3 { meta: bool },
     /// `ESC ]`, inside a string sequence's body: `seen` bytes of it so far, and
     /// `esc` for an `ESC` that may be the first half of the `ST` that ends it.
     ///
@@ -986,16 +1014,16 @@ impl Decoder {
         self.flush(now, out);
         match self.stage {
             Stage::Ground => self.ground(byte, now, out),
-            Stage::Esc { .. } => self.after_escape(byte, now, out),
-            Stage::Csi => self.in_csi(byte, now, out),
-            Stage::Ss3 if carriable(byte) => {
+            Stage::Esc { meta, .. } => self.after_escape(byte, now, meta, out),
+            Stage::Csi { meta } => self.in_csi(byte, now, meta, out),
+            Stage::Ss3 { meta } if carriable(byte) => {
                 self.stage = Stage::Ground;
-                out.push(Input::Action(ss3(byte)));
+                out.push(Input::Action(ss3(byte, meta)));
             }
             // A byte no sequence can carry: the sequence is abandoned and the
             // byte is decoded on its own. `in_csi` and `discarding` make the
             // same check for themselves.
-            Stage::Ss3 => self.intruded(byte, now, out),
+            Stage::Ss3 { .. } => self.intruded(byte, now, out),
             Stage::Osc { seen, esc } => self.in_osc(byte, now, seen, esc, out),
             Stage::Discard { seen } => self.discarding(byte, now, seen, out),
             Stage::Utf8(partial) => self.in_utf8(byte, now, partial, out),
@@ -1010,7 +1038,7 @@ impl Decoder {
     /// arriving, and a clock that cut it in half would turn an arrow key under
     /// load into two events the user never typed.
     pub(crate) fn flush(&mut self, now: Instant, out: &mut Vec<Input>) {
-        if let Stage::Esc { at } = self.stage {
+        if let Stage::Esc { at, .. } = self.stage {
             if now.saturating_duration_since(at) >= Self::ESC_TIMEOUT {
                 self.stage = Stage::Ground;
                 out.push(Input::Action(Action::Escape));
@@ -1076,7 +1104,12 @@ impl Decoder {
     /// One byte with no sequence in progress.
     fn ground(&mut self, byte: u8, now: Instant, out: &mut Vec<Input>) {
         match byte {
-            0x1b => self.stage = Stage::Esc { at: now },
+            0x1b => {
+                self.stage = Stage::Esc {
+                    at: now,
+                    meta: false,
+                }
+            }
             // The closed control table. Everything it does not name is
             // `Ignore`, which is what keeps a control out of the text.
             0x00..=0x1f | 0x7f => out.push(Input::Action(control(byte))),
@@ -1099,21 +1132,42 @@ impl Decoder {
         }
     }
 
-    /// The byte after a bare ESC.
-    fn after_escape(&mut self, byte: u8, now: Instant, out: &mut Vec<Input>) {
+    /// The byte after a bare ESC, or after two (`meta`): upstream's bare
+    /// stage (`escape_parser.zig:501-560@481104fd`), which reads every byte
+    /// alike behind the prefix but the two that begin a sequence, which keep
+    /// it (`:502-514`), and the ESC, which sets it (`:552-555`).
+    fn after_escape(&mut self, byte: u8, now: Instant, meta: bool, out: &mut Vec<Input>) {
         match byte {
             b'[' => {
                 self.params.clear();
-                self.stage = Stage::Csi;
+                self.stage = Stage::Csi { meta };
             }
-            b'O' => self.stage = Stage::Ss3,
+            b'O' => self.stage = Stage::Ss3 { meta },
+            // A second ESC before the first has gone quiet: the meta prefix,
+            // and no event (`terminal_action_decoder.zig:84-88`, which starts
+            // the clock again from this byte). A third keeps it. Alone, the
+            // pair is one Escape once the quiet comes ([`Self::flush`]); a
+            // person's two presses, a quiet apart, are two.
+            0x1b => {
+                self.stage = Stage::Esc {
+                    at: now,
+                    meta: true,
+                }
+            }
             // A string sequence -- `OSC` -- which is the terminal talking about
             // itself rather than a key: a background report it was asked for,
             // a foreground one, a clipboard. Its body is *text*, and a decoder
             // that stopped here would put `11;rgb:1e1e/1e1e/1e1e` in the
             // composer and the user's clipboard with it. It is consumed to its
-            // terminator instead ([`Self::in_osc`]).
+            // terminator instead ([`Self::in_osc`]). Behind a second ESC the
+            // first was the Escape key: a report is not a key a prefix can
+            // belong to, and upstream's key decoder never sees one there
+            // (its theme monitor reads every byte first and hands a lone ESC
+            // on, `theme_monitor.zig:85-88`, `main.zig:3127-3134`).
             b']' => {
+                if meta {
+                    out.push(Input::Action(Action::Escape));
+                }
                 self.stage = Stage::Osc {
                     seen: 0,
                     esc: false,
@@ -1140,6 +1194,14 @@ impl Decoder {
             b'\r' | b'\n' => {
                 self.stage = Stage::Ground;
                 out.push(Input::Action(Action::InsertNewline));
+            }
+            // Behind the prefix, a C0 is upstream's `.ignore` and goes with
+            // it: the replay below is for a bare ESC alone (`prior_stage ==
+            // 1`, `terminal_action_decoder.zig:92-101`; the prefixed stage
+            // is `0x81`).
+            0x00..=0x1f if meta => {
+                self.stage = Stage::Ground;
+                out.push(Input::Action(Action::Ignore));
             }
             // No sequence carries a C0 in this position, so the ESC was the
             // Escape key and this byte is its own keystroke. Both of them, in
@@ -1179,8 +1241,8 @@ impl Decoder {
         }
     }
 
-    /// One byte inside `ESC [ ...`.
-    fn in_csi(&mut self, byte: u8, now: Instant, out: &mut Vec<Input>) {
+    /// One byte inside `ESC [ ...`, behind the meta prefix or not (`meta`).
+    fn in_csi(&mut self, byte: u8, now: Instant, meta: bool, out: &mut Vec<Input>) {
         if !carriable(byte) {
             self.intruded(byte, now, out);
             return;
@@ -1205,13 +1267,18 @@ impl Decoder {
                 // final byte falls through and becomes the
                 // [`Action::Ignore`] every unbound sequence becomes, which is
                 // what keeps the keystroke behind it a keystroke.
+                // Behind a second ESC the first was the Escape key, as before
+                // an `OSC` ([`Self::after_escape`]).
                 if byte == b'n' {
                     if let Some(mode) = super::theme::notification(&self.params) {
+                        if meta {
+                            out.push(Input::Action(Action::Escape));
+                        }
                         out.push(Input::Report(mode));
                         return;
                     }
                 }
-                let input = csi(&self.params, byte);
+                let input = csi(&self.params, byte, meta);
                 if input == Input::Action(Action::PasteStart) {
                     self.pasting = true;
                     self.matched = 0;
@@ -1268,8 +1335,11 @@ impl Decoder {
             // the tail of a report the terminal truncated is not text the user
             // asked for.
             if !matches!(byte, 0x00..=0x1f | 0x7f) {
-                self.stage = Stage::Esc { at: now };
-                self.after_escape(byte, now, out);
+                self.stage = Stage::Esc {
+                    at: now,
+                    meta: false,
+                };
+                self.after_escape(byte, now, false, out);
                 return;
             }
             // A C0 or `DEL`. **No `ESC` is handed back here**, and that is the
@@ -1456,7 +1526,14 @@ fn control(byte: u8) -> Action {
 ///
 /// An [`Input`] rather than an [`Action`] because a key report can be a
 /// character: a keypad digit, or Shift+Space ([`replayed`]).
-fn csi(params: &[u8], final_byte: u8) -> Input {
+///
+/// `meta` is upstream's meta prefix, a second `ESC` in front
+/// (`escape_parser.zig:552-555@481104fd`). The cursor keys read it as Alt's
+/// bit, which is where `modifiedArrowAction` reads it (`:83`), and a key
+/// report where `kittyUnicodeKeyAction` does ([`kitty_key`]); the tilde keys,
+/// the paste markers and Shift-Tab read none (`:569`, `:620-636`, `:694-719`,
+/// `:723-725`).
+fn csi(params: &[u8], final_byte: u8, meta: bool) -> Input {
     match final_byte {
         // The paste markers in their one spelling, then every tilde key --
         // Home `1` and rxvt's `7`, Delete `3`, End `4` and rxvt's `8`, the
@@ -1466,24 +1543,23 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
         b'~' => match params {
             b"200" => Input::Action(Action::PasteStart),
             b"201" => Input::Action(Action::PasteEnd),
-            _ => tilde_report(params),
+            _ => tilde_report(params, meta),
         },
         // The cursor keys, bare or with one modifier.
         b'A' | b'B' | b'C' | b'D' | b'H' | b'F' => {
-            let Some(modifier) = modifier(params) else {
+            let Some(mask) = modifier(params) else {
                 return Input::Action(Action::Ignore);
             };
-            // The modifier is one more than a bitmask.
-            Input::Action(cursor(final_byte, modifier - 1))
+            Input::Action(cursor(final_byte, prefixed(mask, meta)))
         }
         // Kitty's spelling of a key report.
-        b'u' => report(params),
+        b'u' => report(params, meta),
         // Shift-Tab, bare or with a modifier (`escape_parser.zig:569`,
         // `:723-725`): upstream reads any modifier as the same key, and a
         // modifier field of `1` -- none at all -- is not a spelling it has.
         b'Z' => match modifier(params) {
-            Some(1) if params.is_empty() => Input::Action(Action::BackTab),
-            Some(mask) if mask > 1 => Input::Action(Action::BackTab),
+            Some(0) if params.is_empty() => Input::Action(Action::BackTab),
+            Some(mask) if mask > 0 => Input::Action(Action::BackTab),
             _ => Input::Action(Action::Ignore),
         },
         _ => Input::Action(Action::Ignore),
@@ -1513,7 +1589,9 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
 /// `paragraph_up` to it, which it does not. The selection Shift would extend
 /// is dropped (COMPOSER-SELECTION-EXTEND), `shifted` remembering it. A mask
 /// with none of the four is the key, as upstream's table answers `null` and
-/// the plain key follows (`escape_parser.zig:727-733`).
+/// the plain key follows (`escape_parser.zig:727-733`); the other four bits --
+/// Hyper, Meta's, Caps Lock and Num Lock -- are not read, as upstream reads
+/// none of them. The meta prefix comes here as Alt's bit ([`prefixed`]).
 fn cursor(letter: u8, mask: u8) -> Action {
     let word = mask & (ALT | CTRL) != 0;
     let alt = mask & ALT != 0;
@@ -1564,7 +1642,7 @@ fn cursor(letter: u8, mask: u8) -> Action {
 /// report means: a field upstream would fold into a number from a spelling no
 /// terminal emits -- a leading zero, a modifier of `0`, a third `;` field --
 /// is [`Action::Ignore`] here, for the reason [`csi`] gives.
-fn report(params: &[u8]) -> Input {
+fn report(params: &[u8], meta: bool) -> Input {
     let ignore = Input::Action(Action::Ignore);
     let mut fields = params.split(|byte| *byte == b';');
     let (Some(code), modifier, None) = (fields.next(), fields.next(), fields.next()) else {
@@ -1574,7 +1652,7 @@ fn report(params: &[u8]) -> Input {
         return ignore;
     };
     let Some(modifier) = modifier else {
-        return kitty_key(code, 0);
+        return kitty_key(code, 0, meta);
     };
     let mut parts = modifier.split(|byte| *byte == b':');
     let (Some(mask), event, None) = (parts.next(), parts.next(), parts.next()) else {
@@ -1584,7 +1662,7 @@ fn report(params: &[u8]) -> Input {
         return ignore;
     };
     match event {
-        None | Some(b"1" | b"2") => kitty_key(code, mask),
+        None | Some(b"1" | b"2") => kitty_key(code, mask, meta),
         Some(_) => ignore,
     }
 }
@@ -1611,7 +1689,7 @@ fn report(params: &[u8]) -> Input {
 /// The paste markers are not read here: [`csi`] matches them as bytes first, so
 /// `CSI 0200 ~` is the number 200, which is no key, as it is upstream
 /// (`digit_count == 3`, `:625-626`).
-fn tilde_report(params: &[u8]) -> Input {
+fn tilde_report(params: &[u8], meta: bool) -> Input {
     let ignore = Input::Action(Action::Ignore);
     let mut fields = params.split(|byte| *byte == b';');
     let (Some(key), modifier, code, None) =
@@ -1631,7 +1709,7 @@ fn tilde_report(params: &[u8]) -> Input {
     let modifiers = modifier.saturating_sub(1);
     if code.is_some() {
         let [low, _] = modifiers.to_le_bytes();
-        return kitty_key(u32::from(keycode), low);
+        return kitty_key(u32::from(keycode), low, meta);
     }
     tilde_key(key, modifiers)
 }
@@ -1832,11 +1910,18 @@ fn keypad_navigation(code: u32) -> Option<u8> {
 ///
 /// What has no action here is [`Action::Ignore`], each named where it falls:
 /// an `o` under any other modifiers (:111-114) and `open_all_sessions` (:253). `toggle_permission_mode` (:254) is
-/// [`Action::BackTab`], the key it is spelled with. Upstream's
-/// `meta_prefixed` -- a key report behind a second `ESC` -- has no counterpart:
-/// this decoder reads `ESC ESC` as the Escape key and then whatever follows,
-/// so it is always `false` here and its branches are not carried.
-fn kitty_key(code: u32, modifiers: u8) -> Input {
+/// [`Action::BackTab`], the key it is spelled with.
+///
+/// `meta` is upstream's `meta_prefixed`, a report behind a second `ESC`
+/// (`escape_parser.zig:552-555@481104fd`), read in the branches that read it
+/// and nowhere else -- not Alt's bit: a keypad digit or Shift+Space is not
+/// typed (:195, :222), a keypad arrow, Home or End and kitty's own Up and Down
+/// are the arrow table's under Alt (:197, :209-214; so Hyper alone on kitty's
+/// Up is a paragraph, not nothing), `d` deletes the word on its right whatever
+/// else is held (:251), and `o` is nothing (:111-114). Enter with Ctrl is
+/// still Enter, through the bare one (:218, :262), and `b` with nothing held
+/// is no Alt-b (:243).
+fn kitty_key(code: u32, modifiers: u8, meta: bool) -> Input {
     let ignore = Input::Action(Action::Ignore);
     // Caps Lock and Num Lock are states, not modifiers (:186-187).
     let mods = modifiers & 0x3f;
@@ -1847,13 +1932,14 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
     // is not resolved as the keypad at all (:189-191).
     if mods & !(SHIFT | ALT | CTRL | SUPER) == 0 {
         if let Some(byte) = keypad_character(code) {
-            // Only a bare or shifted keypad press types (:193-195); anything
-            // else falls through to the rest of the table.
-            if mods & !SHIFT == 0 {
+            // Only a bare or shifted keypad press types (:193-195), and not
+            // behind the prefix; anything else falls through to the rest of
+            // the table.
+            if !meta && mods & !SHIFT == 0 {
                 return replayed(byte);
             }
         } else if let Some(letter) = keypad_navigation(code) {
-            return Input::Action(cursor(letter, mods));
+            return Input::Action(cursor(letter, prefixed(mods, meta)));
         } else if code == KP_PAGE_UP || code == KP_PAGE_DOWN {
             // `page_up`/`page_down` with nothing held once the lock bits are
             // off, and a `composerMove` to them with a modifier
@@ -1867,7 +1953,7 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
                 (false, true) => Action::ComposerPageDown,
             });
         } else if code == KP_ENTER {
-            return kitty_key(13, modifiers);
+            return kitty_key(13, modifiers, meta);
         } else if code == KP_DELETE {
             // The main-row `ESC[3~` family (:175-180).
             return Input::Action(forward_delete(u16::from(mods)));
@@ -1876,19 +1962,20 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
     if code == KITTY_UP || code == KITTY_DOWN {
         let letter = if code == KITTY_UP { b'A' } else { b'B' };
         // Upstream's modified arrow table answers every modifier but Hyper and
-        // Meta alone, which are `.ignore` (:208-217).
-        if mods != 0 && mods & (SHIFT | ALT | CTRL | SUPER) == 0 {
+        // Meta alone, which are `.ignore` (:208-217) -- unless the prefix
+        // is Alt's arm for them (:83).
+        if !meta && mods != 0 && mods & (SHIFT | ALT | CTRL | SUPER) == 0 {
             return ignore;
         }
-        return Input::Action(cursor(letter, mods));
+        return Input::Action(cursor(letter, prefixed(mods, meta)));
     }
-    if code == 13 && mods == CTRL {
+    if code == 13 && mods == CTRL && !meta {
         return replayed(b'\r');
     }
     if code == 13 && mods & (SHIFT | ALT) != 0 {
         return Input::Action(Action::InsertNewline);
     }
-    if code == 32 && mods == SHIFT {
+    if code == 32 && mods == SHIFT && !meta {
         return replayed(b' ');
     }
     // A letter, either case: the branches below compare the keycode against
@@ -1957,14 +2044,15 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
             Action::AltF
         });
     }
-    // `delete_word_right` (:251).
-    if is(b'd') && mods & ALT != 0 {
+    // `delete_word_right` (:251), Alt held or the prefix.
+    if is(b'd') && (meta || mods & ALT != 0) {
         return Input::Action(Action::DeleteWordRight);
     }
     // `toggle_full_transcript` for Ctrl+O alone, and nothing for an `o` under
-    // any other modifiers (`ctrlOKeyAction`, :111-114, :252).
+    // any other modifiers or behind the prefix (`ctrlOKeyAction`, :111-114,
+    // :252).
     if is(b'o') {
-        return Input::Action(if mods == CTRL {
+        return Input::Action(if mods == CTRL && !meta {
             Action::ToggleTranscript
         } else {
             Action::Ignore
@@ -2013,38 +2101,54 @@ fn replayed(byte: u8) -> Input {
     }
 }
 
-/// The modifier a cursor-key sequence carries, or `None` when its parameters
-/// are not a shape a terminal sends a cursor key in.
+/// The modifier mask a cursor-key sequence carries -- its field less one, `0`
+/// for none -- or `None` when its parameters are not a shape a terminal sends
+/// a cursor key in.
 ///
 /// Two shapes and no others: nothing at all (`CSI C`), or the literal `1;` and
-/// one modifier in `1..=16` (`CSI 1 ; 5 C`), which is the whole of xterm's
-/// modifier encoding. `CSI 2 ; 5 C`, `CSI 1 ; 5 ; 9 C` and `CSI 1 ; 5 : 3 C`
-/// are not cursor keys and do not become movement by being nearly one.
+/// one modifier in `1..=256` (`CSI 1 ; 5 C`): one more than a mask of eight
+/// bits, shift, alt, ctrl, super, hyper, meta, caps lock and num lock, as
+/// kitty's report counts them ([`key_modifiers`]). Upstream reads the field
+/// whatever it holds (`escape_parser.zig:722@481104fd`) and its arrow table
+/// only the four bits [`cursor`] reads (`:73-108`), so a lock bit or Hyper
+/// beside them changes nothing. `CSI 2 ; 5 C`, `CSI 1 ; 5 ; 9 C`,
+/// `CSI 1 ; 5 : 3 C` and a field past 256 are not cursor keys and do not
+/// become movement by being nearly one.
 fn modifier(params: &[u8]) -> Option<u8> {
     if params.is_empty() {
-        return Some(1);
+        return Some(0);
     }
     let digits = params.strip_prefix(&b"1;"[..])?;
-    if digits.is_empty() || digits.len() > 2 || !digits.iter().all(u8::is_ascii_digit) {
+    if digits.is_empty() || digits.len() > 3 || !digits.iter().all(u8::is_ascii_digit) {
         return None;
     }
     let value = digits
         .iter()
-        .fold(0u8, |value, digit| value * 10 + (digit - b'0'));
-    (1..=16).contains(&value).then_some(value)
+        .fold(0u16, |value, digit| value * 10 + u16::from(digit - b'0'));
+    u8::try_from(value.checked_sub(1)?).ok()
+}
+
+/// The mask a cursor key is read under behind the meta prefix (`meta`):
+/// upstream's arrow table reads the prefix beside Alt's bit and nowhere else
+/// (`modifiedArrowAction`, `escape_parser.zig:83@481104fd`), so here it is
+/// Alt's bit -- Up and Down a paragraph, Left and Right a word, Home and End
+/// the plain keys, Super still first ([`cursor`]).
+fn prefixed(mask: u8, meta: bool) -> u8 {
+    if meta {
+        mask | ALT
+    } else {
+        mask
+    }
 }
 
 /// What `ESC O <byte>` means: the keys a `CSI` also spells, in the form a
 /// terminal in application-cursor mode sends them
-/// (`escape_parser.zig:535-553`).
-fn ss3(byte: u8) -> Action {
+/// (`escape_parser.zig:535-553`) -- with no modifier, and behind the meta
+/// prefix the arrow table's under it (`:637-644@481104fd`), as a bare
+/// `CSI`'s are ([`cursor`], [`prefixed`]).
+fn ss3(byte: u8, meta: bool) -> Action {
     match byte {
-        b'A' => Action::Up,
-        b'B' => Action::Down,
-        b'C' => Action::Right,
-        b'D' => Action::Left,
-        b'H' => Action::Home,
-        b'F' => Action::End,
+        b'A' | b'B' | b'C' | b'D' | b'H' | b'F' => cursor(byte, prefixed(0, meta)),
         _ => Action::Ignore,
     }
 }
@@ -2096,7 +2200,7 @@ mod tests {
     /// a character instead fails loudly rather than comparing unequal to some
     /// action by accident.
     fn csi(params: &[u8], final_byte: u8) -> Action {
-        match super::csi(params, final_byte) {
+        match super::csi(params, final_byte, false) {
             Input::Action(action) => action,
             other => panic!("{params:?} {final_byte:?} decoded to {other:?}, not an action"),
         }
