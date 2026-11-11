@@ -13,3 +13,9 @@ M10 the shell does not fold the line's edges for the menus and the composer: KIL
 M11 a question reads the line's edges as nothing: KILLED (52s) a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move, tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop
 M12 the editor's line start is the line's end: KILLED (48s) the_line_edge_moves_are_home_and_end
 12 of 12 killed; the clone's tree after the run: clean
+
+# Round 2: on a --no-local clone at 7033c151 (1bdbfc4f's code; its remote removed) under <tmp>/mut/, the run under the suite lock: TMPDIR=<tmp> python3 -I mutants.py <tmp>/mut/repo <out> M13 M14 M15
+M13 kitty's Ctrl-Shift-a/e/b/f are nothing (a0e8a223's Ignore): KILLED (96s) ctrl_shift_a_b_e_f_are_upstreams_moves_the_selection_dropped, a_line_edge_key_over_a_live_selection_moves_from_the_caret_and_ends_it, a_held_left_right_home_or_end_in_a_draft_is_fxs_move
+M14 kitty's Ctrl-Shift-a is the step and Ctrl-Shift-b the line's start: KILLED (49s) ctrl_shift_a_b_e_f_are_upstreams_moves_the_selection_dropped, a_line_edge_key_over_a_live_selection_moves_from_the_caret_and_ends_it, a_held_left_right_home_or_end_in_a_draft_is_fxs_move
+M15 Home over a live selection collapses it to its start, as a step does: KILLED (64s) a_line_edge_key_over_a_live_selection_moves_from_the_caret_and_ends_it
+3 of 3 killed; the clone's tree after the run: clean

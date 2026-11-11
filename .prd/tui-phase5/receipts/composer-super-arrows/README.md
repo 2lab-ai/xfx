@@ -416,5 +416,22 @@ content, against the base (`refs.py 28bd1810`). 11 of 16 had moved, and
   and Down, and the four tilde Home/End keys: 320 decodes, counted.
   - Masks past 16 (Meta, Hyper, the lock bits) and the `ESC ESC` prefix
     are left as they are and named in the test as META-PREFIX-DECODE's.
+- **Mutants** (`mutants.txt`, its round-2 lines; on a `--no-local` clone
+  at `7033c151`): **3 of 3 killed**, the clone clean after.
+  - M13, the four ignored again: killed by the decoder test, the
+    live-selection test and the composer test.
+  - M14, Ctrl-Shift-a and -b swapped: killed by the same three.
+  - M15, Home over a live selection collapsing it to its start as a step
+    does: killed by the live-selection test.
 - `round2/green.txt`: the unit's 22 tests, on both suites, 22 + 22 ok.
+- **Gate** (`gate.txt`, its round-2 part): on a `--no-local` clone at
+  `60f1cf9b` under the suite lock:
+  - fmt and both clippy runs pass;
+  - `cargo test`: 5720 passed; with `fault-injection`: 5757 passed; 0
+    failed and 7 ignored each;
+  - the identity, stubs, secrets and local-paths checks all exit 0;
+  - the clone is clean after.
+
+  Round 1 had 5718 and 5755. The +2 each are the live-selection test and
+  the Ctrl-Shift decoder test. No catalog-wait failure came up.
 - `round2/refs.txt`: 6 ledger refs re-pointed, 16 checked, 0 wrong.
