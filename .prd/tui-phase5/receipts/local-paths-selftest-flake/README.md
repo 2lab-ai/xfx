@@ -41,8 +41,11 @@ tree), without printing a path.
 | `f8ab5be4` | `fewer`, the shape CI showed -- **round 7's gate head** (`gate7.txt`, on a clone; `mutants7.txt`) |
 | `48a163ed` | round 7's README and records |
 | `1eee9723` | round 8: the second look says only what it read (exit statuses kept, digits only, "could not read the file"), observations not causes; `lookfail`, `lookjunk`; `threads` with a disagreement |
-| `252a20ea` | `lookjunkc`; one junk field per case; the second look's mutants -- **the code head and round 8's gate head** (`gate8.txt`, on a clone; `mutants8.txt`) |
-| (this one) | this README and round 7's records |
+| `252a20ea` | `lookjunkc`; one junk field per case; the second look's mutants -- **round 8's gate head** (`gate8.txt`, on a clone; `mutants8.txt`) |
+| `12ea7867` | round 8's README and records; CI green at `48a163ed` |
+| `8f083d79` | round 9: the second look reads its count file with `read`, as the line pass does, and checks its size to the byte; `countexit1`, `countnul`, `counttwo`, `countnonl`; `threads` names the plant again -- **the code head** |
+| `f765cae8` | the count parser's mutants -- **round 9's gate head** (`gate9.txt`, on a clone; `mutants9.txt`) |
+| (this one) | this README and round 9's records |
 
 `3ee1766f` added `repro/harness-shapes.sh`, `repro/harness2.sh` and
 `repro/stageA.sh`, copies of the self-test's fixture lines; `1f6e5345` drops
@@ -111,6 +114,15 @@ readings of one file disagreed, so it could not vouch for the tree.
   the second look's greps run under the one-thread rule; it and `omit`,
   `fewer`, `omitonce` fail on the old wording. **GREEN** (`green8.txt`): 27
   of 27.
+- **Round 9 RED** (`red9.txt`): the self-test at `8f083d79` against the
+  check at `12ea7867`: 4 of 31 fail, the four new count files. Each one
+  `12ea7867` took as a reading and printed: `countexit1` (a record, but
+  git exit 1) as "git grep -c gives 0 now", `countnul` (`3` then a NUL)
+  as 3, `counttwo` (a second record) and `countnonl` (no newline) as 1.
+  `8f083d79` prints only "could not read the file" for each, and the
+  case compares the whole of stderr. **GREEN** (`green9.txt`): 31 of 31.
+  `threads` again asserts the plant is named, with one hit, beside the
+  second look's line, which `threadslook` now checks on its own.
 - **RED** (`red7.txt`): the round-7 self-test (`f8ab5be4`) against the
   check at `c5cf594b`: 4 of 24 fail. `fewer` plants CI's shape (a shim
   drops a file's second matching line from the line pass only): `c5cf594b`
@@ -340,6 +352,11 @@ same tree.
   line number and its count printed unchecked (`lookjunk`, `lookjunkc`),
   its count's exit status ignored (`lookfail`), and a second-look grep that
   bypasses `scan_git` (`lookfail`, `lookjunkc`; the `threads` rule).
+- `mutants9.txt` (29, at `f765cae8`): 26 killed, 3 survive (the three
+  older ones below). The two round-9 guards are killed: the count file's
+  size unchecked (`countnul`, `counttwo`) and git's exit 1 beside a record
+  accepted (`countexit1`); the second look's other guards are killed
+  again, now by the four count cases as well.
 
 The three older survivors are guards the tree fixtures do not exercise,
 with the patterns fixed and a correct regex engine assumed; an
@@ -379,6 +396,10 @@ judged these three not worth a test):
 - Round 8, `gate8.txt` (`gates.sh`), at `252a20ea` (the code head), on a
   `git clone --no-local`: 22 of 22 steps, the clone clean before and after,
   in one suite-lock slot after `mutants8.txt`.
+- Round 9, `gate9.txt` (`gates.sh`), at `f765cae8`, whose scripts are
+  `8f083d79`'s (the code head), on a `git clone --no-local`: 22 of 22
+  steps, the clone clean before and after, in one suite-lock slot after
+  `mutants9.txt`; step 09, the check on its own tree, took 20 s.
 - Round 7, `gate7.txt` (`gates.sh`), at `f8ab5be4`, on a
   `git clone --no-local`: 22 of 22 steps, the clone clean before and after,
   in one suite-lock slot after `mutants7.txt`; step 09, the check on its
