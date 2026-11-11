@@ -43,6 +43,10 @@ ranges=(
   src/core/permissions/approval_decision.zig:18-31
   src/core/permissions/approval_decision.zig:178-212
   src/core/permissions/approval_amendment.zig:53-58
+  # Round 2: the draft's Home and End (cursorHome/cursorEnd), and the
+  # once-per-run rule a refusal follows.
+  src/core/permissions/approval_amendment.zig:84-92
+  src/core/input/input_limit_rejection.zig:1-30
   src/core/input/editor_state.zig:217-225
   src/core/agent/question_prompt.zig:572-585
   # The route: the decoded paste start (menus dismissed, beginPaste with the

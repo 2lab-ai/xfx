@@ -5,7 +5,8 @@ inserts it. CR LF and a lone CR become LF, and then every LF and every Tab
 becomes one space (`normalizeApprovalAmendmentPasteInPlace`,
 `input_paste_runtime.zig:19-25@481104fd`). Then it checks the draft's 4096
 bytes against what the paste has become. xfx kept the breaks and tabs, so a
-draft could hold several lines, and it painted a pasted CR raw. It also
+draft could hold several lines, its Home went to a line's start, and a lone
+CR stayed in the rows the band composed (the painter dropped it). It also
 refused a paste at its 4097th byte as the bytes arrived, so a CR LF counted
 two bytes. This unit copies fx's rule for the amendment. The composer and a
 question's field keep their own rules, which are already fx's.
@@ -13,12 +14,18 @@ question's field keep their own rules, which are already fx's.
 | commit | what |
 |---|---|
 | `a5cf9567` | RED: the unit tests and the shell test, the COMPOSER-SUPER-ARROWS amendment block flipped to fx's 0, scenario `p5-approval-paste-spaces`. Tests and the scenario only |
-| `9a73d0ba` | **the code head**: `DraftPaste` (the 8 MiB capture bound, `one_line`, the budget after it), the module's and `MAX_FEEDBACK_BYTES`' docs, one comment in `Shell::decide`; MODIFIED-PAGE-KEYS' page-key test pastes a one-line draft now |
+| `9a73d0ba` | **the code head**: `DraftPaste` (the 8 MiB capture bound, `one_line`, the budget after it), the module's and `MAX_FEEDBACK_BYTES`' docs, one comment in `Shell::decide`; MODIFIED-PAGE-KEYS' page-key test still pastes two lines, which now become one |
 | `b9afbe3b` | tests only: an image path and a long paste in a draft; the scenario's `cursor` line dropped (it read where each binary parks the terminal's cursor) |
 | `1f5d32a3`, `bf518f5f` | `docs/parity.md`; this folder |
 | `4a8f0a6c` | a comment only: the module doc names the decoder's half of "no key types a break into a draft" (`Input::Text` is never a control character, `src/tui/input.rs`) |
 | `2804b108` | tests only: Super-A in a draft makes no selection a paste replaces; the multibyte test's comment names the bound it now meets (round 1, advisor) |
 | `13f1436f` | the ledger's six refs into `shell.rs` re-pointed (Refs) |
+| `f5d2de76` | `docs/parity.md`: fx's draft window is one row scrolled to the caret |
+| `f438a5b6` | a test comment's fx citation given its file (the last round-1 `src/` commit, tests only); the ledger's refs re-pointed again |
+| `e26ce67b` | this folder; **round 1's head, gated by the dispatcher** (Gate) |
+| `0e2b242b` | round 2 RED, tests only (Round 2) |
+| `53557ed6` | **round 2's code head**: Home and End in a draft are its edges; a paste of more than twice the room refused before decoding |
+| `276fc5d7` | the ledger: `amend-draft-window`, the refs re-pointed; the round 2 mutant runner |
 | the commits after | `docs/parity.md`, this folder; no `src/` change |
 
 The source change outside the test modules is +42/-11 over two files
@@ -112,8 +119,11 @@ said once per run of refusals, and every paste starts a run
   (`input_paste_runtime.zig:362-384`).
 - **`/rename`** takes its title as the command's argument, in the composer
   (`commands.zig:448`).
-- **No other text field** in fx takes a paste of its own. The sign-in code
-  is printing bytes only and is not normalized.
+- **Sign-in code entry** (`.auth_code`) is fx's one other paste owner. It
+  keeps printing bytes only (`paste_framing.zig:127`) and normalizes
+  nothing (`input_paste_runtime.zig:246`), up to `max_manual_code_bytes`
+  (`:118`). xfx has no sign-in (#88), so it has no such field.
+- **No other text field** in fx takes a paste of its own.
 
 So **only the amendment** turns breaks into spaces. That is the one rule
 this unit copies.
@@ -124,10 +134,16 @@ this unit copies.
   fx's composer and amendment set, `paste_framing.zig:124-126`). It now stops at the
   composer's `MAX_PASTE_BYTES`, as fx's capture does, not at 4096.
 - `DraftPaste::finish`, in order:
-  1. lossy decode (unchanged; Found below);
-  2. `one_line`, which is `transcript::normalize`, the composer's own CR
+  1. (round 2) refused when the bytes are more than twice the room left:
+     the text can only be longer than that (Decisions);
+  2. lossy decode (unchanged; Found below);
+  3. `one_line`, which is `transcript::normalize`, the composer's own CR
      rule, then LF and Tab to a space;
-  3. `fits(held, len) <= 4096`, the budget, last.
+  4. `fits(held, len) <= 4096`, the budget, last.
+- (round 2) `Draft::apply`: Home and `LineStart` (Super-Left, Shift-Home)
+  put the caret at 0, and End and `LineEnd` at the draft's length, as fx's
+  `cursorHome`/`cursorEnd` (`approval_amendment.zig:84-92`;
+  `src/ui/input/runtime.zig:82-83`), not at the caret line's edges.
 - The refusal is unchanged: `INPUT_LIMIT` once per run, and every paste
   starts a run.
 - Both planes answer through `approval::answered`, so the band and the
@@ -165,8 +181,11 @@ this unit copies.
   - `super_left_right_and_the_draft_edges_in_an_amendment_are_fxs`:
     `zab\ncd` for `zab cd`;
   - `a_paste_into_an_amendment_is_one_line_on_either_plane_as_fxs`: the
-    band's rows hold `ef    gh\rijz`. That is a pasted **CR in a painted row**,
-    which goes to the terminal raw.
+    band's composed rows (`band_rows`) hold `ef    gh\rijz`: the draft is three
+    rows, and a lone CR is inside the third. The painter (`frame::row_text`)
+    drops it, so the terminal never gets it: `red-pairs.txt` shows that row
+    painted as `ef    ghij` (round 2, opus SHOULD-2; round 1 read it as raw on
+    the wire [wrong]).
 - `red-pairs.txt` (`pairs.sh red`, the base's binary `v0.1.0-df45025`): of 9
   pairs, 1 SCOPE (`asked`) and 1 WINDOW (`deny-held`, before any CR). The
   other 7 differ:
@@ -256,9 +275,15 @@ folder) compares them pair by pair (`sweep-compare.txt`):
 - No scenario was refused, failed or timed out (`sweep-base.md`,
   `sweep-head.md`: ran 22, failed 0, timeout 0).
 
-## Gate (`gate.txt`)
+## Gate
 
-GATE-PENDING
+GATE: dispatcher. Round 2's head is gated by the dispatcher after this
+report; I ran no full gate.
+
+The previous gate, at `e26ce67b` (round 1's head), is the dispatcher's
+(`round2/gate-e26ce67b.txt`): 22 steps, every one exit 0, `cargo test` 5723
+passed and 0 failed, with `fault-injection` 5760 and 0, smoke-tui 1167
+checks and 0 failures, the tree unchanged after.
 
 ## Refs (`refs.txt`, `refs.py`)
 
@@ -266,17 +291,23 @@ GATE-PENDING
 files. It checks the ledger's refs into the files this unit changes, by
 content, against the base (`refs.py df45025c`). Of 16, 6 had moved: the
 `tools: {} advertised` line in `shell.rs`' tests, 43422 to 43492, below
-this unit's new shell test. `--fix` re-pointed them, and `refs.txt` reads
-16 checked, 0 wrong. (`13f1436f` wrote 43471, the number before
-`2804b108`'s test block above it; the commit after re-points them again.) No ledger ref points into `approval_amendment.rs`.
+this unit's new shell tests. `--fix` re-pointed them. `13f1436f` wrote
+43471, the number before `2804b108`'s test block above it; `f438a5b6`
+re-pointed them to 43492, and round 2's C1 test moved them to 43544
+(`276fc5d7`). Round 2 adds the two refs of `amend-draft-window`, into
+`approval_amendment.rs:82` (`MAX_DRAFT_ROWS`). `refs.txt` reads 18 checked,
+0 wrong.
 
 ## Parity (`docs/parity.md`)
 
 - **The approval row's draft paragraph states the copied rule.** It covers
   the bytes kept, CR LF and a lone CR to LF, LF and Tab to a space, the
   8 MiB capture and the 4 KiB budget on what the paste becomes. It says the
-  composer and the question keep their own rules, and that no other field
-  takes a paste. It names this receipt, and what was there before.
+  composer and the question keep their own rules, names the sign-in code
+  entry with its rule (round 2, gpt6 SHOULD 1), and says no other field
+  takes a paste. It names this receipt, and what was there before: the
+  breaks kept, a lone CR left in the composed rows (dropped by the painter;
+  round 2, opus SHOULD-2), and the refusal at the 4097th raw byte.
 - The APPROVAL-VERTICAL-SPELLINGS sentence that proposed this unit as owner
   ("a bracketed paste into a draft keeps its line breaks and tabs ...") is
   now the fact. A draft is one line, so its Home and End reach the draft's
@@ -304,7 +335,58 @@ this unit's new shell test. `--fix` re-pointed them, and `refs.txt` reads
 - **The test that types an LF into a draft stays**
   (`super_up_and_down_are_the_whole_drafts_edges`). It pins the draft's
   edges independently of the paste. Its comment now says that no key types
-  one.
+  one. Round 2's Home/End test does the same.
+- **The early refusal is exact** (round 2, opus NIT-7). Decoding never makes
+  text shorter: a scalar keeps its bytes, and an ill-formed run of at most
+  three bytes becomes one three-byte U+FFFD. Making it one line shortens
+  only a CR LF, two bytes to one. So the text is at least half the bytes,
+  and a paste of more than twice the room can never fit. The refusal is
+  the same `None`, so `Drafts::edit` says the same sentence in the same
+  once-per-run order; the test that compares the two paths shows it. It
+  saves decoding 8 MiB into about 24 MiB only to refuse them.
+- **Home and End call the editor's draft edges** rather than adding a
+  draft-only editor mode: `Editor::apply`'s `DraftStart`/`DraftEnd` are
+  already the caret at 0 and at the length, and a move records no delta.
+
+## Round 2 (gpt6 SHOULD 1-2, opus SHOULD-1-2 and NIT-1-7)
+
+| item | where | what |
+|---|---|---|
+| the 8 MiB capture bound (both SHOULD) | `the_capture_holds_eight_mebibytes_as_fxs_and_refuses_the_next_byte`, `a_cr_lf_paste_of_twice_the_room_is_taken_as_spaces` (`src/tui/approval_amendment.rs` tests) | white-box: after `MAX_PASTE_BYTES` bytes the buffer holds exactly that many and is not refused; one more refuses it, `finish` is `None`, the next paste is its own; through the draft, `INPUT_LIMIT` once. 8190 bytes of CR LF become 4095 spaces, 8192 become 4096, and with one byte held they are refused |
+| sign-in code (gpt6 SHOULD 1) | `docs/parity.md` (`45ced900`); fx's rule above | named, with its rule |
+| the base's CR (opus SHOULD-2) | `docs/parity.md` (`45ced900`); this README's intro and RED | a lone CR stayed in the composed rows, and the painter dropped it |
+| C1 (NIT-1) | `c1_controls_in_a_paste_are_kept_in_the_draft_as_fxs`; `a_c1_control_in_an_amendment_paste_reaches_the_draft_and_no_painted_row` (`src/tui/shell.rs`) | U+0085 and U+009B kept in the draft and sent, as fx's; no row `frame::row_text` writes holds one, on either plane |
+| Home and End (NIT-6) | `Draft::apply` (`53557ed6`); `home_and_end_in_a_draft_are_its_edges_as_fxs_cursor_home` | the draft's edges directly, as fx's `cursorHome`/`cursorEnd` |
+| the early refusal (NIT-7) | `DraftPaste::finish` (`53557ed6`); `a_paste_refused_on_its_bytes_alone_is_said_as_one_refused_on_its_text` | taken: the same draft, sentence and once-per-run order on both paths (Decisions) |
+| NIT-2, NIT-3 | `docs/parity.md` (`45ced900`); Found | the composer's lossy decode; the question's encoded budget |
+| NIT-4 | ledger cause `amend-draft-window` (`276fc5d7`); `round2/rescore-compare.txt` | the `deny-*` pairs' draft rows caused; their uncaused rows go from 4 to 0 each, drops 0 |
+| NIT-5 | this README | the table, :16, the refs paragraph, `## Gate` |
+
+- **RED** (`round2/red.txt`): `0e2b242b`, tests only, over `e26ce67b`'s code.
+  Of the 17 run, 1 fails: Home in a two-line draft gives `(1, 0)` for
+  `(0, 0)`. The other new tests pin rules the code already had. Their RED
+  is the forced mutants below, each of which fails at least one of them.
+- **GREEN** (`round2/green.txt`): the unit's 21 tests at the head, 21 + 21
+  on both suites; every `tui::` lib test at `53557ed6`'s `src/` under the
+  lock, 3119 passed and 0 failed (round 1's run was 3113; +6 tests).
+- **Mutants** (`round2/mutants.txt`, `round2/mutants.py`): a `--no-local`
+  clone at `53557ed6`, under the suite lock. **16 of 16 killed**: round 1's
+  eight and eight new, the clone clean after the run.
+  - M9 (bound deleted) is killed by the white-box test.
+  - M10 (4098) and M11 (8191) are killed by it and by the CR LF test.
+  - M12 (early refusal at exactly twice the room) is killed by the 8192-byte
+    CR LF paste. M13 (early refusal taken as empty and silent) is killed by
+    that and by the early-against-late test.
+  - M14 and M15 (Home and End the caret line's edges) are killed by the
+    Home/End test. M16 (C1 dropped) is killed by both C1 tests.
+- **Ledger** (`round2/rescore-compare.txt`, `round2/test-sweep.txt`): round
+  1's head sweep rescored with the new cause: 107/211 pass on both, drops 0,
+  pairs with uncaused rows 6 to 2 (the two older ones). `test-sweep.sh`: 72
+  and 27 tests, OK.
+- **Checks**: `fx-src-check.txt` (131 citations over this README and the
+  added lines, 0 outside; two ranges added, `approval_amendment.zig:84-92`
+  and `input_limit_rejection.zig:1-30`); `cargo fmt --check` and both clippy
+  runs clean at `53557ed6`; `refs.txt` 18 checked, 0 wrong.
 
 ## Found, not changed (recorded in `docs/parity.md`, owners proposed)
 
@@ -314,15 +396,24 @@ this unit's new shell test. `--fix` re-pointed them, and `refs.txt` reads
   after it while there is room (`approvalDraftWindow`,
   `approval_ui.zig:1601-1650`: `before` cut from the left until the caret
   fits, `after` cut to the width left, `:1626-1640`).
-  This scenario's `deny-*` pairs show it. Before this unit a pasted break
-  could make a draft that tall too; now only its length can.
+  This scenario's `deny-*` pairs show it, and since round 2 the ledger says
+  so: cause `amend-draft-window` (kind unit and defect, owner
+  AMEND-DRAFT-WINDOW) covers their draft rows on both sides
+  (`round2/rescore-compare.txt`). Before this unit a pasted break could make
+  a draft that tall too; now only its length can.
 - **PASTE-UNSUPPORTED-BYTES.** A paste that is not UTF-8 is decoded with its
   bad bytes replaced, in a draft, a question's field and the composer
-  alike. fx refuses it whole (`input_paste_runtime.zig:250-266`).
+  alike. The composer's decode is lossy on purpose (`src/tui/paste.rs`,
+  `finish_with`: "a paste in an encoding this session does not read must
+  not be lost whole to one bad byte"), so copying fx is a decision about
+  that, not a slip. fx refuses it whole (`input_paste_runtime.zig:250-266`).
 - **QUESTION-PASTE-LIMIT.** A question's field holds its paste with no bound
   while it arrives (`question.rs`, `Act::PasteByte` pushes every byte). fx's
   stops at 8 MiB (`paste_framing.zig:130-135`). A paste or a character past
-  the field's 4096 bytes is refused silently. fx's says
+  the field's budget is refused silently; that budget is 4096 bytes **once
+  encoded** for the tool's answer (`MAX_FREEFORM_ENCODED_BYTES`,
+  `src/tools/question.rs`), where fx's is 4096 bytes of the field's own text
+  (`question_prompt.zig:572-585`). fx's says
   `That edit exceeds the input limit and was not applied.`
   (`input_paste_runtime.zig:285-290`; `app_input_runtime.zig:1156`). The
   unbounded buffer is more than a parity gap: it is a memory hole a
