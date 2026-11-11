@@ -21,8 +21,10 @@ file in this folder.
 | `81248004` | ci.yml: `sed -n 1p`, not `head -n 1` -- **round 2's code head** (`head-delta-r2.txt`) |
 | `1a121f8e` | round 2's records so far |
 | `3f03a1ef` | **merge of main `753b0a72`** (train 14, PR #94), an ordinary merge, no conflict |
-| `f529be91` | ci.yml: the `script_tests` comment rewrapped, comments only -- **the code head after the merge** |
-| (this one) | round 2's README and the rest of its records |
+| `f529be91` | ci.yml: the `script_tests` comment rewrapped, comments only |
+| `9e88f9ce` | round 2's README and records, the first merge's |
+| `03cd1e67` | **merge of main `35cb4c7a`** (PR #95, release v0.2.0 #96), no conflict -- **the code head and the final gate's head** |
+| (this one) | the second merge's records and README |
 
 Sections from "The class" to "Gate" are round 1's, at `6071c6f8`; round 2's
 runs are in the next section, at `401b3fb2`.
@@ -32,7 +34,7 @@ runs are in the next section, at `401b3fb2`.
 Each item, where it is, and its file here.
 
 1. **Which bash CI runs** (opus S1, gpt6 S2). In `ci.yml` (lines at
-   `f529be91`):
+   `f529be91`, the same at `03cd1e67`):
    - the macos-15 row has `bash32: true` (`:91`);
    - the step "The gate scripts run /bin/bash" (under `matrix.bash32`,
      `:135-151`) checks /bin/bash is 3.2 and puts a `bash` link to it first
@@ -151,7 +153,8 @@ Each item, where it is, and its file here.
   and test-gate-env.sh at it: the diff is that line alone, actionlint exits
   0, test-gate-env.sh 93 cases ok (`ci-bash32` among them), the clone clean
   after. (Its first run was killed by the handoff stop; this is the
-  rerun.)
+  rerun. Its `ci-bash32` line says `<path>` where the message says
+  `/bin/bash`: the runner's redaction writes every `/...` word so.)
 
 ### The merge of main (`3f03a1ef`)
 
@@ -182,6 +185,39 @@ this branch's changes; capture.sh came in rewritten by #94.
   `cleanup()` (`:617`) still starts `local code=$?` and ends `exit
   "$code"` (`:644`), installed at `:990`. The finding stands; its owner is
   below.
+
+### The second merge of main (`03cd1e67`)
+
+Main moved to `35cb4c7a` (PR #95 at `ed0fe4ff`, then the v0.2.0 release,
+#96); `git fetch origin main` gave it. An ordinary merge, no conflict: #95
+changes check-no-local-paths.sh and its test, #96 CHANGELOG.md, README.md,
+UPSTREAM.md, docs/parity.md and src/interactive.rs, and this branch changes
+none of them.
+
+- **Path checks**, each under the brief's rule and the common brief's
+  shorter one: `git diff origin/main..03cd1e67` (what the branch adds over
+  main) 0 and 0; `git diff 753b0a72..origin/main` (main's own range since
+  the first merge) 0 and 0; and for the first merge, `git diff
+  753b0a72..3f03a1ef` 0 and 0 with main's own `dcfa5146..753b0a72` 0 and 0.
+  `git diff dcfa5146..03cd1e67` 0 and 0.
+- **#95's guard and this branch's** now sit on main side by side. They do
+  not conflict: no file holds both, and neither script reads the other's
+  variables (each `finished` is its own script's). They differ in one
+  thing, shown by `two-forms.txt` (`two-forms.sh`, every script stopped
+  right after its EXIT trap by `scripts/early-stop-env.sh`): an early `exit
+  7` or a `( exit 5 )` carried out by `set -e` leaves #95's two scripts
+  with status 1, and this branch's with 7 and 5. An unset variable gives 1
+  and SIGTERM 143 in both. Both fail closed. Left as two forms (Open).
+- **The final gate** at `03cd1e67`, on a `git clone --no-local`, one hold of
+  the suite lock: `gate-final.txt`. 23 of 23 steps exit 0, the clone clean
+  before and after; `cargo test` 5854 passed, with the fault injector 5891,
+  0 failed each; the script tests on this tree: test-check-no-local-paths
+  31 cases (#95's), test-check-no-secrets 23, test-gate-env 95,
+  test-preview-contract 35, test-early-stop 15.
+- **The @ search's cost step**, which main's ci.yml added (#93) and
+  `gates.sh` does not list, on the same clone after the gate:
+  `at-search-final.txt`: exit 0, `check-at-search-cost: ok` (every keystroke
+  p99 3.28 ms, max 3.53 ms, against its 8 ms frame).
 
 ## The class, in bash itself (`probe.sh`)
 
@@ -431,10 +467,10 @@ would be 1 (a reading).
 
 - `scripts/check-no-local-paths.sh:283` and
   `scripts/test-check-no-local-paths.sh:62` at `dcfa5146` are the same class
-  (EXIT trap ending in `rm`, `set -euo pipefail`). PR #95 (`b0fd5157`) fixes
-  both with `|| exit 1`; this unit leaves them to it. Once both are on main,
-  the two forms differ only in what an early `exit N` reports (1 there, N
-  here).
+  (EXIT trap ending in `rm`, `set -euo pipefail`). PR #95 fixed both with
+  `|| exit 1` (on main since `ed0fe4ff`); this unit leaves them to it. The two
+  forms differ only in what an early `exit N` reports (1 there, N here;
+  `two-forms.txt`).
 - `.github/workflows/preview.yml:501` and `:767`: `trap 'ssh-agent -k ...
   || true' EXIT` in steps that run `set -euo pipefail`, in the `publish` job,
   `runs-on: ubuntu-24.04` (`:408`). A Linux runner's bash is not macOS's
@@ -447,11 +483,13 @@ would be 1 (a reading).
 
 ## Open
 
-- **Two forms of the guard on main.** PR #95's check-no-local-paths.sh
-  and its test end the trap `|| exit 1`, which turns an early `exit N` into
-  1; these seven keep N. Both fail closed. Converging them is a one-line
-  follow-up once #95 merges; not done here, to keep off #95's files.
-- **capture.sh** (above): LOCAL-PATHS-EXIT-TRAP-CAPTURE, after PR #94 lands.
+- **Two forms of the guard on main.** PR #95's check-no-local-paths.sh and
+  its test end the trap `|| exit 1`, which turns an early `exit N` into 1;
+  these seven keep N (`two-forms.txt`). Both fail closed, and they do not
+  conflict. Left as two forms; converging them is a one-line change to #95's
+  two traps, for its own unit.
+- **capture.sh** (above): LOCAL-PATHS-EXIT-TRAP-CAPTURE, unblocked now that
+  #94 is on main.
 - **A SIGTERM to the script alone while a foreground child runs** (review r1,
   NIT 2, a reading): bash runs the EXIT trap and dies without waiting for
   the child, which can go on and write into the removed scratch directory.
