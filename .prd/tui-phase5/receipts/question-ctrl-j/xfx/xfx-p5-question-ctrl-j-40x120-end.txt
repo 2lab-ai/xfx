@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-87daec9 [debug] · Run /help for commands
+
+┃ ask three
+
+  1) Which depth?
+     Thorough
+  2) Ship it?
+     No
+  3) Anything else?
+     ab
+
+  Three done.
+
+  5s (↑3 ↓80)
+
+┃ ask two
+
+  1) Kitty?
+     Keep
+  2) Xterm?
+     Keep
+
+  Two done.
+
+  5s (↑2 ↓80)
+
+┃ ask order
+
+  1) First?
+     xy
+  2) Second?
+     Three
+
+  Order done.
+
+  4s (↑3 ↓80)
+
+┃
+
+auto · model-a

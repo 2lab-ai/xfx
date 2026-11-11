@@ -1,0 +1,45 @@
+# python3 -I cmp_sweeps.py <base pairs.json> <head pairs.json>: sweep.sh --only 'question*' --only 'p5-question*' --only 'p5-input-question*', 40x120, --jobs 4, this branch's scenarios and ledger; base binary v0.1.0-afd891a, head binary v0.1.0-87daec9, each sweep in its own suite-lock slot
+change p5-question-ctrl-j/ctrl-j: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-question-ctrl-j/down-ctrl-j: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-question-ctrl-j/end: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 41 -> 0
+change p5-question-ctrl-j/field: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-question-ctrl-j/field-ctrl-j: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 19 -> 0
+change p5-question-ctrl-j/kitty-ctrl-j: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 23 -> 0
+change p5-question-ctrl-j/not-ctrl-j: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 23 -> 0
+change p5-question-ctrl-j/tab-ctrl-j: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 36 -> 0
+change p5-question-ctrl-j/xterm-ctrl-j: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 30 -> 0
+change p5-question-ctrl-j-panel/end: unresolved-defect -> approved-divergence-cascade; causes [] -> []; uncaused 23 -> 0
+change p5-question-ctrl-j-panel/question-ctrl-j: unresolved-defect -> approved-divergence-cascade; causes [] -> []; uncaused 23 -> 0
+base: 81 pairs, 68 pass, 11 with uncaused rows
+head: 81 pairs, 77 pass, 0 with uncaused rows
+drops: 0
+
+# every pair of the unit's scenarios, and every pair with uncaused rows (side scenario label verdict causes uncaused-count)
+base p5-question-ctrl-j ctrl-j unresolved-defect [] 8
+base p5-question-ctrl-j down-ctrl-j unresolved-defect [] 8
+base p5-question-ctrl-j end unresolved-defect [] 41
+base p5-question-ctrl-j field unresolved-defect [] 8
+base p5-question-ctrl-j field-ctrl-j unresolved-defect [] 19
+base p5-question-ctrl-j kitty-ctrl-j unresolved-defect [] 23
+base p5-question-ctrl-j not-ctrl-j unresolved-defect [] 23
+base p5-question-ctrl-j tab-ctrl-j unresolved-defect [] 36
+base p5-question-ctrl-j three normalized-identical [] 0
+base p5-question-ctrl-j xterm-ctrl-j unresolved-defect [] 30
+base p5-question-ctrl-j-panel end unresolved-defect [] 23
+base p5-question-ctrl-j-panel open-before-question approved-divergence-cascade [] 0
+base p5-question-ctrl-j-panel question-arrives normalized-identical [] 0
+base p5-question-ctrl-j-panel question-ctrl-j unresolved-defect [] 23
+head p5-question-ctrl-j ctrl-j normalized-identical [] 0
+head p5-question-ctrl-j down-ctrl-j normalized-identical [] 0
+head p5-question-ctrl-j end normalized-identical [] 0
+head p5-question-ctrl-j field normalized-identical [] 0
+head p5-question-ctrl-j field-ctrl-j normalized-identical [] 0
+head p5-question-ctrl-j kitty-ctrl-j normalized-identical [] 0
+head p5-question-ctrl-j not-ctrl-j normalized-identical [] 0
+head p5-question-ctrl-j tab-ctrl-j normalized-identical [] 0
+head p5-question-ctrl-j three normalized-identical [] 0
+head p5-question-ctrl-j xterm-ctrl-j normalized-identical [] 0
+head p5-question-ctrl-j-panel end approved-divergence-cascade [] 0
+head p5-question-ctrl-j-panel open-before-question approved-divergence-cascade [] 0
+head p5-question-ctrl-j-panel question-arrives normalized-identical [] 0
+head p5-question-ctrl-j-panel question-ctrl-j approved-divergence-cascade [] 0

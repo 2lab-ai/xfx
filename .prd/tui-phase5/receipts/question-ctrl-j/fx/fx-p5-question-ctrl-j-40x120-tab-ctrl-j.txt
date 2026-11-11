@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃ ask three
+
+  1) Which depth?
+     Thorough
+  2) Ship it?
+     No
+  3) Anything else?
+     ab
+
+  Three done.
+
+  5s (↑3 ↓80)
+
+┃ ask two
+
+  1) Kitty?
+     Keep
+  2) Xterm?
+     Keep
+
+  Two done.
+
+  5s (↑2 ↓80)
+
+┃ ask order
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  First?
+
+    1) One
+    2) Two
+    3) Other
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+1–3 choose now    ↑↓ options    tab questions    enter answer    esc cancel                              Question 1 of 2
+
+
+

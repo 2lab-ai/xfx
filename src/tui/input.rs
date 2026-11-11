@@ -410,7 +410,9 @@ pub(crate) enum Action {
     /// [`Action::InsertNewline`] -- and the next row of a menu while one is up
     /// (`routePickerControlByte`, `app_input_runtime.zig:1093-1108@481104fd`), and
     /// Enter at a permission question (`approvalActionFromByte`,
-    /// `src/ui/input/runtime.zig:64@481104fd`; APPROVAL-CTRL-J).
+    /// `src/ui/input/runtime.zig:64@481104fd`; APPROVAL-CTRL-J) and at a model
+    /// question (`questionActionFromByte`, `src/ui/input/runtime.zig:141@481104fd`;
+    /// QUESTION-CTRL-J).
     ///
     /// Named for the key rather than folded into `InsertNewline`, because
     /// upstream binds the menu move and the question's answer to the

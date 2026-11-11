@@ -1,0 +1,4 @@
+[
+ {"hangMs":2500,"chunks":["Let me ask."],"tool":{"name":"ask_user_question","input":{"questions":[{"question":"Which depth?","options":[{"label":"Thorough","description":"Reads every file."},{"label":"Quick"}]}]}}},
+ {"delayMs":100,"chunks":["Asked ","once."]}
+]

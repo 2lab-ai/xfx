@@ -1,0 +1,56 @@
+# Phase 5 QUESTION-CTRL-J: C-j at the model's question. fx v0.0.16 maps byte
+# 0x0a to a question's `.submit`, as it maps `\r` (`questionActionFromByte`,
+# src/ui/input/runtime.zig:141@481104fd; with the freeform slot marked the
+# focused-editor route keeps no newline, :199-209, shortcuts.zig:26, :31-41),
+# so C-j takes the marked choice, or the field as it stands, and moves to the
+# next unanswered question, cycling, or sends the batch once none is left
+# (question_prompt.zig:329, :657-667). A kitty or xterm report of Ctrl+J is
+# the byte replayed (escape_parser.zig:255-258, :740-752); a kitty release and
+# ESC LF are not C-j (:774-777, :515-519). One `key` line is one tmux
+# send-keys, one write: Down and C-j in one, and `3`, two letters and C-j in
+# another.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-question-ctrl-j-turns.json
+wait 4
+type ask three
+key Enter
+wait 3
+snap three
+key -H 0a
+wait 0.6
+snap ctrl-j
+key -H 1b 5b 42 0a
+wait 0.6
+snap down-ctrl-j
+key -H 33 61 62
+wait 0.6
+snap field
+key -H 0a
+wait 3
+snap field-ctrl-j
+type ask two
+key Enter
+wait 3
+key -H 1b 5b 31 30 36 3b 35 75
+wait 0.6
+snap kitty-ctrl-j
+key -H 1b 5b 31 30 36 3b 35 3a 33 75
+wait 0.4
+key -H 1b 0a
+wait 0.6
+snap not-ctrl-j
+key -H 1b 5b 32 37 3b 35 3b 31 30 36 7e
+wait 3
+snap xterm-ctrl-j
+type ask order
+key Enter
+wait 3
+key Tab
+wait 0.4
+key -H 0a
+wait 0.6
+snap tab-ctrl-j
+key -H 33 78 79 0a
+wait 3
+snap end
+gwlog

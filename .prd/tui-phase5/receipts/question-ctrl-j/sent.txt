@@ -1,0 +1,15 @@
+# python3 -I sent.py, from a root whose fx/, red/ and xfx/ hold the bodies of the runs behind the receipt's fx/, red/ and xfx/ captures: the ask_user_question results each run sent, each once
+## fx/fx-p5-question-ctrl-j-40x120-bodies
+003-completion.json: text [{"question":"Which depth?","answer":"Thorough"},{"question":"Ship it?","answer":"No"},{"question":"Anything else?","answer":"ab"}]
+005-completion.json: text [{"question":"Kitty?","answer":"Keep"},{"question":"Xterm?","answer":"Keep"}]
+007-completion.json: text [{"question":"First?","answer":"xy"},{"question":"Second?","answer":"Three"}]
+## red/xfx-p5-question-ctrl-j-40x120-bodies
+## xfx/xfx-p5-question-ctrl-j-40x120-bodies
+003-completion.json: text [{"question":"Which depth?","answer":"Thorough"},{"question":"Ship it?","answer":"No"},{"question":"Anything else?","answer":"ab"}]
+005-completion.json: text [{"question":"Kitty?","answer":"Keep"},{"question":"Xterm?","answer":"Keep"}]
+007-completion.json: text [{"question":"First?","answer":"xy"},{"question":"Second?","answer":"Three"}]
+## fx/fx-p5-question-ctrl-j-panel-40x120-bodies
+003-completion.json: text [{"question":"Which depth?","answer":"Thorough"}]
+## red/xfx-p5-question-ctrl-j-panel-40x120-bodies
+## xfx/xfx-p5-question-ctrl-j-panel-40x120-bodies
+003-completion.json: text [{"question":"Which depth?","answer":"Thorough"}]

@@ -1,0 +1,1751 @@
+# fx v0.0.16 (481104fd), every line this receipt cites, as git show 481104fd:<path> prints it, numbered.
+
+## src/ui/input/runtime.zig:55-289
+   55  
+   56  const InputEscapeAction = input_action.Action;
+   57  const MouseInput = escape_parser.MouseInput;
+   58  
+   59  pub const shortcutFromControlByte = shortcuts.fromControlByte;
+   60  
+   61  pub fn approvalActionFromByte(byte: u8) ?approval_decision.Action {
+   62      return switch (byte) {
+   63          3 => .deny,
+   64          '\r', '\n' => .submit,
+   65          '\t' => .tab,
+   66          0x7F, 0x08 => .backspace,
+   67          '1'...'3' => .{ .number = byte - '1' },
+   68          else => if (byte >= 0x20 and byte <= 0x7E)
+   69              .{ .insert_ascii = byte }
+   70          else
+   71              null,
+   72      };
+   73  }
+   74  
+   75  fn approvalDraftActionFromShortcut(
+   76      action: input_action.ShortcutAction,
+   77  ) ?approval_decision.DraftAction {
+   78      return switch (action) {
+   79          .move => |intent| switch (intent.kind) {
+   80              .character_left => .cursor_left,
+   81              .character_right => .cursor_right,
+   82              .line_start, .draft_start => .cursor_home,
+   83              .line_end, .draft_end => .cursor_end,
+   84              .word_left => .cursor_word_left,
+   85              .word_right => .cursor_word_right,
+   86              else => null,
+   87          },
+   88          .delete_forward => .delete_next,
+   89          .delete_word_left => .delete_word_left,
+   90          .delete_whitespace_word_left => .delete_whitespace_word_left,
+   91          .delete_word_right => .delete_word_right,
+   92          .delete_to_line_start => .delete_to_line_start,
+   93          .delete_to_line_end => .delete_to_line_end,
+   94          else => null,
+   95      };
+   96  }
+   97  
+   98  fn approvalDraftActionFromControlByte(byte: u8) ?approval_decision.DraftAction {
+   99      const action = shortcuts.fromFocusedEditorControlByte(byte) orelse return null;
+  100      return approvalDraftActionFromShortcut(action);
+  101  }
+  102  
+  103  fn approvalActionFromRawByte(byte: u8) ?approval_decision.Action {
+  104      if (approvalDraftActionFromControlByte(byte)) |edit| {
+  105          return .{ .edit_draft = edit };
+  106      }
+  107      return approvalActionFromByte(byte);
+  108  }
+  109  
+  110  fn withApprovalInput(
+  111      ingress: input_action.TerminalInputIngress,
+  112  ) input_action.TerminalInputIngress {
+  113      var typed = ingress;
+  114      const event = typed.event orelse return typed;
+  115      typed.event = switch (event) {
+  116          .raw => |raw| input_action.TerminalInputEvent{ .raw = .{
+  117              .byte = raw.byte,
+  118              .composer_shortcut = raw.composer_shortcut,
+  119              .approval_action = approvalActionFromRawByte(raw.byte),
+  120          } },
+  121          .action => |decoded| input_action.TerminalInputEvent{ .action = .{
+  122              .action = decoded.action,
+  123              .composer_shortcut = decoded.composer_shortcut,
+  124              .approval_focused_edit = if (decoded.composer_shortcut) |shortcut|
+  125                  approvalDraftActionFromShortcut(shortcut)
+  126              else
+  127                  null,
+  128              .cancel_pending = decoded.cancel_pending,
+  129          } },
+  130          .paste_byte => event,
+  131      };
+  132      return typed;
+  133  }
+  134  
+  135  fn questionActionFromByte(
+  136      byte: u8,
+  137      freeform_selected: bool,
+  138  ) ?question_prompt.Action {
+  139      return switch (byte) {
+  140          3 => .cancel,
+  141          '\r', '\n' => .submit,
+  142          '\t' => .next_entry,
+  143          0x7F, 0x08 => if (freeform_selected) .backspace else null,
+  144          '1'...'9' => if (freeform_selected)
+  145              .{ .insert_ascii = byte }
+  146          else
+  147              .{ .select_ordinal = byte - '1' },
+  148          else => if (freeform_selected and byte >= 0x20 and byte <= 0x7E)
+  149              .{ .insert_ascii = byte }
+  150          else
+  151              null,
+  152      };
+  153  }
+  154  
+  155  fn questionFreeformActionFromShortcut(
+  156      action: input_action.ShortcutAction,
+  157  ) ?question_prompt.FreeformAction {
+  158      return switch (action) {
+  159          .move => |intent| switch (intent.kind) {
+  160              .character_left => .cursor_left,
+  161              .character_right => .cursor_right,
+  162              .line_start, .draft_start => .cursor_home,
+  163              .line_end, .draft_end => .cursor_end,
+  164              .word_left => .cursor_word_left,
+  165              .word_right => .cursor_word_right,
+  166              else => null,
+  167          },
+  168          .delete_forward => .delete_next,
+  169          .delete_word_left => .delete_word_left,
+  170          .delete_whitespace_word_left => .delete_whitespace_word_left,
+  171          .delete_word_right => .delete_word_right,
+  172          .delete_to_line_start => .delete_to_line_start,
+  173          .delete_to_line_end => .delete_to_line_end,
+  174          else => null,
+  175      };
+  176  }
+  177  
+  178  fn questionActionFromShortcut(
+  179      action: input_action.ShortcutAction,
+  180      freeform_selected: bool,
+  181  ) ?question_prompt.Action {
+  182      switch (action) {
+  183          .move => |intent| {
+  184              if (intent.extend_selection) {
+  185                  switch (intent.kind) {
+  186                      .visual_up => return .{ .move_choice = .previous },
+  187                      .visual_down => return .{ .move_choice = .next },
+  188                      else => {},
+  189                  }
+  190              }
+  191          },
+  192          else => {},
+  193      }
+  194      if (!freeform_selected) return null;
+  195      const edit = questionFreeformActionFromShortcut(action) orelse return null;
+  196      return .{ .edit_freeform = edit };
+  197  }
+  198  
+  199  fn questionActionFromRawByte(
+  200      byte: u8,
+  201      freeform_selected: bool,
+  202  ) ?question_prompt.Action {
+  203      if (freeform_selected) {
+  204          if (shortcuts.fromFocusedEditorControlByte(byte)) |shortcut| {
+  205              return questionActionFromShortcut(shortcut, true);
+  206          }
+  207      }
+  208      return questionActionFromByte(byte, freeform_selected);
+  209  }
+  210  
+  211  fn questionActionFromDecoded(
+  212      action: input_action.Action,
+  213      shortcut: ?input_action.ShortcutAction,
+  214      freeform_selected: bool,
+  215  ) ?question_prompt.Action {
+  216      switch (action) {
+  217          .remapped_byte => |byte| return questionActionFromRawByte(
+  218              byte,
+  219              freeform_selected,
+  220          ),
+  221          else => {},
+  222      }
+  223      return questionActionFromShortcut(
+  224          shortcut orelse return null,
+  225          freeform_selected,
+  226      );
+  227  }
+  228  
+  229  fn withQuestionInput(
+  230      ingress: input_action.TerminalInputIngress,
+  231      freeform_selected: bool,
+  232  ) input_action.TerminalInputIngress {
+  233      var typed = ingress;
+  234      const event = typed.event orelse return typed;
+  235      typed.event = switch (event) {
+  236          .raw => |raw| input_action.TerminalInputEvent{ .raw = .{
+  237              .byte = raw.byte,
+  238              .composer_shortcut = raw.composer_shortcut,
+  239              .approval_action = raw.approval_action,
+  240              .question_action = questionActionFromRawByte(
+  241                  raw.byte,
+  242                  freeform_selected,
+  243              ),
+  244          } },
+  245          .action => |decoded| input_action.TerminalInputEvent{ .action = .{
+  246              .action = decoded.action,
+  247              .composer_shortcut = decoded.composer_shortcut,
+  248              .approval_focused_edit = decoded.approval_focused_edit,
+  249              .question_action = questionActionFromDecoded(
+  250                  decoded.action,
+  251                  decoded.composer_shortcut,
+  252                  freeform_selected,
+  253              ),
+  254              .cancel_pending = decoded.cancel_pending,
+  255          } },
+  256          .paste_byte => event,
+  257      };
+  258      return typed;
+  259  }
+  260  
+  261  test "question bytes translate to typed prompt actions" {
+  262      try std.testing.expectEqual(
+  263          question_prompt.Action.cancel,
+  264          questionActionFromByte(3, false).?,
+  265      );
+  266      try std.testing.expectEqual(
+  267          question_prompt.Action.submit,
+  268          questionActionFromByte('\r', false).?,
+  269      );
+  270      try std.testing.expectEqual(
+  271          question_prompt.Action.next_entry,
+  272          questionActionFromByte('\t', false).?,
+  273      );
+  274      try std.testing.expectEqual(
+  275          question_prompt.Action{ .select_ordinal = 2 },
+  276          questionActionFromByte('3', false).?,
+  277      );
+  278      try std.testing.expectEqual(
+  279          question_prompt.Action{ .insert_ascii = '3' },
+  280          questionActionFromByte('3', true).?,
+  281      );
+  282      try std.testing.expectEqual(
+  283          question_prompt.Action.backspace,
+  284          questionActionFromByte(0x7F, true).?,
+  285      );
+  286      try std.testing.expect(questionActionFromByte('x', false) == null);
+  287      try std.testing.expect(questionActionFromByte(0x7F, false) == null);
+  288      try std.testing.expect(questionActionFromByte(0x80, true) == null);
+  289  }
+
+## src/ui/input/runtime.zig:660-675
+  660              self.terminal_theme_monitor.hasPendingInput() or
+  661              self.terminal_cursor_probe.hasPendingInput();
+  662      }
+  663  
+  664      pub fn decodeTerminalByte(
+  665          self: *Runtime,
+  666          byte: u8,
+  667          context: input_action.TerminalDecodeContext,
+  668      ) input_action.TerminalInputIngress {
+  669          if (context.paste_active) return terminal_action_decoder.pasteByteIngress(byte);
+  670          return withQuestionInput(
+  671              withApprovalInput(self.terminal_action_decoder.feed(byte, context)),
+  672              context.question_freeform_selected,
+  673          );
+  674      }
+  675  
+
+## src/ui/input/shortcuts.zig:11-65
+   11  pub fn fromControlByte(byte: u8) ?ShortcutAction {
+   12      return switch (byte) {
+   13          1 => move(.line_start),
+   14          5 => move(.line_end),
+   15          2 => move(.character_left),
+   16          6 => move(.character_right),
+   17          14 => .history_next,
+   18          4 => .delete_forward,
+   19          11 => .delete_to_line_end,
+   20          21 => .delete_to_line_start,
+   21          23 => .delete_whitespace_word_left,
+   22          25 => .yank,
+   23          31 => .undo,
+   24          12 => .redraw,
+   25          127, 8 => .delete_backward,
+   26          '\n' => .insert_newline,
+   27          else => null,
+   28      };
+   29  }
+   30  
+   31  pub fn fromFocusedEditorControlByte(byte: u8) ?ShortcutAction {
+   32      const action = fromControlByte(byte) orelse return null;
+   33      return switch (action) {
+   34          .move,
+   35          .delete_whitespace_word_left,
+   36          .delete_to_line_start,
+   37          .delete_to_line_end,
+   38          => action,
+   39          else => null,
+   40      };
+   41  }
+   42  
+   43  pub fn fromEscapeAction(action: InputEscapeAction) ?ShortcutAction {
+   44      return switch (action) {
+   45          .cursor_up => move(.visual_up),
+   46          .cursor_down => move(.visual_down),
+   47          .cursor_left => move(.character_left),
+   48          .cursor_right => move(.character_right),
+   49          .word_left => move(.word_left),
+   50          .word_right => move(.word_right),
+   51          .home => move(.line_start),
+   52          .end => move(.line_end),
+   53          .page_up => move(.page_up),
+   54          .page_down => move(.page_down),
+   55          .delete_next => .delete_forward,
+   56          .delete_word_left => .delete_word_left,
+   57          .delete_word_right => .delete_word_right,
+   58          .delete_to_line_start => .delete_to_line_start,
+   59          .delete_to_line_end => .delete_to_line_end,
+   60          .insert_newline => .insert_newline,
+   61          .composer_shortcut => |shortcut| shortcut,
+   62          .remapped_byte => |byte| fromControlByte(byte),
+   63          else => null,
+   64      };
+   65  }
+
+## src/ui/input/escape_parser.zig:182-274
+  182  // Resolve a Kitty CSI u report (`ESC[<keycode>;<mod>u`). Shared by the
+  183  // single-parameter and modifier stages, and never returns null so the leading
+  184  // ESC's pending-cancel is always cleared.
+  185  fn kittyUnicodeKeyAction(keycode: u16, modifiers: u16, meta_prefixed: bool) InputEscapeAction {
+  186      // Strip Caps Lock (bit 6) and Num Lock (bit 7) — lock states, not modifiers.
+  187      const mods = modifiers & 0x3F;
+  188      if (keycode == 27 and mods == 0) return .escape;
+  189      // Hyper and Meta survive the lock-state mask, so a keypad key held with one
+  190      // of them keeps today's behavior instead of typing text or moving the caret.
+  191      if ((mods & ~keypad_supported_modifiers) == 0) {
+  192          if (keypadCharacterKey(keycode)) |byte| {
+  193              // Only a bare or Shift-modified keypad press types text, matching
+  194              // the main row where modified digits and operators are not text.
+  195              if (!meta_prefixed and (mods & ~shift_modifier) == 0) return .{ .remapped_byte = byte };
+  196          } else if (keypadNavigationKey(keycode)) |letter| {
+  197              return navigationKeyAction(letter, mods, meta_prefixed);
+  198          } else if (keycode == kp_page_up or keycode == kp_page_down) {
+  199              return pageKeyAction(keycode, mods);
+  200          } else if (keycode == kp_enter) {
+  201              // Reuse the main-row Enter branch: Ctrl submits, Shift and Alt
+  202              // insert a newline, and a bare press submits.
+  203              return kittyUnicodeKeyAction(13, modifiers, meta_prefixed);
+  204          } else if (keycode == kp_delete) {
+  205              return forwardDeleteKeyAction(mods);
+  206          }
+  207      }
+  208      if (keycode == kitty_up_key or keycode == kitty_down_key) {
+  209          if (meta_prefixed or mods != 0) {
+  210              return modifiedArrowAction(
+  211                  if (keycode == kitty_up_key) 'A' else 'B',
+  212                  mods,
+  213                  meta_prefixed,
+  214              ) orelse .ignore;
+  215          }
+  216          return if (keycode == kitty_up_key) .cursor_up else .cursor_down;
+  217      }
+  218      if (keycode == 13 and mods == ctrl_modifier and !meta_prefixed) return .{ .remapped_byte = '\r' };
+  219      if (keycode == 13 and (mods & (shift_modifier | alt_modifier)) != 0) {
+  220          return .insert_newline;
+  221      }
+  222      if (keycode == ' ' and mods == shift_modifier and !meta_prefixed) return .{ .remapped_byte = ' ' };
+  223      if ((keycode == 'a' or keycode == 'A') and (mods & super_modifier) != 0) {
+  224          return .{ .composer_shortcut = .select_all };
+  225      }
+  226      if ((keycode == 'c' or keycode == 'C') and (mods & super_modifier) != 0) {
+  227          return .{ .composer_shortcut = .copy_selection };
+  228      }
+  229      if ((keycode == 'x' or keycode == 'X') and (mods & super_modifier) != 0) {
+  230          return .{ .composer_shortcut = .cut_selection };
+  231      }
+  232      if ((keycode == 'z' or keycode == 'Z') and (mods & super_modifier) != 0) {
+  233          return .{ .composer_shortcut = if ((mods & shift_modifier) != 0) .redo else .undo };
+  234      }
+  235      if ((mods & (shift_modifier | ctrl_modifier)) ==
+  236          (shift_modifier | ctrl_modifier))
+  237      {
+  238          if (keycode == 'a' or keycode == 'A') return composerMove(.line_start, mods);
+  239          if (keycode == 'b' or keycode == 'B') return composerMove(.character_left, mods);
+  240          if (keycode == 'e' or keycode == 'E') return composerMove(.line_end, mods);
+  241          if (keycode == 'f' or keycode == 'F') return composerMove(.character_right, mods);
+  242      }
+  243      if (keycode == 'b' and (mods & alt_modifier) != 0) {
+  244          if ((mods & shift_modifier) != 0) return composerMove(.word_left, mods);
+  245          return .word_left;
+  246      }
+  247      if (keycode == 'f' and (mods & alt_modifier) != 0) {
+  248          if ((mods & shift_modifier) != 0) return composerMove(.word_right, mods);
+  249          return .word_right;
+  250      }
+  251      if ((keycode == 'd' or keycode == 'D') and (meta_prefixed or (mods & 0x02) != 0)) return .delete_word_right;
+  252      if (keycode == 'o' or keycode == 'O') return ctrlOKeyAction(meta_prefixed, mods);
+  253      if ((keycode == 'r' or keycode == 'R') and (mods & 0x08) != 0) return .open_all_sessions;
+  254      if (keycode == 9 and (mods & 0x01) != 0) return .toggle_permission_mode;
+  255      if ((mods & 0x04) != 0) {
+  256          if (keycode == '_') return .{ .remapped_byte = 31 };
+  257          if (keycode >= 'a' and keycode <= 'z') return .{ .remapped_byte = @intCast(keycode - 96) };
+  258          if (keycode >= 'A' and keycode <= 'Z') return .{ .remapped_byte = @intCast(keycode - 64) };
+  259      }
+  260      if (keycode == 127 and (mods & 0x08) != 0) return .delete_to_line_start;
+  261      if (keycode == 127 and (mods & 0x02) != 0) return .delete_word_left;
+  262      if (keycode == 13) return .{ .remapped_byte = '\r' };
+  263      if (keycode == 9) return .{ .remapped_byte = '\t' };
+  264      if (keycode == 127) return .{ .remapped_byte = 127 };
+  265      return .ignore;
+  266  }
+  267  
+  268  pub fn controlByteFeatureAction(byte: u8) ?InputEscapeAction {
+  269      return switch (byte) {
+  270          15 => .toggle_full_transcript,
+  271          16 => .open_model_catalog,
+  272          else => null,
+  273      };
+  274  }
+
+## src/ui/input/escape_parser.zig:500-560
+  500      switch (base_stage) {
+  501          1 => {
+  502              if (byte == '[') {
+  503                  setBaseEscapeStage(stage, 2);
+  504                  param.* = 0;
+  505                  param2.* = 0;
+  506                  mouse.reset();
+  507                  return null;
+  508              }
+  509              if (byte == 'O') {
+  510                  setBaseEscapeStage(stage, 4);
+  511                  param.* = 0;
+  512                  param2.* = 0;
+  513                  return null;
+  514              }
+  515              if (byte == '\r' or byte == '\n') {
+  516                  stage.* = 0;
+  517                  param.* = 0;
+  518                  param2.* = 0;
+  519                  return .insert_newline;
+  520              }
+  521              if (byte == 'o') {
+  522                  stage.* = 0;
+  523                  param.* = 0;
+  524                  param2.* = 0;
+  525                  // ESC o is Meta-O, not a Ctrl-O terminal report.
+  526                  return .ignore;
+  527              }
+  528              if (byte == 'b') {
+  529                  stage.* = 0;
+  530                  param.* = 0;
+  531                  param2.* = 0;
+  532                  return .word_left;
+  533              }
+  534              if (byte == 'f') {
+  535                  stage.* = 0;
+  536                  param.* = 0;
+  537                  param2.* = 0;
+  538                  return .word_right;
+  539              }
+  540              if (byte == 'd') {
+  541                  stage.* = 0;
+  542                  param.* = 0;
+  543                  param2.* = 0;
+  544                  return .{ .composer_shortcut = .delete_word_right };
+  545              }
+  546              if (byte == 0x7f or byte == 0x08) {
+  547                  stage.* = 0;
+  548                  param.* = 0;
+  549                  param2.* = 0;
+  550                  return .delete_word_left;
+  551              }
+  552              if (byte == 0x1b) {
+  553                  stage.* = escape_meta_mask | 1;
+  554                  return null;
+  555              }
+  556              stage.* = 0;
+  557              param.* = 0;
+  558              param2.* = 0;
+  559              return .ignore;
+  560          },
+
+## src/ui/input/escape_parser.zig:596-628
+  596          control_sequence_discard_stage => {
+  597              return consumeControlSequenceDiscardByte(stage, param, param2, mouse, byte);
+  598          },
+  599          3 => {
+  600              if (byte >= '0' and byte <= '9') {
+  601                  appendCsiDigitSaturating(param, byte);
+  602                  if (param2.* < std.math.maxInt(u16)) param2.* += 1;
+  603                  return null;
+  604              }
+  605  
+  606              if (byte == ';') {
+  607                  param2.* = param.*;
+  608                  param.* = 0;
+  609                  setBaseEscapeStage(stage, 5);
+  610                  return null;
+  611              }
+  612  
+  613              if (byte == 'u') {
+  614                  const meta_prefixed = hasMetaPrefix(stage.*);
+  615                  const value = param.*;
+  616                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  617                  // Single-parameter CSI u: no `;`, so modifiers == 0.
+  618                  return kittyUnicodeKeyAction(value, 0, meta_prefixed);
+  619              }
+  620              if (byte != '~') return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
+  621  
+  622              const value = param.*;
+  623              const digit_count = param2.*;
+  624              resetMouseEscapeDecode(stage, param, param2, mouse);
+  625              if (digit_count == 3 and value == 200) return .paste_start;
+  626              if (digit_count == 3 and value == 201) return .paste_end;
+  627  
+  628              return switch (value) {
+
+## src/ui/input/escape_parser.zig:655-780
+  655                  'M' => .{ .remapped_byte = '\r' },
+  656                  'X' => .{ .remapped_byte = '=' },
+  657                  else => return beginControlSequenceDiscard(stage, param, param2, mouse, byte),
+  658              };
+  659              resetMouseEscapeDecode(stage, param, param2, mouse);
+  660              return action;
+  661          },
+  662          5 => {
+  663              if (byte >= '0' and byte <= '9') {
+  664                  appendCsiDigitSaturating(param, byte);
+  665                  return null;
+  666              }
+  667  
+  668              if (byte == ';') {
+  669                  // Reuse the two accumulators for `ESC[27;modifier;keycode~`.
+  670                  param2.* = param.*;
+  671                  param.* = 0;
+  672                  setBaseEscapeStage(stage, 6);
+  673                  return null;
+  674              }
+  675  
+  676              // Kitty reports key event types as a colon-qualified modifier, e.g.
+  677              // `ESC[27;1:1u` for an Escape key press. The keycode stays in
+  678              // param2 and the modifiers move into param with the event type.
+  679              if (byte == ':') {
+  680                  const raw_modifiers = if (param.* > 0) param.* - 1 else 0;
+  681                  param.* = raw_modifiers << 4;
+  682                  setBaseEscapeStage(stage, kitty_escape_event_type_stage);
+  683                  return null;
+  684              }
+  685  
+  686              if (byte == 'u') {
+  687                  const meta_prefixed = hasMetaPrefix(stage.*);
+  688                  const keycode = param2.*;
+  689                  const modifiers = if (param.* > 0) param.* - 1 else 0;
+  690                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  691                  return kittyUnicodeKeyAction(keycode, modifiers, meta_prefixed);
+  692              }
+  693  
+  694              if (byte == '~') {
+  695                  const keycode = param2.*;
+  696                  const modifiers = if (param.* > 0) param.* - 1 else 0;
+  697                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  698                  if (keycode == 3) return forwardDeleteKeyAction(modifiers);
+  699                  if (modifiers != 0) return switch (keycode) {
+  700                      1, 7 => composerMove(
+  701                          if ((modifiers & ctrl_modifier) != 0) .draft_start else .line_start,
+  702                          modifiers,
+  703                      ),
+  704                      4, 8 => composerMove(
+  705                          if ((modifiers & ctrl_modifier) != 0) .draft_end else .line_end,
+  706                          modifiers,
+  707                      ),
+  708                      5 => composerMove(.page_up, modifiers),
+  709                      6 => composerMove(.page_down, modifiers),
+  710                      else => .ignore,
+  711                  };
+  712                  return switch (keycode) {
+  713                      1, 7 => .home,
+  714                      4, 8 => .end,
+  715                      5 => .page_up,
+  716                      6 => .page_down,
+  717                      else => .ignore,
+  718                  };
+  719              }
+  720  
+  721              const meta_prefixed = hasMetaPrefix(stage.*);
+  722              const modifiers = if (param.* > 0) param.* - 1 else 0;
+  723              if (byte == 'Z' and modifiers != 0) {
+  724                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  725                  return .toggle_permission_mode;
+  726              }
+  727              if (modifiedArrowAction(byte, modifiers, meta_prefixed)) |action| {
+  728                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  729                  return action;
+  730              }
+  731  
+  732              const action: InputEscapeAction = switch (byte) {
+  733                  'A', 'B', 'C', 'D', 'H', 'F' => plainNavigationAction(byte),
+  734                  else => return beginControlSequenceDiscard(stage, param, param2, mouse, byte),
+  735              };
+  736              resetMouseEscapeDecode(stage, param, param2, mouse);
+  737              return action;
+  738          },
+  739          // Stage 6: third parameter (e.g. modifyOtherKeys: ESC[27;modifier;keycode~)
+  740          6 => {
+  741              if (byte >= '0' and byte <= '9') {
+  742                  appendCsiDigitSaturating(param, byte);
+  743                  return null;
+  744              }
+  745  
+  746              if (byte == '~') {
+  747                  const meta_prefixed = hasMetaPrefix(stage.*);
+  748                  const keycode = param.*;
+  749                  const modifiers = if (param2.* > 0) param2.* - 1 else 0;
+  750                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  751                  return kittyUnicodeKeyAction(keycode, modifiers, meta_prefixed);
+  752              }
+  753  
+  754              return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
+  755          },
+  756          // Kitty key reports with an event type: `ESC[<keycode>;modifier:event-type u`.
+  757          // Only press (1) and repeat (2) are actionable; release (3) must not
+  758          // close a panel or move the caret.
+  759          kitty_escape_event_type_stage => {
+  760              if (byte >= '0' and byte <= '9') {
+  761                  // The low nibble holds the event type while the high bits hold
+  762                  // the modifiers. Accumulate instead of overwriting so a
+  763                  // multi-digit event type stays out of the actionable range.
+  764                  const event_digits = (param.* & 0x0F) * 10 + (byte - '0');
+  765                  param.* = (param.* & 0xFFF0) | @min(event_digits, 0x0F);
+  766                  return null;
+  767              }
+  768              if (byte == 'u') {
+  769                  const meta_prefixed = hasMetaPrefix(stage.*);
+  770                  const keycode = param2.*;
+  771                  const modifiers = param.* >> 4;
+  772                  const event_type = param.* & 0x0F;
+  773                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  774                  if (event_type == 1 or event_type == 2) {
+  775                      return kittyUnicodeKeyAction(keycode, modifiers, meta_prefixed);
+  776                  }
+  777                  return .ignore;
+  778              }
+  779              return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
+  780          },
+
+## src/ui/input/terminal_action_decoder.zig:74-124
+   74          if (self.stage != 0) {
+   75              const prior_stage = self.stage;
+   76              const action = escape_parser.consumeInputEscapeByteWithMouse(
+   77                  &self.stage,
+   78                  &self.param,
+   79                  &self.param2,
+   80                  &self.mouse,
+   81                  byte,
+   82              );
+   83  
+   84              if (byte == 0x1b and !escape_parser.isLegacyX10PayloadStage(prior_stage)) {
+   85                  self.started_ms = context.now_ms;
+   86                  self.cancel_pending = context.cancel_pending;
+   87                  return ingress;
+   88              }
+   89  
+   90              if (self.stage != 0) self.started_ms = context.now_ms;
+   91  
+   92              if (prior_stage == 1 and
+   93                  self.stage == 0 and
+   94                  (action == null or action.? == .ignore) and
+   95                  shouldReplayControlAfterBareEscape(byte))
+   96              {
+   97                  const was_cancel_pending = self.takeCancelPending();
+   98                  appendAction(&ingress, .escape, was_cancel_pending);
+   99                  ingress.replay_byte_after_routing = byte;
+  100                  return ingress;
+  101              }
+  102  
+  103              if (action) |resolved| {
+  104                  const was_cancel_pending = self.takeCancelPending();
+  105                  appendAction(&ingress, resolved, was_cancel_pending);
+  106                  return ingress;
+  107              }
+  108  
+  109              if (self.stage != 0 or prior_stage != 0) {
+  110                  if (self.stage == 0) {
+  111                      _ = self.takeCancelPending();
+  112                      appendAction(&ingress, .ignore, false);
+  113                  }
+  114                  return ingress;
+  115              }
+  116          }
+  117  
+  118          if (escape_parser.controlByteFeatureAction(byte)) |resolved| {
+  119              appendAction(&ingress, resolved, false);
+  120          } else {
+  121              appendRaw(&ingress, byte);
+  122          }
+  123          return ingress;
+  124      }
+
+## src/ui/input/terminal_action_decoder.zig:207-232
+  207  fn appendRaw(ingress: *input_action.TerminalInputIngress, byte: u8) void {
+  208      ingress.setEvent(.{ .raw = .{
+  209          .byte = byte,
+  210          .composer_shortcut = shortcuts.fromControlByte(byte),
+  211      } });
+  212  }
+  213  
+  214  fn appendAction(
+  215      ingress: *input_action.TerminalInputIngress,
+  216      action: input_action.Action,
+  217      cancel_pending: bool,
+  218  ) void {
+  219      ingress.setEvent(.{ .action = .{
+  220          .action = action,
+  221          .composer_shortcut = shortcuts.fromEscapeAction(action),
+  222          .cancel_pending = cancel_pending,
+  223      } });
+  224  }
+  225  
+  226  fn shouldReplayControlAfterBareEscape(byte: u8) bool {
+  227      if (shortcuts.fromControlByte(byte) != null) return true;
+  228      return switch (byte) {
+  229          3, 7, 12, 15, 16, 22, 24 => true,
+  230          else => false,
+  231      };
+  232  }
+
+## src/core/app/app_input_runtime.zig:560-578
+  560          fn terminalDecodeContext(
+  561              app: *App,
+  562              paste_active: bool,
+  563          ) input_action.TerminalDecodeContext {
+  564              if (paste_active) {
+  565                  return .{
+  566                      .now_ms = 0,
+  567                      .paste_active = true,
+  568                      .cancel_pending = false,
+  569                      .question_freeform_selected = false,
+  570                  };
+  571              }
+  572              return .{
+  573                  .now_ms = io_mod.milliTimestamp(),
+  574                  .paste_active = false,
+  575                  .cancel_pending = interrupt_rt.hasActiveOperation(app),
+  576                  .question_freeform_selected = app.question_prompt.isFreeformSelected(),
+  577              };
+  578          }
+
+## src/core/app/app_input_runtime.zig:586-656
+  586          pub fn handleTerminalInputIngressWithLimits(
+  587              app: *App,
+  588              ingress: input_action.TerminalInputIngress,
+  589              input_limits: paste_framing.InputLimits,
+  590              max_prompt_history: usize,
+  591          ) !?u8 {
+  592              if (!ingress.has_routing_work()) return null;
+  593              if (terminalIngressCancelsPendingFullTranscriptOpen(ingress)) {
+  594                  _ = full_transcript_rt.cancelPendingOpenForInput(app);
+  595              }
+  596  
+  597              defer completion_rt.reconcileFilePicker(app);
+  598              // Runs first so the file picker reconciles against a restored draft.
+  599              defer settleModelPickerDraft(app);
+  600  
+  601              const paste_was_active = terminalPasteActive(app);
+  602              defer {
+  603                  const paste_is_active = terminalPasteActive(app);
+  604                  if (!paste_was_active and paste_is_active) {
+  605                      shell_runtime.suspendResizeCursorProbeForPaste(&app.terminal_input_runtime.terminal_cursor_probe);
+  606                  } else if (paste_was_active and !paste_is_active) {
+  607                      shell_runtime.resumeResizeCursorProbeAfterPaste(
+  608                          &app.terminal_input_runtime.terminal_cursor_probe,
+  609                          io_mod.milliTimestamp(),
+  610                      );
+  611                  }
+  612              }
+  613  
+  614              if (ingress.interrupts_pending_text and
+  615                  text_scalar.hasPending(app.input_runtime.text_scalar))
+  616              {
+  617                  input_reset.resetPendingTextScalarWithTrace(
+  618                      &app.input_runtime.text_scalar,
+  619                      "interrupted_by_non_text_input",
+  620                  );
+  621              }
+  622  
+  623              var replay_byte = ingress.replay_byte_after_routing;
+  624              if (ingress.event) |event| {
+  625                  switch (event) {
+  626                      .paste_byte => |byte| {
+  627                          const routed = try routeActivePasteByte(app, byte);
+  628                          std.debug.assert(routed);
+  629                      },
+  630                      .raw => |raw| try handleRawTerminalInputWithLimits(
+  631                          app,
+  632                          raw,
+  633                          input_limits,
+  634                          max_prompt_history,
+  635                      ),
+  636                      .action => |decoded| {
+  637                          switch (try routeResolvedEscapeAction(
+  638                              app,
+  639                              decoded.action,
+  640                              decoded.composer_shortcut,
+  641                              decoded.approval_focused_edit,
+  642                              decoded.question_action,
+  643                              decoded.cancel_pending,
+  644                              input_limits.composer_bytes,
+  645                          )) {
+  646                              .done => {},
+  647                              .remapped_byte => |byte| {
+  648                                  std.debug.assert(replay_byte == null);
+  649                                  replay_byte = byte;
+  650                              },
+  651                          }
+  652                      },
+  653                  }
+  654              }
+  655              return replay_byte;
+  656          }
+
+## src/core/app/app_input_runtime.zig:735-757
+  735          pub fn handleTerminalByteWithLimits(
+  736              app: *App,
+  737              byte: u8,
+  738              input_limits: paste_framing.InputLimits,
+  739              max_prompt_history: usize,
+  740          ) !void {
+  741              var context = try prepareTerminalDecode(app) orelse return;
+  742              var ingress = app.terminal_input_runtime.decodeTerminalByte(
+  743                  byte,
+  744                  context,
+  745              );
+  746              while (true) {
+  747                  const replay_byte = try handleTerminalInputIngressWithLimits(
+  748                      app,
+  749                      ingress,
+  750                      input_limits,
+  751                      max_prompt_history,
+  752                  );
+  753                  const replay = replay_byte orelse return;
+  754                  context = try prepareTerminalDecode(app) orelse return;
+  755                  ingress = app.terminal_input_runtime.decodeTerminalByte(replay, context);
+  756              }
+  757          }
+
+## src/core/app/app_input_runtime.zig:840-1000
+  840          fn handleRawTerminalInputWithLimits(
+  841              app: *App,
+  842              raw: input_action.RawTerminalInput,
+  843              input_limits: paste_framing.InputLimits,
+  844              max_prompt_history: usize,
+  845          ) !void {
+  846              const byte = raw.byte;
+  847              const max_input_len = input_limits.composer_bytes;
+  848              // Fire the max-level cue only when the slash menu becomes visible.
+  849              const slash_menu_was_visible = slashMenuVisibleForCue(app);
+  850              defer announceSlashMenuOpened(app, slash_menu_was_visible);
+  851              if (try routeActivePasteByte(app, byte)) return;
+  852  
+  853              if (byte != 3 and byte != 0x1b) disarmCtrlCExit(app, "raw_input");
+  854  
+  855              // Non-escape input disarms the pending double-Escape clear.
+  856              if (byte != 0x1b) {
+  857                  if (disarmEscapeClear(app)) {
+  858                      app.shell.render_requests.request(.footer);
+  859                  }
+  860                  _ = disarmEscapeInterrupt(app, "raw_input");
+  861              }
+  862  
+  863              // Ctrl-Z arrives as raw byte 26 (ISIG disabled); kitty remaps here too.
+  864              if (byte == 26) {
+  865                  try app.suspendToJobControl();
+  866                  return;
+  867              }
+  868  
+  869              if (comptime runtime_profile.allows(App, .native_auth)) {
+  870                  if (try app_auth_runtime.Runtime(App).routeAuthPickerByte(app, byte)) return;
+  871              }
+  872              if (try full_transcript_rt.routeByte(app, byte)) return;
+  873              if (try routeActiveModalInput(app, raw, input_limits.decision_bytes)) return;
+  874              if (byte >= 0x80) {
+  875                  try handleTextByte(app, .composer, byte, max_input_len);
+  876                  return;
+  877              }
+  878              if (try routeUpgradeShortcut(app, byte)) return;
+  879              if (try routePickerControlByte(app, byte)) return;
+  880  
+  881              if (isComposerEditingByte(byte, raw.composer_shortcut) and
+  882                  !activeCatalogMenuOwnsByte(app, byte) and
+  883                  dismissActiveMenusForComposerEdit(app))
+  884              {
+  885                  app.shell.render_requests.request(.footer);
+  886              }
+  887              try handleComposerByte(
+  888                  app,
+  889                  byte,
+  890                  raw.composer_shortcut,
+  891                  max_input_len,
+  892                  max_prompt_history,
+  893              );
+  894          }
+  895  
+  896          fn routeResolvedEscapeAction(
+  897              app: *App,
+  898              resolved: input_action.Action,
+  899              composer_shortcut: ?input_action.ShortcutAction,
+  900              approval_focused_edit: ?approval_decision.DraftAction,
+  901              question_action: ?question_prompt.Action,
+  902              was_cancel_pending: bool,
+  903              max_input_len: usize,
+  904          ) !ResolvedEscapeRoute {
+  905              switch (resolved) {
+  906                  .remapped_byte, .paste_start, .paste_end, .ignore => {},
+  907                  else => disarmCtrlCExit(app, "semantic_action"),
+  908              }
+  909              // Any other semantic key stands down an armed interrupt.
+  910              switch (resolved) {
+  911                  .remapped_byte, .paste_start, .paste_end, .ignore, .escape => {},
+  912                  else => _ = disarmEscapeInterrupt(app, "semantic_action"),
+  913              }
+  914  
+  915              if (resolved == .escape) {
+  916                  if (try full_transcript_rt.routeAction(app, resolved)) {
+  917                      _ = disarmEscapeInterrupt(app, "full_transcript");
+  918                      return .done;
+  919                  }
+  920                  const now = io_mod.milliTimestamp();
+  921                  expireEscClearArm(app, now);
+  922                  try resolveEscape(app, was_cancel_pending, now);
+  923                  return .done;
+  924              }
+  925  
+  926              if (app_auth_runtime.Runtime(App).routeAuthPickerEscapeAction(app, resolved)) {
+  927                  return .done;
+  928              }
+  929  
+  930              if (try full_transcript_rt.routeAction(app, resolved)) return .done;
+  931  
+  932              if (resolved == .paste_start) {
+  933                  if (comptime runtime_profile.allows(App, .native_auth) and
+  934                      @hasDecl(@TypeOf(app.auth), "signInCodeEntryActive"))
+  935                  {
+  936                      if (app.auth.signInCodeEntryActive()) {
+  937                          paste_rt.beginPaste(app, max_input_len);
+  938                          return .done;
+  939                      }
+  940                  }
+  941                  dismissActiveMenusThenRedraw(app);
+  942                  paste_rt.beginPaste(app, max_input_len);
+  943                  return .done;
+  944              }
+  945  
+  946              if (resolved == .paste_end) {
+  947                  return .done;
+  948              }
+  949  
+  950              switch (resolved) {
+  951                  .remapped_byte => |byte| return .{ .remapped_byte = byte },
+  952                  else => {},
+  953              }
+  954  
+  955              if (app.question_prompt.isActive()) {
+  956                  try question_rt.routeQuestionEscapeAction(
+  957                      app,
+  958                      resolved,
+  959                      question_action,
+  960                  );
+  961                  return .done;
+  962              }
+  963  
+  964              if (app.approval_prompt.isActive()) {
+  965                  try approval_rt.routeApprovalEscapeAction(
+  966                      app,
+  967                      resolved,
+  968                      approval_focused_edit,
+  969                  );
+  970                  return .done;
+  971              }
+  972  
+  973              if (resolved == .mouse_pointer and
+  974                  routePrimaryComposerPointerAction(app, resolved.mouse_pointer))
+  975              {
+  976                  return .done;
+  977              }
+  978  
+  979              if (activeCompactCommandMenu(app)) |menu| {
+  980                  try routeCompactCommandMenuEscapeAction(app, menu, resolved);
+  981                  return .done;
+  982              }
+  983  
+  984              if (settingsMenuActive(app) and
+  985                  (resolved == .cursor_left or resolved == .cursor_right))
+  986              {
+  987                  try changeSettingsMenuSelection(
+  988                      app,
+  989                      if (resolved == .cursor_left) -1 else 1,
+  990                  );
+  991                  return .done;
+  992              }
+  993  
+  994              if (resolved == .cursor_left and try backMcpHostMenuScreen(app)) return .done;
+  995              if (resolved == .cursor_right and try enterMcpHostMenuItem(app)) return .done;
+  996  
+  997              if (try full_transcript_rt.routeComposerAction(app, resolved)) return .done;
+  998  
+  999              if (composer_shortcut) |action| {
+ 1000                  try routeComposerShortcutAction(app, action, max_input_len);
+
+## src/core/app/app_input_runtime.zig:1093-1218
+ 1093          fn routePickerControlByte(app: *App, byte: u8) !bool {
+ 1094              if (!composerPickerSurfaceVisible(app)) return false;
+ 1095              const delta = pickerControlDelta(byte) orelse return false;
+ 1096              if (!try routeVisiblePickerMove(app, delta)) return false;
+ 1097              app.input_runtime.vertical_navigation.reset();
+ 1098              app.shell.render_requests.request(.footer);
+ 1099              return true;
+ 1100          }
+ 1101  
+ 1102          fn pickerControlDelta(byte: u8) ?i32 {
+ 1103              return switch (byte) {
+ 1104                  10 => 1,
+ 1105                  11 => -1,
+ 1106                  else => null,
+ 1107              };
+ 1108          }
+ 1109  
+ 1110          fn composerPickerSurfaceVisible(app: *App) bool {
+ 1111              if (app.question_prompt.isActive() or approvalOwnsCurrentSurface(app)) return false;
+ 1112              if (comptime @hasField(App, "terminal")) {
+ 1113                  if (app.terminal.fullTranscriptScreenActive()) return false;
+ 1114              }
+ 1115              return true;
+ 1116          }
+ 1117  
+ 1118          fn routeUpgradeShortcut(app: *App, byte: u8) !bool {
+ 1119              if (byte != ctrl_g_upgrade_byte) return false;
+ 1120              if (comptime @hasDecl(App, "applyReadyUpgradeShortcut")) {
+ 1121                  try app.applyReadyUpgradeShortcut();
+ 1122              }
+ 1123              return true;
+ 1124          }
+ 1125  
+ 1126          fn routeActiveModalInput(
+ 1127              app: *App,
+ 1128              raw: input_action.RawTerminalInput,
+ 1129              max_input_len: usize,
+ 1130          ) !bool {
+ 1131              const byte = raw.byte;
+ 1132              if ((app.question_prompt.isActive() or approvalOwnsCurrentSurface(app)) and byte == ctrl_g_upgrade_byte) {
+ 1133                  _ = try routeUpgradeShortcut(app, byte);
+ 1134                  return true;
+ 1135              }
+ 1136              if (app.question_prompt.isActive()) {
+ 1137                  if (byte >= 0x80) {
+ 1138                      if (app.question_prompt.isFreeformSelected()) {
+ 1139                          try handleTextByte(app, .question_freeform, byte, max_input_len);
+ 1140                      } else {
+ 1141                          input_reset.resetPendingTextScalarWithTrace(
+ 1142                              &app.input_runtime.text_scalar,
+ 1143                              "question_decision_active",
+ 1144                          );
+ 1145                      }
+ 1146                      return true;
+ 1147                  }
+ 1148                  if (raw.question_action) |action| {
+ 1149                      switch (try question_rt.handleQuestionActionBounded(
+ 1150                          app,
+ 1151                          action,
+ 1152                          max_input_len,
+ 1153                      )) {
+ 1154                          .consumed => app.input_runtime.input_limit_rejection = input_limit_rejection.clear(),
+ 1155                          .ignored => {},
+ 1156                          .limit_exceeded => try input_limit_feedback.report(App, app, .question_freeform, 1),
+ 1157                      }
+ 1158                  }
+ 1159                  return true;
+ 1160              }
+ 1161              if (approvalOwnsCurrentSurface(app)) {
+ 1162                  if (byte >= 0x80) {
+ 1163                      if (app.approval_prompt.isAmending()) {
+ 1164                          try handleTextByte(app, .approval_amendment, byte, max_input_len);
+ 1165                      } else {
+ 1166                          input_reset.resetPendingTextScalarWithTrace(
+ 1167                              &app.input_runtime.text_scalar,
+ 1168                              "approval_decision_active",
+ 1169                          );
+ 1170                      }
+ 1171                      return true;
+ 1172                  }
+ 1173                  if (raw.approval_action) |action| {
+ 1174                      switch (try approval_rt.handlePermissionActionBounded(
+ 1175                          app,
+ 1176                          action,
+ 1177                          max_input_len,
+ 1178                      )) {
+ 1179                          .consumed => app.input_runtime.input_limit_rejection = input_limit_rejection.clear(),
+ 1180                          .ignored => {},
+ 1181                          .limit_exceeded => try input_limit_feedback.report(App, app, .approval_amendment, 1),
+ 1182                      }
+ 1183                  }
+ 1184                  return true;
+ 1185              }
+ 1186              if (try routeMcpHostMenuByte(app, byte)) return true;
+ 1187              if (activeCompactCommandMenu(app)) |menu| {
+ 1188                  if (byte >= 0x80) {
+ 1189                      input_reset.resetPendingTextScalarWithTrace(
+ 1190                          &app.input_runtime.text_scalar,
+ 1191                          "compact_command_menu_active",
+ 1192                      );
+ 1193                      return true;
+ 1194                  }
+ 1195                  switch (byte) {
+ 1196                      '\t' => if (menu == .usage) {
+ 1197                          try refreshUsageMenu(app, app.input_runtime.usage_menu.period.next());
+ 1198                      },
+ 1199                      '\r' => try submitCompactCommandMenuSelection(app, menu, max_input_len),
+ 1200                      'r', 'R' => if (menu == .usage) {
+ 1201                          if (comptime runtime_profile.allows(App, .profile_usage)) {
+ 1202                              try reloadUsageMenu(app, app.input_runtime.usage_menu.period);
+ 1203                          }
+ 1204                      },
+ 1205                      10 => {
+ 1206                          _ = moveCompactCommandMenu(app, menu, 1);
+ 1207                          app.shell.render_requests.request(.footer);
+ 1208                      },
+ 1209                      11 => {
+ 1210                          _ = moveCompactCommandMenu(app, menu, -1);
+ 1211                          app.shell.render_requests.request(.footer);
+ 1212                      },
+ 1213                      else => {},
+ 1214                  }
+ 1215                  return true;
+ 1216              }
+ 1217              return false;
+ 1218          }
+
+## src/core/app/app_input_runtime.zig:1812-1846
+ 1812          fn routeMcpHostMenuByte(app: *App, byte: u8) !bool {
+ 1813              if (comptime !@hasDecl(App, "mcpHostMenuKey")) return false;
+ 1814              if (!mcpHostMenuActive(app) or app.mcp.host_menu.screen == .list) return false;
+ 1815              if (app.mcp.host_menu.screen == .server and byte != '\r') return false;
+ 1816              if (byte == '\r') {
+ 1817                  try app.mcpHostMenuKey(.enter);
+ 1818                  return true;
+ 1819              }
+ 1820              if (byte < 0x20) return false;
+ 1821              if (byte >= 0x80) input_reset.resetPendingTextScalarWithTrace(&app.input_runtime.text_scalar, "mcp_host_menu");
+ 1822              if (app.mcp.host_menu.screen == .confirm) try app.mcpHostMenuKey(.escape);
+ 1823              return true;
+ 1824          }
+ 1825  
+ 1826          fn submitMcpHostMenu(app: *App) !bool {
+ 1827              if (comptime !@hasDecl(App, "mcpHostMenuKey")) return false;
+ 1828              if (!mcpHostMenuActive(app)) return false;
+ 1829              try app.mcpHostMenuKey(.enter);
+ 1830              return true;
+ 1831          }
+ 1832  
+ 1833          const CompactCommandMenuKind = enum {
+ 1834              statusline,
+ 1835              info_panel,
+ 1836              usage,
+ 1837              workspace,
+ 1838          };
+ 1839  
+ 1840          fn activeCompactCommandMenu(app: *App) ?CompactCommandMenuKind {
+ 1841              if (app.input_runtime.statusline_menu.active) return .statusline;
+ 1842              if (app.input_runtime.info_panel.active) return .info_panel;
+ 1843              if (app.input_runtime.usage_menu.active) return .usage;
+ 1844              if (app.input_runtime.workspace_menu.active) return .workspace;
+ 1845              return null;
+ 1846          }
+
+## src/core/app/app_input_runtime.zig:2685-2712
+ 2685          }
+ 2686  
+ 2687          fn resolveEscape(app: *App, was_cancel_pending: bool, now: i64) !void {
+ 2688              if (try full_transcript_rt.routeAction(app, .escape)) return;
+ 2689              if (was_cancel_pending) {
+ 2690                  if (app.question_prompt.isActive()) {
+ 2691                      // Freeform answers mirror the composer's Esc contract:
+ 2692                      // Esc on a non-empty draft arms, a second press within
+ 2693                      // the window clears it, and only an empty field lets
+ 2694                      // Esc cancel the batch.
+ 2695                      _ = disarmEscapeInterrupt(app, "question_prompt");
+ 2696                      if (app.question_prompt.freeformDraftLen() > 0) {
+ 2697                          const transition = gesture_state.pressEscapeClear(
+ 2698                              app.input_runtime.gestures,
+ 2699                              now,
+ 2700                          );
+ 2701                          app.input_runtime.gestures = transition.next;
+ 2702                          if (transition.result == .activated) {
+ 2703                              app.question_prompt.clearFreeformDraft("escape_clear");
+ 2704                          }
+ 2705                          app.shell.render_requests.request(.modal);
+ 2706                          app.shell.render_requests.request(.footer);
+ 2707                          return;
+ 2708                      }
+ 2709                      try question_rt.cancelQuestionPrompt(app);
+ 2710                      return;
+ 2711                  }
+ 2712                  if (app.approval_prompt.isActive()) {
+
+## src/core/app/input_question_runtime.zig:12-232
+   12  pub fn QuestionRuntime(comptime App: type) type {
+   13      return struct {
+   14          const interrupt = input_interrupt_runtime.InterruptRuntime(App);
+   15  
+   16          pub fn handleQuestionAction(app: *App, action: question_prompt.Action) !bool {
+   17              return switch (try handleQuestionActionWithLimit(app, action, null)) {
+   18                  .consumed => true,
+   19                  .ignored => false,
+   20                  .limit_exceeded => unreachable,
+   21              };
+   22          }
+   23  
+   24          pub fn handleQuestionActionBounded(
+   25              app: *App,
+   26              action: question_prompt.Action,
+   27              max_len: usize,
+   28          ) !edit_contract.ByteResult {
+   29              return handleQuestionActionWithLimit(app, action, max_len);
+   30          }
+   31  
+   32          fn handleQuestionActionWithLimit(
+   33              app: *App,
+   34              action: question_prompt.Action,
+   35              max_len: ?usize,
+   36          ) !edit_contract.ByteResult {
+   37              const event = if (max_len) |limit|
+   38                  try app.question_prompt.applyBounded(app.alloc, action, limit)
+   39              else
+   40                  try app.question_prompt.apply(app.alloc, action);
+   41              switch (event) {
+   42                  .none => return if (questionActionConsumesNoop(action)) .consumed else .ignored,
+   43                  .redraw, .decision => {
+   44                      try rerenderQuestionBlock(app);
+   45                      return .consumed;
+   46                  },
+   47                  .all_decided => {
+   48                      try submitQuestionBatch(app);
+   49                      return .consumed;
+   50                  },
+   51                  .cancelled => {
+   52                      try cancelQuestionPrompt(app);
+   53                      return .consumed;
+   54                  },
+   55                  .limit_exceeded => return .limit_exceeded,
+   56              }
+   57          }
+   58  
+   59          pub fn cancelQuestionPrompt(app: *App) !void {
+   60              const route_recovery = isRouteRecoveryPrompt(app);
+   61              const mcp_elicitation = isMcpElicitationPrompt(app);
+   62              interrupt.traceInterruptRequested(app, "input_question");
+   63              if (!route_recovery) {
+   64                  if (comptime @hasDecl(@TypeOf(app.worker), "requestInteractiveCancel")) {
+   65                      app.worker.requestInteractiveCancel();
+   66                  } else {
+   67                      app.worker.requestCancel();
+   68                  }
+   69              }
+   70              app.pacer.clear(app.alloc);
+   71              if (!route_recovery and !mcp_elicitation) try finalizeQuestionTranscript(app, true);
+   72              try app.worker.submitQuestionBatchAnswer(std.heap.c_allocator, null);
+   73              app.question_prompt.discard(app.alloc, "cancelled");
+   74              app.input_runtime.input_limit_rejection = input_limit_rejection.clear();
+   75              const gesture_transition = gesture_state.disarmEscapeClear(
+   76                  app.input_runtime.gestures,
+   77              );
+   78              app.input_runtime.gestures = gesture_transition.next;
+   79              app.stopStream();
+   80              app.shell.render_requests.request(.modal);
+   81          }
+   82  
+   83          pub fn submitQuestionBatch(app: *App) !void {
+   84              var labels: std.ArrayList([]const u8) = .empty;
+   85              defer labels.deinit(app.alloc);
+   86              try labels.ensureTotalCapacity(app.alloc, app.question_prompt.entries.items.len);
+   87              for (app.question_prompt.entries.items) |entry| {
+   88                  labels.appendAssumeCapacity(entry.answer.?);
+   89              }
+   90  
+   91              if (!isRouteRecoveryPrompt(app) and !isMcpElicitationPrompt(app)) {
+   92                  try finalizeQuestionTranscript(app, false);
+   93              }
+   94              try app.worker.submitQuestionBatchAnswer(std.heap.c_allocator, labels.items);
+   95              app.question_prompt.resetAfterSubmission(app.alloc);
+   96              app.input_runtime.input_limit_rejection = input_limit_rejection.clear();
+   97              app.shell.render_requests.request(.modal);
+   98          }
+   99  
+  100          pub fn rerenderQuestionBlock(app: *App) !void {
+  101              app.shell.render_requests.request(.modal);
+  102          }
+  103  
+  104          fn isRouteRecoveryPrompt(app: *App) bool {
+  105              const Worker = @TypeOf(app.worker);
+  106              if (comptime @hasDecl(Worker, "pendingQuestionBatchSource")) {
+  107                  return app.worker.pendingQuestionBatchSource() == worker_runtime.QuestionPromptSource.route_recovery;
+  108              }
+  109              return false;
+  110          }
+  111  
+  112          fn isMcpElicitationPrompt(app: *App) bool {
+  113              const Worker = @TypeOf(app.worker);
+  114              if (comptime @hasDecl(Worker, "pendingQuestionBatchSource")) {
+  115                  return app.worker.pendingQuestionBatchSource() == worker_runtime.QuestionPromptSource.mcp_elicitation;
+  116              }
+  117              return false;
+  118          }
+  119  
+  120          fn finalizeQuestionTranscript(app: *App, cancelled: bool) !void {
+  121              const text = try question_ui.composeQuestionResolutions(
+  122                  app.alloc,
+  123                  &app.question_prompt,
+  124                  cancelled,
+  125                  app.shell.layout.cols,
+  126              );
+  127              defer app.alloc.free(text);
+  128              try appendQuestionResolution(app, text, cancelled);
+  129          }
+  130  
+  131          fn appendQuestionResolution(app: *App, body: []const u8, cancelled: bool) !void {
+  132              _ = if (cancelled)
+  133                  try app.appendReplaceableTranscriptLineClassified(body, .question_resolution)
+  134              else
+  135                  try app.appendReplaceableTranscriptLine(body);
+  136              app.shell.render_requests.request(.modal);
+  137          }
+  138  
+  139          pub fn routeQuestionEscapeAction(
+  140              app: *App,
+  141              action: input_action.Action,
+  142              question_action: ?question_prompt.Action,
+  143          ) !void {
+  144              app.input_runtime.vertical_navigation.reset();
+  145              app.input_runtime.input_limit_rejection = input_limit_rejection.clear();
+  146              if (question_action) |typed| {
+  147                  if (try handleQuestionAction(app, typed)) return;
+  148              }
+  149              if (app.question_prompt.isFreeformSelected()) {
+  150                  switch (action) {
+  151                      .cursor_up => {
+  152                          // At the top of the freeform draft, Up leaves the
+  153                          // slot and resumes option navigation.
+  154                          if (!moveFreeformCursorVertical(app, .up)) {
+  155                              app.question_prompt.moveChoice(-1);
+  156                          }
+  157                          try rerenderQuestionBlock(app);
+  158                          return;
+  159                      },
+  160                      .cursor_down => {
+  161                          if (!moveFreeformCursorVertical(app, .down)) {
+  162                              app.question_prompt.moveChoice(1);
+  163                          }
+  164                          try rerenderQuestionBlock(app);
+  165                          return;
+  166                      },
+  167                      .history_up => {
+  168                          app.question_prompt.moveChoice(-1);
+  169                          try rerenderQuestionBlock(app);
+  170                          return;
+  171                      },
+  172                      .history_down => {
+  173                          app.question_prompt.moveChoice(1);
+  174                          try rerenderQuestionBlock(app);
+  175                          return;
+  176                      },
+  177                      else => {},
+  178                  }
+  179              }
+  180  
+  181              switch (action) {
+  182                  .history_up, .cursor_up => {
+  183                      app.question_prompt.moveChoice(-1);
+  184                      try rerenderQuestionBlock(app);
+  185                  },
+  186                  .history_down, .cursor_down => {
+  187                      app.question_prompt.moveChoice(1);
+  188                      try rerenderQuestionBlock(app);
+  189                  },
+  190                  .cursor_left, .word_left => {
+  191                      switch (app.question_prompt.retreatToPrevious()) {
+  192                          .redraw => try rerenderQuestionBlock(app),
+  193                          else => {},
+  194                      }
+  195                  },
+  196                  .cursor_right, .word_right => {
+  197                      // Enter advances; right arrow remains inert to avoid skipping answers.
+  198                  },
+  199                  else => {},
+  200              }
+  201          }
+  202  
+  203          fn moveFreeformCursorVertical(
+  204              app: *App,
+  205              direction: question_freeform_layout.Direction,
+  206          ) bool {
+  207              const view = app.question_prompt.freeformCursorView() orelse return false;
+  208              const movement = question_freeform_layout.moveCursor(
+  209                  view.buffer,
+  210                  view.cursor,
+  211                  question_freeform_layout.contentWidth(
+  212                      view.choice_index,
+  213                      app.shell.layout.cols,
+  214                  ),
+  215                  direction,
+  216                  view.preferred_column,
+  217              );
+  218              app.question_prompt.applyFreeformCursorMove(
+  219                  movement.cursor,
+  220                  movement.preferred_column,
+  221              );
+  222              return movement.moved;
+  223          }
+  224  
+  225          fn questionActionConsumesNoop(action: question_prompt.Action) bool {
+  226              return switch (action) {
+  227                  .backspace, .insert_ascii, .edit_freeform => true,
+  228                  else => false,
+  229              };
+  230          }
+  231      };
+  232  }
+
+## src/core/app/input_approval_runtime.zig:185-218
+  185              if (app.approval_prompt.rule_management != null) {
+  186                  try submitRuleManagementChoice(app, decision);
+  187                  return;
+  188              }
+  189              if (try submitSubagentPermissionChoice(app, decision)) return;
+  190              var affirmative_claimed = false;
+  191              if (decision != .deny and
+  192                  app.approval_prompt.request.?.file != null)
+  193              {
+  194                  admitPendingApprovalResize(app);
+  195                  const approval = app.approval_prompt.projection().?;
+  196                  const ready = if (comptime @hasField(App, "terminal"))
+  197                      approval_screen.fileApprovalAffirmativeReady(
+  198                          &app.shell,
+  199                          approval,
+  200                          &app.approval_screen,
+  201                      )
+  202                  else
+  203                      approval_ui.fileApprovalAffirmativeReady(
+  204                          &app.shell,
+  205                          approval,
+  206                      );
+  207                  if (!ready) {
+  208                      requestActiveSurfaceFrame(app);
+  209                      debug_trace.logf(
+  210                          "permission",
+  211                          "file_approval_confirmation_blocked request_id={d} decision={s}",
+  212                          .{
+  213                              app.approval_prompt.request.?.id,
+  214                              @tagName(decision),
+  215                          },
+  216                      );
+  217                      return;
+  218                  }
+
+## src/core/app/input_full_transcript_runtime.zig:26-52
+   26          fn requestActiveSurfaceFrame(app: *App) void {
+   27              app_render_runtime.Runtime(App).requestActiveSurfaceFrame(app, .modal);
+   28          }
+   29  
+   30          fn screenOwnsInput(app: *App) bool {
+   31              if (comptime !@hasField(App, "terminal")) return false;
+   32              if (approvalOwnsCurrentSurface(app)) return false;
+   33              return app.terminal.fullTranscriptScreenActive();
+   34          }
+   35  
+   36          fn approvalOwnsCurrentSurface(app: *const App) bool {
+   37              return app.approval_prompt.isActive();
+   38          }
+   39  
+   40          pub fn routeByte(app: *App, byte: u8) !bool {
+   41              const key = keyForByte(byte) orelse return false;
+   42              if (!screenOwnsInput(app)) return false;
+   43              try routeKey(app, key);
+   44              return true;
+   45          }
+   46  
+   47          pub fn routeAction(app: *App, resolved: input_action.Action) !bool {
+   48              const key = keyForAction(resolved) orelse return false;
+   49              if (!screenOwnsInput(app)) return false;
+   50              try routeKey(app, key);
+   51              return true;
+   52          }
+
+## src/core/app/input_full_transcript_runtime.zig:147-179
+  147          fn keyForByte(byte: u8) ?FullTranscriptKey {
+  148              return switch (byte) {
+  149                  3 => .interrupt,
+  150                  12 => .redraw,
+  151                  24 => null,
+  152                  else => null,
+  153              };
+  154          }
+  155  
+  156          fn keyForAction(resolved: input_action.Action) ?FullTranscriptKey {
+  157              return switch (resolved) {
+  158                  .toggle_full_transcript => .toggle,
+  159                  .cursor_left => .{ .navigate = .left },
+  160                  .cursor_right => .{ .navigate = .right },
+  161                  .cursor_up => .{ .wheel_scroll = .up },
+  162                  .cursor_down => .{ .wheel_scroll = .down },
+  163                  .escape => .close,
+  164                  .mouse_wheel => |direction| .{ .wheel_scroll = direction },
+  165                  .page_up => .{ .page_scroll = .up },
+  166                  .page_down => .{ .page_scroll = .down },
+  167                  .composer_shortcut => |shortcut| switch (shortcut) {
+  168                      .redraw => .redraw,
+  169                      else => null,
+  170                  },
+  171                  .remapped_byte => |byte| switch (byte) {
+  172                      3 => .interrupt,
+  173                      12 => .redraw,
+  174                      24 => null,
+  175                      else => null,
+  176                  },
+  177                  else => null,
+  178              };
+  179          }
+
+## src/core/agent/question_prompt.zig:31-51
+   31  pub const Action = union(enum) {
+   32      cancel,
+   33      submit,
+   34      next_entry,
+   35      backspace,
+   36      select_ordinal: u8,
+   37      insert_ascii: u8,
+   38      move_choice: ChoiceDirection,
+   39      edit_freeform: FreeformAction,
+   40  };
+   41  
+   42  pub const QuestionInputEvent = union(enum) {
+   43      none,
+   44      redraw,
+   45      /// Answer stored, but at least one batch entry remains unanswered.
+   46      decision: u8,
+   47      /// Every batch entry has `answer != null`.
+   48      all_decided,
+   49      cancelled,
+   50      limit_exceeded,
+   51  };
+
+## src/core/agent/question_prompt.zig:308-354
+  308      pub fn apply(self: *QuestionPrompt, alloc: Allocator, action: Action) !QuestionInputEvent {
+  309          return self.applyWithLimit(alloc, action, null);
+  310      }
+  311  
+  312      pub fn applyBounded(
+  313          self: *QuestionPrompt,
+  314          alloc: Allocator,
+  315          action: Action,
+  316          max_len: usize,
+  317      ) !QuestionInputEvent {
+  318          return self.applyWithLimit(alloc, action, max_len);
+  319      }
+  320  
+  321      fn applyWithLimit(
+  322          self: *QuestionPrompt,
+  323          alloc: Allocator,
+  324          action: Action,
+  325          max_len: ?usize,
+  326      ) !QuestionInputEvent {
+  327          return switch (action) {
+  328              .cancel => .cancelled,
+  329              .submit => self.advanceOnDecision(alloc),
+  330              .next_entry => blk: {
+  331                  self.cycleQuestionPage();
+  332                  break :blk .redraw;
+  333              },
+  334              .backspace => blk: {
+  335                  if (!self.isFreeformSelected()) break :blk .none;
+  336                  self.freeformBackspace();
+  337                  break :blk .redraw;
+  338              },
+  339              .select_ordinal => |index| self.selectOrdinal(alloc, index),
+  340              .insert_ascii => |byte| self.insertFreeformByte(alloc, byte, max_len),
+  341              .move_choice => |direction| blk: {
+  342                  if (!self.hasCurrentOptions()) break :blk .none;
+  343                  self.moveChoice(switch (direction) {
+  344                      .previous => -1,
+  345                      .next => 1,
+  346                  });
+  347                  break :blk .redraw;
+  348              },
+  349              .edit_freeform => |edit| if (self.applyFreeformAction(edit))
+  350                  .redraw
+  351              else
+  352                  .none,
+  353          };
+  354      }
+
+## src/core/agent/question_prompt.zig:381-420
+  381      fn insertFreeformByte(
+  382          self: *QuestionPrompt,
+  383          alloc: Allocator,
+  384          byte: u8,
+  385          max_len: ?usize,
+  386      ) !QuestionInputEvent {
+  387          if (!self.isFreeformSelected()) return .none;
+  388          if (byte < 0x20 or byte > 0x7e) return .none;
+  389          if (max_len) |limit| {
+  390              return switch (try self.insertFreeformSlice(
+  391                  alloc,
+  392                  &.{byte},
+  393                  limit,
+  394              )) {
+  395                  .inserted => .redraw,
+  396                  .inactive => .none,
+  397                  .limit_exceeded => .limit_exceeded,
+  398              };
+  399          }
+  400          try self.freeformInsert(alloc, byte);
+  401          return .redraw;
+  402      }
+  403  
+  404      fn selectOrdinal(self: *QuestionPrompt, alloc: Allocator, index: u8) !QuestionInputEvent {
+  405          if (!self.active or self.current_index >= self.entries.items.len) return .none;
+  406          var entry = &self.entries.items[self.current_index];
+  407          if (index >= entry.options.items.len) return .none;
+  408          entry.freeform_preferred_column = null;
+  409          entry.choice_index = index;
+  410          if (entry.options.items[index].is_freeform_slot) return .redraw;
+  411          return try self.advanceOnDecision(alloc);
+  412      }
+  413  
+  414      pub fn isFreeformSelected(self: *const QuestionPrompt) bool {
+  415          if (!self.active or self.current_index >= self.entries.items.len) return false;
+  416          const entry = self.entries.items[self.current_index];
+  417          if (entry.options.items.len == 0) return false;
+  418          const idx: usize = @min(entry.choice_index, entry.options.items.len - 1);
+  419          return entry.options.items[idx].is_freeform_slot;
+  420      }
+
+## src/core/agent/question_prompt.zig:617-668
+  617      /// Store the selected label (or freeform buffer contents) into
+  618      /// `entries[current_index].answer`. Returns `.all_decided` once every
+  619      /// entry has an answer; otherwise advances to the next unanswered entry
+  620      /// and returns `.decision(answered_index)`.
+  621      fn advanceOnDecision(self: *QuestionPrompt, alloc: Allocator) !QuestionInputEvent {
+  622          if (self.entries.items.len == 0) return .none;
+  623          const answered_index = self.current_index;
+  624          if (answered_index >= self.entries.items.len) return .none;
+  625  
+  626          var entry = &self.entries.items[answered_index];
+  627          if (entry.options.items.len == 0) return .none;
+  628          const idx: usize = @min(entry.choice_index, entry.options.items.len - 1);
+  629          const opt = entry.options.items[idx];
+  630          const encoded = if (entry.submission != .none) blk: {
+  631              var out: std.Io.Writer.Allocating = .init(alloc);
+  632              defer out.deinit();
+  633              if (opt.is_freeform_slot) {
+  634                  std.json.Stringify.value(.{ .value = entry.freeform_buffer.items }, .{}, &out.writer) catch return error.OutOfMemory;
+  635              } else {
+  636                  std.json.Stringify.value(.{ .option = idx }, .{}, &out.writer) catch return error.OutOfMemory;
+  637              }
+  638              break :blk try out.toOwnedSlice();
+  639          } else null;
+  640          errdefer if (encoded) |buffer| alloc.free(buffer);
+  641          if (opt.is_freeform_slot) {
+  642              try entry.confirmed_freeform_buffer.ensureTotalCapacity(alloc, entry.freeform_buffer.items.len);
+  643              entry.confirmed_freeform_buffer.clearRetainingCapacity();
+  644              entry.confirmed_freeform_buffer.appendSliceAssumeCapacity(entry.freeform_buffer.items);
+  645              entry.answer = entry.confirmed_freeform_buffer.items;
+  646          } else {
+  647              entry.answer = opt.label;
+  648          }
+  649          if (encoded) |buffer| {
+  650              if (entry.submission_buffer) |previous| alloc.free(previous);
+  651              entry.submission_buffer = buffer;
+  652              entry.answer = buffer;
+  653          }
+  654          entry.freeform_preferred_column = null;
+  655          entry.confirmed_choice_index = entry.choice_index;
+  656  
+  657          var offset: usize = 1;
+  658          while (offset < self.entries.items.len) : (offset += 1) {
+  659              const candidate = (answered_index + offset) % self.entries.items.len;
+  660              if (self.entries.items[candidate].answer == null) {
+  661                  self.current_index = @intCast(candidate);
+  662                  self.entries.items[candidate].freeform_preferred_column = null;
+  663                  return .{ .decision = answered_index };
+  664              }
+  665          }
+  666          self.current_index = @intCast(self.entries.items.len);
+  667          return .all_decided;
+  668      }
+
+## src/core/agent/question_prompt.zig:1109-1150
+ 1109  test "question prompt submit on single-entry batch returns all_decided" {
+ 1110      var prompt = QuestionPrompt{};
+ 1111      defer prompt.deinit(std.testing.allocator);
+ 1112      try syncTestQuestion(&prompt);
+ 1113  
+ 1114      prompt.moveChoice(1);
+ 1115      try std.testing.expectEqualStrings("No", prompt.selectedLabel().?);
+ 1116      try std.testing.expectEqual(QuestionInputEvent.all_decided, try prompt.apply(std.testing.allocator, .submit));
+ 1117      try std.testing.expectEqualStrings("No", prompt.entries.items[0].answer.?);
+ 1118  }
+ 1119  
+ 1120  test "question prompt submit advances through a multi-entry batch" {
+ 1121      var prompt = QuestionPrompt{};
+ 1122      defer prompt.deinit(std.testing.allocator);
+ 1123  
+ 1124      const opts_a = [_]types.QuestionOption{
+ 1125          .{ .label = "A1", .description = null },
+ 1126          .{ .label = "A2", .description = null },
+ 1127      };
+ 1128      const opts_b = [_]types.QuestionOption{
+ 1129          .{ .label = "B1", .description = null },
+ 1130          .{ .label = "B2", .description = null },
+ 1131      };
+ 1132      const entries = [_]types.QuestionBatchEntry{
+ 1133          .{ .question = "First?", .options = &opts_a },
+ 1134          .{ .question = "Second?", .options = &opts_b },
+ 1135      };
+ 1136      try prompt.syncFrom(std.testing.allocator, &entries);
+ 1137  
+ 1138      // Submitting entry 0 (selection A1) commits the borrowed label and advances.
+ 1139      switch (try prompt.apply(std.testing.allocator, .submit)) {
+ 1140          .decision => |idx| try std.testing.expectEqual(@as(u8, 0), idx),
+ 1141          else => return error.TestExpectedDecision,
+ 1142      }
+ 1143      try std.testing.expectEqual(@as(u8, 1), prompt.current_index);
+ 1144  
+ 1145      // Submitting B2 as the last entry completes the batch.
+ 1146      prompt.moveChoice(1);
+ 1147      try std.testing.expectEqualStrings("B2", prompt.selectedLabel().?);
+ 1148      try std.testing.expectEqual(QuestionInputEvent.all_decided, try prompt.apply(std.testing.allocator, .submit));
+ 1149  
+ 1150      try std.testing.expectEqualStrings("A1", prompt.entries.items[0].answer.?);
+
+## src/core/agent/question_prompt.zig:1272-1293
+ 1272  test "submit on freeform slot stores the draft as its answer" {
+ 1273      var prompt = QuestionPrompt{};
+ 1274      defer prompt.deinit(std.testing.allocator);
+ 1275      try syncTestQuestion(&prompt);
+ 1276  
+ 1277      prompt.moveChoice(-1);
+ 1278      _ = try prompt.apply(std.testing.allocator, .{ .insert_ascii = 'x' });
+ 1279      _ = try prompt.apply(std.testing.allocator, .{ .insert_ascii = 'y' });
+ 1280  
+ 1281      try std.testing.expectEqual(QuestionInputEvent.all_decided, try prompt.apply(std.testing.allocator, .submit));
+ 1282      try std.testing.expectEqualStrings("xy", prompt.entries.items[0].answer.?);
+ 1283  }
+ 1284  
+ 1285  test "submit on empty freeform slot stores an empty answer" {
+ 1286      var prompt = QuestionPrompt{};
+ 1287      defer prompt.deinit(std.testing.allocator);
+ 1288      try syncTestQuestion(&prompt);
+ 1289  
+ 1290      prompt.moveChoice(-1);
+ 1291      try std.testing.expectEqual(QuestionInputEvent.all_decided, try prompt.apply(std.testing.allocator, .submit));
+ 1292      try std.testing.expectEqualStrings("", prompt.entries.items[0].answer.?);
+ 1293  }

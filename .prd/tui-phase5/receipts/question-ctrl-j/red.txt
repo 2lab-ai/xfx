@@ -1,0 +1,101 @@
+# The pairs at the base: fx/ (fx v0.0.16) against red/ (xfx built at afd891af, row 1 v0.1.0-afd891a); the panel scenario recaptured in round 2 with gwlog added, the same binaries
+
+## python3 -I pairs.py red (every ledger normalization; the three /status divergences' rows set aside)
+DIFF  p5-question-ctrl-j ctrl-j                        4 rows differ
+      fx:  '  Ship it?'
+      xfx: '  Which depth?'
+      fx:  '    1) Yes'
+      xfx: '    1) Thorough                      Reads every file.'
+      fx:  '    2) No'
+      xfx: '    2) Quick'
+DIFF  p5-question-ctrl-j down-ctrl-j                   4 rows differ
+      fx:  '  Anything else?'
+      xfx: '  Which depth?'
+      fx:  '    1) Nothing'
+      xfx: '    1) Thorough                      Reads every file.'
+      fx:  '    2) Later'
+      xfx: '    2) Quick'
+DIFF  p5-question-ctrl-j end                           35 rows differ
+      fx:  '  1) Which depth?'
+      xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+      fx:  '     Thorough'
+      xfx: '  Which depth?'
+      fx:  '  2) Ship it?'
+      xfx: ''
+DIFF  p5-question-ctrl-j field-ctrl-j                  13 rows differ
+      fx:  '  1) Which depth?'
+      xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+      fx:  '     Thorough'
+      xfx: '  Which depth?'
+      fx:  '  2) Ship it?'
+      xfx: ''
+DIFF  p5-question-ctrl-j field                         4 rows differ
+      fx:  '  Anything else?'
+      xfx: '  Which depth?'
+      fx:  '    1) Nothing'
+      xfx: '    1) Thorough                      Reads every file.'
+      fx:  '    2) Later'
+      xfx: '    2) Quick'
+DIFF  p5-question-ctrl-j kitty-ctrl-j                  21 rows differ
+      fx:  '  1) Which depth?'
+      xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+      fx:  '     Thorough'
+      xfx: '  Ship it?'
+      fx:  '  2) Ship it?'
+      xfx: ''
+DIFF  p5-question-ctrl-j not-ctrl-j                    21 rows differ
+      fx:  '  1) Which depth?'
+      xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+      fx:  '     Thorough'
+      xfx: '  Ship it?'
+      fx:  '  2) Ship it?'
+      xfx: ''
+DIFF  p5-question-ctrl-j tab-ctrl-j                    32 rows differ
+      fx:  '  1) Which depth?'
+      xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+      fx:  '     Thorough'
+      xfx: '  Which depth?'
+      fx:  '  2) Ship it?'
+      xfx: ''
+SAME  p5-question-ctrl-j three                         (13 rows compared)
+DIFF  p5-question-ctrl-j xterm-ctrl-j                  24 rows differ
+      fx:  '  1) Which depth?'
+      xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+      fx:  '     Thorough'
+      xfx: '  Ship it?'
+      fx:  '  2) Ship it?'
+      xfx: ''
+DIFF  p5-question-ctrl-j-panel end                     18 rows differ
+      fx:  '  1) Which depth?'
+      xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+      fx:  '     Thorough'
+      xfx: '  Which depth?'
+      fx:  '  Asked once.'
+      xfx: '    1) Thorough                      Reads every file.'
+SAME  p5-question-ctrl-j-panel open-before-question    (20 rows compared)
+SAME  p5-question-ctrl-j-panel question-arrives        (15 rows compared)
+DIFF  p5-question-ctrl-j-panel question-ctrl-j         18 rows differ
+      fx:  '  1) Which depth?'
+      xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+      fx:  '     Thorough'
+      xfx: '  Which depth?'
+      fx:  '  Asked once.'
+      xfx: '    1) Thorough                      Reads every file.'
+3 of 14 pairs identical once the entries' rows are set aside
+
+## .prd/tui-phase4/receipts/m1/cells.py, raw
+DIFF  p5-question-ctrl-j-40x120-ctrl-j
+DIFF  p5-question-ctrl-j-40x120-down-ctrl-j
+DIFF  p5-question-ctrl-j-40x120-end
+DIFF  p5-question-ctrl-j-40x120-field-ctrl-j
+DIFF  p5-question-ctrl-j-40x120-field
+DIFF  p5-question-ctrl-j-40x120-kitty-ctrl-j
+DIFF  p5-question-ctrl-j-40x120-not-ctrl-j
+DIFF  p5-question-ctrl-j-40x120-tab-ctrl-j
+SAME  p5-question-ctrl-j-40x120-three
+DIFF  p5-question-ctrl-j-40x120-xterm-ctrl-j
+DIFF  p5-question-ctrl-j-panel-40x120-end
+DIFF  p5-question-ctrl-j-panel-40x120-open-before-question
+SAME  p5-question-ctrl-j-panel-40x120-question-arrives
+DIFF  p5-question-ctrl-j-panel-40x120-question-ctrl-j
+2 of 14 identical by m1 cells.py (row 1 left out, no ledger normalization)
