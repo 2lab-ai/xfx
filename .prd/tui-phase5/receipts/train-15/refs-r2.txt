@@ -1,0 +1,21 @@
+# round 2: the reference checks at the code head 12f99f36, against main e2fc7e94, the train before the join and the round's base 5107ff53
+refs: # 91 references; 0 (side, reference) pairs MOVED; * = the side's own text cites it
+refs_all: # 199 references in 633 files; 7 moved or changed on some side that cites them; entries outside the historical plans: 0
+refs_short: # 88 short references into changed files; 51 moved or changed on some side that cites them; entries outside the historical plans: 0
+refs_bare: # 72 bare continuations after a reference into a changed file; 43 moved or changed on some side that; entries outside the historical plans: 0
+refs_prd: # 29 references; 0 (side, reference) pairs MOVED; * = the side's own text cites it
+content.sh: # all 55 files: SAME 244; SAME-ROW 43; SAME-LINES 3; WRONG 2; other product 533; unread 1; refs 826; WRONG: src/tools/question.rs:303 Cargo.toml:42 tests/session_compat.rs:57 src/session/event.rs:98-192 
+# the re-point plan at 44e07aba (repoint.py --derive, the round's base 5107ff53 as the side), applied in 7f4b68cf
+auto  merges              scripts/fxcap/parity-ledger.toml:811 src/tui/shell.rs:49793 -> src/tui/shell.rs:49895 (cites src/tui/shell.rs; frame da8e4c1a :49793): the frame's lines and two either side stand there alone
+auto  merges              scripts/fxcap/parity-ledger.toml:823 src/tui/shell.rs:49793 -> src/tui/shell.rs:49895 (cites src/tui/shell.rs; frame da8e4c1a :49793): the frame's lines and two either side stand there alone
+auto  merges              scripts/fxcap/parity-ledger.toml:834 src/tui/shell.rs:49793 -> src/tui/shell.rs:49895 (cites src/tui/shell.rs; frame da8e4c1a :49793): the frame's lines and two either side stand there alone
+auto  merges              scripts/fxcap/parity-ledger.toml:846 src/tui/shell.rs:49793 -> src/tui/shell.rs:49895 (cites src/tui/shell.rs; frame da8e4c1a :49793): the frame's lines and two either side stand there alone
+auto  merges              scripts/fxcap/parity-ledger.toml:857 src/tui/shell.rs:49793 -> src/tui/shell.rs:49895 (cites src/tui/shell.rs; frame da8e4c1a :49793): the frame's lines and two either side stand there alone
+auto  merges              scripts/fxcap/parity-ledger.toml:868 src/tui/shell.rs:49793 -> src/tui/shell.rs:49895 (cites src/tui/shell.rs; frame da8e4c1a :49793): the frame's lines and two either side stand there alone
+auto  merges              scripts/fxcap/parity-ledger.toml:949 src/tui/shell.rs:49793 -> src/tui/shell.rs:49895 (cites src/tui/shell.rs; frame da8e4c1a :49793): the frame's lines and two either side stand there alone
+left  round1              src/tools/question.rs:303 Cargo.toml:42 -> (as it is) (cites Cargo.toml; frame 866de4f4 :42): the comment says the crate does not enable serde_json's `preserve_order`, and Cargo.toml enables it: the claim is out of date, and the number is wrong too (:42 is `"http2",`); queued as TRAIN14-FOLLOWUPS with the comment's rewrite, not a re-point
+left  round1              tests/session_compat.rs:57 src/session/event.rs:98-192 -> (as it is) (cites src/session/event.rs; frame 9956e7a8 :98-192): it names commit 14ad04202fe5's file (`14ad04202fe5 src/session/event.rs:98-192`), whose 98-192 are `SessionEvent` as it says; the check reads it against the head
+# 9 WRONG refs, by where they came from: merges 7; round1 2
+# by how: auto 7; left 2 (extra: read SAME, re-pointed by hand)
+# 7f4b68cf: 7 lines out, 7 in; the same once numbers are masked: True
+# the target at 12f99f36: src/tui/shell.rs:49895 holds: "  tools: {} advertised ({},",

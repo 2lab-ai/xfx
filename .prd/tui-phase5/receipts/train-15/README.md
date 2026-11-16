@@ -44,7 +44,7 @@ git's merge base of the merge's two parents (`merge-ends.txt` names each).
 | 2 | `ed92e515` | the decoder line, oldest first: DECODER-TILDE-HOME-END `ebb04642` (7), TILDE-EMPTY-MODIFIER `fab7a217` (10), MODIFIED-PAGE-KEYS `c77a77ce` (7), MODIFIED-ARROWS-SCREENS `3f2d6e78` (9), COMPOSER-PARAGRAPH-MOVE `28bd1810` (10), COMPOSER-SUPER-ARROWS `df45025c` (13) (`fix/p5-composer-super-arrows`; 56) | `afd891af` | `src/tui/shell.rs` 2 by hand; the ledger 12 (11 `numbers`, 1 by hand); `docs/parity.md` 1 block, 3 rows |
 | 3 | `b10ca771` | FULLTRANSCRIPT-RESPONSE-HEADER (`fix/p5-fulltranscript-response-header` @ `fffb3cfe`; 13 of its own, on MODIFIED-ARROWS-SCREENS `3f2d6e78`, which merge 2 brought) | `3f2d6e78` | the ledger 5 (4 `numbers`, 1 by hand); `docs/parity.md` 1 block, 3 rows |
 | 4 | `88e83a68` | the approval stack, oldest first: APPROVAL-READINESS-SETTLED `b3a19ede` (8), APPROVAL-DRAFT-KEYS `d7916178` (5), APPROVAL-CTRL-J `1a0adaec` (6), RULE-CONFIRM-KEYS `7c9dfb2e` (13) (`fix/p5-rule-confirm-keys`; 32) | `a37a969e` | `src/tui/shell.rs` 1 and `src/tui/approval.rs` 1, by hand; `tests/tui.rs` 1 `rewrite`; the ledger 12 (10 `numbers`, 2 `tail`); `docs/parity.md` 2 blocks, 8 rows |
-| 5 | `07eefa89` | QUESTION-CTRL-J (`fix/p5-question-ctrl-j` @ `b5cb6f46`; 17) | `afd891af` | `src/tui/input.rs` 1, by hand; the ledger 13 (12 `numbers`, 1 `ours`); `docs/parity.md` 3 blocks, 7 rows |
+| 5 | `07eefa89` | QUESTION-CTRL-J (`fix/p5-question-ctrl-j` @ `b5cb6f46`; 17) | `afd891af` | `src/tui/input.rs` 1, by hand; the ledger 13 (12 `numbers`, 1 `ours`); `docs/parity.md` 3 blocks, 6 rows |
 | join | `a14df710` | main `e2fc7e94`: #95 `ed0fe4ff`, #96 `35cb4c7a` (v0.2.0), #97 `e2fc7e94` | `753b0a72` | `docs/parity.md` 3 blocks, 9 rows |
 
 The unit counts are `git rev-list --count <base>..<tip>` (the decoder line's
@@ -61,8 +61,23 @@ After the merges, in order (`git log --first-parent 753b0a72..`):
 | `da8e4c1a` | 34 references re-pointed, numbers only (join check 6). **Its message says "32 + 2 = 34 lines"; it is 32 lines holding 34 references** -- ledger :506 and :882 hold two each (`repoint-plan.txt`, `repointed.txt`: 32 lines out, 32 in) |
 | `bc9ea199` | `docs/parity.md`, one sentence merge 2 left reading the other way (the token check's first difference, below) |
 | `a14df710` | **the join of main** `e2fc7e94` |
-| `2c575f52` | the three UPSTREAM.md references #96 moved, re-pointed: **the code head the gate, the sweeps and every job ran at** |
-| the receipt's commits | this folder only (`final-scan.txt` part 4) |
+| `2c575f52` | the three UPSTREAM.md references #96 moved, re-pointed: **the code head the gate, the sweeps and every job of round 1 ran at** |
+| `7f3bccd3`, `2e0eaab1`, `5107ff53` | round 1's receipt, `gates-files.txt`, `final-scan.txt` |
+| `44e07aba` | round 2, **tests and comments**: the rule confirmation and `/mcp`'s menu never up together (a new test, gpt6's SHOULD); xterm Ctrl+Shift+B/E/F in the amendment table (gpt6's NTH); `event_loop.rs`'s comment (opus N5); one sentence of `docs/parity.md` (opus N9) |
+| `7f4b68cf` | the seven ledger refs `44e07aba`'s tests moved, re-pointed (`:49793` -> `:49895`) |
+| `12f99f36` | `docs/parity.md`, one sentence: the approval C-j's revert names `Shell::approval_action`, where the arm is (found writing opus S1's veto entry): **the code head since round 2** |
+| the receipt's round-2 commits | this folder only (`final-scan.txt` part 4) |
+
+Round 2 changes no product line: its code is two tests (one new, one with
+three rows more) and comments, and its other changes are docs and ledger
+`xfx` refs, which the sweep reads for no verdict. So the gate, the sweeps and
+the jobs of round 1 stand for it, and its own checks are: the new tests RED
+under a forced mutant each and GREEN at `44e07aba` (`red-r2.sh`,
+`red-r2.txt`); `check-merge.sh`'s check, fmt and clippy, both feature sets,
+0 failed (`check-r2.txt`); the reference checks at `12f99f36`
+(`refs-r2.txt`); the two sentences word by word and the token check again
+(`parity-r2.txt`); and the dispatcher's gate at `5107ff53` (23/23, 5942 and
+5979 passed) before it.
 
 A first gate ran at `da8e4c1a` and was stopped after 16 of 23 steps, every
 one exit 0 (`gate-da8e4c1a.txt`), when `bc9ea199` was found to be needed;
@@ -188,7 +203,7 @@ says it):
   `src/ui/input/runtime.zig:64@481104fd`) and the model question
   (QUESTION-CTRL-J, `questionActionFromByte`, `:141`) -- join MUST 2b.
 - The ledger, 13 blocks: 12 `numbers`, 1 `ours`.
-- `docs/parity.md`, 3 blocks, 7 rows; in the `ask_user_question` row the
+- `docs/parity.md`, 3 blocks, 6 rows; in the `ask_user_question` row the
   unit's "(proposed)" -> "(queued)" for META-PREFIX-DECODE is made inside the
   decoder line's rewrite of that sentence (`--inside`).
 
@@ -212,7 +227,8 @@ says it):
 `token_check.py` is train 7's, byte for byte (`token-check.txt`'s first
 line, `cmp` against `../train-7/`): every `docs/parity.md` row and every
 ledger entry of each merge read against its base and both sides. Over the
-six merges it **exits 1, on four differences, each read here**:
+six merges it **exits 1, on five lines, each read here**: four parity
+differences, then one ledger entry (the first item after the list):
 
 1. **Merge 2, full-screen TUI row, "2 of 70 clauses not whole".** Main
    (PAGE-KEYS-SETTINGS-COLUMN) wrote "... the composer's caret by the same
@@ -271,8 +287,8 @@ six merges it **exits 1, on four differences, each read here**:
 
 ## Join checks
 
-Each with its evidence. Two join tests are added (join check 2), where no
-unit's tests reach the meeting; every other meeting is reached by the units'
+Each with its evidence. Three join tests are added (join check 2: two in
+`0341dd2b`, one in round 2), where no unit's tests reach the meeting; every other meeting is reached by the units'
 own tests, run in the gate (`unit-tests.txt`).
 
 ### 1. The approval amendment, where three units meet (`functions.txt`, `shared.txt`, `moved-edits.txt`, `unit-tests.txt`, `scenarios.txt`)
@@ -345,13 +361,25 @@ train join"; APPROVAL-DRAFT-KEYS' opus N-1 and DECODER-TILDE-HOME-END's README
   C-j arm `false` -- the new test and QUESTION-CTRL-J's
   `an_enter_another_surface_took_counts_for_the_held_rule` fail. The
   unmutated run passes all five.
-  - **The rule confirmation is left out, by reasoning, not a test**: a C-j at
-    a `/permissions` rule confirmation (RULE-CONFIRM-KEYS) answers it too,
-    but the two cannot be up together: `Shell::permissions` is the one place
+  - **The rule confirmation is left out, because it and `/mcp`'s menu are
+    never up together** -- a C-j at a `/permissions` rule confirmation
+    (RULE-CONFIRM-KEYS) answers it too. `Shell::permissions` is the one place
     that opens a confirmation, from a submitted `/permissions` command (the
     composer's Enter, which `offer_to_mcp` takes first while `/mcp`'s menu is
     up), and while a confirmation is up it takes every key before the
-    menu's place in `consume_inputs`. Not driven by a case.
+    menu's place in `consume_inputs`. **Round 2 drives it** (gpt6's SHOULD):
+    `a_rule_confirmation_and_mcps_menu_are_never_up_together`, by the keys a
+    person types, both ways round. `/permissions remember ...` typed over
+    `/mcp`'s menu is the menu's filter and its Enter the menu's: no
+    confirmation opens, no rule is kept, no MCP file changes, and once the
+    menu is closed the same command opens its confirmation. `/mcp` typed over
+    a rule confirmation lands nowhere (the composer stays empty, nothing is
+    kept), its Enter answers the confirmation -- its marked Confirm, the
+    confirmation's own key -- no menu opens, and once the confirmation is
+    gone `/mcp` opens its menu. RED (`red-r2.txt`): MA (the confirmation no
+    longer takes every key) fails it at "the letters reached the composer",
+    MB (`/mcp`'s menu no longer takes Enter) at "a confirmation opened over
+    /mcp's menu".
 - **The `Action::ControlJ` doc**: names both questions (merge 5, above).
 - **APPROVAL-DRAFT-KEYS' owner clause**: the full-screen TUI row said the
   draft's keys are fx's "but for four differences each owned by a unit" and
@@ -361,8 +389,10 @@ train join"; APPROVAL-DRAFT-KEYS' opus N-1 and DECODER-TILDE-HOME-END's README
   APPROVAL-PASTE-SPACES) and says the other three are fx's since
   COMPOSER-SUPER-ARROWS and DECODER-TILDE-HOME-END. New test
   `the_tilde_edges_and_ctrl_shift_letters_in_an_amendment_are_fxs`: rxvt
-  Home and End, the tilde Ctrl edges, kitty and xterm Ctrl+Shift+A/B/E/F,
-  each in an amendment as fx's draft takes it
+  Home and End, the tilde Ctrl edges, kitty and xterm Ctrl+Shift+A/B/E/F
+  (xterm's B, E and F added in round 2, gpt6's NTH; MC, xterm's Ctrl+Shift+B
+  read as nothing, fails it at that row, `red-r2.txt`), each in an amendment
+  as fx's draft takes it
   (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-96@481104fd`).
 - And the full-screen TUI row's "(QUESTION-CTRL-J, proposed)" now points at
   the `ask_user_question` row; the `/mcp` row names the permission
@@ -456,6 +486,14 @@ merge 1), F and G its round-4 watcher tests; E is not at the head (merge
 A, B, C, F and G passed in both `cargo test` runs (`unit-tests.txt`,
 CATALOG-WAIT-CLOCK, by name), and both runs had 0 failed (`gate-counts.txt`).
 
+**The load these runs saw is not the flake's** (opus S2): the 20 runs above
+began at load 9 to 27, and the failures CATALOG-WAIT-CLOCK fixed came at 65
+to 106 (its README, "The gap"). They are not the high-load evidence and are
+not needed as it: the unit's stopped runs are on tokio's paused clock, where
+a held thread is no time, so load does not reach what they assert (its
+README, "What each bound proved"). The high-load evidence is the gate's two
+runs, at 60.6 and 50.9.
+
 ### 6. References (`refs*.py`, `content.sh`, `refs_content.py`, `repoint.py`, `repointed.py`)
 
 **Before any re-point**, at `0341dd2b` (the five merges and the join commit;
@@ -507,6 +545,15 @@ deliberate departures (the step limit `:90-94` -> `:83-87`, the sandbox
 `:95-98` -> `:88-91`, the update channel `:99-101` -> `:92-94`), `auto`.
 Applied in `2c575f52`: 3 lines out, 3 in, numbers only (`repointed.txt`).
 
+**Round 2** (`refs-r2.txt`): `44e07aba`'s tests put 102 lines into
+`src/tui/shell.rs` above the session record's `tools:` row, which seven
+ledger `xfx` refs name; re-pointed in `7f4b68cf`, `:49793` -> `:49895`, each
+`auto` (the frame's lines and two either side at one place), 7 lines out
+and 7 in, numbers only. At round 2's code head `12f99f36`: `refs.py` 0
+MOVED, `refs_prd.py` 0, outside the historical plans `refs_all.py`,
+`refs_short.py` and `refs_bare.py` 0; the content check 2 WRONG, the same
+two.
+
 **At the code head `2c575f52`** (`refs-*-head.txt`, against main
 `e2fc7e94`, the train before the join and the five tips): **`refs.py` 0
 MOVED (91 references); `refs_prd.py` 0**; outside the historical plans
@@ -517,8 +564,9 @@ the historical plans the scans list entries they do not judge, as in train
 14. **The content check: 2 WRONG, the two left on purpose and named**
 ("Found on the way"): `src/tools/question.rs:303`'s `Cargo.toml:42` and
 `tests/session_compat.rs:57`'s `src/session/event.rs:98-192`. The same
-five scans and the content check run again at the receipt's second-to-last
-commit, with the receipt in its final form (`gates-files.sh`,
+five scans and the content check run again at the receipt's third-to-last
+commit -- the receipt in its final form, the one before `gates-files.txt`'s
+own -- (`gates-files.sh`,
 `gates-files.txt`, which names the commit it read).
 
 ### 7. Network hermeticity (`jobs.sh net`, `net.py`, `jobs-net.txt`, `connect.log`)
@@ -573,9 +621,11 @@ its kind and file):
   `<tmp>/fxcap.<six letters>/work` -- a placeholder root and the run's random
   directory name, kept as the unit committed them.
 - "No code after the code head": `final-scan.txt` part 4 reads every commit
-  after `2c575f52` through the receipt's second-to-last commit and finds no
-  file touched outside this folder; the last commit stores `final-scan.txt`
-  alone (`git show --stat` of it).
+  after round 2's code head `12f99f36` through the receipt's second-to-last
+  commit and finds no file touched outside this folder; the last commit
+  stores `final-scan.txt` alone (`git show --stat` of it). (Round 1's scan
+  read the same after `2c575f52`; round 2's three code and doc commits are
+  named above.)
 
 ## Gate (`gates.sh`, `gates.txt`, `gate-counts.txt`, `gate-files.sh`)
 
@@ -617,8 +667,9 @@ against `3f2d6e78`'s 5619), the approval stack +29 (5497 against
 `a37a969e`'s 5468), QUESTION-CTRL-J +8 (5606) -- and the join commit +2:
 **5854 at the head, main + 88**, and **0 tests any side added missing** at
 the head. `cargo test` 5942 against main's 5854 (train 14's join-main
-checks at `42935f45`, whose code is main's: `../train-14/join-main/checks.txt`)
-is the same +88, and with fault injection 5979 against 5891. The harness's
+checks at `42935f45`, whose code is main's: `../train-14/join-main/checks.txt:63`)
+is the same +88, and with fault injection 5979 against 5891 (train 14's gate at
+`b3dffdad`, whose Rust is main's: `../train-14/gate-counts.txt:71`). The harness's
 `def test_`: 241 at main `e2fc7e94` and at the head (#97 +4), the two
 harness suites' 107 + 134.
 
@@ -658,7 +709,12 @@ and **pair by pair 0 verdicts moved** (`sweep-runs.txt`; the ledger's
 sha256 `a4a2b20e`, the head's). Every xfx snap that shows the banner names
 the build swept: `2c575f5` on all 847 of the head's, `e2fc7e9` on all 638 of
 the base's (`banners.py`). Loads at the sweeps' starts 58.51 (base) and
-13.69 (head), peaks 97.63 and 33.45; walls 36m22s and 44m52s.
+13.69 (head), peaks 97.63 and 33.45; walls 36m22s and 44m52s. **The base
+swept at load 58-98, the head at 14-33** (each `run.json`'s start and peak):
+a residual, not a verdict -- the base's verdicts are the ones its own
+`pairs.json` gives, the rescore moved none, and no pair passing on the base
+fails at the head; a run-local reading the load moves, a turn's elapsed
+seconds, is what the reruns below read.
 
 | sweep | scenarios | pairs | pass | failed | timeout |
 |---|---|---|---|---|---|
@@ -667,6 +723,20 @@ the base's (`banners.py`). Loads at the sweeps' starts 58.51 (base) and
 
 The head's 21 scenarios more are the units' new ones, 242 pairs, 185 pass
 (`new-scenarios.txt`), so 496 + 185 = 681.
+
+**Rows no cause covers** (each scoreboard's list): 14 snaps at the base, 17
+at the head. FULLTRANSCRIPT-RESPONSE-HEADER takes two away
+(`p5-transcript-md` and `-md-light` `full`, the second Response record) and
+the new scenarios bring five: `p5-super-arrows-approval` `amend-super-right`
+(the capture artifact COMPOSER-SUPER-ARROWS records, below) and
+`p5-paragraph-move`'s four `full*` pairs (opus N7): unresolved under
+`session-record`, xfx's row 36 a blank under no cause -- fx's session record
+is two rows taller (`system prompt:`, `skills:`), so its page ends two rows
+of the answer later, `session-record-page-bottom`'s class, which names other
+scenarios. **The same four, the same row, on the unit's own sweep**
+(COMPOSER-PARAGRAPH-MOVE's `sweep-head.md` at `df45025c`, its "Rows no cause
+covers"; its README reads them), and its 24 of 28 there are 24 of 28 here
+(`compare-units.txt`). Not the train's; named for the cause's owner.
 
 ### Against the base, pair by pair (`compare-base.txt`, `screen-moves-base.txt`, `screen-classes.txt`, `screen-partition.txt`, `gained-rows.txt`, `reruns.txt`)
 
@@ -788,9 +858,27 @@ Each with its revert.
   Enter does, so the Enter after it waits. **Revert**: drop `||
   self.asking()` from the C-j arm (M1 in `mutants.txt`: the new test then
   fails).
-- **The rule confirmation's C-j is not counted**, by the reasoning in join
-  check 2 (the two are never up together), not by a test. **Revert**: none
-  needed; to count it, add `|| self.rule_confirm.is_some()` and a case.
+- **The rule confirmation's C-j is not counted** for `/mcp`'s held rule:
+  the two are never up together, which round 2's test drives (join check 2).
+  **Revert**: none needed; to count it, add `|| self.rule_confirm.is_some()`.
+- **A stray C-j at a permission prompt now grants `Apply once`** (opus S1;
+  APPROVAL-CTRL-J, merge 4), where the base ignored it: C-j is the composer's
+  newline, so a user writing a multi-line prompt while a turn runs who
+  presses C-j after a question has appeared answers it with the marked
+  choice -- `Apply once` at choice 1 -- and so does a C-j typed for a new line
+  in an amendment, and an LF a terminal sends for a modified Enter. **It is
+  fx v0.0.16's behaviour**: `'\r', '\n' => .submit` (`approvalActionFromByte`,
+  `src/ui/input/runtime.zig:64@481104fd`), whatever the user meant by the
+  byte; Enter already grants the same marked choice, and the readiness check
+  holds a C-j back only while the question's frame has not landed
+  (`docs/parity.md`'s full-screen TUI row). The base (main `e2fc7e94`, and
+  v0.2.0) swallowed every C-j at a question. **The dispatcher is putting it
+  before the user as a decision before the next preview epoch bump**; a
+  merge to main ships nothing until then. **Revert, one line**: in
+  `Shell::approval_action` (`src/tui/shell.rs`), drop `| Action::ControlJ`
+  from `Input::Action(Action::Submit | Action::ControlJ) =>
+  approval::Action::Submit` -- the permission question and the rule
+  confirmation alike then swallow C-j again, a departure from fx.
 - **The owner clauses retired** (`0341dd2b`): the draft's keys are fx's but
   for a paste's line breaks; "(QUESTION-CTRL-J, proposed)" points at its row.
   **Revert**: `git revert 0341dd2b` takes the code with it; the doc lines
@@ -810,11 +898,17 @@ Each with its revert.
   two apart. **Revert**: sweep the two files apart.
 - **`check-merge.sh` without the suite lock**, as trains 13 and 14.
   **Revert**: run it under the lock.
-- **Two join tests** (`0341dd2b`), where no unit's tests reach the meeting;
-  every other meeting is read through the units' own tests.
+- **Three join tests** (two in `0341dd2b`, one in round 2's `44e07aba`),
+  where no unit's tests reach the meeting; every other meeting is read
+  through the units' own tests.
   **Revert**: drop them; the C-j guard then has no case.
 
 ## Found on the way, not changed here
+
+(Changed here, found on the way: `docs/parity.md`'s revert sentence for the
+approval C-j named `Shell::decide`'s arm; RULE-CONFIRM-KEYS, above
+APPROVAL-CTRL-J in the same stack, had moved it into `Shell::approval_action`.
+`12f99f36` names it, one sentence, `parity-r2.txt`.)
 
 - **`da8e4c1a`'s message says "32 + 2 = 34 lines out and in"**; it is 32
   lines, holding 34 references (ledger :506 and :882 hold two each;
@@ -824,7 +918,8 @@ Each with its revert.
   `tests/session_compat.rs:57`'s `src/session/event.rs:98-192`. Both are
   TRAIN14-FOLLOWUPS' (src after the code head), with that queue's other
   three (the helper's mark assert after C-j when held,
-  `shell.rs:24979-24980`'s pair, `tests/tui.rs:2600`'s list).
+  `src/tui/shell.rs:27738-27739`'s pair -- train 14's `:24979-24980`,
+  `:27636-27637` at `2c575f52` --, `tests/tui.rs:2600`'s list).
 - **QUESTION-CTRL-J's review SHOULD 2**: one table of the Ctrl+J spellings
   for the two questions (`CTRL_J`, 11, and `MODEL_QUESTION_CTRL_J`, 13, in
   `src/tui/shell.rs`'s tests). A follow-up; tests only.
@@ -885,7 +980,7 @@ its final form (`gates-files.sh`, `gates-files.txt`).
   `gate-da8e4c1a.txt`, `gate_counts.sh`, `gate-counts.txt`;
   `test_counts.sh`, `test-counts.txt`; `gates-files.sh`, `gates-files.txt`
   (the file checks and the reference checks at the receipt's
-  second-to-last commit).
+  third-to-last commit, the one before its own).
 - Sweeps: `selection.py`, `selection_units.py`, `selections.sh`,
   `selection-all.txt`, `selection-units.txt`, `selection-sweep.txt`,
   `selections.txt`; `sweep.sh`, `rescore.sh`, `sweep-runs.sh` /
@@ -896,4 +991,8 @@ its final form (`gates-files.sh`, `gates-files.txt`).
   `screen-partition.txt`, `gained-rows.txt`, `new-scenarios.txt`,
   `compare-units.txt`; `rerun-job.sh`, `sweep-rerun.sh`, `reruns.sh`,
   `rerun_verdicts.py`, `reruns_txt.sh`, `reruns.txt`.
+- Round 2: `red-r2.sh` / `red-r2.txt` (the new tests' RED and GREEN),
+  `check-r2.txt` (fmt, clippy, check), `refs-r2.txt` (the reference checks
+  at `12f99f36` and the third re-point plan), `parity-r2.txt` (the two
+  sentences word by word, the token check again).
 - `final-scan.sh`, `midbranch_scan.py`, `final-scan.txt`; `redacted.py`.

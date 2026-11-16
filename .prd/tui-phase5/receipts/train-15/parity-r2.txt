@@ -1,0 +1,15 @@
+# opus N9 (44e07aba): docs/parity.md's full-screen TUI row, the one sentence, word by word (git diff --word-diff=plain 5107ff53 44e07aba -- docs/parity.md): the words in, the words out; no other row or line changed
+# lines changed: 1	1	docs/parity.md
+{+xfx's draft taking+}
+{+one-character+}
+{+and reading+}
+{+as nothing+}
+[-fx's-]{+gone, each move now fx's,+}
+# the sentence at 44e07aba:
+The three others it found -- xfx's draft taking Super-Left and -Right as a one-character step, and reading Ctrl+Shift+A/B/E/F and the tilde Home and End as nothing -- are gone, each move now fx's, since COMPOSER-SUPER-ARROWS and DECODER-TILDE-HOME-END (below; `the_tilde_edges_and_ctrl_shift_letters_in_an_amendment_are_fxs`, `super_left_right_and_the_draft_edges_in_an_amendment_are_fxs`).
+# token_check.py over the six merges again, after it (the merges are as they were; its result as in token-check.txt):
+token_check.py exit 1; differences as before: 5 lines (token-check.txt: 5); the same output but its first line: yes
+
+# 12f99f36: the approval C-j's revert sentence, word by word (git diff --word-diff=plain 7f4b68cf 12f99f36 -- docs/parity.md):
+# lines changed: 1	1	docs/parity.md
+[-`Shell::decide`-]{+`Shell::approval_action` -- the approval's key translation since RULE-CONFIRM-KEYS moved it out of `Shell::decide`, which the rule confirmation reads too --+}
