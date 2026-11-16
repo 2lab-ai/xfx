@@ -110,8 +110,8 @@ jobs:
 
       - name: Install the pinned toolchain
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
-          rustup default stable
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.99.1
           rustc --version
           cargo --version
 

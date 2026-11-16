@@ -1,0 +1,1 @@
+check-preview-contract: ok (.github/workflows/preview.yml)

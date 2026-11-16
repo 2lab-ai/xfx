@@ -1,0 +1,90 @@
+# What each commit of the branch changes, against main afeaea7c
+$ git diff --numstat afeaea7c..eb2f3873
+2	2	.github/workflows/ci.yml
+239	0	.prd/tui-phase5/receipts/ci-toolchain-pin/README.md
+6	0	.prd/tui-phase5/receipts/ci-toolchain-pin/actionlint.txt
+12	0	.prd/tui-phase5/receipts/ci-toolchain-pin/cargo.txt
+1	0	.prd/tui-phase5/receipts/ci-toolchain-pin/check-preview-contract.txt
+66	0	.prd/tui-phase5/receipts/ci-toolchain-pin/ci-run-43019503559.txt
+23	0	.prd/tui-phase5/receipts/ci-toolchain-pin/era-449.txt
+54	0	.prd/tui-phase5/receipts/ci-toolchain-pin/how-run.txt
+62	0	.prd/tui-phase5/receipts/ci-toolchain-pin/merge-trees.txt
+19	0	.prd/tui-phase5/receipts/ci-toolchain-pin/preview-and-bases.txt
+51	0	.prd/tui-phase5/receipts/ci-toolchain-pin/readers-grep.txt
+6	0	.prd/tui-phase5/receipts/ci-toolchain-pin/readers-head.txt
+107	0	.prd/tui-phase5/receipts/ci-toolchain-pin/readers-refs.txt
+32	0	.prd/tui-phase5/receipts/ci-toolchain-pin/test-check-no-local-paths.txt
+68	0	.prd/tui-phase5/receipts/ci-toolchain-pin/test-gate-env.txt
+29	0	.prd/tui-phase5/receipts/ci-toolchain-pin/test-preview-contract.txt
+10	0	.prd/tui-phase5/receipts/ci-toolchain-pin/test-sweep.txt
+93	0	.prd/tui-phase5/receipts/ci-toolchain-pin/workflows-at-pin.txt
+
+# Outside this folder, by name:
+$ git diff --name-only afeaea7c..eb2f3873 -- . ':!.prd/tui-phase5/receipts/ci-toolchain-pin'
+.github/workflows/ci.yml
+
+$ git diff afeaea7c 92a3d906
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index dbce4b24..be807eae 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -110,8 +110,8 @@ jobs:
+ 
+       - name: Install the pinned toolchain
+         run: |
+-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+-          rustup default stable
++          rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
++          rustup default 1.99.1
+           rustc --version
+           cargo --version
+ 
+
+$ git show --stat=200 --format=%h 92a3d906   (--stat=200: full paths)
+92a3d906
+
+ .github/workflows/ci.yml | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+$ git show --stat=200 --format=%h ca367a46   (--stat=200: full paths)
+ca367a46
+
+ .prd/tui-phase5/receipts/ci-toolchain-pin/README.md                     | 155 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/ci-toolchain-pin/actionlint.txt                |   6 +++++
+ .prd/tui-phase5/receipts/ci-toolchain-pin/cargo.txt                     |  12 ++++++++++
+ .prd/tui-phase5/receipts/ci-toolchain-pin/check-preview-contract.txt    |   1 +
+ .prd/tui-phase5/receipts/ci-toolchain-pin/ci-run-43019503559.txt        |  52 ++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/ci-toolchain-pin/merge-trees.txt               |  62 ++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/ci-toolchain-pin/readers-head.txt              |   6 +++++
+ .prd/tui-phase5/receipts/ci-toolchain-pin/test-check-no-local-paths.txt |  32 +++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/ci-toolchain-pin/test-gate-env.txt             |  68 +++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/ci-toolchain-pin/test-preview-contract.txt     |  29 +++++++++++++++++++++++
+ .prd/tui-phase5/receipts/ci-toolchain-pin/test-sweep.txt                |  10 ++++++++
+ 11 files changed, 433 insertions(+)
+
+$ git show --stat=200 --format=%h c4ace89a   (--stat=200: full paths)
+c4ace89a
+
+ .prd/tui-phase5/receipts/ci-toolchain-pin/README.md             |  30 ++++++++++++++++++++++++------
+ .prd/tui-phase5/receipts/ci-toolchain-pin/preview-and-bases.txt |  19 +++++++++++++++++++
+ .prd/tui-phase5/receipts/ci-toolchain-pin/readers-refs.txt      | 107 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 150 insertions(+), 6 deletions(-)
+
+$ git show --stat=200 --format=%h 194b214b   (--stat=200: full paths)
+194b214b
+
+ .prd/tui-phase5/receipts/ci-toolchain-pin/README.md              | 18 ++++++++++++++----
+ .prd/tui-phase5/receipts/ci-toolchain-pin/ci-run-43019503559.txt | 14 ++++++++++++++
+ 2 files changed, 28 insertions(+), 4 deletions(-)
+
+$ git show --stat=200 --format=%h eb2f3873   (--stat=200: full paths)
+eb2f3873
+
+ .prd/tui-phase5/receipts/ci-toolchain-pin/README.md            | 196 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++----------------------------------------------
+ .prd/tui-phase5/receipts/ci-toolchain-pin/era-449.txt          |  23 ++++++++++++++++
+ .prd/tui-phase5/receipts/ci-toolchain-pin/how-run.txt          |  54 ++++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/ci-toolchain-pin/readers-grep.txt     |  51 ++++++++++++++++++++++++++++++++++
+ .prd/tui-phase5/receipts/ci-toolchain-pin/workflows-at-pin.txt |  93 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 347 insertions(+), 70 deletions(-)
+
+# This file and merge-trees-receipt.txt are added by the commit after eb2f3873, which adds only them.

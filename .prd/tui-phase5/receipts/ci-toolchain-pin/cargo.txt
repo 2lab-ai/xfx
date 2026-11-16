@@ -1,0 +1,12 @@
+head 92a3d90610c6316be877048aaab98ab8f696d267
+rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)
+cargo 1.99.1 (5f94df478 2026-08-27) (Homebrew)
+clippy 0.1.99
+$ cargo fmt --check
+exit=0 seconds=2
+$ cargo clippy --locked --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 27.01s
+exit=0 seconds=27
+$ cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.31s
+exit=0 seconds=17
