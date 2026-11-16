@@ -1,0 +1,22 @@
+Every red run, with the message that follows its panic (in a suite log the message can land on a later line, interleaved with other tests' output, which count_paced.py's 'paced reds' line then cuts):
+== head.@suite.8.1
+   each of 3 pastes paused for 50ms or more ([53.396291ms, 78.343917ms, 62.815542ms])
+   each of 3 pastes paused for 50ms or more ([67.639542ms, 60.579666ms, 51.387667ms])
+   each of 3 pastes paused for 50ms or more ([50ms, 50ms, 50ms])
+   test result: FAILED. 196 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.27s
+== head.@suite.8.2
+   each of 3 pastes paused for 50ms or more ([63.714209ms, 62.278834ms, 129.145833ms])
+   each of 3 pastes paused for 50ms or more ([50ms, 50ms, 50ms])
+   test result: FAILED. 197 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.79s
+== head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.8.1
+   each of 3 pastes paused for 50ms or more ([53.356042ms, 74.93325ms, 57.487792ms])
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 197 filtered out; finished in 7.28s
+== head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.8.2
+   each of 3 pastes paused for 50ms or more ([91.525916ms, 54.853084ms, 60.780542ms])
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 197 filtered out; finished in 7.22s
+== head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.8.1
+   each of 3 pastes paused for 50ms or more ([91.931375ms, 58.430667ms, 65.839667ms])
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 197 filtered out; finished in 7.26s
+== head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.8.2
+   each of 3 pastes paused for 50ms or more ([93.185167ms, 61.866667ms, 61.737917ms])
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 197 filtered out; finished in 7.21s

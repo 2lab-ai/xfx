@@ -2,7 +2,9 @@
 
 Unit: CI-PTY-WAIT. Base `dcfa5146` (main). Branch `fix/p5-ci-pty-wait`: one
 product commit, `f79f5e5b`; five test commits, `f311ad79`, `a70dcd89`,
-`a77fad76`, `7b524d78` and `765f9170`; and the receipt commits. Every figure
+`a77fad76`, `7b524d78` and `765f9170`; and the receipt commits. Joined with
+train 16 (§9): the merge `931418d4`, a join test `9a54c911`, the re-points
+`3e17645a` and a clippy fix `ba133c25`, the code head. Every figure
 below comes from a file in this folder; paths are scrubbed (`<runner>`,
 `<tmp>`, `<home>`).
 
@@ -333,7 +335,7 @@ On a snapshot of the merge, under the suite lock (`merged.txt`):
 | opus NIT 3: the drain reads past a start that owes no frame | A prompt queued behind a running turn; and a tick whose keys owe a report (a question answered) with no start among its events. | `src/tui/event_loop.rs:16704`, `:16743` | RED by `drain-stops-at-every-start`, `drain-stops-after-any-event` |
 | opus NIT 4: whole path | `found_in_sandbox` checks `home` and `workspace` whole, case folded. A word in the root's name draws again; one above it fails at once, saying so. | `tests/tui.rs:14483`, `:14513`; case `:14536` | RED by `search-check-root-name-only`, `search-check-case-sensitive`; `local/skills-foo-tmpdir-round2.txt` (21 s timeout at `c601ef29`, a clear panic at round 2) |
 | opus NIT 5: `PASTE_QUIET` | Kept as a copy. The product's is `pub(crate)`, out of this suite's reach, and the comment names its line, `src/tui/input.rs:674`. | `tests/tui.rs:3630` | — |
-| opus NIT 6: line refs | Every ref in this README was refreshed against `62ea9f56`; outside this table they are at round 3's head now (§8). | — | — |
+| opus NIT 6: line refs | Every ref in this README was refreshed against `62ea9f56`; outside this table they are at the join's code head now (§9). | — | — |
 | opus NIT 2: no frame between `working` and `done` when starved | Not fixed; recorded as open question 4. | — | — |
 
 - **Mutants** (`round2/mutants.txt`, on a `--no-local` clone at `62ea9f56`,
@@ -352,7 +354,7 @@ On a snapshot of the merge, under the suite lock (`merged.txt`):
 ## 8. Review round 3 — `round3/`
 
 From the two round-2 reviews (`CI-PTY-WAIT/reviews/r2-gpt6.md`,
-`r2-opus.md`). Refs are at `f8bc123a`.
+`r2-opus.md`). Refs are at the join's code head (§9).
 
 ### S1 — the paced hostile paste under load (`round3/`)
 
@@ -422,6 +424,306 @@ in pieces, and libtest's `test ... ok` lines landed inside 34 and 31 of them.
   `6acbcd7e` and again at `f8bc123a` (`round3/mutants-*.txt`).
 - **Per-commit path grep** over `rev-list --no-merges HEAD --not origin/main`:
   0. fmt is clean, and both clippys are clean.
+
+## 9. The join with main and train 16 — `join/`
+
+Main moved to `e0aedbf6`: #101 pins the CI gate to Rust 1.99.1, #99 is
+LOCAL-PATHS-EXIT-TRAP and #100 is train 15. Train 16 (PR #102) is at
+`8be4693b`, and `e0aedbf6` is its ancestor. This unit is joined against
+`8be4693b`. Refs in this section, and in §1–§8 outside the round-2 table,
+are at the code head `ba133c25`.
+
+| commit | what |
+|---|---|
+| `931418d4` | `git merge --no-ff 8be4693b`: one conflict, resolved by script |
+| `9a54c911` | the join test, appended at the end of `event_loop.rs`' tests |
+| `3e17645a` | the 59 references the join moved, re-pointed, numbers only |
+| `ba133c25` | the harness's `/bin/sh` through `support::command`, which the joined clippy requires — **the code head** |
+| `1b1b62e8` and the next | this folder's `join/`, the mutant scripts' per-run bound, and this section |
+
+### The merge (`resolve_parity.py`, `remerge.sh`, `remerge.txt`, `fns.py`, `fns.txt`)
+
+- **One conflict, `docs/parity.md`'s OSC 7501 row.** This branch added one
+  sentence to the row. Train 16 re-pointed two `worker.rs` references in it
+  (`3922` → `3955`, `3561` → `3594`). `resolve_parity.py` takes train 16's row
+  and puts this branch's sentence back after the same anchor. It refuses
+  anything else: a second conflict, a missing anchor, or a difference between
+  the sides beyond that sentence and those two numbers.
+- **The resolution is reproducible.** `remerge.txt`: in a `--no-local` clone,
+  `ef595df2` merged with `8be4693b` stops on that one conflict, the script
+  resolves it, and the written tree is the merge commit's (`e57a5389`).
+- **The auto-merged files** (`src/tui/event_loop.rs`, `src/tui/shell.rs`,
+  `tests/tui.rs`). `fns.txt` takes 24 functions on this unit's path and
+  compares each at the base `e2fc7e94`, at both parents and in the merge.
+  - **0 changed by both sides.**
+  - This branch changed `session`, `loop_turn`, `drain_ui_events`, `keyed`,
+    `take_status_moved_by_input` and `turn_start_owes_its_frame`.
+  - The trains changed `settle_band` (two `worker.rs` numbers in a comment),
+    `consume_inputs` (key routing: C-j as an answer, a rule confirmation read
+    as the approval reads it, the pickers' held arrows) and `input.rs`'
+    `feed` and `flush` (META-PREFIX-DECODE's pair).
+  - The merge holds each side's version of each function.
+- **Train 16's event_loop.rs changes are two test comments.** `session` at
+  `8be4693b` is the base's.
+- **`tests/tui.rs` around this branch's harness.** TEST-ENV-ISOLATION builds
+  every child's environment from `PATH` and `TMPDIR` alone and runs the cases
+  in a copy of the test binary. The sandbox's `home` and `workspace` layout,
+  which `found_in_sandbox` reads, did not change. The hostile-paste harness
+  reads no environment.
+
+### The semantic join
+
+**MPD's per-turn flush runs once a turn in `loop_turn`, after the read.**
+- fx flushes before the read. `loopCollectFacts` flushes the decoder and
+  routes the keys it resolves (`main.zig:2975-2982@481104fd`), then ticks the
+  worker (`:2983`). The loop reads after `collect_facts`
+  (`event_loop.zig:80`, `:92-104`).
+- xfx's flush is `Shell::settle_input` (`src/tui/shell.rs:11394-11398`).
+  `loop_turn` calls it once (`src/tui/event_loop.rs:373`), after the read
+  (`:366`) and before the drain (`:376`), and `session` runs `loop_turn` once
+  a turn (`:279`). The base `e2fc7e94` and train 16's `8be4693b` have the same
+  order in `session` itself (their lines 279, 286 and 289): `loop_turn`
+  kept it.
+- `Decoder::feed` flushes before each byte (`src/tui/input.rs:1069`), so a
+  pair gone quiet is resolved ahead of the next byte read, as fx's
+  flush-before-read resolves it. Nothing else resolves the ESC stage:
+  `end_delivery_at` and `still_at` touch only the paste quarantine.
+
+**The drain's stop asks the tick's own `keyed()` with a pair pending or
+settled in that tick.**
+- A pair still pending is no key yet. `flush` pushes nothing before
+  `PAIR_TIMEOUT` (`src/tui/input.rs:1109-1121`), and `consume` returns on no
+  events (`src/tui/shell.rs:12883-12885`), so `status_moved_by_input` is as
+  the read's keys left it.
+- A pair settled there is two Escapes through `consume`, as read keys are
+  (`src/tui/shell.rs:11396-11397`, then `:12882-12891`, where the flag is
+  set), before `take_ui_events`. So the drain's
+  `turn_start_owes_its_frame` (`:11724-11725`) and the commit's
+  `take_status_moved_by_input` (`:11667-11668`) ask the same `keyed()`.
+- Train 15's decoder line changed `consume_inputs` (key routing) and not
+  `consume` (`fns.txt`).
+
+**A held prompt's start still ends the drain.** `keyed()` is this branch's,
+unchanged by the trains (`fns.txt`). At a held prompt the turn is not
+running, so a pair's Escapes are the composer's (`Gestures::escape`,
+`src/tui/gesture.rs:147-175`: with a draft, armed then cleared). They move
+no status, and `status_held && working` makes the start's tick
+`Keyed::AfterFrame`.
+
+**CATALOG-WAIT-CLOCK is not on this path.** It is test-only: `worker.rs`'
+tests and one `[dev-dependencies]` line (its receipt's first paragraph).
+
+**The join test**,
+`an_escape_pair_settled_in_the_tick_that_reads_a_held_prompts_start_leaves_the_start_ending_the_drain`
+(`src/tui/event_loop.rs:20722`). It is appended at the end of the tests
+module, so no cited line moves.
+- No test reached the meeting before. META-PREFIX-DECODE's pair tests drive
+  the decoder (`input.rs`) or call `Shell::settle_input` directly
+  (`shell.rs`), never the loop's turn with a start on the channel. This
+  unit's loop tests send a lone `ESC`, in the tick after the start's.
+- **Settled in that tick, through `loop_turn`:** `ab ESC ESC` is read, and the
+  turn settles it at least `ESC_TIMEOUT` + 20 ms later. That bound holds
+  however the clock falls. The draft is cleared; the drain stops, leaving the
+  answer and the end; the tick shows `Thinking` before `working`; the reports
+  are `idle`, `working`, `done`; and no stop is sent.
+- **Still pending in that tick**, with the clock given to `settle_input`: the
+  draft is kept, with the same stop and the same order.
+- Its two mutants (below) are the order this question is about:
+  `loop-never-settles-input` and `loop-settles-input-after-the-drain`. With
+  the second, the pair's Escapes reach a running turn and interrupt it.
+
+### What the join broke: one `Command::new` (`gate-3e17645a-clippy.txt`, `clippy-fix.txt`)
+
+TEST-ENV-ISOLATION's `clippy.toml` disallows `std::process::Command::new`. An
+integration test makes its child through `support::command`
+(`tests/support/mod.rs`), as train 16's own `/bin/sh` tests do. This branch's
+`the_harness_measures_a_pause_between_two_writes_of_one_paste` made its
+`/bin/sh` with `Command::new`. The merge built and its tests ran, but both
+clippy runs failed at `3e17645a` (`gate-3e17645a-clippy.txt`; that gate was
+stopped there). `ba133c25` uses `support::command`. Both clippy runs and
+`check-env-reads.py` pass (`clippy-fix.txt`). It is one line, with no line
+count change, so no reference moved.
+
+### References (`content-*.txt`, `readme-refs-*.txt`, `refs-bare-*.txt`, `repoint*.py`, `repoint-*.txt`, `numbers_only.py`)
+
+The content check is train 16's `content.sh` and `refs_content.py`. Each
+reference, comma lists included, is read against the commit that wrote its
+numbers. `content.sh` skips `.prd/`, so this README is run through
+`refs_content.py` alone. Old numbers below carry `@<commit>`, which the
+checks skip.
+
+| at | WRONG (code and docs) | WRONG (this README) |
+|---|---|---|
+| this branch before the join, `ef595df2` | 30 | 12 (the round-2 table) |
+| train 16, `8be4693b` | 8 (train 16 left them) | — |
+| the merge `931418d4` | 34 | 47 |
+| the code head `ba133c25`, as it is | **9** | **18** |
+| the same, blame ignoring the re-point `3e17645a` | 9 | 21 |
+
+- **What the merge moved** (`repoint.py`, `repoint-plan.txt`; train 16's
+  plan, with its LEAVE table kept). A WRONG reference at the merge is the
+  merge's when neither parent reads it WRONG with the same citing file,
+  frame and numbers.
+  - In code and docs, 24 are the merge's: the comma list at
+    `tests/tui.rs:2721` (six numbers), this branch's quarantine comments into
+    `input.rs` and `shell.rs` (six), and the trains' references into
+    `shell.rs` that this branch's lines above them moved (+36, or +104 past
+    this branch's `shell.rs` test): the parity ledger's ten, `capfile.py`,
+    `smoke-tui.sh` and `tests/tui.rs:9833`.
+  - Re-pointed with them is one this branch had moved itself before the
+    join: `event_loop.rs:1128-1131@04e4491d`, 29 lines below where
+    `loop_turn` went in, now `src/tui/event_loop.rs:1157-1160`. The content
+    check read it WRONG at `ef595df2` too.
+  - Left: `docs/parity.md`'s transport reference pinned to an old commit's
+    file (train 16's LEAVE). Blame at the merge reads that row through the
+    first parent, so here it counts as the merge's.
+  - Two list numbers no window places (the line
+    `session.type_bytes(&[0x15, 0x04]);` stands at many places) are mapped
+    through the diff from `8be4693b`'s `tests/tui.rs` to the merge's: +270,
+    as the list's other moved numbers.
+- **This README:** 29 head references re-pointed by the plan
+  (`repoint-readme-plan.txt`). Left as written: the round-2 table (its 16,
+  pinned at `62ea9f56` by its header), except the two `input.rs` numbers
+  round 3 wrote into its text; and CI's two printed assertion lines (§1).
+- **Bare continuations on a following line,** which `refs_content.py` does
+  not read: five, by hand (`repoint_hand.py`, `repoint-hand.txt`, each
+  checked against the line it names). Four are in this README (`keyed`,
+  `Keyed::NotYet`, `found_in_sandbox` and its test), one in
+  `scripts/fxcap/capfile.py` (train 16's own re-point, moved again).
+  `refs_bare.py` (train 16's, reading this README too) found three. It
+  cannot see the other two. `keyed`'s has another file's reference nearest
+  it, and the test's has no reference in the four lines above it. Both were
+  found by reading all 18 bare references in this README.
+- **Numbers only:** `repoint-numbers.txt`, 6 files and 43 lines, each
+  differing from `9a54c911` in its numbers alone. 59 references in all.
+- **At the code head, 0 moved:**
+  - Code and docs WRONG 9: train 16's 8 and the pinned transport reference,
+    as it is and ignoring the re-point.
+  - This README WRONG 18: the table's 16 and CI's 2. Ignoring the re-point,
+    three more: references to `tests/tui.rs` comment blocks whose own
+    numbers the re-point changed, each with its first line the same
+    (`readme-refs-ba133c25-ignoring.txt`).
+  - `refs-bare-ba133c25.txt`: 76 flagged, 66 in the historical plans and 9
+    in the pinned table. The last is train 16's parity-ledger reference into
+    `docs/parity.md`, whose lines 1–240 are the same at `8be4693b` and the
+    head.
+
+### Tests, flake runs and mutants
+
+**The gate** (`gate.txt`): train 16's `gates.sh` is ci.yml's gate job at
+the joined main, with the pinned toolchain. It ran at `ba133c25` on a
+`--no-local` clone, in one hold of the suite lock (`toolchain.txt`: rustc and
+cargo 1.99.1). **29 steps, 0 failed**, the tree clean after; the load at the steps' starts was 41.5 to 91.6.
+- fmt and both clippy runs are clean.
+- `check-env-reads.py` passes, and its self-test too.
+- `cargo test --locked`: 6075 passed, 0 failed, 8 ignored over 14 test
+  binaries. With `--features fault-injection`: 6112, 0 and 8.
+- **This unit's tests and META-PREFIX-DECODE's on the touched paths**
+  (`touched.txt`, read out of those two logs): this unit's 20 (its REDs, the
+  join test, the lib threshold cases and the PTY cases) and MPD's 15, ok in
+  both runs.
+
+**Flake runs under load** (`flake/`: `run.txt`, `results.txt`, `counts.txt`,
+`sessions.txt`, `reds.txt`).
+- **Recipe:** `starve.sh` recipe A at `ba133c25`'s tui test binary. It ran 10
+  rounds × 2 copies of five entries, so 20 runs of each and 10 processes at
+  once. The entries were the whole tui suite (`@suite`), the status test, the
+  paced hostile paste and the two unpaced ones. Every run used
+  `--nocapture`.
+- **Load:** the one-minute load was 41.8 at the start and 74.8 at the end, on
+  18 cores; the gate and other workers' builds ran beside it.
+
+| test | green / runs |
+|---|---|
+| `the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out` | **20 / 20** |
+| the paced hostile paste | 18 / 20 |
+| the unpaced hostile paste, types nothing | 18 / 20 |
+| the unpaced hostile paste, answers no approval | 20 / 20 |
+| the whole tui suite (198 tests) | 18 / 20 |
+
+- **Every red is round 8's, and every one is the harness giving up, saying
+  so** (`reds.txt`). Each of a run's 3 sessions paused 50 ms or more (51 to
+  129 ms): the writer was not scheduled. **No red came from an accepted
+  session.**
+- `counts.txt` files one suite red as "on an accepted session". That is a cut
+  line. Its message is two lines below its panic, past other tests' output,
+  and reads "each of 3 pastes paused for 50ms or more". The `[50ms, 50ms,
+  50ms]` lines in the suite logs are
+  `an_unpaced_case_whose_every_paste_paused_fails_saying_so`'s own caught
+  panic, and that test passed.
+- **Rejection under this load:** 24–33% of sessions per kind (`counts.txt`).
+  Round 3 measured 3.6% and 7.0%.
+  - Accepted paced sessions' longest pauses had a median of 35.4 ms alone
+    and 30.8 ms in a suite. In round 3 the median was 25.8 ms.
+  - Every rejection here is a pause of 50 ms or more, the threshold a
+    rejection needs. A run is red only when all three of its sessions are
+    rejected, and that happened in round 8 alone.
+
+**Mutants** (`mutants-*.txt`, `lib-threshold-3e17645a.txt`,
+`quarantine-3e17645a.txt`). They ran on `--no-local` clones under the lock.
+Each cargo run, its build included, is now bounded at 1200 s, and its
+process group is killed past that (`mutants.py`, `quarantine_mutants.py`,
+`round3/lib_threshold_mutants.py`). No run reached the bound.
+- `mutants.py`: round 3's 15 and the join's two, **17 of 17 killed**, both
+  baselines green (unit 7, harness 5). That held at `3e17645a` and again at
+  `ba133c25`, whose one changed line is in the harness test that kills
+  `measure-not-carried` and `measure-never-grows`.
+  - `loop-never-settles-input`: the pending pair is never resolved, and the
+    draft stays.
+  - `loop-settles-input-after-the-drain`: the pair's Escapes interrupt the
+    turn that just started.
+  - The join test kills both.
+- `lib_threshold_mutants.py` at `3e17645a`: the three quarantine mutants are
+  each killed by both of the lib's clock-free threshold cases
+  (`src/tui/input.rs:5334`, `:5933`), with the baseline green.
+- `quarantine_mutants.py` at `3e17645a`, 3 runs per case. The baseline is
+  9/9 green. The paced case fails 3/3 under any-quiet and 5 ms, on an
+  accepted session, and passes under 20 ms (18 ms gaps), as round 3's 12 ms
+  version did. The unpaced cases pass, but for 5 ms: 3 of its 6 runs were
+  red. No session was rejected. The script exits 1 by its rule (a mutant run
+  was green). The threshold is held by the lib, as §8 says.
+
+### Two checks this Mac's gate misses (`linux-clippy.txt`, `rustup-tests.txt`, `touched-rustup.txt`)
+
+Train 16's PR #102 went red on CI for three reasons no local gate caught:
+- this Mac's PATH cargo is Homebrew's, not a rustup proxy;
+- the Mac is not Linux.
+
+Both checks below ran at `ba133c25`, under the lock, with rustup's 1.99.1
+through its proxies first on PATH (`RUSTUP_TOOLCHAIN=1.99.1`; rustup's default
+untouched). This run installed that toolchain and the Linux std.
+
+- **Linux clippy** (`--target x86_64-unknown-linux-gnu`, plain and with
+  `fault-injection`).
+  - The C setup: ring's build script compiles C for the target, and this Mac
+    has no `x86_64-linux-gnu-gcc`. It is given clang, with ring's
+    no-libc-headers switch. Nothing links in a check.
+  - As it is, both runs stop at one error, train 16's:
+    `useless_conversion` at `src/config.rs:2639`.
+  - That error stops the lib, so nothing behind it was linted. A probe
+    clone allowed that one lint on that one function and ran again. Both
+    runs pass, with 0 errors and 0 warnings. **Nothing of this unit's, and
+    nothing else, is Linux-only.**
+- **The whole suite with rustup's proxies first:** 6074 passed, 1 failed
+  and 8 ignored.
+  - The failure is train 16's: `a_config_alias_cannot_redirect_the_admitted_cargo_builtins`
+    (`tests/permissions.rs`). Its scrubbed `cargo metadata` child, under an
+    empty HOME, has rustup sync and download a stable toolchain into that
+    HOME. The download fails.
+  - `check-env-reads.py --self-test` passes here: 66 fixtures, 0 not as
+    expected.
+  - This unit's 20 tests and META-PREFIX-DECODE's 15 are ok
+    (`touched-rustup.txt`).
+
+### Paths (`pathscan.sh`, `pathscan.txt`)
+
+The brief's eight terms, train
+16's pattern, were scanned over every commit this branch holds that
+`8be4693b` does not: each message and what `git show` prints of it (for a
+merge, its own resolution). That is 26 commits, through the one that adds this
+section; **0 matching lines**. This folder on disk has 0 files matching.
+`check-no-local-paths.sh`
+also passed in the gate.
 
 ## Open questions
 

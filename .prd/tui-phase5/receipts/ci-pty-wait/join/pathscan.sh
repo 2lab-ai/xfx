@@ -17,7 +17,7 @@ for c in $(git rev-list HEAD --not 8be4693b); do
   n=$({ git log -1 --format=%B "$c"; git show --format= "$c"; } | grep -cE "$P")
   if [ "$n" -gt 0 ]; then echo "$(git log -1 --format='%h %s' "$c" | cut -c1-70): $n"; hits=$((hits + n)); fi
 done
-echo "commits $commits (HEAD $(git rev-parse --short HEAD), not in 8be4693b): $hits matching lines"
+echo "commits $commits (through HEAD, \"$(git log -1 --format=%s HEAD | cut -c1-60)\"; not in 8be4693b): $hits matching lines"
 files=$(grep -rlE "$P" .prd/tui-phase5/receipts/ci-pty-wait | wc -l | tr -d ' ')
 grep -rlE "$P" .prd/tui-phase5/receipts/ci-pty-wait
 echo "this folder on disk: $files files matching"

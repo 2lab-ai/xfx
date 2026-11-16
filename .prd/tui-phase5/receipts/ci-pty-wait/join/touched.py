@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""This unit's tests and META-PREFIX-DECODE's, read out of the gate's two
-full `cargo test` logs (plain and fault-injection): each test's verdict in
-each. MPD's names are its receipt's (`meta-prefix-decode/green.txt`, the
-plain section). A name missing from a log is printed MISSING.
+"""This unit's tests and META-PREFIX-DECODE's, read out of full `cargo test`
+logs (the gate's plain and fault-injection runs; the run with rustup's
+proxies first): each test's verdict in each. MPD's names are its receipt's
+(`meta-prefix-decode/green.txt`, the plain section). A name missing from a
+log is printed MISSING.
 
-    python3 -I -B touched.py <receipts-dir> <plain-log> <fault-log>
+    python3 -I -B touched.py <receipts-dir> <label>=<log>...
 Prints no path.
 """
 import re
 import sys
 
-receipts, plain, fault = sys.argv[1:4]
+receipts, runs = sys.argv[1], [a.split("=", 1) for a in sys.argv[2:]]
 MINE = [
     "tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking",
     "tui::event_loop::tests::keys_between_a_split_turns_start_and_its_queued_end_do_what_they_do_when_the_end_is_late",
@@ -47,7 +48,7 @@ def verdicts(path):
     return out
 
 
-logs = {"plain": verdicts(plain), "fault": verdicts(fault)}
+logs = {label: verdicts(path) for label, path in runs}
 bad = 0
 for group, names in (("this unit", MINE), ("META-PREFIX-DECODE", MPD)):
     for name in names:
@@ -57,5 +58,5 @@ for group, names in (("this unit", MINE), ("META-PREFIX-DECODE", MPD)):
             cells.append(f"{run} {'MISSING' if not v else ','.join(v)}")
             bad += not v or any(x != "ok" for x in v)
         print(f"{group}: {name}: " + "; ".join(cells))
-print(f"# {len(MINE)} of this unit's and {len(MPD)} of META-PREFIX-DECODE's, in both runs; not ok or missing: {bad}")
+print(f"# {len(MINE)} of this unit's and {len(MPD)} of META-PREFIX-DECODE's, in {', '.join(logs)}; not ok or missing: {bad}")
 sys.exit(1 if bad else 0)

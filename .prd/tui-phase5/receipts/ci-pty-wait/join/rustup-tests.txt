@@ -1,0 +1,24 @@
+cargo test --locked --no-fail-fast and scripts/check-env-reads.py --self-test at ba133c25 (a --no-local clone), with rustup's proxies first on PATH and RUSTUP_TOOLCHAIN=1.99.1 (rustup default untouched), under the suite lock.
+/opt/homebrew/opt/rustup/bin/cargo
+cargo 1.99.1 (5f94df478 2026-08-27)
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+cargo test exit 101
+check-env-reads --self-test exit 0
+cargo test: 14 test binaries, 6074 passed, 1 failed, 8 ignored; failed: ['a_config_alias_cannot_redirect_the_admitted_cargo_builtins']
+--- the failure, as the test printed it (the child's stderr; its paths scrubbed)
+thread 'a_config_alias_cannot_redirect_the_admitted_cargo_builtins' (657026026) panicked at tests/permissions.rs:609:5:
+<command>cargo metadata --no-deps --offline --format-version 1</command>
+<cwd>.</cwd>
+<exit_code>1</exit_code>
+<stdout>
+</stdout>
+<stderr>
+info: syncing channel updates for stable-aarch64-apple-darwin
+info: latest update on 2026-11-12 for version 1.100.0 (0ef1bc386 2026-11-09)
+info: downloading 6 components
+info: rolling back changes
+error: component download failed for clippy-aarch64-apple-darwin: could not rename 'downloaded' file from '<tmp>/xfx-test-home-<id>/.rustup/downloads/fb57
+</stderr>
+
+--- check-env-reads --self-test, its last line
+check-env-reads --self-test: 66 fixtures, 0 not as expected

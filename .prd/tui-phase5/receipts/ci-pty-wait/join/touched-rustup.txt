@@ -1,0 +1,36 @@
+this unit: tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking: rustup ok
+this unit: tui::event_loop::tests::keys_between_a_split_turns_start_and_its_queued_end_do_what_they_do_when_the_end_is_late: rustup ok
+this unit: tui::event_loop::tests::under_a_sustained_stream_a_split_turn_stops_the_drain_once_and_every_tick_reads_its_keys: rustup ok
+this unit: tui::event_loop::tests::the_drain_reads_past_a_start_that_owes_no_frame: rustup ok
+this unit: tui::event_loop::tests::the_drain_stops_behind_a_start_only_and_not_on_a_tick_whose_keys_owe_a_report: rustup ok
+this unit: tui::event_loop::tests::an_escape_pair_settled_in_the_tick_that_reads_a_held_prompts_start_leaves_the_start_ending_the_drain: rustup ok
+this unit: tui::shell::tests::a_turn_start_owes_its_frame_exactly_when_its_tick_writes_working_after_the_frame: rustup ok
+this unit: tui::input::tests::a_quarantine_ends_only_after_two_empty_checks_a_quiet_period_apart: rustup ok
+this unit: tui::input::tests::a_quarantine_ends_at_the_first_empty_check_at_or_past_the_quiet: rustup ok
+this unit: the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out: rustup ok
+this unit: a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing: rustup ok
+this unit: a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval: rustup ok
+this unit: a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing: rustup ok
+this unit: the_harness_measures_a_pause_between_two_writes_of_one_paste: rustup ok
+this unit: an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused: rustup ok
+this unit: an_unpaced_case_whose_every_paste_paused_fails_saying_so: rustup ok
+this unit: the_last_bytes_of_a_stream_start_at_a_character: rustup ok
+this unit: a_skills_sandbox_path_never_holds_what_its_case_searches: rustup ok
+this unit: slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network: rustup ok
+this unit: ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes: rustup ok
+META-PREFIX-DECODE: tui::input::tests::an_escape_inside_a_prefixed_sequence_starts_a_bare_one: rustup ok
+META-PREFIX-DECODE: tui::input::tests::two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst: rustup ok
+META-PREFIX-DECODE: tui::input::tests::the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50: rustup ok
+META-PREFIX-DECODE: tui::input::tests::a_control_behind_the_prefix_is_one_ignore_and_leaves_nothing_pending: rustup ok
+META-PREFIX-DECODE: tui::input::tests::a_leading_zero_in_a_cursor_keys_modifier_is_the_number_up_to_three_digits: rustup ok
+META-PREFIX-DECODE: tui::input::tests::the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_esc: rustup ok
+META-PREFIX-DECODE: tui::input::tests::a_prefixed_key_is_one_key_as_upstream_reads_it: rustup ok
+META-PREFIX-DECODE: tui::input::tests::a_report_behind_a_second_escape_gives_the_first_back_as_the_escape_key: rustup ok
+META-PREFIX-DECODE: tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one: rustup ok
+META-PREFIX-DECODE: tui::input::tests::what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it: rustup ok
+META-PREFIX-DECODE: tui::input::tests::every_modifier_on_left_right_home_and_end_is_upstreams_move: rustup ok
+META-PREFIX-DECODE: tui::shell::tests::two_escapes_in_one_burst_are_two_presses_as_a_person_s_two_are: rustup ok
+META-PREFIX-DECODE: tui::shell::tests::two_escapes_in_one_burst_close_a_menu_and_arm_the_clear_as_two_presses_do: rustup ok
+META-PREFIX-DECODE: tui::shell::tests::over_a_running_turn_a_burst_of_two_escapes_stops_it_and_a_prefixed_up_is_a_move: rustup ok
+META-PREFIX-DECODE: tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape: rustup ok
+# 20 of this unit's and 15 of META-PREFIX-DECODE's, in rustup; not ok or missing: 0

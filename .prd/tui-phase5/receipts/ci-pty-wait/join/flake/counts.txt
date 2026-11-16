@@ -1,0 +1,16 @@
+paced case runs (single = its own process, suite = inside a whole parallel tui suite):
+  single green: 18
+  single red, every session rejected: 2
+  suite green: 19
+  suite red on an accepted session (every pause under 50 ms): 1
+single runs, sessions with pauses of 0ns: 54, accepted 38, rejected 16 (29.6% rejected); accepted longest pauses: min 9.8 ms, median 25.8 ms, max 44.8 ms; rejected pauses: 50 ms, 53 ms, 54 ms, 55 ms, 58 ms, 59 ms, 60 ms, 60 ms, 62 ms, 62 ms, 63 ms, 66 ms, 69 ms, 92 ms, 93 ms, 125 ms
+single runs, sessions with pauses of 12ms: 27, accepted 18, rejected 9 (33.3% rejected); accepted longest pauses: min 18.2 ms, median 35.4 ms, max 43.4 ms; rejected pauses: 53 ms, 55 ms, 55 ms, 57 ms, 57 ms, 61 ms, 72 ms, 75 ms, 92 ms
+suite runs, sessions with pauses of 0ns: 51, accepted 38, rejected 13 (25.5% rejected); accepted longest pauses: min 7.4 ms, median 23.4 ms, max 48.6 ms; rejected pauses: 51 ms, 52 ms, 60 ms, 61 ms, 62 ms, 64 ms, 68 ms, 72 ms, 73 ms, 78 ms, 80 ms, 82 ms, 129 ms
+suite runs, sessions with pauses of 12ms: 25, accepted 19, rejected 6 (24.0% rejected); accepted longest pauses: min 21.5 ms, median 30.8 ms, max 49.4 ms; rejected pauses: 53 ms, 54 ms, 59 ms, 63 ms, 65 ms, 78 ms
+diagnostic lines another test's output cut (not counted above): 0
+paced reds:
+  head.@suite.8.1.log: test a_profile_only_ask_refuses_starts_the_tui ... tests/tui.rs:3831ok :5:
+  head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.8.1.log: tests/tui.rs:3831:5: each of 3 pastes paused for 50ms or more ([53.356042ms, 74.93325ms, 57.487792ms]): the harness was not scheduled while it wrote, and the TUI ends a paste's quar
+  head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.8.2.log: tests/tui.rs:3831:5: each of 3 pastes paused for 50ms or more ([91.525916ms, 54.853084ms, 60.780542ms]): the harness was not scheduled while it wrote, and the TUI ends a paste's qua
+other tests failed in suite runs:
+  a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing: 2
