@@ -6,12 +6,19 @@ tags: [xfx, phase5, fx-0.0.16, train]
 
 # P5 train 16: eleven closed units, six merges, one branch
 
+**Round 6** (round 5's review, approved: "Round 6" below): the clean
+copy's doc says what a parent with no `PATH` gets (`bbb2c109`), and `CARGO`
+is a compile-time name only `tests/support/isolated.rs` may read and only
+integration test crates may compile with (`23819f7a`), with two self-test
+fixtures, RED then GREEN; no product line; **the code head is
+`23819f7a`**; Linux clippy and the gate both ways ran there.
+
 **Round 5** (PR #102's CI: "Round 5" below): three causes, each the
 runners' and not the code paths' -- a Linux-only clippy lint, an
 integration test's `cargo` under rustup with the clean copy's empty
 `HOME`, and the env check's self-test under a `TMPDIR` reached through a
 link -- reproduced here, fixed in `ac5882fb`, `3ed1c082` and `96cbaab2`,
-RED then GREEN; **the code head is `3ed1c082`**; the gate ran there twice,
+RED then GREEN; round 5's code head was `3ed1c082`; the gate ran there twice,
 as before and through rustup's proxies; one product line, the same value.
 
 **Round 3** (the join of main, "The join of main" below): main moved to
@@ -99,7 +106,9 @@ After the merges, in order (`git log --first-parent 866747ff..`):
 | `a4452753` | round 3: CONTRIBUTING.md's and README.md's gate lists name the five script tests, docs only: round 3's code head |
 | `ac5882fb` | round 5: `open_to_others`' mask in `st_mode`'s own type (CI's Linux clippy) |
 | `96cbaab2` | round 5: `check-env-reads.py` finds a file whichever way its root is spelt; its self-test reaches its fixtures through a link (CI's aarch64 macOS self-test) |
-| `3ed1c082` | round 5: an integration test's clean copy puts the cargo that built it first on PATH (CI's x86_64 macOS Tests): **the code head** both round-5 gates ran at |
+| `3ed1c082` | round 5: an integration test's clean copy puts the cargo that built it first on PATH (CI's x86_64 macOS Tests): round 5's code head |
+| `bbb2c109` | round 6: the clean copy's doc says what a parent with no `PATH` gets (the reviewer's NTH), doc only |
+| `23819f7a` | round 6: `CARGO` scoped to `tests/support/isolated.rs` and to integration test crates, in both checks, with two self-test fixtures: **the code head** both round-6 gates ran at |
 | the receipt's commits | this folder only (`final-scan.txt` part 4) |
 
 ## The units' own commits, before any merge (`prescan.sh`, `prescan.txt`)
@@ -877,6 +886,59 @@ exit 0, when the gate lists' docs were found short; nothing of it is used.
 over `6137bd3d..a4452753`, product code 0 out, 0 in; gate scripts and CI,
 the epoch file and the two docs), no scenario, ledger or harness file.
 
+## Round 6: round 5's review (`round6-check.txt`, `round6-numstat.txt`)
+
+Round 5's review (gpt6, two personas) approved, with no MUST. Two small
+items, tests and the check only, on top of `a3f8ee26`:
+
+**1. The reviewer's NTH: `toolchain_first` when the parent has no `PATH`**
+(`bbb2c109`, doc only). It returns nothing and the copy gets no `PATH`, so
+a command xfx runs gets `minimal_environment`'s system default, which holds
+no rustup toolchain. Kept, and the module doc now says so. A `PATH` of the
+toolchain directory alone would be worse: that function would take it as
+given, and every other program a case starts would be missing. Sharing the
+system default would mean a product line: it is a literal inside
+`minimal_environment`, and the tests' own `path()` falls back to empty.
+
+**2. The dispatcher's finding: `CARGO` in COMPILE_TIME_NAMES held in any
+file** (`23819f7a`). Round 5 let an `env!("CARGO")` in `src/` -- the
+builder's absolute cargo path, baked into the product binary -- pass both
+the clippy-report check and the dep-info check. It is now
+COMPILE_TIME_SCOPED. An `env!`/`option_env!` of it passes only in
+`tests/support/isolated.rs`, and a crate's dep-info may hold it only for a
+crate whose root source is under `tests/`: dep-info is keyed by the crate,
+and every integration test binary compiles that file in. The header's
+contract says so. Two new self-test fixtures:
+- `env!("CARGO")` in a `src/` module of the fixtures' library is refused
+  by both checks ("a core::env! of CARGO, a compile-time name only
+  tests/support/isolated.rs may read"; "compiled with CARGO ..., a
+  compile-time name only crates under tests/ may read");
+- in `tests/support/isolated.rs`, compiled into an integration test, it is
+  accepted.
+
+**RED**: with round 5's global table put back, the `src/` fixture goes
+unrefused (68 fixtures, 1 not as expected). **GREEN**: 0. The real check
+is OK, with 75 compile-time reads of 7 names, as in round 5.
+
+**Product lines: 0** (`round6-numstat.txt`: the env check +47/-4, the test
+support's doc +9). The sweeps stand.
+
+**Linux clippy** at `23819f7a` (`linux-clippy.sh`): 0 of 4 runs failed, both Linux targets, plain and with fault-injection (`round5-linux-clippy.txt`, its round-6 lines).
+
+**The gate, both ways, at the code head `23819f7a`** (each a fresh `git
+clone --no-local`, one hold of the suite lock):
+| run | how | steps | `cargo test` / with fault injection |
+|---|---|---|---|
+| through rustup's proxies (`gates-rustup.txt`, `gate-counts-rustup.txt`) | rustup's own multiplexer first on PATH, no fallback default, `RUSTUP_TOOLCHAIN=1.99.1`, `TMPDIR` given through the `/tmp` link | **29, 0 failed** (load 11.0 to 57.5) | **6062 passed / 6099 passed**, 8 ignored each |
+| as before (`gates.txt`, `gate-counts.txt`) | Homebrew's 1.99.1 on this Mac's PATH, `TMPDIR` resolved | **29, 0 failed** (load 22.9 to 49.5) | **6062 passed / 6099 passed**, 8 ignored each |
+
+The two ran side by side. In both, the env check is OK and its self-test
+reads 68 fixtures, 0 not as expected. **The session store's flock race did
+not show** in either run's step 09 (round 5's `round5-flake.txt`).
+`gates-first.txt` and `gate-counts-first.txt` stay round 5's record of
+that race. `unit-tests.txt`, `unit-tests-notes.txt` and `run-absent.txt`
+are made again at `23819f7a`, from the as-before run's logs. No push.
+
 ## Round 5: PR #102's CI (`round5-causes.txt`, `round5-linux-clippy.txt`, `round5-numstat.txt`)
 
 PR #102's CI run 43880950535 failed on 4 of 6 rows, the release row and the
@@ -978,6 +1040,10 @@ clone --no-local`, one hold of the suite lock):
 | as before (`gates.txt`, `gate-counts.txt`) | this Mac's PATH (Homebrew's 1.99.1), `TMPDIR` resolved; the second run | **29, 0 failed** | **6062 passed / 6099 passed**, 8 ignored each |
 | as before, the first run (`gates-first.txt`, `gate-counts-first.txt`) | the same, at loads of 64 to 101 beside the rustup gate and other workers' jobs | 29, **1 failed** (step 09) | 6061 passed, **1 failed** / 6099 passed |
 
+(Round 6 replaced `gates.txt`, `gate-counts.txt`, `gates-rustup.txt` and
+`gate-counts-rustup.txt` with its own two runs at `23819f7a`, the same
+counts; the figures here are round 5's, at `3ed1c082`.)
+
 The rustup gate is round 5's receipt for causes 2 and 3: its step 09 is
 the whole suite, the permissions case among its passes, and its step 08
 the self-test with the fixtures under a link and `TMPDIR` through one (66,
@@ -1013,7 +1079,9 @@ dispatcher pushes and watches CI.
 joined code head `a4452753`, 29 steps with the join's four, is in "The join
 of main" above, with the same test counts. Round 5: the gates at the code
 head `3ed1c082`, as before and through rustup's proxies, are in "Round 5"
-above; `gates.txt` and `gate-counts.txt` are now the second run as before.**
+above. Round 6: the gates at the code head `23819f7a` are in "Round 6"
+above; `gates.txt` and `gate-counts.txt` are now its as-before run, and
+`gates-rustup.txt` and `gate-counts-rustup.txt` its rustup run.**
 
 `gates.sh` is train 15's with TEST-ENV-ISOLATION's two CI steps added where
 `ci.yml` runs them, after the lints: `check-env-reads.py` and its
@@ -1282,6 +1350,10 @@ Each with its revert.
   train supersedes one (PERMISSION-MODE-CASE's section 8, QUESTION-CTRL-J's
   `probe-meta-prefix.txt` reading), this receipt says so. **Revert**: none
   needed.
+- **`CARGO` scoped, not global** (round 6, `23819f7a`): an `env!`/`option_env!`
+  of it passes in `tests/support/isolated.rs` alone, and a crate's dep-info
+  may hold it only for a crate under `tests/`. **Revert**: `git revert
+  23819f7a`; an `env!("CARGO")` in `src/` then passes both checks again.
 - **The clean copy's toolchain on PATH** (round 5, `3ed1c082`): an
   integration test's copy puts the directory of the cargo that built it
   first on PATH, rather than handing on rustup's variables, which a
@@ -1496,6 +1568,9 @@ end, and the file checks run with the receipt in its final form
   `compare-units.txt`, `uncovered.py` / `uncovered.txt`; `sweep-rerun.sh`, `reruns.sh`,
   `rerun_verdicts.py`, `reruns_txt.sh`, `reruns.txt`.
 - `final-scan.sh`, `midbranch_scan.py`, `final-scan.txt`; `redacted.py`.
+- Round 6: `round6-check.txt` (the env check, the self-test and its RED
+  with `CARGO` global again), `round6-numstat.txt`; the round-6 Linux runs
+  appended to `round5-linux-clippy.txt`.
 - Round 5, PR #102's CI: `round5-causes.txt` (CI's lines for each cause,
   the probes, every RED and GREEN), `linux-clippy.sh` /
   `round5-linux-clippy.txt`, `round5-numstat.txt`, `round5-flake.txt` (the

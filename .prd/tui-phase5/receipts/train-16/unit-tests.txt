@@ -1,4 +1,4 @@
-# unit_tests.py at 3ed1c082 over the gate's logs (its test and test-fault steps)
+# unit_tests.py at 23819f7a over the gate's logs (its test and test-fault steps)
 PROFILE-REFUSE-AT-LAUNCH (3943d667..0a334851): 18 tests (15 added, 3 changed); ok in both runs 18; gone at the head 0; not ok 0
     ok in both runs: src/config.rs a_launch_refuses_the_models_fx_refuses_and_no_other
     ok in both runs: src/config.rs a_profile_renamed_over_after_its_open_is_read_and_a_linked_one_is_not

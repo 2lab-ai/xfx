@@ -45,3 +45,18 @@ error: could not compile `xfx` (lib test) due to 1 previous error
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.74s
 ### exit 0
 # 0 of 4 runs failed
+
+## round 6: at the code head 23819f7a (linux-clippy.sh, in a clone at it)
+### cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu  -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 32.51s
+### exit 0
+### cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu --features fault-injection -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 35.61s
+### exit 0
+### cargo clippy --locked --all-targets --target aarch64-unknown-linux-gnu  -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 27.28s
+### exit 0
+### cargo clippy --locked --all-targets --target aarch64-unknown-linux-gnu --features fault-injection -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 27.72s
+### exit 0
+# 0 of 4 runs failed
