@@ -26,13 +26,19 @@ question's field keep their own rules, which are already fx's.
 | `0e2b242b` | round 2 RED, tests only (Round 2) |
 | `53557ed6` | **round 2's code head**: Home and End in a draft are its edges; a paste of more than twice the room refused before decoding |
 | `276fc5d7` | the ledger: `amend-draft-window`, the refs re-pointed; the round 2 mutant runner |
-| the commits after | `docs/parity.md`, this folder; no `src/` change |
+| `45ced900`, `ac276d9f` | `docs/parity.md`; this folder. `ac276d9f` is **round 2's head, gated by the dispatcher** |
+| `802dd239` | round 3, tests and comments only (Round 3) |
+| the commits after | the ledger, `docs/parity.md`, this folder; no `src/` change |
 
-The source change outside the test modules is +42/-11 over two files
-(`srcsize.txt`, `srcsize.py`): approval_amendment.rs +40/-9 (most of it
-comments), shell.rs +2/-2; +44/-11 with `4a8f0a6c`'s comment, and the same at
-`2804b108`, whose change is inside the test modules. That is under the
-brief's 300.
+The source change outside the test modules (`srcsize.txt`, `srcsize.py`,
+from the RED commit `a5cf9567`):
+- the round-1 code head `9a73d0ba`: +42/-11 (approval_amendment.rs +40/-9,
+  most of it comments; shell.rs +2/-2); +44/-11 with `4a8f0a6c`'s comment;
+- the round-2 code head `53557ed6`: **+73/-11** (approval_amendment.rs
+  +71/-9, shell.rs +2/-2): Home and End, the early refusal, their comments;
+- round 3's `802dd239`, comments only outside the tests: +76/-12.
+
+That is under the brief's 300.
 
 ## fx's rule, paste form by paste form (`fx-src.txt`, written by `fx_src.sh`: every line read with `git show 481104fd:<path>`)
 
@@ -212,8 +218,9 @@ this unit copies.
     as here, the row ends at it. xfx's is three rows windowed on it. So xfx has two
     more rows, and every row under them moves (the rows `cells.py` lists for
     each: the draft, the scope rows, the divider and the hint).
-- `green.txt`: the unit's 15 tests at `f438a5b6`, the last `src/` commit, on
-  both suites: 15 + 15 ok.
+- `green.txt`: round 1's 15 tests at `f438a5b6`, the last `src/` commit of
+  round 1 (rounds 2 and 3 change `src/` again; their runs are under Round 2
+  and Round 3), on both suites: 15 + 15 ok.
 
 ## Mutants (`mutants.txt`, `mutants.py`)
 
@@ -277,10 +284,15 @@ folder) compares them pair by pair (`sweep-compare.txt`):
 
 ## Gate
 
-GATE: dispatcher. Round 2's head is gated by the dispatcher after this
+GATE: dispatcher. Round 3's head is gated by the dispatcher after this
 report; I ran no full gate.
 
-The previous gate, at `e26ce67b` (round 1's head), is the dispatcher's
+The previous gate, at `ac276d9f` (round 2's head), is the dispatcher's
+(`round3/gate-ac276d9f.txt`): 22 steps, every one exit 0, `cargo test` 5729
+passed and 0 failed, with `fault-injection` 5766 and 0, smoke-tui 1167
+checks and 0 failures, the tree unchanged after.
+
+The one before it, at `e26ce67b` (round 1's head), is also the dispatcher's
 (`round2/gate-e26ce67b.txt`): 22 steps, every one exit 0, `cargo test` 5723
 passed and 0 failed, with `fault-injection` 5760 and 0, smoke-tui 1167
 checks and 0 failures, the tree unchanged after.
@@ -295,8 +307,9 @@ this unit's new shell tests. `--fix` re-pointed them. `13f1436f` wrote
 43471, the number before `2804b108`'s test block above it; `f438a5b6`
 re-pointed them to 43492, and round 2's C1 test moved them to 43544
 (`276fc5d7`). Round 2 adds the two refs of `amend-draft-window`, into
-`approval_amendment.rs:82` (`MAX_DRAFT_ROWS`). `refs.txt` reads 18 checked,
-0 wrong.
+`approval_amendment.rs:82` (`MAX_DRAFT_ROWS`). Round 3 splits that cause
+in two and points each at `MAX_DRAFT_ROWS` (now `:84`) and `Draft::viewport`
+(`:217`), six refs in all. `refs.txt` reads 22 checked, 0 wrong.
 
 ## Parity (`docs/parity.md`)
 
@@ -388,6 +401,46 @@ re-pointed them to 43492, and round 2's C1 test moved them to 43544
   and `input_limit_rejection.zig:1-30`); `cargo fmt --check` and both clippy
   runs clean at `53557ed6`; `refs.txt` 18 checked, 0 wrong.
 
+## Round 3 (round-2 NITs: gpt6 NTH 1-2, the dispatcher's A-G)
+
+| item | where | what |
+|---|---|---|
+| A | `a_cr_lf_paste_of_twice_the_room_is_taken_as_spaces`' comment | 8190 bytes catch a bound from 4098 to 8189; 8190 and 8191 are caught by the 8192-byte paste |
+| B | `the_capture_holds_eight_mebibytes_as_fxs_and_refuses_the_next_byte` | `assert_eq!(cap, 8 * 1024 * 1024)`, fx's `composer_bytes` (`paste_framing.zig:18`) |
+| C | `a_paste_refused_on_its_bytes_alone_is_said_as_one_refused_on_its_text` | three Backspaces before the third paste, so it has 3 bytes of room and takes the early and the late path again (round 2's third paste had none, so both took the early one) |
+| D | the ledger: `amend-draft-window` (`deny-held`) and `amend-draft-window-tail` (the other three) | a lost `a b` tail is a row no cause covers (`round3/ledger-split.txt`) |
+| E | the two causes' `why` | the 4093-byte draft ends in `x`; `...xa b` is the 4096-byte one; `Draft::viewport` cited |
+| F | `src/tui/approval_amendment.rs` module doc, `src/tui/shell.rs` `Shell::decide` | Home and Super-Left reach the draft's edges through `Draft::apply`, not through "a draft holds no line break" |
+| G | `srcsize.txt`, this README (size, GREEN, table), `docs/parity.md` | the size from `a5cf9567` to `53557ed6` (+73/-11) and to `802dd239` (+76/-12); round 1's GREEN line; one doubled "where upstream's" |
+
+- **GREEN** (`round3/green.txt`): the amendment's 16 tests and the
+  three shell amendment-paste tests at `802dd239`, 19 + 19 on both suites.
+- **M12 and M13 against the changed test** (`round3/m12-m13.txt`, a
+  `--no-local` clone at `802dd239`, under the suite lock): both killed. M13
+  (the early refusal takes the paste as empty and silent) is killed by the
+  changed early/late test, and by the CR LF test. M12 (early at exactly
+  twice the room) is killed by the CR LF test's 8192-byte paste. The
+  early/late test cannot see M12: refusing a paste at exactly twice the
+  room early or late gives the same `None` there.
+- **The ledger split** (`round3/ledger-split.txt`). Round 1's sweep captures
+  were lost to the /tmp cleanup, so `p5-approval-paste-spaces` was swept
+  again at 40x120, against xfx built at `802dd239` (banner
+  `v0.1.0-802dd23`). Its 9 pairs were classified three ways:
+  - with `e26ce67b`'s ledger, which has no draft-window cause;
+  - rescored with `ac276d9f`'s ledger, which has the one cause;
+  - rescored with round 3's, which has the two.
+
+  From no cause to the split, each `deny-*` pair goes from 4 uncaused rows
+  to 0, with drops 0. From one cause to two, nothing changes but the causes'
+  names. `round3/tail_check.py` asks the ledger's own `covering` about each
+  draft row, as captured and with its `a b` tail lost. Round 3's ledger
+  gets all 10 cases right; `ac276d9f`'s left four rows without a tail
+  covered.
+- **Checks**: `fx-src-check.txt` 134 citations, 0 outside; `refs.txt` 22
+  checked, 0 wrong; `cargo fmt --check` and both clippy runs clean at
+  `802dd239`'s `src/`; `test-sweep.sh` OK (72 and 27 tests) on the split
+  ledger.
+
 ## Found, not changed (recorded in `docs/parity.md`, owners proposed)
 
 - **AMEND-DRAFT-WINDOW.** A draft longer than its row is painted on up to
@@ -397,9 +450,11 @@ re-pointed them to 43492, and round 2's C1 test moved them to 43544
   `approval_ui.zig:1601-1650`: `before` cut from the left until the caret
   fits, `after` cut to the width left, `:1626-1640`).
   This scenario's `deny-*` pairs show it, and since round 2 the ledger says
-  so: cause `amend-draft-window` (kind unit and defect, owner
-  AMEND-DRAFT-WINDOW) covers their draft rows on both sides
-  (`round2/rescore-compare.txt`). Before this unit a pasted break could make
+  so (kind unit and defect, owner AMEND-DRAFT-WINDOW). Since round 3 it is
+  two causes: `amend-draft-window` for `deny-held` (fx's row ends in `x`)
+  and `amend-draft-window-tail` for the other three (fx's row ends in
+  `a b`, xfx's two full rows of `x` and a last row ending `a b`), so a draft
+  that lost its `a b` is a row no cause covers (`round3/ledger-split.txt`). Before this unit a pasted break could make
   a draft that tall too; now only its length can.
 - **PASTE-UNSUPPORTED-BYTES.** A paste that is not UTF-8 is decoded with its
   bad bytes replaced, in a draft, a question's field and the composer
