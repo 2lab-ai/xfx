@@ -3842,9 +3842,30 @@ struct Rejected {
 /// product's in the same change.
 const PASTE_QUIET: std::time::Duration = std::time::Duration::from_millis(50);
 
+/// Held by each case about an unpaced paste for the whole case
+/// ([`unpaced_case`]), so no two of them write their mebibyte at once.
+///
+/// libtest starts a binary's tests in name order, and the three hostile-paste
+/// cases are neighbours (`a_mebibyte_of_hostile_clipboard_...`): on a runner
+/// with three threads they start together and run together, each writing a
+/// mebibyte through a TUI that decodes it. Beside one another the writer's
+/// `write` calls slow to 20-30 ms each, and a pause the measure counts
+/// spans two of them and the sleep between -- 50 ms, with no help from the
+/// sleep (CI-PTY-WAIT §12: twelve suites at once rejected 75% of sessions
+/// with each suite's three together, and none with them one at a time). PR
+/// #103's first CI run is the same shape: the paced case's three sessions
+/// were all rejected while the two unpaced cases, started right behind it,
+/// ran; their own longest pauses were 43 and 28 ms. The other tests still
+/// run beside one hostile paste; none of them writes a mebibyte.
+static ONE_PASTE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// How many sessions a case about an unpaced paste runs before it gives up on
-/// a write the terminal never paused inside ([`unpaced_case`]).
-const UNPACED_ATTEMPTS: usize = 3;
+/// a write the terminal never paused inside ([`unpaced_case`]). Five since
+/// PR #103's first CI run, where all three of the paced case's were rejected
+/// (CI-PTY-WAIT §12): a session is rejected, not failed, so each one more
+/// is one more chance at a session that tests the paste, and none can turn
+/// a failed one green.
+const UNPACED_ATTEMPTS: usize = 5;
 
 /// Runs `case` -- one whole session about an unpaced paste -- until one of
 /// them wrote its paste with no pause of [`PASTE_QUIET`] inside it.
@@ -3873,6 +3894,12 @@ const UNPACED_ATTEMPTS: usize = 3;
 /// The receipt's quarantine mutants (CI-PTY-WAIT round 2) failed on such
 /// sessions.
 fn unpaced_case(mut case: impl FnMut() -> Result<(), Rejected>) {
+    // One such case at a time in this binary ([`ONE_PASTE_AT_A_TIME`]). A
+    // case that panicked holding the lock has failed on its own; the next
+    // one goes on.
+    let _alone = ONE_PASTE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut paused = Vec::new();
     for _ in 0..UNPACED_ATTEMPTS {
         match case() {
@@ -3976,6 +4003,43 @@ fn a_pause_is_said_to_fall_between_parts_or_inside_one_with_its_sleep() {
     let traced = session.write_raw_traced(b"b", &mut previous);
     assert_eq!((traced.at, traced.attempts), (1, 1), "{traced:?}");
     assert!(traced.longest >= PASTE_QUIET, "{traced:?}");
+}
+
+#[test]
+fn no_two_unpaced_cases_run_at_once() {
+    // `ONE_PASTE_AT_A_TIME`: three cases started together, as libtest
+    // starts the three hostile pastes, run one after another, each for all
+    // of its sessions.
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    use std::sync::Arc;
+    let (inside, most) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    let cases: Vec<_> = (0..3)
+        .map(|_| {
+            let (inside, most) = (Arc::clone(&inside), Arc::clone(&most));
+            std::thread::spawn(move || {
+                let mut sessions = 0;
+                unpaced_case(|| {
+                    most.fetch_max(inside.fetch_add(1, SeqCst) + 1, SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    inside.fetch_sub(1, SeqCst);
+                    sessions += 1;
+                    if sessions < 2 {
+                        Err(Rejected {
+                            gap: PASTE_QUIET,
+                            fell: String::new(),
+                            screen: Vec::new(),
+                        })
+                    } else {
+                        Ok(())
+                    }
+                })
+            })
+        })
+        .collect();
+    for case in cases {
+        case.join().expect("a case");
+    }
+    assert_eq!(most.load(SeqCst), 1, "two cases' sessions ran at once");
 }
 
 #[test]

@@ -34,7 +34,8 @@ UNIT = ["cargo", "test", "--locked", "--lib", "--",
         "the_drain_stops_behind_a_start_only", "an_escape_pair_"]
 HARNESS = ["cargo", "test", "--locked", "--test", "tui", "--",
            "the_harness_measures", "an_unpaced_case", "a_skills_sandbox_path",
-           "the_last_bytes_of_a_stream"]
+           "the_last_bytes_of_a_stream", "no_two_unpaced_cases_run_at_once",
+           "a_pause_is_said_to_fall"]
 
 DRAIN_STOP = ("                if starts && shell.turn_start_owes_its_frame() {\n"
               "                    return false;\n"
@@ -120,6 +121,10 @@ MUTANTS = [
     # cannot (join-review/order_red.py runs the three cases apart).
     ("loop-settles-band-first", "src/tui/event_loop.rs", PASS,
      "    shell.settle_band(Instant::now());\n" + PASS.replace(BAND_LINE, ""), UNIT),
+    # PR #103's red (§12): one hostile paste at a time in the binary.
+    ("pastes-at-once", "tests/tui.rs",
+     "    let _alone = ONE_PASTE_AT_A_TIME\n        .lock()\n        .unwrap_or_else(|poisoned| poisoned.into_inner());\n",
+     "", HARNESS),
     ("loop-drains-before-the-read", "src/tui/event_loop.rs", READ_TO_DRAIN,
      "    take_ui_events(shell, events);\n" + READ_TO_DRAIN.replace(DRAIN_LINE, ""), UNIT),
 ]
