@@ -2718,7 +2718,7 @@ fn a_live_theme_notification_repaints_the_band_without_losing_the_draft() {
 
     // `C-u` before `C-d`: the composer holds the draft this case typed into
     // it, and `C-d` on a non-empty draft is not the tested exit gesture
-    // (`tests/tui.rs:1930,2312,2887,3234,3357,4049,7769,7843,8630,9331,9527` all clear the line
+    // (`tests/tui.rs:1930,2312,2887,3234,3357,4319,8039,8113,8900,9601,9797` all clear the line
     // first). The kill takes the line the caret is on.
     session.type_bytes(&[0x15, 0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -3781,7 +3781,7 @@ struct Rejected {
 }
 
 /// How long the input has to be quiet for a paste's quarantine to end:
-/// `Decoder::PASTE_QUIET` at `src/tui/input.rs:674`. That constant is
+/// `Decoder::PASTE_QUIET` at `src/tui/input.rs:835`. That constant is
 /// `pub(crate)`, so this suite cannot name it; a copy, kept beside the
 /// product's in the same change.
 const PASTE_QUIET: std::time::Duration = std::time::Duration::from_millis(50);
@@ -3932,7 +3932,7 @@ fn a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and
     // parallel suite (CI-PTY-WAIT round 3, `round3/` in the receipt).
     //
     // What it does not carry: the quarantine's threshold, which the lib
-    // pins without a clock (`src/tui/input.rs:3549`, `:4148`); and proof
+    // pins without a clock (`src/tui/input.rs:5334`, `:5933`); and proof
     // that the reader saw each pause -- acceptance is measured on the
     // writer, and a starved reader can take two parts in one read. A
     // quarantine that ends at any quiet, or after 5 ms, fails here; one that
@@ -3942,8 +3942,8 @@ fn a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and
     // A red here whose every pause was under 50 ms is not retried, and it
     // can be the known clock-after-poll defect rather than a regression: the
     // loop reads its clock after the check that found the input empty
-    // (`src/tui/event_loop.rs:750-751` -> `src/tui/shell.rs:11123-11124` ->
-    // `src/tui/input.rs:822`), so one reader stall there, with the quiet's
+    // (`src/tui/event_loop.rs:750-751` -> `src/tui/shell.rs:11303-11304` ->
+    // `src/tui/input.rs:983`), so one reader stall there, with the quiet's
     // start already recorded at a pause, ends the quarantine early. The
     // queued PASTE-QUARANTINE-CLOCK unit fixes it.
     hostile_paste_types_nothing(std::time::Duration::from_millis(12), &[1, 64, 128, 192]);
@@ -9830,7 +9830,7 @@ fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it
     // tells the child -- and a real terminal has the same gap: the kernel
     // raises `SIGWINCH` after the size has already changed, and no process can
     // withhold a frame for a size nobody has told it about. `Shell::blind`
-    // (`src/tui/shell.rs:17608`) is `resize_pending || screen != geometry`, and
+    // (`src/tui/shell.rs:17644`) is `resize_pending || screen != geometry`, and
     // neither is true until the handler has run. So a frame composed in that
     // gap is composed for the screen the session still believes in, and it is
     // not a frame written *while blind*.

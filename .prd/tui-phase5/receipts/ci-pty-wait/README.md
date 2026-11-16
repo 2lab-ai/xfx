@@ -83,8 +83,8 @@ live):
   channel (the loop's turn, `loop_turn`, `src/tui/event_loop.rs:357`: the keys
   at `:366`, the drain at `:376`; `drain_ui_events`, `:427`).
 - A prompt's `working` waits for the frame that first shows its turn
-  (`take_status_moved_by_input`, `src/tui/shell.rs:11487`; `Keyed::NotYet` at
-  `:11516`).
+  (`take_status_moved_by_input`, `src/tui/shell.rs:11667`; `Keyed::NotYet` at
+  `:11696`).
 - So when one drain held the turn's start, its answer and its end, that tick
   reported the settled `done` and nothing else. When it held the start and the
   first answer bytes, the turn's first frame showed `Generating`.
@@ -93,14 +93,14 @@ live):
 - The drain stops right after a turn start whose `working` is owed after the
   frame that first shows the turn. That is a prompt held for its turn, or one
   this tick's keys sent (`Shell::turn_start_owes_its_frame`,
-  `src/tui/shell.rs:11544`; the stop, `src/tui/event_loop.rs:458`). Since
-  round 2 the predicate is the tick's own answer, `keyed()` (`:11501`), which
+  `src/tui/shell.rs:11724`; the stop, `src/tui/event_loop.rs:458`). Since
+  round 2 the predicate is the tick's own answer, `keyed()` (`:11681`), which
   `take_status_moved_by_input` takes: §7.
 - That tick's frame shows the turn beginning (`Thinking`) and `working` follows
   it. The rest of the turn is read on the next tick.
 - The OSC 7501 row in `docs/parity.md` says so.
 - `a_turn_start_owes_its_frame_exactly_when_its_tick_writes_working_after_the_frame`
-  (`src/tui/shell.rs:22276`; `a77fad76`, widened in round 2) holds the drain's
+  (`src/tui/shell.rs:22728`; `a77fad76`, widened in round 2) holds the drain's
   stop to the tick's own `Keyed::AfterFrame`: for the four combinations of held
   and keyed, and for a held prompt whose start a stop's count covers
   (`cancelling`) or a reset's drain drops (`draining`). At round 1 the stop was
@@ -137,8 +137,8 @@ The same thing happened on two rows, so it is not specific to the arm64
 runner.
 
 The TUI ends a paste's quarantine once the input has been quiet for
-`PASTE_QUIET` (50 ms, `src/tui/input.rs:674`): "a terminal that pauses that
-long inside one paste ends the quarantine there" (`src/tui/input.rs:134-135`).
+`PASTE_QUIET` (50 ms, `src/tui/input.rs:835`): "a terminal that pauses that
+long inside one paste ends the quarantine there" (`src/tui/input.rs:195-196`).
 That is a documented residual. In the test, the terminal is the harness's
 writer thread (`Session::write_raw`, which sleeps 2 ms whenever the queue is
 full), and a thread that a loaded runner does not schedule for 50 ms writes
@@ -161,13 +161,13 @@ was, with no retry.
   the longest the terminal can have gone without a byte of the paste: from one
   write attempt's start to the next attempt's return, carried across the
   4 KiB parts.
-- `paste_unpaced` (`tests/tui.rs:3572`, `7b524d78`) stops writing at the first
+- `paste_unpaced` (`tests/tui.rs:3693`, `7b524d78`) stops writing at the first
   pause of `PASTE_QUIET` or more. That session is **timing-indeterminate**:
   the measure is an upper bound on how long the input queue can have been
   empty, not a reading of it, so the session neither proves nor disproves the
   quarantine. Since round 2 it keeps its evidence -- the pause, and the
   screen a second later -- printed and handed back.
-- `unpaced_case` (`tests/tui.rs:3698`) then runs a new session, at most 3 in
+- `unpaced_case` (`tests/tui.rs:3819`) then runs a new session, at most 3 in
   all, and fails saying so when every session paused, with what each screen
   held.
 - A session whose paste went out unpaced makes every assertion it made before.
@@ -199,13 +199,13 @@ was, with no retry.
   estimate: no log shows this run's sandbox name.
 
 **Fix** (`f311ad79`, widened in round 2 `d4f660f7`): `skills_sandbox`
-(`tests/tui.rs:14546`) reads the sandbox's whole `home` and `workspace` paths,
-case folded (`found_in_sandbox`, `:14576`). A word in the root's random name
+(`tests/tui.rs:14664`) reads the sandbox's whole `home` and `workspace` paths,
+case folded (`found_in_sandbox`, `:14694`). A word in the root's random name
 draws the root again, as `src/tui/shell.rs`'s own `skilled_in` fixture does; a
 word above the root -- the machine's `TMPDIR`, which no draw changes -- fails
 at once, saying so, where the case used to time out
 (`local/skills-foo-tmpdir-round2.txt`: 21 s at `c601ef29`, at once at round 2).
-`a_skills_sandbox_path_never_holds_what_its_case_searches` (`:14599`) pins
+`a_skills_sandbox_path_never_holds_what_its_case_searches` (`:14717`) pins
 `found_in_sandbox`.
 
 ### 2d. The 2026-11-08 compaction case
@@ -328,7 +328,7 @@ On a snapshot of the merge, under the suite lock (`merged.txt`):
 |---|---|---|---|
 | gpt6 SHOULD 1: keys between the consumed start and the queued end, and a sustained stream, through the real loop | `loop_turn` is `session`'s turn after its first reconcile, and `session` runs it. The equivalence case: typing, a stop, two stops, Escape, Ctrl-D and `/quit`, read between a split turn's start and its queued end, come to the same reports, screen, exit and runtime messages as when the end lands right after the start's drain. The sustained case: three channels of text behind the start; the start's tick reads nothing past it, and every later tick reads its keys and empties the channel. | `src/tui/event_loop.rs:357` (`loop_turn`), `:16512`, `:16565` | RED by `drain-never-stops` (both); `drain-stops-after-every-event` (sustained) |
 | gpt6 SHOULD 2: a rejected sample | Described as **timing-indeterminate** in the code and here (§2b): the measure bounds how long the queue can have been empty and does not read it. Each rejected session keeps its pause and its screen a second later, printed, and the every-paused failure lists them. | `tests/tui.rs:3572-3680`; `:3725` | RED by `rejected-screens-unsaid` |
-| …a quarantine regression cannot go green only through rejection and retry | `round2/quarantine.txt`: 3 quarantine mutants × 3 cases × 3 runs. **No run of any case rejected a session.** The new paced case (20 ms between parts: a loop turn and more, under `PASTE_QUIET`) failed 3/3 under each mutant, each time on an accepted session. The two unpaced cases stay green under the mutants: their refill gaps at idle (3–10 ms) are under one loop turn, so the loop never records a quiet's start there (`round2/quarantine-first-pass.txt`), which is what the paced case was added for. Narrowed in round 3 (§8): acceptance is measured on the writer and does not prove the reader saw each pause; the threshold itself is pinned without a clock by `src/tui/input.rs:3549` and `:4148`, not by this case; the 20 ms mutant's kill rested on the writer oversleeping its 20 ms sleep (gaps of 30–37 ms); and a regression can at worst give a misleading red, never a green. | `tests/tui.rs:3756` (paced), `:3579` (`paste_with_pauses`) | baseline 9/9 green; each mutant 3/3 red on the paced case |
+| …a quarantine regression cannot go green only through rejection and retry | `round2/quarantine.txt`: 3 quarantine mutants × 3 cases × 3 runs. **No run of any case rejected a session.** The new paced case (20 ms between parts: a loop turn and more, under `PASTE_QUIET`) failed 3/3 under each mutant, each time on an accepted session. The two unpaced cases stay green under the mutants: their refill gaps at idle (3–10 ms) are under one loop turn, so the loop never records a quiet's start there (`round2/quarantine-first-pass.txt`), which is what the paced case was added for. Narrowed in round 3 (§8): acceptance is measured on the writer and does not prove the reader saw each pause; the threshold itself is pinned without a clock by `src/tui/input.rs:5334` and `:5933`, not by this case; the 20 ms mutant's kill rested on the writer oversleeping its 20 ms sleep (gaps of 30–37 ms); and a regression can at worst give a misleading red, never a green. | `tests/tui.rs:3756` (paced), `:3579` (`paste_with_pauses`) | baseline 9/9 green; each mutant 3/3 red on the paced case |
 | opus NIT 1: predicate | `keyed()` works out the take's answer, taking nothing, and both the take and the drain's stop ask it. A held start a stop covers (`cancelling`) or a reset's drain drops (`draining`), with no key behind it, owes no frame. "Exactly" now holds by construction, and the name keeps it. | `src/tui/shell.rs:11501`, `:11542`; case `:22274` | RED by `predicate-by-flags-alone` (round 1's predicate), `owed-only-when-held`, `owed-only-when-keyed` |
 | opus NIT 3: the drain reads past a start that owes no frame | A prompt queued behind a running turn; and a tick whose keys owe a report (a question answered) with no start among its events. | `src/tui/event_loop.rs:16704`, `:16743` | RED by `drain-stops-at-every-start`, `drain-stops-after-any-event` |
 | opus NIT 4: whole path | `found_in_sandbox` checks `home` and `workspace` whole, case folded. A word in the root's name draws again; one above it fails at once, saying so. | `tests/tui.rs:14483`, `:14513`; case `:14536` | RED by `search-check-root-name-only`, `search-check-case-sensitive`; `local/skills-foo-tmpdir-round2.txt` (21 s timeout at `c601ef29`, a clear panic at round 2) |
@@ -403,18 +403,18 @@ in pieces, and libtest's `test ... ok` lines landed inside 34 and 31 of them.
   20 ms one passes, because 18 ms gaps never reach 20 ms.
 - No run of either version rejected a session.
 - **The threshold is held by the lib, not by this case:**
-  `round3/lib-threshold.txt` shows `src/tui/input.rs:3549` and `:4148` killing
+  `round3/lib-threshold.txt` shows `src/tui/input.rs:5334` and `:5933` killing
   all three mutants, as opus r2 said.
 
 ### The other items
 
 | item | change | where | RED → GREEN |
 |---|---|---|---|
-| S2: label the clock defect | The paced case's comment says a red with every pause under 50 ms is not retried and can be the clock-after-poll defect (`src/tui/event_loop.rs:750-751` → `src/tui/shell.rs:11123-11124` → `src/tui/input.rs:822`), which PASTE-QUARANTINE-CLOCK fixes; so does open question 1 here. | `tests/tui.rs:3821-3827` | docs |
-| S3 and gpt6 r2 SHOULD: narrow the claims | The paced comment says acceptance is measured on the writer; the threshold is pinned by `input.rs:3549`/`:4148`, not by this case; and the 20 ms mutant's kill rests on the writer oversleeping. `unpaced_case` now says a regression gives at worst a misleading red, never a green. The round-2 table's row is narrowed the same way. | `tests/tui.rs:3813-3820`, `:3688-3697`; §7 | docs |
-| NIT 1: predicate doc | "unless this tick's keys moved the status, when the tick writes its report after its frame whatever the start shows" | `src/tui/shell.rs:11530` | docs |
-| NIT 2: clock-expiring cues | The equivalence case reads the hint row at the keys' own tick (`cue`) and leaves it out of the end screen. Its cue is asserted per key: "press ctrl+c again to exit" after a stop, the plain hint otherwise. | `src/tui/event_loop.rs:16389`, `:16479`, `:16539` | RED still by `drain-never-stops` (`round3/mutants-f8bc123a.txt`) |
-| NIT 3: tail cut | `last_bytes` backs a 400-byte cut off to a character's start. | `tests/tui.rs:3634`; case `:3643` | RED by `last-bytes-cut-anywhere` |
+| S2: label the clock defect | The paced case's comment says a red with every pause under 50 ms is not retried and can be the clock-after-poll defect (`src/tui/event_loop.rs:750-751` → `src/tui/shell.rs:11303-11304` → `src/tui/input.rs:983`), which PASTE-QUARANTINE-CLOCK fixes; so does open question 1 here. | `tests/tui.rs:3942-3948` | docs |
+| S3 and gpt6 r2 SHOULD: narrow the claims | The paced comment says acceptance is measured on the writer; the threshold is pinned by `input.rs:5334`/`:5933`, not by this case; and the 20 ms mutant's kill rests on the writer oversleeping. `unpaced_case` now says a regression gives at worst a misleading red, never a green. The round-2 table's row is narrowed the same way. | `tests/tui.rs:3934-3941`, `:3809-3818`; §7 | docs |
+| NIT 1: predicate doc | "unless this tick's keys moved the status, when the tick writes its report after its frame whatever the start shows" | `src/tui/shell.rs:11710` | docs |
+| NIT 2: clock-expiring cues | The equivalence case reads the hint row at the keys' own tick (`cue`) and leaves it out of the end screen. Its cue is asserted per key: "press ctrl+c again to exit" after a stop, the plain hint otherwise. | `src/tui/event_loop.rs:16390`, `:16480`, `:16540` | RED still by `drain-never-stops` (`round3/mutants-f8bc123a.txt`) |
+| NIT 3: tail cut | `last_bytes` backs a 400-byte cut off to a character's start. | `tests/tui.rs:3755`; case `:3764` | RED by `last-bytes-cut-anywhere` |
 | NIT 4: stop-next parity | Recorded as open question 5. | — | — |
 
 - **Mutants** on a `--no-local` clone under the lock: the round-2 14 plus
@@ -428,8 +428,8 @@ in pieces, and libtest's `test ... ok` lines landed inside 34 and 31 of them.
 1. **The quarantine's clock is read after the readiness check.**
    - `burst` calls `shell.end_delivery()` once its check finds nothing
      (`src/tui/event_loop.rs:750-751`).
-   - That reads `Instant::now()` (`src/tui/shell.rs:11123-11124`).
-   - The decoder compares it with the quiet's start (`src/tui/input.rs:822`).
+   - That reads `Instant::now()` (`src/tui/shell.rs:11303-11304`).
+   - The decoder compares it with the quiet's start (`src/tui/input.rs:983`).
    - A UI thread preempted between a check that found nothing and that clock
      read stretches a short refill gap into a "50 ms quiet". So the quarantine
      can end on a pause shorter than `PASTE_QUIET`, and the rest of a hostile
@@ -440,7 +440,7 @@ in pieces, and libtest's `test ... ok` lines landed inside 34 and 31 of them.
      a quiet's start at each of its pauses, so a single reader stall there can
      end the quarantine on a session the harness accepted. That is a red with
      every pause under 50 ms, which reads as a quarantine regression and is
-     not retried. The paced case's comment says so (`tests/tui.rs:3821-3827`).
+     not retried. The paced case's comment says so (`tests/tui.rs:3942-3948`).
      None was seen in round 3's 240 paced runs.
    - It is a candidate follow-up in PASTE-GAP's security area: compare against
      a clock read before the check, and stamp the quiet's start with one read
@@ -466,7 +466,7 @@ in pieces, and libtest's `test ... ok` lines landed inside 34 and 31 of them.
    starved drain, reports no `working`** (opus r2 NIT 4; from before this
    unit). A prompt typed while a stop is still requested is queued at once
    (`queued_at_once`), so its start owes no frame of its own
-   (`Shell::take_status_moved_by_input`, `src/tui/shell.rs:11487`) and the
+   (`Shell::take_status_moved_by_input`, `src/tui/shell.rs:11667`) and the
    drain does not stop behind it. When the stopped turn's end and the prompt's
    start, answer and end all land in one drain, the session reports
    `[.., idle, done]` with no `working` [read from the code, as opus read it;

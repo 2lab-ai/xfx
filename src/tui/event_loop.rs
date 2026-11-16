@@ -15137,7 +15137,7 @@ mod tests {
     // (`transcript.rs:1078-1104` adopts only on `Landed::All`). So an append the
     // terminal refused must leave the retained row reading exactly what the
     // last accepted vector put there -- and the frame that would have followed
-    // it must not run at all (`event_loop.rs:1128-1131`). Nothing here caches a
+    // it must not run at all (`event_loop.rs:1157-1160`). Nothing here caches a
     // source anywhere: the freshness is read off the screen the accepted bytes
     // make.
     //
