@@ -1,5 +1,5 @@
-# final-scan.sh <repo> 866747ff 93bff397 3ed1c082 (MAIN=afeaea7c: main before the join, so main's four new commits are read too), at the receipt's second-to-last commit; exit 0
-## 1. each commit this train adds, first-parent 866747ff..93bff397: the brief's count; a merge also as everything it brings
+# final-scan.sh <repo> 866747ff d74cb195 23819f7a (MAIN=afeaea7c: main before the join, so main's four new commits are read too), at the receipt's second-to-last commit; exit 0
+## 1. each commit this train adds, first-parent 866747ff..d74cb195: the brief's count; a merge also as everything it brings
 b2d044c9 0; as everything it brings (git diff ^1): 0  Merge the profile line into train 16 (fix/p5-profile-json-limits @ bac
 e8b004a5 0; as everything it brings (git diff ^1): 0  Merge the slash line into train 16 (fix/p5-slash-mixed-skills @ 32eb85
 849f5017 0; as everything it brings (git diff ^1): 0  Merge TEST-ENV-ISOLATION into train 16 (fix/p5-test-env-isolation @ 7c
@@ -33,27 +33,32 @@ ac5882fb 0  train 16: the profile's group/other bit test in st_mode's own type
 3ed1c082 0  train 16: an integration test's clean copy runs the toolchain that bui
 a078fb83 0  docs(receipt): train 16 round 5 -- PR #102's CI, three causes, the gat
 93bff397 0  docs(receipt): train 16 round 5 -- the file checks with the receipt in
+a3f8ee26 0  docs(receipt): train 16 round 5 -- the final scan through 93bff397 (fi
+bbb2c109 0  train 16: say what the clean copy does with no PATH to put the toolcha
+23819f7a 0  train 16: CARGO, a compile-time name only the clean copy may read
+28d72d88 0  docs(receipt): train 16 round 6 -- CARGO scoped, the no-PATH copy said
+d74cb195 0  docs(receipt): train 16 round 6 -- the file checks with the receipt in
 # the brief's count, summed over this train's commits: 0
-# the brief's count over the range, git diff 866747ff..93bff397: 0
+# the brief's count over the range, git diff 866747ff..d74cb195: 0
 # shapes.py over the range's added lines (not gating; the brief's count is the first): brief 0; run-name 8; uid-tail 0
 #   the run-name lines by file: scripts/fxcap/test_capture.py 8
 
 ## 2. every commit of the range, and the range (midbranch_scan.py)
-# commits per unit stack since its merge base with 866747ff: 3943d667..bacb1052 49; afd891af..32eb858f 36; 32afd307..7c3f6c1e 51; 71d3e02b..dd9f5f0a 14; df45025c..ca496c10 21; df45025c..6d94fbc0 18; the range 866747ff..93bff397 226
-# the check's documented homes at 93bff397: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
-# 226 commits scanned; 0 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
+# commits per unit stack since its merge base with 866747ff: 3943d667..bacb1052 49; afd891af..32eb858f 36; 32afd307..7c3f6c1e 51; 71d3e02b..dd9f5f0a 14; df45025c..ca496c10 21; df45025c..6d94fbc0 18; the range 866747ff..d74cb195 231
+# the check's documented homes at d74cb195: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
+# 231 commits scanned; 0 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
 
-## the range, git diff 866747ff..93bff397
+## the range, git diff 866747ff..d74cb195
 # the range: 0 lines hit (the brief's count); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0
 # midbranch_scan.py exit 0
 
 ## 3. files of this directory holding the pattern: 0
-shapes.py over this directory: brief 0; run-name 0; uid-tail 0 (over 208 files)
+shapes.py over this directory: brief 0; run-name 0; uid-tail 0 (over 210 files)
 
-## 4. each commit after the code head 3ed1c082, and the files it touches outside this directory
-a078fb83 outside: 0; inside: 16 file(s)
-93bff397 outside: 0; inside: 1 file(s)
+## 4. each commit after the code head 23819f7a, and the files it touches outside this directory
+28d72d88 outside: 0; inside: 11 file(s)
+d74cb195 outside: 0; inside: 1 file(s)
 # files outside this directory touched after the code head: 0
 
-## 5. the dispatcher's per-commit check: every commit of `git rev-list --no-merges 93bff397 --not afeaea7c` (the units' own included), its added lines and its message; then every merge commit's own message
-# 364 non-merge commits: 0 hits (lines and messages); 15 merge commits' messages: 0 hits
+## 5. the dispatcher's per-commit check: every commit of `git rev-list --no-merges d74cb195 --not afeaea7c` (the units' own included), its added lines and its message; then every merge commit's own message
+# 369 non-merge commits: 0 hits (lines and messages); 15 merge commits' messages: 0 hits
