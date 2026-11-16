@@ -20717,4 +20717,146 @@ mod tests {
             "the catalog went"
         );
     }
+
+    #[test]
+    fn an_escape_pair_settled_in_the_tick_that_reads_a_held_prompts_start_leaves_the_start_ending_the_drain(
+    ) {
+        // The join with META-PREFIX-DECODE (train 16). Two `ESC` bytes in one
+        // read are a meta prefix the decoder holds; only the clock makes them
+        // keys -- an Escape at `PAIR_TIMEOUT`, the second at `ESC_TIMEOUT`
+        // (`input::Decoder::flush`) -- and the loop's turn asks the clock once,
+        // in `settle_input`, after the read and before the drain
+        // (`loop_turn`). fx's pass also resolves its keys before the worker's
+        // events (`loopCollectFacts`, `main.zig:2975-2982@481104fd`). So in
+        // the tick that reads a held prompt's start, a pair still pending is
+        // no key yet, and a pair settled there is two Escapes at a prompt the
+        // runtime has not started -- they clear the draft, as two Escapes over
+        // a draft do with nothing running (`Gestures::escape`) -- and either
+        // way the start ends the drain, so `working` follows the frame that
+        // shows its `Thinking`. Settled after the drain instead, the same two
+        // would be an Escape pair at a running turn: its interrupt.
+        let turn = |shell: &mut Fixture, events: &mpsc::Sender<UiEvent>| {
+            for event in [
+                shell.turn_starts(),
+                UiEvent::Delta("THE-ANSWER".to_string()),
+                UiEvent::TurnEnded { failure: None },
+            ] {
+                events.try_send(event).expect("room on the channel");
+            }
+            shell.handle.give_back();
+        };
+        let shows = |tick: &[u8]| String::from_utf8_lossy(tick).into_owned();
+
+        // Settled in that tick, through the loop's own turn: the reads are
+        // over at least `ESC_TIMEOUT` before the turn settles them, however
+        // the clock falls.
+        {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut out = StatusScreen::default();
+            let mut failures = FrameFailures::default();
+            let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+            let none = Duration::ZERO;
+            launch_title(&mut shell, &mut band);
+            for keys in [&b""[..], b"go\r"] {
+                keyed_turn(
+                    &mut shell,
+                    &mut band,
+                    &mut receiver,
+                    &mut out,
+                    &mut failures,
+                    keys,
+                    none,
+                );
+            }
+            turn(&mut shell, &events);
+            let before = out.vectors.len();
+            keyed_turn(
+                &mut shell,
+                &mut band,
+                &mut receiver,
+                &mut out,
+                &mut failures,
+                b"ab\x1b\x1b",
+                crate::tui::input::Decoder::ESC_TIMEOUT + Duration::from_millis(20),
+            );
+            let tick = out.vectors[before..].concat();
+            assert_eq!(
+                receiver.len(),
+                2,
+                "the start's tick read past the start: {:?}",
+                shows(&tick)
+            );
+            assert_eq!(
+                composer(&shell),
+                COMPOSER_MARKER,
+                "the pair was not two Escapes ahead of the start"
+            );
+            let thinking = find(&tick, b"Thinking");
+            let working = find(&tick, WORKING.as_bytes());
+            assert!(
+                thinking.is_some() && working.is_some() && thinking < working,
+                "no working after a frame showing Thinking: {:?}",
+                shows(&tick)
+            );
+            for _ in 0..3 {
+                shell.flush_paced();
+                keyed_turn(
+                    &mut shell,
+                    &mut band,
+                    &mut receiver,
+                    &mut out,
+                    &mut failures,
+                    b"",
+                    none,
+                );
+            }
+            assert!(receiver.is_empty(), "the turn was never read");
+            assert_eq!(states(&out), ["idle", "working", "done"]);
+            assert!(
+                shell._control.try_recv().is_err(),
+                "the pair stopped the turn"
+            );
+        }
+
+        // Still pending in that tick: the turn settles the reads at the
+        // clock they were read at, which no timeout has passed.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"go\r");
+        take_ui_events(&mut shell, &mut receiver);
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        turn(&mut shell, &events);
+        let before = out.vectors.len();
+        let read_at = Instant::now();
+        shell.route_read(b"ab\x1b\x1b");
+        shell.settle_input(read_at);
+        take_ui_events(&mut shell, &mut receiver);
+        shell.settle_band(read_at);
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = out.vectors[before..].concat();
+        assert_eq!(
+            receiver.len(),
+            2,
+            "the start's tick read past the start: {:?}",
+            shows(&tick)
+        );
+        assert_eq!(
+            composer(&shell),
+            format!("{COMPOSER_MARKER} ab"),
+            "the pair was a key"
+        );
+        let thinking = find(&tick, b"Thinking");
+        let working = find(&tick, WORKING.as_bytes());
+        assert!(
+            thinking.is_some() && working.is_some() && thinking < working,
+            "no working after a frame showing Thinking: {:?}",
+            shows(&tick)
+        );
+    }
 }
