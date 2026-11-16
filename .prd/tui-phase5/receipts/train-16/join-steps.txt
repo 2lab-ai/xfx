@@ -45,5 +45,13 @@
   27 Build the binary the restoration matrix drives | matrix.part != 'checks'
   28 Smoke the TUI on a real terminal | matrix.part != 'checks'
   29 Keep the TUI evidence of a failed run | failure() && matrix.part != 'checks'
+# the rows `matrix.script_tests` selects, from the merge's matrix: ubuntu-24.04, macos-15
+# the steps under it, each on those rows alone:
+   5 Which bash the gate scripts run: bash --version | sed -n 1p
+   9 The environment check refuses every way round it: python3 -I scripts/check-env-reads.py --self-test
+  15 The local-path check refuses what it exists for: ./scripts/test-check-no-local-paths.sh
+  16 No gate takes its options, repository or config from the environment: ./scripts/test-gate-env.sh
+  19 The preview contract catches every mutant it exists for: ./scripts/test-preview-contract.sh
+  20 A gate script that stops early fails: ./scripts/test-early-stop.sh
 # 0 missing, changed or out of order
 # exit 0

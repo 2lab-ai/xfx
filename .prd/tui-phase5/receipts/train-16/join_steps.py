@@ -7,7 +7,10 @@ and `with` unchanged, found by its name (RENAMED maps a name a fix changed),
 and the side's steps must keep their order there. Then the merge's matrix
 rows against each side's, every comment line of the gate job either side
 has (its words, whitespace folded) and whether the merge holds it whole,
-and the merged order.
+and the merged order. Round 4 (gpt6's join review, SHOULD 3): every step
+the merge runs under `matrix.script_tests`, and the rows that condition
+selects, read from the YAML itself -- the env self-test among them, which
+test-gate-env.sh's `ci-script-tests-per-os` does not read.
 
     python3 -I -B join_steps.py <repo> <ours> <theirs> <merged>
 """
@@ -87,5 +90,13 @@ print("# the merged order:")
 for i, n in enumerate(names):
     s = m["steps"][i]
     print(f"  {i:2} {n} | {s.get('if', '')}")
+rows = m["strategy"]["matrix"]["include"]
+picked = [r["runner"] + (f" ({r['part']})" if r.get("part") else "") for r in rows if r.get("script_tests")]
+print(f"# the rows `matrix.script_tests` selects, from the merge's matrix: {', '.join(picked)}")
+print("# the steps under it, each on those rows alone:")
+for i, n in enumerate(names):
+    st = m["steps"][i]
+    if st.get("if", "").strip() == "matrix.script_tests":
+        print(f"  {i:2} {n}: {st.get('run', '').strip().splitlines()[-1][:80]}")
 print(f"# {bad} missing, changed or out of order")
 sys.exit(1 if bad else 0)

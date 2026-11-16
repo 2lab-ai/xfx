@@ -747,7 +747,7 @@ one conflict block -- the `script_tests` comment, which both rewrote. Ours
 exercises; theirs (EXIT-TRAP) made the list one sentence with
 `test-early-stop.sh` and dropped "bash 3.2" (macOS runs the scripts under
 3.2 through `bash32` now). Merged by `byhand.py 7`: theirs' sentence with
-the five scripts, ours' "own tools" clause with theirs' grep words, ours'
+the five scheduled script tests, ours' "own tools" clause with theirs' grep words, ours'
 "no build of xfx". And one line git merged clean that was wrong: ours had
 renamed the toolchain step "Install the stable toolchain", theirs makes it
 install and default to 1.99.1 -- a step named stable that installs the pin;
@@ -803,10 +803,28 @@ one new variable, `BASH_ENV`, is a shell script's (`early-stop-env.sh`):
 nothing in `src/` or `tests/` reads it, so the check needs no line.
 
 **The readers, at the joined code head** (`join-readers.txt`, from the
-gate's own logs; `join-readers.sh`): - **`test-gate-env.sh`** (main's, 95 cases, exit 0): `workflow-steps` (all 10
+gate's own logs; `join-readers.sh`):
+
+**Two different fives** (round 4, gpt6's join review, SHOULD 3). The five
+script tests ci.yml schedules -- the ones the comment above, CONTRIBUTING.md
+and README.md name -- are `test-gate-env.sh`, `test-preview-contract.sh`,
+`test-check-no-local-paths.sh`, `test-early-stop.sh` and
+`check-env-reads.py --self-test`, each a step under `if:
+matrix.script_tests`. The five `test-gate-env.sh`'s `ci-script-tests-per-os`
+case checks per OS are its own list: `test-gate-env`,
+`test-preview-contract`, `test-check-no-secrets` (no step of its own; it is
+reached through `test-gate-env.sh`'s nested run), `test-check-no-local-paths`
+and `test-early-stop`. That case does not read the env self-test. **What
+puts the env self-test on one row per OS is ci.yml's own `if:
+matrix.script_tests` on its step (step 9)**, which selects `ubuntu-24.04`
+and `macos-15` alone: `join-steps.txt`'s last lines read it, and the five
+other steps under that condition, from the merged YAML, apart from any
+reader.
+
+- **`test-gate-env.sh`** (main's, 95 cases, exit 0): `workflow-steps` (all 10
   steps that run git drop `GIT_*` first: the checkout comment and
-  `persist-credentials` add no git line), `ci-script-tests-per-os` (all five
-  scripts on a macOS and a Linux row), **`ci-bash32`** (the macOS
+  `persist-credentials` add no git line), `ci-script-tests-per-os` (its
+  own five, above, each on a macOS and a Linux row), **`ci-bash32`** (the macOS
   script-test rows run `/bin/bash`; the pin and the which-bash step before
   the first script test, TEST-ENV-ISOLATION's two steps between them
   reading nothing it counts), `ci-checkout-assertion`. Its one other line

@@ -20,6 +20,11 @@
   test-gate-env: ok ci-script-tests-per-os         test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths test-early-stop on macOS and Linux rows
   test-gate-env: ok ci-bash32                      the macOS script-test rows run /bin/bash, and the log says which bash
   test-gate-env: ok ci-checkout-assertion          checked out
+  (round 4: ci-script-tests-per-os reads its own five -- test-gate-env, test-preview-contract,
+  test-check-no-secrets (reached through test-gate-env's nested run, no step of its own),
+  test-check-no-local-paths, test-early-stop -- not ci.yml's five scheduled script tests: it
+  does not read check-env-reads.py --self-test, whose rows ci.yml's `if: matrix.script_tests`
+  on its step sets: join-steps.txt, its last lines)
   its other test-gate-env lines (a note or a problem; a problem ends the run non-zero):
     test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
   test-gate-env: ok (95 cases)

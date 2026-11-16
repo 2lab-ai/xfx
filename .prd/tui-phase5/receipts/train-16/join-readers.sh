@@ -22,6 +22,11 @@ log() { ls "$L"/[0-9][0-9]-"$1".log 2>/dev/null | head -1; }
   tail -1 "$(log check-env-reads-self-test)" | sed 's/^/  /'
   echo "## test-gate-env.sh: $(grep -E '^[0-9]{2} test-gate-env ' "$G/gates.out" | awk '{print "exit", $4}'); its ci.yml and workflow cases, and its last line"
   grep -E '^test-gate-env: (ok|FAIL|not ok)? *(ci-|workflow-)' "$(log test-gate-env)" | sed 's/^/  /'
+  echo "  (round 4: ci-script-tests-per-os reads its own five -- test-gate-env, test-preview-contract,"
+  echo "  test-check-no-secrets (reached through test-gate-env's nested run, no step of its own),"
+  echo "  test-check-no-local-paths, test-early-stop -- not ci.yml's five scheduled script tests: it"
+  echo "  does not read check-env-reads.py --self-test, whose rows ci.yml's \`if: matrix.script_tests\`"
+  echo "  on its step sets: join-steps.txt, its last lines)"
   echo "  its other test-gate-env lines (a note or a problem; a problem ends the run non-zero):"
   grep -E -v '^test-gate-env: ok ' "$(log test-gate-env)" | grep -E '^test-gate-env: ' | sed 's/^/    /'
   tail -1 "$(log test-gate-env)" | sed 's/^/  /'
