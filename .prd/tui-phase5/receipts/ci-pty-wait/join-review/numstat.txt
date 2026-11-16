@@ -1,0 +1,15 @@
+81ef5a0a..25203a2c
+  product  +0 -0
+  tests    +160 -17
+  receipt  +0 -0
+  other    +0 -0
+25203a2c..4122bfcf
+  product  +0 -0
+  tests    +0 -0
+  receipt  +194 -7
+  other    +0 -0
+4122bfcf..HEAD
+  product  +0 -0
+  tests    +0 -0
+  receipt  +295 -0
+  other    +0 -0

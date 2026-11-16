@@ -6,6 +6,9 @@ proxies first): each test's verdict in each. MPD's names are its receipt's
 log is printed MISSING.
 
     python3 -I -B touched.py <receipts-dir> <label>=<log>...
+A label starting `lib` is a `cargo test --lib` log and is read for the
+`tui::` names alone; one starting `tui`, a `--test tui` log, for the others;
+any other label, for every name. The join review added its two cases.
 Prints no path.
 """
 import re
@@ -19,6 +22,8 @@ MINE = [
     "tui::event_loop::tests::the_drain_reads_past_a_start_that_owes_no_frame",
     "tui::event_loop::tests::the_drain_stops_behind_a_start_only_and_not_on_a_tick_whose_keys_owe_a_report",
     "tui::event_loop::tests::an_escape_pair_settled_in_the_tick_that_reads_a_held_prompts_start_leaves_the_start_ending_the_drain",
+    "tui::event_loop::tests::an_escape_pair_still_pending_in_the_tick_that_reads_a_held_prompts_start_is_no_key_and_the_start_ends_the_drain",
+    "tui::event_loop::tests::an_escape_pair_pending_through_one_loop_turn_settles_in_the_next_ahead_of_the_start_it_reads",
     "tui::shell::tests::a_turn_start_owes_its_frame_exactly_when_its_tick_writes_working_after_the_frame",
     "tui::input::tests::a_quarantine_ends_only_after_two_empty_checks_a_quiet_period_apart",
     "tui::input::tests::a_quarantine_ends_at_the_first_empty_check_at_or_past_the_quiet",
@@ -54,6 +59,8 @@ for group, names in (("this unit", MINE), ("META-PREFIX-DECODE", MPD)):
     for name in names:
         cells = []
         for run, found in logs.items():
+            if run.startswith("lib") and "::" not in name or run.startswith("tui") and "::" in name:
+                continue
             v = found.get(name)
             cells.append(f"{run} {'MISSING' if not v else ','.join(v)}")
             bad += not v or any(x != "ok" for x in v)

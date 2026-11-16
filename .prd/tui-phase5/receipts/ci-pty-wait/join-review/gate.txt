@@ -1,0 +1,12 @@
+review-gate.sh (this folder's) at 25203a2c, on a --no-local clone, in one hold of the suite lock. fmt, clippy for both feature sets, and the lib tests plain and with fault-injection ran with Homebrew's cargo. Then the whole tui test binary ran with rustup's own multiplexer first on PATH (its libexec/bin, where every tool links to rustup) and RUSTUP_TOOLCHAIN=1.99.1; rustup's default was untouched, and the run had its own target dir.
+# head 25203a2c; cargo 1.99.1 (5f94df478 2026-08-27) (Homebrew); rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)
+fmt: exit 0
+clippy: exit 0
+clippy-fault: exit 0
+lib: exit 0
+    test result: ok. 5129 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 57.31s
+lib-fault: exit 0
+    test result: ok. 5152 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 57.27s
+# rustup multiplexer: /opt/homebrew/opt/rustup/libexec/bin/cargo -> rustup; cargo 1.99.1 (5f94df478 2026-08-27); rustc 1.99.1 (58cf8f9c3 2026-10-13)
+tui-rustup: exit 0
+    test result: ok. 198 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.74s

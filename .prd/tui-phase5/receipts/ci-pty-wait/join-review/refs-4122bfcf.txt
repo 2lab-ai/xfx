@@ -1,0 +1,5 @@
+The content check at 4122bfcf (train 16's content.sh over code and docs; its refs_content.py over this README), against the same at ba133c25 (join/content-ba133c25.txt, join/readme-refs-ba133c25.txt), compared by citing file and reference (the README's own lines moved).
+code and docs: # all 54 files: SAME 261; SAME-ROW 43; SAME-LINES 3; WRONG 9; other product 556; unread 1; refs 873
+  the same WRONG set as at ba133c25
+README: # SAME 53; SAME-ROW 0; SAME-LINES 0; WRONG 18; other product 5; unread 0; refs 76
+  the same 18 references WRONG as at ba133c25 (the round-2 table's 16 and CI's 2), the README's lines 2 lower

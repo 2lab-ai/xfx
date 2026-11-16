@@ -759,6 +759,113 @@ scan the tree pass: identity, no stubs, no secrets and no local paths.
 `git diff ba133c25 HEAD` outside `.prd/` is empty, so the gate's code head
 is the head's code.
 
+## 10. The join review, round 1 — `join-review/`
+
+The join review (gpt6, two personas) found no MUST. This round does two of
+its items. SHOULD 1 (a pending pair crossing its deadline during an empty
+read) predates this branch; it is queued to ESC-MONITOR-TIMING and is not
+changed here.
+
+| commit | what |
+|---|---|
+| `25203a2c` | SHOULD 2: the pending pair through the loop's own turns — tests only, **the code head** |
+| `4122bfcf` | the control's wording, the order RED, the rustup wording, the mutant suite widened |
+| the next | this section and its files |
+
+### SHOULD 2: the pending pair through the loop's turns (`order_red.py`, `order-red.txt`)
+
+The review's point: the pending branch of `9a54c911`'s join test calls the
+turn's steps by hand, so no ordering regression in the production pass can
+reach it.
+
+- **The new case**, `an_escape_pair_pending_through_one_loop_turn_settles_in_the_next_ahead_of_the_start_it_reads`,
+  drives the pair through `loop_turn` twice.
+  - The turn that reads `ab ESC ESC` settles it at a clock no deadline has
+    passed, so the pair is no key and the draft stays.
+  - The next turn reads nothing; its clock has passed both deadlines. The
+    held prompt's start, its answer and its end are on the channel.
+  - It asserts what the hand-driven branch asserts: the drain stops behind
+    the start (2 events left), and `Thinking` comes before `working`. It also
+    asserts that the pair arrived as two Escapes ahead of the start (the draft
+    cleared, no stop sent), and the reports `idle`, `working`, `done`.
+- **The clock is the case's.** The pair is read stamped 250 ms ahead of the
+  clock, through `Shell::route_read_at`. That is `route_read` with the
+  read's instant given; it is a helper appended to the end of `shell.rs`'
+  tests. So the reading turn's own settle, at the clock, finds no deadline
+  passed for any stall under 250 ms. The next turn's read then sleeps until
+  both deadlines past the stamp have passed.
+- **Kept:** the hand-driven branch, as its own case
+  (`an_escape_pair_still_pending_in_the_tick_that_reads_a_held_prompts_start_is_no_key_and_the_start_ends_the_drain`).
+  The settled case keeps its name and its line. The two closures they
+  shared are helpers at the end of the tests module, so no cited line moves.
+- **RED** (`order-red.txt`, on a `--no-local` clone at `25203a2c`). Each
+  order of the production pass was broken alone, and the three cases ran:
+
+| order broken in `loop_turn` | loop-driven pending (new) | hand-driven pending (kept) | settled |
+|---|---|---|---|
+| none (baseline) | ok | ok | ok |
+| the band settled before the input (the reviewer's example) | **FAILED**: no `working` after a frame showing `Thinking` | ok | FAILED, the same |
+| the input settled after the drain | **FAILED**: the pair was not two Escapes ahead of the start | ok | FAILED, the same |
+| the drain before the read | **FAILED**: the pair was not two Escapes ahead of the start | ok | FAILED, the same |
+
+  - With the band moved ahead of the input, it is also ahead of the drain.
+    The start's frame is then built from a band no settle has seen since the
+    start, so it shows no `Thinking`. That is what the case reads; the pair
+    has no part in it.
+  - The other two hand the pair's Escapes to a turn that has already
+    started: an Escape pair at a running turn interrupts it, and the draft
+    stays.
+  - The settled case fails under the same orders. What the new case adds is
+    the pending pair: it settles in a turn that reads nothing, and only the
+    turn's own settle resolves it.
+- **Mutants** (`mutants-25203a2c.txt`): `mutants.py` now selects every
+  `an_escape_pair_` case and moves the two new orders (`loop-settles-band-first`,
+  `loop-drains-before-the-read`). **19 of 19 killed**, with both baselines green (unit 9, harness 5).
+  The new case kills all four `loop-*` orders, alongside the settled one.
+
+### The same-load control's wording (`control_test.py`, `control-test.txt`)
+
+The control saw no increase in rejected sessions at the joined build; it did
+not show the rates equal. §9 now says so: Fisher's exact p 0.64, and only a
+joined-build rate of 31.9% or more would have shown at p < 0.05.
+
+### The gate (`gate.txt`)
+
+At `25203a2c`, on a `--no-local` clone, in one hold of the lock
+(`review-gate.sh`):
+- fmt is clean, and clippy is clean for both feature sets.
+- `cargo test --lib`: 5129 passed, 0 failed, 7 ignored. With
+  fault-injection: 5152, 0 and 7. The touched cases are lib tests: this
+  unit's three join cases, its other loop and shell cases, and
+  META-PREFIX-DECODE's 15, all ok in both (`touched.txt`).
+- **The whole tui test binary under rustup's own multiplexer.** PATH had
+  rustup's `libexec/bin` first, where `cargo` links to `rustup`, not
+  Homebrew's wrapper scripts, with `RUSTUP_TOOLCHAIN=1.99.1`. Result: 198
+  passed, 0 failed. This unit's PTY cases are among them (`touched.txt`).
+  The permissions test and the env self-test are in other binaries; their
+  runner-only failures are train 16's round 5, not yet merged here.
+
+### Numstat by class (`numstat.py`, `numstat.txt`)
+
+| range | product | tests | receipt |
+|---|---|---|---|
+| `81ef5a0a..25203a2c` (SHOULD 2) | +0 −0 | +160 −17 | +0 −0 |
+| `25203a2c..4122bfcf` | +0 −0 | +0 −0 | +194 −7 |
+| `4122bfcf..` this section's commit | +0 −0 | +0 −0 | +295 −0 |
+
+A `src/` line counts as tests when it sits inside its file's
+`#[cfg(test)] mod tests`. `Shell::route_read_at` is one of those: an
+`impl Shell` block in `shell.rs`' tests module.
+
+### Paths
+
+`join/pathscan.sh` over every commit this branch holds that `8be4693b` does
+not, messages and lines, through this section's commit: 0 matching lines,
+and 0 files in this folder (`pathscan.txt`). The content check moved
+nothing: at `4122bfcf` the code and docs read the same 9 WRONG as at
+`ba133c25`, and this README the same 18 references
+(`refs-4122bfcf.txt`).
+
 ## Open questions
 
 1. **The quarantine's clock is read after the readiness check.**
