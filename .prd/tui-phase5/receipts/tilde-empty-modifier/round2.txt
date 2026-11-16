@@ -1,0 +1,18 @@
+# TILDE-EMPTY-MODIFIER round 2: the reviews of db2904ef (gpt6 APPROVE; opus APPROVE-WITH-FIXES, no MUST), item by item. No behaviour change.
+1 MODIFIED-PAGE-KEYS predates the unit and is widened by it (opus SHOULD 1): README "Left apart" 2 and the parity row say both -- the base's modified_tilde gave PageUp/PageDown for every modifier key_modifiers took, and the unit's new spellings (a leading zero on the key or the modifier, a modifier past 256, k;m;57421/57422~ for k other than 27) page the full transcript here, where the base read them as nothing as fx does. The parity row names MODIFIED-PAGE-KEYS as the owner, queued next.
+2 the MOST_BYTES bound stated exactly (opus SHOULD 2): 32 to 63 parameter bytes are nothing, from 64 the 64th ends the discard and the rest is typed (ESC [ + 64 zeros + 3~ is nothing, then the text 3~); older than the unit, every CSI. README "Left apart" 1 and the parity row; pinned by a_tilde_sequence_past_the_csi_bound_is_read_as_every_csi_is.
+3 fx_src.sh's output is in this file (opus SHOULD 3), below.
+4 saturation (opus NIT 3): the_key_and_the_keycode_saturate_rather_than_wrap pins CSI 65537 ~ and CSI 27;5;65635 ~ as nothing; mutants M12 (the key field wraps) and M13 (the keycode field wraps) are new, one per test, and M6 (every field wraps) is run again.
+5 the event-type stage's discard of ~ (opus NIT 2): the strict-shapes test cites escape_parser.zig:779 and :349-351; fx_src.sh reads :342-362 and :756-780.
+6 README's 5/6 sentence (opus NIT 1): the composer-move cells are the leading-zero-with-a-modifier, past-256 and lock-bit rows; the third-field row has no per-key cell; Shift's selection extension is named.
+7 README's first digit (opus NIT 4): the key's first digit is assigned (:584), every later one appended (:601, :664, :742); the leading-zero test's comment says the same.
+8 the key report under 27 (gpt6, the dispatcher's note): README names the class -- CSI 27;m;c~ now reads non-canonical m and c as fx does, m past 256 masked to six bits, c past 65535 saturated to no key.
+The new tests at the base's code (round2-base.txt): the saturation test passes there too (it pins behaviour the base had); the bound test fails there on its first band (30 zeros + 3~ is Delete at the head, nothing at the base: the leading-zero class), and its other bands pass there.
+
+## checks at 782c3752's src (the round-2 code head; no src change after it)
+$ { git diff ebb04642 -- src tests scripts/fxcap/scenarios | grep '^+'; git diff --word-diff=porcelain ebb04642 -- docs/parity.md | grep '^+'; } | fx_src.sh <fx checkout>
+153 citations checked, 0 outside fx-src.txt's ranges
+$ python3 -I refs.py ebb04642 | tail -1
+refs: 16 checked, 0 wrong, 0 without an expected text
+mutants: mutants.txt's first block, on a --no-local clone at 782c3752: 13 of 13 killed, the clone's tree clean after; M12 and M13 each by the_key_and_the_keycode_saturate_rather_than_wrap alone, M6 by it and the past-256 test.
+gate: gate.txt's first block, at 3e2dbb05 (src/ = 782c3752): fmt, clippy, clippy-fi, identity, stubs, secrets, local-paths exit 0; test-fi 5739/0; test 5699 passed, 3 failed -- tui::worker's three catalog-wait stop-timing tests (src/tui/worker.rs, untouched), green in test-fi's run, rerun alone 3 times each (one failed once unlocked beside the mutant run, then 3 of 3 under the lock). green.txt's first block: 38 of 38.

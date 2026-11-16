@@ -1,0 +1,47 @@
+DIFF ctrl-a-7-5-97     rows: 3 
+       fx:  ┃ MGHIJKabc defBDFL
+       xfx: ┃ abc defABCDEFGHIJKLM
+DIFF ctrl-e-4-5-101    rows: 3 
+       fx:  ┃ GHIJKabc defBDFL
+       xfx: ┃ abc defABCDEFGHIJKL
+DIFF delete-03         rows: 3 
+       fx:  ┃ GHIJKabc defBDF
+       xfx: ┃ abc defABCDEFGHIJK
+DIFF delete-3-1        rows: 3 
+       fx:  ┃ GHCAabc defBDF
+       xfx: ┃ abc defABCDEFGH
+DIFF delete-3-99999    rows: 3 
+       fx:  ┃ MN
+       xfx: ┃ abc defABCDEFGHIJKLMN
+DIFF delete-3-caps     rows: 3 
+       fx:  ┃ GHIJAabc defBDF
+       xfx: ┃ abc defABCDEFGHIJ
+DIFF delete-3-empty    rows: 3 
+       fx:  ┃ GHIAabc defBDF
+       xfx: ┃ abc defABCDEFGHI
+DIFF end-08            rows: 3 
+       fx:  ┃ CAabc defBD
+       xfx: ┃ abc defABCD
+DIFF end-4-259         rows: 3 
+       fx:  ┃ ECAabc defBDF
+       xfx: ┃ abc defABCDEF
+DIFF end-4-empty       rows: 3 
+       fx:  ┃ Aabc defB
+       xfx: ┃ abc defAB
+DIFF home-01-03        rows: 3 
+       fx:  ┃ ECAabc defBD
+       xfx: ┃ abc defABCDE
+DIFF home-1-1          rows: 3 
+       fx:  ┃ Aabc def
+       xfx: ┃ abc defA
+DIFF home-1-257        rows: 3 
+       fx:  ┃ GECAabc defBDF
+       xfx: ┃ abc defABCDEFG
+DIFF home-7-0          rows: 3 
+       fx:  ┃ CAabc defB
+       xfx: ┃ abc defABC
+SAME typed             rows: none
+       fx:  ┃ abc def
+       xfx: ┃ abc def
+banners: fx 𝒇x v0.0.16 · Run /help for commands / red x𝒇x v0.1.0-ebb0464 [debug] · Run /help for commands
+1 of 15 pairs identical

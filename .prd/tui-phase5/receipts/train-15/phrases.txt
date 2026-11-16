@@ -1,0 +1,7 @@
+# docs/parity.md: occurrences at the head 2c575f52, main e2fc7e94, the train before the join bc9ea199, the base 753b0a72
+XFX_TUI=1:       2c575f52 0 e2fc7e94 0 bc9ea199 6 753b0a72 6
+preview channel: 2c575f52 0 e2fc7e94 0 bc9ea199 2 753b0a72 2
+preview-channel: 2c575f52 0 e2fc7e94 0 bc9ea199 3 753b0a72 3
+zbrain:          2c575f52 0 e2fc7e94 0 bc9ea199 2 753b0a72 2
+open-loop:       2c575f52 0 e2fc7e94 0 bc9ea199 2 753b0a72 2
+Opt-in:          2c575f52 0 e2fc7e94 0 bc9ea199 1 753b0a72 1

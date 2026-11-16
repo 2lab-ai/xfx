@@ -1,0 +1,242 @@
+# RED: the five tests at 66ea82f3 (d7916178's code, tests and scenarios added; git diff d7916178 66ea82f3 -- src adds tests only), before the fix
+# TMPDIR=<tmp> cargo test --locked --lib -- --exact <the five>, from the worktree (<work>); the run's whole output
+# keys_fx_does_not_read_as_ctrl_j_still_do_nothing_at_a_question passes here by construction: its three keys (a kitty release, ESC LF, Alt-j) are nothing to fx and to the base alike; it guards the decoder's reading, not the fix
+# every failing case is the C-j after a frame answering nothing (None): the base swallows every spelling. The in-one-read refusals pass at the base trivially (its C-j does nothing at all)
+
+   Compiling xfx v0.1.0 (<work>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.26s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 5 tests
+test tui::shell::tests::keys_fx_does_not_read_as_ctrl_j_still_do_nothing_at_a_question ... ok
+test tui::shell::tests::ctrl_j_at_a_question_over_the_status_panel_answers_the_question_not_the_panel ... FAILED
+test tui::shell::tests::ctrl_j_at_deny_refuses_at_once_as_enter_does ... FAILED
+test tui::shell::tests::ctrl_j_read_with_a_change_waits_for_the_frame_as_enter_does ... FAILED
+test tui::shell::tests::ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes ... FAILED
+
+failures:
+
+---- tui::shell::tests::ctrl_j_at_a_question_over_the_status_panel_answers_the_question_not_the_panel stdout ----
+
+thread 'tui::shell::tests::ctrl_j_at_a_question_over_the_status_panel_answers_the_question_not_the_panel' (472143567) panicked at src/tui/shell.rs:24032:9:
+[
+    "review false, c-j: None",
+    "review true, c-j: None",
+    "review false, kitty ctrl+j: None",
+    "review true, kitty ctrl+j: None",
+    "review false, kitty ctrl+J: None",
+    "review true, kitty ctrl+J: None",
+    "review false, kitty ctrl+shift+j: None",
+    "review true, kitty ctrl+shift+j: None",
+    "review false, kitty ctrl+alt+j: None",
+    "review true, kitty ctrl+alt+j: None",
+    "review false, kitty ctrl+super+j: None",
+    "review true, kitty ctrl+super+j: None",
+    "review false, kitty ctrl+j, caps lock: None",
+    "review true, kitty ctrl+j, caps lock: None",
+    "review false, kitty ctrl+j press: None",
+    "review true, kitty ctrl+j press: None",
+    "review false, kitty ctrl+j repeat: None",
+    "review true, kitty ctrl+j repeat: None",
+    "review false, xterm ctrl+j: None",
+    "review true, xterm ctrl+j: None",
+    "review false, xterm ctrl+shift+J: None",
+    "review true, xterm ctrl+shift+J: None",
+]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::shell::tests::ctrl_j_at_deny_refuses_at_once_as_enter_does stdout ----
+
+thread 'tui::shell::tests::ctrl_j_at_deny_refuses_at_once_as_enter_does' (472143568) panicked at src/tui/shell.rs:23977:9:
+[
+    "edit_file, down down and c-j: None",
+    "terminal, down down and c-j: None",
+    "review false, x and c-j in the deny draft: None",
+    "review true, x and c-j in the deny draft: None",
+    "edit_file, down down and kitty ctrl+j: None",
+    "terminal, down down and kitty ctrl+j: None",
+    "review false, x and kitty ctrl+j in the deny draft: None",
+    "review true, x and kitty ctrl+j in the deny draft: None",
+    "edit_file, down down and kitty ctrl+J: None",
+    "terminal, down down and kitty ctrl+J: None",
+    "review false, x and kitty ctrl+J in the deny draft: None",
+    "review true, x and kitty ctrl+J in the deny draft: None",
+    "edit_file, down down and kitty ctrl+shift+j: None",
+    "terminal, down down and kitty ctrl+shift+j: None",
+    "review false, x and kitty ctrl+shift+j in the deny draft: None",
+    "review true, x and kitty ctrl+shift+j in the deny draft: None",
+    "edit_file, down down and kitty ctrl+alt+j: None",
+    "terminal, down down and kitty ctrl+alt+j: None",
+    "review false, x and kitty ctrl+alt+j in the deny draft: None",
+    "review true, x and kitty ctrl+alt+j in the deny draft: None",
+    "edit_file, down down and kitty ctrl+super+j: None",
+    "terminal, down down and kitty ctrl+super+j: None",
+    "review false, x and kitty ctrl+super+j in the deny draft: None",
+    "review true, x and kitty ctrl+super+j in the deny draft: None",
+    "edit_file, down down and kitty ctrl+j, caps lock: None",
+    "terminal, down down and kitty ctrl+j, caps lock: None",
+    "review false, x and kitty ctrl+j, caps lock in the deny draft: None",
+    "review true, x and kitty ctrl+j, caps lock in the deny draft: None",
+    "edit_file, down down and kitty ctrl+j press: None",
+    "terminal, down down and kitty ctrl+j press: None",
+    "review false, x and kitty ctrl+j press in the deny draft: None",
+    "review true, x and kitty ctrl+j press in the deny draft: None",
+    "edit_file, down down and kitty ctrl+j repeat: None",
+    "terminal, down down and kitty ctrl+j repeat: None",
+    "review false, x and kitty ctrl+j repeat in the deny draft: None",
+    "review true, x and kitty ctrl+j repeat in the deny draft: None",
+    "edit_file, down down and xterm ctrl+j: None",
+    "terminal, down down and xterm ctrl+j: None",
+    "review false, x and xterm ctrl+j in the deny draft: None",
+    "review true, x and xterm ctrl+j in the deny draft: None",
+    "edit_file, down down and xterm ctrl+shift+J: None",
+    "terminal, down down and xterm ctrl+shift+J: None",
+    "review false, x and xterm ctrl+shift+J in the deny draft: None",
+    "review true, x and xterm ctrl+shift+J in the deny draft: None",
+]
+
+---- tui::shell::tests::ctrl_j_read_with_a_change_waits_for_the_frame_as_enter_does stdout ----
+
+thread 'tui::shell::tests::ctrl_j_read_with_a_change_waits_for_the_frame_as_enter_does' (472143569) panicked at src/tui/shell.rs:23940:9:
+[
+    "the band, c-j after the frame: None",
+    "the band, the draft's c-j after the frame: None",
+    "the review plane, c-j after the frame: None",
+    "the review plane, the draft's c-j after the frame: None",
+    "a command, c-j after the frame: None",
+    "the band, kitty ctrl+j after the frame: None",
+    "the band, the draft's kitty ctrl+j after the frame: None",
+    "the review plane, kitty ctrl+j after the frame: None",
+    "the review plane, the draft's kitty ctrl+j after the frame: None",
+    "a command, kitty ctrl+j after the frame: None",
+    "the band, kitty ctrl+J after the frame: None",
+    "the band, the draft's kitty ctrl+J after the frame: None",
+    "the review plane, kitty ctrl+J after the frame: None",
+    "the review plane, the draft's kitty ctrl+J after the frame: None",
+    "a command, kitty ctrl+J after the frame: None",
+    "the band, kitty ctrl+shift+j after the frame: None",
+    "the band, the draft's kitty ctrl+shift+j after the frame: None",
+    "the review plane, kitty ctrl+shift+j after the frame: None",
+    "the review plane, the draft's kitty ctrl+shift+j after the frame: None",
+    "a command, kitty ctrl+shift+j after the frame: None",
+    "the band, kitty ctrl+alt+j after the frame: None",
+    "the band, the draft's kitty ctrl+alt+j after the frame: None",
+    "the review plane, kitty ctrl+alt+j after the frame: None",
+    "the review plane, the draft's kitty ctrl+alt+j after the frame: None",
+    "a command, kitty ctrl+alt+j after the frame: None",
+    "the band, kitty ctrl+super+j after the frame: None",
+    "the band, the draft's kitty ctrl+super+j after the frame: None",
+    "the review plane, kitty ctrl+super+j after the frame: None",
+    "the review plane, the draft's kitty ctrl+super+j after the frame: None",
+    "a command, kitty ctrl+super+j after the frame: None",
+    "the band, kitty ctrl+j, caps lock after the frame: None",
+    "the band, the draft's kitty ctrl+j, caps lock after the frame: None",
+    "the review plane, kitty ctrl+j, caps lock after the frame: None",
+    "the review plane, the draft's kitty ctrl+j, caps lock after the frame: None",
+    "a command, kitty ctrl+j, caps lock after the frame: None",
+    "the band, kitty ctrl+j press after the frame: None",
+    "the band, the draft's kitty ctrl+j press after the frame: None",
+    "the review plane, kitty ctrl+j press after the frame: None",
+    "the review plane, the draft's kitty ctrl+j press after the frame: None",
+    "a command, kitty ctrl+j press after the frame: None",
+    "the band, kitty ctrl+j repeat after the frame: None",
+    "the band, the draft's kitty ctrl+j repeat after the frame: None",
+    "the review plane, kitty ctrl+j repeat after the frame: None",
+    "the review plane, the draft's kitty ctrl+j repeat after the frame: None",
+    "a command, kitty ctrl+j repeat after the frame: None",
+    "the band, xterm ctrl+j after the frame: None",
+    "the band, the draft's xterm ctrl+j after the frame: None",
+    "the review plane, xterm ctrl+j after the frame: None",
+    "the review plane, the draft's xterm ctrl+j after the frame: None",
+    "a command, xterm ctrl+j after the frame: None",
+    "the band, xterm ctrl+shift+J after the frame: None",
+    "the band, the draft's xterm ctrl+shift+J after the frame: None",
+    "the review plane, xterm ctrl+shift+J after the frame: None",
+    "the review plane, the draft's xterm ctrl+shift+J after the frame: None",
+    "a command, xterm ctrl+shift+J after the frame: None",
+]
+
+---- tui::shell::tests::ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes stdout ----
+
+thread 'tui::shell::tests::ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes' (472143566) panicked at src/tui/shell.rs:23867:9:
+[
+    "the band, choice 1, c-j: None",
+    "the band, choice 2, c-j: None",
+    "the band, a draft, c-j: None",
+    "the band, choice 1, kitty ctrl+j: None",
+    "the band, choice 2, kitty ctrl+j: None",
+    "the band, a draft, kitty ctrl+j: None",
+    "the band, choice 1, kitty ctrl+J: None",
+    "the band, choice 2, kitty ctrl+J: None",
+    "the band, a draft, kitty ctrl+J: None",
+    "the band, choice 1, kitty ctrl+shift+j: None",
+    "the band, choice 2, kitty ctrl+shift+j: None",
+    "the band, a draft, kitty ctrl+shift+j: None",
+    "the band, choice 1, kitty ctrl+alt+j: None",
+    "the band, choice 2, kitty ctrl+alt+j: None",
+    "the band, a draft, kitty ctrl+alt+j: None",
+    "the band, choice 1, kitty ctrl+super+j: None",
+    "the band, choice 2, kitty ctrl+super+j: None",
+    "the band, a draft, kitty ctrl+super+j: None",
+    "the band, choice 1, kitty ctrl+j, caps lock: None",
+    "the band, choice 2, kitty ctrl+j, caps lock: None",
+    "the band, a draft, kitty ctrl+j, caps lock: None",
+    "the band, choice 1, kitty ctrl+j press: None",
+    "the band, choice 2, kitty ctrl+j press: None",
+    "the band, a draft, kitty ctrl+j press: None",
+    "the band, choice 1, kitty ctrl+j repeat: None",
+    "the band, choice 2, kitty ctrl+j repeat: None",
+    "the band, a draft, kitty ctrl+j repeat: None",
+    "the band, choice 1, xterm ctrl+j: None",
+    "the band, choice 2, xterm ctrl+j: None",
+    "the band, a draft, xterm ctrl+j: None",
+    "the band, choice 1, xterm ctrl+shift+J: None",
+    "the band, choice 2, xterm ctrl+shift+J: None",
+    "the band, a draft, xterm ctrl+shift+J: None",
+    "the review plane, choice 1, c-j: None",
+    "the review plane, choice 2, c-j: None",
+    "the review plane, a draft, c-j: None",
+    "the review plane, choice 1, kitty ctrl+j: None",
+    "the review plane, choice 2, kitty ctrl+j: None",
+    "the review plane, a draft, kitty ctrl+j: None",
+    "the review plane, choice 1, kitty ctrl+J: None",
+    "the review plane, choice 2, kitty ctrl+J: None",
+    "the review plane, a draft, kitty ctrl+J: None",
+    "the review plane, choice 1, kitty ctrl+shift+j: None",
+    "the review plane, choice 2, kitty ctrl+shift+j: None",
+    "the review plane, a draft, kitty ctrl+shift+j: None",
+    "the review plane, choice 1, kitty ctrl+alt+j: None",
+    "the review plane, choice 2, kitty ctrl+alt+j: None",
+    "the review plane, a draft, kitty ctrl+alt+j: None",
+    "the review plane, choice 1, kitty ctrl+super+j: None",
+    "the review plane, choice 2, kitty ctrl+super+j: None",
+    "the review plane, a draft, kitty ctrl+super+j: None",
+    "the review plane, choice 1, kitty ctrl+j, caps lock: None",
+    "the review plane, choice 2, kitty ctrl+j, caps lock: None",
+    "the review plane, a draft, kitty ctrl+j, caps lock: None",
+    "the review plane, choice 1, kitty ctrl+j press: None",
+    "the review plane, choice 2, kitty ctrl+j press: None",
+    "the review plane, a draft, kitty ctrl+j press: None",
+    "the review plane, choice 1, kitty ctrl+j repeat: None",
+    "the review plane, choice 2, kitty ctrl+j repeat: None",
+    "the review plane, a draft, kitty ctrl+j repeat: None",
+    "the review plane, choice 1, xterm ctrl+j: None",
+    "the review plane, choice 2, xterm ctrl+j: None",
+    "the review plane, a draft, xterm ctrl+j: None",
+    "the review plane, choice 1, xterm ctrl+shift+J: None",
+    "the review plane, choice 2, xterm ctrl+shift+J: None",
+    "the review plane, a draft, xterm ctrl+shift+J: None",
+]
+
+
+failures:
+    tui::shell::tests::ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes
+    tui::shell::tests::ctrl_j_at_a_question_over_the_status_panel_answers_the_question_not_the_panel
+    tui::shell::tests::ctrl_j_at_deny_refuses_at_once_as_enter_does
+    tui::shell::tests::ctrl_j_read_with_a_change_waits_for_the_frame_as_enter_does
+
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 4656 filtered out; finished in 0.09s
+
+error: test failed, to rerun pass `--lib`
+
+# the capture pairs at the base: pairs.txt's first part (scope.py red), 5 of 12 identical

@@ -1,0 +1,74 @@
+fx: env FX_TRACE_LOG=<scratch>/trace-probe.txt
+fx: env FX_TRACE_SCOPES=input,permission,auth,catalog,provider,turn,worker,compaction
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-permissions-early-read-turn.json
+work permissions-early-ws
+wait 2
+type /permissions remember allow write_file {"path":"b.txt","content":"y"}
+key Enter
+until shown 1. Confirm
+snap prompt
+key Tab
+wait 0.4
+snap tab
+key Right
+wait 0.4
+snap right
+key Left
+wait 0.4
+snap left
+key -H 1b 66
+wait 0.4
+snap alt-f
+key -H 1b 62
+wait 0.4
+snap alt-b
+key -H 10
+wait 0.4
+key -H 0e
+wait 0.4
+key 3
+wait 0.4
+key -H 1b 5b 31 3b 32 41
+wait 0.4
+key -H 1b 5b 31 3b 35 41
+wait 0.4
+snap nothing-keys
+key -H 0a
+wait 1
+snap ctrl-j-cancel
+type /permissions remember allow write_file {"path":"b.txt","content":"y"}
+key Enter
+until shown 1. Confirm
+key -H 0a
+wait 1
+snap ctrl-j
+type /permissions remember deny write_file {"path":"c.txt","content":"z"}
+key Enter
+until shown 1. Confirm
+key C-c
+wait 0.6
+snap ctrl-c
+type /permissions remember deny read_file {"path":"a.txt"}
+key Enter
+until shown 1. Confirm
+wait 2
+key Escape
+wait 0.8
+snap esc
+type /permissions remember deny read_file {"path":"a.txt"}
+key Enter
+until shown 1. Confirm
+key -H 1b 5b 31 30 36 3b 35 75
+wait 1
+snap kitty-ctrl-j
+type read it
+key Enter
+wait 3
+snap turn
+type /permissions remember allow write_file {"path":"d.txt","content":"w"}
+key Enter
+until shown 1. Confirm
+key Escape
+wait 0.8
+snap esc-after-turn

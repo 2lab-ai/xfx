@@ -1,0 +1,49 @@
+# CATALOG-WAIT-CLOCK round 4's gate: gates.sh (train 13's) in a git clone --no-local at 60af13cf (the code head 6073cdc5 plus round 4's receipt but for this file), the whole script inside one hold of the suite lock (suite-lock.sh gates.sh), TMPDIR a short scratch root; each step's exit from $? on the line after its command.
+# head 60af13cf; tree clean: yes
+01 fmt                                exit 0     1s  load 19.52
+02 clippy                             exit 0    27s  load 19.52
+03 clippy-fault                       exit 0    18s  load 15.03
+04 test                               exit 0   169s  load 13.34
+05 test-fault                         exit 0   167s  load 10.63
+06 check-xfx-identity                 exit 0     1s  load 13.29
+07 check-no-stubs                     exit 0    10s  load 13.19
+08 check-no-secrets                   exit 0    61s  load 12.60
+09 check-no-local-paths               exit 0     3s  load 9.65
+10 test-check-no-local-paths          exit 0     4s  load 9.65
+11 check-preview-contract             exit 0     2s  load 9.28
+12 check-tui-preflight-cost           exit 0    91s  load 9.18
+13 check-usage-clock                  exit 0     1s  load 10.02
+14 test-check-no-secrets              exit 0    67s  load 10.02
+15 test-gate-env                      exit 0   163s  load 7.17
+16 test-preview-contract              exit 0    49s  load 8.83
+17 fxcap-test-sweep                   exit 0    13s  load 9.22
+18 fxcap-test-capture                 exit 0   363s  load 8.35
+19 build-release                      exit 0    22s  load 4.11
+20 build-faulty                       exit 0    30s  load 4.77
+21 smoke                              exit 0     1s  load 10.62
+22 smoke-tui                          exit 0    69s  load 10.62
+# 22 steps, 0 failed; tree clean after: yes
+lock exit 0
+
+== 04-test: summed over every 'test result' line
+  passed 5687 failed 0 ignored 7
+  the unit's tests in this step:
+    test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+    test tui::worker::tests::the_place_watcher_ends_when_the_run_it_watches_panics ... ok
+    test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+    test tui::worker::tests::a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound ... ok
+== 05-test-fault: summed over every 'test result' line
+  passed 5724 failed 0 ignored 7
+  the unit's tests in this step:
+    test tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs ... ok
+    test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+    test tui::worker::tests::the_place_watcher_ends_when_the_run_it_watches_panics ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+    test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... ok
+    test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+    test tui::worker::tests::a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound ... ok
+== 22-smoke-tui
+  smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures

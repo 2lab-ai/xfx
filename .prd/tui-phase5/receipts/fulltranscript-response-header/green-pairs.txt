@@ -1,0 +1,32 @@
+## fx against xfx, cell by cell (cells.py, row 1 left out): as captured | moments masked
+launch            captured SAME rows: none | masked SAME rows: none
+long              captured SAME rows: none | masked SAME rows: none
+table             captured SAME rows: none | masked SAME rows: none
+full-table        captured DIFF rows: 15 18 21 32 35  | masked SAME rows: none
+rule              captured SAME rows: none | masked SAME rows: none
+full-rule         captured DIFF rows: 4 7 18 21 24 27 32 35  | masked SAME rows: none
+block-only        captured SAME rows: none | masked SAME rows: none
+full-block-only   captured DIFF rows: 8 11 14 17 22 25 28 35  | masked SAME rows: none
+block-last        captured SAME rows: none | masked SAME rows: none
+full-block-last   captured DIFF rows: 4 9 12 15 22 25 28 35  | masked SAME rows: none
+block-first       captured SAME rows: none | masked SAME rows: none
+full-block-first  captured DIFF rows: 2 9 12 15 22 25 32 35  | masked SAME rows: none
+blocks            captured SAME rows: none | masked SAME rows: none
+full-blocks       captured DIFF rows: 8 11 18 21 24 35  | masked SAME rows: none
+8 of 14 pairs identical as captured; 14 of 14 with the moments masked
+
+## each full snap's header kinds, top to bottom
+fx   full-table        Usage Prompt Response Response Usage 
+xfx  full-table        Usage Prompt Response Response Usage 
+fx   full-rule         Usage Prompt Response Response Usage Prompt Response Response Usage 
+xfx  full-rule         Usage Prompt Response Response Usage Prompt Response Response Usage 
+fx   full-block-only   Response Usage Prompt Response Response Usage Prompt Usage 
+xfx  full-block-only   Response Usage Prompt Response Response Usage Prompt Usage 
+fx   full-block-last   Prompt Response Response Usage Prompt Usage Prompt Response Usage 
+xfx  full-block-last   Prompt Response Response Usage Prompt Usage Prompt Response Usage 
+fx   full-block-first  Prompt Usage Prompt Response Usage Prompt Response Usage 
+xfx  full-block-first  Prompt Usage Prompt Response Usage Prompt Response Usage 
+fx   full-blocks       Response Usage Prompt Response Usage Prompt Usage 
+xfx  full-blocks       Response Usage Prompt Response Usage Prompt Usage 
+
+banners (launch row 1): fx 𝒇x v0.0.16 · Run /help for commands / xfx x𝒇x v0.1.0-b9007bc [debug] · Run /help for commands

@@ -1,0 +1,29 @@
+# RULE-CONFIRM-KEYS: Escape at a `/permissions` rule confirmation asked
+# while a command runs (interrupt-cmd's turns and modes: each product's own
+# shell tool under `yolo`, so the command really starts; it sleeps six
+# seconds). fx v0.0.16's Escape there is `cancelApprovalOperation`
+# (app_input_runtime.zig:2689, :2712-2716@481104fd): the turn is stopped
+# and the confirmation goes (input_approval_runtime.zig:401-436). What the
+# running command's row says then, and after the six seconds.
+fx: gateway interrupt-cmd-fx.json
+xfx: gateway interrupt-cmd-xfx.json
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+work permissions-early-ws
+until shown Full access
+wait 2
+until gone Full access
+type run cmd
+key Enter
+wait 2
+type /permissions remember deny read_file {"path":"a.txt"}
+key Enter
+until shown 1. Confirm
+snap prompt
+key Escape
+wait 0.6
+snap esc
+wait 1.5
+snap esc-2
+wait 4
+snap done

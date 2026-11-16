@@ -1,0 +1,17 @@
+# On a --no-local clone at 33cfeac4 (the code head's src/ with its comment fixes; its remote removed) under <tmp>/mut/, one mutant at a time, the file restored after each, the run under the suite lock: TMPDIR=<tmp> python3 -I mutants.py <tmp>/mut/repo <out>
+# Each runs: cargo test --locked --lib -- tui:: (the first six failing tests named).
+M1 the full transcript reads the arrows' composer spellings as the arrows (the base's reading): KILLED (85s) a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen
+M2 the question reads the arrows' composer spellings as the arrows (the base's reading): KILLED (54s) a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move
+M3 a question takes Shift-Left, Super-Left and Ctrl-B as Left: KILLED (46s) a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move
+M4 a question binds no Alt-f: KILLED (54s) alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not
+M5 a question takes Super-Up as Up: KILLED (52s) a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move
+M6 a question takes Ctrl- and Alt-Up as Up: KILLED (47s) a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move
+M7 the decoder reads Shift before Alt on Up and Down (the base's order): KILLED (45s) every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow, a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move
+M8 a question binds no Super-Up: KILLED (48s) a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move
+M9 a question binds no Shift-Left, Super-Left or Ctrl-B: KILLED (43s) a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move, alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not
+M10 a question binds no Shift-Right, Super-Right or Ctrl-F: KILLED (43s) a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move
+M11 the full transcript scrolls on Ctrl- and Alt-Up: KILLED (44s) a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen
+M12 the full transcript holds Shift-Left, Super-Left and Ctrl-B: KILLED (46s) a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen
+M13 the merged fold leaves a composer move on Left as itself: KILLED (45s) alt_b_in_an_approval_amendment_is_the_word_move, the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest
+M14 Shift-Left, Super-Left and Ctrl-B go back a question at a choice: KILLED (59s) a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move
+14 of 14 killed; the clone's tree after the run: clean

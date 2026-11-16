@@ -105,7 +105,7 @@ impl Delta {
     }
 
     /// Where the change begins -- the **widened** start, when an entity made the
-    /// editor take more than the keystroke asked for (`editor.rs:570-572`).
+    /// editor take more than the keystroke asked for (`editor.rs:586-588`).
     pub(crate) fn at(&self) -> usize {
         self.at
     }

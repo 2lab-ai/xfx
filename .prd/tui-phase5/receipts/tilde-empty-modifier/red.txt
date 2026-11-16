@@ -1,0 +1,50 @@
+# RED: the tests at 074f5113 (this unit's tests over the base's code; `git diff ebb04642 074f5113 -- src` touches only `mod tests`)
+$ TMPDIR=<tmp> cargo test --locked --lib -- tui::input::tests
+
+a_ctrl_letter_is_upstreams_table_in_a_strict_spelling  (src/tui/input.rs:2123)
+    assertion `left == right` failed: a leading zero is the number
+    left: Ignore   right: Cancel
+a_leading_zero_in_a_tilde_field_is_the_number  (src/tui/input.rs:2761)
+    assertion `left == right` failed: CSI 01 ~
+    left: [Action(Ignore)]   right: [Action(Home)]
+a_modifier_field_of_0_is_the_bare_tilde_key  (src/tui/input.rs:2745)
+    assertion `left == right` failed: CSI 1 ; 0 ~
+    left: [Action(Ignore)]   right: [Action(Home)]
+a_modifier_field_of_1_is_the_bare_tilde_key  (src/tui/input.rs:2717)
+    assertion `left == right` failed: CSI 1 ; 1 ~
+    left: [Action(Ignore)]   right: [Action(Home)]
+a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits  (src/tui/input.rs:2825)
+    assertion `left == right` failed: CSI 1 ; 257 ~
+    left: [Action(Ignore)]   right: [Action(Home)]
+a_third_tilde_field_is_a_key_report_whatever_the_first_holds  (src/tui/input.rs:2903)
+    assertion `left == right` failed: CSI 1;5;99 ~
+    left: [Action(Ignore)]   right: [Action(Cancel)]
+an_empty_modifier_field_is_the_bare_tilde_key  (src/tui/input.rs:2731)
+    assertion `left == right` failed: CSI 1 ; ~
+    left: [Action(Ignore)]   right: [Action(Home)]
+ctrl_o_and_the_page_keys_are_the_full_transcripts_in_every_spelling_upstream_reads  (src/tui/input.rs:2959)
+    assertion `left == right` failed
+    left: Ignore   right: PageUp
+delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it  (src/tui/input.rs:2843)
+    assertion `left == right` failed: CSI 3 ; 65 ~
+    left: [Action(Delete)]   right: [Action(Ignore)]
+end_with_a_modifier_csi_4_mod_tilde_is_end  (src/tui/input.rs:2613)
+    assertion `left == right` failed: CSI 4 ; 1 ~
+    left: [Action(Ignore)]   right: [Action(End)]
+every_modifier_field_on_the_tilde_home_and_end_is_the_key  (src/tui/input.rs:2679)
+    assertion `left == right` failed: CSI 1 ; 0 ~
+    left: [Action(Ignore)]   right: [Action(Home)]
+everything_else_under_the_two_families_is_ignored  (src/tui/input.rs:2038)
+    assertion `left == right` failed: the first field is overwritten
+    left: Ignore   right: Redo
+home_with_a_modifier_csi_1_mod_tilde_is_home  (src/tui/input.rs:2613)
+    assertion `left == right` failed: CSI 1 ; 1 ~
+    left: [Action(Ignore)]   right: [Action(Home)]
+rxvts_end_with_a_modifier_csi_8_mod_tilde_is_end  (src/tui/input.rs:2613)
+    assertion `left == right` failed: CSI 8 ; 1 ~
+    left: [Action(Ignore)]   right: [Action(End)]
+rxvts_home_with_a_modifier_csi_7_mod_tilde_is_home  (src/tui/input.rs:2613)
+    assertion `left == right` failed: CSI 7 ; 1 ~
+    left: [Action(Ignore)]   right: [Action(Home)]
+
+test result: FAILED. 88 passed; 15 failed; 0 ignored; 0 measured; 4680 filtered out; finished in 0.04s

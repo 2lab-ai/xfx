@@ -1,0 +1,9 @@
+# the binaries the captures ran (shasum -a 256), and row 1 of one snap each
+90b09bfc013e26b9f7f139ff818d7d601a04fdd7878d29ea871309b6a73a5914  xfx-base
+f67ef887ed8a70d0676f434491885a2aceaf4fd54d73560d2c64cad50b11aa83  xfx-head
+fx v0.0.16: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2
+red/ row 1: x𝒇x v0.1.0-b3a19ed [debug] · Run /help for commands
+xfx/ row 1: x𝒇x v0.1.0-09077f5 [debug] · Run /help for commands
+fx/ row 1: 𝒇x v0.0.16 · Run /help for commands
+capture.sh's fx guard line: guards: <fx> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+xfx-base is b3a19ede built in this worktree before any commit (its src changes were tests only, cfg(test)); xfx-head is 09077f5f built after its commit, the tree clean.

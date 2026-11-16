@@ -1,0 +1,28 @@
+# RED: the tests at 08d6d605 (the RED commit: tests and scenarios only) over the base's code (c77a77ce), in a --no-local clone:
+# cargo test --locked --lib -- tui::input::tests::every_modifier_on_the_vertical a_held_arrow the_fold_maps alt_b_at_a_choice alt_b_in_an_approval a_page_key_held_with_a_modifier the_vertical_spellings the_horizontal_keys
+# (assertion rows cut at 250 columns)
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+test tui::input::tests::a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page ... ok
+test tui::input::tests::every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow ... FAILED
+test tui::shell::tests::alt_b_in_an_approval_amendment_is_the_word_move ... ok
+test tui::shell::tests::a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move ... FAILED
+test tui::shell::tests::a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen ... FAILED
+test tui::shell::tests::a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen ... ok
+test tui::shell::tests::the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do ... ok
+test tui::shell::tests::the_vertical_spellings_at_an_approval_choice_move_nothing_and_the_arrows_still_do ... ok
+test tui::shell::tests::the_horizontal_keys_at_an_approval_choice_are_fxs ... ok
+test tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one ... ok
+thread 'tui::input::tests::every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow' (511577382) panicked at src/tui/input.rs:3527:13:
+assertion `left == right` failed: [27, 91, 49, 59, 52, 66]
+  left: [Action(SelectDown)]
+ right: [Action(ComposerDown)]
+thread 'tui::shell::tests::a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move' (511577383) panicked at src/tui/shell.rs:24309:13:
+assertion `left == right` failed: ctrl-up ([27, 91, 49, 59, 53, 65]) changed the question
+  left: ["\u{1b}[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u{1b}[0m", "  \u{1b}[1mShip it?\u{1b}[0m", "", "\u{1b}[38;5;245m    1) Yes\u{1b}[0m", "\u{1b}[38;5;245m
+ right: ["\u{1b}[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u{1b}[0m", "  \u{1b}[1mShip it?\u{1b}[0m", "", "\u{1b}[1;38;5;255m    1) Yes\u{1b}[0m", "\u{1b}[38;5;24
+thread 'tui::shell::tests::a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen' (511577384) panicked at src/tui/shell.rs:24239:13:
+assertion `left == right` failed: ctrl-up moved the screen
+  left: ["  2026-11-10 19:57:13.719 UTC · Notice", "* n: 12", "", "  2026-11-10 19:57:13.719 UTC · Notice", "* n: 13", "", "  2026-11-10 19:57:13.719 UTC · Notice", "* n: 14", "", "  2026-11-10 19:57:13.719 UTC · Notice", "* n: 15", "", "  2026-11-10
+ right: ["  2026-11-10 19:57:13.719 UTC · Notice", "* n: 13", "", "  2026-11-10 19:57:13.719 UTC · Notice", "* n: 14", "", "  2026-11-10 19:57:13.719 UTC · Notice", "* n: 15", "", "  2026-11-10 19:57:13.719 UTC · Notice", "* n: 16", "", "  2026-11-10
+test result: FAILED. 9 passed; 3 failed; 0 ignored; 0 measured; 4777 filtered out; finished in 0.03s

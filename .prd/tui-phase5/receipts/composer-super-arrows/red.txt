@@ -1,0 +1,27 @@
+# RED: the five tests at 82895f13 (tests only) over the base's code (28bd1810), each its own run:
+#   TMPDIR=<tmp> timeout 300 cargo test --locked --lib -- --exact tui::shell::tests::<name>
+# 4 of 5 fail at their first fx key; the full transcript's (coverage, no RED) passes.
+test tui::shell::tests::a_held_left_right_home_or_end_in_a_draft_is_fxs_move ... FAILED
+thread 'tui::shell::tests::a_held_left_right_home_or_end_in_a_draft_is_fxs_move' (530245320) panicked at src/tui/shell.rs:25166:13:
+assertion `left == right` failed: super-left from 108
+  left: 107
+ right: 8
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4798 filtered out; finished in 0.05s
+test tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs ... FAILED
+thread 'tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs' (530245643) panicked at src/tui/shell.rs:25202:13:
+assertion `left == right` failed: super-left
+  left: Some(Answer { id: ApprovalId(1), answer: Once, feedback: Some("ab zcd ef") })
+ right: Some(Answer { id: ApprovalId(1), answer: Once, feedback: Some("zab cd ef") })
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4798 filtered out; finished in 0.01s
+test tui::shell::tests::super_left_right_and_the_draft_edges_move_no_menu_and_drop_a_model_column ... FAILED
+thread 'tui::shell::tests::super_left_right_and_the_draft_edges_move_no_menu_and_drop_a_model_column' (530245746) panicked at src/tui/shell.rs:25295:17:
+assertion `left == right` failed: statusline: [27, 91, 49, 59, 57, 68] moved it
+  left: ["\u{1b}[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u{1b}[0m", "\u{1b}[1;38;5;255mStatus line\u{1b}[0m", "", "  \u{1b}[1;38;5;255mContext\u{1b}[0m      \u{1b}[38;5;245moff\u{1b}[0m  \u{1b}[1;38;5;255mon\u{1b}[0m", "  \u{1b}[38;5;245mSession\u{1b}[0m      \u{1b}[1;38;5;255moff\u{1b}[0m  \u{1b}[38;5;245mon\u{1b}[0m", "  \u{1b}[38;5;245mWorkspace\u{1b}[0m    \u{1b}[1;38;5;255moff\u{1b}[0m  \u{1b}[38;5;245mon\u{1b}[0m", "\u{1b}[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u{1b}[0m", "\u{1b}[38;5;245m↑↓ navigate     ←→ change     esc close\u{1b}[0m"]
+ right: ["\u{1b}[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u{1b}[0m", "\u{1b}[1;38;5;255mStatus line\u{1b}[0m", "", "  \u{1b}[1;38;5;255mContext\u{1b}[0m      \u{1b}[1;38;5;255moff\u{1b}[0m  \u{1b}[38;5;245mon\u{1b}[0m", "  \u{1b}[38;5;245mSession\u{1b}[0m      \u{1b}[1;38;5;255moff\u{1b}[0m  \u{1b}[38;5;245mon\u{1b}[0m", "  \u{1b}[38;5;245mWorkspace\u{1b}[0m    \u{1b}[1;38;5;255moff\u{1b}[0m  \u{1b}[38;5;245mon\u{1b}[0m", "\u{1b}[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\u{1b}[0m", "\u{1b}[38;5;245m↑↓ navigate     ←→ change     esc close\u{1b}[0m"]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4798 filtered out; finished in 0.02s
+test tui::shell::tests::a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move ... FAILED
+thread 'tui::shell::tests::a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move' (530245925) panicked at src/tui/shell.rs:24512:13:
+# (the panic message is the band's rows; its field row, read from that output by hand: `3) tzsyaxb cduvwqr`, the step, for `qtzsyaxb cduvwr`)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4798 filtered out; finished in 0.02s
+test tui::shell::tests::a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4798 filtered out; finished in 0.10s

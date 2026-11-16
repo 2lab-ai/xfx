@@ -1,0 +1,137 @@
+# Round 2: the brief's gate, once, under the suite lock, TMPDIR=<tmp>/gate (short), in the worktree at 3e2dbb05.
+# 3e2dbb05's src/ is round 2's code head 782c3752's (3e2dbb05 changes receipt files and docs/parity.md only):
+$ git diff --stat 782c3752 3e2dbb05 -- src tests Cargo.toml Cargo.lock
+(empty: no change)
+
+head 3e2dbb05
+tree before: 0 changed paths under src tests Cargo.*
+STEP fmt exit=0 1s
+STEP clippy exit=0 6s
+STEP clippy-fi exit=0 6s
+STEP test exit=101 179s
+  15 result lines: 5699 passed, 3 failed, 7 ignored
+STEP test-fi exit=0 124s
+  15 result lines: 5739 passed, 0 failed, 7 ignored
+STEP identity exit=0 2s
+STEP stubs exit=0 10s
+STEP secrets exit=0 67s
+STEP local-paths exit=0 8s
+tree after: 0 changed paths under src tests Cargo.*; head 3e2dbb05
+
+## test's three failures: tui::worker's catalog-wait stop tests, each asserting a stop lands within 300 ms to 1 s (src/tui/worker.rs; this unit's diff from ebb04642 touches src/tui/input.rs alone). All three pass in test-fi's run of the same code above. Each rerun alone, three times; the one that failed again, unlocked while this unit's mutant run held a slot, rerun three times under the lock:
+run 1 a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop: test result: ok. 1 passed; 0 failed; 0 ignored; finished in 3.22s
+run 2 a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop: test result: ok. 1 passed; 0 failed; 0 ignored; finished in 3.17s
+run 3 a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop: test result: ok. 1 passed; 0 failed; 0 ignored; finished in 3.20s
+run 1 a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number: test result: ok. 1 passed; 0 failed; 0 ignored; finished in 13.15s
+run 2 a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number: test result: ok. 1 passed; 0 failed; 0 ignored; finished in 13.14s
+run 3 a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number: test result: ok. 1 passed; 0 failed; 0 ignored; finished in 13.13s
+run 1 a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one: test result: ok. 1 passed; 0 failed; 0 ignored; finished in 25.83s
+run 2 a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one: test result: ok. 1 passed; 0 failed; 0 ignored; finished in 28.18s
+run 3 a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one: test result: FAILED. 0 passed; 1 failed; 0 ignored; finished in 29.70s
+under the lock, run 1 a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one: test result: ok. 1 passed; 0 failed; 0 ignored; finished in 25.82s
+under the lock, run 2 a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one: test result: ok. 1 passed; 0 failed; 0 ignored; finished in 25.78s
+under the lock, run 3 a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one: test result: ok. 1 passed; 0 failed; 0 ignored; finished in 25.79s
+  gate run: test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... FAILED
+  gate run: test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... FAILED
+  gate run: test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+
+## cargo test (test), round 2
+test result: FAILED. 4775 passed; 3 failed; 7 ignored; 0 measured; 0 filtered out; finished in 54.47s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.36s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.82s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.71s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.55s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.56s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.43s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.24s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.08s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.16s
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.34s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+## cargo test (test-fi), round 2
+test result: ok. 4801 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 52.99s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.56s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.11s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.03s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.51s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.57s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.36s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+## the check scripts, round 2
+check-xfx-identity: ok (20182 tracked file(s) scanned)
+check-no-stubs: ok
+check-no-secrets: ok (20182 tracked file(s) scanned)
+check-no-local-paths: ok (20182 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+
+# Round 1, below, unchanged.
+
+# The brief's gate, once, under the suite lock, TMPDIR=<tmp>/gate (short), in the worktree at 71876daa.
+# 71876daa's src/ is 02101751's, the code head ce4f9c6b plus two test comments:
+$ git diff --stat ce4f9c6b 71876daa -- src tests Cargo.toml Cargo.lock
+ src/tui/input.rs | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+head 71876daa
+tree before: 0 changed paths under src tests Cargo.*
+STEP fmt exit=0 2s
+STEP clippy exit=0 5s
+STEP clippy-fi exit=0 6s
+STEP test exit=0 121s
+  15 result lines: 5700 passed, 0 failed, 7 ignored
+STEP test-fi exit=0 148s
+  15 result lines: 5737 passed, 0 failed, 7 ignored
+STEP identity exit=0 2s
+STEP stubs exit=0 10s
+STEP secrets exit=0 57s
+STEP local-paths exit=0 4s
+tree after: 0 changed paths under src tests Cargo.*; head 71876daa
+
+## cargo test (test)
+test result: ok. 4776 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 54.44s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.50s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.74s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.20s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.06s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.79s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.66s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.84s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+## cargo test (test-fi)
+test result: ok. 4799 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 52.78s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.38s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.65s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.71s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.18s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.05s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.41s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.48s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.73s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+## the check scripts
+check-xfx-identity: ok (20178 tracked file(s) scanned)
+check-no-stubs: ok
+check-no-secrets: ok (20178 tracked file(s) scanned)
+check-no-local-paths: ok (20178 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+
+# A first run, at the receipt commit before captures.txt's placeholder was fixed (that commit is not on the branch; the fix is folded into 0ed9a69f), failed one test (tests/parity.rs, the identity check): captures.txt named the reference binary's folder with a placeholder holding the retired product name. That run was stopped; this one is the gate.

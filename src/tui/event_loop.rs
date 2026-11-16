@@ -12845,11 +12845,12 @@ mod tests {
     fn a_frame_asked_for_on_a_screen_no_band_fits_on_waits_for_one_that_does() {
         // The other half of the blind rule, and the one the integration suite
         // leans on: not "nothing happened to want a frame", but **a frame was
-        // genuinely owed and still nothing was written**. Ctrl-L is the shape
-        // of it a user can produce at will -- `Action::Redraw` raises
-        // `Reason::ExternalDamage` from inside the approval panel
-        // (`super::shell`), so a frame is asked for by a keystroke that answers
-        // no question and changes no state.
+        // genuinely owed and still nothing was written**. Ctrl-L at the
+        // composer is the shape of it a user can produce at will --
+        // `Action::Redraw` raises `Reason::ExternalDamage` (`super::shell`), so
+        // a frame is asked for by a keystroke that changes no state. (At a
+        // permission question Ctrl-L does nothing, as fx v0.0.16's does; the
+        // pty case asks there with Down.)
         //
         // Written because the pty case that used to carry this claim could pass
         // on a session that wanted nothing. It cannot any more, and this is
@@ -15006,7 +15007,7 @@ mod tests {
             "the draft's caret (row {caret_row}) overlaps the document (band starts at row {})",
             rig.geometry.band_top()
         );
-        // Two `\n` (`InsertNewline`, `shell.rs:2821`) over three lines: this
+        // Two `\n` (`InsertNewline`, `editor.rs:554`) over three lines: this
         // is really a *multirow* draft and not just a wide one-row composer.
         assert_eq!(
             rig.geometry.input_rows(),

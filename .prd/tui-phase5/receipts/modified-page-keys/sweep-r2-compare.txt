@@ -1,0 +1,9 @@
+# python3 -I ../approval-vertical-spellings/cmp_sweeps.py <scratch>/r2/sweep-base/pairs.json <scratch>/r2/sweep-head/pairs.json
+# Round 2: base xfx v0.1.0-fab7a21 (sha256 1376a67c5fa2...), head v0.1.0-f5e9ea7 (sha256 2cc16896ae9b...); fx v0.0.16 both; round 2's scenario and ledger (with fulltranscript-response-header);
+# --only p5-transcript-md p5-transcript-md-light p5-modified-page-keys, 40x120, --jobs 2, both in one suite-lock slot
+change p5-modified-page-keys/full-ctrl-pgup: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header', 'session-record'] -> ['fulltranscript-response-header']; uncaused 21 -> 0
+change p5-modified-page-keys/typed: unresolved-defect -> identical; causes [] -> []; uncaused 4 -> 0
+change p5-modified-page-keys/typed2: unresolved-defect -> identical; causes [] -> []; uncaused 4 -> 0
+base: 20 pairs, 9 pass, 6 with uncaused rows
+head: 20 pairs, 11 pass, 3 with uncaused rows
+drops: 0

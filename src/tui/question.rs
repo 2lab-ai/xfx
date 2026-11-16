@@ -172,7 +172,10 @@ pub(crate) enum Act {
     /// The next **question**, wrapping. Not the next choice: the batch is what
     /// Tab walks (`question_prompt.zig:603-634`).
     Tab,
-    /// Take the marked choice, or the draft when the freeform slot is marked.
+    /// Take the marked choice, or the draft when the freeform slot is marked:
+    /// Enter, and `C-j`, the other byte upstream reads as `.submit`
+    /// (`'\r', '\n'`, `questionActionFromByte`,
+    /// `src/ui/input/runtime.zig:141@481104fd`).
     Submit,
     /// Cancel the batch.
     Escape,
@@ -184,11 +187,26 @@ pub(crate) enum Act {
     /// The draft's caret left -- or, with no draft open, the previous
     /// **question** (`retreatToPrevious`, `input_question_runtime.zig:186-192`).
     Left,
+    /// The draft's caret left, as [`Act::Left`] -- and nothing at a choice:
+    /// Shift-Left and Ctrl-B ([`super::input::Action::ComposerLeft`]).
+    /// Upstream's Shift-Left is a composer move its choice leaves to the
+    /// switch's `else` and its field reads as the step (`.character_left`),
+    /// and Ctrl-B a byte that is the field's step and no question action at a
+    /// choice (`src/ui/input/runtime.zig:135-176`, `:199-209`;
+    /// `input_question_runtime.zig:181-200@481104fd`).
+    StepLeft,
     /// The draft's caret right. Nothing at a choice: Enter is what moves on,
     /// and a key that skipped a question would skip an answer
-    /// (`input_question_runtime.zig:193-195`).
+    /// (`input_question_runtime.zig:196-198@481104fd`). Shift-Right and Ctrl-F
+    /// too, which upstream's choice leaves alone as it leaves Right
+    /// ([`Act::StepLeft`]).
     Right,
-    /// The start and the end of the whole answer (`question_prompt.zig:455-466`).
+    /// The start and the end of the whole answer (`question_prompt.zig:455-466`),
+    /// and nothing at a choice. Home and End, bare or held, and Super-Left and
+    /// -Right whatever else is held: upstream's `line_start`, `draft_start` and
+    /// their ends, which its field reads as `.cursor_home` and `.cursor_end`
+    /// (`src/ui/input/runtime.zig:162-163@481104fd`) and its choice leaves to
+    /// the switch's `else` (`input_question_runtime.zig:181-200`).
     Home,
     End,
     /// The grapheme after the caret (`freeformDeleteNext`).
@@ -231,10 +249,23 @@ impl Act {
             Action::Down => Some(Self::Down),
             Action::SelectUp => Some(Self::SelectUp),
             Action::SelectDown => Some(Self::SelectDown),
+            // Super-Up and -Down with Shift or without, Ctrl- and Super-Home
+            // and -End, Super-Left and -Right whatever else is held, and
+            // Shift-Home and -End: upstream's `draft_start`/`draft_end` and
+            // `line_start`/`line_end`, the field's edges, as its Home and End
+            // are (`src/ui/input/runtime.zig:162-163@481104fd`), and nothing at
+            // a choice -- no `visual_up` -- where they are not the arrows.
+            Action::DraftStart { .. } | Action::LineStart { .. } => Some(Self::Home),
+            Action::DraftEnd { .. } | Action::LineEnd { .. } => Some(Self::End),
+            Action::ComposerLeft => Some(Self::StepLeft),
+            Action::ComposerRight => Some(Self::Right),
             Action::Delete => Some(Self::Delete),
             Action::WordLeft => Some(Self::WordLeft),
             Action::AltB => Some(Self::AltB),
-            Action::WordRight => Some(Self::WordRight),
+            // Alt-f is upstream's `.word_right`, which its choice leaves as it
+            // leaves Right and its field reads as the word move
+            // (`input_question_runtime.zig:196-199@481104fd`).
+            Action::WordRight | Action::AltF => Some(Self::WordRight),
             // `C-w`, and Alt-Backspace, which the decoder reads as a deletion
             // by word characters: this field has the whitespace one only.
             Action::DeleteWordLeft | Action::DeleteWordBackward => Some(Self::DeleteWordLeft),
@@ -246,7 +277,15 @@ impl Act {
             Action::PasteStart => Some(Self::PasteStart),
             Action::PasteEnd => Some(Self::PasteEnd),
             Action::Tab => Some(Self::Tab),
-            Action::Submit => Some(Self::Submit),
+            // Enter, and `C-j`: upstream maps both bytes to a question's
+            // `.submit` (`questionActionFromByte`,
+            // `src/ui/input/runtime.zig:141@481104fd`), at a choice and in the
+            // field alike -- the field's own route keeps no newline
+            // (`:199-209`; `shortcuts.zig:26`, `:31-41`) -- so C-j is Enter
+            // wherever a question has the keys (QUESTION-CTRL-J). The
+            // composer's newline habit comes with it, as in fx: a C-j typed
+            // for a new line once a question is up answers it.
+            Action::Submit | Action::ControlJ => Some(Self::Submit),
             Action::Escape => Some(Self::Escape),
             Action::Cancel => Some(Self::Cancel),
             Action::Backspace => Some(Self::Backspace),
@@ -254,6 +293,12 @@ impl Act {
             Action::Right => Some(Self::Right),
             Action::Home => Some(Self::Home),
             Action::End => Some(Self::End),
+            // Ctrl-, Alt- and Shift-Alt-Up and -Down, and a held page key:
+            // upstream's `visual_up`, `paragraph_up` and page moves, which its
+            // question reads as nothing, at a choice and in the field
+            // (`src/ui/input/runtime.zig:155-197`; `input_question_runtime.zig:181-200
+            // @481104fd`). They fall to the `None` below with every key a
+            // question has no meaning for.
             _ => None,
         }
     }
@@ -849,6 +894,7 @@ impl QuestionPanel {
             Act::Backspace
             | Act::Delete
             | Act::Left
+            | Act::StepLeft
             | Act::Right
             | Act::Home
             | Act::End
@@ -881,7 +927,7 @@ impl QuestionPanel {
                     Act::KillToEnd => {
                         draft.kill_to_end();
                     }
-                    Act::Left => draft.left(),
+                    Act::Left | Act::StepLeft => draft.left(),
                     Act::Right => draft.right(),
                     Act::WordLeft | Act::AltB => draft.word_left(),
                     Act::WordRight => draft.word_right(),
@@ -2723,6 +2769,25 @@ mod tests {
             Act::of(Action::DeleteWordBackward),
             Some(Act::DeleteWordLeft)
         );
+    }
+
+    #[test]
+    fn ctrl_j_is_enter_to_a_model_question_and_the_newline_keys_are_not() {
+        // `'\r', '\n' => .submit` (`questionActionFromByte`,
+        // `src/ui/input/runtime.zig:141@481104fd`): the byte C-j is, in every
+        // spelling the decoder reads as `ControlJ`. Alt-Enter and Shift-Enter
+        // are `.insert_newline`, which a question has no action for
+        // (`questionActionFromDecoded`, `:211-227`; `:155-176`).
+        assert_eq!(Act::of(Action::ControlJ), Some(Act::Submit));
+        assert_eq!(Act::of(Action::Submit), Some(Act::Submit));
+        assert_eq!(Act::of(Action::InsertNewline), None);
+        // In the field it is the draft's answer, as Enter's is: no newline.
+        let mut panel = captured();
+        panel.apply(Act::Text('4'), 60, 40);
+        panel.apply(Act::Text('a'), 60, 40);
+        let act = Act::of(Action::ControlJ).expect("bound");
+        assert!(matches!(panel.apply(act, 60, 40), Answered::Redraw));
+        assert_eq!(submitted(&mut panel, &[Act::Text('1')], 60, 40)[0], "a");
     }
 
     #[test]

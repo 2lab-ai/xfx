@@ -1,0 +1,62 @@
+# Train 15's reruns (rerun-job.sh, one hold of the suite lock: a clone of each tree built, then reruns.sh, sweep-rerun.sh 3 times a scenario on each tree's own debug build; "main" in a name is the base e2fc7e94, main itself)
+# head: build at 2c575f52, exit 0; xfx sha256 f6ee98b19f1d4857024cb98fe20ee7b303d912a73fb66a0cd5856949f6d573eb
+# main: build at e2fc7e94, exit 0; xfx sha256 eda6bdf64cbb5f9856f437a67ac6e176a784523478e1778c4a07b5947ec14ff8
+# head rerun 1 of p5-transcript-md (40x120) at 2c575f52; xfx sha256 f6ee98b19f1d4857024cb98fe20ee7b303d912a73fb66a0cd5856949f6d573eb; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 20.27
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 5 = 80.0%; unresolved 1, failed 0, timeout 0
+# head rerun 2 of p5-transcript-md (40x120) at 2c575f52; xfx sha256 f6ee98b19f1d4857024cb98fe20ee7b303d912a73fb66a0cd5856949f6d573eb; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 17.75
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 5 = 80.0%; unresolved 1, failed 0, timeout 0
+# head rerun 3 of p5-transcript-md (40x120) at 2c575f52; xfx sha256 f6ee98b19f1d4857024cb98fe20ee7b303d912a73fb66a0cd5856949f6d573eb; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 13.52
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 5 = 80.0%; unresolved 1, failed 0, timeout 0
+# main rerun 1 of p5-transcript-md (40x120) at e2fc7e94; xfx sha256 eda6bdf64cbb5f9856f437a67ac6e176a784523478e1778c4a07b5947ec14ff8; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 12.05
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 5 = 60.0%; unresolved 2, failed 0, timeout 0
+# main rerun 2 of p5-transcript-md (40x120) at e2fc7e94; xfx sha256 eda6bdf64cbb5f9856f437a67ac6e176a784523478e1778c4a07b5947ec14ff8; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 28.83
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 5 = 60.0%; unresolved 2, failed 0, timeout 0
+# main rerun 3 of p5-transcript-md (40x120) at e2fc7e94; xfx sha256 eda6bdf64cbb5f9856f437a67ac6e176a784523478e1778c4a07b5947ec14ff8; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 22.09
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 3 / 5 = 60.0%; unresolved 2, failed 0, timeout 0
+# head rerun 1 of p5-transcript-submit-multi (40x120) at 2c575f52; xfx sha256 f6ee98b19f1d4857024cb98fe20ee7b303d912a73fb66a0cd5856949f6d573eb; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 14.52
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 4 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 2 of p5-transcript-submit-multi (40x120) at 2c575f52; xfx sha256 f6ee98b19f1d4857024cb98fe20ee7b303d912a73fb66a0cd5856949f6d573eb; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 9.11
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 4 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 3 of p5-transcript-submit-multi (40x120) at 2c575f52; xfx sha256 f6ee98b19f1d4857024cb98fe20ee7b303d912a73fb66a0cd5856949f6d573eb; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 8.57
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 4 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 1 of p5-transcript-submit-multi (40x120) at e2fc7e94; xfx sha256 eda6bdf64cbb5f9856f437a67ac6e176a784523478e1778c4a07b5947ec14ff8; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 6.88
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 4 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 2 of p5-transcript-submit-multi (40x120) at e2fc7e94; xfx sha256 eda6bdf64cbb5f9856f437a67ac6e176a784523478e1778c4a07b5947ec14ff8; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 6.27
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 4 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 3 of p5-transcript-submit-multi (40x120) at e2fc7e94; xfx sha256 eda6bdf64cbb5f9856f437a67ac6e176a784523478e1778c4a07b5947ec14ff8; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 8.49
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 4 = 100.0%; unresolved 0, failed 0, timeout 0
+# reruns.sh exit 0
+## head-p5-transcript-md: 3 reruns
+    answered         ID ID NI  pass 3/3
+    answered.full    NI NI NI  pass 3/3
+    full             NI NI NI  pass 3/3
+    full-pgup        UD UD UD  pass 0/3
+    closed           ID ID NI  pass 3/3
+    rerun 1: the turn summary row: answered fx 1s (↑4 ↓40); answered xfx 1s (↑4 ↓40); closed fx 1s (↑4 ↓40); closed xfx 1s (↑4 ↓40)
+    rerun 2: the turn summary row: answered fx 1s (↑4 ↓40); answered xfx 1s (↑4 ↓40); closed fx 1s (↑4 ↓40); closed xfx 1s (↑4 ↓40)
+    rerun 3: the turn summary row: answered fx 1s (↑4 ↓40); answered xfx 2s (↑4 ↓40); closed fx 1s (↑4 ↓40); closed xfx 2s (↑4 ↓40)
+## main-p5-transcript-md: 3 reruns
+    answered         NI NI NI  pass 3/3
+    answered.full    NI NI NI  pass 3/3
+    full             UD UD UD  pass 0/3
+    full-pgup        UD UD UD  pass 0/3
+    closed           NI NI NI  pass 3/3
+    rerun 1: the turn summary row: answered fx 1s (↑4 ↓40); answered xfx 3s (↑4 ↓40); closed fx 1s (↑4 ↓40); closed xfx 3s (↑4 ↓40)
+    rerun 2: the turn summary row: answered fx 1s (↑4 ↓40); answered xfx 2s (↑4 ↓40); closed fx 1s (↑4 ↓40); closed xfx 2s (↑4 ↓40)
+    rerun 3: the turn summary row: answered fx 1s (↑4 ↓40); answered xfx 2s (↑4 ↓40); closed fx 1s (↑4 ↓40); closed xfx 2s (↑4 ↓40)
+## head-p5-transcript-submit-multi: 3 reruns
+    filled           ID ID ID  pass 3/3
+    submit-0.15      NI NI NI  pass 3/3
+    second           ID ID ID  pass 3/3
+    second.full      NI NI NI  pass 3/3
+    rerun 1: the turn summary row: filled fx 0s (↑4 ↓40); filled xfx 0s (↑4 ↓40); second fx 1s (↑13 ↓40); second xfx 1s (↑13 ↓40)
+    rerun 2: the turn summary row: filled fx 0s (↑4 ↓40); filled xfx 0s (↑4 ↓40); second fx 1s (↑13 ↓40); second xfx 1s (↑13 ↓40)
+    rerun 3: the turn summary row: filled fx 0s (↑4 ↓40); filled xfx 0s (↑4 ↓40); second fx 1s (↑13 ↓40); second xfx 1s (↑13 ↓40)
+## main-p5-transcript-submit-multi: 3 reruns
+    filled           ID ID ID  pass 3/3
+    submit-0.15      NI NI NI  pass 3/3
+    second           ID ID ID  pass 3/3
+    second.full      NI NI NI  pass 3/3
+    rerun 1: the turn summary row: filled fx 0s (↑4 ↓40); filled xfx 0s (↑4 ↓40); second fx 1s (↑13 ↓40); second xfx 1s (↑13 ↓40)
+    rerun 2: the turn summary row: filled fx 0s (↑4 ↓40); filled xfx 0s (↑4 ↓40); second fx 1s (↑13 ↓40); second xfx 1s (↑13 ↓40)
+    rerun 3: the turn summary row: filled fx 0s (↑4 ↓40); filled xfx 0s (↑4 ↓40); second fx 1s (↑13 ↓40); second xfx 1s (↑13 ↓40)

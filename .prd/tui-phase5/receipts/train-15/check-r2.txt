@@ -1,0 +1,7 @@
+# round 2: check-merge.sh on 44e07aba's staged tree before its commit (no lock, as the merges'), as run
+cargo check --locked --all-targets: exit 0, 6 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.77s
+cargo check --locked --all-targets --features fault-injection: exit 0, 5 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.37s
+cargo fmt --check: exit 0, 2 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 6 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.51s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 7 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.57s
+# 0 failed

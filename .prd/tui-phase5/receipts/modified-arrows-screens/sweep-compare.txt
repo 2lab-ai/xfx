@@ -1,0 +1,26 @@
+# python3 -I ../approval-vertical-spellings/cmp_sweeps.py <scratch>/sweep-base/pairs.json <scratch>/sweep-head/pairs.json
+# base: xfx v0.1.0-c77a77c (sha256 1984d47e23e3...), head: v0.1.0-8b5aaca (sha256 8a974717913f...); fx v0.0.16 both; this branch's scenarios; both rescored (--rescore) with this branch's ledger after its refs were re-pointed and the response-header cause named p5-modified-arrows-full;
+# --only fulltranscript* p5-modified-page-keys question* p5-question* p5-input-question* composer* p5-modified-arrows*, 40x120, --jobs 2, both in one suite-lock slot
+change p5-input-question20/resumed: identical -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-modified-arrows-full/full-ctrl-up: unresolved-defect -> unresolved-defect; causes ['fulltranscript-response-header'] -> ['fulltranscript-response-header']; uncaused 5 -> 0
+change p5-modified-arrows-full/typed: unresolved-defect -> identical; causes [] -> []; uncaused 2 -> 0
+change p5-modified-arrows-full/typed2: unresolved-defect -> identical; causes [] -> []; uncaused 4 -> 0
+change p5-modified-arrows-full/typed3: unresolved-defect -> identical; causes [] -> []; uncaused 4 -> 0
+change p5-modified-arrows-full/typed4: unresolved-defect -> identical; causes [] -> []; uncaused 4 -> 0
+change p5-modified-arrows-question/alt-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-modified-arrows-question/ctrl-b: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 10 -> 0
+change p5-modified-arrows-question/ctrl-down: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-modified-arrows-question/field-ctrl-f: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 10 -> 0
+change p5-modified-arrows-question/field-ctrl-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 10 -> 0
+change p5-modified-arrows-question/field-left: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 10 -> 0
+change p5-modified-arrows-question/field-super-down: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 10 -> 0
+change p5-modified-arrows-question/field-super-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 10 -> 0
+change p5-modified-arrows-question/right-keys: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 10 -> 0
+change p5-modified-arrows-question/shift-alt-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-modified-arrows-question/shift-left: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 10 -> 0
+change p5-modified-arrows-question/shift-super-down: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-modified-arrows-question/super-left: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-modified-arrows-question/super-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+base: 145 pairs, 101 pass, 20 with uncaused rows
+head: 145 pairs, 119 pass, 1 with uncaused rows
+drops: 0

@@ -1,0 +1,69 @@
+# train 15's units' selection: the 34 scenarios the units' 11 committed head sweeps took (119 in all) that selection-all.txt does not
+# allowlist: rule-confirm-keys
+allowlist
+# allowlist-remember: rule-confirm-keys
+allowlist-remember
+# allowlist-turn: rule-confirm-keys
+allowlist-turn
+# allowlist2: rule-confirm-keys
+allowlist2
+# allowlist3: rule-confirm-keys
+allowlist3
+# filepicker-keys: decoder-tilde-home-end
+filepicker-keys
+# model: composer-paragraph-move
+model
+# model-anchor: composer-paragraph-move
+model-anchor
+# model-busy: composer-paragraph-move
+model-busy
+# model-busy-known: composer-paragraph-move
+model-busy-known
+# model-column: composer-paragraph-move
+model-column
+# model-column-hold: composer-paragraph-move
+model-column-hold
+# model-column-idle: composer-paragraph-move
+model-column-idle
+# model-column-reask: composer-paragraph-move
+model-column-reask
+# model-effort: composer-paragraph-move
+model-effort
+# model-empty: composer-paragraph-move
+model-empty
+# model-floor: composer-paragraph-move
+model-floor
+# model-reask: composer-paragraph-move
+model-reask
+# model-router: composer-paragraph-move
+model-router
+# model-speed: composer-paragraph-move
+model-speed
+# p5-panels-permissions: rule-confirm-keys
+p5-panels-permissions
+# p5-panels-permissions-saved: rule-confirm-keys
+p5-panels-permissions-saved
+# p5-permissions-early: rule-confirm-keys
+p5-permissions-early
+# p5-permissions-early-probe-ask-after: rule-confirm-keys
+p5-permissions-early-probe-ask-after
+# permissions: rule-confirm-keys
+permissions
+# permissions-btab: rule-confirm-keys
+permissions-btab
+# permissions-midturn: rule-confirm-keys
+permissions-midturn
+# rules-hidden: rule-confirm-keys
+rules-hidden
+# rules-hidden-all: rule-confirm-keys
+rules-hidden-all
+# rules-read: rule-confirm-keys
+rules-read
+# rules-read-auto: rule-confirm-keys
+rules-read-auto
+# settings-perm: rule-confirm-keys
+settings-perm
+# slash: composer-paragraph-move
+slash
+# slash-filter: composer-paragraph-move
+slash-filter

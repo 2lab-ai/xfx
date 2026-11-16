@@ -1,0 +1,4 @@
+base fx row 36:   6s (↑3 ↓80)
+base xfx row 36:   6s (↑3 ↓80)
+head fx row 36:   7s (↑3 ↓80)
+head xfx row 36:   6s (↑3 ↓80)

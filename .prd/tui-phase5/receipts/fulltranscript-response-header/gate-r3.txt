@@ -1,0 +1,75 @@
+# Round 3's gate (gates.sh), once, under the suite lock in one normal slot, TMPDIR=<tmp>/tmp (short), on a git clone --no-local (its remote removed) at a7893e2c.
+# Its src/ differs from 41af67e1's in test hunks only:
+$ git diff --stat 41af67e1 a7893e2c -- src
+ src/tui/full_transcript.rs | 207 +++++++++++++++++++++++++++++++++++++++++++++
+ src/tui/shell.rs           |   8 ++
+ 2 files changed, 215 insertions(+)
+
+# head a7893e2c; tree clean: yes
+01 fmt                                exit 0     1s  load 14.92
+02 clippy                             exit 0    37s  load 14.29
+03 clippy-fault                       exit 0    29s  load 14.57
+04 test                               exit 0   205s  load 12.52
+05 test-fault                         exit 0   156s  load 9.23
+06 check-xfx-identity                 exit 0     2s  load 18.31
+07 check-no-stubs                     exit 0    13s  load 18.31
+08 check-no-secrets                   exit 0    81s  load 18.59
+09 check-no-local-paths               exit 0     4s  load 19.11
+10 test-check-no-local-paths          exit 0     3s  load 19.91
+11 check-preview-contract             exit 0     2s  load 18.71
+12 check-tui-preflight-cost           exit 0   130s  load 18.71
+13 check-usage-clock                  exit 0     1s  load 26.50
+14 test-check-no-secrets              exit 0   110s  load 26.50
+15 test-gate-env                      exit 0   198s  load 20.67
+16 test-preview-contract              exit 0    49s  load 10.82
+17 fxcap-test-sweep                   exit 0    13s  load 8.47
+18 fxcap-test-capture                 exit 0   346s  load 7.78
+19 build-release                      exit 0    17s  load 8.09
+20 build-faulty                       exit 0    29s  load 9.09
+21 smoke                              exit 0     6s  load 13.20
+22 smoke-tui                          exit 0    75s  load 12.94
+# 22 steps, 0 failed; tree clean after: yes
+gate exit 0
+(no catalog-wait failure in this run: the plain suite is 0 failed)
+
+## cargo test, its result lines (04-test.log)
+test result: ok. 4794 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 69.85s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.08s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.07s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.74s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.13s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.04s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.36s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.10s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.69s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.12s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+## cargo test --features fault-injection, its result lines (05-test-fault.log)
+test result: ok. 4817 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 54.23s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.90s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.68s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.74s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.18s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.05s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.87s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.15s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.66s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+## round 3's tests in both runs
+test tui::full_transcript::tests::a_reader_at_the_tail_follows_an_entry_that_lays_out_as_nothing_when_it_becomes_visible ... ok
+test tui::full_transcript::tests::a_reader_near_an_entry_that_lays_out_as_nothing_holds_when_it_becomes_visible ... ok
+test tui::shell::tests::an_answers_blocks_split_its_ctrl_o_record_and_leave_its_document_as_it_was ... ok
+test tui::full_transcript::tests::a_reader_at_the_tail_follows_an_entry_that_lays_out_as_nothing_when_it_becomes_visible ... ok
+test tui::full_transcript::tests::a_reader_near_an_entry_that_lays_out_as_nothing_holds_when_it_becomes_visible ... ok
+test tui::shell::tests::an_answers_blocks_split_its_ctrl_o_record_and_leave_its_document_as_it_was ... ok

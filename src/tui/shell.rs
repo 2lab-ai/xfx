@@ -235,20 +235,25 @@ const MCP_ENTER_TOO_SOON: &str =
 
 /// Every Enter while `/mcp`'s menu is up, whatever takes it -- the menu, the
 /// model's question panel, a permission question, the composer -- and the
-/// last one ([`MCP_ENTER_HELD`]). A swallowed Enter counts too: timing
-/// cannot tell a slow key repeat from a second tap, and on a question that
-/// removes, rejects or approves the safe reading wins (opus-Md R2).
+/// last one ([`MCP_ENTER_HELD`]). A C-j the model's question panel or a
+/// permission question takes is one too: it answers either as Enter does
+/// (QUESTION-CTRL-J, APPROVAL-CTRL-J), so the Enter typed after it is as soon
+/// after an answering key; a C-j the menu takes is its Down and is not
+/// counted ([`Shell::consume_inputs`]). A
+/// swallowed Enter counts too: timing cannot tell a slow key repeat from a
+/// second tap, and on a question that removes, rejects or approves the safe
+/// reading wins (opus-Md R2).
 #[derive(Debug, Clone, Copy, Default)]
 struct McpEnters {
-    /// The last Enter.
+    /// The last Enter, or C-j that answered the model's question.
     last: Option<Instant>,
     /// The swallow since an Enter that was not held has been said.
     said: bool,
 }
 
 impl McpEnters {
-    /// An Enter at `now`: whether it comes within [`MCP_ENTER_HELD`] of the
-    /// one before it.
+    /// An Enter at `now`, or a C-j the model's question took: whether it
+    /// comes within [`MCP_ENTER_HELD`] of the one before it.
     fn enter(&mut self, now: Instant) -> bool {
         let held = self
             .last
@@ -5360,9 +5365,12 @@ impl Shell {
     /// composer, and the turn's clock is stopped because the interval is
     /// measuring a person. [`Self::asking`] stays the narrower fact -- a
     /// permission question, on either plane -- because the plane and the
-    /// approval channel are its alone.
+    /// approval channel are its alone. A rule confirmation counts: upstream
+    /// asks it in the same approval prompt (`syncRuleManagement`,
+    /// `approval_prompt.zig:119-146@481104fd`), so a turn running under it has
+    /// no activity row either (`p5-rule-confirm-keys-turn`'s `prompt`).
     fn modal(&self) -> bool {
-        self.asking() || self.ask.is_some()
+        self.asking() || self.ask.is_some() || self.rule_confirm.is_some()
     }
 
     /// The alternate plane's rows, top first: as many as the screen has.
@@ -5758,6 +5766,32 @@ impl Shell {
     pub(crate) fn approval_ready(&self, id: ApprovalId) -> bool {
         self.readiness
             .ready(id, self.geometry.cols, self.geometry.rows)
+    }
+
+    /// Whether all that keeps `id` from an answer is a change the screen has
+    /// not shown yet ([`super::approval_readiness::Readiness::unshown`]).
+    fn approval_unshown(&self, id: ApprovalId) -> bool {
+        self.readiness
+            .unshown(id, self.geometry.cols, self.geometry.rows)
+    }
+
+    /// What the standing question shows changed: no affirmative is taken
+    /// until a frame shows it ([`super::approval_readiness::Readiness::changed`]).
+    ///
+    /// **Every approval**, the dispatcher's decision (2026-11-10, reversible):
+    /// fx v0.0.16 holds back only a file approval's
+    /// (`input_approval_runtime.zig:191-192@481104fd`), so its Down and Enter
+    /// in one read at a command grant `Always` under a frame that marked
+    /// `Apply once`. To restrict this condition to file approvals, as fx does,
+    /// call `changed` here only while the question's subject is a
+    /// `crate::permission::ApprovalSubject::Path`. That reverts the scope and
+    /// nothing else: fx's settled state also waits out a resize and external
+    /// damage (`reasonsAffectApproval`, `render_request.zig:367-370`) and its
+    /// claim has a resize interlock (`input_approval_runtime.zig:194`, `:222`),
+    /// which xfx's receipt answers in its own way (`Readiness::reconcile`,
+    /// `Readiness::invalidate`).
+    fn approval_changed(&mut self) {
+        self.readiness.changed();
     }
 
     /// Whether an amendment draft has the keys, on whichever surface is up.
@@ -7541,8 +7575,8 @@ impl Shell {
     /// nothing to give (the explicit form pasted whole, an id nothing lists).
     /// **A space is the column's** whether or not it advances, as upstream's
     /// is: it moves on from a model spelled exactly, and does nothing else.
-    /// Home, End and the word moves throw a later column away and move the
-    /// caret.
+    /// Home, End, the word moves and Alt's and Super's held Up and Down throw
+    /// a later column away and move the caret.
     ///
     /// **An `/effort ` line is the column's too**, with or without levels to
     /// show (`hasModelQuery`, `input_completion_runtime.zig:629-631@481104fd`):
@@ -7574,6 +7608,10 @@ impl Shell {
                         | Action::End
                         | Action::WordLeft
                         | Action::WordRight
+                        | Action::ParagraphUp
+                        | Action::ParagraphDown
+                        | Action::DraftStart { .. }
+                        | Action::DraftEnd { .. }
                 )
         );
         // Nor while the settings menu is up: the draft is its search, and a
@@ -7678,7 +7716,19 @@ impl Shell {
                 true
             }
             Input::Action(Action::Submit) => self.submit_column(&query),
-            Input::Action(Action::Home | Action::End | Action::WordLeft | Action::WordRight) => {
+            // And Alt's and Super's held Up and Down, which fx routes through
+            // the same arm (`abandonModelPickerOptions`,
+            // `app_input_runtime.zig:298-308@481104fd`).
+            Input::Action(
+                Action::Home
+                | Action::End
+                | Action::WordLeft
+                | Action::WordRight
+                | Action::ParagraphUp
+                | Action::ParagraphDown
+                | Action::DraftStart { .. }
+                | Action::DraftEnd { .. },
+            ) => {
                 if self.column.pending().is_some() {
                     self.column.reset();
                 }
@@ -8027,35 +8077,50 @@ impl Shell {
         self.edited(None);
     }
 
-    /// One keystroke, while the `/statusline` picker has the focus.
-    ///
-    /// One keystroke to a rule change waiting to be confirmed: `1` or Enter
-    /// on `Confirm` makes it and says how it went, `2` or Enter on `Cancel`
-    /// says it was cancelled, Escape closes it saying nothing
-    /// (`submitRuleManagementChoice`, `input_approval_runtime.zig:255-327`;
-    /// `cap/fx-permissions3-40x120-remember-esc`), and the arrows move the
-    /// mark. Everything else is swallowed, as the approval band swallows it.
-    fn offer_to_rule_confirm(&mut self, event: Input) {
-        use super::rule_confirm::{Key, Reply};
-        let key = match event {
-            Input::Text(character) => Key::Digit(character),
-            Input::Action(Action::Up | Action::ControlP) => Key::Up,
-            Input::Action(Action::Down | Action::HistoryNext) => Key::Down,
-            Input::Action(Action::Submit) => Key::Enter,
-            Input::Action(Action::Escape) => Key::Escape,
-            Input::Action(Action::Redraw) => {
-                self.external_damage();
-                return;
-            }
-            _ => return,
+    /// One keystroke to a rule change waiting to be confirmed, read as a
+    /// permission question with no draft reads it ([`Self::approval_action`]):
+    /// upstream asks the change in its approval prompt, confirmation-only
+    /// (`syncRuleManagement`, `approval_prompt.zig:119-146@481104fd`). `1`,
+    /// or Enter or C-j on `Confirm`, makes it and says how it went; `2`,
+    /// Enter or C-j on `Cancel`, and Ctrl-C say it was cancelled
+    /// (`submitRuleManagementChoice`, `input_approval_runtime.zig:257-328`);
+    /// the arrows, Tab, Left, Right, Alt-b and Alt-f move the mark
+    /// ([`RuleConfirm::apply`]). Escape closes it saying nothing
+    /// (`cancelApprovalOperation`, `:401-436`, which `resolveEscape` takes at
+    /// every Escape after the prompt's first frame, `app_input_runtime.zig:2689`,
+    /// `:2712-2716`), and over a running turn or compaction -- read as the
+    /// composer's Escape reads one -- stops that too
+    /// (`cancelApprovalTurn`, `worker_runtime.zig:777-791`: the worker's
+    /// cancel and its compaction's stop), writing no cancellation row: that
+    /// route writes none, where Ctrl-C's does
+    /// (`input_interrupt_runtime.zig:118-126`). A stop already asked for is
+    /// not asked again ([`Self::stop_owed`]). Everything else, Ctrl-L
+    /// included, is swallowed, as the approval swallows it.
+    fn offer_to_rule_confirm(&mut self, event: Input, now: Instant) {
+        use super::rule_confirm::Reply;
+        let Some(action) = Self::approval_action(event, false) else {
+            return;
         };
         let Some(confirm) = self.rule_confirm.as_mut() else {
             return;
         };
-        match confirm.apply(key) {
+        match confirm.apply(action) {
             Reply::Ignored => {}
             Reply::Moved => self.render.request(Reason::Modal),
-            Reply::Dismiss => self.close_rule_confirm(),
+            Reply::Dismiss => {
+                self.close_rule_confirm();
+                if self.activity.working() || self.compacting() {
+                    if self.stop_owed() {
+                        // `true`: this key writes no `▪ Cancelled` row of
+                        // its own and settles no group here; a running
+                        // command's report says it was cancelled, as fx's
+                        // does (`cancelApprovalOperation` presents no tool
+                        // cancellation, `input_approval_runtime.zig:401-436`).
+                        self.cancel_turn_with(true);
+                    }
+                    self.settle_band(now);
+                }
+            }
             Reply::Cancel => {
                 self.close_rule_confirm();
                 self.announce(notice::Notice::neutral(
@@ -9979,6 +10044,162 @@ impl Shell {
         ));
     }
 
+    /// What one keystroke means to a permission question with the focus, or
+    /// `None` for a key it swallows; `drafting` is whether an amendment has the
+    /// keys ([`Self::drafting`]).
+    ///
+    /// **A rule confirmation reads its keys here too, as no draft**
+    /// ([`Self::offer_to_rule_confirm`]): upstream asks a `/permissions` rule
+    /// change in its approval prompt, confirmation-only
+    /// (`syncRuleManagement`, `approval_prompt.zig:119-146@481104fd`), so the
+    /// keys are the approval's (`routeActiveModalInput`,
+    /// `app_input_runtime.zig:1161-1185`; `routeResolvedEscapeAction`,
+    /// `:964-971`), and one translation keeps the two from drifting apart.
+    fn approval_action(event: Input, drafting: bool) -> Option<approval::Action> {
+        let action = match event {
+            Input::Text(character) => approval::Action::Text(character),
+            // **The plain arrows move the choice, whether or not a draft is
+            // open** (`routeApprovalEscapeAction`,
+            // `input_approval_runtime.zig:111-126@481104fd`: the arrow's
+            // composer move, `visual_up`, is no draft key,
+            // `src/ui/input/runtime.zig:75-96`, so `.cursor_up` reaches the
+            // switch). Every other spelling of Up and Down is below.
+            Input::Action(Action::Up) => approval::Action::Up,
+            Input::Action(Action::Down) => approval::Action::Down,
+            // **Left and Alt-b mark the previous choice and Right and Alt-f the
+            // next, while no draft is open** -- fx's `.cursor_left`/`.word_left`
+            // and `.cursor_right`/`.word_right` (`routeApprovalEscapeAction`,
+            // `input_approval_runtime.zig:90-110@481104fd`): `move_choice`, the
+            // move Up and Down make, wrapping at both ends (`moveChoice`,
+            // `approval_decision.zig:214-225`). In a draft they are its caret's
+            // (below). Every other spelling of the four leaves the choice where
+            // it is: Ctrl-, Alt-, Shift- and Super-Left and -Right and
+            // Shift-Alt-b and -f are a composer move, which reaches fx's
+            // `else => {}` (`:128`); Ctrl-B and Ctrl-F never reach it -- they
+            // take fx's raw-byte route as `.edit_draft`, which `apply` answers
+            // with `.none` while no amendment is open
+            // (`src/ui/input/runtime.zig:103-108`,
+            // `approval_decision.zig:170-174`). The decoder keeps them apart
+            // ([`Action::ComposerLeft`], [`Action::WordLeft`],
+            // [`Action::LineStart`]), and they reach the swallow.
+            Input::Action(Action::Left | Action::AltB) if !drafting => approval::Action::Up,
+            Input::Action(Action::Right | Action::AltF) if !drafting => approval::Action::Down,
+            // **Super-Up and Super-Down, and Ctrl- and Super-Home and -End,
+            // take a draft's caret to its start and its end** -- fx's
+            // `draft_start` and `draft_end` (`modifiedArrowAction`,
+            // `escape_parser.zig:74-80`, `:95-96@481104fd`), which its
+            // amendment reads as `.cursor_home` and `.cursor_end`
+            // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:82-83`;
+            // `cursorHome`/`cursorEnd`, `approval_amendment.zig:84-92`: the
+            // whole draft's edges, not the line's). Ahead of the draft's arm
+            // below, whose keys (`approval::edits`) name neither. With no
+            // draft open they are the swallow's.
+            Input::Action(edge @ (Action::DraftStart { .. } | Action::DraftEnd { .. }))
+                if drafting =>
+            {
+                approval::Action::Edit(edge)
+            }
+            // **Every other spelling of Up and Down moves nothing, with or
+            // without a draft open.** Shift-, Ctrl- and Alt-Up and -Down (and
+            // Super's with no draft) are composer moves, which reach fx's
+            // `else => {}` (`input_approval_runtime.zig:128`; `visual_up`,
+            // `paragraph_up` and their Down are no draft key,
+            // `src/ui/input/runtime.zig:86`). `C-p` is fx's decoded
+            // `.open_model_catalog` (`controlByteFeatureAction`,
+            // `escape_parser.zig:268-274`; `terminal_action_decoder.zig:118-122`),
+            // which carries no composer move (`shortcuts.zig:63`) and reaches
+            // the same `else`. `C-n` is a raw byte (`appendRaw`), no draft key
+            // (`fromFocusedEditorControlByte`, `shortcuts.zig:31-41`) and no
+            // approval byte (`approvalActionFromByte`,
+            // `src/ui/input/runtime.zig:61-73`, `:103-108`), so the question
+            // takes it and does nothing (`app_input_runtime.zig:1173-1184`).
+            // Swallowed here, before the panel is asked, so the choice, the
+            // draft, the frame and the readiness receipt are all exactly as
+            // they were: a key that does nothing cannot leave a choice marked
+            // that no frame has shown.
+            //
+            // **`C-p` and `C-n` on the review plane are this surface's own**:
+            // they walk the change (above), the only keys that do -- a bounded
+            // diff is up to 128 KiB (`crate::permission::ApprovalDiff`) and a
+            // screen is a few dozen rows. Upstream's plane scrolls by the
+            // wheel (`handleApprovalWheel`), which xfx does not enable; a
+            // retention, recorded in `docs/parity.md`.
+            Input::Action(
+                Action::SelectUp
+                | Action::SelectDown
+                | Action::ComposerUp
+                | Action::ComposerDown
+                | Action::ParagraphUp
+                | Action::ParagraphDown
+                | Action::DraftStart { .. }
+                | Action::DraftEnd { .. }
+                | Action::ControlP
+                | Action::HistoryNext,
+            ) => return None,
+            Input::Action(Action::Tab) => approval::Action::Tab,
+            // **C-j answers as Enter does**, at a choice and in a draft, on
+            // either plane: fx v0.0.16 makes `'\r', '\n'` an approval's
+            // `.submit` (`approvalActionFromByte`,
+            // `src/ui/input/runtime.zig:64@481104fd`), and the focused-editor
+            // route it asks first keeps no newline (`fromFocusedEditorControlByte`,
+            // `shortcuts.zig:26`, `:31-41`). A kitty or xterm Ctrl+J is the
+            // byte replayed (`escape_parser.zig:255-258`), which the decoder
+            // gives as the same key. So it is an affirmative where Enter is,
+            // and meets the same readiness check below; on choice 3 it is a
+            // refusal, answered at once. Ahead of the draft's arm, which would
+            // swallow it. A menu open under the question never sees it: the
+            // question has the keys ([`Self::consume_inputs`]), as fx's
+            // approval takes the byte before any menu
+            // (`app_input_runtime.zig:1161-1216`).
+            Input::Action(Action::Submit | Action::ControlJ) => approval::Action::Submit,
+            Input::Action(Action::Escape) => approval::Action::Escape,
+            Input::Action(Action::Cancel) => approval::Action::Cancel,
+            // **Ctrl-L does nothing at a permission question**, as fx
+            // v0.0.16's does: a raw byte, `12`, which no approval action is
+            // made of
+            // (`approvalActionFromRawByte` and `approvalActionFromByte`,
+            // `src/ui/input/runtime.zig:98-108`, `:61-73@481104fd`; `.redraw`
+            // is no focused-editor key, `shortcuts.zig:24`, `:31-41`), so the
+            // question takes it and asks for nothing
+            // (`app_input_runtime.zig:1173-1184`) -- no repaint and no
+            // `.external_damage`, and the composer's redraw is never reached
+            // (`:873`). Swallowed, so the screen the receipt is about is not
+            // declared damaged under an Enter read with it.
+            Input::Action(Action::Redraw) => return None,
+            // The draft's own keys, and **only while a draft has them**: with
+            // no amendment open these stay what they have always been at a
+            // question, which is swallowed. `Up` and `Down` are deliberately
+            // not in the subset ([`approval::edits`]) -- they move the choice
+            // and end editing, and routing them into the editor would take away
+            // the only way out of a draft.
+            //
+            // Each spelling as the plain key it folds to ([`folded`]): in an
+            // amendment fx takes Alt-b and Alt-f as the word moves,
+            // Shift-Left and -Right and Ctrl-B and Ctrl-F as the caret's step,
+            // and Super-Left and -Right and Shift-Home and -End as Home and
+            // End (`line_start`/`line_end` and `.home` are one
+            // `.cursor_home` there, `approvalDraftActionFromShortcut`,
+            // `src/ui/input/runtime.zig:75-108@481104fd`) -- the caret line's
+            // edge here, the whole draft's in fx, whose draft holds no line
+            // break (`super::approval_amendment`).
+            Input::Action(editing) if drafting => match folded(Input::Action(editing)) {
+                Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),
+                _ => return None,
+            },
+            // Content, to the **draft's** assembler and never the composer's:
+            // a modal surface that leaked paste bytes into the composer would
+            // leave text behind the panel that the user never sees and cannot
+            // delete. With no draft open they fall through to the swallow
+            // below, exactly as they did before amendments existed.
+            Input::PasteByte(byte) if drafting => approval::Action::PasteByte(byte),
+            Input::Action(_) | Input::PasteByte(_) => return None,
+            // Answered before the focus is consulted ([`Self::consume`]), for
+            // the reason the same arm in [`Self::answer`] gives.
+            Input::Report(_) => return None,
+        };
+        Some(action)
+    }
+
     /// One keystroke, while a question has the focus.
     ///
     /// **Everything the panel does not bind is swallowed**, and that is the
@@ -10031,7 +10252,9 @@ impl Shell {
                 } else {
                     1
                 };
-                screen.scroll_by(delta, cols, rows);
+                if screen.scroll_by(delta, cols, rows) {
+                    self.approval_changed();
+                }
                 self.render.request(Reason::Modal);
                 return;
             }
@@ -10041,121 +10264,8 @@ impl Shell {
         // and an editing key from nothing into an edit
         // ([`super::approval_amendment`]).
         let drafting = self.drafting();
-        let action = match event {
-            Input::Text(character) => approval::Action::Text(character),
-            // **The plain arrows move the choice, whether or not a draft is
-            // open** (`routeApprovalEscapeAction`,
-            // `input_approval_runtime.zig:111-126@481104fd`: the arrow's
-            // composer move, `visual_up`, is no draft key,
-            // `src/ui/input/runtime.zig:75-96`, so `.cursor_up` reaches the
-            // switch). Every other spelling of Up and Down is below.
-            Input::Action(Action::Up) => approval::Action::Up,
-            Input::Action(Action::Down) => approval::Action::Down,
-            // **Left and Alt-b mark the previous choice and Right and Alt-f the
-            // next, while no draft is open** -- fx's `.cursor_left`/`.word_left`
-            // and `.cursor_right`/`.word_right` (`routeApprovalEscapeAction`,
-            // `input_approval_runtime.zig:90-110@481104fd`): `move_choice`, the
-            // move Up and Down make, wrapping at both ends (`moveChoice`,
-            // `approval_decision.zig:214-225`). In a draft they are its caret's
-            // (below). Every other spelling of the four leaves the choice where
-            // it is: Ctrl-, Alt-, Shift- and Super-Left and -Right and
-            // Shift-Alt-b and -f are a composer move, which reaches fx's
-            // `else => {}` (`:128`); Ctrl-B and Ctrl-F never reach it -- they
-            // take fx's raw-byte route as `.edit_draft`, which `apply` answers
-            // with `.none` while no amendment is open
-            // (`src/ui/input/runtime.zig:103-108`,
-            // `approval_decision.zig:170-174`). The decoder keeps them apart
-            // ([`Action::ComposerLeft`], [`Action::WordLeft`]), and they reach
-            // the swallow.
-            Input::Action(Action::Left | Action::AltB) if !drafting => approval::Action::Up,
-            Input::Action(Action::Right | Action::AltF) if !drafting => approval::Action::Down,
-            // **Super-Up and Super-Down take a draft's caret to its start and
-            // its end** -- fx's `draft_start` and `draft_end`
-            // (`modifiedArrowAction`, `escape_parser.zig:74-76@481104fd`),
-            // which its amendment reads as `.cursor_home` and `.cursor_end`
-            // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:82-83`;
-            // `cursorHome`/`cursorEnd`, `approval_amendment.zig:84-92`: the
-            // whole draft's edges, not the line's). Ahead of the draft's arm
-            // below, which reads the folded key, and the fold makes these the
-            // arrows. With no draft open they are the swallow's.
-            Input::Action(edge @ (Action::DraftStart { .. } | Action::DraftEnd { .. }))
-                if drafting =>
-            {
-                approval::Action::Edit(edge)
-            }
-            // **Every other spelling of Up and Down moves nothing, with or
-            // without a draft open.** Shift-, Ctrl- and Alt-Up and -Down (and
-            // Super's with no draft) are composer moves, which reach fx's
-            // `else => {}` (`input_approval_runtime.zig:128`; `visual_up`,
-            // `paragraph_up` and their Down are no draft key,
-            // `src/ui/input/runtime.zig:86`). `C-p` is fx's decoded
-            // `.open_model_catalog` (`controlByteFeatureAction`,
-            // `escape_parser.zig:268-274`; `terminal_action_decoder.zig:118-122`),
-            // which carries no composer move (`shortcuts.zig:63`) and reaches
-            // the same `else`. `C-n` is a raw byte (`appendRaw`), no draft key
-            // (`fromFocusedEditorControlByte`, `shortcuts.zig:31-41`) and no
-            // approval byte (`approvalActionFromByte`,
-            // `src/ui/input/runtime.zig:61-73`, `:103-108`), so the question
-            // takes it and does nothing (`app_input_runtime.zig:1173-1184`).
-            // Swallowed here, before the panel is asked, so the choice, the
-            // draft, the frame and the readiness receipt are all exactly as
-            // they were: a key that does nothing cannot leave a choice marked
-            // that no frame has shown.
-            //
-            // **`C-p` and `C-n` on the review plane are this surface's own**:
-            // they walk the change (above), the only keys that do -- a bounded
-            // diff is up to 128 KiB (`crate::permission::ApprovalDiff`) and a
-            // screen is a few dozen rows. Upstream's plane scrolls by the
-            // wheel (`handleApprovalWheel`), which xfx does not enable; a
-            // retention, recorded in `docs/parity.md`.
-            Input::Action(
-                Action::SelectUp
-                | Action::SelectDown
-                | Action::ComposerUp
-                | Action::ComposerDown
-                | Action::DraftStart { .. }
-                | Action::DraftEnd { .. }
-                | Action::ControlP
-                | Action::HistoryNext,
-            ) => return,
-            Input::Action(Action::Tab) => approval::Action::Tab,
-            Input::Action(Action::Submit) => approval::Action::Submit,
-            Input::Action(Action::Escape) => approval::Action::Escape,
-            Input::Action(Action::Cancel) => approval::Action::Cancel,
-            // The whole band is repainted every frame, so a redraw is a frame
-            // here as much as anywhere else.
-            Input::Action(Action::Redraw) => {
-                self.external_damage();
-                return;
-            }
-            // The draft's own keys, and **only while a draft has them**: with
-            // no amendment open these stay what they have always been at a
-            // question, which is swallowed. `Up` and `Down` are deliberately
-            // not in the subset ([`approval::edits`]) -- they move the choice
-            // and end editing, and routing them into the editor would take away
-            // the only way out of a draft.
-            //
-            // Each spelling as the plain key it folds to ([`folded`]): in an
-            // amendment fx takes Alt-b and Alt-f as the word moves and
-            // Shift-Left and -Right and Ctrl-B and Ctrl-F as the caret's step
-            // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-108
-            // @481104fd`). Super-Left and -Right are its jump to the line's
-            // edge there (`:82-83`), which this draft takes as the step, as
-            // the composer does.
-            Input::Action(editing) if drafting => match folded(Input::Action(editing)) {
-                Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),
-                _ => return,
-            },
-            // Content, to the **draft's** assembler and never the composer's:
-            // a modal surface that leaked paste bytes into the composer would
-            // leave text behind the panel that the user never sees and cannot
-            // delete. With no draft open they fall through to the swallow
-            // below, exactly as they did before amendments existed.
-            Input::PasteByte(byte) if drafting => approval::Action::PasteByte(byte),
-            Input::Action(_) | Input::PasteByte(_) => return,
-            // Answered before the focus is consulted ([`Self::consume`]), for
-            // the reason the same arm in [`Self::answer`] gives.
-            Input::Report(_) => return,
+        let Some(action) = Self::approval_action(event, drafting) else {
+            return;
         };
         // Whichever surface is holding the question, and there is never more
         // than one ([`Self::ask`]). Both answer with the same function
@@ -10175,9 +10285,11 @@ impl Shell {
             // repaint of an unchanged band is bytes that say nothing.
             approval::Reply::Ignored => return,
             approval::Reply::Moved => {
-                // The marker or a draft moved, which is a frame and nothing
-                // else: the panel is the same height, so the band's geometry
-                // and the receipt about it both still hold.
+                // The marker or a draft moved: the panel is the same height,
+                // so the band's geometry and the receipt about it both still
+                // hold, but no affirmative is taken until a frame shows the
+                // move ([`Self::approval_changed`]).
+                self.approval_changed();
                 self.render.request(Reason::Modal);
                 return;
             }
@@ -10207,6 +10319,16 @@ impl Shell {
         if matches!(answer, ApprovalAnswer::Once | ApprovalAnswer::Always)
             && !self.asked_id.is_some_and(|id| self.approval_ready(id))
         {
+            // **A change the frame has not shown yet** -- a move, a draft edit
+            // read with this key: spent, and nothing said, as fx says nothing
+            // (its refusal is a trace line, `input_approval_runtime.zig:207-217
+            // @481104fd`). The question is on the screen, so "not on the screen
+            // yet" would be false; the frame asked for here shows what the next
+            // Enter answers.
+            if self.asked_id.is_some_and(|id| self.approval_unshown(id)) {
+                self.render.request(Reason::Modal);
+                return;
+            }
             // **Said, not swallowed**, and which sentence it is matters: waiting
             // fixes one of these and only a bigger window fixes the other.
             let notice = if self.readiness.undisclosed() {
@@ -12750,10 +12872,20 @@ impl Shell {
             // Every Enter while `/mcp`'s menu is up, whichever surface takes
             // it, is one the menu's held rule counts (opus-Y): an Enter the
             // model's panel took, then a second tap once the question is
-            // painted again, is a double tap, not an answer.
-            let held = matches!(event, Input::Action(Action::Submit))
-                && self.mcp_menu.is_some()
-                && self.mcp_enter.enter(now);
+            // painted again, is a double tap, not an answer. So is a C-j the
+            // model's panel or a permission question takes, which answers
+            // either as Enter does (QUESTION-CTRL-J, APPROVAL-CTRL-J): the
+            // window is how soon after the last answering key a person can
+            // have read the question painted again, whichever key that was --
+            // and a C-j the approval's readiness check holds back counts too,
+            // as a swallowed Enter does. A C-j the menu takes is its Down, no
+            // answer, and counts for nothing.
+            let answers = match event {
+                Input::Action(Action::Submit) => true,
+                Input::Action(Action::ControlJ) => self.ask.is_some() || self.asking(),
+                _ => false,
+            };
+            let held = answers && self.mcp_menu.is_some() && self.mcp_enter.enter(now);
             // The full transcript, while it is up, has the keys it binds;
             // everything else goes where it would have gone with the screen
             // closed -- the composer, the band's menus -- as upstream routes
@@ -12762,10 +12894,13 @@ impl Shell {
             // ([`Self::full_transcript_sees`]) and it does not open over one
             // ([`Self::open_full_transcript`]).
             //
-            // It reads the event with the approval's own spellings folded
-            // back, as the question does ([`unspelled`]); the approval below
-            // reads every spelling the decoder tells apart.
-            let (spelled, event) = (event.clone(), unspelled(event));
+            // It reads the event as it came, as the question and the approval
+            // below do: it binds the plain arrows and the bare page keys only
+            // (`keyForAction`, `input_full_transcript_runtime.zig:156-178
+            // @481104fd`), so a composer move -- an arrow held with Super,
+            // Alt, Ctrl or Shift, Ctrl-B, Ctrl-F, a held page key -- is no key
+            // of its and goes on to the composer behind it, as fx's does
+            // (`app_input_runtime.zig:930`, `:872`, `:997-1001`).
             if self.full.is_open() && self.view_full_transcript(&event) {
                 continue;
             }
@@ -12785,29 +12920,32 @@ impl Shell {
                 self.answer(event, now);
                 continue;
             }
-            // The approval reads the event before any fold: Left and Alt-b
-            // move its choice where a composer move and the word arrows do not
-            // ([`Self::decide`]).
+            // The approval reads the event before any fold too: Left and
+            // Alt-b move its choice where a composer move and the word arrows
+            // do not ([`Self::decide`]).
             if self.asking() {
-                self.decide(spelled, now);
+                self.decide(event, now);
                 continue;
             }
-            // Shift on Up and Down means something only to a question's
-            // field, and Alt-b apart from the word arrows only to a question's
-            // choice and an approval's; to every surface below they are the
-            // keys they always were.
+            // A rule change waiting to be confirmed is asked in upstream's
+            // approval prompt, so it reads the event the approval reads and
+            // swallows what the approval does not bind
+            // ([`Self::offer_to_rule_confirm`]).
+            if self.rule_confirm.is_some() {
+                self.offer_to_rule_confirm(event, now);
+                continue;
+            }
+            // Every spelling the decoder keeps apart means something apart
+            // only to those three; to every surface below they are the keys
+            // they always were -- but a held Up or Down, which the compact
+            // menus below read as nothing, as fx's do (`else => return`,
+            // `app_input_runtime.zig:2259-2263@481104fd`).
             let event = folded(event);
             // The `/statusline` picker has the focus whenever no question
             // does: everything is its, and what it does not bind it swallows
             // -- a letter, a Ctrl-C, a Ctrl-D -- as upstream's compact menus
             // do (`routeActiveModalInput`, `app_input_runtime.zig:1366-1395`).
             // Escape is the way out, and then the keys mean what they mean.
-            // A rule change waiting to be confirmed has the focus the same
-            // way, and swallows what it does not bind.
-            if self.rule_confirm.is_some() {
-                self.offer_to_rule_confirm(event);
-                continue;
-            }
             if self.statusline_menu.is_some() {
                 self.offer_to_statusline(event);
                 continue;
@@ -12843,12 +12981,15 @@ impl Shell {
                 }
                 continue;
             }
+            // The pickers read Ctrl's and Shift's held Up and Down as the
+            // arrows, and the composer each as its own move (`Self::act`).
+            let menus = arrow_to_pickers(&event);
             // `/mcp`'s menu takes the keys it binds; the rest go to the
             // composer, which holds its filter, as fx v0.0.16's does.
-            if self.offer_to_mcp(&event, held) {
+            if self.offer_to_mcp(&menus, held) {
                 continue;
             }
-            if self.offer_to_pickers(&event) {
+            if self.offer_to_pickers(&menus) {
                 continue;
             }
             match event {
@@ -13091,12 +13232,21 @@ impl Shell {
             // Right takes the ghost after the caret first, with nothing
             // selected (`.character_right`, `app_input_runtime.zig:282-312`).
             Action::Right if self.editor.selection().is_none() && self.take_ghost() => {}
+            //
+            // Alt's paragraph moves and Super's draft edges too, by the caret
+            // move alone: no edge jump, no steer, no history
+            // (`routeComposerShortcutAction`, `app_input_runtime.zig:298-309
+            // @481104fd`; the `/model` column they drop is `offer_to_column`'s).
             Action::Left
             | Action::Right
             | Action::Home
             | Action::End
             | Action::WordLeft
-            | Action::WordRight => {
+            | Action::WordRight
+            | Action::ParagraphUp
+            | Action::ParagraphDown
+            | Action::DraftStart { .. }
+            | Action::DraftEnd { .. } => {
                 let recorded = self.editor.apply(action, self.text_cols());
                 debug_assert!(recorded.is_none(), "a caret move produced a delta");
                 self.moved();
@@ -13145,20 +13295,36 @@ impl Shell {
             // wrap, so a row that did not change is the first row for an `Up`
             // and the last one for a `Down` -- the same fact, measured by the
             // module that owns the wrap instead of restated by this one.
-            // Never reaches here (`folded` folds them back before the
-            // composer sees an event); kept as the moves they are, so a route
-            // that skipped the fold would still move the caret rather than drop
-            // the key.
-            Action::SelectUp | Action::ComposerUp | Action::DraftStart { .. } => {
-                self.act(Action::Up, now)
-            }
-            Action::SelectDown | Action::ComposerDown | Action::DraftEnd { .. } => {
-                self.act(Action::Down, now)
+            // Ctrl's is the plain arrow, edge and history included
+            // (`routeComposerVertical`, `input_completion_runtime.zig:272-291`).
+            Action::ComposerUp => self.act(Action::Up, now),
+            Action::ComposerDown => self.act(Action::Down, now),
+            // Shift's is one row and stops at the draft's first or last row:
+            // no edge, no steer, no history (`if (page or extend_selection)
+            // return;`, `input_completion_runtime.zig:270`), the column the
+            // run aimed for forgotten where there was no row to go to
+            // (`vertical_navigation.zig:70-73`). The selection it would extend
+            // is dropped (COMPOSER-SELECTION-EXTEND).
+            Action::SelectUp | Action::SelectDown => {
+                let step = if action == Action::SelectUp {
+                    EditorStep::Up
+                } else {
+                    EditorStep::Down
+                };
+                if self.editor.move_rows(step, 1, self.text_cols()) {
+                    self.moved();
+                } else {
+                    self.editor.forget_column();
+                }
             }
             Action::AltB => self.act(Action::WordLeft, now),
             Action::AltF => self.act(Action::WordRight, now),
             Action::ComposerLeft => self.act(Action::Left, now),
             Action::ComposerRight => self.act(Action::Right, now),
+            Action::ComposerPageUp => self.act(Action::PageUp, now),
+            Action::ComposerPageDown => self.act(Action::PageDown, now),
+            Action::LineStart { .. } => self.act(Action::Home, now),
+            Action::LineEnd { .. } => self.act(Action::End, now),
             Action::Up | Action::Down => {
                 let cols = self.text_cols();
                 let from = self.editor.point(cols).0;
@@ -13555,10 +13721,18 @@ impl Shell {
     /// `auth_runtime.zig:2052-2056`), and would otherwise quote the count
     /// again and drop what was typed between the presses.
     fn cancel_turn(&mut self) {
-        if self.stop_requested && !self.work_typed_since_the_stop() {
+        if !self.stop_owed() {
             return;
         }
         self.cancel_turn_with(false);
+    }
+
+    /// Whether a keystroke that stops work owes a stop now: none is still
+    /// requested, or work it did not cover has been typed since
+    /// ([`Self::cancel_turn`]'s rule, which a rule confirmation's Escape
+    /// keeps too).
+    fn stop_owed(&self) -> bool {
+        !self.stop_requested || self.work_typed_since_the_stop()
     }
 
     /// Whether work a stop still requested did not cover is in hand: a
@@ -14563,60 +14737,62 @@ fn image_slash_prefix(text: &str) -> Option<usize> {
     })
 }
 
-/// `event` with the spellings only an approval tells apart made the keys they
-/// are everywhere else: a composer move on Left or Right
-/// (`super::input::Action::ComposerLeft`) the arrow, Alt-f
-/// (`super::input::Action::AltF`) the word move, Ctrl- and Alt-Up and -Down
-/// (`super::input::Action::ComposerUp`) the arrows, and Super-Up and -Down
-/// (`super::input::Action::DraftStart`) the arrow they were before -- the
-/// shifted one with Shift held.
+/// `event` with every spelling the decoder keeps apart made the key it is to
+/// the menus and the composer: a composer move on Left or Right
+/// (`super::input::Action::ComposerLeft`, Ctrl-B and Ctrl-F among them) the
+/// arrow, Alt-b and Alt-f (`super::input::Action::AltB`) the word moves, a
+/// page key held with a modifier (`super::input::Action::ComposerPageUp`)
+/// the page key, and a move to the line's edge -- Super-Left and -Right,
+/// Shift-Home and -End, a held tilde Home or End without Ctrl
+/// (`super::input::Action::LineStart`) -- Home or End, which is that move to
+/// upstream's every surface (`.home` is `line_start`, `shortcuts.zig:51-52`,
+/// `app_input_runtime.zig:298-309`, `:1025`). A held Up or Down is not
+/// folded: it is a move of its own to the menus and the composer too
+/// ([`arrow_to_pickers`]), and so is a move to the draft's edge
+/// (`super::input::Action::DraftStart`), which a `/model` column drops as
+/// Home does ([`Shell::offer_to_column`]).
 ///
-/// An approval's choice moves on Left and Alt-f where fx's moves, and leaves
-/// Shift-Left, Ctrl-B and Ctrl-Right alone where fx's does, and every
-/// modified Up and Down (`input_approval_runtime.zig:90-128@481104fd`); its
-/// amendment takes Super-Up and -Down to the draft's edges
-/// (`src/ui/input/runtime.zig:82-83`). No other surface reads them apart. The
-/// approval reads the event as it came ([`Shell::decide`]); the full
-/// transcript, which holds Left and Right, and the question read what this
-/// gives, so they see exactly the keys they saw before these were kept apart.
-fn unspelled(event: Input) -> Input {
+/// The three surfaces that tell them apart read the event before this, as it
+/// came: the full transcript binds the plain arrows and the bare page keys
+/// alone and leaves every composer move to the composer behind it
+/// (`keyForAction`, `input_full_transcript_runtime.zig:156-178@481104fd`); a
+/// question moves its choice on Shift and the plain arrows, goes back a
+/// question on Left and Alt-b, and reads the rest as its field's moves
+/// (`src/ui/input/runtime.zig:155-197`, `input_question_runtime.zig:139-201`);
+/// an approval moves its choice on the arrows and Alt-b and Alt-f, and takes
+/// a move to the draft's edge (Super-Up and -Down, Ctrl- and Super-Home and
+/// -End) to its amendment's edges (`input_approval_runtime.zig:90-128`,
+/// `src/ui/input/runtime.zig:82-83`).
+/// Folded here, once, before the menus and the composer read the event, so
+/// those see exactly the keys they saw before any was kept apart -- as
+/// upstream's composer moves are the bare keys' own to them (`shortcuts.zig:43-65`,
+/// `routeComposerVertical`, `input_completion_runtime.zig:215-233`). An
+/// approval's draft reads its keys through this too ([`Shell::decide`]).
+fn folded(event: Input) -> Input {
     match event {
         Input::Action(Action::ComposerLeft) => Input::Action(Action::Left),
         Input::Action(Action::ComposerRight) => Input::Action(Action::Right),
+        Input::Action(Action::AltB) => Input::Action(Action::WordLeft),
         Input::Action(Action::AltF) => Input::Action(Action::WordRight),
-        Input::Action(Action::ComposerUp | Action::DraftStart { shifted: false }) => {
-            Input::Action(Action::Up)
-        }
-        Input::Action(Action::ComposerDown | Action::DraftEnd { shifted: false }) => {
-            Input::Action(Action::Down)
-        }
-        Input::Action(Action::DraftStart { shifted: true }) => Input::Action(Action::SelectUp),
-        Input::Action(Action::DraftEnd { shifted: true }) => Input::Action(Action::SelectDown),
+        Input::Action(Action::ComposerPageUp) => Input::Action(Action::PageUp),
+        Input::Action(Action::ComposerPageDown) => Input::Action(Action::PageDown),
+        Input::Action(Action::LineStart { .. }) => Input::Action(Action::Home),
+        Input::Action(Action::LineEnd { .. }) => Input::Action(Action::End),
         other => other,
     }
 }
 
-/// `event` with every spelling the decoder keeps for a question or an
-/// approval made the key it is to every other surface: [`unspelled`], Shift
-/// taken off Up and Down, and Alt-b the word move.
-///
-/// The decoder keeps Shift on the vertical arrows because a question's
-/// freeform field binds it -- the plain arrows walk the field's rows and the
-/// shifted ones choose (`super::input::Action::SelectUp`) -- and Alt-b apart
-/// from Ctrl-Left and Alt-Left because a question's choice binds it -- the
-/// previous question, where the arrows do nothing -- and an approval's -- the
-/// previous choice (`super::input::Action::AltB`). Folded back here, once,
-/// after the full transcript, the question and the approval have read the
-/// event (the full transcript binds neither, so it takes them as unbound) and
-/// before the menus and the composer do, so those see exactly the keys they
-/// saw before any were kept apart. An approval's draft reads its keys through
-/// this too ([`Shell::decide`]).
-fn folded(event: Input) -> Input {
-    match unspelled(event) {
-        Input::Action(Action::SelectUp) => Input::Action(Action::Up),
-        Input::Action(Action::SelectDown) => Input::Action(Action::Down),
-        Input::Action(Action::AltB) => Input::Action(Action::WordLeft),
-        other => other,
+/// A held Up or Down as the pickers read it: Ctrl's and Shift's are fx's
+/// `visual_up`/`visual_down`, which walk an open picker as the plain arrows do
+/// (`routeNonSlashPickerMove` and the slash completion inside
+/// `routeComposerVertical`, `input_completion_runtime.zig:230-259@481104fd`);
+/// Alt's and Super's are `paragraph_*`/`draft_*`, which no picker reads
+/// (`app_input_runtime.zig:298-309`), and stay what they are.
+fn arrow_to_pickers(event: &Input) -> Input {
+    match event {
+        Input::Action(Action::ComposerUp | Action::SelectUp) => Input::Action(Action::Up),
+        Input::Action(Action::ComposerDown | Action::SelectDown) => Input::Action(Action::Down),
+        other => other.clone(),
     }
 }
 
@@ -19015,38 +19191,235 @@ mod tests {
     fn an_enter_another_surface_took_counts_for_the_held_rule() {
         // opus-Y: the model's panel took an Enter and the menu's question was
         // painted again; a second tap 200 ms later is a double tap, not an
-        // answer -- and it is said, once.
+        // answer -- and it is said, once. And a C-j the panel took, which
+        // answers it as Enter does (QUESTION-CTRL-J): the window is how soon
+        // after the last answering key a person can have read the question
+        // painted again, whichever key that was. The newline habit is the way
+        // in: a C-j meant as a new line answers the panel, and the Enter the
+        // user was already typing lands on Remove. (The name predates the C-j
+        // case; another receipt's script runs it by this name.)
+        for key in [Action::Submit, Action::ControlJ] {
+            let (mut case, before) = asked_to_remove_keep();
+            case.shell.ask_question(one_question());
+            let _ = case.written();
+            one_read(&mut case, Duration::from_secs(1), vec![Input::Action(key)]);
+            assert!(case.shell.ask.is_none(), "{key:?} did not answer the panel");
+            let _ = case.screen();
+            one_read(
+                &mut case,
+                Duration::from_millis(200),
+                vec![Input::Action(Action::Submit)],
+            );
+            assert!(case.drained().is_empty());
+            assert_eq!(case.files(), before, "{key:?} then Enter answered Remove");
+            assert!(case.written().contains(MCP_ENTER_TOO_SOON), "{key:?}");
+            let _ = case.screen();
+            // A moment after the swallowed one, which counts too (opus-Md R2).
+            one_read(
+                &mut case,
+                Duration::from_millis(600),
+                vec![Input::Action(Action::Submit)],
+            );
+            assert!(case.drained().is_empty());
+            assert_ne!(
+                case.files(),
+                before,
+                "{key:?}: an Enter past the window took no answer"
+            );
+        }
+    }
+
+    #[test]
+    fn a_ctrl_j_a_permission_question_took_counts_for_the_held_rule() {
+        // Train 15's join of QUESTION-CTRL-J and APPROVAL-CTRL-J (the former's
+        // opus review, "MUST, at the train join"): a permission question over
+        // `/mcp`'s Remove takes C-j as Enter (`approvalActionFromByte`,
+        // `src/ui/input/runtime.zig:64@481104fd`), so the Enter typed 200 ms
+        // after it lands on Remove painted again as soon after an answering
+        // key as after the model's question's (the case above): swallowed,
+        // and said once; a moment later it answers. Enter at the question,
+        // which always counted, is the control. And a C-j the question's
+        // readiness check holds back -- its frame not yet landed -- counts
+        // too, as a swallowed Enter does.
+        for (key, landed) in [
+            (Action::Submit, true),
+            (Action::ControlJ, true),
+            (Action::ControlJ, false),
+        ] {
+            let (mut case, before) = asked_to_remove_keep();
+            case.shell.apply(UiEvent::Approval(question(asked())));
+            assert!(case.shell.asking(), "no permission question");
+            let _ = case.screen();
+            if landed {
+                case.shell.intend_approval();
+                case.shell.approval_landed(Outcome::Painted);
+                case.shell.reconcile_approval();
+            }
+            let _ = case.written();
+            one_read(&mut case, Duration::from_secs(1), vec![Input::Action(key)]);
+            assert_eq!(
+                case.shell.asking(),
+                !landed,
+                "{key:?} (frame landed: {landed}): the question's answer"
+            );
+            if !landed {
+                // Held back. The frame lands, and `3` -- the refusal, which
+                // no readiness holds and no held rule counts -- takes the
+                // question away 100 ms later, so the Enter below meets the
+                // menu's question 300 ms after the held-back C-j.
+                case.shell.intend_approval();
+                case.shell.approval_landed(Outcome::Painted);
+                case.shell.reconcile_approval();
+                one_read(
+                    &mut case,
+                    Duration::from_millis(100),
+                    vec![Input::Text('3')],
+                );
+                assert!(!case.shell.asking(), "`3` did not refuse the question");
+            }
+            let _ = case.screen();
+            one_read(
+                &mut case,
+                Duration::from_millis(200),
+                vec![Input::Action(Action::Submit)],
+            );
+            assert!(case.drained().is_empty());
+            assert_eq!(case.files(), before, "{key:?} then Enter answered Remove");
+            assert!(case.written().contains(MCP_ENTER_TOO_SOON), "{key:?}");
+            let _ = case.screen();
+            one_read(
+                &mut case,
+                Duration::from_millis(600),
+                vec![Input::Action(Action::Submit)],
+            );
+            assert!(case.drained().is_empty());
+            assert_ne!(
+                case.files(),
+                before,
+                "{key:?}: an Enter past the window took no answer"
+            );
+        }
+    }
+
+    /// `/permissions remember ...` as a person types it (the rule
+    /// [`REMEMBER_A`] names), its Enter apart.
+    const REMEMBER_A_TYPED: &str =
+        "/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}";
+
+    /// [`McpCase`] with a saved session's rule store published, as
+    /// `remembering_shell` has one: a `remember` opens a confirmation here.
+    fn mcp_case_remembering() -> (McpCase, std::path::PathBuf) {
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let case = McpCase::new(
+            serde_json::json!({}),
+            Some(serde_json::json!({"keep": entry})),
+        );
+        let session = case.home.path().join("session");
+        std::fs::create_dir_all(&session).expect("a session directory");
+        let rules = crate::permission::session_rules::path_in(&session);
+        case.shell.work.publish_saved_rules(rules.clone());
+        (case, rules)
+    }
+
+    #[test]
+    fn a_rule_confirmation_and_mcps_menu_are_never_up_together() {
+        // Train 15's join: a C-j that answers a rule confirmation (RULE-CONFIRM-KEYS)
+        // is not counted for `/mcp`'s held rule, because the two are never
+        // up at once. Each is opened from the composer by an Enter, and each,
+        // while up, takes that Enter first: the confirmation takes every key
+        // ahead of the menu (`consume_inputs`), the menu takes Enter ahead of
+        // the composer (`offer_to_mcp`). Driven here by the keys a person
+        // types, both ways round.
+        //
+        // `/permissions` over `/mcp`'s menu: the typed command is the menu's
+        // filter and its Enter the menu's; no confirmation opens, no rule is
+        // kept, and no choice of the menu's is made.
+        let (mut case, rules) = mcp_case_remembering();
+        case.open();
+        case.reread();
+        let before = case.files();
+        case.typed(REMEMBER_A_TYPED);
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.shell.mcp_menu.is_some(), "the menu closed");
+        assert!(
+            case.shell.rule_confirm.is_none(),
+            "a confirmation opened over /mcp's menu"
+        );
+        assert!(!rules.exists(), "a rule was kept");
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "the menu acted");
+        // The control: with the menu closed (Escape clears its filter and
+        // shuts it), the same command opens its confirmation.
+        case.keys([Input::Action(Action::Escape)]);
+        assert!(case.shell.mcp_menu.is_none(), "Escape left the menu up");
+        case.typed(REMEMBER_A_TYPED);
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(
+            case.shell.rule_confirm.is_some(),
+            "the control opened no confirmation"
+        );
+        //
+        // `/mcp` over the confirmation: its letters change nothing and land
+        // nowhere, its Enter answers the confirmation -- the marked choice,
+        // Confirm, the confirmation's own key -- and no menu opens.
+        case.typed("/mcp");
+        assert!(
+            case.shell.rule_confirm.is_some(),
+            "a letter closed the confirmation"
+        );
+        assert!(
+            case.shell.mcp_menu.is_none(),
+            "/mcp's menu opened over the confirmation"
+        );
+        assert!(
+            case.shell.editor.is_empty(),
+            "the letters reached the composer"
+        );
+        assert!(!rules.exists(), "a letter answered the confirmation");
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(
+            case.shell.rule_confirm.is_none(),
+            "Enter did not answer the confirmation"
+        );
+        assert!(
+            case.shell.mcp_menu.is_none(),
+            "the Enter opened /mcp's menu"
+        );
+        assert!(
+            case.shell.editor.is_empty(),
+            "the composer holds the letters"
+        );
+        let kept = crate::permission::session_rules::load(&rules)
+            .map(|state| state.rules.len())
+            .unwrap_or(0);
+        assert_eq!(kept, 1, "Enter's Confirm kept no rule");
+        assert_eq!(case.files(), before, "an MCP file changed");
+        // The control: with no confirmation up, `/mcp` opens its menu.
+        case.open();
+    }
+
+    #[test]
+    fn a_ctrl_j_the_menu_took_does_not_count_for_the_held_rule() {
+        // The other side of the case above: with no question up, C-j is the
+        // menu's Down, which a confirmation does nothing with -- not an
+        // answering key, so it holds no Enter back.
         let (mut case, before) = asked_to_remove_keep();
-        case.shell.ask_question(one_question());
-        let _ = case.written();
         one_read(
             &mut case,
             Duration::from_secs(1),
-            vec![Input::Action(Action::Submit)],
+            vec![Input::Action(Action::ControlJ)],
         );
-        assert!(case.shell.ask.is_none());
-        let _ = case.screen();
+        assert!(case.screen().contains("Remove keep from ~/.xfx/mcp.json?"));
+        assert_eq!(case.files(), before, "C-j answered Remove");
         one_read(
             &mut case,
             Duration::from_millis(200),
             vec![Input::Action(Action::Submit)],
         );
         assert!(case.drained().is_empty());
-        assert_eq!(case.files(), before, "a double tap answered Remove");
-        assert!(case.written().contains(MCP_ENTER_TOO_SOON));
-        let _ = case.screen();
-        // A moment after the swallowed one, which counts too (opus-Md R2).
-        one_read(
-            &mut case,
-            Duration::from_millis(600),
-            vec![Input::Action(Action::Submit)],
-        );
-        assert!(case.drained().is_empty());
-        assert_ne!(
-            case.files(),
-            before,
-            "an Enter past the window took no answer"
-        );
+        assert_ne!(case.files(), before, "the menu's C-j held the Enter back");
     }
 
     #[test]
@@ -22665,12 +23038,34 @@ mod tests {
     /// A shell with a turn running and a question in front of the user, on a
     /// screen that has really shown it.
     fn asking(shell: &mut Fixture) -> Instant {
+        asking_for(shell, asked())
+    }
+
+    /// [`asking`], with `request` the question.
+    fn asking_for(shell: &mut Fixture, request: ApprovalRequest) -> Instant {
         let started = turn_running(shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(question(asked())));
+        shell.apply(UiEvent::Approval(question(request)));
         shell.settle_band(started);
         let _ = shell.document();
         delivered(shell);
         started
+    }
+
+    /// The question a scripted command puts to the user: no file in it, the
+    /// kind fx v0.0.16 does not gate (`input_approval_runtime.zig:191-192
+    /// @481104fd`).
+    fn asked_to_run() -> ApprovalRequest {
+        ApprovalRequest {
+            tool: "terminal",
+            target: "echo hi".to_string(),
+            summary: "run `echo hi`".to_string(),
+            always_scope: "allow every future run of exactly `echo hi` in .".to_string(),
+            diff: None,
+            subject: crate::permission::ApprovalSubject::Command {
+                command: "echo hi".to_string(),
+                cwd: ".".to_string(),
+            },
+        }
     }
 
     /// A question **`crate::permission` really built**, recorded or not.
@@ -23191,6 +23586,10 @@ mod tests {
         );
         shell.route_bytes(&[0x1b, 0x5b, 0x41]); // Up, back to the first
         shell.route_bytes(&[0x1b, 0x5b, 0x42]); // Down, forward again
+
+        // The frame that shows the marker there: an Enter before it answers
+        // nothing (`a_move_and_enter_in_one_read_at_an_edit_answer_nothing_until_a_frame_shows_the_move`).
+        delivered(&mut shell);
         shell.route_bytes(&[0x0d]);
 
         assert_eq!(
@@ -24031,7 +24430,7 @@ mod tests {
         assert!(draft(&fixture, "ab yzcdx"), "{:?}", fixture.band_rows());
         // And Shift-Left and Alt-f, which the decoder keeps apart for an
         // approval's choice, reach the draft as the step and the word move
-        // they always were (`unspelled`; `questionFreeformActionFromShortcut`
+        // they always were (`question::Act::of`; `questionFreeformActionFromShortcut`
         // reads only the move's kind, `src/ui/input/runtime.zig:155-176`).
         fixture.route_bytes(b"\x1b[1;2D");
         fixture.route_bytes(b"v");
@@ -24039,6 +24438,475 @@ mod tests {
         fixture.route_bytes(b"w");
         assert!(draft(&fixture, "ab yzcdvxw"), "{:?}", fixture.band_rows());
         assert!(on(&fixture, "Ship it?"), "a word move left the question");
+    }
+
+    // -----------------------------------------------------------------------
+    // QUESTION-CTRL-J: C-j answers the model's question as Enter does
+    // -----------------------------------------------------------------------
+
+    /// Ctrl+J in spellings fx v0.0.16 reads as the byte `0x0a`, which a model
+    /// question takes as Enter (`'\r', '\n' => .submit`,
+    /// `questionActionFromByte`, `src/ui/input/runtime.zig:141@481104fd`).
+    /// Representative, not the whole matrix ([`ctrl_j_matrix`] is): the byte;
+    /// kitty's `CSI u` for `j` and `J`, with Shift, Alt and Super each held
+    /// beside Ctrl and all three at once, with Caps Lock and with Num Lock, a
+    /// press and a repeat; and xterm's `CSI 27;m;k~`. A kitty or xterm report
+    /// of `j` or `J` with Ctrl held is that byte replayed, whatever else is held
+    /// (`kittyUnicodeKeyAction`, `escape_parser.zig:255-258`; the locks masked
+    /// at `:187`; a press or a repeat, `:774-777`; xterm's third field handed
+    /// to the same function, `:740-752`), and the replayed byte takes the raw
+    /// route (`app_input_runtime.zig:950-953`, `:746-756`).
+    const MODEL_QUESTION_CTRL_J: [(&str, &[u8]); 13] = [
+        ("c-j", &[0x0a]),
+        ("kitty ctrl+j", b"\x1b[106;5u"),
+        ("kitty ctrl+J", b"\x1b[74;5u"),
+        ("kitty ctrl+shift+j", b"\x1b[106;6u"),
+        ("kitty ctrl+alt+j", b"\x1b[106;7u"),
+        ("kitty ctrl+super+j", b"\x1b[106;13u"),
+        ("kitty ctrl+shift+alt+super+j", b"\x1b[106;16u"),
+        ("kitty ctrl+j, caps lock", b"\x1b[106;69u"),
+        ("kitty ctrl+j, num lock", b"\x1b[106;133u"),
+        ("kitty ctrl+j press", b"\x1b[106;5:1u"),
+        ("kitty ctrl+j repeat", b"\x1b[106;5:2u"),
+        ("xterm ctrl+j", b"\x1b[27;5;106~"),
+        ("xterm ctrl+shift+J", b"\x1b[27;6;74~"),
+    ];
+
+    /// Every Ctrl+J spelling without a meta prefix that fx reads as `0x0a`:
+    /// the byte, and `j` (106) and `J` (74) with Ctrl and each subset of
+    /// Shift, Alt, Super, Hyper and Meta, in each lock state (none, Caps, Num,
+    /// both), as a kitty `CSI <k>;<m>u` with no event type, as a press and as
+    /// a repeat, and as an xterm `CSI 27;<m>;<k>~` -- 1025 in all. fx masks
+    /// only the two locks (`escape_parser.zig:187`), and no branch ahead of
+    /// its Ctrl+letter rule takes a `j` (`:208-254`).
+    ///
+    /// Not here: the meta-prefixed spellings, `ESC` before any of the reports
+    /// above (`ESC ESC [106;5u`). fx reads them as the byte too -- `ESC ESC`
+    /// sets the prefix (`:552-555`), the report carries it (`:686-691`), and
+    /// the Ctrl+letter rule ignores it (`:255-258`) -- but xfx's decoder has
+    /// no meta prefix and reads `ESC` and then the report (`kitty_key`'s doc,
+    /// `super::input`). `docs/parity.md`'s `ask_user_question` row says what
+    /// that does at a question; owner META-PREFIX-DECODE (queued).
+    fn ctrl_j_matrix() -> Vec<(String, Vec<u8>)> {
+        let mut out = vec![("c-j".to_string(), vec![0x0a])];
+        let others = [0x01u16, 0x02, 0x08, 0x10, 0x20];
+        for subset in 0..32u16 {
+            let held: u16 = others
+                .iter()
+                .enumerate()
+                .filter(|(bit, _)| subset & (1 << bit) != 0)
+                .map(|(_, modifier)| modifier)
+                .sum();
+            for lock in [0u16, 0x40, 0x80, 0xc0] {
+                let field = 1 + (0x04 | held | lock);
+                for code in [106u16, 74] {
+                    for event in ["", ":1", ":2"] {
+                        let report = format!("\x1b[{code};{field}{event}u");
+                        out.push((format!("kitty {code};{field}{event}u"), report.into_bytes()));
+                    }
+                    let report = format!("\x1b[27;{field};{code}~");
+                    out.push((format!("xterm 27;{field};{code}~"), report.into_bytes()));
+                }
+            }
+        }
+        out
+    }
+
+    /// A batch of one question, two choices and the freeform slot, under `id`.
+    fn one_model_question(id: u64) -> QuestionRequest {
+        QuestionRequest {
+            id: QuestionId(id),
+            entries: vec![QuestionEntry {
+                question: "Which depth?".to_string(),
+                options: vec![choice("Thorough", None), choice("Quick", None)],
+            }],
+        }
+    }
+
+    /// What a model question case compares after each write: what the shell
+    /// said on the control channel, which of [`a_batch`]'s questions the band
+    /// shows, and the row the caret is on while one is up. Never the whole
+    /// band: its activity row carries the turn's clock.
+    type ModelQuestionStep = (Option<TurnControl>, Option<&'static str>, String);
+
+    fn model_question_step(fixture: &mut Fixture) -> ModelQuestionStep {
+        let sent = fixture.controlled();
+        let rows = fixture.band_rows();
+        let shown = ["Which depth?", "Ship it?"]
+            .into_iter()
+            .find(|title| rows.iter().any(|row| row.contains(title)));
+        let marked = if fixture.ask.is_some() {
+            fixture.marked()
+        } else {
+            String::new()
+        };
+        (sent, shown, marked)
+    }
+
+    /// The byte a model question script writes where the key under test goes.
+    const MODEL_QUESTION_KEY: u8 = 0;
+
+    /// `script` on a fresh shell asked [`a_batch`], one write per entry, with
+    /// every [`MODEL_QUESTION_KEY`] in it replaced by `key`: the step after each write.
+    fn model_question_run(script: &[&[u8]], key: &[u8]) -> Vec<ModelQuestionStep> {
+        let mut fixture = shell(24, 120);
+        asking_question(&mut fixture, a_batch());
+        script
+            .iter()
+            .map(|write| {
+                let bytes: Vec<u8> = write
+                    .iter()
+                    .flat_map(|byte| {
+                        if *byte == MODEL_QUESTION_KEY {
+                            key.to_vec()
+                        } else {
+                            vec![*byte]
+                        }
+                    })
+                    .collect();
+                fixture.route_bytes(&bytes);
+                model_question_step(&mut fixture)
+            })
+            .collect()
+    }
+
+    /// The batch's answer document as the shell hands it on.
+    fn model_answers(answers: &[&str]) -> Option<TurnControl> {
+        Some(TurnControl::QuestionAnswer {
+            id: QuestionId(1),
+            answers: answers.iter().map(|answer| answer.to_string()).collect(),
+        })
+    }
+
+    /// One model question case: its name, its writes ([`model_question_run`])
+    /// and the answers Enter's run sends at the end.
+    type ModelQuestionCase<'a> = (&'a str, &'a [&'a [u8]], &'a [&'a str]);
+
+    /// Each script run with Enter (`\r`) and with every spelling in `keys`:
+    /// Enter's last step must send `want` (so a case cannot pass with both
+    /// keys doing nothing), and each spelling's steps must be Enter's, write
+    /// for write.
+    fn model_question_cases_as_enter(
+        cases: &[ModelQuestionCase],
+        keys: &[(&str, &[u8])],
+    ) -> Vec<String> {
+        let mut wrong = Vec::new();
+        for (case, script, want) in cases {
+            let enter = model_question_run(script, b"\r");
+            let sent = enter.last().and_then(|step| step.0.clone());
+            if sent != model_answers(want) {
+                wrong.push(format!("{case}: Enter sent {sent:?}"));
+                continue;
+            }
+            for (name, key) in keys {
+                let got = model_question_run(script, key);
+                if got != enter {
+                    wrong.push(format!("{case}, {name}: {got:#?}, Enter {enter:#?}"));
+                }
+            }
+        }
+        wrong
+    }
+
+    #[test]
+    fn ctrl_j_answers_a_model_question_as_enter_does_at_a_choice_and_in_the_field() {
+        // fx v0.0.16: `'\r', '\n' => .submit` (`questionActionFromByte`,
+        // `src/ui/input/runtime.zig:141@481104fd`), and with the freeform slot
+        // marked the focused-editor route keeps no newline
+        // (`questionActionFromRawByte`, `:199-209`; `fromFocusedEditorControlByte`,
+        // `shortcuts.zig:31-41`, of `'\n' => .insert_newline`, `:26`), so C-j
+        // takes the marked choice, or the draft as it stands, exactly as Enter.
+        // `.submit` is `advanceOnDecision` (`question_prompt.zig:329`): the
+        // next unanswered question, cycling (`:657-665`), or the batch sent
+        // once none is left (`:666-667`; `.all_decided => submitQuestionBatch`,
+        // `input_question_runtime.zig:47-50`). There is no review step.
+        // `fx-p5-question-ctrl-j-40x120-*`.
+        let cases: [ModelQuestionCase; 6] = [
+            (
+                "at a choice",
+                &[&[MODEL_QUESTION_KEY], &[MODEL_QUESTION_KEY]],
+                &["Thorough", "Yes"],
+            ),
+            (
+                "a move first",
+                &[
+                    b"\x1b[B",
+                    &[MODEL_QUESTION_KEY],
+                    b"\x1b[B",
+                    &[MODEL_QUESTION_KEY],
+                ],
+                &["Quick", "No"],
+            ),
+            (
+                "in the field",
+                &[b"3", b"ab", &[MODEL_QUESTION_KEY], b"1"],
+                &["ab", "Yes"],
+            ),
+            (
+                "an empty field",
+                &[b"3", &[MODEL_QUESTION_KEY], &[MODEL_QUESTION_KEY]],
+                &["", "Yes"],
+            ),
+            (
+                "out of order, cycling back",
+                &[b"\t", &[MODEL_QUESTION_KEY], &[MODEL_QUESTION_KEY]],
+                &["Thorough", "Yes"],
+            ),
+            (
+                "the field sends the batch",
+                &[b"1", b"3", b"xy", &[MODEL_QUESTION_KEY]],
+                &["Thorough", "xy"],
+            ),
+        ];
+        let wrong = model_question_cases_as_enter(&cases, &MODEL_QUESTION_CTRL_J);
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_j_in_one_read_answers_a_model_question_as_enter_does_in_that_read() {
+        // The question reads each key of a read in turn, and fx decodes each
+        // byte against the prompt as the key before it left it
+        // (`prepareTerminalDecode` per byte, `app_input_runtime.zig:741`,
+        // `:754`; `question_freeform_selected`, `:576`), so a `3` opens the
+        // field for the letters after it in the same write. Compared up to the
+        // batch's end only: past it the keys are the composer's, where C-j is
+        // a newline and Enter sends. A key behind a paste's end marker in the
+        // same read is dropped, C-j as Enter (the decoder's quarantine).
+        let cases: [ModelQuestionCase; 3] = [
+            (
+                "a move and two",
+                &[&[0x1b, b'[', b'B', MODEL_QUESTION_KEY, MODEL_QUESTION_KEY]],
+                &["Quick", "Yes"],
+            ),
+            (
+                "the field opened, typed and sent",
+                &[&[b'3', b'a', b'b', MODEL_QUESTION_KEY, b'2']],
+                &["ab", "No"],
+            ),
+            (
+                "behind a paste's end marker",
+                &[
+                    b"3",
+                    b"\x1b[200~new\x1b[201~\x00",
+                    &[MODEL_QUESTION_KEY],
+                    b"1",
+                ],
+                &["new", "Yes"],
+            ),
+        ];
+        let wrong = model_question_cases_as_enter(&cases, &MODEL_QUESTION_CTRL_J);
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question() {
+        // [`ctrl_j_matrix`] -- every spelling without a meta prefix -- each at a
+        // fresh one-question batch on one shell: at a choice it takes the
+        // marked choice, and in the field it sends the draft.
+        let mut fixture = shell(24, 120);
+        let started = turn_running(&mut fixture, b"ask me\r");
+        let spellings = ctrl_j_matrix();
+        let mut wrong = Vec::new();
+        let mut id = 0;
+        for (name, key) in &spellings {
+            for field in [false, true] {
+                id += 1;
+                fixture.apply(UiEvent::Question(one_model_question(id)));
+                fixture.settle_band(started);
+                if field {
+                    fixture.route_bytes(b"3");
+                    fixture.route_bytes(b"a");
+                }
+                fixture.route_bytes(key);
+                let want = if field { "a" } else { "Thorough" };
+                let sent = fixture.controlled();
+                if sent
+                    != Some(TurnControl::QuestionAnswer {
+                        id: QuestionId(id),
+                        answers: vec![want.to_string()],
+                    })
+                {
+                    wrong.push(format!("{name}, field {field}: {sent:?}"));
+                    if fixture.ask.is_some() {
+                        fixture.route_bytes(b"\r");
+                        let _ = fixture.controlled();
+                    }
+                }
+            }
+        }
+        assert_eq!(spellings.len(), 1025);
+        assert!(
+            wrong.is_empty(),
+            "{} of {} failed, the first: {:#?}",
+            wrong.len(),
+            spellings.len() * 2,
+            &wrong[..wrong.len().min(8)]
+        );
+    }
+
+    #[test]
+    fn keys_fx_does_not_read_as_ctrl_j_do_nothing_at_a_model_question() {
+        // Not C-j to fx: a kitty key **release** (`escape_parser.zig:774-777
+        // @481104fd`, `.ignore`); Alt-C-j in the legacy spelling, `ESC LF`,
+        // which is `.insert_newline` (`:515-519`), no question action
+        // (`questionActionFromDecoded`, `src/ui/input/runtime.zig:211-227`,
+        // whose freeform map has no newline, `:155-176`) and nothing in the
+        // question's switch (`input_question_runtime.zig:149-200`); and kitty's
+        // Alt-j, no Ctrl, `.ignore` (`escape_parser.zig:265`). Each leaves the
+        // question, the choice and the draft as they were, and the Enter after
+        // it answers what was shown.
+        let mut wrong = Vec::new();
+        for (name, key) in [
+            ("kitty ctrl+j release", &b"\x1b[106;5:3u"[..]),
+            ("esc lf", b"\x1b\n"),
+            ("kitty alt+j", b"\x1b[106;3u"),
+        ] {
+            for field in [false, true] {
+                let mut fixture = shell(24, 120);
+                asking_question(&mut fixture, a_batch());
+                if field {
+                    fixture.route_bytes(b"3");
+                    fixture.route_bytes(b"ab");
+                }
+                let before = model_question_step(&mut fixture);
+                fixture.route_bytes(key);
+                let after = model_question_step(&mut fixture);
+                if after != before {
+                    wrong.push(format!("field {field}, {name}: {after:?}, was {before:?}"));
+                    continue;
+                }
+                fixture.route_bytes(b"\r");
+                fixture.route_bytes(b"1");
+                let want = model_answers(&[if field { "ab" } else { "Thorough" }, "Yes"]);
+                let sent = fixture.controlled();
+                if sent != want {
+                    wrong.push(format!("field {field}, {name}: then Enter sent {sent:?}"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_j_at_a_model_question_over_the_status_panel_answers_the_question_not_the_panel() {
+        // fx's question takes a raw byte before any menu does: its branch of
+        // `routeActiveModalInput` returns for every byte
+        // (`app_input_runtime.zig:1136-1160@481104fd`), ahead of the MCP menu
+        // and the compact menus -- `/status`'s panel among them, whose C-j is
+        // the next row (`:1186-1216`, `:1205`) -- and the picker's C-j yields
+        // to it (`composerPickerSurfaceVisible`, `:1110-1116`; `:873`, `:879`).
+        // So with the panel open under the question C-j answers the question,
+        // and the panel is where it was when the answer gives it back.
+        // `fx-p5-question-ctrl-j-panel-40x120-*`.
+        let mut wrong = Vec::new();
+        for (name, key) in MODEL_QUESTION_CTRL_J {
+            let mut fixture = shell(20, 120);
+            let started = turn_running(&mut fixture, b"ask me\r");
+            fixture.open_info_panel(fx_status_panel());
+            fixture.settle_band(started);
+            let top = from_the_rule(&fixture.band_rows());
+            // The panel's key while no question is up: the next row.
+            fixture.route_bytes(key);
+            fixture.settle_band(started);
+            let before = from_the_rule(&fixture.band_rows());
+            if before == top {
+                wrong.push(format!("{name}: the panel did not scroll"));
+            }
+            fixture.apply(UiEvent::Question(one_model_question(1)));
+            fixture.settle_band(started);
+            fixture.route_bytes(key);
+            let sent = fixture.controlled();
+            if sent != model_answers(&["Thorough"]) {
+                wrong.push(format!("{name}: {sent:?}"));
+                continue;
+            }
+            if fixture.info_panel.is_none() {
+                wrong.push(format!("{name}: the answer closed the panel"));
+            }
+            fixture.settle_band(started);
+            if from_the_rule(&fixture.band_rows()) != before {
+                wrong.push(format!("{name}: the panel moved"));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_j_at_a_model_question_over_the_model_picker_answers_the_question_not_the_picker() {
+        // The same rule over a picker: fx's picker C-j is its next row
+        // (`pickerControlDelta`, `app_input_runtime.zig:1102-1108@481104fd`),
+        // and it yields to a question (`composerPickerSurfaceVisible`,
+        // `:1110-1116`; the question's branch first, `:873`, `:1136-1160`).
+        // So with `/model`'s picker open under the question, C-j answers the
+        // question, the picker's mark stays where it was and nothing is taken
+        // from it; once the question is gone, C-j walks the picker as before.
+        let mut wrong = Vec::new();
+        for (name, key) in MODEL_QUESTION_CTRL_J {
+            let mut fixture = shell(40, 120);
+            let started = turn_running(&mut fixture, b"ask me\r");
+            fixture.route_bytes(b"/model\r");
+            let _ = fixture.controlled_past_reask();
+            fixture.apply(UiEvent::CatalogLoaded {
+                due: CatalogDue::at(catalog_now() + crate::provider::model::REFRESH_INTERVAL),
+                provider: ProviderId::Gateway,
+                entries: vec![
+                    entry("one", None, &[]),
+                    entry("two", None, &[]),
+                    entry("three", None, &[]),
+                ],
+            });
+            fixture.settle_band(started);
+            let _ = fixture.controlled_past_reask();
+            let marked = |fixture: &Fixture| {
+                fixture
+                    .model_menu
+                    .as_ref()
+                    .and_then(|menu| menu.selected().map(str::to_string))
+            };
+            let first = marked(&fixture);
+            // The picker's own C-j while no question is up: the next row.
+            fixture.route_bytes(key);
+            let before = marked(&fixture);
+            if before.is_none() || before == first {
+                wrong.push(format!(
+                    "{name}: the picker's C-j moved nothing: {before:?}"
+                ));
+                continue;
+            }
+            fixture.apply(UiEvent::Question(one_model_question(1)));
+            fixture.settle_band(started);
+            // What the setup handed the runtime -- the prompt's turn -- is
+            // not this case's.
+            let setup: Vec<_> = std::iter::from_fn(|| fixture.sent.try_recv().ok()).collect();
+            if setup.len() != 1 {
+                wrong.push(format!("{name}: the setup sent {} works", setup.len()));
+            }
+            fixture.route_bytes(key);
+            let sent = fixture.controlled_past_reask();
+            if sent != model_answers(&["Thorough"]) {
+                wrong.push(format!("{name}: {sent:?}"));
+                continue;
+            }
+            if let Some(more) = fixture.controlled_past_reask() {
+                wrong.push(format!("{name}: the picker gave {more:?} too"));
+            }
+            if fixture.sent.try_recv().is_ok() {
+                wrong.push(format!("{name}: the picker's row was used"));
+            }
+            if marked(&fixture) != before {
+                wrong.push(format!("{name}: the picker moved: {:?}", marked(&fixture)));
+            }
+            // The question gone, C-j is the picker's next row again.
+            fixture.settle_band(started);
+            fixture.route_bytes(key);
+            let after = marked(&fixture);
+            if after.is_none() || after == before {
+                wrong.push(format!(
+                    "{name}: then the picker's C-j moved nothing: {after:?}"
+                ));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
     #[test]
@@ -24496,145 +25364,1391 @@ mod tests {
                 );
             }
         }
-        // All twelve and `\r` in one buffer, at a choice and in an amendment:
-        // nothing moves, and Super-Up and -Down there move only the caret,
-        // which is not part of the receipt's identity
-        // (`super::approval_readiness::Intent`), so the draft is unchanged.
-        for amending in [false, true] {
-            let mut shell = shell(24, 80);
-            asking(&mut shell);
-            if amending {
-                open(&mut shell);
-            }
-            let mut all: Vec<u8> = VERTICAL_SPELLINGS
-                .iter()
-                .flat_map(|(_, key)| key.iter().copied())
-                .collect();
-            all.push(b'\r');
-            shell.route_bytes(&all);
-            answered(
-                &mut shell,
-                amending.then_some("ab cd"),
-                &format!("amending={amending}: the twelve and Enter in one read"),
-            );
-        }
-        // Super-Up or Super-Down in an amendment, then Enter at once. The
-        // caret moved, which is a frame (`Moved`) and not a new screen: a
-        // receipt is about the question, its plane, its size and its layout,
-        // never the caret (`super::approval_readiness::Intent`), so it holds,
-        // and the answer is the choice shown with the draft unchanged. fx
-        // refuses this Enter on a file approval like this one, until the
-        // frame the caret asked for is drawn (`input_approval_runtime.zig:191-218`);
-        // APPROVAL-READINESS-SETTLED flips this case.
-        for (name, key) in [
-            ("super-up", &b"\x1b[1;9A"[..]),
-            ("super-down", b"\x1b[1;9B"),
+        // All twelve and `\r` in one buffer at a choice: nothing moves, so the
+        // Enter answers the choice shown.
+        let all: Vec<u8> = VERTICAL_SPELLINGS
+            .iter()
+            .flat_map(|(_, key)| key.iter().copied())
+            .chain(*b"\r")
+            .collect();
+        let mut at_a_choice = shell(24, 80);
+        asking(&mut at_a_choice);
+        at_a_choice.route_bytes(&all);
+        answered(
+            &mut at_a_choice,
+            None,
+            "the twelve and Enter in one read at a choice",
+        );
+        // Super-Up or Super-Down in an amendment, alone or among the twelve,
+        // then Enter in the same read. The caret moved, which asks for a
+        // frame (`Moved`), so the Enter answers nothing until that frame is
+        // drawn, as fx's does (`input_approval_runtime.zig:86`, `:191-218`):
+        // the draft, then, is the one the next frame shows.
+        for (name, keys) in [
+            ("super-up", &b"\x1b[1;9A\r"[..]),
+            ("super-down", b"\x1b[1;9B\r"),
+            ("the twelve", &all),
         ] {
             let mut shell = shell(24, 80);
             asking(&mut shell);
             open(&mut shell);
-            shell.route_bytes(&[key, b"\r"].concat());
+            shell.route_bytes(keys);
+            assert_eq!(
+                shell.controlled(),
+                None,
+                "{name} and Enter in one read answered before the caret was drawn"
+            );
+            assert!(
+                shell.drafting(),
+                "{name}: the refused Enter ended the draft"
+            );
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
             answered(&mut shell, Some("ab cd"), name);
         }
     }
 
     #[test]
+    fn a_move_and_enter_in_one_read_at_an_edit_answer_nothing_until_a_frame_shows_the_move() {
+        // fx v0.0.16 takes no affirmative while a modal frame is pending
+        // (`settledForApproval`, `render_request.zig:172-177@481104fd`; the
+        // refusal, `input_approval_runtime.zig:207-218`), and every move of
+        // the choice asks for one (`:98`, `:108`, `:117`, `:125`): a move and
+        // the Enter after it in one read answer nothing, the refusal says
+        // nothing (fx's is a trace line, `:209-216`), and the Enter after the
+        // frame answers the choice that frame marks.
+        // `fx-p5-approval-readiness-settled-40x120-edit-down-enter`.
+        a_move_and_enter_in_one_read_answer_nothing_until_a_frame_shows_it("an edit", asked());
+    }
+
+    #[test]
+    fn a_move_and_enter_in_one_read_at_a_command_answer_nothing_until_a_frame_shows_the_move() {
+        // fx asks this of a file approval only (`input_approval_runtime.zig:191-192
+        // @481104fd`), so its Down and Enter at a command answer `Always` at
+        // once (`fx-p5-approval-readiness-settled-40x120-cmd2-down-enter`);
+        // xfx asks it of every approval (the dispatcher's decision,
+        // `docs/parity.md`).
+        a_move_and_enter_in_one_read_answer_nothing_until_a_frame_shows_it(
+            "a command",
+            asked_to_run(),
+        );
+    }
+
+    /// The cases of the two tests above, at the question `request`.
+    fn a_move_and_enter_in_one_read_answer_nothing_until_a_frame_shows_it(
+        what: &str,
+        request: ApprovalRequest,
+    ) {
+        // Every case is run before any is reported, so a failure names each
+        // move that was answered unseen rather than the first.
+        let mut unseen = Vec::new();
+        // The affirmative is Enter, or a digit: a digit answers without moving
+        // the marker, and it is an affirmative all the same.
+        for (name, keys, lands, key) in [
+            ("down", &b"\x1b[B"[..], "2", &b"\r"[..]),
+            ("right", b"\x1b[C", "2", b"\r"),
+            ("alt-f", b"\x1bf", "2", b"\r"),
+            ("down down up", b"\x1b[B\x1b[B\x1b[A", "2", b"\r"),
+            ("down down down", b"\x1b[B\x1b[B\x1b[B", "1", b"\r"),
+            ("down then 1", b"\x1b[B", "2", b"1"),
+            ("down then 2", b"\x1b[B", "2", b"2"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking_for(&mut shell, request.clone());
+            let _ = shell.released();
+            shell.route_bytes(&[keys, key].concat());
+            if let Some(answered) = shell.controlled() {
+                unseen.push(format!(
+                    "{what}, {name} and Enter in one read: {answered:?}"
+                ));
+                continue;
+            }
+            assert!(shell.asking(), "{what}, {name}: the question went down");
+            // `❯ 2  Apply …` at an edit, `❯ 2. Yes, …` at a command.
+            assert!(
+                shell.marked().contains(&format!("❯ {lands}")),
+                "{what}, {name}: {:?}",
+                shell.marked()
+            );
+            let said = unwrapped(&shell.released());
+            assert!(
+                !said.contains(&unwrapped(&[APPROVAL_NOT_READY.to_string()])),
+                "{what}, {name}: the refusal said the question was not shown: {said:?}"
+            );
+            // Nor in a second delivery, with no frame between.
+            shell.route_bytes(key);
+            assert_eq!(shell.controlled(), None, "{what}, {name}: second key");
+            delivered(&mut shell);
+            shell.route_bytes(key);
+            let shown = match (key, lands) {
+                (b"1", _) | (b"\r", "1") => ApprovalAnswer::Once,
+                _ => ApprovalAnswer::Always,
+            };
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: shown,
+                    feedback: None,
+                }),
+                "{what}, {name}: the key after the frame did not answer what it marks"
+            );
+        }
+        assert!(
+            unseen.is_empty(),
+            "answered before a frame showed the move: {unseen:#?}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_read_with_a_move_still_refuses_at_once() {
+        // fx gates the affirmatives only (`decision != .deny`,
+        // `input_approval_runtime.zig:191`): a refusal is answerable at
+        // every moment, a move read with it or not.
+        for (name, keys) in [
+            ("down down enter", &b"\x1b[B\x1b[B\r"[..]),
+            ("up enter", b"\x1b[A\r"),
+            ("down 3", b"\x1b[B3"),
+            ("down ctrl-c", b"\x1b[B\x03"),
+        ] {
+            for request in [asked(), asked_to_run()] {
+                let mut shell = shell(24, 80);
+                asking_for(&mut shell, request);
+                shell.route_bytes(keys);
+                assert_eq!(
+                    shell.controlled(),
+                    Some(TurnControl::Answer {
+                        id: ApprovalId(1),
+                        answer: ApprovalAnswer::Deny,
+                        feedback: None,
+                    }),
+                    "{name}: a refusal read with a move waited for a frame"
+                );
+            }
+        }
+        // Escape, through the decoder's own resolution of a lone `ESC`
+        // (`Decoder::ESC_TIMEOUT`): the turn's cancellation, at once.
+        for request in [asked(), asked_to_run()] {
+            let mut shell = shell(24, 80);
+            asking_for(&mut shell, request);
+            let accepted = shell.work.accepted();
+            shell.route_bytes(b"\x1b[B\x1b");
+            assert_eq!(shell.controlled(), None, "the lone ESC is not a key yet");
+            shell.settle_input(Instant::now() + Duration::from_millis(100));
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Cancel { through: accepted }),
+                "Escape read with a move waited for a frame"
+            );
+        }
+    }
+
+    #[test]
+    fn an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft() {
+        // The feedback text: a letter typed, or C-u or C-w, asks for a frame
+        // as a move does (fx's insert, `app_input_runtime.zig:1251-1255
+        // @481104fd`; its draft edits, `input_approval_runtime.zig:79-89`), so
+        // the Enter read with it sends nothing, and the Enter after the frame
+        // sends the draft that frame shows. C-y after C-w yanks nothing: fx's
+        // draft has no yank (APPROVAL-DRAFT-KEYS), so `ab ` is sent.
+        // `fx-p5-approval-readiness-settled-40x120-write-letter-enter`.
+        let mut unseen = Vec::new();
+        for (name, keys, sent) in [
+            ("a letter", &b"x\r"[..], "ab cdx"),
+            ("ctrl-u", b"\x15\r", ""),
+            ("ctrl-w", b"\x17\r", "ab "),
+            ("ctrl-w then ctrl-y", b"\x17\x19\r", "ab "),
+            // A digit in a draft is a character, not an answer.
+            ("a letter then a digit", b"x1\r", "ab cdx1"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell.route_bytes(b"\tab cd");
+            delivered(&mut shell);
+            shell.route_bytes(keys);
+            if let Some(answered) = shell.controlled() {
+                unseen.push(format!("{name} and Enter in one read: {answered:?}"));
+                continue;
+            }
+            assert!(
+                shell.drafting(),
+                "{name}: the refused Enter ended the draft"
+            );
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: (!sent.is_empty()).then(|| sent.to_string()),
+                }),
+                "{name}: the Enter after the frame did not send the draft it showed"
+            );
+        }
+        // A paste's end, then Enter in the next delivery with no frame
+        // between: a paste ends with its delivery (`Shell::end_delivery`), so
+        // bytes after its marker in the same one are not keys.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tab cd");
+        delivered(&mut shell);
+        shell.route_bytes(b"\x1b[200~ zz\x1b[201~");
+        shell.route_bytes(b"\r");
+        if let Some(answered) = shell.controlled() {
+            unseen.push(format!(
+                "a paste, then Enter with no frame between: {answered:?}"
+            ));
+        }
+        assert!(
+            unseen.is_empty(),
+            "sent before a frame showed the draft: {unseen:#?}"
+        );
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("ab cd zz".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn a_frame_that_writes_nothing_settles_a_change_it_already_shows() {
+        // Down and Up in one read leave the marker where the last frame drew
+        // it, so the frame they ask for is the screen's own bytes and the band
+        // writes nothing (`Outcome::Unchanged`). That frame settles them: the
+        // Enter after it answers. Without that, a move undone in one read would
+        // hold every Enter until something else repainted.
+        // `fx-p5-approval-readiness-settled-40x120-edit-down-up-enter`.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\x1b[B\x1b[A\r");
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the Enter read with the moves answered before any frame"
+        );
+        assert!(shell.marked().contains("❯ 1  "), "{:?}", shell.marked());
+        // The band's answer to a frame identical to the screen, and no
+        // reconcile: a repaint that wrote nothing keeps the receipt at once.
+        shell.intend_approval();
+        shell.approval_landed(Outcome::Unchanged);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            }),
+            "a frame that wrote nothing did not settle a change it already showed"
+        );
+    }
+
+    #[test]
+    fn ctrl_l_at_a_question_does_nothing_as_fxs_does() {
+        // fx v0.0.16 makes no approval action of the raw byte `12`
+        // (`approvalActionFromRawByte`, `src/ui/input/runtime.zig:98-108
+        // @481104fd`; `shortcuts.zig:24`, `:31-41`), so the question takes it
+        // and asks for nothing (`app_input_runtime.zig:1173-1184`): no
+        // repaint, no `.external_damage`. So the receipt stands, and an Enter
+        // read with it answers the choice shown -- at a choice, in a draft, and
+        // on the review plane. Before, xfx marked the screen damaged and kept
+        // the receipt until the next frame, so that Enter answered against a
+        // screen it had just called damaged.
+        let review = |shell: &mut Fixture| {
+            let started = turn_running(shell, b"edit the notes\r");
+            shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+            shell.settle_band(started);
+            assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+            delivered(shell);
+        };
+        for (what, draft) in [
+            ("a choice", false),
+            ("a draft", true),
+            ("the review plane", false),
+        ] {
+            let mut shell = shell(24, 80);
+            if what == "the review plane" {
+                review(&mut shell);
+            } else {
+                asking(&mut shell);
+            }
+            if draft {
+                shell.route_bytes(b"\tab cd");
+                delivered(&mut shell);
+            }
+            let receipt = format!("{:?}", shell.readiness);
+            shell.route_bytes(&[0x0c]);
+            assert!(
+                !shell.damage_untold,
+                "{what}: Ctrl-L marked the screen damaged"
+            );
+            assert_eq!(
+                format!("{:?}", shell.readiness),
+                receipt,
+                "{what}: Ctrl-L touched the receipt"
+            );
+            shell.route_bytes(&[0x0c, b'\r']);
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: draft.then(|| "ab cd".to_string()),
+                }),
+                "{what}: Ctrl-L and Enter in one read"
+            );
+        }
+    }
+
+    #[test]
+    fn a_walk_of_the_review_plane_and_enter_answer_nothing_until_it_is_drawn() {
+        // The part of a change in view is part of what the question shows
+        // (`reasonsAffectApproval`'s doc, `render_request.zig:363-366
+        // @481104fd`; fx's wheel asks for a frame, `input_approval_runtime.zig:173-176`):
+        // a walk that moved and the Enter after it answer nothing until it
+        // is drawn. A walk that cannot move -- `C-n` at the tail, where the
+        // plane opens -- changes nothing and does not hold the Enter.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+        delivered(&mut shell);
+        shell.route_bytes(&[0x0e, b'\r']);
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            }),
+            "a walk that moved nothing held the Enter"
+        );
+
+        let mut shell = self::shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        delivered(&mut shell);
+        shell.route_bytes(&[0x10, b'\r']);
+        assert_eq!(shell.controlled(), None, "an undrawn walk was answered");
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            })
+        );
+    }
+
+    /// Every spelling of the three keys xfx's draft took and fx v0.0.16's
+    /// does not: undo, redo and yank (APPROVAL-DRAFT-KEYS).
+    const DRAFT_KEYS_FX_DOES_NOT_TAKE: [(&str, &[u8]); 9] = [
+        ("ctrl-y", &[0x19]),
+        ("kitty ctrl-y", b"\x1b[121;5u"),
+        ("xterm ctrl-y", b"\x1b[27;5;121~"),
+        ("ctrl-_", &[0x1f]),
+        ("kitty ctrl-_", b"\x1b[95;5u"),
+        ("super-z", b"\x1b[122;9u"),
+        ("xterm super-z", b"\x1b[27;9;122~"),
+        ("super-shift-z", b"\x1b[122;10u"),
+        ("xterm super-shift-z", b"\x1b[27;10;122~"),
+    ];
+
+    /// A shell asking the edit question with `ab cd` typed into the first
+    /// choice's draft, then C-w (so the draft is `ab `, with something
+    /// killed and an edit to undo), and a frame that showed it. On the band,
+    /// or on the review plane.
+    fn drafting_ab_after_a_kill(review: bool) -> Fixture {
+        let mut shell = shell(24, 80);
+        if review {
+            let started = turn_running(&mut shell, b"edit the notes\r");
+            shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+            shell.settle_band(started);
+            assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+            delivered(&mut shell);
+        } else {
+            asking(&mut shell);
+        }
+        shell.route_bytes(b"\tab cd");
+        delivered(&mut shell);
+        shell.route_bytes(&[0x17]);
+        delivered(&mut shell);
+        assert!(shell.drafting(), "no draft has the keys");
+        assert!(shell.approval_ready(ApprovalId(1)), "no receipt was earned");
+        shell
+    }
+
+    #[test]
+    fn undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do() {
+        // fx v0.0.16's draft takes none of the three. A raw C-y or C-_ is
+        // no focused-editor key (`fromFocusedEditorControlByte`,
+        // `src/ui/input/shortcuts.zig:31-41@481104fd`, which keeps only the
+        // moves and three deletes of `fromControlByte`, `:11-29`) and no
+        // approval byte (`approvalActionFromByte`,
+        // `src/ui/input/runtime.zig:61-73`; `approvalActionFromRawByte`,
+        // `:103-108`), so the question takes it and asks for nothing
+        // (`app_input_runtime.zig:1173-1184`). A kitty or xterm Ctrl+Y and
+        // Ctrl+_ are remapped bytes (`escape_parser.zig:255-259`), replayed
+        // through the same raw route (`app_input_runtime.zig:647-650`,
+        // `:746-756`). Super+Z and Super+Shift+Z are a composer undo and
+        // redo (`escape_parser.zig:232-234`), no draft action
+        // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-96`),
+        // which the question's switch leaves to `else => {}`
+        // (`input_approval_runtime.zig:128`). So the draft is as it was,
+        // nothing is held back, and an Enter read with the key sends it --
+        // on the band and on the review plane.
+        let mut wrong = Vec::new();
+        for review in [false, true] {
+            let plane = if review {
+                "the review plane"
+            } else {
+                "the band"
+            };
+            for (name, key) in DRAFT_KEYS_FX_DOES_NOT_TAKE {
+                let sent = |shell: &mut Fixture| shell.controlled();
+                let want = Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some("ab ".to_string()),
+                });
+                // Alone: the receipt untouched, then the Enter sends `ab `.
+                let mut shell = drafting_ab_after_a_kill(review);
+                let receipt = format!("{:?}", shell.readiness);
+                shell.route_bytes(key);
+                if format!("{:?}", shell.readiness) != receipt {
+                    wrong.push(format!("{plane}, {name}: it touched the receipt"));
+                }
+                if !shell.drafting() {
+                    wrong.push(format!("{plane}, {name}: the draft lost the keys"));
+                }
+                shell.route_bytes(b"\r");
+                let answered = sent(&mut shell);
+                if answered != want {
+                    wrong.push(format!("{plane}, {name}, then Enter: {answered:?}"));
+                }
+                // With the Enter in one read: answered at once, `ab `.
+                let mut shell = drafting_ab_after_a_kill(review);
+                shell.route_bytes(&[key, b"\r"].concat());
+                let answered = sent(&mut shell);
+                if answered != want {
+                    wrong.push(format!(
+                        "{plane}, {name} and Enter in one read: {answered:?}"
+                    ));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn tab_in_a_draft_changes_nothing_and_holds_the_enter_until_a_frame_as_fxs_does() {
+        // fx v0.0.16's Tab in an open amendment changes nothing and answers
+        // `.redraw` (`approval_decision.zig:142-143@481104fd`), which asks for
+        // a modal frame (`input_approval_runtime.zig:59-61`), so a Tab and an
+        // Enter in one read meet a pending frame and the Enter is refused
+        // (`:191-218`): the rule a draft edit that changes nothing follows.
+        // The Enter after the frame sends the draft as it was.
+        for review in [false, true] {
+            let plane = if review {
+                "the review plane"
+            } else {
+                "the band"
+            };
+            let mut shell = drafting_ab_after_a_kill(review);
+            shell.route_bytes(b"\t\r");
+            assert_eq!(
+                shell.controlled(),
+                None,
+                "{plane}: Tab and Enter in one read answered before a frame"
+            );
+            assert!(shell.drafting(), "{plane}: Tab ended the draft");
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some("ab ".to_string()),
+                }),
+                "{plane}: the Enter after the frame did not send the draft as it was"
+            );
+        }
+    }
+
+    #[test]
+    fn every_key_fxs_draft_takes_still_edits_it_and_holds_the_enter_until_a_frame() {
+        // fx v0.0.16's draft keys (`approvalDraftActionFromShortcut`,
+        // `src/ui/input/runtime.zig:75-96@481104fd`): by the raw-byte route
+        // C-a, C-e, C-b, C-f, C-k, C-u and C-w (`fromFocusedEditorControlByte`,
+        // `shortcuts.zig:31-41`) and Backspace (`runtime.zig:66`), each
+        // `.redraw` while an amendment is open (`approval_decision.zig:152-155`,
+        // `:170-174`); by the decoded route the arrows, Home and End, the word
+        // moves, Delete and the word and line deletes in each spelling
+        // (`shortcuts.zig:43-65`; `escape_parser.zig:73-109`, `:149-180`,
+        // `:243-264`, `:528-551`, `:628-635`, `:694-737`), each asking for the
+        // frame whatever it changed (`input_approval_runtime.zig:79-89`). So
+        // each, read with an Enter, holds it; the draft it leaves is the one
+        // the next frame shows, and an `X` typed after shows where the caret
+        // went. From `ab ` with the caret at its end, or (`start`) after C-a.
+        let mut wrong = Vec::new();
+        for (name, start, key, sent) in [
+            ("ctrl-a", false, &[0x01][..], "Xab "),
+            ("home", false, b"\x1b[H", "Xab "),
+            ("home ~", false, b"\x1b[1~", "Xab "),
+            ("ss3 home", false, b"\x1bOH", "Xab "),
+            ("shift-home", false, b"\x1b[1;2H", "Xab "),
+            ("kitty ctrl-a", false, b"\x1b[97;5u", "Xab "),
+            ("super-up", false, b"\x1b[1;9A", "Xab "),
+            ("ctrl-e", true, &[0x05], "ab X"),
+            ("end", true, b"\x1b[F", "ab X"),
+            ("end ~", true, b"\x1b[4~", "ab X"),
+            ("super-down", true, b"\x1b[1;9B", "ab X"),
+            ("ctrl-e at the end", false, &[0x05], "ab X"),
+            ("ctrl-b", false, &[0x02], "abX "),
+            ("left", false, b"\x1b[D", "abX "),
+            ("shift-left", false, b"\x1b[1;2D", "abX "),
+            ("ctrl-f", true, &[0x06], "aXb "),
+            ("right", true, b"\x1b[C", "aXb "),
+            ("right at the end", false, b"\x1b[C", "ab X"),
+            ("alt-b", false, b"\x1bb", "Xab "),
+            ("alt-left", false, b"\x1b[1;3D", "Xab "),
+            ("ctrl-left", false, b"\x1b[1;5D", "Xab "),
+            ("alt-f", true, b"\x1bf", "abX "),
+            ("ctrl-right", true, b"\x1b[1;5C", "abX "),
+            ("backspace", false, &[0x7f], "abX"),
+            ("ctrl-h", false, &[0x08], "abX"),
+            ("backspace at the start", true, &[0x7f], "Xab "),
+            ("delete", true, b"\x1b[3~", "Xb "),
+            ("alt-d", true, b"\x1bd", "X"),
+            ("ctrl-delete", true, b"\x1b[3;5~", "X"),
+            ("ctrl-k", true, &[0x0b], "X"),
+            ("kitty ctrl-k", true, b"\x1b[107;5u", "X"),
+            ("super-delete", true, b"\x1b[3;9~", "X"),
+            ("ctrl-u", false, &[0x15], "X"),
+            ("super-backspace", false, b"\x1b[127;9u", "X"),
+            ("ctrl-u at the start", true, &[0x15], "Xab "),
+            ("ctrl-w", false, &[0x17], "X"),
+            ("kitty ctrl-w", false, b"\x1b[119;5u", "X"),
+            ("alt-backspace", false, b"\x1b\x7f", "X"),
+        ] {
+            kept_key(
+                drafting_ab_after_a_kill(false),
+                name,
+                start,
+                key,
+                sent,
+                &mut wrong,
+            );
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// One case of a key a draft keeps, at `shell`'s open draft: after C-a
+    /// when `start`, `key` read with an Enter must hold it; after the frame,
+    /// an `X` typed and an Enter must send `sent`. What is wrong is pushed to
+    /// `wrong`.
+    fn kept_key(
+        mut shell: Fixture,
+        name: &str,
+        start: bool,
+        key: &[u8],
+        sent: &str,
+        wrong: &mut Vec<String>,
+    ) {
+        if start {
+            shell.route_bytes(&[0x01]);
+            delivered(&mut shell);
+        }
+        shell.route_bytes(&[key, b"\r"].concat());
+        if let Some(answered) = shell.controlled() {
+            wrong.push(format!("{name} and Enter in one read: {answered:?}"));
+            return;
+        }
+        if !shell.drafting() {
+            wrong.push(format!("{name}: the draft lost the keys"));
+            return;
+        }
+        delivered(&mut shell);
+        shell.route_bytes(b"X");
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        let answered = shell.controlled();
+        let want = Some(TurnControl::Answer {
+            id: ApprovalId(1),
+            answer: ApprovalAnswer::Once,
+            feedback: Some(sent.to_string()),
+        });
+        if answered != want {
+            wrong.push(format!("{name}: {answered:?}, not {sent:?}"));
+        }
+    }
+
+    #[test]
+    fn the_word_deletes_and_moves_stop_where_fxs_draft_stops_them() {
+        // From `ab.cd` fx v0.0.16's three word deletes give three answers.
+        // C-w takes the run back to whitespace or the line's start
+        // (`deleteWhitespaceDelimitedWordLeft`, `approval_amendment.zig:117-126
+        // @481104fd`; `previousWhitespaceDelimitedTokenStart`,
+        // `text_boundaries.zig:149-167`), so all of `ab.cd`. Alt-Backspace takes
+        // the word characters before the caret (`deleteWordLeft`,
+        // `approval_amendment.zig:111-115`; `previousWordStart`,
+        // `text_boundaries.zig:34-47`; `isWordCharacter`, `:71-77`: `.` is
+        // none), so `cd`. Alt-d takes the word after the caret and the gap
+        // after it (`deleteWordRight`, `approval_amendment.zig:128-132`;
+        // `nextWordDeleteEnd`, `text_boundaries.zig:60-69`), so `ab.`. The word
+        // moves stop at the same word's edges (`approval_amendment.zig:94-102`;
+        // `nextWordEnd`, `text_boundaries.zig:49-58`), and C-k, unlike Alt-d,
+        // takes the rest of the line. From the end of `ab.cd`, or (`start`)
+        // after C-a.
+        let mut wrong = Vec::new();
+        for (name, start, key, sent) in [
+            ("ctrl-w", false, &[0x17][..], "X"),
+            ("kitty ctrl-w", false, b"\x1b[119;5u", "X"),
+            ("alt-backspace", false, b"\x1b\x7f", "ab.X"),
+            ("kitty alt-backspace", false, b"\x1b[127;3u", "ab.X"),
+            ("alt-b", false, b"\x1bb", "ab.Xcd"),
+            ("ctrl-left", false, b"\x1b[1;5D", "ab.Xcd"),
+            ("alt-d", true, b"\x1bd", "Xcd"),
+            ("kitty alt-d", true, b"\x1b[100;3u", "Xcd"),
+            ("ctrl-delete", true, b"\x1b[3;5~", "Xcd"),
+            ("alt-f", true, b"\x1bf", "abX.cd"),
+            ("ctrl-right", true, b"\x1b[1;5C", "abX.cd"),
+            ("ctrl-k", true, &[0x0b], "X"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell.route_bytes(b"\tab.cd");
+            delivered(&mut shell);
+            kept_key(shell, name, start, key, sent, &mut wrong);
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn an_edit_then_a_key_the_draft_does_not_take_and_enter_in_one_read_stay_held() {
+        // A swallowed key asks for no frame, and it does not settle the one an
+        // edit before it asked for: fx's draft edit leaves `.modal` pending
+        // (`input_approval_runtime.zig:59-61@481104fd`), and a key that is no
+        // approval action reaches nothing that commits a frame
+        // (`app_input_runtime.zig:1173-1184`, `input_approval_runtime.zig:128`).
+        // So a letter, each of the nine spellings and an Enter in one read
+        // send nothing, on the band and on the review plane, and the Enter
+        // after the frame sends the letter.
+        let mut wrong = Vec::new();
+        for review in [false, true] {
+            let plane = if review {
+                "the review plane"
+            } else {
+                "the band"
+            };
+            for (name, key) in DRAFT_KEYS_FX_DOES_NOT_TAKE {
+                let mut shell = drafting_ab_after_a_kill(review);
+                shell.route_bytes(&[&b"x"[..], key, b"\r"].concat());
+                if let Some(answered) = shell.controlled() {
+                    wrong.push(format!(
+                        "{plane}, x, {name} and Enter in one read: {answered:?}"
+                    ));
+                    continue;
+                }
+                delivered(&mut shell);
+                shell.route_bytes(b"\r");
+                let answered = shell.controlled();
+                if answered
+                    != Some(TurnControl::Answer {
+                        id: ApprovalId(1),
+                        answer: ApprovalAnswer::Once,
+                        feedback: Some("ab x".to_string()),
+                    })
+                {
+                    wrong.push(format!(
+                        "{plane}, {name}, the Enter after the frame: {answered:?}"
+                    ));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// A representative set, not the whole modifier matrix, of the Ctrl+J
+    /// spellings fx v0.0.16 turns back into `0x0a` (APPROVAL-CTRL-J): the
+    /// byte, and a kitty or xterm report of `j` or `J` with Ctrl and any
+    /// other modifier (`kittyUnicodeKeyAction`, `escape_parser.zig:255-258@481104fd`,
+    /// the lock bits masked first, `:187`), a press or a repeat (`:774-777`),
+    /// xterm's `CSI 27;<m>;<k>~` read into the same function (`:740-752`).
+    const CTRL_J: [(&str, &[u8]); 11] = [
+        ("c-j", &[0x0a]),
+        ("kitty ctrl+j", b"\x1b[106;5u"),
+        ("kitty ctrl+J", b"\x1b[74;5u"),
+        ("kitty ctrl+shift+j", b"\x1b[106;6u"),
+        ("kitty ctrl+alt+j", b"\x1b[106;7u"),
+        ("kitty ctrl+super+j", b"\x1b[106;13u"),
+        ("kitty ctrl+j, caps lock", b"\x1b[106;69u"),
+        ("kitty ctrl+j press", b"\x1b[106;5:1u"),
+        ("kitty ctrl+j repeat", b"\x1b[106;5:2u"),
+        ("xterm ctrl+j", b"\x1b[27;5;106~"),
+        ("xterm ctrl+shift+J", b"\x1b[27;6;74~"),
+    ];
+
+    /// A shell asking the edit question with a frame that showed it: on the
+    /// band, or on the review plane.
+    fn asking_on(review: bool) -> Fixture {
+        let mut shell = shell(24, 80);
+        if review {
+            let started = turn_running(&mut shell, b"edit the notes\r");
+            shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+            shell.settle_band(started);
+            assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+            delivered(&mut shell);
+        } else {
+            asking(&mut shell);
+        }
+        shell
+    }
+
+    /// The answer an Enter or a C-j gives under `id` 1.
+    fn answer_of(answer: ApprovalAnswer, feedback: Option<&str>) -> Option<TurnControl> {
+        Some(TurnControl::Answer {
+            id: ApprovalId(1),
+            answer,
+            feedback: feedback.map(str::to_string),
+        })
+    }
+
+    #[test]
+    fn ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes() {
+        // fx v0.0.16 makes `'\r', '\n'` an approval's `.submit`
+        // (`approvalActionFromByte`, `src/ui/input/runtime.zig:64@481104fd`):
+        // the focused-editor route, asked first, keeps no newline
+        // (`fromFocusedEditorControlByte` drops `fromControlByte`'s
+        // `.insert_newline`, `shortcuts.zig:26`, `:31-41`;
+        // `src/ui/input/runtime.zig:103-108`), so
+        // C-j answers the marked choice (`approval_decision.zig:141`) at a
+        // choice and in an open draft, which it sends. A kitty or xterm
+        // Ctrl+J is the byte replayed (`app_input_runtime.zig:950-953`,
+        // `:746-756`). Before, xfx's question swallowed every one of them.
+        let mut wrong = Vec::new();
+        for review in [false, true] {
+            let plane = if review {
+                "the review plane"
+            } else {
+                "the band"
+            };
+            for (name, key) in CTRL_J {
+                let mut shell = asking_on(review);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Once, None) {
+                    wrong.push(format!("{plane}, choice 1, {name}: {answered:?}"));
+                }
+                let mut shell = asking_on(review);
+                shell.route_bytes(b"\x1b[B");
+                delivered(&mut shell);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Always, None) {
+                    wrong.push(format!("{plane}, choice 2, {name}: {answered:?}"));
+                }
+                let mut shell = drafting_ab_after_a_kill(review);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Once, Some("ab ")) {
+                    wrong.push(format!("{plane}, a draft, {name}: {answered:?}"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_j_read_with_a_change_waits_for_the_frame_as_enter_does() {
+        // C-j is an affirmative where Enter is, so it meets the same check:
+        // fx takes none while a modal frame is pending
+        // (`input_approval_runtime.zig:191-218@481104fd`), and a move or a
+        // draft edit asks for one (`:117`, `:125`; `:79-89`;
+        // `app_input_runtime.zig:1251-1255`). A move, or a letter in a draft,
+        // and C-j in one read answer nothing; the C-j after the frame answers
+        // what it shows. At a command too: xfx holds every approval to it
+        // (the dispatcher's decision, `docs/parity.md`).
+        // `fx-p5-approval-ctrl-j-40x120-{edit-down-ctrl-j,write-letter-ctrl-j}`.
+        let mut wrong = Vec::new();
+        for (name, key) in CTRL_J {
+            for review in [false, true] {
+                let plane = if review {
+                    "the review plane"
+                } else {
+                    "the band"
+                };
+                let mut shell = asking_on(review);
+                shell.route_bytes(&[&b"\x1b[B"[..], key].concat());
+                if let Some(answered) = shell.controlled() {
+                    wrong.push(format!(
+                        "{plane}, down and {name} in one read: {answered:?}"
+                    ));
+                    continue;
+                }
+                if !shell.marked().contains("\u{276f} 2") {
+                    wrong.push(format!("{plane}, down and {name}: {:?}", shell.marked()));
+                }
+                delivered(&mut shell);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Always, None) {
+                    wrong.push(format!("{plane}, {name} after the frame: {answered:?}"));
+                }
+                let mut shell = drafting_ab_after_a_kill(review);
+                shell.route_bytes(&[&b"x"[..], key].concat());
+                if let Some(answered) = shell.controlled() {
+                    wrong.push(format!("{plane}, x and {name} in one read: {answered:?}"));
+                    continue;
+                }
+                if !shell.drafting() {
+                    wrong.push(format!("{plane}, x and {name}: the draft lost the keys"));
+                }
+                delivered(&mut shell);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Once, Some("ab x")) {
+                    wrong.push(format!(
+                        "{plane}, the draft's {name} after the frame: {answered:?}"
+                    ));
+                }
+            }
+            let mut shell = shell(24, 80);
+            asking_for(&mut shell, asked_to_run());
+            shell.route_bytes(&[&b"\x1b[B"[..], key].concat());
+            if let Some(answered) = shell.controlled() {
+                wrong.push(format!(
+                    "a command, down and {name} in one read: {answered:?}"
+                ));
+                continue;
+            }
+            delivered(&mut shell);
+            shell.route_bytes(key);
+            let answered = shell.controlled();
+            if answered != answer_of(ApprovalAnswer::Always, None) {
+                wrong.push(format!("a command, {name} after the frame: {answered:?}"));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_j_at_deny_refuses_at_once_as_enter_does() {
+        // fx gates the affirmatives only (`decision != .deny`,
+        // `input_approval_runtime.zig:191@481104fd`): C-j on choice 3 is a
+        // refusal, answered at once with a move read with it or a draft edit
+        // unseen, and the deny draft goes with it, as Enter's does.
+        // `fx-p5-approval-ctrl-j-40x120-cmd2-ask` follows Down Down C-j.
+        let mut wrong = Vec::new();
+        for (name, key) in CTRL_J {
+            for request in [asked(), asked_to_run()] {
+                let what = request.tool;
+                let mut shell = shell(24, 80);
+                asking_for(&mut shell, request);
+                shell.route_bytes(&[&b"\x1b[B\x1b[B"[..], key].concat());
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Deny, None) {
+                    wrong.push(format!("{what}, down down and {name}: {answered:?}"));
+                }
+            }
+            for review in [false, true] {
+                let mut shell = asking_on(review);
+                shell.route_bytes(b"\x1b[B\x1b[B");
+                delivered(&mut shell);
+                shell.route_bytes(b"\tno");
+                delivered(&mut shell);
+                shell.route_bytes(&[&b"x"[..], key].concat());
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Deny, Some("nox")) {
+                    wrong.push(format!(
+                        "review {review}, x and {name} in the deny draft: {answered:?}"
+                    ));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_j_at_a_question_over_the_status_panel_answers_the_question_not_the_panel() {
+        // fx's approval takes a raw byte before any menu does
+        // (`routeActiveModalInput`, `app_input_runtime.zig:1161-1185
+        // @481104fd`, ahead of the MCP menu and the compact menus --
+        // `/status`'s panel among them -- at `:1186-1216`, whose C-j is the
+        // next row, `:1205`); the picker's C-j yields to it
+        // (`composerPickerSurfaceVisible`, `:1110-1116`), and so does the
+        // full transcript (`screenOwnsInput`, `input_full_transcript_runtime.zig:30-34`).
+        // So with the panel open under the question C-j answers the question
+        // and the panel is where it was when the answer gives it back.
+        // `fx-p5-approval-ctrl-j-panel-40x120-approval-ctrl-j`.
+        let mut wrong = Vec::new();
+        for (name, key) in CTRL_J {
+            for review in [false, true] {
+                let mut shell = shell(20, 120);
+                let started = turn_running(&mut shell, b"edit the notes\r");
+                shell.open_info_panel(fx_status_panel());
+                shell.settle_band(started);
+                let top = from_the_rule(&shell.band_rows());
+                // The panel's key while no question is up: the next row.
+                shell.route_bytes(key);
+                shell.settle_band(started);
+                let before = from_the_rule(&shell.band_rows());
+                if before == top {
+                    wrong.push(format!("review {review}, {name}: the panel did not scroll"));
+                }
+                let request = if review {
+                    asked_about_a_large_change()
+                } else {
+                    asked()
+                };
+                shell.apply(UiEvent::Approval(question(request)));
+                shell.settle_band(started);
+                delivered(&mut shell);
+                shell.route_bytes(key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Once, None) {
+                    wrong.push(format!("review {review}, {name}: {answered:?}"));
+                    continue;
+                }
+                if shell.info_panel.is_none() {
+                    wrong.push(format!(
+                        "review {review}, {name}: the answer closed the panel"
+                    ));
+                }
+                shell.settle_band(started);
+                if from_the_rule(&shell.band_rows()) != before {
+                    wrong.push(format!("review {review}, {name}: the panel moved"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn keys_fx_does_not_read_as_ctrl_j_still_do_nothing_at_a_question() {
+        // Not C-j to fx: a kitty key **release** (`escape_parser.zig:774-777
+        // @481104fd`, `.ignore`); Alt-C-j in the legacy spelling, `ESC LF`,
+        // which is `.insert_newline` (`:515-519`), no draft action
+        // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:94`)
+        // and nothing at the question (`input_approval_runtime.zig:128`); and
+        // Alt-j, no Ctrl, `.ignore` (`escape_parser.zig:265`). Each leaves the
+        // choice, the draft and the receipt as they were, so the Enter after
+        // it answers what the last frame showed.
+        let mut wrong = Vec::new();
+        for (name, key) in [
+            ("kitty ctrl+j release", &b"\x1b[106;5:3u"[..]),
+            ("esc lf", b"\x1b\n"),
+            ("kitty alt+j", b"\x1b[106;3u"),
+        ] {
+            for draft in [false, true] {
+                let mut shell = if draft {
+                    drafting_ab_after_a_kill(false)
+                } else {
+                    asking_on(false)
+                };
+                let receipt = format!("{:?}", shell.readiness);
+                shell.route_bytes(key);
+                if let Some(answered) = shell.controlled() {
+                    wrong.push(format!("draft {draft}, {name}: {answered:?}"));
+                    continue;
+                }
+                if format!("{:?}", shell.readiness) != receipt {
+                    wrong.push(format!("draft {draft}, {name}: it touched the receipt"));
+                }
+                shell.route_bytes(b"\r");
+                let want = answer_of(ApprovalAnswer::Once, draft.then_some("ab "));
+                let answered = shell.controlled();
+                if answered != want {
+                    wrong.push(format!("draft {draft}, {name}, then Enter: {answered:?}"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
     fn the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest() {
-        // `folded`'s own contract: `AltB` to `WordLeft`, Shift taken off Up
-        // and Down, the approval's spellings to their keys, and every other
-        // key as it came. And `unspelled`'s, which the full transcript and the
-        // question read: only the approval's spellings folded.
-        for (event, surfaces_see, transcript_and_question_see) in [
-            (Action::AltB, Action::WordLeft, Action::AltB),
-            (Action::SelectUp, Action::Up, Action::SelectUp),
-            (Action::SelectDown, Action::Down, Action::SelectDown),
-            (Action::AltF, Action::WordRight, Action::WordRight),
-            (Action::ComposerLeft, Action::Left, Action::Left),
-            (Action::ComposerRight, Action::Right, Action::Right),
-            // The vertical spellings only the approval tells apart: each is
-            // the key every other surface saw before -- Super with Shift the
-            // shifted arrow a question's field binds, without it the arrow.
-            (Action::ComposerUp, Action::Up, Action::Up),
-            (Action::ComposerDown, Action::Down, Action::Down),
+        // `folded`'s contract: every spelling the decoder keeps apart for the
+        // full transcript, a question or an approval made the key it is to
+        // the menus and the composer, and every other key as it came. Those
+        // three read the event as it came (`consume_inputs`), so nothing
+        // reads a half fold: what each of them does with a spelling is its
+        // own test's (the full transcript's and the question's held arrows,
+        // `a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen`
+        // and `a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move`).
+        for (event, surfaces_see) in [
+            (Action::AltB, Action::WordLeft),
+            (Action::AltF, Action::WordRight),
+            (Action::ComposerLeft, Action::Left),
+            (Action::ComposerRight, Action::Right),
+            // The vertical spellings are moves of their own to the menus and
+            // the composer too (COMPOSER-PARAGRAPH-MOVE): no fold.
+            (Action::SelectUp, Action::SelectUp),
+            (Action::SelectDown, Action::SelectDown),
+            (Action::ComposerUp, Action::ComposerUp),
+            (Action::ComposerDown, Action::ComposerDown),
+            (Action::ParagraphUp, Action::ParagraphUp),
+            (Action::ParagraphDown, Action::ParagraphDown),
             (
                 Action::DraftStart { shifted: false },
-                Action::Up,
-                Action::Up,
-            ),
-            (
-                Action::DraftEnd { shifted: false },
-                Action::Down,
-                Action::Down,
+                Action::DraftStart { shifted: false },
             ),
             (
                 Action::DraftStart { shifted: true },
-                Action::Up,
-                Action::SelectUp,
+                Action::DraftStart { shifted: true },
+            ),
+            (
+                Action::DraftEnd { shifted: false },
+                Action::DraftEnd { shifted: false },
             ),
             (
                 Action::DraftEnd { shifted: true },
-                Action::Down,
-                Action::SelectDown,
+                Action::DraftEnd { shifted: true },
             ),
-            (Action::WordLeft, Action::WordLeft, Action::WordLeft),
-            (Action::Left, Action::Left, Action::Left),
-            (Action::Up, Action::Up, Action::Up),
-            (Action::ControlP, Action::ControlP, Action::ControlP),
+            // A page key held with a modifier: the page key.
+            (Action::ComposerPageUp, Action::PageUp),
+            (Action::ComposerPageDown, Action::PageDown),
+            // A move to the line's edge -- Super-Left and -Right, Shift-Home
+            // and -End -- the bare Home and End, fx's `.home` being
+            // `line_start` (COMPOSER-SUPER-ARROWS).
+            (Action::LineStart { shifted: false }, Action::Home),
+            (Action::LineStart { shifted: true }, Action::Home),
+            (Action::LineEnd { shifted: false }, Action::End),
+            (Action::LineEnd { shifted: true }, Action::End),
+            (Action::Home, Action::Home),
+            (Action::PageUp, Action::PageUp),
+            (Action::WordLeft, Action::WordLeft),
+            (Action::Left, Action::Left),
+            (Action::Up, Action::Up),
+            (Action::ControlP, Action::ControlP),
         ] {
             assert_eq!(
                 folded(Input::Action(event)),
                 Input::Action(surfaces_see),
                 "{event:?}"
             );
+        }
+        // The pickers read Ctrl's and Shift's as the arrows, and Alt's and
+        // Super's as no key of theirs (`arrow_to_pickers`).
+        for (event, pickers_see) in [
+            (Action::SelectUp, Action::Up),
+            (Action::SelectDown, Action::Down),
+            (Action::ComposerUp, Action::Up),
+            (Action::ComposerDown, Action::Down),
+            (Action::ParagraphUp, Action::ParagraphUp),
+            (Action::ParagraphDown, Action::ParagraphDown),
+            (
+                Action::DraftStart { shifted: true },
+                Action::DraftStart { shifted: true },
+            ),
+            (
+                Action::DraftEnd { shifted: false },
+                Action::DraftEnd { shifted: false },
+            ),
+            (Action::Up, Action::Up),
+            (Action::Home, Action::Home),
+        ] {
             assert_eq!(
-                unspelled(Input::Action(event)),
-                Input::Action(transcript_and_question_see),
+                arrow_to_pickers(&Input::Action(event)),
+                Input::Action(pickers_see),
                 "{event:?}"
             );
         }
     }
 
     #[test]
-    fn the_full_transcript_holds_the_composer_spellings_of_the_arrows_as_it_holds_the_arrows() {
-        // The full transcript holds Left and Right (`full_transcript.rs`'s
-        // `key`, `Reply::Held`) and reads the event `unspelled`, so Shift- and
-        // Super-Left and -Right and Ctrl-B and Ctrl-F, which the decoder keeps
-        // apart for an approval's choice, are held too: none reaches the
-        // composer behind the screen. Each side on its own, from the end it
-        // would move away from, so a left and a right that got through cannot
-        // cancel out.
-        let mut shell = shell(24, 80);
-        shell.route_bytes(b"ab");
-        for (home, keys, typed, text) in [
-            (
-                &b"\x05"[..],
-                [&b"\x1b[1;2D"[..], b"\x1b[1;9D", &[0x02]],
-                &b"z"[..],
-                "abz",
-            ),
-            (
-                &b"\x01"[..],
-                [&b"\x1b[1;2C"[..], b"\x1b[1;9C", &[0x06]],
-                &b"y"[..],
-                "yabz",
-            ),
-        ] {
-            shell.route_bytes(home);
-            shell.route_bytes(b"\x0f");
-            assert!(shell.full.is_open(), "Ctrl-O opened no full transcript");
-            for key in keys {
-                shell.route_bytes(key);
-                assert!(shell.full.is_open(), "{key:?} closed the full transcript");
+    fn a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen() {
+        // fx's full transcript binds the plain arrows only (`keyForAction`,
+        // `input_full_transcript_runtime.zig:156-178@481104fd`). A held arrow
+        // is a composer move (`modifiedArrowAction`, `escape_parser.zig:73-108`),
+        // which the screen does not take (`app_input_runtime.zig:930`), and
+        // Ctrl-B and Ctrl-F are raw bytes its `keyForByte` does not bind
+        // (`input_full_transcript_runtime.zig:147-154`;
+        // `app_input_runtime.zig:872`): each goes on to the composer behind
+        // the screen (`app_input_runtime.zig:997-1001`, `:887-893`). So with
+        // the screen up each key leaves the screen where it is and does to
+        // the draft exactly what it does with the screen closed -- from the
+        // middle of a three-row draft, a move.
+        let fixture = |open: bool| {
+            let mut shell = shell(24, 80);
+            for index in 0..20 {
+                shell.apply(UiEvent::Notice(notice::Notice::neutral(
+                    "n",
+                    format!("{index}"),
+                )));
             }
-            shell.route_bytes(b"\x0f");
-            assert!(!shell.full.is_open(), "Ctrl-O did not close it");
-            shell.route_bytes(typed);
+            let _ = shell.written();
+            // The middle row, one cell in from its end.
+            shell.route_bytes(b"abc\ndef\nghi");
+            shell.route_bytes(b"\x1b[A\x1b[D");
+            if open {
+                shell.route_bytes(b"\x0f");
+                assert!(shell.full.is_open(), "Ctrl-O opened no full transcript");
+            }
+            shell
+        };
+        let caret = |shell: &Fixture| shell.editor.point(shell.text_cols());
+        for (name, key) in [
+            ("ctrl-up", &b"\x1b[1;5A"[..]),
+            ("ctrl-down", b"\x1b[1;5B"),
+            ("alt-up", b"\x1b[1;3A"),
+            ("alt-down", b"\x1b[1;3B"),
+            ("super-up", b"\x1b[1;9A"),
+            ("super-down", b"\x1b[1;9B"),
+            ("shift-super-up", b"\x1b[1;10A"),
+            ("shift-alt-up", b"\x1b[1;4A"),
+            ("kitty ctrl-up", b"\x1b[57352;5u"),
+            ("keypad alt-down", b"\x1b[57420;3u"),
+            ("shift-left", b"\x1b[1;2D"),
+            ("super-left", b"\x1b[1;9D"),
+            ("keypad shift-left", b"\x1b[57417;2u"),
+            ("shift-right", b"\x1b[1;2C"),
+            ("super-right", b"\x1b[1;9C"),
+            ("ctrl-b", &[0x02]),
+            ("ctrl-f", &[0x06]),
+            ("kitty ctrl-b", b"\x1b[98;5u"),
+            ("kitty ctrl-f", b"\x1b[102;5u"),
+            // Reached the composer before too: Shift on Up and Down, and the
+            // word moves.
+            ("shift-up", b"\x1b[1;2A"),
+            ("ctrl-left", b"\x1b[1;5D"),
+            ("alt-b", b"\x1bb"),
+            // And Home and End, bare or held, and Super-Left with Ctrl: fx's
+            // screen binds neither `.home` nor a composer move
+            // (`keyForAction`, `input_full_transcript_runtime.zig:156-178`).
+            ("home", b"\x1b[H"),
+            ("ctrl-super-left", b"\x1b[1;13D"),
+            ("ctrl-home", b"\x1b[1;5H"),
+            ("super-end", b"\x1b[1;9F"),
+            ("shift-home", b"\x1b[1;2H"),
+            ("alt-end", b"\x1b[1;3F"),
+            ("tilde ctrl-end", b"\x1b[4;5~"),
+        ] {
+            let mut closed = fixture(false);
+            let start = caret(&closed);
+            closed.route_bytes(key);
+            let moved = caret(&closed);
+            assert_ne!(moved, start, "{name} is no composer move");
+            let mut open = fixture(true);
+            let tail = full_screen(&open);
+            open.route_bytes(key);
+            assert!(open.full.is_open(), "{name} closed the full transcript");
+            assert_eq!(full_screen(&open), tail, "{name} moved the screen");
+            assert_eq!(caret(&open), moved, "{name} did not reach the composer");
+            open.route_bytes(b"\x0f");
+            assert!(!open.full.is_open(), "Ctrl-O did not close it");
+            open.route_bytes(b"X");
+            closed.route_bytes(b"X");
+            assert_eq!(open.editor.text(), closed.editor.text(), "{name}");
+        }
+        // The plain arrows stay the screen's: Up and Down move it, Left and
+        // Right are held, and the caret stays where it is.
+        for (name, key, scrolls) in [
+            ("up", &b"\x1b[A"[..], true),
+            ("down", b"\x1b[B", false),
+            ("left", b"\x1b[D", false),
+            ("right", b"\x1b[C", false),
+        ] {
+            let mut open = fixture(true);
+            let start = caret(&open);
+            let tail = full_screen(&open);
+            open.route_bytes(key);
+            assert!(open.full.is_open(), "{name} closed the full transcript");
+            assert_eq!(full_screen(&open) != tail, scrolls, "{name}");
+            assert_eq!(caret(&open), start, "{name} moved the composer");
+        }
+    }
+
+    #[test]
+    fn a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move() {
+        // fx v0.0.16 reads a key at a question through its composer move. The
+        // choice moves only on `visual_up`/`visual_down` extending a selection
+        // (`questionActionFromShortcut`, `src/ui/input/runtime.zig:178-197
+        // @481104fd`) -- Shift-Up and Ctrl-Shift-Up, and their Down
+        // (`modifiedArrowAction`, `escape_parser.zig:90-106`); every other
+        // composer move reaches the switch's `else` at a choice
+        // (`input_question_runtime.zig:181-200`), and Ctrl-B and Ctrl-F are no
+        // question byte there (`questionActionFromByte`,
+        // `src/ui/input/runtime.zig:135-153`, `:199-209`;
+        // `app_input_runtime.zig:1136-1159`). The second question is up, so a
+        // key that went back a question would show.
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        fixture.route_bytes(b"\t");
+        let band = fixture.band_rows();
+        assert!(band.iter().any(|row| row.contains("Ship it?")), "{band:?}");
+        for (name, key) in [
+            ("ctrl-up", &b"\x1b[1;5A"[..]),
+            ("ctrl-down", b"\x1b[1;5B"),
+            ("alt-up", b"\x1b[1;3A"),
+            ("alt-down", b"\x1b[1;3B"),
+            ("super-up", b"\x1b[1;9A"),
+            ("super-down", b"\x1b[1;9B"),
+            ("shift-super-up", b"\x1b[1;10A"),
+            ("shift-super-down", b"\x1b[1;10B"),
+            ("shift-alt-up", b"\x1b[1;4A"),
+            ("shift-alt-down", b"\x1b[1;4B"),
+            ("ctrl-alt-shift-up", b"\x1b[1;8A"),
+            ("kitty ctrl-up", b"\x1b[57352;5u"),
+            ("kitty shift-alt-down", b"\x1b[57353;4u"),
+            ("keypad ctrl-up", b"\x1b[57419;5u"),
+            ("keypad super-down", b"\x1b[57420;9u"),
+            ("shift-left", b"\x1b[1;2D"),
+            ("super-left", b"\x1b[1;9D"),
+            ("keypad shift-left", b"\x1b[57417;2u"),
+            ("ctrl-b", &[0x02]),
+            ("kitty ctrl-b", b"\x1b[98;5u"),
+            ("shift-right", b"\x1b[1;2C"),
+            ("super-right", b"\x1b[1;9C"),
+            ("ctrl-f", &[0x06]),
+            // COMPOSER-SUPER-ARROWS: Super-Left and -Right with Ctrl or Alt
+            // held too, and Home and End held, are fx's `line_*` and
+            // `draft_*`, which a choice leaves to the switch's `else`.
+            ("ctrl-super-left", b"\x1b[1;13D"),
+            ("alt-super-right", b"\x1b[1;11C"),
+            ("ctrl-home", b"\x1b[1;5H"),
+            ("super-end", b"\x1b[1;9F"),
+            ("shift-home", b"\x1b[1;2H"),
+            ("tilde ctrl-end", b"\x1b[4;5~"),
+        ] {
+            fixture.route_bytes(key);
             assert_eq!(
-                shell.editor.text(),
-                text,
-                "a key under the full transcript moved the composer's caret"
+                fixture.band_rows(),
+                band,
+                "{name} ({key:?}) changed the question"
             );
         }
+        assert_eq!(fixture.controlled(), None, "a held arrow answered");
+        // Shift-Down and Ctrl-Shift-Up are the choice's move, and so the
+        // choice goes down one and back.
+        fixture.route_bytes(b"\x1b[1;2B");
+        assert_ne!(fixture.band_rows(), band, "Shift-Down moved no choice");
+        fixture.route_bytes(b"\x1b[1;6A");
+        assert_eq!(
+            fixture.band_rows(),
+            band,
+            "Ctrl-Shift-Up did not move it back"
+        );
+
+        // In the field a move is the field's when it names one
+        // (`questionFreeformActionFromShortcut`, `src/ui/input/runtime.zig:155-176`):
+        // Super-Up and -Down, with Shift or without, the field's edges
+        // (`draft_start`/`draft_end`, `:162-163`); Shift-Left and -Right and
+        // Ctrl-B and -F the step (`fromFocusedEditorControlByte`,
+        // `shortcuts.zig:31-41`, for the bytes); and Ctrl-, Alt- and
+        // Shift-Alt-Up and -Down nothing (`visual_up` and `paragraph_up` are
+        // no field move) -- the caret stays in the field, which a choice move
+        // would leave. Each followed by a letter typed at the caret.
+        let draft = |fixture: &Fixture, text: &str| {
+            fixture
+                .band_rows()
+                .iter()
+                .any(|row| sgr_free(row).trim_end() == format!("    3) {text}"))
+        };
+        fixture.route_bytes(b"3");
+        fixture.route_bytes(b"ab cd");
+        for (keys, typed, text) in [
+            (&[&b"\x1b[1;9A"[..]][..], b"z", "zab cd"),
+            (
+                &[
+                    &b"\x1b[1;5A"[..],
+                    b"\x1b[1;5B",
+                    b"\x1b[1;3A",
+                    b"\x1b[1;3B",
+                    b"\x1b[1;4A",
+                    b"\x1b[1;4B",
+                    b"\x1b[57352;5u",
+                ][..],
+                b"y",
+                "zyab cd",
+            ),
+            (&[&[0x06][..]][..], b"x", "zyaxb cd"),
+            (&[&b"\x1b[1;9B"[..]][..], b"w", "zyaxb cdw"),
+            (&[&b"\x1b[1;2D"[..]][..], b"v", "zyaxb cdvw"),
+            (&[&[0x02][..]][..], b"u", "zyaxb cduvw"),
+            (&[&b"\x1b[1;10A"[..]][..], b"t", "tzyaxb cduvw"),
+            (&[&b"\x1b[1;2C"[..]][..], b"s", "tzsyaxb cduvw"),
+            (&[&b"\x1b[1;10B"[..]][..], b"r", "tzsyaxb cduvwr"),
+            // Super-Left and -Right are the field's start and end, with Ctrl
+            // or Alt held too, and so are Ctrl-, Super- and Shift-Home and
+            // -End: `line_*` and `draft_*` (`escape_parser.zig:74-80`,
+            // `:95-96`, `:104-105`, the tilde's `:699-707`), which the field
+            // reads as `.cursor_home`/`.cursor_end`
+            // (`src/ui/input/runtime.zig:162-163`). Super-Left from the end;
+            // Super-Right from the start (Super-Up first); the rest from two
+            // cells in from wherever the letter before left the caret.
+            (&[&b"\x1b[1;9D"[..]][..], b"q", "qtzsyaxb cduvwr"),
+            (
+                &[&b"\x1b[1;9A"[..], b"\x1b[1;9C"][..],
+                b"p",
+                "qtzsyaxb cduvwrp",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[1;13D"][..],
+                b"o",
+                "oqtzsyaxb cduvwrp",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[1;11C"][..],
+                b"n",
+                "oqtzsyaxb cduvwrpn",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[1;5H"][..],
+                b"m",
+                "moqtzsyaxb cduvwrpn",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[1;5F"][..],
+                b"l",
+                "moqtzsyaxb cduvwrpnl",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[1;9H"][..],
+                b"k",
+                "kmoqtzsyaxb cduvwrpnl",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[1;9F"][..],
+                b"j",
+                "kmoqtzsyaxb cduvwrpnlj",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[1;2H"][..],
+                b"i",
+                "ikmoqtzsyaxb cduvwrpnlj",
+            ),
+            (
+                &[&b"\x1b[D\x1b[D"[..], b"\x1b[4;5~"][..],
+                b"h",
+                "ikmoqtzsyaxb cduvwrpnljh",
+            ),
+        ] {
+            for key in keys {
+                fixture.route_bytes(key);
+            }
+            fixture.route_bytes(typed);
+            assert!(draft(&fixture, text), "{text}: {:?}", fixture.band_rows());
+            assert!(
+                fixture
+                    .band_rows()
+                    .iter()
+                    .any(|row| row.contains("Ship it?")),
+                "{text}: the field left its question"
+            );
+        }
+        assert_eq!(fixture.controlled(), None, "a key in the field answered");
     }
 
     #[test]
@@ -24890,14 +27004,659 @@ mod tests {
     }
 
     #[test]
-    fn shift_on_the_arrows_is_the_arrow_everywhere_but_a_question() {
-        // The decoder keeps Shift on Up and Down for a question's field only;
-        // the composer's recall still answers `ESC[1;2A` as Up.
-        let mut fixture = shell(24, 80);
-        fixture.route_bytes(b"first\r");
-        let _ = fixture.picks_up();
-        fixture.route_bytes(b"\x1b[1;2A");
-        assert_eq!(fixture.editor.text(), "first", "Shift+Up did not recall");
+    fn a_held_up_at_an_empty_composer_recalls_only_under_ctrl() {
+        // fx's `paragraph_up` and `draft_start` move the caret alone
+        // (`app_input_runtime.zig:298-309@481104fd`) and its Shift-Up stops
+        // before the history (`input_completion_runtime.zig:270`); Ctrl-Up is
+        // the plain arrow (:272-291). This test said Shift-Up recalled before
+        // COMPOSER-PARAGRAPH-MOVE.
+        for (name, key, recalls) in [
+            ("shift-up", &b"\x1b[1;2A"[..], false),
+            ("ctrl-shift-up", b"\x1b[1;6A", false),
+            ("alt-up", b"\x1b[1;3A", false),
+            ("shift-alt-up", b"\x1b[1;4A", false),
+            ("ctrl-alt-up", b"\x1b[1;7A", false),
+            ("super-up", b"\x1b[1;9A", false),
+            ("shift-super-up", b"\x1b[1;10A", false),
+            ("kitty alt-up", b"\x1b[57352;3u", false),
+            ("ctrl-up", b"\x1b[1;5A", true),
+            ("up", b"\x1b[A", true),
+        ] {
+            // And behind the full transcript, which leaves each to the
+            // composer (`p5-paragraph-move`'s `full-*`).
+            for open in [false, true] {
+                let mut fixture = shell(24, 80);
+                fixture.route_bytes(b"first\r");
+                let _ = fixture.picks_up();
+                if open {
+                    fixture.route_bytes(b"\x0f");
+                }
+                fixture.route_bytes(key);
+                assert_eq!(fixture.full.is_open(), open, "{name}");
+                let expected = if recalls && !(open && name == "up") {
+                    "first"
+                } else {
+                    ""
+                };
+                assert_eq!(fixture.editor.text(), expected, "open={open} {name}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_held_up_or_down_in_a_draft_is_fxs_move_and_only_ctrls_reaches_the_edge_or_history() {
+        // The draft `ab/cd/<two spaces>/<empty>/ef` (a blank line is spaces,
+        // tabs and carriage returns, `lineIsBlank`, `text_boundaries.zig:91-97
+        // @481104fd`), the history holding `first`; from each caret one key.
+        // Alt by paragraph (`previousParagraphStart`/`nextParagraphStart`,
+        // :104-147) and Super to the draft's edges (`horizontal_navigation.zig:29-46`),
+        // neither past them; Shift one row, stopping at the first and the last
+        // (`input_completion_runtime.zig:262-270`); Ctrl the plain arrow, the
+        // edge and then the history (:272-291). `None` is the history's line.
+        const DRAFT: &str = "ab\ncd\n  \n\nef";
+        let end = DRAFT.len();
+        for (name, key, from, to) in [
+            ("alt-up", &b"\x1b[1;3A"[..], 11, Some(10)),
+            ("alt-up", b"\x1b[1;3A", 10, Some(0)),
+            ("alt-up", b"\x1b[1;3A", 7, Some(0)),
+            ("alt-up", b"\x1b[1;3A", 0, Some(0)),
+            ("shift-alt-up", b"\x1b[1;4A", 11, Some(10)),
+            ("ctrl-alt-up", b"\x1b[1;7A", 11, Some(10)),
+            ("alt-down", b"\x1b[1;3B", 1, Some(10)),
+            ("alt-down", b"\x1b[1;3B", 7, Some(10)),
+            ("alt-down", b"\x1b[1;3B", 10, Some(end)),
+            ("alt-down", b"\x1b[1;3B", end, Some(end)),
+            ("shift-alt-down", b"\x1b[1;4B", 4, Some(10)),
+            ("keypad alt-down", b"\x1b[57420;3u", 4, Some(10)),
+            ("super-up", b"\x1b[1;9A", 11, Some(0)),
+            ("super-up", b"\x1b[1;9A", 0, Some(0)),
+            ("shift-super-up", b"\x1b[1;10A", 11, Some(0)),
+            ("super-down", b"\x1b[1;9B", 1, Some(end)),
+            ("super-down", b"\x1b[1;9B", end, Some(end)),
+            ("shift-up", b"\x1b[1;2A", 11, Some(9)),
+            ("shift-up", b"\x1b[1;2A", 1, Some(1)),
+            ("shift-up", b"\x1b[1;2A", 0, Some(0)),
+            ("ctrl-shift-up", b"\x1b[1;6A", 1, Some(1)),
+            ("shift-down", b"\x1b[1;2B", 1, Some(4)),
+            ("shift-down", b"\x1b[1;2B", 11, Some(11)),
+            ("ctrl-up", b"\x1b[1;5A", 11, Some(9)),
+            ("ctrl-up", b"\x1b[1;5A", 1, Some(0)),
+            ("ctrl-up", b"\x1b[1;5A", 0, None),
+            ("ctrl-down", b"\x1b[1;5B", 11, Some(end)),
+        ] {
+            let mut shell = shell(24, 80);
+            submitted(&mut shell, "first");
+            shell.route_bytes(DRAFT.as_bytes());
+            for _ in from..end {
+                shell.route_bytes(b"\x1b[D");
+            }
+            assert_eq!(shell.editor.caret(), from, "{name} from {from}");
+            shell.route_bytes(key);
+            match to {
+                Some(to) => {
+                    assert_eq!(shell.editor.text(), DRAFT, "{name} from {from}");
+                    assert_eq!(shell.editor.caret(), to, "{name} from {from}");
+                }
+                None => assert_eq!(shell.editor.text(), "first", "{name} from {from}"),
+            }
+        }
+        // In a walk, at the recalled line's end: only Ctrl-Down steps on.
+        for (name, key, steps) in [
+            ("alt-down", &b"\x1b[1;3B"[..], false),
+            ("super-down", b"\x1b[1;9B", false),
+            ("shift-down", b"\x1b[1;2B", false),
+            ("ctrl-down", b"\x1b[1;5B", true),
+        ] {
+            let mut shell = shell(24, 80);
+            submitted(&mut shell, "first");
+            shell.route_bytes(b"\x1b[A");
+            assert_eq!(shell.editor.text(), "first");
+            shell.route_bytes(key);
+            let expected = if steps { "" } else { "first" };
+            assert_eq!(shell.editor.text(), expected, "{name}");
+        }
+        // Shift-Up with no row above forgets the column the run aimed for
+        // (`vertical_navigation.zig:70-73@481104fd`; `p5-paragraph-move-column`):
+        // the Down after it aims at the caret's own column, not the run's.
+        let mut forgot = shell(24, 80);
+        forgot.route_bytes(b"x\nabcdef\x1b[A");
+        assert_eq!(forgot.editor.caret(), 1);
+        forgot.route_bytes(b"\x1b[1;2A\x1b[B");
+        assert_eq!(
+            forgot.editor.caret(),
+            3,
+            "the run's column survived Shift-Up"
+        );
+        // And a Shift-Up that moves keeps it (`vertical_navigation.zig:76`):
+        // through `x`, one cell wide, back to column 6 of the row above.
+        let mut kept = shell(24, 80);
+        kept.route_bytes(b"abcdef\nx\nabcdef\x1b[1;2A");
+        assert_eq!(kept.editor.caret(), 8);
+        kept.route_bytes(b"\x1b[1;2A");
+        assert_eq!(
+            kept.editor.caret(),
+            6,
+            "a Shift-Up that moved forgot the column"
+        );
+    }
+
+    #[test]
+    fn a_held_up_at_an_empty_composer_takes_a_waiting_steer_back_only_under_ctrl() {
+        // `restoreQueuedSteerToComposer` is the unselected rows' alone
+        // (`input_completion_runtime.zig:279-281@481104fd`).
+        for (name, key, takes) in [
+            ("alt-up", &b"\x1b[1;3A"[..], false),
+            ("super-up", b"\x1b[1;9A", false),
+            ("shift-up", b"\x1b[1;2A", false),
+            ("ctrl-up", b"\x1b[1;5A", true),
+        ] {
+            let mut shell = running("run it");
+            let steering = shell.work.steering();
+            steering.open();
+            shell.route_bytes(b"change tone\r");
+            steering.tool_running(true);
+            shell.route_bytes(key);
+            assert_eq!(steering.pending(), !takes, "{name}");
+            let expected = if takes { "change tone" } else { "" };
+            assert_eq!(shell.editor.text(), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_held_up_or_down_walks_a_picker_under_ctrl_and_shift_and_only_moves_the_caret_under_alt_and_super(
+    ) {
+        // `p5-paragraph-move-menus`: fx's `visual_*` walk the open picker as
+        // the arrows do (`routeNonSlashPickerMove` and the slash completion,
+        // `input_completion_runtime.zig:230-259@481104fd`); `paragraph_*` and
+        // `draft_*` never reach one, and drop a later `/model` column
+        // (`abandonModelPickerOptions`, `app_input_runtime.zig:298-309`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/st");
+        let marked = |shell: &Fixture| shell.picker.as_ref().expect("a menu").marked().0;
+        shell.route_bytes(b"\x1b[1;2B");
+        assert_eq!(marked(&shell), 1);
+        shell.route_bytes(b"\x1b[1;5B");
+        assert_eq!(marked(&shell), 2);
+        shell.route_bytes(b"\x1b[1;6A");
+        assert_eq!(marked(&shell), 1);
+        for key in [&b"\x1b[1;9B"[..], b"\x1b[1;3A", b"\x1b[1;3B", b"\x1b[1;9A"] {
+            shell.route_bytes(key);
+            assert_eq!(marked(&shell), 1, "{key:?} walked the menu");
+        }
+        assert_eq!(shell.editor.caret(), 0);
+        shell.route_bytes(b"x");
+        assert_eq!(shell.editor.text(), "x/st");
+        // The `@` picker: Shift walks it, and Alt-Up is Home on one line.
+        let (_workspace, mut files) = in_ws2(24, 80);
+        files.route_bytes(b"@");
+        listed(&mut files);
+        let path = |shell: &Fixture| {
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(|files| files.marked())
+                .map(|found| found.path.clone())
+        };
+        let first = path(&files);
+        files.route_bytes(b"\x1b[1;2B");
+        assert_ne!(path(&files), first);
+        files.route_bytes(b"\x1b[1;5A");
+        assert_eq!(path(&files), first);
+        let (_home_ws, mut home) = in_ws2(24, 80);
+        home.route_bytes(b"@");
+        listed(&mut home);
+        home.route_bytes(b"\x1b[H");
+        files.route_bytes(b"\x1b[1;3A");
+        assert_eq!(files.band_rows(), home.band_rows());
+        assert_eq!(files.editor.caret(), 0);
+        // `/model`'s effort column: Shift walks the levels, Alt and Super
+        // put the column back to the models.
+        let mut levels = harness_shell();
+        levels.route_bytes(b"/model gpt\r\x1b[1;2B");
+        assert!(levels.hint().ends_with("\u{b7} low"), "{}", levels.hint());
+        for key in [&b"\x1b[1;3B"[..], b"\x1b[1;3A", b"\x1b[1;9B", b"\x1b[1;10A"] {
+            let mut shell = harness_shell();
+            shell.route_bytes(b"/model gpt\r");
+            assert!(shell.column.pending().is_some());
+            shell.route_bytes(key);
+            assert_eq!(shell.column.pending(), None, "{key:?} kept the column");
+        }
+    }
+
+    #[test]
+    fn no_held_up_or_down_moves_a_compact_menu_or_a_rule_confirmation() {
+        // fx's compact menus take the plain arrows only (`else => return`,
+        // `app_input_runtime.zig:2259-2263@481104fd`; `p5-paragraph-move-menus`'s
+        // `/statusline`), and a rule change is its approval band, which reads
+        // a composer move as nothing (`input_approval_runtime.zig:128`).
+        let held: [&[u8]; 9] = [
+            b"\x1b[1;5B",
+            b"\x1b[1;5A",
+            b"\x1b[1;2B",
+            b"\x1b[1;6B",
+            b"\x1b[1;3B",
+            b"\x1b[1;4B",
+            b"\x1b[1;9B",
+            b"\x1b[1;10B",
+            b"\x1b[57353;5u",
+        ];
+        let root = tempfile::tempdir().expect("a root");
+        let statusline = {
+            let mut shell = shell_at_home(root.path(), 40, 120);
+            shell.route_bytes(b"/statusline\r");
+            shell
+        };
+        let confirm = {
+            let (_home, _workspace, _rules, mut shell) = remembering_shell();
+            shell.route_bytes(
+                b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r",
+            );
+            assert!(shell.rule_confirm.is_some());
+            shell
+        };
+        // The read-only panel, short enough to scroll (`p5-panels-status-short`),
+        // `/usage`'s dashboard and `/workspace`'s picker with a directory to
+        // mark. A plain Down moves each but `/usage`'s, which with no sign-in
+        // has no row to mark.
+        let panel = {
+            let mut shell = shell(14, 120);
+            shell.open_info_panel(fx_status_panel());
+            shell
+        };
+        let usage = {
+            let mut shell = shell(40, 120);
+            shell.route_bytes(b"/usage\r");
+            assert!(shell.usage_menu.is_some());
+            shell
+        };
+        let workspace = {
+            let mut shell = shell_at_home(root.path(), 40, 120);
+            let entries =
+                WorkspaceAccess::load(&shell.workspace.clone(), &["/somewhere/extra".to_string()]);
+            shell.apply(UiEvent::Workspace {
+                notice: notice::Notice::neutral("workspace", "added"),
+                access: Some(entries),
+            });
+            shell.route_bytes(b"/workspace\r");
+            assert!(shell.workspace_menu.is_some());
+            shell
+        };
+        for (name, mut shell, down_moves) in [
+            ("statusline", statusline, true),
+            ("confirm", confirm, true),
+            ("panel", panel, true),
+            ("usage", usage, false),
+            ("workspace", workspace, true),
+        ] {
+            let before = shell.band_rows();
+            for key in held {
+                shell.route_bytes(key);
+                assert_eq!(shell.band_rows(), before, "{name}: {key:?} moved the mark");
+            }
+            shell.route_bytes(b"\x1b[B");
+            assert_eq!(shell.band_rows() != before, down_moves, "{name}: Down");
+        }
+        // And each compact menu's own reading: no held spelling is a key of
+        // its, where the plain Down is.
+        let spellings = [
+            Action::ComposerUp,
+            Action::ComposerDown,
+            Action::SelectUp,
+            Action::SelectDown,
+            Action::ParagraphUp,
+            Action::ParagraphDown,
+            Action::DraftStart { shifted: false },
+            Action::DraftEnd { shifted: true },
+        ];
+        for action in spellings {
+            assert_eq!(StatuslineAction::of(action), None, "{action:?}");
+            assert_eq!(InfoAction::of(action), None, "{action:?}");
+            assert_eq!(UsageAction::of_action(action), None, "{action:?}");
+            assert_eq!(WorkspaceAction::of(action), None, "{action:?}");
+        }
+        assert_eq!(
+            UsageAction::of_action(Action::Down),
+            Some(UsageAction::Move(true))
+        );
+        assert!(StatuslineAction::of(Action::Down).is_some());
+        assert!(InfoAction::of(Action::Down).is_some());
+        assert!(WorkspaceAction::of(Action::Down).is_some());
+    }
+
+    #[test]
+    fn a_held_left_right_home_or_end_in_a_draft_is_fxs_move() {
+        // The rest of fx's `modifiedArrowAction` (`escape_parser.zig:73-108
+        // @481104fd`): Super first -- Left and Right `line_start`/`line_end`
+        // whatever else is held, Home and End `draft_start`/`draft_end` --
+        // then Alt, whose arm has no Home or End and so leaves the plain key
+        // (`:83-89`, `:163-167`, `:727-733`), then Ctrl (Home and End the
+        // draft's edges, `:95-96`), then Shift (the line's, `:104-105`). The
+        // tilde Home and End are the line's with any bit held and the draft's
+        // with Ctrl (`:699-707`), Super or not. The composer moves the caret
+        // there and nowhere else (`horizontal_navigation.zig:29-38`), the line
+        // being the one the line breaks delimit, not the screen row
+        // (`logicalLineStart`/`logicalLineEnd`, `text_boundaries.zig:79-89`).
+        // The draft `one two/<a line wrapped over rows>/the end`, the history
+        // holding `first`; from the middle of the wrapped line's second row,
+        // one key each.
+        let long = "abcd ".repeat(40);
+        let draft = format!("one two\n{long}\nthe end");
+        let (line, line_end, end) = (8, 8 + long.len(), draft.len());
+        let mid = line + 100;
+        for (name, key, from, to) in [
+            ("super-left", &b"\x1b[1;9D"[..], mid, line),
+            ("shift-super-left", b"\x1b[1;10D", mid, line),
+            ("alt-super-left", b"\x1b[1;11D", mid, line),
+            ("ctrl-super-left", b"\x1b[1;13D", mid, line),
+            ("keypad super-left", b"\x1b[57417;9u", mid, line),
+            ("super-right", b"\x1b[1;9C", mid, line_end),
+            ("ctrl-alt-super-right", b"\x1b[1;15C", mid, line_end),
+            ("keypad super-right", b"\x1b[57418;9u", mid, line_end),
+            ("super-left", b"\x1b[1;9D", 3, 0),
+            ("super-right", b"\x1b[1;9C", 3, 7),
+            ("home", b"\x1b[H", mid, line),
+            ("shift-home", b"\x1b[1;2H", mid, line),
+            ("alt-home", b"\x1b[1;3H", mid, line),
+            ("ctrl-alt-home", b"\x1b[1;7H", mid, line),
+            ("shift-alt-end", b"\x1b[1;4F", mid, line_end),
+            ("shift-end", b"\x1b[1;2F", mid, line_end),
+            ("alt-end", b"\x1b[1;3F", mid, line_end),
+            ("ctrl-home", b"\x1b[1;5H", mid, 0),
+            ("ctrl-shift-home", b"\x1b[1;6H", mid, 0),
+            ("super-home", b"\x1b[1;9H", mid, 0),
+            ("super-alt-home", b"\x1b[1;11H", mid, 0),
+            ("keypad ctrl-home", b"\x1b[57423;5u", mid, 0),
+            ("ctrl-end", b"\x1b[1;5F", mid, end),
+            ("super-end", b"\x1b[1;9F", mid, end),
+            ("keypad super-end", b"\x1b[57424;9u", mid, end),
+            ("tilde ctrl-home", b"\x1b[1;5~", mid, 0),
+            ("rxvt ctrl-home", b"\x1b[7;5~", mid, 0),
+            ("tilde ctrl-end", b"\x1b[4;5~", mid, end),
+            ("tilde super-home", b"\x1b[1;9~", mid, line),
+            ("tilde alt-end", b"\x1b[4;3~", mid, line_end),
+            ("rxvt shift-end", b"\x1b[8;2~", mid, line_end),
+            ("tilde caps-lock-home", b"\x1b[1;65~", mid, line),
+            // kitty's Ctrl-Shift-a, -e, -b and -f: `line_start`, `line_end`,
+            // `character_left` and `character_right` with the selection
+            // (`escape_parser.zig:235-242`), the selection dropped
+            // (COMPOSER-SELECTION-EXTEND).
+            ("kitty ctrl-shift-a", b"\x1b[97;6u", mid, line),
+            ("kitty ctrl-shift-e", b"\x1b[101;6u", mid, line_end),
+            ("kitty ctrl-shift-b", b"\x1b[98;6u", mid, mid - 1),
+            ("kitty ctrl-shift-f", b"\x1b[102;6u", mid, mid + 1),
+            ("xterm ctrl-shift-a", b"\x1b[27;6;97~", mid, line),
+        ] {
+            let mut shell = shell(24, 80);
+            submitted(&mut shell, "first");
+            shell.route_bytes(draft.as_bytes());
+            for _ in from..end {
+                shell.route_bytes(b"\x1b[D");
+            }
+            assert_eq!(shell.editor.caret(), from, "{name} from {from}");
+            if from == mid {
+                let (row, column) = shell.editor.point(shell.text_cols());
+                assert!(
+                    row >= 2 && column > 0,
+                    "{name}: not mid-row ({row}, {column})"
+                );
+            }
+            shell.route_bytes(key);
+            assert_eq!(shell.editor.text(), draft, "{name} from {from}");
+            assert_eq!(shell.editor.caret(), to, "{name} from {from}");
+        }
+    }
+
+    #[test]
+    fn a_line_edge_key_over_a_live_selection_moves_from_the_caret_and_ends_it() {
+        // fx's `line_start`/`draft_start` with no selection to extend are
+        // `moveCursorTo(target, false)`, `setCursor`: the caret to the target,
+        // measured from the caret, and the anchor gone
+        // (`horizontal_navigation.zig:29-34`, `editor_state.zig:123-138
+        // @481104fd`) -- not the selection's collapse a step makes
+        // (`moveCharacterLeft`, `horizontal_navigation.zig:53-58`).
+        // `select_all` leaves the caret at the end
+        // (`editor_state.zig:140-146`), so on `ab\ncd` Super-Left is 3 and
+        // Ctrl-Home 0. Shift-Home is fx's `line_start` extending
+        // the selection, 0..3 there; here the selection is dropped
+        // (COMPOSER-SELECTION-EXTEND) and the caret is fx's, 3.
+        for (name, key, caret) in [
+            ("super-left", &b"\x1b[1;9D"[..], 3),
+            ("ctrl-super-left", b"\x1b[1;13D", 3),
+            ("shift-home", b"\x1b[1;2H", 3),
+            ("home", b"\x1b[H", 3),
+            ("ctrl-home", b"\x1b[1;5H", 0),
+            ("super-end", b"\x1b[1;9F", 5),
+            ("super-right", b"\x1b[1;9C", 5),
+            ("kitty ctrl-shift-a", b"\x1b[97;6u", 3),
+        ] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(b"ab\ncd");
+            shell.route_bytes(b"\x1b[97;9u");
+            assert_eq!(
+                shell
+                    .editor
+                    .selection()
+                    .map(|range| (range.start, range.end)),
+                Some((0, 5))
+            );
+            assert_eq!(shell.editor.caret(), 5);
+            shell.route_bytes(key);
+            assert_eq!(shell.editor.caret(), caret, "{name}");
+            assert_eq!(shell.editor.selection(), None, "{name} kept the selection");
+            assert_eq!(shell.editor.text(), "ab\ncd", "{name}");
+        }
+    }
+
+    #[test]
+    fn the_tilde_edges_and_ctrl_shift_letters_in_an_amendment_are_fxs() {
+        // Train 15's join of APPROVAL-DRAFT-KEYS with the decoder line:
+        // APPROVAL-DRAFT-KEYS found these spellings apart in a draft -- fx
+        // moves its caret on each, xfx's decoder read them as nothing -- and
+        // DECODER-TILDE-HOME-END, TILDE-EMPTY-MODIFIER and
+        // COMPOSER-SUPER-ARROWS made them fx's moves in the decoder. fx's
+        // amendment takes every move by its kind, the selection's flag
+        // dropped: `character_left`/`_right` the step, `line_start`,
+        // `draft_start` the start and `line_end`, `draft_end` the end
+        // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-96
+        // @481104fd`); rxvt's `CSI 7 ~` and `CSI 8 ~` are Home and End, and a
+        // tilde key with Ctrl's bit the draft's edge (`escape_parser.zig:628-635`,
+        // `:699-707`); Ctrl+Shift+A, B, E and F are `line_start`,
+        // `character_left`, `line_end` and `character_right` extending the
+        // selection (`:235-242`). From `ab c|d ef`, one key and a letter.
+        for (name, key, feedback) in [
+            ("rxvt home", &b"\x1b[7~"[..], "zab cd ef"),
+            ("rxvt end", b"\x1b[8~", "ab cd efz"),
+            ("rxvt ctrl-home", b"\x1b[7;5~", "zab cd ef"),
+            ("tilde ctrl-end", b"\x1b[4;5~", "ab cd efz"),
+            ("kitty ctrl-shift-a", b"\x1b[97;6u", "zab cd ef"),
+            ("kitty ctrl-shift-e", b"\x1b[101;6u", "ab cd efz"),
+            ("kitty ctrl-shift-b", b"\x1b[98;6u", "ab zcd ef"),
+            ("kitty ctrl-shift-f", b"\x1b[102;6u", "ab cdz ef"),
+            ("xterm ctrl-shift-a", b"\x1b[27;6;97~", "zab cd ef"),
+            ("xterm ctrl-shift-e", b"\x1b[27;6;101~", "ab cd efz"),
+            ("xterm ctrl-shift-b", b"\x1b[27;6;98~", "ab zcd ef"),
+            ("xterm ctrl-shift-f", b"\x1b[27;6;102~", "ab cdz ef"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell.route_bytes(b"\tab cd ef");
+            shell.route_bytes(b"\x1b[D\x1b[D\x1b[D\x1b[D");
+            shell.route_bytes(key);
+            shell.route_bytes(b"z");
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some(feedback.to_string()),
+                }),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn super_left_right_and_the_draft_edges_in_an_amendment_are_fxs() {
+        // fx's amendment reads `line_start` and `draft_start` as `.cursor_home`
+        // and `line_end` and `draft_end` as `.cursor_end`
+        // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:75-96
+        // @481104fd`), which set the caret to 0 and to the draft's length
+        // (`cursorHome`/`cursorEnd`, `approval_amendment.zig:84-92`), Shift
+        // held or not: Super-Left and -Right whatever else is held, Ctrl- and
+        // Super-Home and -End, Shift-Home and -End (`modifiedArrowAction`,
+        // `escape_parser.zig:73-108`). From `ab c|d ef`, one key and a letter.
+        for (name, key, feedback) in [
+            ("super-left", &b"\x1b[1;9D"[..], "zab cd ef"),
+            ("super-right", b"\x1b[1;9C", "ab cd efz"),
+            ("ctrl-super-left", b"\x1b[1;13D", "zab cd ef"),
+            ("alt-super-right", b"\x1b[1;11C", "ab cd efz"),
+            ("keypad super-left", b"\x1b[57417;9u", "zab cd ef"),
+            ("ctrl-home", b"\x1b[1;5H", "zab cd ef"),
+            ("ctrl-end", b"\x1b[1;5F", "ab cd efz"),
+            ("super-home", b"\x1b[1;9H", "zab cd ef"),
+            ("super-end", b"\x1b[1;9F", "ab cd efz"),
+            ("shift-home", b"\x1b[1;2H", "zab cd ef"),
+            ("alt-end", b"\x1b[1;3F", "ab cd efz"),
+            ("tilde ctrl-home", b"\x1b[1;5~", "zab cd ef"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell.route_bytes(b"\tab cd ef");
+            shell.route_bytes(b"\x1b[D\x1b[D\x1b[D\x1b[D");
+            shell.route_bytes(key);
+            shell.route_bytes(b"z");
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some(feedback.to_string()),
+                }),
+                "{name}"
+            );
+        }
+        // **Not fx's, and labelled so: APPROVAL-PASTE-SPACES' divergence.**
+        // A draft with a line break in it, which xfx's paste keeps and fx's
+        // turns into a space (`normalizeApprovalAmendmentPasteInPlace`,
+        // `input_paste_runtime.zig:19-25`), so fx's draft can never hold one.
+        // Ctrl-Home is the whole draft's start, as fx's `.cursor_home`.
+        // Super-Left is Home there, the caret line's start (`ab\nzcd`), where
+        // fx's `.cursor_home` would be 0 (`src/ui/input/runtime.zig:82`) --
+        // the two agree once APPROVAL-PASTE-SPACES takes the break out; the
+        // amendment's Home is older than this unit.
+        for (name, key, feedback) in [
+            ("ctrl-home", &b"\x1b[1;5H"[..], "zab\ncd"),
+            ("super-left", b"\x1b[1;9D", "ab\nzcd"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell.route_bytes(b"\t");
+            shell.route_bytes(b"\x1b[200~ab\ncd\x1b[201~");
+            shell.route_bytes(key);
+            shell.route_bytes(b"z");
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some(feedback.to_string()),
+                }),
+                "{name}"
+            );
+        }
+        // At the choice, with no amendment open, each is a composer move fx's
+        // `else => {}` takes (`input_approval_runtime.zig:128`): nothing.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\x1b[B");
+        let marked = shell.marked();
+        for key in [
+            &b"\x1b[1;9D"[..],
+            b"\x1b[1;9C",
+            b"\x1b[1;13D",
+            b"\x1b[1;5H",
+            b"\x1b[1;9F",
+            b"\x1b[1;2H",
+            b"\x1b[1;5~",
+        ] {
+            shell.route_bytes(key);
+            assert_eq!(shell.marked(), marked, "{key:?} moved the choice");
+        }
+        assert_eq!(shell.controlled(), None, "a key at the choice answered");
+    }
+
+    #[test]
+    fn super_left_right_and_the_draft_edges_move_no_menu_and_drop_a_model_column() {
+        // To fx these are composer moves (`line_start`/`line_end`,
+        // `draft_start`/`draft_end`, `modifiedArrowAction`,
+        // `escape_parser.zig:73-108@481104fd`). A compact menu acts on the
+        // plain arrows alone (`routeCompactCommandMenuEscapeAction`,
+        // `app_input_runtime.zig:2228-2263`) and the settings menu on the
+        // plain Left and Right alone (`:984-992`); the composer's arm drops a
+        // later `/model` column and moves the caret (`abandonModelPickerOptions`,
+        // `:298-309`), as Home does (`shortcuts.zig:51-52`).
+        let keys: [&[u8]; 8] = [
+            b"\x1b[1;9D",
+            b"\x1b[1;9C",
+            b"\x1b[1;13D",
+            b"\x1b[1;11C",
+            b"\x1b[57417;9u",
+            b"\x1b[1;5H",
+            b"\x1b[1;9F",
+            b"\x1b[1;5~",
+        ];
+        let root = tempfile::tempdir().expect("a root");
+        let statusline = {
+            let mut shell = shell_at_home(root.path(), 40, 120);
+            shell.route_bytes(b"/statusline\r");
+            assert!(shell.statusline_menu.is_some());
+            shell
+        };
+        // (`/usage`, the other compact menu Left and Right move, has nothing
+        // to show a period change in with no sign-in; its reading of what the
+        // shell hands it is the fold table's.)
+        let settings = with_settings(root.path());
+        for (name, mut shell) in [("statusline", statusline), ("settings", settings)] {
+            let before = shell.band_rows();
+            for key in keys {
+                shell.route_bytes(key);
+                assert_eq!(shell.band_rows(), before, "{name}: {key:?} moved it");
+            }
+            shell.route_bytes(b"\x1b[D");
+            assert_ne!(shell.band_rows(), before, "{name}: Left");
+        }
+        for key in keys {
+            let mut shell = harness_shell();
+            shell.route_bytes(b"/model gpt\r");
+            assert!(shell.column.pending().is_some());
+            shell.route_bytes(key);
+            assert_eq!(shell.column.pending(), None, "{key:?} kept the column");
+        }
+        // What the menus are handed, once folded: Home, End or a move to the
+        // draft's edge, none of them a key of a compact menu's or the
+        // settings menu's -- `/usage`'s included, which with no sign-in shows
+        // no period to change.
+        for action in [
+            Action::LineStart { shifted: false },
+            Action::LineEnd { shifted: true },
+            Action::DraftStart { shifted: false },
+            Action::DraftEnd { shifted: true },
+        ] {
+            let Input::Action(folded) = folded(Input::Action(action)) else {
+                unreachable!("an action folds to an action");
+            };
+            assert_eq!(UsageAction::of_action(folded), None, "{action:?}");
+            assert_eq!(StatuslineAction::of(folded), None, "{action:?}");
+            assert_eq!(SettingsAction::of(folded), None, "{action:?}");
+            assert_eq!(WorkspaceAction::of(folded), None, "{action:?}");
+            assert_eq!(InfoAction::of(folded), None, "{action:?}");
+        }
     }
 
     #[test]
@@ -24976,8 +27735,8 @@ mod tests {
             Ok(TurnControl::QuestionCancelled { .. })
         ));
         // `released`, not `document`: the notice is behind the pacer, which is
-        // how the existing too-small assertions read it (`shell.rs:6178`,
-        // `:6384`). Concatenated rather than compared row by row, because a
+        // how the existing too-small assertions read it (`shell.rs:6212`,
+        // `:6418`). Concatenated rather than compared row by row, because a
         // twenty-column screen is exactly the one that wraps this sentence --
         // and what the case is about is that the refusal was said, not where the
         // wrap fell.
@@ -29098,6 +31857,15 @@ mod tests {
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         assert!(shell.rule_confirm.is_none(), "Escape closes it");
         assert!(shell.document().is_empty(), "{:?}", shell.document());
+        // With no turn running it stops nothing (RULE-CONFIRM-KEYS: Escape
+        // stops a turn only over one).
+        while let Some(control) = shell.controlled() {
+            assert!(
+                !matches!(control, TurnControl::Cancel { .. }),
+                "an idle Escape sent a stop"
+            );
+        }
+        assert!(!shell.stop_requested, "an idle Escape asked for a stop");
         shell.route_bytes(b"/permissions remember deny create_folder {\"path\":\"d\"}\r");
         shell.route_bytes(b"2");
         assert_eq!(
@@ -29108,6 +31876,357 @@ mod tests {
             ]
         );
         assert!(!rules.exists(), "nothing was kept");
+    }
+
+    /// A `remember` that opens a rule confirmation in [`remembering_shell`].
+    const REMEMBER_A: &[u8] =
+        b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r";
+
+    /// Which choice a rule confirmation marks, as its rows say it.
+    fn rule_mark(shell: &Fixture) -> Option<&'static str> {
+        let rows = confirmation_rows(shell);
+        if rows.iter().any(|row| row == "  ❯ 1. Confirm") {
+            Some("Confirm")
+        } else if rows.iter().any(|row| row == "  ❯ 2. Cancel") {
+            Some("Cancel")
+        } else {
+            None
+        }
+    }
+
+    #[test]
+    fn ctrl_j_at_a_rule_confirmation_answers_as_enter_does_on_either_choice() {
+        // fx v0.0.16 asks a rule change in its approval prompt, confirmation-
+        // only (`syncRuleManagement`, `approval_prompt.zig:119-146@481104fd`),
+        // so the approval's byte map is its: `'\r', '\n' => .submit`
+        // (`approvalActionFromByte`, `src/ui/input/runtime.zig:64`), the marked
+        // choice's decision (`approval_decision.zig:141`, `:75-80`) -- Confirm
+        // makes the change, Cancel says it was cancelled
+        // (`submitRuleManagementChoice`, `input_approval_runtime.zig:257-328`).
+        // Every spelling APPROVAL-CTRL-J's question takes, on either choice.
+        let mut wrong = Vec::new();
+        for (name, bytes) in CTRL_J {
+            let (_home, _workspace, rules, mut shell) = remembering_shell();
+            shell.route_bytes(REMEMBER_A);
+            shell.route_bytes(b"\x1b[B");
+            shell.route_bytes(bytes);
+            let said = shell.document();
+            if shell.rule_confirm.is_some()
+                || said
+                    != [
+                        "* permissions: saved-session permission change cancelled".to_string(),
+                        String::new(),
+                    ]
+            {
+                wrong.push(format!("{name} on Cancel: {said:?}"));
+            }
+            shell.route_bytes(REMEMBER_A);
+            shell.route_bytes(bytes);
+            let said = shell.document();
+            let kept = crate::permission::session_rules::load(&rules)
+                .map(|state| state.rules.len())
+                .unwrap_or(0);
+            if shell.rule_confirm.is_some()
+                || kept != 1
+                || said
+                    != [
+                        "* permissions: saved-session permission rule updated".to_string(),
+                        String::new(),
+                    ]
+            {
+                wrong.push(format!("{name} on Confirm: {said:?}, {kept} kept"));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn ctrl_c_at_a_rule_confirmation_cancels_it_and_arms_no_exit() {
+        // `3 => .deny` (`src/ui/input/runtime.zig:63@481104fd`): a refusal,
+        // which a rule confirmation answers by saying the change was
+        // cancelled (`input_approval_runtime.zig:267-275`); the approval took
+        // the byte, so no exit is armed. On either choice.
+        for down in [false, true] {
+            let (_home, _workspace, rules, mut shell) = remembering_shell();
+            shell.route_bytes(REMEMBER_A);
+            if down {
+                shell.route_bytes(b"\x1b[B");
+            }
+            shell.route_bytes(&[0x03]);
+            assert!(shell.rule_confirm.is_none(), "down {down}");
+            assert_eq!(
+                shell.document(),
+                vec![
+                    "* permissions: saved-session permission change cancelled".to_string(),
+                    String::new(),
+                ],
+                "down {down}"
+            );
+            assert!(!rules.exists(), "down {down}: nothing was kept");
+            let hint = sgr_free(shell.band_rows().last().expect("a hint row"));
+            assert_ne!(hint, EXIT_ARMED, "down {down}");
+        }
+    }
+
+    #[test]
+    fn tab_and_the_horizontal_keys_move_a_rule_confirmations_mark_wrapping() {
+        // Tab with no draft to open moves the mark (`.tab`,
+        // `approval_decision.zig:142-151@481104fd`: `amendment_allowed =
+        // false`, `app_commands.zig:691`), and Left, Alt-b, Right and Alt-f
+        // are the approval's `move_choice` (`routeApprovalEscapeAction`,
+        // `input_approval_runtime.zig:90-110`), wrapping over two choices
+        // (`moveChoice`, `optionCount`, `approval_decision.zig:214-229`).
+        let (_home, _workspace, _rules, mut shell) = remembering_shell();
+        shell.route_bytes(REMEMBER_A);
+        let mut marks = Vec::new();
+        for (name, bytes) in [
+            ("tab", &b"\t"[..]),
+            ("tab", b"\t"),
+            ("right", b"\x1b[C"),
+            ("right", b"\x1b[C"),
+            ("left", b"\x1b[D"),
+            ("left", b"\x1b[D"),
+            ("alt-f", b"\x1bf"),
+            ("alt-b", b"\x1bb"),
+        ] {
+            shell.route_bytes(bytes);
+            marks.push((name, rule_mark(&shell)));
+        }
+        assert_eq!(
+            marks,
+            vec![
+                ("tab", Some("Cancel")),
+                ("tab", Some("Confirm")),
+                ("right", Some("Cancel")),
+                ("right", Some("Confirm")),
+                ("left", Some("Cancel")),
+                ("left", Some("Confirm")),
+                ("alt-f", Some("Cancel")),
+                ("alt-b", Some("Confirm")),
+            ]
+        );
+        assert!(shell.document().is_empty(), "a move says nothing");
+        // And the next Enter answers the choice moved to.
+        shell.route_bytes(b"\t\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: saved-session permission change cancelled".to_string(),
+                String::new(),
+            ]
+        );
+    }
+
+    #[test]
+    fn keys_fx_reads_as_nothing_leave_a_rule_confirmation_as_it_was() {
+        // What fx's approval does nothing with, at a rule confirmation as at
+        // a question (`Shell::decide`'s reasons, each at the pin): C-p, a
+        // decoded `.open_model_catalog`, and C-n, a raw byte no approval
+        // action is made of; Shift-, Ctrl-, Alt- and Super-Up and -Down, a
+        // composer move (`input_approval_runtime.zig:128@481104fd`); a third
+        // digit, past `optionCount` (`approval_decision.zig:157-158`, `:227-229`);
+        // a letter with no draft (`:165`, `:202`); and Ctrl-L, which asks for
+        // no repaint (`src/ui/input/runtime.zig:98-108`, `:61-73`).
+        let mut wrong = Vec::new();
+        for (name, bytes) in [
+            ("c-p", &[0x10][..]),
+            ("c-n", &[0x0e]),
+            ("3", b"3"),
+            ("j", b"j"),
+            ("k", b"k"),
+            ("shift-up", b"\x1b[1;2A"),
+            ("shift-down", b"\x1b[1;2B"),
+            ("ctrl-up", b"\x1b[1;5A"),
+            ("ctrl-down", b"\x1b[1;5B"),
+            ("alt-up", b"\x1b[1;3A"),
+            ("alt-down", b"\x1b[1;3B"),
+            ("super-up", b"\x1b[1;9A"),
+            ("super-down", b"\x1b[1;9B"),
+            ("ctrl-l", &[0x0c]),
+        ] {
+            let (_home, _workspace, rules, mut shell) = remembering_shell();
+            shell.route_bytes(REMEMBER_A);
+            shell.damage_told();
+            shell.route_bytes(bytes);
+            let said = shell.document();
+            if shell.rule_confirm.is_none()
+                || rule_mark(&shell) != Some("Confirm")
+                || !said.is_empty()
+                || shell.damage_untold
+                || rules.exists()
+            {
+                wrong.push(format!(
+                    "{name}: up {}, mark {:?}, said {said:?}, damaged {}",
+                    shell.rule_confirm.is_some(),
+                    rule_mark(&shell),
+                    shell.damage_untold
+                ));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn() {
+        // With an operation in hand, fx's Escape at its approval prompt is
+        // `cancelApprovalOperation` (`resolveEscape`,
+        // `app_input_runtime.zig:2689`, `:2712-2716@481104fd`): the turn is
+        // stopped and the prompt -- here the rule confirmation, asked while
+        // the turn runs (a command runs at once, `input_submit_runtime.zig:
+        // 721-724`) -- is cleared, saying nothing about the rule
+        // (`input_approval_runtime.zig:401-436`) and nothing about the turn:
+        // that route writes no turn cancellation, where Ctrl-C's
+        // `cancelActiveOperation` does (`input_interrupt_runtime.zig:118-126`;
+        // `p5-rule-confirm-keys-turn`'s `esc`). While the confirmation is up
+        // the band has no activity row, as at any approval
+        // (`frameOwnedActivityProjection`; the same scenario's `prompt`).
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        let started = turn_running(&mut shell, b"ask something\r");
+        while shell.controlled().is_some() {}
+        shell.route_bytes(REMEMBER_A);
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        shell.settle_band(started);
+        assert_eq!(shell.geometry.activity, None, "an activity row under it");
+        let _ = shell.document();
+        escape(&mut shell);
+        assert!(shell.rule_confirm.is_none(), "Escape closed it");
+        let mut controls = Vec::new();
+        while let Some(control) = shell.controlled() {
+            controls.push(control);
+        }
+        assert!(
+            controls
+                .iter()
+                .any(|control| matches!(control, TurnControl::Cancel { .. })),
+            "the turn was not stopped: {controls:?}"
+        );
+        assert!(
+            !shell
+                .document()
+                .iter()
+                .any(|row| row.contains("permission") || row.contains("Cancelled")),
+            "nothing is said about the rule or the turn"
+        );
+        assert!(!rules.exists(), "nothing was kept");
+    }
+
+    /// A remembering shell with a turn running, as the runtime took it.
+    fn remembering_and_running(prompt: &str) -> (tempfile::TempDir, tempfile::TempDir, Fixture) {
+        let (home, workspace, _rules, mut shell) = remembering_shell();
+        shell.route_bytes(prompt.as_bytes());
+        shell.route_bytes(b"\r");
+        let _taken = shell.picks_up();
+        shell.start_turn();
+        shell.settle_band(Instant::now());
+        let _ = shell.take_pending();
+        (home, workspace, shell)
+    }
+
+    #[test]
+    fn escape_at_a_rule_confirmation_over_a_manual_compaction_stops_it() {
+        // fx's `cancelApprovalOperation` asks the worker to stop through
+        // `cancelApprovalTurn`, which stops a compaction as well as a turn
+        // (`stopCompactionActivityLocked`, `worker_runtime.zig:777-791
+        // @481104fd`), and a manual compaction is an operation in hand
+        // (`cancellationTarget`, `input_interrupt_runtime.zig:12-21`). So
+        // with no turn working, Escape at the confirmation stops the
+        // compaction.
+        let (_home, _workspace, _rules, mut shell) = remembering_shell();
+        shell.work.publish_status(a_status(1, 0));
+        shell.route_bytes(b"/compact\r");
+        assert_eq!(shell.picks_up(), TurnWork::Compact);
+        while shell.controlled().is_some() {}
+        assert!(!shell.activity.working(), "a turn is working");
+        assert!(shell.compacting(), "no compaction in hand");
+        shell.route_bytes(REMEMBER_A);
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        escape(&mut shell);
+        assert!(shell.rule_confirm.is_none());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { through: 1 }),
+            "the compaction was not stopped"
+        );
+    }
+
+    #[test]
+    fn escape_at_a_rule_confirmation_asks_no_second_stop_and_stops_work_typed_since() {
+        // fx's Escape there asks the worker again only for what is not
+        // already cancelled (`already_cancelled`, `input_approval_runtime.zig:
+        // 421-434@481104fd`), as its Ctrl-C does (`:94`); xfx's rule is
+        // `Shell::stop_owed`, its Ctrl-C's. A turn stopped while a read is
+        // still out keeps working until the read reports, and Escape then
+        // sends no second stop; a `/compact` typed after the stop is work the
+        // stop did not cover, and Escape stops it.
+        let now = Instant::now();
+        let (_home, _workspace, mut shell) = remembering_and_running("first");
+        shell.apply(tool_start(
+            "1",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        assert_eq!(shell.controlled(), Some(TurnControl::Cancel { through: 1 }));
+        assert!(shell.activity.working(), "the stopped turn stopped working");
+        shell.route_bytes(REMEMBER_A);
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        escape(&mut shell);
+        assert!(shell.rule_confirm.is_none());
+        assert_eq!(shell.controlled(), None, "a second stop was sent");
+
+        let (_home, _workspace, mut shell) = remembering_and_running("first");
+        shell.work.publish_status(a_status(1, 0));
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        let _ = shell.controlled();
+        shell.route_bytes(b"/compact\r");
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some(super::super::bridge::TURN_CANCELLED.to_string()),
+        });
+        shell.work.give_back();
+        shell.settle_band(now);
+        while shell.controlled().is_some() {}
+        assert!(
+            shell.stop_requested,
+            "the first stop is no longer requested"
+        );
+        shell.route_bytes(REMEMBER_A);
+        assert!(shell.rule_confirm.is_some(), "{:?}", shell.document());
+        escape(&mut shell);
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { through: 2 }),
+            "the /compact typed after the stop was not stopped"
+        );
+    }
+
+    #[test]
+    fn the_turns_clock_stops_while_a_rule_confirmation_is_up_over_it() {
+        // fx's `syncState` holds the turn's clock while an approval prompt is
+        // up (`syncWaitingClock(..., modal_active, ...)`,
+        // `app_worker_runtime.zig:729`, `:760@481104fd`), and a rule
+        // confirmation is one: answered either way, the turn is not charged
+        // for the time it was up.
+        for (answer, key) in [("Confirm", &b"\r"[..]), ("Cancel", b"2")] {
+            let (_home, _workspace, _rules, mut shell) = remembering_shell();
+            let started = turn_running(&mut shell, b"ask me\r");
+            shell.settle_band(started + Duration::from_secs(2));
+            let before = shell.activity_row.clone().expect("a running turn");
+            assert!(before.contains("2s"), "{answer}: {before:?}");
+            shell.route_bytes(REMEMBER_A);
+            assert!(shell.rule_confirm.is_some(), "{answer}");
+            shell.settle_band(started + Duration::from_secs(2));
+            shell.settle_band(started + Duration::from_secs(30));
+            assert_eq!(shell.activity_row, None, "{answer}: a row under it");
+            shell.route_bytes(key);
+            assert!(shell.rule_confirm.is_none(), "{answer}");
+            shell.settle_band(started + Duration::from_secs(30));
+            shell.settle_band(started + Duration::from_secs(33));
+            let after = shell.activity_row.clone().expect("the turn goes on");
+            assert!(
+                after.contains("5s"),
+                "{answer}: the turn was charged for the confirmation: {after:?}"
+            );
+        }
     }
 
     #[test]
@@ -40950,6 +44069,39 @@ mod tests {
     }
 
     #[test]
+    fn rxvts_csi_7_tilde_reaches_the_composer_as_home_and_csi_8_as_end() {
+        // DECODER-TILDE-HOME-END: `CSI 7 ~` and `CSI 8 ~` are fx's Home and
+        // End (`escape_parser.zig:628-631@481104fd`), the composer's move to
+        // the line's edge (`.home => move(.line_start)`, `shortcuts.zig:51-52`)
+        // -- here the editor's Home and End.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"abc def");
+        shell.route_bytes(b"\x1b[7~");
+        shell.route_bytes(b"X");
+        assert_eq!(shell.editor.text(), "Xabc def", "CSI 7 ~ was not Home");
+        shell.route_bytes(b"\x1b[8~");
+        shell.route_bytes(b"Y");
+        assert_eq!(shell.editor.text(), "Xabc defY", "CSI 8 ~ was not End");
+        // With a modifier, Ctrl-Home and Alt-End: fx's draft and line edges
+        // (`escape_parser.zig:699-707@481104fd`), one place on a one-line
+        // draft.
+        shell.route_bytes(b"\x1b[1;5~");
+        shell.route_bytes(b"<");
+        assert_eq!(
+            shell.editor.text(),
+            "<Xabc defY",
+            "CSI 1 ; 5 ~ was not Home"
+        );
+        shell.route_bytes(b"\x1b[8;3~");
+        shell.route_bytes(b">");
+        assert_eq!(
+            shell.editor.text(),
+            "<Xabc defY>",
+            "CSI 8 ; 3 ~ was not End"
+        );
+    }
+
+    #[test]
     fn alt_d_deletes_the_word_to_the_right_without_killing_it() {
         let mut shell = shell(24, 80);
         shell.route_bytes(b"hello, world");
@@ -41082,6 +44234,36 @@ mod tests {
             shell.route_bytes(step);
         }
         assert_eq!(marked(shell), paged, "a page is not {FX_PAGE_AT_41} steps");
+        // A page key held with a modifier is upstream's composer move to a
+        // page, which reaches each of these exactly as the bare key's own
+        // composer move does (`shortcuts.zig:53-54`, `routeComposerVertical`,
+        // `input_completion_runtime.zig:215-233@481104fd`): the tilde spelling
+        // under Ctrl, Alt or Caps Lock, and the keypad's under Super.
+        let (held_page, held_back): ([&[u8]; 2], [&[u8]; 2]) = if forward {
+            (
+                [b"\x1b[6;5~", b"\x1b[57422;9u"],
+                [b"\x1b[5;3~", b"\x1b[5;65~"],
+            )
+        } else {
+            (
+                [b"\x1b[5;5~", b"\x1b[57421;9u"],
+                [b"\x1b[6;3~", b"\x1b[6;65~"],
+            )
+        };
+        for (page, back) in held_page.into_iter().zip(held_back) {
+            shell.route_bytes(back);
+            assert_eq!(
+                marked(shell),
+                start,
+                "{back:?} did not page back as the bare key"
+            );
+            shell.route_bytes(page);
+            assert_eq!(
+                marked(shell),
+                paged,
+                "{page:?} did not page as the bare key"
+            );
+        }
     }
 
     #[test]
@@ -44794,6 +47976,8 @@ mod tests {
                 Action::SelectDown,
                 Action::ComposerUp,
                 Action::ComposerDown,
+                Action::ParagraphUp,
+                Action::ParagraphDown,
             ];
             let edges = if open { &[][..] } else { &edges[..] };
             for &still in others.iter().chain(edges) {
@@ -47155,6 +50339,143 @@ mod tests {
         assert_eq!(record, written);
     }
 
+    /// An answer with a code block, a table and a rule, each between lines
+    /// of prose.
+    const SPLIT_ANSWER: &str = "Lead line.\n\n```sh\necho end\n```\n\nMiddle line.\n\n\
+        | a | b |\n|---|---|\n| 1 | 2 |\n\nAfter the table.\n\n---\n\nLast line.\n";
+
+    #[test]
+    fn an_answers_blocks_split_its_ctrl_o_record_and_leave_its_document_as_it_was() {
+        // FULLTRANSCRIPT-RESPONSE-HEADER: Ctrl-O heads the text after each
+        // block with a `Response` of its own, as fx v0.0.16's record splits
+        // an answer at its blocks (`super::full_transcript`'s `presented`).
+        // The inline transcript is not that record and does not change: no
+        // header, one blank row around each block, these rows as the base
+        // (3f2d6e78) wrote them; `fulltranscript-response-split`'s inline
+        // snaps are fx's, cell for cell, at the base and at the head.
+        let mut shell = shell(40, 80);
+        shell.route_bytes(b"a prompt\r");
+        let _ = shell.picks_up();
+        shell.start_turn();
+        shell.apply(UiEvent::Delta(SPLIT_ANSWER.into()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        let document: Vec<String> = shell
+            .written()
+            .into_iter()
+            .filter(|row| !row.starts_with("x\u{1d487}x"))
+            .collect();
+        let rule = format!("  {}", "\u{2500}".repeat(78));
+        assert_eq!(
+            document,
+            [
+                "\u{2503} a prompt",
+                "",
+                "  Lead line.",
+                "",
+                "  \u{2500} sh \u{2500}\u{2500}\u{2500}",
+                "  echo end",
+                "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+                "",
+                "  Middle line.",
+                "",
+                "  \u{250c}\u{2500}\u{2500}\u{2500}\u{252c}\u{2500}\u{2500}\u{2500}\u{2510}",
+                "  \u{2502} a \u{2502} b \u{2502}",
+                "  \u{251c}\u{2500}\u{2500}\u{2500}\u{253c}\u{2500}\u{2500}\u{2500}\u{2524}",
+                "  \u{2502} 1 \u{2502} 2 \u{2502}",
+                "  \u{2514}\u{2500}\u{2500}\u{2500}\u{2534}\u{2500}\u{2500}\u{2500}\u{2518}",
+                "",
+                "  After the table.",
+                "",
+                rule.as_str(),
+                "",
+                "  Last line.",
+                "",
+                "  0s (\u{2191}3 \u{2193}34)",
+                "",
+            ]
+        );
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        let kinds: Vec<&str> = screen
+            .iter()
+            .filter_map(|row| row.split_once(" UTC \u{b7} ").map(|(_, kind)| kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            ["Prompt", "Response", "Response", "Response", "Response", "Usage"],
+            "{screen:#?}"
+        );
+        // Every row of the record but its headers is the document's, in the
+        // same order, blank rows included: the split adds a header and moves
+        // no row, so each block keeps one blank row above it and one below.
+        // The record is shorter than the screen: the rows under it, before
+        // the footer, are the screen's own.
+        let shown = screen[..36]
+            .iter()
+            .rposition(|row| !row.is_empty())
+            .expect("the record's last row");
+        let record: Vec<&String> = screen[..=shown]
+            .iter()
+            .filter(|row| !row.contains(" UTC \u{b7} "))
+            .collect();
+        // The document ends on a blank row under the summary, which the
+        // record, ending on its last entry's last row, has not: the one row
+        // left out, and only once it is seen to be blank.
+        assert_eq!(
+            document.last().map(String::as_str),
+            Some(""),
+            "{document:#?}"
+        );
+        let written: Vec<&String> = document[..document.len() - 1].iter().collect();
+        assert_eq!(record, written, "{screen:#?}");
+    }
+
+    #[test]
+    fn a_resumed_answers_runs_carry_the_turns_conclusion_as_upstreams_replay_stamps_them() {
+        // Upstream's replay stamps every entry of the answer with the turn's
+        // completion before it writes the answer's markdown
+        // (`setCreatedAtMs`, `app_session_runtime.zig:3986-4003@481104fd`;
+        // `ResumeProjection`'s appenders, `resume_projection.zig:150-193`),
+        // so the run after a block carries the same moment as the one before.
+        let mut turn = saved(
+            "look",
+            vec![HydratedStep::Text(SPLIT_ANSWER.to_string())],
+            2,
+            Some(40),
+        );
+        // 2026-10-02 00:00:00 UTC, and two seconds later.
+        turn.started_at_ms = 1_790_899_200_000;
+        turn.concluded_at_ms = Some(1_790_899_202_000);
+        let mut shell = shell(40, 120);
+        shell.hydrate(replay(Some("look"), vec![turn]), false);
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        let headers: Vec<&str> = screen
+            .iter()
+            .filter(|row| row.contains(" UTC \u{b7} "))
+            .map(String::as_str)
+            .collect();
+        // The turn's, after the resume's own.
+        let turn: Vec<&str> = headers
+            .iter()
+            .copied()
+            .skip_while(|row| !row.starts_with("  2026-10-02 "))
+            .collect();
+        assert_eq!(
+            turn,
+            [
+                "  2026-10-02 00:00:00.000 UTC \u{b7} Prompt",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Usage",
+            ],
+            "{screen:#?}"
+        );
+    }
+
     #[test]
     fn the_screens_keys_move_it_and_every_other_key_reaches_the_hidden_composer_as_upstreams() {
         // Upstream's map binds the page keys, the arrows, Escape, Ctrl-C and
@@ -47217,6 +50538,165 @@ mod tests {
         );
         shell.route_bytes(b"\x0f");
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+    }
+
+    #[test]
+    fn a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen() {
+        // fx's full transcript pages on the bare `.page_up`/`.page_down` alone
+        // (`keyForAction`, `input_full_transcript_runtime.zig:156-178
+        // @481104fd`). Held with a modifier, the key is a composer move to a
+        // page (`escape_parser.zig:169-173`, `:708-709`), which the screen
+        // does not take (`routeAction`, `input_full_transcript_runtime.zig:47-52`;
+        // `app_input_runtime.zig:930`),
+        // and it goes on to the composer behind it (`:997-1001`, `:310-327`),
+        // which moves its caret a page: the composer's row cap
+        // (`input_completion_runtime.zig:222-225`), `content_bottom / 2 + 1`
+        // (`input_presentation.zig:252-255@481104fd`), 11 at 24 rows as
+        // `FX_PAGE_AT_41` is 19 at 41. Each spelling up, then down, from the
+        // last of sixteen rows, so a page of any other size lands elsewhere:
+        // the screen stays at its tail, and the caret goes eleven rows up and
+        // back.
+        const PAGE: usize = 11;
+        assert_eq!(usize::from(layout::input_row_limit(24)), PAGE);
+        let mut shell = shell(24, 80);
+        for index in 0..20 {
+            shell.apply(UiEvent::Notice(notice::Notice::neutral(
+                "n",
+                format!("{index}"),
+            )));
+        }
+        let _ = shell.written();
+        let draft: Vec<String> = (0..16).map(|line| format!("r{line:02}")).collect();
+        shell.route_bytes(draft.join("\n").as_bytes());
+        shell.route_bytes(b"\x0f");
+        let tail = full_screen(&shell);
+        let row = |shell: &Fixture| shell.editor.point(shell.text_cols()).0;
+        let last = draft.len() - 1;
+        assert_eq!(row(&shell), last);
+        for (up, down) in [
+            (&b"\x1b[5;5~"[..], &b"\x1b[6;5~"[..]),
+            (b"\x1b[5;2~", b"\x1b[6;2~"),
+            (b"\x1b[5;65~", b"\x1b[6;65~"),
+            (b"\x1b[05;3~", b"\x1b[6;257~"),
+            (b"\x1b[57421;5u", b"\x1b[57422;9u"),
+            (b"\x1b[1;5;57421~", b"\x1b[27;3;57422~"),
+        ] {
+            shell.route_bytes(up);
+            assert_eq!(full_screen(&shell), tail, "{up:?} paged the screen");
+            assert!(shell.full.is_open(), "{up:?} closed the screen");
+            assert_eq!(
+                row(&shell),
+                last - PAGE,
+                "{up:?} did not page the composer up"
+            );
+            shell.route_bytes(down);
+            assert_eq!(full_screen(&shell), tail, "{down:?} paged the screen");
+            assert_eq!(row(&shell), last, "{down:?} did not page the composer down");
+        }
+        // The bare key, in every spelling a modifier field of none reads as,
+        // is the screen's: it pages, and the composer stays where it is.
+        for (up, down) in [
+            (&b"\x1b[5~"[..], &b"\x1b[6~"[..]),
+            (b"\x1b[5;1~", b"\x1b[6;~"),
+            (b"\x1b[57421u", b"\x1b[57422;65u"),
+        ] {
+            shell.route_bytes(up);
+            assert_ne!(full_screen(&shell), tail, "{up:?} did not page the screen");
+            assert_eq!(row(&shell), last, "{up:?} moved the composer");
+            shell.route_bytes(down);
+            assert_eq!(full_screen(&shell), tail, "{down:?} did not page back");
+            assert_eq!(row(&shell), last, "{down:?} moved the composer");
+        }
+        assert_eq!(shell.editor.text(), draft.join("\n"));
+    }
+
+    #[test]
+    fn a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one() {
+        // fx's approval and question switch on the decoded action, and a page
+        // key, bare or held, is neither of their bindings: both reach `else
+        // => {}` (`input_approval_runtime.zig:90-128`,
+        // `input_question_runtime.zig:149-200@481104fd`), and neither is a
+        // draft edit or a choice move (`src/ui/input/runtime.zig:75-96`,
+        // `:155-197`). The draft behind them is left as it was, and so is a
+        // draft of two lines open in front of them, caret and all.
+        let keys: [&[u8]; 8] = [
+            b"\x1b[5~",
+            b"\x1b[6~",
+            b"\x1b[5;5~",
+            b"\x1b[6;2~",
+            b"\x1b[5;65~",
+            b"\x1b[57421;5u",
+            b"\x1b[57422;9u",
+            b"\x1b[27;3;57421~",
+        ];
+        // At an approval's choice and in its amendment, a draft of two lines
+        // pasted in (the caret at its end): no key moves the caret or the
+        // choice, the `Z` typed after them all lands where the caret was, and
+        // Enter answers the choice and that draft.
+        for amending in [false, true] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            if amending {
+                shell.route_bytes(b"\t\x1b[200~ab cd\nef gh\x1b[201~");
+                delivered(&mut shell);
+            }
+            let marked = shell.marked();
+            let band = shell.band_rows();
+            let caret = shell.cursor();
+            for key in keys {
+                shell.route_bytes(key);
+                assert_eq!(shell.marked(), marked, "{key:?} moved the choice");
+                assert_eq!(shell.cursor(), caret, "{key:?} moved the caret");
+                assert_eq!(shell.band_rows(), band, "{key:?} changed the approval");
+            }
+            assert_eq!(shell.controlled(), None, "a page key answered");
+            if amending {
+                shell.route_bytes(b"Z");
+                delivered(&mut shell);
+            }
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: amending.then(|| "ab cd\nef ghZ".to_string()),
+                }),
+                "amending={amending}"
+            );
+        }
+
+        // At a model question's choice, and in its freeform field with two
+        // lines pasted in: the same, the `Z` at the field's end and the
+        // answer the field as it was, `Z` and all.
+        for freeform in [false, true] {
+            let mut fixture = shell(40, 120);
+            asking_question(&mut fixture, a_batch());
+            if freeform {
+                fixture.route_bytes(b"3"); // the first question's freeform slot
+                fixture.route_bytes(b"\x1b[200~ab\ncd\x1b[201~");
+            }
+            let band = fixture.band_rows();
+            let caret = fixture.cursor();
+            for key in keys {
+                fixture.route_bytes(key);
+                assert_eq!(fixture.cursor(), caret, "{key:?} moved the caret");
+                assert_eq!(fixture.band_rows(), band, "{key:?} changed the question");
+            }
+            assert_eq!(fixture.controlled(), None, "a page key answered");
+            if freeform {
+                fixture.route_bytes(b"Z");
+                fixture.route_bytes(b"\r"); // Enter takes the field
+                fixture.route_bytes(b"1"); // and an ordinal ends the batch
+                assert_eq!(
+                    fixture.controlled(),
+                    Some(TurnControl::QuestionAnswer {
+                        id: QuestionId(1),
+                        answers: vec!["ab\ncdZ".to_string(), "Yes".to_string()],
+                    })
+                );
+            }
+        }
     }
 
     #[test]

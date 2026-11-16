@@ -1,0 +1,40 @@
+  ┌───────┬──────┐
+  │ name  │ size │
+  ├───────┼──────┤
+  │ alpha │ 1    │
+  ├───────┼──────┤
+  │ beta  │ 2    │
+  └───────┴──────┘
+
+  After the table.
+
+  2026-11-10 23:38:09.999 UTC · Usage
+  0s (↑3 ↓40)
+
+  2026-11-10 23:38:17.910 UTC · Prompt
+┃ the rule
+
+  2026-11-10 23:38:17.994 UTC · Response
+  Above the rule.
+
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  Below the rule.
+
+  2026-11-10 23:38:18.121 UTC · Usage
+  0s (↑2 ↓40)
+
+  2026-11-10 23:38:26.078 UTC · Prompt
+┃ only a block
+
+  2026-11-10 23:38:26.201 UTC · Response
+  ─ sh ────
+  echo only
+  ─────────
+
+  2026-11-10 23:38:26.265 UTC · Usage
+  0s (↑4 ↓40)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

@@ -1,0 +1,116 @@
+# The brief's gate, once, under the suite lock in one normal slot, on a --no-local clone at 5bc8f9dc (its remote removed), TMPDIR=<tmp> (short), CARGO_TARGET_DIR beside the clone.
+# 5bc8f9dc's src/ is 32969730's: the code head 1fcf30b6 and a comments-only commit; the commits after 32969730 change docs, the ledger's refs, a scenario comment and the receipt only.
+
+head 5bc8f9dc
+STEP fmt exit=0 1s
+STEP clippy exit=0 29s
+STEP clippy-fi exit=0 19s
+STEP test exit=0 163s
+STEP test-fi exit=0 160s
+STEP identity exit=0 1s
+STEP stubs exit=0 10s
+STEP secrets exit=0 67s
+STEP local-paths exit=0 3s
+  test: 15 result lines: 5718 passed, 0 failed, 7 ignored
+  test-fi: 15 result lines: 5755 passed, 0 failed, 7 ignored
+tree after: 0 changed paths (git status --porcelain); head 5bc8f9dc
+## identity
+check-xfx-identity: ok (21137 tracked file(s) scanned)
+## stubs
+check-no-stubs: ok
+## secrets
+check-no-secrets: ok (21137 tracked file(s) scanned)
+## local-paths
+check-no-local-paths: ok (21137 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+
+## cargo test, its result lines
+test result: ok. 4794 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 51.60s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.38s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.74s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.70s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.15s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.08s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.71s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.66s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.66s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.93s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+## cargo test --features fault-injection, its result lines
+test result: ok. 4817 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 55.18s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.34s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.58s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.17s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.06s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.55s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.75s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.02s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+# Round 2: the brief's gate again, under the suite lock, on a --no-local clone at 60f1cf9b (its remote removed); its src/ is 2d38fbf9's (the round-2 code head 1bdbfc4f and two test-module commits).
+
+head 60f1cf9b
+STEP fmt exit=0 2s
+STEP clippy exit=0 11s
+STEP clippy-fi exit=0 12s
+STEP test exit=0 134s
+STEP test-fi exit=0 136s
+STEP identity exit=0 2s
+STEP stubs exit=0 12s
+STEP secrets exit=0 72s
+STEP local-paths exit=0 4s
+  test: 15 result lines: 5720 passed, 0 failed, 7 ignored
+  test-fi: 15 result lines: 5757 passed, 0 failed, 7 ignored
+tree after: 0 changed paths (git status --porcelain); head 60f1cf9b
+## identity
+check-xfx-identity: ok (21149 tracked file(s) scanned)
+## stubs
+check-no-stubs: ok
+## secrets
+check-no-secrets: ok (21149 tracked file(s) scanned)
+## local-paths
+check-no-local-paths: ok (21149 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+
+## cargo test, its result lines
+test result: ok. 4796 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 50.53s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.70s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.74s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.10s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.64s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.05s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.70s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.67s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+## cargo test --features fault-injection, its result lines
+test result: ok. 4819 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 50.30s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.56s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.01s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.73s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.17s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.07s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.77s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.60s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.00s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.87s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s

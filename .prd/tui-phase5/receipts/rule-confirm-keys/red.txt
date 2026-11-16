@@ -1,0 +1,74 @@
+# cargo test --locked --lib -- rule_confirmation escape_closes_the_confirmation, at each RED commit, in a git clone --no-local of the branch under <tmp> (grep of the result, panic and assertion lines)
+## at ec44d180 (test(rule-confirm): RED -- a /permissions rule confirmation ): git diff of src vs its parent's code adds tests only
+test tui::program_status::tests::a_rule_confirmation_is_reported_under_upstreams_label ... ok
+test tui::shell::tests::a_rule_confirmation_is_a_permission_question_outside_a_turn ... ok
+test tui::shell::tests::ctrl_c_at_a_rule_confirmation_cancels_it_and_arms_no_exit ... FAILED
+test tui::shell::tests::a_rule_confirmation_opening_drops_a_fork_on_its_way ... ok
+test tui::shell::tests::escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn ... FAILED
+test tui::shell::tests::a_rule_confirmation_over_a_forks_plain_line_keeps_the_blank_row ... ok
+test tui::shell::tests::escape_closes_the_confirmation_silently_and_two_says_cancelled ... ok
+test tui::shell::tests::tab_and_the_horizontal_keys_move_a_rule_confirmations_mark_wrapping ... FAILED
+test tui::shell::tests::ctrl_j_at_a_rule_confirmation_answers_as_enter_does_on_either_choice ... FAILED
+test tui::shell::tests::keys_fx_reads_as_nothing_leave_a_rule_confirmation_as_it_was ... FAILED
+thread 'tui::shell::tests::ctrl_c_at_a_rule_confirmation_cancels_it_and_arms_no_exit' panicked at src/tui/shell.rs:28735:13:
+thread 'tui::shell::tests::escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn' panicked at src/tui/shell.rs:28869:9:
+thread 'tui::shell::tests::tab_and_the_horizontal_keys_move_a_rule_confirmations_mark_wrapping' panicked at src/tui/shell.rs:28774:9:
+assertion `left == right` failed
+  left: [("tab", Some("Confirm")), ("tab", Some("Confirm")), ("right", Some("Confirm")), ("right", Some("Confirm")), ("left", Some("Confirm")), ("left", Some("Confirm")), ("alt-f", Some("Confirm")), ("alt-b", Some("Confirm"))]
+ right: [("tab", Some("Cancel")), ("tab", Some("Confirm")), ("right", Some("Cancel")), ("right", Some("Confirm")), ("left", Some("Cancel")), ("left", Some("Confirm")), ("alt-f", Some("Cancel")), ("alt-b", Some("Confirm"))]
+thread 'tui::shell::tests::ctrl_j_at_a_rule_confirmation_answers_as_enter_does_on_either_choice' panicked at src/tui/shell.rs:28719:9:
+[
+    "c-j on Cancel: []",
+    "c-j on Confirm: [\"* permissions: saved-session permission change cancelled\", \"\"], 0 kept",
+    "kitty ctrl+j on Cancel: []",
+    "kitty ctrl+j on Confirm: [\"* permissions: saved-session permission change cancelled\", \"\"], 0 kept",
+    "kitty ctrl+J on Cancel: []",
+    "kitty ctrl+J on Confirm: [\"* permissions: saved-session permission change cancelled\", \"\"], 0 kept",
+    "kitty ctrl+shift+j on Cancel: []",
+    "kitty ctrl+shift+j on Confirm: [\"* permissions: saved-session permission change cancelled\", \"\"], 0 kept",
+    "kitty ctrl+alt+j on Cancel: []",
+    "kitty ctrl+alt+j on Confirm: [\"* permissions: saved-session permission change cancelled\", \"\"], 0 kept",
+    "kitty ctrl+super+j on Cancel: []",
+    "kitty ctrl+super+j on Confirm: [\"* permissions: saved-session permission change cancelled\", \"\"], 0 kept",
+    "kitty ctrl+j, caps lock on Cancel: []",
+    "kitty ctrl+j, caps lock on Confirm: [\"* permissions: saved-session permission change cancelled\", \"\"], 0 kept",
+    "kitty ctrl+j press on Cancel: []",
+    "kitty ctrl+j press on Confirm: [\"* permissions: saved-session permission change cancelled\", \"\"], 0 kept",
+    "kitty ctrl+j repeat on Cancel: []",
+    "kitty ctrl+j repeat on Confirm: [\"* permissions: saved-session permission change cancelled\", \"\"], 0 kept",
+    "xterm ctrl+j on Cancel: []",
+    "xterm ctrl+j on Confirm: [\"* permissions: saved-session permission change cancelled\", \"\"], 0 kept",
+    "xterm ctrl+shift+J on Cancel: []",
+    "xterm ctrl+shift+J on Confirm: [\"* permissions: saved-session permission change cancelled\", \"\"], 0 kept",
+]
+thread 'tui::shell::tests::keys_fx_reads_as_nothing_leave_a_rule_confirmation_as_it_was' panicked at src/tui/shell.rs:28845:9:
+[
+    "c-p: up true, mark Some(\"Cancel\"), said [], damaged false",
+    "c-n: up true, mark Some(\"Cancel\"), said [], damaged false",
+    "shift-up: up true, mark Some(\"Cancel\"), said [], damaged false",
+    "shift-down: up true, mark Some(\"Cancel\"), said [], damaged false",
+    "ctrl-up: up true, mark Some(\"Cancel\"), said [], damaged false",
+    "ctrl-down: up true, mark Some(\"Cancel\"), said [], damaged false",
+    "alt-up: up true, mark Some(\"Cancel\"), said [], damaged false",
+    "alt-down: up true, mark Some(\"Cancel\"), said [], damaged false",
+    "super-up: up true, mark Some(\"Cancel\"), said [], damaged false",
+    "super-down: up true, mark Some(\"Cancel\"), said [], damaged false",
+    "ctrl-l: up true, mark Some(\"Confirm\"), said [], damaged true",
+]
+test result: FAILED. 5 passed; 5 failed; 0 ignored; 0 measured; 4656 filtered out; finished in 0.15s
+## at 91706a67 (test(rule-confirm): RED -- no activity row under a rule conf): git diff of src vs its parent's code adds tests only
+test tui::program_status::tests::a_rule_confirmation_is_reported_under_upstreams_label ... ok
+test tui::shell::tests::a_rule_confirmation_is_a_permission_question_outside_a_turn ... ok
+test tui::shell::tests::a_rule_confirmation_opening_drops_a_fork_on_its_way ... ok
+test tui::shell::tests::escape_closes_the_confirmation_silently_and_two_says_cancelled ... ok
+test tui::shell::tests::a_rule_confirmation_over_a_forks_plain_line_keeps_the_blank_row ... ok
+test tui::shell::tests::tab_and_the_horizontal_keys_move_a_rule_confirmations_mark_wrapping ... ok
+test tui::shell::tests::escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn ... FAILED
+test tui::shell::tests::ctrl_c_at_a_rule_confirmation_cancels_it_and_arms_no_exit ... ok
+test tui::shell::tests::keys_fx_reads_as_nothing_leave_a_rule_confirmation_as_it_was ... ok
+test tui::shell::tests::ctrl_j_at_a_rule_confirmation_answers_as_enter_does_on_either_choice ... ok
+thread 'tui::shell::tests::escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn' panicked at src/tui/shell.rs:28900:9:
+assertion `left == right` failed: an activity row under it
+  left: Some(26)
+ right: None
+test result: FAILED. 9 passed; 1 failed; 0 ignored; 0 measured; 4656 filtered out; finished in 0.15s

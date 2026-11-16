@@ -418,9 +418,10 @@ pub enum Session<'a> {
 pub struct Entry {
     pub at_ms: i64,
     /// What kind of entry it is, in upstream's timeline words where xfx has
-    /// one of the same kind: `user`, `assistant`, `semantic notice`, `raw` (a
-    /// turn's summary, a question's resolution, a cancelled turn's line), and
-    /// xfx's `tool`.
+    /// one of the same kind: `user`, `assistant`, `assistant code block`,
+    /// `assistant table`, `assistant thematic rule`, `semantic notice`, `raw`
+    /// (a turn's summary, a question's resolution, a cancelled turn's line),
+    /// and xfx's `tool`.
     pub kind: &'static str,
     pub rows: Vec<String>,
     /// Whether it says something went wrong: an error notice, or a provider
@@ -1120,8 +1121,8 @@ fn network_calls(out: &mut String, records: &[Entry]) {
 }
 
 /// `## Transcript Timeline` (`writeTranscriptTimeline`,
-/// `app_commands.zig:3475-3567`): what the screen was given, each entry under
-/// its moment and its kind, colour stripped and secrets masked.
+/// `app_commands.zig:2675-2747@481104fd`): what the screen was given, each
+/// entry under its moment and its kind, colour stripped and secrets masked.
 fn timeline(out: &mut String, entries: &[Entry]) {
     out.push_str("\n## Transcript Timeline\n");
     if entries.is_empty() {

@@ -1,0 +1,14 @@
+$ python3 -I srcsize.py . 82895f13 1fcf30b6   (the code head)
+src/tui/approval.rs: +5/-3
+src/tui/editor.rs: +11/-6
+src/tui/input.rs: +93/-43
+src/tui/question.rs: +19/-14
+src/tui/shell.rs: +35/-20
+total: +163/-86
+$ python3 -I srcsize.py . 82895f13 32969730   (with the comments commit)
+src/tui/approval.rs: +5/-3
+src/tui/editor.rs: +11/-6
+src/tui/input.rs: +93/-43
+src/tui/question.rs: +19/-14
+src/tui/shell.rs: +35/-20
+total: +163/-86

@@ -1,0 +1,29 @@
+SAME alt-end-4         rows: none
+       fx:  ┃ CAabc defBD
+       xfx: ┃ CAabc defBD
+SAME alt-home-1        rows: none
+       fx:  ┃ GECAabc defBDF
+       xfx: ┃ GECAabc defBDF
+SAME ctrl-end-8        rows: none
+       fx:  ┃ ECAabc defBDF
+       xfx: ┃ ECAabc defBDF
+SAME ctrl-home-1       rows: none
+       fx:  ┃ CAabc defB
+       xfx: ┃ CAabc defB
+SAME ctrl-super-end-4  rows: none
+       fx:  ┃ GECAabc defBDFH
+       xfx: ┃ GECAabc defBDFH
+SAME end-8             rows: none
+       fx:  ┃ Aabc defB
+       xfx: ┃ Aabc defB
+SAME home-7            rows: none
+       fx:  ┃ Aabc def
+       xfx: ┃ Aabc def
+SAME super-home-7      rows: none
+       fx:  ┃ ECAabc defBD
+       xfx: ┃ ECAabc defBD
+SAME typed             rows: none
+       fx:  ┃ abc def
+       xfx: ┃ abc def
+banners: fx 𝒇x v0.0.16 · Run /help for commands / xfx x𝒇x v0.1.0-e90b1bb [debug] · Run /help for commands
+9 of 9 pairs identical

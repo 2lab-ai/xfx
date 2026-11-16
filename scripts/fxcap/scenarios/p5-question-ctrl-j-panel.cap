@@ -1,0 +1,24 @@
+# Phase 5 QUESTION-CTRL-J: C-j at a model question that arrives while
+# `/status` is open. fx v0.0.16's question takes every raw byte before any
+# menu does (`routeActiveModalInput`, app_input_runtime.zig:1136-1160@481104fd,
+# ahead of the MCP menu and the compact menus at :1186-1216, whose C-j is the
+# next row, :1205; the picker's C-j yields to it, :1110-1116), so C-j answers
+# the question, `Thorough`, and the panel comes back as it was.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-question-ctrl-j-panel-turns.json
+wait 4
+type ask me
+key Enter
+wait 0.8
+type /status
+key Enter
+wait 0.8
+snap open-before-question
+wait 3
+snap question-arrives
+key -H 0a
+wait 1.5
+snap question-ctrl-j
+wait 1
+snap end
+gwlog

@@ -1,0 +1,57 @@
+# COMPOSER-SUPER-ARROWS at a permission question. fx v0.0.16 decodes a held
+# Left, Right, Home or End to a composer move (modifiedArrowAction,
+# escape_parser.zig:73-108@481104fd). At a choice with no amendment open it
+# is no key of the choice's (`else => {}`, input_approval_runtime.zig:128);
+# in an amendment line_start and draft_start are `.cursor_home` and line_end
+# and draft_end `.cursor_end` (approvalDraftActionFromShortcut,
+# src/ui/input/runtime.zig:75-96): the draft's start and end
+# (approval_amendment.zig:84-92), Shift held or not. Each key at choice 2;
+# then the amendment on choice 1, each key followed by its own letter, from
+# two cells in from where the letter before left the caret.
+# The turns, the workspace and the settings are approvals.cap's.
+fx: gateway approvals-fx.json
+xfx: gateway approvals-xfx.json
+work approvals-ws
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type edit the files
+key Enter
+wait 3
+key Down
+wait 0.4
+snap down
+key -H 1b 5b 31 3b 39 44
+wait 0.4
+snap super-left
+key -H 1b 5b 31 3b 31 33 44
+wait 0.4
+snap ctrl-super-left
+key -H 1b 5b 31 3b 39 43
+wait 0.4
+snap super-right
+key -H 1b 5b 31 3b 35 48
+wait 0.4
+snap ctrl-home
+key -H 1b 5b 31 3b 39 46
+wait 0.4
+snap super-end
+key Up
+wait 0.4
+key Tab
+wait 0.4
+type ab cd ef
+key Left Left Left Left
+wait 0.4
+key -H 1b 5b 31 3b 39 44
+wait 0.4
+type z
+wait 0.4
+snap amend-super-left
+key -H 1b 5b 31 3b 39 43
+wait 0.4
+type y
+wait 0.4
+snap amend-super-right
+wire amend-super-right

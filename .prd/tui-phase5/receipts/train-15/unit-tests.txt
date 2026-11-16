@@ -1,0 +1,159 @@
+# unit_tests.py at 2c575f52 over the gate's logs (its test and test-fault steps)
+CATALOG-WAIT-CLOCK (afd891af..72fc9672): 7 tests (2 added, 5 changed); ok in both runs 5; gone at the head 2; not ok 0
+    ok in both runs: src/tui/worker.rs a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound
+    ok in both runs: src/tui/worker.rs a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one
+    ok in both runs: src/tui/worker.rs a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number
+    ok in both runs: src/tui/worker.rs a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop
+    gone at the head on purpose: src/tui/worker.rs a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs: D's old name; main renamed it a_stop_through_a_dropped_compaction_tells_it_once_before_the_turn_that_runs, which merge 1 keeps, on the unit's harness
+    gone at the head on purpose: src/tui/worker.rs a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn: E, deleted by main (IMAGE-LOSS-COPY-FX, train 14) with the history notice it asserts; merge 1 keeps it deleted
+    ok in both runs: src/tui/worker.rs the_place_watcher_ends_when_the_run_it_watches_panics
+DECODER-TILDE-HOME-END (afd891af..ebb04642): 11 tests (9 added, 2 changed); ok in both runs 5; gone at the head 6; not ok 0
+    ok in both runs: src/tui/input.rs a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one
+    gone at the head and at its top df45025c too: src/tui/input.rs delete_with_a_lock_bit_alone_is_delete_here_and_nothing_upstream
+    gone at the head and at its top df45025c too: src/tui/input.rs end_with_a_modifier_csi_4_mod_tilde_is_end
+    gone at the head and at its top df45025c too: src/tui/input.rs every_modifier_field_from_2_to_256_on_the_tilde_home_and_end_is_the_key
+    gone at the head and at its top df45025c too: src/tui/input.rs home_with_a_modifier_csi_1_mod_tilde_is_home
+    ok in both runs: src/tui/input.rs rxvts_end_csi_8_tilde_is_end
+    gone at the head and at its top df45025c too: src/tui/input.rs rxvts_end_with_a_modifier_csi_8_mod_tilde_is_end
+    ok in both runs: src/tui/input.rs rxvts_home_csi_7_tilde_is_home
+    gone at the head and at its top df45025c too: src/tui/input.rs rxvts_home_with_a_modifier_csi_7_mod_tilde_is_home
+    ok in both runs: src/tui/input.rs what_upstream_resolves_to_a_key_xfx_does_not_have_is_ignored
+    ok in both runs: src/tui/shell.rs rxvts_csi_7_tilde_reaches_the_composer_as_home_and_csi_8_as_end
+TILDE-EMPTY-MODIFIER (ebb04642..fab7a217): 15 tests (10 added, 5 changed); ok in both runs 13; gone at the head 2; not ok 0
+    ok in both runs: src/tui/input.rs a_ctrl_letter_is_upstreams_table_in_a_strict_spelling
+    ok in both runs: src/tui/input.rs a_leading_zero_in_a_tilde_field_is_the_number
+    ok in both runs: src/tui/input.rs a_modifier_field_of_0_is_the_bare_tilde_key
+    ok in both runs: src/tui/input.rs a_modifier_field_of_1_is_the_bare_tilde_key
+    ok in both runs: src/tui/input.rs a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits
+    ok in both runs: src/tui/input.rs a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one
+    ok in both runs: src/tui/input.rs a_third_tilde_field_is_a_key_report_whatever_the_first_holds
+    ok in both runs: src/tui/input.rs a_tilde_sequence_past_the_csi_bound_is_read_as_every_csi_is
+    ok in both runs: src/tui/input.rs an_empty_modifier_field_is_the_bare_tilde_key
+    ok in both runs: src/tui/input.rs ctrl_o_and_the_page_keys_are_the_full_transcripts_in_every_spelling_upstream_reads
+    ok in both runs: src/tui/input.rs delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it
+    gone at the head and at its top df45025c too: src/tui/input.rs every_modifier_field_on_the_tilde_home_and_end_is_the_key
+    ok in both runs: src/tui/input.rs everything_else_under_the_two_families_is_ignored
+    gone at the head and at its top df45025c too: src/tui/input.rs home_with_a_modifier_csi_1_mod_tilde_is_home
+    ok in both runs: src/tui/input.rs the_key_and_the_keycode_saturate_rather_than_wrap
+MODIFIED-PAGE-KEYS (fab7a217..c77a77ce): 9 tests (3 added, 6 changed); ok in both runs 9; gone at the head 0; not ok 0
+    ok in both runs: src/tui/input.rs a_leading_zero_in_a_tilde_field_is_the_number
+    ok in both runs: src/tui/input.rs a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits
+    ok in both runs: src/tui/input.rs a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page
+    ok in both runs: src/tui/input.rs a_tilde_sequence_past_the_csi_bound_is_read_as_every_csi_is
+    ok in both runs: src/tui/input.rs delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it
+    ok in both runs: src/tui/input.rs the_forward_word_delete_and_the_page_keys_decode_in_every_spelling
+    ok in both runs: src/tui/shell.rs a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one
+    ok in both runs: src/tui/shell.rs a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen
+    ok in both runs: src/tui/shell.rs the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest
+MODIFIED-ARROWS-SCREENS (c77a77ce..3f2d6e78): 5 tests (2 added, 3 changed); ok in both runs 5; gone at the head 0; not ok 0
+    ok in both runs: src/tui/input.rs every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow
+    ok in both runs: src/tui/shell.rs a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move
+    ok in both runs: src/tui/shell.rs a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen
+    ok in both runs: src/tui/shell.rs alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not
+    ok in both runs: src/tui/shell.rs the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest
+COMPOSER-PARAGRAPH-MOVE (3f2d6e78..28bd1810): 11 tests (8 added, 3 changed); ok in both runs 11; gone at the head 0; not ok 0
+    ok in both runs: src/tui/editor.rs alt_on_the_vertical_arrows_moves_by_paragraph_and_ends_a_run_and_a_selection
+    ok in both runs: src/tui/editor.rs shifts_and_ctrls_held_up_and_down_are_the_sessions_not_the_editors
+    ok in both runs: src/tui/editor.rs the_paragraph_boundaries_are_upstreams_blank_lines_and_all
+    ok in both runs: src/tui/input.rs every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow
+    ok in both runs: src/tui/shell.rs a_held_up_at_an_empty_composer_recalls_only_under_ctrl
+    ok in both runs: src/tui/shell.rs a_held_up_at_an_empty_composer_takes_a_waiting_steer_back_only_under_ctrl
+    ok in both runs: src/tui/shell.rs a_held_up_or_down_in_a_draft_is_fxs_move_and_only_ctrls_reaches_the_edge_or_history
+    ok in both runs: src/tui/shell.rs a_held_up_or_down_walks_a_picker_under_ctrl_and_shift_and_only_moves_the_caret_under_alt_and_super
+    ok in both runs: src/tui/shell.rs no_held_up_or_down_moves_a_compact_menu_or_a_rule_confirmation
+    ok in both runs: src/tui/shell.rs the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest
+    ok in both runs: src/tui/shell.rs up_and_down_move_the_choice_whether_or_not_a_draft_is_open
+COMPOSER-SUPER-ARROWS (28bd1810..df45025c): 22 tests (12 added, 10 changed); ok in both runs 22; gone at the head 0; not ok 0
+    ok in both runs: src/tui/editor.rs the_line_edge_moves_are_home_and_end
+    ok in both runs: src/tui/input.rs a_leading_zero_in_a_tilde_field_is_the_number
+    ok in both runs: src/tui/input.rs a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits
+    ok in both runs: src/tui/input.rs a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page
+    ok in both runs: src/tui/input.rs a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one
+    ok in both runs: src/tui/input.rs alt_f_and_the_composer_spellings_of_the_arrows_are_their_own_actions
+    ok in both runs: src/tui/input.rs ctrl_shift_a_b_e_f_are_upstreams_moves_the_selection_dropped
+    ok in both runs: src/tui/input.rs delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it
+    ok in both runs: src/tui/input.rs end_with_a_modifier_csi_4_mod_tilde_is_the_line_or_the_drafts_end
+    ok in both runs: src/tui/input.rs every_modifier_field_on_the_tilde_home_and_end_is_upstreams_move
+    ok in both runs: src/tui/input.rs every_modifier_on_left_right_home_and_end_is_upstreams_move
+    ok in both runs: src/tui/input.rs home_with_a_modifier_csi_1_mod_tilde_is_the_line_or_the_drafts_start
+    ok in both runs: src/tui/input.rs rxvts_end_with_a_modifier_csi_8_mod_tilde_is_the_line_or_the_drafts_end
+    ok in both runs: src/tui/input.rs rxvts_home_with_a_modifier_csi_7_mod_tilde_is_the_line_or_the_drafts_start
+    ok in both runs: src/tui/input.rs what_upstream_resolves_to_a_key_xfx_does_not_have_is_ignored
+    ok in both runs: src/tui/shell.rs a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move
+    ok in both runs: src/tui/shell.rs a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen
+    ok in both runs: src/tui/shell.rs a_held_left_right_home_or_end_in_a_draft_is_fxs_move
+    ok in both runs: src/tui/shell.rs a_line_edge_key_over_a_live_selection_moves_from_the_caret_and_ends_it
+    ok in both runs: src/tui/shell.rs super_left_right_and_the_draft_edges_in_an_amendment_are_fxs
+    ok in both runs: src/tui/shell.rs super_left_right_and_the_draft_edges_move_no_menu_and_drop_a_model_column
+    ok in both runs: src/tui/shell.rs the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest
+FULLTRANSCRIPT-RESPONSE-HEADER (3f2d6e78..fffb3cfe): 13 tests (12 added, 1 changed); ok in both runs 13; gone at the head 0; not ok 0
+    ok in both runs: src/tui/full_transcript.rs a_block_has_no_header_so_an_answer_that_is_one_has_none
+    ok in both runs: src/tui/full_transcript.rs a_questions_resolution_is_shown_as_the_document_has_it_under_no_header
+    ok in both runs: src/tui/full_transcript.rs a_reader_at_the_tail_follows_an_entry_that_lays_out_as_nothing_when_it_becomes_visible
+    ok in both runs: src/tui/full_transcript.rs a_reader_near_an_entry_that_lays_out_as_nothing_holds_when_it_becomes_visible
+    ok in both runs: src/tui/full_transcript.rs an_entry_that_lays_out_as_nothing_is_no_place_to_hold_a_reader_as_upstreams_is_not
+    ok in both runs: src/tui/full_transcript.rs an_indented_code_block_and_a_block_the_stream_ends_split_the_answer_as_fences_do
+    ok in both runs: src/tui/full_transcript.rs the_rows_around_a_block_are_one_blank_row_each_as_the_document_has_them
+    ok in both runs: src/tui/full_transcript.rs the_run_after_a_block_carries_the_moment_of_its_first_text_line_breaks_included
+    ok in both runs: src/tui/full_transcript.rs the_text_after_a_code_block_a_table_or_a_rule_is_a_response_of_its_own
+    ok in both runs: src/tui/full_transcript.rs trace_names_an_answers_blocks_as_upstream_does
+    ok in both runs: src/tui/full_transcript.rs where_the_answer_splits_is_the_same_however_it_was_chunked
+    ok in both runs: src/tui/shell.rs a_resumed_answers_runs_carry_the_turns_conclusion_as_upstreams_replay_stamps_them
+    ok in both runs: src/tui/shell.rs an_answers_blocks_split_its_ctrl_o_record_and_leave_its_document_as_it_was
+APPROVAL-READINESS-SETTLED (a37a969e..b3a19ede): 15 tests (11 added, 4 changed); ok in both runs 15; gone at the head 0; not ok 0
+    ok in both runs: src/tui/approval_readiness.rs a_change_holds_every_grant_until_a_frame_composed_after_it_is_proven
+    ok in both runs: src/tui/approval_readiness.rs a_change_with_nothing_proven_is_not_unshown_but_unready
+    ok in both runs: src/tui/approval_readiness.rs a_frame_composed_before_a_change_does_not_settle_it
+    ok in both runs: src/tui/approval_readiness.rs a_repaint_that_wrote_nothing_settles_a_change_it_already_shows
+    ok in both runs: src/tui/event_loop.rs a_frame_asked_for_on_a_screen_no_band_fits_on_waits_for_one_that_does
+    ok in both runs: src/tui/shell.rs a_frame_that_writes_nothing_settles_a_change_it_already_shows
+    ok in both runs: src/tui/shell.rs a_move_and_enter_in_one_read_at_a_command_answer_nothing_until_a_frame_shows_the_move
+    ok in both runs: src/tui/shell.rs a_move_and_enter_in_one_read_at_an_edit_answer_nothing_until_a_frame_shows_the_move
+    ok in both runs: src/tui/shell.rs a_refusal_read_with_a_move_still_refuses_at_once
+    ok in both runs: src/tui/shell.rs a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown
+    ok in both runs: src/tui/shell.rs a_walk_of_the_review_plane_and_enter_answer_nothing_until_it_is_drawn
+    ok in both runs: src/tui/shell.rs an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft
+    ok in both runs: src/tui/shell.rs ctrl_l_at_a_question_does_nothing_as_fxs_does
+    ok in both runs: src/tui/shell.rs enter_takes_the_marked_choice_and_tab_and_the_arrows_are_what_mark_it
+    ok in both runs: tests/tui.rs a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it_grows
+APPROVAL-DRAFT-KEYS (b3a19ede..d7916178): 8 tests (6 added, 2 changed); ok in both runs 8; gone at the head 0; not ok 0
+    ok in both runs: src/tui/approval.rs tab_enters_the_draft_of_an_eligible_choice_and_cycles_past_an_ineligible_one
+    ok in both runs: src/tui/approval_amendment.rs a_draft_has_no_undo_redo_or_yank_as_fxs_has_none
+    ok in both runs: src/tui/shell.rs an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft
+    ok in both runs: src/tui/shell.rs an_edit_then_a_key_the_draft_does_not_take_and_enter_in_one_read_stay_held
+    ok in both runs: src/tui/shell.rs every_key_fxs_draft_takes_still_edits_it_and_holds_the_enter_until_a_frame
+    ok in both runs: src/tui/shell.rs tab_in_a_draft_changes_nothing_and_holds_the_enter_until_a_frame_as_fxs_does
+    ok in both runs: src/tui/shell.rs the_word_deletes_and_moves_stop_where_fxs_draft_stops_them
+    ok in both runs: src/tui/shell.rs undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do
+APPROVAL-CTRL-J (d7916178..1a0adaec): 5 tests (5 added, 0 changed); ok in both runs 5; gone at the head 0; not ok 0
+    ok in both runs: src/tui/shell.rs ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes
+    ok in both runs: src/tui/shell.rs ctrl_j_at_a_question_over_the_status_panel_answers_the_question_not_the_panel
+    ok in both runs: src/tui/shell.rs ctrl_j_at_deny_refuses_at_once_as_enter_does
+    ok in both runs: src/tui/shell.rs ctrl_j_read_with_a_change_waits_for_the_frame_as_enter_does
+    ok in both runs: src/tui/shell.rs keys_fx_does_not_read_as_ctrl_j_still_do_nothing_at_a_question
+RULE-CONFIRM-KEYS (1a0adaec..7c9dfb2e): 10 tests (9 added, 1 changed); ok in both runs 10; gone at the head 0; not ok 0
+    ok in both runs: src/tui/rule_confirm.rs the_keys_are_the_approvals_over_two_choices
+    ok in both runs: src/tui/shell.rs ctrl_c_at_a_rule_confirmation_cancels_it_and_arms_no_exit
+    ok in both runs: src/tui/shell.rs ctrl_j_at_a_rule_confirmation_answers_as_enter_does_on_either_choice
+    ok in both runs: src/tui/shell.rs escape_at_a_rule_confirmation_asks_no_second_stop_and_stops_work_typed_since
+    ok in both runs: src/tui/shell.rs escape_at_a_rule_confirmation_over_a_manual_compaction_stops_it
+    ok in both runs: src/tui/shell.rs escape_at_a_rule_confirmation_over_a_running_turn_stops_the_turn
+    ok in both runs: src/tui/shell.rs escape_closes_the_confirmation_silently_and_two_says_cancelled
+    ok in both runs: src/tui/shell.rs keys_fx_reads_as_nothing_leave_a_rule_confirmation_as_it_was
+    ok in both runs: src/tui/shell.rs tab_and_the_horizontal_keys_move_a_rule_confirmations_mark_wrapping
+    ok in both runs: src/tui/shell.rs the_turns_clock_stops_while_a_rule_confirmation_is_up_over_it
+QUESTION-CTRL-J (afd891af..b5cb6f46): 9 tests (8 added, 1 changed); ok in both runs 9; gone at the head 0; not ok 0
+    ok in both runs: src/tui/question.rs ctrl_j_is_enter_to_a_model_question_and_the_newline_keys_are_not
+    ok in both runs: src/tui/shell.rs a_ctrl_j_the_menu_took_does_not_count_for_the_held_rule
+    ok in both runs: src/tui/shell.rs an_enter_another_surface_took_counts_for_the_held_rule
+    ok in both runs: src/tui/shell.rs ctrl_j_answers_a_model_question_as_enter_does_at_a_choice_and_in_the_field
+    ok in both runs: src/tui/shell.rs ctrl_j_at_a_model_question_over_the_model_picker_answers_the_question_not_the_picker
+    ok in both runs: src/tui/shell.rs ctrl_j_at_a_model_question_over_the_status_panel_answers_the_question_not_the_panel
+    ok in both runs: src/tui/shell.rs ctrl_j_in_one_read_answers_a_model_question_as_enter_does_in_that_read
+    ok in both runs: src/tui/shell.rs every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question
+    ok in both runs: src/tui/shell.rs keys_fx_does_not_read_as_ctrl_j_do_nothing_at_a_model_question
+join (07eefa89..0341dd2b): 2 tests (2 added, 0 changed); ok in both runs 2; gone at the head 0; not ok 0
+    ok in both runs: src/tui/shell.rs a_ctrl_j_a_permission_question_took_counts_for_the_held_rule
+    ok in both runs: src/tui/shell.rs the_tilde_edges_and_ctrl_shift_letters_in_an_amendment_are_fxs
+# 142 (unit, test) pairs; 0 not ok or not found in a run
+# exit 0

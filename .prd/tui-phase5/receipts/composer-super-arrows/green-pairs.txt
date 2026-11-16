@@ -1,0 +1,157 @@
+## p5-super-arrows-40x120: fx against xfx, cell by cell (cells.py, row 1 left out)
+SAME alt-home                 rows: none
+       fx:   ┃ Cone two/┃ GAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+       xfx:  ┃ Cone two/┃ GAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+SAME alt-super-right          rows: none
+       fx:   ┃ Cone two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+       xfx:  ┃ Cone two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+SAME ctrl-alt-home            rows: none
+       fx:   ┃ Cone two/┃ HGAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+       xfx:  ┃ Cone two/┃ HGAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+SAME ctrl-home                rows: none
+       fx:   ┃ Cone two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ the end/ 
+       xfx:  ┃ Cone two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ the end/ 
+SAME ctrl-super-left          rows: none
+       fx:   ┃ Cone two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endD/ 
+       xfx:  ┃ Cone two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endD/ 
+SAME draft                    rows: none
+       fx:   ┃ one two/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd/┃ the end/ 
+       xfx:  ┃ one two/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd/┃ the end/ 
+SAME keypad-ctrl-end          rows: none
+       fx:   ┃ ICone twoJ/┃ HGAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDFK/ 
+       xfx:  ┃ ICone twoJ/┃ HGAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDFK/ 
+SAME statusline               rows: none
+       fx:   Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+       xfx:  Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+SAME statusline-ctrl-home     rows: none
+       fx:   Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+       xfx:  Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+SAME statusline-super-left    rows: none
+       fx:   Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+       xfx:  Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+SAME statusline-super-right   rows: none
+       fx:   Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+       xfx:  Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+SAME super-end                rows: none
+       fx:   ┃ Cone two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ the endD/ 
+       xfx:  ┃ Cone two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ the endD/ 
+SAME super-left               rows: none
+       fx:   ┃ one two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd/┃ the end/ 
+       xfx:  ┃ one two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd/┃ the end/ 
+SAME super-right              rows: none
+       fx:   ┃ one two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ the end/ 
+       xfx:  ┃ one two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ the end/ 
+SAME tilde-ctrl-home          rows: none
+       fx:   ┃ ICone two/┃ HGAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+       xfx:  ┃ ICone two/┃ HGAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+SAME tilde-super-end          rows: none
+       fx:   ┃ ICone twoJ/┃ HGAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+       xfx:  ┃ ICone twoJ/┃ HGAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+
+## p5-super-arrows-question-40x120: fx against xfx, cell by cell (cells.py, row 1 left out)
+SAME ctrl-home                rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+SAME ctrl-super-left          rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+SAME field-alt-super-right    rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) xzab cd efyw/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) xzab cd efyw/ 
+SAME field-ctrl-end           rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) vxzab cd efywu/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) vxzab cd efywu/ 
+SAME field-ctrl-home          rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) vxzab cd efyw/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) vxzab cd efyw/ 
+SAME field-ctrl-super-left    rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) xzab cd efy/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) xzab cd efy/ 
+SAME field-shift-home         rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) rtvxzab cd efywus/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) rtvxzab cd efywus/ 
+SAME field-super-end          rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) tvxzab cd efywus/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) tvxzab cd efywus/ 
+SAME field-super-home         rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) tvxzab cd efywu/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) tvxzab cd efywu/ 
+SAME field-super-left         rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) zab cd ef/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) zab cd ef/ 
+SAME field-super-right        rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) zab cd efy/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) zab cd efy/ 
+SAME field-tilde-ctrl-end     rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) rtvxzab cd efywusq/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) rtvxzab cd efywusq/ 
+SAME p3                       rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+SAME super-end                rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+SAME super-left               rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+SAME super-right              rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+       xfx:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+
+## p5-super-arrows-approval-40x120: fx against xfx, cell by cell (cells.py, row 1 left out)
+SCOPE amend-alt-super-right    rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, xzab cd efyw/ 
+       xfx:  ┃ edit the files/❯ 1  Apply once, xzab cd efyw/ 
+SCOPE amend-ctrl-end           rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, vxzab cd efywu/ 
+       xfx:  ┃ edit the files/❯ 1  Apply once, vxzab cd efywu/ 
+SCOPE amend-ctrl-home          rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, vxzab cd efyw/ 
+       xfx:  ┃ edit the files/❯ 1  Apply once, vxzab cd efyw/ 
+SCOPE amend-ctrl-super-left    rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, xzab cd efy/ 
+       xfx:  ┃ edit the files/❯ 1  Apply once, xzab cd efy/ 
+SCOPE amend-shift-home         rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, rtvxzab cd efywus/ 
+       xfx:  ┃ edit the files/❯ 1  Apply once, rtvxzab cd efywus/ 
+SCOPE amend-super-end          rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, tvxzab cd efywus/ 
+       xfx:  ┃ edit the files/❯ 1  Apply once, tvxzab cd efywus/ 
+SCOPE amend-super-home         rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, tvxzab cd efywu/ 
+       xfx:  ┃ edit the files/❯ 1  Apply once, tvxzab cd efywu/ 
+SCOPE amend-super-left         rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, zab cd ef/ 
+       xfx:  ┃ edit the files/❯ 1  Apply once, zab cd ef/ 
+DIFF amend-super-right        rows: 18 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, zab cd efy/ 
+       xfx:  ┃ edit the files/❯ 1  Apply once, zab cd efy/ 
+SCOPE amend-tilde-ctrl-end     rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, rtvxzab cd efywusq/ 
+       xfx:  ┃ edit the files/❯ 1  Apply once, rtvxzab cd efywusq/ 
+SCOPE ctrl-home                rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 2  Apply + allow workspace file access for this session/ 
+       xfx:  ┃ edit the files/❯ 2  Apply + allow future edits to this file for this session/ 
+SCOPE ctrl-super-left          rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 2  Apply + allow workspace file access for this session/ 
+       xfx:  ┃ edit the files/❯ 2  Apply + allow future edits to this file for this session/ 
+SCOPE down                     rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 2  Apply + allow workspace file access for this session/ 
+       xfx:  ┃ edit the files/❯ 2  Apply + allow future edits to this file for this session/ 
+SCOPE super-end                rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 2  Apply + allow workspace file access for this session/ 
+       xfx:  ┃ edit the files/❯ 2  Apply + allow future edits to this file for this session/ 
+SCOPE super-left               rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 2  Apply + allow workspace file access for this session/ 
+       xfx:  ┃ edit the files/❯ 2  Apply + allow future edits to this file for this session/ 
+SCOPE super-right              rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 2  Apply + allow workspace file access for this session/ 
+       xfx:  ┃ edit the files/❯ 2  Apply + allow future edits to this file for this session/ 
+
+## the cursor lines, fx against xfx (x,y)
+p5-super-arrows-40x120-draft             fx 9,5  xfx 9,5
+p5-super-arrows-40x120-shift-end         fx 22,5  xfx 22,5
+p5-super-arrows-40x120-shift-home        fx 2,3  xfx 2,3
+
+32 of 48 pairs identical, 15 more differing only in the approval's scope rows (19 21 22 23 24 25 )
+banners (draft row 1): fx 𝒇x v0.0.16 · Run /help for commands / xfx x𝒇x v0.1.0-1fcf30b [debug] · Run /help for commands

@@ -1,0 +1,83 @@
+# FULLTRANSCRIPT-RESPONSE-HEADER: where fx v0.0.16 heads an answer in its
+# full transcript. Its store makes a completed code block, table or rule an
+# entry of its own and opens a new assistant entry on the first text after
+# one (appendAssistantCodeBlockOwned, store.zig:3000-3040; the stream's tail,
+# :3103-3150@481104fd), and its screen heads an assistant entry alone with
+# `<time> · Response` (metadataKind, full_transcript_screen.zig:6028-6056).
+# A long first answer makes the record taller than the screen, so each tail
+# page shows the newest turns only. Then one turn per case, each shown
+# inline and in Ctrl-O: text, a table, text; text, a rule, text; an answer
+# that is only a code block; one that ends in a code block; one that opens
+# with a code block; two code blocks with only a blank line between them.
+# `launch` holds the banner, the binary's revision.
+gateway fulltranscript-response-split-turns.json
+fx: env FX_AUTO_UPGRADE=0
+env TZ=UTC
+wait 4
+snap launch
+type the long one
+wait 1
+key Enter
+wait 6
+snap long
+type the table
+wait 1
+key Enter
+wait 4
+snap table
+key C-o
+wait 2
+snap full-table
+key C-o
+wait 1
+type the rule
+wait 1
+key Enter
+wait 4
+snap rule
+key C-o
+wait 2
+snap full-rule
+key C-o
+wait 1
+type only a block
+wait 1
+key Enter
+wait 4
+snap block-only
+key C-o
+wait 2
+snap full-block-only
+key C-o
+wait 1
+type ends in a block
+wait 1
+key Enter
+wait 4
+snap block-last
+key C-o
+wait 2
+snap full-block-last
+key C-o
+wait 1
+type opens with a block
+wait 1
+key Enter
+wait 4
+snap block-first
+key C-o
+wait 2
+snap full-block-first
+key C-o
+wait 1
+type two blocks
+wait 1
+key Enter
+wait 4
+snap blocks
+key C-o
+wait 2
+snap full-blocks
+key C-o
+wait 1
+gwlog

@@ -1,0 +1,37 @@
+# git diff --stat afd891af 87daec96 (the code head), and the lines outside each file's `mod tests` block
+ docs/parity.md                                     |   4 +-
+ scripts/fxcap/parity-ledger.toml                   |  18 +-
+ .../scenarios/p5-question-ctrl-j-panel-turns.json  |   4 +
+ .../fxcap/scenarios/p5-question-ctrl-j-panel.cap   |  23 +
+ .../fxcap/scenarios/p5-question-ctrl-j-turns.json  |   8 +
+ scripts/fxcap/scenarios/p5-question-ctrl-j.cap     |  56 +++
+ src/tui/input.rs                                   |   9 +-
+ src/tui/question.rs                                |  34 +-
+ src/tui/shell.rs                                   | 461 ++++++++++++++++++++-
+ 9 files changed, 597 insertions(+), 20 deletions(-)
+
+src/tui/input.rs       outside mod tests +6 / -3; inside +0 / -0
+src/tui/question.rs    outside mod tests +13 / -2; inside +19 / -0
+src/tui/shell.rs       outside mod tests +12 / -4; inside +445 / -0
+outside mod tests, all three: +31 / -9
+
+#[test] added: 8, removed: 0 (git diff afd891af 87daec96 -- src tests | grep -cE '^[+-][[:space:]]*#\[test\]$')
+
+# the code lines outside mod tests (not comments, not blank), added and removed
+src/tui/question.rs  -            Action::Submit => Some(Self::Submit),
+src/tui/question.rs:260  +            Action::Submit | Action::ControlJ => Some(Self::Submit),
+src/tui/shell.rs  -            let held = matches!(event, Input::Action(Action::Submit))
+src/tui/shell.rs  -                && self.mcp_menu.is_some()
+src/tui/shell.rs  -                && self.mcp_enter.enter(now);
+src/tui/shell.rs:12347  +            let answers = match event {
+src/tui/shell.rs:12348  +                Input::Action(Action::Submit) => true,
+src/tui/shell.rs:12349  +                Input::Action(Action::ControlJ) => self.ask.is_some(),
+src/tui/shell.rs:12350  +                _ => false,
+src/tui/shell.rs:12351  +            };
+src/tui/shell.rs:12352  +            let held = answers && self.mcp_menu.is_some() && self.mcp_enter.enter(now);
+
+# round 2: git diff --stat 87daec96 998a434b -- src (no product line: every changed line outside mod tests is a comment)
+ src/tui/shell.rs | 224 ++++++++++++++++++++++++++++++++++---------------------
+ 1 file changed, 139 insertions(+), 85 deletions(-)
+src/tui/shell.rs: non-comment lines changed outside mod tests: 0 []
+#[test] added: 1, removed: 1 (87daec96..998a434b)

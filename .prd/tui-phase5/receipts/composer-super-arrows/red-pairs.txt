@@ -1,0 +1,157 @@
+## p5-super-arrows-40x120: fx against red, cell by cell (cells.py, row 1 left out)
+DIFF alt-home                 rows: 3 4 6 7 
+       fx:   ┃ Cone two/┃ GAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+       red:  ┃ one two/┃ GCabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd aAbBcd abcd EabcdDF/┃ the end/ 
+DIFF alt-super-right          rows: 3 4 6 7 
+       fx:   ┃ Cone two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+       red:  ┃ one two/┃ Cabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd aAbBcd abcd EabcdDF/┃ the end/ 
+DIFF ctrl-alt-home            rows: 3 4 6 7 
+       fx:   ┃ Cone two/┃ HGAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+       red:  ┃ one two/┃ HGCabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd aAbBcd abcd EabcdDF/┃ the end/ 
+DIFF ctrl-home                rows: 3 4 6 
+       fx:   ┃ Cone two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ the end/ 
+       red:  ┃ one two/┃ Cabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd aAbBcd abcd abcd/┃ the end/ 
+DIFF ctrl-super-left          rows: 3 4 6 7 
+       fx:   ┃ Cone two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endD/ 
+       red:  ┃ one two/┃ Cabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd aAbBcd abcd EabcdD/┃ the end/ 
+SAME draft                    rows: none
+       fx:   ┃ one two/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd/┃ the end/ 
+       red:  ┃ one two/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd/┃ the end/ 
+DIFF keypad-ctrl-end          rows: 3 4 6 7 
+       fx:   ┃ ICone twoJ/┃ HGAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDFK/ 
+       red:  ┃ one two/┃ IHGCabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd aAbBcd abcd EabcdDFJK/┃ the end/ 
+SAME statusline               rows: none
+       fx:   Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+       red:  Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+SAME statusline-ctrl-home     rows: none
+       fx:   Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+       red:  Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+DIFF statusline-super-left    rows: 6 
+       fx:   Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+       red:  Context      off  on/Session      off  on/Workspace    off  on/ Context=on Session=off Workspace=off
+SAME statusline-super-right   rows: none
+       fx:   Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+       red:  Context      off  on/Session      off  on/Workspace    off  on/ Context=off Session=off Workspace=off
+DIFF super-end                rows: 3 4 6 7 
+       fx:   ┃ Cone two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ the endD/ 
+       red:  ┃ one two/┃ Cabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd aAbBcd abcd abcdD/┃ the end/ 
+DIFF super-left               rows: 4 6 
+       fx:   ┃ one two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd/┃ the end/ 
+       red:  ┃ one two/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd aAbcd abcd abcd/┃ the end/ 
+DIFF super-right              rows: 4 6 
+       fx:   ┃ one two/┃ Aabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ the end/ 
+       red:  ┃ one two/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd aAbBcd abcd abcd/┃ the end/ 
+DIFF tilde-ctrl-home          rows: 3 4 6 7 
+       fx:   ┃ ICone two/┃ HGAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+       red:  ┃ one two/┃ IHGCabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd aAbBcd abcd EabcdDF/┃ the end/ 
+DIFF tilde-super-end          rows: 3 4 6 7 
+       fx:   ┃ ICone twoJ/┃ HGAabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcdB/┃ Ethe endDF/ 
+       red:  ┃ one two/┃ IHGCabcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd/┃ abcd aAbBcd abcd EabcdDFJ/┃ the end/ 
+
+## p5-super-arrows-question-40x120: fx against red, cell by cell (cells.py, row 1 left out)
+SAME ctrl-home                rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+SAME ctrl-super-left          rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+DIFF field-alt-super-right    rows: 10 
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) xzab cd efyw/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) ab xzcydw ef/ 
+DIFF field-ctrl-end           rows: 10 
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) vxzab cd efywu/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) vab xzcydw efu/ 
+DIFF field-ctrl-home          rows: 10 
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) vxzab cd efyw/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) vab xzcydw ef/ 
+DIFF field-ctrl-super-left    rows: 10 
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) xzab cd efy/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) ab xzcyd ef/ 
+DIFF field-shift-home         rows: 10 
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) rtvxzab cd efywus/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) rtvab xzcydw efus/ 
+DIFF field-super-end          rows: 10 
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) tvxzab cd efywus/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) tvab xzcydw efus/ 
+DIFF field-super-home         rows: 10 
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) tvxzab cd efywu/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) tvab xzcydw efu/ 
+DIFF field-super-left         rows: 10 
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) zab cd ef/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) ab zcd ef/ 
+DIFF field-super-right        rows: 10 
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) zab cd efy/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) ab zcyd ef/ 
+DIFF field-tilde-ctrl-end     rows: 10 
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) rtvxzab cd efywusq/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) rtvab xzcydw efusq/ 
+SAME p3                       rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+SAME super-end                rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+SAME super-left               rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+SAME super-right              rows: none
+       fx:   ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+       red:  ┃ ask twenty/Pick 3?/1) Keep 3                        Leave it as it is./2) Change 3                      Apply the change./3) Other/ 
+
+## p5-super-arrows-approval-40x120: fx against red, cell by cell (cells.py, row 1 left out)
+DIFF amend-alt-super-right    rows: 18 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, xzab cd efyw/ 
+       red:  ┃ edit the files/❯ 1  Apply once, ab xzcydw ef/ 
+DIFF amend-ctrl-end           rows: 18 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, vxzab cd efywu/ 
+       red:  ┃ edit the files/❯ 1  Apply once, vab xzcydw efu/ 
+DIFF amend-ctrl-home          rows: 18 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, vxzab cd efyw/ 
+       red:  ┃ edit the files/❯ 1  Apply once, vab xzcydw ef/ 
+DIFF amend-ctrl-super-left    rows: 18 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, xzab cd efy/ 
+       red:  ┃ edit the files/❯ 1  Apply once, ab xzcyd ef/ 
+DIFF amend-shift-home         rows: 18 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, rtvxzab cd efywus/ 
+       red:  ┃ edit the files/❯ 1  Apply once, rtvab xzcydw efus/ 
+DIFF amend-super-end          rows: 18 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, tvxzab cd efywus/ 
+       red:  ┃ edit the files/❯ 1  Apply once, tvab xzcydw efus/ 
+DIFF amend-super-home         rows: 18 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, tvxzab cd efywu/ 
+       red:  ┃ edit the files/❯ 1  Apply once, tvab xzcydw efu/ 
+DIFF amend-super-left         rows: 18 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, zab cd ef/ 
+       red:  ┃ edit the files/❯ 1  Apply once, ab zcd ef/ 
+DIFF amend-super-right        rows: 18 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, zab cd efy/ 
+       red:  ┃ edit the files/❯ 1  Apply once, ab zcyd ef/ 
+DIFF amend-tilde-ctrl-end     rows: 18 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 1  Apply once, rtvxzab cd efywusq/ 
+       red:  ┃ edit the files/❯ 1  Apply once, rtvab xzcydw efusq/ 
+SCOPE ctrl-home                rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 2  Apply + allow workspace file access for this session/ 
+       red:  ┃ edit the files/❯ 2  Apply + allow future edits to this file for this session/ 
+SCOPE ctrl-super-left          rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 2  Apply + allow workspace file access for this session/ 
+       red:  ┃ edit the files/❯ 2  Apply + allow future edits to this file for this session/ 
+SCOPE down                     rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 2  Apply + allow workspace file access for this session/ 
+       red:  ┃ edit the files/❯ 2  Apply + allow future edits to this file for this session/ 
+SCOPE super-end                rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 2  Apply + allow workspace file access for this session/ 
+       red:  ┃ edit the files/❯ 2  Apply + allow future edits to this file for this session/ 
+SCOPE super-left               rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 2  Apply + allow workspace file access for this session/ 
+       red:  ┃ edit the files/❯ 2  Apply + allow future edits to this file for this session/ 
+SCOPE super-right              rows: 19 21 22 23 24 25 
+       fx:   ┃ edit the files/❯ 2  Apply + allow workspace file access for this session/ 
+       red:  ┃ edit the files/❯ 2  Apply + allow future edits to this file for this session/ 
+
+## the cursor lines, fx against red (x,y)
+p5-super-arrows-40x120-draft             fx 9,5  red 9,5
+p5-super-arrows-40x120-shift-end         fx 22,5  red 26,5
+p5-super-arrows-40x120-shift-home        fx 2,3  red 2,3
+
+10 of 48 pairs identical, 6 more differing only in the approval's scope rows (19 21 22 23 24 25 )
+banners (draft row 1): fx 𝒇x v0.0.16 · Run /help for commands / red x𝒇x v0.1.0-28bd181 [debug] · Run /help for commands

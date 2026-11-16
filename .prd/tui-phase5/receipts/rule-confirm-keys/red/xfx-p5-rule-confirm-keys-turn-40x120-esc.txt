@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-1a0adae [debug] · Run /help for commands
+
+┃ say something
+
+• Generating (1s) (↑4 ↓3)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

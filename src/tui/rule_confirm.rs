@@ -24,8 +24,11 @@
 //! one is a tool call's question, three answers wide, and its answer goes to a
 //! turn on the runtime thread. This one belongs to no turn -- the UI makes
 //! the change itself ([`crate::permission::slash::confirm`]) -- so nothing it
-//! does can be mistaken for an approval of a call.
+//! does can be mistaken for an approval of a call. Its **keys** are the
+//! approval's all the same, as upstream's are (the shell's
+//! `approval_action`), answered over two choices ([`RuleConfirm::apply`]).
 
+use super::approval::Action;
 use super::theme::Palette;
 use crate::permission::slash::Confirmation;
 
@@ -49,22 +52,12 @@ pub(crate) enum Reply {
     Ignored,
     /// The mark moved.
     Moved,
-    /// `1`, or Enter on it: make the change.
+    /// `1`, or Enter or C-j on it: make the change.
     Confirm,
-    /// `2`, or Enter on it: say it was cancelled.
+    /// `2`, Enter or C-j on it, or Ctrl-C: say it was cancelled.
     Cancel,
-    /// Escape: close, saying nothing (`cap/fx-permissions3-…-remember-esc`).
+    /// Escape: close, saying nothing; the shell stops a running turn with it.
     Dismiss,
-}
-
-/// One keystroke, in this band's vocabulary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Key {
-    Digit(char),
-    Up,
-    Down,
-    Enter,
-    Escape,
 }
 
 /// The pending change and which choice is marked.
@@ -87,19 +80,28 @@ impl RuleConfirm {
         &self.confirmation
     }
 
-    /// What one keystroke does.
-    pub(crate) fn apply(&mut self, key: Key) -> Reply {
-        match key {
-            Key::Digit('1') => Reply::Confirm,
-            Key::Digit('2') => Reply::Cancel,
-            Key::Digit(_) => Reply::Ignored,
-            Key::Up | Key::Down => {
+    /// What one keystroke does, read as a permission question with no draft
+    /// reads it, over upstream's confirmation-only choices
+    /// (`setConfirmationOnly`, `approval_decision.zig:82-85@481104fd`): two,
+    /// so a third digit is nothing and a move wraps (`optionCount`,
+    /// `moveChoice`, `:214-229`; `.number`, `:157-158`); Confirm is `once`
+    /// and Cancel the refusal (`selectedDecision`, `:75-80`), so Ctrl-C, the
+    /// refusal (`.deny`, `:137-140`), is Cancel. Tab opens no draft -- the
+    /// change takes none (`amendment_allowed = false`,
+    /// `app_commands.zig:691`) -- so it moves the mark (`.tab`,
+    /// `approval_decision.zig:142-151`).
+    pub(crate) fn apply(&mut self, action: Action) -> Reply {
+        match action {
+            Action::Text('1') => Reply::Confirm,
+            Action::Text('2') => Reply::Cancel,
+            Action::Up | Action::Down | Action::Tab => {
                 self.selected = 1 - self.selected;
                 Reply::Moved
             }
-            Key::Enter if self.selected == 0 => Reply::Confirm,
-            Key::Enter => Reply::Cancel,
-            Key::Escape => Reply::Dismiss,
+            Action::Submit if self.selected == 0 => Reply::Confirm,
+            Action::Submit | Action::Cancel => Reply::Cancel,
+            Action::Escape => Reply::Dismiss,
+            Action::Text(_) | Action::Edit(_) | Action::PasteByte(_) => Reply::Ignored,
         }
     }
 
@@ -260,17 +262,23 @@ mod tests {
     }
 
     #[test]
-    fn the_keys_are_one_two_the_arrows_enter_and_escape() {
+    fn the_keys_are_the_approvals_over_two_choices() {
         let mut band = remember();
-        assert_eq!(band.apply(Key::Digit('3')), Reply::Ignored);
-        assert_eq!(band.apply(Key::Enter), Reply::Confirm);
-        assert_eq!(band.apply(Key::Down), Reply::Moved);
+        assert_eq!(band.apply(Action::Text('3')), Reply::Ignored);
+        assert_eq!(band.apply(Action::Text('j')), Reply::Ignored);
+        assert_eq!(band.apply(Action::Submit), Reply::Confirm);
+        assert_eq!(band.apply(Action::Down), Reply::Moved);
         assert_eq!(band.marked_row(120, 40), 7);
-        assert_eq!(band.apply(Key::Enter), Reply::Cancel);
-        assert_eq!(band.apply(Key::Up), Reply::Moved);
-        assert_eq!(band.apply(Key::Digit('2')), Reply::Cancel);
-        assert_eq!(band.apply(Key::Digit('1')), Reply::Confirm);
-        assert_eq!(band.apply(Key::Escape), Reply::Dismiss);
+        assert_eq!(band.apply(Action::Submit), Reply::Cancel);
+        assert_eq!(band.apply(Action::Up), Reply::Moved);
+        assert_eq!(band.apply(Action::Tab), Reply::Moved);
+        assert_eq!(band.marked_row(120, 40), 7, "Tab moves, wrapping");
+        assert_eq!(band.apply(Action::Tab), Reply::Moved);
+        assert_eq!(band.marked_row(120, 40), 6);
+        assert_eq!(band.apply(Action::Cancel), Reply::Cancel);
+        assert_eq!(band.apply(Action::Text('2')), Reply::Cancel);
+        assert_eq!(band.apply(Action::Text('1')), Reply::Confirm);
+        assert_eq!(band.apply(Action::Escape), Reply::Dismiss);
     }
 
     #[test]

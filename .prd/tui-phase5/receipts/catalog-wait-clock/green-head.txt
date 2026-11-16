@@ -1,0 +1,84 @@
+# GREEN, head 5f55cfc8: the three tests at 5f55cfc8 with turn-stall.patch applied, one run per stall, each bounded at 600 s
+stall     0 ms  A next-start         ok
+stall     0 ms  B records-one        ok
+stall     0 ms  C twenty-questions   ok
+stall     0 ms  exit 0; test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 4.08s
+stall  1200 ms  A next-start         ok
+stall  1200 ms  B records-one        ok
+stall  1200 ms  C twenty-questions   ok
+stall  1200 ms  exit 0; test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 25.86s
+stall  1600 ms  A next-start         ok
+stall  1600 ms  B records-one        ok
+stall  1600 ms  C twenty-questions   ok
+stall  1600 ms  exit 0; test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 33.14s
+stall  2500 ms  A next-start         ok
+stall  2500 ms  B records-one        ok
+stall  2500 ms  C twenty-questions   ok
+stall  2500 ms  exit 0; test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 51.36s
+stall  5000 ms  A next-start         ok
+stall  5000 ms  B records-one        ok
+stall  5000 ms  C twenty-questions   ok
+stall  5000 ms  exit 0; test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 101.20s
+
+===== stall 0 ms =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 3 tests
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 4.08s
+
+
+===== stall 1200 ms =====
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 3 tests
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 25.86s
+
+
+===== stall 1600 ms =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 3 tests
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 33.14s
+
+
+===== stall 2500 ms =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 3 tests
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 51.36s
+
+
+===== stall 5000 ms =====
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/xfx-9534bd61f9749191)
+
+running 3 tests
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... ok
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one has been running for over 60 seconds
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4765 filtered out; finished in 101.20s
+

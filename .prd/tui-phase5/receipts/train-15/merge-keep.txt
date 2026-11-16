@@ -1,0 +1,89 @@
+# merge_keep.py (the dispatcher's, train 14's review): every unit (cell, sentence, line; >= 25 chars) new on a side is in the merge
+2ff302c5 docs/parity.md train-side: 181 new units, missing in merge: 0
+2ff302c5 docs/parity.md unit-side: 0 new units, missing in merge: 0
+2ff302c5 scripts/fxcap/parity-ledger.toml train-side: 90 new units, missing in merge: 0
+2ff302c5 scripts/fxcap/parity-ledger.toml unit-side: 0 new units, missing in merge: 0
+ed92e515 docs/parity.md train-side: 181 new units, missing in merge: 1
+    - PgUp/PgDn page, Up/Down move three rows, Esc, Ctrl-C and Ctrl-O close, and every other key -- Home and End included -- goes to the composer behind it (`app_input_runtime.zig:973-994`), `C-j` and `C-k` too, which no picker under it
+ed92e515 docs/parity.md unit-side: 88 new units, missing in merge: 1
+    - before MODIFIED-ARROWS-SCREENS, Ctrl-, Alt- and Super-Up and -Down scrolled the screen and Shift- and Super-Left and -Right, Ctrl-B and Ctrl-F were held) -- goes to the composer behind it (`app_input_runtime.zig:973-994`), here as
+ed92e515 scripts/fxcap/parity-ledger.toml train-side: 90 new units, missing in merge: 0
+ed92e515 scripts/fxcap/parity-ledger.toml unit-side: 16 new units, missing in merge: 7
+    - An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`write_user_prompt`, the cited line), xfx rides it under the open group (`trailer_rows`, src/tui/shell.rs:10579, each card through `queue_c
+    - source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:14016", "docs/parity.md:237"]
+    - xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43422"]
+    - xfx = ["src/tui/shell.rs:10579"]
+    - xfx = ["src/tui/shell.rs:17033"]
+    - xfx = ["src/tui/shell.rs:43422", "src/tui/approval_view.rs:685"]
+    - xfx = ["src/tui/shell.rs:43422"]
+b10ca771 docs/parity.md train-side: 234 new units, missing in merge: 0
+b10ca771 docs/parity.md unit-side: 9 new units, missing in merge: 0
+b10ca771 scripts/fxcap/parity-ledger.toml train-side: 90 new units, missing in merge: 0
+b10ca771 scripts/fxcap/parity-ledger.toml unit-side: 14 new units, missing in merge: 4
+    - source = ["src/tui/full_transcript.rs:3064", "docs/parity.md:238"]
+    - source = ["src/tui/full_transcript.rs:3115", "docs/parity.md:237"]
+    - source = ["src/tui/full_transcript.rs:3115", "src/tui/shell.rs:13966", "docs/parity.md:237"]
+    - xfx = ["src/tui/full_transcript.rs:3064", "src/tui/approval_view.rs:1224"]
+88e83a68 docs/parity.md train-side: 410 new units, missing in merge: 0
+88e83a68 docs/parity.md unit-side: 60 new units, missing in merge: 0
+88e83a68 scripts/fxcap/parity-ledger.toml train-side: 146 new units, missing in merge: 0
+88e83a68 scripts/fxcap/parity-ledger.toml unit-side: 32 new units, missing in merge: 8
+    - An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`write_user_prompt`, the cited line), xfx rides it under the open group (`trailer_rows`, src/tui/shell.rs:10435, each card through `queue_c
+    - source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13684", "docs/parity.md:237"]
+    - xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41359"]
+    - xfx = ["src/tui/shell.rs:10435"]
+    - xfx = ["src/tui/shell.rs:16640"]
+    - xfx = ["src/tui/shell.rs:41359", "src/tui/approval_view.rs:685"]
+    - xfx = ["src/tui/shell.rs:41359"]
+    - xfx's first frame writes the whole card (`send` and `echo`, src/tui/shell.rs:13373).
+07eefa89 docs/parity.md train-side: 338 new units, missing in merge: 1
+    - Owner unit: **META-PREFIX-DECODE** (proposed), since xfx's decoder has no meta prefix on any surface (`docs/parity.md`'s full-screen TUI row).
+07eefa89 docs/parity.md unit-side: 19 new units, missing in merge: 1
+    - **META-PREFIX-DECODE** (queued) for the third, since xfx's decoder has no meta prefix on any surface (`docs/parity.md`'s full-screen TUI row).
+07eefa89 scripts/fxcap/parity-ledger.toml train-side: 125 new units, missing in merge: 0
+07eefa89 scripts/fxcap/parity-ledger.toml unit-side: 9 new units, missing in merge: 9
+    - An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`write_user_prompt`, the cited line), xfx rides it under the open group (`trailer_rows`, src/tui/shell.rs:10562, each card through `queue_c
+    - source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13974", "docs/parity.md:237"]
+    - xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:42938"]
+    - xfx = ["src/tui/shell.rs:10562"]
+    - xfx = ["src/tui/shell.rs:16989"]
+    - xfx = ["src/tui/shell.rs:1858"]
+    - xfx = ["src/tui/shell.rs:42938", "src/tui/approval_view.rs:685"]
+    - xfx = ["src/tui/shell.rs:42938"]
+    - xfx's band shows the prompt's own estimate from `TurnStarted` (`tally.begin`, src/tui/shell.rs:4561).
+a14df710 docs/parity.md train-side: 180 new units, missing in merge: 0
+a14df710 docs/parity.md unit-side: 33 new units, missing in merge: 0
+a14df710 scripts/fxcap/parity-ledger.toml train-side: 48 new units, missing in merge: 0
+a14df710 scripts/fxcap/parity-ledger.toml unit-side: 3 new units, missing in merge: 0
+# as written: 32 missing over 6 merge(s)
+# exit 0
+2ff302c5 docs/parity.md train-side: 176 new units, missing in merge: 0
+2ff302c5 docs/parity.md unit-side: 0 new units, missing in merge: 0
+2ff302c5 scripts/fxcap/parity-ledger.toml train-side: 72 new units, missing in merge: 0
+2ff302c5 scripts/fxcap/parity-ledger.toml unit-side: 0 new units, missing in merge: 0
+ed92e515 docs/parity.md train-side: 176 new units, missing in merge: 1
+    - PgUp/PgDn page, Up/Down move three rows, Esc, Ctrl-C and Ctrl-O close, and every other key -- Home and End included -- goes to the composer behind it (`app_input_runtime.zig:N-N`), `C-j` and `C-k` too, which no picker under it mov
+ed92e515 docs/parity.md unit-side: 88 new units, missing in merge: 1
+    - before MODIFIED-ARROWS-SCREENS, Ctrl-, Alt- and Super-Up and -Down scrolled the screen and Shift- and Super-Left and -Right, Ctrl-B and Ctrl-F were held) -- goes to the composer behind it (`app_input_runtime.zig:N-N`), here as the
+ed92e515 scripts/fxcap/parity-ledger.toml train-side: 72 new units, missing in merge: 0
+ed92e515 scripts/fxcap/parity-ledger.toml unit-side: 9 new units, missing in merge: 0
+b10ca771 docs/parity.md train-side: 229 new units, missing in merge: 0
+b10ca771 docs/parity.md unit-side: 9 new units, missing in merge: 0
+b10ca771 scripts/fxcap/parity-ledger.toml train-side: 72 new units, missing in merge: 0
+b10ca771 scripts/fxcap/parity-ledger.toml unit-side: 10 new units, missing in merge: 0
+88e83a68 docs/parity.md train-side: 404 new units, missing in merge: 0
+88e83a68 docs/parity.md unit-side: 60 new units, missing in merge: 0
+88e83a68 scripts/fxcap/parity-ledger.toml train-side: 125 new units, missing in merge: 0
+88e83a68 scripts/fxcap/parity-ledger.toml unit-side: 23 new units, missing in merge: 0
+07eefa89 docs/parity.md train-side: 333 new units, missing in merge: 1
+    - Owner unit: **META-PREFIX-DECODE** (proposed), since xfx's decoder has no meta prefix on any surface (`docs/parity.md`'s full-screen TUI row).
+07eefa89 docs/parity.md unit-side: 19 new units, missing in merge: 1
+    - **META-PREFIX-DECODE** (queued) for the third, since xfx's decoder has no meta prefix on any surface (`docs/parity.md`'s full-screen TUI row).
+07eefa89 scripts/fxcap/parity-ledger.toml train-side: 105 new units, missing in merge: 0
+07eefa89 scripts/fxcap/parity-ledger.toml unit-side: 0 new units, missing in merge: 0
+a14df710 docs/parity.md train-side: 180 new units, missing in merge: 0
+a14df710 docs/parity.md unit-side: 33 new units, missing in merge: 0
+a14df710 scripts/fxcap/parity-ledger.toml train-side: 33 new units, missing in merge: 0
+a14df710 scripts/fxcap/parity-ledger.toml unit-side: 0 new units, missing in merge: 0
+# normalized: 4 missing over 6 merge(s)
+# exit 0

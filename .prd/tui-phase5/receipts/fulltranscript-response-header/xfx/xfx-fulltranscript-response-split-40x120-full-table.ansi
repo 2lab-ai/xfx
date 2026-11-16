@@ -1,0 +1,40 @@
+  [2m24.[0m Filler item 24 of the long first answer
+  [2m25.[0m Filler item 25 of the long first answer
+  [2m26.[0m Filler item 26 of the long first answer
+  [2m27.[0m Filler item 27 of the long first answer
+  [2m28.[0m Filler item 28 of the long first answer
+  [2m29.[0m Filler item 29 of the long first answer
+  [2m30.[0m Filler item 30 of the long first answer
+  [2m31.[0m Filler item 31 of the long first answer
+  [2m32.[0m Filler item 32 of the long first answer
+  [2m33.[0m Filler item 33 of the long first answer
+  [2m34.[0m Filler item 34 of the long first answer
+  [2m35.[0m Filler item 35 of the long first answer
+  [2m36.[0m Filler item 36 of the long first answer
+
+[38;5;245m  2026-11-10 23:58:28.399 UTC · Usage[39m
+[38;5;245m  0s (↑3 ↓40)[39m
+
+[38;5;245m  2026-11-10 23:58:34.477 UTC · Prompt[39m
+[38;5;255m┃[39m [1mthe table[0m
+
+[38;5;245m  2026-11-10 23:58:34.551 UTC · Response[39m
+  Before the table.
+
+  ┌───────┬──────┐
+  │ [1mname[0m  │ [1msize[0m │
+  ├───────┼──────┤
+  │ alpha │ 1    │
+  ├───────┼──────┤
+  │ beta  │ 2    │
+  └───────┴──────┘
+
+[38;5;245m  2026-11-10 23:58:34.686 UTC · Response[39m
+  After the table.
+
+[38;5;245m  2026-11-10 23:58:34.732 UTC · Usage[39m
+[38;5;245m  0s (↑3 ↓40)[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m

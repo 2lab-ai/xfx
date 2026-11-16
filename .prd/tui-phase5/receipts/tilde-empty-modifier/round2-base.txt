@@ -1,0 +1,8 @@
+# Round 2: the two new tests over the base's code. A --no-local clone at 782c3752 with the code change reversed (git diff ce4f9c6b 074f5113 -- src | git apply), so its src/ is the base's code and round 2's tests.
+$ TMPDIR=<tmp> cargo test --locked --lib -- tui::input::tests::the_key_and_the_keycode_saturate_rather_than_wrap tui::input::tests::a_tilde_sequence_past_the_csi_bound_is_read_as_every_csi_is
+test tui::input::tests::the_key_and_the_keycode_saturate_rather_than_wrap ... ok
+test tui::input::tests::a_tilde_sequence_past_the_csi_bound_is_read_as_every_csi_is ... FAILED
+thread 'tui::input::tests::a_tilde_sequence_past_the_csi_bound_is_read_as_every_csi_is' panicked at src/tui/input.rs:2873:9:
+  left: [Action(Ignore)]
+ right: [Action(Delete)]
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4783 filtered out; finished in 0.00s

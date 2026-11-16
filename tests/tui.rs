@@ -9445,7 +9445,7 @@ fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it
     // tells the child -- and a real terminal has the same gap: the kernel
     // raises `SIGWINCH` after the size has already changed, and no process can
     // withhold a frame for a size nobody has told it about. `Shell::blind`
-    // (`src/tui/shell.rs:17353`) is `resize_pending || screen != geometry`, and
+    // (`src/tui/shell.rs:17529`) is `resize_pending || screen != geometry`, and
     // neither is true until the handler has run. So a frame composed in that
     // gap is composed for the screen the session still believes in, and it is
     // not a frame written *while blind*.
@@ -9483,13 +9483,16 @@ fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it
 
     // And now the claim itself, on the far side of the session's knowledge:
     // the too-small screen has been observed and resolved, so `blind` is
-    // established, and Ctrl-L asks for a frame the session cannot paint.
-    // `Action::Redraw` inside the approval panel raises
-    // `Reason::ExternalDamage` (`src/tui/shell.rs:10127`) and answers nothing,
-    // which makes this a frame that is genuinely owed rather than a stretch of
-    // time in which nothing happened to want one. The old assertion could pass
-    // on a session with nothing to say; this one cannot.
-    session.type_bytes(&[0x0c]);
+    // established, and Down asks for a frame the session cannot paint. Down
+    // inside the approval panel moves the marker, which asks for a modal frame
+    // and answers nothing, so this is a frame that is genuinely owed rather
+    // than a stretch of time in which nothing happened to want one. The old
+    // assertion could pass on a session with nothing to say; this one cannot.
+    // (Down rather than Ctrl-L, which used to raise `Reason::ExternalDamage`
+    // here: Ctrl-L at a question does nothing now, as fx v0.0.16's does, so it
+    // would owe no frame. The `1` below is a digit, which the marker does not
+    // change.)
+    session.type_bytes(b"\x1b[B");
     let after_shrinking = wait_until_quiet(&session);
     assert_eq!(
         after_shrinking,

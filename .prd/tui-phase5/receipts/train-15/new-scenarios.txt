@@ -1,0 +1,34 @@
+fulltranscript-response-split: 14 pairs, pass 14; identical 7, normalized-identical 7
+p5-approval-ctrl-j: 8 pairs, pass 1; normalized-identical 1, unresolved-defect 7
+    unresolved 5: causes approval-grant-scope; a row no cause covers: no
+    unresolved 2: causes tool-schema, approval-grant-scope; a row no cause covers: no
+p5-approval-ctrl-j-panel: 4 pairs, pass 0; approved-divergence-cascade 3, unresolved-defect 1
+    unresolved 1: causes tool-schema, approval-grant-scope; a row no cause covers: no
+p5-approval-draft-keys: 10 pairs, pass 0; unresolved-defect 10
+    unresolved 10: causes approval-grant-scope; a row no cause covers: no
+p5-approval-readiness-settled: 11 pairs, pass 1; normalized-identical 1, unresolved-defect 10
+    unresolved 7: causes approval-grant-scope; a row no cause covers: no
+    unresolved 1: causes approval-settled-every-approval; a row no cause covers: no
+    unresolved 2: causes tool-schema, approval-grant-scope; a row no cause covers: no
+p5-decoder-tilde-home-end: 9 pairs, pass 9; normalized-identical 9
+p5-modified-arrows-full: 11 pairs, pass 11; identical 6, normalized-identical 5
+p5-modified-arrows-question: 17 pairs, pass 17; normalized-identical 17
+p5-modified-page-keys: 10 pairs, pass 9; identical 5, normalized-identical 4, unresolved-defect 1
+    unresolved 1: causes session-record, session-record-page-bottom; a row no cause covers: no
+p5-paragraph-move: 28 pairs, pass 24; normalized-identical 24, unresolved-defect 4
+    unresolved 4: causes session-record; a row no cause covers: yes
+p5-paragraph-move-column: 2 pairs, pass 2; normalized-identical 2
+p5-paragraph-move-menus: 21 pairs, pass 21; normalized-identical 21
+p5-question-ctrl-j: 10 pairs, pass 10; normalized-identical 10
+p5-question-ctrl-j-panel: 4 pairs, pass 1; approved-divergence-cascade 3, normalized-identical 1
+p5-rule-confirm-keys: 13 pairs, pass 13; normalized-identical 13
+p5-rule-confirm-keys-cmd: 4 pairs, pass 4; normalized-identical 4
+p5-rule-confirm-keys-turn: 3 pairs, pass 1; normalized-identical 1, unresolved-defect 2
+    unresolved 2: causes rule-confirm-card-after-stop; a row no cause covers: no
+p5-super-arrows: 16 pairs, pass 16; normalized-identical 16
+p5-super-arrows-approval: 16 pairs, pass 0; unresolved-defect 16
+    unresolved 15: causes approval-grant-scope; a row no cause covers: no
+    unresolved 1: causes approval-grant-scope; a row no cause covers: yes
+p5-super-arrows-question: 16 pairs, pass 16; normalized-identical 16
+p5-tilde-empty-modifier: 15 pairs, pass 15; normalized-identical 15
+# 21 scenarios the reference did not take, 242 pairs, 185 pass

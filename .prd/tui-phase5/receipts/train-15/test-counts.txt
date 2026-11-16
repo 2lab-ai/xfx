@@ -1,0 +1,30 @@
+# lines holding #[test] under src and tests (git grep -c '#\[test\]'), and '    def test_' under scripts/fxcap, per commit
+753b0a72 Merge P5 train 14: the @ picker stack, CTRLO-OTHER-PICKERS,  rust  5766  fxcap 237
+e2fc7e94 fxcap: a pane tmux 3.8 has reaped counts as gone (#97)       rust  5766  fxcap 241
+afd891af docs(receipt): P5 train 13 round 2 -- final-scan-r2.txt and  rust  5598  fxcap 206
+72fc9672 docs(receipt): CATALOG-WAIT-CLOCK round 4 -- gates4.txt at 6 rust  5600  fxcap 206
+df45025c docs(receipt): COMPOSER-SUPER-ARROWS round 2 mutants 3 of 3  rust  5633  fxcap 206
+3f2d6e78 docs(receipt): MODIFIED-ARROWS-SCREENS round 2 gate on a clo rust  5619  fxcap 206
+fffb3cfe docs(receipt): FULLTRANSCRIPT-RESPONSE-HEADER round 3 -- mut rust  5631  fxcap 206
+a37a969e docs(approval): round 3 -- fx's gate is file approvals only, rust  5468  fxcap 176
+7c9dfb2e docs(receipt): RULE-CONFIRM-KEYS round 2 -- identity, stubs  rust  5497  fxcap 176
+b5cb6f46 docs(receipt): QUESTION-CTRL-J round 2 -- the four checks at rust  5606  fxcap 206
+2ff302c5 Merge P5 train 15, 1 of 5: CATALOG-WAIT-CLOCK (fix/p5-catalo rust  5768  fxcap 237
+ed92e515 Merge P5 train 15, 2 of 5: the decoder line (fix/p5-composer rust  5803  fxcap 237
+b10ca771 Merge P5 train 15, 3 of 5: FULLTRANSCRIPT-RESPONSE-HEADER (f rust  5815  fxcap 237
+88e83a68 Merge P5 train 15, 4 of 5: the approval stack (fix/p5-rule-c rust  5844  fxcap 237
+07eefa89 Merge P5 train 15, 5 of 5: QUESTION-CTRL-J (fix/p5-question- rust  5852  fxcap 237
+a14df710 Merge main e2fc7e94 into train 15 (#95, #96 v0.2.0, #97)     rust  5854  fxcap 241
+0341dd2b train 15 join: the approval's C-j counts for /mcp's held rul rust  5854  fxcap 237
+2c575f52 train 15: the three UPSTREAM.md references #96 moved, re-poi rust  5854  fxcap 241
+
+main (afd891af..753b0a72): 181 tests added, 12 deleted; added and missing at the head: 0; deleted and at the head: 0
+main-now (753b0a72..e2fc7e94): 0 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
+catalog-wait-clock (afd891af..72fc9672): 2 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
+decoder (afd891af..df45025c): 37 tests added, 2 deleted; added and missing at the head: 0; deleted and at the head: 0
+ftrh (3f2d6e78..fffb3cfe): 12 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
+approval (a37a969e..7c9dfb2e): 31 tests added, 2 deleted; added and missing at the head: 0; deleted and at the head: 0
+question-ctrl-j (afd891af..b5cb6f46): 8 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
+join (07eefa89..0341dd2b): 2 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
+# head 2c575f52: 5985 tests; 0 added tests missing
+# exit 0

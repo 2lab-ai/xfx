@@ -1,0 +1,9 @@
+# jobs.sh cw at 2026-11-11T11:52:04Z, load 10.58
+# cw-clone at 2c575f52
+# built: plain yes, fault-injection yes, not the same binary: yes
+
+plain: A 10/10 B 10/10 C 10/10 D 10/10 F 10/10 G 10/10; module exit 0 in 10/10; load at the runs' start 11.90-26.59, median 18.73
+fault: A 10/10 B 10/10 C 10/10 D 10/10 F 10/10 G 10/10; module exit 0 in 10/10; load at the runs' start 9.06-23.39, median 16.69
+# cw_runs.py exit 0
+# tree clean after: yes
+# jobs.sh cw done at 2026-11-11T11:59:24Z

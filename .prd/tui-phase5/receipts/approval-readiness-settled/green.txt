@@ -1,0 +1,122 @@
+# GREEN at round 2's code head c0300f17: the unit's tests and their neighbours
+# cargo test --locked --lib -- approval amendment alt_b alt_f the_fold horizontal draft_left up_and_down_move the_arrows_leave leaving_a_filled_draft revokes vertical super_up_and_down one_read until_a_frame refusal_read a_walk_of_the_review enter_takes_the_marked writes_nothing ctrl_l question:: input::tests editor::tests redraw damage recolour blind
+test tui::approval_readiness::tests::a_change_counts_as_seen_only_after_this_request_really_showed_it ... ok
+test tui::approval_readiness::tests::a_change_holds_every_grant_until_a_frame_composed_after_it_is_proven ... ok
+test tui::approval_readiness::tests::a_change_with_nothing_proven_is_not_unshown_but_unready ... ok
+test tui::approval_readiness::tests::a_committed_and_reconciled_frame_grants_its_own_request_only ... ok
+test tui::approval_readiness::tests::a_composition_that_can_disclose_nothing_revokes_what_was_proven ... ok
+test tui::approval_readiness::tests::a_failed_write_grants_nothing_and_revokes_what_was_granted ... ok
+test tui::approval_readiness::tests::a_first_frame_that_wrote_nothing_never_grants ... ok
+test tui::approval_readiness::tests::a_frame_composed_before_a_change_does_not_settle_it ... ok
+test tui::approval_readiness::tests::a_moved_marker_does_not_invalidate_but_a_changed_screen_does ... ok
+test tui::approval_readiness::tests::a_no_change_repaint_retains_only_a_receipt_of_the_same_identity ... ok
+test tui::approval_readiness::tests::a_repaint_that_wrote_nothing_settles_a_change_it_already_shows ... ok
+test tui::approval_readiness::tests::a_screen_with_no_rows_or_no_columns_discloses_nothing ... ok
+test tui::approval_readiness::tests::a_winch_that_landed_inside_the_write_refuses_the_promotion ... ok
+test tui::approval_readiness::tests::a_winch_revokes_the_standing_receipt_at_the_very_same_dimensions ... ok
+test tui::approval_readiness::tests::an_undisclosed_composition_is_capturable_by_nothing_and_says_so ... ok
+test tui::approval_readiness::tests::an_undisclosed_composition_takes_the_observation_with_it ... ok
+test tui::approval_readiness::tests::damage_and_a_changed_size_both_close_the_gate ... ok
+test tui::approval_readiness::tests::nothing_after_an_undisclosed_composition_resurrects_the_receipt ... ok
+test tui::approval_readiness::tests::nothing_short_of_a_reconciled_write_grants ... ok
+test tui::shell::tests::a_frame_that_writes_nothing_settles_a_change_it_already_shows ... ok
+test tui::shell::tests::a_move_and_enter_in_one_read_at_a_command_answer_nothing_until_a_frame_shows_the_move ... ok
+test tui::shell::tests::a_move_and_enter_in_one_read_at_an_edit_answer_nothing_until_a_frame_shows_the_move ... ok
+test tui::shell::tests::a_refusal_read_with_a_move_still_refuses_at_once ... ok
+test tui::shell::tests::a_walk_of_the_review_plane_and_enter_answer_nothing_until_it_is_drawn ... ok
+test tui::shell::tests::a_no_op_vertical_spelling_keeps_the_receipt_and_enter_answers_the_choice_shown ... ok
+test tui::shell::tests::ctrl_l_at_a_question_does_nothing_as_fxs_does ... ok
+test tui::shell::tests::an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft ... ok
+test tui::shell::tests::enter_takes_the_marked_choice_and_tab_and_the_arrows_are_what_mark_it ... ok
+test tui::shell::tests::leaving_a_filled_draft_revokes_the_receipt_and_the_next_frame_earns_it_back ... ok
+test tui::shell::tests::a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown ... ok
+test result: ok. 476 passed; 0 failed; 1 ignored; 0 measured; 4174 filtered out; finished in 2.09s
+
+# cargo test --locked --test tui -- a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it_grows (the pty case that now owes its frame with Down)
+test a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it_grows ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 185 filtered out; finished in 6.45s
+
+# cargo test --locked --test parity
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.26s
+
+# The pair at round 2's code head: scope.py xfx (xfx/, row 1 x𝒇x v0.1.0-c0300f1)
+DIFF  cmd-ask       1 rows differ
+      fx:  '  $ # shell.run profile=user shell=/bin/zsh'
+      xfx: '  $ # terminal.exec cwd=.'
+DIFF  cmd2-ask      1 rows differ
+      fx:  '  $ # shell.run profile=user shell=/bin/zsh'
+      xfx: '  $ # terminal.exec cwd=.'
+DIFF  cmd2-down-enter 15 rows differ
+      fx:  '└ Ran echo again'
+      xfx: '└ Running echo again'
+      fx:  '  Done with approvals.'
+      xfx: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────'
+      fx:  ''
+      xfx: '  Permission needed · Choose one                                                                               Command'
+SAME  edit-ask      (22 rows compared)
+SAME  edit-down-enter (22 rows compared)
+SAME  edit-down-up-enter (22 rows compared)
+SAME  edit-left-enter (22 rows compared)
+DIFF  end           1 rows differ
+      fx:  '  14s (↑4 ↓240)'
+      xfx: '  16s (↑4 ↓240)'
+SAME  write-ask     (21 rows compared)
+SAME  write-letter-enter (21 rows compared)
+SAME  write-super-up-enter (21 rows compared)
+7 of 11 pairs identical once the grant scope's rows are set aside
+
+# The probe: scope.py probe (probe/, c0300f17 with M6, row 1 x𝒇x v0.1.0-c0300f1)
+DIFF  cmd-ask       20 rows differ
+      fx:  '● 4 tool calls · 1 read · 1 write · 1 edit · 1 command'
+      xfx: '● 2 tool calls · 1 read · 1 edit'
+      fx:  '├ Edited a.txt +1 / -1'
+      xfx: '└ Edited a.txt +1 / -1'
+      fx:  '├ Wrote c.txt +2'
+      xfx: ''
+DIFF  cmd2-ask      21 rows differ
+      fx:  '● 5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied'
+      xfx: '● 4 tool calls · 1 read · 1 write · 1 edit · 1 command · 1 denied'
+      fx:  '├ Wrote c.txt +2'
+      xfx: '├ Denied file'
+      fx:  '├ Denied echo hi > out.txt && cat out.txt'
+      xfx: '└ Running echo hi > out.txt && cat out.txt'
+DIFF  cmd2-down-enter 18 rows differ
+      fx:  '● 5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied'
+      xfx: '● 4 tool calls · 1 read · 1 write · 1 edit · 1 command · 1 denied'
+      fx:  '├ Wrote c.txt +2'
+      xfx: '├ Denied file'
+      fx:  '├ Denied echo hi > out.txt && cat out.txt'
+      xfx: '└ Running echo hi > out.txt && cat out.txt'
+SAME  edit-ask      (22 rows compared)
+SAME  edit-down-enter (22 rows compared)
+SAME  edit-down-up-enter (22 rows compared)
+SAME  edit-left-enter (22 rows compared)
+DIFF  end           17 rows differ
+      fx:  '├ Wrote c.txt +2'
+      xfx: '├ Denied file'
+      fx:  '├ Denied echo hi > out.txt && cat out.txt'
+      xfx: '├ Ran echo hi > out.txt && cat out.txt'
+      fx:  '└ Ran echo again'
+      xfx: '└ Running echo again'
+DIFF  write-ask     19 rows differ
+      fx:  '● 2 tool calls · 1 read · 1 edit'
+      xfx: '● 1 tool call · 1 read'
+      fx:  '├ Read a.txt'
+      xfx: '└ Read a.txt'
+      fx:  '└ Edited a.txt +1 / -1'
+      xfx: ''
+DIFF  write-letter-enter 19 rows differ
+      fx:  '● 2 tool calls · 1 read · 1 edit'
+      xfx: '● 1 tool call · 1 read'
+      fx:  '├ Read a.txt'
+      xfx: '└ Read a.txt'
+      fx:  '└ Edited a.txt +1 / -1'
+      xfx: ''
+DIFF  write-super-up-enter 19 rows differ
+      fx:  '● 2 tool calls · 1 read · 1 edit'
+      xfx: '● 1 tool call · 1 read'
+      fx:  '├ Read a.txt'
+      xfx: '└ Read a.txt'
+      fx:  '└ Edited a.txt +1 / -1'
+      xfx: ''
+4 of 11 pairs identical once the grant scope's rows are set aside

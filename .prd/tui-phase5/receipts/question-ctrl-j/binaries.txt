@@ -1,0 +1,13 @@
+# The three binaries behind fx/, red/ and xfx/ (sha256), the banner each capture's row 1 shows, and capture.sh's guard line for fx
+fx v0.0.16   8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2  row 1: 𝒇x v0.0.16 · Run /help for commands  (FX_AUTO_UPGRADE=0)
+red/  xfx    eb90572bde47405a95f1136bca15b09ee17329d2be6e73394e8e60abb5bc2309  row 1: x𝒇x v0.1.0-afd891a [debug] · Run /help for commands  (cargo build --locked at afd891af, before any commit)
+xfx/  xfx    eb1cdcd3254c7578e21b8510e844dd08df77e181342f4a851463b461187485c5  row 1: x𝒇x v0.1.0-87daec9 [debug] · Run /help for commands  (cargo build --locked at 87daec96, after the commit)
+
+# every xfx/ capture's row 1 (all must name 87daec9):
+  14 x𝒇x v0.1.0-87daec9 [debug] · Run /help for commands
+
+# capture.sh's guard lines, one per fx run (the oracle's path written <fx-bin>)
+guards: <fx-bin> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <fx-bin> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <fx-bin> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+# (the third: round 2's recapture of p5-question-ctrl-j-panel with gwlog added, the same three binaries; red/ and xfx/ of that scenario recaptured with them)

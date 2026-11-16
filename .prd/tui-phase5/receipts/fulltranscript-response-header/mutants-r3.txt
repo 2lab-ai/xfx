@@ -1,0 +1,7 @@
+# Round 3: mutants-r3.py on a git clone --no-local (its remote removed) under <tmp>/mut/, at 9a1bbf37 (round 3's tests), one at a time, under the suite lock (SUITE_LOCK_SLOTS=4 for this run only, the dispatcher's instruction: the first wrapper waited 77 minutes for one of the three default slots and was stopped before it ran anything);
+# each runs round 3's two new tests alone; the file restored after each
+M1 resolve_bookmark_row drops both fallbacks: KILLED (49s) a_reader_near_an_entry_that_lays_out_as_nothing_holds_when_it_becomes_visible
+M2 resolve_bookmark_row drops the entry after: KILLED (8s) a_reader_near_an_entry_that_lays_out_as_nothing_holds_when_it_becomes_visible
+M3 every entry that lays out as nothing is marked (round 1's measure): KILLED (12s) a_reader_near_an_entry_that_lays_out_as_nothing_holds_when_it_becomes_visible
+M4 a call that lays out as nothing is marked: KILLED (22s) a_reader_near_an_entry_that_lays_out_as_nothing_holds_when_it_becomes_visible
+4 of 4 killed; the clone's tree after the run: clean

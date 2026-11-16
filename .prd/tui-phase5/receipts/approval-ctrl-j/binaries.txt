@@ -1,0 +1,8 @@
+# the three binaries the captures and the sweeps ran: sha256, and row 1 of their edit-ask snap
+fx    8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2  fx v0.0.16 (481104fd), FX_AUTO_UPGRADE=0; row 1: 𝒇x v0.0.16 · Run /help for commands
+red   20a16806c642963b2549524537ddb46e83d0a8813a51cefb80b5d8ba5129223d  built at d7916178 before any commit; row 1: x𝒇x v0.1.0-d791617 [debug] · Run /help for commands
+xfx   805cb7c7426d5916dc08ba5b85ca8d8e75288445e3cc499d71947682d30beb42  built at 9dd02bc3 (the code head, committed first); row 1: x𝒇x v0.1.0-9dd02bc [debug] · Run /help for commands
+
+# capture.sh's guard line after each fx run (the oracle's path written <fx-bin>)
+p5-approval-ctrl-j: guards: <fx-bin> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+p5-approval-ctrl-j-panel: guards: <fx-bin> sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
