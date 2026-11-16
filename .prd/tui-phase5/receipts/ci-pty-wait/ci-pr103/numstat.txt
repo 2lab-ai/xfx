@@ -1,0 +1,15 @@
+461b4736..e717f3f6
+  product  +0 -0
+  tests    +243 -14
+  receipt  +14 -9
+  other    +0 -0
+e717f3f6..HEAD
+  product  +0 -0
+  tests    +0 -0
+  receipt  +2714 -3
+  other    +0 -0
+1a4cb6b4..HEAD
+  product  +98 -33
+  tests    +1671 -76
+  receipt  +14443 -0
+  other    +14 -14

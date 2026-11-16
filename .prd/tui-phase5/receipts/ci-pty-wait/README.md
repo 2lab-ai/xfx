@@ -5,7 +5,9 @@ product commit, `f79f5e5b`; five test commits, `f311ad79`, `a70dcd89`,
 `a77fad76`, `7b524d78` and `765f9170`; and the receipt commits. Joined with
 train 16 (§9): the merge `931418d4`, a join test `9a54c911`, the re-points
 `3e17645a` and a clippy fix `ba133c25`. The join review's case `25203a2c`
-(§10). Train 16's final head merged as `d0115e72` (§11), the code head.
+(§10). Train 16's final head merged as `d0115e72` (§11). PR #103's red
+fixed in tests (§12): `8ab62f69`, `a981b4ec`, `a6c6de29`, `f516d090` and
+the re-points `e717f3f6`, the code head.
 Every figure below comes from a file in this folder; paths are scrubbed (`<runner>`,
 `<tmp>`, `<home>`).
 
@@ -958,6 +960,263 @@ its own resolution, which is empty). It ran through this section's commit:
 0 matching lines, and 0 files in this folder (`pathscan.txt`). The tree
 checks passed in both gates.
 
+## 12. PR #103's first CI run: the paced hostile paste, every session rejected — `ci-pr103/`
+
+**The fix is tests only:** `tests/tui.rs` and `tests/support/pty.rs`. No
+product line changed.
+
+### The evidence (`gate-aarch64-apple-darwin-failed.log`, `ci-part.txt`)
+
+The coordinator pushed `461b4736` as PR #103.
+- The aarch64-apple-darwin row's "Tests, with the fault injector" step went
+  red, on `a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing`.
+  Its three sessions were rejected at 61.3, 58.6 and 96.8 ms (12 ms pauses),
+  so `unpaced_case` failed saying no session tested the paste.
+- The other rows passed, and so did that step's status-frame test and both
+  unpaced hostile pastes. The unpaced cases' longest pauses were 43.1 and
+  28.0 ms: near the 50 ms bar.
+- The log does not say where any pause fell. One can be placed from its
+  screen. The third session typed `K00005121` through `K00005191`: tokens
+  512 to 519, which are part 64 whole (`ci_part.py`). So that pause fell
+  before part 64's first byte. Part 64 is one of the case's four planned
+  pauses. The other two sessions' screens typed nothing, which places
+  nothing.
+- **The timing, from the log's own timestamps.** libtest starts tests in name
+  order as its three threads free up. The three hostile pastes are
+  neighbours (`a_mebibyte_of_hostile_clipboard_with_pauses...`, then the two
+  `..._written_unpaced_...`).
+  - The paced case began about 19:57:17.
+  - The next two began as `a_level_chosen...` (19:57:18.22) and
+    `a_fork_of_a_fork...` (19:57:19.25) finished.
+  - The paced case's sessions ran until 19:57:25.13.
+  - So for most of the paced case, all three hostile cases ran at once on
+    the row's three vCPUs. [inferred from the start order and the finish
+    times; the log has no start lines]
+
+### What the harness says now (`8ab62f69`, `a981b4ec`, `a6c6de29`)
+
+CI's message gave three numbers and no place. A rejected session, and an
+accepted one's longest pause, now say:
+- **where the pause fell:**
+  - between parts N−1 and N, across a planned pause (with how long that
+    sleep took), or with none planned there;
+  - or inside part N, at write attempt k, behind a full queue's 2 ms poll
+    (with how long that poll slept);
+- **how long the `write` that ended it took;**
+- **the rest:** the write before it, and the time the thread was off a CPU.
+
+`Session::write_raw_traced` records it, and `where_it_fell` words it.
+`a_pause_is_said_to_fall_between_parts_or_inside_one_with_its_sleep` pins
+both.
+
+### The cause (`runs/phases/`, `runs/recipe3-16-suites.txt`)
+
+**Measured locally, with the new words.** The pauses that reject a session
+are neither the planned sleep oversleeping nor the 2 ms poll stretching:
+- **Rejected inside a part, behind a poll:** 255 of the 280 before-fix
+  rejections in the phase run. The poll slept 0–8 ms (median 3). The write
+  that ended the pause took 10–50 ms (median 26), and the rest 0–44 ms
+  (median 25).
+- **Rejected across a planned 12 ms pause:** 13 of them. The sleep took
+  15–21 ms (median 18). macOS sleeps a 12 ms sleep as about 18 ms even at
+  idle. The ending write took 16–32 ms, and the rest 0–22 ms.
+- **Rejected between parts with no pause planned:** 12 of them.
+- **At idle**, a 4 KiB write takes 0.05–4 ms.
+
+The measure spans two `write` calls and what lies between them (§2b): from
+one attempt's start to the next one's return. Two writes of about 25 ms
+each reach 50 ms with no help from any sleep. The planned pause adds about
+18 ms, which is why the paced case is rejected more at lighter loads
+(8.6% against 3.0% in recipe 1).
+
+**What slows the writes is mebibyte pastes beside one another, not load as
+such.**
+- One suite beside eleven background suites that skip the hostile pastes:
+  pauses of 3–18 ms (`runs/recipe4-one-suite.txt`).
+- One suite beside 36 CPU-bound processes: pauses of 9–19 ms
+  (`runs/recipe2-hogs.txt`; the scheduler runs woken threads first).
+- 24 hostile pastes at once (8 suites): 3–9% of sessions rejected
+  (`runs/recipe1-8-suites.txt`).
+- 36 at once (12 suites): 75% (`runs/phases/`).
+
+**On CI** (inferred, not measured there): libtest starts a suite's three
+hostile cases together, so on the row's three vCPUs a suite runs three
+mebibyte pastes at once. That is the condition that slows the writes here.
+- The one pause the log lets me place fell at the planned pause before part
+  64.
+- Where the other two fell, and how CI's 61–97 ms split between sleep, write
+  and the rest, the old binary did not say. The new words will say it next
+  time.
+
+### The RED (`runs/phases/`, the "before" rows)
+
+Twelve whole suites of the fault-injection test binary ran at once, three
+test threads each, for 4 rounds under `SUITE_LOCK_EXCLUSIVE`. That puts 36
+hostile pastes on this machine at once, the same per-suite shape as CI's
+three on three vCPUs. **The paced case was red in 34 of 48 suites: in 27,
+every session was rejected (CI's failure); in 7, an accepted session timed
+out waiting for its screen.** Of its sessions, 88 of 117 were rejected
+(75.2%).
+
+### The fix (`f516d090`, tests only)
+
+1. **One hostile paste at a time in the binary.** `unpaced_case` holds
+   `ONE_PASTE_AT_A_TIME` for the whole case, all its sessions, so the three
+   cases run one after another. The rest of the suite runs beside them as
+   before. This takes away the condition that slows the writes, and it is
+   the measured part of the fix.
+2. **Five sessions before giving up, not three** (`UNPACED_ATTEMPTS`). A
+   rejected session still asserts nothing and returns before any assertion,
+   and a failed assertion on an accepted session still fails the case at
+   once. So another attempt cannot turn a failing case green; it is
+   insurance for a runner busier than this run. Its effect is not measured
+   separately: with the lock no session was rejected, so no fourth or fifth
+   session ran.
+3. **What did not change:** `PASTE_QUIET` (50 ms); the rejection bar; what
+   an accepted session asserts; the pacing (four 12 ms pauses); and the
+   other tests' parallelism.
+
+Rejected candidates:
+- **Serializing the hostile pastes against every PTY test.** The other
+  tests write no mebibyte, and recipe 4 shows them not slowing the writer.
+- **A different pacing.** The sleeps are not where the pauses go.
+- **A time budget.** A count gives the same bound with one number less.
+
+`no_two_unpaced_cases_run_at_once` pins the lock: three cases started
+together never have two sessions at once.
+
+### Before and after, under the same recipe (`runs/phases/run.txt`, `sessions.txt`)
+
+**Recipe:** twelve suites of one build at once, one build at a time, the two
+builds interleaved round by round. The load at the phases' starts was
+12.0–45.6 before and 12.2–24.0 after. The after phases are lighter by
+construction: twelve hostile pastes at once instead of 36.
+
+| | before (`a6c6de29`: 3 attempts, no lock) | after (`f516d090`) |
+|---|---|---|
+| paced case | **red 34 / 48** (27 every session rejected, 7 timeouts) | **green 48 / 48** |
+| unpaced, types nothing | red 35 / 48 (26 every session rejected, 9 timeouts) | green 48 / 48 |
+| unpaced, no approval | red 16 / 48 (every session rejected) | green 48 / 48 |
+| status frames | green 48 / 48 | green 48 / 48 |
+| paced sessions rejected | 88 / 117 (75.2%) | 0 / 48 |
+| unpaced sessions rejected | 192 / 257 (74.7%) | 0 / 96 |
+| accepted sessions' longest pause, paced | median 47.6 ms, max 49.9 | median 23.5 ms, max 30.7 (every one at a planned pause) |
+| accepted sessions' longest pause, unpaced | median 47.5 ms, max 49.8 | median 13.6 ms, max 33.0 |
+| suite seconds | mean 164, max 192 | mean 159, max 167 |
+
+- Zero in 48 suites bounds the after rate at about 6% (rule of three, 95%).
+  Zero in 144 sessions bounds the per-session rate at about 2%.
+- The suite is no slower with the lock. The three cases wait for one
+  another, but the suite's other tests go on meanwhile.
+
+### The unpaced cases and the status test (question 4)
+
+- **The unpaced cases share the risk.** Before the fix they were red more
+  often than the paced case (types-nothing 35 / 48), with the same
+  mechanism: a 0 ns pause has only the two writes to cross 50 ms with. On
+  CI they passed at 43 and 28 ms. The lock is in `unpaced_case`, so it
+  covers all three.
+- **The status-frame test does not share it.** It was green in all 96 phase
+  runs and in every recipe here. It writes no mebibyte, and its CI failure
+  was a product defect (§2a).
+- **"CI's test parallelism is unchanged; none of the causes needed it"
+  (open question 3) no longer holds for the hostile pastes.** They needed
+  not to run beside one another. The suite's thread count and every other
+  test's parallelism are unchanged.
+
+### The recipes that did not reproduce, and two runs of mine to discount (`runs/`)
+
+- **Recipe 1** (8 suites at once, the first diagnostics binary): 3.0% of
+  unpaced and 8.6% of paced sessions rejected, and no case red. That counts
+  rounds 1, 3, 4 and 5.
+  - **Round 2 is not counted.** It ran beside an unlocked build and run of
+    mine: the tui test binary, compiled to check one message. Its ten
+    timeouts are that build's doing.
+  - **Round 6 is void.** I deleted the clone it ran from, and with it the
+    `xfx` its tests spawn, while it ran.
+- **Recipe 2** (one suite beside 36 busy processes) and **recipe 4** (one
+  suite beside 11 suites that skip the hostile pastes) were each stopped
+  after one suite. Neither slowed the writer, so neither emulates CI.
+- **Recipe 3** (two builds' 16 suites at once, the fix's first form: the
+  lock alone) was stopped after two rounds. Each build's pastes ran beside
+  the other's, which the lock inside one suite cannot touch. Both builds
+  were red often; the RED is the same in recipe 5's cleaner form.
+
+### Mutants (`mutants-f516d090.txt`, `lib-threshold-f516d090.txt`, `quarantine-f516d090.txt`)
+
+They ran at `f516d090`, on a `--no-local` clone under the lock. The code
+head `e717f3f6` differs from it in one comment line's numbers.
+- **`mutants.py`: 20 of 20 killed**, with both baselines green (unit 9,
+  harness 7). The 20 are round 3's 15, the join's four loop orders, and
+  `pastes-at-once`, which takes the lock out and is killed by
+  `no_two_unpaced_cases_run_at_once`. `measure-never-grows` is re-aimed at
+  the traced write and is killed by both measure tests.
+- **`lib_threshold_mutants.py`:** each of the three quarantine mutants is
+  killed by both of the lib's clock-free threshold cases.
+- **`quarantine_mutants.py`, 3 runs per case:** the baseline is 9 of 9
+  green, and no session was rejected.
+  - The paced case fails 3 of 3 under any-quiet and under 5 ms, each time on
+    an accepted session.
+  - It passes under 20 ms, as in round 3 and §9: its gaps are about 18 ms.
+  - The unpaced cases pass under every mutant, as before.
+  - **The quarantine mutants still fail where they failed.** The threshold is
+    held by the lib.
+
+### The gate (`gates-rustup.txt`, `gates-brew.txt`, `gate-counts-*.txt`, `linux-clippy.txt`)
+
+Train 16's `gates.sh` ran at the code head `e717f3f6` twice, side by side.
+Each run had a fresh `--no-local` clone and its own hold of the lock.
+
+| run | how | steps | `cargo test` / with fault injection |
+|---|---|---|---|
+| rustup | rustup's own multiplexer (`libexec/bin`) first on PATH, `RUSTUP_TOOLCHAIN=1.99.1`, `TMPDIR` through the `/tmp` link | **29, 0 failed** (load 5.0 to 36.6) | **6079 / 6116 passed**, 0 failed, 8 ignored each |
+| Homebrew | Homebrew's 1.99.1, `TMPDIR` resolved | **29, 0 failed** (load 5.1 to 27.0) | **6079 / 6116 passed**, 0 failed, 8 ignored each |
+
+- The counts are §11's plus this round's two harness cases.
+- The env check's self-test is 68 of 68 in both.
+- This unit's 24 tests and META-PREFIX-DECODE's 15 are ok in all four test
+  runs (`touched.txt`).
+- In those runs no hostile-paste session was rejected. The longest pauses
+  were 3.1–4.8 ms unpaced and 17.3–18.1 ms paced; the paced ones were each
+  the planned pause itself.
+- **Linux clippy** (train 16's `linux-clippy.sh`, both Linux targets, plain
+  and with fault-injection): **0 of 4 runs failed**, no warning or error
+  line (`linux-clippy.txt`).
+- The first try of these gates, at `f516d090`, was stopped when the content
+  check found the comma list moved; its numbers are not used.
+
+### References (`content-e717f3f6.txt`, `readme-refs-e717f3f6.txt`, `repoint-*.txt`)
+
+- **This round's test lines moved 15 references** (the content check at
+  `f516d090` against `d0115e72`). `e717f3f6` re-points them, numbers only
+  (8 lines, `repoint-numbers.txt`):
+  - six numbers of `tests/tui.rs:2721`'s comma list, each +190 and still
+    the clear-line send (mapped through the diff);
+  - nine of this README's references into `tests/tui.rs`.
+- **At `e717f3f6`:**
+  - Code and docs: WRONG 9, the same set as at `d0115e72`. 0 moved.
+  - This README: 19. That is the same 18 as before, and §9's reference to
+    `tests/tui.rs:2721`, the comma-list line itself. That line is the same
+    line, its numbers re-pointed; the check reads the changed text as
+    WRONG, and it was read by hand.
+
+### Numstat by class (`numstat.txt`)
+
+| range | product | tests | receipt | other |
+|---|---|---|---|---|
+| this round, `461b4736..e717f3f6` | **+0 −0** | +243 −14 (`tests/tui.rs`, `tests/support/pty.rs`) | +14 −9 (the re-points) | +0 −0 |
+| the branch against train 16, `1a4cb6b4..e717f3f6` | +98 −33 (§2a, from before the joins) | +1671 −76 | in `numstat.txt` | +14 −14 (re-points in `docs/` and `scripts/`) |
+
+This section's own commit is receipt only. `numstat.txt` has every range,
+the commit that adds it included.
+
+### Paths
+
+`join/pathscan.sh` scanned every commit this branch holds that `8be4693b`
+does not, through this section's commit: the messages, and what `git show`
+prints of each. **0 matching lines, and 0 files in this folder**
+(`pathscan.txt`). `check-no-local-paths.sh` passed in both gates.
+
 ## Open questions
 
 1. **The quarantine's clock is read after the readiness check.**
@@ -986,7 +1245,10 @@ checks passed in both gates.
    `Thinking` only once the turn starts. That is the documented divergence in
    the OSC 7501 row, unchanged here: the fix keeps xfx's frame and makes the
    turn's first frame show `Thinking`.
-3. **CI's test parallelism is unchanged.** None of the three causes needed it.
+3. **CI's test parallelism is unchanged, but for the three hostile pastes**
+   (§12). None of the first three causes needed a change. PR #103's red did:
+   the three cases now run one after another. The suite's thread count and
+   every other test's parallelism are as they were.
 4. **Open parity note: no frame between `working` and `done` when the turn ran
    whole** (opus r1 NIT 2). The start's tick writes `working` after its frame
    (`commit_tick`, `src/tui/event_loop.rs:1433-1436`); the next tick reads the

@@ -8,7 +8,8 @@ log is printed MISSING.
     python3 -I -B touched.py <receipts-dir> <label>=<log>...
 A label starting `lib` is a `cargo test --lib` log and is read for the
 `tui::` names alone; one starting `tui`, a `--test tui` log, for the others;
-any other label, for every name. The join review added its two cases.
+any other label, for every name. The join review added its two cases; PR
+#103's red (§12) its two harness cases.
 Prints no path.
 """
 import re
@@ -32,6 +33,8 @@ MINE = [
     "a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval",
     "a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing",
     "the_harness_measures_a_pause_between_two_writes_of_one_paste",
+    "a_pause_is_said_to_fall_between_parts_or_inside_one_with_its_sleep",
+    "no_two_unpaced_cases_run_at_once",
     "an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused",
     "an_unpaced_case_whose_every_paste_paused_fails_saying_so",
     "the_last_bytes_of_a_stream_start_at_a_character",
