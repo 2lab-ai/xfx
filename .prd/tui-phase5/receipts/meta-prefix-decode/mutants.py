@@ -8,7 +8,9 @@ the second ESC an Escape again, or a third one, or the clock left at the
 first (M1-M3), or a quiet prefix one Escape, as fx's decoder alone would
 give it (M22); round 2: the prefixed C0 arm leaving the stage pending
 (M23, review S1), a leading zero refused in a cursor key's modifier
-(M24), the question's choice moving on a prefixed Down (M25); the prefix dropped at `[`, at `O`, in the cursor table, in
+(M24), the question's choice moving on a prefixed Down (M25); round 3:
+the pair's 30 ms stage deleted (round 2's flush), set to 50 ms, emitting
+two Escapes at 30 ms, or dropping the kept ESC (M26-M29); the prefix dropped at `[`, at `O`, in the cursor table, in
 SS3, in the keypad and kitty arrows (M4-M9); the key report's prefixed
 branches undone one at a time, and the prefix read as Alt's bit there
 (M10-M15); the control replayed behind the prefix, and a report losing the
@@ -57,10 +59,15 @@ THEME = ("                        if meta {\n"
          "                        out.push(Input::Report(mode));\n")
 FIELD = ("        .fold(0u16, |value, digit| value * 10 + u16::from(digit - b'0'));\n"
          "    u8::try_from(value.checked_sub(1)?).ok()\n}\n")
-FLUSH = ("                out.push(Input::Action(Action::Escape));\n"
-         "                if meta {\n"
-         "                    out.push(Input::Action(Action::Escape));\n"
-         "                }\n")
+PAIR = ("        if meta && quiet >= Self::PAIR_TIMEOUT {\n"
+        "            out.push(Input::Action(Action::Escape));\n"
+        "            self.stage = Stage::Esc { at, meta: false };\n"
+        "        }\n")
+LONE = ("        if quiet >= Self::ESC_TIMEOUT {\n"
+        "            self.stage = Stage::Ground;\n"
+        "            out.push(Input::Action(Action::Escape));\n"
+        "        }\n")
+PAIR_CONST = "    pub(crate) const PAIR_TIMEOUT: Duration = Duration::from_millis(30);\n"
 DIGITS = "    if digits.is_empty() || digits.len() > 3 || !digits.iter().all(u8::is_ascii_digit) {\n"
 MUTANTS = [
     ("M1 the second ESC is the Escape key and a new ESC (the base)", [(I, SECOND, "")]),
@@ -97,8 +104,7 @@ MUTANTS = [
     ("M21 a field past 256 is read for its low byte", [(I, FIELD,
      "        .fold(0u16, |value, digit| value * 10 + u16::from(digit - b'0'));\n"
      "    value.checked_sub(1).map(|mask| mask.to_le_bytes()[0])\n}\n")]),
-    ("M22 a quiet prefix is one Escape (fx's decoder alone)", [(I, FLUSH,
-     "                let _ = meta;\n                out.push(Input::Action(Action::Escape));\n")]),
+    ("M22 a quiet prefix is one Escape, at 50 ms (fx's decoder alone; the pair's stage deleted)", [(I, PAIR, "")]),
     ("M23 the prefixed C0 arm leaves the stage pending (no Ground reset)", [(I, C0_GROUND,
      "            0x00..=0x1f if meta => {\n"
      "                out.push(Input::Action(Action::Ignore));\n")]),
@@ -106,6 +112,29 @@ MUTANTS = [
      "    if digits.is_empty() || digits.len() > 3 || digits.first() == Some(&b'0') || !digits.iter().all(u8::is_ascii_digit) {\n")]),
     ("M25 a question's choice moves on a prefixed Down (ParagraphDown)", [(Q, Q_DOWN,
      "            Action::Down | Action::ParagraphDown => Some(Self::Down),\n")]),
+    ("M26 the pair's 30 ms stage deleted: both Escapes at 50 ms (round 2's flush)", [(I, PAIR, ""),
+     (I, LONE, "        if quiet >= Self::ESC_TIMEOUT {\n"
+               "            self.stage = Stage::Ground;\n"
+               "            out.push(Input::Action(Action::Escape));\n"
+               "            if meta {\n"
+               "                out.push(Input::Action(Action::Escape));\n"
+               "            }\n"
+               "        }\n")]),
+    ("M27 the pair's stage set to 50 ms", [(I, PAIR_CONST,
+     "    pub(crate) const PAIR_TIMEOUT: Duration = Duration::from_millis(50);\n")]),
+    ("M28 the pair's stage emits two Escapes at 30 ms and nothing pending", [(I, PAIR,
+     "        if meta && quiet >= Self::PAIR_TIMEOUT {\n"
+     "            out.push(Input::Action(Action::Escape));\n"
+     "            out.push(Input::Action(Action::Escape));\n"
+     "            self.stage = Stage::Ground;\n"
+     "            return;\n"
+     "        }\n")]),
+    ("M29 the pair's stage drops the kept ESC (one Escape at 30 ms, nothing pending)", [(I, PAIR,
+     "        if meta && quiet >= Self::PAIR_TIMEOUT {\n"
+     "            out.push(Input::Action(Action::Escape));\n"
+     "            self.stage = Stage::Ground;\n"
+     "            return;\n"
+     "        }\n")]),
 ]
 only = sys.argv[3:]
 if only:
