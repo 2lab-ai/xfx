@@ -35,6 +35,8 @@ RESIZE = "pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {"
 TOOLS = '"  tools: {} advertised ({},",'
 TRAILER = "fn trailer_rows(&self) -> Vec<String> {"
 QUEUE = "fn queue_card(transcript: &mut Transcript, text: &str) {"
+ROWS = "pub(crate) const MAX_DRAFT_ROWS: usize = 3;"
+VIEWPORT = "fn viewport(&self, cols: u16) -> (Vec<String>, (usize, u16)) {"
 # A string is every ref of its entry; a list, its refs in the ledger's order.
 EXPECT = {
     "banner": '"{}x\\u{1d487}x{}{} {label} \\u{b7} Run /help for commands{}",',
@@ -51,8 +53,10 @@ EXPECT = {
     "stats-bytes": '"ansi_bytes={}, redraws={}, debounced_resizes={}, footer_updates=0, stream_chunks=0",',
     "resize-document-repaint": RESIZE,
     "activity-tokens-before-request": "self.tally.begin(Instant::now(), estimate);",
-    # Round 2: this unit's own cause.
-    "amend-draft-window": ["pub(crate) const MAX_DRAFT_ROWS: usize = 3;"] * 2,
+    # Round 2: this unit's own cause; round 3 splits it in two and adds
+    # `Draft::viewport` (the `xfx` field, then the `why`'s two refs).
+    "amend-draft-window": [ROWS, VIEWPORT, ROWS, VIEWPORT],
+    "amend-draft-window-tail": [ROWS, VIEWPORT],
 }
 
 

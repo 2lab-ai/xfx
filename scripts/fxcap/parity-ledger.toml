@@ -880,12 +880,24 @@ id = "amend-draft-window"
 kind = ["unit", "defect"]
 owner = "AMEND-DRAFT-WINDOW the rows an amendment draft longer than its row takes"
 scenarios = ["p5-approval-paste-spaces"]
-snaps = ["deny-*"]
-fx_row = '^  ❯ 3  Don.t apply, x+(?:a b)?$'
-xfx_row = '^(?:  ❯ 3  Don.t apply, | {20})x+(?:a b)?\s*$'
-xfx = ["src/tui/approval_amendment.rs:82"]
+snaps = ["deny-held"]
+fx_row = '^  ❯ 3  Don.t apply, x+$'
+xfx_row = '^(?:  ❯ 3  Don.t apply, | {20})x+\s*$'
+xfx = ["src/tui/approval_amendment.rs:84", "src/tui/approval_amendment.rs:217"]
 fx = ["src/ui/footer/approval_ui.zig:1601@c1db9191"]
-why = "A draft longer than its row. fx paints one row, scrolled sideways to keep the caret in view (`approvalDraftWindow`, the cited line; the same function at 481104fd, `approval_ui.zig:1601-1650`), so the 4093-byte draft's row ends at its caret, `...xa b`; xfx paints up to `MAX_DRAFT_ROWS`, three, windowed on the caret's row (src/tui/approval_amendment.rs:82, `Draft::viewport`), so the same draft is three rows and every row under it is two lower. The draft's text and the refusals are the same on both (.prd/tui-phase5/receipts/approval-paste-spaces/README.md, GREEN and Found). The rows pushed down are the scope's (`approval-grant-scope`), the divider and the hint. AMEND-DRAFT-WINDOW: paint the draft as fx does (proposed)."
+why = "A draft longer than its row, the 4093 bytes of `x` pasted into choice 3's draft. fx paints one row, scrolled sideways to keep the caret in view (`approvalDraftWindow`, the cited line; the same function at 481104fd, `approval_ui.zig:1601-1650`), so the row ends at the caret, in `x`; xfx paints up to `MAX_DRAFT_ROWS`, three (src/tui/approval_amendment.rs:84), windowed on the caret's row (`Draft::viewport`, src/tui/approval_amendment.rs:217), so the same draft is three rows of `x` and every row under it is two lower. The draft's text is the same on both (.prd/tui-phase5/receipts/approval-paste-spaces/README.md, GREEN and Found). The rows pushed down are the scope's (`approval-grant-scope`), the divider and the hint. AMEND-DRAFT-WINDOW: paint the draft as fx does (proposed)."
+
+[[cause]]
+id = "amend-draft-window-tail"
+kind = ["unit", "defect"]
+owner = "AMEND-DRAFT-WINDOW the rows an amendment draft longer than its row takes"
+scenarios = ["p5-approval-paste-spaces"]
+snaps = ["deny-fits", "deny-letter-refused", "deny-paste-refused"]
+fx_row = '^  ❯ 3  Don.t apply, x+a b$'
+xfx_row = '^(?:  ❯ 3  Don.t apply, x{100}| {20}x{100}| {20}x+a b)\s*$'
+xfx = ["src/tui/approval_amendment.rs:84", "src/tui/approval_amendment.rs:217"]
+fx = ["src/ui/footer/approval_ui.zig:1601@c1db9191"]
+why = "`amend-draft-window` for the 4096-byte draft, `x` then the pasted `a b`, which every later deny-* snap holds: fx's one row ends at the caret in `...xa b`; xfx's three rows are two full rows of `x` (100 cells each at 120 columns) and a last row ending `a b`. The patterns ask for the tail on both sides, so a draft that lost its `a b` is a row no cause covers. Same sources and owner as `amend-draft-window`."
 
 [[cause]]
 id = "call-row-page-edge"
