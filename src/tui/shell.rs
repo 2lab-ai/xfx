@@ -19301,6 +19301,105 @@ mod tests {
         }
     }
 
+    /// `/permissions remember ...` as a person types it (the rule
+    /// [`REMEMBER_A`] names), its Enter apart.
+    const REMEMBER_A_TYPED: &str =
+        "/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}";
+
+    /// [`McpCase`] with a saved session's rule store published, as
+    /// `remembering_shell` has one: a `remember` opens a confirmation here.
+    fn mcp_case_remembering() -> (McpCase, std::path::PathBuf) {
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh");
+        let entry = serde_json::json!({"command": "/bin/sh", "args": [fixture]});
+        let case = McpCase::new(
+            serde_json::json!({}),
+            Some(serde_json::json!({"keep": entry})),
+        );
+        let session = case.home.path().join("session");
+        std::fs::create_dir_all(&session).expect("a session directory");
+        let rules = crate::permission::session_rules::path_in(&session);
+        case.shell.work.publish_saved_rules(rules.clone());
+        (case, rules)
+    }
+
+    #[test]
+    fn a_rule_confirmation_and_mcps_menu_are_never_up_together() {
+        // Train 15's join: a C-j that answers a rule confirmation (RULE-CONFIRM-KEYS)
+        // is not counted for `/mcp`'s held rule, because the two are never
+        // up at once. Each is opened from the composer by an Enter, and each,
+        // while up, takes that Enter first: the confirmation takes every key
+        // ahead of the menu (`consume_inputs`), the menu takes Enter ahead of
+        // the composer (`offer_to_mcp`). Driven here by the keys a person
+        // types, both ways round.
+        //
+        // `/permissions` over `/mcp`'s menu: the typed command is the menu's
+        // filter and its Enter the menu's; no confirmation opens, no rule is
+        // kept, and no choice of the menu's is made.
+        let (mut case, rules) = mcp_case_remembering();
+        case.open();
+        case.reread();
+        let before = case.files();
+        case.typed(REMEMBER_A_TYPED);
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(case.shell.mcp_menu.is_some(), "the menu closed");
+        assert!(
+            case.shell.rule_confirm.is_none(),
+            "a confirmation opened over /mcp's menu"
+        );
+        assert!(!rules.exists(), "a rule was kept");
+        assert!(case.drained().is_empty());
+        assert_eq!(case.files(), before, "the menu acted");
+        // The control: with the menu closed (Escape clears its filter and
+        // shuts it), the same command opens its confirmation.
+        case.keys([Input::Action(Action::Escape)]);
+        assert!(case.shell.mcp_menu.is_none(), "Escape left the menu up");
+        case.typed(REMEMBER_A_TYPED);
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(
+            case.shell.rule_confirm.is_some(),
+            "the control opened no confirmation"
+        );
+        //
+        // `/mcp` over the confirmation: its letters change nothing and land
+        // nowhere, its Enter answers the confirmation -- the marked choice,
+        // Confirm, the confirmation's own key -- and no menu opens.
+        case.typed("/mcp");
+        assert!(
+            case.shell.rule_confirm.is_some(),
+            "a letter closed the confirmation"
+        );
+        assert!(
+            case.shell.mcp_menu.is_none(),
+            "/mcp's menu opened over the confirmation"
+        );
+        assert!(
+            case.shell.editor.is_empty(),
+            "the letters reached the composer"
+        );
+        assert!(!rules.exists(), "a letter answered the confirmation");
+        case.keys([Input::Action(Action::Submit)]);
+        assert!(
+            case.shell.rule_confirm.is_none(),
+            "Enter did not answer the confirmation"
+        );
+        assert!(
+            case.shell.mcp_menu.is_none(),
+            "the Enter opened /mcp's menu"
+        );
+        assert!(
+            case.shell.editor.is_empty(),
+            "the composer holds the letters"
+        );
+        let kept = crate::permission::session_rules::load(&rules)
+            .map(|state| state.rules.len())
+            .unwrap_or(0);
+        assert_eq!(kept, 1, "Enter's Confirm kept no rule");
+        assert_eq!(case.files(), before, "an MCP file changed");
+        // The control: with no confirmation up, `/mcp` opens its menu.
+        case.open();
+    }
+
     #[test]
     fn a_ctrl_j_the_menu_took_does_not_count_for_the_held_rule() {
         // The other side of the case above: with no question up, C-j is the
@@ -27374,6 +27473,9 @@ mod tests {
             ("kitty ctrl-shift-b", b"\x1b[98;6u", "ab zcd ef"),
             ("kitty ctrl-shift-f", b"\x1b[102;6u", "ab cdz ef"),
             ("xterm ctrl-shift-a", b"\x1b[27;6;97~", "zab cd ef"),
+            ("xterm ctrl-shift-e", b"\x1b[27;6;101~", "ab cd efz"),
+            ("xterm ctrl-shift-b", b"\x1b[27;6;98~", "ab zcd ef"),
+            ("xterm ctrl-shift-f", b"\x1b[27;6;102~", "ab cdz ef"),
         ] {
             let mut shell = shell(24, 80);
             asking(&mut shell);
