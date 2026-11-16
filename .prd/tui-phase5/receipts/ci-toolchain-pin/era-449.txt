@@ -1,0 +1,23 @@
+# The line clippy 1.100 refused, on main, and whether the PR of run 43019503559 touches it
+$ git show afeaea7c:src/mcp/era.rs, lines 449-450
+src/mcp/era.rs:449:         for i in 0..self.config.preferred.len() {
+src/mcp/era.rs:450:             if listed.has(i) && self.tried[i] == 0 {
+$ git diff --name-only e2fc7e94 d8e2eeeb -- src/mcp/era.rs | wc -l   (the run's head is d8e2eeeb; e2fc7e94 is its merge-base with main)
+0
+$ git log -1 --format='%h %s' afeaea7c -- src/mcp/era.rs   (main's last commit to touch it)
+af0fc46f fix(mcp): read detection answers as fx's decoder does and keep a given-up probe as fx keeps it
+
+# The step numbering of that run is its head's ci.yml (d8e2eeeb), which has two steps main's does not
+$ git diff --stat afeaea7c d8e2eeeb -- .github/workflows/ci.yml
+ .github/workflows/ci.yml | 62 ++++++++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 55 insertions(+), 7 deletions(-)
+$ git show d8e2eeeb:.github/workflows/ci.yml | grep -n -- '- name:' (first 9 steps)
+99:      - name: Check out the exact commit
+108:      - name: Confirm the checkout is the commit under test
+120:      - name: Install the pinned toolchain
+127:      - name: Confirm the runner really is this target
+137:      - name: The gate scripts run /bin/bash
+153:      - name: Which bash the gate scripts run
+164:      - name: Formatting
+168:      - name: Lints
+172:      - name: Tests

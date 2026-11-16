@@ -1,0 +1,6 @@
+head 92a3d90610c6316be877048aaab98ab8f696d267
+scripts/check-preview-contract.sh exit=0 seconds=3
+scripts/test-preview-contract.sh exit=0 seconds=53
+scripts/test-check-no-local-paths.sh exit=0 seconds=11
+scripts/test-gate-env.sh exit=0 seconds=169
+scripts/fxcap/test-sweep.sh exit=0 seconds=15

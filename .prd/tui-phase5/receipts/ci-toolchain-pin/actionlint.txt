@@ -1,0 +1,6 @@
+$ actionlint -version
+1.7.12
+$ actionlint .github/workflows/ci.yml
+exit=0
+$ actionlint (every workflow)
+exit=0

@@ -1,0 +1,17 @@
+$ git diff --stat 6071c6f8 5b20b9d6
+ .github/workflows/ci.yml         | 6 +++---
+ scripts/test-check-no-secrets.sh | 9 ++++-----
+ scripts/test-early-stop.sh       | 9 ++++-----
+ 3 files changed, 11 insertions(+), 13 deletions(-)
+$ git diff 6071c6f8 5b20b9d6 | grep -E '^[+-][^+-]' | grep -vcE '^[+-][[:space:]]*#'   (changed lines that are not comments)
+0
+# the quick steps in the worktree at 5b20b9d6, /bin/bash
+$ bash -n scripts/test-check-no-secrets.sh: exit 0
+$ bash -n scripts/test-early-stop.sh: exit 0
+$ actionlint .github/workflows/ci.yml: exit 0
+$ scripts/check-no-secrets.sh: exit 0, check-no-secrets: ok (20170 tracked file(s) scanned)
+$ scripts/check-no-local-paths.sh: exit 0, check-no-local-paths: ok (20170 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+$ scripts/check-xfx-identity.sh: exit 0, check-xfx-identity: ok (20170 tracked file(s) scanned)
+$ scripts/check-no-stubs.sh: exit 0, check-no-stubs: ok
+$ scripts/test-early-stop.sh: exit 0, test-early-stop: ok (6 cases)
+# tree clean after: yes

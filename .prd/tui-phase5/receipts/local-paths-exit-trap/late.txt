@@ -1,0 +1,9 @@
+# /bin/bash 3.2.57(1)-release, base dcfa5146
+# (its check-preview-contract.sh row ran before late.sh wrote the stop's lines to a file of their own: the check sends actionlint's stderr to its own file, so that row showed exit=0 fired=0; the row is from the rerun below)
+check-preview-contract.sh  actionlint   exit=0   fired=1 ran-on-after-signal=1 unbound-msg=0 finished-line=yes 5s
+test-check-no-secrets.sh   printf-term  exit=0   fired=1 ran-on-after-signal=1 unbound-msg=0 finished-line=yes 216s
+check-no-secrets.sh        printf-unset exit=0   fired=1 ran-on-after-signal=0 unbound-msg=1 finished-line=no 266s
+# /bin/bash, head 6071c6f8
+check-preview-contract.sh  actionlint   exit=143 fired=1 ran-on-after-signal=0 unbound-msg=0 finished-line=no 6s
+test-check-no-secrets.sh   printf-term  exit=143 fired=1 ran-on-after-signal=0 unbound-msg=0 finished-line=no 183s
+check-no-secrets.sh        printf-unset exit=1   fired=1 ran-on-after-signal=0 unbound-msg=1 finished-line=no 216s

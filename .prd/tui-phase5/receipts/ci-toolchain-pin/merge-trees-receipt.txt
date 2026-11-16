@@ -1,0 +1,62 @@
+head eb2f3873d552566860bc8f99133fd1ac96c9d55e
+train/p5-1116 resolved once to 2b78aab658ddf66353e4ca99feb3596a86573184
+
+== eb2f3873 x d8e2eeebe890c4ba4b4366b2d92e77ea8342c603 (receipts(local-paths-exit-trap): round 3 -- the unbound-variable line, the TMPDIR mutants, the rename, the merge of e2fc7e94)
+base afeaea7c is an ancestor of it: no
+git merge-tree --write-tree: exit 0, 1 line(s) of output (1 = clean), tree 994c0825723e86b17d6b854f9e6b238b15de6af3
+merged ci.yml, the rustup lines:
+  122:          rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
+  123:          rustup default 1.99.1
+diff <its ci.yml> <merged ci.yml> (lines: 333 -> 333):
+  122,123c122,123
+  <           rustup toolchain install stable --profile minimal --component rustfmt,clippy
+  <           rustup default stable
+  ---
+  >           rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
+  >           rustup default 1.99.1
+files the merge changes against it: 19 (.github/preview-epoch .github/workflows/ci.yml )
+
+== eb2f3873 x 866747ff7febf75db82cba8cb7391910d1bb419f (docs(receipt): train 15 round 2 -- the final scan through c4359778 (final-scan.txt))
+base afeaea7c is an ancestor of it: no
+git merge-tree --write-tree: exit 0, 1 line(s) of output (1 = clean), tree 62b0177ba17cfbc7325b1c17a85049dcb90a2dec
+merged ci.yml, the rustup lines:
+  113:          rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
+  114:          rustup default 1.99.1
+diff <its ci.yml> <merged ci.yml> (lines: 285 -> 285):
+  113,114c113,114
+  <           rustup toolchain install stable --profile minimal --component rustfmt,clippy
+  <           rustup default stable
+  ---
+  >           rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
+  >           rustup default 1.99.1
+files the merge changes against it: 19 (.github/preview-epoch .github/workflows/ci.yml )
+
+== eb2f3873 x ef595df251a404ec711ea43301623ba5ae695d13 (docs(ci-pty-wait): review round 3 -- S1 measured three ways, the clock defect labelled, mutants at f8bc123a)
+base afeaea7c is an ancestor of it: no
+git merge-tree --write-tree: exit 0, 1 line(s) of output (1 = clean), tree 55fcdd001ca9dc4bf1c389cf4cb961b5ef808cad
+merged ci.yml, the rustup lines:
+  113:          rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
+  114:          rustup default 1.99.1
+diff <its ci.yml> <merged ci.yml> (lines: 285 -> 285):
+  113,114c113,114
+  <           rustup toolchain install stable --profile minimal --component rustfmt,clippy
+  <           rustup default stable
+  ---
+  >           rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
+  >           rustup default 1.99.1
+files the merge changes against it: 19 (.github/preview-epoch .github/workflows/ci.yml )
+
+== eb2f3873 x 2b78aab658ddf66353e4ca99feb3596a86573184 (train 16: a pinned reference the first re-point moved, put back)
+base afeaea7c is an ancestor of it: no
+git merge-tree --write-tree: exit 0, 1 line(s) of output (1 = clean), tree 601c423796f2e4d4ca873c90199eebf1e10929a3
+merged ci.yml, the rustup lines:
+  119:          rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
+  120:          rustup default 1.99.1
+diff <its ci.yml> <merged ci.yml> (lines: 315 -> 315):
+  119,120c119,120
+  <           rustup toolchain install stable --profile minimal --component rustfmt,clippy
+  <           rustup default stable
+  ---
+  >           rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
+  >           rustup default 1.99.1
+files the merge changes against it: 19 (.github/preview-epoch .github/workflows/ci.yml )

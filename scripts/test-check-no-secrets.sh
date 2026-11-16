@@ -27,7 +27,12 @@
 #     middle fails the check: past 2 is "not looked at" too;
 #   - a distinct key in every file is reported once each, the set compared
 #     whole: no batch dropped or read twice, no name at a batch's edge lost.
-#   - a tree with nothing to scan is refused, not passed.
+#   - a tree with nothing to scan is refused, not passed;
+#   - a check stopped early -- by an error of its own, an `exit`, a failed
+#     subshell, or a signal, right after it installs its EXIT trap or just
+#     before its ok line -- fails with that stop's status and leaves no
+#     scratch file behind;
+#   - a listing or a scan that an arithmetic error cut short fails.
 # Most of the names carry a tab, a newline and a byte that is not UTF-8 --
 # a valid two-byte character where the filesystem refuses that (macOS) -- so
 # every batch boundary is between two of them.
@@ -66,7 +71,16 @@ sg() {
 unset GREP_OPTIONS
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/xfx-secrets-test.XXXXXX")"
-trap 'rm -rf "$work"' EXIT HUP INT TERM
+# A run that stops before its last line fails: under bash 3.2 a script
+# stopped by an error of its own (an unset variable under `set -u`) leaves
+# through its EXIT trap with the trap's status, 0, and would read as a pass.
+# Any exit before `finished=1` keeps the status bash gives it, or is 1 where
+# bash gives 0.
+# No trap on HUP, INT or TERM: one there ran the cleanup and went on without
+# its scratch directory; without one the shell runs this trap and dies of the
+# signal.
+finished=0
+trap 'stopped=$?; rm -rf "$work"; [ "$finished" = 1 ] || exit "$((stopped == 0 ? 1 : stopped))"' EXIT
 
 failures=0
 passed=0
@@ -374,8 +388,98 @@ sg -C "$links" add -f -- link
 run_check "$links"
 verdict only-a-symlink 1 "check-no-secrets: no files to scan; the check would pass for the wrong reason"
 
+# --- a check that stops early ------------------------------------------------
+
+# scripts/early-stop-env.sh writes a BASH_ENV file that stops the check: right
+# after it installs its EXIT trap, by an unset variable under its `set -u`,
+# `exit 7`, a `( exit 5 )` that `set -e` carries out, SIGTERM, SIGHUP or
+# SIGINT sent to it alone, or SIGINT sent to it and a child it waits for
+# (`stopped-*`); and by an unset variable just before its ok line, once every
+# scratch file is made (`stopped-late`). Under bash 3.2 a stop by an unset
+# variable left through the trap with status 0 and no output but bash's own
+# line: a pass that scanned nothing. Each must exit with the status bash gives
+# that stop, the stop must have fired with the check's EXIT trap installed,
+# nothing may run past it, and the check's TMPDIR must be empty after it.
+# And the `early stop:` line prints before the stop, so an `unset` stop must
+# also show bash's own `xfx_test_unset: unbound variable`: another stop with
+# status 1 after the marker would pass without it.
+#
+# And an arithmetic error, which bash does not stop on: it drops the command
+# that holds it and goes on. One in the listing (`skipped-listing`, the
+# second `read`) left the scan a list of one name, with a key in a later
+# file; one in the scan (`skipped-scan`, while it refuses a tracked .env)
+# left it unfinished: each passed with the problem in the tree. Each must
+# fail, by name.
+early_stop_env="$repo_root/scripts/early-stop-env.sh"
+small="$work/small"
+mkdir -p "$small/scripts"
+sg -C "$small" init -q
+cp "$check" "$small/scripts/check-no-secrets.sh"
+printf 'clean\n' >"$small/a.txt"
+sg -C "$small" add -f -- a.txt scripts/check-no-secrets.sh
+# For the listing, a key in the last file git lists, so a list cut after the
+# first name holds no problem; for the scan, a tracked .env, which the scan
+# refuses first.
+skiplist="$work/skip-listing"
+mkdir -p "$skiplist/scripts"
+sg -C "$skiplist" init -q
+cp "$check" "$skiplist/scripts/check-no-secrets.sh"
+printf 'clean\n' >"$skiplist/a.txt"
+printf 'clean\n' >"$skiplist/b.txt"
+printf '%s\n' "$fake_key" >"$skiplist/zz-key.txt"
+sg -C "$skiplist" add -f -- a.txt b.txt zz-key.txt scripts/check-no-secrets.sh
+skip="$work/skip-scan"
+mkdir -p "$skip/scripts"
+sg -C "$skip" init -q
+cp "$check" "$skip/scripts/check-no-secrets.sh"
+printf 'clean\n' >"$skip/a.txt"
+printf 'A=1\n' >"$skip/.env.zz-planted"
+sg -C "$skip" add -f -- a.txt .env.zz-planted scripts/check-no-secrets.sh
+# <case>|<tree>|<stop>|<hook>|<status>|<text the output must hold, or ->
+for row in "stopped-unset|$small|unset|trap-exit|1|xfx_test_unset: unbound variable" "stopped-exit7|$small|exit7|trap-exit|7|-" \
+	"stopped-subshell|$small|subshell|trap-exit|5|-" "stopped-term|$small|term|trap-exit|143|-" \
+	"stopped-hup|$small|hup|trap-exit|129|-" "stopped-int|$small|int|trap-exit|130|-" \
+	"stopped-int-group|$small|int-group|trap-exit|130|-" \
+	"stopped-late|$small|unset|printf=check-no-secrets: ok*|1|xfx_test_unset: unbound variable" \
+	"skipped-listing|$skiplist|arith|read=2|1|check-no-secrets: the listing did not finish" \
+	"skipped-scan|$skip|arith|printf=*zz-planted*|1|check-no-secrets: the scan did not finish"; do
+	IFS='|' read -r name root stop hook want needle <<<"$row"
+	"$early_stop_env" "$stop" "$hook" >"$work/$name.env"
+	tmp="$work/tmp-$name"
+	mkdir "$tmp"
+	# Its stderr dropped: bash names the command a signal ended, paths and all.
+	run_check "$root" "BASH_ENV=$work/$name.env" "TMPDIR=$tmp" 2>/dev/null
+	bad=""
+	if [ "$status" -ne "$want" ]; then
+		bad="the check exited $status, expected $want"
+	fi
+	if ! search -q -x -F -e "early stop: $stop" "$work/out"; then
+		bad="${bad:+$bad; }its output lacks 'early stop: $stop': the stop never fired"
+	elif ! search -q -x -e '^early stop: trap -- .* EXIT$' "$work/out"; then
+		bad="${bad:+$bad; }no EXIT trap was installed when it stopped"
+	fi
+	if [ "$needle" != - ] && ! search -q -F -e "$needle" "$work/out"; then
+		bad="${bad:+$bad; }its output lacks '$needle'"
+	fi
+	if search -q -e '^check-no-secrets: ok' -e '^early stop: still running' "$work/out"; then
+		bad="${bad:+$bad; }it ran on past the stop"
+	fi
+	left="$(find "$tmp" -mindepth 1 -print | wc -l | tr -d ' ')"
+	if [ "$left" -ne 0 ]; then
+		bad="${bad:+$bad; }it left $left file(s) in its TMPDIR"
+	fi
+	if [ -n "$bad" ]; then
+		problem "$name: $bad; the first lines it printed:"
+		LC_ALL=C sed -n '1,12p' "$work/out" | LC_ALL=C cut -c 1-200 >&2
+	else
+		printf 'test-check-no-secrets: ok %-18s exit %d\n' "$name" "$status"
+		passed=$((passed + 1))
+	fi
+done
+
 if [ "$failures" -ne 0 ]; then
 	printf 'test-check-no-secrets: %d problem(s), %d case(s) passed\n' "$failures" "$passed" >&2
 	exit 1
 fi
 printf 'test-check-no-secrets: ok (%d cases; %d tracked names past ARG_MAX %d)\n' "$passed" "$tracked" "$arg_max"
+finished=1

@@ -1,0 +1,8 @@
+# bash 5.2.37(1)-release in ruby:3.4-trixie, head dcfa5146, test-gate-env.sh with no stop
+rustc: none on PATH
+exit=1 82s
+test-gate-env: this grep ignores GREP_OPTIONS (grep (GNU grep) 3.11): each case below proves only its plant
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: build-script: rustc could not compile build.rs:
+test-gate-env: 1 problem(s), 60 case(s) passed

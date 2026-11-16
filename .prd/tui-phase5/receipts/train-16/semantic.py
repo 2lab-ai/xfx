@@ -41,6 +41,12 @@ merged tree `cargo fmt --check` and both clippy runs fail
   person's own environment at compile time. The build-script comment says
   the names and the function (`git_build_id`, #96's) build.rs has now.
 
+Merge 7 (round 3: main `e0aedbf6` onto the train). TEST-ENV-ISOLATION
+renamed ci.yml's toolchain step "Install the stable toolchain"; main's #101
+(CI-TOOLCHAIN-PIN) kept the name "Install the pinned toolchain" and made the
+step install and default to 1.99.1. git merged the two lines clean: a step
+named stable that installs 1.99.1. The name is main's again.
+
     python3 -I -B semantic.py [--only build] <merge-number> <worktree>
 """
 import sys
@@ -140,6 +146,15 @@ FIXES = {
     # every GIT_* name from the git it starts, and starts that git (two
     # calls: `git_path` and `git_build_id`).
 """,
+            1,
+        ),
+    ],
+    "7": [
+        (
+            "name",
+            ".github/workflows/ci.yml",
+            "      - name: Install the stable toolchain\n        run: |\n          rustup toolchain install 1.99.1 ",
+            "      - name: Install the pinned toolchain\n        run: |\n          rustup toolchain install 1.99.1 ",
             1,
         ),
     ],

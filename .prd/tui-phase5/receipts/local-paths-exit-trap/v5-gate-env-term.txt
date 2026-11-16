@@ -1,0 +1,7 @@
+# bash 5.2.37 in ruby:3.4-trixie, base dcfa5146: verdicts.sh /usr/bin/bash <clone> <work> test-gate-env.sh, kinds=term, under the suite lock (a second run, its log kept); the problem lines of its log, paths written <path>
+test-gate-env.sh           term   exit=1   fired=1 unbound-msg=0 ran-on-after-signal=1 finished-line=no 93s
+test-gate-env: this grep ignores GREP_OPTIONS (grep (GNU grep) 3.11): each case below proves only its plant
+test-gate-env: skip identity-vendored-miscased   this file system does not fold case
+test-gate-env: skip identity-own-miscased        this file system does not fold case
+test-gate-env: build-script: rustc could not compile build.rs:
+test-gate-env: 1 problem(s), 60 case(s) passed

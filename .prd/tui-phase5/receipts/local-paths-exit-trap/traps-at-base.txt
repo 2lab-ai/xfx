@@ -1,0 +1,21 @@
+$ git grep -n -E '(^|[;&|[:space:]])trap[[:space:]]' dcfa5146 -- ':!*.rs' ':!.prd' ':!docs'
+.github/workflows/preview.yml:501:          trap 'ssh-agent -k >/dev/null 2>&1 || true' EXIT
+.github/workflows/preview.yml:767:          trap 'ssh-agent -k >/dev/null 2>&1 || true' EXIT
+scripts/check-no-local-paths.sh:283:trap 'rm -rf "$work"' EXIT
+scripts/check-no-secrets.sh:61:trap 'rm -f "$listing"' EXIT
+scripts/check-no-secrets.sh:177:trap 'rm -f "$control" "$listing"' EXIT
+scripts/check-no-secrets.sh:386:trap 'rm -f "$control" "$listing"; rm -rf "$sample_dir"' EXIT
+scripts/check-preview-contract.sh:957:trap 'rm -rf "$work"' EXIT HUP INT TERM
+scripts/check-xfx-identity.sh:171:trap 'rm -rf "$control_root"' EXIT
+scripts/fxcap/capture.sh:415:# Globals, not locals: the EXIT trap runs after main has returned. The guard_*
+scripts/fxcap/capture.sh:849:  trap cleanup EXIT
+scripts/fxcap/capture.sh:1315:  # fx's guards run in the EXIT trap (cleanup), after the tmux server is gone.
+scripts/smoke.sh:376:			# trap stay quiet about a process that is already gone.
+scripts/smoke.sh:385:			# Still running, still silent. The trap kills it on the way out.
+scripts/smoke.sh:413:trap cleanup EXIT
+scripts/test-check-no-local-paths.sh:62:trap 'rm -rf "$work"' EXIT
+scripts/test-check-no-secrets.sh:69:trap 'rm -rf "$work"' EXIT HUP INT TERM
+scripts/test-gate-env.sh:109:trap 'rm -rf "$work"' EXIT HUP INT TERM
+scripts/test-preview-contract.sh:35:trap 'rm -rf "$work"' EXIT HUP INT TERM
+$ git grep -n -w trap dcfa5146 -- scripts/smoke-tui.sh
+scripts/smoke-tui.sh:5742:    "trap '' INT HUP TERM; sleep 30 & echo $! > sleeper.pid; wait"

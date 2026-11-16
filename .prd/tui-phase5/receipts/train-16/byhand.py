@@ -63,6 +63,18 @@ the draft's start, End's to its end (`DraftStart`/`DraftEnd`), as fx's
 `cursorHome`/`cursorEnd` do. Merged: ours' function, with theirs' two arms
 made a mapping of the action ahead of ours' one call, and theirs' comment
 on them (less "A move records no delta": there is no history to record in).
+
+Merge 7 (round 3: main `e0aedbf6` -- #101 CI-TOOLCHAIN-PIN, #99
+LOCAL-PATHS-EXIT-TRAP, #100 train 15 -- onto the train),
+`.github/workflows/ci.yml`, one block: the `script_tests` comment, which
+both rewrote. Ours (TEST-ENV-ISOLATION) added `check-env-reads.py
+--self-test` to the list and the self-test's python and clippy to what the
+rows exercise, and made "build nothing" "no build of xfx" (the self-test
+builds its fixtures); theirs (LOCAL-PATHS-EXIT-TRAP) made the list one
+sentence with `test-early-stop.sh` in it, and dropped "bash 3.2" (macOS
+runs the scripts under 3.2 only through its `bash32` row now). Merged:
+theirs' sentence with both lists' scripts, ours' "own tools" clause with
+theirs' grep words, ours' "no build of xfx".
 """
 import hashlib
 import sys
@@ -164,6 +176,24 @@ def draft_edges_without_history(o, b, t):
     ] + o[3:]
 
 
+def script_tests_both(o, b, t):
+    if not any("check-env-reads.py --self-test). They exercise the OS's own tools --" in x for x in o) or \
+            not any("test-early-stop.sh. They exercise the OS's bash, grep, git and getconf" in x for x in t):
+        sys.exit(f"{path}: the two lists are not the ones read -- read by hand")
+    return [
+        "      # themselves: test-gate-env.sh (which also runs test-check-no-secrets.sh",
+        "      # whole), test-preview-contract.sh, test-check-no-local-paths.sh,",
+        "      # test-early-stop.sh and check-env-reads.py --self-test. They exercise",
+        "      # the OS's own tools -- bash, grep, git and getconf (BSD grep on macOS,",
+        "      # GNU grep on Linux), and the self-test python and clippy on its",
+        "      # fixtures -- and no build of xfx for the target, so a second row of the",
+        "      # same OS repeats them on the same userland. On the x86_64 macOS row",
+        "      # they would have cost minutes against its 60-minute timeout (PR #80:",
+        "      # 47m29s). The gates themselves (every check-*.sh) still run on every",
+        "      # row.",
+    ]
+
+
 TABLE = {
     ("2", "src/tui/shell.rs"): [
         (("0850917e69a90b12", "8db7719f5b35916f", "a2989ff5e26277d0"), args_doc_both),
@@ -179,6 +209,9 @@ TABLE = {
     ],
     ("5", "src/tui/approval_amendment.rs"): [
         (("ff2d63c8c26fb1bf", "8f2d5c053d1429f4", "1a3896b5925926b8"), draft_edges_without_history),
+    ],
+    ("7", ".github/workflows/ci.yml"): [
+        (("a7b6fe3df4e4447c", "11ff2992283a84e9", "520b1541635578a3"), script_tests_both),
     ],
     ("3", "src/tui/worker.rs"): [
         (("6ee676770ffe630d", "d164da928d34fb8d", "a930b24597a41ee3"), ours_env_read),

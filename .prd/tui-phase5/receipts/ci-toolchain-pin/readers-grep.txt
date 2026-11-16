@@ -1,0 +1,51 @@
+# The three reader greps the README names, run read-only at 92a3d906 over scripts/ and tests/
+$ git grep -n 'ci\.yml' 92a3d906 -- scripts tests
+scripts/test-gate-env.sh:824:	doc = YAML.safe_load(File.read(".github/workflows/ci.yml"), aliases: true)
+scripts/test-gate-env.sh:825:	job = doc["jobs"]["gate"] or abort "ci.yml has no gate job"
+scripts/test-gate-env.sh:849:	problem "ci-script-tests-per-os: ci.yml could not be read as expected:"
+scripts/test-gate-env.sh:859:# ci.yml's checkout assertion, run as written: under a GIT_DIR naming a decoy
+scripts/test-gate-env.sh:862:	doc = YAML.safe_load(File.read(".github/workflows/ci.yml"), aliases: true)
+scripts/test-gate-env.sh:864:	abort "ci.yml has no checkout assertion" unless step
+scripts/test-gate-env.sh:946:# touches anything. This is CI's only full run of it (ci.yml runs it nowhere
+scripts/test-preview-contract.sh:251:    uses: ./.github/workflows/ci.yml
+tests/permissions.rs:2022:        ".github/workflows/ci.yml",
+tests/tool_loop.rs:1417:    tree.write(".github/workflows/ci.yml", "on: push\n");
+tests/tool_loop.rs:1433:        "[glob] 1 matches for .github/**/*.yml\n - .github/workflows/ci.yml\n"
+tests/tool_loop.rs:1446:        "[grep] 1 matches for on: push\n - .github/workflows/ci.yml:1: on: push\n"
+
+$ git grep -ln 'toolchain' 92a3d906 -- scripts tests
+scripts/check-preview-contract.sh
+scripts/check-tui-preflight-cost.sh
+scripts/fxcap/test_ci_sweep.py
+
+$ git grep -n '\.github/workflows' 92a3d906 -- scripts tests
+scripts/check-preview-contract.sh:72:workflow="${1:-.github/workflows/preview.yml}"
+scripts/check-preview-contract.sh:195:if ! ruby - "$workflow" "$tree/$CONTRACT_EPOCH" "$tree/.github/workflows" <<'RUBY'; then
+scripts/fxcap/ci-core.txt:1:# The core set: the scenarios .github/workflows/sweep.yml runs on every change,
+scripts/test-gate-env.sh:168:	mkdir -p "$root/.github/workflows"
+scripts/test-gate-env.sh:169:	cp .github/workflows/*.yml "$root/.github/workflows/"
+scripts/test-gate-env.sh:177:	scripts/check-preview-contract.sh "$readme_tree/.github/workflows/preview.yml" "$readme_tree"
+scripts/test-gate-env.sh:565:	env "$@" scripts/check-preview-contract.sh "$readme_tree/.github/workflows/preview.yml" "$readme_tree"
+scripts/test-gate-env.sh:806:' .github/workflows/*.yml >"$work/workflow-steps"
+scripts/test-gate-env.sh:824:	doc = YAML.safe_load(File.read(".github/workflows/ci.yml"), aliases: true)
+scripts/test-gate-env.sh:862:	doc = YAML.safe_load(File.read(".github/workflows/ci.yml"), aliases: true)
+scripts/test-preview-contract.sh:44:	mkdir -p "$root/.github/workflows"
+scripts/test-preview-contract.sh:45:	cp .github/workflows/*.yml "$root/.github/workflows/"
+scripts/test-preview-contract.sh:55:	ruby - "$1/.github/workflows/preview.yml" "$2" <<'RUBY'
+scripts/test-preview-contract.sh:136:	"$check" "$root/.github/workflows/preview.yml" "$root" >"$work/$name.log" 2>&1 || status=$?
+scripts/test-preview-contract.sh:153:if ! "$check" "$control/.github/workflows/preview.yml" "$control" >"$work/control.log" 2>&1; then
+scripts/test-preview-contract.sh:186:	if cmp -s .github/workflows/preview.yml "$root/.github/workflows/preview.yml"; then
+scripts/test-preview-contract.sh:197:cat >"$root/.github/workflows/tap.yml" <<'YAML'
+scripts/test-preview-contract.sh:214:cat >"$root/.github/workflows/dispatch.yml" <<'YAML'
+scripts/test-preview-contract.sh:229:cat >"$root/.github/workflows/report.yml" <<'YAML'
+scripts/test-preview-contract.sh:245:cat >"$root/.github/workflows/call.yml" <<'YAML'
+scripts/test-preview-contract.sh:251:    uses: ./.github/workflows/ci.yml
+tests/permissions.rs:2017:    // `.github/workflows` would be useless, and the protection is worth having
+tests/permissions.rs:2022:        ".github/workflows/ci.yml",
+tests/tool_loop.rs:1417:    tree.write(".github/workflows/ci.yml", "on: push\n");
+tests/tool_loop.rs:1433:        "[glob] 1 matches for .github/**/*.yml\n - .github/workflows/ci.yml\n"
+tests/tool_loop.rs:1446:        "[grep] 1 matches for on: push\n - .github/workflows/ci.yml:1: on: push\n"
+
+# Files that could override 'rustup default' or cargo's flags, in the tree at 92a3d906
+$ git ls-tree -r --name-only 92a3d906 | grep -ciE '(^|/)rust-toolchain(\.toml)?$|(^|/)\.cargo/config(\.toml)?$'
+0
