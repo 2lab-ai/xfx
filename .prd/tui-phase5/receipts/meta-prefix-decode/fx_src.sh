@@ -68,8 +68,13 @@ ranges=(
   src/main.zig:174-176
   # The loop's poll: 8 ms, the active timeout, at most.
   src/main.zig:1115-1145
-  src/main.zig:187-187
-  src/main.zig:2975-2982
+  src/main.zig:187-207
+  # The loop's facts: loopCollectFacts' head and its wiring as the loop's
+  # collect_facts; its clock read, the flush, then the worker's and the
+  # pacer's ticks, before the loop handles collected bytes and polls.
+  src/main.zig:2846-2849
+  src/core/app/app_render_runtime.zig:2055-2065
+  src/main.zig:2975-2990
   src/ui/event_loop.zig:76-122
   # What an Escape does: the route, the windows, resolveEscape.
   src/core/app/app_input_runtime.zig:658-677

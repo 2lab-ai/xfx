@@ -55,8 +55,8 @@
 //! # The meta prefix
 //!
 //! **A second ESC before the first has gone quiet is upstream's meta prefix**
-//! (`escape_parser.zig:552-555`, `terminal_action_decoder.zig:84-88
-//! @481104fd`): no event, the clock started again, and the sequence behind it
+//! (`escape_parser.zig:552-555`; `terminal_action_decoder.zig:42-44`,
+//! `:186-192@481104fd`): no event, the clock started again, and the sequence behind it
 //! read as that key with Alt -- `ESC ESC [ A` a paragraph up, `ESC ESC [ C` a
 //! word right, `ESC ESC [ 1 ; 5 H` the plain Home, since Alt's row has none
 //! ([`prefixed`], [`kitty_key`] for a key report). With nothing behind it the
@@ -70,9 +70,11 @@
 //! which read a byte came off: the quiet alone tells a prefix from a press.
 //!
 //! **The pair's stage is fx's; a lone ESC's hold is not.** fx's decoder
-//! resolves a pair's stage 30 ms after its second ESC, at the next loop
-//! turn, every 8 ms or less (`main.zig:174`, `:1115-1123`), while its monitor
-//! keeps the first. Copied: 30 ms ([`Decoder::PAIR_TIMEOUT`]) after `ESC ESC`
+//! resolves a pair's stage 30 ms after its second ESC, at the first loop
+//! turn whose clock read comes after that (`loopCollectFacts`, `main.zig:2846`,
+//! `:2975-2982`) -- a turn every 8 ms of quiet, or 1 ms while focused work
+//! is on (`main.zig:174`, `:189-207`, `:1115-1123`) -- while its monitor keeps
+//! the first. Copied: 30 ms ([`Decoder::PAIR_TIMEOUT`]) after `ESC ESC`
 //! with nothing behind it, one Escape, and the pair is one lone ESC from then
 //! on, its clock still the second ESC's as fx's monitor restarts its hold
 //! there (`theme_monitor.zig:85-88`). That lone ESC -- and every lone ESC --
@@ -93,9 +95,12 @@
 //!
 //! The last two rows rest on the monitor's 75 ms alone, read from fx's
 //! source, and are ESC-MONITOR-TIMING's to copy; the base read them as xfx
-//! does. The 40 ms rows also need fx's loop to have turned between 30 and 40
-//! ms, which its 8 ms poll makes likely but its frame work can delay --
-//! inferred from that cadence, not measured.
+//! does. The 40 ms rows also need one of fx's loop turns to read its clock
+//! between 30 and 40 ms. Its poll waits at most 8 ms, so what can push that
+//! read past 40 ms is more than about 2 ms of the same turn's work after
+//! the clock read (`main.zig:2975`) and before the poll (`event_loop.zig:92`):
+//! the worker's and the pacer's ticks (`main.zig:2983-2989`) or collected
+//! bytes (`event_loop.zig:83-86`) -- inferred from the code, not measured.
 //!
 //! A report behind the prefix -- any `OSC`, the background notification --
 //! gives the first ESC back as the Escape key it was. fx's monitor keeps
@@ -1077,8 +1082,8 @@ impl Decoder {
 
     /// Resolves what only the passage of time can resolve.
     ///
-    /// Exactly one thing: a bare ESC older than
-    /// [`ESC_TIMEOUT`](Self::ESC_TIMEOUT) is the Escape key -- and a meta
+    /// Two things, both about a pending ESC: a bare ESC older than
+    /// [`ESC_TIMEOUT`](Self::ESC_TIMEOUT) is the Escape key, and a meta
     /// prefix with nothing behind it is two, as fx delivers the pair, in two
     /// steps. fx's theme monitor, started at every launch, holds the first
     /// ESC and hands the second to the key decoder at once
@@ -1209,8 +1214,11 @@ impl Decoder {
             }
             b'O' => self.stage = Stage::Ss3 { meta },
             // A second ESC before the first has gone quiet: the meta prefix,
-            // and no event (`terminal_action_decoder.zig:84-88`, which starts
-            // the clock again from this byte). A third keeps it. With nothing
+            // and no event, the clock started again from this byte -- in fx
+            // the second reaches the decoder first, at its ground stage, which
+            // starts the clock (`beginEscape`, `terminal_action_decoder.zig:42-44`,
+            // `:186-192`). A third keeps the prefix and starts the clock again
+            // (`:84-88`, an ESC while a stage is pending). With nothing
             // behind it, the pair resolves one Escape after `PAIR_TIMEOUT` and
             // one after the quiet, two as fx delivers it ([`Self::flush`]),
             // and so are a person's two presses a quiet apart: the gesture's
@@ -4224,8 +4232,8 @@ mod tests {
     fn two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst() {
         // fx's rule for a second `ESC`: in front of anything it is the meta
         // prefix, a bit of the stage with no event (`escape_parser.zig:552-555`;
-        // `terminal_action_decoder.zig:84-88@481104fd`, which also restarts
-        // the clock). With nothing behind it, fx delivers the pair as two
+        // the clock started at it, `terminal_action_decoder.zig:42-44`,
+        // `:186-192@481104fd`). With nothing behind it, fx delivers the pair as two
         // Escapes: its theme monitor, started at every launch
         // (`app_bootstrap_runtime.zig:481-483`), holds the first ESC and hands
         // the second to the key decoder at once (`theme_monitor.zig:82-93`),
@@ -4559,8 +4567,12 @@ mod tests {
         // holds it 75 ms; that is ESC-MONITOR-TIMING's, and rows 2 and 3 below
         // are pinned as xfx reads them for it to flip. fx's results, in the
         // comments: rows 2 and 3 from the monitor's source, rows 1 and 4 also
-        // assuming fx's loop turned between 30 and 40 ms (`main.zig:174`,
-        // `:1115-1123`), inferred.
+        // assuming one of fx's loop turns read its clock between 30 and 40 ms
+        // -- its poll waits at most 8 ms (`main.zig:174`, `:189-207`), so what
+        // can push that read past 40 ms is more than about 2 ms of the same
+        // turn's work between it (`main.zig:2975`) and the poll
+        // (`event_loop.zig:92`): the worker's and pacer's ticks, collected
+        // bytes -- inferred, not measured.
         let ms = Duration::from_millis;
         assert!(ms(40) < Decoder::ESC_TIMEOUT && ms(60) > Decoder::ESC_TIMEOUT);
         let start = Instant::now();
@@ -4618,7 +4630,7 @@ mod tests {
     #[test]
     fn the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_esc() {
         // The pair's stage, copied from fx's decoder (`main.zig:187`;
-        // `terminal_action_decoder.zig:84-88`, `:174-183@481104fd`): its
+        // `terminal_action_decoder.zig:42-44`, `:174-192@481104fd`): its
         // edges, its clock, and what it leaves pending.
         let ms = Duration::from_millis;
         let start = Instant::now();
@@ -4651,11 +4663,24 @@ mod tests {
             run(&[(0, b"\x1b\x1b"), (30, b"[A")]),
             vec![escape(), Input::Action(Action::Up)]
         );
-        // The pair's clock is the second ESC's, as fx's decoder's stage
-        // starts there (`terminal_action_decoder.zig:84-88`): `ESC`, `ESC`
-        // 20 ms later, `[ A` 20 ms after that is still one prefixed Up.
+        assert_eq!(
+            run(&[(0, b"\x1b\x1b"), (30, &[0x03])]),
+            vec![escape(), escape(), Input::Action(Action::Cancel)]
+        );
+        // The pair's clock is the second ESC's: with fx's monitor holding
+        // the first, the second reaches fx's decoder at its ground stage,
+        // which starts the clock (`beginEscape`,
+        // `terminal_action_decoder.zig:42-44`, `:186-192`). `ESC`, `ESC` 20 ms
+        // later, `[ A` 20 ms after that is still one prefixed Up.
         assert_eq!(
             run(&[(0, b"\x1b"), (20, b"\x1b"), (40, b"[A")]),
+            vec![Input::Action(Action::ParagraphUp)]
+        );
+        // A third ESC starts it again (`:84-88`, an ESC while a stage is
+        // pending): `ESC ESC`, a third 20 ms later, `[ A` 20 ms after that
+        // is still one prefixed Up.
+        assert_eq!(
+            run(&[(0, b"\x1b\x1b"), (20, b"\x1b"), (40, b"[A")]),
             vec![Input::Action(Action::ParagraphUp)]
         );
         // And the pair with nothing behind it: one Escape at 30 ms, the
@@ -4676,6 +4701,18 @@ mod tests {
         assert_eq!(out, vec![escape(), escape()], "the kept ESC at its quiet");
         decoder.flush(start + ms(1000), &mut out);
         assert_eq!(out, vec![escape(), escape()], "a third Escape");
+        // The same with the two ESCs 20 ms apart: both steps count from the
+        // second, so one Escape at 50 ms and the other at 70 ms, cumulative
+        // 0, 1, 1, 2 at 49, 50, 69, 70, and no more after.
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        decoder.feed(0x1b, start, &mut out);
+        decoder.feed(0x1b, start + ms(20), &mut out);
+        for (at, count) in [(49, 0), (50, 1), (69, 1), (70, 2), (1000, 2)] {
+            decoder.flush(start + ms(at), &mut out);
+            assert_eq!(out.len(), count, "at {at} ms: {out:?}");
+            assert!(out.iter().all(|event| *event == escape()), "{out:?}");
+        }
     }
 
     #[test]

@@ -1297,10 +1297,49 @@
  1144      }
  1145  
 
-## src/main.zig:187-187
+## src/main.zig:187-207
   187  const input_escape_timeout_ms: i64 = 30;
+  188  
+  189  /// The first frame counts as focused work: an idle wait before it would only
+  190  /// delay the launch.
+  191  fn nativeLoopPollTimeoutMs(
+  192      default_timeout_ms: i32,
+  193      first_frame_pending: bool,
+  194      auth_refresh_active: bool,
+  195      skills_refresh_active: bool,
+  196      transcript_page_work_active: bool,
+  197      file_listing_hold_pending: bool,
+  198  ) i32 {
+  199      return if (first_frame_pending or
+  200          auth_refresh_active or
+  201          skills_refresh_active or
+  202          transcript_page_work_active or
+  203          file_listing_hold_pending)
+  204          @min(default_timeout_ms, focused_ui_worker_poll_timeout_ms)
+  205      else
+  206          default_timeout_ms;
+  207  }
 
-## src/main.zig:2975-2982
+## src/main.zig:2846-2849
+ 2846      pub fn loopCollectFacts(ctx: *anyopaque) !void {
+ 2847          const self: *App = @ptrCast(@alignCast(ctx));
+ 2848          if (!try WorkerAppRuntime.authorizeInteractiveAdmission(self)) return;
+ 2849  
+
+## src/core/app/app_render_runtime.zig:2055-2065
+ 2055          pub fn eventLoopCallbacks(app: *App) event_loop.EventLoopCallbacks {
+ 2056              return .{
+ 2057                  .ctx = @ptrCast(app),
+ 2058                  .collect_facts = App.loopCollectFacts,
+ 2059                  .next_collected_byte = App.loopNextCollectedByte,
+ 2060                  .handle_byte = App.loopHandleByte,
+ 2061                  .settle_delivery_epoch = App.loopSettleInputDeliveryEpoch,
+ 2062                  .commit_frame = App.loopCommitFrame,
+ 2063                  .poll_timeout_ms = if (comptime @hasDecl(App, "loopPollTimeoutMs")) App.loopPollTimeoutMs else null,
+ 2064              };
+ 2065          }
+
+## src/main.zig:2975-2990
  2975          const input_now_ms = io_mod.milliTimestamp();
  2976          InputAppRuntime.expireTerminalInputGestures(self, input_now_ms);
  2977          const terminal_input = self.terminal_input_runtime.flushTerminalAction(
@@ -1309,6 +1348,14 @@
  2980              InputAppRuntime.terminalPasteActive(self),
  2981          );
  2982          try self.routeTerminalInputIngress(terminal_input);
+ 2983          try WorkerAppRuntime.tick(self, app_callbacks.Bindings(App).workerEventHandlers(self));
+ 2984          const now_ns = io_mod.nanoTimestamp();
+ 2985          if (!self.approval_prompt.isActive() and !self.question_prompt.isActive() and !self.auth.apiKeyEntryActive()) {
+ 2986              try self.pacer.tick(self.alloc, now_ns, self.pacerCallbacks());
+ 2987          } else {
+ 2988              self.pacer.pause(now_ns);
+ 2989          }
+ 2990      }
 
 ## src/ui/event_loop.zig:76-122
    76  pub fn run(terminal: anytype, should_exit: *bool, poll_timeout_ms: i32, callbacks: EventLoopCallbacks) !ExitCause {
