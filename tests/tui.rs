@@ -3570,22 +3570,23 @@ fn hostile_paste(start_inside: bool) -> Vec<u8> {
 /// The longest pause is printed either way, so a failure later in the case
 /// carries it: a timeout behind a paste that never paused is the product's.
 fn paste_unpaced(session: &Session, bytes: &[u8], size: (usize, usize)) -> Result<(), Rejected> {
-    paste_with_pauses(session, bytes, size, std::time::Duration::ZERO)
+    paste_with_pauses(session, bytes, size, std::time::Duration::ZERO, &[])
 }
 
-/// [`paste_unpaced`] with the terminal pausing `pause` between two parts of
-/// the paste -- a pause it means to take, counted in the measure like any
-/// other.
+/// [`paste_unpaced`] with the terminal pausing `pause` before each part
+/// whose index is in `before` -- a pause it means to take, counted in the
+/// measure like any other.
 fn paste_with_pauses(
     session: &Session,
     bytes: &[u8],
     (rows, cols): (usize, usize),
     pause: std::time::Duration,
+    before: &[usize],
 ) -> Result<(), Rejected> {
     let mut previous = None;
     let mut longest = std::time::Duration::ZERO;
     for (at, part) in bytes.chunks(4096).enumerate() {
-        if at > 0 {
+        if before.contains(&at) {
             std::thread::sleep(pause);
         }
         let gap = session.write_raw_measured(part, &mut previous);
@@ -3605,14 +3606,14 @@ fn paste_with_pauses(
             };
             eprintln!(
                 "a timing-indeterminate session: the paste paused for {gap:?} \
-                 (parts {pause:?} apart); \
+                 (pauses of {pause:?}); \
                  a second later the screen held:\n{}",
                 screen.join("\n")
             );
             return Err(Rejected { gap, screen });
         }
     }
-    eprintln!("the paste's longest pause: {longest:?} (parts {pause:?} apart)");
+    eprintln!("the paste's longest pause: {longest:?} (pauses of {pause:?})");
     std::thread::sleep(std::time::Duration::from_secs(1));
     Ok(())
 }
@@ -3777,19 +3778,25 @@ fn a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothi
     // (`event_loop.zig:94-119@481104fd`) -- the receipt's `measure.txt` has
     // the base submitting it. Here the paste's first part is kept and nothing
     // after its embedded end marker is a key, however the deliveries fall.
-    hostile_paste_types_nothing(std::time::Duration::ZERO);
+    hostile_paste_types_nothing(std::time::Duration::ZERO, &[]);
 }
 
 #[test]
 fn a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing() {
-    // The same, from a terminal that pauses 20 ms between its 4 KiB writes:
+    // The same, from a terminal that pauses 20 ms before four of its 4 KiB
+    // writes, the first right behind the part that carries the end marker:
     // longer than a turn of the loop (8 ms, `TICK`), so an idle TUI finds
-    // the input empty and waits between them, and shorter than the quiet
-    // that ends the quarantine (`PASTE_QUIET`). An unpaced write's refill
-    // gaps are a few milliseconds at idle, under one turn, so the loop never
-    // records a quiet's start there (`burst` returns at its first empty
-    // check); these pauses make it record one, at the seam this case guards:
-    // `burst`, `end_delivery`, on the loop's own clock.
+    // the input empty and waits there, and shorter than the quiet that ends
+    // the quarantine (`PASTE_QUIET`). An unpaced write's refill gaps are a
+    // few milliseconds at idle, under one turn, so the loop never records a
+    // quiet's start there (`burst` returns at its first empty check); these
+    // pauses make it record one, at the seam this case guards: `burst`,
+    // `end_delivery`, on the loop's own clock.
+    //
+    // Four pauses, not one at every boundary: under load the writer
+    // oversleeps a 20 ms sleep by 15-30 ms, and a pause at all 255 had a
+    // fifth of its sessions rejected, twice the unpaced cases' share
+    // (CI-PTY-WAIT round 3, `round3/` in the receipt).
     //
     // What it does not carry: the quarantine's threshold, which the lib
     // pins without a clock (`src/tui/input.rs:3549`, `:4148`); and proof
@@ -3806,13 +3813,14 @@ fn a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and
     // `src/tui/input.rs:822`), so one reader stall there, with the quiet's
     // start already recorded at a pause, ends the quarantine early. The
     // queued PASTE-QUARANTINE-CLOCK unit fixes it.
-    hostile_paste_types_nothing(std::time::Duration::from_millis(20));
+    hostile_paste_types_nothing(std::time::Duration::from_millis(20), &[1, 64, 128, 192]);
 }
 
-/// The hostile paste at an empty composer, its parts `pause` apart: the
+/// The hostile paste at an empty composer, `pause` before each part in
+/// `before`: the
 /// composer holds the paste's `x` and the test's own `z`, nothing of the body
 /// is a key, and nothing was sent until the test's own Enter.
-fn hostile_paste_types_nothing(pause: std::time::Duration) {
+fn hostile_paste_types_nothing(pause: std::time::Duration, before: &[usize]) {
     unpaced_case(|| {
         let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
             support::fake_gateway::content_only(&["MARKER-UNPACED"]),
@@ -3824,7 +3832,7 @@ fn hostile_paste_types_nothing(pause: std::time::Duration) {
             Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
         session.wait_for(READY);
 
-        paste_with_pauses(&session, &hostile_paste(false), (40, 120), pause)?;
+        paste_with_pauses(&session, &hostile_paste(false), (40, 120), pause, before)?;
         // A key of the test's own, once the input has been quiet: the composer
         // holds the paste and that key, and nothing of the body. It is written
         // after the whole paste, so once it is on the screen the paste has all
