@@ -1,0 +1,21 @@
+# SLASH-LEADING-WS with a skill row: Tab on it binds the token over the slash
+# word and keeps the blanks before it (bindSelectedSlashSkill,
+# src/core/app/app_input_runtime.zig:2451-2476@481104fd, `leading_ws`),
+# where a command row's Tab replaces the whole draft (:1342-1349).
+fx: work skills-ws-fx
+xfx: work skills-ws-xfx
+fx: env FX_AUTO_UPGRADE=0
+wait 3
+type   /dem
+wait 0.8
+key Tab
+wait 0.6
+snap dem-tab
+key C-u
+wait 0.3
+key C-j
+type /dem
+wait 0.8
+key Enter
+wait 0.6
+snap dem-enter

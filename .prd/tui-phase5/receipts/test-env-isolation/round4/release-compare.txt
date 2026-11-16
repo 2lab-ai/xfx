@@ -1,0 +1,16 @@
+size base 11668096 head 11668096
+section table identical (name, address, size, offset): True
+differing bytes 591
+    414 code signature (page hashes)
+    161 __DATA_CONST,__const
+     16 header LC_UUID
+__DATA_CONST,__const: panic Locations whose line moved (file, +lines): count
+  src/gateway/mod.rs +4: 17
+  src/interactive.rs +2: 7
+  src/mcp/runtime.rs +6: 11
+  src/mcp/transport.rs +3: 33
+  src/tui/shell.rs +2: 25
+  src/tui/theme.rs +-12: 1
+  src/tui/worker.rs +27: 2
+  src/tui/worker.rs +33: 58
+__DATA_CONST,__const bytes not explained as a moved line: 0

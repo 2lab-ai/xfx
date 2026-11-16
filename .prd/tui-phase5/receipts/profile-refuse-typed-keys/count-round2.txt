@@ -1,0 +1,6 @@
+== python3 -I count.py 0a334851 9d010f33 (round 2's code commit)
+src/app.rs: 18 added above its tests, 3 of them comments
+src/config.rs: 332 added above its tests, 68 of them comments
+src/interactive.rs: 2 added above its tests, 0 of them comments
+src/tui/mod.rs: 2 added above its tests, 0 of them comments
+== 354 added outside tests, 71 comments

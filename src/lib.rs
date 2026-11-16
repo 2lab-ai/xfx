@@ -29,6 +29,115 @@
 //! `vercel-labs/fx@580a0c5da9386317251968c09c1cee69e763487a`; see `UPSTREAM.md`
 //! for the attribution and `docs/parity.md` for what is and is not implemented.
 
+/// `env_exception!`, the literal-named reads of the real process environment
+/// that stay outside [`process_env!`].
+#[macro_use]
+mod env_exception;
+
+/// A read of the real process environment by `$who`, the function that makes
+/// it: `process_env!("config::Environment::from_process", var(key))`.
+///
+/// In a build, `::std::env::var` or `::std::env::var_os` itself -- and
+/// `lookup`, a closure over `::std::env::var` -- so what a release binary does
+/// is unchanged. In this crate's unit tests, a read that fails closed
+/// ([`test_env`]), never the home, profile, variables or git configuration of
+/// the person running the suite:
+///
+/// - `var`, `var_os` and `lookup` are values xfx itself acts on: the case's
+///   own fake process, or a panic that names `$who`.
+/// - `child_var` and `child_var_os` are values only handed on to a child's
+///   environment: the fake process's, or none (`PATH` and `TMPDIR` excepted).
+///
+/// Every other call of a reader `clippy.toml`'s `disallowed-methods` names,
+/// in `src` and `tests`, is refused by clippy on the resolved path unless it
+/// is an `env_exception!`, whose names are literals; `env!` and
+/// `option_env!` are held to the names cargo and `build.rs` set.
+/// `scripts/check-env-reads.py` runs clippy with those lints forced on, so
+/// no allow of any spelling hides a read, and refuses every read but these
+/// macros' own arms -- this one's, whose names are computed, and
+/// `env_exception!`'s, each held to its file and its names. A C function
+/// declared by hand, the `environ` static and `/proc/self/environ` are
+/// outside what clippy can name, and so is code under a cfg that names
+/// `clippy`, which clippy never compiles: the check refuses such a cfg --
+/// in `cfg`, `cfg!`, `cfg_attr`'s predicate and each `cfg_select!` arm's --
+/// in every file the package compiles, and a build script that sets one. What
+/// a dependency reads on its own is outside it too: `ignore::WalkBuilder`
+/// reads the global gitignore under the real `HOME` unless the caller turns
+/// `git_global` off, as `tools::read` does. The check guards against honest
+/// mistakes in ordinary Rust source; outside it are a cfg a macro builds
+/// from its arguments, code a dependency runs on its own, and inline
+/// `asm!` -- deliberate evasion inside the repository is review's job.
+/// Every integration test binary also runs in a clean copy of itself; this
+/// crate's own unit-test binary does not -- it runs in the developer's
+/// process, held by these lints and the fake process alone.
+#[cfg(not(test))]
+macro_rules! process_env {
+    ($who:literal, var($name:expr)) => {
+        match () {
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "env: process_env! -- a build reads the process"
+            )]
+            () => ::std::env::var($name),
+        }
+    };
+    ($who:literal, var_os($name:expr)) => {
+        match () {
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "env: process_env! -- a build reads the process"
+            )]
+            () => ::std::env::var_os($name),
+        }
+    };
+    ($who:literal, child_var($name:expr)) => {
+        match () {
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "env: process_env! -- a build reads the process"
+            )]
+            () => ::std::env::var($name),
+        }
+    };
+    ($who:literal, child_var_os($name:expr)) => {
+        match () {
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "env: process_env! -- a build reads the process"
+            )]
+            () => ::std::env::var_os($name),
+        }
+    };
+    ($who:literal, lookup) => {
+        |name: &str| match () {
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "env: process_env! -- a build reads the process"
+            )]
+            () => ::std::env::var(name).ok(),
+        }
+    };
+}
+
+#[cfg(test)]
+macro_rules! process_env {
+    ($who:literal, var($name:expr)) => {
+        $crate::test_env::var($who, $name)
+    };
+    ($who:literal, var_os($name:expr)) => {
+        $crate::test_env::var_os($who, $name)
+    };
+    ($who:literal, child_var($name:expr)) => {
+        $crate::test_env::child_var($name)
+    };
+    ($who:literal, child_var_os($name:expr)) => {
+        $crate::test_env::child_var_os($name)
+    };
+    ($who:literal, lookup) => {
+        $crate::test_env::lookup($who)
+    };
+}
+
 pub mod agent;
 pub mod app;
 pub mod cli;
@@ -118,6 +227,11 @@ mod build_meta;
 /// takes no proxy from the environment.
 #[cfg(test)]
 mod test_net;
+
+/// What a unit test has in place of the process environment: its own fake
+/// one, or a panic.
+#[cfg(test)]
+mod test_env;
 
 #[cfg(test)]
 mod tests {

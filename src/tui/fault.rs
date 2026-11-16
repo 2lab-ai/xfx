@@ -116,9 +116,6 @@ pub(crate) enum Fault {
     TraceBeforePublish,
 }
 
-/// The variable a run is asked to fail through.
-const FAULT_ENV: &str = "XFX_TUI_FAULT";
-
 impl Fault {
     /// The spelling that names this point on the command line.
     fn name(self) -> &'static str {
@@ -144,7 +141,8 @@ impl Fault {
 
 /// Whether this run was asked to fail at `point`.
 pub(crate) fn injected(point: Fault) -> bool {
-    std::env::var_os(FAULT_ENV).is_some_and(|value| value == point.name())
+    // The variable a run is asked to fail through.
+    env_exception!(var_os("XFX_TUI_FAULT")).is_some_and(|value| value == point.name())
 }
 
 /// How far the armed fault has got: `0` before anything armed it, `1` with

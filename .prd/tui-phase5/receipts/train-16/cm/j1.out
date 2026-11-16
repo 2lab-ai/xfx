@@ -1,0 +1,6 @@
+cargo check --locked --all-targets: exit 0, 6 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.87s
+cargo check --locked --all-targets --features fault-injection: exit 0, 5 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.10s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 17 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.58s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 16 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.29s
+# 0 failed

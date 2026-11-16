@@ -1,0 +1,82 @@
+# merge_keep.py (the dispatcher's, train 14's review): every unit (cell, sentence, line; >= 25 chars) new on a side is in the merge
+b2d044c9 docs/parity.md train-side: 448 new units, missing in merge: 0
+b2d044c9 docs/parity.md unit-side: 73 new units, missing in merge: 0
+b2d044c9 scripts/fxcap/parity-ledger.toml train-side: 129 new units, missing in merge: 2
+    - xfx = ["src/config.rs:850-851", "src/tui/shell.rs:3828-3845"]
+    - xfx never refuses (`ConfigError`: malformed content is never fatal, src/config.rs:850-851): it starts and announces `config: 1 configuration issue (ctrl+o to view)` (src/tui/shell.rs:3828-3845).
+b2d044c9 scripts/fxcap/parity-ledger.toml unit-side: 7 new units, missing in merge: 0
+e8b004a5 docs/parity.md train-side: 464 new units, missing in merge: 2
+    - The three lists that took none until unit PAGE-KEYS-SETTINGS-COLUMN page so too: `/settings`' menu and its Model row's list (`routeSettingsMenuMove`, `:431-463@481104fd`), the `/model ` column in each of its stages and an `/effort
+    - `fx-p5-page-keys-mcp-24x120-args-pgdn`, `-pgup`) -- the arrows and the pages only while the composer is one row, the caret's on a taller one (`-wrapped-up`, `-wrapped-pgup`) -- Tab writes the marked line, Escape closes it for the 
+e8b004a5 docs/parity.md unit-side: 63 new units, missing in merge: 2
+    - Up, Down, `C-j` and `C-k` move the mark, Tab writes the marked line, Escape closes it -- and the slash menu, fx's one `.slash` kind -- while the draft begins with `/` (`visibleInlinePickerKind`, `input_completion_runtime.zig:142-1
+    - and `/mcp `'s argument completions and the tables beside them, which fx counts as a slash list (`slashCompletionCount` over the registry's `arguments`, `command_specs.zig:578-585`, `:876-889@481104fd`;
+e8b004a5 scripts/fxcap/parity-ledger.toml train-side: 124 new units, missing in merge: 0
+e8b004a5 scripts/fxcap/parity-ledger.toml unit-side: 9 new units, missing in merge: 9
+    - An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`write_user_prompt`, the cited line), xfx rides it under the open group (`trailer_rows`, src/tui/shell.rs:10614, each card through `queue_c
+    - source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:14035", "docs/parity.md:237"]
+    - xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43070"]
+    - xfx = ["src/tui/shell.rs:10614"]
+    - xfx = ["src/tui/shell.rs:17054"]
+    - xfx = ["src/tui/shell.rs:1855"]
+    - xfx = ["src/tui/shell.rs:43070", "src/tui/approval_view.rs:685"]
+    - xfx = ["src/tui/shell.rs:43070"]
+    - xfx's band shows the prompt's own estimate from `TurnStarted` (`tally.begin`, src/tui/shell.rs:4560).
+849f5017 docs/parity.md train-side: 677 new units, missing in merge: 0
+849f5017 docs/parity.md unit-side: 0 new units, missing in merge: 0
+849f5017 scripts/fxcap/parity-ledger.toml train-side: 169 new units, missing in merge: 0
+849f5017 scripts/fxcap/parity-ledger.toml unit-side: 0 new units, missing in merge: 0
+dd2ac93d docs/parity.md train-side: 582 new units, missing in merge: 0
+dd2ac93d docs/parity.md unit-side: 0 new units, missing in merge: 0
+dd2ac93d scripts/fxcap/parity-ledger.toml train-side: 120 new units, missing in merge: 0
+dd2ac93d scripts/fxcap/parity-ledger.toml unit-side: 0 new units, missing in merge: 0
+71787971 docs/parity.md train-side: 439 new units, missing in merge: 0
+71787971 docs/parity.md unit-side: 24 new units, missing in merge: 0
+71787971 scripts/fxcap/parity-ledger.toml train-side: 124 new units, missing in merge: 0
+71787971 scripts/fxcap/parity-ledger.toml unit-side: 25 new units, missing in merge: 3
+    - xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43544"]
+    - xfx = ["src/tui/shell.rs:43544", "src/tui/approval_view.rs:685"]
+    - xfx = ["src/tui/shell.rs:43544"]
+1bce5348 docs/parity.md train-side: 463 new units, missing in merge: 2
+    - **Not changed, and shown by APPROVAL-HORIZONTAL-KEYS' `probe/`**: `ESC ESC [ D` at a choice cancels the turn, where fx's is a composer move that leaves the choice -- xfx's decoder has no meta prefix and reads Escape, then Left -- 
+    - Owner unit: **META-PREFIX-DECODE** (queued), since xfx's decoder has no meta prefix on any surface (`docs/parity.md`'s full-screen TUI row).
+1bce5348 docs/parity.md unit-side: 36 new units, missing in merge: 0
+1bce5348 scripts/fxcap/parity-ledger.toml train-side: 146 new units, missing in merge: 0
+1bce5348 scripts/fxcap/parity-ledger.toml unit-side: 3 new units, missing in merge: 3
+    - xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43562"]
+    - xfx = ["src/tui/shell.rs:43562", "src/tui/approval_view.rs:685"]
+    - xfx = ["src/tui/shell.rs:43562"]
+# as written: 23 missing over 6 merge(s)
+# exit 0
+b2d044c9 docs/parity.md train-side: 443 new units, missing in merge: 0
+b2d044c9 docs/parity.md unit-side: 73 new units, missing in merge: 0
+b2d044c9 scripts/fxcap/parity-ledger.toml train-side: 107 new units, missing in merge: 0
+b2d044c9 scripts/fxcap/parity-ledger.toml unit-side: 6 new units, missing in merge: 0
+e8b004a5 docs/parity.md train-side: 459 new units, missing in merge: 2
+    - The three lists that took none until unit PAGE-KEYS-SETTINGS-COLUMN page so too: `/settings`' menu and its Model row's list (`routeSettingsMenuMove`, `:N-N@Nfd`), the `/model ` column in each of its stages and an `/effort ` line's
+    - `fx-pN-page-keys-mcp-NxN-args-pgdn`, `-pgup`) -- the arrows and the pages only while the composer is one row, the caret's on a taller one (`-wrapped-up`, `-wrapped-pgup`) -- Tab writes the marked line, Escape closes it for the lin
+e8b004a5 docs/parity.md unit-side: 63 new units, missing in merge: 2
+    - Up, Down, `C-j` and `C-k` move the mark, Tab writes the marked line, Escape closes it -- and the slash menu, fx's one `.slash` kind -- while the draft begins with `/` (`visibleInlinePickerKind`, `input_completion_runtime.zig:N-N@N
+    - and `/mcp `'s argument completions and the tables beside them, which fx counts as a slash list (`slashCompletionCount` over the registry's `arguments`, `command_specs.zig:N-N`, `:N-N@Nfd`;
+e8b004a5 scripts/fxcap/parity-ledger.toml train-side: 104 new units, missing in merge: 0
+e8b004a5 scripts/fxcap/parity-ledger.toml unit-side: 0 new units, missing in merge: 0
+849f5017 docs/parity.md train-side: 671 new units, missing in merge: 0
+849f5017 docs/parity.md unit-side: 0 new units, missing in merge: 0
+849f5017 scripts/fxcap/parity-ledger.toml train-side: 147 new units, missing in merge: 0
+849f5017 scripts/fxcap/parity-ledger.toml unit-side: 0 new units, missing in merge: 0
+dd2ac93d docs/parity.md train-side: 577 new units, missing in merge: 0
+dd2ac93d docs/parity.md unit-side: 0 new units, missing in merge: 0
+dd2ac93d scripts/fxcap/parity-ledger.toml train-side: 99 new units, missing in merge: 0
+dd2ac93d scripts/fxcap/parity-ledger.toml unit-side: 0 new units, missing in merge: 0
+71787971 docs/parity.md train-side: 434 new units, missing in merge: 0
+71787971 docs/parity.md unit-side: 24 new units, missing in merge: 0
+71787971 scripts/fxcap/parity-ledger.toml train-side: 104 new units, missing in merge: 0
+71787971 scripts/fxcap/parity-ledger.toml unit-side: 22 new units, missing in merge: 0
+1bce5348 docs/parity.md train-side: 458 new units, missing in merge: 2
+    - **Not changed, and shown by APPROVAL-HORIZONTAL-KEYS' `probe/`**: `ESC ESC [ D` at a choice cancels the turn, where fx's is a composer move that leaves the choice -- xfx's decoder has no meta prefix and reads Escape, then Left -- 
+    - Owner unit: **META-PREFIX-DECODE** (queued), since xfx's decoder has no meta prefix on any surface (`docs/parity.md`'s full-screen TUI row).
+1bce5348 docs/parity.md unit-side: 36 new units, missing in merge: 0
+1bce5348 scripts/fxcap/parity-ledger.toml train-side: 126 new units, missing in merge: 0
+1bce5348 scripts/fxcap/parity-ledger.toml unit-side: 0 new units, missing in merge: 0
+# normalized: 6 missing over 6 merge(s)
+# exit 0

@@ -1,0 +1,21 @@
+=== ~/.fx/backups/settings.json.backup.1794352778629-0000000000000001-432251b9f04467af27a085639f3c764d (25 bytes)
+{"permission_mode":"ASK"}
+=== ~/.fx/backups/settings.json.backup.1794352778641-0000000000000002-602ae2e6bc493c4769703cdc7eb93561 (27 bytes)
+{"permission_mode":"yolo"}
+
+=== ~/.fx/backups/settings.json.backup.1794352783219-0000000000000003-cbcc723340b4e80e0fc8aff1f7ee92a6 (52 bytes)
+{"permission_mode":"yolo","yolo_acknowledged":true}
+
+=== ~/.fx/backups/settings.json.backup.1794352784402-0000000000000004-925478fe76ab60fc5c89b1a9a5dfaac6 (52 bytes)
+{"permission_mode":"auto","yolo_acknowledged":true}
+
+=== ~/.fx/history.jsonl (503 bytes)
+{"schema_version":1,"timestamp_ms":1794352778627,"workspace_root":"<work____________________________________________________________>","text":"/permissions full-access"}
+{"schema_version":1,"timestamp_ms":1794352783199,"workspace_root":"<work____________________________________________________________>","text":"/permissions auto"}
+{"schema_version":1,"timestamp_ms":1794352784381,"workspace_root":"<work____________________________________________________________>","text":"/permissions Full Access"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/settings.json (52 bytes)
+{"permission_mode":"yolo","yolo_acknowledged":true}
+
+=== ~/.fx/settings.lock (0 bytes)

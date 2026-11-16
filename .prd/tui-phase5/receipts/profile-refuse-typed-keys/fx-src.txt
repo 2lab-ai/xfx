@@ -1,0 +1,1246 @@
+#### 1. The refusal: which user-layer causes refuse a launch
+== src/core/app/app_lifecycle.zig:689-703@481104fd (2901 lines) -- malformed_settings, settings_too_large and invalid_model_id refuse; durable_path_unsafe refuses unless the credential mode is .stored
+   689	    // A rejected local profile cannot safely identify the destination of model data.
+   690	    if (auth_mode == .local) for (detailed.diagnostics) |diagnostic| {
+   691	        if (diagnostic.layer != .user) continue;
+   692	        switch (diagnostic.cause) {
+   693	            .durable_path_unsafe => {
+   694	                if (credential_mode != .stored) return error.InvalidProfileConfiguration;
+   695	                state.model_requests_blocked = true;
+   696	            },
+   697	            .malformed_settings,
+   698	            .settings_too_large,
+   699	            .invalid_model_id,
+   700	            => return error.InvalidProfileConfiguration,
+   701	            else => {},
+   702	        }
+   703	    };
+#### 2. A key twice: std.json's default options refuse it, at every depth
+== src/core/config/settings_store.zig:400-420@481104fd (4166 lines) -- loadPrimary: the profile parsed with default options (.{}); a parse error is .invalid
+   400	    pub fn loadPrimary(self: *Store, alloc: Allocator) !PrimaryLoad {
+   401	        var raw = try self.loadRawPrimary(alloc);
+   402	        switch (raw) {
+   403	            .absent => return .absent,
+   404	            .oversized => return .oversized,
+   405	            .bytes => |bytes| {
+   406	                raw = .absent;
+   407	                errdefer alloc.free(bytes);
+   408	                var parsed = std.json.parseFromSlice(std.json.Value, alloc, bytes, .{}) catch {
+   409	                    alloc.free(bytes);
+   410	                    return .invalid;
+   411	                };
+   412	                defer parsed.deinit();
+   413	                if (parsed.value != .object) {
+   414	                    alloc.free(bytes);
+   415	                    return .invalid;
+   416	                }
+   417	                return .{ .valid = bytes };
+   418	            },
+   419	        }
+   420	    }
+== src/core/config/config_runtime.zig:463-521@481104fd (4718 lines) -- the profile: .invalid is malformed_settings for the user layer
+   463	    var user_root: ?std.json.Parsed(std.json.Value) = null;
+   464	    defer if (user_root) |*parsed| parsed.deinit();
+   465	
+   466	    if (home_dir) |home| {
+   467	        var store: ?settings_store.Store = settings_store.Store.initFromHome(alloc, home, .read_only) catch |err| blk: {
+   468	            prompt_history_store_allowed = false;
+   469	            try diagnostics.append(alloc, .{
+   470	                .layer = .user,
+   471	                .cause = diagnosticCauseForUserStoreError(err),
+   472	            });
+   473	            break :blk null;
+   474	        };
+   475	        if (store) |*usable_store| {
+   476	            defer usable_store.deinit(alloc);
+   477	            var primary = usable_store.loadPrimary(alloc) catch |err| blk: {
+   478	                prompt_history_store_allowed = false;
+   479	                try diagnostics.append(alloc, .{
+   480	                    .layer = .user,
+   481	                    .cause = diagnosticCauseForUserStoreError(err),
+   482	                });
+   483	                break :blk settings_store.PrimaryLoad.absent;
+   484	            };
+   485	            defer primary.deinit(alloc);
+   486	            switch (primary) {
+   487	                .absent => {},
+   488	                .invalid => {
+   489	                    prompt_history_store_allowed = false;
+   490	                    try diagnostics.append(alloc, .{ .layer = .user, .cause = .malformed_settings });
+   491	                    if (usable_store.newestValidBackupPath(alloc) catch null) |recovery_path| {
+   492	                        try diagnostics.append(alloc, .{
+   493	                            .layer = .user,
+   494	                            .cause = .manual_backup_available,
+   495	                            .recovery_path = recovery_path,
+   496	                        });
+   497	                    }
+   498	                },
+   499	                .oversized => {
+   500	                    prompt_history_store_allowed = false;
+   501	                    try diagnostics.append(alloc, .{ .layer = .user, .cause = .settings_too_large });
+   502	                    if (usable_store.newestValidBackupPath(alloc) catch null) |recovery_path| {
+   503	                        try diagnostics.append(alloc, .{
+   504	                            .layer = .user,
+   505	                            .cause = .manual_backup_available,
+   506	                            .recovery_path = recovery_path,
+   507	                        });
+   508	                    }
+   509	                },
+   510	                .valid => |bytes| {
+   511	                    user_root = try std.json.parseFromSlice(std.json.Value, alloc, bytes, .{ .allocate = .alloc_always });
+   512	                    if (user_root.?.value != .object) {
+   513	                        prompt_history_store_allowed = false;
+   514	                        try diagnostics.append(alloc, .{ .layer = .user, .cause = .malformed_settings });
+   515	                        user_root.?.deinit();
+   516	                        user_root = null;
+   517	                    }
+   518	                },
+   519	            }
+   520	        }
+   521	    }
+== src/core/config/config_runtime.zig:523-562@481104fd (4718 lines) -- the project file: parsed with default options too; a parse error is project malformed_settings, never a refusal
+   523	    const project_path = try std.Io.Dir.path.join(alloc, &.{ workspace_root, ".fx.json" });
+   524	    defer alloc.free(project_path);
+   525	    const project_text = readOptionalFile(alloc, project_path) catch |err| blk: {
+   526	        if (err == error.OutOfMemory) return err;
+   527	        try diagnostics.append(alloc, .{
+   528	            .layer = .project,
+   529	            .cause = switch (err) {
+   530	                error.StreamTooLong => .settings_too_large,
+   531	                error.DurablePathUnsafe => .durable_path_unsafe,
+   532	                else => .malformed_settings,
+   533	            },
+   534	        });
+   535	        break :blk null;
+   536	    };
+   537	    defer if (project_text) |text| alloc.free(text);
+   538	    if (project_text) |text| {
+   539	        if (std.json.parseFromSlice(std.json.Value, alloc, text, .{})) |parsed_value| {
+   540	            var parsed = parsed_value;
+   541	            defer parsed.deinit();
+   542	            if (parsed.value != .object) {
+   543	                try diagnostics.append(alloc, .{ .layer = .project, .cause = .malformed_settings });
+   544	            } else {
+   545	                try appendIgnoredProjectProfileSettingDiagnostics(alloc, &diagnostics, parsed.value);
+   546	                try mergeDetailedSettingsLayer(
+   547	                    alloc,
+   548	                    &detailed_merge_state,
+   549	                    parsed.value,
+   550	                    .project,
+   551	                    false,
+   552	                    .project,
+   553	                    .project,
+   554	                    .none,
+   555	                );
+   556	            }
+   557	        } else |err| {
+   558	            if (err == error.OutOfMemory) return err;
+   559	            try diagnostics.append(alloc, .{ .layer = .project, .cause = .malformed_settings });
+   560	        }
+   561	    }
+   562	
+== src/core/config/configured_provider.zig:109-129@481104fd (640 lines) -- Registry.parse's precondition: the settings parser rejects duplicate keys at all depths
+   109	    /// Parse the providers object itself, not the surrounding settings object.
+   110	    /// All returned storage is owned, independent of `providers`, and must be
+   111	    /// freed with deinit using the same allocator. Errors leave no owned state.
+   112	    /// PRECONDITION: the caller's JSON parser must reject duplicate keys at all
+   113	    /// depths (including providers in the enclosing settings). Value's ObjectMap
+   114	    /// cannot retain evidence of duplicates already discarded by another parser.
+   115	    pub fn parse(alloc: Allocator, providers: std.json.Value) ParseError!Registry {
+   116	        if (providers != .object) return error.InvalidObject;
+   117	        if (providers.object.count() > max_providers) return error.LimitExceeded;
+   118	        const definitions = try alloc.alloc(Definition, providers.object.count());
+   119	        var initialized: usize = 0;
+   120	        errdefer {
+   121	            for (definitions[0..initialized]) |definition| definition.deinit(alloc);
+   122	            alloc.free(definitions);
+   123	        }
+   124	        var iterator = providers.object.iterator();
+   125	        while (iterator.next()) |entry| {
+   126	            definitions[initialized] = try parse_definition(alloc, entry.key_ptr.*, entry.value_ptr.*);
+   127	            initialized += 1;
+   128	        }
+   129	        return .{ .definitions = definitions };
+== src/core/config/config_runtime.zig:357-368@481104fd (4718 lines) -- loadConfiguredProviders names the same behaviour explicitly
+   357	/// Reads only profile-global connection definitions. Caller owns the registry.
+   358	pub fn loadConfiguredProviders(alloc: Allocator) !configured_provider.Registry {
+   359	    var paths = try discoverPaths(alloc, ".");
+   360	    defer paths.deinit(alloc);
+   361	    const bytes = (try readOptionalUserSettingsFile(alloc, paths)) orelse return .{};
+   362	    defer alloc.free(bytes);
+   363	    var parsed = try std.json.parseFromSlice(std.json.Value, alloc, bytes, .{ .duplicate_field_behavior = .@"error" });
+   364	    defer parsed.deinit();
+   365	    if (parsed.value != .object) return error.InvalidSettingsShape;
+   366	    const definitions = parsed.value.object.get("providers") orelse return .{};
+   367	    return configured_provider.Registry.parse(alloc, definitions);
+   368	}
+#### 3. The layers and the salvage
+== src/core/config/config_runtime.zig:563-632@481104fd (4718 lines) -- the global object (.profile), then this workspace's entry (.profile_workspace, tolerating a non-object statusLine); then the provider bound
+   563	    if (user_root) |parsed| {
+   564	        if (parsed.value.object.contains("additional_directories")) {
+   565	            try diagnostics.append(alloc, .{
+   566	                .layer = .user,
+   567	                .cause = .invalid_additional_directories,
+   568	                .setting_key = try alloc.dupe(u8, "additional_directories"),
+   569	            });
+   570	        }
+   571	        if (hasLegacyWorkspacePreferences(parsed.value)) {
+   572	            try diagnostics.append(alloc, .{
+   573	                .layer = .user,
+   574	                .cause = .legacy_workspace_preferences,
+   575	            });
+   576	        }
+   577	        try mergeDetailedSettingsLayer(
+   578	            alloc,
+   579	            &detailed_merge_state,
+   580	            parsed.value,
+   581	            .profile,
+   582	            false,
+   583	            .user,
+   584	            .user_global,
+   585	            .user,
+   586	        );
+   587	    }
+   588	
+   589	    if (user_root) |parsed| {
+   590	        const workspaces = parsed.value.object.get("workspaces");
+   591	        if (workspaces) |workspaces_value| {
+   592	            if (workspaces_value != .object) {
+   593	                try diagnostics.append(alloc, .{ .layer = .user, .cause = .malformed_settings });
+   594	            } else if (workspaces_value.object.get(workspace_root)) |workspace_value| {
+   595	                if (workspace_value != .object) {
+   596	                    try diagnostics.append(alloc, .{ .layer = .user, .cause = .malformed_settings });
+   597	                } else {
+   598	                    if (workspace_value.object.get("additional_directories")) |value| {
+   599	                        const parsed_directories = parseAdditionalDirectories(
+   600	                            alloc,
+   601	                            workspace_root,
+   602	                            value,
+   603	                        ) catch |err| blk: {
+   604	                            if (err == error.OutOfMemory) return err;
+   605	                            try diagnostics.append(alloc, .{
+   606	                                .layer = .user,
+   607	                                .cause = .invalid_additional_directories,
+   608	                                .setting_key = try alloc.dupe(u8, "additional_directories"),
+   609	                            });
+   610	                            break :blk null;
+   611	                        };
+   612	                        if (parsed_directories) |directories| {
+   613	                            additional_directories = directories.canonical;
+   614	                            additional_directory_sources = directories.sources;
+   615	                        }
+   616	                    }
+   617	                    try mergeDetailedSettingsLayer(
+   618	                        alloc,
+   619	                        &detailed_merge_state,
+   620	                        workspace_value,
+   621	                        .profile,
+   622	                        true,
+   623	                        .user,
+   624	                        .user_workspace,
+   625	                        .local,
+   626	                    );
+   627	                }
+   628	            }
+   629	        }
+   630	    }
+   631	
+   632	    try resolve_provider_selection(&settings);
+== src/core/config/config_runtime.zig:350-355@481104fd (4718 lines) -- resolve_provider_selection: the provider bound to the configured registry
+   350	fn resolve_provider_selection(settings: *Settings) !void {
+   351	    if (providerEnvOverride()) |raw| {
+   352	        settings.provider = model_provider.parse(raw) orelse return error.InvalidProviderValue;
+   353	    }
+   354	    if (settings.provider) |provider| settings.provider = try provider.bind(settings.providers orelse .{});
+   355	}
+== src/core/config/config_runtime.zig:888-925@481104fd (4718 lines) -- salvageProviderRouting: provider, providers and models parsed again alone; InvalidProviderRouting when that fails
+   888	
+   889	/// The profile layer parse is atomic: one malformed field discards every
+   890	/// field, including provider routing. When that happens, re-parse only the
+   891	/// provider routing triple (connections, selection, per-provider models)
+   892	/// through the same layer-scoped parser so a broken sibling (for example a
+   893	/// mistyped effort) cannot silently drop the configured connection and fall
+   894	/// back to Gateway. The layer scope is identical to normal parsing, so
+   895	/// workspace override provider definitions stay ignored here too. Returns
+   896	/// true when the layer declared routing that is now installed; errors when
+   897	/// the routing fields themselves are broken.
+   898	fn salvageProviderRouting(alloc: Allocator, settings: *Settings, sources: *ConfigSources, value: std.json.Value, layer: SettingsLayer, source: ConfigSource) error{ OutOfMemory, InvalidProviderRouting }!bool {
+   899	    var routing_only: std.json.ObjectMap = .empty;
+   900	    defer routing_only.deinit(alloc);
+   901	    for ([_][]const u8{ "provider", "providers", "models" }) |key| {
+   902	        const field = value.object.get(key) orelse continue;
+   903	        routing_only.put(alloc, key, field) catch return error.OutOfMemory;
+   904	    }
+   905	    if (routing_only.count() == 0) return false;
+   906	    var salvaged = parseSettingsValueForLayer(alloc, .{ .object = routing_only }, layer, false, false) catch |err| switch (err) {
+   907	        error.OutOfMemory => return error.OutOfMemory,
+   908	        else => return error.InvalidProviderRouting,
+   909	    };
+   910	    defer salvaged.deinit(alloc);
+   911	    if (salvaged.provider == null and salvaged.providers == null and salvaged.models.isEmpty()) return false;
+   912	    updateConfigSources(sources, salvaged, source);
+   913	    if (salvaged.providers) |registry| {
+   914	        if (settings.providers) |*old| old.deinit(alloc);
+   915	        settings.providers = registry;
+   916	        salvaged.providers = null;
+   917	    }
+   918	    if (salvaged.provider) |provider| settings.provider = provider;
+   919	    settings.models.mergeOwnedFrom(alloc, &salvaged.models) catch |err| switch (err) {
+   920	        error.OutOfMemory => return error.OutOfMemory,
+   921	        error.TooManyModelPreferences => return error.InvalidProviderRouting,
+   922	    };
+   923	    return true;
+   924	}
+   925	
+== src/core/config/config_runtime.zig:966-1037@481104fd (4718 lines) -- mergeDetailedSettingsLayer: a parse error drops the layer; a failed salvage returns the first error (the load fails); otherwise the cause by error
+   966	fn mergeDetailedSettingsLayer(
+   967	    alloc: Allocator,
+   968	    state: *const DetailedSettingsMergeState,
+   969	    value: std.json.Value,
+   970	    settings_layer: SettingsLayer,
+   971	    tolerate_non_object_user_containers: bool,
+   972	    diagnostic_layer: ConfigLayer,
+   973	    source: ConfigSource,
+   974	    permission_source: DetailedPermissionSource,
+   975	) !void {
+   976	    if (parseSettingsValueForLayer(
+   977	        alloc,
+   978	        value,
+   979	        if (source == .user_workspace) .profile_workspace else settings_layer,
+   980	        tolerate_non_object_user_containers,
+   981	        source != .user_workspace,
+   982	    )) |layer_settings| {
+   983	        var incoming = layer_settings;
+   984	        defer incoming.deinit(alloc);
+   985	        incoming.context_limits.retag(switch (source) {
+   986	            .user_global => .user_global,
+   987	            .user_workspace => .user_workspace,
+   988	            else => .compiled_default,
+   989	        });
+   990	        if (source == .user_workspace) {
+   991	            incoming.update_channel = null;
+   992	        }
+   993	        updateConfigSources(state.sources, incoming, source);
+   994	        if (incoming.has_permission_rules) {
+   995	            switch (permission_source) {
+   996	                .none => {},
+   997	                .user => {
+   998	                    state.permission_sources.user.deinit(alloc);
+   999	                    state.permission_sources.user = try types.dupePermissionRuleSet(alloc, incoming.permission_rules);
+  1000	                },
+  1001	                .local => {
+  1002	                    state.permission_sources.local.deinit(alloc);
+  1003	                    state.permission_sources.local = try types.dupePermissionRuleSet(alloc, incoming.permission_rules);
+  1004	                    state.permission_sources.user_shadowed_by_local = true;
+  1005	                },
+  1006	            }
+  1007	        }
+  1008	        try mergeSettings(state.settings, &incoming, alloc);
+  1009	    } else |err| {
+  1010	        if (err == error.OutOfMemory) return err;
+  1011	        if (diagnostic_layer == .user and value == .object) {
+  1012	            _ = salvageProviderRouting(alloc, state.settings, state.sources, value, if (source == .user_workspace) .profile_workspace else settings_layer, source) catch |salvage_err| switch (salvage_err) {
+  1013	                error.OutOfMemory => return error.OutOfMemory,
+  1014	                error.InvalidProviderRouting => return err,
+  1015	            };
+  1016	        }
+  1017	        if (diagnostic_layer == .user and err == error.InvalidModelValue) state.prompt_history_store_allowed.* = false;
+  1018	        try state.diagnostics.append(alloc, .{
+  1019	            .layer = diagnostic_layer,
+  1020	            .cause = diagnosticCauseForParseError(err),
+  1021	        });
+  1022	    }
+  1023	}
+  1024	
+  1025	fn diagnosticCauseForParseError(err: anyerror) ConfigDiagnosticCause {
+  1026	    return switch (err) {
+  1027	        error.InvalidModelValue => .invalid_model_id,
+  1028	        error.RetiredSkillMatchFuzzy => .retired_skill_match_fuzzy,
+  1029	        error.InvalidContextLimitsType,
+  1030	        error.UnknownContextLimit,
+  1031	        error.InvalidContextLimitValue,
+  1032	        => .invalid_context_limits,
+  1033	        error.InvalidSkillSymlinkAuthorities => .invalid_skill_symlink_authorities,
+  1034	        else => .malformed_settings,
+  1035	    };
+  1036	}
+  1037	
+== src/core/config/model_provider.zig:53-62@481104fd (207 lines) -- bind: a configured name not in the registry is UnknownConfiguredProvider
+    53	    pub fn bind(self: ProviderId, registry: configured_provider.Registry) error{ UnknownConfiguredProvider, ConfiguredProviderChanged }!ProviderId {
+    54	        if (self != .configured) return self;
+    55	        const definition = registry.get(self.label()) orelse return error.UnknownConfiguredProvider;
+    56	        const binding = definition.binding_identity();
+    57	        if (self.configured.binding) |expected| {
+    58	            if (!std.mem.eql(u8, &binding, &expected)) return error.ConfiguredProviderChanged;
+    59	        }
+    60	        var bound = self;
+    61	        bound.configured.binding = binding;
+    62	        return bound;
+== src/core/config/model_provider.zig:106-114@481104fd (207 lines) -- parse: gateway, codex, grok in any case, else validate_id makes a configured name
+   106	pub fn parse(value: []const u8) ?ProviderId {
+   107	    if (std.ascii.eqlIgnoreCase(value, "gateway")) return .gateway;
+   108	    if (std.ascii.eqlIgnoreCase(value, "codex")) return .codex;
+   109	    if (std.ascii.eqlIgnoreCase(value, "grok")) return .grok;
+   110	    configured_provider.validate_id(value) catch return null;
+   111	    var result: ProviderId = .{ .configured = .{ .len = @intCast(value.len) } };
+   112	    @memcpy(result.configured.bytes[0..value.len], value);
+   113	    return result;
+   114	}
+== src/core/config/configured_provider.zig:290-299@481104fd (640 lines) -- validate_id: at most 64 bytes, a letter first, letters, digits, _ and -
+   290	pub fn validate_id(id: []const u8) error{ LimitExceeded, InvalidProviderId, ReservedProviderId }!void {
+   291	    if (id.len > max_id_bytes) return error.LimitExceeded;
+   292	    if (id.len == 0 or !std.ascii.isAlphabetic(id[0])) return error.InvalidProviderId;
+   293	    for (id) |byte| {
+   294	        if (!std.ascii.isAlphanumeric(byte) and byte != '_' and byte != '-') return error.InvalidProviderId;
+   295	    }
+   296	    for ([_][]const u8{ "gateway", "codex", "grok" }) |reserved| {
+   297	        if (std.ascii.eqlIgnoreCase(id, reserved)) return error.ReservedProviderId;
+   298	    }
+   299	}
+#### 4. The parse, key by key, in its order
+== src/core/config/config_runtime.zig:1611-1636@481104fd (4718 lines) -- parseSettingsValueForLayer: providers (global only), the profile-only fields, then the project-safe ones
+  1611	fn parseSettingsValueForLayer(
+  1612	    alloc: Allocator,
+  1613	    root: std.json.Value,
+  1614	    layer: SettingsLayer,
+  1615	    tolerate_non_object_user_containers: bool,
+  1616	    parse_workspace_statusline: bool,
+  1617	) !Settings {
+  1618	    if (root != .object) return error.InvalidSettingsShape;
+  1619	
+  1620	    var settings = Settings{};
+  1621	    errdefer settings.deinit(alloc);
+  1622	
+  1623	    if (layer == .profile) {
+  1624	        if (root.object.get("providers")) |value| settings.providers = try configured_provider.Registry.parse(alloc, value);
+  1625	    }
+  1626	    if (layer != .project) try parseProfileOnlyFields(
+  1627	        &settings,
+  1628	        alloc,
+  1629	        root,
+  1630	        tolerate_non_object_user_containers,
+  1631	        parse_workspace_statusline,
+  1632	    );
+  1633	    try parseProjectSafeFields(&settings, alloc, root);
+  1634	
+  1635	    return settings;
+  1636	}
+== src/core/config/config_runtime.zig:1638-1860@481104fd (4718 lines) -- parseProfileOnlyFields: each key's type and grammar; the first error fails the layer
+  1638	fn parseProfileOnlyFields(
+  1639	    settings: *Settings,
+  1640	    alloc: Allocator,
+  1641	    root: std.json.Value,
+  1642	    tolerate_non_object_user_containers: bool,
+  1643	    parse_workspace_statusline: bool,
+  1644	) !void {
+  1645	    if (root.object.contains("skill_match_fuzzy")) return error.RetiredSkillMatchFuzzy;
+  1646	    if (root.object.get("auto_compact_percent")) |value| {
+  1647	        if (value != .integer) return error.InvalidAutoCompactPercentType;
+  1648	        if (value.integer < 0 or !compactor.isValidPercent(@intCast(value.integer))) return error.InvalidAutoCompactPercentValue;
+  1649	        settings.auto_compact_percent = @intCast(value.integer);
+  1650	    }
+  1651	    if (root.object.get("model")) |model_value| {
+  1652	        const value = model_value;
+  1653	        if (value != .string) return error.InvalidModelType;
+  1654	        settings_store.validateModel(value.string) catch return error.InvalidModelValue;
+  1655	        try settings.models.putCopy(alloc, .gateway, value.string);
+  1656	    }
+  1657	
+  1658	    if (root.object.get("provider")) |provider_value| {
+  1659	        if (provider_value != .string) return error.InvalidProviderType;
+  1660	        settings.provider = model_provider.parse(provider_value.string) orelse
+  1661	            return error.InvalidProviderValue;
+  1662	    }
+  1663	
+  1664	    if (root.object.get("codex_model")) |model_value| {
+  1665	        if (model_value != .string) return error.InvalidCodexModelType;
+  1666	        settings_store.validateModel(model_value.string) catch return error.InvalidCodexModelValue;
+  1667	        try settings.models.putCopy(alloc, .codex, model_value.string);
+  1668	    }
+  1669	
+  1670	    if (root.object.get("grok_model")) |model_value| {
+  1671	        if (model_value != .string) return error.InvalidGrokModelType;
+  1672	        settings_store.validateModel(model_value.string) catch return error.InvalidGrokModelValue;
+  1673	        try settings.models.putCopy(alloc, .grok, model_value.string);
+  1674	    }
+  1675	
+  1676	    if (root.object.get("models")) |models_value| {
+  1677	        if (models_value != .object) return error.InvalidModelType;
+  1678	        var iterator = models_value.object.iterator();
+  1679	        while (iterator.next()) |entry| {
+  1680	            const provider = model_provider.parse(entry.key_ptr.*) orelse return error.InvalidProviderValue;
+  1681	            const model_value = entry.value_ptr.*;
+  1682	            if (model_value != .string) return error.InvalidModelType;
+  1683	            settings_store.validateModel(model_value.string) catch return error.InvalidModelValue;
+  1684	            try settings.models.putCopy(alloc, provider, model_value.string);
+  1685	        }
+  1686	    }
+  1687	
+  1688	    if (root.object.get("permission_mode")) |permission_mode_value| {
+  1689	        const value = permission_mode_value;
+  1690	        if (value != .string) return error.InvalidPermissionModeType;
+  1691	        settings.permission_mode = parsePermissionMode(value.string) orelse return error.InvalidPermissionMode;
+  1692	    }
+  1693	
+  1694	    if (root.object.get("credential_source")) |credential_source_value| {
+  1695	        if (credential_source_value != .string) return error.InvalidCredentialSourceType;
+  1696	        settings.credential_source = types.parseCredentialSource(credential_source_value.string) orelse
+  1697	            return error.InvalidCredentialSource;
+  1698	    }
+  1699	
+  1700	    if (root.object.get("yolo_acknowledged")) |acknowledged_value| {
+  1701	        if (acknowledged_value != .bool) return error.InvalidYoloAcknowledgedType;
+  1702	        settings.yolo_acknowledged = acknowledged_value.bool;
+  1703	    }
+  1704	
+  1705	    if (root.object.get("context_limits")) |context_limits_value| {
+  1706	        settings.context_limits = try context_limits.parseJsonObject(context_limits_value);
+  1707	    }
+  1708	
+  1709	    if (root.object.get("first_call_tool_choice")) |first_call_tool_choice_value| {
+  1710	        const value = first_call_tool_choice_value;
+  1711	        if (value != .string) return error.InvalidFirstCallToolChoiceType;
+  1712	        const trimmed = std.mem.trim(u8, value.string, " \t\r\n");
+  1713	        if (types.ToolChoice.parse(trimmed)) |choice| {
+  1714	            settings.first_call_tool_choice = choice;
+  1715	        } else if (trimmed.len > 0) {
+  1716	            debug_trace.logf("core", "ignoring invalid first_call_tool_choice value={s}", .{trimmed});
+  1717	        }
+  1718	    }
+  1719	
+  1720	    if (root.object.get("review_model")) |review_model_value| {
+  1721	        const value = review_model_value;
+  1722	        if (value != .string) return error.InvalidReviewModelType;
+  1723	        const trimmed = std.mem.trim(u8, value.string, " \t\r\n");
+  1724	        if (trimmed.len > 0) {
+  1725	            settings_store.validateModel(trimmed) catch {
+  1726	                debug_trace.logf("core", "ignoring invalid review_model value", .{});
+  1727	                return error.InvalidReviewModelValue;
+  1728	            };
+  1729	            settings.review_model = try alloc.dupe(u8, trimmed);
+  1730	        }
+  1731	    }
+  1732	
+  1733	    if (root.object.get("fast_mode")) |fast_mode_value| {
+  1734	        const value = fast_mode_value;
+  1735	        if (value != .bool) return error.InvalidFastModeType;
+  1736	        settings.fast_mode = value.bool;
+  1737	    }
+  1738	
+  1739	    if (root.object.get("ultrafast_mode")) |ultrafast_mode_value| {
+  1740	        const value = ultrafast_mode_value;
+  1741	        if (value != .bool) return error.InvalidUltrafastModeType;
+  1742	        settings.ultrafast_mode = value.bool;
+  1743	    }
+  1744	
+  1745	    if (root.object.get("fast_mode_model_bound")) |bound_value| {
+  1746	        if (bound_value != .bool) return error.InvalidFastModeBindingType;
+  1747	        settings.fast_mode_model_bound = bound_value.bool;
+  1748	    }
+  1749	
+  1750	    if (root.object.get("slash_menu_categories")) |slash_menu_categories_value| {
+  1751	        const value = slash_menu_categories_value;
+  1752	        if (value != .bool) return error.InvalidSlashMenuCategoriesType;
+  1753	        settings.slash_menu_categories = value.bool;
+  1754	    }
+  1755	
+  1756	    if (root.object.get("collapse_tool_calls")) |collapse_tool_calls_value| {
+  1757	        const value = collapse_tool_calls_value;
+  1758	        if (value != .bool) return error.InvalidCollapseToolCallsType;
+  1759	        settings.collapse_tool_calls = value.bool;
+  1760	    }
+  1761	
+  1762	    if (root.object.get("session_titles")) |session_titles_value| {
+  1763	        const value = session_titles_value;
+  1764	        if (value != .bool) return error.InvalidSessionTitlesType;
+  1765	        settings.session_titles = value.bool;
+  1766	    }
+  1767	
+  1768	    if (root.object.get("auto_upgrade")) |auto_upgrade_value| {
+  1769	        const value = auto_upgrade_value;
+  1770	        if (value != .bool) return error.InvalidAutoUpgradeType;
+  1771	        settings.auto_upgrade = value.bool;
+  1772	    }
+  1773	
+  1774	    if (root.object.get("update_channel")) |update_channel_value| {
+  1775	        const value = update_channel_value;
+  1776	        if (value != .string) return error.InvalidUpdateChannelType;
+  1777	        settings.update_channel = update_target.Channel.parse(value.string) orelse
+  1778	            return error.InvalidUpdateChannelValue;
+  1779	    }
+  1780	
+  1781	    if (root.object.get("theme")) |theme_value| {
+  1782	        const value = theme_value;
+  1783	        if (value != .string) return error.InvalidThemeType;
+  1784	        if (value.string.len > 0) settings.theme = try alloc.dupe(u8, value.string);
+  1785	    }
+  1786	
+  1787	    if (root.object.get("startup_scrollback")) |startup_scrollback_value| {
+  1788	        const value = startup_scrollback_value;
+  1789	        if (value != .bool) return error.InvalidStartupScrollbackType;
+  1790	        settings.startup_scrollback = value.bool;
+  1791	    }
+  1792	
+  1793	    if (root.object.get("skill_symlink_authorities")) |value| {
+  1794	        const paths = try parseSkillSymlinkAuthorities(alloc, value);
+  1795	        if (settings.skill_symlink_authorities) |old| freeStringSlice(alloc, old);
+  1796	        settings.skill_symlink_authorities = paths;
+  1797	    }
+  1798	
+  1799	    if (root.object.get("prompt_history")) |prompt_history_value| {
+  1800	        if (prompt_history_value != .object) return error.InvalidPromptHistoryType;
+  1801	        if (prompt_history_value.object.get("enabled")) |enabled| {
+  1802	            if (enabled != .bool) return error.InvalidPromptHistoryEnabledType;
+  1803	            settings.prompt_history_enabled = enabled.bool;
+  1804	        }
+  1805	    }
+  1806	
+  1807	    if (root.object.get("effort")) |effort_value| {
+  1808	        const value = effort_value;
+  1809	        switch (value) {
+  1810	            .string => |raw| settings.effort = types.ReasoningEffort.parse(raw) orelse return error.InvalidEffortValue,
+  1811	            .null => settings.effort = .auto,
+  1812	            else => return error.InvalidEffortType,
+  1813	        }
+  1814	    }
+  1815	
+  1816	    if (root.object.get("statusLine")) |statusline_value| {
+  1817	        const value = statusline_value;
+  1818	        if (value != .object) {
+  1819	            if (!tolerate_non_object_user_containers) return error.InvalidStatusLineType;
+  1820	        } else {
+  1821	            if (value.object.get("context")) |v| {
+  1822	                if (v != .bool) return error.InvalidStatusLineContextType;
+  1823	                settings.statusline_context = v.bool;
+  1824	            }
+  1825	            if (value.object.get("session")) |v| {
+  1826	                if (v != .bool) return error.InvalidStatusLineSessionType;
+  1827	                settings.statusline_session = v.bool;
+  1828	            }
+  1829	            if (parse_workspace_statusline) {
+  1830	                if (value.object.get("workspace")) |v| {
+  1831	                    if (v != .bool) return error.InvalidStatusLineWorkspaceType;
+  1832	                    settings.statusline_workspace = v.bool;
+  1833	                }
+  1834	            }
+  1835	        }
+  1836	    }
+  1837	
+  1838	    if (root.object.get("notifications")) |notifications_value| {
+  1839	        if (notifications_value != .object) return error.InvalidNotificationsType;
+  1840	        if (notifications_value.object.get("turn_end")) |value| {
+  1841	            if (value != .bool) return error.InvalidNotificationTurnEndType;
+  1842	            settings.notification_turn_end = value.bool;
+  1843	        }
+  1844	        if (notifications_value.object.get("attention_required")) |value| {
+  1845	            if (value != .bool) return error.InvalidNotificationAttentionRequiredType;
+  1846	            settings.notification_attention_required = value.bool;
+  1847	        }
+  1848	        if (notifications_value.object.get("max")) |value| {
+  1849	            if (value != .bool) return error.InvalidNotificationMaxType;
+  1850	            settings.notification_max = value.bool;
+  1851	        }
+  1852	    }
+  1853	
+  1854	    if (root.object.get("permission")) |permission_value| {
+  1855	        const value = permission_value;
+  1856	        settings.permission_rules.deinit(alloc);
+  1857	        settings.permission_rules = try parsePermissionConfig(alloc, value);
+  1858	        settings.has_permission_rules = true;
+  1859	    }
+  1860	}
+== src/core/config/config_runtime.zig:1898-1953@481104fd (4718 lines) -- parseProjectSafeFields: max_agent_steps an integer, not negative
+  1898	fn parseProjectSafeFields(settings: *Settings, alloc: Allocator, root: std.json.Value) !void {
+  1899	    if (root.object.get("provider_order")) |order_value| {
+  1900	        if (order_value != .array) return error.InvalidProviderOrderType;
+  1901	        const items = order_value.array.items;
+  1902	        // An empty array explicitly clears an inherited routing list.
+  1903	        if (items.len > settings_store.max_provider_order_entries) {
+  1904	            return error.InvalidProviderOrderValue;
+  1905	        }
+  1906	        var order = try alloc.alloc([]const u8, items.len);
+  1907	        errdefer alloc.free(order);
+  1908	        var filled: usize = 0;
+  1909	        errdefer for (order[0..filled]) |slug| alloc.free(@constCast(slug));
+  1910	        for (items, 0..) |item, index| {
+  1911	            if (item != .string or !settings_store.validateProviderSlug(item.string)) {
+  1912	                return error.InvalidProviderOrderValue;
+  1913	            }
+  1914	            for (items[0..index]) |previous| {
+  1915	                if (previous == .string and std.mem.eql(u8, item.string, previous.string)) {
+  1916	                    return error.InvalidProviderOrderValue;
+  1917	                }
+  1918	            }
+  1919	            order[index] = try alloc.dupe(u8, item.string);
+  1920	            filled += 1;
+  1921	        }
+  1922	        if (settings.provider_order) |old| {
+  1923	            for (old) |slug| alloc.free(@constCast(slug));
+  1924	            alloc.free(old);
+  1925	        }
+  1926	        settings.provider_order = order;
+  1927	    }
+  1928	
+  1929	    if (root.object.get("provider_strict")) |strict_value| {
+  1930	        if (strict_value != .bool) return error.InvalidProviderStrictType;
+  1931	        settings.provider_strict = strict_value.bool;
+  1932	    }
+  1933	
+  1934	    if (root.object.get("max_agent_steps")) |max_agent_steps_value| {
+  1935	        const value = max_agent_steps_value;
+  1936	        if (value != .integer) return error.InvalidMaxAgentStepsType;
+  1937	        if (value.integer < 0) return error.InvalidMaxAgentStepsValue;
+  1938	        settings.max_agent_steps = std.math.cast(usize, value.integer) orelse return error.InvalidMaxAgentStepsValue;
+  1939	    }
+  1940	
+  1941	    if (root.object.get("max_tool_result_bytes")) |max_tool_result_bytes_value| {
+  1942	        const value = max_tool_result_bytes_value;
+  1943	        if (value != .integer) return error.InvalidMaxToolResultBytesType;
+  1944	        if (value.integer < @as(i64, @intCast(tool_result_limits.min_configured_tool_result_bytes))) return error.InvalidMaxToolResultBytesValue;
+  1945	        settings.max_tool_result_bytes = std.math.cast(usize, value.integer) orelse return error.InvalidMaxToolResultBytesValue;
+  1946	    }
+  1947	
+  1948	    if (root.object.get("context")) |context_value| {
+  1949	        const value = context_value;
+  1950	        if (value != .bool) return error.InvalidContextType;
+  1951	        settings.context = value.bool;
+  1952	    }
+  1953	}
+== src/core/config/config_runtime.zig:265-265@481104fd (4718 lines) -- at most 32 skill authorities
+   265	const max_skill_symlink_authorities: usize = 32;
+== src/core/config/config_runtime.zig:1865-1896@481104fd (4718 lines) -- parseSkillSymlinkAuthorities
+  1865	fn parseSkillSymlinkAuthorities(alloc: Allocator, value: std.json.Value) ![][]u8 {
+  1866	    if (value != .array) return error.InvalidSkillSymlinkAuthorities;
+  1867	    const items = value.array.items;
+  1868	    if (items.len > max_skill_symlink_authorities) return error.InvalidSkillSymlinkAuthorities;
+  1869	    for (items) |item| {
+  1870	        if (item != .string or
+  1871	            !std.Io.Dir.path.isAbsolute(item.string) or
+  1872	            pathHasDotDotComponent(item.string))
+  1873	        {
+  1874	            return error.InvalidSkillSymlinkAuthorities;
+  1875	        }
+  1876	    }
+  1877	    const paths = try alloc.alloc([]u8, items.len);
+  1878	    var filled: usize = 0;
+  1879	    errdefer {
+  1880	        for (paths[0..filled]) |path| alloc.free(path);
+  1881	        alloc.free(paths);
+  1882	    }
+  1883	    for (items) |item| {
+  1884	        paths[filled] = try alloc.dupe(u8, item.string);
+  1885	        filled += 1;
+  1886	    }
+  1887	    return paths;
+  1888	}
+  1889	
+  1890	fn pathHasDotDotComponent(path: []const u8) bool {
+  1891	    var it = std.Io.Dir.path.componentIterator(path);
+  1892	    while (it.next()) |component| {
+  1893	        if (std.mem.eql(u8, component.name, "..")) return true;
+  1894	    }
+  1895	    return false;
+  1896	}
+== src/core/config/config_runtime.zig:2024-2064@481104fd (4718 lines) -- parsePermissionConfig
+  2024	fn parsePermissionConfig(alloc: Allocator, value: std.json.Value) !types.PermissionRuleSet {
+  2025	    var rules: std.ArrayList(types.PermissionRule) = .empty;
+  2026	    errdefer {
+  2027	        for (rules.items) |rule| {
+  2028	            alloc.free(rule.permission);
+  2029	            alloc.free(rule.pattern);
+  2030	        }
+  2031	        rules.deinit(alloc);
+  2032	    }
+  2033	
+  2034	    switch (value) {
+  2035	        .string => |action| {
+  2036	            try rules.append(alloc, try parsePermissionRuleFromParts(alloc, "*", "*", parsePermissionAction(action) orelse return error.InvalidPermissionAction));
+  2037	        },
+  2038	        .object => |permission_map| {
+  2039	            var it = permission_map.iterator();
+  2040	            while (it.next()) |entry| {
+  2041	                const permission = std.mem.trim(u8, entry.key_ptr.*, " \t\r\n");
+  2042	                if (permission.len == 0) return error.InvalidPermissionRuleTool;
+  2043	
+  2044	                switch (entry.value_ptr.*) {
+  2045	                    .string => |action| {
+  2046	                        try rules.append(alloc, try parsePermissionRuleFromParts(alloc, permission, "*", parsePermissionAction(action) orelse return error.InvalidPermissionAction));
+  2047	                    },
+  2048	                    .object => |pattern_map| {
+  2049	                        var pattern_it = pattern_map.iterator();
+  2050	                        while (pattern_it.next()) |pattern_entry| {
+  2051	                            if (pattern_entry.value_ptr.* != .string) return error.InvalidPermissionAction;
+  2052	                            const pattern = std.mem.trim(u8, pattern_entry.key_ptr.*, " \t\r\n");
+  2053	                            try rules.append(alloc, try parsePermissionRuleFromParts(alloc, permission, pattern, parsePermissionAction(pattern_entry.value_ptr.*.string) orelse return error.InvalidPermissionAction));
+  2054	                        }
+  2055	                    },
+  2056	                    else => return error.InvalidPermissionRulesType,
+  2057	                }
+  2058	            }
+  2059	        },
+  2060	        else => return error.InvalidPermissionRulesType,
+  2061	    }
+  2062	
+  2063	    return .{ .rules = try rules.toOwnedSlice(alloc) };
+  2064	}
+== src/core/config/config_runtime.zig:1061-1066@481104fd (4718 lines) -- parsePermissionAction: allow, ask, deny in any case
+  1061	pub fn parsePermissionAction(raw: []const u8) ?types.PermissionAction {
+  1062	    if (std.ascii.eqlIgnoreCase(raw, "allow")) return .allow;
+  1063	    if (std.ascii.eqlIgnoreCase(raw, "ask")) return .ask;
+  1064	    if (std.ascii.eqlIgnoreCase(raw, "deny")) return .deny;
+  1065	    return null;
+  1066	}
+== src/core/config/settings_store.zig:894-902@481104fd (4166 lines) -- validateModel
+   894	pub fn validateModel(model: []const u8) !void {
+   895	    if (model.len == 0 or model.len > max_model_bytes or !std.unicode.utf8ValidateSlice(model)) {
+   896	        return error.InvalidDurableField;
+   897	    }
+   898	    if (!std.mem.eql(u8, model, std.mem.trim(u8, model, " \t\r\n"))) return error.InvalidDurableField;
+   899	    for (model) |byte| {
+   900	        if (std.ascii.isControl(byte)) return error.InvalidDurableField;
+   901	    }
+   902	}
+== src/core/shared/types.zig:2375-2382@481104fd (4022 lines) -- PermissionMode.parse: any case, no trim
+  2375	    pub fn parse(raw: []const u8) ?PermissionMode {
+  2376	        if (std.ascii.eqlIgnoreCase(raw, "ask")) return .ask;
+  2377	        if (std.ascii.eqlIgnoreCase(raw, "auto")) return .auto;
+  2378	        if (std.ascii.eqlIgnoreCase(raw, "full-access") or
+  2379	            std.ascii.eqlIgnoreCase(raw, "full access") or
+  2380	            std.ascii.eqlIgnoreCase(raw, "yolo")) return .yolo;
+  2381	        return null;
+  2382	    }
+== src/core/shared/types.zig:2421-2433@481104fd (4022 lines) -- ReasoningEffort's name: 1-64 bytes of letters, digits, - _ .
+  2421	        fn parse(raw: []const u8) ?Name {
+  2422	            if (raw.len == 0 or raw.len > max_name_bytes) return null;
+  2423	            for (raw) |byte| {
+  2424	                if (!std.ascii.isAlphanumeric(byte) and byte != '-' and byte != '_' and byte != '.') return null;
+  2425	            }
+  2426	
+  2427	            var name = Name{
+  2428	                .bytes = @as([max_name_bytes]u8, @splat(0)),
+  2429	                .len = @intCast(raw.len),
+  2430	            };
+  2431	            @memcpy(name.bytes[0..raw.len], raw);
+  2432	            return name;
+  2433	        }
+== src/core/shared/types.zig:2471-2476@481104fd (4022 lines) -- ReasoningEffort.parse: auto, adaptive, default in any case, else a name
+  2471	    pub fn parse(raw: []const u8) ?ReasoningEffort {
+  2472	        if (std.ascii.eqlIgnoreCase(raw, "auto") or
+  2473	            std.ascii.eqlIgnoreCase(raw, "adaptive") or
+  2474	            std.ascii.eqlIgnoreCase(raw, "default")) return .auto;
+  2475	        return .{ .named = Name.parse(raw) orelse return null };
+  2476	    }
+== src/core/config/context_limits.zig:5-16@481104fd (256 lines) -- the eleven context limit names
+     5	pub const Name = enum {
+     6	    skill_description_bytes,
+     7	    skill_catalog_bytes,
+     8	    skill_chunk_bytes,
+     9	    skill_file_bytes,
+    10	    mcp_description_bytes,
+    11	    mcp_search_result_bytes,
+    12	    mcp_server_instructions_bytes,
+    13	    mcp_selected_schema_bytes,
+    14	    project_instruction_file_bytes,
+    15	    project_instructions_total_bytes,
+    16	    image_adapter_output_bytes,
+== src/core/config/context_limits.zig:34-41@481104fd (256 lines) -- a name parsed exactly
+    34	    pub fn parse(raw: []const u8) ?Name {
+    35	        const name_info = @typeInfo(Name).@"enum";
+    36	        inline for (name_info.field_names, name_info.field_values) |field_name, field_value| {
+    37	            if (std.mem.eql(u8, raw, field_name)) return @fromBackingInt(@intCast(field_value));
+    38	        }
+    39	        return null;
+    40	    }
+    41	};
+== src/core/config/context_limits.zig:178-204@481104fd (256 lines) -- context_limits: an object of names to an integer, off, or parseUnsigned digits
+   178	pub fn parseJsonObject(value: std.json.Value) !Overrides {
+   179	    if (value != .object) return error.InvalidContextLimitsType;
+   180	
+   181	    var result = Overrides{};
+   182	    var iterator = value.object.iterator();
+   183	    while (iterator.next()) |entry| {
+   184	        const name = Name.parse(entry.key_ptr.*) orelse return error.UnknownContextLimit;
+   185	        result.set(name, .{
+   186	            .value = try parseJsonValue(entry.value_ptr.*),
+   187	            .source = .compiled_default,
+   188	        });
+   189	    }
+   190	    return result;
+   191	}
+   192	
+   193	fn parseJsonValue(value: std.json.Value) !Value {
+   194	    return switch (value) {
+   195	        .integer => |integer| .{ .bytes = std.math.cast(usize, integer) orelse return error.InvalidContextLimitValue },
+   196	        .string => |string| parseValueString(string),
+   197	        else => error.InvalidContextLimitValue,
+   198	    };
+   199	}
+   200	
+   201	fn parseValueString(raw: []const u8) !Value {
+   202	    if (std.ascii.eqlIgnoreCase(raw, "off")) return .off;
+   203	    return .{ .bytes = std.fmt.parseUnsigned(usize, raw, 10) catch return error.InvalidContextLimitValue };
+   204	}
+#### 5. Which surfaces stop on a failed load
+== src/core/cli/cli_surface.zig:1336-1357@481104fd (5795 lines) -- status: loadStartupStatus fails, and so does the command
+  1336	        .status => |rest| {
+  1337	            const opts = parseLocalSurfaceArgs(rest) catch |err| {
+  1338	                try writeUsageOrJsonError(alloc, cfg.command_catalog, deps, .status, "status", err, rest);
+  1339	                return .handled_failure;
+  1340	            };
+  1341	            var startup = if (cfg.auth_mode == .host_managed)
+  1342	                try deps.load_startup_status_with_auth_mode(
+  1343	                    alloc,
+  1344	                    cfg.secret_store,
+  1345	                    cfg.default_model,
+  1346	                    cfg.default_agent_step_limit,
+  1347	                    cfg.auth_mode,
+  1348	                )
+  1349	            else
+  1350	                try deps.load_startup_status(
+  1351	                    alloc,
+  1352	                    cfg.secret_store,
+  1353	                    cfg.default_model,
+  1354	                    cfg.default_agent_step_limit,
+  1355	                );
+  1356	            defer startup.deinit(alloc);
+  1357	            try writeConfigDiagnostics(alloc, deps, startup.config_diagnostics);
+== src/core/app/app_lifecycle.zig:517-587@481104fd (2901 lines) -- loadStartupStatus calls loadMergedSettingsDetailed
+   517	pub fn loadStartupStatus(
+   518	    alloc: Allocator,
+   519	    secret_store: host.SecretStore,
+   520	    default_model: []const u8,
+   521	    default_agent_step_limit: usize,
+   522	) !StartupStatus {
+   523	    return loadStartupStatusWithAuthMode(
+   524	        alloc,
+   525	        secret_store,
+   526	        default_model,
+   527	        default_agent_step_limit,
+   528	        .local,
+   529	    );
+   530	}
+   531	
+   532	pub fn loadStartupStatusWithAuthMode(
+   533	    alloc: Allocator,
+   534	    secret_store: host.SecretStore,
+   535	    default_model: []const u8,
+   536	    default_agent_step_limit: usize,
+   537	    auth_mode: credentials.AuthMode,
+   538	) !StartupStatus {
+   539	    const workspace_root = try io_mod.realpathAlloc(alloc, ".");
+   540	    errdefer alloc.free(workspace_root);
+   541	    debug_trace.configureFromEnv(alloc, workspace_root);
+   542	
+   543	    var detailed = try config_runtime.loadMergedSettingsDetailed(alloc, workspace_root);
+   544	    defer detailed.deinit(alloc);
+   545	    const settings = &detailed.settings;
+   546	
+   547	    const run_model = config_runtime.modelEnvOverride();
+   548	    const configured_selection = try config_runtime.selectProviderModel(default_model, settings, null, run_model);
+   549	    const selected_model = try loadStartupStatusModel(alloc, configured_selection.model, null);
+   550	    errdefer if (selected_model.owned) |model| alloc.free(model);
+   551	
+   552	    var auth_status = if (auth_mode == .host_managed)
+   553	        auth_runtime.StatusSnapshot{
+   554	            .active_source = .host_managed,
+   555	            .gateway_connected = true,
+   556	            .chatgpt_connected = true,
+   557	            .grok_connected = true,
+   558	        }
+   559	    else
+   560	        try auth_runtime.loadStatusSnapshotForProvider(
+   561	            alloc,
+   562	            secret_store,
+   563	            configured_selection.provider,
+   564	            settings.credential_source,
+   565	        );
+   566	    errdefer auth_status.deinit(alloc);
+   567	
+   568	    const definitions: @import("../config/configured_provider.zig").Registry = settings.providers orelse .{};
+   569	    const result = StartupStatus{
+   570	        .workspace_root = workspace_root,
+   571	        .provider_endpoint = if (definitions.get(configured_selection.provider.label())) |definition| try alloc.dupe(u8, definition.base_url) else null,
+   572	        .provider = configured_selection.provider,
+   573	        .selected_model = selected_model.value,
+   574	        .owned_selected_model = selected_model.owned,
+   575	        .model_origin = ModelOrigin.of(settings, configured_selection.provider, run_model),
+   576	        .effort = settings.effort orelse .auto,
+   577	        .ultrafast_mode = detailed.ultrafast_mode_env_override orelse (settings.ultrafast_mode orelse false),
+   578	        .auth = auth_status,
+   579	        .permission_mode = loadPermissionMode(settings.permission_mode),
+   580	        .agent_step_limit = loadAgentStepLimit(default_agent_step_limit, settings.max_agent_steps),
+   581	        .update_channel = settings.update_channel orelse .stable,
+   582	        .config_diagnostics = detailed.diagnostics,
+   583	    };
+   584	    auth_status.owned_team = null;
+   585	    detailed.diagnostics = &.{};
+   586	    return result;
+   587	}
+== src/core/cli/doctor_runtime.zig:92-105@481104fd (739 lines) -- doctor reads the settings itself and reports a failure as checks
+    92	    var detailed = config_runtime.loadMergedSettingsDetailed(alloc, snapshot.workspace_root) catch |err| {
+    93	        // Settings are unreadable, so no remembered choice is available to honour.
+    94	        snapshot.auth = try auth_runtime.loadStatusSnapshot(alloc, secret_store, null);
+    95	        try appendConfigLoadFailureCheck(&checks, alloc, "config", "failed to load config", err);
+    96	        try appendMcpConfigCheck(&checks, alloc, mcp_config_diagnostic);
+    97	        try appendAuthCheck(&checks, alloc, snapshot.auth);
+    98	        try appendConfigLoadFailureCheck(&checks, alloc, "startup", "failed to resolve startup settings", err);
+    99	        try appendStateChecks(&checks, alloc);
+   100	        try appendGitCheck(&checks, alloc, snapshot.workspace_root);
+   101	        try appendGhCheck(&checks, alloc);
+   102	
+   103	        snapshot.checks = try checks.toOwnedSlice(alloc);
+   104	        return snapshot;
+   105	    };
+#### 6. Cited by PROFILE-REFUSE-AT-LAUNCH, quoted here (its opus r4 NIT 2)
+== src/core/config/config_runtime.zig:1415-1429@481104fd (4718 lines) -- readOptionalFile: openExistingRegularFile, then the kind and size of what was opened
+  1415	fn readOptionalFile(alloc: Allocator, path: []const u8) !?[]u8 {
+  1416	    var file = io_mod.openExistingRegularFile(
+  1417	        std.Io.Dir.cwd(),
+  1418	        path,
+  1419	        .read_only,
+  1420	    ) catch |err| switch (err) {
+  1421	        error.FileNotFound => return null,
+  1422	        else => return err,
+  1423	    };
+  1424	    defer file.close(io_mod.getIo());
+  1425	
+  1426	    const stat = try file.stat(io_mod.getIo());
+  1427	    if (stat.kind != .file or stat.size > max_settings_bytes) return error.StreamTooLong;
+  1428	    return try io_mod.readFileToEnd(alloc, &file, max_settings_bytes + 1);
+  1429	}
+== src/core/shared/io.zig:255-265@481104fd (1878 lines) -- openExistingRegularFile: the open, fstat, kind and links, then makeFileBlocking
+   255	    var file = std.Io.File{
+   256	        .handle = fd,
+   257	        .flags = .{ .nonblocking = true },
+   258	    };
+   259	    errdefer file.close(getIo());
+   260	    const stat = try file.stat(getIo());
+   261	    try verifyOpenedRegularFileWithPolicy(stat, policy);
+   262	    try makeFileBlocking(&file);
+   263	    return file;
+   264	}
+   265	
+== src/core/shared/io.zig:289-315@481104fd (1878 lines) -- makeFileBlocking: F_GETFL and F_SETFL without NONBLOCK; a failure is FileControlFailed
+   289	fn makeFileBlocking(file: *std.Io.File) !void {
+   290	    const current = while (true) {
+   291	        const rc = std.posix.system.fcntl(
+   292	            file.handle,
+   293	            std.posix.F.GETFL,
+   294	            @as(usize, 0),
+   295	        );
+   296	        switch (std.posix.errno(rc)) {
+   297	            .SUCCESS => break @as(usize, @intCast(rc)),
+   298	            .INTR => continue,
+   299	            else => return error.FileControlFailed,
+   300	        }
+   301	    };
+   302	    const nonblock = @as(usize, 1) << @bitOffsetOf(std.posix.O, "NONBLOCK");
+   303	    while (true) {
+   304	        const rc = std.posix.system.fcntl(
+   305	            file.handle,
+   306	            std.posix.F.SETFL,
+   307	            current & ~nonblock,
+   308	        );
+   309	        switch (std.posix.errno(rc)) {
+   310	            .SUCCESS => break,
+   311	            .INTR => continue,
+   312	            else => return error.FileControlFailed,
+   313	        }
+   314	    }
+   315	    file.flags.nonblocking = false;
+#### 7. Not copied: the /status panel's reader
+== src/core/config/config_runtime.zig:1283-1308@481104fd (4718 lines) -- loadMergedSettingsFromPaths: no salvage and no cause classes; any parse error is the panel's error
+  1283	pub fn loadMergedSettingsFromPaths(alloc: Allocator, paths: Paths) !Settings {
+  1284	    var settings = Settings{};
+  1285	    errdefer settings.deinit(alloc);
+  1286	
+  1287	    const user_text = try readOptionalUserSettingsFile(alloc, paths);
+  1288	    defer if (user_text) |owned| alloc.free(owned);
+  1289	
+  1290	    if (user_text) |text| {
+  1291	        var parsed = try std.json.parseFromSlice(std.json.Value, alloc, text, .{});
+  1292	        defer parsed.deinit();
+  1293	        if (parsed.value != .object) return error.InvalidSettingsShape;
+  1294	
+  1295	        try mergeSettingsFile(&settings, alloc, paths.workspace_settings);
+  1296	
+  1297	        var user_settings = try parseSettingsValueForLayer(alloc, parsed.value, .profile, false, true);
+  1298	        defer user_settings.deinit(alloc);
+  1299	        user_settings.context_limits.retag(.user_global);
+  1300	        try mergeSettings(&settings, &user_settings, alloc);
+  1301	
+  1302	        try mergeWorkspaceOverridesFromValue(&settings, alloc, parsed.value, paths.workspace_root);
+  1303	        try resolve_provider_selection(&settings);
+  1304	        return settings;
+  1305	    }
+  1306	
+  1307	    try mergeSettingsFile(&settings, alloc, paths.workspace_settings);
+  1308	    try resolve_provider_selection(&settings);
+#### 8. Round 2: the connections, the preference cap, the limits, doctor, setup
+== src/core/config/configured_provider.zig:6-9@481104fd (640 lines) -- max_providers 32, max_id_bytes 64, max_model_bytes 1024
+     6	const max_providers = 32;
+     7	const max_models = 256;
+     8	pub const max_id_bytes = 64;
+     9	pub const max_model_bytes = 1024;
+== src/core/config/settings_store.zig:18-18@481104fd (4166 lines) -- settings_store's max_model_bytes, validateModel's limit: 1024
+    18	pub const max_model_bytes: usize = 1024;
+== src/core/shared/types.zig:2414-2414@481104fd (4022 lines) -- ReasoningEffort's max_name_bytes: 64
+  2414	    pub const max_name_bytes = 64;
+== src/core/config/model_preferences.zig:1-52@481104fd (79 lines) -- max_preferences 35: putOwned (one per provider name, the 36th refused) and mergeOwnedFrom (two layers merged, the same cap)
+     1	const std = @import("std");
+     2	const model_provider = @import("model_provider.zig");
+     3	
+     4	pub const max_preferences = 35;
+     5	pub const Preferences = struct {
+     6	    pub const Entry = struct { provider: model_provider.NameKey, model: []u8 };
+     7	    entries: std.ArrayList(Entry) = .empty,
+     8	
+     9	    pub fn get(self: *const Preferences, provider: model_provider.ProviderId) ?[]const u8 {
+    10	        return self.getName(provider.label());
+    11	    }
+    12	
+    13	    fn getName(self: *const Preferences, name: []const u8) ?[]const u8 {
+    14	        for (self.entries.items) |*entry| if (entry.provider.eqlName(name)) return entry.model;
+    15	        return null;
+    16	    }
+    17	
+    18	    pub fn putCopy(self: *Preferences, alloc: std.mem.Allocator, provider: model_provider.ProviderId, model: []const u8) !void {
+    19	        const owned = try alloc.dupe(u8, model);
+    20	        errdefer alloc.free(owned);
+    21	        try self.putOwned(alloc, provider, owned);
+    22	    }
+    23	
+    24	    /// Takes model only on success.
+    25	    fn putOwned(self: *Preferences, alloc: std.mem.Allocator, provider: model_provider.ProviderId, model: []u8) !void {
+    26	        for (self.entries.items) |*entry| if (entry.provider.eqlProvider(provider)) {
+    27	            alloc.free(entry.model);
+    28	            entry.model = model;
+    29	            return;
+    30	        };
+    31	        if (self.entries.items.len == max_preferences) return error.TooManyModelPreferences;
+    32	        try self.entries.append(alloc, .{ .provider = model_provider.NameKey.fromProvider(provider), .model = model });
+    33	    }
+    34	
+    35	    pub fn mergeOwnedFrom(self: *Preferences, alloc: std.mem.Allocator, incoming: *Preferences) !void {
+    36	        var additional: usize = 0;
+    37	        for (incoming.entries.items) |entry| if (self.getName(entry.provider.label()) == null) {
+    38	            additional += 1;
+    39	        };
+    40	        if (additional > max_preferences - self.entries.items.len) return error.TooManyModelPreferences;
+    41	        try self.entries.ensureUnusedCapacity(alloc, additional);
+    42	        for (incoming.entries.items) |entry| {
+    43	            for (self.entries.items) |*current| {
+    44	                if (!current.provider.eqlName(entry.provider.label())) continue;
+    45	                alloc.free(current.model);
+    46	                current.* = entry;
+    47	                break;
+    48	            } else self.entries.appendAssumeCapacity(entry);
+    49	        }
+    50	        incoming.entries.clearRetainingCapacity();
+    51	    }
+    52	
+== src/core/config/configured_provider.zig:105-130@481104fd (640 lines) -- Registry.parse: not an object is InvalidObject, more than 32 is LimitExceeded, then each definition
+   105	
+   106	pub const Registry = struct {
+   107	    definitions: []const Definition = &.{},
+   108	
+   109	    /// Parse the providers object itself, not the surrounding settings object.
+   110	    /// All returned storage is owned, independent of `providers`, and must be
+   111	    /// freed with deinit using the same allocator. Errors leave no owned state.
+   112	    /// PRECONDITION: the caller's JSON parser must reject duplicate keys at all
+   113	    /// depths (including providers in the enclosing settings). Value's ObjectMap
+   114	    /// cannot retain evidence of duplicates already discarded by another parser.
+   115	    pub fn parse(alloc: Allocator, providers: std.json.Value) ParseError!Registry {
+   116	        if (providers != .object) return error.InvalidObject;
+   117	        if (providers.object.count() > max_providers) return error.LimitExceeded;
+   118	        const definitions = try alloc.alloc(Definition, providers.object.count());
+   119	        var initialized: usize = 0;
+   120	        errdefer {
+   121	            for (definitions[0..initialized]) |definition| definition.deinit(alloc);
+   122	            alloc.free(definitions);
+   123	        }
+   124	        var iterator = providers.object.iterator();
+   125	        while (iterator.next()) |entry| {
+   126	            definitions[initialized] = try parse_definition(alloc, entry.key_ptr.*, entry.value_ptr.*);
+   127	            initialized += 1;
+   128	        }
+   129	        return .{ .definitions = definitions };
+   130	    }
+== src/core/config/configured_provider.zig:166-177@481104fd (640 lines) -- parse_definition's first checks: the id, the fields (a definition that is not an object is InvalidObject), the protocol
+   166	fn parse_definition(alloc: Allocator, id: []const u8, value: std.json.Value) ParseError!Definition {
+   167	    try validate_id(id);
+   168	    try check_fields(value, &.{ "protocol", "base_url", "auth", "tool_choice_mode", "reviewer_model", "model_metadata" });
+   169	    const protocol = try required(value, "protocol");
+   170	    if (protocol != .string or !std.mem.eql(u8, protocol.string, "openai-chat-completions")) return error.InvalidProtocol;
+   171	    const url = try required(value, "base_url");
+   172	    if (url != .string) return error.InvalidBaseUrl;
+   173	    const normalized = try validate_url(url.string);
+   174	    const auth = try parse_auth(try required(value, "auth"));
+   175	    var mode: ToolChoiceMode = .omit;
+   176	    if (value.object.get("tool_choice_mode")) |choice| {
+   177	        if (choice != .string) return error.InvalidToolChoiceMode;
+== src/core/config/config_runtime.zig:1057-1059@481104fd (4718 lines) -- parsePermissionMode: PermissionMode.parse, any case
+  1057	pub fn parsePermissionMode(raw: []const u8) ?types.PermissionMode {
+  1058	    return types.PermissionMode.parse(raw);
+  1059	}
+== src/core/cli/doctor_runtime.zig:244-251@481104fd (739 lines) -- formatConfigLoadFailure: '<prefix>: <ErrorName>'
+   244	fn appendConfigLoadFailureCheck(checks: *std.ArrayList(Check), alloc: Allocator, name: []const u8, prefix: []const u8, err: anyerror) !void {
+   245	    const detail = try formatConfigLoadFailure(alloc, prefix, err);
+   246	    try appendCheckOwned(checks, alloc, name, .fail, detail);
+   247	}
+   248	
+   249	fn formatConfigLoadFailure(alloc: Allocator, prefix: []const u8, err: anyerror) ![]u8 {
+   250	    return alloc.print("{s}: {s}", .{ prefix, @errorName(err) });
+   251	}
+== src/core/cli/cli_surface.zig:1925-1940@481104fd (5795 lines) -- runPasteSetup: the keychain first, then a pasted key; no settings are read
+  1925	}
+  1926	
+  1927	fn runPasteSetup(
+  1928	    alloc: Allocator,
+  1929	    secret_store: host.SecretStore,
+  1930	    deps: RunDeps,
+  1931	) !bool {
+  1932	    if (secret_store.isDisabled()) {
+  1933	        try writeStderr(deps, "fx setup: stored API keys are disabled by FX_DISABLE_KEYCHAIN\n");
+  1934	        return false;
+  1935	    }
+  1936	    if (!deps.setup_terminal_available(deps.setup_ctx)) {
+  1937	        try writeStderr(deps, "fx setup: an interactive terminal is required to paste an API key\n");
+  1938	        return false;
+  1939	    }
+  1940	
+#### 9. Round 3: how a preference's provider is named and compared
+== src/core/config/model_provider.zig:17-23@481104fd (207 lines) -- ProviderId.label: a built-in's name is its lowercase word, a connection's its own bytes
+    17	    pub fn label(self: *const ProviderId) []const u8 {
+    18	        return switch (self.*) {
+    19	            .gateway => "gateway",
+    20	            .codex => "codex",
+    21	            .grok => "grok",
+    22	            .configured => |*value| value.bytes[0..value.len],
+    23	        };
+== src/core/config/model_provider.zig:76-99@481104fd (207 lines) -- NameKey: the label's bytes; eqlName compares them exactly
+    76	pub const NameKey = struct {
+    77	    bytes: [configured_provider.max_id_bytes]u8 = @splat(0),
+    78	    len: u8 = 0,
+    79	
+    80	    pub fn fromProvider(provider: ProviderId) NameKey {
+    81	        var key: NameKey = .{};
+    82	        const name = provider.label();
+    83	        key.len = @intCast(name.len);
+    84	        @memcpy(key.bytes[0..name.len], name);
+    85	        return key;
+    86	    }
+    87	
+    88	    pub fn label(self: *const NameKey) []const u8 {
+    89	        return self.bytes[0..self.len];
+    90	    }
+    91	
+    92	    pub fn eqlName(self: *const NameKey, name: []const u8) bool {
+    93	        return self.len == name.len and std.mem.eql(u8, self.bytes[0..self.len], name);
+    94	    }
+    95	
+    96	    pub fn eqlProvider(self: *const NameKey, provider: ProviderId) bool {
+    97	        return self.eqlName(provider.label());
+    98	    }
+    99	};
+== 0 range(s) out of bounds

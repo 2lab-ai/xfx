@@ -1,0 +1,6 @@
+# merge 4's staged tree: python3 -I scripts/fxcap/test_capture.py RootsRewrite (no lock: in-process, under a second); exit 0
+.............................
+----------------------------------------------------------------------
+Ran 29 tests in 0.627s
+
+OK

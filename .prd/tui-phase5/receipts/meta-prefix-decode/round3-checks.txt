@@ -1,0 +1,41 @@
+# Round 3 checks at 0f345c76 (code head 4788ff6d), 2026-11-16, in the worktree, TMPDIR=<tmp>
+## cargo fmt --check
+exit=0
+## cargo clippy --locked --all-targets -- -D warnings
+exit=0 (0 warnings or errors)
+## cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+exit=0 (0 warnings or errors)
+## fx_src.sh over README.md and the unit's added lines
+307 citations checked, 0 outside fx-src.txt's ranges
+## refs.py df45025c
+refs: 16 checked, 0 wrong, 0 without an expected text
+## srcsize.py adb740bd HEAD (the source change outside the test modules)
+total: +255/-82
+## cargo test --locked --lib -- tui:: (every TUI unit test)
+test tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn ... FAILED
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+test result: FAILED. 3121 passed; 2 failed; 5 ignored; 0 measured; 1688 filtered out; finished in 101.61s
+
+## The two failures above are catalog-wait worker tests (src/tui/worker.rs, untouched by this unit, which imports nothing from src/tui/input.rs); each alone, 3 runs, under the suite lock (load from other workers):
+### head, first
+a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn run 1 (load { 13.10 16.00 16.21 }): test result: FAILED. 0 passed; 1 failed; 0 ignored
+a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn run 2 (load { 12.55 15.60 16.05 }): test result: FAILED. 0 passed; 1 failed; 0 ignored
+a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn run 3 (load { 12.36 15.27 15.92 }): test result: ok. 1 passed; 0 failed; 0 ignored
+a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 1 (load { 16.63 15.92 16.12 }): test result: FAILED. 0 passed; 1 failed; 0 ignored
+a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 2 (load { 22.39 17.19 16.56 }): test result: ok. 1 passed; 0 failed; 0 ignored
+a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 3 (load { 17.46 16.45 16.31 }): test result: ok. 1 passed; 0 failed; 0 ignored
+### base df45025c, a --no-local clone
+base df45025c a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn run 1 (load { 8.90 13.04 14.89 }): test result: ok. 1 passed; 0 failed; 0 ignored
+base df45025c a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn run 2 (load { 10.48 12.66 14.57 }): test result: ok. 1 passed; 0 failed; 0 ignored
+base df45025c a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn run 3 (load { 10.43 12.58 14.52 }): test result: ok. 1 passed; 0 failed; 0 ignored
+base df45025c a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 1 (load { 10.89 12.61 14.51 }): test result: ok. 1 passed; 0 failed; 0 ignored
+base df45025c a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 2 (load { 10.00 12.26 14.33 }): test result: ok. 1 passed; 0 failed; 0 ignored
+base df45025c a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 3 (load { 12.12 12.57 14.37 }): test result: ok. 1 passed; 0 failed; 0 ignored
+### head, second
+a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn run 1 (load { 11.84 12.46 14.24 }): test result: ok. 1 passed; 0 failed; 0 ignored
+a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn run 2 (load { 13.15 12.74 14.31 }): test result: ok. 1 passed; 0 failed; 0 ignored
+a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn run 3 (load { 12.43 12.60 14.25 }): test result: ok. 1 passed; 0 failed; 0 ignored
+a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 1 (load { 13.72 12.86 14.32 }): test result: ok. 1 passed; 0 failed; 0 ignored
+a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 2 (load { 15.05 13.26 14.41 }): test result: ok. 1 passed; 0 failed; 0 ignored
+a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 3 (load { 13.98 13.13 14.33 }): test result: ok. 1 passed; 0 failed; 0 ignored
+### reading: 3 of 6 failed at load 12-22, then 6 of 6 passed at load 12-15; the base passed 6 of 6 at load 9-12. The known catalog-wait timing class under load, not this change [inferred from the load and the untouched code; not reproduced on the base at the head's first load].

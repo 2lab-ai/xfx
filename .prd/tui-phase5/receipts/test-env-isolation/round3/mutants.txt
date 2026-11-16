@@ -1,0 +1,46 @@
+# Mutants and fixtures, round 3, at b039c001, on a git clone --no-local throwaway, under the suite lock:
+#   TMPDIR=<short> suite-lock.sh python3 mutants-r3.py <clone> b039c001
+# test: test_env:: + the thread-carry, launched-worker and plan-names cases, under sentinel-run.sh. clippy: clippy --all-targets -D warnings. check: the binding check and the start rule's scan, under sentinel-run.sh. integration: tests/permissions.rs under sentinel-run.sh.
+# Each run's output is searched for sentinel-run.sh's six values (counted, never printed).
+KILLED guard-gone: process_env! var/var_os read std::env in tests :: test result: FAILED. 14 passed; 12 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.07s :: sentinel values in output: 0
+KILLED refusal-gone: test_env::var_os returns None outside a fake :: test result: FAILED. 17 passed; 9 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.07s :: sentinel values in output: 0
+KILLED config-vars-unrouted: Environment::from_process reads its variables from std::env :: test result: FAILED. 20 passed; 6 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED config-home-unrouted: Environment::from_process reads HOME from std::env :: test result: FAILED. 24 passed; 2 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED gateway-reader-unrouted: Endpoint::from_process reads std::env :: test result: FAILED. 22 passed; 4 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.07s :: sentinel values in output: 0
+KILLED git-reader-unrouted: GitEnvironment::from_process reads std::env :: test result: FAILED. 23 passed; 3 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.05s :: sentinel values in output: 0
+KILLED home-to-git-unrouted: minimal_environment's HOME is the process's :: test result: FAILED. 22 passed; 4 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED child-isolation-gone: process::command inherits the process :: test result: FAILED. 24 passed; 2 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.05s :: sentinel values in output: 0
+KILLED carry-gone: spawn_unsignalled does not carry the fake process :: test result: FAILED. 24 passed; 2 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED mcp-fallback-back: with_environment falls back to std::env :: test result: FAILED. 25 passed; 1 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED overlay-gone: a runtime's environment replaces the thread's fake (item 3) :: test result: FAILED. 24 passed; 2 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED global-git-gone: a homeless plan keeps the global configuration (item 2) :: test result: FAILED. 23 passed; 3 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED proxy-rule-gone: bearer_rules takes the process's proxy in a test (item 6) :: test result: FAILED. 24 passed; 2 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 5.03s :: sentinel values in output: 0
+KILLED fake-proxy-ignored: proxies() drops the fake process's proxy (item 6) :: test result: FAILED. 25 passed; 1 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 5.03s :: sentinel values in output: 0
+KILLED fixture: an imported var :: clippy exit 101; error: use of a disallowed method `std::env::var`
+KILLED fixture: an aliased std::env :: clippy exit 101; error: use of a disallowed method `std::env::var_os`
+KILLED fixture: a reader passed as a function :: clippy exit 101; error: use of a disallowed method `std::env::var_os`
+KILLED fixture: a key swap at an allowed site :: test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 2.58s :: sentinel values in output: 0
+KILLED fixture: a key swap with its reason :: test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 2.56s :: sentinel values in output: 0
+KILLED fixture: a key swap with its reason and its listing :: test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 2.56s :: sentinel values in output: 0
+KILLED fixture: an env: allow over a start :: test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 2.62s :: sentinel values in output: 0
+KILLED fixture: enumeration inside an allowed unit :: test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 2.81s :: sentinel values in output: 0
+KILLED fixture: an unbound key, the name held outside the allow :: test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 2.14s :: sentinel values in output: 0
+KILLED fixture: a function-level allow :: test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 2.58s :: sentinel values in output: 0
+KILLED fixture: an inner allow :: test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 2.79s :: sentinel values in output: 0
+KILLED fixture: an aliased Command started with .output() inside an allow :: test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 2.70s :: sentinel values in output: 0
+KILLED fixture: a reader imported under another name :: test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 2.54s :: sentinel values in output: 0
+KILLED (does not build) fixture: libc's environ inside an allow
+KILLED fixture: a bare Command in a test module (SHOULD 2) :: test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 2.64s :: sentinel values in output: 0
+KILLED isolation-gone: ran_in_a_clean_copy never copies :: test result: FAILED. 157 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.82s :: sentinel values in output: 0
+KILLED prologue-gone: one wrapped case runs in the developer's process :: test result: FAILED. 158 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.90s :: sentinel values in output: 0
+KILLED copy-keeps-home: the copy is handed the developer's HOME :: test result: FAILED. 157 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.53s :: sentinel values in output: 0
+total 32, survived 0, runs with a sentinel value in output 0
+mutants exit 0
+
+# The environ fixture above did not build: libc exports no environ for Apple targets. Rerun with environ declared by hand (extern "C"), which builds; the filter 'environ' also matched three names that contain 'environment':
+#   TMPDIR=<short> suite-lock.sh python3 mutants-r3.py <clone> b039c001 environ
+KILLED home-to-git-unrouted: minimal_environment's HOME is the process's :: test result: FAILED. 22 passed; 4 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED mcp-fallback-back: with_environment falls back to std::env :: test result: FAILED. 25 passed; 1 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED overlay-gone: a runtime's environment replaces the thread's fake (item 3) :: test result: FAILED. 24 passed; 2 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.05s :: sentinel values in output: 0
+KILLED fixture: the C environ, declared by hand, inside an allow :: test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 4.56s :: sentinel values in output: 0
+total 4, survived 0, runs with a sentinel value in output 0

@@ -1,0 +1,83 @@
+## p5-cancel-double-escape-40x120: fx against xfx, cell by cell (cells.py, row 1 left out)
+SAME a-person-cleared       rows: none
+       fx:   ┃/
+       xfx:  ┃/
+SAME b-burst-cleared        rows: none
+       fx:   ┃/
+       xfx:  ┃/
+DIFF c-menu                 rows: 5 7 8 
+       fx:   ┃ /he/
+       xfx:  ┃ /he/
+SAME c-person-cleared       rows: none
+       fx:   ┃/
+       xfx:  ┃/
+SAME c-person-closed        rows: none
+       fx:   ┃ /he/
+       xfx:  ┃ /he/
+SAME d-burst-cleared        rows: none
+       fx:   ┃/
+       xfx:  ┃/
+
+## p5-cancel-double-escape-turn-40x120: fx against xfx, cell by cell (cells.py, row 1 left out)
+DIFF a-meta-up              rows: 5 
+       fx:   ┃ stream please/┃/
+       xfx:  ┃ stream please/┃/
+DIFF b-burst-cancelled      rows: 5 
+       fx:   ┃ stream please/▪ Cancelled · What can fx do differently?/┃/
+       xfx:  ┃ stream please/▪ Cancelled · What can xfx do differently?/┃/
+DIFF c-person-cancelled     rows: 5 9 
+       fx:   ┃ stream please/▪ Cancelled · What can fx do differently?/┃ stream again/▪ Cancelled · What can fx do differently?/┃/
+       xfx:  ┃ stream please/▪ Cancelled · What can xfx do differently?/┃ stream again/▪ Cancelled · What can xfx do differently?/┃/
+SAME mid                    rows: none
+       fx:   ┃ stream please/┃/
+       xfx:  ┃ stream please/┃/
+DIFF mid2                   rows: 5 
+       fx:   ┃ stream please/▪ Cancelled · What can fx do differently?/┃ stream again/┃/
+       xfx:  ┃ stream please/▪ Cancelled · What can xfx do differently?/┃ stream again/┃/
+
+## p5-modified-meta-prefix-40x120: fx against xfx, cell by cell (cells.py, row 1 left out)
+SAME caps-ctrl-end          rows: none
+       fx:   ┃ Hone two/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+       xfx:  ┃ Hone two/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+SAME caps-ctrl-home         rows: none
+       fx:   ┃ Hone two/┃/┃ three four/┃/┃ GFEAfive CsixBD/
+       xfx:  ┃ Hone two/┃/┃ three four/┃/┃ GFEAfive CsixBD/
+SAME ctrl-meta-bit-left     rows: none
+       fx:   ┃ JHone LtwoK/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+       xfx:  ┃ JHone LtwoK/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+SAME draft                  rows: none
+       fx:   ┃ one two/┃/┃ three four/┃/┃ five six/
+       xfx:  ┃ one two/┃/┃ three four/┃/┃ five six/
+SAME hyper-left             rows: none
+       fx:   ┃ JHone MLtwoK/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+       xfx:  ┃ JHone MLtwoK/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+SAME meta-bit-end           rows: none
+       fx:   ┃ JHone twoK/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+       xfx:  ┃ JHone twoK/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+SAME meta-ctrl-home         rows: none
+       fx:   ┃ one two/┃/┃ three four/┃/┃ EAfive CsixBD/
+       xfx:  ┃ one two/┃/┃ three four/┃/┃ EAfive CsixBD/
+SAME meta-down              rows: none
+       fx:   ┃ one two/┃/┃ three four/┃/┃ Afive sixB/
+       xfx:  ┃ one two/┃/┃ three four/┃/┃ Afive sixB/
+SAME meta-left              rows: none
+       fx:   ┃ one two/┃/┃ three four/┃/┃ Afive CsixB/
+       xfx:  ┃ one two/┃/┃ three four/┃/┃ Afive CsixB/
+SAME meta-right             rows: none
+       fx:   ┃ one two/┃/┃ three four/┃/┃ Afive CsixBD/
+       xfx:  ┃ one two/┃/┃ three four/┃/┃ Afive CsixBD/
+SAME meta-ss3-up            rows: none
+       fx:   ┃ one two/┃/┃ three four/┃/┃ GFEAfive CsixBD/
+       xfx:  ┃ one two/┃/┃ three four/┃/┃ GFEAfive CsixBD/
+SAME meta-super-left        rows: none
+       fx:   ┃ one two/┃/┃ three four/┃/┃ FEAfive CsixBD/
+       xfx:  ┃ one two/┃/┃ three four/┃/┃ FEAfive CsixBD/
+SAME meta-up                rows: none
+       fx:   ┃ one two/┃/┃ three four/┃/┃ Afive six/
+       xfx:  ┃ one two/┃/┃ three four/┃/┃ Afive six/
+SAME num-ctrl-home          rows: none
+       fx:   ┃ JHone two/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+       xfx:  ┃ JHone two/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+
+20 of 25 pairs identical
+banners (row 1): fx 𝒇x v0.0.16 · Run /help for commands / xfx x𝒇x v0.1.0-47fccd9 [debug] · Run /help for commands

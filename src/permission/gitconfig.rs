@@ -92,7 +92,8 @@ impl GitEnvironment {
             SELECTING_VARIABLES
                 .iter()
                 .filter_map(|name| {
-                    std::env::var_os(name).map(|value| (OsString::from(name), value))
+                    process_env!("permission::GitEnvironment::from_process", var_os(name))
+                        .map(|value| (OsString::from(name), value))
                 })
                 .collect(),
         )
@@ -169,7 +170,7 @@ pub(crate) fn run_git(
         .iter()
         .find(|(name, _)| name == "PATH")
         .map(|(_, value)| value.clone())
-        .or_else(|| std::env::var_os("PATH"))
+        .or_else(|| env_exception!(var_os("PATH")))
         .unwrap_or_default();
     let git = std::env::split_paths(&path)
         .map(|dir| dir.join("git"))
@@ -763,7 +764,7 @@ tinued
         // The differential: each text through `git config --file`, which
         // reads it with git's own parser. Where this parser answers, the
         // answer is git's, byte for byte; where it refuses, auto asks.
-        let git = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        let git = std::env::split_paths(&crate::test_env::path())
             .map(|dir| dir.join("git"))
             .find(|git| git.is_file())
             .expect("git on PATH: this test runs the real one");
@@ -785,7 +786,7 @@ tinued
             let file = dir.path().join(format!("case{index}"));
             std::fs::write(&file, text).expect("a case");
             let output = crate::process::output(
-                std::process::Command::new(&git)
+                crate::process::command(&git)
                     .args(["config", "--file"])
                     .arg(&file)
                     .args(["--no-includes", "-z", "--get-regexp"])

@@ -1,0 +1,21 @@
+== mutants.py <repo> <clone> at c98af8c5 (code 9d010f33), under the suite lock: round 1's eight (M7 on its new text) and round 2's ten
+clone of c98af8c5
+TMPDIR is the caller's; each test run bounded at 900 s
+M1 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4860:13:); cli::ask_refuses_a_profile_fx_refuses (101; tests/cli.rs:1997:17:); interactive::the_shell_refuses_a_profile_fx_refuses (101; tests/support/pty.rs:430:21:); tui::a_profile_fx_refuses_is_refused (101; tests/support/pty.rs:430:21:)
+M2 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4860:13:); --lib::config::tests::a_key_twice_is_a_file_that_does_not_parse (101; src/config.rs:4950:9:); cli::ask_refuses_a_profile_fx_refuses (101; tests/cli.rs:1997:17:)
+M3 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4860:13:); cli::ask_refuses_a_profile_fx_refuses (101; tests/cli.rs:1997:17:); cli::status_stops_where_fxs_load_fails (101; tests/cli.rs:2073:13:)
+M4 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4860:13:); cli::ask_refuses_a_profile_fx_refuses (101; tests/cli.rs:1997:17:); cli::status_stops_where_fxs_load_fails (101; tests/cli.rs:2073:13:)
+M5 KILLED: cli::status_stops_where_fxs_load_fails (101; tests/cli.rs:2073:13:)
+M6 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4860:13:); cli::ask_goes_on_with_a_profile_fx_starts_with (101; tests/cli.rs:2018:9:)
+M7 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4860:13:)
+M8 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4860:13:); cli::ask_goes_on_with_a_profile_fx_starts_with (101; tests/cli.rs:2018:9:)
+M9 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4860:13:); cli::ask_refuses_a_profile_fx_refuses (101; tests/cli.rs:1997:17:); cli::status_stops_where_fxs_load_fails (101; tests/cli.rs:2073:13:)
+M10 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4860:13:); cli::ask_refuses_a_profile_fx_refuses (101; tests/cli.rs:1997:17:); cli::status_stops_where_fxs_load_fails (101; tests/cli.rs:2073:13:)
+M11 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4909:13:)
+M12 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4909:13:)
+M13 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4909:13:)
+M14 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4909:13:)
+M15 KILLED: cli::status_stops_where_fxs_load_fails (101; tests/cli.rs:2084:13:)
+M16 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4860:13:); cli::ask_goes_on_with_a_profile_fx_starts_with (101; tests/cli.rs:2018:9:)
+M17 KILLED: --lib::config::tests::a_launch_refuses_the_models_fx_refuses_and_no_other (101; src/config.rs:4561:9:); cli::ask_goes_on_with_a_profile_fx_starts_with (101; tests/cli.rs:2018:9:)
+M18 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4860:13:)

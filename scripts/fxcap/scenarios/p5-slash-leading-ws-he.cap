@@ -1,0 +1,23 @@
+# SLASH-LEADING-WS: the three drafts the unit was asked about, as typed --
+# `  /he`, a line break then `/he`, and `say /he`. fx lists /shell for `he`
+# (a substring of its name), which xfx does not have until C8 lands (the
+# ledger's cause for fx's /shell rows), so p5-slash-leading-ws asks for
+# `/help` instead; this one keeps the words.
+fx: env FX_AUTO_UPGRADE=0
+wait 3
+type   /he
+wait 0.6
+snap spaces
+key C-u
+wait 0.3
+key C-j
+type /he
+wait 0.6
+snap newline
+key Tab
+wait 0.5
+key C-u
+wait 0.3
+type say /he
+wait 0.6
+snap mid

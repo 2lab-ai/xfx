@@ -1,0 +1,57 @@
+== PROBE_ENTRIES=all probe.sh xfx <xfx at 9d010f33> <run> provider-missing-empty providers-type models-36
+binary sha256 before: 1562ff9c2cf4
+== provider-missing-empty
+  ask                    exit=1 stdout=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  ask --json             exit=1 stdout=55B stderr= | touched: 
+    stdout: {"kind":"error","message":"UnknownConfiguredProvider"}|
+  doctor                 exit=0 stdout=1061B stderr= | touched: 
+    stdout: [doctor] ok=3 warn=1 fail=3|[doctor] workspace=<run>/provider-missing-empty/work|[doctor] model=zai/glm-5.2|[doctor] provider=rejected|[doctor] provider_rejected=missing|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=25|[ok] workspace: u
+  sessions               exit=0 stdout=84B stderr= | touched: 
+    stdout: [sessions] scope=workspace count=0 has_more=false truncated=false skipped_invalid=0|
+  session last           exit=1 stdout=0B stderr=xfx: no saved session belongs to <run>/provider-missing-empty/work; run `xfx ask` here first, or name a session id| | touched: 
+  --version              exit=0 stdout=6B stderr= | touched: 
+    stdout: 0.1.0|
+  help                   exit=0 stdout=748B stderr= | touched: 
+    stdout: Unofficial Rust port of the fx terminal coding agent||Usage: xfx [OPTIONS] [COMMAND]||Commands:|  ask       Ask the model one question and stream the answer|  setup     Switch providers and record the selection|  status    Report the resolved model, credential source, and workspace|  doctor    Check
+  bare, no terminal      exit=1 stdout=0B stderr=xfx requires an interactive terminal (TTY); run `xfx ask <prompt>` when there is not one| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  --version, terminal    exited exit=0 tty=7B stderr= | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+== providers-type
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidObject| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidObject| | touched: 
+  ask --json             exit=1 stdout=43B stderr= | touched: 
+    stdout: {"kind":"error","message":"InvalidObject"}|
+  doctor                 exit=0 stdout=760B stderr= | touched: 
+    stdout: [doctor] ok=3 warn=0 fail=3|[doctor] workspace=<run>/providers-type/work|[doctor] model=zai/glm-5.2|[doctor] provider=gateway|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=25|[ok] workspace: using workspace <run>/providers-type/work|[fa
+  sessions               exit=0 stdout=84B stderr= | touched: 
+    stdout: [sessions] scope=workspace count=0 has_more=false truncated=false skipped_invalid=0|
+  session last           exit=1 stdout=0B stderr=xfx: no saved session belongs to <run>/providers-type/work; run `xfx ask` here first, or name a session id| | touched: 
+  --version              exit=0 stdout=6B stderr= | touched: 
+    stdout: 0.1.0|
+  help                   exit=0 stdout=748B stderr= | touched: 
+    stdout: Unofficial Rust port of the fx terminal coding agent||Usage: xfx [OPTIONS] [COMMAND]||Commands:|  ask       Ask the model one question and stream the answer|  setup     Switch providers and record the selection|  status    Report the resolved model, credential source, and workspace|  doctor    Check
+  bare, no terminal      exit=1 stdout=0B stderr=xfx requires an interactive terminal (TTY); run `xfx ask <prompt>` when there is not one| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidObject| | touched: 
+  --version, terminal    exited exit=0 tty=7B stderr= | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidObject| | touched: 
+== models-36
+  ask                    exit=1 stdout=0B stderr=xfx: TooManyModelPreferences| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: TooManyModelPreferences| | touched: 
+  ask --json             exit=1 stdout=53B stderr= | touched: 
+    stdout: {"kind":"error","message":"TooManyModelPreferences"}|
+  doctor                 exit=0 stdout=770B stderr= | touched: 
+    stdout: [doctor] ok=3 warn=0 fail=3|[doctor] workspace=<run>/models-36/work|[doctor] model=zai/glm-5.2|[doctor] provider=gateway|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=25|[ok] workspace: using workspace <run>/models-36/work|[fail] config
+  sessions               exit=0 stdout=84B stderr= | touched: 
+    stdout: [sessions] scope=workspace count=0 has_more=false truncated=false skipped_invalid=0|
+  session last           exit=1 stdout=0B stderr=xfx: no saved session belongs to <run>/models-36/work; run `xfx ask` here first, or name a session id| | touched: 
+  --version              exit=0 stdout=6B stderr= | touched: 
+    stdout: 0.1.0|
+  help                   exit=0 stdout=748B stderr= | touched: 
+    stdout: Unofficial Rust port of the fx terminal coding agent||Usage: xfx [OPTIONS] [COMMAND]||Commands:|  ask       Ask the model one question and stream the answer|  setup     Switch providers and record the selection|  status    Report the resolved model, credential source, and workspace|  doctor    Check
+  bare, no terminal      exit=1 stdout=0B stderr=xfx requires an interactive terminal (TTY); run `xfx ask <prompt>` when there is not one| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: TooManyModelPreferences| | touched: 
+  --version, terminal    exited exit=0 tty=7B stderr= | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: TooManyModelPreferences| | touched: 
+binary sha256 after: 1562ff9c2cf4

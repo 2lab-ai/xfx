@@ -1,0 +1,55 @@
+# prescan.sh <repo> 866747ff, run 2026-11-16 before merge 1; exit 0
+## profile: 3943d667..bacb1052, 49 commits (0 merge)
+# the check's documented homes at 866747ff: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
+# 49 commits scanned; 0 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
+
+## the range, git diff 3943d66712d5c05295e04beb1db4b8d5c81361c6..bacb1052
+# the range: 0 lines hit (the brief's count); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0
+# midbranch_scan.py exit 0
+# commit messages: 0 line(s) holding the brief's pattern
+
+## slash: afd891af..32eb858f, 36 commits (0 merge)
+# the check's documented homes at 866747ff: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
+# 36 commits scanned; 0 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
+
+## the range, git diff afd891af149e298d2f5491682274bf8b76ad428d..32eb858f
+# the range: 0 lines hit (the brief's count); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0
+# midbranch_scan.py exit 0
+# commit messages: 0 line(s) holding the brief's pattern
+
+## test-env-isolation: 32afd307..7c3f6c1e, 51 commits (0 merge)
+# the check's documented homes at 866747ff: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
+# 51 commits scanned; 0 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
+
+## the range, git diff 32afd3076743d0bcab0372319acff706387a8c46..7c3f6c1e
+# the range: 0 lines hit (the brief's count); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0
+# midbranch_scan.py exit 0
+# commit messages: 0 line(s) holding the brief's pattern
+
+## local-paths-wrap: 71d3e02b..dd9f5f0a, 14 commits (1 merge)
+# the check's documented homes at 866747ff: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
+# 14 commits scanned; 0 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
+
+## the range, git diff 71d3e02bf82c8881d74a0fba90000e40501fd44f..dd9f5f0a
+# the range: 0 lines hit (the brief's count); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0
+# midbranch_scan.py exit 0
+# commit messages: 0 line(s) holding the brief's pattern
+
+## approval-paste-spaces: df45025c..ca496c10, 21 commits (0 merge)
+# the check's documented homes at 866747ff: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
+# 21 commits scanned; 0 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
+
+## the range, git diff df45025cf296d0a9570603e6c216ed25e08a506c..ca496c10
+# the range: 0 lines hit (the brief's count); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0
+# midbranch_scan.py exit 0
+# commit messages: 0 line(s) holding the brief's pattern
+
+## meta-prefix-decode: df45025c..6d94fbc0, 18 commits (0 merge)
+# the check's documented homes at 866747ff: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
+# 18 commits scanned; 0 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
+
+## the range, git diff df45025cf296d0a9570603e6c216ed25e08a506c..6d94fbc0
+# the range: 0 lines hit (the brief's count); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0
+# midbranch_scan.py exit 0
+# commit messages: 0 line(s) holding the brief's pattern
+

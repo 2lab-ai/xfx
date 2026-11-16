@@ -1,0 +1,7 @@
+p5-mode-case-env start failed
+p5-mode-case-full typed unresolved-defect
+p5-mode-case-full full unresolved-defect
+p5-mode-case-key start unresolved-defect
+p5-mode-case-key full-access-upper unresolved-defect
+p5-mode-case-key auto-cap unresolved-defect
+p5-mode-case-key full-access-space unresolved-defect

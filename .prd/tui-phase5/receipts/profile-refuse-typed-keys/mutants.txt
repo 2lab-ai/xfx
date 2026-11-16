@@ -1,0 +1,11 @@
+== mutants.py <repo> <clone> at 92cbdde6 (code 1157fe3e), under the suite lock
+clone of 92cbdde6
+TMPDIR is the caller's; each test run bounded at 900 s
+M1 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4797:13:); cli::ask_refuses_a_profile_fx_refuses (101; tests/cli.rs:1998:17:); interactive::the_shell_refuses_a_profile_fx_refuses (101; tests/support/pty.rs:430:21:); tui::a_profile_fx_refuses_is_refused (101; tests/support/pty.rs:430:21:)
+M2 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4797:13:); --lib::config::tests::a_key_twice_is_a_file_that_does_not_parse (101; src/config.rs:4818:9:); cli::ask_refuses_a_profile_fx_refuses (101; tests/cli.rs:1998:17:)
+M3 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4797:13:); cli::ask_refuses_a_profile_fx_refuses (101; tests/cli.rs:1998:17:); cli::status_stops_where_fxs_load_fails (101; tests/cli.rs:2074:13:)
+M4 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4797:13:); cli::ask_refuses_a_profile_fx_refuses (101; tests/cli.rs:1998:17:); cli::status_stops_where_fxs_load_fails (101; tests/cli.rs:2074:13:)
+M5 KILLED: cli::status_stops_where_fxs_load_fails (101; tests/cli.rs:2074:13:)
+M6 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4797:13:); cli::ask_goes_on_with_a_profile_fx_starts_with (101; tests/cli.rs:2019:9:)
+M7 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4797:13:)
+M8 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4797:13:); cli::ask_goes_on_with_a_profile_fx_starts_with (101; tests/cli.rs:2019:9:)

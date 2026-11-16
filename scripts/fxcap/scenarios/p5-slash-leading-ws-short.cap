@@ -1,0 +1,25 @@
+# SLASH-LEADING-WS on a short screen: the popup's row budget leaves the
+# composer's rows past its first to the composer (inlinePickerRowBudgetCapped,
+# src/ui/footer/picker_presentation.zig:793-803@481104fd, `input_extra`), and
+# a draft that opens the popup can be taller than one row once a line break
+# may come before its slash. The line breaks go in at the draft's start, so
+# nothing is cleared between the snaps, and by Alt-Enter: C-j walks an open
+# menu (routePickerControlByte). `four-all` is the bare `/` under the same
+# composer: its header's range is the budget's (its count is each registry's).
+fx: env FX_AUTO_UPGRADE=0
+wait 3
+type /help
+wait 0.6
+snap one
+key C-a
+key M-Enter
+wait 0.6
+snap two
+key M-Enter
+key M-Enter
+wait 0.6
+snap four
+key C-e
+key BSpace BSpace BSpace BSpace
+wait 0.6
+snap four-all

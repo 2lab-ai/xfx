@@ -51,13 +51,15 @@ jobs:
       #
       # `script_tests` marks one row per OS for the tests of the gate scripts
       # themselves: test-gate-env.sh (which also runs test-check-no-secrets.sh
-      # whole), test-preview-contract.sh, test-check-no-local-paths.sh and
-      # test-early-stop.sh. They exercise the OS's bash, grep, git and getconf
-      # -- BSD grep on macOS, GNU grep on Linux -- and build nothing for the
-      # target, so a second row of the same OS repeats them on the same
-      # userland. On the x86_64 macOS row they would have cost minutes against
-      # its 60-minute timeout (PR #80: 47m29s). The gates themselves (every
-      # check-*.sh) still run on every row.
+      # whole), test-preview-contract.sh, test-check-no-local-paths.sh,
+      # test-early-stop.sh and check-env-reads.py --self-test. They exercise
+      # the OS's own tools -- bash, grep, git and getconf (BSD grep on macOS,
+      # GNU grep on Linux), and the self-test python and clippy on its
+      # fixtures -- and no build of xfx for the target, so a second row of the
+      # same OS repeats them on the same userland. On the x86_64 macOS row
+      # they would have cost minutes against its 60-minute timeout (PR #80:
+      # 47m29s). The gates themselves (every check-*.sh) still run on every
+      # row.
       #
       # `part` splits one target's gate over two jobs on two runners of the
       # same label, both on the commit under test: `checks` runs the steps up
@@ -96,10 +98,14 @@ jobs:
             target: x86_64-apple-darwin
             part: release
     steps:
+      # No step after this one talks to the remote, so the token the
+      # checkout uses is not left in `.git/config`, where a test's git -- whose
+      # HOME is a fresh empty one -- would still find it.
       - name: Check out the exact commit
         uses: actions/checkout@v4
         with:
           ref: ${{ env.COMMIT_UNDER_TEST }}
+          persist-credentials: false
 
       # `build.rs` resolves the revision with `git rev-parse HEAD`, so the
       # checkout above is also what ends up in `xfx status`. Asserting it here
@@ -168,6 +174,30 @@ jobs:
       - name: Lints
         if: matrix.part != 'release'
         run: cargo clippy --locked --all-targets -- -D warnings
+
+      # Clippy refuses every read of the process environment and every start
+      # of a child but where an allow lets one through. This runs it again
+      # with the lint forced on, so no allow of any spelling -- a group,
+      # `warnings`, `expect`, `cfg_attr`, a crate-level one -- hides a read,
+      # and holds each it lets through to a list: an `env_exception!`, whose
+      # names are literals, to its file and names; a start to its file; an
+      # `env!` to a name cargo or build.rs sets. It runs clippy in the dev
+      # and release profiles, each with the default and with all features,
+      # so the release part of a split row needs no run of its own: release
+      # code is checked here.
+      - name: Every read of the environment clippy lets through is listed
+        if: matrix.part != 'release'
+        run: python3 -I scripts/check-env-reads.py
+
+      # The check above is worth its `OK` only while it refuses what it was
+      # written to refuse: each way round the rule a review found -- a
+      # renamed import, an alias of an alias, a closure, a shadowed constant,
+      # a crate-level allow, a constant passed to the macro -- is a fixture,
+      # compiled with the real macro under the real clippy.toml, and each
+      # must be refused for its reason.
+      - name: The environment check refuses every way round it
+        if: matrix.script_tests
+        run: python3 -I scripts/check-env-reads.py --self-test
 
       - name: Tests
         if: matrix.part != 'release'

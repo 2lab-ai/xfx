@@ -1,0 +1,64 @@
+approvals-amend-limit: approvals-fx-settings.json=starts
+approvals-big: approvals-fx-settings.json=starts
+approvals: approvals-fx-settings.json=starts
+cmd-wrap: approvals-fx-settings.json=starts
+composer-keys: model-seed-fx.json=starts model-seed-xfx.json=starts
+fast-astra: fast-seed-astra.json=starts
+fast-opus: fast-seed-opus.json=starts
+fast-override: fast-seed-opus.json=starts
+fast-unavailable: fast-seed-opus-on.json=starts
+fast-unconfirmed: fast-seed-astra.json=starts
+fast-unsup: model-seed-fx.json=starts model-seed-xfx.json=starts
+fulltranscript: toolgroup-ask-settings.json=starts
+h1-rehomefile: h1-settings-ok.json=starts h1-settings-ok.json=starts
+model-anchor: model-seed-fx.json=starts model-seed-xfx.json=starts
+model-busy-known: model-seed-fx.json=starts model-seed-xfx.json=starts
+model-busy: model-seed-fx.json=starts model-seed-xfx.json=starts
+model-column: model-seed-fx.json=starts model-seed-xfx.json=starts
+model-effort: model-seed-fx.json=starts model-seed-xfx.json=starts
+model-empty: model-seed-fx.json=starts model-seed-xfx.json=starts
+model-router: model-seed-fx.json=starts model-seed-xfx.json=starts
+model-speed: model-seed-fx.json=starts model-seed-xfx.json=starts
+model: model-seed-fx.json=starts model-seed-xfx.json=starts
+p5-effort-fork-effort-backtab: p5-effort-fork-seed-astra.json=starts
+p5-effort-fork-effort-column: p5-effort-fork-seed-astra.json=starts
+p5-effort-fork-effort-ctrlc: p5-effort-fork-seed-astra.json=starts
+p5-effort-fork-effort-down: p5-effort-fork-seed-astra.json=starts
+p5-effort-fork-effort-loading: p5-effort-fork-seed-astra.json=starts
+p5-effort-fork-effort-menu: p5-effort-fork-seed-astra.json=starts
+p5-effort-fork-effort-short: p5-effort-fork-seed-astra.json=starts
+p5-input-approval: p5-input-ask-settings.json=starts
+p5-input-paste-amend: approvals-fx-settings.json=starts
+p5-input-row-limit-menus: p5-effort-fork-seed-astra.json=starts
+p5-lifecycle-osc-hostile: p5-lifecycle-ask-settings.json=starts
+p5-lifecycle-osc-states: p5-lifecycle-ask-settings.json=starts
+p5-lifecycle-osc: p5-lifecycle-ask-settings.json=starts
+p5-panels-badsettings: p5-panels-badsettings.json=InvalidProfileConfiguration
+p5-panels-status-badsettings: h1-settings-ok.json=starts h1-settings-ok.json=starts
+p5-session-early-prefs: p5-session-early-prefs-seed.json=starts
+p5-stop-in-catalog-wait: p5-stop-ultra-seed.json=starts
+p5-usage-codex: p5-usage-codex-fx.json=starts
+provider-carry-back-stop: provider-carry-back-fx.json=starts provider-carry-back-xfx.json=starts
+provider-carry-back: provider-carry-back-fx.json=starts provider-carry-back-xfx.json=starts
+provider-carry: provider-carry-fx.json=starts provider-carry-xfx.json=starts
+provider-resume-missing: provider-carry-fx.json=starts provider-carry-xfx.json=starts
+provider-resume: provider-carry-fx.json=starts provider-carry-xfx.json=starts
+provider-switch: provider-llmux-settings.json=starts
+provider: provider-settings.json=starts
+resume-tools: toolgroup-ask-settings.json=starts
+rules-hidden-all: rules-hidden-all-settings.json=starts
+rules-hidden: rules-hidden-settings.json=starts
+rules-read-auto: rules-read-settings.json=starts
+rules-read: rules-read-settings.json=starts
+settings-collapse-open: toolgroup-ask-settings.json=starts
+settings-collapse: toolgroup-ask-settings.json=starts
+settings-effort: settings-effort-seed-fx.json=starts settings-effort-seed-xfx.json=starts
+settings-speed: fast-seed-opus.json=starts
+titles-idle: titles-seed.json=starts
+titles-off: titles-off-seed.json=starts
+titles-rename: titles-seed.json=starts
+titles-steer: titles-seed.json=starts
+titles: titles-seed.json=starts
+toolgroup-noop: toolgroup-ask-settings.json=starts
+toolgroup: toolgroup-ask-settings.json=starts
+== 381 scenarios, 63 seed a profile, 1 seed one the head refuses, 0 moved

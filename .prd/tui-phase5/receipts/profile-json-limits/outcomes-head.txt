@@ -1,0 +1,4 @@
+steps-i64-max: step limit: fx 9223372036854775807 xfx default; notes: fx [] xfx [('user', 'invalid_value')]
+proj-steps-big: notes: fx [('project', 'malformed_settings')] xfx [('project', 'invalid_value')]
+proj-steps-float: notes: fx [('project', 'malformed_settings')] xfx [('project', 'invalid_value')]
+== 29 fixtures: 29 match on refusal at every entry, 29 on how every entry ended, 28 on the step limit, 26 on the notes

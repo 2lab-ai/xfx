@@ -1,0 +1,65 @@
+scan.sh <a clone at the base> <the head's roots.py>
+tree 635e7242; roots.py sha256 743ef274695a
+tracked files 18877, 17779 of them under .prd/
+== roots.py --check, the machine roots (7), captures-and-receipts (17779 files): exit 1, 36 file(s) refused
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-approve-confirm.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-approve-esc.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-approved.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-back-list.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-closed-status.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-closed.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-ctrl-c.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-end.full.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-left-back.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-list-after-approve.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-list-filter.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-list-proj.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-list-rejected.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-list-remote.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-list-unfilter.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-list.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-reject-inplace-ready.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-reject-inplace.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-reject-typed-x.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-rejected.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-remove-cancel.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-remove-inplace.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-remove-no.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-removed-list.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-reopened.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-server-fixture-nomatch.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-server-fixture-tool.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-server-fixture.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-server-proj-ready.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-server-proj-reject.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-server-proj.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-server-remote.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-startup-settled.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-base/xfx-p5-mcp-menu-new-40x60-startup.txt still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-head/xfx-p5-mcp-menu-new-40x60-approve-confirm.ansi still holds scenarios, scenarios:real after the rewrite
+.prd/tui-phase5/receipts/mcp-menu/xfx-head/xfx-p5-mcp-menu-new-40x60-approve-confirm.txt still holds scenarios, scenarios:real after the rewrite
+== roots.py --check, the machine roots (7), rest (1098 files): exit 1, 3 file(s) refused
+scripts/fxcap/test_capture.py still holds tmp, tmp:real after the rewrite
+scripts/fxcap/test_sweep.py still holds tmp, tmp:real after the rewrite
+src/skills/catalog.rs still holds tmp, tmp:real after the rewrite
+== roots.py --check, the public roots (3), captures-and-receipts (17779 files): exit 1, 13 file(s) refused
+.prd/tui-phase4/receipts/m1/fx-mcp-fixture-40x120-after-add.files still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/fx-mcp-fixture-40x120-end.files still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/fx-mcp-wire-40x120-end.files still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/scenarios/mcp-fixture.cap still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/scenarios/mcp-wire.cap still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/scenarios/mcp-ws/.mcp.json still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/xfx-mcp-fixture-40x120-after-add.files still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/xfx-mcp-fixture-40x120-end.files still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/xfx-mcp-wire-40x120-end.files still holds bun after the rewrite
+.prd/tui-phase5/receipts/cancel-marker/round2/sweep-compare.txt still holds bun after the rewrite
+.prd/tui-phase5/receipts/cancel-marker/round3/sweep-compare.txt still holds bun after the rewrite
+.prd/tui-phase5/receipts/local-paths/README.md still holds home after the rewrite
+.prd/tui-phase5/receipts/train-6/linux.sh still holds home after the rewrite
+== roots.py --check, the public roots (3), rest (1098 files): exit 1, 3 file(s) refused
+scripts/check-no-local-paths.sh still holds home after the rewrite
+src/mcp/config.rs still holds bun after the rewrite
+src/tui/mcp_menu/tests.rs still holds bun after the rewrite
+rows that open behind a mark in tracked files: 2998, in 2814 file(s)
+== scripts/check-no-local-paths.sh
+check-no-local-paths: ok (18877 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))

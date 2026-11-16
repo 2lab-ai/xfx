@@ -1,0 +1,10 @@
+# GREEN, round 3, lib: the whole lib suite at b039c001 (binary built at that head), under sentinel-run.sh, under the suite lock
+test result: ok. 4642 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 63.02s
+sentinel-run: exit 0
+# cases that failed with a refusal: 0
+
+## the binding check, its fixtures and the start rule's scan, as run
+test process::tests::no_child_process_is_made_any_other_way ... ok
+test test_env::tests::clippy_disallows_every_reader_of_the_environment ... ok
+test test_env::tests::every_read_outside_process_env_is_bound_to_its_variables ... ok
+test test_env::tests::the_binding_check_refuses_every_way_round_it ... ok

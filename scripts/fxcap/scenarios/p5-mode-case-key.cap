@@ -1,0 +1,25 @@
+# PERMISSION-MODE-CASE: a profile whose `permission_mode` is `ASK`, which
+# fx v0.0.16's parse reads as ask (`types.zig:2375-2382@481104fd`,
+# `config_runtime.zig:1691`); then `/permissions` with fx's other spellings
+# (`session_commands.zig:468`) and what each one saves (`@tagName`,
+# `settings_store.zig:1053`). Each snap after a full-access change waits for
+# the warning's four seconds to end.
+fx: env FX_AUTO_UPGRADE=0
+seed p5-mode-case-upper.json
+wait 2
+snap start
+type /permissions FULL-ACCESS
+key Enter
+until shown Full access
+until gone Full access
+snap full-access-upper
+home full-access-upper
+type /permissions Auto
+key Enter
+wait 1
+snap auto-cap
+type /permissions Full Access
+key Enter
+wait 1
+snap full-access-space
+home end

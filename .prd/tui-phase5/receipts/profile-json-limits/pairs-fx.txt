@@ -1,0 +1,47 @@
+binary sha256 before: 8e6cda2efddb
+== mcp-approved
+  mcp list exit=0 stderr=
+    | NAME  SOURCE     TRANSPORT  STATUS
+    | s     .mcp.json  stdio      not started
+  status  exit=0 stderr=
+    | [status] mcp_servers=1 mcp_configuration_issues=0
+== mcp-approved-big
+  mcp list exit=0 stderr=
+    | NAME  SOURCE     TRANSPORT  STATUS
+    | s     .mcp.json  stdio      not started
+  status  exit=0 stderr=
+    | [status] mcp_servers=1 mcp_configuration_issues=0
+== mcp-approved-deep
+  mcp list exit=0 stderr=
+    | NAME  SOURCE     TRANSPORT  STATUS
+    | s     .mcp.json  stdio      not started
+  status  exit=0 stderr=
+    | [status] mcp_servers=1 mcp_configuration_issues=0
+== mcp-none
+  mcp list exit=0 stderr=
+    | NAME  SOURCE     TRANSPORT  STATUS
+    | s     .mcp.json  stdio      waiting for approval
+  status  exit=0 stderr=
+    | [status] mcp_servers=1 mcp_configuration_issues=0
+== mcp-bad-list
+  mcp list exit=0 stderr=
+    | No MCP servers configured. Add one with: fx mcp add NAME URL
+  status  exit=0 stderr=
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+== mcp-bad-name
+  mcp list exit=0 stderr=
+    | No MCP servers configured. Add one with: fx mcp add NAME URL
+  status  exit=0 stderr=
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+== mcp-bad-switch
+  mcp list exit=0 stderr=
+    | No MCP servers configured. Add one with: fx mcp add NAME URL
+  status  exit=0 stderr=
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+== utf8-profile
+  status  exit=0 stderr=fx: config user: malformed_settings|
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+== utf8-project
+  status  exit=0 stderr=fx: config project: malformed_settings|
+    | [status] mcp_servers=1 mcp_configuration_issues=0
+binary sha256 after: 8e6cda2efddb

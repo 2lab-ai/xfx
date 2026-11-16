@@ -1,0 +1,46 @@
+== suite-lock.sh sweep.sh <repo> <fx v0.0.16> <xfx b209c786> <xfx 3943d667> <out> 2 (TMPDIR short)
+fx sha256 before: 8e6cda2efddb
+selection: 67 globs
+head: exit 0 in 1879 s; Scenarios: 83 -- ran 83, failed 0, timeout 0. **pass = 278 / 523 = 53.2%**
+base: exit 0 in 1831 s; Scenarios: 83 -- ran 83, failed 0, timeout 0. **pass = 277 / 523 = 53.0%**
+fx sha256 after: 8e6cda2efddb
+pairs: base 523, head 523
+base: pass 277/523  approved-divergence 3, approved-divergence-cascade 24, identical 5, normalized-identical 272, unresolved-defect 219
+head: pass 278/523  approved-divergence 3, approved-divergence-cascade 24, identical 4, normalized-identical 274, unresolved-defect 218
+
+moved to passing: 1
+  p5-panels-badsettings launch: unresolved-defect -> normalized-identical
+
+dropped from passing: 0
+
+other verdict changes: 3
+  p5-panels-permissions revoke-done: identical -> normalized-identical
+  p5-panels-permissions revoke-prompt: identical -> normalized-identical
+  settings-collapse-open after-esc: normalized-identical -> identical
+
+== the two badsettings scenarios' pairs, from each side's pairs.json
+head: p5-panels-badsettings launch: normalized-identical; causes -; rows no cause covers 0
+head: p5-panels-status-badsettings launch: approved-divergence; causes -; rows no cause covers 0
+head: p5-panels-status-badsettings open: approved-divergence-cascade; causes -; rows no cause covers 0
+head: p5-panels-status-badsettings closed: approved-divergence; causes -; rows no cause covers 0
+base: p5-panels-badsettings launch: unresolved-defect; causes -; rows no cause covers 42
+base: p5-panels-status-badsettings launch: approved-divergence; causes -; rows no cause covers 0
+base: p5-panels-status-badsettings open: approved-divergence-cascade; causes -; rows no cause covers 0
+base: p5-panels-status-badsettings closed: approved-divergence; causes -; rows no cause covers 0
+
+== the three passing pairs whose verdict moved: the one row each differed in before normalization (the run's clock)
+-- head: p5-panels-permissions revoke-done
+23c23
+<   3s (↑4 ↓80)
+---
+>   4s (↑4 ↓80)
+-- head: p5-panels-permissions revoke-prompt
+23c23
+<   3s (↑4 ↓80)
+---
+>   4s (↑4 ↓80)
+-- base: settings-collapse-open after-esc
+19c19
+<   Running (3s) (↑2 ↓40)
+---
+> • Running (4s) (↑2 ↓40)

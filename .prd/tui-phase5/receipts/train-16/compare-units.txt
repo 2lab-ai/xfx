@@ -1,0 +1,171 @@
+## bacb1052:.prd/tui-phase5/receipts/permission-mode-case/sweep/head/scoreboard.md
+scenarios: unit 3, head 221, shared 3
+  p5-mode-case-env: unit 1 / 1, head 1 / 1
+  p5-mode-case-full: unit 0 / 2, head 2 / 2  MOVED
+  p5-mode-case-key: unit 4 / 4, head 4 / 4
+pass over the shared scenarios: unit 5, head 7
+passed on the unit, not on the head: 0
+# exit 0
+## 32eb858f:.prd/tui-phase5/receipts/slash-leading-ws/sweep-head.md
+scenarios: unit 8, head 221, shared 8
+  composer-keys: unit 8 / 11, head 8 / 11
+  composer-wrap: unit 11 / 11, head 11 / 11
+  p5-slash-leading-ws: unit 10 / 10, head 8 / 10  MOVED
+  p5-slash-leading-ws-he: unit 1 / 3, head 1 / 3
+  p5-slash-leading-ws-short: unit 3 / 4, head 3 / 4
+  p5-slash-leading-ws-skill: unit 2 / 2, head 2 / 2
+  slash: unit 4 / 9, head 4 / 9
+  slash-filter: unit 5 / 6, head 5 / 6
+pass over the shared scenarios: unit 44, head 42
+passed on the unit, not on the head: 1
+    p5-slash-leading-ws 10 -> 8
+# exit 1
+## 32eb858f:.prd/tui-phase5/receipts/slash-arg-skills/sweep-head.md
+scenarios: unit 56, head 221, shared 56
+  p5-mcp-config: unit 1 / 3, head 1 / 3
+  p5-mcp-config-ignored: unit 0 / 4, head 0 / 4
+  p5-mcp-config-vars: unit 2 / 4, head 2 / 4
+  p5-mcp-direct: unit 2 / 2, head 2 / 2
+  p5-mcp-discover-http-hostile: unit 1 / 1, head 1 / 1
+  p5-mcp-discover-http-malformed: unit 1 / 1, head 1 / 1
+  p5-mcp-discover-http-modern: unit 2 / 2, head 2 / 2
+  p5-mcp-discover-http-notimpl: unit 2 / 2, head 2 / 2
+  p5-mcp-discover-http-old2024: unit 1 / 1, head 1 / 1
+  p5-mcp-discover-http-ssefail: unit 1 / 1, head 1 / 1
+  p5-mcp-discover-http-ssehold: unit 1 / 1, head 1 / 1
+  p5-mcp-discover-http-sseidless: unit 1 / 1, head 1 / 1
+  p5-mcp-discover-http-ssestrid: unit 1 / 1, head 1 / 1
+  p5-mcp-discover-stdio-asks: unit 1 / 1, head 1 / 1
+  p5-mcp-discover-stdio-banner: unit 1 / 1, head 1 / 1
+  p5-mcp-discover-stdio-depth: unit 0 / 1, head 0 / 1
+  p5-mcp-discover-stdio-escaped: unit 0 / 1, head 0 / 1
+  p5-mcp-discover-stdio-hostile: unit 1 / 1, head 1 / 1
+  p5-mcp-discover-stdio-malformed: unit 1 / 1, head 1 / 1
+  p5-mcp-discover-stdio-modern: unit 2 / 2, head 2 / 2
+  p5-mcp-discover-stdio-modern-tc: unit 2 / 2, head 2 / 2
+  p5-mcp-discover-stdio-old2024: unit 1 / 1, head 1 / 1
+  p5-mcp-discover-stdio-silent: unit 2 / 2, head 2 / 2
+  p5-mcp-dismiss: unit 2 / 2, head 2 / 2
+  p5-mcp-empty: unit 24 / 24, head 24 / 24
+  p5-mcp-errdata: unit 1 / 1, head 1 / 1
+  p5-mcp-fail: unit 4 / 6, head 4 / 6
+  p5-mcp-fail-held: unit 0 / 1, head 0 / 1
+  p5-mcp-failed: unit 4 / 4, head 4 / 4
+  p5-mcp-known: unit 1 / 1, head 1 / 1
+  p5-mcp-live: unit 6 / 6, head 6 / 6
+  p5-mcp-menu-new: unit 33 / 34, head 33 / 34
+  p5-mcp-menu-old: unit 16 / 16, head 16 / 16
+  p5-mcp-notes: unit 2 / 4, head 2 / 4
+  p5-mcp-rpcerror: unit 1 / 1, head 1 / 1
+  p5-mcp-turn: unit 3 / 3, head 3 / 3
+  p5-mcp-unavailable: unit 1 / 1, head 1 / 1
+  p5-mcp-verbs: unit 1 / 28, head 1 / 28
+  p5-mcp-wire-new: unit 1 / 1, head 1 / 1
+  p5-mcp-wire-old: unit 1 / 1, head 1 / 1
+  p5-slash-arg-skills: unit 20 / 20, head 20 / 20
+  p5-slash-leading-ws: unit 10 / 10, head 8 / 10  MOVED
+  p5-slash-leading-ws-he: unit 1 / 3, head 1 / 3
+  p5-slash-leading-ws-short: unit 3 / 4, head 3 / 4
+  p5-slash-leading-ws-skill: unit 2 / 2, head 2 / 2
+  permissions: unit 9 / 9, head 9 / 9
+  permissions-btab: unit 7 / 7, head 7 / 7
+  permissions-midturn: unit 3 / 4, head 3 / 4
+  skills: unit 2 / 18, head 2 / 18
+  skills-ghost: unit 14 / 15, head 14 / 15
+  skills-paste: unit 2 / 3, head 2 / 3
+  skills-slash: unit 5 / 8, head 5 / 8
+  slash: unit 4 / 9, head 4 / 9
+  slash-filter: unit 5 / 6, head 5 / 6
+  statusline: unit 8 / 8, head 8 / 8
+  statusline-turn: unit 3 / 3, head 3 / 3
+pass over the shared scenarios: unit 226, head 224
+passed on the unit, not on the head: 1
+    p5-slash-leading-ws 10 -> 8
+# exit 1
+## 32eb858f:.prd/tui-phase5/receipts/slash-mixed-skills/sweep-head.md
+scenarios: unit 12, head 221, shared 12
+  p5-slash-arg-skills: unit 20 / 20, head 20 / 20
+  p5-slash-leading-ws: unit 10 / 10, head 8 / 10  MOVED
+  p5-slash-leading-ws-he: unit 1 / 3, head 1 / 3
+  p5-slash-leading-ws-short: unit 3 / 4, head 3 / 4
+  p5-slash-leading-ws-skill: unit 2 / 2, head 2 / 2
+  p5-slash-mixed-skills: unit 26 / 26, head 26 / 26
+  skills: unit 2 / 18, head 2 / 18
+  skills-ghost: unit 14 / 15, head 14 / 15
+  skills-paste: unit 2 / 3, head 2 / 3
+  skills-slash: unit 5 / 8, head 5 / 8
+  slash: unit 4 / 9, head 4 / 9
+  slash-filter: unit 5 / 6, head 5 / 6
+pass over the shared scenarios: unit 94, head 92
+passed on the unit, not on the head: 1
+    p5-slash-leading-ws 10 -> 8
+# exit 1
+## ca496c10:.prd/tui-phase5/receipts/approval-paste-spaces/sweep-head.md
+scenarios: unit 22, head 221, shared 22
+  approvals: unit 0 / 10, head 0 / 10
+  approvals-amend-limit: unit 1 / 5, head 1 / 5
+  approvals-big: unit 1 / 3, head 1 / 3
+  p5-approval-horizontal-keys: unit 0 / 29, head 0 / 29
+  p5-approval-paste-spaces: unit 0 / 9, head 0 / 9
+  p5-approval-vertical-keys: unit 0 / 27, head 0 / 27
+  p5-input-paste: unit 2 / 2, head 2 / 2
+  p5-input-paste-amend: unit 0 / 6, head 0 / 6
+  p5-input-paste-behind: unit 3 / 3, head 3 / 3
+  p5-input-paste-field: unit 5 / 5, head 5 / 5
+  p5-question-resume: unit 4 / 4, head 4 / 4
+  p5-question-resume-ctrlo: unit 0 / 1, head 0 / 1
+  p5-question-word-left: unit 16 / 16, head 16 / 16
+  p5-super-arrows: unit 16 / 16, head 16 / 16
+  p5-super-arrows-approval: unit 0 / 16, head 0 / 16
+  p5-super-arrows-question: unit 16 / 16, head 16 / 16
+  paste-block-undo: unit 8 / 8, head 8 / 8
+  paste-card: unit 7 / 7, head 7 / 7
+  paste-suffix: unit 2 / 2, head 2 / 2
+  question: unit 9 / 9, head 9 / 9
+  question-field: unit 10 / 10, head 10 / 10
+  question-other: unit 7 / 7, head 7 / 7
+pass over the shared scenarios: unit 107, head 107
+passed on the unit, not on the head: 0
+# exit 0
+## 6d94fbc0:.prd/tui-phase5/receipts/meta-prefix-decode/sweep-head.md
+scenarios: unit 37, head 221, shared 37
+  composer-keys: unit 8 / 11, head 8 / 11
+  composer-wrap: unit 11 / 11, head 11 / 11
+  p5-cancel-double-escape: unit 5 / 6, head 5 / 6
+  p5-cancel-double-escape-turn: unit 5 / 5, head 5 / 5
+  p5-input-approval: unit 0 / 3, head 0 / 3
+  p5-input-at: unit 0 / 7, head 7 / 7  MOVED
+  p5-input-at-dir: unit 1 / 2, head 2 / 2  MOVED
+  p5-input-at-gate: unit 3 / 3, head 3 / 3
+  p5-input-at-height: unit 5 / 5, head 5 / 5
+  p5-input-at-resize: unit 1 / 6, head 1 / 6
+  p5-input-ctrlbs: unit 4 / 4, head 4 / 4
+  p5-input-mcp: unit 9 / 9, head 9 / 9
+  p5-input-model: unit 7 / 7, head 7 / 7
+  p5-input-model-fail: unit 2 / 2, head 2 / 2
+  p5-input-model-rank: unit 27 / 27, head 27 / 27
+  p5-input-model-swap: unit 4 / 4, head 4 / 4
+  p5-input-paste: unit 2 / 2, head 2 / 2
+  p5-input-paste-amend: unit 0 / 6, head 0 / 6
+  p5-input-paste-behind: unit 3 / 3, head 3 / 3
+  p5-input-paste-field: unit 5 / 5, head 5 / 5
+  p5-input-question: unit 6 / 6, head 6 / 6
+  p5-input-question20: unit 11 / 11, head 11 / 11
+  p5-input-question21: unit 3 / 3, head 3 / 3
+  p5-input-row-limit: unit 5 / 9, head 5 / 9
+  p5-input-row-limit-menus: unit 4 / 4, head 4 / 4
+  p5-input-row-limit-short: unit 2 / 4, head 2 / 4
+  p5-input-smoke: unit 1 / 1, head 1 / 1
+  p5-modified-arrows-full: unit 6 / 11, head 11 / 11  MOVED
+  p5-modified-arrows-question: unit 17 / 17, head 17 / 17
+  p5-modified-meta-prefix: unit 14 / 14, head 14 / 14
+  p5-modified-page-keys: unit 5 / 10, head 9 / 10  MOVED
+  p5-paragraph-move: unit 24 / 28, head 24 / 28
+  p5-paragraph-move-column: unit 2 / 2, head 2 / 2
+  p5-paragraph-move-menus: unit 21 / 21, head 21 / 21
+  p5-super-arrows: unit 16 / 16, head 16 / 16
+  p5-super-arrows-approval: unit 0 / 16, head 0 / 16
+  p5-super-arrows-question: unit 16 / 16, head 16 / 16
+pass over the shared scenarios: unit 255, head 272
+passed on the unit, not on the head: 0
+# exit 0

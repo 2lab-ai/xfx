@@ -256,6 +256,30 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
 #[cfg(test)]
 mod tests {
     #[test]
+    fn a_command_led_by_a_no_break_space_runs_with_an_argument_and_is_refused_without() {
+        // `crate::interactive::classify` trims every Unicode blank, and
+        // `exact` only upstream's four: a command that takes nothing, led by
+        // a no-break space, is refused as no command; one that takes an
+        // argument runs. Upstream's submit trims only " \t\r\n"
+        // (`input_submit_runtime.zig:719@481104fd`), so it sends both as
+        // prompts -- the divergence `docs/parity.md` records.
+        use super::classify;
+        assert!(matches!(
+            classify("\u{a0}/version"),
+            Submitted::UnknownCommand { ref token } if token == "/version"
+        ));
+        assert!(matches!(
+            classify("\u{a0}/model acme"),
+            Submitted::Command { ref argument, .. } if argument == "acme"
+        ));
+        // Upstream's four are skipped alike on both.
+        assert!(matches!(
+            classify(" \t\r\n/version"),
+            Submitted::Command { ref argument, .. } if argument.is_empty()
+        ));
+    }
+
+    #[test]
     fn an_unknown_slash_word_with_more_on_the_line_is_a_prompt() {
         // The TUI's classifier, not the line shell's this module imports below.
         use super::classify;

@@ -797,26 +797,32 @@ impl std::fmt::Debug for McpRuntime {
 impl McpRuntime {
     /// A runtime over `paths`, with nothing loaded and nothing started.
     pub fn new(paths: Paths) -> Arc<Self> {
-        Self::reading(paths, Box::new(|name| std::env::var(name).ok()))
+        Self::reading(
+            paths,
+            Box::new(process_env!("mcp::McpRuntime::new", lookup)),
+        )
     }
 
     /// [`Self::new`], whose servers' `${VAR}` read `overrides` first and the
-    /// environment after: a test's own fake values, never the machine's.
+    /// case's fake process after ([`crate::test_env::lookup`]): a test's own
+    /// fake values, never the machine's.
     #[cfg(test)]
     pub(crate) fn with_environment(paths: Paths, overrides: &[(&str, &str)]) -> Arc<Self> {
         let overrides: HashMap<String, String> = overrides
             .iter()
             .map(|(name, value)| (name.to_string(), value.to_string()))
             .collect();
+        let process = crate::test_env::lookup("mcp::McpRuntime::with_environment");
         Self::reading(
             paths,
-            Box::new(move |name| {
-                overrides
-                    .get(name)
-                    .cloned()
-                    .or_else(|| std::env::var(name).ok())
-            }),
+            Box::new(move |name| overrides.get(name).cloned().or_else(|| process(name))),
         )
+    }
+
+    /// What this runtime's servers' `${VAR}` would read for `name`.
+    #[cfg(test)]
+    pub(crate) fn looked_up(&self, name: &str) -> Option<String> {
+        (self.environment)(name)
     }
 
     fn reading(paths: Paths, environment: Box<Lookup>) -> Arc<Self> {
@@ -1164,11 +1170,16 @@ impl McpRuntime {
             None => config::Profile::default(),
         };
         let choices = config::load_choices(self.paths.settings.as_deref(), &self.paths.workspace);
-        let workspace = if self.paths.profile.is_some() || self.paths.settings.is_some() {
-            config::load_workspace(&self.paths.workspace, &choices, &*self.environment)
-        } else {
-            config::WorkspaceServers::default()
+        // Choices that do not load are no workspace at all: fx's callers load
+        // none of its servers then (`loadNativeConfigs`,
+        // `src/builtins/mcp.zig:58-63@481104fd`).
+        let workspace = match &choices {
+            Some(choices) if self.paths.profile.is_some() || self.paths.settings.is_some() => {
+                config::load_workspace(&self.paths.workspace, choices, &*self.environment)
+            }
+            _ => config::WorkspaceServers::default(),
         };
+        let choices = choices.unwrap_or_default();
         // A workspace server named like a profile one is the profile's.
         for server in workspace.servers {
             if !servers.iter().any(|existing| existing.name == server.name) {

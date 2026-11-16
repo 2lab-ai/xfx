@@ -51,16 +51,6 @@ use xfx::workspace::AccessScope;
 
 use support::fake_gateway::{finish, sse_body, text_delta, tool_call, FakeGateway, Reply};
 
-/// Environment variables that must never leak in from the developer's shell.
-const CONTROLLED_VARS: &[&str] = &[
-    "VERCEL_OIDC_TOKEN",
-    "AI_GATEWAY_API_KEY",
-    "XFX_MODEL",
-    "XFX_PERMISSION_MODE",
-    "XFX_MAX_AGENT_STEPS",
-    "XFX_GATEWAY_URL",
-];
-
 /// A test secret that must never appear on stdout, stderr, or in a subprocess.
 const TEST_KEY: &str = "xfx-test-permission-key-must-not-appear";
 
@@ -2093,8 +2083,13 @@ fn a_pre_existing_hostile_git_config_does_not_execute_on_the_automatic_route() {
 /// configuration says, so proving that it no longer does needs git. Every
 /// supported target's runner has it -- it is what checked the commit out.
 fn git(root: &Path, args: &[&str]) {
+    // From nothing but PATH and TMPDIR (`support::sandbox::clear_env`): no
+    // `GIT_DIR`, `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n` or
+    // `GIT_CONFIG_PARAMETERS` of the developer's decides what this fixture is.
+    let mut command = support::command("git");
+    support::sandbox::clear_env(&mut command);
     let output = xfx::process::output(
-        Command::new("git")
+        command
             .args(args)
             .current_dir(root)
             // A developer's own identity, hooks, and templates must not decide what
@@ -2649,13 +2644,13 @@ fn auto_mode_will_not_write_a_file_the_users_git_configuration_includes() {
 /// home; required, not skipped.
 fn real_git(dir: &Path, home: &Path, args: &[&str]) {
     let output = xfx::process::output(
-        Command::new("git")
+        support::command("git")
             .args(args)
             .current_dir(dir)
             .env_clear()
             .env("HOME", home)
             .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("PATH", std::env::var_os("PATH").unwrap_or_default()),
+            .env("PATH", support::sandbox::path()),
     )
     .expect("git on PATH: this test runs the real one");
     assert!(
@@ -2814,13 +2809,13 @@ fn an_include_path_is_protected_as_git_reads_its_bytes() {
 /// What the real git says, run in `dir` with a clean environment.
 fn git_says(dir: &Path, home: &Path, args: &[&str]) -> String {
     let output = xfx::process::output(
-        Command::new("git")
+        support::command("git")
             .args(args)
             .current_dir(dir)
             .env_clear()
             .env("HOME", home)
             .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("PATH", std::env::var_os("PATH").unwrap_or_default()),
+            .env("PATH", support::sandbox::path()),
     )
     .expect("git on PATH: this test runs the real one");
     String::from_utf8_lossy(&output.stdout).trim().to_string()
@@ -3011,7 +3006,7 @@ fn a_superproject_with_a_hundred_submodules_does_not_make_every_write_ask() {
     );
     for index in 1..100 {
         let status = xfx::process::status(
-            Command::new("cp")
+            support::command("cp")
                 .arg("-R")
                 .arg(modules.join("m0"))
                 .arg(modules.join(format!("m{index}"))),
@@ -3906,7 +3901,8 @@ fn a_timeout_kills_the_whole_process_group_and_not_only_the_child() {
 /// inside `Drop`, where panicking while another panic unwinds aborts the
 /// process and takes the real failure's message with it.
 fn sleepers(tag: &str) -> Vec<(String, String)> {
-    let Ok(listing) = xfx::process::output(Command::new("ps").args(["-eo", "pid=,pgid=,args="]))
+    let Ok(listing) =
+        xfx::process::output(support::command("ps").args(["-eo", "pid=,pgid=,args="]))
     else {
         return Vec::new();
     };
@@ -3941,7 +3937,7 @@ struct SweepTag(String);
 impl Drop for SweepTag {
     fn drop(&mut self) {
         for (pid, _) in sleepers(&self.0) {
-            let _ = xfx::process::status(Command::new("kill").args(["-9", &pid]));
+            let _ = xfx::process::status(support::command("kill").args(["-9", &pid]));
         }
     }
 }
@@ -4108,7 +4104,8 @@ fn an_approved_command_runs_through_the_platform_shell_with_a_clean_environment(
     // Dynamic shell syntax can only run on the reviewed route. `CARGO_PKG_NAME`
     // is set in this test process, so an inherited environment would print
     // `[xfx]` and a built one prints `[]`.
-    assert_eq!(std::env::var("CARGO_PKG_NAME").as_deref(), Ok("xfx"));
+    let cargo_pkg_name = xfx::env_exception!(var("CARGO_PKG_NAME"));
+    assert_eq!(cargo_pkg_name.as_deref(), Ok("xfx"));
     let output = succeeds(
         &context,
         "terminal",
@@ -4630,12 +4627,10 @@ impl Sandbox {
     }
 
     fn command(&self, args: &[&str], env: &[(&str, &str)]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+        let mut command = support::command(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
+        support::sandbox::clear_env(&mut command);
         command.env("HOME", &self.home);
-        for key in CONTROLLED_VARS {
-            command.env_remove(key);
-        }
         for (key, value) in env {
             command.env(key, value);
         }

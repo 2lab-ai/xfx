@@ -1,0 +1,565 @@
+# join check 1: /permissions full, PERMISSION-MODE-CASE's scenarios and SLASH-ARG-SKILLS' own
+## p5-mode-*: 7 pairs at the head (0 at the base too); pass at the head 7, at the base 0; up 7, down 0
+    p5-mode-case-env start: base new -> head normalized-identical
+    p5-mode-case-full full: base new -> head normalized-identical
+    p5-mode-case-full typed: base new -> head normalized-identical
+    p5-mode-case-key auto-cap: base new -> head normalized-identical
+    p5-mode-case-key full-access-space: base new -> head normalized-identical
+    p5-mode-case-key full-access-upper: base new -> head normalized-identical
+    p5-mode-case-key start: base new -> head normalized-identical
+## p5-slash-arg-skills: 20 pairs at the head (0 at the base too); pass at the head 20, at the base 0; up 20, down 0
+    p5-slash-arg-skills allowlist: base new -> head normalized-identical
+    p5-slash-arg-skills allowlist-add: base new -> head normalized-identical
+    p5-slash-arg-skills allowlist-add-tool: base new -> head normalized-identical
+    p5-slash-arg-skills allowlist-local: base new -> head normalized-identical
+    p5-slash-arg-skills esc-back: base new -> head normalized-identical
+    p5-slash-arg-skills mcp: base new -> head normalized-identical
+    p5-slash-arg-skills permissions: base new -> head normalized-identical
+    p5-slash-arg-skills permissions-enter: base new -> head normalized-identical
+    p5-slash-arg-skills permissions-full-enter: base new -> head normalized-identical
+    p5-slash-arg-skills permissions-re: base new -> head normalized-identical
+    p5-slash-arg-skills sound: base new -> head normalized-identical
+    p5-slash-arg-skills sound-on-enter: base new -> head normalized-identical
+    p5-slash-arg-skills statusline: base new -> head normalized-identical
+    p5-slash-arg-skills statusline-enter: base new -> head normalized-identical
+    p5-slash-arg-skills statusline-ghost: base new -> head normalized-identical
+    p5-slash-arg-skills statusline-s: base new -> head normalized-identical
+    p5-slash-arg-skills statusline-ws: base new -> head normalized-identical
+    p5-slash-arg-skills workspace: base new -> head normalized-identical
+    p5-slash-arg-skills workspace-a-tab: base new -> head normalized-identical
+    p5-slash-arg-skills workspace-enter: base new -> head normalized-identical
+
+# join check 2: the amendment's and the decoder's scenarios
+## approval*: 18 pairs at the head (18 at the base too); pass at the head 2, at the base 2; up 0, down 0
+    approvals after-cc-cmd-ask: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    approvals after-esc: base unresolved-defect [amendment-card-after-stop] -> head unresolved-defect [amendment-card-after-stop]
+    approvals after-esc.full: base unresolved-defect [amendment-card-after-stop] -> head unresolved-defect [amendment-card-after-stop]
+    approvals cmd2-ask: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    approvals edit-amend-typed: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals edit-ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals edit-down1: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals edit-down3-wrap: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals edit-tab-amend: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals write-ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals-amend-limit asked: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals-amend-limit end: base normalized-identical -> head normalized-identical
+    approvals-amend-limit refused: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals-amend-limit refused-after-edit: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals-amend-limit refused-again: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals-big end: base normalized-identical -> head normalized-identical
+    approvals-big write-big: base unresolved-defect [approval-scroll, approval-grant-scope] -> head unresolved-defect [approval-scroll, approval-grant-scope]
+    approvals-big write-big-walked: base unresolved-defect [approval-scroll, approval-grant-scope] -> head unresolved-defect [approval-scroll, approval-grant-scope]
+## p5-approval*: 98 pairs at the head (89 at the base too); pass at the head 2, at the base 2; up 0, down 0
+    p5-approval-ctrl-j cmd-ask: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    p5-approval-ctrl-j cmd2-ask: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    p5-approval-ctrl-j edit-ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-ctrl-j edit-down-ctrl-j: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-ctrl-j edit-up-ctrl-j: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-ctrl-j end: base normalized-identical -> head normalized-identical
+    p5-approval-ctrl-j write-ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-ctrl-j write-letter-ctrl-j: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-ctrl-j-panel approval-arrives: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    p5-approval-ctrl-j-panel approval-ctrl-j: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-approval-ctrl-j-panel end: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-approval-ctrl-j-panel open-before-approval: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-approval-draft-keys edit-ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-ctrl-underscore: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-ctrl-w: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-ctrl-y: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-kitty-ctrl-y: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-super-shift-z: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-super-z: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-tab-enter: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-typed: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys write-ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys alt-b: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys alt-f: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys alt-left: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys alt-right: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys amend-alt-b: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys amend-keys: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys answered: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys back: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys ctrl-b: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys ctrl-f: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys ctrl-left: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys ctrl-right: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys kitty-alt-b: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys kitty-alt-f: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys left: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys left-wrap: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys mok-alt-b: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys mok-alt-f: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys right: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys right-wrap: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys shift-alt-f: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys shift-left: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys shift-right: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys super-left: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys super-right: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys tab-back: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys unpainted: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-paste-spaces amend-letter: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-paste-spaces amend-pasted: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-paste-spaces amend-super-left: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-paste-spaces amend-terminal-paste: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-paste-spaces asked: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-paste-spaces deny-fits: base new -> head unresolved-defect [approval-grant-scope, amend-draft-window-tail]
+    p5-approval-paste-spaces deny-held: base new -> head unresolved-defect [approval-grant-scope, amend-draft-window]
+    p5-approval-paste-spaces deny-letter-refused: base new -> head unresolved-defect [approval-grant-scope, amend-draft-window-tail]
+    p5-approval-paste-spaces deny-paste-refused: base new -> head unresolved-defect [approval-grant-scope, amend-draft-window-tail]
+    p5-approval-readiness-settled cmd-ask: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    p5-approval-readiness-settled cmd2-ask: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    p5-approval-readiness-settled cmd2-down-enter: base unresolved-defect [approval-settled-every-approval] -> head unresolved-defect [approval-settled-every-approval]
+    p5-approval-readiness-settled edit-ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-readiness-settled edit-down-enter: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-readiness-settled edit-down-up-enter: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-readiness-settled edit-left-enter: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-readiness-settled end: base normalized-identical -> head normalized-identical
+    p5-approval-readiness-settled write-ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-readiness-settled write-letter-enter: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-readiness-settled write-super-up-enter: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys alt-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys alt-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-alt-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-alt-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-ctrl-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-ctrl-n: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-ctrl-p: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-ctrl-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-kitty-alt-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-kitty-alt-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-shift-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-shift-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-super-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-super-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys answered: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys choice-1: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys ctrl-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys ctrl-n: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys ctrl-p: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys ctrl-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys kitty-alt-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys kitty-alt-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys shift-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys shift-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys super-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys super-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+## p5-super-arrows*: 48 pairs at the head (48 at the base too); pass at the head 32, at the base 32; up 0, down 0
+    p5-super-arrows alt-home: base normalized-identical -> head normalized-identical
+    p5-super-arrows alt-super-right: base normalized-identical -> head normalized-identical
+    p5-super-arrows ctrl-alt-home: base normalized-identical -> head normalized-identical
+    p5-super-arrows ctrl-home: base normalized-identical -> head normalized-identical
+    p5-super-arrows ctrl-super-left: base normalized-identical -> head normalized-identical
+    p5-super-arrows draft: base normalized-identical -> head normalized-identical
+    p5-super-arrows keypad-ctrl-end: base normalized-identical -> head normalized-identical
+    p5-super-arrows statusline: base normalized-identical -> head normalized-identical
+    p5-super-arrows statusline-ctrl-home: base normalized-identical -> head normalized-identical
+    p5-super-arrows statusline-super-left: base normalized-identical -> head normalized-identical
+    p5-super-arrows statusline-super-right: base normalized-identical -> head normalized-identical
+    p5-super-arrows super-end: base normalized-identical -> head normalized-identical
+    p5-super-arrows super-left: base normalized-identical -> head normalized-identical
+    p5-super-arrows super-right: base normalized-identical -> head normalized-identical
+    p5-super-arrows tilde-ctrl-home: base normalized-identical -> head normalized-identical
+    p5-super-arrows tilde-super-end: base normalized-identical -> head normalized-identical
+    p5-super-arrows-approval amend-alt-super-right: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-ctrl-end: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-ctrl-home: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-ctrl-super-left: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-shift-home: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-super-end: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-super-home: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-super-left: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-super-right: base unresolved-defect [approval-grant-scope; a row no cause covers] -> head unresolved-defect [approval-grant-scope; a row no cause covers]
+    p5-super-arrows-approval amend-tilde-ctrl-end: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval ctrl-home: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval ctrl-super-left: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval super-end: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval super-left: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval super-right: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-question ctrl-home: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question ctrl-super-left: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question field-alt-super-right: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question field-ctrl-end: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question field-ctrl-home: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question field-ctrl-super-left: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question field-shift-home: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question field-super-end: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question field-super-home: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question field-super-left: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question field-super-right: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question field-tilde-ctrl-end: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question p3: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question super-end: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question super-left: base normalized-identical -> head normalized-identical
+    p5-super-arrows-question super-right: base normalized-identical -> head normalized-identical
+## p5-modified-*: 52 pairs at the head (38 at the base too); pass at the head 51, at the base 37; up 14, down 0
+    p5-modified-arrows-full answered: base identical -> head identical
+    p5-modified-arrows-full draft: base identical -> head identical
+    p5-modified-arrows-full full: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-full full-ctrl-b: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-full full-ctrl-f: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-full full-ctrl-up: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-full full-super-left: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-full typed: base identical -> head identical
+    p5-modified-arrows-full typed2: base identical -> head identical
+    p5-modified-arrows-full typed3: base identical -> head identical
+    p5-modified-arrows-full typed4: base identical -> head identical
+    p5-modified-arrows-question alt-up: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question ctrl-b: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question ctrl-down: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question ctrl-shift-down: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question field-ctrl-f: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question field-ctrl-up: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question field-left: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question field-shift-alt-down: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question field-super-down: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question field-super-up: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question p1: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question right-keys: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question shift-alt-up: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question shift-left: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question shift-super-down: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question super-left: base normalized-identical -> head normalized-identical
+    p5-modified-arrows-question super-up: base normalized-identical -> head normalized-identical
+    p5-modified-meta-prefix caps-ctrl-end: base new -> head normalized-identical
+    p5-modified-meta-prefix caps-ctrl-home: base new -> head normalized-identical
+    p5-modified-meta-prefix ctrl-meta-bit-left: base new -> head normalized-identical
+    p5-modified-meta-prefix draft: base new -> head normalized-identical
+    p5-modified-meta-prefix hyper-left: base new -> head normalized-identical
+    p5-modified-meta-prefix meta-bit-end: base new -> head normalized-identical
+    p5-modified-meta-prefix meta-ctrl-home: base new -> head normalized-identical
+    p5-modified-meta-prefix meta-down: base new -> head normalized-identical
+    p5-modified-meta-prefix meta-left: base new -> head normalized-identical
+    p5-modified-meta-prefix meta-right: base new -> head normalized-identical
+    p5-modified-meta-prefix meta-ss3-up: base new -> head normalized-identical
+    p5-modified-meta-prefix meta-super-left: base new -> head normalized-identical
+    p5-modified-meta-prefix meta-up: base new -> head normalized-identical
+    p5-modified-meta-prefix num-ctrl-home: base new -> head normalized-identical
+    p5-modified-page-keys answered: base identical -> head identical
+    p5-modified-page-keys closed: base identical -> head identical
+    p5-modified-page-keys draft: base identical -> head identical
+    p5-modified-page-keys full: base normalized-identical -> head normalized-identical
+    p5-modified-page-keys full-ctrl-pgup: base normalized-identical -> head normalized-identical
+    p5-modified-page-keys full-pgup: base unresolved-defect [session-record, session-record-page-bottom] -> head unresolved-defect [session-record, session-record-page-bottom]
+    p5-modified-page-keys full2: base normalized-identical -> head normalized-identical
+    p5-modified-page-keys full2-kp-ctrl-pgdn: base normalized-identical -> head normalized-identical
+    p5-modified-page-keys typed: base identical -> head identical
+    p5-modified-page-keys typed2: base identical -> head identical
+## p5-cancel*: 11 pairs at the head (0 at the base too); pass at the head 10, at the base 0; up 10, down 0
+    p5-cancel-double-escape a-person-cleared: base new -> head normalized-identical
+    p5-cancel-double-escape b-burst-cleared: base new -> head normalized-identical
+    p5-cancel-double-escape c-menu: base new -> head unresolved-defect [menu-count, menu-shift, C8-shell]
+    p5-cancel-double-escape c-person-cleared: base new -> head normalized-identical
+    p5-cancel-double-escape c-person-closed: base new -> head normalized-identical
+    p5-cancel-double-escape d-burst-cleared: base new -> head normalized-identical
+    p5-cancel-double-escape-turn a-meta-up: base new -> head normalized-identical
+    p5-cancel-double-escape-turn b-burst-cancelled: base new -> head normalized-identical
+    p5-cancel-double-escape-turn c-person-cancelled: base new -> head normalized-identical
+    p5-cancel-double-escape-turn mid: base new -> head normalized-identical
+    p5-cancel-double-escape-turn mid2: base new -> head normalized-identical
+## cancel*: 0 pairs at the head (0 at the base too); pass at the head 0, at the base 0; up 0, down 0
+
+# join check 3: the profile line's, the slash line's and the settings' scenarios
+## profile*: 0 pairs at the head (0 at the base too); pass at the head 0, at the base 0; up 0, down 0
+## p5-profile*: 0 pairs at the head (0 at the base too); pass at the head 0, at the base 0; up 0, down 0
+## p5-panels*: 140 pairs at the head (140 at the base too); pass at the head 54, at the base 53; up 1, down 0
+    p5-panels-badsettings launch: base unresolved-defect [no cause; a row no cause covers] -> head normalized-identical
+    p5-panels-help esc: base normalized-identical -> head normalized-identical
+    p5-panels-help open: base unresolved-defect [menu-count, menu-shift, C7-help-entries] -> head unresolved-defect [menu-count, menu-shift, C7-help-entries]
+    p5-panels-help query-alias: base normalized-identical -> head normalized-identical
+    p5-panels-help query-cost: base normalized-identical -> head normalized-identical
+    p5-panels-help query-status: base unresolved-defect [menu-count, menu-shift] -> head unresolved-defect [menu-count, menu-shift]
+    p5-panels-help tab-account: base unresolved-defect [menu-count, menu-shift] -> head unresolved-defect [menu-count, menu-shift]
+    p5-panels-help tab-agents: base normalized-identical -> head normalized-identical
+    p5-panels-help tab-appearance: base normalized-identical -> head normalized-identical
+    p5-panels-help tab-extensions: base normalized-identical -> head normalized-identical
+    p5-panels-help tab-general: base normalized-identical -> head normalized-identical
+    p5-panels-help tab-media: base normalized-identical -> head normalized-identical
+    p5-panels-help tab-model: base unresolved-defect [C7-help-entries] -> head unresolved-defect [C7-help-entries]
+    p5-panels-help tab-product: base unresolved-defect [menu-count, menu-shift] -> head unresolved-defect [menu-count, menu-shift]
+    p5-panels-help tab-security: base normalized-identical -> head normalized-identical
+    p5-panels-help tab-session: base normalized-identical -> head normalized-identical
+    p5-panels-help tab-workspace: base unresolved-defect [menu-count, C8-shell] -> head unresolved-defect [menu-count, C8-shell]
+    p5-panels-help tab-wrap: base unresolved-defect [menu-count, menu-shift, C7-help-entries] -> head unresolved-defect [menu-count, menu-shift, C7-help-entries]
+    p5-panels-keys after-ctrl-c-esc: base normalized-identical -> head normalized-identical
+    p5-panels-keys approval-arrives: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    p5-panels-keys approval-esc: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-keys btab: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-keys ctrl-c: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-keys end: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-keys open-before-approval: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-keys paste: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-keys perm-btab: base normalized-identical -> head normalized-identical
+    p5-panels-keys tab-pgdn: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-noauth launch: base approved-divergence -> head approved-divergence
+    p5-panels-noauth open: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-permissions after-grant: base normalized-identical -> head normalized-identical
+    p5-panels-permissions after-revoke: base unresolved-defect [tool-schema] -> head unresolved-defect [tool-schema]
+    p5-panels-permissions approval: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    p5-panels-permissions ask: base normalized-identical -> head normalized-identical
+    p5-panels-permissions auto: base normalized-identical -> head normalized-identical
+    p5-panels-permissions bare: base normalized-identical -> head normalized-identical
+    p5-panels-permissions bare-after: base normalized-identical -> head normalized-identical
+    p5-panels-permissions bogus: base normalized-identical -> head normalized-identical
+    p5-panels-permissions down1: base normalized-identical -> head normalized-identical
+    p5-panels-permissions esc: base normalized-identical -> head normalized-identical
+    p5-panels-permissions full: base normalized-identical -> head normalized-identical
+    p5-panels-permissions grants: base unresolved-defect [tool-schema] -> head unresolved-defect [tool-schema]
+    p5-panels-permissions remember-done: base normalized-identical -> head normalized-identical
+    p5-panels-permissions remember-prompt: base normalized-identical -> head normalized-identical
+    p5-panels-permissions reset: base normalized-identical -> head normalized-identical
+    p5-panels-permissions revoke-done: base identical -> head identical
+    p5-panels-permissions revoke-prompt: base identical -> head identical
+    p5-panels-permissions rules: base normalized-identical -> head normalized-identical
+    p5-panels-permissions saved: base normalized-identical -> head normalized-identical
+    p5-panels-permissions status-grants: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-permissions-saved after-grant: base normalized-identical -> head normalized-identical
+    p5-panels-permissions-saved after-revoke: base unresolved-defect [tool-schema] -> head unresolved-defect [tool-schema]
+    p5-panels-permissions-saved approval: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    p5-panels-permissions-saved remember-done: base normalized-identical -> head normalized-identical
+    p5-panels-permissions-saved remember-prompt: base normalized-identical -> head normalized-identical
+    p5-panels-permissions-saved revoke-prompt: base normalized-identical -> head normalized-identical
+    p5-panels-permissions-saved saved: base unresolved-defect [tool-schema] -> head unresolved-defect [tool-schema]
+    p5-panels-permissions-saved saved-esc: base normalized-identical -> head normalized-identical
+    p5-panels-slash alias-run: base normalized-identical -> head normalized-identical
+    p5-panels-slash cost-run: base normalized-identical -> head normalized-identical
+    p5-panels-slash down12: base unresolved-defect [menu-count, menu-shift] -> head unresolved-defect [menu-count, menu-shift]
+    p5-panels-slash down18: base unresolved-defect [menu-count, menu-shift, C7-help-entries] -> head unresolved-defect [menu-count, menu-shift, C7-help-entries]
+    p5-panels-slash down24: base unresolved-defect [menu-count, menu-shift] -> head unresolved-defect [menu-count, menu-shift]
+    p5-panels-slash down30: base unresolved-defect [menu-count, menu-shift] -> head unresolved-defect [menu-count, menu-shift]
+    p5-panels-slash down36: base unresolved-defect [menu-count, menu-shift, C8-shell] -> head unresolved-defect [menu-count, menu-shift, C8-shell]
+    p5-panels-slash down38: base unresolved-defect [menu-count, menu-shift] -> head unresolved-defect [menu-count, menu-shift]
+    p5-panels-slash down6: base unresolved-defect [menu-count] -> head unresolved-defect [menu-count]
+    p5-panels-slash filter-al: base normalized-identical -> head normalized-identical
+    p5-panels-slash filter-co: base normalized-identical -> head normalized-identical
+    p5-panels-slash filter-e: base unresolved-defect [menu-count] -> head unresolved-defect [menu-count]
+    p5-panels-slash filter-f: base unresolved-defect [menu-count, menu-shift; a row no cause covers] -> head unresolved-defect [menu-count, menu-shift; a row no cause covers]
+    p5-panels-slash filter-st: base normalized-identical -> head normalized-identical
+    p5-panels-slash slash: base unresolved-defect [menu-count] -> head unresolved-defect [menu-count]
+    p5-panels-status after-turn: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-status closed-final: base normalized-identical -> head normalized-identical
+    p5-panels-status down: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-status enter-closed: base normalized-identical -> head normalized-identical
+    p5-panels-status esc-closed: base normalized-identical -> head normalized-identical
+    p5-panels-status open: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-status open-after-midturn: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-status open-midturn: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-status status-now: base normalized-identical -> head normalized-identical
+    p5-panels-status turn: base normalized-identical -> head normalized-identical
+    p5-panels-status typed: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-status-badsettings closed: base approved-divergence -> head approved-divergence
+    p5-panels-status-badsettings launch: base approved-divergence -> head approved-divergence
+    p5-panels-status-badsettings open: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-status-first after-first: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-status-first closed: base normalized-identical -> head normalized-identical
+    p5-panels-status-first open-first: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-status-short ctrl-k: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-status-short down-end: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-status-short down1: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-status-short esc: base normalized-identical -> head normalized-identical
+    p5-panels-status-short open: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-status-short up1: base approved-divergence-cascade -> head approved-divergence-cascade
+    p5-panels-sweep-a alias: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a allowlist: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a clear: base normalized-identical -> head normalized-identical
+    p5-panels-sweep-a compact-empty: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a copy: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a credits: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a fast: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a feedback: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a image-missing: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a images: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a login: base unresolved-defect [provider-label; a row no cause covers] -> head unresolved-defect [provider-label; a row no cause covers]
+    p5-panels-sweep-a login-closed: base unresolved-defect [no cause; a row no cause covers] -> head unresolved-defect [no cause; a row no cause covers]
+    p5-panels-sweep-a logout: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a new: base normalized-identical -> head normalized-identical
+    p5-panels-sweep-a provider: base unresolved-defect [provider-label; a row no cause covers] -> head unresolved-defect [provider-label; a row no cause covers]
+    p5-panels-sweep-a provider-closed: base unresolved-defect [no cause; a row no cause covers] -> head unresolved-defect [no cause; a row no cause covers]
+    p5-panels-sweep-a quit: base normalized-identical -> head normalized-identical
+    p5-panels-sweep-a rename: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a reset: base normalized-identical -> head normalized-identical
+    p5-panels-sweep-a resume: base unresolved-defect [no cause; a row no cause covers] -> head unresolved-defect [no cause; a row no cause covers]
+    p5-panels-sweep-a resume-closed: base unresolved-defect [no cause; a row no cause covers] -> head unresolved-defect [no cause; a row no cause covers]
+    p5-panels-sweep-a settings: base unresolved-defect [sound-max; a row no cause covers] -> head unresolved-defect [sound-max; a row no cause covers]
+    p5-panels-sweep-a settings-closed: base unresolved-defect [no cause; a row no cause covers] -> head unresolved-defect [no cause; a row no cause covers]
+    p5-panels-sweep-a shell: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a stats: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a statusline: base unresolved-defect [no cause; a row no cause covers] -> head unresolved-defect [no cause; a row no cause covers]
+    p5-panels-sweep-a statusline-closed: base unresolved-defect [no cause; a row no cause covers] -> head unresolved-defect [no cause; a row no cause covers]
+    p5-panels-sweep-a trace: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a ultrafast: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a undo: base unresolved-defect [stats-bytes; a row no cause covers] -> head unresolved-defect [stats-bytes; a row no cause covers]
+    p5-panels-sweep-a version: base unresolved-defect [no cause; a row no cause covers] -> head unresolved-defect [no cause; a row no cause covers]
+    p5-panels-sweep-a workspace: base unresolved-defect [no cause; a row no cause covers] -> head unresolved-defect [no cause; a row no cause covers]
+    p5-panels-sweep-a workspace-closed: base unresolved-defect [no cause; a row no cause covers] -> head unresolved-defect [no cause; a row no cause covers]
+    p5-panels-sweep-b after-compact: base unresolved-defect [stats-bytes] -> head unresolved-defect [stats-bytes]
+    p5-panels-sweep-b answered: base normalized-identical -> head normalized-identical
+    p5-panels-sweep-b compact: base unresolved-defect [stats-bytes] -> head unresolved-defect [stats-bytes]
+    p5-panels-sweep-b copy: base normalized-identical -> head normalized-identical
+    p5-panels-sweep-b new: base normalized-identical -> head normalized-identical
+    p5-panels-sweep-b quit: base normalized-identical -> head normalized-identical
+    p5-panels-sweep-b rename: base unresolved-defect [stats-bytes] -> head unresolved-defect [stats-bytes]
+    p5-panels-sweep-b resume: base unresolved-defect [stats-bytes] -> head unresolved-defect [stats-bytes]
+    p5-panels-sweep-b stats: base unresolved-defect [stats-bytes] -> head unresolved-defect [stats-bytes]
+    p5-panels-sweep-b trace: base unresolved-defect [stats-bytes] -> head unresolved-defect [stats-bytes]
+    p5-panels-sweep-b undo: base unresolved-defect [stats-bytes] -> head unresolved-defect [stats-bytes]
+## settings*: 72 pairs at the head (72 at the base too); pass at the head 30, at the base 30; up 0, down 0
+    settings bare: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings bogus: base normalized-identical -> head normalized-identical
+    settings down1: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings down4: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings esc: base normalized-identical -> head normalized-identical
+    settings ss-query: base normalized-identical -> head normalized-identical
+    settings typed: base normalized-identical -> head normalized-identical
+    settings-cats off: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-cats on: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-cats popup-off: base unresolved-defect [menu-count] -> head unresolved-defect [menu-count]
+    settings-cats popup-on: base unresolved-defect [menu-count] -> head unresolved-defect [menu-count]
+    settings-collapse after-esc: base normalized-identical -> head normalized-identical
+    settings-collapse cmd-ask: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    settings-collapse collapse-on: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-collapse group: base normalized-identical -> head normalized-identical
+    settings-collapse group2: base normalized-identical -> head normalized-identical
+    settings-collapse later: base normalized-identical -> head normalized-identical
+    settings-collapse running: base normalized-identical -> head normalized-identical
+    settings-collapse stopped: base normalized-identical -> head normalized-identical
+    settings-collapse-open after-esc: base identical -> head identical
+    settings-collapse-open collapse-on: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-collapse-open running: base unresolved-defect [grant-scope-push] -> head unresolved-defect [grant-scope-push]
+    settings-effort bare: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-effort left: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-effort marked: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-effort no-levels: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-effort no-levels-right: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-effort right1: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-effort right2: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-effort right3: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-history marked: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-history off: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-history on: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-history relaunch: base normalized-identical -> head normalized-identical
+    settings-history relaunch-up1: base normalized-identical -> head normalized-identical
+    settings-history relaunch-up2: base normalized-identical -> head normalized-identical
+    settings-history relaunch-up3: base normalized-identical -> head normalized-identical
+    settings-history relaunch-up4: base normalized-identical -> head normalized-identical
+    settings-history up-after-secret: base normalized-identical -> head normalized-identical
+    settings-model enter: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-model esc: base normalized-identical -> head normalized-identical
+    settings-model marked: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-model-list enter: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-model-list list: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-model-list list-down: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-model-list tab: base normalized-identical -> head normalized-identical
+    settings-model-list used: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-perm ask: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-perm esc: base normalized-identical -> head normalized-identical
+    settings-perm full: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-perm marked: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-scrollback off: base normalized-identical -> head normalized-identical
+    settings-scrollback row: base normalized-identical -> head normalized-identical
+    settings-scrollback row-off: base normalized-identical -> head normalized-identical
+    settings-scrollback toggle: base normalized-identical -> head normalized-identical
+    settings-scrollback usage: base normalized-identical -> head normalized-identical
+    settings-speed fast-marked: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-speed fast-off: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-speed fast-on: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings-speed ultra-right: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings2 down-sound: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings2 enter: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings2 esc: base normalized-identical -> head normalized-identical
+    settings2 filter-none: base normalized-identical -> head normalized-identical
+    settings2 filter-sou: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings2 right-context: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings2 sound-right: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings2 tab1: base normalized-identical -> head normalized-identical
+    settings2 tab2: base normalized-identical -> head normalized-identical
+    settings2 tab3: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+    settings2 tab4: base normalized-identical -> head normalized-identical
+    settings2 tab5: base unresolved-defect [sound-max] -> head unresolved-defect [sound-max]
+## slash*: 15 pairs at the head (15 at the base too); pass at the head 9, at the base 9; up 0, down 0
+    slash down3: base unresolved-defect [menu-count] -> head unresolved-defect [menu-count]
+    slash down7: base unresolved-defect [menu-count, menu-shift] -> head unresolved-defect [menu-count, menu-shift]
+    slash esc: base normalized-identical -> head normalized-identical
+    slash filter-re: base normalized-identical -> head normalized-identical
+    slash help: base unresolved-defect [menu-count, menu-shift, C7-help-entries] -> head unresolved-defect [menu-count, menu-shift, C7-help-entries]
+    slash help-down: base unresolved-defect [menu-count, menu-shift, C7-help-entries] -> head unresolved-defect [menu-count, menu-shift, C7-help-entries]
+    slash help-esc: base normalized-identical -> head normalized-identical
+    slash help-typed: base normalized-identical -> head normalized-identical
+    slash slash: base unresolved-defect [menu-count] -> head unresolved-defect [menu-count]
+    slash-filter filter-ex: base normalized-identical -> head normalized-identical
+    slash-filter filter-mo: base unresolved-defect [C7-help-entries] -> head unresolved-defect [C7-help-entries]
+    slash-filter filter-q: base normalized-identical -> head normalized-identical
+    slash-filter tab-ex: base normalized-identical -> head normalized-identical
+    slash-filter tab-vers: base normalized-identical -> head normalized-identical
+    slash-filter tab-vers-esc: base normalized-identical -> head normalized-identical
+## p5-slash*: 65 pairs at the head (0 at the base too); pass at the head 60, at the base 0; up 60, down 0
+    p5-slash-arg-skills allowlist: base new -> head normalized-identical
+    p5-slash-arg-skills allowlist-add: base new -> head normalized-identical
+    p5-slash-arg-skills allowlist-add-tool: base new -> head normalized-identical
+    p5-slash-arg-skills allowlist-local: base new -> head normalized-identical
+    p5-slash-arg-skills esc-back: base new -> head normalized-identical
+    p5-slash-arg-skills mcp: base new -> head normalized-identical
+    p5-slash-arg-skills permissions: base new -> head normalized-identical
+    p5-slash-arg-skills permissions-enter: base new -> head normalized-identical
+    p5-slash-arg-skills permissions-full-enter: base new -> head normalized-identical
+    p5-slash-arg-skills permissions-re: base new -> head normalized-identical
+    p5-slash-arg-skills sound: base new -> head normalized-identical
+    p5-slash-arg-skills sound-on-enter: base new -> head normalized-identical
+    p5-slash-arg-skills statusline: base new -> head normalized-identical
+    p5-slash-arg-skills statusline-enter: base new -> head normalized-identical
+    p5-slash-arg-skills statusline-ghost: base new -> head normalized-identical
+    p5-slash-arg-skills statusline-s: base new -> head normalized-identical
+    p5-slash-arg-skills statusline-ws: base new -> head normalized-identical
+    p5-slash-arg-skills workspace: base new -> head normalized-identical
+    p5-slash-arg-skills workspace-a-tab: base new -> head normalized-identical
+    p5-slash-arg-skills workspace-enter: base new -> head normalized-identical
+    p5-slash-leading-ws esc-space: base new -> head normalized-identical
+    p5-slash-leading-ws esc-space-back: base new -> head normalized-identical
+    p5-slash-leading-ws mid: base new -> head normalized-identical
+    p5-slash-leading-ws newline: base new -> head normalized-identical
+    p5-slash-leading-ws newline-tab: base new -> head normalized-identical
+    p5-slash-leading-ws spaces: base new -> head normalized-identical
+    p5-slash-leading-ws spaces-esc-grow: base new -> head normalized-identical
+    p5-slash-leading-ws tab: base new -> head normalized-identical
+    p5-slash-leading-ws vers-recall: base new -> head unresolved-defect [no cause; a row no cause covers]
+    p5-slash-leading-ws vers-run: base new -> head unresolved-defect [no cause; a row no cause covers]
+    p5-slash-leading-ws-he mid: base new -> head normalized-identical
+    p5-slash-leading-ws-he newline: base new -> head unresolved-defect [menu-count, menu-shift, C8-shell]
+    p5-slash-leading-ws-he spaces: base new -> head unresolved-defect [menu-count, menu-shift, C8-shell]
+    p5-slash-leading-ws-short four: base new -> head normalized-identical
+    p5-slash-leading-ws-short four-all: base new -> head unresolved-defect [menu-count]
+    p5-slash-leading-ws-short one: base new -> head normalized-identical
+    p5-slash-leading-ws-short two: base new -> head normalized-identical
+    p5-slash-leading-ws-skill dem-enter: base new -> head normalized-identical
+    p5-slash-leading-ws-skill dem-tab: base new -> head normalized-identical
+    p5-slash-mixed-skills cap-help: base new -> head normalized-identical
+    p5-slash-mixed-skills clear-the-notes: base new -> head normalized-identical
+    p5-slash-mixed-skills ghost-list: base new -> head normalized-identical
+    p5-slash-mixed-skills ghost-list-enter: base new -> head normalized-identical
+    p5-slash-mixed-skills ghost-list-tab: base new -> head normalized-identical
+    p5-slash-mixed-skills git-log: base new -> head normalized-identical
+    p5-slash-mixed-skills git-log-enter: base new -> head normalized-identical
+    p5-slash-mixed-skills git-log-esc: base new -> head normalized-identical
+    p5-slash-mixed-skills git-log-esc-x: base new -> head normalized-identical
+    p5-slash-mixed-skills git-log-tab: base new -> head normalized-identical
+    p5-slash-mixed-skills help: base new -> head normalized-identical
+    p5-slash-mixed-skills help-x: base new -> head normalized-identical
+    p5-slash-mixed-skills lead: base new -> head normalized-identical
+    p5-slash-mixed-skills lead-tab: base new -> head normalized-identical
+    p5-slash-mixed-skills notes: base new -> head normalized-identical
+    p5-slash-mixed-skills notes-down: base new -> head normalized-identical
+    p5-slash-mixed-skills notes-down-tab: base new -> head normalized-identical
+    p5-slash-mixed-skills rename: base new -> head normalized-identical
+    p5-slash-mixed-skills rename-enter: base new -> head normalized-identical
+    p5-slash-mixed-skills rename-notes: base new -> head normalized-identical
+    p5-slash-mixed-skills rename-the-help: base new -> head normalized-identical
+    p5-slash-mixed-skills rename-the-help-enter: base new -> head normalized-identical
+    p5-slash-mixed-skills skills-x: base new -> head normalized-identical
+    p5-slash-mixed-skills slash-space: base new -> head normalized-identical
+    p5-slash-mixed-skills statusline: base new -> head normalized-identical
+    p5-slash-mixed-skills statusline-bell: base new -> head normalized-identical

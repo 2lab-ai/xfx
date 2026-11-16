@@ -1,0 +1,35 @@
+# The unit's tests at b34fac46 (code head 4788ff6d; round 4 changes tests and comments only), cargo test --locked --lib -- <names>, plain and with --features fault-injection, TMPDIR=<tmp>, 2026-11-16
+## plain
+test tui::input::tests::an_escape_inside_a_prefixed_sequence_starts_a_bare_one ... ok
+test tui::input::tests::two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst ... ok
+test tui::input::tests::the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50 ... ok
+test tui::input::tests::a_control_behind_the_prefix_is_one_ignore_and_leaves_nothing_pending ... ok
+test tui::input::tests::a_leading_zero_in_a_cursor_keys_modifier_is_the_number_up_to_three_digits ... ok
+test tui::input::tests::the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_esc ... ok
+test tui::input::tests::a_prefixed_key_is_one_key_as_upstream_reads_it ... ok
+test tui::input::tests::a_report_behind_a_second_escape_gives_the_first_back_as_the_escape_key ... ok
+test tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one ... ok
+test tui::input::tests::what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it ... ok
+test tui::input::tests::every_modifier_on_left_right_home_and_end_is_upstreams_move ... ok
+test tui::shell::tests::two_escapes_in_one_burst_are_two_presses_as_a_person_s_two_are ... ok
+test tui::shell::tests::two_escapes_in_one_burst_close_a_menu_and_arm_the_clear_as_two_presses_do ... ok
+test tui::shell::tests::over_a_running_turn_a_burst_of_two_escapes_stops_it_and_a_prefixed_up_is_a_move ... ok
+test tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape ... ok
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 4801 filtered out; finished in 0.02s
+## fault-injection
+test tui::input::tests::an_escape_inside_a_prefixed_sequence_starts_a_bare_one ... ok
+test tui::input::tests::two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst ... ok
+test tui::input::tests::a_control_behind_the_prefix_is_one_ignore_and_leaves_nothing_pending ... ok
+test tui::input::tests::the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50 ... ok
+test tui::input::tests::the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_esc ... ok
+test tui::input::tests::a_report_behind_a_second_escape_gives_the_first_back_as_the_escape_key ... ok
+test tui::input::tests::a_leading_zero_in_a_cursor_keys_modifier_is_the_number_up_to_three_digits ... ok
+test tui::input::tests::a_prefixed_key_is_one_key_as_upstream_reads_it ... ok
+test tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one ... ok
+test tui::input::tests::what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it ... ok
+test tui::input::tests::every_modifier_on_left_right_home_and_end_is_upstreams_move ... ok
+test tui::shell::tests::two_escapes_in_one_burst_are_two_presses_as_a_person_s_two_are ... ok
+test tui::shell::tests::two_escapes_in_one_burst_close_a_menu_and_arm_the_clear_as_two_presses_do ... ok
+test tui::shell::tests::over_a_running_turn_a_burst_of_two_escapes_stops_it_and_a_prefixed_up_is_a_move ... ok
+test tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape ... ok
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 4824 filtered out; finished in 0.02s

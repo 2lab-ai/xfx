@@ -1,0 +1,8 @@
+# round2_numstat.py over round 6's code, a3f8ee26..23819f7a (outside .prd)
+# git diff --numstat a3f8ee26 23819f7a -- . ':!.prd'
+47	4	scripts/check-env-reads.py
+9	0	tests/support/isolated.rs
+# by class (lines out, lines in):
+  gate scripts and CI (scripts/, .github/workflows/): -4 +47
+  test file (tests/), a comment: -0 +9
+  product code: -0 +0

@@ -1,0 +1,21 @@
+p5-approval-paste-spaces: 9 pairs, pass 0; unresolved-defect 9
+    unresolved 5: causes approval-grant-scope; a row no cause covers: no
+    unresolved 1: causes approval-grant-scope, amend-draft-window; a row no cause covers: no
+    unresolved 3: causes approval-grant-scope, amend-draft-window-tail; a row no cause covers: no
+p5-cancel-double-escape: 6 pairs, pass 5; normalized-identical 5, unresolved-defect 1
+    unresolved 1: causes menu-count, menu-shift, C8-shell; a row no cause covers: no
+p5-cancel-double-escape-turn: 5 pairs, pass 5; normalized-identical 5
+p5-mode-case-env: 1 pairs, pass 1; normalized-identical 1
+p5-mode-case-full: 2 pairs, pass 2; normalized-identical 2
+p5-mode-case-key: 4 pairs, pass 4; normalized-identical 4
+p5-modified-meta-prefix: 14 pairs, pass 14; normalized-identical 14
+p5-slash-arg-skills: 20 pairs, pass 20; normalized-identical 20
+p5-slash-leading-ws: 10 pairs, pass 8; normalized-identical 8, unresolved-defect 2
+    unresolved 2: causes none; a row no cause covers: yes
+p5-slash-leading-ws-he: 3 pairs, pass 1; normalized-identical 1, unresolved-defect 2
+    unresolved 2: causes menu-count, menu-shift, C8-shell; a row no cause covers: no
+p5-slash-leading-ws-short: 4 pairs, pass 3; normalized-identical 3, unresolved-defect 1
+    unresolved 1: causes menu-count; a row no cause covers: no
+p5-slash-leading-ws-skill: 2 pairs, pass 2; normalized-identical 2
+p5-slash-mixed-skills: 26 pairs, pass 26; normalized-identical 26
+# 13 scenarios the reference did not take, 106 pairs, 91 pass

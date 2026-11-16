@@ -1,0 +1,637 @@
+# fx v0.0.16 (pin 481104fd): every line SLASH-MIXED-SKILLS's claims about fx rest on.
+
+## M1 which lines: past a blank the prefix goes on for a word no command has, or one that takes an argument; one that takes none has no prefix
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 568,576p
+   568  pub fn slashCompletionPrefix(registry: SlashRegistry, input: []const u8) ?[]const u8 {
+   569      const prefix = std.mem.trimStart(u8, input, " \t\r\n");
+   570      if (prefix.len == 0 or prefix[0] != '/') return null;
+   571  
+   572      const command_end = std.mem.findAny(u8, prefix, " \t\r\n") orelse return prefix;
+   573      const spec = registry.lookup(prefix[0..command_end]) orelse return prefix;
+   574      if (!spec.has_args) return null;
+   575      return prefix;
+   576  }
+
+### git -C fx-upstream show 481104fd:src/core/mods/registry.zig | sed -n 42,55p
+    42          pub fn lookup(self: Self, command: []const u8) ?*const Command {
+    43              const matched = self.matchExact(command) orelse return null;
+    44              return matched.command;
+    45          }
+    46  
+    47          pub fn matchExact(self: Self, command: []const u8) ?Match {
+    48              for (self.commands) |*entry| {
+    49                  if (matchesCommandToken(command, entry.command)) return .{ .command = entry, .token = entry.command };
+    50                  for (entry.aliases) |alias| {
+    51                      if (matchesCommandToken(command, alias)) return .{ .command = entry, .token = alias };
+    52                  }
+    53              }
+    54              return null;
+    55          }
+
+### git -C fx-upstream show 481104fd:src/core/mods/registry.zig | sed -n 69,78p
+    69          fn matchesCommandToken(input: []const u8, command: []const u8) bool {
+    70              if (std.mem.eql(u8, input, command)) return true;
+    71  
+    72              if (input.len == 0) return false;
+    73              const last = input[input.len - 1];
+    74              if (last != ' ' and last != '\t') return false;
+    75  
+    76              const trimmed = std.mem.trimEnd(u8, input, " \t");
+    77              return std.mem.eql(u8, trimmed, command);
+    78          }
+
+
+## M2 an anchored prefix (an argument list) adds no skill; any other adds the skills its query finds, after the commands
+### git -C fx-upstream show 481104fd:src/ui/footer/picker_presentation.zig | sed -n 1170,1175p
+  1170  pub fn mixedSlashCompletionCount(registry: command_specs.SlashRegistry, prefix: []const u8, skills: []const skill_runtime.Skill) usize {
+  1171      const command_count = command_specs.slashCompletionCount(registry, prefix);
+  1172      if (command_specs.argCompletionAnchor(prefix) != 0) return command_count;
+  1173      if (prefix.len == 0 or prefix[0] != '/') return command_count;
+  1174      return command_count + skill_runtime.skillMenuFilterQueryCount(skills, .all, prefix[1..]);
+  1175  }
+
+### git -C fx-upstream show 481104fd:src/ui/footer/picker_presentation.zig | sed -n 1177,1189p
+  1177  pub fn mixedSlashCompletionIsSkill(registry: command_specs.SlashRegistry, prefix: []const u8, skills: []const skill_runtime.Skill, n: usize) bool {
+  1178      return switch (mixedSlashCompletionEntry(registry, prefix, skills, n) orelse return false) {
+  1179          .command => false,
+  1180          .skill => true,
+  1181      };
+  1182  }
+  1183  
+  1184  pub fn nthMixedSlashCompletionSkill(registry: command_specs.SlashRegistry, prefix: []const u8, skills: []const skill_runtime.Skill, n: usize) ?skill_runtime.Skill {
+  1185      return switch (mixedSlashCompletionEntry(registry, prefix, skills, n) orelse return null) {
+  1186          .command => null,
+  1187          .skill => |skill| skill,
+  1188      };
+  1189  }
+
+### git -C fx-upstream show 481104fd:src/ui/footer/picker_presentation.zig | sed -n 1213,1220p
+  1213  fn mixedSlashCompletionEntry(registry: command_specs.SlashRegistry, prefix: []const u8, skills: []const skill_runtime.Skill, n: usize) ?MixedSlashCompletionEntry {
+  1214      const command_count = command_specs.slashCompletionCount(registry, prefix);
+  1215      if (n < command_count) return .{ .command = n };
+  1216      if (command_specs.argCompletionAnchor(prefix) != 0) return null;
+  1217      if (prefix.len == 0 or prefix[0] != '/') return null;
+  1218      const skill = skill_runtime.skillMenuSkillAtQuery(skills, .all, prefix[1..], n - command_count) orelse return null;
+  1219      return .{ .skill = skill };
+  1220  }
+
+### git -C fx-upstream show 481104fd:src/ui/footer/picker_presentation.zig | sed -n 1139,1168p
+  1139  pub fn prepareSlashMenu(
+  1140      alloc: Allocator,
+  1141      registry: command_specs.SlashRegistry,
+  1142      prefix: []const u8,
+  1143      skills: []const skill_runtime.Skill,
+  1144  ) !PreparedSlashMenu {
+  1145      var prepared = PreparedSlashMenu{
+  1146          .registry = registry,
+  1147          .prefix = prefix,
+  1148          .command_count = command_specs.slashCompletionCount(registry, prefix),
+  1149      };
+  1150      errdefer prepared.deinit(alloc);
+  1151  
+  1152      if (command_specs.argCompletionAnchor(prefix) != 0 or
+  1153          prefix.len == 0 or prefix[0] != '/' or skills.len == 0)
+  1154      {
+  1155          return prepared;
+  1156      }
+  1157  
+  1158      try prepared.skill_matches.resize(alloc, skills.len);
+  1159      const written = skill_runtime.fillSkillMenuRangeAtQuery(
+  1160          skills,
+  1161          .all,
+  1162          prefix[1..],
+  1163          0,
+  1164          prepared.skill_matches.items,
+  1165      );
+  1166      prepared.skill_matches.shrinkRetainingCapacity(written);
+  1167      return prepared;
+  1168  }
+
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 636,644p
+   636  pub fn argCompletionAnchor(prefix: []const u8) usize {
+   637      if (mcpVerbsOn() and argCompletionPrefix(prefix, "/mcp") != null) return "/mcp ".len;
+   638      if (statuslineArgCompletionPrefix(prefix) != null) return "/statusline ".len;
+   639      if (notificationsArgCompletionPrefix(prefix) != null) return "/sound ".len;
+   640      if (permissionsArgCompletionPrefix(prefix) != null) return "/permissions ".len;
+   641      if (workspaceArgCompletionPrefix(prefix) != null) return "/workspace ".len;
+   642      if (allowlistArgCompletionAnchor(prefix)) |anchor| return anchor;
+   643      return 0;
+   644  }
+
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 909,915p
+   909  fn argCompletionPrefix(prefix: []const u8, command: []const u8) ?[]const u8 {
+   910      if (!std.mem.startsWith(u8, prefix, command)) return null;
+   911      if (prefix.len == command.len) return null;
+   912      const boundary = prefix[command.len];
+   913      if (boundary != ' ' and boundary != '\t') return null;
+   914      return std.mem.trim(u8, prefix[command.len..], " \t");
+   915  }
+
+
+## M3 the commands past a blank: matched with the whole prefix, so none answers one with a blank in it
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 520,526p
+   520  fn completionCommandMatchRank(command: []const u8, prefix: []const u8) ?usize {
+   521      if (std.mem.eql(u8, command, prefix)) return 0;
+   522      if (std.mem.startsWith(u8, command, prefix)) return 1;
+   523      if (prefix.len <= 1 or command.len <= 1) return null;
+   524      if (std.mem.find(u8, command[1..], prefix[1..]) != null) return 2;
+   525      return null;
+   526  }
+
+### git -C fx-upstream show 481104fd:src/core/slash_commands/command_specs.zig | sed -n 578,608p
+   578  pub fn slashCompletionCount(registry: SlashRegistry, prefix: []const u8) usize {
+   579      if (runtimeArgQuery(registry, prefix)) |query| {
+   580          var count: usize = 0;
+   581          for (registry.arguments) |entry| {
+   582              if (runtimeArgMatches(registry, entry.full, query)) count += 1;
+   583          }
+   584          return count;
+   585      }
+   586      if (allowlistArgCompletionPrefix(prefix)) |query| {
+   587          return allowlistArgCompletionCount(query);
+   588      }
+   589      if (statuslineArgCompletionPrefix(prefix)) |query| {
+   590          return statuslineArgCompletionCount(query);
+   591      }
+   592      if (notificationsArgCompletionPrefix(prefix)) |query| {
+   593          return notificationsArgCompletionCount(query);
+   594      }
+   595      if (permissionsArgCompletionPrefix(prefix)) |query| {
+   596          return permissionsArgCompletionCount(query);
+   597      }
+   598      if (workspaceArgCompletionPrefix(prefix)) |query| {
+   599          return workspaceArgCompletionCount(query);
+   600      }
+   601      if (prefix.len == 0 or prefix[0] != '/') return 0;
+   602      var count: usize = 0;
+   603      for (registry.commands) |spec| {
+   604          if (spec.help_entry == null) continue;
+   605          if (matchedCompletionCommand(spec, prefix) != null) count += 1;
+   606      }
+   607      return count;
+   608  }
+
+
+## M4 the skills: the query trimmed of blanks and slashes, by name start, name, then description, source or path; then the source group, then discovery order
+### git -C fx-upstream show 481104fd:src/core/skills/skill_runtime.zig | sed -n 1380,1392p
+  1380  fn skillMatchRank(skill: Skill, query: []const u8) ?usize {
+  1381      const trimmed = std.mem.trim(u8, query, " \t\r\n/");
+  1382      if (trimmed.len == 0) return 0;
+  1383      if (std.ascii.startsWithIgnoreCase(skill.name, trimmed)) return 0;
+  1384      if (asciiContainsIgnoreCase(skill.name, trimmed)) return 1;
+  1385      if (asciiContainsIgnoreCase(skill.description, trimmed) or
+  1386          asciiContainsIgnoreCase(skillSourceShortLabel(skill.source), trimmed) or
+  1387          asciiContainsIgnoreCase(skill.path, trimmed))
+  1388      {
+  1389          return 2;
+  1390      }
+  1391      return null;
+  1392  }
+
+### git -C fx-upstream show 481104fd:src/core/skills/skill_runtime.zig | sed -n 1330,1376p
+  1330  const SkillMenuView = struct {
+  1331      skills: []const Skill,
+  1332      filter: SkillMenuSourceFilter,
+  1333      query: []const u8,
+  1334      match_rank: usize = 0,
+  1335      source_rank: usize = 0,
+  1336      next_actual_index: usize = 0,
+  1337      next_display_index: usize = 0,
+  1338  
+  1339      fn init(skills: []const Skill, filter: SkillMenuSourceFilter, query: []const u8) SkillMenuView {
+  1340          return .{
+  1341              .skills = skills,
+  1342              .filter = filter,
+  1343              .query = query,
+  1344          };
+  1345      }
+  1346  
+  1347      fn next(self: *SkillMenuView) ?SkillMenuViewEntry {
+  1348          while (self.match_rank < skill_match_rank_count) {
+  1349              while (self.next_actual_index < self.skills.len) {
+  1350                  const actual_index = self.next_actual_index;
+  1351                  self.next_actual_index += 1;
+  1352  
+  1353                  const skill = self.skills[actual_index];
+  1354                  if (skillMatchRank(skill, self.query) != self.match_rank) continue;
+  1355                  if (skillGroupRank(skill.source) != self.source_rank) continue;
+  1356                  if (!skillSourceMatchesFilter(skill.source, self.filter)) continue;
+  1357  
+  1358                  const display_index = self.next_display_index;
+  1359                  self.next_display_index += 1;
+  1360                  return .{
+  1361                      .display_index = display_index,
+  1362                      .actual_index = actual_index,
+  1363                  };
+  1364              }
+  1365  
+  1366              self.source_rank += 1;
+  1367              if (self.source_rank == skill_group_count) {
+  1368                  self.source_rank = 0;
+  1369                  self.match_rank += 1;
+  1370              }
+  1371              self.next_actual_index = 0;
+  1372          }
+  1373  
+  1374          return null;
+  1375      }
+  1376  };
+
+### git -C fx-upstream show 481104fd:src/core/skills/skill_runtime.zig | sed -n 1216,1223p
+  1216  pub fn skillMenuFilterQueryCount(skills: []const Skill, filter: SkillMenuSourceFilter, query: []const u8) usize {
+  1217      var count: usize = 0;
+  1218      var it = SkillMenuView.init(skills, filter, query);
+  1219      while (it.next()) |_| {
+  1220          count += 1;
+  1221      }
+  1222      return count;
+  1223  }
+
+### git -C fx-upstream show 481104fd:src/core/skills/skill_runtime.zig | sed -n 1158,1174p
+  1158  pub fn skillSourceShortLabel(source: SkillSource) []const u8 {
+  1159      return switch (source) {
+  1160          .workspace_fx => "workspace .fx",
+  1161          .workspace_shared => "workspace skills/",
+  1162          .workspace_opencode => "workspace .opencode",
+  1163          .workspace_codex => "workspace .codex",
+  1164          .workspace_claude => "workspace .claude",
+  1165          .workspace_agents => "workspace .agents",
+  1166          .workspace_claw => "workspace .claw",
+  1167          .global_fx => "global .fx",
+  1168          .global_opencode => "global opencode",
+  1169          .global_codex => "global .codex",
+  1170          .global_claude => "global .claude",
+  1171          .global_agents => "global .agents",
+  1172          .global_claw => "global .claw",
+  1173      };
+  1174  }
+
+
+## M5 the header: Results while a skill is listed, type to filter only for the bare slash; a skill row's name, description and short source
+### git -C fx-upstream show 481104fd:src/ui/footer/picker_presentation.zig | sed -n 1229,1245p
+  1229  pub fn composeSlashMenuHeaderRow(
+  1230      alloc: Allocator,
+  1231      prefix: []const u8,
+  1232      layout: SlashMenuLayout,
+  1233      width: u16,
+  1234  ) !std.ArrayList(u8) {
+  1235      var row: std.ArrayList(u8) = .empty;
+  1236      errdefer row.deinit(alloc);
+  1237      if (width == 0) return row;
+  1238  
+  1239      const noun = if (layout.command_count == layout.result_count) "Commands" else "Results";
+  1240      var left_buf: [96]u8 = undefined;
+  1241      const left = if (std.mem.eql(u8, prefix, "/"))
+  1242          std.mem.print(&left_buf, "{s} {d} · type to filter", .{ noun, layout.result_count }) catch noun
+  1243      else
+  1244          std.mem.print(&left_buf, "{s} {d}", .{ noun, layout.result_count }) catch noun;
+  1245  
+
+### git -C fx-upstream show 481104fd:src/ui/footer/picker_presentation.zig | sed -n 1280,1302p
+  1280  fn slashMenuRowContent(
+  1281      registry: command_specs.SlashRegistry,
+  1282      prefix: []const u8,
+  1283      skills: []const skill_runtime.Skill,
+  1284      match_idx: usize,
+  1285      include_metadata: bool,
+  1286  ) ?SlashMenuRowContent {
+  1287      return switch (mixedSlashCompletionEntry(registry, prefix, skills, match_idx) orelse return null) {
+  1288          .command => |command_idx| .{
+  1289              .label = command_specs.nthSlashCompletionLabel(registry, prefix, command_idx) orelse return null,
+  1290              .description = command_specs.nthSlashCompletionDescription(registry, prefix, command_idx) orelse "",
+  1291              .metadata = if (include_metadata)
+  1292                  if (command_specs.nthSlashCompletionCategory(registry, prefix, command_idx)) |category| category.label() else ""
+  1293              else
+  1294                  "",
+  1295          },
+  1296          .skill => |skill| .{
+  1297              .label = skill.name,
+  1298              .description = skill.description,
+  1299              .metadata = if (include_metadata) skill_runtime.skillSourceShortLabel(skill.source) else "",
+  1300          },
+  1301      };
+  1302  }
+
+
+## M6 the visible slash count is the mixed one, while the slash kind is the draft's; the model and provider kinds come first
+### git -C fx-upstream show 481104fd:src/core/app/input_completion_runtime.zig | sed -n 82,109p
+    82          pub fn slashCompletionCandidateCount(app: *App) usize {
+    83              const prefix = command_specs.slashCompletionPrefix(
+    84                  app.slashRegistry(),
+    85                  app.input_runtime.edit_state.input.items,
+    86              ) orelse return 0;
+    87              if (comptime @hasField(App, "skills")) {
+    88                  return picker_presentation.mixedSlashCompletionCount(
+    89                      app.slashRegistry(),
+    90                      prefix,
+    91                      app.skills.items,
+    92                  );
+    93              }
+    94              return command_specs.slashCompletionCount(app.slashRegistry(), prefix);
+    95          }
+    96  
+    97          fn slashCompletionQueryActive(app: *App) bool {
+    98              if (app.input_runtime.picker.isInlinePickerSuppressed(.slash)) return false;
+    99              if (app.input_runtime.picker.inlinePickerTriggerKind(&app.input_runtime.edit_state) != .slash) return false;
+   100              // Model query always owns this slot. Mid-turn bare `/model` does too;
+   101              // idle bare `/model` still surfaces slash rows.
+   102              if (comptime @hasField(App, "stream")) {
+   103                  if (app.stream.active and picker_state.isBareModelCommandAtCursor(&app.input_runtime.edit_state)) return false;
+   104              }
+   105              return command_specs.slashCompletionPrefix(
+   106                  app.slashRegistry(),
+   107                  app.input_runtime.edit_state.input.items,
+   108              ) != null;
+   109          }
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 287,296p
+   287      pub fn inlinePickerTriggerKind(self: *const State, editor: *const editor_state.State) ?InlinePickerKind {
+   288          if (self.rawModelPickerQuery(editor) != null) return .model;
+   289          if (self.rawProviderPickerQuery(editor) != null) return .provider;
+   290          if (self.rawFilePickerQuery(editor) != null) return .file;
+   291          if (findInlineSkillQuery(editor.input.items, editor.cursor) != null) return .skill;
+   292          if (findInlineSlashQuery(editor.input.items, editor.cursor) != null) return .slash;
+   293          const trimmed = std.mem.trimStart(u8, editor.input.items, " \t\r\n");
+   294          if (trimmed.len > 0 and trimmed[0] == '/') return .slash;
+   295          return null;
+   296      }
+
+
+## M7 Tab: the ghost first, then the marked row -- a skill bound, a command written
+### git -C fx-upstream show 481104fd:src/core/app/app_input_runtime.zig | sed -n 1304,1353p
+  1304                  '\t' => {
+  1305                      if (cycleHelpMenuCategory(app, 1) or cycleSettingsMenuCategory(app, 1)) {
+  1306                          app.shell.render_requests.request(.footer);
+  1307                      } else if (moveAuthPickerIfActive(app, 1)) {
+  1308                          app.shell.render_requests.request(.footer);
+  1309                      } else if (try toggleSessionPickerScopeIfActive(app)) {
+  1310                          app.shell.render_requests.request(.footer);
+  1311                      } else if (cycleModelMenuProvider(app, 1) or cycleSkillsMenuSource(app, 1)) {
+  1312                          app.shell.render_requests.request(.footer);
+  1313                      } else if (picker_state.isBareModelCommandAtCursor(&app.input_runtime.edit_state)) {
+  1314                          try completion_rt.openCurrentModelPicker(app);
+  1315                      } else if (picker_state.isBareEffortCommandAtCursor(&app.input_runtime.edit_state)) {
+  1316                          try completion_rt.openCurrentEffortPicker(app);
+  1317                      } else if (completion_rt.hasFileQuery(app)) {
+  1318                          if ((try completion_rt.autocompleteFilePickerSelection(app, max_input_len)) == .limit_exceeded) {
+  1319                              try input_limit_feedback.report(App, app, .composer, 1);
+  1320                          }
+  1321                          app.shell.render_requests.request(.footer);
+  1322                      } else if (!commandSkillsMenuActive(app) and provider_picker_rt.hasQuery(app)) {
+  1323                          if (!app.stream.active) try provider_picker_rt.autocomplete(app);
+  1324                      } else if (!commandSkillsMenuActive(app) and completion_rt.hasModelQuery(app)) {
+  1325                          try completion_rt.autocompleteModelPickerSelection(app);
+  1326                      } else if (completion_rt.visibleInlineCompletion(app) != null) {
+  1327                          if ((try completion_rt.autocompleteInlineCompletion(app, max_input_len)) == .limit_exceeded) {
+  1328                              try input_limit_feedback.report(App, app, .composer, 1);
+  1329                          }
+  1330                          app.shell.render_requests.request(.footer);
+  1331                      } else if (!(app.stream.active and app.input_runtime.picker.isModelShapedInput(&app.input_runtime.edit_state))) {
+  1332                          const count = completion_rt.visibleSlashCompletionCount(app);
+  1333                          if (count > 0) {
+  1334                              const items = app.input_runtime.edit_state.input.items;
+  1335                              const prefix = command_specs.slashCompletionPrefix(
+  1336                                  app.slashRegistry(),
+  1337                                  items,
+  1338                              ) orelse return;
+  1339                              const idx = app.input_runtime.picker.slash_completion_index % count;
+  1340                              if (try bindSelectedSlashSkill(app, idx)) {
+  1341                                  app.shell.render_requests.request(.footer);
+  1342                              } else if (command_specs.nthSlashCompletion(app.slashRegistry(), prefix, idx)) |completion| {
+  1343                                  if (command_specs.slashCompletionHasArgs(app.slashRegistry(), completion)) {
+  1344                                      var buf: [128]u8 = undefined;
+  1345                                      const with_space = std.mem.print(&buf, "{s} ", .{completion}) catch completion;
+  1346                                      try app.input_runtime.textReplacementState().replace(app.alloc, with_space);
+  1347                                  } else {
+  1348                                      try app.input_runtime.textReplacementState().replace(app.alloc, completion);
+  1349                                  }
+  1350                                  app.shell.render_requests.request(.footer);
+  1351                              }
+  1352                          }
+  1353                      }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_completion_runtime.zig | sed -n 653,667p
+   653          pub fn visibleInlineSlashCompletion(app: *App) ?InlineSlashCompletion {
+   654              if (!inlineCompletionSurfaceAvailable(app)) return null;
+   655              if (app.input_runtime.picker.inlinePickerTriggerKind(&app.input_runtime.edit_state) != .slash) return null;
+   656              const query = app.input_runtime.picker.activeInlineSlashQuery(&app.input_runtime.edit_state) orelse return null;
+   657              const command = command_specs.firstSlashCompletion(app.slashRegistry(), query.prefix) orelse return null;
+   658              const suffix = command[query.prefix.len..];
+   659              if (!inlineSuffixCanRender(app, suffix)) return null;
+   660              return .{ .suffix = suffix };
+   661          }
+   662  
+   663          pub fn visibleInlineCompletion(app: *App) ?InlineCompletion {
+   664              if (visibleInlineSkillCompletion(app)) |completion| return .{ .skill = completion };
+   665              if (visibleInlineSlashCompletion(app)) |completion| return .{ .slash = completion };
+   666              return null;
+   667          }
+
+
+## M8 Enter: a skill row bound unless the line is a command's name (a blank after it too); then the submit resolves to the marked command, or the line as typed with none
+### git -C fx-upstream show 481104fd:src/core/app/app_input_runtime.zig | sed -n 1391,1400p
+  1391                  },
+  1392                  '\r' => {
+  1393                      if (try submitEffortMenuSelection(app)) return;
+  1394                      if (try submitSettingsMenuSelection(app)) return;
+  1395                      if (try submitHelpMenuSelection(app, max_input_len, max_prompt_history)) return;
+  1396                      if (try submitMcpHostMenu(app)) return;
+  1397                      if (try submitAuthPickerSelection(app)) return;
+  1398                      if (try submitModelMenuSelection(app)) return;
+  1399                      if (try submitSkillsMenuSelection(app, max_input_len)) return;
+  1400                      if (try submitSlashPickerSelection(app)) return;
+
+### git -C fx-upstream show 481104fd:src/core/app/app_input_runtime.zig | sed -n 2366,2396p
+  2366          fn submitSlashPickerSelection(app: *App) !bool {
+  2367              if (comptime !@hasField(App, "skills")) return false;
+  2368              if (nonSlashPickerOwnsEnter(app)) return false;
+  2369              const items = app.input_runtime.edit_state.input.items;
+  2370              const prefix = command_specs.slashCompletionPrefix(
+  2371                  app.slashRegistry(),
+  2372                  items,
+  2373              ) orelse return false;
+  2374              if (app.slashRegistry().matchExact(prefix) != null) return false;
+  2375              const count = completion_rt.visibleSlashCompletionCount(app);
+  2376              if (count == 0) return false;
+  2377              const idx = app.input_runtime.picker.slash_completion_index % count;
+  2378              if (!picker_presentation.mixedSlashCompletionIsSkill(
+  2379                  app.slashRegistry(),
+  2380                  prefix,
+  2381                  app.skills.items,
+  2382                  idx,
+  2383              )) {
+  2384                  const selected = picker_presentation.nthMixedSlashCompletionText(
+  2385                      app.slashRegistry(),
+  2386                      prefix,
+  2387                      app.skills.items,
+  2388                      idx,
+  2389                  ) orelse return false;
+  2390                  const spec = app.slashRegistry().matchExact(selected) orelse return false;
+  2391                  if (spec.command.kind != .model) return false;
+  2392                  try openModelBrowseCatalog(app);
+  2393                  return true;
+  2394              }
+  2395              return try bindSelectedSlashSkill(app, idx);
+  2396          }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n 1098,1101p
+  1098          fn resolvedSlashSubmission(app: *App, text: []const u8) []const u8 {
+  1099              if (completion_rt.visibleSlashCompletionCount(app) == 0) return text;
+  1100              return resolveSlashSubmission(app.slashRegistry(), text, app.input_runtime.picker.slash_completion_index);
+  1101          }
+
+### git -C fx-upstream show 481104fd:src/core/app/input_submit_runtime.zig | sed -n 1818,1823p
+  1818          fn resolveSlashSubmission(registry: command_specs.SlashRegistry, text: []const u8, selected_index: usize) []const u8 {
+  1819              const count = command_specs.slashCompletionCount(registry, text);
+  1820              if (count == 0) return text;
+  1821              const idx = selected_index % count;
+  1822              return command_specs.nthSlashCompletion(registry, text, idx) orelse text;
+  1823          }
+
+
+## M9 the bind: the skill's token over the whole prefix, the leading blanks kept
+### git -C fx-upstream show 481104fd:src/core/app/app_input_runtime.zig | sed -n 2451,2476p
+  2451          fn bindSelectedSlashSkill(app: *App, selected_index: usize) !bool {
+  2452              if (comptime !@hasField(App, "skills")) return false;
+  2453              const items = app.input_runtime.edit_state.input.items;
+  2454              const prefix = command_specs.slashCompletionPrefix(
+  2455                  app.slashRegistry(),
+  2456                  items,
+  2457              ) orelse return false;
+  2458              const skill = picker_presentation.nthMixedSlashCompletionSkill(
+  2459                  app.slashRegistry(),
+  2460                  prefix,
+  2461                  app.skills.items,
+  2462                  selected_index,
+  2463              ) orelse return false;
+  2464              const leading_ws = items.len - prefix.len;
+  2465              try app.input_runtime.skillBindingState().bindSkillToken(
+  2466                  app.alloc,
+  2467                  leading_ws,
+  2468                  leading_ws + prefix.len,
+  2469                  skill.name,
+  2470                  skill.path,
+  2471                  skill_runtime.skillDisplaySource(app.skills.items, skill),
+  2472              );
+  2473              app.input_runtime.picker.resetInlinePickerEpisode();
+  2474              app.shell.render_requests.request(.footer);
+  2475              return true;
+  2476          }
+
+
+## M10 one .slash dismissal: Escape dismisses the visible kind, which lasts while the kind is the same
+### git -C fx-upstream show 481104fd:src/core/app/input_completion_runtime.zig | sed -n 133,169p
+   133          pub fn dismissVisibleInlinePicker(app: *App) bool {
+   134              const kind = visibleInlinePickerKind(app) orelse return false;
+   135              // Escaping the picker abandons the columns it had opened, so the
+   136              // next `/provider` starts from the provider column again.
+   137              if (kind == .provider) provider_picker_runtime.Runtime(App).abandon(app);
+   138              app.input_runtime.picker.dismissInlinePicker(kind);
+   139              return true;
+   140          }
+   141  
+   142          fn visibleInlinePickerKind(app: *App) ?picker_state.InlinePickerKind {
+   143              if (comptime @hasField(App, "question_prompt")) {
+   144                  if (app.question_prompt.isActive()) return null;
+   145              }
+   146              if (comptime @hasField(App, "approval_prompt")) {
+   147                  if (app.approval_prompt.isActive()) return null;
+   148              }
+   149              if (comptime @hasField(App, "stream")) {
+   150                  if (app.stream.active) {
+   151                      if (hasModelQuery(app)) return .model;
+   152                      if (hasFileQuery(app)) return .file;
+   153                      if (visibleInlineSlashCompletion(app) != null) return .slash;
+   154                      if (visibleSlashCompletionCount(app) > 0) return .slash;
+   155                      return null;
+   156                  }
+   157              }
+   158              if (hasModelQuery(app)) return .model;
+   159              if (provider_picker_runtime.Runtime(App).hasQuery(app)) return .provider;
+   160              if (hasFileQuery(app)) return .file;
+   161              if (visibleInlineCompletion(app)) |completion| {
+   162                  return switch (completion) {
+   163                      .skill => .skill,
+   164                      .slash => .slash,
+   165                  };
+   166              }
+   167              if (visibleSlashCompletionCount(app) > 0) return .slash;
+   168              return null;
+   169          }
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 515,532p
+   515  fn suppressionForHistoryRecall(trigger: ?InlinePickerKind) ?InlinePickerSuppression {
+   516      if (trigger != .slash) return null;
+   517      return .history_slash_recall_until_edit;
+   518  }
+   519  
+   520  fn suppressionAfterEdit(
+   521      current: ?InlinePickerSuppression,
+   522      trigger: ?InlinePickerKind,
+   523  ) ?InlinePickerSuppression {
+   524      const suppression = current orelse return null;
+   525      return switch (suppression) {
+   526          .dismissed_until_trigger_change => |dismissed| if (trigger == dismissed)
+   527              suppression
+   528          else
+   529              null,
+   530          .history_slash_recall_until_edit => null,
+   531      };
+   532  }
+
+
+## M11 the registry: each command's name, aliases and whether it takes an argument (has-args.txt compares it with xfx's)
+### git -C fx-upstream show 481104fd:src/builtins/commands.zig | sed -n 441,481p
+   441  pub const slash_specs = [_]SlashSpec{
+   442      .{ .kind = .help, .command = "/help", .help_entry = "/help", .completion_description = "show available slash commands", .presentation_category = .general, .show_in_welcome = true },
+   443      .{ .kind = .clear_screen, .command = "/clear", .help_entry = "/clear", .completion_description = "start a fresh conversation while keeping managed processes", .presentation_category = .general, .show_in_welcome = true },
+   444      .{ .kind = .new_session, .command = "/new", .help_entry = "/new", .completion_description = "start a fresh session", .presentation_category = .session, .show_in_welcome = true },
+   445      .{ .kind = .reset_session, .command = "/reset", .help_entry = "/reset", .completion_description = "reset the current session context", .presentation_category = .session },
+   446      .{ .kind = .resume_session, .command = "/resume", .help_entry = "/resume", .completion_description = "resume a saved session", .presentation_category = .session },
+   447  
+   448      .{ .kind = .rename_session, .command = "/rename", .help_entry = "/rename <title>", .completion_description = "rename the current session", .presentation_category = .session, .has_args = true, .accepts_payload = true },
+   449      .{ .kind = .fork_session, .command = "/fork", .help_entry = "/fork", .completion_description = "fork the session before a prompt", .presentation_category = .session },
+   450      .{ .kind = .login, .command = "/login", .help_entry = "/login", .completion_description = "choose the model provider and how it signs in", .presentation_category = .account, .has_args = true },
+   451      .{ .kind = .logout, .command = "/logout", .help_entry = "/logout [vercel|codex|grok]", .completion_description = "sign out of a provider session", .presentation_category = .account, .has_args = true, .accepts_payload = true },
+   452      .{ .kind = .provider, .command = "/provider", .aliases = &.{"/setup"}, .help_entry = "/provider (/setup)", .completion_description = "choose the model provider and how it signs in", .presentation_category = .account, .has_args = true },
+   453      .{ .kind = .stats, .command = "/stats", .help_entry = "/stats", .completion_description = "show token and turn statistics", .presentation_category = .account },
+   454      .{ .kind = .usage, .command = "/usage", .aliases = &.{}, .help_entry = "/usage", .completion_description = "show your provider's usage and spend", .presentation_category = .account },
+   455      .{ .kind = .status, .command = "/status", .help_entry = "/status", .completion_description = "show runtime configuration and the session ID", .presentation_category = .general, .show_in_welcome = true },
+   456      .{ .kind = .image, .command = "/image", .aliases = &.{"/img"}, .help_entry = "/image <path> (/img)", .completion_description = "attach an image by path", .presentation_category = .media, .has_args = true, .accepts_payload = true },
+   457      .{ .kind = .images, .command = "/images", .help_entry = "/images [clear]", .completion_description = "manage pending image attachments", .presentation_category = .media, .has_args = true, .accepts_payload = true },
+   458      .{ .kind = .model, .command = "/model", .help_entry = "/model <id-or-query>", .completion_description = "choose what model and reasoning effort to use", .presentation_category = .model, .has_args = true, .accepts_payload = true },
+   459      .{ .kind = .effort, .command = "/effort", .help_entry = "/effort [level]", .completion_description = "choose the reasoning effort for the current model", .presentation_category = .model, .has_args = true, .accepts_payload = true },
+   460      .{ .kind = .permissions, .command = "/permissions", .help_entry = "/permissions [ask|auto|full-access|reset]", .completion_description = "choose what fx is allowed to do", .presentation_category = .security, .show_in_welcome = true, .has_args = true, .accepts_payload = true },
+   461      .{ .kind = .allowlist, .command = "/allowlist", .help_entry = "/allowlist [view [effective|local|user]|[local|user] add|remove|reset ...]", .completion_description = "manage trusted commands, tools, and URLs", .presentation_category = .security, .show_in_welcome = true, .has_args = true, .accepts_payload = true },
+   462      .{ .kind = .undo, .command = "/undo", .help_entry = "/undo", .completion_description = "undo the latest tracked file operation", .presentation_category = .session },
+   463      .{ .kind = .mcp, .command = "/mcp", .help_entry = "/mcp [list|show|add|remove|login|logout|approve|reject]", .completion_description = "manage MCP servers and their logins", .presentation_category = .extensions, .has_args = true, .accepts_payload = true },
+   464      .{ .kind = .skills, .command = "/skills", .help_entry = "/skills [list|add|install|show|create|remove|path] [name|url|path] ($ opens skill search)", .completion_description = "browse and manage skills", .presentation_category = .extensions, .has_args = true, .accepts_payload = true },
+   465      .{ .kind = .copy, .command = "/copy", .help_entry = "/copy", .completion_description = "copy the last assistant response", .presentation_category = .session },
+   466      .{ .kind = .feedback, .command = "/feedback", .help_entry = "/feedback", .completion_description = "open the fx feedback form", .presentation_category = .product, .show_in_welcome = true },
+   467      .{ .kind = .trace, .command = "/trace", .help_entry = "/trace", .completion_description = "copy a private diagnostic trace", .presentation_category = .product },
+   468      .{ .kind = .compact, .command = "/compact", .help_entry = "/compact", .completion_description = "summarize context into a fresh window", .presentation_category = .session },
+   469      .{ .kind = .settings, .command = "/settings", .help_entry = "/settings [startup-scrollback [on|off]]", .completion_description = "browse and update settings", .presentation_category = .appearance, .has_args = true, .accepts_payload = true },
+   470      .{ .kind = .alias, .command = "/alias", .aliases = &.{}, .help_entry = "/alias [name] [command]", .completion_description = "show alias availability", .presentation_category = .extensions, .has_args = true, .accepts_payload = true },
+   471      .{ .kind = .credits, .command = "/credits", .aliases = &.{"/balance"}, .help_entry = "/credits (/balance)", .completion_description = "show gateway credits balance", .presentation_category = .account, .requires_prompt_credential = true },
+   472      .{ .kind = .paste, .command = "/paste", .help_entry = "/paste", .completion_description = "attach an image from the clipboard when supported", .presentation_category = .media },
+   473      .{ .kind = .fast, .command = "/fast", .help_entry = "/fast", .completion_description = "toggle Fast mode when supported", .presentation_category = .model },
+   474      .{ .kind = .ultrafast, .command = "/ultrafast", .help_entry = "/ultrafast [on|off|status]", .completion_description = "request Ultra mode when supported", .presentation_category = .model, .has_args = true, .accepts_payload = true },
+   475      .{ .kind = .statusline, .command = "/statusline", .help_entry = "/statusline [context|session|workspace]", .completion_description = "toggle status line segments", .presentation_category = .appearance, .has_args = true, .accepts_payload = true },
+   476      .{ .kind = .notifications, .command = "/sound", .help_entry = "/sound [on|off|max]", .completion_description = "toggle sounds and terminal bells", .presentation_category = .appearance, .has_args = true, .accepts_payload = true },
+   477      .{ .kind = .workspace, .command = "/workspace", .help_entry = "/workspace [list|add PATH|remove PATH|clear]", .completion_description = "manage additional workspace directories", .presentation_category = .workspace, .show_in_welcome = true, .has_args = true, .accepts_payload = true },
+   478      .{ .kind = .shell, .command = "/shell", .help_entry = "/shell reload", .completion_description = "reload shell startup files for commands", .presentation_category = .workspace, .has_args = true, .accepts_payload = true },
+   479      .{ .kind = .version, .command = "/version", .help_entry = "/version", .completion_description = "show the fx version", .presentation_category = .general },
+   480      .{ .kind = .quit, .command = "/quit", .aliases = &.{"/exit"}, .help_entry = "/quit", .completion_description = "exit the interactive shell", .presentation_category = .general, .show_in_welcome = true },
+   481  };
+
+### git -C fx-upstream show 481104fd:src/core/input/picker_state.zig | sed -n 54,61p
+    54  /// `/login` and `/setup` are aliases of `/provider`: all open the same
+    55  /// columnar picker. Typed text keeps whichever spelling the user wrote;
+    56  /// executing the bare command reseeds the composer with the canonical
+    57  /// `/provider ` prefix.
+    58  pub const provider_prefix = "/provider ";
+    59  pub const login_prefix = "/login ";
+    60  const setup_prefix = "/setup ";
+    61  pub const provider_picker_prefixes = [_][]const u8{ provider_prefix, login_prefix, setup_prefix };
+
+# 30 ranges

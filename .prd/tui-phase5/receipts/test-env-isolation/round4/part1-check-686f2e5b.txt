@@ -1,0 +1,17 @@
+== head 686f2e5b
+== fmt
+fmt exit 0
+== clippy
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.67s
+clippy exit 0
+== clippy fi
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.01s
+clippy-fi exit 0
+== check-env-reads
+check-env-reads: 33 env_exception! invocations in 24 files, 12 process_env! build arms, 9 listed plain calls
+  refused: build.rs:0: std::process::Command::output outside env_exception! and process_env!, unlisted (1)
+check-env-reads: 1 refused
+check exit 1
+== lib tests
+test result: ok. 4640 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 63.76s
+lib exit 0

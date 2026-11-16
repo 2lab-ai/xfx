@@ -1,0 +1,62 @@
+# GREEN: the whole lib suite at 8db95597 (binary built at that head), under sentinel-run.sh, under the suite lock
+# The eight RED cases, and every case that reached the process on the base, pass; no case failed with a refusal.
+test result: ok. 4635 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 52.70s
+sentinel-run: exit 0
+
+## the RED cases and the unit's own, as run
+test mcp::transport::tests::a_server_and_its_docker_cleanup_see_only_what_they_are_given ... ok
+test permission::authority::tests::a_backslash_costs_what_it_costs_inside_the_bound_rather_than_past_it ... ok
+test permission::authority::tests::a_change_is_sent_as_its_window_and_a_small_file_as_itself ... ok
+test permission::authority::tests::a_command_plan_never_inherits_the_process_environment ... ok
+test permission::authority::tests::a_command_that_is_empty_or_oversized_is_refused_before_it_is_classified ... ok
+test permission::authority::tests::a_control_byte_in_a_diff_cannot_become_a_csi_or_an_osc ... ok
+test permission::authority::tests::a_cut_diff_side_carries_exactly_one_ellipsis_and_pays_for_it_inside_the_bound ... ok
+test permission::authority::tests::a_diff_side_is_cut_on_a_character_boundary_and_never_inside_one ... ok
+test permission::authority::tests::a_diff_side_is_escaped_before_it_is_cut_so_the_bound_is_in_bytes_that_really_exist ... ok
+test permission::authority::tests::a_diff_side_never_cuts_one_of_its_own_escape_tokens_in_half ... ok
+test permission::authority::tests::a_diff_side_that_fits_is_neither_cut_nor_marked ... ok
+test permission::authority::tests::a_digest_is_stable_and_distinguishes_its_input ... ok
+test permission::authority::tests::a_git_that_does_not_know_an_option_it_is_given_runs_nothing ... ok
+test permission::authority::tests::a_ledger_spends_a_nonce_once_and_refuses_a_stranger ... ok
+test permission::authority::tests::a_line_break_and_the_two_characters_that_spell_one_are_not_the_same_change ... ok
+test permission::authority::tests::a_module_git_directory_below_another_is_still_inspected ... ok
+test permission::authority::tests::a_mutation_fingerprint_changes_with_every_part_of_the_plan ... ok
+test permission::authority::tests::a_nonce_is_never_issued_twice ... ok
+test permission::authority::tests::a_plan_carries_the_diff_a_screen_would_show_without_changing_what_it_is_a_plan_for ... ok
+test permission::authority::tests::a_plan_that_would_write_back_what_it_read_is_a_noop ... ok
+test permission::authority::tests::a_read_tracker_keeps_the_latest_record_for_a_path ... ok
+test permission::authority::tests::a_real_submodule_is_inspected_without_counting_its_objects ... ok
+test permission::authority::tests::an_admitted_git_drops_system_attributes_and_optional_locks ... ok
+test permission::authority::tests::an_admitted_git_runs_no_hook_and_asks_when_configuration_defines_one ... ok
+test permission::authority::tests::an_admitted_git_runs_with_the_repositorys_own_hooks_and_diff_drivers_off ... ok
+test permission::authority::tests::an_admitted_git_selects_no_driver_a_file_auto_can_write_defines ... ok
+test permission::authority::tests::an_admitted_git_selects_no_driver_in_a_submodule_child_either ... ok
+test permission::authority::tests::an_admitted_git_writes_no_trace_the_global_configuration_asks_for ... ok
+test permission::authority::tests::an_unusable_working_directory_is_named_rather_than_silently_replaced ... ok
+test permission::authority::tests::auto_does_not_run_git_where_the_repositorys_own_attributes_select_a_driver ... ok
+test permission::authority::tests::both_sides_of_a_diff_are_bounded_so_one_question_carries_at_most_128_kib ... ok
+test permission::authority::tests::every_control_scalar_has_a_representation_of_its_own_and_none_of_them_is_a_control ... ok
+test permission::authority::tests::the_bands_own_excerpt_still_escapes_and_marks_exactly_as_it_did ... ok
+test permission::authority::tests::two_different_control_bytes_are_not_the_same_change ... ok
+test permission::authority::tests::two_payloads_that_differ_are_never_rendered_as_one_side ... ok
+test process::tests::a_child_is_never_handed_xfxs_own_credential_unless_a_caller_names_it ... ok
+test test_env::tests::a_carried_body_runs_in_the_process_of_the_thread_that_made_it ... ok
+test test_env::tests::a_child_inherits_nothing_of_the_process_but_path_and_tmpdir ... ok
+test test_env::tests::a_child_inherits_the_fake_process_less_xfxs_own_credential ... ok
+test test_env::tests::a_fake_process_ends_with_its_body_however_the_body_ends ... ok
+test test_env::tests::a_git_plan_reads_no_git_configuration_under_the_process_home ... ok
+test test_env::tests::a_git_plan_reads_the_git_configuration_of_the_fake_home ... ok
+test test_env::tests::a_lookup_is_the_process_it_was_made_in_on_any_thread ... ok
+test test_env::tests::an_mcp_runtime_made_outside_a_fake_process_refuses_its_lookup ... ok
+test test_env::tests::every_other_read_of_the_environment_in_src_is_listed ... ok
+test test_env::tests::inside_a_fake_process_each_reader_takes_the_fake_and_only_its_own_names ... ok
+test test_env::tests::the_environment_xfx_loads_with_is_refused ... ok
+test test_env::tests::the_gateway_endpoint_is_refused ... ok
+test test_env::tests::the_link_bases_are_refused ... ok
+test test_env::tests::the_usage_clock_file_is_refused ... ok
+test test_env::tests::the_variables_that_choose_gits_configuration_are_refused ... ok
+test test_env::tests::what_is_only_handed_to_a_child_is_the_fakes_or_nothing ... ok
+test test_env::tests::whether_the_tui_runs_is_refused ... ok
+test tui::signals::tests::a_thread_started_unsignalled_is_in_the_process_of_the_case_that_started_it ... ok
+test tui::worker::tests::the_runtime_thread_is_started_with_every_owned_signal_blocked ... ok
+test tui::worker::tests::the_session_spawn_names_at_launch_is_the_one_the_runtime_opens ... ok

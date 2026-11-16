@@ -1,0 +1,95 @@
+== PROBE_ENTRIES=all probe.sh fx <fx v0.0.16> <run> typed-key dup-key provider models-bad provider-type
+binary sha256 before: 8e6cda2efddb
+== typed-key
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=685B stderr=fx: config user: malformed_settings| | touched: 
+    stdout: [status] model=spacexai/grok-4.7|[status] model_origin=default|[status] effort=auto|[status] update_channel=stable|[status] build_channel=stable|[status] build_revision=481104fdbc24|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=fx needs access to Vercel AI Gateway. Run fx 
+  ask --json             exit=1 stdout=213B stderr= | touched: 
+    stdout: {"output":"","final_output":"","exit_code":1,"model":"","resolved_provider":null,"session_id":"","steps":0,"tool_calls":[],"usage":{"input_tokens":null,"output_tokens":null},"error":"InvalidProfileConfiguration"}|
+  doctor                 exit=0 stdout=963B stderr= | touched: 
+    stdout: [doctor] ok=3 warn=5 fail=1|[doctor] workspace=<run>/typed-key/work|[doctor] model=spacexai/grok-4.7|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=0|[doctor] mcp_connection_check=not_checked|[doctor] mcp_servers=0 mcp_configuration_issu
+  sessions               exit=0 stdout=29B stderr= | touched: 
+    stdout: [sessions] no saved sessions|
+  session last           exit=1 stdout=0B stderr=fx session: no saved sessions for this workspace| | touched: 
+  --version              exit=0 stdout=7B stderr= | touched: 
+    stdout: 0.0.16|
+  help                   exit=0 stdout=3961B stderr= | touched: 
+    stdout: 𝒇x v0.0.16|Fast, native coding agent for the terminal.||fx starts an interactive session by default. Use `fx ask` to run one|noninteractive request.||Usage:|  fx [flags]|  fx <command> [...flags] [...args]||Commands:|  ask <prompt>                       Run one noninteractive request||  pr [conte
+  bare, no terminal      exit=1 stdout=0B stderr=fx requires an interactive terminal (TTY).| | touched: 
+  interactive            exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  --version, terminal    exited exit=0 tty=8B stderr= | touched: 
+== dup-key
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=683B stderr=fx: config user: malformed_settings| | touched: 
+    stdout: [status] model=spacexai/grok-4.7|[status] model_origin=default|[status] effort=auto|[status] update_channel=stable|[status] build_channel=stable|[status] build_revision=481104fdbc24|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=fx needs access to Vercel AI Gateway. Run fx 
+  ask --json             exit=1 stdout=213B stderr= | touched: 
+    stdout: {"output":"","final_output":"","exit_code":1,"model":"","resolved_provider":null,"session_id":"","steps":0,"tool_calls":[],"usage":{"input_tokens":null,"output_tokens":null},"error":"InvalidProfileConfiguration"}|
+  doctor                 exit=0 stdout=959B stderr= | touched: 
+    stdout: [doctor] ok=3 warn=5 fail=1|[doctor] workspace=<run>/dup-key/work|[doctor] model=spacexai/grok-4.7|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=0|[doctor] mcp_connection_check=not_checked|[doctor] mcp_servers=0 mcp_configuration_issues
+  sessions               exit=0 stdout=29B stderr= | touched: 
+    stdout: [sessions] no saved sessions|
+  session last           exit=1 stdout=0B stderr=fx session: no saved sessions for this workspace| | touched: 
+  --version              exit=0 stdout=7B stderr= | touched: 
+    stdout: 0.0.16|
+  help                   exit=0 stdout=3961B stderr= | touched: 
+    stdout: 𝒇x v0.0.16|Fast, native coding agent for the terminal.||fx starts an interactive session by default. Use `fx ask` to run one|noninteractive request.||Usage:|  fx [flags]|  fx <command> [...flags] [...args]||Commands:|  ask <prompt>                       Run one noninteractive request||  pr [conte
+  bare, no terminal      exit=1 stdout=0B stderr=fx requires an interactive terminal (TTY).| | touched: 
+  interactive            exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  --version, terminal    exited exit=0 tty=8B stderr= | touched: 
+== provider
+  permissions            exit=1 stdout=0B stderr=fx: UnknownConfiguredProvider| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: UnknownConfiguredProvider| | touched: 
+  status                 exit=1 stdout=0B stderr=fx: UnknownConfiguredProvider| | touched: 
+  ask --json             exit=1 stdout=211B stderr= | touched: 
+    stdout: {"output":"","final_output":"","exit_code":1,"model":"","resolved_provider":null,"session_id":"","steps":0,"tool_calls":[],"usage":{"input_tokens":null,"output_tokens":null},"error":"UnknownConfiguredProvider"}|
+  doctor                 exit=0 stdout=885B stderr= | touched: 
+    stdout: [doctor] ok=2 warn=3 fail=3|[doctor] workspace=<run>/provider/work|[doctor] model=spacexai/grok-4.7|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=0|[doctor] mcp_connection_check=not_checked|[doctor] mcp_servers=0 mcp_configuration_issue
+  sessions               exit=0 stdout=29B stderr= | touched: 
+    stdout: [sessions] no saved sessions|
+  session last           exit=1 stdout=0B stderr=fx session: no saved sessions for this workspace| | touched: 
+  --version              exit=0 stdout=7B stderr= | touched: 
+    stdout: 0.0.16|
+  help                   exit=0 stdout=3961B stderr= | touched: 
+    stdout: 𝒇x v0.0.16|Fast, native coding agent for the terminal.||fx starts an interactive session by default. Use `fx ask` to run one|noninteractive request.||Usage:|  fx [flags]|  fx <command> [...flags] [...args]||Commands:|  ask <prompt>                       Run one noninteractive request||  pr [conte
+  bare, no terminal      exit=1 stdout=0B stderr=fx requires an interactive terminal (TTY).| | touched: 
+  interactive            exited exit=1 tty=0B stderr=fx: UnknownConfiguredProvider| | touched: 
+  --version, terminal    exited exit=0 tty=8B stderr= | touched: 
+== models-bad
+  permissions            exit=1 stdout=0B stderr=fx: InvalidModelValue| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidModelValue| | touched: 
+  status                 exit=1 stdout=0B stderr=fx: InvalidModelValue| | touched: 
+  ask --json             exit=1 stdout=203B stderr= | touched: 
+    stdout: {"output":"","final_output":"","exit_code":1,"model":"","resolved_provider":null,"session_id":"","steps":0,"tool_calls":[],"usage":{"input_tokens":null,"output_tokens":null},"error":"InvalidModelValue"}|
+  doctor                 exit=0 stdout=873B stderr= | touched: 
+    stdout: [doctor] ok=2 warn=3 fail=3|[doctor] workspace=<run>/models-bad/work|[doctor] model=spacexai/grok-4.7|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=0|[doctor] mcp_connection_check=not_checked|[doctor] mcp_servers=0 mcp_configuration_iss
+  sessions               exit=0 stdout=29B stderr= | touched: 
+    stdout: [sessions] no saved sessions|
+  session last           exit=1 stdout=0B stderr=fx session: no saved sessions for this workspace| | touched: 
+  --version              exit=0 stdout=7B stderr= | touched: 
+    stdout: 0.0.16|
+  help                   exit=0 stdout=3961B stderr= | touched: 
+    stdout: 𝒇x v0.0.16|Fast, native coding agent for the terminal.||fx starts an interactive session by default. Use `fx ask` to run one|noninteractive request.||Usage:|  fx [flags]|  fx <command> [...flags] [...args]||Commands:|  ask <prompt>                       Run one noninteractive request||  pr [conte
+  bare, no terminal      exit=1 stdout=0B stderr=fx requires an interactive terminal (TTY).| | touched: 
+  interactive            exited exit=1 tty=0B stderr=fx: InvalidModelValue| | touched: 
+  --version, terminal    exited exit=0 tty=8B stderr= | touched: 
+== provider-type
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProviderType| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProviderType| | touched: 
+  status                 exit=1 stdout=0B stderr=fx: InvalidProviderType| | touched: 
+  ask --json             exit=1 stdout=205B stderr= | touched: 
+    stdout: {"output":"","final_output":"","exit_code":1,"model":"","resolved_provider":null,"session_id":"","steps":0,"tool_calls":[],"usage":{"input_tokens":null,"output_tokens":null},"error":"InvalidProviderType"}|
+  doctor                 exit=0 stdout=883B stderr= | touched: 
+    stdout: [doctor] ok=2 warn=3 fail=3|[doctor] workspace=<run>/provider-type/work|[doctor] model=spacexai/grok-4.7|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=0|[doctor] mcp_connection_check=not_checked|[doctor] mcp_servers=0 mcp_configuration_
+  sessions               exit=0 stdout=29B stderr= | touched: 
+    stdout: [sessions] no saved sessions|
+  session last           exit=1 stdout=0B stderr=fx session: no saved sessions for this workspace| | touched: 
+  --version              exit=0 stdout=7B stderr= | touched: 
+    stdout: 0.0.16|
+  help                   exit=0 stdout=3961B stderr= | touched: 
+    stdout: 𝒇x v0.0.16|Fast, native coding agent for the terminal.||fx starts an interactive session by default. Use `fx ask` to run one|noninteractive request.||Usage:|  fx [flags]|  fx <command> [...flags] [...args]||Commands:|  ask <prompt>                       Run one noninteractive request||  pr [conte
+  bare, no terminal      exit=1 stdout=0B stderr=fx requires an interactive terminal (TTY).| | touched: 
+  interactive            exited exit=1 tty=0B stderr=fx: InvalidProviderType| | touched: 
+  --version, terminal    exited exit=0 tty=8B stderr= | touched: 
+binary sha256 after: 8e6cda2efddb

@@ -1,0 +1,426 @@
+# train 16's sweep selection: the brief's globs, then the scenarios named by the ledger entries the merges and the ledger commits after them (b2d044c9, e8b004a5, 849f5017, dd2ac93d, 71787971, 1bce5348, 622b2865) touched, then the scenarios the merges added
+approval*
+p5-approval*
+composer*
+p5-modified-*
+p5-cancel*
+cancel*
+slash*
+p5-slash*
+p5-mode-*
+profile*
+p5-profile*
+settings*
+# b2d044c9 (a merge): 3 entries
+#   cause launch-refusal-row (changed): p5-lifecycle-relhome-resume
+#   cause profile-refuse-at-launch (removed): p5-panels-badsettings
+#   divergence inline-band-row-anchor (changed): p5-ctrlo-wider-inline-fam
+# e8b004a5 (a merge): 0 entries
+# 849f5017 (a merge): 0 entries
+# dd2ac93d (a merge): 0 entries
+# 71787971 (a merge): 2 entries
+#   cause amend-draft-window (added): p5-approval-paste-spaces
+#   cause amend-draft-window-tail (added): p5-approval-paste-spaces
+# 1bce5348 (a merge): 0 entries
+# 622b2865 (a ledger commit): 0 entries
+# c637ed4c (the re-point: listed, not selected): 17 entries
+#   cause activity-tokens-before-request (changed): model-parked
+#   cause amend-draft-window (changed): p5-approval-paste-spaces
+#   cause amend-draft-window-tail (changed): p5-approval-paste-spaces
+#   cause amendment-card-after-stop (changed): approvals
+#   cause at-resize-band-at-the-bottom (changed): p5-input-at-resize
+#   cause cancel-page-edge (changed): p5-transcript-cancel
+#   cause full-transcript-shift (changed): fulltranscript, fulltranscript-notice, links, read-failures, resume-tools, timeout
+#   cause mcp-fail-list-on-a-try (changed): p5-mcp-fail
+#   cause resize-document-repaint (changed): p5-ctrlo-wider-inline-fam, h1-resize
+#   cause rule-confirm-card-after-stop (changed): p5-rule-confirm-keys-turn
+#   cause safe-page-edge (changed): p5-transcript-safe, p5-transcript-safetab
+#   cause session-record (changed): *
+#   cause session-record-page-bottom (changed): p5-transcript-md, p5-transcript-md-light, p5-modified-page-keys
+#   cause stats-bytes (changed): *
+#   cause toolgroup-ctrlo-record-short (changed): p5-toolgroup-ctrlo, p5-toolgroup-ctrlo-tc
+#   cause transcript-page-offset (changed): p5-transcript-anchor, p5-transcript-anchormid, p5-transcript-resize, p5-transcript-records, p5-transcript-question
+#   divergence answer-drawn-wider-named (changed): p5-ctrlo-wider-inline-fam
+# p5-approval-paste-spaces: in the brief's globs already
+p5-ctrlo-wider-inline-fam
+p5-lifecycle-relhome-resume
+p5-panels-badsettings
+# p5-mode-case-env: added by b2d044c9, selected already
+# p5-mode-case-full: added by b2d044c9, selected already
+# p5-mode-case-key: added by b2d044c9, selected already
+# p5-slash-arg-skills: added by e8b004a5, selected already
+# p5-slash-leading-ws-he: added by e8b004a5, selected already
+# p5-slash-leading-ws-short: added by e8b004a5, selected already
+# p5-slash-leading-ws-skill: added by e8b004a5, selected already
+# p5-slash-leading-ws: added by e8b004a5, selected already
+# p5-slash-mixed-skills: added by e8b004a5, selected already
+# p5-approval-paste-spaces: added by 71787971, selected already
+# p5-cancel-double-escape-turn: added by 1bce5348, selected already
+# p5-cancel-double-escape: added by 1bce5348, selected already
+# p5-modified-meta-prefix: added by 1bce5348, selected already
+# train 16's extra selection: the scenarios the c637ed4c re-point's entries name that the first selection (selection-all.txt) did not take
+# *: every scenario (session-record, stats-bytes): left out
+# approvals (amendment-card-after-stop): in the first selection
+# fulltranscript: full-transcript-shift
+fulltranscript
+# fulltranscript-notice: full-transcript-shift
+fulltranscript-notice
+# h1-resize: resize-document-repaint
+h1-resize
+# links: full-transcript-shift
+links
+# model-parked: activity-tokens-before-request
+model-parked
+# p5-approval-paste-spaces (amend-draft-window, amend-draft-window-tail): in the first selection
+# p5-ctrlo-wider-inline-fam (resize-document-repaint, answer-drawn-wider-named): in the first selection
+# p5-input-at-resize: at-resize-band-at-the-bottom
+p5-input-at-resize
+# p5-mcp-fail: mcp-fail-list-on-a-try
+p5-mcp-fail
+# p5-modified-page-keys (session-record-page-bottom): in the first selection
+# p5-rule-confirm-keys-turn: rule-confirm-card-after-stop
+p5-rule-confirm-keys-turn
+# p5-toolgroup-ctrlo: toolgroup-ctrlo-record-short
+p5-toolgroup-ctrlo
+# p5-toolgroup-ctrlo-tc: toolgroup-ctrlo-record-short
+p5-toolgroup-ctrlo-tc
+# p5-transcript-anchor: transcript-page-offset
+p5-transcript-anchor
+# p5-transcript-anchormid: transcript-page-offset
+p5-transcript-anchormid
+# p5-transcript-cancel: cancel-page-edge
+p5-transcript-cancel
+# p5-transcript-md: session-record-page-bottom
+p5-transcript-md
+# p5-transcript-md-light: session-record-page-bottom
+p5-transcript-md-light
+# p5-transcript-question: transcript-page-offset
+p5-transcript-question
+# p5-transcript-records: transcript-page-offset
+p5-transcript-records
+# p5-transcript-resize: transcript-page-offset
+p5-transcript-resize
+# p5-transcript-safe: safe-page-edge
+p5-transcript-safe
+# p5-transcript-safetab: safe-page-edge
+p5-transcript-safetab
+# read-failures: full-transcript-shift
+read-failures
+# resume-tools: full-transcript-shift
+resume-tools
+# timeout: full-transcript-shift
+timeout
+# train 16's extra selection: the scenarios the 15c9744b re-point's entries name that the first selection (selection-all.txt) did not take
+# train 16's units' selection: the 156 scenarios the units' 7 committed head sweeps took (202 in all) that selection-all.txt does not
+# cmd-wrap: profile-refuse-at-launch
+cmd-wrap
+# fast-astra: profile-refuse-at-launch
+fast-astra
+# fast-opus: profile-refuse-at-launch
+fast-opus
+# fast-override: profile-refuse-at-launch
+fast-override
+# fast-unavailable: profile-refuse-at-launch
+fast-unavailable
+# fast-unconfirmed: profile-refuse-at-launch
+fast-unconfirmed
+# fast-unsup: profile-refuse-at-launch
+fast-unsup
+# h1-rehomefile: profile-refuse-at-launch
+h1-rehomefile
+# model: profile-refuse-at-launch
+model
+# model-anchor: profile-refuse-at-launch
+model-anchor
+# model-busy: profile-refuse-at-launch
+model-busy
+# model-busy-known: profile-refuse-at-launch
+model-busy-known
+# model-column: profile-refuse-at-launch
+model-column
+# model-effort: profile-refuse-at-launch
+model-effort
+# model-empty: profile-refuse-at-launch
+model-empty
+# model-router: profile-refuse-at-launch
+model-router
+# model-speed: profile-refuse-at-launch
+model-speed
+# p5-effort-fork-effort-backtab: profile-refuse-at-launch
+p5-effort-fork-effort-backtab
+# p5-effort-fork-effort-column: profile-refuse-at-launch
+p5-effort-fork-effort-column
+# p5-effort-fork-effort-ctrlc: profile-refuse-at-launch
+p5-effort-fork-effort-ctrlc
+# p5-effort-fork-effort-down: profile-refuse-at-launch
+p5-effort-fork-effort-down
+# p5-effort-fork-effort-loading: profile-refuse-at-launch
+p5-effort-fork-effort-loading
+# p5-effort-fork-effort-menu: profile-refuse-at-launch
+p5-effort-fork-effort-menu
+# p5-effort-fork-effort-short: profile-refuse-at-launch
+p5-effort-fork-effort-short
+# p5-input-approval: meta-prefix-decode, profile-refuse-at-launch
+p5-input-approval
+# p5-input-at: meta-prefix-decode
+p5-input-at
+# p5-input-at-dir: meta-prefix-decode
+p5-input-at-dir
+# p5-input-at-folders: meta-prefix-decode
+p5-input-at-folders
+# p5-input-at-gate: meta-prefix-decode
+p5-input-at-gate
+# p5-input-at-height: meta-prefix-decode
+p5-input-at-height
+# p5-input-at-paste: meta-prefix-decode
+p5-input-at-paste
+# p5-input-ctrlbs: meta-prefix-decode
+p5-input-ctrlbs
+# p5-input-mcp: meta-prefix-decode
+p5-input-mcp
+# p5-input-model: meta-prefix-decode
+p5-input-model
+# p5-input-model-fail: meta-prefix-decode
+p5-input-model-fail
+# p5-input-model-rank: meta-prefix-decode
+p5-input-model-rank
+# p5-input-model-swap: meta-prefix-decode
+p5-input-model-swap
+# p5-input-paste: approval-paste-spaces, meta-prefix-decode
+p5-input-paste
+# p5-input-paste-amend: approval-paste-spaces, meta-prefix-decode, profile-refuse-at-launch
+p5-input-paste-amend
+# p5-input-paste-behind: approval-paste-spaces, meta-prefix-decode
+p5-input-paste-behind
+# p5-input-paste-field: approval-paste-spaces, meta-prefix-decode
+p5-input-paste-field
+# p5-input-question: meta-prefix-decode
+p5-input-question
+# p5-input-question20: meta-prefix-decode
+p5-input-question20
+# p5-input-question21: meta-prefix-decode
+p5-input-question21
+# p5-input-row-limit: meta-prefix-decode
+p5-input-row-limit
+# p5-input-row-limit-menus: meta-prefix-decode, profile-refuse-at-launch
+p5-input-row-limit-menus
+# p5-input-row-limit-short: meta-prefix-decode
+p5-input-row-limit-short
+# p5-input-smoke: meta-prefix-decode
+p5-input-smoke
+# p5-lifecycle-osc: profile-refuse-at-launch
+p5-lifecycle-osc
+# p5-lifecycle-osc-hostile: profile-refuse-at-launch
+p5-lifecycle-osc-hostile
+# p5-lifecycle-osc-states: profile-refuse-at-launch
+p5-lifecycle-osc-states
+# p5-mcp-config: slash-arg-skills
+p5-mcp-config
+# p5-mcp-config-ignored: slash-arg-skills
+p5-mcp-config-ignored
+# p5-mcp-config-vars: slash-arg-skills
+p5-mcp-config-vars
+# p5-mcp-direct: slash-arg-skills
+p5-mcp-direct
+# p5-mcp-discover-http-hostile: slash-arg-skills
+p5-mcp-discover-http-hostile
+# p5-mcp-discover-http-malformed: slash-arg-skills
+p5-mcp-discover-http-malformed
+# p5-mcp-discover-http-modern: slash-arg-skills
+p5-mcp-discover-http-modern
+# p5-mcp-discover-http-notimpl: slash-arg-skills
+p5-mcp-discover-http-notimpl
+# p5-mcp-discover-http-old2024: slash-arg-skills
+p5-mcp-discover-http-old2024
+# p5-mcp-discover-http-ssefail: slash-arg-skills
+p5-mcp-discover-http-ssefail
+# p5-mcp-discover-http-ssehold: slash-arg-skills
+p5-mcp-discover-http-ssehold
+# p5-mcp-discover-http-sseidless: slash-arg-skills
+p5-mcp-discover-http-sseidless
+# p5-mcp-discover-http-ssestrid: slash-arg-skills
+p5-mcp-discover-http-ssestrid
+# p5-mcp-discover-stdio-asks: slash-arg-skills
+p5-mcp-discover-stdio-asks
+# p5-mcp-discover-stdio-banner: slash-arg-skills
+p5-mcp-discover-stdio-banner
+# p5-mcp-discover-stdio-depth: slash-arg-skills
+p5-mcp-discover-stdio-depth
+# p5-mcp-discover-stdio-escaped: slash-arg-skills
+p5-mcp-discover-stdio-escaped
+# p5-mcp-discover-stdio-hostile: slash-arg-skills
+p5-mcp-discover-stdio-hostile
+# p5-mcp-discover-stdio-malformed: slash-arg-skills
+p5-mcp-discover-stdio-malformed
+# p5-mcp-discover-stdio-modern: slash-arg-skills
+p5-mcp-discover-stdio-modern
+# p5-mcp-discover-stdio-modern-tc: slash-arg-skills
+p5-mcp-discover-stdio-modern-tc
+# p5-mcp-discover-stdio-old2024: slash-arg-skills
+p5-mcp-discover-stdio-old2024
+# p5-mcp-discover-stdio-silent: slash-arg-skills
+p5-mcp-discover-stdio-silent
+# p5-mcp-dismiss: slash-arg-skills
+p5-mcp-dismiss
+# p5-mcp-empty: slash-arg-skills
+p5-mcp-empty
+# p5-mcp-errdata: slash-arg-skills
+p5-mcp-errdata
+# p5-mcp-fail-held: slash-arg-skills
+p5-mcp-fail-held
+# p5-mcp-failed: slash-arg-skills
+p5-mcp-failed
+# p5-mcp-known: slash-arg-skills
+p5-mcp-known
+# p5-mcp-live: slash-arg-skills
+p5-mcp-live
+# p5-mcp-menu-new: slash-arg-skills
+p5-mcp-menu-new
+# p5-mcp-menu-old: slash-arg-skills
+p5-mcp-menu-old
+# p5-mcp-notes: slash-arg-skills
+p5-mcp-notes
+# p5-mcp-rpcerror: slash-arg-skills
+p5-mcp-rpcerror
+# p5-mcp-turn: slash-arg-skills
+p5-mcp-turn
+# p5-mcp-unavailable: slash-arg-skills
+p5-mcp-unavailable
+# p5-mcp-verbs: slash-arg-skills
+p5-mcp-verbs
+# p5-mcp-wire-new: slash-arg-skills
+p5-mcp-wire-new
+# p5-mcp-wire-old: slash-arg-skills
+p5-mcp-wire-old
+# p5-page-keys-anchor: meta-prefix-decode, slash-leading-ws
+p5-page-keys-anchor
+# p5-page-keys-column: meta-prefix-decode, slash-leading-ws
+p5-page-keys-column
+# p5-page-keys-mcp: meta-prefix-decode, slash-leading-ws
+p5-page-keys-mcp
+# p5-page-keys-settings: meta-prefix-decode, slash-leading-ws
+p5-page-keys-settings
+# p5-panels-help: profile-refuse-at-launch
+p5-panels-help
+# p5-panels-keys: profile-refuse-at-launch
+p5-panels-keys
+# p5-panels-noauth: profile-refuse-at-launch
+p5-panels-noauth
+# p5-panels-permissions: profile-refuse-at-launch
+p5-panels-permissions
+# p5-panels-permissions-saved: profile-refuse-at-launch
+p5-panels-permissions-saved
+# p5-panels-slash: profile-refuse-at-launch
+p5-panels-slash
+# p5-panels-status: profile-refuse-at-launch
+p5-panels-status
+# p5-panels-status-badsettings: profile-refuse-at-launch
+p5-panels-status-badsettings
+# p5-panels-status-first: profile-refuse-at-launch
+p5-panels-status-first
+# p5-panels-status-short: profile-refuse-at-launch
+p5-panels-status-short
+# p5-panels-sweep-a: profile-refuse-at-launch
+p5-panels-sweep-a
+# p5-panels-sweep-b: profile-refuse-at-launch
+p5-panels-sweep-b
+# p5-paragraph-move: meta-prefix-decode
+p5-paragraph-move
+# p5-paragraph-move-column: meta-prefix-decode
+p5-paragraph-move-column
+# p5-paragraph-move-menus: meta-prefix-decode
+p5-paragraph-move-menus
+# p5-question-ctrl-j: approval-paste-spaces
+p5-question-ctrl-j
+# p5-question-ctrl-j-panel: approval-paste-spaces
+p5-question-ctrl-j-panel
+# p5-question-resume: approval-paste-spaces
+p5-question-resume
+# p5-question-resume-ctrlo: approval-paste-spaces
+p5-question-resume-ctrlo
+# p5-question-word-left: approval-paste-spaces
+p5-question-word-left
+# p5-session-early-prefs: profile-refuse-at-launch
+p5-session-early-prefs
+# p5-stop-in-catalog-wait: profile-refuse-at-launch
+p5-stop-in-catalog-wait
+# p5-super-arrows: approval-paste-spaces, meta-prefix-decode
+p5-super-arrows
+# p5-super-arrows-approval: approval-paste-spaces, meta-prefix-decode
+p5-super-arrows-approval
+# p5-super-arrows-question: approval-paste-spaces, meta-prefix-decode
+p5-super-arrows-question
+# p5-usage-codex: profile-refuse-at-launch
+p5-usage-codex
+# paste-block-undo: approval-paste-spaces
+paste-block-undo
+# paste-card: approval-paste-spaces
+paste-card
+# paste-suffix: approval-paste-spaces
+paste-suffix
+# permissions: slash-arg-skills
+permissions
+# permissions-btab: slash-arg-skills
+permissions-btab
+# permissions-midturn: slash-arg-skills
+permissions-midturn
+# provider: profile-refuse-at-launch
+provider
+# provider-carry: profile-refuse-at-launch
+provider-carry
+# provider-carry-back: profile-refuse-at-launch
+provider-carry-back
+# provider-carry-back-stop: profile-refuse-at-launch
+provider-carry-back-stop
+# provider-resume: profile-refuse-at-launch
+provider-resume
+# provider-resume-missing: profile-refuse-at-launch
+provider-resume-missing
+# provider-switch: profile-refuse-at-launch
+provider-switch
+# question: approval-paste-spaces
+question
+# question-field: approval-paste-spaces
+question-field
+# question-other: approval-paste-spaces
+question-other
+# rules-hidden: profile-refuse-at-launch
+rules-hidden
+# rules-hidden-all: profile-refuse-at-launch
+rules-hidden-all
+# rules-read: profile-refuse-at-launch
+rules-read
+# rules-read-auto: profile-refuse-at-launch
+rules-read-auto
+# skills: slash-arg-skills, slash-mixed-skills
+skills
+# skills-ctrlo: slash-arg-skills, slash-mixed-skills
+skills-ctrlo
+# skills-ctrlo-dollar: slash-arg-skills, slash-mixed-skills
+skills-ctrlo-dollar
+# skills-ghost: slash-arg-skills, slash-mixed-skills
+skills-ghost
+# skills-paste: slash-arg-skills, slash-mixed-skills
+skills-paste
+# skills-slash: slash-arg-skills, slash-mixed-skills
+skills-slash
+# startup: profile-refuse-at-launch
+startup
+# statusline: slash-arg-skills
+statusline
+# statusline-turn: slash-arg-skills
+statusline-turn
+# titles: profile-refuse-at-launch
+titles
+# titles-idle: profile-refuse-at-launch
+titles-idle
+# titles-off: profile-refuse-at-launch
+titles-off
+# titles-rename: profile-refuse-at-launch
+titles-rename
+# titles-steer: profile-refuse-at-launch
+titles-steer
+# toolgroup: profile-refuse-at-launch
+toolgroup
+# toolgroup-noop: profile-refuse-at-launch
+toolgroup-noop

@@ -1,0 +1,15 @@
+# Mutants at 8db95597, on a git clone --no-local throwaway, each through sentinel-run.sh, under the suite lock:
+#   TMPDIR=<short> suite-lock.sh python3 mutants.py <clone> 8db95597
+# Cases run for every mutant: test_env:: (17) and the TUI thread-carry case (1).
+KILLED guard-gone: process_env! var/var_os read std::env in tests :: test result: FAILED. 7 passed; 11 failed; 0 ignored; 0 measured; 4624 filtered out; finished in 0.35s
+KILLED refusal-gone: test_env::var_os returns None outside a fake :: test result: FAILED. 9 passed; 9 failed; 0 ignored; 0 measured; 4624 filtered out; finished in 0.58s
+KILLED config-vars-unrouted: Environment::from_process reads its variables from std::env :: test result: FAILED. 13 passed; 5 failed; 0 ignored; 0 measured; 4624 filtered out; finished in 0.72s
+KILLED config-home-unrouted: Environment::from_process reads HOME from std::env :: test result: FAILED. 16 passed; 2 failed; 0 ignored; 0 measured; 4624 filtered out; finished in 0.47s
+KILLED gateway-reader-unrouted: Endpoint::from_process reads std::env :: test result: FAILED. 15 passed; 3 failed; 0 ignored; 0 measured; 4624 filtered out; finished in 0.31s
+KILLED git-reader-unrouted: GitEnvironment::from_process reads std::env :: test result: FAILED. 15 passed; 3 failed; 0 ignored; 0 measured; 4624 filtered out; finished in 0.30s
+KILLED home-to-git-unrouted: minimal_environment's HOME is the process's :: test result: FAILED. 15 passed; 3 failed; 0 ignored; 0 measured; 4624 filtered out; finished in 0.33s
+KILLED child-isolation-gone: process::command inherits the process :: test result: FAILED. 16 passed; 2 failed; 0 ignored; 0 measured; 4624 filtered out; finished in 0.50s
+KILLED carry-gone: spawn_unsignalled does not carry the fake process :: test result: FAILED. 17 passed; 1 failed; 0 ignored; 0 measured; 4624 filtered out; finished in 0.37s
+KILLED mcp-fallback-back: with_environment falls back to std::env :: test result: FAILED. 16 passed; 2 failed; 0 ignored; 0 measured; 4624 filtered out; finished in 0.34s
+KILLED scan-blind: a new direct read of HOME is not caught :: test result: FAILED. 17 passed; 1 failed; 0 ignored; 0 measured; 4624 filtered out; finished in 0.62s
+total 11, survived 0

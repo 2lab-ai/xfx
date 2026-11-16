@@ -1,0 +1,94 @@
+# Train 16 round 5: PR #102's CI run 43880950535, 4 of 6 rows failed. CI's own lines (the job logs, by job id), then each cause reproduced here and fixed.
+
+## 1. CI, job 133346367152 (x86_64 Linux) and 133346367600 (aarch64 Linux), step Lints
+error: useless conversion to the same type: `u32`
+    --> src/config.rs:2639:5
+     |
+2639 |     u32::from(stat.st_mode) & 0o022 != 0
+     |     ^^^^^^^^^^^^^^^^^^^^^^^ help: consider removing `u32::from()`: `stat.st_mode`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#useless_conversion
+     = note: `-D clippy::useless-conversion` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::useless_conversion)]`
+  (job 133346367600: the same, its lines 308-316)
+  the two jobs' lines identical: yes
+
+## 2. CI, job 133346367830 (x86_64 macOS, checks), step Tests
+test a_config_alias_cannot_redirect_the_admitted_cargo_builtins ... FAILED
+thread 'a_config_alias_cannot_redirect_the_admitted_cargo_builtins' (118974) panicked at tests/permissions.rs:609:5:
+<command>cargo metadata --no-deps --offline --format-version 1</command>
+<cwd>.</cwd>
+<exit_code>1</exit_code>
+<stdout>
+</stdout>
+<stderr>
+error: rustup could not choose a version of cargo to run, because one wasn't specified explicitly, and no default is configured.
+help: run 'rustup default stable' to download the latest stable release of Rust and set it as your default toolchain.
+</stderr>
+test result: FAILED. 158 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.34s
+
+## 3. CI, job 133346367916 (aarch64 macOS), step 'The environment check refuses every way round it'
+shell: <local-path> -e {0}
+env:
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: 1
+  COMMIT_UNDER_TEST: 8be4693b4ab2cb312a6855d0b484be24229ff557
+55:NOT REFUSED for ['compiled with XFX_GATEWAY_KEY'] tests/option_env_of_a_key.rs
+57:NOT REFUSED for ['compiled with CARGO_PKG_AUTHORS'] tests/env_inside_concat.rs
+134:NOT REFUSED dep-info cut before its env-dep lines
+137:NOT REFUSED for [('tests/plain.rs', 'without making a clean copy'), ('src/main.rs', 'that holds cases'), ('tests/plain.rs', 'compiled with CARGO_PKG_AUTHORS'), ('tests/plain.rs', 'after the dep-in
+check-env-reads --self-test: 66 fixtures, 4 not as expected
+##[error]Process completed with exit code 1.
+
+## what rustup puts into the environment of the tool it runs (a probe: `cargo envdump`, a subcommand printing RUSTUP_*, CARGO_HOME, CARGO, HOME), through Homebrew's proxy
+  with RUSTUP_TOOLCHAIN=1.99.1:  RUSTUP_HOME=<home>/.rustup  RUSTUP_TOOLCHAIN=1.99.1-aarch64-apple-darwin  RUSTUP_TOOLCHAIN_SOURCE=env  CARGO_HOME=<home>/.cargo  CARGO=<home>/.rustup/toolchains/1.99.1-aarch64-apple-darwin/bin/cargo  RUSTUP_OVERRIDE_UNIX_FALLBACK_SETTINGS=<local-path>
+  Homebrew's proxy is a script that sets that fallback, whose default_toolchain is "stable"; rustup's own multiplexer (libexec/bin/cargo, a link to rustup) sets none
+## rustup's proxy under an empty HOME (env -i PATH=<proxy dir>:/usr/bin:/bin HOME=<empty> cargo --version)
+  Homebrew's proxy: 'info: syncing channel updates for stable-aarch64-apple-darwin ... downloading 6 components', then cargo 1.100.0: it downloaded stable into the empty HOME
+  rustup's own multiplexer: 'error: rustup could not choose a version of cargo to run, because one wasn't specified explicitly, and no default is configured.' -- CI's line
+
+## 2, RED at 8be4693b: rustup's own multiplexer first on PATH, RUSTUP_TOOLCHAIN=1.99.1
+<local-path>
+cargo 1.99.1 (5f94df478 2026-08-27)
+test a_config_alias_cannot_redirect_the_admitted_cargo_builtins ... FAILED
+thread 'a_config_alias_cannot_redirect_the_admitted_cargo_builtins' (657110041) panicked at tests/permissions.rs:609:5:
+error: rustup could not choose a version of cargo to run, because one wasn't specified explicitly, and no default is configured.
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 158 filtered out; finished in 0.04s
+## 2, the same under Homebrew's proxy (fallback default): the case passed, by downloading stable into the copy's HOME
+<local-path>
+cargo 1.99.1 (5f94df478 2026-08-27)
+test a_config_alias_cannot_redirect_the_admitted_cargo_builtins ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 158 filtered out; finished in 21.57s
+## 2, tried first and not enough: the copy handed RUSTUP_HOME and RUSTUP_TOOLCHAIN (since reverted): still RED
+cargo 1.99.1 (5f94df478 2026-08-27)
+test a_config_alias_cannot_redirect_the_admitted_cargo_builtins ... FAILED
+error: rustup could not choose a version of cargo to run, because one wasn't specified explicitly, and no default is configured.
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 158 filtered out; finished in 0.04s
+## 2, GREEN at the fix (3ed1c082's tree), the same multiplexer
+## cargo: <local-path> / cargo 1.99.1 (5f94df478 2026-08-27)
+## the failing test, rustup's multiplexer, no fallback default
+test a_config_alias_cannot_redirect_the_admitted_cargo_builtins ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 158 filtered out; finished in 0.03s
+## the whole permissions binary
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.74s
+## clippy, all targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.35s
+## check-env-reads.py at the fix: OK; check-env-reads: 41 env_exception! invocations in 27 files, 12 process_env! call sites (over its build arms), 14 listed plain calls, 75 compile-time reads of 7 names; 52 test binaries started with a m
+
+## 3, the self-test at 8be4693b under rustup's own multiplexer, TMPDIR resolved: passes (not the toolchain)
+cargo 1.99.1 (5f94df478 2026-08-27)
+check-env-reads --self-test: 66 fixtures, 0 not as expected
+## 3, RED at 8be4693b: Homebrew's cargo, TMPDIR given through the `/tmp` link (to the same directory, resolved), as macOS's per-user temporary directories are reached through the `/var` link
+cargo 1.99.1 (5f94df478 2026-08-27) (Homebrew)
+NOT REFUSED for ['compiled with XFX_GATEWAY_KEY'] tests/option_env_of_a_key.rs
+NOT REFUSED for ['compiled with CARGO_PKG_AUTHORS'] tests/env_inside_concat.rs
+NOT REFUSED dep-info cut before its env-dep lines
+NOT REFUSED for [('tests/plain.rs', 'without making a clean copy'), ('src/main.rs', 'that holds cases'), ('tests/plain.rs', 'compiled with CARGO_PKG_AUTHORS'), ('tests/plain.rs', 'after the dep-info i
+check-env-reads --self-test: 66 fixtures, 4 not as expected
+## 3, the pin's own RED: relative() put back to plain relpath, the self-test (its fixtures now under a link of its own), TMPDIR resolved
+NOT REFUSED for ['compiled with XFX_GATEWAY_KEY'] tests/option_env_of_a_key.rs
+NOT REFUSED for ['compiled with CARGO_PKG_AUTHORS'] tests/env_inside_concat.rs
+NOT REFUSED dep-info cut before its env-dep lines
+NOT REFUSED for [('tests/plain.rs', 'without making a clean copy'), ('src/main.rs', 'that holds cases'), ('tests/plain.rs', 'compiled with CARGO_PKG_AUTHORS'), 
+check-env-reads --self-test: 66 fixtures, 4 not as expected
+## 3, GREEN at the fix: TMPDIR resolved, exit 0; TMPDIR through /tmp: 66 fixtures, 0 not as expected, exit 0 (rustup's multiplexer first)

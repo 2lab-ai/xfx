@@ -1,0 +1,11 @@
+# RED, round 2: items 1 and 5 on a git clone --no-local throwaway at e26e27dd (the round-1 head), under the suite lock:
+#   TMPDIR=<short> suite-lock.sh python3 red-1-5.py <clone> e26e27dd
+# Item 1: each fixture alone, then the round-1 scan. Item 5: the mutant guard-gone, then test_env:: under sentinel-run.sh; the output searched for sentinel-run.sh's values (counted here, never printed).
+# at e26e27dd
+item 1, imported var: round-1 scan PASSED (the fixture got past the scan)
+item 1, aliased std::env: round-1 scan PASSED (the fixture got past the scan)
+item 1, key swap at an allowed site: round-1 scan PASSED (the fixture got past the scan)
+item 5, guard-gone: test result: FAILED. 7 passed; 10 failed; 0 ignored; 0 measured; 4625 filtered out; finished in 0.33s
+item 5, sentinel values in the failing cases' output: FOUND 2 of 5
+  xfx-sentinel-model: 2 line(s)
+  tei-sentinel: 1 line(s)

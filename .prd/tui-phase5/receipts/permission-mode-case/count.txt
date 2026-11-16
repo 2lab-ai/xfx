@@ -1,0 +1,7 @@
+== python3 -I count.py 9c64ddd3 10c45b17 (code 9b37d774; 10c45b17 changes tests only)
+src/app.rs: 3 added above its tests, 2 of them comments
+src/cli.rs: 3 added above its tests, 2 of them comments
+src/config.rs: 30 added above its tests, 14 of them comments
+src/output.rs: 15 added above its tests, 5 of them comments
+src/permission/slash.rs: 0 added above its tests, 0 of them comments
+== 51 added outside tests, 23 comments

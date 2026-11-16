@@ -1433,7 +1433,6 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::cell::Cell;
-    use std::process::Command;
     use std::rc::Rc;
 
     #[test]
@@ -2172,7 +2171,8 @@ mod tests {
     /// and takes the real failure's message with it.
     #[cfg(unix)]
     fn tagged(tag: &str) -> Vec<rustix::process::Pid> {
-        let Ok(listing) = crate::process::output(Command::new("ps").args(["-eo", "pid=,args="]))
+        let Ok(listing) =
+            crate::process::output(crate::process::command("ps").args(["-eo", "pid=,args="]))
         else {
             return Vec::new();
         };
@@ -2239,7 +2239,7 @@ mod tests {
 
     #[cfg(unix)]
     fn marker_for(tag: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("xfx-forked-{tag}"))
+        env_exception!(temp_dir()).join(format!("xfx-forked-{tag}"))
     }
 
     /// A shell that forks one child and then says that it has, in its own
@@ -2256,7 +2256,7 @@ mod tests {
 
         let marker = marker_for(tag);
         let _ = std::fs::remove_file(&marker);
-        let mut command = Command::new("/bin/sh");
+        let mut command = crate::process::command("/bin/sh");
         command.arg("-c").arg(format!(
             "sleep {tag} & echo forked > {}; wait",
             marker.display()
@@ -2317,7 +2317,7 @@ mod tests {
     fn a_forking_shell(tag: &str, children: usize) -> Child {
         use std::os::unix::process::CommandExt;
 
-        let mut command = Command::new("/bin/sh");
+        let mut command = crate::process::command("/bin/sh");
         command.arg("-c").arg(format!(
             "i=0; while [ $i -lt {children} ]; do sleep {tag} & i=$((i+1)); done; wait"
         ));

@@ -1,0 +1,32 @@
+DIFF p5-slash-arg-skills-mixed-40x120-git-log-tab (base)
+    row 3: fx [(2, 'r', (('bold', True), ('fg', 255))), (3, 'e', (('bold', True), ('fg', 255))), (4, 'l', (('bold', True), ('fg', 255))), (5, 'e', (('bold', True), ('fg', 255)))]
+    row 3: xfx [(2, '/', ()), (3, 'g', ()), (4, 'i', ()), (5, 't', ())]
+    1 rows differ in their cells (row 1 not compared)
+SAME p5-slash-arg-skills-mixed-40x120-git-log-tab (head)
+  fx: ┃ release-notes
+  base: ┃ /git log
+  head: ┃ release-notes
+DIFF p5-slash-arg-skills-mixed-40x120-git-log (base)
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, 'R', (('fg', 245),)), (1, 'e', (('fg', 245),)), (2, 's', (('fg', 245),)), (3, 'u', (('fg', 245),))]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+SAME p5-slash-arg-skills-mixed-40x120-git-log (head)
+  fx: ┃ /git log|Results 1|  release-notes  Write release notes from the git log  workspace skills/
+  base: ┃ /git log
+  head: ┃ /git log|Results 1|  release-notes  Write release notes from the git log  workspace skills/
+SAME p5-slash-arg-skills-mixed-40x120-help-x (base)
+SAME p5-slash-arg-skills-mixed-40x120-help-x (head)
+  fx: ┃ /help x
+  base: ┃ /help x
+  head: ┃ /help x
+SAME p5-slash-arg-skills-mixed-40x120-rename-notes (base)
+SAME p5-slash-arg-skills-mixed-40x120-rename-notes (head)
+  fx: ┃ /rename notes
+  base: ┃ /rename notes
+  head: ┃ /rename notes
+SAME p5-slash-arg-skills-mixed-40x120-skills-x (base)
+SAME p5-slash-arg-skills-mixed-40x120-skills-x (head)
+  fx: ┃ /skills x
+  base: ┃ /skills x
+  head: ┃ /skills x

@@ -1,0 +1,24 @@
+clone of 78c0d164
+KILLED serde_json's parse back (the base): --lib config::: config::tests::a_key_twice_is_a_file_that_does_not_parse_in_either_layer, config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses, config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it, config::tests::a_project_file_fx_reads_is_applied
+KILLED keep one level less: --lib config::: config::layer_json::tests::a_layer_nested_at_any_depth_is_read_without_recursion
+KILLED keep one level more: --lib config::: config::layer_json::tests::a_layer_nested_at_any_depth_is_read_without_recursion
+KILLED keep every level: --lib config::: crashed (stack overflow)
+KILLED kept off by one: --lib config::: config::layer_json::tests::a_layer_nested_at_any_depth_is_read_without_recursion
+KILLED past f64 is 0: --lib config::: config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse, config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it, config::tests::a_project_file_fx_reads_is_applied (+1)
+KILLED past f64 is null: --lib config::: config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse, config::tests::no_key_xfx_reads_takes_a_number_past_f64_as_other_than_a_float
+KILLED past f64 loses its sign: --lib config::: config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED past f64 refused: --lib config::: config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse, config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it, config::tests::a_project_file_fx_reads_is_applied (+1)
+KILLED no number grammar: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED a fraction needs no digit: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED a leading zero is a digit: --lib config::: config::layer_json::tests::a_layer_nested_at_any_depth_is_read_without_recursion, config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse, config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it
+KILLED no `+` in a number: --lib config::: config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED a key twice taken: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse, config::tests::a_key_twice_is_a_file_that_does_not_parse_in_either_layer, config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses
+KILLED a key twice taken past the depth kept: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth
+KILLED an escape is one byte: --lib config::: config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED a string undecoded: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse, config::tests::a_key_twice_is_a_file_that_does_not_parse_in_either_layer, config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (+1)
+KILLED anything after the value: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED no carriage return in space: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED a trailing comma in an array: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth
+KILLED no colon needed: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED a recursive reader: --lib config::: crashed (stack overflow)
+== 22/22 killed

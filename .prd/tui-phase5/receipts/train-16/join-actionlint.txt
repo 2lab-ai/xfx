@@ -1,0 +1,11 @@
+# actionlint at the join 75d1318c (worktree clean: yes), as CI-TOOLCHAIN-PIN's receipt ran it
+$ actionlint -version
+1.7.12
+$ actionlint .github/workflows/ci.yml
+exit=0
+$ actionlint (every workflow)
+exit=0
+
+# check-env-reads.py reads no workflow: lines naming ci.yml, workflows, BASH_ENV or GITHUB_PATH: 0
+# main's one new variable, BASH_ENV (scripts/early-stop-env.sh, a shell script): read in src/ or tests/: 0 files
+# Rust between the train's code head 6137bd3d and the join, src tests Cargo.toml Cargo.lock build.rs clippy.toml: none

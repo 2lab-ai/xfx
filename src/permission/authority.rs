@@ -1217,6 +1217,10 @@ impl CommandPlan {
             }
             _ => minimal_environment(),
         };
+        // In a unit test with no home of its own, a git the command runs reads
+        // no global configuration (`crate::test_env`); a build is unchanged.
+        #[cfg(test)]
+        let environment = crate::test_env::without_a_global_git_configuration(environment);
         let mut hasher = Sha256::new();
         hasher.update(trimmed.as_bytes());
         hasher.update([0u8]);
@@ -1462,11 +1466,15 @@ fn escaping_operand(argv: &[String], scope: &AccessScope, cwd: &Path) -> Option<
 /// absolute paths, and locale is pinned so command output is stable across
 /// machines.
 fn minimal_environment() -> Vec<(String, String)> {
-    let path = std::env::var("PATH")
+    let path = env_exception!(var("PATH"))
         .ok()
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin".to_string());
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = process_env!(
+        "permission::authority::minimal_environment",
+        child_var("HOME")
+    )
+    .unwrap_or_default();
     // Sorted by name, so the fingerprint does not depend on the order the
     // variables happened to be read in. The three `GIT_TRACE2` variables
     // switch off the trace targets git's global configuration can name,
@@ -1491,6 +1499,10 @@ fn git_environment() -> Vec<(String, String)> {
     let mut environment = minimal_environment();
     environment.push(("GIT_ATTR_NOSYSTEM".to_string(), "1".to_string()));
     environment.push(("GIT_OPTIONAL_LOCKS".to_string(), "0".to_string()));
+    // In a unit test with no home of its own, no global configuration
+    // (`crate::test_env`); a build is unchanged.
+    #[cfg(test)]
+    let mut environment = crate::test_env::without_a_global_git_configuration(environment);
     environment.sort();
     environment
 }
@@ -2229,16 +2241,38 @@ mod tests {
     #[test]
     fn a_command_plan_never_inherits_the_process_environment() {
         let (_dir, scope) = scope();
+        let names = |plan: &CommandPlan| -> Vec<String> {
+            plan.environment()
+                .iter()
+                .map(|(name, _)| name.clone())
+                .collect()
+        };
+        // With a home, as every real process has: the names a build gives.
+        let home = tempfile::tempdir().expect("a home");
+        let plan = crate::test_env::FakeProcess::new()
+            .home(home.path())
+            .run(|| CommandPlan::prepare("pwd", &scope, None, &ToolLimits::default()))
+            .expect("a plannable command");
+        assert_eq!(
+            names(&plan),
+            [
+                "GIT_TRACE2",
+                "GIT_TRACE2_EVENT",
+                "GIT_TRACE2_PERF",
+                "HOME",
+                "LANG",
+                "LC_ALL",
+                "PATH"
+            ]
+        );
+        // With none -- a unit test that gave none: and no global git
+        // configuration either (`crate::test_env`).
         let plan = CommandPlan::prepare("pwd", &scope, None, &ToolLimits::default())
             .expect("a plannable command");
-        let names: Vec<&str> = plan
-            .environment()
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect();
         assert_eq!(
-            names,
+            names(&plan),
             [
+                "GIT_CONFIG_GLOBAL",
                 "GIT_TRACE2",
                 "GIT_TRACE2_EVENT",
                 "GIT_TRACE2_PERF",
@@ -2281,7 +2315,7 @@ mod tests {
         fn new() -> Self {
             // Required, not skipped: a test that passes because git was not
             // there proves nothing about the git that is.
-            let git = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+            let git = std::env::split_paths(&crate::test_env::path())
                 .map(|dir| dir.join("git"))
                 .find(|git| git.is_file())
                 .expect("git on PATH: these tests run the real one");
@@ -2336,14 +2370,14 @@ mod tests {
         }
 
         fn run_with(&self, argv: &[String], extra: &[(&str, &str)]) -> std::process::ExitStatus {
-            let mut command = std::process::Command::new(&self.git);
+            let mut command = crate::process::command(&self.git);
             command
                 .args(&argv[1..])
                 .current_dir(self.repo())
                 .env_clear()
                 .env("HOME", &self.home)
                 .env("GIT_CONFIG_NOSYSTEM", "1")
-                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                .env("PATH", crate::test_env::path())
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null());
@@ -2372,8 +2406,13 @@ mod tests {
             ran
         }
 
+        /// Planned as the terminal tool would plan it, under the fixture's
+        /// home (`crate::test_env`): the git that decides the plan reads the
+        /// fixture's global configuration, as a real one reads the person's.
         fn plan(&self, command: &str) -> CommandPlan {
-            CommandPlan::prepare(command, &self.scope, None, &ToolLimits::default())
+            crate::test_env::FakeProcess::new()
+                .home(&self.home)
+                .run(|| CommandPlan::prepare(command, &self.scope, None, &ToolLimits::default()))
                 .expect("a plan")
         }
     }
@@ -2518,21 +2557,21 @@ mod tests {
             hook_ran(),
             "why it is refused: the hardened argv still runs it"
         );
-        // The plan's own git reads `$HOME`, which the fixture stands in for
-        // only in its runs; ask the configuration that plan would read.
-        let environment: Vec<(String, String)> = git_environment()
-            .into_iter()
-            .map(|(name, value)| {
-                if name == "HOME" {
-                    (name, fixture.home.display().to_string())
-                } else {
-                    (name, value)
-                }
-            })
-            .collect();
+        // The plan's own git reads `$HOME`, the fixture's home here
+        // (`crate::test_env`): the configuration that plan would read.
+        let environment = crate::test_env::FakeProcess::new()
+            .home(&fixture.home)
+            .run(git_environment);
         assert_eq!(
             super::super::gitconfig::configured_hooks(fixture.repo(), &environment),
             Ok(true)
+        );
+        assert!(
+            matches!(
+                fixture.plan("git diff --stat").effect(),
+                CommandEffect::Denied(DeniedEffect::ConfiguredHooks)
+            ),
+            "a git whose configuration defines a hook was admitted"
         );
     }
 
@@ -2589,13 +2628,13 @@ mod tests {
         let source_path = source.path().canonicalize().expect("canonical");
         let in_source = |args: &[&str]| {
             crate::process::output(
-                std::process::Command::new(&fixture.git)
+                crate::process::command(&fixture.git)
                     .args(args)
                     .current_dir(&source_path)
                     .env_clear()
                     .env("HOME", &fixture.home)
                     .env("GIT_CONFIG_NOSYSTEM", "1")
-                    .env("PATH", std::env::var_os("PATH").unwrap_or_default()),
+                    .env("PATH", crate::test_env::path()),
             )
             .expect("git runs")
         };
@@ -2660,13 +2699,13 @@ mod tests {
         let source = source.path().canonicalize().expect("canonical");
         let git_in = |dir: &Path, args: &[&str]| {
             let status = crate::process::status(
-                std::process::Command::new(&fixture.git)
+                crate::process::command(&fixture.git)
                     .args(args)
                     .current_dir(dir)
                     .env_clear()
                     .env("HOME", &fixture.home)
                     .env("GIT_CONFIG_NOSYSTEM", "1")
-                    .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                    .env("PATH", crate::test_env::path())
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null()),
             )

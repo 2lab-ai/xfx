@@ -1,0 +1,21 @@
+# Release builds at the round-2 head, back to back in the throwaway clone: 32afd307 then f4846c59, each XFX_BUILD_REVISION=000000000000 cargo build --release --locked; release-compare.py <base> <head>
+size base 11668096 head 11668096
+section table identical (name, address, size, offset): True
+differing bytes 559
+    382 code signature (page hashes)
+    161 __DATA_CONST,__const
+     16 header LC_UUID
+__DATA_CONST,__const: panic Locations whose line moved (file, +lines): count
+  src/gateway/mod.rs +4: 17
+  src/interactive.rs +4: 7
+  src/mcp/runtime.rs +6: 11
+  src/mcp/transport.rs +3: 33
+  src/tui/shell.rs +6: 25
+  src/tui/term.rs +4: 1
+  src/tui/worker.rs +27: 2
+  src/tui/worker.rs +33: 58
+__DATA_CONST,__const bytes not explained as a moved line: 0
+
+# shasum -a 256
+42f160bc1ded8af9083363e90641d200e0a163cb871aedce31f4ee7d3db357a2  xfx-rel-final-base
+a77536fb3355bc43499e6d1736e8d2d73694c3058f8828ebab76549ac32a9f3c  xfx-rel-final-head

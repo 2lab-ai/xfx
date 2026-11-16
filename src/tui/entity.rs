@@ -747,6 +747,17 @@ impl EntitySnapshot {
     pub(crate) fn lines(&self) -> usize {
         self.lines
     }
+
+    /// The same run in an entry whose first `by` bytes were left out, or
+    /// `None` when the run began inside them.
+    pub(crate) fn earlier(mut self, by: usize) -> Option<Self> {
+        // `new` and `image` take the span as given; every caller hands them
+        // a run of the text, which ends where it starts or after.
+        debug_assert!(self.start <= self.end);
+        self.start = self.start.checked_sub(by)?;
+        self.end -= by;
+        Some(self)
+    }
 }
 
 #[cfg(test)]
@@ -1092,5 +1103,14 @@ mod tests {
             recalled_draft,
             format!("{} {}", summary(3, 1), summary(4, 1))
         );
+    }
+
+    #[test]
+    fn a_snapshot_moves_with_the_bytes_left_out_before_it() {
+        let run = EntitySnapshot::new(5, 9, Arc::from("text"), 1);
+        assert_eq!(run.clone().earlier(0).map(|run| run.span()), Some(5..9));
+        assert_eq!(run.clone().earlier(2).map(|run| run.span()), Some(3..7));
+        assert_eq!(run.clone().earlier(5).map(|run| run.span()), Some(0..4));
+        assert_eq!(run.earlier(6), None, "a run inside the bytes left out");
     }
 }
