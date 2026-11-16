@@ -369,14 +369,30 @@ impl Session {
     /// would block found it full -- so it was empty, if ever, only between two
     /// attempts, and never for longer than this.
     pub fn write_raw_measured(&self, bytes: &[u8], previous: &mut Option<Instant>) -> Duration {
+        self.write_raw_traced(bytes, previous).longest
+    }
+
+    /// [`Self::write_raw_measured`], and where its longest gap fell: at this
+    /// call's first attempt -- a gap that spans the end of the last call, and
+    /// whatever its caller did between the two -- or at a later one, behind
+    /// a full queue's [`IDLE_POLL`] sleep, with how long that sleep took.
+    pub fn write_raw_traced(&self, bytes: &[u8], previous: &mut Option<Instant>) -> Written {
         let deadline = Instant::now() + WAIT;
         let mut longest = Duration::ZERO;
+        let mut traced = Written::default();
+        let mut slept = Duration::ZERO;
         let mut rest = bytes;
         while !rest.is_empty() {
             let started = Instant::now();
             let wrote = (&*self.master).write(rest);
+            traced.attempts += 1;
             if let Some(before) = previous.replace(started) {
-                longest = longest.max(before.elapsed());
+                let gap = before.elapsed();
+                if gap > longest {
+                    traced.at = traced.attempts;
+                    traced.slept = slept;
+                }
+                longest = longest.max(gap);
             }
             match wrote {
                 Ok(0) => panic!("the terminal accepted nothing"),
@@ -387,12 +403,15 @@ impl Session {
                         "the terminal never accepted input; terminal so far:\n{}",
                         self.text()
                     );
+                    let polled = Instant::now();
                     thread::sleep(IDLE_POLL);
+                    slept = polled.elapsed();
                 }
                 Err(err) => panic!("write to the terminal: {err}"),
             }
         }
-        longest
+        traced.longest = longest;
+        traced
     }
 
     /// Types a line and presses Return. Return is a carriage return on a
@@ -862,4 +881,18 @@ impl Pty {
         let slave = self.slave.as_ref().expect("the harness retains a slave");
         rustix::termios::tcsetwinsize(slave.as_fd(), size).expect("set the pty size");
     }
+}
+
+/// What one [`Session::write_raw_traced`] call came to: the longest the
+/// terminal can have gone without a byte from this writer (as
+/// [`Session::write_raw_measured`] says it), the attempt it fell at (1 is
+/// the call's first: the gap since the last call; 0, no gap measured), the
+/// [`IDLE_POLL`] sleep right before that attempt, if a full queue made one,
+/// and how many attempts the call made.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct Written {
+    pub longest: Duration,
+    pub at: usize,
+    pub slept: Duration,
+    pub attempts: usize,
 }

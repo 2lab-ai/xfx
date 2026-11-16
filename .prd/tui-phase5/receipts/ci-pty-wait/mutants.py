@@ -79,7 +79,7 @@ MUTANTS = [
     ("measure-not-carried", "tests/support/pty.rs",
      "previous.replace(started)", "previous.take()", HARNESS),
     ("measure-never-grows", "tests/support/pty.rs",
-     "longest = longest.max(before.elapsed());", "let _ = before;", HARNESS),
+     "longest = longest.max(gap);", "let _ = gap;", HARNESS),
     ("retry-gives-up-quietly", "tests/tui.rs",
      "            Err(rejected) => paused.push(rejected),\n",
      "            Err(rejected) => {\n                paused.push(rejected);\n                return;\n            }\n",

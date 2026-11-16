@@ -3706,13 +3706,19 @@ fn paste_with_pauses(
 ) -> Result<(), Rejected> {
     let mut previous = None;
     let mut longest = std::time::Duration::ZERO;
+    let parts = bytes.len().div_ceil(4096);
     for (at, part) in bytes.chunks(4096).enumerate() {
+        let mut planned = None;
         if before.contains(&at) {
+            let asleep = std::time::Instant::now();
             std::thread::sleep(pause);
+            planned = Some(asleep.elapsed());
         }
-        let gap = session.write_raw_measured(part, &mut previous);
+        let written = session.write_raw_traced(part, &mut previous);
+        let gap = written.longest;
         longest = longest.max(gap);
         if gap >= PASTE_QUIET {
+            let fell = where_it_fell(at, parts, &written, planned, pause);
             std::thread::sleep(std::time::Duration::from_secs(1));
             let text = session.text();
             let screen: Vec<String> = match Screen::painted(&text, rows, cols) {
@@ -3727,11 +3733,11 @@ fn paste_with_pauses(
             };
             say(&format!(
                 "a timing-indeterminate session: the paste paused for {gap:?} \
-                 (pauses of {pause:?}); \
+                 (pauses of {pause:?}), {fell}; \
                  a second later the screen held:\n{}\n",
                 screen.join("\n")
             ));
-            return Err(Rejected { gap, screen });
+            return Err(Rejected { gap, fell, screen });
         }
     }
     say(&format!(
@@ -3739,6 +3745,36 @@ fn paste_with_pauses(
     ));
     std::thread::sleep(std::time::Duration::from_secs(1));
     Ok(())
+}
+
+/// Where a paste's pause of [`PASTE_QUIET`] or more fell, in words: between
+/// two parts -- across the planned pause before part `at`, with how long that
+/// sleep took, or with none planned there -- or inside part `at`, behind a
+/// full queue's [`IDLE_POLL`] poll, with how long that sleep took. A pause
+/// between parts spans the last write of one part and the first of the next
+/// as well as whatever lay between them.
+fn where_it_fell(
+    at: usize,
+    parts: usize,
+    written: &support::pty::Written,
+    planned: Option<std::time::Duration>,
+    pause: std::time::Duration,
+) -> String {
+    if written.at <= 1 {
+        let between = format!("between parts {} and {at} of {parts}", at.saturating_sub(1));
+        match planned {
+            Some(slept) => {
+                format!("{between}, across a planned {pause:?} pause that slept {slept:?}")
+            }
+            None => format!("{between}, with no pause planned there"),
+        }
+    } else {
+        format!(
+            "inside part {at} of {parts}, at its write attempt {} of {}, behind a full \
+             queue's {IDLE_POLL:?} poll that slept {:?}",
+            written.at, written.attempts, written.slept
+        )
+    }
 }
 
 /// Writes `line` to standard error in one write, so a parallel suite's other
@@ -3773,10 +3809,11 @@ fn the_last_bytes_of_a_stream_start_at_a_character() {
     assert_eq!(last_bytes("short", 400), "short");
 }
 
-/// A session [`paste_unpaced`] stopped at a pause: the pause, and the screen's
-/// non-blank rows a second after it.
+/// A session [`paste_unpaced`] stopped at a pause: the pause, where it fell
+/// ([`where_it_fell`]), and the screen's non-blank rows a second after it.
 struct Rejected {
     gap: std::time::Duration,
+    fell: String,
     screen: Vec<String>,
 }
 
@@ -3826,7 +3863,14 @@ fn unpaced_case(mut case: impl FnMut() -> Result<(), Rejected>) {
     }
     let held: Vec<String> = paused
         .iter()
-        .map(|rejected| format!("after {:?}: {}", rejected.gap, rejected.screen.join(" | ")))
+        .map(|rejected| {
+            format!(
+                "after {:?} ({}): {}",
+                rejected.gap,
+                rejected.fell,
+                rejected.screen.join(" | ")
+            )
+        })
         .collect();
     panic!(
         "each of {UNPACED_ATTEMPTS} pastes paused for {PASTE_QUIET:?} or more ({:?}): \
@@ -3860,6 +3904,51 @@ fn the_harness_measures_a_pause_between_two_writes_of_one_paste() {
 }
 
 #[test]
+fn a_pause_is_said_to_fall_between_parts_or_inside_one_with_its_sleep() {
+    // What a rejected session says of its pause (`where_it_fell`): CI's
+    // first red of the paced case (PR #103) held three pauses and no word of
+    // where they fell.
+    let ms = std::time::Duration::from_millis;
+    let between = support::pty::Written {
+        longest: ms(97),
+        at: 1,
+        slept: std::time::Duration::ZERO,
+        attempts: 1,
+    };
+    assert_eq!(
+        where_it_fell(64, 256, &between, Some(ms(90)), ms(12)),
+        "between parts 63 and 64 of 256, across a planned 12ms pause that slept 90ms"
+    );
+    assert_eq!(
+        where_it_fell(70, 256, &between, None, ms(12)),
+        "between parts 69 and 70 of 256, with no pause planned there"
+    );
+    let inside = support::pty::Written {
+        longest: ms(61),
+        at: 3,
+        slept: ms(58),
+        attempts: 4,
+    };
+    assert_eq!(
+        where_it_fell(9, 256, &inside, None, ms(12)),
+        "inside part 9 of 256, at its write attempt 3 of 4, behind a full queue's 2ms poll \
+         that slept 58ms"
+    );
+    // And the writer's own trace: a gap between two calls is at the second
+    // call's first attempt.
+    let pty = Pty::open();
+    let mut command = support::command("/bin/sh");
+    command.args(["-c", "sleep 30"]);
+    let session = Session::spawn_without_taking_the_terminal(&pty, command);
+    let mut previous = None;
+    assert_eq!(session.write_raw_traced(b"a", &mut previous).at, 0);
+    std::thread::sleep(PASTE_QUIET);
+    let traced = session.write_raw_traced(b"b", &mut previous);
+    assert_eq!((traced.at, traced.attempts), (1, 1), "{traced:?}");
+    assert!(traced.longest >= PASTE_QUIET, "{traced:?}");
+}
+
+#[test]
 fn an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused() {
     let mut runs = 0;
     unpaced_case(|| {
@@ -3867,6 +3956,7 @@ fn an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused() {
         if runs < UNPACED_ATTEMPTS {
             Err(Rejected {
                 gap: PASTE_QUIET,
+                fell: String::new(),
                 screen: Vec::new(),
             })
         } else {
@@ -3890,6 +3980,7 @@ fn an_unpaced_case_whose_every_paste_paused_fails_saying_so() {
         unpaced_case(|| {
             Err(Rejected {
                 gap: PASTE_QUIET,
+                fell: "between parts 63 and 64 of 256".to_string(),
                 screen: vec!["K00000011".to_string()],
             })
         })
@@ -3898,7 +3989,12 @@ fn an_unpaced_case_whose_every_paste_paused_fails_saying_so() {
         .expect_err("a case whose every paste paused passed")
         .downcast::<String>()
         .expect("a formatted message");
-    for said in ["no session tested the paste", "50ms", "K00000011"] {
+    for said in [
+        "no session tested the paste",
+        "50ms",
+        "between parts 63 and 64 of 256",
+        "K00000011",
+    ] {
         assert!(message.contains(said), "{said:?} is not said: {message}");
     }
 }
