@@ -50,3 +50,17 @@
 2026-11-16T08:35:55.2067570Z error: could not compile `xfx` (lib test) due to 1 previous error
 # backtrace frames naming a rustc commit: 
 
+
+## job 130518847044, step 11 "Tests, with the fault injector": what ran and what failed (same logs API)
+2026-11-11T12:54:28.7830970Z ##[group]Run cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+2026-11-11T12:54:28.7831670Z cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+2026-11-11T12:54:28.7832220Z cargo test --locked --features fault-injection --test tui
+2026-11-11T12:54:28.7832680Z cargo test --locked --lib --features fault-injection
+2026-11-11T12:55:09.6804140Z     Finished `dev` profile [unoptimized + debuginfo] target(s) in 40.51s
+2026-11-11T12:55:43.4959320Z     Finished `test` profile [unoptimized + debuginfo] target(s) in 33.68s
+2026-11-11T12:55:43.5229180Z      Running tests/tui.rs (target/debug/deps/tui-5863e85d73a15dc1)
+2026-11-11T12:56:59.5262890Z thread 'the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out' (78504) panicked at tests/tui.rs:852:5:
+2026-11-11T12:56:59.5279440Z assertion `left == right` failed
+2026-11-11T12:56:59.5289640Z   left: ["\u{1b}]7501;state=idle:app=xfx\u{1b}\\", "\u{1b}]7501;state=done:app=xfx\u{1b}\\"]
+2026-11-11T12:56:59.5341130Z error: test failed, to rerun pass `--test tui`
+2026-11-11T12:56:59.5517280Z test result: FAILED. 202 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 75.96s

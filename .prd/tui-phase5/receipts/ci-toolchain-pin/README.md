@@ -21,9 +21,19 @@ Branch `fix/p5-ci-toolchain-pin` on main `afeaea7c`. The change is commit
   then step 9 "Lints" failed `-D warnings` with `clippy::needless_range_loop`
   at `src/mcp/era.rs:449:18`. That loop is on main, not in the PR.
 - **1.99.1 passed the same step.** Attempt 1 (2026-11-11), job 130518847044,
-  the same row: rustc 1.99.1 (58cf8f9c3), its backtraces under
-  `/rustc/58cf8f9c3`, "Lints" success. That job failed later, at step 11
-  ("Tests, with the fault injector"), which is not a toolchain matter.
+  is the same row on rustc 1.99.1 (58cf8f9c3); its backtraces are under
+  `/rustc/58cf8f9c3`.
+  - Step 9 "Lints" passed.
+  - The job itself failed, at step 11 ("Tests, with the fault injector"). Its
+    fault-injection clippy finished, then one `--test tui` case failed:
+    `the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out`,
+    an assertion at `tests/tui.rs:852`.
+  - That is a test assertion, not a lint, so attempt 1 shows Lints green on
+    1.99.1, not a green run.
+- **A green run on 1.99.1.** Preview run 43019311819 at `afeaea7c`
+  (2026-11-11) ran fmt, clippy and tests on all four build rows, each
+  printing `rustc 1.99.1 (58cf8f9c3 2026-10-13)`, and published
+  (`preview-and-bases.txt`).
 - **Local gates already use 1.99.1:** `rustc 1.99.1 (58cf8f9c3 2026-10-13)`.
 - Evidence: `ci-run-43019503559.txt`, read from the per-job logs API.
 
@@ -51,7 +61,7 @@ Branch `fix/p5-ci-toolchain-pin` on main `afeaea7c`. The change is commit
 | file | why it stays | runs clippy `-D warnings`? |
 |---|---|---|
 | `preview.yml` | `scripts/check-preview-contract.sh:604` requires `rustup toolchain install stable` in its build job. | yes, the build job's "Lints" (`:299-300`) |
-| `release.yml` | It moves with TOOLCHAIN-1100. Pinning it alone would ship a tag built on a toolchain that preview.yml no longer runs. | yes, "Lints" (`:69-70`) |
+| `release.yml` | It moves with TOOLCHAIN-1100, together with preview.yml. | yes, "Lints" (`:69-70`) |
 | `sweep.yml`, `sweep-full.yml` | they build for the parity sweep with no clippy | no |
 
 **The preview's gates run clippy.** `CONTRACT_GATES`
