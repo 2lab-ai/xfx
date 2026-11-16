@@ -1698,7 +1698,9 @@ pub async fn run(
                         conversation.as_ref(),
                         &store,
                         &TraceTarget {
-                            dir: crate::trace::report_dir(std::env::var_os("TMPDIR").as_deref()),
+                            dir: crate::trace::report_dir(
+                                env_exception!(var_os("TMPDIR")).as_deref(),
+                            ),
                             clipboard: Clipboard::system(),
                         },
                         &mut io::stdout(),

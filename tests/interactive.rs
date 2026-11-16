@@ -2603,7 +2603,7 @@ fn the_terminal_comparator_notices_a_change_in_any_single_field() {
 /// BSD-derived kernels, and that revocation is the whole reason the old harness
 /// saw nothing.
 fn leave_the_terminal_in_raw_mode(pty: &Pty, take_terminal: bool) -> Session {
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.args(["-c", "stty raw -echo"]);
     let mut session = if take_terminal {
         Session::spawn(pty, command)
@@ -2697,7 +2697,7 @@ fn a_during_run_reading_sees_a_terminal_the_running_child_has_changed() {
     // path under test is the same one, down to the descriptor.
     let pty = Pty::open();
     let before = modes(&pty);
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.args(["-c", "stty raw -echo; echo ready; sleep 30"]);
     let session = Session::spawn(&pty, command);
     session.wait_for("ready");
@@ -2722,7 +2722,7 @@ fn a_during_run_reading_sees_a_terminal_the_running_child_has_changed() {
 #[test]
 fn a_stop_a_resume_and_an_exit_are_three_states_the_harness_keeps_apart() {
     let pty = Pty::open();
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.args(["-c", "echo ready; read line; exit 7"]);
     let mut session = Session::spawn(&pty, command);
     session.wait_for("ready");
@@ -2769,7 +2769,7 @@ fn a_stop_a_resume_and_an_exit_are_three_states_the_harness_keeps_apart() {
 #[test]
 fn an_early_exit_is_reported_and_the_status_survives_the_reading() {
     let pty = Pty::open();
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.args(["-c", "echo ready; exit 3"]);
     let mut session = Session::spawn(&pty, command);
     session.wait_for("ready");

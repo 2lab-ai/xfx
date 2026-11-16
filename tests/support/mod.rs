@@ -16,6 +16,7 @@
 pub mod fake_clipboard;
 pub mod fake_gateway;
 pub mod fake_llmux;
+pub mod isolated;
 // Profiles fx refuses at launch; the links and modes they lay down are unix.
 #[cfg(unix)]
 pub mod profiles;
@@ -24,3 +25,16 @@ pub mod profiles;
 #[cfg(unix)]
 pub mod pty;
 pub mod sandbox;
+
+/// A command for `program`: every child an integration test starts is made
+/// here. `clippy.toml` refuses `Command::new` everywhere else; this binary's
+/// own environment is already the one [`isolated`] built from nothing, so
+/// what the child inherits is that.
+pub fn command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "the one Command an integration test makes; scripts/check-env-reads.py lists it"
+    )]
+    let command = std::process::Command::new(program);
+    command
+}

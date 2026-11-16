@@ -2551,7 +2551,7 @@ impl Shell {
         // hands it a directory, so a case that types `/trace` cannot leave a
         // report in the suite runner's own temporary directory.
         #[cfg(not(test))]
-        let trace_dir = crate::trace::report_dir(std::env::var_os("TMPDIR").as_deref());
+        let trace_dir = crate::trace::report_dir(env_exception!(var_os("TMPDIR")).as_deref());
         #[cfg(test)]
         let trace_dir = std::path::PathBuf::from(super::copy::NOWHERE);
         // The profile `/sound` saves into -- except in a shell a test built,
@@ -2581,10 +2581,12 @@ impl Shell {
             crate::usage::dashboard::wall_clock(),
             Box::new(|job| super::signals::spawn_unsignalled(USAGE_THREAD, job)),
         );
+        // Its clock is the system's: `wall_clock` asks the process whether a
+        // clock file pins it, which a unit test may not (`crate::test_env`).
         #[cfg(test)]
         let usage = crate::usage::dashboard::Dashboard::new(
             None,
-            crate::usage::dashboard::wall_clock(),
+            std::sync::Arc::new(crate::session::event::system_now_ms),
             Box::new(|_| Err(std::io::Error::other("a test shell fetches nothing"))),
         );
         let mut shell = Self {
@@ -31057,7 +31059,7 @@ mod tests {
         shell.route_bytes(b"/permissions\r");
         assert_eq!(panel_value(&shell, "Saved rules").as_deref(), Some("1"));
         std::fs::remove_file(&rules).expect("the store gone");
-        let status = crate::process::status(std::process::Command::new("mkfifo").arg(&rules))
+        let status = crate::process::status(crate::process::command("mkfifo").arg(&rules))
             .expect("run mkfifo");
         assert!(status.success(), "mkfifo failed: {status:?}");
 
@@ -52052,7 +52054,7 @@ mod tests {
         std::thread::spawn(move || {
             let mut shell = attaching();
             let fifo = shell.workspace.join("x.png");
-            let status = crate::process::status(std::process::Command::new("mkfifo").arg(&fifo))
+            let status = crate::process::status(crate::process::command("mkfifo").arg(&fifo))
                 .expect("run mkfifo");
             assert!(status.success(), "mkfifo failed: {status:?}");
             path_tx.send(fifo).expect("the path");
@@ -53298,7 +53300,10 @@ mod tests {
             workspace.path(),
         )
         .expect("load a configuration");
-        crate::credits::question(&config).expect("a Gateway with a key asks")
+        // At the compiled endpoint: a process that names none (`crate::test_env`).
+        crate::test_env::FakeProcess::new()
+            .run(|| crate::credits::question(&config))
+            .expect("a Gateway with a key asks")
     }
 
     #[test]

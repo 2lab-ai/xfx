@@ -1,0 +1,8 @@
+BASELINE ok :: envcheck passes ([], ["--all-features"]), test builds (); 
+BASELINE ok :: envcheck passes ([], ["--all-features"], ["--release"]), test builds (); 
+KILLED aliased-git: opus M1's case, an aliased Command in a src test module :: exit 1; refused: src/test_env/tests.rs:0: std::process::Command::new outside env_exception! and process_env!, unlisted (1)
+KILLED option-env-key: option_env!(XFX_GATEWAY_KEY) in a src test :: exit 1; refused: src/lib.rs:0: compiled with XFX_GATEWAY_KEY from the environment (rustc's dep-info), which is not a compile-time name | refused: src/test_env/tests.rs:34: a core::option_env! of XFX_GATEWAY_KEY, which is not a compile-time name
+KILLED env-in-concat: an unlisted env! nested in concat! :: exit 1; refused: src/lib.rs:0: compiled with CARGO_PKG_AUTHORS from the environment (rustc's dep-info), which is not a compile-time name
+KILLED release-only-read: a read under cfg(not(debug_assertions)) :: exit 1; refused: src/test_env/tests.rs:0: std::env::var_os outside env_exception! and process_env!, unlisted (1)
+total 4, survived 0, failed baselines 0, runs with a sentinel value in output 0
+mutants exit 0

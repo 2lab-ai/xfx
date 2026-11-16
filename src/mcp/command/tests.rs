@@ -46,7 +46,7 @@ impl Scratch {
         let root = std::fs::canonicalize(dir.path()).unwrap();
         assert!(!root.starts_with(&checkout), "{root:?}");
         assert!(
-            root.starts_with(std::fs::canonicalize(std::env::temp_dir()).unwrap()),
+            root.starts_with(std::fs::canonicalize(env_exception!(temp_dir())).unwrap()),
             "{root:?}"
         );
         let work = root.join("work");
@@ -77,16 +77,20 @@ impl Scratch {
         self.runtime_reading(&[])
     }
 
-    /// [`Self::runtime`], its servers' `${VAR}` reading `overrides` first.
+    /// [`Self::runtime`], its servers' `${VAR}` reading `overrides` first
+    /// and, after them, a process with no variable at all
+    /// (`crate::test_env`): a name the case did not give is unset.
     fn runtime_reading(&self, overrides: &[(&str, &str)]) -> Arc<McpRuntime> {
-        let runtime = McpRuntime::with_environment(
-            Paths {
-                profile: Some(self.profile()),
-                settings: Some(self.settings()),
-                workspace: self.root.join("work"),
-            },
-            overrides,
-        );
+        let runtime = crate::test_env::FakeProcess::new().run(|| {
+            McpRuntime::with_environment(
+                Paths {
+                    profile: Some(self.profile()),
+                    settings: Some(self.settings()),
+                    workspace: self.root.join("work"),
+                },
+                overrides,
+            )
+        });
         runtime.start_and_wait(Duration::from_secs(60));
         runtime.take_events();
         runtime

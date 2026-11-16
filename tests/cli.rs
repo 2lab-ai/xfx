@@ -4,6 +4,10 @@
 //! Every assertion here is a product promise: what the executable prints, what it
 //! exits with, what it refuses to advertise, and what it refuses to create or leak.
 
+// Runs this binary's cases in a copy of it whose environment is built from
+// nothing (`support::isolated`), and gives the binary's own children theirs.
+mod support;
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,8 +21,7 @@ use xfx::config::{
 use xfx::provider::{resolve_credential_for, ProviderCredential, ProviderId};
 
 #[cfg(unix)]
-#[path = "support/profiles.rs"]
-mod profiles;
+use support::profiles;
 
 /// Upstream command names that xfx deliberately does not implement in v0.1.
 ///
@@ -40,15 +43,6 @@ const DEFERRED_COMMAND_NAMES: &[&str] = &[
     "upgrade",
     "replay",
     "workspace",
-];
-
-/// Environment variables that must never leak in from the developer's shell.
-const CONTROLLED_VARS: &[&str] = &[
-    "VERCEL_OIDC_TOKEN",
-    "AI_GATEWAY_API_KEY",
-    "XFX_MODEL",
-    "XFX_PERMISSION_MODE",
-    "XFX_MAX_AGENT_STEPS",
 ];
 
 struct Sandbox {
@@ -76,12 +70,14 @@ impl Sandbox {
     }
 
     fn command(&self) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+        let mut command = support::command(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
+        // Built from nothing but where programs are and where temporary
+        // files go: no variable of the developer's -- an xfx setting, a
+        // credential, what chooses git's or llmux's configuration -- reaches
+        // the binary.
+        support::sandbox::clear_env(&mut command);
         command.env("HOME", &self.home);
-        for key in CONTROLLED_VARS {
-            command.env_remove(key);
-        }
         command
     }
 

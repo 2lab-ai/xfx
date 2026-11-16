@@ -14,7 +14,7 @@ mod support;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::Output;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -34,26 +34,6 @@ use support::fake_gateway::{
     content_only, finish, finish_with_usage, sse_body, sse_body_without_done, text_delta,
     tool_call, FakeGateway, Reply,
 };
-
-/// Environment variables that must never leak in from the developer's shell.
-const CONTROLLED_VARS: &[&str] = &[
-    "VERCEL_OIDC_TOKEN",
-    "AI_GATEWAY_API_KEY",
-    "XFX_MODEL",
-    "XFX_PERMISSION_MODE",
-    "XFX_MAX_AGENT_STEPS",
-    "XFX_GATEWAY_URL",
-    // A proxy, or an exemption from one, in the developer's shell would decide
-    // where a request goes; the proxy test sets these itself.
-    "HTTP_PROXY",
-    "http_proxy",
-    "HTTPS_PROXY",
-    "https_proxy",
-    "ALL_PROXY",
-    "all_proxy",
-    "NO_PROXY",
-    "no_proxy",
-];
 
 /// A test secret that must never appear on stdout or stderr.
 const TEST_KEY: &str = "xfx-test-gateway-key-must-not-appear";
@@ -1481,12 +1461,10 @@ impl Sandbox {
     }
 
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+        let mut command = support::command(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
+        support::sandbox::clear_env(&mut command);
         command.env("HOME", &self.home);
-        for key in CONTROLLED_VARS {
-            command.env_remove(key);
-        }
         for (key, value) in env {
             command.env(key, value);
         }

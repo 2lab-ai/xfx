@@ -440,8 +440,8 @@ pub fn lay(home: &Path, workspace: &Path, profile: Profile) -> bool {
         }
         Profile::FileForDir => fs::write(&dir, "{}").expect("a file where the directory belongs"),
         Profile::Fifo => {
-            let made = xfx::process::status(std::process::Command::new("mkfifo").arg(&file))
-                .expect("run mkfifo");
+            let made =
+                xfx::process::status(super::command("mkfifo").arg(&file)).expect("run mkfifo");
             assert!(made.success(), "a FIFO");
         }
         Profile::UnlistableDir | Profile::UnlistableHome => {

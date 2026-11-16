@@ -827,11 +827,14 @@ impl Environment {
             ENV_LLMUX_CONFIG,
             ENV_XDG_CONFIG_HOME,
         ] {
-            if let Ok(value) = std::env::var(key) {
+            if let Ok(value) = process_env!("config::Environment::from_process", var(key)) {
                 vars.insert(key.to_string(), value);
             }
         }
-        Self::new(std::env::var_os("HOME").map(PathBuf::from), vars)
+        Self::new(
+            process_env!("config::Environment::from_process", var_os("HOME")).map(PathBuf::from),
+            vars,
+        )
     }
 
     pub fn home(&self) -> Option<&Path> {
@@ -2805,6 +2808,23 @@ fn resolve_credential(env: &Environment) -> Option<Credential> {
         }
     }
     None
+}
+
+/// In a unit test, this environment as the process (`crate::test_env`).
+#[cfg(test)]
+impl Environment {
+    /// A fake process whose home and variables are this environment's: what
+    /// a runtime built from it reads wherever it would read the process.
+    pub(crate) fn fake_process(&self) -> crate::test_env::FakeProcess {
+        let process = self.vars.iter().fold(
+            crate::test_env::FakeProcess::new(),
+            |process, (name, value)| process.var(name, value),
+        );
+        match &self.home {
+            Some(home) => process.home(home),
+            None => process,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -5436,9 +5456,8 @@ mod tests {
                 |dir, file| {
                     fs::create_dir_all(dir).expect("dir");
                     private(dir, 0o700);
-                    let made =
-                        crate::process::status(std::process::Command::new("mkfifo").arg(file))
-                            .expect("run mkfifo");
+                    let made = crate::process::status(crate::process::command("mkfifo").arg(file))
+                        .expect("run mkfifo");
                     assert!(made.success(), "a FIFO");
                 },
                 ProfileOpen::Unsafe,
@@ -5528,7 +5547,7 @@ mod tests {
         // A FIFO nobody writes to: an open that waited would wait forever, so
         // it runs on a thread, freed by a writer opened without waiting.
         let _ = fs::remove_file(&file);
-        let made = crate::process::status(std::process::Command::new("mkfifo").arg(&file))
+        let made = crate::process::status(crate::process::command("mkfifo").arg(&file))
             .expect("run mkfifo");
         assert!(made.success(), "a FIFO");
         let (sent, got) = std::sync::mpsc::channel();

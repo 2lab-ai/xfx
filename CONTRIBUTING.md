@@ -59,17 +59,19 @@ paths by their shape and is not every path of a machine: a Windows path,
 ## The gate
 
 Everything below must pass before a change is ready. This is exactly what CI
-runs, on Linux and macOS, on x86_64 and aarch64 -- except the three script tests
-(`test-gate-env.sh`, `test-preview-contract.sh` and
-`test-check-no-local-paths.sh`), which test the gate scripts
-on the OS's own bash, grep and git rather than anything built for the target,
-so CI runs them on one row per OS: aarch64 macOS and x86_64 Linux. Run them
-locally all the same:
+runs, on Linux and macOS, on x86_64 and aarch64 -- except the four script
+tests (`test-gate-env.sh`, `test-preview-contract.sh`,
+`test-check-no-local-paths.sh` and `check-env-reads.py --self-test`), which
+test the gate scripts on the OS's own tools rather than anything built for
+the target, so CI runs them on one row per OS: aarch64 macOS and x86_64
+Linux. Run them locally all the same:
 
 ```bash
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+python3 scripts/check-env-reads.py
+python3 scripts/check-env-reads.py --self-test
 cargo test --locked --all-targets
 cargo test --locked --features fault-injection --test tui
 cargo build --locked --release

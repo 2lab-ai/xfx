@@ -73,7 +73,7 @@ impl FakeClipboard {
             .expect("make it executable");
         // Run once now: macOS assesses an executable the first time it runs,
         // which can take seconds -- past the five the binary gives a file copy.
-        xfx::process::status(Command::new(&osascript).arg("warm-up"))
+        xfx::process::status(super::command(&osascript).arg("warm-up"))
             .expect("run the fake osascript once");
         std::fs::remove_file(dir.path().join("copied-file")).expect("forget the warm-up");
         std::fs::create_dir(dir.path().join("reports")).expect("a report directory");
@@ -82,7 +82,7 @@ impl FakeClipboard {
 
     /// Puts the fake tools ahead of everything else on `command`'s `PATH`.
     pub fn first_on_path(&self, command: &mut Command) {
-        let inherited = std::env::var_os("PATH").unwrap_or_default();
+        let inherited = super::sandbox::path();
         let mut path = std::ffi::OsString::from(self.dir.path());
         path.push(":");
         path.push(inherited);

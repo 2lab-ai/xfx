@@ -1143,6 +1143,21 @@ type ThreadMask = (std::thread::ThreadId, Vec<(libc::c_int, bool)>);
 #[cfg(test)]
 static RUNTIME_MASKS: Mutex<Vec<ThreadMask>> = Mutex::new(Vec::new());
 
+/// What a runtime thread read of the process once its runtime was built --
+/// the Gateway's address, git's selectors, the link bases -- by the thread's
+/// id: what a case compares (never prints) against the fake process it
+/// launched in (`crate::test_env`).
+#[cfg(test)]
+type LaunchReads = (
+    std::thread::ThreadId,
+    Option<String>,
+    crate::permission::GitEnvironment,
+    Vec<crate::permission::LinkBase>,
+);
+
+#[cfg(test)]
+static RUNTIME_READS: Mutex<Vec<LaunchReads>> = Mutex::new(Vec::new());
+
 /// Starts the runtime thread, and hands back the channel the UI reads.
 ///
 /// **Started with every owned signal blocked** ([`super::signals::spawn_unsignalled`]),
@@ -1289,6 +1304,18 @@ pub(crate) fn spawn(
             return None;
         };
         let mut state = Runtime::new(config, store, prompter, questioner);
+        #[cfg(test)]
+        RUNTIME_READS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((
+                std::thread::current().id(),
+                crate::gateway::Endpoint::from_process()
+                    .ok()
+                    .map(|endpoint| endpoint.url().to_string()),
+                crate::permission::GitEnvironment::from_process(),
+                crate::permission::LinkBase::from_environment(),
+            ));
         state.next_session = next_session;
         state.reply = loops_reply;
         state.grants = publishes_grants;
@@ -1778,6 +1805,12 @@ impl Runtime {
         prompter: TuiPrompter,
         questioner: Arc<TuiQuestioner>,
     ) -> Self {
+        // In a unit test, what this runtime reads of the process -- the
+        // Gateway's address, git's selectors, the link bases -- is `env`'s
+        // where `env` holds it, and the thread's fake process's for the rest,
+        // on this thread from now on (`crate::test_env`).
+        #[cfg(test)]
+        env.fake_process().over_this_thread();
         let selector = ModelSelector::new(&config);
         let board = StatusBoard::new(status_snapshot(&config, selector.model(), None));
         let settings = crate::provider::effort::TurnSettings {
@@ -7611,7 +7644,7 @@ mod tests {
             ControlChannel::new(control_rx),
             Cancellation::new(CancelToken::new()),
         );
-        let mut state = Runtime::new(config, store, prompter, a_questioner());
+        let mut state = a_runtime(config, store, prompter, a_questioner());
         let (handle, _work, _control, _changes) = WorkHandle::detached_with_changes();
         handle.live().set_mode(PermissionMode::Ask);
         state.live = handle.live().clone();
@@ -8517,12 +8550,18 @@ mod tests {
     fn the_runtime_thread_is_started_with_every_owned_signal_blocked() {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
-        let (mut worker, mut events) = spawn(
-            config(home.path(), workspace.path()),
-            Cancellation::new(CancelToken::new()),
-            None,
-        )
-        .expect("a runtime");
+        // A launch reads the process; this one reads the case's
+        // (`crate::test_env`), on the runtime thread too.
+        let (mut worker, mut events) = crate::test_env::FakeProcess::new()
+            .home(home.path())
+            .run(|| {
+                spawn(
+                    config(home.path(), workspace.path()),
+                    Cancellation::new(CancelToken::new()),
+                    None,
+                )
+            })
+            .expect("a runtime");
         let id = worker
             .thread
             .as_ref()
@@ -8551,6 +8590,69 @@ mod tests {
                 "signal {signal} is deliverable on the runtime thread"
             );
         }
+    }
+
+    /// A worker launched in a fake process reads, on its runtime thread, what
+    /// the case gave it -- the Gateway's address, git's selectors, `ZDOTDIR`
+    /// -- and not only the part of it an [`Environment`] holds. Compared, never
+    /// printed.
+    #[test]
+    fn a_launched_worker_reads_the_whole_fake_process_it_was_launched_in() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let zdotdir = tempfile::tempdir().expect("a ZDOTDIR");
+        let (mut worker, mut events) = crate::test_env::FakeProcess::new()
+            .home(home.path())
+            .var("XFX_GATEWAY_URL", "https://fake-gateway.invalid/v1")
+            .var("GIT_CONFIG_GLOBAL", "/dev/null")
+            .var("GIT_CONFIG_NOSYSTEM", "1")
+            .var("ZDOTDIR", zdotdir.path())
+            .run(|| {
+                spawn(
+                    config(home.path(), workspace.path()),
+                    Cancellation::new(CancelToken::new()),
+                    None,
+                )
+            })
+            .expect("a runtime");
+        let id = worker
+            .thread
+            .as_ref()
+            .expect("the thread is held")
+            .thread()
+            .id();
+        let deadline = Instant::now() + TEST_DRAIN;
+        let (endpoint, git, links) = loop {
+            let found = RUNTIME_READS
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .find(|(thread, ..)| *thread == id)
+                .map(|(_, endpoint, git, links)| (endpoint.clone(), git.clone(), links.clone()));
+            if let Some(found) = found {
+                break found;
+            }
+            assert!(Instant::now() < deadline, "the runtime never started");
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        worker.shutdown(&mut events, Instant::now() + TEST_DRAIN, |_| {});
+        assert!(
+            endpoint.as_deref() == Some("https://fake-gateway.invalid/v1"),
+            "the worker's XFX_GATEWAY_URL is not the case's"
+        );
+        assert!(
+            git == crate::permission::GitEnvironment::default()
+                .with("GIT_CONFIG_GLOBAL", "/dev/null")
+                .with("GIT_CONFIG_NOSYSTEM", "1"),
+            "the worker's GIT_CONFIG_* are not the case's"
+        );
+        assert!(
+            links
+                == [crate::permission::LinkBase::Root(
+                    zdotdir.path().to_path_buf()
+                )],
+            "the worker's ZDOTDIR is not the case's"
+        );
     }
 
     #[test]
@@ -8640,7 +8742,7 @@ mod tests {
         assert!(gateway_credential(&config).is_some());
         let store = open_store(&config).expect("an unsaved store");
         assert!(store.is_unsaved());
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         state
             .conversation(&CancelToken::new())
             .expect("a conversation opens unsaved");
@@ -8689,7 +8791,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let state = a_runtime(config, store, a_prompter(), a_questioner());
         assert_eq!(state.resumable(), None);
         assert_eq!(sessions_in(home.path()), Vec::<String>::new());
     }
@@ -8889,7 +8991,7 @@ mod tests {
 
         // The picker's, across the channel as the runtime sends it.
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         // The picker's resume does not wait on a writer lock, and a sibling
         // test that forks a command in the instant this one closed the log
         // can hold the lock's descriptor until its child execs: a held lock
@@ -8943,7 +9045,7 @@ mod tests {
             Some("first question alpha")
         );
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         state.resume(resumed, &CancelToken::new());
 
         // The conversation before any prompt, and it is the saved one: the
@@ -8977,7 +9079,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config.clone(), store, a_prompter(), a_questioner());
         state
             .rename("My Title", &CancelToken::new())
             .expect("the rename is written");
@@ -9013,7 +9115,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config.clone(), store, a_prompter(), a_questioner());
         state
             .rename("My Title", &CancelToken::new())
             .expect("the first rename is written");
@@ -9053,7 +9155,7 @@ mod tests {
         let grant = Grant::new("edit_file", "notes.txt".to_string());
         let saved = a_saved_session(&config, &grant);
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config.clone(), store, a_prompter(), a_questioner());
         // This runtime's own session: renamed, so on disk, but empty.
         state
             .rename("Only a title", &CancelToken::new())
@@ -9090,7 +9192,7 @@ mod tests {
         let grant = Grant::new("edit_file", "notes.txt".to_string());
         let saved = a_saved_session(&config, &grant);
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config.clone(), store, a_prompter(), a_questioner());
         // The conversation it is in now has a turn, so it is kept.
         state
             .conversation(&CancelToken::new())
@@ -9179,7 +9281,7 @@ mod tests {
             .expect("the saved session opens");
         assert_eq!(resumed.model(), saved_under.model);
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config.clone(), store, a_prompter(), a_questioner());
         let before = log_text(state_with_log(&mut state, resumed));
         let recorded = |state: &Runtime| {
             let recorded = state.conversation.as_ref().expect("bound").recorder.state();
@@ -9285,7 +9387,7 @@ mod tests {
         let mut config = saved_under.clone();
         config.permission_mode = PermissionMode::Yolo;
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         let before = session_files(&state, &saved);
 
         state
@@ -9353,7 +9455,7 @@ mod tests {
         let mut config = saved_under.clone();
         config.permission_mode = PermissionMode::Yolo;
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         let before = session_files(&state, &saved);
         state
             .resume_by_id(saved.as_str(), &CancelToken::new())
@@ -9413,7 +9515,7 @@ mod tests {
     /// one of them before a first prompt -- and then that prompt.
     fn chosen_before_the_first_prompt(config: RuntimeConfig) -> (Runtime, SessionId) {
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         state
             .selector
             .set_catalog_for_test(CatalogState::Loaded(speed_catalog()));
@@ -9539,7 +9641,7 @@ mod tests {
         drop(resumed);
 
         let store = open_store(&later).expect("a store");
-        let mut state = Runtime::new(later, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(later, store, a_prompter(), a_questioner());
         state
             .resume_by_id(id.as_str(), &CancelToken::new())
             .expect("resumed");
@@ -9557,7 +9659,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         state.settings.effort = crate::provider::effort::Effort::Named("high".to_string());
         let id = state
             .conversation(&CancelToken::new())
@@ -9631,7 +9733,7 @@ mod tests {
         let mut config = config(home.path(), workspace.path());
         config.permission_mode = PermissionMode::Auto;
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         let target = state.next_rules_path();
         assert_eq!(
             confirmed(&state, HELD_DENY).1,
@@ -9699,7 +9801,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config.clone(), store, a_prompter(), a_questioner());
         let target = state.next_rules_path();
         confirmed(&state, HELD_DENY);
         state
@@ -9708,7 +9810,7 @@ mod tests {
         let saved = crate::permission::session_rules::load(&target).expect("the file");
         assert_eq!(saved.rules.len(), 1, "{saved:?}");
         // A session nothing was held for gets no file, as before.
-        let mut clean = Runtime::new(
+        let mut clean = a_runtime(
             config.clone(),
             open_store(&config).expect("a store"),
             a_prompter(),
@@ -9734,7 +9836,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         confirmed(&state, HELD_DENY);
         let sessions = state.store.sessions_dir().to_path_buf();
         let before = std::fs::metadata(&sessions)
@@ -9840,7 +9942,7 @@ mod tests {
         let mut config = config(home.path(), workspace.path());
         config.permission_mode = PermissionMode::Auto;
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         let at = state.next_rules_path();
         let set = |n: usize| slash::Confirmation {
             question: "",
@@ -10018,7 +10120,7 @@ mod tests {
             conversation.recorder.id().clone()
         };
         let store = open_store(&launched).expect("a store");
-        let mut state = Runtime::new(launched, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(launched, store, a_prompter(), a_questioner());
         assert_eq!(state.settings, TurnSettings::default());
         state
             .resume_by_id(saved.as_str(), &CancelToken::new())
@@ -10087,7 +10189,7 @@ mod tests {
         let resumed = Resumption::open(&saved_under, &crate::session::Selector::Id(id))
             .expect("the saved session opens");
         let store = open_store(&saved_under).expect("a store");
-        let mut state = Runtime::new(saved_under.clone(), store, a_prompter(), a_questioner());
+        let mut state = a_runtime(saved_under.clone(), store, a_prompter(), a_questioner());
         let before = log_text(state_with_log(&mut state, resumed));
 
         assert!(matches!(
@@ -10209,6 +10311,22 @@ mod tests {
             ControlChannel::new(control_rx),
             Cancellation::new(CancelToken::new()),
         )
+    }
+
+    /// A runtime over `config` whose reloads read the home `config` was
+    /// loaded from, and no variable: [`Runtime::new`] would read the process
+    /// the suite runs in, which a unit test may not (`crate::test_env`).
+    fn a_runtime(
+        config: RuntimeConfig,
+        store: SessionStore,
+        prompter: TuiPrompter,
+        questioner: Arc<TuiQuestioner>,
+    ) -> Runtime {
+        let env = Environment::new(
+            config.home().map(std::path::Path::to_path_buf),
+            BTreeMap::new(),
+        );
+        Runtime::with_environment(config, env, store, prompter, questioner)
     }
 
     /// The same, for the requester the model's questions go through. Nothing on
@@ -13160,7 +13278,7 @@ mod tests {
         drop(resumed);
         // From the picker, into a runtime in other settings.
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         assert_eq!(state.settings, TurnSettings::default());
         let replay = state
             .resume_by_id(saved.as_str(), &CancelToken::new())
@@ -13240,7 +13358,7 @@ mod tests {
         let resumed = opened(&older);
         assert!(resumed.keeps_fast_binding(ProviderId::Llmux, model, true));
         assert!(!resumed.keeps_fast_binding(ProviderId::Llmux, model, false));
-        let mut state = Runtime::new(
+        let mut state = a_runtime(
             config.clone(),
             open_store(&config).expect("a store"),
             a_prompter(),
@@ -13466,7 +13584,7 @@ mod tests {
                     .join(on_gateway.as_str())
                     .join(crate::session::store::EVENTS_FILE);
                 let before = std::fs::read(&events).expect("the log");
-                let mut state = Runtime::new(launched, store, a_prompter(), a_questioner());
+                let mut state = a_runtime(launched, store, a_prompter(), a_questioner());
                 state.resume(resumed, &CancelToken::new());
                 assert_eq!(
                     std::fs::read(&events).expect("the log"),
@@ -13541,7 +13659,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let saved = saved_on(&config, Some("llmux"), "m-1");
-        let mut state = Runtime::new(
+        let mut state = a_runtime(
             config.clone(),
             open_store(&config).expect("a store"),
             a_prompter(),
@@ -14320,7 +14438,7 @@ mod tests {
             Cancellation::new(CancelToken::new()),
         );
 
-        let mut state = Runtime::new(config, store, prompter, a_questioner());
+        let mut state = a_runtime(config, store, prompter, a_questioner());
         // Through `authority()`, which is what `ready` opens a real
         // conversation with: a fixture that built its own permission session
         // would be asserting against its own argument.
@@ -14460,7 +14578,7 @@ mod tests {
         .expect("an owner-only profile");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         // At launch: the table the profile holds.
         assert_eq!(
             state.authority().rules().rules(),
@@ -14810,11 +14928,17 @@ mod tests {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         let gate = RUNTIME_MASKS.lock().unwrap_or_else(PoisonError::into_inner);
-        let spawned = spawn(
-            config(home.path(), workspace.path()),
-            Cancellation::new(CancelToken::new()),
-            None,
-        );
+        // A launch reads the process; this one reads the case's
+        // (`crate::test_env`), on the runtime thread too.
+        let spawned = crate::test_env::FakeProcess::new()
+            .home(home.path())
+            .run(|| {
+                spawn(
+                    config(home.path(), workspace.path()),
+                    Cancellation::new(CancelToken::new()),
+                    None,
+                )
+            });
         let seed = spawned
             .as_ref()
             .map(|(worker, _)| worker.handle().trace_facts())
@@ -15308,7 +15432,7 @@ mod tests {
             ControlChannel::new(control_rx),
             cancel.clone(),
         );
-        let mut state = Runtime::new(config, store, prompter, a_questioner());
+        let mut state = a_runtime(config, store, prompter, a_questioner());
         // The UI's handle and the runtime share one live authority, as
         // `spawn` makes them.
         let (handle, _work, _control, _changes) = WorkHandle::detached_with_changes();
@@ -15948,7 +16072,7 @@ mod tests {
         .expect("load a configuration");
         assert_eq!(config.provider, ProviderId::Gateway);
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         // The stand-in first, which leaves nothing loaded; then the answer.
         state.selector.set_fetcher_for_test(Box::new(Answering {
             entries: Vec::new(),
@@ -16726,7 +16850,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let state = a_runtime(config, store, a_prompter(), a_questioner());
         assert_eq!(points(&state), Vec::new());
 
         let (_home, _workspace, mut state) = recording();
@@ -17162,7 +17286,7 @@ mod tests {
         )
         .expect("an untitled session with no turn");
         let untitled = untitled.recorder.id().clone();
-        let other = Runtime::new(config, store, a_prompter(), a_questioner());
+        let other = a_runtime(config, store, a_prompter(), a_questioner());
         let listed = other.sessions().expect("reads");
         let rows: Vec<(String, Option<String>, u64)> = listed
             .current

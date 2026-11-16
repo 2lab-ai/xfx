@@ -1,0 +1,113 @@
+# log lines 17251, well-formed 17251 (one write per record)
+# at 2cfe0ca7; every integration suite under sentinel-run.sh, build arms recording
+suite cli: test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.79s
+suite gateway: test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.23s
+suite interactive: test result: FAILED. 78 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.07s
+suite isolation: test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.31s
+suite ledger_compat: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+suite llmux: test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.66s
+suite mcp: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.65s
+suite parity: test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+suite permissions: test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.79s
+suite session_compat: test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+suite sessions: test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.81s
+suite tool_loop: test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.33s
+suite tui: test result: FAILED. 178 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 69.32s
+
+# reads recorded: 17251 (15348 by the xfx binary the suites start, 1825 in a clean copy of a test binary, 78 in the test process the developer started)
+# of those in the developer's process, through process_env!: 0
+
+# in a test's own process, by suite, reader and variable: reads
+cli	env_exception!	PATH	1
+cli	env_exception!	RUST_BACKTRACE	1
+cli	env_exception!	RUST_TEST_THREADS	1
+cli	env_exception!	TMPDIR	2
+cli	env_exception!	XFX_TEST_ISOLATED_COPY	1
+gateway	env_exception!	PATH	1
+gateway	env_exception!	RUST_BACKTRACE	1
+gateway	env_exception!	RUST_TEST_THREADS	1
+gateway	env_exception!	TMPDIR	2
+gateway	env_exception!	XFX_TEST_ISOLATED_COPY	1
+interactive	env_exception!	PATH	1
+interactive	env_exception!	RUST_BACKTRACE	1
+interactive	env_exception!	RUST_TEST_THREADS	1
+interactive	env_exception!	TMPDIR	2
+interactive	env_exception!	XFX_TEST_ISOLATED_COPY	1
+isolation	env_exception!	PATH	1
+isolation	env_exception!	RUST_BACKTRACE	1
+isolation	env_exception!	RUST_TEST_THREADS	1
+isolation	env_exception!	TMPDIR	2
+isolation	env_exception!	XFX_TEST_ISOLATED_COPY	1
+ledger_compat	env_exception!	PATH	1
+ledger_compat	env_exception!	RUST_BACKTRACE	1
+ledger_compat	env_exception!	RUST_TEST_THREADS	1
+ledger_compat	env_exception!	TMPDIR	2
+ledger_compat	env_exception!	XFX_TEST_ISOLATED_COPY	1
+llmux	env_exception!	PATH	1
+llmux	env_exception!	RUST_BACKTRACE	1
+llmux	env_exception!	RUST_TEST_THREADS	1
+llmux	env_exception!	TMPDIR	2
+llmux	env_exception!	XFX_TEST_ISOLATED_COPY	1
+mcp	env_exception!	PATH	1
+mcp	env_exception!	RUST_BACKTRACE	1
+mcp	env_exception!	RUST_TEST_THREADS	1
+mcp	env_exception!	TMPDIR	2
+mcp	env_exception!	XFX_TEST_ISOLATED_COPY	1
+parity	env_exception!	PATH	1
+parity	env_exception!	RUST_BACKTRACE	1
+parity	env_exception!	RUST_TEST_THREADS	1
+parity	env_exception!	TMPDIR	2
+parity	env_exception!	XFX_TEST_ISOLATED_COPY	1
+permissions	env_exception!	PATH	1
+permissions	env_exception!	RUST_BACKTRACE	1
+permissions	env_exception!	RUST_TEST_THREADS	1
+permissions	env_exception!	TMPDIR	2
+permissions	env_exception!	XFX_TEST_ISOLATED_COPY	1
+session_compat	env_exception!	PATH	1
+session_compat	env_exception!	RUST_BACKTRACE	1
+session_compat	env_exception!	RUST_TEST_THREADS	1
+session_compat	env_exception!	TMPDIR	2
+session_compat	env_exception!	XFX_TEST_ISOLATED_COPY	1
+sessions	env_exception!	PATH	1
+sessions	env_exception!	RUST_BACKTRACE	1
+sessions	env_exception!	RUST_TEST_THREADS	1
+sessions	env_exception!	TMPDIR	2
+sessions	env_exception!	XFX_TEST_ISOLATED_COPY	1
+tool_loop	env_exception!	PATH	1
+tool_loop	env_exception!	RUST_BACKTRACE	1
+tool_loop	env_exception!	RUST_TEST_THREADS	1
+tool_loop	env_exception!	TMPDIR	2
+tool_loop	env_exception!	XFX_TEST_ISOLATED_COPY	1
+tui	env_exception!	PATH	1
+tui	env_exception!	RUST_BACKTRACE	1
+tui	env_exception!	RUST_TEST_THREADS	1
+tui	env_exception!	TMPDIR	2
+tui	env_exception!	XFX_TEST_ISOLATED_COPY	1
+
+# in a test's own process, the cases (threads) that read, by suite
+## cli: 1
+  ?
+## gateway: 1
+  ?
+## interactive: 1
+  ?
+## isolation: 1
+  ?
+## ledger_compat: 1
+  ?
+## llmux: 1
+  ?
+## mcp: 1
+  ?
+## parity: 1
+  ?
+## permissions: 1
+  ?
+## session_compat: 1
+  ?
+## sessions: 1
+  ?
+## tool_loop: 1
+  ?
+## tui: 1
+  ?

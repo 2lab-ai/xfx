@@ -1,0 +1,19 @@
+# Release builds compared: base 32afd307 and head e1a127a4, each built in a throwaway clone with
+#   XFX_BUILD_REVISION=000000000000 cargo build --release --locked
+# then: release-compare.py <base xfx> <head xfx>
+size base 11668096 head 11668096
+section table identical (name, address, size, offset): True
+differing bytes 466
+    318 code signature (page hashes)
+    132 __DATA_CONST,__const
+     16 header LC_UUID
+__DATA_CONST,__const: panic Locations whose line moved (file, +lines): count
+  src/mcp/runtime.rs +6: 11
+  src/mcp/transport.rs +3: 33
+  src/tui/shell.rs +2: 25
+  src/tui/worker.rs +5: 58
+__DATA_CONST,__const bytes not explained as a moved line: 0
+
+# shasum -a 256 of the two (they differ by the bytes above)
+87599f66c21a733b6c80f20010ccd0a579a214d644a79d979bb352bbe14d0a92  xfx-release-base
+6f883125b5409fe314b5bcbc54f350c471570977073292eb17910cbf7c488a4e  xfx-release-head

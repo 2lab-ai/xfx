@@ -1443,7 +1443,13 @@ mod tests {
     async fn the_shell_is_dispatched_and_refuses_a_test_harness_that_is_not_a_terminal() {
         // Under `cargo test` there is no terminal, so this exercises the arm
         // and the refusal at once -- and proves the refusal goes to the stderr
-        // it was handed rather than to the process's own.
+        // it was handed rather than to the process's own. The arm loads the
+        // configuration first, from a home of the case's own
+        // (`crate::test_env`), never the one running the suite.
+        let home = tempfile::tempdir().expect("a home");
+        let _process = crate::test_env::FakeProcess::new()
+            .home(home.path())
+            .enter();
         let (code, stdout, stderr) = run_capture(Command::Interactive { resume: None }).await;
         assert_eq!(
             format!("{code:?}"),

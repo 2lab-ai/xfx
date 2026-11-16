@@ -1,0 +1,52 @@
+BASELINE ok :: envcheck passes ([], ["--all-features"]), test builds (); 
+BASELINE ok :: envcheck passes ([], ["--all-features"]), test builds ([],); 
+BASELINE ok :: envcheck passes ([], ["--all-features"], ["--release"]), test builds (); 
+KILLED guard-gone: process_env! var/var_os read std::env in tests :: test result: FAILED. 11 passed; 12 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED refusal-gone: test_env::var_os returns None outside a fake :: test result: FAILED. 14 passed; 9 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED config-vars-unrouted: Environment::from_process reads its variables from std::env :: test result: FAILED. 17 passed; 6 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 10.04s :: sentinel values in output: 0
+KILLED config-home-unrouted: Environment::from_process reads HOME from std::env :: test result: FAILED. 21 passed; 2 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 10.07s :: sentinel values in output: 0
+KILLED gateway-reader-unrouted: Endpoint::from_process reads std::env :: test result: FAILED. 19 passed; 4 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED git-reader-unrouted: GitEnvironment::from_process reads std::env :: test result: FAILED. 20 passed; 3 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED home-to-git-unrouted: minimal_environment's HOME is the process's :: test result: FAILED. 19 passed; 4 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED child-isolation-gone: process::command inherits the process :: test result: FAILED. 21 passed; 2 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 10.05s :: sentinel values in output: 0
+KILLED carry-gone: spawn_unsignalled does not carry the fake process :: test result: FAILED. 21 passed; 2 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 10.05s :: sentinel values in output: 0
+KILLED mcp-fallback-back: with_environment falls back to std::env :: test result: FAILED. 22 passed; 1 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 10.05s :: sentinel values in output: 0
+KILLED overlay-gone: a runtime's environment replaces the thread's fake (item 3) :: test result: FAILED. 21 passed; 2 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 10.05s :: sentinel values in output: 0
+KILLED global-git-gone: a homeless plan keeps the global configuration (item 2) :: test result: FAILED. 20 passed; 3 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 10.05s :: sentinel values in output: 0
+KILLED proxy-rule-gone: bearer_rules takes the process's proxy in a test (item 6) :: test result: FAILED. 21 passed; 2 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 5.02s :: sentinel values in output: 0
+KILLED fake-proxy-ignored: proxies() drops the fake process's proxy (item 6) :: test result: FAILED. 22 passed; 1 failed; 0 ignored; 0 measured; 4622 filtered out; finished in 5.03s :: sentinel values in output: 0
+KILLED bare-command-in-a-test-module (round 2 SHOULD 2) :: exit 1; refused: src/tui/file_index.rs:0: std::process::Command::new outside env_exception! and process_env!, unlisted (1)
+KILLED probe-bare: the SIGCHLD probe made with a bare Command (round 4, item 3) :: exit 1; refused: src/process.rs:0: std::process::Command::new outside env_exception! and process_env!, unlisted (1)
+KILLED aliased-git: opus M1's case, an aliased Command in a src test module :: exit 1; refused: src/test_env/tests.rs:0: std::process::Command::new outside env_exception! and process_env!, unlisted (1)
+KILLED tests-start-outside-support: a Command::new in a test file :: exit 1; refused: tests/parity.rs:0: std::process::Command::new outside env_exception! and process_env!, unlisted (1)
+KILLED config-loses-command-new: clippy.toml no longer disallows Command::new :: exit 1; refused: build.rs:0: a listed std::process::Command::new is not there (1) | refused: clippy.toml:0: disallowed-methods no longer holds std::process::Command::new | refused: src/process.rs:0: a listed std::process::Command::new is not there (1) | refused: src/tui/signals.rs:0: a listed std::process::Command::new is not there (1)
+KILLED dot-clippy-toml: a .clippy.toml beside clippy.toml :: exit 1; refused: .clippy.toml:0: a .clippy.toml, which clippy reads in place of clippy.toml | refused: build.rs:0: a listed std::env::var is not there (3) | refused: build.rs:0: a listed std::env::vars_os is not there (1) | refused: build.rs:0: a listed std::process::Command::new is not there (1)
+KILLED option-env-key: option_env!(XFX_GATEWAY_KEY) in a src test :: exit 1; refused: src/lib.rs:0: compiled with XFX_GATEWAY_KEY from the environment (rustc's dep-info), which is not a compile-time name | refused: src/test_env/tests.rs:39: a core::option_env! of XFX_GATEWAY_KEY, which is not a compile-time name
+KILLED env-in-concat: an unlisted env! nested in concat! :: exit 1; 
+KILLED allowed-raw-read: an allow over a plain read, outside the macro :: exit 1; refused: scripts/check-env-reads.py:0: ALLOWED_NAMES holds TMUX, which nothing reads | refused: src/tui/term.rs:0: a listed env_exception! of ['TMUX'] is not there (1) | refused: src/tui/term.rs:0: std::env::var_os outside env_exception! and process_env!, unlisted (1)
+KILLED crate-allow: allow(clippy::all, warnings) at the crate level, then a plain read :: exit 1; refused: scripts/check-env-reads.py:0: ALLOWED_NAMES holds TMUX, which nothing reads | refused: src/tui/term.rs:0: a listed env_exception! of ['TMUX'] is not there (1) | refused: src/tui/term.rs:0: std::env::var_os outside env_exception! and process_env!, unlisted (1)
+KILLED expect-and-cfg-attr: a read under expect, one under cfg_attr(allow) :: exit 1; refused: scripts/check-env-reads.py:0: ALLOWED_NAMES holds TMUX, which nothing reads | refused: src/tui/term.rs:0: a listed env_exception! of ['TMUX'] is not there (1) | refused: src/tui/term.rs:0: std::env::var_os outside env_exception! and process_env!, unlisted (1)
+KILLED name-swap: a listed invocation reads HOME :: exit 1; refused: scripts/check-env-reads.py:0: ALLOWED_NAMES holds TMUX, which nothing reads | refused: src/tui/term.rs:0: a listed env_exception! of ['TMUX'] is not there (1) | refused: src/tui/term.rs:178: an unlisted env_exception! of ['HOME'] (1 more than listed)
+KILLED unlisted: an invocation the list does not hold :: exit 1; refused: src/tui/term.rs:178: an unlisted env_exception! of ['TMUX'] (1 more than listed)
+KILLED gone: a listed invocation no longer there :: exit 1; refused: src/permission/gitconfig.rs:0: a listed env_exception! of ['PATH'] is not there (1)
+KILLED start: an allow over a start outside process::spawn :: exit 1; refused: src/process.rs:0: std::process::Command::status outside env_exception! and process_env!, unlisted (1)
+KILLED build-script: one read more in build.rs :: exit 1; refused: build.rs:0: std::env::var outside env_exception! and process_env!, unlisted (1)
+KILLED escape: a test binary that does not declare mod support :: exit 1; 
+KILLED release-only-read: a read under cfg(not(debug_assertions)) :: exit 1; refused: src/test_env/tests.rs:0: std::env::var_os outside env_exception! and process_env!, unlisted (1)
+KILLED cfg-clippy-support: a test file whose support only clippy compiles :: exit 1; refused: tests/escape.rs:0: its test binary ((dev, default features)) runs its cases without making a clean copy of itself (exit 0)
+KILLED bin-harness-with-a-test: a #[test] in src/main.rs :: exit 1; refused: src/main.rs:0: a bin built to run tests in (dev, default features) that holds cases, outside both isolations
+KILLED macro-takes-expr: env_exception!'s var_os arm takes any expression :: exit 1; NOT REFUSED for ['does not compile'] tests/a_constant_into_the_macro.rs
+KILLED self-test-dev-only: the self-test compiles its fixtures in the dev profile only :: exit 1; NOT REFUSED for ['std::env::var_os outside'] tests/release_only_read.rs
+KILLED no-dep-info: rustc's env-dep names are not read :: exit 1; NOT REFUSED for ['compiled with XFX_GATEWAY_KEY'] tests/option_env_of_a_key.rs | NOT REFUSED for ['compiled with CARGO_PKG_AUTHORS'] tests/env_inside_concat.rs
+KILLED probe-gone: a test binary is never started :: exit 1; NOT REFUSED for [('tests/plain.rs', 'without making a clean copy')] test binaries cargo built
+SURVIVED no-macro-lint: disallowed_macros is not forced :: exit 0; 
+SURVIVED marker-trusted: the copy runs its cases on the marker alone :: test result: FAILED. 1 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s :: sentinel values in output: 0
+SURVIVED home-not-empty: the copy takes a HOME with something in it :: test result: FAILED. 1 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s :: sentinel values in output: 0
+SURVIVED names-unchecked: the copy takes a name it was not given :: test result: FAILED. 1 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s :: sentinel values in output: 0
+SURVIVED no-constructor: nothing runs before main :: test result: FAILED. 0 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s :: sentinel values in output: 0
+KILLED inherits: the copy is handed the developer's whole environment :: no result :: sentinel values in output: 0
+KILLED trailing-slash-gone: the copy takes a HOME ending in / :: test result: FAILED. 1 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.04s :: sentinel values in output: 0
+SURVIVED exact-path-gone: the copy compares HOME's last component only (round 4) :: test result: FAILED. 1 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s :: sentinel values in output: 0
+KILLED value-in-error: the creation error prints the path :: test result: FAILED. 1 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.02s :: sentinel values in output: 0
+total 47, survived 6, failed baselines 0, runs with a sentinel value in output 0
+mutants exit 1

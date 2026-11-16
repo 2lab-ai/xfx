@@ -1,0 +1,72 @@
+# --force-warn on a clippy tool lint, rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew), clippy 0.1.99
+## force-warn
+$ cargo clippy --all-targets --message-format=json -q -- --force-warn clippy::disallowed_methods
+exit 0
+lib fwprobe: src/lib.rs:9 warning process_var! called at src/lib.rs:15, defined at src/lib.rs:5
+lib fwprobe: src/lib.rs:9 warning process_var! called at src/lib.rs:15, defined at src/lib.rs:5
+lib fwprobe: src/lib.rs:20 warning (no macro)
+lib fwprobe: src/lib.rs:20 warning (no macro)
+lib fwprobe: src/lib.rs:25 warning (no macro)
+lib fwprobe: src/lib.rs:25 warning (no macro)
+lib fwprobe: src/lib.rs:30 warning (no macro)
+lib fwprobe: src/lib.rs:34 warning (no macro)
+lib fwprobe: src/lib.rs:30 warning (no macro)
+lib fwprobe: src/lib.rs:34 warning (no macro)
+lib fwprobe: src/lib.rs:40 warning (no macro)
+lib fwprobe: src/lib.rs:40 warning (no macro)
+test ext: src/lib.rs:9 warning fwprobe::process_var! called at tests/ext.rs:3, defined at src/lib.rs:5
+test ext: tests/ext.rs:5 warning (no macro)
+## force-warn, then -A on the same command line
+$ cargo clippy --all-targets --message-format=json -q -- --force-warn clippy::disallowed_methods -A clippy::disallowed_methods
+exit 0
+lib fwprobe: src/lib.rs:9 warning process_var! called at src/lib.rs:15, defined at src/lib.rs:5
+lib fwprobe: src/lib.rs:9 warning process_var! called at src/lib.rs:15, defined at src/lib.rs:5
+lib fwprobe: src/lib.rs:20 warning (no macro)
+lib fwprobe: src/lib.rs:20 warning (no macro)
+lib fwprobe: src/lib.rs:25 warning (no macro)
+lib fwprobe: src/lib.rs:30 warning (no macro)
+lib fwprobe: src/lib.rs:25 warning (no macro)
+lib fwprobe: src/lib.rs:34 warning (no macro)
+lib fwprobe: src/lib.rs:30 warning (no macro)
+lib fwprobe: src/lib.rs:40 warning (no macro)
+lib fwprobe: src/lib.rs:34 warning (no macro)
+lib fwprobe: src/lib.rs:40 warning (no macro)
+test ext: src/lib.rs:9 warning fwprobe::process_var! called at tests/ext.rs:3, defined at src/lib.rs:5
+test ext: tests/ext.rs:5 warning (no macro)
+## force-warn, RUSTFLAGS=-A clippy::disallowed_methods -A warnings
+$ cargo clippy --all-targets --message-format=json -q -- --force-warn clippy::disallowed_methods
+exit 0
+lib fwprobe: src/lib.rs:9 warning process_var! called at src/lib.rs:15, defined at src/lib.rs:5
+lib fwprobe: src/lib.rs:9 warning process_var! called at src/lib.rs:15, defined at src/lib.rs:5
+lib fwprobe: src/lib.rs:20 warning (no macro)
+lib fwprobe: src/lib.rs:20 warning (no macro)
+lib fwprobe: src/lib.rs:25 warning (no macro)
+lib fwprobe: src/lib.rs:30 warning (no macro)
+lib fwprobe: src/lib.rs:25 warning (no macro)
+lib fwprobe: src/lib.rs:34 warning (no macro)
+lib fwprobe: src/lib.rs:30 warning (no macro)
+lib fwprobe: src/lib.rs:34 warning (no macro)
+lib fwprobe: src/lib.rs:40 warning (no macro)
+lib fwprobe: src/lib.rs:40 warning (no macro)
+test ext: src/lib.rs:9 warning fwprobe::process_var! called at tests/ext.rs:3, defined at src/lib.rs:5
+test ext: tests/ext.rs:5 warning (no macro)
+## no force-warn: the crate-level allow(clippy::all) and allow(warnings) hide every read, the plain ones too
+$ cargo clippy --all-targets --message-format=json -q
+exit 0
+## force-warn under --cap-lints allow (still reported: the cap does not reach a forced lint)
+$ cargo clippy --all-targets --message-format=json -q -- --force-warn clippy::disallowed_methods --cap-lints allow
+exit 0
+lib fwprobe: src/lib.rs:9 warning process_var! called at src/lib.rs:15, defined at src/lib.rs:5
+lib fwprobe: src/lib.rs:9 warning process_var! called at src/lib.rs:15, defined at src/lib.rs:5
+lib fwprobe: src/lib.rs:20 warning (no macro)
+lib fwprobe: src/lib.rs:25 warning (no macro)
+lib fwprobe: src/lib.rs:20 warning (no macro)
+lib fwprobe: src/lib.rs:30 warning (no macro)
+lib fwprobe: src/lib.rs:25 warning (no macro)
+lib fwprobe: src/lib.rs:34 warning (no macro)
+lib fwprobe: src/lib.rs:30 warning (no macro)
+lib fwprobe: src/lib.rs:40 warning (no macro)
+lib fwprobe: src/lib.rs:34 warning (no macro)
+lib fwprobe: src/lib.rs:40 warning (no macro)
+test ext: src/lib.rs:9 warning fwprobe::process_var! called at tests/ext.rs:3, defined at src/lib.rs:5
+test ext: tests/ext.rs:5 warning (no macro)

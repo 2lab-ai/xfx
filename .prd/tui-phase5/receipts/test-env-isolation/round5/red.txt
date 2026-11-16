@@ -1,0 +1,20 @@
+# red.py at 4050be81 and f015d3c7, filters M1 and HOME (the M1 and release-only rows; its HOME section had the pathlib slash bug and is replaced below)
+## opus M1: an aliased Command in a src test module, its child given the developer's HOME
+  at 4050be81: clippy -D warnings passes; check-env-reads passes
+  at f015d3c7: clippy -D warnings refuses (error: could not compile `xfx` (lib test) due to 1 previous error; error: use of a disallowed method `std::process::Command::new`); check-env-reads refuses (refused: src/test_env/tests.rs:0: std::process::Command::new outside env_exception! and process_env!, unlisted (1))
+## gpt6 check MUST 2: a HOME read in a release-only test
+  at 4050be81: clippy -D warnings passes; check-env-reads passes
+  at f015d3c7: clippy -D warnings passes; check-env-reads refuses (refused: src/test_env/tests.rs:0: std::env::var_os outside env_exception! and process_env!, unlisted (1))
+
+# red.py at 4050be81 and f015d3c7, HOME only, after the slash fix (b4eb270a) and the anchor fix
+## gpt6 isolation MUSTs 1-2, opus M3: HOME, run against each revision's isolated.rs
+  with 4050be81's isolated.rs:
+    a home with the marker's name in another directory: not refused (exit 0); the case ran: yes; its mark left: no; the home it was handed still there: no; what the link points at still there: yes; sentinel printed: no
+    a link to an empty private directory at the exact path: refused (exit 101); the case ran: no; its mark left: no; the home it was handed still there: yes; what the link points at still there: yes; sentinel printed: no
+    that link, with a trailing /: not refused (exit 0); the case ran: yes; its mark left: no; the home it was handed still there: no; what the link points at still there: no; sentinel printed: no
+    a TMPDIR no home can be made under, its value a sentinel: refused (exit 101); the case ran: no; its mark left: no; the home it was handed still there: yes; what the link points at still there: yes; sentinel printed: yes
+  with f015d3c7's isolated.rs:
+    a home with the marker's name in another directory: refused (exit 101); the case ran: no; its mark left: no; the home it was handed still there: yes; what the link points at still there: yes; sentinel printed: no
+    a link to an empty private directory at the exact path: refused (exit 101); the case ran: no; its mark left: no; the home it was handed still there: yes; what the link points at still there: yes; sentinel printed: no
+    that link, with a trailing /: refused (exit 101); the case ran: no; its mark left: no; the home it was handed still there: yes; what the link points at still there: yes; sentinel printed: no
+    a TMPDIR no home can be made under, its value a sentinel: refused (exit 101); the case ran: no; its mark left: no; the home it was handed still there: yes; what the link points at still there: yes; sentinel printed: no

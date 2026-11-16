@@ -1,0 +1,9 @@
+# mutants at 92b6ebca
+BASELINE ok :: envcheck passes ([], ["--all-features"]), test builds (); 
+KILLED cfg-check-gone: a cfg naming clippy is not refused :: exit 1; NOT REFUSED for ['a cfg predicate that names clippy'] tests/cfg_not_clippy.rs | NOT REFUSED for ['a cfg predicate that names clippy'] tests/cfg_attr_not_clippy.rs | NOT REFUSED for ['a cfg predicate that names clippy'] tests/cfg_macro_clippy.rs | NOT REFUSED for ['a cfg predicate that names clippy'] tests/cfg_comment_holding_a_paren.rs
+KILLED cfg-select-dropped: cfg_select! is not matched :: exit 1; NOT REFUSED for ['a cfg_select! arm whose predicate names clippy'] tests/cfg_select_braces.rs | NOT REFUSED for ['a cfg_select! arm whose predicate names clippy'] tests/cfg_select_parentheses.rs | NOT REFUSED for ['a cfg_select! arm whose predicate names clippy'] tests/cfg_select_brackets.rs | NOT REFUSED for ['a cfg_select! arm whose predicate names clippy'] tests/cfg_select_expression_arms.rs
+KILLED cfg-select-braces-only: only cfg_select! { .. } is matched :: exit 1; NOT REFUSED for ['a cfg_select! arm whose predicate names clippy'] tests/cfg_select_parentheses.rs | NOT REFUSED for ['a cfg_select! arm whose predicate names clippy'] tests/cfg_select_brackets.rs
+KILLED cfg-select-scans-bodies: the arms' bodies are read as predicates too :: exit 1; REFUSED, expected accepted tests/cfg_select_naming_a_clippy_lint_in_an_arm.rs
+KILLED cfg-select-plant: opus's cfg_select! in a unit-test module :: exit 1; refused: src/test_env/tests.rs:32: a cfg_select! arm whose predicate names clippy, under which code is never linted
+total 5, survived 0, failed baselines 0, runs with a sentinel value in output 0
+mutants exit 0

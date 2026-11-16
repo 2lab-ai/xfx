@@ -1958,7 +1958,7 @@ mod tests {
         // comes. `mkfifo(1)`, as `tests/tool_loop.rs` makes one.
         let tree = tree();
         let fifo = tree.workspace.join("x.png");
-        let status = crate::process::status(std::process::Command::new("mkfifo").arg(&fifo))
+        let status = crate::process::status(crate::process::command("mkfifo").arg(&fifo))
             .expect("run mkfifo");
         assert!(status.success(), "mkfifo failed: {status:?}");
         let outcome =

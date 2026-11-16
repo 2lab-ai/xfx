@@ -196,7 +196,15 @@ pub fn pipe() -> io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
 /// caller that builds the whole environment (the terminal tool, an MCP stdio
 /// server) clears everything first.
 pub fn command(program: impl AsRef<OsStr>) -> Command {
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "the one Command every other child of xfx's is made from"
+    )]
     let mut command = Command::new(program);
+    // A unit test's child inherits the case's fake process, never the
+    // developer's environment; a build is unchanged.
+    #[cfg(test)]
+    crate::test_env::isolate_child(&mut command);
     for name in crate::config::CREDENTIAL_VARIABLES {
         command.env_remove(name);
     }
@@ -845,17 +853,29 @@ mod tests {
     /// names one on purpose -- an MCP server's configured `env` -- still can.
     /// Named here as literals, so a wrong shared constant cannot pass by
     /// agreeing with itself.
+    ///
+    /// The process holding them is a fake one (`crate::test_env`): a child
+    /// of a unit test inherits that, as a child of xfx inherits the real one,
+    /// so what this function removes is what keeps them out.
     #[test]
     fn a_child_is_never_handed_xfxs_own_credential_unless_a_caller_names_it() {
-        let removed: Vec<String> = command("/bin/true")
+        let given: Vec<String> = crate::test_env::FakeProcess::new()
+            .var("AI_GATEWAY_API_KEY", "xfx-fake-gateway-key")
+            .var("VERCEL_OIDC_TOKEN", "xfx-fake-oidc-token")
+            .var("XFX_FAKE_INHERITED", "1")
+            .run(|| command("/bin/true"))
             .get_envs()
-            .filter(|(_, value)| value.is_none())
+            .filter(|(_, value)| value.is_some())
             .map(|(name, _)| name.to_string_lossy().into_owned())
             .collect();
+        assert!(
+            given.iter().any(|name| name == "XFX_FAKE_INHERITED"),
+            "the fake process is not what a child inherits: {given:?}"
+        );
         for name in ["AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN"] {
             assert!(
-                removed.iter().any(|removed| removed == name),
-                "{name} is not removed from a child's environment: {removed:?}"
+                !given.iter().any(|given| given == name),
+                "{name} is not removed from a child's environment: {given:?}"
             );
         }
         let mut granted = command("/bin/true");
@@ -866,118 +886,6 @@ mod tests {
                 .any(|(name, value)| name == "VERCEL_OIDC_TOKEN"
                     && value == Some(OsStr::new("xfx-sentinel-granted"))),
             "a credential a caller names is not passed"
-        );
-    }
-
-    /// The rule, kept by reading the library's own code: every child process
-    /// is made by [`command`]. A test module -- everything from a file's first
-    /// unindented `#[cfg(test)]` or `#[cfg(all(test, …))]` that puts a `mod`
-    /// under it -- may make one as it likes.
-    ///
-    /// Every start of one, tests' too, goes through [`spawn`], and every pipe
-    /// through [`pipe`]: that half is clippy's, on the resolved call
-    /// (`clippy.toml`'s `disallowed-methods`), which sees a command started
-    /// in a later statement as well as in the one that made it. Kept here:
-    /// each entry is still a line of its own in `clippy.toml`, not commented
-    /// out, and no code but this file's lifts them -- by name, by the old
-    /// name, or by a group or `warnings` allow that holds them.
-    ///
-    /// A guard against the ordinary ways to slip past the rule by accident,
-    /// not a proof that none is left: a macro, an attribute under `cfg_attr`,
-    /// a raw `syscall`, or a dependency's own start are beyond what reading
-    /// lines can see.
-    #[test]
-    fn no_child_process_is_made_any_other_way() {
-        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let rules = std::fs::read_to_string(manifest.join("clippy.toml")).expect("clippy.toml");
-        for path in [
-            "std::process::Command::spawn",
-            "std::process::Command::status",
-            "std::process::Command::output",
-            "tokio::process::Command::spawn",
-            "tokio::process::Command::status",
-            "tokio::process::Command::output",
-            "libc::fork",
-            "libc::vfork",
-            "libc::forkpty",
-            "libc::posix_spawn",
-            "libc::posix_spawnp",
-            "libc::popen",
-            "libc::system",
-            "libc::pipe",
-            "libc::socketpair",
-            "rustix::pipe::pipe",
-            "rustix::pipe::pipe_with",
-            "std::io::pipe",
-            "std::os::unix::net::UnixStream::pair",
-            "std::os::unix::net::UnixDatagram::pair",
-            "mio::unix::pipe::new",
-        ] {
-            let entry = format!("{{ path = \"{path}\", ");
-            assert!(
-                rules
-                    .lines()
-                    .any(|line| line.trim_start().starts_with(&entry)),
-                "clippy.toml no longer disallows {path}"
-            );
-        }
-        let root = manifest.join("src");
-        let mut stack = vec![root.clone(), manifest.join("tests")];
-        let mut found = Vec::new();
-        while let Some(dir) = stack.pop() {
-            for entry in std::fs::read_dir(&dir).expect("a source dir") {
-                let path = entry.expect("an entry").path();
-                if path.is_dir() {
-                    stack.push(path);
-                    continue;
-                }
-                if path.extension().and_then(OsStr::to_str) != Some("rs")
-                    || path.ends_with("process.rs") && path.parent() == Some(root.as_path())
-                {
-                    continue;
-                }
-                let library = path.starts_with(&root);
-                let text = std::fs::read_to_string(&path).expect("a source file");
-                let lines: Vec<&str> = text.lines().collect();
-                let mut in_tests = !library;
-                for (number, line) in lines.iter().enumerate() {
-                    in_tests |= (line.starts_with("#[cfg(test)]")
-                        || line.starts_with("#[cfg(all(test"))
-                        && lines[number + 1..]
-                            .iter()
-                            .find(|next| !next.starts_with("#["))
-                            .is_some_and(|next| next.contains("mod "));
-                    if line.trim_start().starts_with("//") {
-                        continue;
-                    }
-                    if !in_tests
-                        && (line.contains("Command::new(")
-                            || line.contains("tokio::process::Command"))
-                    {
-                        found.push(format!("{}:{}", path.display(), number + 1));
-                    }
-                    if [
-                        "disallowed_method",
-                        "clippy::all",
-                        "clippy::style",
-                        "allow(warnings",
-                        "expect(warnings",
-                    ]
-                    .iter()
-                    .any(|lift| line.contains(lift))
-                    {
-                        found.push(format!(
-                            "{}:{} (lifts the start rule)",
-                            path.display(),
-                            number + 1
-                        ));
-                    }
-                }
-            }
-        }
-        assert!(
-            found.is_empty(),
-            "a child process made or started without crate::process: {found:?}"
         );
     }
 
@@ -1014,12 +922,14 @@ mod tests {
         // `wait` then fails, and the id of a process group whose leader xfx
         // is about to signal can be handed out again first. The disposition
         // is the whole process's, so the case runs in a process of its own.
-        if std::env::var_os(SIGCHLD_PROBE).is_some() {
+        if env_exception!(var_os("XFX_TEST_SIGCHLD_PROBE")).is_some() {
             return sigchld_probe();
         }
         use std::os::unix::process::CommandExt;
 
-        let mut probe = std::process::Command::new(std::env::current_exe().expect("this binary"));
+        // Its environment cleared, as every unit test's child's is
+        // (`command`), and its role passed on its own.
+        let mut probe = command(std::env::current_exe().expect("this binary"));
         probe
             .args([
                 "--exact",

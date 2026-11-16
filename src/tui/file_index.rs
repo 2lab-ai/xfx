@@ -2067,7 +2067,6 @@ impl Drop for Files {
 pub(crate) mod tests {
     use super::*;
 
-    use std::process::Command;
     use std::time::{Duration, Instant};
 
     /// One span, as a list.
@@ -2416,8 +2415,12 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().expect("a temp dir");
         let root = dir.path();
         let run = |args: &[&str]| {
+            // From nothing but PATH and TMPDIR (`crate::test_env`): no
+            // `GIT_DIR`, `GIT_CONFIG_COUNT` or `GIT_CONFIG_PARAMETERS` of the
+            // process's decides what this repository is.
+            let mut command = crate::process::command(&git);
             let status = crate::process::status(
-                Command::new(&git)
+                command
                     .args(args)
                     .current_dir(root)
                     .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -3873,7 +3876,7 @@ pub(crate) mod tests {
         // the ordinary `cargo test` -- searches each whole query once and
         // asserts nothing. `XFX_AT_BENCH_TREE` names a tree on disk to walk
         // in place of the inventory (the AT-RANK receipt's `gen_tree.py`).
-        let entries = match std::env::var_os("XFX_AT_BENCH_TREE") {
+        let entries = match env_exception!(var_os("XFX_AT_BENCH_TREE")) {
             Some(tree) => {
                 discover(Path::new(&tree), None, &AtomicBool::new(false)).expect("a walk")
             }

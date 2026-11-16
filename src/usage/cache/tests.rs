@@ -1266,12 +1266,12 @@ fn writer_id() -> Identity {
 /// [`spawn_role`], plays the part `ROLE` names against the home `ROLE_HOME`.
 #[test]
 fn a_copy_of_this_binary_plays_its_role() {
-    let Some(role) = std::env::var_os(ROLE) else {
+    let Some(role) = env_exception!(var_os("XFX_TEST_USAGE_CACHE_ROLE")) else {
         return;
     };
-    let root = PathBuf::from(std::env::var_os(ROLE_HOME).expect("a home"));
+    let root = PathBuf::from(env_exception!(var_os("XFX_TEST_USAGE_CACHE_HOME")).expect("a home"));
     let home = Home::new(Some(&root)).expect("an absolute home");
-    let arg = std::env::var(ROLE_ARG).unwrap_or_default();
+    let arg = env_exception!(var("XFX_TEST_USAGE_CACHE_ARG")).unwrap_or_default();
     match role.to_str().expect("a role") {
         "writer" => {
             // Writer `i`'s `n`th store is stamped `BASE_MS + n * WRITERS + i`.

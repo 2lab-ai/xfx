@@ -2321,7 +2321,7 @@ fn shell_output_from_before_the_launch_is_still_readable_afterwards() {
     // terminal's own answer rather than the 24x80 a pty with no size falls
     // back to -- and so the assertion below is about geometry.
     pty.resize(24, 80);
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.arg("-c").arg(format!(
         "printf 'PRIOR-OUTPUT-MARKER\\n'; exec {}",
         env!("CARGO_BIN_EXE_xfx")
@@ -2396,7 +2396,7 @@ fn a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.arg("-c").arg(format!(
         "printf 'PRIOR-OUTPUT-MARKER'; exec {}",
         env!("CARGO_BIN_EXE_xfx")
@@ -2456,7 +2456,7 @@ fn with_startup_scrollback_off_the_launch_starts_under_the_shells_output() {
     std::fs::write(&profile, "{\"startup_scrollback\":false}").expect("the profile");
     let pty = Pty::open();
     pty.resize(24, 80);
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.arg("-c").arg(format!(
         "printf 'PRIOR-OUTPUT-MARKER\\n'; exec {}",
         env!("CARGO_BIN_EXE_xfx")
@@ -3152,7 +3152,7 @@ fn the_hint_row_says_what_mode_and_which_model_a_turn_will_use() {
 fn a_session_with_no_credential_is_told_so_before_it_spends_a_prompt() {
     // The segment that leads the row, and the only one that is about the
     // machine rather than about the turn: this sandbox exports no credential of
-    // any kind (`Sandbox::CONTROLLED_VARS` are removed), so every turn it could
+    // any kind (`support::sandbox::clear_env` keeps none), so every turn it could
     // run would refuse -- which is worth knowing before typing a prompt rather
     // than after sending one.
     let sandbox = Sandbox::new();
@@ -8337,14 +8337,8 @@ mod faults {
         assert_eq!(before, modes(&pty));
 
         // A torn manifest is worse than a slow exit: the session must still read.
-        let listed = xfx::process::output(
-            Command::new(env!("CARGO_BIN_EXE_xfx"))
-                .arg("session")
-                .arg("last")
-                .current_dir(&sandbox.workspace)
-                .env("HOME", &sandbox.home),
-        )
-        .expect("read the session back");
+        let listed = xfx::process::output(sandbox.command().arg("session").arg("last"))
+            .expect("read the session back");
         assert!(
             listed.status.success(),
             "the session log was left unreadable: {listed:?}"
