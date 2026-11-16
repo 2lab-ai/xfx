@@ -51,7 +51,8 @@ jobs:
       #
       # `script_tests` marks one row per OS for the tests of the gate scripts
       # themselves (test-gate-env.sh, which runs test-check-no-secrets.sh,
-      # test-preview-contract.sh and test-check-no-local-paths.sh). They exercise the OS's bash, grep, git
+      # test-preview-contract.sh, test-check-no-local-paths.sh and
+      # check-env-reads.py --self-test). They exercise the OS's bash, grep, git
       # and getconf -- bash 3.2 and BSD grep on macOS, GNU grep on Linux --
       # and build nothing for the target, so a second row of the same OS
       # repeats them on the same userland. On the x86_64 macOS row they would

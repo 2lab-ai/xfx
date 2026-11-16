@@ -24562,10 +24562,10 @@ mod tests {
     /// Not here: the meta-prefixed spellings, `ESC` before any of the reports
     /// above (`ESC ESC [106;5u`). fx reads them as the byte too -- `ESC ESC`
     /// sets the prefix (`:552-555`), the report carries it (`:686-691`), and
-    /// the Ctrl+letter rule ignores it (`:255-258`) -- but xfx's decoder has
-    /// no meta prefix and reads `ESC` and then the report (`kitty_key`'s doc,
-    /// `super::input`). `docs/parity.md`'s `ask_user_question` row says what
-    /// that does at a question; owner META-PREFIX-DECODE (queued).
+    /// the Ctrl+letter rule ignores it (`:255-258`) -- and so does xfx's
+    /// decoder since META-PREFIX-DECODE (`kitty_key`, `super::input`):
+    /// [`every_meta_prefixed_ctrl_j_report_answers_a_model_question_as_the_byte`]
+    /// runs every report here behind the prefix.
     fn ctrl_j_matrix() -> Vec<(String, Vec<u8>)> {
         let mut out = vec![("c-j".to_string(), vec![0x0a])];
         let others = [0x01u16, 0x02, 0x08, 0x10, 0x20];
@@ -24814,6 +24814,61 @@ mod tests {
             }
         }
         assert_eq!(spellings.len(), 1025);
+        assert!(
+            wrong.is_empty(),
+            "{} of {} failed, the first: {:#?}",
+            wrong.len(),
+            spellings.len() * 2,
+            &wrong[..wrong.len().min(8)]
+        );
+    }
+
+    #[test]
+    fn every_meta_prefixed_ctrl_j_report_answers_a_model_question_as_the_byte() {
+        // Train 16's join of QUESTION-CTRL-J with META-PREFIX-DECODE: each
+        // report of [`ctrl_j_matrix`] with a second `ESC` before it -- 1024,
+        // the byte itself has no report to carry the prefix -- which fx reads
+        // as the byte too: `ESC ESC` sets the prefix (`escape_parser.zig:552-555
+        // @481104fd`), the report carries it (`:686-691`) and the Ctrl+letter
+        // rule ignores it (`:255-258`). One read each, at a fresh one-question
+        // batch: at a choice it takes the marked choice, in the field it
+        // sends the draft, as the unprefixed matrix does.
+        let mut fixture = shell(24, 120);
+        let started = turn_running(&mut fixture, b"ask me\r");
+        let spellings: Vec<(String, Vec<u8>)> = ctrl_j_matrix()
+            .into_iter()
+            .filter(|(_, key)| key.first() == Some(&0x1b))
+            .map(|(name, key)| (format!("esc {name}"), [&[0x1b][..], &key].concat()))
+            .collect();
+        let mut wrong = Vec::new();
+        let mut id = 0;
+        for (name, key) in &spellings {
+            for field in [false, true] {
+                id += 1;
+                fixture.apply(UiEvent::Question(one_model_question(id)));
+                fixture.settle_band(started);
+                if field {
+                    fixture.route_bytes(b"3");
+                    fixture.route_bytes(b"a");
+                }
+                fixture.route_bytes(key);
+                let want = if field { "a" } else { "Thorough" };
+                let sent = fixture.controlled();
+                if sent
+                    != Some(TurnControl::QuestionAnswer {
+                        id: QuestionId(id),
+                        answers: vec![want.to_string()],
+                    })
+                {
+                    wrong.push(format!("{name}, field {field}: {sent:?}"));
+                    if fixture.ask.is_some() {
+                        fixture.route_bytes(b"\r");
+                        let _ = fixture.controlled();
+                    }
+                }
+            }
+        }
+        assert_eq!(spellings.len(), 1024);
         assert!(
             wrong.is_empty(),
             "{} of {} failed, the first: {:#?}",
@@ -26313,6 +26368,40 @@ mod tests {
     }
 
     #[test]
+    fn a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte() {
+        // Train 16's join of APPROVAL-CTRL-J with META-PREFIX-DECODE: each
+        // report of [`CTRL_J`] with a second `ESC` before it is the byte to fx
+        // (`ESC ESC` sets the prefix, `escape_parser.zig:552-555@481104fd`;
+        // the report carries it, `:686-691`; the Ctrl+letter rule ignores
+        // it, `:255-258`), so it answers as C-j does: the marked choice at a
+        // choice, and an open draft sent, on both planes.
+        let mut wrong = Vec::new();
+        for review in [false, true] {
+            let plane = if review {
+                "the review plane"
+            } else {
+                "the band"
+            };
+            for (name, key) in CTRL_J.iter().filter(|(_, key)| key.first() == Some(&0x1b)) {
+                let key = [&[0x1b][..], key].concat();
+                let mut shell = asking_on(review);
+                shell.route_bytes(&key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Once, None) {
+                    wrong.push(format!("{plane}, choice 1, esc {name}: {answered:?}"));
+                }
+                let mut shell = drafting_ab_after_a_kill(review);
+                shell.route_bytes(&key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Once, Some("ab ")) {
+                    wrong.push(format!("{plane}, a draft, esc {name}: {answered:?}"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
     fn ctrl_j_read_with_a_change_waits_for_the_frame_as_enter_does() {
         // C-j is an affirmative where Enter is, so it meets the same check:
         // fx takes none while a modal frame is pending
@@ -27623,6 +27712,58 @@ mod tests {
             asking(&mut shell);
             shell.route_bytes(b"\tab cd ef");
             shell.route_bytes(b"\x1b[D\x1b[D\x1b[D\x1b[D");
+            shell.route_bytes(key);
+            shell.route_bytes(b"z");
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some(feedback.to_string()),
+                }),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs() {
+        // Train 16's join of APPROVAL-PASTE-SPACES with META-PREFIX-DECODE,
+        // which the decoder line carries apart. fx reads `ESC ESC` and a key
+        // as that key behind the meta prefix (`escape_parser.zig:552-555
+        // @481104fd`), which its arrow table reads beside Alt's bit and no
+        // Home, End or tilde stage reads (`:83-89`, `:561-568`, `:620-644`,
+        // `:721-737`): a prefixed Home or End is the plain key, a prefixed
+        // Super-Left Super's `line_start`, a prefixed Left or Right the word
+        // move, a prefixed Up or Down a paragraph's. An amendment takes Home,
+        // End and `line_start` as its edges and the word moves as its own,
+        // and a paragraph as nothing (`approvalDraftActionFromShortcut`,
+        // `src/ui/input/runtime.zig:75-96`; `routeApprovalEscapeAction`,
+        // `src/core/app/input_approval_runtime.zig:71-128`). None of them is
+        // the Escape key, which would close the draft. From `ab cd |ef`, one
+        // prefixed key in one read, then a letter.
+        for (name, key, feedback) in [
+            ("home", &b"\x1b\x1b[H"[..], "zab cd ef"),
+            ("end", b"\x1b\x1b[F", "ab cd efz"),
+            ("ss3 home", b"\x1b\x1bOH", "zab cd ef"),
+            ("ss3 end", b"\x1b\x1bOF", "ab cd efz"),
+            ("tilde home", b"\x1b\x1b[1~", "zab cd ef"),
+            ("tilde end", b"\x1b\x1b[4~", "ab cd efz"),
+            ("ctrl-home", b"\x1b\x1b[1;5H", "zab cd ef"),
+            ("ctrl-end", b"\x1b\x1b[1;5F", "ab cd efz"),
+            ("super-left", b"\x1b\x1b[1;9D", "zab cd ef"),
+            ("left", b"\x1b\x1b[D", "ab zcd ef"),
+            ("ss3 left", b"\x1b\x1bOD", "ab zcd ef"),
+            ("right", b"\x1b\x1b[C", "ab cd efz"),
+            ("up", b"\x1b\x1b[A", "ab cd zef"),
+            ("down", b"\x1b\x1b[B", "ab cd zef"),
+        ] {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell.route_bytes(b"\tab cd ef");
+            shell.route_bytes(b"\x1b[D\x1b[D");
             shell.route_bytes(key);
             shell.route_bytes(b"z");
             delivered(&mut shell);
