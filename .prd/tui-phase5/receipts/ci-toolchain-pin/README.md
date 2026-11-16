@@ -51,7 +51,7 @@ Branch `fix/p5-ci-toolchain-pin` on main `afeaea7c`. The change is commit
 | file | why it stays | runs clippy `-D warnings`? |
 |---|---|---|
 | `preview.yml` | `scripts/check-preview-contract.sh:604` requires `rustup toolchain install stable` in its build job. | yes, the build job's "Lints" (`:299-300`) |
-| `release.yml` | out of scope here | yes, "Lints" (`:69-70`) |
+| `release.yml` | It moves with TOOLCHAIN-1100. Pinning it alone would ship a tag built on a toolchain that preview.yml no longer runs. | yes, "Lints" (`:69-70`) |
 | `sweep.yml`, `sweep-full.yml` | they build for the parity sweep with no clippy | no |
 
 **The preview's gates run clippy.** `CONTRACT_GATES`
@@ -69,9 +69,13 @@ tagged or pushed to the tap. A `v*` tag would fail the same way in
 release.yml.
 
 The next bump will be the first preview on 1.100. #98's own bump, at
-`afeaea7c`, published on 2026-11-11: preview run 43019311819, success. That
-was the day before 1.100.0's rustup release date of 2026-11-12, which the
-attempt-2 log prints.
+`afeaea7c`, published on 2026-11-11 in preview run 43019311819.
+- All four build rows printed `rustc 1.99.1 (58cf8f9c3 2026-10-13)`.
+- `publish` succeeded, its steps "Publish the prerelease" and "Put this
+  preview in the Homebrew tap" among them.
+- That was the day before 1.100.0's rustup release date of 2026-11-12, which
+  the attempt-2 log prints.
+- Evidence: `preview-and-bases.txt`.
 
 ## Follow-up: TOOLCHAIN-1100
 
@@ -110,6 +114,17 @@ Not run:
   file named `ci.yml` into a scratch tree as fixture data and never read this
   one.
 
+**The same grep on the merge-tree sides.** It was widened to `rustup`,
+`+stable`, `RUSTUP_TOOLCHAIN` and `rustup run`, and run read-only on the head
+and on each of the four sides (`readers-refs.txt`).
+- No ref has a script or test that picks its own toolchain.
+- The only hit asserting `stable` on any ref is `check-preview-contract.sh:604`,
+  which reads preview.yml.
+- `d8e2eeeb` adds test-gate-env.sh's `ci-bash32`. It reads ci.yml's matrix
+  key `bash32` and the steps under it, not the rustup lines.
+- The other three sides have the head's hits; only fixture line numbers
+  differ.
+
 ## Cargo at `92a3d906`, local 1.99.1
 
 Each ran under `suite-lock.sh` (`cargo.txt`):
@@ -129,7 +144,9 @@ No Rust changed, so there is no `cargo test` here.
 - `ef595df2`, CI-PTY-WAIT;
 - train 16 at `2b78aab6`, which has the ci.yml comment commit `3d1376b2`.
 
-No tree was checked out.
+No tree was checked out. `merge-trees.txt` is of `92a3d906`. At the receipt
+commits, which add only files under this folder, the same four merges are
+clean, with both rustup lines at 1.99.1 (re-run before handback).
 
 | other side | clean | the merged ci.yml's rustup lines | merged ci.yml against its own |
 |---|---|---|---|
@@ -143,7 +160,8 @@ No tree was checked out.
   covers what EXIT-TRAP's receipt and `ci-bash32` cite, on the tree they cite
   it on.
 - **Each merge also carries `.github/preview-epoch`.** None of the four
-  descends from `afeaea7c`: each sits on main's parent `e2fc7e94`. So the
+  descends from `afeaea7c`. Each one's merge-base with it is main's parent
+  `e2fc7e94` (`preview-and-bases.txt`). So the
   merge brings in #98's epoch line, and the two files the merge changes
   against each side are `.github/preview-epoch` and `.github/workflows/ci.yml`.
 
