@@ -26374,7 +26374,9 @@ mod tests {
         // (`ESC ESC` sets the prefix, `escape_parser.zig:552-555@481104fd`;
         // the report carries it, `:686-691`; the Ctrl+letter rule ignores
         // it, `:255-258`), so it answers as C-j does: the marked choice at a
-        // choice, and an open draft sent, on both planes.
+        // choice -- at choice 2 that is the session's `Always`
+        // (`approval_decision.zig:141`) -- and an open draft sent, on both
+        // planes.
         let mut wrong = Vec::new();
         for review in [false, true] {
             let plane = if review {
@@ -26389,6 +26391,14 @@ mod tests {
                 let answered = shell.controlled();
                 if answered != answer_of(ApprovalAnswer::Once, None) {
                     wrong.push(format!("{plane}, choice 1, esc {name}: {answered:?}"));
+                }
+                let mut shell = asking_on(review);
+                shell.route_bytes(b"\x1b[B");
+                delivered(&mut shell);
+                shell.route_bytes(&key);
+                let answered = shell.controlled();
+                if answered != answer_of(ApprovalAnswer::Always, None) {
+                    wrong.push(format!("{plane}, choice 2, esc {name}: {answered:?}"));
                 }
                 let mut shell = drafting_ab_after_a_kill(review);
                 shell.route_bytes(&key);
@@ -27778,6 +27788,91 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs() {
+        // The same join, with `ESC ESC` and the key in two reads across the
+        // pair's stage. fx resolves the pair 30 ms after its second ESC as
+        // one Escape, and the pair is one lone ESC from then on
+        // (`terminal_action_decoder.zig:174-183`, `main.zig:187@481104fd`;
+        // [`Decoder::flush`]). With the turn running that Escape is
+        // `resolveEscape`'s cancel at an approval, amending or not
+        // (`cancel_pending` is `hasActiveOperation`,
+        // `app_input_runtime.zig:575`; `:2689`, `:2712-2716`), and
+        // `cancelApprovalOperation` cancels the turn and clears the question
+        // (`input_approval_runtime.zig:401-430`): no sentence is sent, the
+        // draft goes with the question, and the rest of the key reads behind
+        // the lone ESC -- `[ D` is Left -- at the composer, which owns the
+        // prompt again. One millisecond inside the stage the same two reads
+        // are the prefixed Left, the draft's word move, as in one read
+        // (`a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs`).
+        // The clock is the case's: each read fed at a given instant, as
+        // [`Shell::route_read`] feeds one at its own, and settled first, as
+        // the loop settles once a turn.
+        let ms = Duration::from_millis;
+        let read_at = |shell: &mut Fixture, bytes: &[u8], now: Instant| {
+            shell.settle_input(now);
+            let mut events = Vec::new();
+            for byte in bytes {
+                shell.decoder.feed(*byte, now, &mut events);
+            }
+            shell.consume(events, now);
+            shell.end_delivery_at(now);
+        };
+        // From `ab cd |ef`, as the one-read case.
+        let drafting = || {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell.route_bytes(b"\tab cd ef");
+            shell.route_bytes(b"\x1b[D\x1b[D");
+            shell
+        };
+
+        // 29 ms: still the prefix, and the draft takes the prefixed Left.
+        let mut shell = drafting();
+        let start = Instant::now();
+        read_at(&mut shell, b"\x1b\x1b", start);
+        read_at(&mut shell, b"[D", start + ms(29));
+        read_at(&mut shell, b"z", start + ms(30));
+        delivered(&mut shell);
+        read_at(&mut shell, b"\r", start + ms(31));
+        assert_eq!(
+            shell.controlled(),
+            answer_of(ApprovalAnswer::Once, Some("ab zcd ef")),
+            "inside the pair's stage"
+        );
+
+        // 30 ms: the pair's Escape, which cancels the turn; then `[ D` at
+        // 40 ms, inside the lone ESC's quiet, and `z`.
+        let mut shell = drafting();
+        let accepted = shell.work.accepted();
+        let start = Instant::now();
+        read_at(&mut shell, b"\x1b\x1b", start);
+        shell.settle_input(start + ms(30));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { through: accepted }),
+            "the pair's Escape left the turn running"
+        );
+        assert!(
+            !band(&shell).contains("Apply once"),
+            "the question stayed up: {}",
+            band(&shell)
+        );
+        read_at(&mut shell, b"[D", start + ms(40));
+        read_at(&mut shell, b"z", start + ms(41));
+        shell.settle_input(start + ms(1000));
+        assert_eq!(
+            shell.editor.text(),
+            "z",
+            "the composer did not take the rest of the key"
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "a second message: the draft was sent as well as the cancel"
+        );
     }
 
     #[test]
