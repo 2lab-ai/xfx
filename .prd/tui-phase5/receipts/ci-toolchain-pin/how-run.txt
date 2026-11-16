@@ -1,0 +1,54 @@
+# How the local runs in this folder were made (round 1, at 92a3d906)
+
+<scratch> is the harness scratch root; <wt> is this branch's worktree. Every
+command ran from <wt>.
+
+## The readers (readers-head.txt and one <name>.txt per reader)
+
+One shell, a plain for loop, so one reader at a time:
+
+    export TMPDIR=<scratch>
+    echo "head $(git rev-parse HEAD)" > readers-head.txt
+    for s in scripts/check-preview-contract.sh scripts/test-preview-contract.sh \
+             scripts/test-check-no-local-paths.sh scripts/test-gate-env.sh \
+             scripts/fxcap/test-sweep.sh; do
+      n=$(basename $s .sh); start=$(date +%s)
+      <scratch>/bin/suite-lock.sh $s > $n.txt 2>&1; rc=$?
+      echo "$s exit=$rc seconds=$(( $(date +%s)-start ))" >> readers-head.txt
+    done
+
+`suite-lock.sh <cmd>` holds one of the machine's heavy-job slots (3 by
+default) while <cmd> runs, then releases the slot and returns <cmd>'s exit
+status.
+
+## Cargo (cargo.txt)
+
+    TMPDIR=<scratch> <scratch>/cargo-gates.sh > cargo.txt 2>&1
+
+cargo-gates.sh prints the head and the rustc, cargo and clippy versions.
+Then, for each of these three commands, it runs `<scratch>/bin/suite-lock.sh
+<cmd>`, prints the output without the Compiling/Checking progress lines, and
+prints `exit=<status> seconds=<n>`:
+
+    cargo fmt --check
+    cargo clippy --locked --all-targets -- -D warnings
+    cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+
+The first attempt passed each command to suite-lock.sh as one quoted word.
+It exited 127 ("command not found") before cargo ran. cargo.txt is the re-run
+above, which overwrote it.
+
+## The rest
+
+- actionlint.txt: `actionlint .github/workflows/ci.yml`, then `actionlint`
+  (all workflows), actionlint 1.7.12 from PATH.
+- ci-run-43019503559.txt and preview-and-bases.txt: `gh api` reads of the
+  jobs and per-job logs endpoints, with ANSI colour codes stripped. Log lines
+  carrying a runner home path were dropped.
+- merge-trees.txt: `<scratch>/merge-trees.sh <repo> 92a3d906 <train/p5-1116>`.
+  For each side, it runs `git merge-tree --write-tree` and reads the result
+  tree with `git show` and `git diff`. Nothing is checked out.
+- readers-refs.txt, readers-grep.txt, workflows-at-pin.txt, era-449.txt:
+  `git grep`, `git show` and `git diff` on the refs each file names.
+- numstat.txt and merge-trees-receipt.txt: `git diff --numstat` and
+  `git show --stat`; the merge-tree script above, at the round-2 receipt commit.

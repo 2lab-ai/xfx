@@ -1,0 +1,93 @@
+# Every workflow's toolchain step and what it runs, at 92a3d906 (read with git show)
+
+## ci.yml: the pinned step, and the Lints step the release row skips
+.github/workflows/ci.yml:111:       - name: Install the pinned toolchain
+.github/workflows/ci.yml:112:         run: |
+.github/workflows/ci.yml:113:           rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
+.github/workflows/ci.yml:114:           rustup default 1.99.1
+.github/workflows/ci.yml:115:           rustc --version
+.github/workflows/ci.yml:116:           cargo --version
+.github/workflows/ci.yml:130:       - name: Lints
+.github/workflows/ci.yml:131:         if: matrix.part != 'release'
+.github/workflows/ci.yml:132:         run: cargo clippy --locked --all-targets -- -D warnings
+
+## preview.yml: trigger, the build job's toolchain step and Lints, publish's needs and if
+.github/workflows/preview.yml:1: "on":
+.github/workflows/preview.yml:2:   push:
+.github/workflows/preview.yml:3:     branches: [main]
+.github/workflows/preview.yml:4:     paths: [.github/preview-epoch]
+.github/workflows/preview.yml:277:       - name: Install the pinned toolchain
+.github/workflows/preview.yml:278:         run: |
+.github/workflows/preview.yml:279:           rustup toolchain install stable --profile minimal --component rustfmt,clippy
+.github/workflows/preview.yml:280:           rustup default stable
+.github/workflows/preview.yml:281:           rustc --version
+.github/workflows/preview.yml:282:           cargo --version
+.github/workflows/preview.yml:299:       - name: Lints
+.github/workflows/preview.yml:300:         run: cargo clippy --locked --all-targets -- -D warnings
+.github/workflows/preview.yml:401:     name: publish
+.github/workflows/preview.yml:402:     needs: [preflight, build]
+.github/workflows/preview.yml:403:     if: needs.preflight.outputs.publish == 'true'
+
+## check-preview-contract.sh: CONTRACT_GATES and the stable requirement
+scripts/check-preview-contract.sh:114: export CONTRACT_GATES='cargo fmt --check
+scripts/check-preview-contract.sh:115: cargo clippy --locked --all-targets -- -D warnings
+scripts/check-preview-contract.sh:116: cargo test --locked --all-targets
+scripts/check-preview-contract.sh:117: ./scripts/check-no-stubs.sh
+scripts/check-preview-contract.sh:118: ./scripts/check-no-secrets.sh
+scripts/check-preview-contract.sh:119: ./scripts/check-xfx-identity.sh'
+scripts/check-preview-contract.sh:604:   check.(text.include?("rustup toolchain install stable"),
+scripts/check-preview-contract.sh:605:          "a build job does not install the stable toolchain it builds with")
+
+## release.yml: trigger, toolchain step, Lints
+.github/workflows/release.yml:1: "on":
+.github/workflows/release.yml:2:   push:
+.github/workflows/release.yml:3:     tags: ["v*"]
+.github/workflows/release.yml:47:       - name: Install the pinned toolchain
+.github/workflows/release.yml:48:         run: |
+.github/workflows/release.yml:49:           rustup toolchain install stable --profile minimal --component rustfmt,clippy
+.github/workflows/release.yml:50:           rustup default stable
+.github/workflows/release.yml:51:           rustc --version
+.github/workflows/release.yml:69:       - name: Lints
+.github/workflows/release.yml:70:         run: cargo clippy --locked --all-targets -- -D warnings
+
+## sweep.yml: trigger (every pull_request), toolchain step, its cargo commands
+.github/workflows/sweep.yml:1: "on":
+.github/workflows/sweep.yml:2:   pull_request:
+.github/workflows/sweep.yml:3:   push:
+.github/workflows/sweep.yml:4:     branches: [main]
+.github/workflows/sweep.yml:131:       - name: Install the toolchain
+.github/workflows/sweep.yml:132:         run: |
+.github/workflows/sweep.yml:133:           rustup toolchain install stable --profile minimal
+.github/workflows/sweep.yml:134:           rustup default stable
+.github/workflows/sweep.yml:135:           rustc --version
+.github/workflows/sweep.yml:140:      # head's do not (cargo and rustup read them from the directory they run
+.github/workflows/sweep.yml:152:          (cd "$RUNNER_TEMP/base" && cargo build --locked --target-dir "$GITHUB_WORKSPACE/target")
+.github/workflows/sweep.yml:154:          cargo build --locked
+
+## sweep-full.yml: trigger, toolchain step, its cargo commands
+.github/workflows/sweep-full.yml:1: "on":
+.github/workflows/sweep-full.yml:2:   push:
+.github/workflows/sweep-full.yml:3:     branches: [main]
+.github/workflows/sweep-full.yml:4:     paths: [.github/preview-epoch]
+.github/workflows/sweep-full.yml:5:   workflow_dispatch:
+.github/workflows/sweep-full.yml:68:       - name: Install the toolchain
+.github/workflows/sweep-full.yml:69:         run: |
+.github/workflows/sweep-full.yml:70:           rustup toolchain install stable --profile minimal
+.github/workflows/sweep-full.yml:71:           rustup default stable
+.github/workflows/sweep-full.yml:72:           rustc --version
+.github/workflows/sweep-full.yml:77:          cargo build --locked
+
+## clippy or fmt in the sweep workflows (count per file)
+sweep.yml: 0
+sweep-full.yml: 0
+
+## steps named "Install the pinned toolchain", and what each installs
+.github/workflows/ci.yml:111:      - name: Install the pinned toolchain
+.github/workflows/ci.yml:112-        run: |
+.github/workflows/ci.yml:113-          rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
+.github/workflows/preview.yml:277:      - name: Install the pinned toolchain
+.github/workflows/preview.yml:278-        run: |
+.github/workflows/preview.yml:279-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+.github/workflows/release.yml:47:      - name: Install the pinned toolchain
+.github/workflows/release.yml:48-        run: |
+.github/workflows/release.yml:49-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
